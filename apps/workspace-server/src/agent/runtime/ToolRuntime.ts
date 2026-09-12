@@ -58,9 +58,9 @@ import {
   type QuickJSWASMModule,
 } from "quickjs-emscripten";
 import * as errore from "errore";
-import type { ConnectionRequest } from "@get-halo/shared/connectionRequests";
+import type { ConnectionRequest } from "@get-halo/shared/ConnectionRequest";
 import type { ToolIdentity } from "@get-halo/shared/sessionState";
-import { createExecutorDatabase } from "./ExecutorDatabase.js";
+import { createExecutorDatabase } from "./createExecutorDatabase.js";
 import type { DatabaseClient } from "../../storage/DatabaseClient.js";
 import type {
   HaloTool,
@@ -69,7 +69,7 @@ import type {
 } from "../tools/HaloToolPlugin.js";
 import type { AgentAuthority } from "./AgentAuthority.js";
 import type { CredentialVault } from "./CredentialVault.js";
-import { createExecutorCredentialProvider } from "./ExecutorCredentialProvider.js";
+import { createExecutorCredentialProvider } from "./createExecutorCredentialProvider.js";
 
 export class ToolRuntimeError extends errore.createTaggedError({
   name: "ToolRuntimeError",

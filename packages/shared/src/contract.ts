@@ -6,7 +6,7 @@ import {
   type,
   type RouterContractClient,
 } from "@orpc/contract";
-import type { ConnectionRequest } from "./connectionRequests.js";
+import type { ConnectionRequest } from "./ConnectionRequest.js";
 import type {
   SessionWatchItem,
   SessionSnapshot,

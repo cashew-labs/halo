@@ -5,7 +5,7 @@ import { contract } from "@get-halo/shared/contract";
 import {
   connectionRequestLabel,
   type ConnectionRequest,
-} from "@get-halo/shared/connectionRequests";
+} from "@get-halo/shared/ConnectionRequest";
 import {
   PromptFailedError,
   type HaloAgentSession,

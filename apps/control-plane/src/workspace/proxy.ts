@@ -6,7 +6,7 @@ import http, {
 } from "node:http";
 import { GoogleAuth, type IdTokenClient } from "google-auth-library";
 import * as errore from "errore";
-import type { AuthService } from "../AuthService.js";
+import type { AuthService } from "../auth/AuthService.js";
 import type { WorkspaceService } from "./WorkspaceService.js";
 
 const workspacePathPrefix = "/workspace";

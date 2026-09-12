@@ -5,7 +5,7 @@ import {
   haloProtocolVersion,
   type HaloClient,
 } from "@get-halo/shared/contract";
-import type { HaloRpcConnection } from "../../shared/rpc.js";
+import type { HaloRpcConnection } from "../../shared/HaloRpcConnection.js";
 
 export class HaloRpcConnectionError extends errore.createTaggedError({
   name: "HaloRpcConnectionError",

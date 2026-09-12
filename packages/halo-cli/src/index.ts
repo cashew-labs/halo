@@ -16,4 +16,4 @@ export {
   readHaloRpcFile,
   rpcFilePath,
   type HaloRpcFile,
-} from "./rpcFile.js";
+} from "./HaloRpcFile.js";

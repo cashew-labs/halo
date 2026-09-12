@@ -14,10 +14,10 @@ import {
   desktopRequestSchema,
   type DesktopRequest,
   type OpenExternalRequest,
-} from "../shared/desktop.js";
-import { getAppInfo, installAppUpdate } from "./app/AppUpdate.js";
-import type { DesktopAuthentication } from "./DesktopAuthentication.js";
-import type { HaloRpcConnection } from "../shared/rpc.js";
+} from "../../shared/desktop.js";
+import { getAppInfo, installAppUpdate } from "../app/appUpdate.js";
+import type { DesktopAuthentication } from "../DesktopAuthentication.js";
+import type { HaloRpcConnection } from "../../shared/HaloRpcConnection.js";
 
 class DesktopRequestError extends errore.createTaggedError({
   name: "DesktopRequestError",

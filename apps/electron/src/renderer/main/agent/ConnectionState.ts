@@ -1,4 +1,4 @@
-import type { ConnectionRequest } from "@get-halo/shared/connectionRequests";
+import type { ConnectionRequest } from "@get-halo/shared/ConnectionRequest";
 import type { HaloConnectionEvent } from "@get-halo/shared/sessionState";
 
 export type ConnectionState =

@@ -5,7 +5,7 @@ import { getMigrations } from "better-auth/db/migration";
 import { toNodeHandler } from "better-auth/node";
 import { bearer, oneTimeToken } from "better-auth/plugins";
 import * as errore from "errore";
-import type { DatabaseClient, DatabaseService } from "./DatabaseService.js";
+import type { DatabaseClient, DatabaseService } from "../DatabaseService.js";
 
 const loopbackHost = "127.0.0.1";
 const desktopAuthStatePattern = /^[A-Za-z0-9_-]{32,128}$/u;

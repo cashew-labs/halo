@@ -24,7 +24,7 @@ import type { ToolRuntime } from "./runtime/ToolRuntime.js";
 import { createAuthorizedCodingTools } from "./tools/codingTools.js";
 import { createExecTool } from "./tools/execTool.js";
 import { WorkspaceResourceLoader } from "./WorkspaceResourceLoader.js";
-import { adaptPiEvent, sessionSnapshot } from "./SessionEventAdapter.js";
+import { adaptPiEvent, sessionSnapshot } from "./sessionEvents.js";
 
 export class EmptyPromptError extends errore.createTaggedError({
   name: "EmptyPromptError",
