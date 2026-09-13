@@ -63,7 +63,6 @@
     "@repo/typescript-config": "workspace:*",
     "@types/node": "^22.20.1",
     "openai": "6.26.0",
-    "typescript": "7.0.2",
-    "vitest": "^4.1.11"
+    "typescript": "7.0.2"
   }
 }

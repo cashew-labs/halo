@@ -31,7 +31,6 @@
     "@earendil-works/pi-coding-agent": "0.85.1",
     "@repo/typescript-config": "workspace:*",
     "@types/node": "^22.20.1",
-    "typescript": "7.0.2",
-    "vitest": "^4.1.11"
+    "typescript": "7.0.2"
   }
 }

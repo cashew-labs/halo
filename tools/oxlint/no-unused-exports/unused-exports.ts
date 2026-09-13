@@ -1,6 +1,8 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, extname, join, relative, resolve, sep } from "node:path";
-import ts from "typescript6";
+import { parseSync } from "oxc-parser";
+
+import type { Class, EcmaScriptModule, Program } from "oxc-parser";
 
 const sourceExtensions = new Set([".ts", ".tsx"]);
 const skipDirectoryNames = new Set([
@@ -76,8 +78,7 @@ function buildGraph(root: string): ProjectGraph {
 
 	for (const file of files) {
 		const source = readFileSync(file, "utf8");
-		const kind = extname(file) === ".tsx" ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
-		const ast = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, kind);
+		const parsedFile = parseSync(file, source);
 		const record: FileExports = {
 			alwaysExported: new Set(),
 			local: new Set(),
@@ -85,7 +86,7 @@ function buildGraph(root: string): ProjectGraph {
 			namespaceReexports: [],
 			starReexports: [],
 		};
-		collectModule(ast, file, fileSet, packages, record, importers);
+		collectModule(parsedFile.module, parsedFile.program, file, fileSet, packages, record, importers);
 		parsed.set(file, record);
 	}
 
@@ -167,7 +168,8 @@ function buildGraph(root: string): ProjectGraph {
 }
 
 function collectModule(
-	ast: ts.SourceFile,
+	module: EcmaScriptModule,
+	program: Program,
 	file: string,
 	fileSet: ReadonlySet<string>,
 	packages: PackageMap,
@@ -182,155 +184,97 @@ function collectModule(
 		importers.set(resolved, list);
 	};
 
-	for (const statement of ast.statements) {
-		if (ts.isImportDeclaration(statement) && ts.isStringLiteral(statement.moduleSpecifier)) {
-			const specifier = statement.moduleSpecifier.text;
-			const clause = statement.importClause;
-			if (clause === undefined) continue;
-			const names: string[] = [];
-			if (clause.name !== undefined) names.push("default");
-			if (clause.namedBindings !== undefined) {
-				if (ts.isNamespaceImport(clause.namedBindings)) {
-					addImport(specifier, [], true);
-					continue;
-				}
-				for (const element of clause.namedBindings.elements) {
-					names.push(importedExportName(element));
-				}
+	for (const declaration of module.staticImports) {
+		const importsNamespace = declaration.entries.some(
+			(entry) => entry.importName.kind === "NamespaceObject",
+		);
+		const names = declaration.entries.flatMap((entry) => {
+			if (entry.importName.kind === "Default") return ["default"];
+			if (entry.importName.kind === "Name" && entry.importName.name !== null) {
+				return [entry.importName.name];
 			}
-			if (names.length > 0) addImport(specifier, names, false);
+			return [];
+		});
+		if (importsNamespace) {
+			addImport(declaration.moduleRequest.value, [], true);
 			continue;
 		}
+		if (names.length > 0) addImport(declaration.moduleRequest.value, names, false);
+	}
 
-		if (ts.isExportAssignment(statement) && statement.isExportEquals !== true) {
-			record.local.add("default");
-			continue;
-		}
+	for (const declaration of module.staticExports) {
+		for (const entry of declaration.entries) {
+			const exported =
+				entry.exportName.kind === "Default"
+					? "default"
+					: entry.exportName.kind === "Name"
+						? entry.exportName.name
+						: undefined;
+			const specifier = entry.moduleRequest?.value;
+			if (specifier === undefined) {
+				if (exported !== null && exported !== undefined) record.local.add(exported);
+				continue;
+			}
 
-		if (ts.isExportDeclaration(statement)) {
-			const specifier =
-				statement.moduleSpecifier !== undefined &&
-				ts.isStringLiteral(statement.moduleSpecifier)
-					? statement.moduleSpecifier.text
-					: undefined;
-			if (statement.exportClause === undefined && specifier !== undefined) {
-				const resolved = resolveSpecifier(file, specifier, fileSet, packages);
+			const resolved = resolveSpecifier(file, specifier, fileSet, packages);
+			if (entry.importName.kind === "AllButDefault") {
 				if (resolved !== undefined) record.starReexports.push(resolved);
 				continue;
 			}
-			if (statement.exportClause !== undefined && ts.isNamespaceExport(statement.exportClause)) {
-				record.local.add(statement.exportClause.name.text);
-				if (specifier !== undefined) {
-					const resolved = resolveSpecifier(file, specifier, fileSet, packages);
-					if (resolved !== undefined) {
-						record.namespaceReexports.push({
-							exported: statement.exportClause.name.text,
-							from: resolved,
-						});
-					}
+			if (entry.importName.kind === "All") {
+				if (exported === null || exported === undefined) continue;
+				record.local.add(exported);
+				if (resolved !== undefined) {
+					record.namespaceReexports.push({ exported, from: resolved });
 				}
 				continue;
 			}
-			if (statement.exportClause !== undefined && ts.isNamedExports(statement.exportClause)) {
-				for (const element of statement.exportClause.elements) {
-					const exported = exportedName(element);
-					const local = element.propertyName?.text ?? exported;
-					if (specifier === undefined) {
-						record.local.add(exported);
-						continue;
-					}
-					const resolved = resolveSpecifier(file, specifier, fileSet, packages);
-					if (resolved === undefined) {
-						record.local.add(exported);
-						continue;
-					}
-					record.namedReexports.push({ exported, local, from: resolved });
-				}
+			if (exported === null || exported === undefined) continue;
+			if (resolved === undefined || entry.importName.name === null) {
+				record.local.add(exported);
+				continue;
 			}
-			continue;
+			record.namedReexports.push({ exported, local: entry.importName.name, from: resolved });
 		}
+	}
 
-		if (!hasExportModifier(statement)) continue;
-		if (ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) {
-			if (hasDefaultModifier(statement)) {
-				record.local.add("default");
-				if (ts.isClassDeclaration(statement) && isTaggedErrorClass(statement)) {
-					record.alwaysExported.add("default");
-				}
-				continue;
-			}
-			if (statement.name !== undefined) {
-				record.local.add(statement.name.text);
-				if (ts.isClassDeclaration(statement) && isTaggedErrorClass(statement)) {
-					record.alwaysExported.add(statement.name.text);
-				}
-			}
-			continue;
-		}
-		if (ts.isVariableStatement(statement)) {
-			for (const declaration of statement.declarationList.declarations) {
-				addBindingNames(declaration.name, record.local);
-			}
+	collectTaggedErrorExports(program, record.alwaysExported);
+}
+
+function collectTaggedErrorExports(program: Program, alwaysExported: Set<string>): void {
+	for (const statement of program.body) {
+		if (
+			statement.type === "ExportDefaultDeclaration" &&
+			statement.declaration.type === "ClassDeclaration" &&
+			isTaggedErrorClass(statement.declaration)
+		) {
+			alwaysExported.add("default");
 			continue;
 		}
 		if (
-			ts.isTypeAliasDeclaration(statement) ||
-			ts.isInterfaceDeclaration(statement) ||
-			ts.isEnumDeclaration(statement) ||
-			ts.isModuleDeclaration(statement)
+			statement.type !== "ExportNamedDeclaration" ||
+			statement.declaration?.type !== "ClassDeclaration" ||
+			statement.declaration.id === null ||
+			!isTaggedErrorClass(statement.declaration)
 		) {
-			record.local.add(statement.name.text);
+			continue;
 		}
+		alwaysExported.add(statement.declaration.id.name);
 	}
 }
 
-function importedExportName(element: ts.ImportSpecifier): string {
-	return (element.propertyName ?? element.name).text;
-}
-
-function exportedName(element: ts.ExportSpecifier): string {
-	return element.name.text;
-}
-
-function hasExportModifier(node: ts.Node): boolean {
-	const modifiers = ts.canHaveModifiers(node) ? ts.getModifiers(node) : undefined;
-	return modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) === true;
-}
-
-function hasDefaultModifier(node: ts.Node): boolean {
-	const modifiers = ts.canHaveModifiers(node) ? ts.getModifiers(node) : undefined;
-	return modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.DefaultKeyword) === true;
-}
-
-function isTaggedErrorClass(node: ts.ClassDeclaration): boolean {
+function isTaggedErrorClass(node: Class): boolean {
+	const superclass = node.superClass;
+	if (superclass?.type !== "CallExpression") return false;
+	const callee = superclass.callee;
 	return (
-		node.heritageClauses?.some(
-			(clause) =>
-				clause.token === ts.SyntaxKind.ExtendsKeyword &&
-				clause.types.some((type) => {
-					const expression = type.expression;
-					if (!ts.isCallExpression(expression)) return false;
-					const callee = expression.expression;
-					return (
-						ts.isPropertyAccessExpression(callee) &&
-						ts.isIdentifier(callee.expression) &&
-						callee.expression.text === "errore" &&
-						callee.name.text === "createTaggedError"
-					);
-				}),
-		) === true
+		callee.type === "MemberExpression" &&
+		!callee.computed &&
+		callee.object.type === "Identifier" &&
+		callee.object.name === "errore" &&
+		callee.property.type === "Identifier" &&
+		callee.property.name === "createTaggedError"
 	);
-}
-
-function addBindingNames(name: ts.BindingName, names: Set<string>): void {
-	if (ts.isIdentifier(name)) {
-		names.add(name.text);
-		return;
-	}
-	for (const element of name.elements) {
-		if (ts.isOmittedExpression(element)) continue;
-		addBindingNames(element.name, names);
-	}
 }
 
 function publicModules(root: string): PackageMap {
@@ -359,7 +303,7 @@ function addBinEntries(directory: string, bin: unknown, entries: Set<string>): v
 		addEntryCandidate(directory, bin, entries);
 		return;
 	}
-	if (bin === undefined || typeof bin !== "object" || Array.isArray(bin)) return;
+	if (bin === undefined || bin === null || typeof bin !== "object" || Array.isArray(bin)) return;
 	for (const value of Object.values(bin)) addEntryCandidate(directory, value, entries);
 }
 
@@ -375,7 +319,12 @@ function addExportEntries(
 		if (packageName !== undefined) addSpecifier(packageName, exportsField, directory, specifiers);
 		return;
 	}
-	if (exportsField === undefined || typeof exportsField !== "object" || Array.isArray(exportsField)) {
+	if (
+		exportsField === undefined ||
+		exportsField === null ||
+		typeof exportsField !== "object" ||
+		Array.isArray(exportsField)
+	) {
 		return;
 	}
 	for (const [subpath, value] of Object.entries(exportsField)) {
@@ -390,7 +339,9 @@ function addExportEntries(
 			if (specifier !== undefined) addSpecifier(specifier, value, directory, specifiers);
 			continue;
 		}
-		if (value === undefined || typeof value !== "object" || Array.isArray(value)) continue;
+		if (value === undefined || value === null || typeof value !== "object" || Array.isArray(value)) {
+			continue;
+		}
 		const target = "import" in value ? value.import : "default" in value ? value.default : undefined;
 		if (typeof target === "string") {
 			addEntryCandidate(directory, target, entries);
