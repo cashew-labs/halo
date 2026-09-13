@@ -116,9 +116,10 @@ import { Text as TextIcon } from "maui/icons"
 - `Avatar`
 - `Badge`
 - `Code`, `Kbd`, `CodeBlock`
-- `Table` — React Aria table. `TableHeader` contains `TableHead` columns directly (no `TableRow`). Mark the identifying column with `isRowHeader` (required; usually the name/id column, not a leading checkbox or drag handle). `align` on `TableHead` / `TableCell` is `"start"` | `"center"` | `"end"`. `TableFooter` fills with `colors.gray[2]`. Place `TableCaption` after `Table`. `TableBody` renders “No results.” when empty; pass `renderEmptyState` to replace it.
+- `Table` — React Aria table. `TableHeader` contains `TableHead` columns directly (no `TableRow`). Mark the identifying column with `isRowHeader` (required; usually the name/id column, not a leading checkbox or drag handle). When `selectionMode` is `"multiple"`, `TableHeader` and `TableRow` insert a leading checkbox column (`Checkbox slot="selection"`). `align` on `TableHead` / `TableCell` is `"start"` | `"center"` | `"end"`. `TableFooter` fills with `colors.gray[2]`. Place `TableCaption` after `Table`. `TableBody` renders “No results.” when empty; pass `renderEmptyState` to replace it.
 - `FuzzyString` — highlight segments; takes a match result, not a plain string
 - `Thinking` — 3×3 Game of Life indicator; reseeds when the board dies or loops
+- `Crossfade` — when `contentKey` changes, fades the previous view out in `direction` (`up` | `down` | `left` | `right`), then fades the new view in from the opposite side. `contentKey` is required. Do not put `key` on `Crossfade` itself or the exit is skipped.
 
 ## Reference: patterns and apps
 

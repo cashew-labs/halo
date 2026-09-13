@@ -1,6 +1,12 @@
 import { useId, useState } from "react";
 import {
   CodeBlock,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
   colors,
   flex,
   monospace,
@@ -10,6 +16,7 @@ import {
 } from "maui";
 import { style, useStyles } from "purse-styles";
 import { execJsSource, toolPartLabel, type ToolPart } from "./sessionView.ts";
+import { parseToolArgumentRows } from "./toolArgumentRows.ts";
 import { useWorkspaceQuery } from "../../api/ApiProvider.tsx";
 
 export function ToolCall({ part }: { part: ToolPart }) {
@@ -26,9 +33,6 @@ export function ToolCall({ part }: { part: ToolPart }) {
   const shellClassName = useStyles(styles.shell);
   const bodyClassName = useStyles(styles.body);
   const { details } = part;
-  const js = details.toolPath === "exec" ? execJsSource(details) : undefined;
-  const input =
-    js === undefined ? JSON.stringify(details.args, undefined, 2) : js;
 
   const summary =
     label.kind === "shell" ? (
@@ -59,17 +63,50 @@ export function ToolCall({ part }: { part: ToolPart }) {
           role="region"
           aria-label={part.tool.path}
         >
-          {input !== undefined ? (
-            <CodeBlock lang={js === undefined ? "json" : "javascript"}>
-              {input}
-            </CodeBlock>
-          ) : undefined}
+          <ToolCallInput details={details} />
           {details.resultText !== undefined ? (
             <CodeBlock lang="text">{details.resultText}</CodeBlock>
           ) : undefined}
         </div>
       ) : undefined}
     </div>
+  );
+}
+
+function ToolCallInput({ details }: { details: ToolPart["details"] }) {
+  const js = details.toolPath === "exec" ? execJsSource(details) : undefined;
+  if (js !== undefined) return <CodeBlock lang="javascript">{js}</CodeBlock>;
+  const rows = parseToolArgumentRows({ value: details.args });
+  if (rows === undefined) {
+    return (
+      <CodeBlock lang="json">
+        {JSON.stringify(details.args, undefined, 2)}
+      </CodeBlock>
+    );
+  }
+  return <ArgumentTable rows={rows} />;
+}
+
+function ArgumentTable({
+  rows,
+}: {
+  rows: ReadonlyArray<{ name: string; value: string }>;
+}) {
+  return (
+    <Table aria-label="Tool arguments">
+      <TableHeader>
+        <TableHead isRowHeader>Argument</TableHead>
+        <TableHead>Value</TableHead>
+      </TableHeader>
+      <TableBody>
+        {rows.map((row) => (
+          <TableRow key={row.name} id={row.name}>
+            <TableCell>{row.name}</TableCell>
+            <TableCell>{row.value}</TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
   );
 }
 

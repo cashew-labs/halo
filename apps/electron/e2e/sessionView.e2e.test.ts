@@ -640,9 +640,19 @@ for (const scenario of expansionScenarios) {
         name: scenario.path,
         exact: true,
       });
-      await expect(details.getByRole("code").first()).toHaveText(
-        scenario.nested ? js : JSON.stringify(scenario.args, undefined, 2),
-      );
+      if (scenario.nested) {
+        await expect(details.getByRole("code").first()).toHaveText(js);
+      } else {
+        await expect(
+          details.getByRole("grid", { name: "Tool arguments" }),
+        ).toBeVisible();
+        for (const [name, value] of Object.entries(scenario.args)) {
+          await expect(
+            details.getByRole("rowheader", { name, exact: true }),
+          ).toBeVisible();
+          await expect(details.getByText(value, { exact: true })).toBeVisible();
+        }
+      }
       await expect(
         details.getByText(scenario.result, { exact: true }),
       ).toBeVisible();
