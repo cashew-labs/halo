@@ -45,7 +45,7 @@
     "@tiptap/starter-kit": "^3.29.2",
     "electron-squirrel-startup": "^1.0.1",
     "errore": "^0.14.1",
-    "maui": "npm:@tanishqkancharla/maui@0.0.16",
+    "maui": "npm:@tanishqkancharla/maui@0.0.19",
     "purse-styles": "^0.2.3",
     "react": "^19.2.8",
     "react-aria-components": "1.21.0",

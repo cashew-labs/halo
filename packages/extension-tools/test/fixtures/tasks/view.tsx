@@ -6,6 +6,12 @@ import {
   H1,
   MauiProvider,
   Padding,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
   Text,
   TextField,
 } from "maui";
@@ -72,16 +78,32 @@ export default function Tasks({
               Add task
             </Button>
           </Flex>
-          {tasks.map((task) => (
-            <Checkbox
-              key={task.id}
-              label={task.label}
-              checked={task.done}
-              setChecked={async (done) => {
-                await save({ ...task, done });
-              }}
-            />
-          ))}
+          <Table aria-label="Tasks">
+            <TableHeader>
+              <TableHead isRowHeader>Task</TableHead>
+              <TableHead>Status</TableHead>
+            </TableHeader>
+            <TableBody
+              renderEmptyState={() => (
+                <Text color="lowContrast">No tasks yet.</Text>
+              )}
+            >
+              {tasks.map((task) => (
+                <TableRow key={task.id} id={task.id}>
+                  <TableCell>
+                    <Checkbox
+                      label={task.label}
+                      checked={task.done}
+                      setChecked={async (done) => {
+                        await save({ ...task, done });
+                      }}
+                    />
+                  </TableCell>
+                  <TableCell>{task.done ? "Done" : "Open"}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
           {error === undefined ? undefined : <Text role="alert">{error}</Text>}
         </Flex>
       </Padding>

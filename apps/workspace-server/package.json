@@ -52,7 +52,7 @@
     "errore": "^0.14.1",
     "google-auth-library": "^11.0.2",
     "libretto-browser-tools": "^0.1.2",
-    "maui": "npm:@tanishqkancharla/maui@0.0.16",
+    "maui": "npm:@tanishqkancharla/maui@0.0.19",
     "playwright": "1.62.1",
     "quickjs-emscripten": "0.31.0",
     "tsx": "^4.23.13",
