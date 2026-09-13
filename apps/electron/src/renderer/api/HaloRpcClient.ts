@@ -1,9 +1,4 @@
-import {
-  createORPCClient,
-  onAsyncIteratorObjectError,
-  onError,
-  ORPCError,
-} from "@orpc/client";
+import { createORPCClient, onError, ORPCError } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
 import * as errore from "errore";
 import {
@@ -47,10 +42,7 @@ export async function connectHaloRpc({
   });
   // SAFETY: HaloRpcConnection points to the Halo router.
   const client = createORPCClient(link, {
-    interceptors: [
-      onError(reportDisconnect),
-      onAsyncIteratorObjectError(reportDisconnect),
-    ],
+    interceptors: [onError(reportDisconnect)],
   }) as HaloClient;
   const info = await client.server
     .info()

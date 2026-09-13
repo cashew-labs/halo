@@ -24,14 +24,13 @@ import { useLocation } from "wouter";
 import { FileEntryDialog, type FileEntryAction } from "./FileEntryDialog.js";
 import { flushFileAutosaves } from "../main/useAutosaveFile.js";
 import { File, Folder, FilePlus, FolderPlus, DotsHorizontal } from "maui/icons";
-import type { WorkspaceTreeEvent } from "@get-halo/shared/rpc";
-import type { HaloClient } from "@get-halo/shared/contract";
 import {
   useApi,
   useWorkspacePathsQuery,
   useWorkspaceQuery,
   workspacePathsQueryKey,
 } from "../api/ApiProvider.tsx";
+import { reconnectStream } from "../api/reconnectStream.js";
 import { useExpandSidebar } from "./navigation/NavigationSidebar.js";
 import { SidebarItem } from "./navigation/SidebarItem.js";
 import { SidebarSection } from "./navigation/SidebarSection.js";
@@ -190,16 +189,20 @@ export function FilesystemSection() {
     if (workspaceRoot === undefined) return;
 
     const controller = new AbortController();
-    listenWorkspaceTree(
-      api,
-      controller.signal,
-      async () =>
+    reconnectStream({
+      name: "Workspace tree",
+      signal: controller.signal,
+      open: async () =>
+        await api.workspace.events(undefined, { signal: controller.signal }),
+      // Refresh after opening each stream to cover events missed while reconnecting.
+      onOpen: async () =>
         await queryClient.invalidateQueries({
           queryKey: workspacePathsQueryKey(workspaceRoot),
         }),
-    ).catch((cause) => {
-      if (controller.signal.aborted) return;
-      console.warn("Workspace tree stream failed:", cause);
+      onItem: async () =>
+        await queryClient.invalidateQueries({
+          queryKey: workspacePathsQueryKey(workspaceRoot),
+        }),
     });
 
     return () => controller.abort();
@@ -541,15 +544,6 @@ function sortFileNavigation(nodes: FileNavigationNode[]) {
 
 function fileRoute(path: string) {
   return `/files/${path.split("/").map(encodeURIComponent).join("/")}`;
-}
-
-async function listenWorkspaceTree(
-  api: HaloClient,
-  signal: AbortSignal,
-  onChange: (events: WorkspaceTreeEvent[]) => Promise<void>,
-) {
-  const events = await api.workspace.events(undefined, { signal });
-  for await (const event of events) await onChange(event);
 }
 
 const styles = {
