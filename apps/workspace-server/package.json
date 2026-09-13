@@ -21,7 +21,7 @@
     "format:check": "oxfmt --check .",
     "lint": "NODE_OPTIONS=--experimental-strip-types oxlint --deny-warnings src test",
     "lint:fix": "NODE_OPTIONS=--experimental-strip-types oxlint --fix src test",
-    "test": "vitest run --reporter=agent",
+    "test": "vitest run --reporter=./test/StreamingAgentReporter.ts",
     "typecheck": "tsc --noEmit",
     "dev": "tsx watch src/main.ts",
     "start": "tsx src/main.ts"
