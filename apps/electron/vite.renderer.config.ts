@@ -16,10 +16,6 @@ export default defineConfig({
       },
     },
   },
-  // Vite defaults env.dev.sourcemap.js to true and injects sourceMappingURL.
-  dev: {
-    sourcemap: false,
-  },
   optimizeDeps: {
     include: ["@pierre/diffs/react", "@pierre/diffs/edit"],
   },
