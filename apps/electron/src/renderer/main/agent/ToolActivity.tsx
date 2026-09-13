@@ -39,14 +39,14 @@ export function ToolActivity({ part }: { part: ToolActivityPart }) {
   const summaryClassName = useStyles(styles.summary);
   const thinkingClassName = useStyles(styles.thinking);
   const markClassName = useStyles(styles.mark);
+  const activeCommandsClassName = useStyles(styles.activeCommands);
+  const activeCommandClassName = useStyles(styles.activeCommand);
   const interactive = calls.length > 0;
   const visibleCalls = expanded ? calls : [];
   const completedLabel = joinSummary(summary.completed);
-  const primaryLabel = part.live
-    ? (summary.current ?? "Working")
-    : completedLabel;
-
-  if (primaryLabel === undefined) return undefined;
+  if (completedLabel === undefined && !part.live) return undefined;
+  const headerLabel = completedLabel === undefined ? "Working" : completedLabel;
+  const activeLabels = summary.active;
 
   return (
     <div className={activityClassName} aria-label="Tool activity">
@@ -54,7 +54,7 @@ export function ToolActivity({ part }: { part: ToolActivityPart }) {
         <button
           type="button"
           className={summaryClassName}
-          aria-label={primaryLabel}
+          aria-label={headerLabel}
           aria-expanded={expanded}
           data-active={part.live ? "" : undefined}
           onClick={() => setExpanded(!expanded)}
@@ -71,7 +71,7 @@ export function ToolActivity({ part }: { part: ToolActivityPart }) {
               <ChevronRightLarge width={chevronSize} height={chevronSize} />
             </span>
           </span>
-          {primaryLabel}
+          {headerLabel}
         </button>
       ) : (
         <div className={thinkingClassName}>
@@ -84,7 +84,16 @@ export function ToolActivity({ part }: { part: ToolActivityPart }) {
               />
             </span>
           ) : undefined}
-          {primaryLabel}
+          {headerLabel}
+        </div>
+      )}
+      {activeLabels.length === 0 ? undefined : (
+        <div className={activeCommandsClassName} aria-label="Active commands">
+          {activeLabels.map((label) => (
+            <div key={label} className={activeCommandClassName}>
+              {label}
+            </div>
+          ))}
         </div>
       )}
       <AnimatedToolCalls calls={visibleCalls} />
@@ -179,6 +188,11 @@ const summaryRow = style(
   },
 );
 
+const nestedIndent = {
+  marginLeft: spacing.value(6),
+  paddingLeft: spacing.value(4),
+} as const;
+
 const styles = {
   activity: style(flex({ direction: "column" }), {
     minWidth: 0,
@@ -252,12 +266,24 @@ const styles = {
       opacity: 0,
     },
   }),
-  calls: style(flex({ direction: "column", gap: 2 }), {
+  activeCommands: style(flex({ direction: "column", gap: 2 }), nestedIndent, {
+    minWidth: 0,
+    marginTop: spacing.value(3),
+  }),
+  activeCommand: style(
+    text({ size: "md", fontWeight: 400, color: "lowContrast" }),
+    {
+      minWidth: 0,
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+      whiteSpace: "nowrap",
+      color: colors.gray[11],
+    },
+  ),
+  calls: style(flex({ direction: "column", gap: 2 }), nestedIndent, {
     minWidth: 0,
     minHeight: 0,
     overflow: "hidden",
-    marginLeft: spacing.value(6),
-    paddingLeft: spacing.value(4),
   }),
   call: style({
     display: "grid",

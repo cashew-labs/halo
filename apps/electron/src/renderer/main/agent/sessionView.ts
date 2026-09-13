@@ -50,7 +50,7 @@ export type SessionViewPart =
 
 type ToolActivitySummary = {
   completed: string[];
-  current: string | undefined;
+  active: string[];
 };
 
 type ReducedToolInvocation = Pick<
@@ -432,23 +432,20 @@ export function summarizeToolActivities(args: {
     const summary = presenter.completedSummary(summarizedCalls);
     return summary === undefined ? [] : [summary];
   });
-  let latestActive: ToolPart | undefined;
-  for (let index = summarizedCalls.length - 1; index >= 0; index -= 1) {
-    const call = summarizedCalls[index];
-    if (call?.status !== "active") continue;
-    latestActive = call;
-    break;
+  const active: string[] = [];
+  if (live) {
+    const seen = new Set<string>();
+    for (const call of summarizedCalls) {
+      if (call.status !== "active") continue;
+      const presenter = presenters.find((candidate) => candidate.matches(call));
+      if (presenter === undefined) continue;
+      const label = presenter.activeLabel(call);
+      if (seen.has(label)) continue;
+      seen.add(label);
+      active.push(label);
+    }
   }
-  const latestActivity = latestActive ?? summarizedCalls.at(-1);
-  const presenter =
-    latestActivity === undefined
-      ? undefined
-      : presenters.find((candidate) => candidate.matches(latestActivity));
-  const current =
-    live && latestActivity !== undefined && presenter !== undefined
-      ? presenter.activeLabel(latestActivity)
-      : undefined;
-  return { completed, current };
+  return { completed, active };
 }
 
 function visibleToolParts(
