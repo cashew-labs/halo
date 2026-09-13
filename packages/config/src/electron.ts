@@ -5,7 +5,7 @@ import * as errore from "errore";
 import { ApplicationMode } from "./ApplicationMode.js";
 
 const productionControlPlaneOrigin =
-  "https://halo-dev-control-plane-912701444316.us-central1.run.app";
+  "https://halo-west-control-plane-912701444316.us-west2.run.app";
 const developmentControlPlaneOrigin = "http://127.0.0.1:8787";
 
 class ElectronConfigError extends errore.createTaggedError({
