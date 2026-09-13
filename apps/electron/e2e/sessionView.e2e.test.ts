@@ -442,9 +442,7 @@ e2eTest(
     await expect(
       summary.getByRole("img", { name: "Expand tool activity" }),
     ).toBeVisible();
-    await expect(
-      summary.getByRole("status", { name: "Working" }),
-    ).toBeHidden();
+    await expect(summary.getByRole("status", { name: "Working" })).toBeHidden();
     await expect(
       pane.getByLabel("Active commands").getByText("Running command", {
         exact: true,
@@ -759,9 +757,9 @@ e2eTest(
     await expect(
       settled.getByRole("img", { name: "Expand tool activity" }),
     ).toBeVisible();
-    await expect(
-      settled.getByRole("status", { name: "Working" }),
-    ).toHaveCount(0);
+    await expect(settled.getByRole("status", { name: "Working" })).toHaveCount(
+      0,
+    );
     await expect(pane.getByLabel("Active commands")).toHaveCount(0);
   },
 );
