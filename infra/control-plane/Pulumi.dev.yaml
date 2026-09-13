@@ -1,8 +1,0 @@
-secretsprovider: gcpkms://projects/halo-relay/locations/us-central1/keyRings/halo-pulumi/cryptoKeys/state
-encryptedkey: CiQAdv4E5jEG5/S3NUuMrS9oKk2qWh1ipnxHv0N5/J5gMaOHIBoSSQBYrJ1diILQSvMcI3L6YmAa5taU1wJ7GRvhR4R3pOPminic0iv5PfZ01wBTM4rukanAtRkTXtw+oWX3jK/nrVg+D2bLU08+deY=
-config:
-  gcp:project: halo-relay
-  gcp:region: us-central1
-  gcp:zone: us-central1-a
-  halo-control-plane:controlPlaneImage: us-central1-docker.pkg.dev/halo-relay/halo-dev-workspaces/control-plane@sha256:6bf6f38d93ca5d3996eb35ad18b1208bb02ea5b1954401653fd7554ac002eb4c
-  halo-control-plane:workspaceImage: us-central1-docker.pkg.dev/halo-relay/halo-dev-workspaces/workspace-server@sha256:47cf1daeedbf86254e4dd9337367bf896e51ccb30a64258b755052007b20ed57
