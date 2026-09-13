@@ -43,6 +43,15 @@ systemctl enable --now mnt-halo.mount
 mkdir -p /mnt/halo/workspace
 chown 1000:1000 /mnt/halo/workspace
 
+cat > /usr/local/bin/halo-workspace-pull <<'PULL'
+#!/usr/bin/env bash
+set -euo pipefail
+
+curl -fsS -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token | jq -r .access_token | docker login --username oauth2accesstoken --password-stdin https://${ctx.registry}
+docker pull ${ctx.image}
+PULL
+chmod 0755 /usr/local/bin/halo-workspace-pull
+
 cat > /usr/local/bin/halo-workspace-config <<'CONFIG'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -67,8 +76,7 @@ Restart=on-failure
 RestartSec=5
 TimeoutStartSec=600
 TimeoutStopSec=45
-ExecStartPre=/bin/sh -c 'curl -fsS -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token | jq -r .access_token | docker login --username oauth2accesstoken --password-stdin https://${ctx.registry}'
-ExecStartPre=/usr/bin/docker pull ${ctx.image}
+ExecStartPre=/usr/local/bin/halo-workspace-pull
 ExecStartPre=/usr/local/bin/halo-workspace-config
 ExecStart=/usr/bin/docker run --rm --name halo-workspace --network host --init --shm-size=1g --volume /mnt/halo/workspace:/workspace ${ctx.image} /workspace/.halo/workspace-server.json
 ExecStop=/usr/bin/docker stop --time 30 halo-workspace
@@ -77,6 +85,7 @@ WantedBy=multi-user.target
 SERVICE
 systemctl daemon-reload
 systemctl enable halo
+/usr/local/bin/halo-workspace-pull
 systemctl restart halo
 `;
 }
