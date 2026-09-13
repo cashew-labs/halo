@@ -8,12 +8,17 @@ export default defineConfig({
   plugins: [react()],
   build: {
     minify: false,
+    sourcemap: false,
     // Vite 8 maps minify:false to Rolldown "dce-only". Keep that off too.
     rolldownOptions: {
       output: {
         minify: false,
       },
     },
+  },
+  // Vite defaults env.dev.sourcemap.js to true and injects sourceMappingURL.
+  dev: {
+    sourcemap: false,
   },
   optimizeDeps: {
     include: ["@pierre/diffs/react", "@pierre/diffs/edit"],
