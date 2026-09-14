@@ -10,8 +10,8 @@ COPY patches ./patches
 COPY packages ./packages
 COPY apps/workspace-server ./apps/workspace-server
 RUN pnpm install --frozen-lockfile
-RUN pnpm --filter @get-halo/extension-sdk build \
-    && pnpm --filter @get-halo/extension-tools build \
+RUN pnpm --filter @get-halo/extension-sdk run build \
+    && pnpm --filter @get-halo/extension-tools run build \
     && pnpm exec playwright install --with-deps chromium --no-shell
 # The workspace CLI builds and packs the local SDK when authoring extensions.
 RUN chown -R node:node /opt/halo/packages
