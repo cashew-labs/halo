@@ -17,7 +17,7 @@ import type { WorkspaceInfo } from "@get-halo/shared/rpc";
 import type { HaloRpcConnection } from "../../shared/HaloRpcConnection.js";
 import { LoadingPage } from "../LoadingPage.tsx";
 import { ConnectionPage } from "../ConnectionPage.tsx";
-import { desktopApi } from "./electron.js";
+import { hostApi } from "./host.js";
 import {
   IncompatibleServerError,
   type HaloRpcConnectionError,
@@ -168,14 +168,14 @@ export function useWorkspaceFileQuery(path: string) {
 export function useAppInfoQuery() {
   return useQuery({
     queryKey: ["app-info"],
-    queryFn: async () => await desktopApi.getAppInfo(),
+    queryFn: async () => await hostApi.getAppInfo(),
     refetchInterval: 5_000,
   });
 }
 
 export function useInstallAppUpdateMutation() {
   return useMutation({
-    mutationFn: async () => await desktopApi.installAppUpdate(),
+    mutationFn: async () => await hostApi.installAppUpdate(),
   });
 }
 

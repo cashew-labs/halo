@@ -9,5 +9,5 @@
     "noUncheckedIndexedAccess": false,
     "types": ["vite/client"]
   },
-  "include": ["src/renderer", "src/shared", "vite.renderer.config.ts"]
+  "include": ["src/renderer", "src/shared"]
 }

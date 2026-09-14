@@ -3,9 +3,9 @@ import { Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import { contextBridge, ipcRenderer } from "electron";
 import { LOG_CHANNELS } from "../shared/channels.js";
-import { DESKTOP_CHANNEL, type DesktopApi } from "../shared/desktop.js";
+import { DESKTOP_CHANNEL, type HostApi } from "../shared/desktop.js";
 
-const desktopApi: DesktopApi = {
+const hostApi: HostApi = {
   openWorkspaceFile: async (path) =>
     await ipcRenderer.invoke(DESKTOP_CHANNEL, {
       type: "openWorkspaceFile",
@@ -40,7 +40,7 @@ const desktopApi: DesktopApi = {
     }),
 };
 
-contextBridge.exposeInMainWorld("haloDesktop", desktopApi);
+contextBridge.exposeInMainWorld("haloHost", hostApi);
 
 const logMessageSchema = Type.Object({
   channel: Type.Literal(LOG_CHANNELS.log),

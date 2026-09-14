@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactElement } from "react";
 import * as errore from "errore";
 import { LoadingPage } from "./LoadingPage.tsx";
 import { SignInPage } from "./SignInPage.tsx";
-import { desktopApi } from "./api/electron.ts";
+import { hostApi } from "./api/host.ts";
 
 class AuthenticationError extends errore.createTaggedError({
   name: "AuthenticationError",
@@ -23,7 +23,7 @@ export function Authentication({ children }: { children: ReactElement }) {
   useEffect(() => {
     let active = true;
 
-    desktopApi.getAuthSession().then(
+    hostApi.getAuthSession().then(
       (session) => {
         if (!active) return;
 
@@ -58,7 +58,7 @@ export function Authentication({ children }: { children: ReactElement }) {
   const signIn = async () => {
     setState({ status: "signingIn" });
 
-    const session = await desktopApi
+    const session = await hostApi
       .signIn()
       .catch(
         (cause) => new AuthenticationError({ operation: "sign you in", cause }),

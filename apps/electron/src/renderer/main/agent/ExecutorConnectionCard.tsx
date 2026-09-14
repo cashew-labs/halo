@@ -5,7 +5,7 @@ import { background, Button, Flex, radius, shadow, Spacer, Text } from "maui";
 import { style, useStyles } from "purse-styles";
 import { connectionRequestLabel } from "@get-halo/shared/ConnectionRequest";
 import { BrandLogo, brands } from "../../BrandLogo.tsx";
-import { desktopApi } from "../../api/electron.ts";
+import { hostApi } from "../../api/host.ts";
 import {
   connectionStateQueryKey,
   idleConnectionState,
@@ -55,7 +55,7 @@ export function ExecutorConnectionCard({
     mutationFn: async () => {
       // SAFETY: the button is disabled until sessionId is a string.
       const activeSessionId = sessionId as string;
-      const started = await desktopApi
+      const started = await hostApi
         .connectIntegration({
           sessionId: activeSessionId,
           request: part.request,
@@ -102,7 +102,7 @@ export function ExecutorConnectionCard({
   const cancel = useMutation({
     mutationFn: async () => {
       if (sessionId === undefined || connection.status !== "connecting") return;
-      await desktopApi.cancelIntegration({
+      await hostApi.cancelIntegration({
         sessionId,
         connectionId: connection.connectionId,
       });
