@@ -254,7 +254,13 @@ e2eTest("shows a connection request", async ({ harness, app }) => {
     name: "Google Drive connection",
   });
   await expect(card).toBeVisible();
+  await expect(
+    card.getByText("Find, organize, and share your files."),
+  ).toBeVisible();
   await expect(card.getByRole("button", { name: "Connect" })).toBeVisible();
+  await expect(
+    card.getByText("Connect your account so the agent can continue"),
+  ).toHaveCount(0);
 });
 
 e2eTest(
@@ -271,9 +277,15 @@ e2eTest(
     const card = app.page.getByRole("region", {
       name: "Google Drive connection",
     });
+    await expect(
+      card.getByText("Find, organize, and share your files."),
+    ).toBeVisible();
     await card.getByRole("button", { name: "Connect" }).click();
     await expect(
       card.getByRole("button", { name: "Connecting" }),
+    ).toBeVisible();
+    await expect(
+      card.getByText("Find, organize, and share your files."),
     ).toBeVisible();
     await expect(
       card.getByText("Finish connecting in your browser"),

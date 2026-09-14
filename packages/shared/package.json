@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     "./ConnectionRequest": "./src/ConnectionRequest.ts",
+    "./GoogleIntegrationDisplay": "./src/GoogleIntegrationDisplay.ts",
     "./contract": "./src/contract.ts",
     "./controlPlaneContract": "./src/controlPlaneContract.ts",
     "./isCallable": "./src/isCallable.ts",

@@ -4,6 +4,7 @@ import * as errore from "errore";
 import { background, Button, Flex, radius, shadow, Spacer, Text } from "maui";
 import { style, useStyles } from "purse-styles";
 import { connectionRequestLabel } from "@get-halo/shared/ConnectionRequest";
+import { googleIntegrationDisplay } from "@get-halo/shared/GoogleIntegrationDisplay";
 import { BrandLogo, brands } from "../../BrandLogo.tsx";
 import { desktopApi } from "../../api/electron.ts";
 import {
@@ -137,7 +138,9 @@ export function ExecutorConnectionCard({
   }, [connection, queryClient, statusKey]);
 
   const status = connection.status;
+  const display = googleIntegrationDisplay(part.request.integration);
   const label = connectionRequestLabel(part.request);
+  const statusText = connectionStatusText(status);
   const brand = brands.google;
 
   return (
@@ -155,19 +158,16 @@ export function ExecutorConnectionCard({
             <Text size="md" fontWeight={600}>
               {label}
             </Text>
-            <Text size="sm" color="lowContrast">
-              {status === "connected"
-                ? "Connected"
-                : status === "expired"
-                  ? "Authorization expired"
-                  : status === "cancelled"
-                    ? "Authorization cancelled"
-                    : status === "connecting"
-                      ? "Finish connecting in your browser"
-                      : status === "starting"
-                        ? "Preparing authorization"
-                        : "Connect your account so the agent can continue"}
-            </Text>
+            {display === undefined ? undefined : (
+              <Text size="sm" color="lowContrast">
+                {display.description}
+              </Text>
+            )}
+            {statusText === undefined ? undefined : (
+              <Text size="sm" color="lowContrast">
+                {statusText}
+              </Text>
+            )}
           </Flex>
           <Spacer />
           <Button
@@ -207,4 +207,13 @@ export function ExecutorConnectionCard({
       </Flex>
     </section>
   );
+}
+
+function connectionStatusText(status: ConnectionState["status"]) {
+  if (status === "connected") return "Connected";
+  if (status === "expired") return "Authorization expired";
+  if (status === "cancelled") return "Authorization cancelled";
+  if (status === "connecting") return "Finish connecting in your browser";
+  if (status === "starting") return "Preparing authorization";
+  return undefined;
 }
