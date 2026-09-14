@@ -232,19 +232,21 @@ e2eTest(
   },
 );
 
+const googleDriveConnection = {
+  client: "first-party:google",
+  clientOwner: "org",
+  owner: "user",
+  connectionName: "default",
+  integration: "google_drive",
+  template: "googleOAuth2",
+} as const;
+
 e2eTest("shows a connection request", async ({ harness, app }) => {
   await harness.loadSession({
     title: "Drive search",
     messages: [
       m.user("Find my planning document"),
-      m.connectionRequest({
-        client: "google",
-        clientOwner: "org",
-        owner: "user",
-        connectionName: "default",
-        integration: "google_drive",
-        template: "google",
-      }),
+      m.connectionRequest(googleDriveConnection),
     ],
   });
 
@@ -254,6 +256,33 @@ e2eTest("shows a connection request", async ({ harness, app }) => {
   await expect(card).toBeVisible();
   await expect(card.getByRole("button", { name: "Connect" })).toBeVisible();
 });
+
+e2eTest(
+  "starts connecting a tool from the connection card",
+  async ({ harness, app }) => {
+    await harness.loadSession({
+      title: "Drive search",
+      messages: [
+        m.user("Find my planning document"),
+        m.connectionRequest(googleDriveConnection),
+      ],
+    });
+
+    const card = app.page.getByRole("region", {
+      name: "Google Drive connection",
+    });
+    await card.getByRole("button", { name: "Connect" }).click();
+    await expect(
+      card.getByRole("button", { name: "Connecting" }),
+    ).toBeVisible();
+    await expect(
+      card.getByText("Finish connecting in your browser"),
+    ).toBeVisible();
+    await card.getByRole("button", { name: "Cancel" }).click();
+    await expect(card.getByRole("button", { name: "Try again" })).toBeVisible();
+    await expect(card.getByText("Authorization cancelled")).toBeVisible();
+  },
+);
 
 e2eTest("shows tools used inside exec", async ({ harness, app }) => {
   const descriptionJs =

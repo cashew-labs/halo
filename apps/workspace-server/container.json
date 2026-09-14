@@ -1,9 +1,10 @@
 {
-  "workspaceRoot": "/workspace",
-  "appDataDir": "/workspace/.halo/runtime",
+  "environment": "cloud",
+  "workspaceRoot": "/home/node",
+  "appDataDir": "/home/node/.halo/runtime",
   "appVersion": "0.0.0",
   "ownerUserId": "development",
-  "logFilePath": "/workspace/.halo/runtime/logs/server.jsonl",
+  "logFilePath": "/home/node/.halo/runtime/logs/server.jsonl",
   "corsOrigins": ["null"],
   "port": 8788,
   "cliEntry": "/opt/halo/packages/halo-cli/src/cli.ts",
