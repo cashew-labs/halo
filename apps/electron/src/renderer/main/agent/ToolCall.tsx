@@ -36,10 +36,10 @@ export function ToolCall({ part }: { part: ToolPart }) {
 
   const summary =
     label.kind === "shell" ? (
-      <>
+      <span className={shellClassName}>
         {"$ "}
-        <span className={shellClassName}>{label.text}</span>
-      </>
+        {label.text}
+      </span>
     ) : (
       <>{label.text}</>
     );

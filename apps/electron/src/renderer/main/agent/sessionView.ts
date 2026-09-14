@@ -50,7 +50,7 @@ export type SessionViewPart =
 
 type ToolActivitySummary = {
   completed: string[];
-  current: string | undefined;
+  active: Array<{ id: string; label: ToolPartLabel }>;
 };
 
 type ReducedToolInvocation = Pick<
@@ -63,7 +63,6 @@ type ReducedToolInvocation = Pick<
 
 type ToolActivityPresenter = {
   matches(call: ToolPart): boolean;
-  activeLabel(call: ToolPart): string;
   completedSummary(calls: readonly ToolPart[]): string | undefined;
 };
 
@@ -280,13 +279,14 @@ export function toolPartLabel(
   }
 
   if (path === "bash" || part.tool.integrationId === "bash") {
-    if (!Value.Check(bashArgsSchema, part.args)) {
+    const command = bashCommand(part);
+    if (command === undefined) {
       return {
         kind: "other",
         text: active ? "Running command" : "Ran command",
       };
     }
-    return { kind: "shell", text: part.args.command };
+    return { kind: "shell", text: command };
   }
 
   return {
@@ -432,23 +432,14 @@ export function summarizeToolActivities(args: {
     const summary = presenter.completedSummary(summarizedCalls);
     return summary === undefined ? [] : [summary];
   });
-  let latestActive: ToolPart | undefined;
-  for (let index = summarizedCalls.length - 1; index >= 0; index -= 1) {
-    const call = summarizedCalls[index];
-    if (call?.status !== "active") continue;
-    latestActive = call;
-    break;
-  }
-  const latestActivity = latestActive ?? summarizedCalls.at(-1);
-  const presenter =
-    latestActivity === undefined
-      ? undefined
-      : presenters.find((candidate) => candidate.matches(latestActivity));
-  const current =
-    live && latestActivity !== undefined && presenter !== undefined
-      ? presenter.activeLabel(latestActivity)
-      : undefined;
-  return { completed, current };
+  const active = live
+    ? summarizedCalls.flatMap((call) =>
+        call.status === "active"
+          ? [{ id: call.id, label: toolPartLabel(call, workspaceRoot) }]
+          : [],
+      )
+    : [];
+  return { completed, active };
 }
 
 function visibleToolParts(
@@ -505,7 +496,6 @@ function activityPresenters(
 
 const shellPresenter: ToolActivityPresenter = {
   matches: ({ tool }) => tool.path === "bash" || tool.integrationId === "bash",
-  activeLabel: () => "Running command",
   completedSummary: (activities) => {
     const count = completedMatching(activities, shellPresenter).length;
     if (count === 0) return undefined;
@@ -515,7 +505,6 @@ const shellPresenter: ToolActivityPresenter = {
 
 const toolSearchPresenter: ToolActivityPresenter = {
   matches: isToolSearch,
-  activeLabel: () => "Searching tools",
   completedSummary: (calls) =>
     completedMatching(calls, toolSearchPresenter).length === 0
       ? undefined
@@ -534,15 +523,6 @@ function filePresenter(
       if (tool.integrationId !== "files") return false;
       const operation = tool.path.split(".").at(-1);
       return operation !== undefined && operations.has(operation);
-    },
-    activeLabel: (call) => {
-      const path = callPath(call);
-      if (path === undefined)
-        return mode === "read" ? "Reading file" : "Writing file";
-      const visiblePath = stripWorkspaceRootPrefix(path, workspaceRoot);
-      return mode === "read"
-        ? `Reading ${visiblePath}`
-        : `Writing ${visiblePath}`;
     },
     completedSummary: (activities) => {
       const uniquePaths = new Set<string>();
@@ -570,8 +550,6 @@ const integrationPresenter: ToolActivityPresenter = {
     (!shellPresenter.matches(call) &&
       !toolSearchPresenter.matches(call) &&
       !isFileActivity(call)),
-  activeLabel: ({ tool }) =>
-    tool.path === "exec" ? "Using tools" : `Using ${tool.displayName}`,
   completedSummary: (activities) => {
     const labels: string[] = [];
     const seen = new Set<string>();
@@ -620,6 +598,13 @@ function callPath(call: ToolPart): string | undefined {
     return undefined;
   }
   return call.args.path;
+}
+
+function bashCommand(call: ToolPart): string | undefined {
+  if (!Value.Check(bashArgsSchema, call.args)) {
+    return undefined;
+  }
+  return call.args.command;
 }
 
 function normalizedPath(
