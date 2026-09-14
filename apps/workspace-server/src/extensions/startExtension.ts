@@ -7,7 +7,7 @@ import { createInterface } from "node:readline";
 import { Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import type { Logger } from "@repo/logger";
-import { workspaceCliPath } from "../workspace/installHaloCli.js";
+import { workspaceExecutablePath } from "../workspace/installHaloCli.js";
 import * as errore from "errore";
 
 export type ExtensionRuntime = {
@@ -42,7 +42,7 @@ export async function startExtension(args: {
           cwd: args.directory,
           env: {
             ...process.env,
-            PATH: workspaceCliPath(args.workspaceRoot),
+            PATH: workspaceExecutablePath(args.workspaceRoot),
             HALO_EXTENSION_TOOLS_ORIGIN: args.tools.origin,
             HALO_EXTENSION_TOOLS_TOKEN: args.tools.token,
             ELECTRON_RUN_AS_NODE: args.runtime.electronRunAsNode

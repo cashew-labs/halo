@@ -30,8 +30,10 @@ import { createWorkspaceFilesPlugin } from "../agent/tools/files/createWorkspace
 import { parallelSearchPlugin } from "../agent/tools/web/parallelSearchPlugin.js";
 import type { LLMApi } from "../llm/LLMApi.js";
 import { createPiModelRuntime } from "../llm/createPiModelRuntime.js";
+import type { HaloEnvironment } from "../agent/workspacePrompt.js";
 
 export type HaloServerOptions = {
+  environment: HaloEnvironment;
   llmApi: LLMApi;
   workspaceRoot: string;
   appBrowserTarget?: AppBrowserTarget;
@@ -184,6 +186,7 @@ export class HaloServer {
       extensions,
       workspace,
       sessions: new SessionRegistry({
+        environment: options.environment,
         repo: sessionRepo,
         modelRuntime,
         model: options.llmApi.model,

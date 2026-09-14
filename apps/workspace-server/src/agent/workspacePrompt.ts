@@ -1,5 +1,22 @@
-export function haloSystemPrompt(workspaceRoot: string) {
-  const path = workspaceRoot.replaceAll("\\", "/");
+export type HaloEnvironment = "local" | "cloud";
+
+export function haloSystemPrompt(ctx: {
+  environment: HaloEnvironment;
+  workspaceRoot: string;
+}) {
+  const path = ctx.workspaceRoot.replaceAll("\\", "/");
+  const environmentInstructions =
+    ctx.environment === "cloud"
+      ? `
+
+## Halo Cloud
+
+You run in a Linux VM. Your working directory is also your Unix home. Files beneath it persist across workspace restarts and VM replacement.
+
+The rest of the container is replaceable. Running processes and files in system paths, including \`/tmp\` and \`/run\`, do not persist. Install user tools and configuration in your home. System dependencies belong in the workspace image.
+
+A service bound to \`127.0.0.1\` is reachable only inside the workspace. Use Halo's authenticated proxy when the desktop needs to reach it.`
+      : "";
   return `You are the Halo agent, in the Halo desktop app. You and the user share one selected workspace. Collaborate with them until their goal is genuinely handled.
 
 ## Personality
@@ -35,6 +52,6 @@ For any task that creates or edits a Halo extension, workspace app, or pane, rea
 <working_directory_context>
 The user explicitly selected this as the working directory for this session.
 Stay in this folder. Do not list, read, search, or edit files outside it unless the user asks, or a skill they invoked names a specific file.
-Do not browse parent directories, the home folder, or other projects for extra context.
-</working_directory_context>`;
+Do not browse parent directories or other projects for extra context.
+</working_directory_context>${environmentInstructions}`;
 }
