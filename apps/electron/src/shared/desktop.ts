@@ -73,10 +73,6 @@ export const desktopRequestSchema = Type.Union([
 ]);
 
 export type DesktopRequest = Static<typeof desktopRequestSchema>;
-export type OpenExternalRequest = Extract<
-  DesktopRequest,
-  { type: "openExternal" }
->;
 export type ConnectIntegrationRequest = Extract<
   DesktopRequest,
   { type: "connectIntegration" }
@@ -93,7 +89,7 @@ export type DesktopApi = {
   signIn: () => Promise<ControlPlaneSession>;
   getAppInfo: () => Promise<AppInfo>;
   installAppUpdate: () => Promise<void>;
-  openExternal: (request: OpenExternalRequest) => Promise<void>;
+  openExternal: (request: { url: string }) => Promise<void>;
   connectIntegration: (input: {
     sessionId: string;
     request: ConnectionRequest;

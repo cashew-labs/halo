@@ -180,11 +180,7 @@ function testAuthSession(): ControlPlaneSession {
 
 app.on("window-all-closed", () => {
   if (process.platform === "darwin") return;
-  void closePendingOAuthCallbacks().catch((cause) => {
-    console.warn("OAuth callback close failed:", cause);
-  });
-  logger.destroy();
-  app.exit(0);
+  app.quit();
 });
 
 app.on("will-quit", () => {

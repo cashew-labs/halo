@@ -18,7 +18,6 @@ import {
   type CancelIntegrationRequest,
   type ConnectIntegrationRequest,
   type DesktopRequest,
-  type OpenExternalRequest,
 } from "../../shared/desktop.js";
 import { getAppInfo, installAppUpdate } from "../app/appUpdate.js";
 import type { DesktopAuthentication } from "../DesktopAuthentication.js";
@@ -91,7 +90,7 @@ async function handleDesktopRequest(args: {
     case "installAppUpdate":
       return installAppUpdate();
     case "openExternal":
-      return await openExternal(args.request);
+      return await openExternalUrl(args.request.url);
     case "connectIntegration":
       return await connectIntegration({
         request: args.request,
@@ -104,30 +103,6 @@ async function handleDesktopRequest(args: {
       });
     default:
       return new DesktopRequestError({ operation: "desktop API" });
-  }
-}
-
-async function openExternal(request: OpenExternalRequest) {
-  const url = errore.try({
-    try: () => new URL(request.url),
-    catch: (e) =>
-      new DesktopOperationError({
-        operation: "open an invalid external URL",
-        cause: e,
-      }),
-  });
-  if (url instanceof Error) return url;
-  if (url.protocol !== "https:" && url.protocol !== "http:") {
-    return new DesktopOperationError({
-      operation: `open an external ${url.protocol} URL`,
-    });
-  }
-  const opened = await openExternalUrl(url.toString());
-  if (opened instanceof Error) {
-    return new DesktopOperationError({
-      operation: "open the URL",
-      cause: opened,
-    });
   }
 }
 
