@@ -280,13 +280,14 @@ export function toolPartLabel(
   }
 
   if (path === "bash" || part.tool.integrationId === "bash") {
-    if (!Value.Check(bashArgsSchema, part.args)) {
+    const command = bashCommand(part);
+    if (command === undefined) {
       return {
         kind: "other",
         text: active ? "Running command" : "Ran command",
       };
     }
-    return { kind: "shell", text: part.args.command };
+    return { kind: "shell", text: command };
   }
 
   return {
@@ -502,7 +503,11 @@ function activityPresenters(
 
 const shellPresenter: ToolActivityPresenter = {
   matches: ({ tool }) => tool.path === "bash" || tool.integrationId === "bash",
-  activeLabel: () => "Running command",
+  activeLabel: (call) => {
+    const command = bashCommand(call);
+    if (command === undefined) return "Running command";
+    return `$ ${command}`;
+  },
   completedSummary: (activities) => {
     const count = completedMatching(activities, shellPresenter).length;
     if (count === 0) return undefined;
@@ -617,6 +622,13 @@ function callPath(call: ToolPart): string | undefined {
     return undefined;
   }
   return call.args.path;
+}
+
+function bashCommand(call: ToolPart): string | undefined {
+  if (!Value.Check(bashArgsSchema, call.args)) {
+    return undefined;
+  }
+  return call.args.command;
 }
 
 function normalizedPath(

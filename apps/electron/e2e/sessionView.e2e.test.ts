@@ -434,7 +434,7 @@ e2eTest(
       summary.getByRole("img", { name: "Expand tool activity" }),
     ).toBeHidden();
     await expect(
-      pane.getByLabel("Active commands").getByText("Running command", {
+      pane.getByLabel("Active commands").getByText(`$ ${command}`, {
         exact: true,
       }),
     ).toBeVisible();
@@ -444,7 +444,7 @@ e2eTest(
     ).toBeVisible();
     await expect(summary.getByRole("status", { name: "Working" })).toBeHidden();
     await expect(
-      pane.getByLabel("Active commands").getByText("Running command", {
+      pane.getByLabel("Active commands").getByText(`$ ${command}`, {
         exact: true,
       }),
     ).toBeVisible();
@@ -731,7 +731,7 @@ e2eTest(
       liveAggregate.getByRole("img", { name: "Expand tool activity" }),
     ).toBeVisible();
     await expect(
-      pane.getByLabel("Active commands").getByText("Running command", {
+      pane.getByLabel("Active commands").getByText(`$ ${secondCommand}`, {
         exact: true,
       }),
     ).toBeVisible();
