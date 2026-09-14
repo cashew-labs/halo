@@ -35,6 +35,13 @@ e2eTest(
     });
     expect(reloaded.code, `${reloaded.stdout}\n${reloaded.stderr}`).toBe(0);
 
+    const listed = await harness.tools.bash.run({
+      command: "halo extension list",
+    });
+    expect(listed.code, `${listed.stdout}\n${listed.stderr}`).toBe(0);
+    expect(listed.stdout).toContain("greeting");
+    expect(listed.stdout).toContain("http://127.0.0.1:");
+
     await app.page.reload();
     await app.page.getByRole("link", { name: "greeting", exact: true }).click();
     const pane = app.page
@@ -42,6 +49,34 @@ e2eTest(
       .contentFrame();
     await expect(
       pane.getByRole("heading", { name: "Authored through Halo tools" }),
+    ).toBeVisible();
+
+    await harness.tools.files.write({
+      path: ".halo/extensions/greeting/view.tsx",
+      content: `
+        import { H1, MauiProvider, Padding } from "maui";
+
+        export default function View() {
+          return (
+            <MauiProvider>
+              <Padding xy={8}><H1>Updated through Halo tools</H1></Padding>
+            </MauiProvider>
+          );
+        }
+      `,
+    });
+    const updated = await harness.tools.bash.run({
+      command: "halo extension update greeting",
+    });
+    expect(updated.code, `${updated.stdout}\n${updated.stderr}`).toBe(0);
+
+    await app.page.reload();
+    await app.page.getByRole("link", { name: "greeting", exact: true }).click();
+    await expect(
+      app.page
+        .getByTitle("greeting", { exact: true })
+        .contentFrame()
+        .getByRole("heading", { name: "Updated through Halo tools" }),
     ).toBeVisible();
   },
 );

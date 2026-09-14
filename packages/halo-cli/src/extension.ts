@@ -7,6 +7,8 @@ import * as errore from "errore";
 import { connectHalo, type HaloRpcEnv } from "./connectHalo.js";
 import { packDevelopmentExtensions } from "./extensionDevelopment.js";
 
+type HaloConnection = Exclude<Awaited<ReturnType<typeof connectHalo>>, Error>;
+
 class ExtensionCommandError extends errore.createTaggedError({
   name: "ExtensionCommandError",
   message: "Extension command failed: $detail",
@@ -19,18 +21,38 @@ const env = z.object({
 });
 
 export const extension = Cli.create("extension", {
-  description: "Create and load standalone workspace extensions",
+  description: "Access, create, and manage workspace extensions",
 })
+  .command("list", {
+    description: "List running extensions and their direct view URLs",
+    env,
+    async run(c) {
+      const connected = await connectHalo(c.env);
+      if (connected instanceof Error) {
+        return c.error({ code: "NOT_RUNNING", message: connected.message });
+      }
+      const extensions = await connected.client.extensions
+        .list()
+        .catch(
+          (cause) =>
+            new ExtensionCommandError({ detail: "list extensions", cause }),
+        );
+      if (extensions instanceof Error) {
+        return c.error({ code: "EXTENSION", message: extensions.message });
+      }
+      return c.ok(extensions);
+    },
+  })
   .command("new", {
     description: "Scaffold an extension and install its dependencies",
     args: z.object({ id: z.string().regex(/^[a-z][a-z0-9-]*$/) }),
     env,
     async run(c) {
-      const workspaceRoot = await getWorkspaceRoot(c.env);
-      if (workspaceRoot instanceof Error)
-        return c.error({ code: "EXTENSION", message: workspaceRoot.message });
+      const workspace = await getWorkspace(c.env);
+      if (workspace instanceof Error)
+        return c.error({ code: "EXTENSION", message: workspace.message });
       const created = await createExtension({
-        workspaceRoot,
+        workspaceRoot: workspace.workspaceRoot,
         id: c.args.id,
         sourceDirectory: c.env.HALO_EXTENSION_SOURCE,
       });
@@ -42,7 +64,7 @@ export const extension = Cli.create("extension", {
   })
   .command("update", {
     description:
-      "Install the local SDK and build tools, then rebuild an extension (development)",
+      "Install local packages, rebuild, and restart an extension (development)",
     args: z.object({ id: z.string().regex(/^[a-z][a-z0-9-]*$/) }),
     env,
     async run(c) {
@@ -51,16 +73,21 @@ export const extension = Cli.create("extension", {
           code: "DEVELOPMENT_ONLY",
           message: "Use the workspace's halo command from the development app.",
         });
-      const workspaceRoot = await getWorkspaceRoot(c.env);
-      if (workspaceRoot instanceof Error)
-        return c.error({ code: "EXTENSION", message: workspaceRoot.message });
+      const workspace = await getWorkspace(c.env);
+      if (workspace instanceof Error)
+        return c.error({ code: "EXTENSION", message: workspace.message });
       const packages = await packDevelopmentExtensions({
         sourceDirectory: c.env.HALO_EXTENSION_SOURCE,
-        workspaceRoot,
+        workspaceRoot: workspace.workspaceRoot,
       });
       if (packages instanceof Error)
         return c.error({ code: "EXTENSION", message: packages.message });
-      const directory = join(workspaceRoot, ".halo", "extensions", c.args.id);
+      const directory = join(
+        workspace.workspaceRoot,
+        ".halo",
+        "extensions",
+        c.args.id,
+      );
       for (const args of [
         ["install", "--save", `@get-halo/extension-sdk@${packages.sdk}`],
         [
@@ -75,10 +102,15 @@ export const extension = Cli.create("extension", {
         if (result instanceof Error)
           return c.error({ code: "EXTENSION", message: result.message });
       }
+
+      const restarted = await restartExtension(workspace.connection, c.args.id);
+      if (restarted instanceof Error)
+        return c.error({ code: "EXTENSION", message: restarted.message });
+
       return c.ok({
         id: c.args.id,
         directory,
-        next: "Restart the workspace server to load the rebuilt extension process.",
+        next: "Reload or reopen the extension pane to use the updated build.",
       });
     },
   })
@@ -101,6 +133,22 @@ export const extension = Cli.create("extension", {
         return c.error({ code: "EXTENSION", message: reloaded.message });
       }
       return c.ok(reloaded);
+    },
+  })
+  .command("restart", {
+    description: "Restart a running extension using its current build",
+    args: z.object({ id: z.string().regex(/^[a-z][a-z0-9-]*$/) }),
+    env,
+    async run(c) {
+      const connected = await connectHalo(c.env);
+      if (connected instanceof Error) {
+        return c.error({ code: "NOT_RUNNING", message: connected.message });
+      }
+      const restarted = await restartExtension(connected, c.args.id);
+      if (restarted instanceof Error) {
+        return c.error({ code: "EXTENSION", message: restarted.message });
+      }
+      return c.ok({ id: c.args.id });
     },
   });
 
@@ -161,7 +209,7 @@ async function runNpm(directory: string, args: string[]) {
   );
 }
 
-async function getWorkspaceRoot(environment: HaloRpcEnv) {
+async function getWorkspace(environment: HaloRpcEnv) {
   const connected = await connectHalo(environment);
   if (connected instanceof Error) return connected;
   const workspace = await connected.client.workspace
@@ -172,5 +220,15 @@ async function getWorkspaceRoot(environment: HaloRpcEnv) {
   if (workspace instanceof Error) return workspace;
   if (workspace === undefined)
     return new ExtensionCommandError({ detail: "Open a workspace first" });
-  return workspace.workspaceRoot;
+  return { connection: connected, workspaceRoot: workspace.workspaceRoot };
+}
+
+async function restartExtension(connection: HaloConnection, id: string) {
+  return await connection.client.extensions.restart({ id }).catch(
+    (cause) =>
+      new ExtensionCommandError({
+        detail: `restart extension ${id}`,
+        cause,
+      }),
+  );
 }

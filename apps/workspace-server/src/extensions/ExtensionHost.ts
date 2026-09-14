@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { Logger } from "@repo/logger";
+import * as errore from "errore";
 import {
   FilesystemPathNotFoundError,
   type FilesystemService,
@@ -15,10 +16,15 @@ type RunningExtension = Exclude<
   Error
 >;
 
+class ExtensionNotRunningError extends errore.createTaggedError({
+  name: "ExtensionNotRunningError",
+  message: "Extension '$id' is not running",
+}) {}
+
 export class ExtensionHost {
   // Extension processes indexed by extension ID.
   private readonly processes = new Map<string, RunningExtension>();
-  // Orders discovery and shutdown so process changes do not overlap.
+  // Serializes extension process changes.
   private readonly actionQueue = new SerialQueue();
   // Maps bearer tokens to the extensions allowed to use them.
   private readonly toolTokens = new Map<string, string>();
@@ -141,34 +147,50 @@ export class ExtensionHost {
         a.name.localeCompare(b.name),
       )) {
         if (this.processes.get(entry.name)?.isRunning()) continue;
-        this.removeToolConnection(entry.name);
-        const token = randomUUID();
-        this.toolTokens.set(`Bearer ${token}`, entry.name);
-        const extension = await startExtension({
-          id: entry.name,
-          workspaceRoot,
-          directory: join(directory, entry.name),
-          dataDirectory: join(
-            workspaceRoot,
-            ".halo",
-            "extension-data",
-            entry.name,
-          ),
-          runtime: this.runtime,
-          logger: this.logger,
-          tools: { origin: this.toolsOrigin, token },
-        });
-        if (extension instanceof Error) {
-          this.removeToolConnection(entry.name);
+        const started = await this.startUnqueued(entry.name);
+        if (started instanceof Error) {
           this.logger.warn({
             event: "extension-start-failed",
-            error: extension,
+            error: started,
           });
-          continue;
         }
-        this.processes.set(entry.name, extension);
       }
     });
+  }
+
+  async restart(id: string) {
+    return await this.actionQueue.run(async () => {
+      const extension = this.processes.get(id);
+      if (extension === undefined || !extension.isRunning())
+        return new ExtensionNotRunningError({ id });
+
+      const stopped = await extension.stop();
+      this.processes.delete(id);
+      this.removeToolConnection(id);
+      if (stopped instanceof Error) return stopped;
+
+      return await this.startUnqueued(id);
+    });
+  }
+
+  private async startUnqueued(id: string) {
+    this.removeToolConnection(id);
+    const token = randomUUID();
+    this.toolTokens.set(`Bearer ${token}`, id);
+    const extension = await startExtension({
+      id,
+      workspaceRoot: this.workspaceRoot,
+      directory: join(this.workspaceRoot, ".halo", "extensions", id),
+      dataDirectory: join(this.workspaceRoot, ".halo", "extension-data", id),
+      runtime: this.runtime,
+      logger: this.logger,
+      tools: { origin: this.toolsOrigin, token },
+    });
+    if (extension instanceof Error) {
+      this.removeToolConnection(id);
+      return extension;
+    }
+    this.processes.set(id, extension);
   }
 
   private removeToolConnection(id: string) {
