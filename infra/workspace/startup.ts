@@ -87,5 +87,18 @@ systemctl daemon-reload
 systemctl enable halo
 /usr/local/bin/halo-workspace-pull
 systemctl restart halo
+
+for attempt in $(seq 1 120); do
+  if health=$(docker inspect --format '{{.State.Health.Status}}' halo-workspace 2>/dev/null); then
+    if [ "$health" = "healthy" ]; then
+      echo "HALO_WORKSPACE_READY image=${ctx.image}"
+      exit 0
+    fi
+  fi
+  sleep 5
+done
+
+echo "Halo workspace did not become healthy"
+exit 1
 `;
 }
