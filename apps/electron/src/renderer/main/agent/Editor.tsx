@@ -1,15 +1,10 @@
 import type React from "react";
-import { useEffect } from "react";
-import { Markdown } from "@tiptap/markdown";
-import Placeholder from "@tiptap/extension-placeholder";
-import { EditorContent, useEditor } from "@tiptap/react";
-import StarterKit from "@tiptap/starter-kit";
+import { EditorContent } from "@tiptap/react";
 import {
   backgroundColor,
   colors,
   flex,
   focusRing,
-  proseHtml,
   proseMaxWidth,
   radius,
   shadow,
@@ -19,7 +14,7 @@ import {
 } from "maui";
 import { style, useStyles } from "purse-styles";
 import { proseInlineCode } from "./proseInlineCode.ts";
-import { useRefCurrent } from "./useRefCurrent.ts";
+import { useMarkdownEditor } from "../useMarkdownEditor.js";
 
 type EditorProps = {
   /** Initial markdown content. Updates are applied when this value changes. */
@@ -57,78 +52,18 @@ export function Editor({
 }: EditorProps) {
   const shellClassName = useStyles(editorShellClass);
   const actionsClassName = useStyles(editorActionsClass);
-  const proseClassName = useStyles(proseHtml(size));
   const inlineCodeClassName = useStyles(proseInlineCode);
-  const onChangeRef = useRefCurrent(onChange);
-  const onSubmitRef = useRefCurrent(onSubmit);
-
-  const editor = useEditor({
-    extensions: [
-      StarterKit.configure({
-        heading: { levels: [1, 2, 3, 4] },
-        link: {
-          openOnClick: false,
-        },
-        code: {
-          HTMLAttributes: {
-            class: inlineCodeClassName,
-          },
-        },
-      }),
-      Markdown,
-      Placeholder.configure({
-        placeholder,
-      }),
-    ],
+  const editor = useMarkdownEditor({
     content,
-    contentType: "markdown",
-    autofocus: autoFocus,
+    autoFocus,
+    onChange,
+    placeholder,
+    size,
     editable,
-    immediatelyRender: false,
-    editorProps: {
-      attributes: {
-        "aria-label": ariaLabel,
-        class: `maui-editor-prose ${proseClassName}`,
-      },
-      handleKeyDown: (_view, event) => {
-        if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-          event.preventDefault();
-          onSubmitRef.current?.();
-          return true;
-        }
-        return false;
-      },
-    },
-    onUpdate: ({ editor: current }) => {
-      onChangeRef.current?.(current.getMarkdown());
-    },
+    "aria-label": ariaLabel,
+    onSubmit,
+    inlineCodeClassName,
   });
-
-  useEffect(() => {
-    if (!editor) return;
-    editor.setEditable(editable);
-  }, [editor, editable]);
-
-  useEffect(() => {
-    if (!editor) return;
-    editor.setOptions({
-      editorProps: {
-        ...editor.options.editorProps,
-        attributes: {
-          ...editor.options.editorProps?.attributes,
-          "aria-label": ariaLabel,
-          class: `maui-editor-prose ${proseClassName}`,
-        },
-      },
-    });
-  }, [editor, ariaLabel, proseClassName]);
-
-  useEffect(() => {
-    if (!editor) return;
-    const current = editor.getMarkdown();
-    if (content === current) return;
-    editor.commands.setContent(content, { contentType: "markdown" });
-  }, [editor, content]);
 
   return (
     <div

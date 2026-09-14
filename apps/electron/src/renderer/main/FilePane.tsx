@@ -5,7 +5,6 @@ import { MediaFilePreview } from "./MediaFilePreview.js";
 import { TextFileEditor } from "./TextFileEditor.js";
 import {
   Button,
-  Editor,
   backgroundColor,
   flex,
   proseMaxWidth,
@@ -17,7 +16,8 @@ import { useWorkspaceFileQuery } from "../api/ApiProvider.tsx";
 import { CodeViewFileEditor } from "./CodeViewFileEditor.tsx";
 import { fileKind } from "./fileKind.ts";
 import { PaneHeader } from "./PaneHeader.tsx";
-import { flushFileAutosaves, useAutosaveFile } from "./useAutosaveFile.ts";
+import { flushFileAutosaves } from "./useAutosaveFile.ts";
+import { MarkdownFileEditor } from "./MarkdownFileEditor.js";
 
 export function FilePane({ path }: { path: string }) {
   const api = useApi();
@@ -101,27 +101,6 @@ function TextFileContent({ path }: { path: string }) {
   );
 }
 
-function MarkdownFileEditor({
-  path,
-  loaded,
-}: {
-  path: string;
-  loaded: string;
-}) {
-  const autosave = useAutosaveFile({ path, loaded });
-  const editor = useStyles(styles.markdownEditor);
-  return (
-    <Editor
-      content={loaded}
-      onChange={autosave.onChange}
-      placeholder="Write…"
-      aria-label={path}
-      size="sm"
-      className={editor}
-    />
-  );
-}
-
 const styles = {
   pane: style(flex({ direction: "column" }), {
     width: "100%",
@@ -150,10 +129,6 @@ const styles = {
     marginInline: "auto",
     minWidth: 0,
     height: "100%",
-  }),
-  markdownEditor: style(flex({ direction: "column" }), {
-    minHeight: "100%",
-    "& .ProseMirror": { flex: "1 0 auto" },
   }),
   codeContent: style({
     width: "100%",
