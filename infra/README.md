@@ -55,6 +55,12 @@ Always review the selected stack and preview before applying a change. The
 Cloud SQL instance, application secrets, and Cloud Run service have deletion
 protection in both their GCP configuration and Pulumi state.
 
+Normal production changes ship through a release PR created by
+`pnpm prerelease <version>`. CI previews this stack on the PR. Merging builds the
+versioned images, applies the stack, recreates workspace VMs with their durable
+data disks, and publishes the desktop release. The local commands above remain
+available for recovery and infrastructure development.
+
 ## Bootstrap resources
 
 For a new project only, create the backend prerequisites from the repository
@@ -71,7 +77,7 @@ an interrupted setup. The deployment identity needs permission to enable
 services, manage the state bucket, and create and use the KMS key. Workspace
 runtime identities must not have access to the state bucket or key.
 
-## Build and deploy images
+## Manually build and deploy images
 
 Build the control-plane image with outputs from the `west` stack:
 

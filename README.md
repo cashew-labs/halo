@@ -94,9 +94,28 @@ pnpm --filter @halo/desktop make
 
 Electron Forge writes packaged apps to `apps/electron/out`.
 
-## Publishing
+## Releasing
 
-`Publish Electron` (`.github/workflows/publish-electron.yml`) builds installers on a version tag and uploads them to a GitHub Release. The tag name must equal `apps/electron/package.json` `version` (for example version `0.1.1` → tag `0.1.1`).
+Halo uses one release PR for its infrastructure, cloud services, workspace VMs,
+and desktop application. From a clean, up-to-date `main` branch, run:
+
+```sh
+pnpm prerelease 0.1.44
+```
+
+The command creates `release/0.1.44`, bumps the desktop and production image
+versions, adds `releases/0.1.44.json`, pushes the branch, and opens the PR.
+
+The PR runs the normal repository checks and posts the production Pulumi preview.
+Merging it runs `Release Halo` in this order:
+
+1. Run the packaged macOS tests.
+2. Build versioned control-plane and workspace images.
+3. Apply the production Pulumi stack.
+4. Check the control-plane health endpoint.
+5. Recreate each workspace VM while preserving its durable data disk.
+6. Create the matching tag and GitHub Release.
+7. Build, sign, notarize, and publish the desktop application.
 
 Packaged macOS and Windows builds check for updates through [update.electronjs.org](https://update.electronjs.org), which reads those GitHub Releases. macOS builds are signed and notarized in CI.
 
@@ -116,18 +135,22 @@ Create a GitHub Environment named `Release` (name is case-sensitive) and add:
 - `APPLE_API_KEY_ID` — App Store Connect API key id
 - `APPLE_API_ISSUER` — App Store Connect issuer UUID
 
-### Run a publish
+Do not add required reviewers to the `Release` environment. Reviewing and merging
+the release PR is the production approval.
 
-1. Set `version` in `apps/electron/package.json`.
-2. Commit that change on `main`.
-3. Create and push a matching tag:
+Configure GitHub Actions to authenticate to GCP through Workload Identity
+Federation, then add these repository variables:
 
-```sh
-git tag 0.1.1
-git push origin 0.1.1
-```
+- `GCP_WORKLOAD_IDENTITY_PROVIDER` — full Workload Identity provider resource
+  name.
+- `GCP_DEPLOY_SERVICE_ACCOUNT` — deployment service account email.
 
-Artifacts appear on the GitHub Release for that tag.
+The identity needs access to the Pulumi state bucket and KMS key, permission to
+submit the existing Cloud Build configurations, and the GCP permissions required
+by the production Pulumi stack. Require PR review and `Check / check-affected`
+plus `Release Halo / Release ready` through the `main` branch ruleset. The
+second check is lightweight for ordinary PRs and requires a successful Pulumi
+preview for release PRs.
 
 ## Checks
 

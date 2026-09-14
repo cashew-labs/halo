@@ -11,7 +11,7 @@ Halo is an open-source self-modifiable desktop app built with Electron and Pi. I
 
 ## Releasing
 
-Bump `apps/electron/package.json` `version`, commit, then create and push a git tag with that exact same version string (no `v` prefix). Example: version `0.1.1` → tag `0.1.1`. That tag push runs `Publish Electron`, which builds installers and uploads them to a non-draft GitHub Release. Packaged apps check for updates via `update.electronjs.org`.
+Run `pnpm prerelease <version>` from a clean, up-to-date `main` branch. It creates and opens a release PR that bumps the desktop version and pins the production images. CI tests the PR and previews Pulumi. Merging deploys the control plane and workspace VMs before publishing the desktop application and matching GitHub tag. Packaged apps check for updates via `update.electronjs.org`.
 
 ## Code Style
 
