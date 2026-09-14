@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import nodePath from "node:path";
 import { expect } from "@playwright/test";
-import type { DesktopApi } from "../src/shared/desktop.js";
+import type { HostApi } from "../src/shared/desktop.js";
 import { e2eTest } from "./e2eTest.js";
 
 e2eTest("opens the server-configured workspace", async ({ harness, app }) => {
@@ -21,10 +21,10 @@ e2eTest("opens the server-configured workspace", async ({ harness, app }) => {
 e2eTest("rejects a non-web external URL", async ({ app }) => {
   await expect(
     app.page.evaluate(async () => {
-      // SAFETY: Halo's preload exposes DesktopApi as window.haloDesktop.
-      const desktopApi = (window as typeof window & { haloDesktop: DesktopApi })
-        .haloDesktop;
-      await desktopApi.openExternal({
+      // SAFETY: Halo's preload exposes HostApi as window.haloHost.
+      const hostApi = (window as typeof window & { haloHost: HostApi })
+        .haloHost;
+      await hostApi.openExternal({
         url: "file:///tmp/halo-external-url-test",
       });
     }),

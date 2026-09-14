@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useIsMutating } from "@tanstack/react-query";
 import { useApi } from "../api/ApiProvider.js";
-import { desktopApi } from "../api/electron.js";
+import { hostApi } from "../api/host.js";
 import { MediaFilePreview } from "./MediaFilePreview.js";
 import { TextFileEditor } from "./TextFileEditor.js";
 import {
@@ -31,7 +31,7 @@ export function FilePane({ path }: { path: string }) {
     mutationFn: async () => {
       const saved = await flushFileAutosaves();
       if (saved instanceof Error) throw saved;
-      return await desktopApi.openWorkspaceFile(path);
+      return await hostApi.openWorkspaceFile(path);
     },
   });
   const pane = useStyles(styles.pane);
