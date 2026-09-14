@@ -50,7 +50,7 @@ export type SessionViewPart =
 
 type ToolActivitySummary = {
   completed: string[];
-  active: string[];
+  active: Array<{ id: string; label: ToolPartLabel }>;
 };
 
 type ReducedToolInvocation = Pick<
@@ -63,7 +63,6 @@ type ReducedToolInvocation = Pick<
 
 type ToolActivityPresenter = {
   matches(call: ToolPart): boolean;
-  activeLabel(call: ToolPart): string;
   completedSummary(calls: readonly ToolPart[]): string | undefined;
 };
 
@@ -433,19 +432,13 @@ export function summarizeToolActivities(args: {
     const summary = presenter.completedSummary(summarizedCalls);
     return summary === undefined ? [] : [summary];
   });
-  const active: string[] = [];
-  if (live) {
-    const seen = new Set<string>();
-    for (const call of summarizedCalls) {
-      if (call.status !== "active") continue;
-      const presenter = presenters.find((candidate) => candidate.matches(call));
-      if (presenter === undefined) continue;
-      const label = presenter.activeLabel(call);
-      if (seen.has(label)) continue;
-      seen.add(label);
-      active.push(label);
-    }
-  }
+  const active = live
+    ? summarizedCalls.flatMap((call) =>
+        call.status === "active"
+          ? [{ id: call.id, label: toolPartLabel(call, workspaceRoot) }]
+          : [],
+      )
+    : [];
   return { completed, active };
 }
 
@@ -503,11 +496,6 @@ function activityPresenters(
 
 const shellPresenter: ToolActivityPresenter = {
   matches: ({ tool }) => tool.path === "bash" || tool.integrationId === "bash",
-  activeLabel: (call) => {
-    const command = bashCommand(call);
-    if (command === undefined) return "Running command";
-    return `$ ${command}`;
-  },
   completedSummary: (activities) => {
     const count = completedMatching(activities, shellPresenter).length;
     if (count === 0) return undefined;
@@ -517,7 +505,6 @@ const shellPresenter: ToolActivityPresenter = {
 
 const toolSearchPresenter: ToolActivityPresenter = {
   matches: isToolSearch,
-  activeLabel: () => "Searching tools",
   completedSummary: (calls) =>
     completedMatching(calls, toolSearchPresenter).length === 0
       ? undefined
@@ -536,15 +523,6 @@ function filePresenter(
       if (tool.integrationId !== "files") return false;
       const operation = tool.path.split(".").at(-1);
       return operation !== undefined && operations.has(operation);
-    },
-    activeLabel: (call) => {
-      const path = callPath(call);
-      if (path === undefined)
-        return mode === "read" ? "Reading file" : "Writing file";
-      const visiblePath = stripWorkspaceRootPrefix(path, workspaceRoot);
-      return mode === "read"
-        ? `Reading ${visiblePath}`
-        : `Writing ${visiblePath}`;
     },
     completedSummary: (activities) => {
       const uniquePaths = new Set<string>();
@@ -572,8 +550,6 @@ const integrationPresenter: ToolActivityPresenter = {
     (!shellPresenter.matches(call) &&
       !toolSearchPresenter.matches(call) &&
       !isFileActivity(call)),
-  activeLabel: ({ tool }) =>
-    tool.path === "exec" ? "Using tools" : `Using ${tool.displayName}`,
   completedSummary: (activities) => {
     const labels: string[] = [];
     const seen = new Set<string>();

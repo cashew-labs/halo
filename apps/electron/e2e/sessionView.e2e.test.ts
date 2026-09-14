@@ -434,7 +434,7 @@ e2eTest(
       summary.getByRole("img", { name: "Expand tool activity" }),
     ).toBeHidden();
     await expect(
-      pane.getByLabel("Active commands").getByText(`$ ${command}`, {
+      pane.getByLabel("Active tools").getByText(`$ ${command}`, {
         exact: true,
       }),
     ).toBeVisible();
@@ -444,12 +444,12 @@ e2eTest(
     ).toBeVisible();
     await expect(summary.getByRole("status", { name: "Working" })).toBeHidden();
     await expect(
-      pane.getByLabel("Active commands").getByText(`$ ${command}`, {
+      pane.getByLabel("Active tools").getByText(`$ ${command}`, {
         exact: true,
       }),
     ).toBeVisible();
     await summary.click();
-    await expect(pane.getByLabel("Active commands")).toHaveCount(0);
+    await expect(pane.getByLabel("Active tools")).toHaveCount(0);
     await expect(
       pane.getByRole("button", {
         name: "Read notes.md (files.read)",
@@ -489,7 +489,7 @@ e2eTest(
         exact: true,
       }),
     ).toBeVisible();
-    await expect(restored.getByLabel("Active commands")).toHaveCount(0);
+    await expect(restored.getByLabel("Active tools")).toHaveCount(0);
     await restored
       .getByRole("button", {
         name: "Ran 1 command and read 1 file",
@@ -715,7 +715,15 @@ e2eTest(
       http.request("/second"),
     ]);
     const pane = app.page.getByRole("main");
+    const activeTools = pane.getByLabel("Active tools");
+    await expect(
+      activeTools.getByText(`$ ${firstCommand}`, { exact: true }),
+    ).toBeVisible();
+    await expect(
+      activeTools.getByText(`$ ${secondCommand}`, { exact: true }),
+    ).toBeVisible();
     await pane.getByRole("button", { name: "Working", exact: true }).click();
+    await expect(activeTools).toHaveCount(0);
     first.respond("First report");
     await pane
       .getByRole("button", { name: `${firstCommand} (bash)`, exact: true })
@@ -735,7 +743,7 @@ e2eTest(
     await expect(
       liveAggregate.getByRole("img", { name: "Expand tool activity" }),
     ).toBeVisible();
-    await expect(pane.getByLabel("Active commands")).toHaveCount(0);
+    await expect(pane.getByLabel("Active tools")).toHaveCount(0);
     await expect(
       pane.getByRole("button", {
         name: `${firstCommand} (bash)`,
@@ -764,7 +772,40 @@ e2eTest(
     await expect(settled.getByRole("status", { name: "Working" })).toHaveCount(
       0,
     );
-    await expect(pane.getByLabel("Active commands")).toHaveCount(0);
+    await expect(pane.getByLabel("Active tools")).toHaveCount(0);
+  },
+);
+
+e2eTest(
+  "shows identical parallel commands as separate active work",
+  async ({ app, llm }) => {
+    await app.page.getByRole("button", { name: "New session" }).click();
+    await app.page
+      .getByLabel("Message", { exact: true })
+      .fill("Run the same command twice");
+    await app.page.getByRole("button", { name: "Send", exact: true }).click();
+    const command = "sleep 5; echo done";
+    await llm.respond([
+      m.tool.start("bash", {
+        id: "first",
+        arguments: { command },
+      }),
+      m.tool.start("bash", {
+        id: "second",
+        arguments: { command },
+      }),
+    ]);
+
+    await expect(
+      app.page
+        .getByLabel("Active tools")
+        .getByText(`$ ${command}`, { exact: true }),
+    ).toHaveCount(2);
+
+    await llm.respond(m.assistant("Both commands finished."));
+    await expect(
+      app.page.getByText("Both commands finished.", { exact: true }),
+    ).toBeVisible();
   },
 );
 

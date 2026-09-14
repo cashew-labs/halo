@@ -40,18 +40,15 @@ export function ToolActivity({ part }: { part: ToolActivityPart }) {
   const summaryClassName = useStyles(styles.summary);
   const thinkingClassName = useStyles(styles.thinking);
   const markClassName = useStyles(styles.mark);
-  const activeCommandsClassName = useStyles(styles.activeCommands);
-  const activeCommandClassName = useStyles(styles.activeCommand);
-  const activeShellCommandClassName = useStyles(
-    styles.activeCommand,
-    styles.shell,
-  );
+  const activeToolsClassName = useStyles(styles.activeTools);
+  const activeToolClassName = useStyles(styles.activeTool);
+  const activeShellToolClassName = useStyles(styles.activeTool, styles.shell);
   const interactive = calls.length > 0;
   const visibleCalls = expanded ? calls : [];
   const completedLabel = joinSummary(summary.completed);
   if (completedLabel === undefined && !part.live) return undefined;
   const headerLabel = completedLabel === undefined ? "Working" : completedLabel;
-  const activeLabels = expanded ? [] : summary.active;
+  const activeTools = expanded ? [] : summary.active;
 
   return (
     <div className={activityClassName} aria-label="Tool activity">
@@ -92,18 +89,18 @@ export function ToolActivity({ part }: { part: ToolActivityPart }) {
           {headerLabel}
         </div>
       )}
-      {activeLabels.length === 0 ? undefined : (
-        <div className={activeCommandsClassName} aria-label="Active commands">
-          {activeLabels.map((label) => (
+      {activeTools.length === 0 ? undefined : (
+        <div className={activeToolsClassName} aria-label="Active tools">
+          {activeTools.map(({ id, label }) => (
             <div
-              key={label}
+              key={id}
               className={
-                label.startsWith("$ ")
-                  ? activeShellCommandClassName
-                  : activeCommandClassName
+                label.kind === "shell"
+                  ? activeShellToolClassName
+                  : activeToolClassName
               }
             >
-              {label}
+              {label.kind === "shell" ? `$ ${label.text}` : label.text}
             </div>
           ))}
         </div>
@@ -278,11 +275,11 @@ const styles = {
       opacity: 0,
     },
   }),
-  activeCommands: style(flex({ direction: "column", gap: 2 }), nestedIndent, {
+  activeTools: style(flex({ direction: "column", gap: 2 }), nestedIndent, {
     minWidth: 0,
     marginTop: spacing.value(3),
   }),
-  activeCommand: style(
+  activeTool: style(
     text({ size: "md", fontWeight: 400, color: "lowContrast" }),
     {
       minWidth: 0,
