@@ -6,11 +6,6 @@ import { LOG_CHANNELS } from "../shared/channels.js";
 import { DESKTOP_CHANNEL, type DesktopApi } from "../shared/desktop.js";
 
 const desktopApi: DesktopApi = {
-  openWorkspaceFile: async (path) =>
-    await ipcRenderer.invoke(DESKTOP_CHANNEL, {
-      type: "openWorkspaceFile",
-      path,
-    }),
   getConnection: async () =>
     await ipcRenderer.invoke(DESKTOP_CHANNEL, { type: "getConnection" }),
   getAuthSession: async () =>

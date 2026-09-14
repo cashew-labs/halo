@@ -196,7 +196,7 @@ export class WorkspaceService {
     if (metadata.size > 100 * 1024 * 1024) {
       return {
         kind: "unsupported" as const,
-        reason: "Files larger than 100 MB can be opened in their default app.",
+        reason: "Files larger than 100 MB cannot be previewed.",
       };
     }
     const contents = await this.options.filesystem.readFile(absolutePath);

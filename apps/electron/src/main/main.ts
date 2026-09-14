@@ -23,7 +23,6 @@ import { JsonlLoggerSink } from "@repo/logger/JsonlLoggerSink";
 import { PrettyConsoleLoggerSink } from "@repo/logger/PrettyConsoleLoggerSink";
 import started from "electron-squirrel-startup";
 import { LOG_CHANNELS } from "../shared/channels.js";
-import { readWorkspaceServerConnection } from "@get-halo/workspace-server/connection";
 import { checkForUpdates, startAppUpdates } from "./app/appUpdate.js";
 import {
   createLocalDesktopAuthentication,
@@ -88,8 +87,6 @@ app.whenReady().then(async () => {
   registerDesktopApi({
     authentication,
     getConnection: async () => await getWorkspaceConnection(authentication),
-    getServer: async () =>
-      await readWorkspaceServerConnection(applicationConfig.dataDir),
     ownsWindow: (window) => windows.has(window),
   });
   installMenu();
