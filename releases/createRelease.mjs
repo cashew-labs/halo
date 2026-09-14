@@ -61,7 +61,7 @@ const releasePath = path.join(releaseDirectory, `${version}.json`);
 fs.mkdirSync(releaseDirectory, { recursive: true });
 fs.writeFileSync(releasePath, `${JSON.stringify({ version }, undefined, 2)}\n`);
 
-run("node", ["scripts/validateRelease.mjs", releasePath]);
+run("node", ["releases/validateRelease.mjs", releasePath]);
 run("git", ["add", desktopPackagePath, pulumiConfigPath, releasePath]);
 run("git", ["commit", "-m", `Release Halo ${version}`]);
 run("git", ["push", "--set-upstream", "origin", releaseBranch]);

@@ -4,7 +4,7 @@ import process from "node:process";
 
 const releasePath = process.argv[2];
 if (releasePath === undefined)
-  fail("Usage: node scripts/validateRelease.mjs <release.json>");
+  fail("Usage: node releases/validateRelease.mjs <release.json>");
 
 const release = JSON.parse(fs.readFileSync(releasePath, "utf8"));
 if (!/^\d+\.\d+\.\d+$/.test(release.version))

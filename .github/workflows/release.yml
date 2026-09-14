@@ -45,7 +45,7 @@ jobs:
             echo "A release must add exactly one releases/<version>.json file"
             exit 1
           fi
-          version="$(node scripts/validateRelease.mjs "${manifests[0]}")"
+          version="$(node releases/validateRelease.mjs "${manifests[0]}")"
           echo "is_release=true" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
