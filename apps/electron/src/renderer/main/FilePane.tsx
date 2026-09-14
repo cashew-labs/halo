@@ -1,22 +1,13 @@
-import { useQuery, useMutation, useIsMutating } from "@tanstack/react-query";
+import { useQuery, useIsMutating } from "@tanstack/react-query";
 import { useApi } from "../api/ApiProvider.js";
-import { desktopApi } from "../api/electron.js";
 import { MediaFilePreview } from "./MediaFilePreview.js";
 import { TextFileEditor } from "./TextFileEditor.js";
-import {
-  Button,
-  backgroundColor,
-  flex,
-  proseMaxWidth,
-  spacing,
-  text,
-} from "maui";
+import { backgroundColor, flex, proseMaxWidth, spacing, text } from "maui";
 import { style, useStyles } from "purse-styles";
 import { useWorkspaceFileQuery } from "../api/ApiProvider.tsx";
 import { CodeViewFileEditor } from "./CodeViewFileEditor.tsx";
 import { fileKind } from "./fileKind.ts";
 import { PaneHeader } from "./PaneHeader.tsx";
-import { flushFileAutosaves } from "./useAutosaveFile.ts";
 import { MarkdownFileEditor } from "./MarkdownFileEditor.js";
 
 export function FilePane({ path }: { path: string }) {
@@ -27,31 +18,11 @@ export function FilePane({ path }: { path: string }) {
     queryFn: async () => await api.workspace.previewFile({ path }),
     gcTime: 0,
   });
-  const open = useMutation({
-    mutationFn: async () => {
-      const saved = await flushFileAutosaves();
-      if (saved instanceof Error) throw saved;
-      return await desktopApi.openWorkspaceFile(path);
-    },
-  });
   const pane = useStyles(styles.pane);
   const status = useStyles(styles.status);
   return (
     <main className={pane} aria-label={path} inert={changingEntry > 0}>
-      <PaneHeader
-        section="Files"
-        title={path}
-        actions={
-          <Button onClick={() => open.mutate()} disabled={open.isPending}>
-            Open externally
-          </Button>
-        }
-      />
-      {open.isError && (
-        <div role="alert" className={status}>
-          {open.error.message}
-        </div>
-      )}
+      <PaneHeader section="Files" title={path} />
       {preview.isPending ? (
         <div className={status}>Loading file…</div>
       ) : preview.isError ? (

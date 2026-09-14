@@ -42,13 +42,13 @@ export function workspaceFilePreview(
   if (!isUtf8(contents) || contents.includes(0)) {
     return {
       kind: "unsupported",
-      reason: "This file type has no preview. Open it in its default app.",
+      reason: "This file type has no preview.",
     };
   }
   if (contents.length > 5 * 1024 * 1024) {
     return {
       kind: "unsupported",
-      reason: "Text files larger than 5 MB can be opened in their default app.",
+      reason: "Text files larger than 5 MB cannot be previewed.",
     };
   }
   return { kind: "text" };

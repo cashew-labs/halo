@@ -588,7 +588,7 @@ e2eTest(
     ).toHaveValue("1");
     await expect(
       page.getByRole("button", { name: "Open externally", exact: true }),
-    ).toBeVisible();
+    ).toHaveCount(0);
   },
 );
 
@@ -632,13 +632,11 @@ e2eTest(
       .toBe(1);
     await page.getByRole("link", { name: "archive.zip", exact: true }).click();
     await expect(
-      page.getByText(
-        "This file type has no preview. Open it in its default app.",
-      ),
+      page.getByText("This file type has no preview."),
     ).toBeVisible();
     await expect(
       page.getByRole("button", { name: "Open externally", exact: true }),
-    ).toBeEnabled();
+    ).toHaveCount(0);
   },
 );
 
