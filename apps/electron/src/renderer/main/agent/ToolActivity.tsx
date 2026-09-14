@@ -4,6 +4,7 @@ import {
   Thinking,
   colors,
   flex,
+  monospace,
   motionDurationMs,
   motionEasing,
   spacing,
@@ -41,12 +42,16 @@ export function ToolActivity({ part }: { part: ToolActivityPart }) {
   const markClassName = useStyles(styles.mark);
   const activeCommandsClassName = useStyles(styles.activeCommands);
   const activeCommandClassName = useStyles(styles.activeCommand);
+  const activeShellCommandClassName = useStyles(
+    styles.activeCommand,
+    styles.shell,
+  );
   const interactive = calls.length > 0;
   const visibleCalls = expanded ? calls : [];
   const completedLabel = joinSummary(summary.completed);
   if (completedLabel === undefined && !part.live) return undefined;
   const headerLabel = completedLabel === undefined ? "Working" : completedLabel;
-  const activeLabels = summary.active;
+  const activeLabels = expanded ? [] : summary.active;
 
   return (
     <div className={activityClassName} aria-label="Tool activity">
@@ -90,7 +95,14 @@ export function ToolActivity({ part }: { part: ToolActivityPart }) {
       {activeLabels.length === 0 ? undefined : (
         <div className={activeCommandsClassName} aria-label="Active commands">
           {activeLabels.map((label) => (
-            <div key={label} className={activeCommandClassName}>
+            <div
+              key={label}
+              className={
+                label.startsWith("$ ")
+                  ? activeShellCommandClassName
+                  : activeCommandClassName
+              }
+            >
               {label}
             </div>
           ))}
@@ -280,6 +292,7 @@ const styles = {
       color: colors.gray[11],
     },
   ),
+  shell: style(monospace, { fontFeatureSettings: '"calt" 1' }),
   calls: style(flex({ direction: "column", gap: 2 }), nestedIndent, {
     minWidth: 0,
     minHeight: 0,

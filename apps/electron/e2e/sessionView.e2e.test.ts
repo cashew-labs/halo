@@ -449,6 +449,7 @@ e2eTest(
       }),
     ).toBeVisible();
     await summary.click();
+    await expect(pane.getByLabel("Active commands")).toHaveCount(0);
     await expect(
       pane.getByRole("button", {
         name: "Read notes.md (files.read)",
@@ -459,6 +460,8 @@ e2eTest(
       name: `${command} (bash.run)`,
       exact: true,
     });
+    await expect(running).toBeVisible();
+    await expect(pane.getByText(`$ ${command}`, { exact: true })).toHaveCount(1);
     await running.click();
     await expect(
       pane
@@ -730,11 +733,7 @@ e2eTest(
     await expect(
       liveAggregate.getByRole("img", { name: "Expand tool activity" }),
     ).toBeVisible();
-    await expect(
-      pane.getByLabel("Active commands").getByText(`$ ${secondCommand}`, {
-        exact: true,
-      }),
-    ).toBeVisible();
+    await expect(pane.getByLabel("Active commands")).toHaveCount(0);
     await expect(
       pane.getByRole("button", {
         name: `${firstCommand} (bash)`,
@@ -747,6 +746,9 @@ e2eTest(
         exact: true,
       }),
     ).toBeVisible();
+    await expect(
+      pane.getByText(`$ ${secondCommand}`, { exact: true }),
+    ).toHaveCount(1);
     second.respond("Second report");
     await llm.respond(m.assistant("Both reports are ready."));
     const settled = pane.getByRole("button", {
