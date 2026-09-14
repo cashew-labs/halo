@@ -51,7 +51,7 @@ jobs:
 
   preview:
     name: Preview production infrastructure
-    if: github.event_name == 'pull_request' && needs.prepare.outputs.is_release == 'true'
+    if: github.event_name == 'pull_request' && needs.prepare.outputs.is_release == 'true' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'release/')
     needs: prepare
     runs-on: ubuntu-latest
     permissions:

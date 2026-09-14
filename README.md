@@ -150,7 +150,8 @@ submit the existing Cloud Build configurations, and the GCP permissions required
 by the production Pulumi stack. Require PR review and `Check / check-affected`
 plus `Release Halo / Release ready` through the `main` branch ruleset. The
 second check is lightweight for ordinary PRs and requires a successful Pulumi
-preview for release PRs.
+preview for release PRs. For security, release PRs must use a `release/*` branch
+in this repository; forks cannot access the production preview identity.
 
 ## Checks
 
