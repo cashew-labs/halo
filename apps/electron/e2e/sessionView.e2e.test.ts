@@ -461,7 +461,9 @@ e2eTest(
       exact: true,
     });
     await expect(running).toBeVisible();
-    await expect(pane.getByText(`$ ${command}`, { exact: true })).toHaveCount(1);
+    await expect(pane.getByText(`$ ${command}`, { exact: true })).toHaveCount(
+      1,
+    );
     await running.click();
     await expect(
       pane
