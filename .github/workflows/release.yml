@@ -97,7 +97,7 @@ jobs:
         id: pulumi
         continue-on-error: true
         run: |
-          pnpm infra:control-plane:preview -- \
+          pnpm --filter @halo/infra exec pulumi -C control-plane preview \
             --stack west \
             --non-interactive \
             --color never \
@@ -234,7 +234,7 @@ jobs:
           build_image "$workspace_image" infra/cloudbuild.yaml
 
       - name: Apply Pulumi changes
-        run: pnpm infra:control-plane:up -- --stack west --yes --non-interactive
+        run: pnpm --filter @halo/infra exec pulumi -C control-plane up --stack west --yes --non-interactive
 
       - name: Check control plane
         shell: bash
