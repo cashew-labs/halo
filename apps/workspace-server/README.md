@@ -22,6 +22,25 @@ leaves the server, active conversations, and extensions running. To change
 workspaces, restart the server with a different `HALO_WORKSPACE_ROOT` and reload
 Electron.
 
+## Production workspace container
+
+The durable workspace disk directory `/mnt/halo/workspace` is mounted directly
+at `/home/node`. The container runs as the `node` user, whose Unix home and Halo
+workspace root are both `/home/node`. User files, application data, agent state,
+configuration, user-installed packages, and user binaries therefore share one
+persistent filesystem tree. `/tmp`, `/run`, running processes, and image system
+paths remain ephemeral.
+
+The image configures npm, Python, and Go user installations beneath
+`/home/node`. `/home/node/.local/bin` and `/home/node/.halo/bin` are on `PATH` for
+the server, agents, and extensions. System dependencies must be added to the
+image instead of installed in a running workspace.
+
+Before the first rollout of this layout, copy the existing production
+container's `/home/node` contents—especially `.local` and `.config`—into
+`/mnt/halo/workspace`. Do this before replacing the container. The startup script
+does not perform this one-time migration.
+
 ## Explicit launch configuration
 
 Start only the server with a JSON configuration file:
@@ -32,6 +51,7 @@ pnpm server /absolute/path/to/config.json
 
 ```json
 {
+  "environment": "local",
   "workspaceRoot": "/absolute/path/to/workspace",
   "appDataDir": "/absolute/path/to/user-data",
   "appVersion": "0.0.0",
@@ -53,11 +73,11 @@ connection, including after a server restart.
 Otherwise the process uses the same local Pi provider/model configuration as
 before. See [the inference boundary](src/llm/README.md).
 
-## Temporary credential storage
+## Credential storage
 
 `FileCredentialVault` stores credential values as plain files under
 `<workspace>/.halo/executor/credentials`, with directory mode `0700` and file
-mode `0600`. Filenames are hashes of credential IDs. This deliberately temporary
+mode `0600`. Filenames are hashes of credential IDs. This filesystem-backed
 store has no Electron or OS-keyring dependency; credentials will move to the
 control plane in a later phase. Existing encrypted credential files are not
 migrated.

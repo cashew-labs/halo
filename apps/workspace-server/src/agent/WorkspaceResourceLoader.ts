@@ -7,7 +7,7 @@ import {
   type Skill,
 } from "@earendil-works/pi-agent-core";
 import * as errore from "errore";
-import { haloSystemPrompt } from "./workspacePrompt.js";
+import { haloSystemPrompt, type HaloEnvironment } from "./workspacePrompt.js";
 
 class WorkspaceInstructionsError extends errore.createTaggedError({
   name: "WorkspaceInstructionsError",
@@ -15,9 +15,17 @@ class WorkspaceInstructionsError extends errore.createTaggedError({
 }) {}
 
 export class WorkspaceResourceLoader {
+  // Skills loaded from the workspace for the next agent session.
   private skills: Skill[] = [];
+  // Root instructions loaded from the workspace's AGENTS.md.
   private instructions = "";
-  constructor(private readonly workspaceRoot: string) {}
+  private readonly environment: HaloEnvironment;
+  private readonly workspaceRoot: string;
+
+  constructor(ctx: { environment: HaloEnvironment; workspaceRoot: string }) {
+    this.environment = ctx.environment;
+    this.workspaceRoot = ctx.workspaceRoot;
+  }
 
   async reload() {
     const loaded = loadSkillsFromDir({
@@ -44,7 +52,10 @@ export class WorkspaceResourceLoader {
   }
   getSystemPrompt() {
     return [
-      haloSystemPrompt(this.workspaceRoot),
+      haloSystemPrompt({
+        environment: this.environment,
+        workspaceRoot: this.workspaceRoot,
+      }),
       this.instructions,
       formatSkillsForSystemPrompt(this.skills),
       `Current working directory: ${this.workspaceRoot}`,
