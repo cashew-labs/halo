@@ -5,16 +5,16 @@ import { ApplicationMode } from "@get-halo/config/ApplicationMode";
 import { Logger } from "@repo/logger";
 import { JsonlLoggerSink } from "@repo/logger/JsonlLoggerSink";
 import * as errore from "errore";
-import { HaloServer } from "./HaloServer.js";
+import { HaloServer } from "./server/HaloServer.js";
 import {
   writeWorkspaceServerConnection,
   removeWorkspaceServerConnection,
-} from "./ConnectionFile.js";
-import { writeHaloRpcFile, removeHaloRpcFile } from "./rpcFile.js";
-import type { WorkspaceServerReady } from "./WorkspaceServerProcess.js";
+} from "./server/WorkspaceServerConnection.js";
+import { writeHaloRpcFile, removeHaloRpcFile } from "./server/haloRpcFile.js";
+import type { WorkspaceServerReady } from "./server/WorkspaceServerReady.js";
 import { FileCredentialVault } from "./agent/runtime/FileCredentialVault.js";
-import { createPiLLMApi } from "./llm/PiLLMApi.js";
-import { createOpenAILLMApi } from "./llm/OpenAILLMApi.js";
+import { createPiLLMApi } from "./llm/createPiLLMApi.js";
+import { createOpenAILLMApi } from "./llm/createOpenAILLMApi.js";
 
 class WorkspaceServerStartupError extends errore.createTaggedError({
   name: "WorkspaceServerStartupError",

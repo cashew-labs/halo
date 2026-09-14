@@ -7,8 +7,8 @@ import {
 } from "../filesystem/FilesystemService.js";
 import type { ExtensionSummary } from "@get-halo/shared/contract";
 import { SerialQueue } from "@get-halo/shared/SerialQueue";
-import { readExtensionManifest } from "./ExtensionManifest.js";
-import { startExtension, type ExtensionRuntime } from "./ExtensionProcess.js";
+import { readExtensionManifest } from "./readExtensionManifest.js";
+import { startExtension, type ExtensionRuntime } from "./startExtension.js";
 
 type RunningExtension = Exclude<
   Awaited<ReturnType<typeof startExtension>>,

@@ -13,11 +13,11 @@ import { OAuth2Client } from "google-auth-library";
 import * as errore from "errore";
 import { handleOAuthCallback } from "./oauth.js";
 import { haloRpcRouter, type HaloContext } from "./router.js";
-import { extensionToolRouter } from "./extensions/extensionsRouter.js";
+import { extensionToolRouter } from "../extensions/extensionsRouter.js";
 import {
   isExtensionProxyRequest,
   serveExtensionRequest,
-} from "./extensions/extensionProxy.js";
+} from "../extensions/extensionProxy.js";
 
 const localConnectionHost = "127.0.0.1";
 

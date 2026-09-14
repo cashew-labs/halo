@@ -1,6 +1,6 @@
 import { join, resolve } from "node:path";
 import { Logger } from "@repo/logger";
-import { startWorkspaceServerProcess } from "./WorkspaceServerProcess.js";
+import { startWorkspaceServerProcess } from "./startWorkspaceServerProcess.js";
 import type { SessionDescription } from "@get-halo/shared/testing";
 import { test as baseTest } from "@playwright/test";
 import * as errore from "errore";
@@ -8,7 +8,7 @@ import { createTestArtifacts, type TestArtifacts } from "./TestArtifacts.js";
 import { ElectronTestApp } from "./ElectronTestApp.js";
 import { LLMDriver, HttpService } from "@get-halo/workspace-server/testing";
 import { createHarnessTools } from "./tools.js";
-import { loadSessionDescription } from "./SessionDescription.js";
+import { loadSessionDescription } from "./loadSessionDescription.js";
 
 type E2ESession = {
   sessionId: string;

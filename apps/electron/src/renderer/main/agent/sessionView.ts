@@ -12,7 +12,7 @@ import {
 import {
   connectionRequestSchema,
   type ConnectionRequest,
-} from "@get-halo/shared/connectionRequests";
+} from "@get-halo/shared/ConnectionRequest";
 
 export type SessionViewItem =
   | { kind: "user"; id: string; text: string }

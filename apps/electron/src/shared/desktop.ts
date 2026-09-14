@@ -1,6 +1,6 @@
 import { type Static, Type } from "@sinclair/typebox";
 import type { ControlPlaneSession } from "@get-halo/shared/controlPlaneContract";
-import type { HaloRpcConnection } from "./rpc.js";
+import type { HaloRpcConnection } from "./HaloRpcConnection.js";
 
 export type AppUpdateStatus =
   | { state: "disabled"; reason: string }

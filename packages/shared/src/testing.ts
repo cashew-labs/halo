@@ -1,4 +1,4 @@
-import type { ConnectionRequest } from "./connectionRequests.js";
+import type { ConnectionRequest } from "./ConnectionRequest.js";
 import type { HaloMessage } from "./sessionState.js";
 
 type ToolArguments = Extract<

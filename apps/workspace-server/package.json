@@ -4,17 +4,17 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/HaloServer.ts",
+    ".": "./src/server/HaloServer.ts",
     "./agent": "./src/agent.ts",
     "./cli": "./src/cli.ts",
     "./filesystem": "./src/filesystem.ts",
     "./llm": "./src/llm.ts",
     "./testing": "./src/testing.ts",
-    "./router": "./src/router.ts",
+    "./router": "./src/server/router.ts",
     "./sessions": "./src/sessions.ts",
     "./workspace": "./src/workspace.ts",
-    "./process": "./src/WorkspaceServerProcess.ts",
-    "./connection": "./src/ConnectionFile.ts"
+    "./process": "./src/server/WorkspaceServerReady.ts",
+    "./connection": "./src/server/WorkspaceServerConnection.ts"
   },
   "scripts": {
     "format": "oxfmt .",

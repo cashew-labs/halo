@@ -4,7 +4,7 @@ import { Cli, z } from "incur";
 import { browser, app } from "./browser.js";
 import { extension } from "./extension.js";
 import { cliVersion, connectHalo } from "./connectHalo.js";
-import { HaloRpcFileError } from "./rpcFile.js";
+import { HaloRpcFileError } from "./HaloRpcFile.js";
 
 const haloRpcEnv = z.object({
   HALO_RPC_FILE: z.string().optional().describe("Path to Halo rpc.json"),

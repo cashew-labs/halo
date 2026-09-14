@@ -10,7 +10,7 @@ import {
   spacing,
 } from "maui";
 import { style, useStyles } from "purse-styles";
-import type { IncompatibleServerError } from "./api/HaloRpcClient.js";
+import type { IncompatibleServerError } from "./api/connectHaloRpc.js";
 
 type ConnectionPageProps =
   | { status: "disconnected" | "waiting" }

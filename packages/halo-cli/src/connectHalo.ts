@@ -6,7 +6,7 @@ import {
 import * as errore from "errore";
 import { createHaloRpcClient } from "./haloRpcClient.js";
 import { findHaloRpcFile } from "./findHaloRpcFile.js";
-import { HaloRpcFileError } from "./rpcFile.js";
+import { HaloRpcFileError } from "./HaloRpcFile.js";
 
 export type HaloRpcEnv = {
   HALO_RPC_FILE?: string;
