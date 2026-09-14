@@ -7,7 +7,7 @@ Halo is an Electron desktop app with a React renderer and Pi in an independent N
 - `apps/electron/src/renderer`: React UI built with Maui and Vite.
 - `apps/electron/src/main`: Electron main process, preload bridge, and server connection discovery.
 - `apps/workspace-server`: Independent workspace and agent service (`@get-halo/workspace-server`).
-- `infra`: [GCP/Pulumi bootstrap](infra/README.md) and existing Cloudflare resources managed by Alchemy.
+- `infra`: [GCP/Pulumi infrastructure](infra/README.md).
 - `packages/halo-cli`: Workspace commands, private browser testing, and debug app control.
 - `packages/logger`: Shared structured logger.
 - `packages/typescript-config`: Shared TypeScript settings.
@@ -81,24 +81,9 @@ Pass `--stdin` or `--file checks.js` for longer scripts. Output uses TOON by def
 
 ## Infrastructure
 
-New infrastructure targets GCP project `halo-relay` with Pulumi. See the
-[bootstrap instructions](infra/README.md) for the state bucket and KMS key.
-The existing `infra:login`, `infra:plan`, `infra:deploy`, and `infra:dev`
-commands still operate the Cloudflare Alchemy stack below.
-
-| Need                                                         | Cloudflare product                                                | Alchemy resource                    |
-| ------------------------------------------------------------ | ----------------------------------------------------------------- | ----------------------------------- |
-| Secrets manager                                              | [Secrets Store](https://developers.cloudflare.com/secrets-store/) | `Cloudflare.SecretsStore.Store`     |
-| App release artifacts (unused by publish CI; kept for later) | [R2](https://developers.cloudflare.com/r2/) object storage        | `Cloudflare.R2.Bucket` (`Releases`) |
-
-```sh
-pnpm infra:login
-pnpm infra:plan
-pnpm infra:deploy
-pnpm infra:dev
-```
-
-First login stores Cloudflare credentials in `~/.alchemy/profiles.json`. CI uses `CLOUDFLARE_ACCOUNT_ID` plus `CLOUDFLARE_API_TOKEN` instead. Electron releases publish to GitHub Releases (see [Publishing](#publishing)).
+Infrastructure targets GCP project `halo-relay` with Pulumi. See the
+[infrastructure instructions](infra/README.md) for bootstrapping, previewing,
+and deploying the production control plane and workspace images.
 
 ## Packaging
 

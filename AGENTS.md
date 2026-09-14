@@ -89,7 +89,7 @@ Cursor Cloud agents must record a short demo video when they add or change any U
 
 Dev Agentation notes sync through the `agentation-mcp` terminal (`127.0.0.1:4747`). Query pending notes with `GET http://127.0.0.1:4747/pending`. Cursor loads the same server from `.cursor/mcp.json`.
 
-GCP infrastructure lives in `infra/control-plane/` and `infra/workspace/` (Pulumi). Use `pnpm infra:control-plane:preview`, `pnpm infra:control-plane:up`, `pnpm infra:workspace:preview`, and `pnpm infra:workspace:up`. Legacy Cloudflare release resources remain in `infra/alchemy.run.ts`; manage them through the `cloudflare:*` scripts in `infra/package.json`.
+GCP infrastructure lives in `infra/control-plane/` and `infra/workspace/` (Pulumi). Use `pnpm infra:control-plane:preview`, `pnpm infra:control-plane:up`, `pnpm infra:workspace:preview`, and `pnpm infra:workspace:up`.
 
 Headless hosts (Xvfb/VNC) need `HALO_USE_SWIFTSHADER=1`, which the `halo-dev` terminal exports. Without it the renderer cannot start WebGL.
 

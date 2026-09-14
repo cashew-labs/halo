@@ -9,9 +9,8 @@ resources outside the application stacks and are not on the application request
 path. Do not delete or move the KMS key: the active `west` stack uses it to
 decrypt Pulumi secrets.
 
-The existing Alchemy program still owns its Cloudflare resources. The current
-Electron release connects directly to the Cloud Run default URL; a stable custom
-hostname can be added separately.
+The current Electron release connects directly to the Cloud Run default URL; a
+stable custom hostname can be added separately.
 
 ## Production layout
 
