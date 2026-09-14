@@ -4,7 +4,6 @@ import { skipToken, useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import {
   Button,
-  Icons,
   backgroundColor,
   colors,
   flex,
@@ -14,6 +13,7 @@ import {
   spacing,
   text,
 } from "maui";
+import { ArrowUp, Stop } from "maui/icons";
 import { style, useStyles } from "purse-styles";
 import {
   sessionTitleQueryKey,
@@ -164,9 +164,9 @@ function Composer({
           onClick={showStop ? onStop : submit}
         >
           {showStop ? (
-            <Icons.Stop size="sm" />
+            <Stop size="sm" />
           ) : (
-            <Icons.ArrowUp size="sm" aria-hidden="true" />
+            <ArrowUp size="sm" aria-hidden="true" />
           )}
         </Button>
       }

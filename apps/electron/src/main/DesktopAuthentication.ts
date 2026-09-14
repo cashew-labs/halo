@@ -1,6 +1,6 @@
 import type { ControlPlaneSession } from "@get-halo/shared/controlPlaneContract";
 import { readWorkspaceServerConnection } from "@get-halo/workspace-server/connection";
-import type { HaloRpcConnection } from "../shared/rpc.js";
+import type { HaloRpcConnection } from "../shared/HaloRpcConnection.js";
 
 export type DesktopAuthentication = {
   getWorkspaceConnection: () => Promise<HaloRpcConnection | Error | undefined>;

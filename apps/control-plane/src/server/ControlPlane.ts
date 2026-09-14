@@ -1,15 +1,15 @@
 import { join } from "node:path";
 import type { ControlPlaneConfig } from "@get-halo/config/controlPlane";
 import * as errore from "errore";
-import { AuthService } from "./AuthService.js";
+import { AuthService } from "../auth/AuthService.js";
 import {
   closeControlPlaneHttp,
   type ListeningControlPlaneHttp,
   listenControlPlaneHttp,
   serveControlPlaneHttp,
-} from "./ControlPlaneHttp.js";
-import { DatabaseService, type DatabaseConfig } from "./DatabaseService.js";
-import { WorkspaceService } from "./workspace/WorkspaceService.js";
+} from "./controlPlaneHttp.js";
+import { DatabaseService, type DatabaseConfig } from "../DatabaseService.js";
+import { WorkspaceService } from "../workspace/WorkspaceService.js";
 
 const loopbackHost = "127.0.0.1";
 const cloudRunHost = "0.0.0.0";

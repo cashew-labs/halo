@@ -14,14 +14,14 @@ import {
 } from "react";
 import type { HaloClient } from "@get-halo/shared/contract";
 import type { WorkspaceInfo } from "@get-halo/shared/rpc";
-import type { HaloRpcConnection } from "../../shared/rpc.js";
+import type { HaloRpcConnection } from "../../shared/HaloRpcConnection.js";
 import { LoadingPage } from "../LoadingPage.tsx";
 import { ConnectionPage } from "../ConnectionPage.tsx";
 import { desktopApi } from "./electron.js";
 import {
   IncompatibleServerError,
   type HaloRpcConnectionError,
-} from "./HaloRpcClient.js";
+} from "./connectHaloRpc.js";
 
 type ApiContextValue = {
   api: HaloClient;

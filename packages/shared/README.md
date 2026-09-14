@@ -37,6 +37,6 @@ The same nested-call format is supplied during execution, in snapshots, and in c
 
 ## Storage boundary
 
-The server's `SessionEventAdapter` converts Pi entries, snapshots, and events into this protocol. Pi still owns durable session storage through the Turso adapter. Exec's storage details remain internal to that adapter; changing the public format does not require changing the database schema.
+The server's `sessionEvents.ts` module converts Pi entries, snapshots, and events into this protocol. Pi still owns durable session storage through the Turso adapter. Exec's storage details remain internal to that adapter; changing the public format does not require changing the database schema.
 
 The current transcript follows Pi's compaction boundary. Loading earlier pre-compaction entries and publishing a standalone SDK package are separate work.

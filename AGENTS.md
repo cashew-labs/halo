@@ -27,7 +27,8 @@ Bump `apps/electron/package.json` `version`, commit, then create and push a git 
 - TypeScript uses strict mode with `noUncheckedIndexedAccess` enabled.
 - ESM imports use `.js` extensions even for TypeScript files.
 - Workspace packages use the `@get-halo/*` naming convention.
-- File names: no hyphens. Name the file after the main abstraction it implements, in ClassNameCase (e.g. `MessagePortMainTransport.ts`). For a small bundle of related exports with no single primary type, use a lowercase single name (e.g. `rpc.ts`, `channels.ts`).
+- File names: no hyphens. Name a file after its primary export and use the export's casing. Classes, types, interfaces, enums, and React components use PascalCase. Functions and values use camelCase. When no single export owns the module, name it after the shared concept in camelCase (or a single lowercase word when the surrounding folder supplies enough context). Tests mirror the implementation file's name.
+- Folder names: use a single lowercase word when practical. Put a service in a domain folder alongside its helpers, such as `auth/AuthService.ts` and `auth/callback.ts`. Keep package directories and framework-defined paths in their required conventional form.
 - Generally, avoid comments that restate the code. Add comments for class-owned state as described below, and for external context that is not easily traced back (e.g. external dependency behavior or explicit business logic decisions).
 - Ignore migrations or backwards-compatability - Halo is unreleased and pre-1.0 so we can break/rebuild anything as necessary.
 

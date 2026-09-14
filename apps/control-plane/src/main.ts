@@ -1,6 +1,6 @@
 import { config } from "@get-halo/config/controlPlane";
 import * as errore from "errore";
-import { ControlPlane } from "./ControlPlane.js";
+import { ControlPlane } from "./server/ControlPlane.js";
 
 async function run() {
   const stopping = new Promise<void>((stop) => {
