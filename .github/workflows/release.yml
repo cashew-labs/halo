@@ -87,14 +87,6 @@ jobs:
           cache: true
           install: false
 
-      - name: Allow private Maui git dependency
-        env:
-          MAUI_READ_TOKEN: ${{ secrets.MAUI_READ_TOKEN }}
-        shell: bash
-        run: |
-          git config --global url."https://x-access-token:${MAUI_READ_TOKEN}@github.com/".insteadOf "https://github.com/"
-          git config --global --add url."https://x-access-token:${MAUI_READ_TOKEN}@github.com/".insteadOf "git@github.com:"
-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -206,14 +198,6 @@ jobs:
           cache: true
           install: false
 
-      - name: Allow private Maui git dependency
-        env:
-          MAUI_READ_TOKEN: ${{ secrets.MAUI_READ_TOKEN }}
-        shell: bash
-        run: |
-          git config --global url."https://x-access-token:${MAUI_READ_TOKEN}@github.com/".insteadOf "https://github.com/"
-          git config --global --add url."https://x-access-token:${MAUI_READ_TOKEN}@github.com/".insteadOf "git@github.com:"
-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -315,14 +299,6 @@ jobs:
           cache: true
           install: false
 
-      - name: Allow private Maui git dependency
-        env:
-          MAUI_READ_TOKEN: ${{ secrets.MAUI_READ_TOKEN }}
-        shell: bash
-        run: |
-          git config --global url."https://x-access-token:${MAUI_READ_TOKEN}@github.com/".insteadOf "https://github.com/"
-          git config --global --add url."https://x-access-token:${MAUI_READ_TOKEN}@github.com/".insteadOf "git@github.com:"
-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -400,14 +376,6 @@ jobs:
             exit 1
           fi
           echo "APPLE_API_KEY=$key_path" >> "$GITHUB_ENV"
-
-      - name: Allow private Maui git dependency
-        env:
-          MAUI_READ_TOKEN: ${{ secrets.MAUI_READ_TOKEN }}
-        shell: bash
-        run: |
-          git config --global url."https://x-access-token:${MAUI_READ_TOKEN}@github.com/".insteadOf "https://github.com/"
-          git config --global --add url."https://x-access-token:${MAUI_READ_TOKEN}@github.com/".insteadOf "git@github.com:"
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
