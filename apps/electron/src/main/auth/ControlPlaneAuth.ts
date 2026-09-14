@@ -12,10 +12,11 @@ import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
 import { type ControlPlaneClient } from "@get-halo/shared/controlPlaneContract";
 import { SerialQueue } from "@get-halo/shared/SerialQueue";
-import { safeStorage, shell } from "electron";
+import { safeStorage } from "electron";
 import * as errore from "errore";
 import type { HaloRpcConnection } from "../../shared/HaloRpcConnection.js";
 import type { DesktopAuthentication } from "../DesktopAuthentication.js";
+import { openExternalUrl } from "../openExternalUrl.js";
 
 const loopbackHost = "127.0.0.1";
 const callbackPath = "/auth/callback";
@@ -174,14 +175,13 @@ export class ControlPlaneAuth implements DesktopAuthentication {
       );
     if (started instanceof Error) return started;
 
-    const opened = await shell.openExternal(started.authorizationUrl).catch(
-      (cause) =>
-        new ControlPlaneAuthError({
-          operation: "open Google sign-in",
-          cause,
-        }),
-    );
-    if (opened instanceof Error) return opened;
+    const opened = await openExternalUrl(started.authorizationUrl);
+    if (opened instanceof Error) {
+      return new ControlPlaneAuthError({
+        operation: "open Google sign-in",
+        cause: opened,
+      });
+    }
 
     const code = await callback.code;
     if (code instanceof Error) return code;

@@ -123,8 +123,15 @@ export const contract = publicProcedure.router({
       .output(asyncIteratorObject(type<SessionWatchItem>())),
     prompt: oc.input(type<{ sessionId: string; text: string }>()),
     startConnection: oc
-      .input(type<{ sessionId: string; request: ConnectionRequest }>())
+      .input(
+        type<{
+          sessionId: string;
+          request: ConnectionRequest;
+          redirectUri?: string;
+        }>(),
+      )
       .output(type<ConnectionStarted>()),
+    completeOAuth: oc.input(type<{ state: string; code: string }>()),
     cancelConnection:
       oc.input(type<{ sessionId: string; connectionId: string }>()),
     abort: oc.input(type<{ sessionId: string }>()),

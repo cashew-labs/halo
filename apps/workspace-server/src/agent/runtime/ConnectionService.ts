@@ -24,6 +24,7 @@ type StartConnectionInput = {
   onEvent: PendingConnection["onEvent"];
   request: ConnectionRequest;
   sessionId: string;
+  redirectUri?: string;
 };
 
 export class ConnectionService {
@@ -43,7 +44,10 @@ export class ConnectionService {
   async startConnection(
     input: StartConnectionInput,
   ): Promise<ConnectionStarted | Error> {
-    const started = await this.runtime.startOAuth(input.request);
+    const started = await this.runtime.startOAuth({
+      ...input.request,
+      redirectUri: input.redirectUri,
+    });
     if (started instanceof Error) return started;
     if (started.status === "connected") return { status: "connected" };
 

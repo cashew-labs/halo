@@ -30,7 +30,10 @@ import {
   type DesktopAuthentication,
 } from "./DesktopAuthentication.js";
 import { ControlPlaneAuth } from "./auth/ControlPlaneAuth.js";
-import { registerDesktopApi } from "./api/registerDesktopApi.js";
+import {
+  closePendingOAuthCallbacks,
+  registerDesktopApi,
+} from "./api/registerDesktopApi.js";
 import type { HaloRpcConnection } from "../shared/HaloRpcConnection.js";
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string;
 declare const MAIN_WINDOW_VITE_NAME: string;
@@ -176,10 +179,16 @@ function testAuthSession(): ControlPlaneSession {
 }
 
 app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") app.quit();
+  if (process.platform === "darwin") return;
+  app.quit();
 });
 
-app.on("will-quit", () => logger.destroy());
+app.on("will-quit", () => {
+  void closePendingOAuthCallbacks().catch((cause) => {
+    console.warn("OAuth callback close failed:", cause);
+  });
+  logger.destroy();
+});
 
 async function openMainWindow(): Promise<void> {
   const window = await createWindow();

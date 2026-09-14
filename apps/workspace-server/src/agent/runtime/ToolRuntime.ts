@@ -548,7 +548,7 @@ export class ToolRuntime {
     if (completed instanceof Error) return completed;
   }
 
-  async startOAuth(input: ConnectionRequest) {
+  async startOAuth(input: ConnectionRequest & { redirectUri?: string }) {
     const started = await Effect.runPromise(
       this.executor.oauth.start({
         client: OAuthClientSlug.make(input.client),
@@ -559,6 +559,7 @@ export class ToolRuntime {
         template: AuthTemplateSlug.make(input.template),
         identityLabel: input.identityLabel,
         newConnection: input.newConnection,
+        redirectUri: input.redirectUri,
       }),
     ).catch(
       (cause) => new ToolRuntimeError({ operation: "OAuth start", cause }),
