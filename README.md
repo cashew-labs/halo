@@ -7,7 +7,7 @@ Halo is an Electron desktop app with a React renderer and Pi in an independent N
 - `apps/electron/src/renderer`: React UI built with Maui and Vite.
 - `apps/electron/src/main`: Electron main process, preload bridge, and server connection discovery.
 - `apps/workspace-server`: Independent workspace and agent service (`@get-halo/workspace-server`).
-- `infra`: [GCP/Pulumi bootstrap](infra/README.md) and existing Cloudflare resources managed by Alchemy.
+- `infra`: [GCP/Pulumi infrastructure](infra/README.md).
 - `packages/halo-cli`: Workspace commands, private browser testing, and debug app control.
 - `packages/logger`: Shared structured logger.
 - `packages/typescript-config`: Shared TypeScript settings.
@@ -81,24 +81,9 @@ Pass `--stdin` or `--file checks.js` for longer scripts. Output uses TOON by def
 
 ## Infrastructure
 
-New infrastructure targets GCP project `halo-relay` with Pulumi. See the
-[bootstrap instructions](infra/README.md) for the state bucket and KMS key.
-The existing `infra:login`, `infra:plan`, `infra:deploy`, and `infra:dev`
-commands still operate the Cloudflare Alchemy stack below.
-
-| Need                                                         | Cloudflare product                                                | Alchemy resource                    |
-| ------------------------------------------------------------ | ----------------------------------------------------------------- | ----------------------------------- |
-| Secrets manager                                              | [Secrets Store](https://developers.cloudflare.com/secrets-store/) | `Cloudflare.SecretsStore.Store`     |
-| App release artifacts (unused by publish CI; kept for later) | [R2](https://developers.cloudflare.com/r2/) object storage        | `Cloudflare.R2.Bucket` (`Releases`) |
-
-```sh
-pnpm infra:login
-pnpm infra:plan
-pnpm infra:deploy
-pnpm infra:dev
-```
-
-First login stores Cloudflare credentials in `~/.alchemy/profiles.json`. CI uses `CLOUDFLARE_ACCOUNT_ID` plus `CLOUDFLARE_API_TOKEN` instead. Electron releases publish to GitHub Releases (see [Publishing](#publishing)).
+Infrastructure targets GCP project `halo-relay` with Pulumi. See the
+[infrastructure instructions](infra/README.md) for bootstrapping, previewing,
+and deploying the production control plane and workspace images.
 
 ## Packaging
 
@@ -109,9 +94,28 @@ pnpm --filter @halo/desktop make
 
 Electron Forge writes packaged apps to `apps/electron/out`.
 
-## Publishing
+## Releasing
 
-`Publish Electron` (`.github/workflows/publish-electron.yml`) builds installers on a version tag and uploads them to a GitHub Release. The tag name must equal `apps/electron/package.json` `version` (for example version `0.1.1` → tag `0.1.1`).
+Halo uses one release PR for its infrastructure, cloud services, workspace VMs,
+and desktop application. From a clean, up-to-date `main` branch, run:
+
+```sh
+pnpm prerelease 0.1.44
+```
+
+The command creates `release/0.1.44`, bumps the desktop and production image
+versions, adds `releases/0.1.44.json`, pushes the branch, and opens the PR.
+
+The PR runs the normal repository checks and posts the production Pulumi preview.
+Merging it runs `Release Halo` in this order:
+
+1. Run the packaged macOS tests.
+2. Build versioned control-plane and workspace images.
+3. Apply the production Pulumi stack.
+4. Check the control-plane health endpoint.
+5. Recreate each workspace VM while preserving its durable data disk.
+6. Create the matching tag and GitHub Release.
+7. Build, sign, notarize, and publish the desktop application.
 
 Packaged macOS and Windows builds check for updates through [update.electronjs.org](https://update.electronjs.org), which reads those GitHub Releases. macOS builds are signed and notarized in CI.
 
@@ -131,18 +135,23 @@ Create a GitHub Environment named `Release` (name is case-sensitive) and add:
 - `APPLE_API_KEY_ID` — App Store Connect API key id
 - `APPLE_API_ISSUER` — App Store Connect issuer UUID
 
-### Run a publish
+Do not add required reviewers to the `Release` environment. Reviewing and merging
+the release PR is the production approval.
 
-1. Set `version` in `apps/electron/package.json`.
-2. Commit that change on `main`.
-3. Create and push a matching tag:
+Configure GitHub Actions to authenticate to GCP through Workload Identity
+Federation, then add these repository variables:
 
-```sh
-git tag 0.1.1
-git push origin 0.1.1
-```
+- `GCP_WORKLOAD_IDENTITY_PROVIDER` — full Workload Identity provider resource
+  name.
+- `GCP_DEPLOY_SERVICE_ACCOUNT` — deployment service account email.
 
-Artifacts appear on the GitHub Release for that tag.
+The identity needs access to the Pulumi state bucket and KMS key, permission to
+submit the existing Cloud Build configurations, and the GCP permissions required
+by the production Pulumi stack. Require PR review and `Check / check-affected`
+plus `Release Halo / Release ready` through the `main` branch ruleset. The
+second check is lightweight for ordinary PRs and requires a successful Pulumi
+preview for release PRs. For security, release PRs must use a `release/*` branch
+in this repository; forks cannot access the production preview identity.
 
 ## Checks
 
