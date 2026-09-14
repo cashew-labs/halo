@@ -255,7 +255,7 @@ e2eTest("shows a connection request", async ({ harness, app }) => {
   });
   await expect(card).toBeVisible();
   await expect(
-    card.getByText("Find, organize, and share your files."),
+    card.getByText("Search, read, create, and share files."),
   ).toBeVisible();
   await expect(card.getByRole("button", { name: "Connect" })).toBeVisible();
   await expect(
@@ -278,14 +278,14 @@ e2eTest(
       name: "Google Drive connection",
     });
     await expect(
-      card.getByText("Find, organize, and share your files."),
+      card.getByText("Search, read, create, and share files."),
     ).toBeVisible();
     await card.getByRole("button", { name: "Connect" }).click();
     await expect(
       card.getByRole("button", { name: "Connecting" }),
     ).toBeVisible();
     await expect(
-      card.getByText("Find, organize, and share your files."),
+      card.getByText("Search, read, create, and share files."),
     ).toBeVisible();
     await expect(
       card.getByText("Finish connecting in your browser"),

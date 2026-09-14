@@ -1,11 +1,10 @@
 import { useEffect, useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as errore from "errore";
-import { background, Button, Flex, radius, shadow, Spacer, Text } from "maui";
-import { style, useStyles } from "purse-styles";
+import { backgroundColor, Button, Flex, Spacer, Text } from "maui";
 import { connectionRequestLabel } from "@get-halo/shared/ConnectionRequest";
 import { googleIntegrationDisplay } from "@get-halo/shared/GoogleIntegrationDisplay";
-import { BrandLogo, brands } from "../../BrandLogo.tsx";
+import { BrandLogo, brands, LogoImage } from "../../BrandLogo.tsx";
 import { desktopApi } from "../../api/electron.ts";
 import {
   connectionStateQueryKey,
@@ -23,14 +22,6 @@ class ConnectIntegrationError extends errore.createTaggedError({
   message: "Halo could not start the connection",
 }) {}
 
-const card = style(background.element, radius.lg, shadow.subtle, {
-  width: "100%",
-  maxWidth: "400px",
-});
-const brandButton = style({
-  flexShrink: 0,
-});
-
 export function ExecutorConnectionCard({
   sessionId,
   part,
@@ -38,8 +29,6 @@ export function ExecutorConnectionCard({
   sessionId: string | undefined;
   part: ExecutorConnectionPart;
 }) {
-  const cardClassName = useStyles(card);
-  const brandButtonClassName = useStyles(brandButton);
   const queryClient = useQueryClient();
   const statusKey = useMemo(
     () => connectionStateQueryKey(part.request),
@@ -149,11 +138,25 @@ export function ExecutorConnectionCard({
       data-session-id={sessionId}
       data-integration={part.request.integration}
       data-testid="executor-connection-card"
-      className={cardClassName}
     >
-      <Flex column gap={6} p={6}>
+      <Flex
+        column
+        gap={6}
+        p={6}
+        shadow="subtle"
+        radius="lg"
+        style={{
+          width: "100%",
+          maxWidth: "400px",
+          backgroundColor: backgroundColor.element,
+        }}
+      >
         <Flex row gap={4} alignItems="start">
-          <BrandLogo brand="google" size="xl" />
+          {display === undefined ? (
+            <BrandLogo brand="google" size="xl" />
+          ) : (
+            <LogoImage src={display.icon} size="xl" />
+          )}
           <Flex column gap={1}>
             <Text size="md" fontWeight={600}>
               {label}
@@ -173,8 +176,7 @@ export function ExecutorConnectionCard({
           <Button
             variant="primary"
             variantColor={brand.buttonColor}
-            style={{ color: brand.buttonForeground }}
-            className={brandButtonClassName}
+            style={{ color: brand.buttonForeground, flexShrink: 0 }}
             disabled={
               sessionId === undefined ||
               status === "starting" ||
@@ -182,17 +184,7 @@ export function ExecutorConnectionCard({
             }
             onClick={() => connect.mutate()}
           >
-            {status === "connected"
-              ? "Connect again"
-              : status === "expired"
-                ? "Expired - connect again"
-                : status === "cancelled"
-                  ? "Try again"
-                  : status === "connecting"
-                    ? "Connecting"
-                    : status === "starting"
-                      ? "Starting"
-                      : "Connect"}
+            {connectionButtonLabel(status)}
           </Button>
           {status === "connecting" ? (
             <Button
@@ -216,4 +208,13 @@ function connectionStatusText(status: ConnectionState["status"]) {
   if (status === "connecting") return "Finish connecting in your browser";
   if (status === "starting") return "Preparing authorization";
   return undefined;
+}
+
+function connectionButtonLabel(status: ConnectionState["status"]) {
+  if (status === "connected") return "Connect again";
+  if (status === "expired") return "Expired - connect again";
+  if (status === "cancelled") return "Try again";
+  if (status === "connecting") return "Connecting";
+  if (status === "starting") return "Starting";
+  return "Connect";
 }
