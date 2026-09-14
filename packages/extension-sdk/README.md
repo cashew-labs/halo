@@ -35,6 +35,6 @@ import `ExtensionToolResult` from `/api` to describe a tool's result.
 A standalone server still serves its API and storage, but calls to Halo tools
 return `halo_not_connected`. Verify connected-service behavior through the
 Halo-hosted view. The development app installs local package builds when creating extensions.
-Use `halo extension update <id>` to install updated local packages and rebuild an
-existing extension, then restart the workspace server. Published SDK 0.1.0 does
-not include tool support.
+After Halo's source changes, use `halo extension update <id>` to install updated
+local packages, typecheck, rebuild, and restart an existing extension. Reload or
+reopen its pane afterward. Published SDK 0.1.0 does not include tool support.

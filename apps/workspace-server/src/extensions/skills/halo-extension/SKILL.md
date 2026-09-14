@@ -1,26 +1,26 @@
 ---
 name: halo-extension
-description: Create, edit, run, and verify Halo workspace extensions using the bundled React, oRPC, Tandem, and connected-tool SDK.
+description: Access, inspect, interact with, create, edit, run, and verify Halo workspace extensions using the bundled browser, React, oRPC, Tandem, and connected-tool SDK.
 ---
 
 # Halo extensions
 
-Extensions are standalone web apps under `.halo/extensions/<id>/` in the selected workspace. Halo runs each extension's server and shows its React view in a sandboxed iframe. Each browser owns local UI state; Tandem synchronizes extension-owned records through the extension server.
+Extensions are standalone web apps under `.halo/extensions/<id>/` in the selected workspace. Halo runs each extension's server and shows its React view in a sandboxed iframe. Agents can access an existing extension through a private Halo browser or, in development, through the user's live Halo renderer. Each browser owns local UI state; Tandem synchronizes extension-owned records through the extension server.
 
 Work inside the extension directory. Do not recreate the SDK transport, edit generated `dist/` output, or write directly to extension persistence files.
 
-## Read the relevant SDK reference
+## Read the relevant reference
 
-Read each reference that applies before editing:
+Read each reference that applies to the task:
 
 - For React views, view props, `useQuery`, routing, assets, or iframe behavior, read [references/view.md](references/view.md).
 - For oRPC handlers and the typed browser API, read [references/api.md](references/api.md).
 - For schemas, queries, shared data, or transactions, read [references/storage.md](references/storage.md).
 - For workspace tools or connected services, read [references/tools.md](references/tools.md).
 - For scaffolding, package metadata, builds, hosting, reloads, updates, or removal, read [references/lifecycle.md](references/lifecycle.md).
-- Before verifying any extension, read [references/testing.md](references/testing.md).
+- Whenever a task requires opening, observing, interacting with, debugging, or verifying an extension, read [references/access.md](references/access.md).
 
-The references document the SDK bundled with this Halo workspace. For an existing extension, inspect its installed declarations under `node_modules/@get-halo/extension-sdk/` when its dependency version differs. In a development build, `halo extension update <id>` installs the current local SDK and build tools.
+The references document the SDK bundled with this Halo workspace. For an existing extension, inspect its installed declarations under `node_modules/@get-halo/extension-sdk/` when its dependency version differs. In a development build, run `halo extension update <id>` after Halo's source changes. It installs the current local SDK and build tools, typechecks, builds, and restarts the extension.
 
 ## Create and build
 
@@ -63,6 +63,6 @@ Halo provides one sidebar entry and one view per extension. The extension owns r
 
 Workspace extensions are trusted. A hosted API can call any tool available to Halo without a manifest permission declaration. Tool availability and account connectivity remain runtime concerns.
 
-## Completion
+## Completion after changes
 
 Exercise the user's main workflow in a real rendered view. Use isolated standalone data for local layout and Tandem behavior; use the Halo-hosted URL for workspace tools and connected services. Verify successful results, visible failures, and browser runtime errors. If a missing account connection or platform dependency prevents the main workflow, report the work as incomplete and name the missing step.

@@ -81,7 +81,7 @@ async function execute(input: {
 
 export const browser = Cli.create("browser", {
   description:
-    "Test extensions in private browser sessions; browser state survives exec calls",
+    "Access URLs in private browser sessions; browser state survives exec calls",
 })
   .command("open", {
     description:

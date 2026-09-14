@@ -18,6 +18,10 @@ export const extensionsRouter = os.router({
   reload: os.reload.handler(
     async ({ context }) => await context.extensions.reload(),
   ),
+  restart: os.restart.handler(async ({ context, input }) => {
+    const restarted = await context.extensions.restart(input.id);
+    if (restarted instanceof Error) return orpcErrors.badRequest(restarted);
+  }),
 });
 
 const toolOs = baseOs.$context<{ toolRuntime: ToolRuntime }>();

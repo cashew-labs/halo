@@ -21,8 +21,10 @@ The directory name is the extension ID. IDs accepted by `halo extension new` beg
 Use `halo extension --help` for the installed CLI contract.
 
 - `halo extension new <id>` scaffolds the package and runs `npm install`.
+- `halo extension list` reports running extensions and their direct view URLs.
 - `halo extension reload` rescans the workspace, starts newly discovered built extensions, and stops servers whose extension directories were deleted.
-- `halo extension update <id>` is available in development builds. It installs locally packed SDK and build-tool packages, typechecks, and rebuilds the extension.
+- `halo extension restart <id>` gracefully replaces a running extension process with its current successful build.
+- `halo extension update <id>` is available in development builds. It installs locally packed SDK and build-tool packages, typechecks, rebuilds, and restarts the extension.
 
 The CLI runs npm without workspace inheritance, install scripts, audit, or funding prompts.
 
@@ -70,6 +72,14 @@ The build bundles the browser view and Node API in parallel. Both must succeed b
 
 Do not edit generated output or create separate build pipelines for the view, API, and schema. Existing server processes keep running the generation they started with; a later build does not hot-reload them. Old successful generations are currently retained.
 
+After pulling changes to Halo itself, run this from anywhere inside the development workspace:
+
+```sh
+halo extension update <id>
+```
+
+This is the canonical development refresh. It installs the current local SDK and build tools before typechecking, building, and restarting the hosted extension. Reload or reopen the extension pane afterward.
+
 ## Runtime routes
 
 The standalone server listens on loopback and owns:
@@ -94,7 +104,7 @@ The sync router and tool transport are internal and have no public package subpa
 
 ## Hosting and reload behavior
 
-`halo extension reload` starts extensions that are not already running. It does not rebuild or restart a healthy running process. After rebuilding an existing hosted extension, verify the new build in a standalone preview, then restart the workspace server when the user is ready to replace the hosted extension process. Reloading the renderer or restarting only Electron does not replace it. There is currently no per-extension restart command.
+`halo extension reload` starts extensions that are not already running. It does not rebuild or restart a healthy running process. After a manual `npm run build`, run `halo extension restart <id>` when the user is ready to replace the hosted process. `halo extension update <id>` performs that restart itself. Reload the renderer or reopen the extension pane to load the restarted extension's browser bundle.
 
 Closing Electron leaves the independently hosted workspace server and extensions running. Workspace-server shutdown or workspace replacement stops extension processes gracefully through IPC, with a forced stop after the shutdown timeout.
 
