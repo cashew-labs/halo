@@ -130,6 +130,159 @@ e2eTest(
 );
 
 e2eTest(
+  "indents selected bullets after deleting the gap between lists",
+  async ({ app }) => {
+    await app.server.rpc.workspace.writeFile({ path: "lists.md", content: "" });
+    await app.page.getByRole("link", { name: "lists.md", exact: true }).click();
+    const editor = app.page
+      .getByRole("main", { name: "lists.md" })
+      .getByLabel("lists.md", { exact: true });
+    await editor.fill("");
+    await app.page.keyboard.type("- Parent");
+    await app.page.keyboard.press("Enter");
+    await app.page.keyboard.press("Enter");
+    await app.page.keyboard.press("Enter");
+    await app.page.keyboard.type("- Second");
+    await app.page.keyboard.press("Enter");
+    await app.page.keyboard.type("Child");
+    await app.page.keyboard.press("Tab");
+    await app.page.keyboard.press("Enter");
+    await app.page.keyboard.press("Shift+Tab");
+    await app.page.keyboard.type("Third");
+    await expect(editor.locator(":scope > ul")).toHaveCount(2);
+
+    await editor.locator(":scope > p").first().click();
+    await app.page.keyboard.press("Backspace");
+    await expect(editor.locator(":scope > ul")).toHaveCount(1);
+    await editor.evaluate((element) => {
+      const paragraphs = [...element.querySelectorAll("p")];
+      const start = paragraphs.find((p) => p.textContent === "Second")!;
+      const end = paragraphs.find((p) => p.textContent === "Third")!;
+      window
+        .getSelection()!
+        .setBaseAndExtent(start, 0, end, end.childNodes.length);
+    });
+    await app.page.keyboard.press("Tab");
+    const nested = editor.locator(":scope > ul > li > ul > li > p");
+    await expect(nested).toHaveText(["Second", "Third"]);
+    await expect(editor.locator("ul ul ul > li > p")).toHaveText(["Child"]);
+    await expect(editor).toBeFocused();
+
+    await app.page.keyboard.press("Shift+Tab");
+    await expect(editor.locator(":scope > ul > li > p")).toHaveText([
+      "Parent",
+      "Second",
+      "Third",
+    ]);
+    await app.page.keyboard.press("Tab");
+    await expect(nested).toHaveText(["Second", "Third"]);
+    await expect
+      .poll(
+        async () =>
+          await app.server.rpc.workspace.readFile({ path: "lists.md" }),
+      )
+      .toContain("- Parent\n  - Second\n    - Child\n  - Third");
+    await app.page.reload();
+    await expect(nested).toHaveText(["Second", "Third"]);
+    await expect(editor.locator("ul ul ul > li > p")).toHaveText(["Child"]);
+
+    // Chromium reports selectionchange asynchronously after a pointer press.
+    await editor.getByText("Third", { exact: true }).click({ delay: 50 });
+    await app.page.keyboard.press("Shift+Tab");
+    await expect(editor.locator(":scope > ul > li > p")).toHaveText([
+      "Parent",
+      "Third",
+    ]);
+    await app.page.keyboard.press("ControlOrMeta+z");
+    await expect(nested).toHaveText(["Second", "Third"]);
+    await app.page.keyboard.press("ControlOrMeta+Shift+z");
+    await expect(editor.locator(":scope > ul > li > p")).toHaveText([
+      "Parent",
+      "Third",
+    ]);
+    await app.page.keyboard.press("Tab");
+    await expect(nested).toHaveText(["Second", "Third"]);
+
+    await editor.getByText("Parent", { exact: true }).click({ delay: 50 });
+    await app.page.keyboard.press("Tab");
+    await expect(editor).toBeFocused();
+    await expect(editor.locator(":scope > ul > li > p")).toHaveText(["Parent"]);
+  },
+);
+
+e2eTest(
+  "indents a loaded Markdown list with mixed bullet markers",
+  async ({ app }) => {
+    await app.server.rpc.workspace.writeFile({
+      path: "markers.md",
+      content: "- Parent\n+ Second\n* Third",
+    });
+    await app.page
+      .getByRole("link", { name: "markers.md", exact: true })
+      .click();
+    const editor = app.page
+      .getByRole("main", { name: "markers.md" })
+      .getByLabel("markers.md", { exact: true });
+    await expect(editor.locator(":scope > ul")).toHaveCount(1);
+    await editor.getByText("Third", { exact: true }).click({ delay: 50 });
+    await app.page.keyboard.press("Tab");
+    await expect(editor.locator("ul ul > li > p")).toHaveText(["Third"]);
+    await expect(editor).toBeFocused();
+  },
+);
+
+e2eTest(
+  "joins pasted bullet lists at every depth so individual bullets can indent",
+  async ({ app }) => {
+    await app.server.rpc.workspace.writeFile({ path: "paste.md", content: "" });
+    await app.page.getByRole("link", { name: "paste.md", exact: true }).click();
+    const editor = app.page
+      .getByRole("main", { name: "paste.md" })
+      .getByLabel("paste.md", { exact: true });
+    await editor.fill("");
+    await editor.evaluate((element) => {
+      const data = new DataTransfer();
+      data.setData(
+        "text/html",
+        "<ul><li><p>Parent</p></li></ul>" +
+          "<ul><li><p>Second</p><ul><li><p>Child</p></li></ul>" +
+          "<ul><li><p>Another child</p></li></ul></li></ul>" +
+          "<ul><li><p>Third</p></li></ul>" +
+          "<p>Separate section</p><ul><li><p>Separate bullet</p></li></ul>" +
+          '<ol start="3"><li><p>Numbered</p></li></ol>',
+      );
+      element.dispatchEvent(
+        new ClipboardEvent("paste", {
+          clipboardData: data,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    await expect(editor.locator(":scope > ul")).toHaveCount(2);
+    await expect(editor.locator("ul ul")).toHaveCount(1);
+    await editor.getByText("Second", { exact: true }).click({ delay: 50 });
+    await app.page.keyboard.press("Tab");
+    await expect(editor.locator("ul ul > li > p")).toHaveText([
+      "Second",
+      "Child",
+      "Another child",
+    ]);
+    await expect(editor.locator("ul ul ul > li > p")).toHaveText([
+      "Child",
+      "Another child",
+    ]);
+    await expect(editor.locator(":scope > ul > li > p")).toHaveText([
+      "Parent",
+      "Third",
+      "Separate bullet",
+    ]);
+    await expect(editor.locator("ol")).toHaveAttribute("start", "3");
+    await expect(editor).toBeFocused();
+  },
+);
+
+e2eTest(
   "creates and organizes notes through the Files sidebar",
   async ({ app }) => {
     const page = app.page;
