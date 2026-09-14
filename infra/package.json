@@ -4,11 +4,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "cloudflare:deploy": "NODE_OPTIONS=--experimental-strip-types alchemy deploy",
-    "cloudflare:destroy": "NODE_OPTIONS=--experimental-strip-types alchemy destroy",
-    "cloudflare:dev": "NODE_OPTIONS=--experimental-strip-types alchemy dev",
-    "cloudflare:login": "NODE_OPTIONS=--experimental-strip-types alchemy login",
-    "cloudflare:plan": "NODE_OPTIONS=--experimental-strip-types alchemy plan",
     "control-plane:preview": "pulumi -C control-plane preview",
     "control-plane:up": "pulumi -C control-plane up",
     "format": "oxfmt .",
@@ -20,12 +15,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@effect/platform-node": "4.0.0-beta.103",
     "@pulumi/gcp": "^9.36.1",
     "@pulumi/pulumi": "^3.262.0",
     "@pulumi/random": "^4.21.1",
-    "alchemy": "2.0.0-beta.70",
-    "effect": "4.0.0-beta.103",
     "tsx": "^4.23.13"
   },
   "devDependencies": {
