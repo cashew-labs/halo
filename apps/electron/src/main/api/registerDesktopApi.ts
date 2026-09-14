@@ -19,15 +19,15 @@ import {
   type ConnectIntegrationRequest,
   type DesktopRequest,
   type OpenExternalRequest,
-} from "../shared/desktop.js";
-import type { HaloRpcConnection } from "../shared/rpc.js";
-import { getAppInfo, installAppUpdate } from "./app/AppUpdate.js";
-import type { DesktopAuthentication } from "./DesktopAuthentication.js";
+} from "../../shared/desktop.js";
+import { getAppInfo, installAppUpdate } from "../app/appUpdate.js";
+import type { DesktopAuthentication } from "../DesktopAuthentication.js";
+import type { HaloRpcConnection } from "../../shared/HaloRpcConnection.js";
 import {
   listenForLoopbackCallback,
   type ListeningLoopbackCallback,
-} from "./LoopbackCallback.js";
-import { openExternalUrl } from "./OpenExternalUrl.js";
+} from "./listenForLoopbackCallback.js";
+import { openExternalUrl } from "../openExternalUrl.js";
 
 class DesktopRequestError extends errore.createTaggedError({
   name: "DesktopRequestError",

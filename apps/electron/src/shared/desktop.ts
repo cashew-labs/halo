@@ -2,10 +2,10 @@ import { type Static, Type } from "@sinclair/typebox";
 import {
   connectionRequestSchema,
   type ConnectionRequest,
-} from "@get-halo/shared/connectionRequests";
+} from "@get-halo/shared/ConnectionRequest";
 import type { ConnectionStarted } from "@get-halo/shared/contract";
 import type { ControlPlaneSession } from "@get-halo/shared/controlPlaneContract";
-import type { HaloRpcConnection } from "./rpc.js";
+import type { HaloRpcConnection } from "./HaloRpcConnection.js";
 
 export type AppUpdateStatus =
   | { state: "disabled"; reason: string }

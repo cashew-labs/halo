@@ -1,7 +1,7 @@
 import {
   connectHaloRpc,
   type HaloRpcConnectionError,
-} from "./HaloRpcClient.js";
+} from "./connectHaloRpc.js";
 import type { DesktopApi } from "../../shared/desktop.js";
 import type { ConnectedHaloApi } from "./ApiProvider.js";
 

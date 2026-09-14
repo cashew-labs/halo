@@ -78,7 +78,7 @@ export const extension = Cli.create("extension", {
       return c.ok({
         id: c.args.id,
         directory,
-        next: "Restart Halo to load the rebuilt extension server.",
+        next: "Restart the workspace server to load the rebuilt extension process.",
       });
     },
   })

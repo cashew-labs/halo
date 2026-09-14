@@ -6,6 +6,6 @@ export {
   CredentialVaultError,
   type CredentialVault,
 } from "./agent/runtime/CredentialVault.js";
-export { workspaceBashPlugin } from "./agent/tools/bash/WorkspaceBashPlugin.js";
-export { createWorkspaceFilesPlugin } from "./agent/tools/files/WorkspaceFilesPlugin.js";
-export { parallelSearchPlugin } from "./agent/tools/web/ParallelSearchPlugin.js";
+export { workspaceBashPlugin } from "./agent/tools/bash/workspaceBashPlugin.js";
+export { createWorkspaceFilesPlugin } from "./agent/tools/files/createWorkspaceFilesPlugin.js";
+export { parallelSearchPlugin } from "./agent/tools/web/parallelSearchPlugin.js";

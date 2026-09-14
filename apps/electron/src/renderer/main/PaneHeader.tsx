@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { border, flex, flexItem, spacing, text } from "maui";
+import { Crossfade, border, flex, flexItem, spacing, text } from "maui";
 import { style, useStyles } from "purse-styles";
 
 export function PaneHeader({
@@ -12,6 +12,7 @@ export function PaneHeader({
   actions?: ReactNode;
 }) {
   const header = useStyles(headerClass);
+  const titleWrapClassName = useStyles(titleWrapClass);
   const actionsClassName = useStyles(actionsClass);
   const titleClassName = useStyles(titleClass);
   const label = paneLabel(section, title);
@@ -22,7 +23,15 @@ export function PaneHeader({
 
   return (
     <header className={header} aria-label={label}>
-      <div className={titleClassName}>{label}</div>
+      {label === undefined ? undefined : (
+        <Crossfade
+          direction="up"
+          contentKey={label}
+          className={titleWrapClassName}
+        >
+          <div className={titleClassName}>{label}</div>
+        </Crossfade>
+      )}
       {actions === undefined ? undefined : (
         <div className={actionsClassName}>{actions}</div>
       )}
@@ -49,6 +58,11 @@ const headerClass = style(
     WebkitAppRegion: "drag",
   },
 );
+
+const titleWrapClass = style({
+  minWidth: 0,
+  flex: "1 1 auto",
+});
 
 const titleClass = style(
   text({ size: "sm", fontWeight: 400, color: "lowContrast" }),

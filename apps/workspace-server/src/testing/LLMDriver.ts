@@ -3,7 +3,7 @@ import type { AddressInfo } from "node:net";
 import { EventEmitter, once } from "node:events";
 import { text } from "node:stream/consumers";
 import crypto from "node:crypto";
-import type { OpenAILLMApiOptions } from "../llm/OpenAILLMApi.js";
+import type { OpenAILLMApiOptions } from "../llm/createOpenAILLMApi.js";
 import type {
   ChatCompletionChunk,
   ChatCompletionMessageParam,

@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./connectionRequests": "./src/connectionRequests.ts",
+    "./ConnectionRequest": "./src/ConnectionRequest.ts",
     "./contract": "./src/contract.ts",
     "./controlPlaneContract": "./src/controlPlaneContract.ts",
     "./isCallable": "./src/isCallable.ts",

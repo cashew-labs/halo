@@ -1,13 +1,5 @@
-import {
-  Button,
-  Icons,
-  colors,
-  flex,
-  flexItem,
-  shadow,
-  spacing,
-  text,
-} from "maui";
+import { Button, colors, flex, flexItem, shadow, spacing, text } from "maui";
+import { Plus } from "maui/icons";
 import { style, useStyles } from "purse-styles";
 import { useLocation } from "wouter";
 import type { SessionSummary } from "@get-halo/shared/rpc";
@@ -62,7 +54,7 @@ function NewSessionButton({ className }: { className: string }) {
       className={className}
       onClick={() => navigate(`/draft/${crypto.randomUUID()}`)}
     >
-      <Icons.Plus size="sm" aria-hidden="true" />
+      <Plus size="sm" aria-hidden="true" />
       New session
     </Button>
   );

@@ -8,7 +8,7 @@ import {
   FilesystemService,
   FilesystemPathNotFoundError,
 } from "../filesystem/FilesystemService.js";
-import { workspaceFilePreview } from "./WorkspaceFilePreview.js";
+import { workspaceFilePreview } from "./workspaceFilePreview.js";
 import { installHaloCli } from "./installHaloCli.js";
 import { seedExtensionWorkspace } from "../extensions/seedExtensionWorkspace.js";
 

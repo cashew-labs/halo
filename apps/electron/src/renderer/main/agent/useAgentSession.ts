@@ -9,6 +9,7 @@ import {
   type SessionWatchItem,
 } from "@get-halo/shared/sessionState";
 import { useApi } from "../../api/ApiProvider.tsx";
+import { reconnectStream } from "../../api/reconnectStream.js";
 import { Stream } from "@get-halo/shared/Stream";
 import {
   applyConnectionEvent,
@@ -60,13 +61,12 @@ export function useAgentSession(
     const updates = new Stream<SessionWatchItem>();
     const states = updates.project(emptySessionSnapshot(), reduceSessionUpdate);
     const unsubscribe = states.subscribe(setState);
-    void (async () => {
-      const source = await api.sessions.watch(
-        { sessionId },
-        { signal: controller.signal },
-      );
-      for await (const item of source) {
-        if (controller.signal.aborted) return;
+    reconnectStream({
+      name: "Session event",
+      signal: controller.signal,
+      open: async () =>
+        await api.sessions.watch({ sessionId }, { signal: controller.signal }),
+      onItem: (item) => {
         if (item.type === "snapshot") setReadySessionId(sessionId);
         if (item.type === "event" && item.event.type === "halo.connection") {
           const event = item.event;
@@ -76,19 +76,7 @@ export function useAgentSession(
           );
         }
         updates.append(item);
-      }
-      if (controller.signal.aborted) return;
-      setReadySessionId(undefined);
-      setLocalError(
-        "Live updates disconnected. Reopen this conversation to reconnect.",
-      );
-    })().catch((cause) => {
-      if (controller.signal.aborted) return;
-      console.warn("Session event stream failed:", cause);
-      setReadySessionId(undefined);
-      setLocalError(
-        "Live updates disconnected. Reopen this conversation to reconnect.",
-      );
+      },
     });
 
     return () => {

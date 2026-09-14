@@ -13,8 +13,8 @@ import {
   type AuthService,
   InvalidDesktopAuthCodeError,
   InvalidDesktopSignInRequestError,
-} from "./AuthService.js";
-import type { WorkspaceService } from "./workspace/WorkspaceService.js";
+} from "../auth/AuthService.js";
+import type { WorkspaceService } from "../workspace/WorkspaceService.js";
 
 export type ControlPlaneContext = RequestHeadersHandlerPluginContext &
   ResponseHeadersHandlerPluginContext & {

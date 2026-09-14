@@ -11,7 +11,7 @@ import { betterAuth } from "better-auth";
 import { testUtils } from "better-auth/plugins";
 import * as errore from "errore";
 import { expect, test } from "vitest";
-import { ControlPlane } from "../src/ControlPlane.js";
+import { ControlPlane } from "../src/server/ControlPlane.js";
 
 const testAuth = {
   secret: "test-control-plane-auth-secret-key!",

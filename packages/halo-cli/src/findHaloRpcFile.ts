@@ -1,7 +1,11 @@
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { HaloRpcFileError, readHaloRpcFile, rpcFilePath } from "./rpcFile.js";
+import {
+  HaloRpcFileError,
+  readHaloRpcFile,
+  rpcFilePath,
+} from "./HaloRpcFile.js";
 
 export type FindHaloRpcFileArgs = {
   rpcFile: string | undefined;

@@ -1,13 +1,13 @@
 import path from "node:path";
-import { TursoSessionRepo } from "./storage/TursoSessionRepo.js";
-import { DatabaseClient } from "./storage/DatabaseClient.js";
+import { TursoSessionRepo } from "../storage/TursoSessionRepo.js";
+import { DatabaseClient } from "../storage/DatabaseClient.js";
 import {
   BrowserService,
   type AppBrowserTarget,
-} from "./browser/BrowserService.js";
+} from "../browser/BrowserService.js";
 import type { Logger } from "@repo/logger";
 import * as errore from "errore";
-import { FilesystemService } from "./filesystem/FilesystemService.js";
+import { FilesystemService } from "../filesystem/FilesystemService.js";
 import {
   closeHaloHttp,
   listenHaloHttp,
@@ -16,20 +16,20 @@ import {
   type ServingHaloHttp,
   type WorkspaceGatewayIdentity,
 } from "./http.js";
-import { ExtensionHost } from "./extensions/ExtensionHost.js";
-import type { ExtensionRuntime } from "./extensions/ExtensionProcess.js";
+import { ExtensionHost } from "../extensions/ExtensionHost.js";
+import type { ExtensionRuntime } from "../extensions/startExtension.js";
 import type { HaloContext } from "./router.js";
-import { SessionRegistry } from "./sessions/SessionRegistry.js";
-import { WorkspaceService } from "./workspace/WorkspaceService.js";
-import { StaticAgentAuthority } from "./agent/runtime/AgentAuthority.js";
-import type { CredentialVault } from "./agent/runtime/CredentialVault.js";
-import { ConnectionService } from "./agent/runtime/ConnectionService.js";
-import { ToolRuntime } from "./agent/runtime/ToolRuntime.js";
-import { workspaceBashPlugin } from "./agent/tools/bash/WorkspaceBashPlugin.js";
-import { createWorkspaceFilesPlugin } from "./agent/tools/files/WorkspaceFilesPlugin.js";
-import { parallelSearchPlugin } from "./agent/tools/web/ParallelSearchPlugin.js";
-import type { LLMApi } from "./llm/LLMApi.js";
-import { createPiModelRuntime } from "./llm/createPiModelRuntime.js";
+import { SessionRegistry } from "../sessions/SessionRegistry.js";
+import { WorkspaceService } from "../workspace/WorkspaceService.js";
+import { StaticAgentAuthority } from "../agent/runtime/AgentAuthority.js";
+import type { CredentialVault } from "../agent/runtime/CredentialVault.js";
+import { ConnectionService } from "../agent/runtime/ConnectionService.js";
+import { ToolRuntime } from "../agent/runtime/ToolRuntime.js";
+import { workspaceBashPlugin } from "../agent/tools/bash/workspaceBashPlugin.js";
+import { createWorkspaceFilesPlugin } from "../agent/tools/files/createWorkspaceFilesPlugin.js";
+import { parallelSearchPlugin } from "../agent/tools/web/parallelSearchPlugin.js";
+import type { LLMApi } from "../llm/LLMApi.js";
+import { createPiModelRuntime } from "../llm/createPiModelRuntime.js";
 
 export type HaloServerOptions = {
   llmApi: LLMApi;

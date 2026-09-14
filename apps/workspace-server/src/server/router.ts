@@ -2,25 +2,25 @@ import {
   browserRouter,
   appRouter,
   type BrowserRouterContext,
-} from "./browser/browserRouter.js";
+} from "../browser/browserRouter.js";
 import { contract, haloProtocolVersion } from "@get-halo/shared/contract";
 import { implement } from "@orpc/server";
 import {
   extensionsRouter,
   type ExtensionsRouterContext,
-} from "./extensions/extensionsRouter.js";
+} from "../extensions/extensionsRouter.js";
 import {
   sessionsRouter,
   type SessionsRouterContext,
-} from "./sessions/sessionsRouter.js";
+} from "../sessions/sessionsRouter.js";
 import {
   workspaceRouter,
   type WorkspaceRouterContext,
-} from "./workspace/workspaceRouter.js";
+} from "../workspace/workspaceRouter.js";
 import {
   testingRouter,
   type TestingRouterContext,
-} from "./testing/testingRouter.js";
+} from "../testing/testingRouter.js";
 
 export type HaloContext = BrowserRouterContext &
   WorkspaceRouterContext &

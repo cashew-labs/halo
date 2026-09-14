@@ -1,69 +1,48 @@
 # Halo infrastructure
 
-New GCP infrastructure uses Pulumi with TypeScript in project `halo-relay`,
-region `us-central1`. The existing Alchemy program still owns its Cloudflare
-resources; bootstrapping Pulumi does not migrate them.
+Halo production runs in GCP project `halo-relay` with the control plane in
+`us-west2` and user workspace VMs in `us-west2-a`. The active Pulumi
+control-plane stack is `west`.
 
-## Bootstrap Pulumi
+The Pulumi state bucket and KMS key remain in `us-central1`. They are bootstrap
+resources outside the application stacks and are not on the application request
+path. Do not delete or move the KMS key: the active `west` stack uses it to
+decrypt Pulumi secrets.
 
-Install the Google Cloud CLI and Pulumi CLI. Authenticate locally:
+The existing Alchemy program still owns its Cloudflare resources. The current
+Electron release connects directly to the Cloud Run default URL; a stable custom
+hostname can be added separately.
 
-```sh
-gcloud auth login --update-adc --project=halo-relay
-```
+## Production layout
 
-From the repository root, create the backend prerequisites:
+- `control-plane/` owns the `halo-west` network, Cloud NAT, Artifact Registry,
+  build-source bucket, Cloud SQL database, runtime secrets, service accounts,
+  Cloud Run service, and workspace instance template.
+- The control plane creates one workspace VM and durable workspace disk per
+  user from that template. Production user workspaces are not managed by the
+  standalone `workspace/` Pulumi program.
+- `workspace/` remains available for an explicitly configured standalone
+  development workspace. There is no active production stack in that program.
 
-```sh
-pnpm infra:bootstrap
-pulumi login gs://halo-relay-pulumi-state
-```
-
-`bootstrap.sh` enables the required infrastructure APIs and creates a private,
-versioned state bucket plus a Cloud KMS encryption key. It checks for existing
-resources before creating them, so it can be rerun after an interrupted setup.
-Google Cloud API activation can take a few minutes to propagate; if KMS still
-reports that its API is disabled immediately after activation, rerun the script
-once activation has propagated.
-The deployment identity needs permission to enable services, manage the state
-bucket, and create and use the KMS key. Workspace runtime identities must not
-have access to this state or key.
+The production control plane uses these locations:
 
 | Setting          | Value                                                                                      |
 | ---------------- | ------------------------------------------------------------------------------------------ |
 | GCP project      | `halo-relay`                                                                               |
-| Region           | `us-central1`                                                                              |
+| Runtime region   | `us-west2`                                                                                 |
+| Workspace zone   | `us-west2-a`                                                                               |
+| Pulumi stack     | `west`                                                                                     |
 | State backend    | `gs://halo-relay-pulumi-state`                                                             |
 | Secrets provider | `gcpkms://projects/halo-relay/locations/us-central1/keyRings/halo-pulumi/cryptoKeys/state` |
 
-The bucket and key are bootstrap resources outside the application stacks.
-Keep them available for the lifetime of those stacks: losing the key prevents
-decryption of their Pulumi secrets.
+## Authenticate and select production
 
-## Infrastructure programs
-
-Two Pulumi programs separate shared resources from the one personal workspace:
-
-- `control-plane/`: shared network, image registry, control-plane database,
-  runtime secrets, and deployment identities.
-- `workspace/`: one workspace VM, persistent disk, and runtime service account.
-
-When creating a stack in either program, select the KMS secrets provider:
+Install the Google Cloud CLI and Pulumi CLI, then authenticate locally:
 
 ```sh
-pulumi stack init dev \
-  --secrets-provider=gcpkms://projects/halo-relay/locations/us-central1/keyRings/halo-pulumi/cryptoKeys/state
-pulumi config set gcp:project halo-relay
-pulumi config set gcp:region us-central1
-```
-
-The workspace stack also needs `gcp:zone`, the control-plane stack reference,
-and an immutable workspace-server image reference:
-
-```sh
-pulumi config set gcp:zone us-central1-a
-pulumi config set controlPlaneStack organization/halo-control-plane/dev
-pulumi config set image us-central1-docker.pkg.dev/halo-relay/halo-dev-workspaces/workspace-server@sha256:<digest>
+gcloud auth login --update-adc --project=halo-relay
+pulumi login gs://halo-relay-pulumi-state
+pulumi -C infra/control-plane stack select west
 ```
 
 Preview and deploy from the repository root:
@@ -71,95 +50,98 @@ Preview and deploy from the repository root:
 ```sh
 pnpm infra:control-plane:preview
 pnpm infra:control-plane:up
-pnpm infra:workspace:preview
-pnpm infra:workspace:up
 ```
 
-The control-plane stack creates the private VPC, Cloud NAT egress, Artifact
-Registry repository, Cloud Build source bucket, builder identity, and a
-protected PostgreSQL 16 Cloud SQL instance for authentication and control-plane
-state. It enables backups and seven days of point-in-time recovery. Database and
-Better Auth credentials are generated by Pulumi, stored in Secret Manager, and
-granted only to the control-plane runtime service account.
+Always review the selected stack and preview before applying a change. The
+Cloud SQL instance, application secrets, and Cloud Run service have deletion
+protection in both their GCP configuration and Pulumi state.
 
-Build the control-plane image with the outputs from that stack:
+## Bootstrap resources
+
+For a new project only, create the backend prerequisites from the repository
+root:
 
 ```sh
-image="$(pulumi -C infra/control-plane stack output controlPlaneImageRepository):$(git rev-parse --short HEAD)"
-bucket="$(pulumi -C infra/control-plane stack output buildSourceBucket)"
-builder="$(pulumi -C infra/control-plane stack output buildServiceAccount)"
+pnpm infra:bootstrap
+pulumi login gs://halo-relay-pulumi-state
+```
+
+`bootstrap.sh` enables the required APIs and creates the private, versioned
+state bucket and KMS encryption key in `us-central1`. It is safe to rerun after
+an interrupted setup. The deployment identity needs permission to enable
+services, manage the state bucket, and create and use the KMS key. Workspace
+runtime identities must not have access to the state bucket or key.
+
+## Build and deploy images
+
+Build the control-plane image with outputs from the `west` stack:
+
+```sh
+image="$(pulumi -C infra/control-plane stack output controlPlaneImageRepository --stack west):$(git rev-parse --short HEAD)"
+bucket="$(pulumi -C infra/control-plane stack output buildSourceBucket --stack west)"
+builder="$(pulumi -C infra/control-plane stack output buildServiceAccount --stack west)"
 gcloud builds submit . \
   --project=halo-relay \
-  --region=us-central1 \
+  --region=us-west2 \
   --config=infra/controlplane.cloudbuild.yaml \
   --ignore-file=infra/buildignore \
   --gcs-source-staging-dir="gs://$bucket/source" \
   --service-account="$builder" \
   --substitutions="_IMAGE=$image"
+
+pulumi -C infra/control-plane config set controlPlaneImage "$image" --stack west
 ```
 
-Create these secrets in Secret Manager and add a version to each before deploying
-the control plane:
+Build the workspace-server image the same way:
 
 ```sh
-gcloud secrets create halo-dev-control-plane-google-client-id \
-  --project=halo-relay --replication-policy=automatic
-gcloud secrets versions add halo-dev-control-plane-google-client-id \
-  --project=halo-relay --data-file=-
-gcloud secrets create halo-dev-control-plane-google-client-secret \
-  --project=halo-relay --replication-policy=automatic
-gcloud secrets versions add halo-dev-control-plane-google-client-secret \
-  --project=halo-relay --data-file=-
-
-pulumi -C infra/control-plane config set controlPlaneImage \
-  us-central1-docker.pkg.dev/halo-relay/halo-dev-workspaces/control-plane@sha256:<digest>
-```
-
-The control plane runs on Cloud Run with one warm instance and a maximum of one
-instance. It connects to Cloud SQL through the Cloud SQL socket, loads credentials
-from Secret Manager, and exposes its Better Auth routes publicly. Its stable
-default URL is available as the `controlPlaneUrl` stack output. Add
-`${controlPlaneUrl}/api/auth/callback/google` as an authorized redirect URI on the
-Google OAuth client.
-
-Build the workspace image with the outputs from that stack:
-
-```sh
-image="$(pulumi -C infra/control-plane stack output imageRepository):$(git rev-parse --short HEAD)"
-bucket="$(pulumi -C infra/control-plane stack output buildSourceBucket)"
-builder="$(pulumi -C infra/control-plane stack output buildServiceAccount)"
+image="$(pulumi -C infra/control-plane stack output imageRepository --stack west):$(git rev-parse --short HEAD)"
+bucket="$(pulumi -C infra/control-plane stack output buildSourceBucket --stack west)"
+builder="$(pulumi -C infra/control-plane stack output buildServiceAccount --stack west)"
 gcloud builds submit . \
   --project=halo-relay \
-  --region=us-central1 \
+  --region=us-west2 \
   --config=infra/cloudbuild.yaml \
   --ignore-file=infra/buildignore \
   --gcs-source-staging-dir="gs://$bucket/source" \
   --service-account="$builder" \
   --substitutions="_IMAGE=$image"
+
+pulumi -C infra/control-plane config set workspaceImage "$image" --stack west
 ```
 
-Set the workspace stack's `image` to the digest printed by Cloud Build before
-deploying it. The workspace stack creates one always-running `e2-standard-2` VM
-and a protected 50 GB persistent disk. The server listens on the VM, while its
-HTTP port remains private until the control-plane session transport is added.
+Use the immutable digest printed by Cloud Build when updating either stack
+configuration value.
 
-The Google credentials used by Pulumi are Application Default Credentials.
-They are separate from the Google sign-in session that Halo users will use.
+## OAuth and runtime secrets
 
-## Runtime secrets
+Production Google OAuth credentials live in Secret Manager as:
 
-Secrets live in GCP Secret Manager. Application config reads them at startup,
-using Application Default Credentials locally and their attached service account
-on GCP. Secret values are never stored in a local environment file or injected as
-process environment variables. The development stack reads these secret names:
+- `halo-west-control-plane-google-client-id`
+- `halo-west-control-plane-google-client-secret`
 
-- `halo-dev-local-better-auth-secret`
-- `halo-dev-control-plane-google-client-id`
-- `halo-dev-control-plane-google-client-secret`
+The control plane loads those secrets through its runtime service account. Add
+`${controlPlaneUrl}/api/auth/callback/google` as an authorized redirect URI on
+the Google OAuth client, where `controlPlaneUrl` comes from:
 
-Workspace inference uses `google-vertex/gemini-3.8-flash` through Vertex AI.
-Local development uses the active ADC identity. Production workspace VMs use
-their attached service accounts, which Pulumi grants `roles/aiplatform.user`.
+```sh
+pulumi -C infra/control-plane stack output controlPlaneUrl --stack west
+```
+
+Local development uses separate `halo-dev-local-*` secrets and the active
+Application Default Credentials identity. Production workspace VMs use their
+attached service account for `google-vertex/gemini-3.8-flash`; Pulumi grants it
+`roles/aiplatform.user`.
+
+## Recovery snapshots
+
+The completed `us-west2` migration retains these final workspace snapshots:
+
+- `halo-user-workspace-west-final-20260912`
+- `halo-dev-workspace-west-final-20260912`
+
+Keep them until the west deployment has passed the desired acceptance window,
+then remove them explicitly to stop snapshot storage charges.
 
 References: [GCP authentication](https://www.pulumi.com/registry/packages/gcp/installation-configuration/),
 [GCS backends](https://www.pulumi.com/docs/iac/operations/stack-management/using-a-diy-backend/),

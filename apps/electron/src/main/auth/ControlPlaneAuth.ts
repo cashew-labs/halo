@@ -14,9 +14,9 @@ import { type ControlPlaneClient } from "@get-halo/shared/controlPlaneContract";
 import { SerialQueue } from "@get-halo/shared/SerialQueue";
 import { safeStorage } from "electron";
 import * as errore from "errore";
-import type { HaloRpcConnection } from "../shared/rpc.js";
-import type { DesktopAuthentication } from "./DesktopAuthentication.js";
-import { openExternalUrl } from "./OpenExternalUrl.js";
+import type { HaloRpcConnection } from "../../shared/HaloRpcConnection.js";
+import type { DesktopAuthentication } from "../DesktopAuthentication.js";
+import { openExternalUrl } from "../openExternalUrl.js";
 
 const loopbackHost = "127.0.0.1";
 const callbackPath = "/auth/callback";

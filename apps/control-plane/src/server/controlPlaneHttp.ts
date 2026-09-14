@@ -15,16 +15,16 @@ import {
   type AuthService,
   DesktopAuthRequiredError,
   InvalidDesktopSignInRequestError,
-} from "./AuthService.js";
+} from "../auth/AuthService.js";
 import {
   controlPlaneRpcRouter,
   type ControlPlaneContext,
-} from "./ControlPlaneRouter.js";
-import type { WorkspaceService } from "./workspace/WorkspaceService.js";
+} from "./controlPlaneRpcRouter.js";
+import type { WorkspaceService } from "../workspace/WorkspaceService.js";
 import {
   isWorkspaceProxyRequest,
   WorkspaceGateway,
-} from "./workspace/proxy.js";
+} from "../workspace/proxy.js";
 
 const requestUrlBase = "http://localhost";
 

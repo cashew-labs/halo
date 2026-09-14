@@ -1,5 +1,5 @@
 import { type Static, Type } from "@sinclair/typebox";
-import { connectionRequestSchema } from "./connectionRequests.js";
+import { connectionRequestSchema } from "./ConnectionRequest.js";
 
 const textContentSchema = Type.Object({
   type: Type.Literal("text"),
