@@ -65,6 +65,7 @@ export const e2eTest = baseTest.extend<E2EFixtures>({
         }),
         llmConfiguration: llm.configuration,
         config: {
+          environment: "local",
           workspaceRoot: testArtifacts.paths.workspace,
           appDataDir: testArtifacts.paths.userData,
           appVersion: "0.0.0-test",

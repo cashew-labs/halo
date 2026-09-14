@@ -24,6 +24,7 @@ import type { ToolRuntime } from "./runtime/ToolRuntime.js";
 import { createAuthorizedCodingTools } from "./tools/codingTools.js";
 import { createExecTool } from "./tools/execTool.js";
 import { WorkspaceResourceLoader } from "./WorkspaceResourceLoader.js";
+import type { HaloEnvironment } from "./workspacePrompt.js";
 import { adaptPiEvent, sessionSnapshot } from "./sessionEvents.js";
 
 export class EmptyPromptError extends errore.createTaggedError({
@@ -57,6 +58,7 @@ type SessionNotification = {
 };
 
 export type HaloAgentSessionOptions = {
+  environment: HaloEnvironment;
   modelRuntime: ModelRuntime;
   model: Model<Api>;
   filesystem: FilesystemService;
@@ -82,7 +84,10 @@ export class HaloAgentSession {
     const runtimeDescription = await runtime.getAgentDescription();
     if (runtimeDescription instanceof Error) return runtimeDescription;
 
-    const resourceLoader = new WorkspaceResourceLoader(layout.root);
+    const resourceLoader = new WorkspaceResourceLoader({
+      environment: options.environment,
+      workspaceRoot: layout.root,
+    });
     const reloaded = await resourceLoader.reload();
     if (reloaded instanceof Error) return reloaded;
     const customTools: AgentHarnessTool<object | undefined>[] = [

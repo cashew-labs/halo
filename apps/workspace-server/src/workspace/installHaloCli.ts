@@ -13,12 +13,18 @@ export function haloCliBinDir(workspaceRoot: string) {
   return join(workspaceRoot, ".halo", "bin");
 }
 
-export function workspaceCliPath(
+export function workspaceExecutablePath(
   workspaceRoot: string,
   path = process.env.PATH,
 ) {
-  const binDir = haloCliBinDir(workspaceRoot);
-  return path === undefined ? binDir : `${binDir}${delimiter}${path}`;
+  const binDirectories = [
+    haloCliBinDir(workspaceRoot),
+    join(workspaceRoot, ".local", "bin"),
+  ];
+  const workspacePath = binDirectories.join(delimiter);
+  return path === undefined
+    ? workspacePath
+    : `${workspacePath}${delimiter}${path}`;
 }
 
 function haloCliBinPath(workspaceRoot: string) {

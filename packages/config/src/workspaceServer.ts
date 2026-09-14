@@ -17,6 +17,7 @@ const developmentUserSchema = Type.Object({
 });
 
 export const workspaceServerConfigSchema = Type.Object({
+  environment: Type.Union([Type.Literal("local"), Type.Literal("cloud")]),
   workspaceRoot: Type.String(),
   appDataDir: Type.String(),
   appVersion: Type.String(),
@@ -144,6 +145,7 @@ async function readDevelopmentConfig(): Promise<WorkspaceServerConfig | Error> {
   const rendererPort = process.env.HALO_RENDERER_PORT;
   const rendererOrigin = `http://localhost:${rendererPort === undefined ? "1420" : rendererPort}`;
   return {
+    environment: "local",
     workspaceRoot: path.resolve(workspaceRoot),
     appDataDir,
     appVersion: "0.0.0",

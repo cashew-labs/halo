@@ -46,6 +46,7 @@ export class TestServer {
       );
     }
     const halo = await HaloServer.start({
+      environment: "local",
       llmApi: this.options.llmApi,
       workspaceRoot: this.workspaceRoot,
       appDataDir: this.options.artifacts.paths.userData,
