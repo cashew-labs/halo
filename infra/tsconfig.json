@@ -10,11 +10,6 @@
     "target": "ESNext",
     "types": ["node"]
   },
-  "include": [
-    "alchemy.run.ts",
-    "src/**/*.ts",
-    "control-plane/**/*.ts",
-    "workspace/**/*.ts"
-  ],
-  "exclude": ["node_modules", ".alchemy"]
+  "include": ["control-plane/**/*.ts", "workspace/**/*.ts"],
+  "exclude": ["node_modules"]
 }

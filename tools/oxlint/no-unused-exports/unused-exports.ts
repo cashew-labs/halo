@@ -509,8 +509,7 @@ function isToolingEntryFile(path: string): boolean {
 	return (
 		filename.endsWith(".config.ts") ||
 		filename.endsWith(".config.mts") ||
-		filename === "forge.config.ts" ||
-		filename === "alchemy.run.ts"
+		filename === "forge.config.ts"
 	);
 }
 

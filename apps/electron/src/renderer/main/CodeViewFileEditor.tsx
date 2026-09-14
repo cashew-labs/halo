@@ -1,5 +1,9 @@
 import { useMemo, useState } from "react";
-import { Editor, type EditorOptions } from "@pierre/diffs/edit";
+import {
+  Editor,
+  type EditorOptions,
+  type EditorType,
+} from "@pierre/diffs/edit";
 import { CodeView, EditProvider, type CodeViewItem } from "@pierre/diffs/react";
 import { monoFontFamily, useTheme } from "maui";
 import { style, useStyles } from "purse-styles";
@@ -12,8 +16,11 @@ const diffsTheme = {
 
 const pierreUnsafeCss = `:host { --diffs-font-family: ${monoFontFamily}; }`;
 
-function createPierreEditor(options: EditorOptions<undefined>) {
-  return new Editor(options);
+function createPierreEditor<EType extends EditorType>(
+  editorType: EType,
+  options: EditorOptions<EType, undefined, undefined>,
+) {
+  return new Editor(editorType, options);
 }
 
 export function CodeViewFileEditor({
@@ -29,7 +36,7 @@ export function CodeViewFileEditor({
   const host = useStyles(hostClass);
 
   const items = useMemo(
-    (): CodeViewItem[] => [
+    (): CodeViewItem<undefined>[] => [
       {
         type: "file",
         id: path,
@@ -63,8 +70,8 @@ export function CodeViewFileEditor({
           items={items}
           options={options}
           disableWorkerPool
-          onItemEditChange={(_item, file) => {
-            autosave.onChange(file.contents);
+          onItemEditChange={(event) => {
+            autosave.onChange(event.file.contents);
           }}
           style={{ height: "100%", width: "100%" }}
         />
