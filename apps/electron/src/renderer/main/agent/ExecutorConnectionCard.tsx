@@ -224,43 +224,38 @@ function ConnectionStatusLabel({
 }: {
   status: Exclude<ConnectionState["status"], "idle">;
 }) {
+  const color = connectionStatusColor[status];
   if (status === "connected") {
     return (
-      <Flex row gap={1} alignItems="center" style={{ color: colors.green[11] }}>
+      <Flex row gap={1} alignItems="center" style={{ color }}>
         <Check size="sm" />
-        <Text size="sm" fontWeight={500} style={{ color: colors.green[11] }}>
+        <Text size="sm" fontWeight={500} style={{ color }}>
           Connected
         </Text>
       </Flex>
     );
   }
-  if (status === "starting") {
-    return (
-      <Text size="sm" fontWeight={500}>
-        Starting connection...
-      </Text>
-    );
-  }
-  if (status === "connecting") {
-    return (
-      <Text size="sm" fontWeight={500}>
-        Opened in your browser...
-      </Text>
-    );
-  }
-  if (status === "cancelled") {
-    return (
-      <Text size="sm" fontWeight={500}>
-        Cancelled
-      </Text>
-    );
-  }
   return (
-    <Text size="sm" fontWeight={500}>
-      Expired
+    <Text size="sm" fontWeight={500} style={{ color }}>
+      {connectionStatusCopy[status]}
     </Text>
   );
 }
+
+const connectionStatusColor = {
+  starting: colors.blue[11],
+  connecting: colors.blue[11],
+  connected: colors.green[11],
+  cancelled: colors.orange[11],
+  expired: colors.red[11],
+} as const;
+
+const connectionStatusCopy = {
+  starting: "Starting connection...",
+  connecting: "Opened in your browser...",
+  cancelled: "Cancelled",
+  expired: "Expired",
+} as const;
 
 function ConnectionOverflowMenu({
   label,
