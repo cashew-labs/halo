@@ -1,3 +1,4 @@
+import { KeyboardShortcuts } from "./KeyboardShortcuts.js";
 import { colors, spacing, text } from "maui";
 import { style, useStyles } from "purse-styles";
 import { Redirect, Route, Router } from "wouter";
@@ -64,6 +65,7 @@ function WorkspaceShell({
       )}
       {/* oxlint-disable-next-line react/hooks -- Wouter calls the location hook supplied to Router. */}
       <Router hook={useHashLocation}>
+        <KeyboardShortcuts />
         <Route path="/">
           <Redirect to={initialHostPath(sessions)} replace />
         </Route>
