@@ -1,5 +1,8 @@
 import { type Static, Type } from "@sinclair/typebox";
-import { connectionRequestSchema } from "./ConnectionRequest.js";
+import {
+  connectionRequestKey,
+  connectionRequestSchema,
+} from "./ConnectionRequest.js";
 
 const textContentSchema = Type.Object({
   type: Type.Literal("text"),
@@ -179,18 +182,30 @@ export function directToolIdentity(name: string): ToolIdentity {
   return { path: name, displayName: label === undefined ? name : label };
 }
 
-const haloConnectionEventSchema = Type.Object({
-  type: Type.Literal("halo.connection"),
-  connectionId: Type.String(),
-  request: connectionRequestSchema,
-  status: Type.Union([
-    Type.Literal("connected"),
-    Type.Literal("cancelled"),
-    Type.Literal("expired"),
-  ]),
-});
+const haloConnectionEventSchema = Type.Union([
+  Type.Object({
+    type: Type.Literal("halo.connection"),
+    connectionId: Type.String(),
+    request: connectionRequestSchema,
+    status: Type.Literal("connecting"),
+    expiresAt: Type.Number(),
+    wasConnected: Type.Boolean(),
+  }),
+  Type.Object({
+    type: Type.Literal("halo.connection"),
+    connectionId: Type.String(),
+    request: connectionRequestSchema,
+    status: Type.Union([
+      Type.Literal("connected"),
+      Type.Literal("cancelled"),
+      Type.Literal("expired"),
+    ]),
+  }),
+]);
 
 export type HaloConnectionEvent = Static<typeof haloConnectionEventSchema>;
+type WithoutEventType<T> = T extends { type: string } ? Omit<T, "type"> : never;
+export type HaloConnectionState = WithoutEventType<HaloConnectionEvent>;
 
 const toolResultSchema = Type.Object({
   content: Type.Array(Type.Union([textContentSchema, imageContentSchema])),
@@ -249,6 +264,7 @@ export type SessionSnapshot = {
   activeRun: ActiveRun | undefined;
   lastRun: RunResult | undefined;
   fault: string | undefined;
+  connections: HaloConnectionState[];
 };
 
 export type SessionEvent =
@@ -281,6 +297,7 @@ export function emptySessionSnapshot(): SessionSnapshot {
     activeRun: undefined,
     lastRun: undefined,
     fault: undefined,
+    connections: [],
   };
 }
 
@@ -349,8 +366,52 @@ export function applySessionEvent(
         },
       };
     case "halo.connection":
-      return snapshot;
+      return {
+        ...snapshot,
+        connections: applyConnectionEvent(snapshot.connections, event),
+      };
   }
+}
+
+export function applyConnectionEvent(
+  states: readonly HaloConnectionState[],
+  event: HaloConnectionEvent,
+): HaloConnectionState[] {
+  const current = states.find(
+    (state) =>
+      connectionRequestKey(state.request) ===
+      connectionRequestKey(event.request),
+  );
+  const state = connectionStateFromEvent(current, event);
+  return [
+    ...states.filter(
+      (candidate) =>
+        connectionRequestKey(candidate.request) !==
+        connectionRequestKey(event.request),
+    ),
+    state,
+  ];
+}
+
+function connectionStateFromEvent(
+  current: HaloConnectionState | undefined,
+  event: HaloConnectionEvent,
+): HaloConnectionState {
+  const { type: _type, ...next } = event;
+  if (
+    event.status !== "connecting" &&
+    event.status !== "connected" &&
+    current?.status === "connecting" &&
+    current.connectionId === event.connectionId &&
+    current.wasConnected
+  ) {
+    return {
+      connectionId: event.connectionId,
+      request: event.request,
+      status: "connected",
+    };
+  }
+  return next;
 }
 
 export function executionWithOutput(

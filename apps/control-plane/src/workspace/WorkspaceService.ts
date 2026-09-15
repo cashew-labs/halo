@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import type { WorkspaceConfig } from "@get-halo/config/controlPlane";
+import { readWorkspaceServerConnection } from "@get-halo/shared/WorkspaceServerConnection";
 import * as errore from "errore";
 import type { DatabaseService } from "../DatabaseService.js";
 import { provisionGcpWorkspace } from "./gcpProvisioning.js";
@@ -25,20 +26,38 @@ type Workspace = {
   createdAt: Date;
 };
 
-type WorkspaceConnection = {
-  origin: string;
-};
+type GcpWorkspaceConfig = Extract<WorkspaceConfig, { deployment: "gcp" }>;
+
+type WorkspaceServiceConfig =
+  | { deployment: "local"; appDataDir: string }
+  | GcpWorkspaceConfig;
+
+export type WorkspaceConnection =
+  | {
+      origin: string;
+      authorization: { type: "bearer"; value: string };
+    }
+  | {
+      origin: string;
+      authorization: { type: "googleIdentity" };
+    };
 
 export class WorkspaceService {
   private readonly db: DatabaseService;
-  private readonly config: WorkspaceConfig;
+  private readonly config: WorkspaceServiceConfig;
 
-  private constructor(ctx: { config: WorkspaceConfig; db: DatabaseService }) {
+  private constructor(ctx: {
+    config: WorkspaceServiceConfig;
+    db: DatabaseService;
+  }) {
     this.db = ctx.db;
     this.config = ctx.config;
   }
 
-  static async start(ctx: { config: WorkspaceConfig; db: DatabaseService }) {
+  static async start(ctx: {
+    config: WorkspaceServiceConfig;
+    db: DatabaseService;
+  }) {
     const service = new WorkspaceService(ctx);
     const migrated = await service.migrate();
     if (migrated instanceof Error) return migrated;
@@ -64,9 +83,17 @@ export class WorkspaceService {
 
   async getConnection(userId: string) {
     if (this.config.deployment === "local") {
-      return new WorkspaceServiceError({
-        detail: "connect to a local workspace through the gateway",
-      });
+      const server = await readWorkspaceServerConnection(
+        this.config.appDataDir,
+      );
+      if (server instanceof Error || server === undefined) return server;
+      return {
+        origin: server.origin,
+        authorization: {
+          type: "bearer",
+          value: `Bearer ${server.token}`,
+        },
+      } satisfies WorkspaceConnection;
     }
 
     const workspace = await this.findRecord(userId);
@@ -78,6 +105,7 @@ export class WorkspaceService {
     const instanceName = `halo-${workspace.id}`;
     return {
       origin: `http://${instanceName}.${this.config.zone}.c.${this.config.projectId}.internal:8788`,
+      authorization: { type: "googleIdentity" },
     } satisfies WorkspaceConnection;
   }
 

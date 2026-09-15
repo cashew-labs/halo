@@ -9,6 +9,8 @@
 !apps/
 !apps/control-plane/
 !apps/control-plane/**
+!apps/web-app/
+!apps/web-app/**
 !apps/workspace-server/
 !apps/workspace-server/**
 !infra/

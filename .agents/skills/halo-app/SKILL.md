@@ -17,7 +17,7 @@ pnpm halo app exec 'await page.getByRole("button", { name: "New session", exact:
 pnpm halo app screenshot
 ```
 
-`halo app` targets the Halo renderer, not DevTools. It requires a development build with its debug port on `127.0.0.1:4445`. If the app is not running and the task calls for live testing, start `pnpm --filter @halo/desktop dev` in a long-running terminal.
+`halo app` targets the Halo renderer, not DevTools. It requires a development build with its debug port on `127.0.0.1:4445`. If the app is not running and the task calls for live testing, start `pnpm --filter @get-halo/desktop dev` in a long-running terminal.
 
 ## Test an extension independently
 

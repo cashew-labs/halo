@@ -1,5 +1,5 @@
 import { implement } from "@orpc/server";
-import type { Logger } from "@repo/logger";
+import type { Logger } from "@get-halo/logger";
 import { contract } from "@get-halo/shared/contract";
 import { orpcErrors } from "../orpcErrors.js";
 import type { WorkspaceService } from "./WorkspaceService.js";
@@ -56,6 +56,11 @@ export const workspaceRouter = os.router({
     );
     if (written instanceof Error) return orpcErrors.badRequest(written);
     return written;
+  }),
+  saveImage: os.saveImage.handler(async ({ context, input }) => {
+    const saved = await context.workspace.saveImage(input);
+    if (saved instanceof Error) return orpcErrors.badRequest(saved);
+    return saved;
   }),
   events: os.events.handler(({ context, signal }) => {
     context.logger.info({ event: "subscribeWorkspaceTree" });

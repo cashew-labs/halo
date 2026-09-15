@@ -1,4 +1,6 @@
 import fs from "node:fs/promises";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { createORPCClient } from "@orpc/client";
@@ -7,6 +9,7 @@ import {
   controlPlaneProtocolVersion,
   type ControlPlaneClient,
 } from "@get-halo/shared/controlPlaneContract";
+import { writeWorkspaceServerConnection } from "@get-halo/shared/WorkspaceServerConnection";
 import { betterAuth } from "better-auth";
 import { testUtils } from "better-auth/plugins";
 import * as errore from "errore";
@@ -21,11 +24,18 @@ const testAuth = {
 
 const desktopAuthState = "desktop-auth-state-0123456789abcdef";
 
+type ReceivedWorkspaceHeaders = {
+  authorization?: string;
+  cookie?: string;
+};
+
 const controlPlaneTest = test.extend<{
   appDataDir: string;
   authenticatedRpc: ControlPlaneClient;
+  browserHeaders: Headers;
   plane: ControlPlane;
   rpc: ControlPlaneClient;
+  webRoot: string;
 }>({
   appDataDir: async ({ task }, use) => {
     const parent = resolve(import.meta.dirname, "../../../tmp/control-plane");
@@ -34,13 +44,25 @@ const controlPlaneTest = test.extend<{
     await use(appDataDir);
     await fs.rm(appDataDir, { recursive: true, force: true });
   },
-  plane: async ({ appDataDir }, use) => {
+  webRoot: async ({ appDataDir }, use) => {
+    const webRoot = join(appDataDir, "web");
+    await fs.mkdir(join(webRoot, "assets"), { recursive: true });
+    await Promise.all([
+      fs.writeFile(join(webRoot, "index.html"), "<main>Halo web app</main>"),
+      fs.writeFile(join(webRoot, "assets", "app.js"), "window.Halo = true;"),
+    ]);
+    await use(webRoot);
+  },
+  plane: async ({ appDataDir, webRoot }, use) => {
     const plane = await ControlPlane.start({
-      deployment: "local",
-      workspace: { deployment: "local" },
-      appDataDir,
-      port: 0,
-      auth: testAuth,
+      config: {
+        deployment: "local",
+        workspace: { deployment: "local" },
+        appDataDir,
+        port: 0,
+        auth: testAuth,
+      },
+      webRoot,
     });
     if (plane instanceof Error) throw plane;
     await use(plane);
@@ -50,11 +72,10 @@ const controlPlaneTest = test.extend<{
   rpc: async ({ plane }, use) => {
     await use(createControlPlaneRpcClient(plane.origin));
   },
-  authenticatedRpc: async ({ appDataDir, plane, rpc }, use) => {
-    const browserHeaders = await createAuthenticatedHeaders(
-      appDataDir,
-      plane.origin,
-    );
+  browserHeaders: async ({ appDataDir, plane }, use) => {
+    await use(await createAuthenticatedHeaders(appDataDir, plane.origin));
+  },
+  authenticatedRpc: async ({ browserHeaders, plane, rpc }, use) => {
     const complete = new URL("/api/desktop-auth/complete", plane.origin);
     complete.searchParams.set(
       "callback",
@@ -78,14 +99,17 @@ const controlPlaneTest = test.extend<{
 
 controlPlaneTest(
   "stays reachable on loopback until closed",
-  async ({ appDataDir }) => {
+  async ({ appDataDir, webRoot }) => {
     await using cleanup = new errore.AsyncDisposableStack();
     const plane = await ControlPlane.start({
-      deployment: "local",
-      workspace: { deployment: "local" },
-      appDataDir,
-      port: 0,
-      auth: testAuth,
+      config: {
+        deployment: "local",
+        workspace: { deployment: "local" },
+        appDataDir,
+        port: 0,
+        auth: testAuth,
+      },
+      webRoot,
     });
     if (plane instanceof Error) throw plane;
     const lifetime = { open: true };
@@ -110,6 +134,100 @@ controlPlaneTest(
   },
 );
 
+controlPlaneTest(
+  "serves browser navigation and built assets",
+  async ({ plane }) => {
+    const root = await fetch(plane.origin);
+    expect(root.status).toBe(200);
+    expect(root.headers.get("cache-control")).toBe("no-cache");
+    expect(root.headers.get("content-security-policy")).toContain(
+      "frame-ancestors 'none'",
+    );
+    expect(root.headers.get("content-security-policy")).toContain(
+      "frame-src 'self'",
+    );
+    expect(root.headers.get("content-type")).toBe("text/html; charset=utf-8");
+    expect(await root.text()).toBe("<main>Halo web app</main>");
+
+    const navigation = await fetch(`${plane.origin}/sessions/example`);
+    expect(navigation.status).toBe(200);
+    expect(navigation.headers.get("cache-control")).toBe("no-cache");
+    expect(await navigation.text()).toBe("<main>Halo web app</main>");
+
+    const asset = await fetch(`${plane.origin}/assets/app.js`);
+    expect(asset.status).toBe(200);
+    expect(asset.headers.get("cache-control")).toBe(
+      "public, max-age=31536000, immutable",
+    );
+    expect(asset.headers.get("content-type")).toBe(
+      "text/javascript; charset=utf-8",
+    );
+    expect(await asset.text()).toBe("window.Halo = true;");
+  },
+);
+
+controlPlaneTest(
+  "does not serve the SPA for missing assets or service routes",
+  async ({ plane }) => {
+    const responses = await Promise.all([
+      fetch(`${plane.origin}/assets/missing.js`),
+      fetch(`${plane.origin}/api/missing`),
+      fetch(`${plane.origin}/rpc/missing`),
+      fetch(`${plane.origin}/workspace/missing`),
+      fetch(`${plane.origin}/health/missing`),
+    ]);
+
+    expect(responses.map((response) => response.status)).toEqual([
+      404, 404, 404, 401, 404,
+    ]);
+  },
+);
+
+controlPlaneTest(
+  "proxies an authenticated browser request to the local workspace",
+  async ({ appDataDir, browserHeaders, plane }) => {
+    const received: ReceivedWorkspaceHeaders = {};
+    const workspaceServer = createServer((request, response) => {
+      received.authorization = request.headers.authorization;
+      received.cookie = request.headers.cookie;
+      response.writeHead(200).end("workspace healthy");
+    });
+    await new Promise<void>((resolveListen, rejectListen) => {
+      workspaceServer.once("error", rejectListen);
+      workspaceServer.listen(0, "127.0.0.1", resolveListen);
+    });
+    await using cleanup = new errore.AsyncDisposableStack();
+    cleanup.defer(
+      async () =>
+        await new Promise<void>((resolveClose) => {
+          workspaceServer.close(() => resolveClose());
+        }),
+    );
+
+    // SAFETY: Node returns a TCP address after successfully listening with a numeric port.
+    const address = workspaceServer.address() as AddressInfo;
+    const published = await writeWorkspaceServerConnection({
+      appDataDir,
+      connection: {
+        workspaceRoot: "/test/workspace",
+        origin: `http://127.0.0.1:${address.port}`,
+        token: "local-workspace-token",
+      },
+    });
+    if (published instanceof Error) throw published;
+
+    const response = await fetch(`${plane.origin}/workspace/health`, {
+      headers: browserHeaders,
+    });
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("workspace healthy");
+    expect(received).toEqual({
+      authorization: "Bearer local-workspace-token",
+      cookie: undefined,
+    });
+  },
+);
+
 controlPlaneTest("serves Better Auth at /api/auth", async ({ plane }) => {
   const ok = await fetch(`${plane.origin}/api/auth/ok`);
   expect(ok.status).toBe(200);
@@ -120,7 +238,7 @@ controlPlaneTest("serves the typed control-plane RPC", async ({ rpc }) => {
   expect(await rpc.server.info()).toEqual({
     protocolVersion: controlPlaneProtocolVersion,
   });
-  expect(await rpc.auth.session()).toBeUndefined();
+  expect(await rpc.auth.session()).toEqual({ status: "signed-out" });
 });
 
 controlPlaneTest(
@@ -199,7 +317,8 @@ controlPlaneTest(
       payload.token,
     );
     expect(await authenticated.auth.session()).toMatchObject({
-      user: { email: "desktop@example.com" },
+      status: "signed-in",
+      session: { user: { email: "desktop@example.com" } },
     });
 
     await expect(rpc.auth.exchange({ code })).rejects.toMatchObject({

@@ -7,6 +7,7 @@ import { Type, type Static } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import * as errore from "errore";
 import { ApplicationMode } from "./ApplicationMode.js";
+import { readGcpSecret } from "./readGcpSecret.js";
 
 const inferenceProjectId = "halo-relay";
 const inferenceLocation = "global";
@@ -75,6 +76,12 @@ export type WorkspaceServerApplicationConfig = {
   mode: ApplicationMode;
   server: WorkspaceServerConfig;
   inference: OpenAIInferenceConfig | PiInferenceConfig;
+  googleWebOAuthClient: GoogleWebOAuthClient | undefined;
+};
+
+export type GoogleWebOAuthClient = {
+  clientId: string;
+  clientSecret: string;
 };
 
 class WorkspaceServerConfigError extends errore.createTaggedError({
@@ -91,13 +98,58 @@ async function readConfig(): Promise<WorkspaceServerApplicationConfig | Error> {
   if (server instanceof Error) return server;
   const inference = readInferenceConfig(server.workspaceRoot);
   if (inference instanceof Error) return inference;
+  const googleWebOAuthClient = await readGoogleWebOAuthClient(
+    server.environment,
+  );
+  if (googleWebOAuthClient instanceof Error) return googleWebOAuthClient;
   const mode =
     configPath === undefined
       ? ApplicationMode.Development
       : process.env.HALO_E2E === "1"
         ? ApplicationMode.Test
         : ApplicationMode.Production;
-  return { mode, server, inference };
+  return { mode, server, inference, googleWebOAuthClient };
+}
+
+async function readGoogleWebOAuthClient(environment: "local" | "cloud") {
+  if (environment === "local") {
+    const clientId = process.env.HALO_GOOGLE_WEB_CLIENT_ID;
+    const clientSecret = process.env.HALO_GOOGLE_WEB_CLIENT_SECRET;
+    if (clientId === undefined && clientSecret === undefined) return undefined;
+    if (clientId === undefined)
+      return new WorkspaceServerConfigError({
+        detail: "set HALO_GOOGLE_WEB_CLIENT_ID",
+      });
+    if (clientSecret === undefined)
+      return new WorkspaceServerConfigError({
+        detail: "set HALO_GOOGLE_WEB_CLIENT_SECRET",
+      });
+    return { clientId, clientSecret };
+  }
+
+  const clientIdSecretId = process.env.GOOGLE_WEB_CLIENT_ID_SECRET_ID;
+  if (clientIdSecretId === undefined)
+    return new WorkspaceServerConfigError({
+      detail: "set GOOGLE_WEB_CLIENT_ID_SECRET_ID",
+    });
+  const clientSecretSecretId = process.env.GOOGLE_WEB_CLIENT_SECRET_ID;
+  if (clientSecretSecretId === undefined)
+    return new WorkspaceServerConfigError({
+      detail: "set GOOGLE_WEB_CLIENT_SECRET_ID",
+    });
+  const [clientId, clientSecret] = await Promise.all([
+    readGcpSecret({
+      projectId: inferenceProjectId,
+      secretId: clientIdSecretId,
+    }),
+    readGcpSecret({
+      projectId: inferenceProjectId,
+      secretId: clientSecretSecretId,
+    }),
+  ]);
+  if (clientId instanceof Error) return clientId;
+  if (clientSecret instanceof Error) return clientSecret;
+  return { clientId, clientSecret };
 }
 
 async function readConfigFile(configPath: string) {

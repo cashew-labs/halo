@@ -1,6 +1,6 @@
 import { error, oc, type, type RouterContractClient } from "@orpc/contract";
 
-export const controlPlaneProtocolVersion = 2 as const;
+export const controlPlaneProtocolVersion = 3 as const;
 
 export type ControlPlaneSession = {
   session: {
@@ -19,6 +19,10 @@ export type ControlPlaneSession = {
 export type DesktopAuthSession = ControlPlaneSession & {
   token: string;
 };
+
+export type ControlPlaneAuthentication =
+  | { status: "signed-out" }
+  | { status: "signed-in"; session: ControlPlaneSession };
 
 export type ControlPlaneWorkspace = {
   id: string;
@@ -51,7 +55,7 @@ export const controlPlaneContract = publicProcedure.router({
     exchange: publicProcedure
       .input(type<{ code: string }>())
       .output(type<DesktopAuthSession>()),
-    session: publicProcedure.output(type<ControlPlaneSession | undefined>()),
+    session: publicProcedure.output(type<ControlPlaneAuthentication>()),
   },
   workspace: {
     ensure: authenticatedProcedure.output(type<ControlPlaneWorkspace>()),

@@ -13,6 +13,19 @@ export const connectionRequestSchema = Type.Object({
 
 export type ConnectionRequest = Static<typeof connectionRequestSchema>;
 
+export function connectionRequestKey(request: ConnectionRequest) {
+  return JSON.stringify([
+    request.client,
+    request.clientOwner,
+    request.owner,
+    request.connectionName,
+    request.integration,
+    request.template,
+    request.identityLabel,
+    request.newConnection,
+  ]);
+}
+
 export function connectionRequestLabel(request: ConnectionRequest) {
   return request.integration
     .split("_")

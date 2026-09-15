@@ -7,7 +7,10 @@ import http, {
 import { GoogleAuth, type IdTokenClient } from "google-auth-library";
 import * as errore from "errore";
 import type { AuthService } from "../auth/AuthService.js";
-import type { WorkspaceService } from "./WorkspaceService.js";
+import type {
+  WorkspaceConnection,
+  WorkspaceService,
+} from "./WorkspaceService.js";
 
 const workspacePathPrefix = "/workspace";
 const hopByHopHeaders = new Set([
@@ -70,8 +73,12 @@ export class WorkspaceGateway {
       respond(request, response, 503);
       return;
     }
+    if (connection === undefined) {
+      respond(request, response, 503);
+      return;
+    }
 
-    const authorization = await this.getAuthorization(connection.origin);
+    const authorization = await this.getAuthorization(connection);
     if (authorization instanceof Error) {
       console.error(authorization);
       respond(request, response, 502);
@@ -86,7 +93,12 @@ export class WorkspaceGateway {
     });
   }
 
-  private async getAuthorization(audience: string) {
+  private async getAuthorization(connection: WorkspaceConnection) {
+    if (connection.authorization.type === "bearer") {
+      return connection.authorization.value;
+    }
+
+    const audience = connection.origin;
     const cached = this.identityClients.get(audience);
     const client =
       cached === undefined
@@ -184,11 +196,12 @@ function forwardedRequestHeaders(
   host: string,
   authorization: string,
 ) {
-  return {
-    ...forwardedHeaders(incoming),
-    authorization,
-    host,
-  } satisfies OutgoingHttpHeaders;
+  const headers = forwardedHeaders(incoming);
+  delete headers.authorization;
+  delete headers.cookie;
+  headers.authorization = authorization;
+  headers.host = host;
+  return headers;
 }
 
 function forwardedHeaders(incoming: IncomingHttpHeaders) {

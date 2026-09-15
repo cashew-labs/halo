@@ -49,8 +49,19 @@ export class HttpService {
     const response = this.requests.get(path)!;
     this.requests.delete(path);
     return {
-      respond(text: string) {
-        response.writeHead(200, { "Content-Type": "text/plain" });
+      respond(
+        text: string,
+        options?: { contentType?: string; status?: number },
+      ) {
+        response.writeHead(
+          options?.status === undefined ? 200 : options.status,
+          {
+            "Content-Type":
+              options?.contentType === undefined
+                ? "text/plain"
+                : options.contentType,
+          },
+        );
         response.end(text);
       },
     };

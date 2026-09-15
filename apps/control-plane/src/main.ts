@@ -1,3 +1,4 @@
+import path from "node:path";
 import { config } from "@get-halo/config/controlPlane";
 import * as errore from "errore";
 import { ControlPlane } from "./server/ControlPlane.js";
@@ -12,7 +13,10 @@ async function run() {
     });
   });
   if (config instanceof Error) return config;
-  const plane = await ControlPlane.start(config.server);
+  const plane = await ControlPlane.start({
+    config: config.server,
+    webRoot: path.resolve(import.meta.dirname, "../../web-app/dist"),
+  });
   if (plane instanceof Error) return plane;
   await using cleanup = new errore.AsyncDisposableStack();
   cleanup.defer(async () => {

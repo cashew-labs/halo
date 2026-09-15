@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { Logger } from "@repo/logger";
-import { JsonlLoggerSink } from "@repo/logger/JsonlLoggerSink";
+import { Logger } from "@get-halo/logger";
+import { JsonlLoggerSink } from "@get-halo/logger/JsonlLoggerSink";
 
 type TestFiles = {
   write(input: { path: string; content: string | Uint8Array }): Promise<void>;

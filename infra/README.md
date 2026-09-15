@@ -124,14 +124,22 @@ Production Google OAuth credentials live in Secret Manager as:
 
 - `halo-west-control-plane-google-client-id`
 - `halo-west-control-plane-google-client-secret`
+- `halo-west-workspace-google-web-client-id`
+- `halo-west-workspace-google-web-client-secret`
 
-The control plane loads those secrets through its runtime service account. Add
+The control plane loads its sign-in client through its runtime service account.
+Workspace VMs load the web integration client through their runtime service
+account. Add
 `${controlPlaneUrl}/api/auth/callback/google` as an authorized redirect URI on
 the Google OAuth client, where `controlPlaneUrl` comes from:
 
 ```sh
 pulumi -C infra/control-plane stack output controlPlaneUrl --stack west
 ```
+
+The workspace web OAuth client uses
+`${controlPlaneUrl}/workspace/oauth/callback`. Electron keeps using its separate
+installed-application client and loopback callback.
 
 Local development uses separate `halo-dev-local-*` secrets and the active
 Application Default Credentials identity. Production workspace VMs use their

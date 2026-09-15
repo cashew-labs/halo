@@ -9,8 +9,11 @@ COPY patches ./patches
 COPY packages/config ./packages/config
 COPY packages/shared ./packages/shared
 COPY packages/typescript-config ./packages/typescript-config
+COPY packages/web ./packages/web
 COPY apps/control-plane ./apps/control-plane
-RUN pnpm install --frozen-lockfile --filter @get-halo/control-plane...
+COPY apps/web-app ./apps/web-app
+RUN pnpm install --frozen-lockfile --filter @get-halo/control-plane... --filter @get-halo/web-app...
+RUN pnpm --filter @get-halo/web-app build
 
 USER node
 HEALTHCHECK --interval=30s --start-period=15s --timeout=5s \

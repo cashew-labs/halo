@@ -11,7 +11,11 @@ import {
   type ConnectIntegrationRequest,
   type DesktopRequest,
 } from "../../shared/desktop.js";
-import { getAppInfo, installAppUpdate } from "../app/appUpdate.js";
+import {
+  checkForAppUpdate,
+  getAppInfo,
+  installAppUpdate,
+} from "../app/appUpdate.js";
 import type { DesktopAuthentication } from "../DesktopAuthentication.js";
 import type { HaloRpcConnection } from "../../shared/HaloRpcConnection.js";
 import {
@@ -71,6 +75,8 @@ async function handleDesktopRequest(args: {
       return await args.authentication.signIn();
     case "getAppInfo":
       return getAppInfo();
+    case "checkForAppUpdate":
+      return checkForAppUpdate();
     case "installAppUpdate":
       return installAppUpdate();
     case "openExternal":
@@ -124,7 +130,10 @@ async function connectIntegration(args: {
     .startConnection({
       sessionId: args.request.sessionId,
       request: args.request.request,
-      redirectUri: callback.callbackUrl,
+      completion: {
+        kind: "client-loopback",
+        redirectUri: callback.callbackUrl,
+      },
     })
     .catch(
       (cause) =>

@@ -7,7 +7,7 @@ import {
   workspaceServerReadySchema,
   type WorkspaceServerReady,
 } from "@get-halo/workspace-server/process";
-import type { Logger } from "@repo/logger";
+import type { Logger } from "@get-halo/logger";
 import type { OpenAILLMApiOptions } from "@get-halo/workspace-server/llm";
 import * as errore from "errore";
 
@@ -22,6 +22,7 @@ export async function startWorkspaceServerProcess(ctx: {
   logger: Logger;
   configPath: string;
   llmConfiguration: OpenAILLMApiOptions;
+  environment?: Record<string, string>;
 }) {
   const written = await fs
     .writeFile(ctx.configPath, JSON.stringify(ctx.config), { mode: 0o600 })
@@ -39,6 +40,7 @@ export async function startWorkspaceServerProcess(ctx: {
         execArgv: ["--import", "tsx"],
         env: {
           ...process.env,
+          ...ctx.environment,
           ELECTRON_RUN_AS_NODE: undefined,
           HALO_E2E: "1",
           HALO_LLM_CONFIG: JSON.stringify(ctx.llmConfiguration),

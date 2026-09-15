@@ -1,6 +1,6 @@
 import path from "node:path";
 import { setTimeout } from "node:timers/promises";
-import { readWorkspaceServerConnection } from "@get-halo/workspace-server/connection";
+import { readWorkspaceServerConnection } from "@get-halo/shared/WorkspaceServerConnection";
 import * as errore from "errore";
 
 const controlPlaneHealthUrl = "http://127.0.0.1:8787/health";

@@ -28,6 +28,12 @@ const mediaTypes = new Map<
   ["mov", { kind: "video", mime: "video/quicktime" }],
 ]);
 
+export function workspaceImageExtension(mime: string) {
+  return [...mediaTypes].find(
+    ([, media]) => media.kind === "image" && media.mime === mime,
+  )?.[0];
+}
+
 export function workspaceFilePreview(
   path: string,
   contents: Buffer,

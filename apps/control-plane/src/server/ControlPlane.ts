@@ -33,7 +33,8 @@ export class ControlPlane {
     return this.publicOrigin;
   }
 
-  static async start(config: ControlPlaneConfig) {
+  static async start(ctx: { config: ControlPlaneConfig; webRoot: string }) {
+    const { config, webRoot } = ctx;
     await using cleanup = new errore.AsyncDisposableStack();
 
     const http = await listenControlPlaneHttp(
@@ -69,11 +70,14 @@ export class ControlPlane {
 
     const workspace = await WorkspaceService.start({
       db,
-      config: config.workspace,
+      config:
+        config.deployment === "local"
+          ? { deployment: "local", appDataDir: config.appDataDir }
+          : config.workspace,
     });
     if (workspace instanceof Error) return workspace;
 
-    serveControlPlaneHttp({ server: http.server, auth, workspace });
+    serveControlPlaneHttp({ server: http.server, auth, workspace, webRoot });
     cleanup.move();
 
     return new ControlPlane({

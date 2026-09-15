@@ -1,5 +1,5 @@
 {
-  "extends": "@repo/typescript-config/base.json",
+  "extends": "@get-halo/typescript-config/base.json",
   "compilerOptions": {
     "allowImportingTsExtensions": true,
     "lib": ["ES2023", "DOM", "DOM.Iterable", "ESNext.Disposable"],
@@ -17,7 +17,6 @@
     "../../forge.config.ts",
     "../../vite.main.config.ts",
     "../../vite.preload.config.ts",
-    "../../vite.renderer.config.ts",
-    "../renderer/api/SystemApi.ts"
+    "../../vite.renderer.config.ts"
   ]
 }
