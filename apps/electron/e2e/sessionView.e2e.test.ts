@@ -281,7 +281,7 @@ e2eTest(
       card.getByText("Search, read, create, and share files."),
     ).toBeVisible();
     await card.getByRole("button", { name: "Connect" }).click();
-    await expect(card.getByText("Opened in your browser...")).toBeVisible();
+    await expect(card.getByText("Opened in your browser")).toBeVisible();
     await expect(
       card.getByText("Search, read, create, and share files."),
     ).toBeVisible();

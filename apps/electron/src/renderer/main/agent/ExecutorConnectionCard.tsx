@@ -251,8 +251,8 @@ const connectionStatusColor = {
 } as const;
 
 const connectionStatusCopy = {
-  starting: "Starting connection...",
-  connecting: "Opened in your browser...",
+  starting: "Starting connection",
+  connecting: "Opened in your browser",
   cancelled: "Cancelled",
   expired: "Expired",
 } as const;
