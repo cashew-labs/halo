@@ -31,6 +31,7 @@
     "@get-halo/config": "workspace:*",
     "@get-halo/logger": "workspace:*",
     "@get-halo/shared": "workspace:*",
+    "@get-halo/web": "workspace:*",
     "@get-halo/workspace-server": "workspace:*",
     "@orpc/client": "2.0.0-beta.29",
     "@parcel/watcher": "^2.6.0",

@@ -78,7 +78,7 @@ export type CancelIntegrationRequest = Extract<
   { type: "cancelIntegration" }
 >;
 
-export type DesktopApi = {
+export type DesktopBridge = {
   getConnection: () => Promise<HaloRpcConnection | undefined>;
   getAuthSession: () => Promise<ControlPlaneSession | undefined>;
   signIn: () => Promise<ControlPlaneSession>;
@@ -97,6 +97,6 @@ export type DesktopApi = {
 
 declare global {
   interface Window {
-    haloDesktop: DesktopApi;
+    haloDesktop: DesktopBridge;
   }
 }

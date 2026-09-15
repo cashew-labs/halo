@@ -3,9 +3,9 @@ import { Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import { contextBridge, ipcRenderer } from "electron";
 import { LOG_CHANNELS } from "../shared/channels.js";
-import { DESKTOP_CHANNEL, type DesktopApi } from "../shared/desktop.js";
+import { DESKTOP_CHANNEL, type DesktopBridge } from "../shared/desktop.js";
 
-const desktopApi: DesktopApi = {
+const desktopBridge: DesktopBridge = {
   getConnection: async () =>
     await ipcRenderer.invoke(DESKTOP_CHANNEL, { type: "getConnection" }),
   getAuthSession: async () =>
@@ -35,7 +35,7 @@ const desktopApi: DesktopApi = {
     }),
 };
 
-contextBridge.exposeInMainWorld("haloDesktop", desktopApi);
+contextBridge.exposeInMainWorld("haloDesktop", desktopBridge);
 
 const logMessageSchema = Type.Object({
   channel: Type.Literal(LOG_CHANNELS.log),

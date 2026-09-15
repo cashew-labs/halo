@@ -1,0 +1,29 @@
+{
+  "name": "@get-halo/web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./HostApi": "./src/HostApi.ts",
+    "./HostProvider": "./src/HostProvider.tsx"
+  },
+  "scripts": {
+    "format": "oxfmt .",
+    "format:check": "oxfmt --check .",
+    "lint": "NODE_OPTIONS=--experimental-strip-types oxlint --deny-warnings src",
+    "lint:fix": "NODE_OPTIONS=--experimental-strip-types oxlint --fix src",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@get-halo/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@get-halo/typescript-config": "workspace:*",
+    "@types/react": "19.2.18",
+    "react": "^19.2.8",
+    "typescript": "7.0.2"
+  },
+  "peerDependencies": {
+    "react": "^19.2.8"
+  }
+}
