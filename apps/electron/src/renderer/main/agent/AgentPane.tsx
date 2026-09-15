@@ -182,6 +182,8 @@ function SessionView({
   sessionId: string | undefined;
 }) {
   const viewRef = useRef<HTMLDivElement>(null);
+  const followLatest = useRef(true);
+  const viewedSessionId = useRef(sessionId);
   const view = useStyles(styles.view);
   const stopped = useStyles(styles.stopped);
   const items = sessionViewItems(state);
@@ -190,9 +192,21 @@ function SessionView({
     lastAssistantTurnWasAborted(sessionMessages(state));
 
   useLayoutEffect(() => {
+    if (viewedSessionId.current !== sessionId) {
+      viewedSessionId.current = sessionId;
+      followLatest.current = true;
+    }
     const element = viewRef.current;
     if (element === null) return;
-    element.scrollTop = element.scrollHeight;
+    const scrollToLatest = () => {
+      if (followLatest.current) element.scrollTop = element.scrollHeight;
+    };
+    scrollToLatest();
+    // Streamdown can resize message rows after the session render has committed.
+    const observer = new ResizeObserver(scrollToLatest);
+    observer.observe(element);
+    for (const child of element.children) observer.observe(child);
+    return () => observer.disconnect();
   });
 
   return (
@@ -202,6 +216,11 @@ function SessionView({
       aria-label="Session transcript"
       aria-relevant="additions"
       ref={viewRef}
+      onScroll={(event) => {
+        const element = event.currentTarget;
+        followLatest.current =
+          element.scrollHeight - element.clientHeight - element.scrollTop <= 1;
+      }}
     >
       {items.map((item) => (
         <SessionViewRow key={item.id} item={item} sessionId={sessionId} />
