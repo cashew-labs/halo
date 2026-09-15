@@ -226,12 +226,7 @@ function ConnectionStatusLabel({
 }) {
   if (status === "connected") {
     return (
-      <Flex
-        row
-        gap={1}
-        alignItems="center"
-        style={{ color: colors.green[11] }}
-      >
+      <Flex row gap={1} alignItems="center" style={{ color: colors.green[11] }}>
         <Check size="sm" />
         <Text size="md" style={{ color: colors.green[11] }}>
           Connected
@@ -337,22 +332,18 @@ function overflowItems({
   return undefined;
 }
 
-const menuButton = style(
-  focusRing(),
-  radius.sm,
-  {
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    height: "24px",
-    width: "24px",
-    padding: 0,
-    border: 0,
-    backgroundColor: "transparent",
-    color: colors.gray[11],
-    cursor: "pointer",
-    flexShrink: 0,
-    "&:hover": { backgroundColor: colors.gray[4] },
-    "&[data-disabled]": { opacity: 0.5 },
-  },
-);
+const menuButton = style(focusRing(), radius.sm, {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  height: "24px",
+  width: "24px",
+  padding: 0,
+  border: 0,
+  backgroundColor: "transparent",
+  color: colors.gray[11],
+  cursor: "pointer",
+  flexShrink: 0,
+  "&:hover": { backgroundColor: colors.gray[4] },
+  "&[data-disabled]": { opacity: 0.5 },
+});
