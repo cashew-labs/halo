@@ -16,7 +16,7 @@ import {
   Text,
 } from "maui";
 import { style, useStyles } from "purse-styles";
-import { Check, Menu as MenuIcon } from "maui/icons";
+import { Check, DotsHorizontal } from "maui/icons";
 import { connectionRequestLabel } from "@get-halo/shared/ConnectionRequest";
 import { googleIntegrationDisplay } from "@get-halo/shared/GoogleIntegrationDisplay";
 import { BrandLogo, brands, LogoImage } from "../../BrandLogo.tsx";
@@ -228,22 +228,38 @@ function ConnectionStatusLabel({
     return (
       <Flex row gap={1} alignItems="center" style={{ color: colors.green[11] }}>
         <Check size="sm" />
-        <Text size="md" style={{ color: colors.green[11] }}>
+        <Text size="sm" fontWeight={500} style={{ color: colors.green[11] }}>
           Connected
         </Text>
       </Flex>
     );
   }
   if (status === "starting") {
-    return <Text size="md">Starting connection...</Text>;
+    return (
+      <Text size="sm" fontWeight={500}>
+        Starting connection...
+      </Text>
+    );
   }
   if (status === "connecting") {
-    return <Text size="md">Finish connecting in your browser</Text>;
+    return (
+      <Text size="sm" fontWeight={500}>
+        Opened in your browser...
+      </Text>
+    );
   }
   if (status === "cancelled") {
-    return <Text size="md">Cancelled</Text>;
+    return (
+      <Text size="sm" fontWeight={500}>
+        Cancelled
+      </Text>
+    );
   }
-  return <Text size="md">Expired</Text>;
+  return (
+    <Text size="sm" fontWeight={500}>
+      Expired
+    </Text>
+  );
 }
 
 function ConnectionOverflowMenu({
@@ -276,7 +292,7 @@ function ConnectionOverflowMenu({
   return (
     <MenuTrigger placement="bottom end">
       <AriaButton aria-label={label} className={buttonClassName}>
-        <MenuIcon size="sm" />
+        <DotsHorizontal size="sm" />
       </AriaButton>
       <Menu aria-label={label}>{items}</Menu>
     </MenuTrigger>
