@@ -1,3 +1,4 @@
+import type { ShortcutId } from "./shortcuts.js";
 import { type Static, Type } from "@sinclair/typebox";
 import {
   connectionRequestSchema,
@@ -79,6 +80,7 @@ export type CancelIntegrationRequest = Extract<
 >;
 
 export type DesktopApi = {
+  onShortcut: (listener: (shortcut: ShortcutId) => void) => () => void;
   getConnection: () => Promise<HaloRpcConnection | undefined>;
   getAuthSession: () => Promise<ControlPlaneSession | undefined>;
   signIn: () => Promise<ControlPlaneSession>;

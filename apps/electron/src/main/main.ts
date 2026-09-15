@@ -23,6 +23,7 @@ import { JsonlLoggerSink } from "@repo/logger/JsonlLoggerSink";
 import { PrettyConsoleLoggerSink } from "@repo/logger/PrettyConsoleLoggerSink";
 import started from "electron-squirrel-startup";
 import { LOG_CHANNELS } from "../shared/channels.js";
+import { SHORTCUT_CHANNEL, shortcuts } from "../shared/shortcuts.js";
 import { checkForUpdates, startAppUpdates } from "./app/appUpdate.js";
 import {
   createLocalDesktopAuthentication,
@@ -263,7 +264,30 @@ function installMenu(): void {
       void openLogs();
     },
   };
+  const fileMenu = {
+    label: "File",
+    submenu: [
+      {
+        label: shortcuts.newChat.label,
+        accelerator: shortcuts.newChat.accelerator,
+        click: () =>
+          BrowserWindow.getFocusedWindow()?.webContents.send(
+            SHORTCUT_CHANNEL,
+            "newChat",
+          ),
+      },
+    ],
+  };
   const viewSubmenu = [
+    {
+      label: shortcuts.shortcutMenu.label,
+      accelerator: shortcuts.shortcutMenu.accelerator,
+      click: () =>
+        BrowserWindow.getFocusedWindow()?.webContents.send(
+          SHORTCUT_CHANNEL,
+          "shortcutMenu",
+        ),
+    },
     {
       label: "Reload",
       accelerator: "CmdOrCtrl+R",
@@ -292,6 +316,7 @@ function installMenu(): void {
             { role: "quit" },
           ],
         },
+        fileMenu,
         { role: "editMenu" },
         { label: "View", submenu: viewSubmenu },
         { role: "windowMenu" },
@@ -302,6 +327,7 @@ function installMenu(): void {
 
   Menu.setApplicationMenu(
     Menu.buildFromTemplate([
+      fileMenu,
       { role: "editMenu" },
       { label: "View", submenu: viewSubmenu },
       { role: "windowMenu" },

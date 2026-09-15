@@ -1,3 +1,4 @@
+import { SHORTCUT_CHANNEL, type ShortcutId } from "../shared/shortcuts.js";
 import type { LogLevel, LoggerData, LoggerScope } from "@repo/logger";
 import { Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
@@ -6,6 +7,16 @@ import { LOG_CHANNELS } from "../shared/channels.js";
 import { DESKTOP_CHANNEL, type DesktopApi } from "../shared/desktop.js";
 
 const desktopApi: DesktopApi = {
+  onShortcut: (listener) => {
+    const handleShortcut = (
+      _event: Electron.IpcRendererEvent,
+      shortcut: ShortcutId,
+    ) => listener(shortcut);
+    ipcRenderer.on(SHORTCUT_CHANNEL, handleShortcut);
+    return () => {
+      ipcRenderer.removeListener(SHORTCUT_CHANNEL, handleShortcut);
+    };
+  },
   getConnection: async () =>
     await ipcRenderer.invoke(DESKTOP_CHANNEL, { type: "getConnection" }),
   getAuthSession: async () =>
