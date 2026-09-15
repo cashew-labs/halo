@@ -2,8 +2,8 @@ import fs from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { config } from "@get-halo/config/workspaceServer";
 import { ApplicationMode } from "@get-halo/config/ApplicationMode";
-import { Logger } from "@repo/logger";
-import { JsonlLoggerSink } from "@repo/logger/JsonlLoggerSink";
+import { Logger } from "@get-halo/logger";
+import { JsonlLoggerSink } from "@get-halo/logger/JsonlLoggerSink";
 import * as errore from "errore";
 import { HaloServer } from "./server/HaloServer.js";
 import {

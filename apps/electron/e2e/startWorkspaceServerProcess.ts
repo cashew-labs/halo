@@ -7,7 +7,7 @@ import {
   workspaceServerReadySchema,
   type WorkspaceServerReady,
 } from "@get-halo/workspace-server/process";
-import type { Logger } from "@repo/logger";
+import type { Logger } from "@get-halo/logger";
 import type { OpenAILLMApiOptions } from "@get-halo/workspace-server/llm";
 import * as errore from "errore";
 

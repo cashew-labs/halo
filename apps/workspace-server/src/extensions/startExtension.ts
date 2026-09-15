@@ -6,7 +6,7 @@ import {
 import { createInterface } from "node:readline";
 import { Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
-import type { Logger } from "@repo/logger";
+import type { Logger } from "@get-halo/logger";
 import { workspaceExecutablePath } from "../workspace/installHaloCli.js";
 import * as errore from "errore";
 

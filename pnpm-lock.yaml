@@ -173,12 +173,12 @@ importers:
         specifier: ^4.23.13
         version: 4.23.13
     devDependencies:
+      '@get-halo/typescript-config':
+        specifier: workspace:*
+        version: link:../../packages/typescript-config
       '@orpc/client':
         specifier: 2.0.0-beta.29
         version: 2.0.0-beta.29(@opentelemetry/api@1.9.0)
-      '@repo/typescript-config':
-        specifier: workspace:*
-        version: link:../../packages/typescript-config
       '@types/node':
         specifier: ^22.20.1
         version: 22.20.1
@@ -194,18 +194,21 @@ importers:
 
   apps/electron:
     dependencies:
+      '@get-halo/cli':
+        specifier: workspace:*
+        version: link:../../packages/halo-cli
       '@get-halo/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@get-halo/logger':
+        specifier: workspace:*
+        version: link:../../packages/logger
       '@get-halo/shared':
         specifier: workspace:*
         version: link:../../packages/shared
       '@get-halo/workspace-server':
         specifier: workspace:*
         version: link:../workspace-server
-      '@halo/cli':
-        specifier: workspace:*
-        version: link:../../packages/halo-cli
       '@orpc/client':
         specifier: 2.0.0-beta.29
         version: 2.0.0-beta.29(@opentelemetry/api@1.9.0)
@@ -218,9 +221,6 @@ importers:
       '@pierre/trees':
         specifier: 1.0.0-beta.6
         version: 1.0.0-beta.6(@pierre/theme@2.0.0)(@shikijs/themes@4.3.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(shiki@4.3.1)
-      '@repo/logger':
-        specifier: workspace:*
-        version: link:../../packages/logger
       '@sinclair/typebox':
         specifier: ^0.34.52
         version: 0.34.52
@@ -315,12 +315,12 @@ importers:
       '@get-halo/extension-tools':
         specifier: workspace:*
         version: link:../../packages/extension-tools
+      '@get-halo/typescript-config':
+        specifier: workspace:*
+        version: link:../../packages/typescript-config
       '@playwright/test':
         specifier: 1.62.1
         version: 1.62.1
-      '@repo/typescript-config':
-        specifier: workspace:*
-        version: link:../../packages/typescript-config
       '@types/electron-squirrel-startup':
         specifier: ^1.0.2
         version: 1.0.2
@@ -390,15 +390,18 @@ importers:
       '@executor-js/sdk':
         specifier: 1.6.0
         version: 1.6.0(@effect/platform-node@4.0.0-beta.103(effect@4.0.0-beta.103)(ioredis@5.11.1(supports-color@8.1.1)))(drizzle-orm@0.45.0(@cloudflare/workers-types@5.20260804.1)(@electric-sql/pglite@0.3.15)(@libsql/client@0.17.3)(@opentelemetry/api@1.9.0)(better-sqlite3@12.11.1)(kysely@0.28.17))(effect@4.0.0-beta.103)(react@19.2.8)(typeorm@0.3.31(better-sqlite3@12.11.1)(ioredis@5.11.1(supports-color@8.1.1))(pg@8.23.0)(supports-color@8.1.1))
+      '@get-halo/cli':
+        specifier: workspace:*
+        version: link:../../packages/halo-cli
       '@get-halo/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@get-halo/logger':
+        specifier: workspace:*
+        version: link:../../packages/logger
       '@get-halo/shared':
         specifier: workspace:*
         version: link:../../packages/shared
-      '@halo/cli':
-        specifier: workspace:*
-        version: link:../../packages/halo-cli
       '@jitl/quickjs-singlefile-cjs-release-sync':
         specifier: 0.31.0
         version: 0.31.0
@@ -414,9 +417,6 @@ importers:
       '@parcel/watcher':
         specifier: ^2.6.0
         version: 2.6.0
-      '@repo/logger':
-        specifier: workspace:*
-        version: link:../../packages/logger
       '@sinclair/typebox':
         specifier: ^0.34.52
         version: 0.34.52
@@ -454,12 +454,12 @@ importers:
         specifier: 1.3.7
         version: 1.3.7
     devDependencies:
+      '@get-halo/typescript-config':
+        specifier: workspace:*
+        version: link:../../packages/typescript-config
       '@orpc/client':
         specifier: 2.0.0-beta.29
         version: 2.0.0-beta.29(@opentelemetry/api@1.9.0)
-      '@repo/typescript-config':
-        specifier: workspace:*
-        version: link:../../packages/typescript-config
       '@types/node':
         specifier: ^22.20.1
         version: 22.20.1
@@ -488,7 +488,7 @@ importers:
         specifier: ^4.23.13
         version: 4.23.13
     devDependencies:
-      '@repo/typescript-config':
+      '@get-halo/typescript-config':
         specifier: workspace:*
         version: link:../packages/typescript-config
       '@types/node':
@@ -513,7 +513,7 @@ importers:
         specifier: ^11.0.2
         version: 11.0.2(supports-color@8.1.1)
     devDependencies:
-      '@repo/typescript-config':
+      '@get-halo/typescript-config':
         specifier: workspace:*
         version: link:../typescript-config
       '@types/node':
@@ -611,7 +611,7 @@ importers:
         specifier: ^0.4.20
         version: 0.4.20
     devDependencies:
-      '@repo/typescript-config':
+      '@get-halo/typescript-config':
         specifier: workspace:*
         version: link:../typescript-config
       '@types/node':
@@ -629,7 +629,7 @@ importers:
 
   packages/logger:
     devDependencies:
-      '@repo/typescript-config':
+      '@get-halo/typescript-config':
         specifier: workspace:*
         version: link:../typescript-config
       '@types/node':
@@ -657,7 +657,7 @@ importers:
       '@earendil-works/pi-coding-agent':
         specifier: 0.85.1
         version: 0.85.1(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(supports-color@8.1.1)(zod@4.4.3))(supports-color@8.1.1)(ws@8.21.1)(zod@4.4.3)
-      '@repo/typescript-config':
+      '@get-halo/typescript-config':
         specifier: workspace:*
         version: link:../typescript-config
       '@types/node':

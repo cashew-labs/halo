@@ -1,5 +1,5 @@
 import fs from "node:fs/promises";
-import { rpcFilePath, type HaloRpcFile } from "@halo/cli";
+import { rpcFilePath, type HaloRpcFile } from "@get-halo/cli";
 import * as errore from "errore";
 
 export class HaloRpcDiscoveryError extends errore.createTaggedError({

@@ -60,19 +60,19 @@ The app fixture has a separate 60-second setup and teardown timeout, so concurre
 Run the suite:
 
 ```sh
-pnpm --filter @halo/desktop test:e2e
+pnpm --filter @get-halo/desktop test:e2e
 ```
 
 Show the Electron window while the tests run:
 
 ```sh
-HALO_E2E_HEADFUL=1 pnpm --filter @halo/desktop test:e2e
+HALO_E2E_HEADFUL=1 pnpm --filter @get-halo/desktop test:e2e
 ```
 
 Open Playwright Inspector and show the Electron window:
 
 ```sh
-PWDEBUG=1 pnpm --filter @halo/desktop test:e2e
+PWDEBUG=1 pnpm --filter @get-halo/desktop test:e2e
 ```
 
 Passing tests remove their temporary files. Failed tests, including expected failures, retain their workspace, Electron user data, Halo JSONL logs, renderer console log, and each launch's main-process output, screenshot, and Playwright trace under `tmp/e2e/`. Files use `launch-1`, `launch-2`, etc. so reopening preserves earlier diagnostics. The test output prints the exact retained directory.
@@ -80,5 +80,5 @@ Passing tests remove their temporary files. Failed tests, including expected fai
 Open a retained trace with:
 
 ```sh
-pnpm --filter @halo/desktop exec playwright show-trace tmp/e2e/<test-directory>/launch-1.trace.zip
+pnpm --filter @get-halo/desktop exec playwright show-trace tmp/e2e/<test-directory>/launch-1.trace.zip
 ```

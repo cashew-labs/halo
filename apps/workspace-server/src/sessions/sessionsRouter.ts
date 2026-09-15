@@ -1,6 +1,6 @@
 import { implement } from "@orpc/server";
 import { runWithSignal } from "@orpc/shared";
-import type { Logger } from "@repo/logger";
+import type { Logger } from "@get-halo/logger";
 import { contract } from "@get-halo/shared/contract";
 import {
   connectionRequestLabel,

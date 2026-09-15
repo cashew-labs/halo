@@ -1,5 +1,5 @@
 {
-  "name": "@repo/logger",
+  "name": "@get-halo/logger",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -17,7 +17,7 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "@repo/typescript-config": "workspace:*",
+    "@get-halo/typescript-config": "workspace:*",
     "@types/node": "^22.20.1",
     "typescript": "7.0.2",
     "vitest": "^4.1.11"

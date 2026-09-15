@@ -15,12 +15,12 @@ import {
   type LogLevel,
   type LoggerData,
   type LoggerScope,
-} from "@repo/logger";
+} from "@get-halo/logger";
 import { config as resolvedApplicationConfig } from "@get-halo/config/electron";
 import { ApplicationMode } from "@get-halo/config/ApplicationMode";
 import type { ControlPlaneSession } from "@get-halo/shared/controlPlaneContract";
-import { JsonlLoggerSink } from "@repo/logger/JsonlLoggerSink";
-import { PrettyConsoleLoggerSink } from "@repo/logger/PrettyConsoleLoggerSink";
+import { JsonlLoggerSink } from "@get-halo/logger/JsonlLoggerSink";
+import { PrettyConsoleLoggerSink } from "@get-halo/logger/PrettyConsoleLoggerSink";
 import started from "electron-squirrel-startup";
 import { LOG_CHANNELS } from "../shared/channels.js";
 import { checkForUpdates, startAppUpdates } from "./app/appUpdate.js";

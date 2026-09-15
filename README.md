@@ -88,8 +88,8 @@ and deploying the production control plane and workspace images.
 ## Packaging
 
 ```sh
-pnpm --filter @halo/desktop build
-pnpm --filter @halo/desktop make
+pnpm --filter @get-halo/desktop build
+pnpm --filter @get-halo/desktop make
 ```
 
 Electron Forge writes packaged apps to `apps/electron/out`.

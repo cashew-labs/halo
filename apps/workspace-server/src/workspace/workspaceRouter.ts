@@ -1,5 +1,5 @@
 import { implement } from "@orpc/server";
-import type { Logger } from "@repo/logger";
+import type { Logger } from "@get-halo/logger";
 import { contract } from "@get-halo/shared/contract";
 import { orpcErrors } from "../orpcErrors.js";
 import type { WorkspaceService } from "./WorkspaceService.js";

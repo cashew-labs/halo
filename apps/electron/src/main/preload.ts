@@ -1,4 +1,4 @@
-import type { LogLevel, LoggerData, LoggerScope } from "@repo/logger";
+import type { LogLevel, LoggerData, LoggerScope } from "@get-halo/logger";
 import { Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import { contextBridge, ipcRenderer } from "electron";

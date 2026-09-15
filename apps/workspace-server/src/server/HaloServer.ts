@@ -5,7 +5,7 @@ import {
   BrowserService,
   type AppBrowserTarget,
 } from "../browser/BrowserService.js";
-import type { Logger } from "@repo/logger";
+import type { Logger } from "@get-halo/logger";
 import * as errore from "errore";
 import { FilesystemService } from "../filesystem/FilesystemService.js";
 import {

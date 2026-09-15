@@ -1,5 +1,5 @@
 import { join, resolve } from "node:path";
-import { Logger } from "@repo/logger";
+import { Logger } from "@get-halo/logger";
 import { startWorkspaceServerProcess } from "./startWorkspaceServerProcess.js";
 import type { SessionDescription } from "@get-halo/shared/testing";
 import { test as baseTest } from "@playwright/test";
