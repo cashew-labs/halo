@@ -1,4 +1,5 @@
 import type { LogLevel, LoggerData, LoggerScope } from "@get-halo/logger";
+import { SHORTCUT_CHANNEL, type ShortcutId } from "../shared/shortcuts.js";
 import { Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import { contextBridge, ipcRenderer } from "electron";
@@ -6,6 +7,16 @@ import { LOG_CHANNELS } from "../shared/channels.js";
 import { DESKTOP_CHANNEL, type DesktopBridge } from "../shared/desktop.js";
 
 const desktopBridge: DesktopBridge = {
+  onShortcut: (listener) => {
+    const handleShortcut = (
+      _event: Electron.IpcRendererEvent,
+      shortcut: ShortcutId,
+    ) => listener(shortcut);
+    ipcRenderer.on(SHORTCUT_CHANNEL, handleShortcut);
+    return () => {
+      ipcRenderer.removeListener(SHORTCUT_CHANNEL, handleShortcut);
+    };
+  },
   getConnection: async () =>
     await ipcRenderer.invoke(DESKTOP_CHANNEL, { type: "getConnection" }),
   getAuthSession: async () =>

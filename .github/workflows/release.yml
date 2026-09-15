@@ -256,15 +256,37 @@ jobs:
           mapfile -t instances < <(gcloud compute instances list \
             --project="$PROJECT" \
             --zones="$ZONE" \
-            --filter='labels.halo-workspace-id:*' \
+            --filter='name~"^halo-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"' \
             --format='value(name)')
+
+          if [ "${#instances[@]}" -eq 0 ]; then
+            echo "No production workspace VMs found; refusing to publish the desktop"
+            exit 1
+          fi
 
           for instance in "${instances[@]}"; do
             details="$(gcloud compute instances describe "$instance" \
               --project="$PROJECT" --zone="$ZONE" --format=json)"
-            workspace_id="$(jq -r '.labels["halo-workspace-id"]' <<< "$details")"
+            workspace_id="${instance#halo-}"
+            workspace_label="$(jq -r '.labels["halo-workspace-id"] // empty' <<< "$details")"
+            if [ -n "$workspace_label" ] && [ "$workspace_label" != "$workspace_id" ]; then
+              echo "$instance has workspace label $workspace_label; expected $workspace_id"
+              exit 1
+            fi
+
             owner_user_id="$(jq -r '.metadata.items[] | select(.key == "halo-owner-user-id") | .value' <<< "$details")"
-            disk="halo-$workspace_id-workspace"
+            if [ -z "$owner_user_id" ]; then
+              echo "$instance has no halo-owner-user-id metadata"
+              exit 1
+            fi
+
+            disk="$(jq -r '[.disks[] | select(.boot == false and .deviceName == "halo-workspace") | .source | split("/")[-1]] | if length == 1 then .[0] else empty end' <<< "$details")"
+            expected_disk="halo-$workspace_id-workspace"
+            if [ "$disk" != "$expected_disk" ]; then
+              echo "$instance has workspace disk $disk; expected $expected_disk"
+              exit 1
+            fi
+
             metadata=(--metadata "halo-owner-user-id=$owner_user_id")
             while IFS=$'\t' read -r key value; do
               metadata+=(--metadata "$key=$value")
@@ -281,6 +303,26 @@ jobs:
               "${metadata[@]}" \
               --metadata-from-file="startup-script=$startup_script" \
               --disk="name=$disk,device-name=halo-workspace,mode=rw,boot=no,auto-delete=no"
+
+            expected_image="$REGION-docker.pkg.dev/$PROJECT/halo-west-workspaces/workspace-server:$VERSION"
+            ready_marker="HALO_WORKSPACE_READY image=$expected_image"
+            ready=false
+            for attempt in $(seq 1 120); do
+              if gcloud compute instances get-serial-port-output "$instance" \
+                --project="$PROJECT" --zone="$ZONE" --port=1 2>/dev/null | \
+                grep --fixed-strings --quiet "$ready_marker"; then
+                ready=true
+                break
+              fi
+              sleep 5
+            done
+
+            if [ "$ready" != "true" ]; then
+              echo "$instance did not report readiness for $expected_image"
+              gcloud compute instances get-serial-port-output "$instance" \
+                --project="$PROJECT" --zone="$ZONE" --port=1 | tail -n 200
+              exit 1
+            fi
           done
 
   test-electron:

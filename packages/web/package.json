@@ -7,7 +7,8 @@
     "./connectHaloRpc": "./src/api/connectHaloRpc.ts",
     "./HostApi": "./src/HostApi.ts",
     "./HostProvider": "./src/HostProvider.tsx",
-    "./mountHaloApp": "./src/mountHaloApp.tsx"
+    "./mountHaloApp": "./src/mountHaloApp.tsx",
+    "./shortcuts": "./src/shortcuts.ts"
   },
   "scripts": {
     "format": "oxfmt .",
@@ -24,6 +25,8 @@
     "@streamdown/code": "^1.1.1",
     "@tanstack/react-query": "^5.101.4",
     "@tiptap/core": "^3.29.2",
+    "@tiptap/extension-image": "3.29.2",
+    "@tiptap/extension-paragraph": "3.29.2",
     "@tiptap/extension-placeholder": "^3.29.2",
     "@tiptap/markdown": "^3.29.2",
     "@tiptap/pm": "^3.29.2",

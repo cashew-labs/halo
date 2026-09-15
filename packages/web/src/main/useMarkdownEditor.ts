@@ -1,12 +1,31 @@
 import { useEffect } from "react";
+import type { Extensions } from "@tiptap/core";
 import { Markdown } from "@tiptap/markdown";
 import Placeholder from "@tiptap/extension-placeholder";
+import Paragraph from "@tiptap/extension-paragraph";
 import { useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { proseHtml, type ProseSize } from "maui";
 import { useStyles } from "purse-styles";
 import { useRefCurrent } from "./agent/useRefCurrent.js";
 import { ListEditing } from "./ListEditing.js";
+
+const MarkdownParagraph = Paragraph.extend({
+  parseMarkdown(token, helpers) {
+    const tokens = token.tokens;
+    // Tiptap unwraps standalone images as block nodes, but our inline images
+    // must stay inside a paragraph.
+    if (tokens?.length === 1 && tokens[0]?.type === "image") {
+      return helpers.createNode(
+        "paragraph",
+        undefined,
+        helpers.parseInline(tokens),
+      );
+    }
+    // SAFETY: Tiptap's Paragraph extension defines parseMarkdown.
+    return Paragraph.config.parseMarkdown!(token, helpers);
+  },
+});
 
 type MarkdownEditorOptions = {
   content?: string;
@@ -18,6 +37,7 @@ type MarkdownEditorOptions = {
   "aria-label"?: string;
   onSubmit?: () => void;
   inlineCodeClassName?: string;
+  extensions?: Extensions;
 };
 
 export function useMarkdownEditor({
@@ -30,6 +50,7 @@ export function useMarkdownEditor({
   "aria-label": ariaLabel = "Editor",
   onSubmit,
   inlineCodeClassName,
+  extensions = [],
 }: MarkdownEditorOptions) {
   const proseClassName = useStyles(proseHtml(size));
   const onChangeRef = useRefCurrent(onChange);
@@ -38,6 +59,7 @@ export function useMarkdownEditor({
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
+        paragraph: false,
         heading: { levels: [1, 2, 3, 4] },
         link: {
           openOnClick: false,
@@ -49,6 +71,8 @@ export function useMarkdownEditor({
         },
       }),
       Markdown,
+      MarkdownParagraph,
+      ...extensions,
       ListEditing,
       Placeholder.configure({
         placeholder,

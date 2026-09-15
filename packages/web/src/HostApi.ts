@@ -1,6 +1,7 @@
 import type { ConnectionRequest } from "@get-halo/shared/ConnectionRequest";
 import type { ConnectionStarted, HaloClient } from "@get-halo/shared/contract";
 import type { ControlPlaneSession } from "@get-halo/shared/controlPlaneContract";
+import type { ShortcutId } from "./shortcuts.js";
 
 export type AppUpdateStatus =
   | { state: "disabled"; reason: string }
@@ -16,6 +17,7 @@ export type AppInfo = {
 };
 
 export interface HostApi {
+  onShortcut?(listener: (shortcut: ShortcutId) => void): () => void;
   getAuthSession(): Promise<ControlPlaneSession | Error | undefined>;
   signIn(): Promise<ControlPlaneSession | Error | undefined>;
   connectHalo(options: {

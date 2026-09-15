@@ -1,4 +1,5 @@
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
+import { randomUUID } from "node:crypto";
 import * as errore from "errore";
 import type { WorkspaceInfo, WorkspaceTreeEvent } from "@get-halo/shared/rpc";
 import { type ReadonlyStream, Stream } from "@get-halo/shared/Stream";
@@ -8,7 +9,10 @@ import {
   FilesystemService,
   FilesystemPathNotFoundError,
 } from "../filesystem/FilesystemService.js";
-import { workspaceFilePreview } from "./workspaceFilePreview.js";
+import {
+  workspaceFilePreview,
+  workspaceImageExtension,
+} from "./workspaceFilePreview.js";
 import { installHaloCli } from "./installHaloCli.js";
 import { seedExtensionWorkspace } from "../extensions/seedExtensionWorkspace.js";
 
@@ -40,6 +44,11 @@ export class WorkspaceEntryExistsError extends errore.createTaggedError({
 export class WorkspaceInvalidMoveError extends errore.createTaggedError({
   name: "WorkspaceInvalidMoveError",
   message: "A folder cannot be moved into itself.",
+}) {}
+
+export class WorkspaceInvalidImageError extends errore.createTaggedError({
+  name: "WorkspaceInvalidImageError",
+  message: "This image format is not supported.",
 }) {}
 
 /** Finder-hidden names (leading `.`) plus `node_modules` for walk cost. */
@@ -248,6 +257,26 @@ export class WorkspaceService {
     if (written instanceof Error)
       return new WorkspaceIoError({ cause: written });
     return { path };
+  }
+
+  async saveImage(input: { documentPath: string; file: File }) {
+    const documentPath = await this.resolveEntryPath(input.documentPath);
+    if (documentPath instanceof Error) return documentPath;
+    const extension = workspaceImageExtension(input.file.type);
+    if (extension === undefined) return new WorkspaceInvalidImageError();
+    const contents = await input.file
+      .arrayBuffer()
+      .catch((cause) => new WorkspaceIoError({ cause }));
+    if (contents instanceof Error) return contents;
+    const src = `image-${randomUUID()}.${extension}`;
+    const written = await this.options.filesystem.writeFile(
+      join(dirname(documentPath), src),
+      new Uint8Array(contents),
+      { flag: "wx" },
+    );
+    if (written instanceof Error)
+      return new WorkspaceIoError({ cause: written });
+    return { src };
   }
 
   async createEntry(input: { path: string; kind: "file" | "directory" }) {

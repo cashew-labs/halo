@@ -11,6 +11,10 @@ const desktopBridge = window.haloDesktop;
 let extensionBaseUrl: URL | undefined = undefined;
 
 export const electronHost = {
+  onShortcut(listener: Parameters<typeof desktopBridge.onShortcut>[0]) {
+    return desktopBridge.onShortcut(listener);
+  },
+
   async getAuthSession() {
     return await desktopBridge.getAuthSession().catch(
       (cause) =>
