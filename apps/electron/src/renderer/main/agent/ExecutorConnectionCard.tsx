@@ -1,11 +1,10 @@
 import { useEffect, useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import * as errore from "errore";
 import { background, Button, Flex, radius, shadow, Spacer, Text } from "maui";
 import { style, useStyles } from "purse-styles";
 import { connectionRequestLabel } from "@get-halo/shared/ConnectionRequest";
+import { useHost } from "@get-halo/web/HostProvider";
 import { BrandLogo, brands } from "../../BrandLogo.tsx";
-import { electronHost } from "../../ElectronHost.ts";
 import {
   connectionStateQueryKey,
   idleConnectionState,
@@ -17,10 +16,6 @@ type ExecutorConnectionPart = Extract<
   SessionViewPart,
   { kind: "executorConnection" }
 >;
-class ConnectIntegrationError extends errore.createTaggedError({
-  name: "ConnectIntegrationError",
-  message: "Halo could not start the connection",
-}) {}
 
 const card = style(background.element, radius.lg, shadow.subtle, {
   width: "100%",
@@ -39,6 +34,7 @@ export function ExecutorConnectionCard({
 }) {
   const cardClassName = useStyles(card);
   const brandButtonClassName = useStyles(brandButton);
+  const host = useHost();
   const queryClient = useQueryClient();
   const statusKey = useMemo(
     () => connectionStateQueryKey(part.request),
@@ -55,12 +51,10 @@ export function ExecutorConnectionCard({
     mutationFn: async () => {
       // SAFETY: the button is disabled until sessionId is a string.
       const activeSessionId = sessionId as string;
-      const started = await electronHost
-        .connectIntegration({
-          sessionId: activeSessionId,
-          request: part.request,
-        })
-        .catch((cause) => new ConnectIntegrationError({ cause }));
+      const started = await host.connectIntegration({
+        sessionId: activeSessionId,
+        request: part.request,
+      });
       if (started instanceof Error) throw started;
       if (started.status === "connected") return started;
       const connecting: ConnectionState = {
@@ -102,10 +96,11 @@ export function ExecutorConnectionCard({
   const cancel = useMutation({
     mutationFn: async () => {
       if (sessionId === undefined || connection.status !== "connecting") return;
-      await electronHost.cancelIntegration({
+      const cancelled = await host.cancelIntegration({
         sessionId,
         connectionId: connection.connectionId,
       });
+      if (cancelled instanceof Error) throw cancelled;
       queryClient.setQueryData<ConnectionState>(statusKey, (current) => {
         if (current?.status !== "connecting") return current;
         return current.wasConnected

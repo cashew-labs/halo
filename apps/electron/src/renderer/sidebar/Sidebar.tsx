@@ -1,10 +1,11 @@
 import { Button, colors, flex, flexItem, shadow, spacing, text } from "maui";
 import { Plus } from "maui/icons";
 import { style, useStyles } from "purse-styles";
+import { useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import type { SessionSummary } from "@get-halo/shared/rpc";
-import type { AppInfo } from "../../shared/desktop.js";
-import { useInstallAppUpdateMutation } from "../api/ApiProvider.tsx";
+import type { AppInfo } from "@get-halo/web/HostApi";
+import { useHost } from "@get-halo/web/HostProvider";
 import { FilesystemSection } from "./FilesystemSection.tsx";
 import { SessionsSection } from "./SessionsSection.tsx";
 import { ExtensionsSection } from "./ExtensionsSection.js";
@@ -67,9 +68,16 @@ function UpdateFooter({
   appInfo: AppInfo;
   labelClassName: string;
 }) {
-  const install = useInstallAppUpdateMutation();
+  const installAppUpdate = useHost().installAppUpdate;
+  const install = useMutation({
+    mutationFn: async () => {
+      if (installAppUpdate === undefined) return;
+      const result = await installAppUpdate();
+      if (result instanceof Error) throw result;
+    },
+  });
   const restartButton = useStyles(styles.restartButton);
-  if (appInfo.update.state === "downloaded") {
+  if (appInfo.update.state === "downloaded" && installAppUpdate !== undefined) {
     return (
       <Button
         className={restartButton}

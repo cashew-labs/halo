@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import {
   createContext,
   useCallback,
@@ -11,7 +11,6 @@ import type { WorkspaceInfo } from "@get-halo/shared/rpc";
 import { useHost } from "@get-halo/web/HostProvider";
 import { LoadingPage } from "../LoadingPage.tsx";
 import { ConnectionPage } from "../ConnectionPage.tsx";
-import { electronHost } from "../ElectronHost.js";
 import { IncompatibleServerError } from "./connectHaloRpc.js";
 
 const ApiContext = createContext<HaloClient>(undefined!);
@@ -96,20 +95,6 @@ export function useWorkspaceFileQuery(path: string) {
   return useQuery({
     queryKey: ["workspace-file", path],
     queryFn: async () => await api.workspace.readFile({ path }),
-  });
-}
-
-export function useAppInfoQuery() {
-  return useQuery({
-    queryKey: ["app-info"],
-    queryFn: async () => await electronHost.getAppInfo(),
-    refetchInterval: 5_000,
-  });
-}
-
-export function useInstallAppUpdateMutation() {
-  return useMutation({
-    mutationFn: async () => await electronHost.installAppUpdate(),
   });
 }
 

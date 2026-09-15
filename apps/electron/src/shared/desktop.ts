@@ -5,20 +5,8 @@ import {
 } from "@get-halo/shared/ConnectionRequest";
 import type { ConnectionStarted } from "@get-halo/shared/contract";
 import type { ControlPlaneSession } from "@get-halo/shared/controlPlaneContract";
+import type { AppInfo } from "@get-halo/web/HostApi";
 import type { HaloRpcConnection } from "./HaloRpcConnection.js";
-
-export type AppUpdateStatus =
-  | { state: "disabled"; reason: string }
-  | { state: "idle" }
-  | { state: "checking" }
-  | { state: "available" }
-  | { state: "downloaded"; version: string }
-  | { state: "error"; message: string };
-
-export type AppInfo = {
-  version: string;
-  update: AppUpdateStatus;
-};
 
 export const DESKTOP_CHANNEL = "halo:desktop";
 

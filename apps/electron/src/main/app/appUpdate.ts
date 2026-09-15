@@ -1,8 +1,8 @@
 import { app, autoUpdater, dialog, type BrowserWindow } from "electron";
 import type { ElectronConfig } from "@get-halo/config/electron";
+import type { AppInfo, AppUpdateStatus } from "@get-halo/web/HostApi";
 import * as errore from "errore";
 import { updateElectronApp } from "update-electron-app";
-import type { AppInfo, AppUpdateStatus } from "../../shared/desktop.js";
 
 /** How often packaged macOS/Windows builds poll update.electronjs.org. */
 const UPDATE_POLL_INTERVAL = "10 minutes";

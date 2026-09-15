@@ -1,4 +1,5 @@
 import * as errore from "errore";
+import type { HostApi } from "@get-halo/web/HostApi";
 import { connectHaloRpc } from "./api/connectHaloRpc.js";
 
 class ElectronHostError extends errore.createTaggedError({
@@ -66,22 +67,46 @@ export const electronHost = {
   },
 
   async getAppInfo() {
-    return await desktopBridge.getAppInfo();
+    return await desktopBridge.getAppInfo().catch(
+      (cause) =>
+        new ElectronHostError({
+          operation: "read app update information",
+          cause,
+        }),
+    );
   },
 
   async installAppUpdate() {
-    return await desktopBridge.installAppUpdate();
+    return await desktopBridge.installAppUpdate().catch(
+      (cause) =>
+        new ElectronHostError({
+          operation: "install an app update",
+          cause,
+        }),
+    );
   },
 
   async connectIntegration(
     input: Parameters<typeof desktopBridge.connectIntegration>[0],
   ) {
-    return await desktopBridge.connectIntegration(input);
+    return await desktopBridge.connectIntegration(input).catch(
+      (cause) =>
+        new ElectronHostError({
+          operation: "start an integration connection",
+          cause,
+        }),
+    );
   },
 
   async cancelIntegration(
     input: Parameters<typeof desktopBridge.cancelIntegration>[0],
   ) {
-    return await desktopBridge.cancelIntegration(input);
+    return await desktopBridge.cancelIntegration(input).catch(
+      (cause) =>
+        new ElectronHostError({
+          operation: "cancel an integration connection",
+          cause,
+        }),
+    );
   },
-};
+} satisfies HostApi;
