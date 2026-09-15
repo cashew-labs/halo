@@ -1,7 +1,22 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Button as AriaButton } from "react-aria-components";
 import * as errore from "errore";
-import { backgroundColor, Button, Flex, Spacer, Text } from "maui";
+import {
+  backgroundColor,
+  Button,
+  colors,
+  Flex,
+  focusRing,
+  iconSizeValues,
+  Menu,
+  MenuItem,
+  MenuTrigger,
+  radius,
+  Text,
+} from "maui";
+import { style, useStyles } from "purse-styles";
+import { Check, Menu as MenuIcon } from "maui/icons";
 import { connectionRequestLabel } from "@get-halo/shared/ConnectionRequest";
 import { googleIntegrationDisplay } from "@get-halo/shared/GoogleIntegrationDisplay";
 import { BrandLogo, brands, LogoImage } from "../../BrandLogo.tsx";
@@ -129,8 +144,9 @@ export function ExecutorConnectionCard({
   const status = connection.status;
   const display = googleIntegrationDisplay(part.request.integration);
   const label = connectionRequestLabel(part.request);
-  const statusText = connectionStatusText(status);
   const brand = brands.google;
+  const menuLabel = `${label} actions`;
+  const canConnect = sessionId !== undefined;
 
   return (
     <section
@@ -141,7 +157,7 @@ export function ExecutorConnectionCard({
     >
       <Flex
         column
-        gap={6}
+        gap={1}
         p={6}
         shadow="subtle"
         radius="lg"
@@ -151,70 +167,192 @@ export function ExecutorConnectionCard({
           backgroundColor: backgroundColor.element,
         }}
       >
-        <Flex row gap={4} alignItems="start">
+        <Flex row gap={4} alignItems="center">
           {display === undefined ? (
             <BrandLogo brand="google" size="xl" />
           ) : (
             <LogoImage src={display.icon} size="xl" />
           )}
-          <Flex column gap={1}>
-            <Text size="md" fontWeight={600}>
-              {label}
-            </Text>
-            {display === undefined ? undefined : (
-              <Text size="sm" color="lowContrast">
-                {display.description}
-              </Text>
-            )}
-            {statusText === undefined ? undefined : (
-              <Text size="sm" color="lowContrast">
-                {statusText}
-              </Text>
-            )}
-          </Flex>
-          <Spacer />
-          <Button
-            variant="primary"
-            variantColor={brand.buttonColor}
-            style={{ color: brand.buttonForeground, flexShrink: 0 }}
-            disabled={
-              sessionId === undefined ||
-              status === "starting" ||
-              status === "connecting"
-            }
-            onClick={() => connect.mutate()}
-          >
-            {connectionButtonLabel(status)}
-          </Button>
-          {status === "connecting" ? (
+          <Text size="md" fontWeight={600} style={{ flex: 1, minWidth: 0 }}>
+            {label}
+          </Text>
+          {status === "idle" ? (
             <Button
-              variant="quiet"
-              disabled={cancel.isPending}
-              onClick={() => cancel.mutate()}
+              variant="primary"
+              variantColor={brand.buttonColor}
+              style={{ color: brand.buttonForeground, flexShrink: 0 }}
+              disabled={!canConnect}
+              onClick={() => connect.mutate()}
             >
-              Cancel
+              Connect
             </Button>
-          ) : undefined}
+          ) : (
+            <Flex row gap={2} alignItems="center" style={{ flexShrink: 0 }}>
+              <ConnectionStatusLabel status={status} />
+              <ConnectionOverflowMenu
+                label={menuLabel}
+                status={status}
+                canConnect={canConnect}
+                cancelPending={cancel.isPending}
+                onCancel={() => cancel.mutate()}
+                onConnect={() => connect.mutate()}
+                onDisconnect={() => {
+                  queryClient.setQueryData(statusKey, idleConnectionState);
+                }}
+              />
+            </Flex>
+          )}
         </Flex>
+        {display === undefined ? undefined : (
+          <Flex row gap={4} alignItems="start">
+            <span
+              aria-hidden="true"
+              style={{ width: iconSizeValues.xl, flexShrink: 0 }}
+            />
+            <Text size="md" color="lowContrast">
+              {display.description}
+            </Text>
+          </Flex>
+        )}
       </Flex>
     </section>
   );
 }
 
-function connectionStatusText(status: ConnectionState["status"]) {
-  if (status === "connected") return "Connected";
-  if (status === "expired") return "Authorization expired";
-  if (status === "cancelled") return "Authorization cancelled";
-  if (status === "connecting") return "Finish connecting in your browser";
-  if (status === "starting") return "Preparing authorization";
+function ConnectionStatusLabel({
+  status,
+}: {
+  status: Exclude<ConnectionState["status"], "idle">;
+}) {
+  if (status === "connected") {
+    return (
+      <Flex
+        row
+        gap={1}
+        alignItems="center"
+        style={{ color: colors.green[11] }}
+      >
+        <Check size="sm" />
+        <Text size="md" style={{ color: colors.green[11] }}>
+          Connected
+        </Text>
+      </Flex>
+    );
+  }
+  if (status === "starting") {
+    return <Text size="md">Starting connection...</Text>;
+  }
+  if (status === "connecting") {
+    return <Text size="md">Finish connecting in your browser</Text>;
+  }
+  if (status === "cancelled") {
+    return <Text size="md">Cancelled</Text>;
+  }
+  return <Text size="md">Expired</Text>;
+}
+
+function ConnectionOverflowMenu({
+  label,
+  status,
+  canConnect,
+  cancelPending,
+  onCancel,
+  onConnect,
+  onDisconnect,
+}: {
+  label: string;
+  status: Exclude<ConnectionState["status"], "idle">;
+  canConnect: boolean;
+  cancelPending: boolean;
+  onCancel(): void;
+  onConnect(): void;
+  onDisconnect(): void;
+}) {
+  const buttonClassName = useStyles(menuButton);
+  const items = overflowItems({
+    status,
+    canConnect,
+    cancelPending,
+    onCancel,
+    onConnect,
+    onDisconnect,
+  });
+
+  return (
+    <MenuTrigger placement="bottom end">
+      <AriaButton aria-label={label} className={buttonClassName}>
+        <MenuIcon size="sm" />
+      </AriaButton>
+      <Menu aria-label={label}>{items}</Menu>
+    </MenuTrigger>
+  );
+}
+
+function overflowItems({
+  status,
+  canConnect,
+  cancelPending,
+  onCancel,
+  onConnect,
+  onDisconnect,
+}: {
+  status: Exclude<ConnectionState["status"], "idle">;
+  canConnect: boolean;
+  cancelPending: boolean;
+  onCancel(): void;
+  onConnect(): void;
+  onDisconnect(): void;
+}): ReactNode {
+  if (status === "connecting") {
+    return (
+      <MenuItem onAction={onCancel} isDisabled={cancelPending}>
+        Cancel
+      </MenuItem>
+    );
+  }
+  if (status === "connected") {
+    return (
+      <>
+        <MenuItem onAction={onConnect} isDisabled={!canConnect}>
+          Connect different account
+        </MenuItem>
+        <MenuItem onAction={onDisconnect}>Disconnect</MenuItem>
+      </>
+    );
+  }
+  if (status === "cancelled") {
+    return (
+      <MenuItem onAction={onConnect} isDisabled={!canConnect}>
+        Connect
+      </MenuItem>
+    );
+  }
+  if (status === "expired") {
+    return (
+      <MenuItem onAction={onConnect} isDisabled={!canConnect}>
+        Connect
+      </MenuItem>
+    );
+  }
   return undefined;
 }
 
-function connectionButtonLabel(status: ConnectionState["status"]) {
-  if (status === "connected") return "Connect again";
-  if (status === "expired") return "Expired - connect again";
-  if (status === "cancelled") return "Try again";
-  if (status === "connecting") return "Connecting";
-  if (status === "starting") return "Starting";
-  return "Connect";
-}
+const menuButton = style(
+  focusRing(),
+  radius.sm,
+  {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    height: "24px",
+    width: "24px",
+    padding: 0,
+    border: 0,
+    backgroundColor: "transparent",
+    color: colors.gray[11],
+    cursor: "pointer",
+    flexShrink: 0,
+    "&:hover": { backgroundColor: colors.gray[4] },
+    "&[data-disabled]": { opacity: 0.5 },
+  },
+);

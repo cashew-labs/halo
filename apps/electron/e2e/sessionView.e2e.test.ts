@@ -282,17 +282,14 @@ e2eTest(
     ).toBeVisible();
     await card.getByRole("button", { name: "Connect" }).click();
     await expect(
-      card.getByRole("button", { name: "Connecting" }),
+      card.getByText("Finish connecting in your browser"),
     ).toBeVisible();
     await expect(
       card.getByText("Search, read, create, and share files."),
     ).toBeVisible();
-    await expect(
-      card.getByText("Finish connecting in your browser"),
-    ).toBeVisible();
-    await card.getByRole("button", { name: "Cancel" }).click();
-    await expect(card.getByRole("button", { name: "Try again" })).toBeVisible();
-    await expect(card.getByText("Authorization cancelled")).toBeVisible();
+    await card.getByRole("button", { name: "Google Drive actions" }).click();
+    await app.page.getByRole("menuitem", { name: "Cancel" }).click();
+    await expect(card.getByText("Cancelled", { exact: true })).toBeVisible();
   },
 );
 
