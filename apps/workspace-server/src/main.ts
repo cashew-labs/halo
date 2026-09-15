@@ -58,6 +58,7 @@ async function run() {
     ...applicationConfig.server,
     llmApi,
     gateway: applicationConfig.server.gateway,
+    googleWebOAuthClient: applicationConfig.googleWebOAuthClient,
     ownerUserId: Promise.resolve(applicationConfig.server.ownerUserId),
     logger: logger.scope("rpc"),
     host:

@@ -28,6 +28,10 @@ export const desktopRequestSchema = Type.Union([
     { additionalProperties: false },
   ),
   Type.Object(
+    { type: Type.Literal("checkForAppUpdate") },
+    { additionalProperties: false },
+  ),
+  Type.Object(
     { type: Type.Literal("installAppUpdate") },
     { additionalProperties: false },
   ),
@@ -71,6 +75,7 @@ export type DesktopBridge = {
   getAuthSession: () => Promise<ControlPlaneSession | undefined>;
   signIn: () => Promise<ControlPlaneSession>;
   getAppInfo: () => Promise<AppInfo>;
+  checkForAppUpdate: () => Promise<void>;
   installAppUpdate: () => Promise<void>;
   openExternal: (request: { url: string }) => Promise<void>;
   connectIntegration: (input: {

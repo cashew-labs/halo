@@ -14,6 +14,8 @@ const desktopBridge: DesktopBridge = {
     await ipcRenderer.invoke(DESKTOP_CHANNEL, { type: "signIn" }),
   getAppInfo: async () =>
     await ipcRenderer.invoke(DESKTOP_CHANNEL, { type: "getAppInfo" }),
+  checkForAppUpdate: async () =>
+    await ipcRenderer.invoke(DESKTOP_CHANNEL, { type: "checkForAppUpdate" }),
   installAppUpdate: async () =>
     await ipcRenderer.invoke(DESKTOP_CHANNEL, { type: "installAppUpdate" }),
   openExternal: async (request) =>

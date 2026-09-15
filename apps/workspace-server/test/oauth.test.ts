@@ -3,6 +3,7 @@ import type { AddressInfo } from "node:net";
 import { once } from "node:events";
 import { Logger } from "@get-halo/logger";
 import type { ConnectionRequest } from "@get-halo/shared/ConnectionRequest";
+import type { OAuthCompletion } from "@get-halo/shared/contract";
 import type { HaloConnectionEvent } from "@get-halo/shared/sessionState";
 import { expect, test } from "vitest";
 import { ConnectionService } from "../src/agent/runtime/ConnectionService.js";
@@ -19,10 +20,12 @@ const request: ConnectionRequest = {
 
 class FakeOAuthRuntime {
   readonly state = "test-oauth-state";
+  completionKind: OAuthCompletion["kind"] | undefined;
   redirectUri: string | undefined;
 
-  async startOAuth(input: ConnectionRequest & { redirectUri: string }) {
-    this.redirectUri = input.redirectUri;
+  async startOAuth(input: ConnectionRequest & { completion: OAuthCompletion }) {
+    this.completionKind = input.completion.kind;
+    this.redirectUri = input.completion.redirectUri;
     return {
       status: "redirect" as const,
       authorizationUrl: `https://provider.example/authorize?state=${this.state}`,
@@ -52,6 +55,7 @@ test("server OAuth completion redirects to its pending session", async () => {
   expect(setup.runtime.redirectUri).toBe(
     "https://halo.example/workspace/oauth/callback",
   );
+  expect(setup.runtime.completionKind).toBe("server-redirect");
   expect(response.status).toBe(302);
   expect(response.headers.get("location")).toBe("/#/sessions/session%2Fone");
   expect(response.headers.get("cache-control")).toBe("no-store");
@@ -101,6 +105,7 @@ test("client loopback completion keeps the close-tab response", async () => {
   );
 
   expect(response.status).toBe(200);
+  expect(setup.runtime.completionKind).toBe("client-loopback");
   expect(response.headers.get("location")).toBeNull();
   expect(await response.text()).toContain("You can close this tab.");
 });

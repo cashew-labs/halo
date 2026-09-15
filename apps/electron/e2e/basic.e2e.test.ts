@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import nodePath from "node:path";
 import { expect } from "@playwright/test";
+import { haloProtocolVersion } from "@get-halo/shared/contract";
 import type { DesktopBridge } from "../src/shared/desktop.js";
 import { e2eTest } from "./e2eTest.js";
 
@@ -31,6 +32,40 @@ e2eTest("rejects a non-web external URL", async ({ app }) => {
     }),
   ).rejects.toThrow("file: URLs are not supported");
 });
+
+e2eTest(
+  "explains how to update when the workspace protocol is newer",
+  async ({ app }) => {
+    await expect(
+      app.page.getByRole("main", { name: "New session" }),
+    ).toBeVisible();
+    await app.page.route("**/rpc/server/info", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ json: { protocolVersion: 999 } }),
+      });
+    });
+    await app.page.reload();
+
+    await expect(
+      app.page.getByRole("heading", { name: "Update Halo to reconnect" }),
+    ).toBeVisible();
+    await expect(
+      app.page.getByText(
+        `This app uses protocol ${haloProtocolVersion}, while your server uses protocol 999.`,
+      ),
+    ).toBeVisible();
+    await expect(
+      app.page.getByText(
+        "Test builds do not auto-update. Install the latest Halo release manually, then reopen the app.",
+      ),
+    ).toBeVisible();
+    await expect(
+      app.page.getByRole("button", { name: "View Halo downloads" }),
+    ).toBeVisible();
+  },
+);
 
 e2eTest(
   "keeps an edited workspace note after quitting and reopening",

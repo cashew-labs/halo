@@ -58,7 +58,9 @@ import {
   type QuickJSWASMModule,
 } from "quickjs-emscripten";
 import * as errore from "errore";
+import type { GoogleWebOAuthClient } from "@get-halo/config/workspaceServer";
 import type { ConnectionRequest } from "@get-halo/shared/ConnectionRequest";
+import type { OAuthCompletion } from "@get-halo/shared/contract";
 import type { ToolIdentity } from "@get-halo/shared/sessionState";
 import { createExecutorDatabase } from "./createExecutorDatabase.js";
 import type { DatabaseClient } from "../../storage/DatabaseClient.js";
@@ -200,7 +202,7 @@ const googleOpenApiPlugin = openApiPlugin({
   specFormats: [googleDiscoveryAdapter],
 });
 
-const googleOAuthClient: FirstPartyOAuthClientConfig = {
+const desktopGoogleOAuthClient: FirstPartyOAuthClientConfig = {
   name: "google",
   authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth",
   tokenUrl: "https://oauth2.googleapis.com/token",
@@ -220,12 +222,30 @@ const googleOAuthClient: FirstPartyOAuthClientConfig = {
   ],
 };
 
-function configuredOAuthClient() {
+function configuredOAuthClients(
+  googleWebOAuthClient: GoogleWebOAuthClient | undefined,
+) {
+  const webClient: FirstPartyOAuthClientConfig | undefined =
+    googleWebOAuthClient === undefined
+      ? undefined
+      : {
+          ...desktopGoogleOAuthClient,
+          name: "google-web",
+          clientId: googleWebOAuthClient.clientId,
+          clientSecret: googleWebOAuthClient.clientSecret,
+        };
   const testOrigin = process.env.HALO_E2E_OAUTH_ORIGIN;
-  if (testOrigin === undefined) return googleOAuthClient;
+  if (testOrigin === undefined)
+    return { desktop: desktopGoogleOAuthClient, web: webClient };
   return {
-    ...googleOAuthClient,
-    tokenUrl: `${testOrigin}/token`,
+    desktop: {
+      ...desktopGoogleOAuthClient,
+      tokenUrl: `${testOrigin}/token`,
+    },
+    web:
+      webClient === undefined
+        ? undefined
+        : { ...webClient, tokenUrl: `${testOrigin}/token` },
   };
 }
 
@@ -344,6 +364,7 @@ type ToolRuntimeOptions = {
   toolPlugins: readonly HaloToolPlugin[];
   authority: AgentAuthority;
   oauthRedirectUri: string;
+  googleWebOAuthClient?: GoogleWebOAuthClient;
 };
 
 export class ToolRuntime {
@@ -359,6 +380,7 @@ export class ToolRuntime {
   private readonly authority: AgentAuthority;
   private readonly connectionRequests: ReadonlyMap<string, ConnectionRequest>;
   private readonly integrationNames: ReadonlyMap<string, string>;
+  private readonly googleWebOAuthClientSlug: OAuthClientSlug | undefined;
 
   constructor(input: {
     executor: Executor<HaloRuntimePlugins>;
@@ -369,6 +391,7 @@ export class ToolRuntime {
     authority: AgentAuthority;
     connectionRequests: ReadonlyMap<string, ConnectionRequest>;
     integrationNames: ReadonlyMap<string, string>;
+    googleWebOAuthClientSlug: OAuthClientSlug | undefined;
   }) {
     this.executor = input.executor;
     this.engine = input.engine;
@@ -378,6 +401,7 @@ export class ToolRuntime {
     this.authority = input.authority;
     this.connectionRequests = input.connectionRequests;
     this.integrationNames = input.integrationNames;
+    this.googleWebOAuthClientSlug = input.googleWebOAuthClientSlug;
   }
 
   getToolIdentity(path: string) {
@@ -557,10 +581,19 @@ export class ToolRuntime {
     if (completed instanceof Error) return completed;
   }
 
-  async startOAuth(input: ConnectionRequest & { redirectUri: string }) {
+  async startOAuth(input: ConnectionRequest & { completion: OAuthCompletion }) {
+    const client =
+      input.completion.kind === "client-loopback"
+        ? OAuthClientSlug.make(input.client)
+        : this.googleWebOAuthClientSlug;
+    if (client === undefined) {
+      return new ToolRuntimeError({
+        operation: "start server OAuth without a web client",
+      });
+    }
     const started = await Effect.runPromise(
       this.executor.oauth.start({
-        client: OAuthClientSlug.make(input.client),
+        client,
         clientOwner: Owner.make(input.clientOwner),
         owner: Owner.make(input.owner),
         name: ConnectionName.make(input.connectionName),
@@ -568,7 +601,7 @@ export class ToolRuntime {
         template: AuthTemplateSlug.make(input.template),
         identityLabel: input.identityLabel,
         newConnection: input.newConnection,
-        redirectUri: input.redirectUri,
+        redirectUri: input.completion.redirectUri,
       }),
     ).catch(
       (cause) => new ToolRuntimeError({ operation: "OAuth start", cause }),
@@ -617,7 +650,11 @@ export class ToolRuntime {
 async function createToolRuntime(
   input: ToolRuntimeOptions,
 ): Promise<ToolRuntime | ToolRuntimeError> {
-  const oauthClient = configuredOAuthClient();
+  const oauthClients = configuredOAuthClients(input.googleWebOAuthClient);
+  const firstPartyOAuthClients =
+    oauthClients.web === undefined
+      ? [oauthClients.desktop]
+      : [oauthClients.desktop, oauthClients.web];
   if (quickJsModulePromise === undefined) {
     quickJsModulePromise = newQuickJSWASMModule(quickJsVariant);
   }
@@ -648,7 +685,7 @@ async function createToolRuntime(
       providers: [createExecutorCredentialProvider(input.credentialVault)],
       coreTools: { includeProviders: true },
       redirectUri: input.oauthRedirectUri,
-      firstPartyOAuthClients: [oauthClient],
+      firstPartyOAuthClients,
       db: ({ tables }) =>
         Effect.promise(
           async () => await createExecutorDatabase(input.database, tables),
@@ -716,10 +753,14 @@ async function createToolRuntime(
     toolPlugins: input.toolPlugins,
     authority: input.authority,
     connectionRequests: connectionRequestsForClient(
-      oauthClient,
+      oauthClients.desktop,
       installableGooglePresets,
     ),
     integrationNames,
+    googleWebOAuthClientSlug:
+      oauthClients.web === undefined
+        ? undefined
+        : firstPartyOAuthClientSlug(oauthClients.web.name),
   });
   cleanup.move();
   return runtime;

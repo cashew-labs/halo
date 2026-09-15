@@ -17,6 +17,8 @@ const controlPlaneImage = configuration.require("controlPlaneImage");
 const workspaceImage = configuration.require("workspaceImage");
 const googleClientIdSecretId = `${name}-control-plane-google-client-id`;
 const googleClientSecretId = `${name}-control-plane-google-client-secret`;
+const googleWebClientIdSecretId = `${name}-workspace-google-web-client-id`;
+const googleWebClientSecretId = `${name}-workspace-google-web-client-secret`;
 const projectInfo = gcp.organizations.getProjectOutput({ projectId: project });
 const controlPlaneOrigin = pulumi.interpolate`https://${controlPlaneServiceName}-${projectInfo.number}.${region}.run.app`;
 
@@ -144,6 +146,22 @@ const workspaceInferenceAccess = new gcp.projects.IAMMember(
   },
   { dependsOn: [vertexAi] },
 );
+const workspaceGoogleWebClientIdAccess = new gcp.secretmanager.SecretIamMember(
+  "workspace-google-web-client-id",
+  {
+    project,
+    secretId: googleWebClientIdSecretId,
+    role: "roles/secretmanager.secretAccessor",
+    member: pulumi.interpolate`serviceAccount:${workspaceRuntime.email}`,
+  },
+);
+const workspaceGoogleWebClientSecretAccess =
+  new gcp.secretmanager.SecretIamMember("workspace-google-web-client-secret", {
+    project,
+    secretId: googleWebClientSecretId,
+    role: "roles/secretmanager.secretAccessor",
+    member: pulumi.interpolate`serviceAccount:${workspaceRuntime.email}`,
+  });
 
 const controlPlaneComputeAccess = new gcp.projects.IAMMember(
   "control-plane-compute",
@@ -193,6 +211,10 @@ const workspaceTemplate = new gcp.compute.InstanceTemplate(
     },
     metadataStartupScript: workspaceStartup({
       gateway: true,
+      googleWebOAuth: {
+        clientIdSecretId: googleWebClientIdSecretId,
+        clientSecretSecretId: googleWebClientSecretId,
+      },
       image: workspaceImage,
       registry: `${region}-docker.pkg.dev`,
     }),
@@ -202,6 +224,8 @@ const workspaceTemplate = new gcp.compute.InstanceTemplate(
       workspaceImageAccess,
       workspaceInferenceAccess,
       workspaceLogAccess,
+      workspaceGoogleWebClientIdAccess,
+      workspaceGoogleWebClientSecretAccess,
     ],
   },
 );

@@ -44,7 +44,7 @@ type StartConnectionInput = {
 
 type OAuthRuntime = {
   startOAuth(
-    input: ConnectionRequest & { redirectUri: string },
+    input: ConnectionRequest & { completion: OAuthCompletion },
   ): Promise<
     | Error
     | { status: "connected" }
@@ -99,7 +99,7 @@ export class ConnectionService {
   ): Promise<ConnectionStarted | Error> {
     const started = await this.runtime.startOAuth({
       ...input.request,
-      redirectUri: input.completion.redirectUri,
+      completion: input.completion,
     });
     if (started instanceof Error) return started;
 

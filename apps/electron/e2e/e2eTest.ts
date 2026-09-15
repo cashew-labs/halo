@@ -64,7 +64,11 @@ export const e2eTest = baseTest.extend<E2EFixtures>({
           sinks: [{ log: (entry) => console.log(entry.data) }],
         }),
         llmConfiguration: llm.configuration,
-        environment: { HALO_E2E_OAUTH_ORIGIN: http.url("") },
+        environment: {
+          HALO_E2E_OAUTH_ORIGIN: http.url(""),
+          HALO_GOOGLE_WEB_CLIENT_ID: "e2e-google-web-client",
+          HALO_GOOGLE_WEB_CLIENT_SECRET: "e2e-google-web-secret",
+        },
         config: {
           environment: "local",
           workspaceRoot: testArtifacts.paths.workspace,

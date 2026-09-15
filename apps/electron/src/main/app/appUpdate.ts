@@ -135,13 +135,31 @@ export function checkForUpdates(): void {
   }
 
   manualCheckPending = true;
-  updateStatus = { state: "checking" };
-  autoUpdater.checkForUpdates();
+  beginUpdateCheck();
+}
+
+export function checkForAppUpdate(): void {
+  if (!updatesEnabled) return;
+  if (
+    updateStatus.state === "checking" ||
+    updateStatus.state === "available" ||
+    updateStatus.state === "downloaded"
+  ) {
+    return;
+  }
+
+  manualCheckPending = false;
+  beginUpdateCheck();
 }
 
 export function installAppUpdate() {
   if (updateStatus.state !== "downloaded") return new UpdateNotReadyError();
   autoUpdater.quitAndInstall();
+}
+
+function beginUpdateCheck(): void {
+  updateStatus = { state: "checking" };
+  autoUpdater.checkForUpdates();
 }
 
 function showUpdateReadyDialog(version: string): void {

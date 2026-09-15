@@ -139,15 +139,26 @@ controlPlaneTest(
   async ({ plane }) => {
     const root = await fetch(plane.origin);
     expect(root.status).toBe(200);
+    expect(root.headers.get("cache-control")).toBe("no-cache");
+    expect(root.headers.get("content-security-policy")).toContain(
+      "frame-ancestors 'none'",
+    );
+    expect(root.headers.get("content-security-policy")).toContain(
+      "frame-src 'self'",
+    );
     expect(root.headers.get("content-type")).toBe("text/html; charset=utf-8");
     expect(await root.text()).toBe("<main>Halo web app</main>");
 
     const navigation = await fetch(`${plane.origin}/sessions/example`);
     expect(navigation.status).toBe(200);
+    expect(navigation.headers.get("cache-control")).toBe("no-cache");
     expect(await navigation.text()).toBe("<main>Halo web app</main>");
 
     const asset = await fetch(`${plane.origin}/assets/app.js`);
     expect(asset.status).toBe(200);
+    expect(asset.headers.get("cache-control")).toBe(
+      "public, max-age=31536000, immutable",
+    );
     expect(asset.headers.get("content-type")).toBe(
       "text/javascript; charset=utf-8",
     );
@@ -227,7 +238,7 @@ controlPlaneTest("serves the typed control-plane RPC", async ({ rpc }) => {
   expect(await rpc.server.info()).toEqual({
     protocolVersion: controlPlaneProtocolVersion,
   });
-  expect(await rpc.auth.session()).toBeUndefined();
+  expect(await rpc.auth.session()).toEqual({ status: "signed-out" });
 });
 
 controlPlaneTest(
@@ -306,7 +317,8 @@ controlPlaneTest(
       payload.token,
     );
     expect(await authenticated.auth.session()).toMatchObject({
-      user: { email: "desktop@example.com" },
+      status: "signed-in",
+      session: { user: { email: "desktop@example.com" } },
     });
 
     await expect(rpc.auth.exchange({ code })).rejects.toMatchObject({

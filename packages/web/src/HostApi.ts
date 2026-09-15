@@ -23,7 +23,9 @@ export interface HostApi {
   }): Promise<HaloClient | Error | undefined>;
   getExtensionFrameUrl(extensionId: string): string;
   getAppInfo?(): Promise<AppInfo | Error>;
+  checkForAppUpdate?(): Promise<void | Error>;
   installAppUpdate?(): Promise<void | Error>;
+  openExternalUrl?(url: string): Promise<void | Error>;
   connectIntegration(input: {
     sessionId: string;
     request: ConnectionRequest;

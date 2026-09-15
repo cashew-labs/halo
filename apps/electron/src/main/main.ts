@@ -90,6 +90,10 @@ app.whenReady().then(async () => {
     ownsWindow: (window) => windows.has(window),
   });
   installMenu();
+  startAppUpdates({
+    config: applicationConfig.updates,
+    getWindow: () => mainWindow,
+  });
   await openMainWindow();
   if (applicationConfig.testWindowEvents) {
     const testEvents: NodeJS.EventEmitter = app;
@@ -98,10 +102,6 @@ app.whenReady().then(async () => {
       void createWindow();
     });
   }
-  startAppUpdates({
-    config: applicationConfig.updates,
-    getWindow: () => mainWindow,
-  });
   logger.info({ event: "app-ready" });
 
   app.on("activate", () => {

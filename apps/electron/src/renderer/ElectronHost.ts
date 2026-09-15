@@ -76,11 +76,31 @@ export const electronHost = {
     );
   },
 
+  async checkForAppUpdate() {
+    return await desktopBridge.checkForAppUpdate().catch(
+      (cause) =>
+        new ElectronHostError({
+          operation: "check for an app update",
+          cause,
+        }),
+    );
+  },
+
   async installAppUpdate() {
     return await desktopBridge.installAppUpdate().catch(
       (cause) =>
         new ElectronHostError({
           operation: "install an app update",
+          cause,
+        }),
+    );
+  },
+
+  async openExternalUrl(url: string) {
+    return await desktopBridge.openExternal({ url }).catch(
+      (cause) =>
+        new ElectronHostError({
+          operation: "open an external URL",
           cause,
         }),
     );

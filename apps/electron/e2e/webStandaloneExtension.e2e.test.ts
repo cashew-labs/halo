@@ -183,6 +183,9 @@ e2eTest(
       .getByRole("button", { name: "Connect" })
       .click({ noWaitAfter: true });
     const authorizationUrl = new URL((await authorizationRequest).url());
+    expect(authorizationUrl.searchParams.get("client_id")).toBe(
+      "e2e-google-web-client",
+    );
     const callbackValue = authorizationUrl.searchParams.get("redirect_uri");
     if (callbackValue === null) {
       throw new Error("OAuth authorization request was incomplete");

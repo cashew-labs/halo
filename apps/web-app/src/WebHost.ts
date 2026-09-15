@@ -21,12 +21,15 @@ let haloClient: HaloClient | undefined;
 
 export const webHost = {
   async getAuthSession() {
-    return await controlPlane.auth
+    const authentication = await controlPlane.auth
       .session()
       .catch(
         (cause) =>
           new WebHostError({ operation: "restore authentication", cause }),
       );
+    if (authentication instanceof Error) return authentication;
+    if (authentication.status === "signed-out") return undefined;
+    return authentication.session;
   },
 
   async signIn() {

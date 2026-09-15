@@ -29,6 +29,20 @@ import {
 } from "../workspace/proxy.js";
 
 const requestUrlBase = "http://localhost";
+const webContentSecurityPolicy = [
+  "base-uri 'none'",
+  "connect-src 'self'",
+  "default-src 'self'",
+  "font-src 'self' data:",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+  "frame-src 'self'",
+  "img-src 'self' blob: data:",
+  "object-src 'none'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "worker-src 'self' blob:",
+].join("; ");
 
 class ControlPlaneHttpError extends errore.createTaggedError({
   name: "ControlPlaneHttpError",
@@ -328,13 +342,22 @@ async function serveWebApp(ctx: {
   }
 
   response.writeHead(200, {
-    "cache-control": "no-cache",
+    "cache-control": webCacheControl(url.pathname),
     "content-length": file.byteLength,
+    "content-security-policy": webContentSecurityPolicy,
     "content-type": webContentType(filePath),
     "x-content-type-options": "nosniff",
   });
   if (request.method === "HEAD") response.end();
   else response.end(file);
+}
+
+function webCacheControl(pathname: string) {
+  if (pathname.startsWith("/assets/")) {
+    return "public, max-age=31536000, immutable";
+  }
+
+  return "no-cache";
 }
 
 async function readWebFile(filePath: string) {
