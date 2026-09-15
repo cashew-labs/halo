@@ -2,6 +2,13 @@
 
 Halo is an open-source self-modifiable desktop app built with Electron and Pi. It's currently a work-in-progress and has not been publically launched.
 
+## Architecture
+
+Read [docs/architecture.md](docs/architecture.md) when deciding code ownership,
+dependencies, service boundaries, or test structure. It defines the target design
+and labels current gaps; planned packages and APIs are not yet available. Apply
+the guidance to new work without expanding a task into the full migration.
+
 ## Commands
 
 - During iteration, run `pnpm run check:static` and only the relevant tests. Avoid repeated full checks: they package Electron and install test dependencies.
@@ -52,6 +59,17 @@ Run `pnpm prerelease <version>` from a clean, up-to-date `main` branch. It creat
 Don't write tests unless updating tests or writing new ones in existing test files or asked.
 
 When writing tests, load the `testing` skill.
+
+- Test package behavior end to end through its actual consumer boundary.
+- Use one canonical E2E fixture and test entry per package. Control-plane auth,
+  routing, proxying, and lifecycle scenarios all belong on `controlPlane`.
+  Feature-specific helpers may compose behind that fixture; do not add alternate
+  test exports or fixtures that mount only an internal sub-service.
+- Allow unit tests only for small, encapsulated components that could stand as
+  independent packages. Name the contract and extraction trigger. If a component
+  outgrows that scope or another package needs it, extract it and make its tests
+  that package's E2Es. Purity or an exported helper alone does not qualify.
+- Preserve meaningful consumer coverage when consolidating existing tests.
 
 ## Working Style
 
