@@ -1,3 +1,4 @@
+import fs from "node:fs/promises";
 import {
   createServer,
   type Server as HttpServer,
@@ -5,6 +6,7 @@ import {
   type ServerResponse,
 } from "node:http";
 import type { AddressInfo } from "node:net";
+import path from "node:path";
 import { RPCHandler } from "@orpc/server/node";
 import {
   RequestHeadersHandlerPlugin,
@@ -27,6 +29,20 @@ import {
 } from "../workspace/proxy.js";
 
 const requestUrlBase = "http://localhost";
+const webContentSecurityPolicy = [
+  "base-uri 'none'",
+  "connect-src 'self'",
+  "default-src 'self'",
+  "font-src 'self' data:",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+  "frame-src 'self'",
+  "img-src 'self' blob: data:",
+  "object-src 'none'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "worker-src 'self' blob:",
+].join("; ");
 
 class ControlPlaneHttpError extends errore.createTaggedError({
   name: "ControlPlaneHttpError",
@@ -66,8 +82,9 @@ export function serveControlPlaneHttp(ctx: {
   server: HttpServer;
   auth: AuthService;
   workspace: WorkspaceService;
+  webRoot: string;
 }) {
-  const { server, auth, workspace } = ctx;
+  const { server, auth, workspace, webRoot } = ctx;
   const rpc = new RPCHandler<ControlPlaneContext>(controlPlaneRpcRouter, {
     plugins: [
       new RequestHeadersHandlerPlugin(),
@@ -85,6 +102,7 @@ export function serveControlPlaneHttp(ctx: {
       workspace,
       gateway,
       rpc,
+      webRoot,
     });
   });
 }
@@ -118,8 +136,9 @@ async function routeControlPlaneRequest(ctx: {
   gateway: WorkspaceGateway;
   workspace: WorkspaceService;
   rpc: RPCHandler<ControlPlaneContext>;
+  webRoot: string;
 }) {
-  const { request, response, auth, workspace, gateway, rpc } = ctx;
+  const { request, response, auth, workspace, gateway, rpc, webRoot } = ctx;
   const url = new URL(
     request.url === undefined ? "/" : request.url,
     requestUrlBase,
@@ -153,7 +172,24 @@ async function routeControlPlaneRequest(ctx: {
     return;
   }
 
-  await serveControlPlaneRpc({ request, response, auth, workspace, rpc });
+  if (isPathWithin(url.pathname, "/rpc")) {
+    await serveControlPlaneRpc({ request, response, auth, workspace, rpc });
+    return;
+  }
+
+  if (
+    isPathWithin(url.pathname, "/api") ||
+    isPathWithin(url.pathname, "/health")
+  ) {
+    response.writeHead(404).end();
+    return;
+  }
+
+  await serveWebApp({ request, response, url, webRoot });
+}
+
+function isPathWithin(pathname: string, root: string) {
+  return pathname === root || pathname.startsWith(`${root}/`);
 }
 
 async function serveDesktopAuthStart(
@@ -269,6 +305,81 @@ async function serveControlPlaneRpc(ctx: {
   if (handled.matched) return;
 
   response.writeHead(404).end();
+}
+
+async function serveWebApp(ctx: {
+  request: IncomingMessage;
+  response: ServerResponse;
+  url: URL;
+  webRoot: string;
+}) {
+  const { request, response, url, webRoot } = ctx;
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    response.writeHead(404).end();
+    return;
+  }
+
+  const requestedPath = path.posix.basename(url.pathname).includes(".")
+    ? url.pathname.slice(1)
+    : "index.html";
+  const root = path.resolve(webRoot);
+  const filePath = path.resolve(root, requestedPath);
+
+  if (filePath !== root && !filePath.startsWith(`${root}${path.sep}`)) {
+    response.writeHead(404).end();
+    return;
+  }
+
+  const file = await readWebFile(filePath);
+  if (file instanceof Error) {
+    console.error(file);
+    response.writeHead(500).end();
+    return;
+  }
+  if (file === undefined) {
+    response.writeHead(404).end();
+    return;
+  }
+
+  response.writeHead(200, {
+    "cache-control": webCacheControl(url.pathname),
+    "content-length": file.byteLength,
+    "content-security-policy": webContentSecurityPolicy,
+    "content-type": webContentType(filePath),
+    "x-content-type-options": "nosniff",
+  });
+  if (request.method === "HEAD") response.end();
+  else response.end(file);
+}
+
+function webCacheControl(pathname: string) {
+  if (pathname.startsWith("/assets/")) {
+    return "public, max-age=31536000, immutable";
+  }
+
+  return "no-cache";
+}
+
+async function readWebFile(filePath: string) {
+  return await fs.readFile(filePath).catch((cause: NodeJS.ErrnoException) => {
+    if (cause.code === "ENOENT" || cause.code === "EISDIR") return undefined;
+    return new ControlPlaneHttpError({ detail: "read web asset", cause });
+  });
+}
+
+function webContentType(filePath: string) {
+  const extension = path.extname(filePath);
+  if (extension === ".css") return "text/css; charset=utf-8";
+  if (extension === ".html") return "text/html; charset=utf-8";
+  if (extension === ".ico") return "image/x-icon";
+  if (extension === ".js") return "text/javascript; charset=utf-8";
+  if (extension === ".json") return "application/json; charset=utf-8";
+  if (extension === ".png") return "image/png";
+  if (extension === ".svg") return "image/svg+xml";
+  if (extension === ".webp") return "image/webp";
+  if (extension === ".woff") return "font/woff";
+  if (extension === ".woff2") return "font/woff2";
+  return "application/octet-stream";
 }
 
 function requestHeaders(request: IncomingMessage) {

@@ -17,6 +17,7 @@ import {
   type HaloMessage as StoredMessage,
   type SessionWatchItem,
   type HaloConnectionEvent,
+  type HaloConnectionState,
 } from "@get-halo/shared/sessionState";
 import type { WorkspaceLayout } from "../workspace/WorkspaceService.js";
 import type { FilesystemService } from "../filesystem/FilesystemService.js";
@@ -150,7 +151,7 @@ export class HaloAgentSession {
     return session;
   }
 
-  async readSnapshot() {
+  async readSnapshot(connections: HaloConnectionState[]) {
     const watch = await this.lane
       .watch(BACKGROUND_CONTEXT)
       .catch(
@@ -159,12 +160,15 @@ export class HaloAgentSession {
       );
     if (watch instanceof Error) return watch;
     watch.unsubscribe();
-    return sessionSnapshot(watch.snapshot);
+    return sessionSnapshot(watch.snapshot, connections);
   }
 
-  async *watch(
-    signal: AbortSignal = this.closed.signal,
-  ): AsyncGenerator<SessionWatchItem, void, void> {
+  async *watch(options: {
+    signal?: AbortSignal;
+    readConnections: () => HaloConnectionState[];
+  }): AsyncGenerator<SessionWatchItem, void, void> {
+    const signal =
+      options.signal === undefined ? this.closed.signal : options.signal;
     const abortSignal = AbortSignal.any([signal, this.closed.signal]);
     const stream = new Stream<SessionWatchItem>();
     using updates = stream.consume({ abortSignal });
@@ -177,7 +181,10 @@ export class HaloAgentSession {
     const watch = await this.lane.watch(BACKGROUND_CONTEXT);
     cleanup.defer(() => watch.unsubscribe());
     if (abortSignal.aborted) return;
-    yield { type: "snapshot", snapshot: sessionSnapshot(watch.snapshot) };
+    yield {
+      type: "snapshot",
+      snapshot: sessionSnapshot(watch.snapshot, options.readConnections()),
+    };
     watch.start((event) => {
       const adapted = adaptPiEvent(event);
       if (adapted !== undefined)

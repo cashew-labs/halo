@@ -1,5 +1,5 @@
 import type { ControlPlaneSession } from "@get-halo/shared/controlPlaneContract";
-import { readWorkspaceServerConnection } from "@get-halo/workspace-server/connection";
+import { readWorkspaceServerConnection } from "@get-halo/shared/WorkspaceServerConnection";
 import type { HaloRpcConnection } from "../shared/HaloRpcConnection.js";
 
 export type DesktopAuthentication = {

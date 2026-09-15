@@ -13,10 +13,11 @@ import {
 } from "maui";
 import { style, useStyles } from "purse-styles";
 import { useLocation } from "wouter";
-import { shortcuts } from "../shared/shortcuts.js";
-import { desktopApi } from "./api/electron.js";
+import { useHost } from "./HostProvider.js";
+import { shortcuts } from "./shortcuts.js";
 
 export function KeyboardShortcuts() {
+  const onShortcut = useHost().onShortcut;
   const [open, setOpen] = useState(false);
   const [, navigate] = useLocation();
   const overlay = useStyles(styles.overlay);
@@ -33,14 +34,14 @@ export function KeyboardShortcuts() {
 
   useEffect(
     () =>
-      desktopApi.onShortcut((shortcut) => {
+      onShortcut?.((shortcut) => {
         if (shortcut === "newChat") {
           newChat();
           return;
         }
         setOpen((value) => !value);
       }),
-    [newChat],
+    [newChat, onShortcut],
   );
 
   return (

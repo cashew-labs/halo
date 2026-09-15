@@ -123,15 +123,15 @@ export class ControlPlaneAuth implements DesktopAuthentication {
 
     const client = this.createClient(this.token);
 
-    const session = await client.auth.session().catch(
+    const authentication = await client.auth.session().catch(
       (cause) =>
         new ControlPlaneAuthError({
           operation: "restore the session",
           cause,
         }),
     );
-    if (session instanceof Error) return session;
-    if (session !== undefined) {
+    if (authentication instanceof Error) return authentication;
+    if (authentication.status === "signed-in") {
       const workspace = await client.workspace.ensure().catch(
         (cause) =>
           new ControlPlaneAuthError({
@@ -141,7 +141,7 @@ export class ControlPlaneAuth implements DesktopAuthentication {
       );
       if (workspace instanceof Error) return workspace;
 
-      return session;
+      return authentication.session;
     }
 
     const removed = await this.sessionStore.remove();

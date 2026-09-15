@@ -1,21 +1,19 @@
 import { KeyboardShortcuts } from "./KeyboardShortcuts.js";
 import { colors, spacing, text } from "maui";
 import { style, useStyles } from "purse-styles";
+import { skipToken, useQuery } from "@tanstack/react-query";
 import { Redirect, Route, Router } from "wouter";
 import { useHashLocation } from "wouter/use-hash-location";
 import type { SessionSummary } from "@get-halo/shared/rpc";
-import type { AppInfo } from "../shared/desktop.js";
+import type { AppInfo } from "./HostApi.js";
+import { useHost } from "./HostProvider.js";
 import { LoadingPage } from "./LoadingPage.tsx";
 import { MainPane } from "./main/MainPane.tsx";
 import { ConnectionPage } from "./ConnectionPage.tsx";
 import { Sidebar } from "./sidebar/Sidebar.tsx";
-import {
-  useSessionsQuery,
-  useWorkspaceQuery,
-  useAppInfoQuery,
-} from "./api/ApiProvider.tsx";
+import { useSessionsQuery, useWorkspaceQuery } from "./api/ApiProvider.tsx";
 
-export function App() {
+export function HaloApp() {
   const workspaceQuery = useWorkspaceQuery();
   const workspace = workspaceQuery.data;
   const sessionsQuery = useSessionsQuery(workspace);
@@ -41,6 +39,22 @@ export function App() {
       appInfo={appInfoQuery.data}
     />
   );
+}
+
+function useAppInfoQuery() {
+  const getAppInfo = useHost().getAppInfo;
+  return useQuery({
+    queryKey: ["app-info"],
+    queryFn:
+      getAppInfo === undefined
+        ? skipToken
+        : async () => {
+            const appInfo = await getAppInfo();
+            if (appInfo instanceof Error) throw appInfo;
+            return appInfo;
+          },
+    refetchInterval: 5_000,
+  });
 }
 
 function WorkspaceShell({

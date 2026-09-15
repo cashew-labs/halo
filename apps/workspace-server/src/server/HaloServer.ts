@@ -5,7 +5,7 @@ import {
   BrowserService,
   type AppBrowserTarget,
 } from "../browser/BrowserService.js";
-import type { Logger } from "@repo/logger";
+import type { Logger } from "@get-halo/logger";
 import * as errore from "errore";
 import { FilesystemService } from "../filesystem/FilesystemService.js";
 import {
@@ -31,6 +31,7 @@ import { parallelSearchPlugin } from "../agent/tools/web/parallelSearchPlugin.js
 import type { LLMApi } from "../llm/LLMApi.js";
 import { createPiModelRuntime } from "../llm/createPiModelRuntime.js";
 import type { HaloEnvironment } from "../agent/workspacePrompt.js";
+import type { GoogleWebOAuthClient } from "@get-halo/config/workspaceServer";
 
 export type HaloServerOptions = {
   environment: HaloEnvironment;
@@ -44,6 +45,7 @@ export type HaloServerOptions = {
   cliElectronRunAsNode?: boolean;
   extensionRuntime?: ExtensionRuntime;
   gateway?: WorkspaceGatewayIdentity;
+  googleWebOAuthClient?: GoogleWebOAuthClient;
   testingApiEnabled?: boolean;
   ownerUserId: Promise<string | Error>;
   logger: Logger;
@@ -144,6 +146,7 @@ export class HaloServer {
           workspaceRoot,
         }),
         oauthRedirectUri: `${http.origin}/oauth/callback`,
+        googleWebOAuthClient: options.googleWebOAuthClient,
         toolPlugins: [
           createWorkspaceFilesPlugin(filesystem),
           workspaceBashPlugin,

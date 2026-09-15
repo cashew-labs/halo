@@ -1,4 +1,4 @@
-import { createHaloRpcClient } from "@halo/cli";
+import { createHaloRpcClient } from "@get-halo/cli";
 import { HaloServer, type HaloServerOptions } from "@get-halo/workspace-server";
 import type { HaloClient } from "@get-halo/shared/contract";
 import path from "node:path";

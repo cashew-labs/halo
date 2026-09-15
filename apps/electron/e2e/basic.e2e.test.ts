@@ -1,7 +1,8 @@
 import fs from "node:fs/promises";
 import nodePath from "node:path";
 import { expect } from "@playwright/test";
-import type { DesktopApi } from "../src/shared/desktop.js";
+import { haloProtocolVersion } from "@get-halo/shared/contract";
+import type { DesktopBridge } from "../src/shared/desktop.js";
 import { e2eTest } from "./e2eTest.js";
 
 e2eTest("opens the server-configured workspace", async ({ harness, app }) => {
@@ -21,15 +22,50 @@ e2eTest("opens the server-configured workspace", async ({ harness, app }) => {
 e2eTest("rejects a non-web external URL", async ({ app }) => {
   await expect(
     app.page.evaluate(async () => {
-      // SAFETY: Halo's preload exposes DesktopApi as window.haloDesktop.
-      const desktopApi = (window as typeof window & { haloDesktop: DesktopApi })
-        .haloDesktop;
-      await desktopApi.openExternal({
+      // SAFETY: Halo's preload exposes DesktopBridge as window.haloDesktop.
+      const desktopBridge = (
+        window as typeof window & { haloDesktop: DesktopBridge }
+      ).haloDesktop;
+      await desktopBridge.openExternal({
         url: "file:///tmp/halo-external-url-test",
       });
     }),
   ).rejects.toThrow("file: URLs are not supported");
 });
+
+e2eTest(
+  "explains how to update when the workspace protocol is newer",
+  async ({ app }) => {
+    await expect(
+      app.page.getByRole("main", { name: "New session" }),
+    ).toBeVisible();
+    await app.page.route("**/rpc/server/info", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ json: { protocolVersion: 999 } }),
+      });
+    });
+    await app.page.reload();
+
+    await expect(
+      app.page.getByRole("heading", { name: "Update Halo to reconnect" }),
+    ).toBeVisible();
+    await expect(
+      app.page.getByText(
+        `This app uses protocol ${haloProtocolVersion}, while your server uses protocol 999.`,
+      ),
+    ).toBeVisible();
+    await expect(
+      app.page.getByText(
+        "Test builds do not auto-update. Install the latest Halo release manually, then reopen the app.",
+      ),
+    ).toBeVisible();
+    await expect(
+      app.page.getByRole("button", { name: "View Halo downloads" }),
+    ).toBeVisible();
+  },
+);
 
 e2eTest(
   "keeps an edited workspace note after quitting and reopening",

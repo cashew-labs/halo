@@ -1,12 +1,4 @@
 export const SHORTCUT_CHANNEL = "halo:shortcut";
 
-export const shortcuts = {
-  newChat: { label: "New chat", key: "N", accelerator: "CmdOrCtrl+N" },
-  shortcutMenu: {
-    label: "Keyboard shortcuts",
-    key: "P",
-    accelerator: "CmdOrCtrl+P",
-  },
-} as const;
-
-export type ShortcutId = keyof typeof shortcuts;
+export { shortcuts } from "@get-halo/web/shortcuts";
+export type { ShortcutId } from "@get-halo/web/shortcuts";

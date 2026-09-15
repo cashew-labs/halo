@@ -5,7 +5,12 @@ import {
   haloProtocolVersion,
   type HaloClient,
 } from "@get-halo/shared/contract";
-import type { HaloRpcConnection } from "../../shared/HaloRpcConnection.js";
+
+type HaloRpcTransport = {
+  origin: string;
+  path: `/${string}`;
+  headers: Record<string, string>;
+};
 
 export class HaloRpcConnectionError extends errore.createTaggedError({
   name: "HaloRpcConnectionError",
@@ -19,11 +24,11 @@ export class IncompatibleServerError extends errore.createTaggedError({
 }) {}
 
 export async function connectHaloRpc({
-  connection,
+  transport,
   onDisconnect,
 }: {
-  connection: HaloRpcConnection;
-  onDisconnect: (error: HaloRpcConnectionError) => void;
+  transport: HaloRpcTransport;
+  onDisconnect: (error: Error) => void;
 }): Promise<Error | HaloClient> {
   const reportDisconnect = (cause: unknown) => {
     if (errore.isAbortError(cause)) return;
@@ -36,11 +41,11 @@ export async function connectHaloRpc({
     onDisconnect(new HaloRpcConnectionError({ cause }));
   };
   const link = new RPCLink({
-    origin: connection.origin,
-    url: connection.path,
-    headers: { authorization: `Bearer ${connection.token}` },
+    origin: transport.origin,
+    url: transport.path,
+    headers: transport.headers,
   });
-  // SAFETY: HaloRpcConnection points to the Halo router.
+  // SAFETY: The host configures this transport for the Halo router.
   const client = createORPCClient(link, {
     interceptors: [onError(reportDisconnect)],
   }) as HaloClient;

@@ -1,5 +1,5 @@
 {
-  "extends": "@repo/typescript-config/base.json",
+  "extends": "@get-halo/typescript-config/base.json",
   "compilerOptions": {
     "allowImportingTsExtensions": true,
     "lib": ["ES2023", "DOM", "DOM.Iterable", "ESNext.Disposable"],

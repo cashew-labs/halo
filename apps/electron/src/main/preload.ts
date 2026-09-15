@@ -1,12 +1,12 @@
+import type { LogLevel, LoggerData, LoggerScope } from "@get-halo/logger";
 import { SHORTCUT_CHANNEL, type ShortcutId } from "../shared/shortcuts.js";
-import type { LogLevel, LoggerData, LoggerScope } from "@repo/logger";
 import { Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import { contextBridge, ipcRenderer } from "electron";
 import { LOG_CHANNELS } from "../shared/channels.js";
-import { DESKTOP_CHANNEL, type DesktopApi } from "../shared/desktop.js";
+import { DESKTOP_CHANNEL, type DesktopBridge } from "../shared/desktop.js";
 
-const desktopApi: DesktopApi = {
+const desktopBridge: DesktopBridge = {
   onShortcut: (listener) => {
     const handleShortcut = (
       _event: Electron.IpcRendererEvent,
@@ -25,6 +25,8 @@ const desktopApi: DesktopApi = {
     await ipcRenderer.invoke(DESKTOP_CHANNEL, { type: "signIn" }),
   getAppInfo: async () =>
     await ipcRenderer.invoke(DESKTOP_CHANNEL, { type: "getAppInfo" }),
+  checkForAppUpdate: async () =>
+    await ipcRenderer.invoke(DESKTOP_CHANNEL, { type: "checkForAppUpdate" }),
   installAppUpdate: async () =>
     await ipcRenderer.invoke(DESKTOP_CHANNEL, { type: "installAppUpdate" }),
   openExternal: async (request) =>
@@ -46,7 +48,7 @@ const desktopApi: DesktopApi = {
     }),
 };
 
-contextBridge.exposeInMainWorld("haloDesktop", desktopApi);
+contextBridge.exposeInMainWorld("haloDesktop", desktopBridge);
 
 const logMessageSchema = Type.Object({
   channel: Type.Literal(LOG_CHANNELS.log),

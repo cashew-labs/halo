@@ -6,20 +6,8 @@ import {
 } from "@get-halo/shared/ConnectionRequest";
 import type { ConnectionStarted } from "@get-halo/shared/contract";
 import type { ControlPlaneSession } from "@get-halo/shared/controlPlaneContract";
+import type { AppInfo } from "@get-halo/web/HostApi";
 import type { HaloRpcConnection } from "./HaloRpcConnection.js";
-
-export type AppUpdateStatus =
-  | { state: "disabled"; reason: string }
-  | { state: "idle" }
-  | { state: "checking" }
-  | { state: "available" }
-  | { state: "downloaded"; version: string }
-  | { state: "error"; message: string };
-
-export type AppInfo = {
-  version: string;
-  update: AppUpdateStatus;
-};
 
 export const DESKTOP_CHANNEL = "halo:desktop";
 
@@ -38,6 +26,10 @@ export const desktopRequestSchema = Type.Union([
   ),
   Type.Object(
     { type: Type.Literal("getAppInfo") },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    { type: Type.Literal("checkForAppUpdate") },
     { additionalProperties: false },
   ),
   Type.Object(
@@ -79,12 +71,13 @@ export type CancelIntegrationRequest = Extract<
   { type: "cancelIntegration" }
 >;
 
-export type DesktopApi = {
+export type DesktopBridge = {
   onShortcut: (listener: (shortcut: ShortcutId) => void) => () => void;
   getConnection: () => Promise<HaloRpcConnection | undefined>;
   getAuthSession: () => Promise<ControlPlaneSession | undefined>;
   signIn: () => Promise<ControlPlaneSession>;
   getAppInfo: () => Promise<AppInfo>;
+  checkForAppUpdate: () => Promise<void>;
   installAppUpdate: () => Promise<void>;
   openExternal: (request: { url: string }) => Promise<void>;
   connectIntegration: (input: {
@@ -99,6 +92,6 @@ export type DesktopApi = {
 
 declare global {
   interface Window {
-    haloDesktop: DesktopApi;
+    haloDesktop: DesktopBridge;
   }
 }

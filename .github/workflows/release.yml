@@ -91,13 +91,13 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Select Pulumi backend
-        run: pnpm --filter @halo/infra exec pulumi login gs://halo-relay-pulumi-state
+        run: pnpm --filter @get-halo/infra exec pulumi login gs://halo-relay-pulumi-state
 
       - name: Preview Pulumi changes
         id: pulumi
         continue-on-error: true
         run: |
-          pnpm --filter @halo/infra exec pulumi -C control-plane preview \
+          pnpm --filter @get-halo/infra exec pulumi -C control-plane preview \
             --stack west \
             --non-interactive \
             --color never \
@@ -202,13 +202,13 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Select Pulumi backend
-        run: pnpm --filter @halo/infra exec pulumi login gs://halo-relay-pulumi-state
+        run: pnpm --filter @get-halo/infra exec pulumi login gs://halo-relay-pulumi-state
 
       - name: Build release images
         shell: bash
         run: |
-          bucket="$(pnpm --silent --filter @halo/infra exec pulumi -C control-plane stack output buildSourceBucket --stack west)"
-          builder="$(pnpm --silent --filter @halo/infra exec pulumi -C control-plane stack output buildServiceAccount --stack west)"
+          bucket="$(pnpm --silent --filter @get-halo/infra exec pulumi -C control-plane stack output buildSourceBucket --stack west)"
+          builder="$(pnpm --silent --filter @get-halo/infra exec pulumi -C control-plane stack output buildServiceAccount --stack west)"
           control_plane_image="$REGION-docker.pkg.dev/$PROJECT/halo-west-workspaces/control-plane:$VERSION"
           workspace_image="$REGION-docker.pkg.dev/$PROJECT/halo-west-workspaces/workspace-server:$VERSION"
 
@@ -234,18 +234,18 @@ jobs:
           build_image "$workspace_image" infra/cloudbuild.yaml
 
       - name: Apply Pulumi changes
-        run: pnpm --filter @halo/infra exec pulumi -C control-plane up --stack west --yes --non-interactive
+        run: pnpm --filter @get-halo/infra exec pulumi -C control-plane up --stack west --yes --non-interactive
 
       - name: Check control plane
         shell: bash
         run: |
-          origin="$(pnpm --silent --filter @halo/infra exec pulumi -C control-plane stack output controlPlaneUrl --stack west)"
+          origin="$(pnpm --silent --filter @get-halo/infra exec pulumi -C control-plane stack output controlPlaneUrl --stack west)"
           curl --fail --show-error --silent --retry 12 --retry-all-errors --retry-delay 5 "$origin/health"
 
       - name: Recreate workspace VMs
         shell: bash
         run: |
-          template="$(pnpm --silent --filter @halo/infra exec pulumi -C control-plane stack output workspaceInstanceTemplate --stack west)"
+          template="$(pnpm --silent --filter @get-halo/infra exec pulumi -C control-plane stack output workspaceInstanceTemplate --stack west)"
           template_name="${template##*/}"
           template_details="$(gcloud compute instance-templates describe "$template_name" \
             --project="$PROJECT" --format=json)"
@@ -345,7 +345,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Run packaged Electron tests
-        run: pnpm --filter @halo/desktop test:e2e
+        run: pnpm --filter @get-halo/desktop test:e2e
 
       - name: Upload failed test artifacts
         if: failure()

@@ -18,7 +18,7 @@ import type {
   WorkspaceTreeEvent,
 } from "./rpc.js";
 
-export const haloProtocolVersion = 9 as const;
+export const haloProtocolVersion = 10 as const;
 
 export const RequestRejectedError = error("BAD_REQUEST", {
   message: "Halo could not complete the request.",
@@ -35,8 +35,13 @@ export type ConnectionStarted =
       status: "authorization-required";
       authorizationUrl: string;
       connectionId: string;
-      expiresInMs: number;
+      expiresAt: number;
+      wasConnected: boolean;
     };
+
+export type OAuthCompletion =
+  | { kind: "client-loopback"; redirectUri: string }
+  | { kind: "server-redirect"; redirectUri: string };
 
 export type ExtensionSummary = {
   id: string;
@@ -131,7 +136,7 @@ export const contract = publicProcedure.router({
         type<{
           sessionId: string;
           request: ConnectionRequest;
-          redirectUri?: string;
+          completion: OAuthCompletion;
         }>(),
       )
       .output(type<ConnectionStarted>()),

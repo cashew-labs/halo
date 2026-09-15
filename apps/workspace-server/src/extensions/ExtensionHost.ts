@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import type { Logger } from "@repo/logger";
+import type { Logger } from "@get-halo/logger";
 import * as errore from "errore";
 import {
   FilesystemPathNotFoundError,

@@ -2,14 +2,14 @@ import fs from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { config } from "@get-halo/config/workspaceServer";
 import { ApplicationMode } from "@get-halo/config/ApplicationMode";
-import { Logger } from "@repo/logger";
-import { JsonlLoggerSink } from "@repo/logger/JsonlLoggerSink";
-import * as errore from "errore";
-import { HaloServer } from "./server/HaloServer.js";
+import { Logger } from "@get-halo/logger";
+import { JsonlLoggerSink } from "@get-halo/logger/JsonlLoggerSink";
 import {
   writeWorkspaceServerConnection,
   removeWorkspaceServerConnection,
-} from "./server/WorkspaceServerConnection.js";
+} from "@get-halo/shared/WorkspaceServerConnection";
+import * as errore from "errore";
+import { HaloServer } from "./server/HaloServer.js";
 import { writeHaloRpcFile, removeHaloRpcFile } from "./server/haloRpcFile.js";
 import type { WorkspaceServerReady } from "./server/WorkspaceServerReady.js";
 import { FileCredentialVault } from "./agent/runtime/FileCredentialVault.js";
@@ -58,6 +58,7 @@ async function run() {
     ...applicationConfig.server,
     llmApi,
     gateway: applicationConfig.server.gateway,
+    googleWebOAuthClient: applicationConfig.googleWebOAuthClient,
     ownerUserId: Promise.resolve(applicationConfig.server.ownerUserId),
     logger: logger.scope("rpc"),
     host:

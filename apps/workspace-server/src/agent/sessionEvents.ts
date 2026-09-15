@@ -13,6 +13,7 @@ import {
   type HaloEntry,
   type SessionEvent,
   type SessionSnapshot,
+  type HaloConnectionState,
   type ToolExecution,
   type ToolOutput,
 } from "@get-halo/shared/sessionState";
@@ -65,7 +66,10 @@ function sessionEntry(entry: Extract<Entry, { type: "message" }>): HaloEntry {
   };
 }
 
-export function sessionSnapshot(snapshot: LaneSnapshot): SessionSnapshot {
+export function sessionSnapshot(
+  snapshot: LaneSnapshot,
+  connections: HaloConnectionState[],
+): SessionSnapshot {
   const operation = snapshot.operation;
   const last = snapshot.lastResult;
   return {
@@ -107,6 +111,7 @@ export function sessionSnapshot(snapshot: LaneSnapshot): SessionSnapshot {
     fault: snapshot.faulted
       ? "The session encountered a storage error."
       : undefined,
+    connections,
   };
 }
 

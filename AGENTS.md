@@ -6,7 +6,7 @@ Halo is an open-source self-modifiable desktop app built with Electron and Pi. I
 
 - During iteration, run `pnpm run check:static` and only the relevant tests. Avoid repeated full checks: they package Electron and install test dependencies.
 - `pnpm run check-affected` - Lint, typecheck, format-check, and test affected packages sequentially. Run once when the change is ready, not after every edit. Respect the user's request to avoid heavy runs on their laptop. GitHub Actions runs the same command on pull requests and on pushes to `main`.
-- For Electron E2Es, build with `pnpm --filter @halo/desktop test:e2e:build` after app code changes, then use `pnpm --filter @halo/desktop test:e2e:run <test-file>` to reuse that package while editing tests. Electron E2Es use Playwright's default of half the logical CPU cores; pass `--workers=1` to reduce resource usage.
+- For Electron E2Es, build with `pnpm --filter @get-halo/desktop test:e2e:build` after app code changes, then use `pnpm --filter @get-halo/desktop test:e2e:run <test-file>` to reuse that package while editing tests. Electron E2Es use Playwright's default of half the logical CPU cores; pass `--workers=1` to reduce resource usage.
 - `pnpm spec <file>` / `pnpm walkthrough <file>` / `pnpm exec tkstack <file>` - Serve a spec or code walkthrough as a local tkstack page.
 
 ## Releasing

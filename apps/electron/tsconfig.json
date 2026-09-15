@@ -1,5 +1,5 @@
 {
-  "extends": "@repo/typescript-config/react-library.json",
+  "extends": "@get-halo/typescript-config/react-library.json",
   "compilerOptions": {
     "allowImportingTsExtensions": true,
     "lib": ["ES2022", "DOM", "DOM.Iterable", "ESNext.Disposable"],

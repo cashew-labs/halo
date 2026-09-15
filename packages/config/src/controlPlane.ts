@@ -10,8 +10,8 @@ const developmentPort = 8787;
 const secretProjectId = "halo-relay";
 const developmentAuthSecretIds = {
   secret: "halo-dev-local-better-auth-secret",
-  googleClientId: "halo-dev-control-plane-google-client-id",
-  googleClientSecret: "halo-dev-control-plane-google-client-secret",
+  googleClientId: "halo-west-control-plane-google-client-id",
+  googleClientSecret: "halo-west-control-plane-google-client-secret",
 };
 
 const authSchema = Type.Object({
