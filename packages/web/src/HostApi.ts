@@ -17,7 +17,7 @@ export type AppInfo = {
 
 export interface HostApi {
   getAuthSession(): Promise<ControlPlaneSession | Error | undefined>;
-  signIn(): Promise<ControlPlaneSession | Error>;
+  signIn(): Promise<ControlPlaneSession | Error | undefined>;
   connectHalo(options: {
     onDisconnect: (error: Error) => void;
   }): Promise<HaloClient | Error | undefined>;

@@ -4,12 +4,12 @@ import { config } from "@get-halo/config/workspaceServer";
 import { ApplicationMode } from "@get-halo/config/ApplicationMode";
 import { Logger } from "@get-halo/logger";
 import { JsonlLoggerSink } from "@get-halo/logger/JsonlLoggerSink";
-import * as errore from "errore";
-import { HaloServer } from "./server/HaloServer.js";
 import {
   writeWorkspaceServerConnection,
   removeWorkspaceServerConnection,
-} from "./server/WorkspaceServerConnection.js";
+} from "@get-halo/shared/WorkspaceServerConnection";
+import * as errore from "errore";
+import { HaloServer } from "./server/HaloServer.js";
 import { writeHaloRpcFile, removeHaloRpcFile } from "./server/haloRpcFile.js";
 import type { WorkspaceServerReady } from "./server/WorkspaceServerReady.js";
 import { FileCredentialVault } from "./agent/runtime/FileCredentialVault.js";

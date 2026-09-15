@@ -12,7 +12,8 @@
     "./sessionState": "./src/sessionState.ts",
     "./SerialQueue": "./src/SerialQueue.ts",
     "./Stream": "./src/Stream.ts",
-    "./testing": "./src/testing.ts"
+    "./testing": "./src/testing.ts",
+    "./WorkspaceServerConnection": "./src/WorkspaceServerConnection.ts"
   },
   "scripts": {
     "format": "oxfmt .",

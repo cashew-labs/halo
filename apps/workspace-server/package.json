@@ -13,8 +13,7 @@
     "./router": "./src/server/router.ts",
     "./sessions": "./src/sessions.ts",
     "./workspace": "./src/workspace.ts",
-    "./process": "./src/server/WorkspaceServerReady.ts",
-    "./connection": "./src/server/WorkspaceServerConnection.ts"
+    "./process": "./src/server/WorkspaceServerReady.ts"
   },
   "scripts": {
     "format": "oxfmt .",

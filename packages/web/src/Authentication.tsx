@@ -61,6 +61,7 @@ export function Authentication({ children }: { children: ReactElement }) {
       });
       return;
     }
+    if (session === undefined) return;
 
     setState({ status: "signedIn" });
   };
