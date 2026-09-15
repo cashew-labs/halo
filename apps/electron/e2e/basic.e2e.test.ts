@@ -74,6 +74,129 @@ e2eTest(
   },
 );
 
+e2eTest(
+  "pastes images into Markdown and keeps relative images after reopening",
+  async ({ app, harness }) => {
+    const path = "Notes #1/Images.md";
+    const svg =
+      '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="60"><rect width="80" height="60" fill="blue"/></svg>';
+    await app.server.rpc.workspace.writeFile({
+      path: "reference #1.svg",
+      content: svg,
+    });
+    await app.server.rpc.workspace.writeFile({
+      path,
+      content:
+        "# Images\n\nPaste here\n\n![Reference](../reference%20%231.svg)",
+    });
+    await app.page
+      .getByRole("button", { name: "Expand Notes #1", exact: true })
+      .click();
+    await app.page
+      .getByRole("link", { name: "Images.md", exact: true })
+      .click();
+    const editor = app.page
+      .getByRole("main", { name: path, exact: true })
+      .getByLabel(path, { exact: true });
+    await expect
+      .poll(
+        async () =>
+          await editor
+            .getByRole("img", { name: "Reference", exact: true })
+            .evaluate((element: HTMLImageElement) => element.naturalWidth),
+      )
+      .toBe(80);
+    const reference = editor.getByRole("img", {
+      name: "Reference",
+      exact: true,
+    });
+    await reference.click();
+    await expect(reference).toHaveCSS("outline-style", "solid");
+    await editor.getByText("Paste here", { exact: true }).click();
+    await expect(reference).toHaveCSS("outline-style", "none");
+    await editor.press("End");
+    const png = await editor.evaluate(async (element) => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 120;
+      canvas.height = 80;
+      const context = canvas.getContext("2d")!;
+      context.fillStyle = "#d97706";
+      context.fillRect(0, 0, 120, 80);
+      const bytes = await (await fetch(canvas.toDataURL())).arrayBuffer();
+      const clipboardData = new DataTransfer();
+      clipboardData.items.add(
+        new File([bytes], "screen]shot.png", { type: "image/png" }),
+      );
+      clipboardData.items.add(
+        new File([bytes], "second.png", { type: "image/png" }),
+      );
+      clipboardData.setData(
+        "text/html",
+        '<img src="https://example.invalid/duplicate.png">',
+      );
+      element.dispatchEvent(
+        new ClipboardEvent("paste", {
+          clipboardData,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+      return [...new Uint8Array(bytes)];
+    });
+    await expect(editor.getByRole("img")).toHaveCount(3);
+    await expect
+      .poll(
+        async () =>
+          await editor
+            .getByRole("img", { name: "screen]shot.png", exact: true })
+            .evaluate((element: HTMLImageElement) => element.naturalWidth),
+      )
+      .toBe(120);
+    await expect
+      .poll(async () => await app.server.rpc.workspace.readFile({ path }))
+      .toContain("![second.png](image-");
+    const markdown = await app.server.rpc.workspace.readFile({ path });
+    const sources = [...markdown.matchAll(/\]\((image-[^)]+\.png)\)/g)].map(
+      (match) => match[1]!,
+    );
+    expect(sources).toHaveLength(2);
+    expect(new Set(sources).size).toBe(2);
+    for (const src of sources) {
+      expect(
+        await fs.readFile(
+          nodePath.join(harness.paths.workspace, "Notes #1", src),
+        ),
+      ).toEqual(Buffer.from(png));
+    }
+    expect(markdown).toContain("![Reference](../reference%20%231.svg)");
+    expect(markdown).not.toContain("blob:");
+    await app.quit();
+    await app.open();
+    await app.page
+      .getByRole("button", { name: "Expand Notes #1", exact: true })
+      .click();
+    await app.page
+      .getByRole("link", { name: "Images.md", exact: true })
+      .click();
+    await expect(
+      app.page
+        .getByRole("main", { name: path, exact: true })
+        .getByLabel(path, { exact: true })
+        .getByRole("img"),
+    ).toHaveCount(3);
+    await expect
+      .poll(
+        async () =>
+          await app.page
+            .getByRole("main", { name: path, exact: true })
+            .getByLabel(path, { exact: true })
+            .getByRole("img", { name: "screen]shot.png", exact: true })
+            .evaluate((element: HTMLImageElement) => element.naturalWidth),
+      )
+      .toBe(120);
+  },
+);
+
 e2eTest("keeps the current file after reload", async ({ app }) => {
   const path = "Meeting notes #1.md";
   await app.server.rpc.workspace.writeFile({
