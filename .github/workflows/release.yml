@@ -344,6 +344,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Install Playwright Chromium
+        run: pnpm --filter @get-halo/extension-tools exec playwright install chromium
+
       - name: Run packaged Electron tests
         run: pnpm --filter @get-halo/desktop test:e2e
 
