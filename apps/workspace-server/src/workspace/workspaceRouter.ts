@@ -57,6 +57,11 @@ export const workspaceRouter = os.router({
     if (written instanceof Error) return orpcErrors.badRequest(written);
     return written;
   }),
+  saveImage: os.saveImage.handler(async ({ context, input }) => {
+    const saved = await context.workspace.saveImage(input);
+    if (saved instanceof Error) return orpcErrors.badRequest(saved);
+    return saved;
+  }),
   events: os.events.handler(({ context, signal }) => {
     context.logger.info({ event: "subscribeWorkspaceTree" });
     return context.workspace.treeEvents.consume({ abortSignal: signal });
