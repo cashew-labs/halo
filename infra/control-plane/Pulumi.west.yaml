@@ -4,5 +4,5 @@ config:
   gcp:project: halo-relay
   gcp:region: us-west2
   gcp:zone: us-west2-a
-  halo-control-plane:controlPlaneImage: us-west2-docker.pkg.dev/halo-relay/halo-west-workspaces/control-plane@sha256:bd4e929749046bddefc3d2d527c2fc187eb7512aa24a2035d234601686c8c81c
-  halo-control-plane:workspaceImage: us-west2-docker.pkg.dev/halo-relay/halo-west-workspaces/workspace-server@sha256:0db95fd46eabb11ababd40fed9b62a97e2f94a29681966dbc753e64d8aae0919
+  halo-control-plane:controlPlaneImage: us-west2-docker.pkg.dev/halo-relay/halo-west-workspaces/control-plane:0.1.45
+  halo-control-plane:workspaceImage: us-west2-docker.pkg.dev/halo-relay/halo-west-workspaces/workspace-server:0.1.45
