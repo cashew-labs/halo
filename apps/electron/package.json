@@ -21,7 +21,7 @@
     "lint": "NODE_OPTIONS=--experimental-strip-types oxlint --deny-warnings src forge e2e forge.config.ts playwright.config.ts vitest.config.ts vite.main.config.ts vite.preload.config.ts vite.renderer.config.ts",
     "lint:fix": "NODE_OPTIONS=--experimental-strip-types oxlint --fix src forge e2e forge.config.ts playwright.config.ts vitest.config.ts vite.main.config.ts vite.preload.config.ts vite.renderer.config.ts",
     "test": "pnpm run test:e2e",
-    "test:e2e:build": "electron-forge package",
+    "test:e2e:build": "pnpm --filter @get-halo/web-app build && electron-forge package",
     "test:e2e:run": "playwright test",
     "test:e2e": "pnpm run test:e2e:build && playwright test",
     "typecheck": "pnpm --filter @get-halo/extension-tools build && tsc --noEmit && tsc --noEmit -p src/main/tsconfig.json && tsc --noEmit -p e2e/tsconfig.json"
@@ -64,6 +64,7 @@
     "@types/react-dom": "19.2.5",
     "@vitejs/plugin-react": "^6.1.1",
     "agentation-mcp": "^1.2.0",
+    "better-auth": "1.7.4",
     "electron": "^44.0.0",
     "execa": "9.6.1",
     "playwright": "1.62.1",
