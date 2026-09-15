@@ -38,14 +38,20 @@ export const sessionsRouter = os.router({
   snapshot: os.snapshot.handler(async ({ input, context }) => {
     const session = await context.sessions.open(input.sessionId);
     if (session instanceof Error) return orpcErrors.badRequest(session);
-    const snapshot = await session.readSnapshot();
+    const snapshot = await session.readSnapshot(
+      context.connections.statesForSession(input.sessionId),
+    );
     if (snapshot instanceof Error) return orpcErrors.badRequest(snapshot);
     return snapshot;
   }),
   watch: os.watch.handler(async ({ input, context, signal }) => {
     const session = await context.sessions.open(input.sessionId);
     if (session instanceof Error) return orpcErrors.badRequest(session);
-    return session.watch(signal);
+    return session.watch({
+      signal,
+      readConnections: () =>
+        context.connections.statesForSession(input.sessionId),
+    });
   }),
   prompt: os.prompt.handler(async ({ input, context, signal }) => {
     context.logger.info({
@@ -73,21 +79,30 @@ export const sessionsRouter = os.router({
       const started = await context.connections.startConnection({
         sessionId: input.sessionId,
         request: input.request,
-        redirectUri: input.redirectUri,
+        completion: input.completion,
         onEvent: async (event) => {
           session.publishConnectionEvent(event);
-          if (event.status !== "connected") return;
-          const notified = await notifyConnectedSession({
-            session,
-            request: event.request,
-            signal,
-          });
-          if (notified instanceof Error) {
-            context.logger.warn({
-              event: "agentSession.connectionNotificationFailed",
-              error: notified,
-            });
+          if (event.status === "connected") {
+            notifyConnectedSession({
+              session,
+              request: event.request,
+              signal: undefined,
+            })
+              .then((notified) => {
+                if (!(notified instanceof Error)) return;
+                context.logger.warn({
+                  event: "agentSession.connectionNotificationFailed",
+                  error: notified,
+                });
+              })
+              .catch((error) => {
+                context.logger.warn({
+                  event: "agentSession.connectionNotificationFailed",
+                  error,
+                });
+              });
           }
+          return undefined;
         },
       });
       if (started instanceof Error) {

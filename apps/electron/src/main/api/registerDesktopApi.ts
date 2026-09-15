@@ -124,7 +124,10 @@ async function connectIntegration(args: {
     .startConnection({
       sessionId: args.request.sessionId,
       request: args.request.request,
-      redirectUri: callback.callbackUrl,
+      completion: {
+        kind: "client-loopback",
+        redirectUri: callback.callbackUrl,
+      },
     })
     .catch(
       (cause) =>

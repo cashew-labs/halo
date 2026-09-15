@@ -220,6 +220,15 @@ const googleOAuthClient: FirstPartyOAuthClientConfig = {
   ],
 };
 
+function configuredOAuthClient() {
+  const testOrigin = process.env.HALO_E2E_OAUTH_ORIGIN;
+  if (testOrigin === undefined) return googleOAuthClient;
+  return {
+    ...googleOAuthClient,
+    tokenUrl: `${testOrigin}/token`,
+  };
+}
+
 const oauthStartAddress = "executor.coreTools.oauth.start";
 const showConnectionCardAddress = "halo.showConnectionCard";
 const oauthStartInputSchema = Type.Object({
@@ -548,7 +557,7 @@ export class ToolRuntime {
     if (completed instanceof Error) return completed;
   }
 
-  async startOAuth(input: ConnectionRequest & { redirectUri?: string }) {
+  async startOAuth(input: ConnectionRequest & { redirectUri: string }) {
     const started = await Effect.runPromise(
       this.executor.oauth.start({
         client: OAuthClientSlug.make(input.client),
@@ -608,6 +617,7 @@ export class ToolRuntime {
 async function createToolRuntime(
   input: ToolRuntimeOptions,
 ): Promise<ToolRuntime | ToolRuntimeError> {
+  const oauthClient = configuredOAuthClient();
   if (quickJsModulePromise === undefined) {
     quickJsModulePromise = newQuickJSWASMModule(quickJsVariant);
   }
@@ -638,7 +648,7 @@ async function createToolRuntime(
       providers: [createExecutorCredentialProvider(input.credentialVault)],
       coreTools: { includeProviders: true },
       redirectUri: input.oauthRedirectUri,
-      firstPartyOAuthClients: [googleOAuthClient],
+      firstPartyOAuthClients: [oauthClient],
       db: ({ tables }) =>
         Effect.promise(
           async () => await createExecutorDatabase(input.database, tables),
@@ -706,7 +716,7 @@ async function createToolRuntime(
     toolPlugins: input.toolPlugins,
     authority: input.authority,
     connectionRequests: connectionRequestsForClient(
-      googleOAuthClient,
+      oauthClient,
       installableGooglePresets,
     ),
     integrationNames,

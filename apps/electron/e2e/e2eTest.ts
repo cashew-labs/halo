@@ -52,7 +52,7 @@ export const e2eTest = baseTest.extend<E2EFixtures>({
     if (finished instanceof Error) throw finished;
   },
   app: [
-    async ({ testArtifacts, llm }, use) => {
+    async ({ testArtifacts, llm, http }, use) => {
       await using cleanup = new errore.AsyncDisposableStack();
       const server = await startWorkspaceServerProcess({
         entry: resolve(
@@ -64,6 +64,7 @@ export const e2eTest = baseTest.extend<E2EFixtures>({
           sinks: [{ log: (entry) => console.log(entry.data) }],
         }),
         llmConfiguration: llm.configuration,
+        environment: { HALO_E2E_OAUTH_ORIGIN: http.url("") },
         config: {
           environment: "local",
           workspaceRoot: testArtifacts.paths.workspace,

@@ -3,6 +3,7 @@ import { RPCLink } from "@orpc/client/fetch";
 import type { ControlPlaneClient } from "@get-halo/shared/controlPlaneContract";
 import { connectHaloRpc } from "@get-halo/web/connectHaloRpc";
 import type { HostApi } from "@get-halo/web/HostApi";
+import type { HaloClient } from "@get-halo/shared/contract";
 import { createAuthClient } from "better-auth/client";
 import * as errore from "errore";
 
@@ -11,16 +12,12 @@ class WebHostError extends errore.createTaggedError({
   message: "Halo could not $operation through its web host.",
 }) {}
 
-class WebIntegrationUnavailableError extends errore.createTaggedError({
-  name: "WebIntegrationUnavailableError",
-  message: "Integration connections are not available in the web app yet.",
-}) {}
-
 // SAFETY: The current origin serves controlPlaneContract at /rpc.
 const controlPlane = createORPCClient(
   new RPCLink({ origin: window.location.origin, url: "/rpc" }),
 ) as ControlPlaneClient;
 const authClient = createAuthClient();
+let haloClient: HaloClient | undefined;
 
 export const webHost = {
   async getAuthSession() {
@@ -53,6 +50,7 @@ export const webHost = {
   }: {
     onDisconnect: (error: Error) => void;
   }) {
+    haloClient = undefined;
     const workspace = await controlPlane.workspace
       .ensure()
       .catch(
@@ -71,14 +69,20 @@ export const webHost = {
       return new WebHostError({ operation: "reach the workspace server" });
     }
 
-    return await connectHaloRpc({
+    const connected = await connectHaloRpc({
       transport: {
         origin: window.location.origin,
         path: "/workspace/rpc",
         headers: {},
       },
-      onDisconnect,
+      onDisconnect: (error) => {
+        haloClient = undefined;
+        onDisconnect(error);
+      },
     });
+    if (connected instanceof Error) return connected;
+    haloClient = connected;
+    return connected;
   },
 
   getExtensionFrameUrl(extensionId: string) {
@@ -88,11 +92,46 @@ export const webHost = {
     ).toString();
   },
 
-  async connectIntegration() {
-    return new WebIntegrationUnavailableError();
+  async connectIntegration(input) {
+    if (haloClient === undefined) {
+      return new WebHostError({
+        operation: "start a connection without a workspace",
+      });
+    }
+    const started = await haloClient.sessions
+      .startConnection({
+        ...input,
+        completion: {
+          kind: "server-redirect",
+          redirectUri: new URL(
+            "/workspace/oauth/callback",
+            window.location.origin,
+          ).toString(),
+        },
+      })
+      .catch(
+        (cause) =>
+          new WebHostError({ operation: "start the connection", cause }),
+      );
+    if (started instanceof Error) return started;
+    if (started.status === "authorization-required") {
+      window.location.assign(started.authorizationUrl);
+    }
+    return started;
   },
 
-  async cancelIntegration() {
-    return new WebIntegrationUnavailableError();
+  async cancelIntegration(input) {
+    if (haloClient === undefined) {
+      return new WebHostError({
+        operation: "cancel a connection without a workspace",
+      });
+    }
+    return await haloClient.sessions
+      .cancelConnection(input)
+      .then(() => undefined)
+      .catch(
+        (cause) =>
+          new WebHostError({ operation: "cancel the connection", cause }),
+      );
   },
 } satisfies HostApi;

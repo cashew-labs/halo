@@ -13,6 +13,7 @@ import { reconnectStream } from "../../api/reconnectStream.js";
 import { Stream } from "@get-halo/shared/Stream";
 import {
   applyConnectionEvent,
+  connectionStateFromServer,
   connectionStateQueryKey,
   type ConnectionState,
 } from "./ConnectionState.ts";
@@ -67,11 +68,19 @@ export function useAgentSession(
       open: async () =>
         await api.sessions.watch({ sessionId }, { signal: controller.signal }),
       onItem: (item) => {
-        if (item.type === "snapshot") setReadySessionId(sessionId);
+        if (item.type === "snapshot") {
+          setReadySessionId(sessionId);
+          for (const connection of item.snapshot.connections) {
+            queryClientRef.current.setQueryData<ConnectionState>(
+              connectionStateQueryKey(sessionId, connection.request),
+              connectionStateFromServer(connection),
+            );
+          }
+        }
         if (item.type === "event" && item.event.type === "halo.connection") {
           const event = item.event;
           queryClientRef.current.setQueryData<ConnectionState>(
-            connectionStateQueryKey(event.request),
+            connectionStateQueryKey(sessionId, event.request),
             (current) => applyConnectionEvent(current, event),
           );
         }
