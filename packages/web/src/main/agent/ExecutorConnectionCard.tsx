@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { background, Button, Flex, radius, shadow, Spacer, Text } from "maui";
 import { style, useStyles } from "purse-styles";
 import { connectionRequestLabel } from "@get-halo/shared/ConnectionRequest";
-import { useHost } from "@get-halo/web/HostProvider";
+import { useHost } from "../../HostProvider.js";
 import { BrandLogo, brands } from "../../BrandLogo.tsx";
 import {
   connectionStateQueryKey,

@@ -1,7 +1,7 @@
 /* oxlint-disable react/iframe-missing-sandbox -- ExtensionHost uses a separate origin; scripts need that origin for API and storage access. */
 import { backgroundColor, flex, Padding, Text } from "maui";
 import { style, useStyles } from "purse-styles";
-import { useHost } from "@get-halo/web/HostProvider";
+import { useHost } from "../HostProvider.js";
 import { useExtensionsQuery, useWorkspaceQuery } from "../api/ApiProvider.tsx";
 import { PaneHeader } from "./PaneHeader.js";
 

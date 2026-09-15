@@ -8,7 +8,7 @@ import {
 } from "react";
 import type { HaloClient } from "@get-halo/shared/contract";
 import type { WorkspaceInfo } from "@get-halo/shared/rpc";
-import { useHost } from "@get-halo/web/HostProvider";
+import { useHost } from "../HostProvider.js";
 import { LoadingPage } from "../LoadingPage.tsx";
 import { ConnectionPage } from "../ConnectionPage.tsx";
 import { IncompatibleServerError } from "./connectHaloRpc.js";
@@ -26,7 +26,7 @@ export function ApiProvider({ children }: { children: ReactNode }) {
   }, []);
   const apiQuery = useQuery({
     queryKey: haloApiQueryKey,
-    // Dev starts Electron and the workspace server independently; discovery may arrive later.
+    // Development starts clients and the workspace server independently; discovery may arrive later.
     refetchInterval: (query) =>
       query.state.data === undefined ? 1_000 : false,
     queryFn: async () => {

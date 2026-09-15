@@ -4,15 +4,15 @@ import { skipToken, useQuery } from "@tanstack/react-query";
 import { Redirect, Route, Router } from "wouter";
 import { useHashLocation } from "wouter/use-hash-location";
 import type { SessionSummary } from "@get-halo/shared/rpc";
-import type { AppInfo } from "@get-halo/web/HostApi";
-import { useHost } from "@get-halo/web/HostProvider";
+import type { AppInfo } from "./HostApi.js";
+import { useHost } from "./HostProvider.js";
 import { LoadingPage } from "./LoadingPage.tsx";
 import { MainPane } from "./main/MainPane.tsx";
 import { ConnectionPage } from "./ConnectionPage.tsx";
 import { Sidebar } from "./sidebar/Sidebar.tsx";
 import { useSessionsQuery, useWorkspaceQuery } from "./api/ApiProvider.tsx";
 
-export function App() {
+export function HaloApp() {
   const workspaceQuery = useWorkspaceQuery();
   const workspace = workspaceQuery.data;
   const sessionsQuery = useSessionsQuery(workspace);

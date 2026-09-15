@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactElement } from "react";
-import { useHost } from "@get-halo/web/HostProvider";
+import { useHost } from "./HostProvider.js";
 import { LoadingPage } from "./LoadingPage.tsx";
 import { SignInPage } from "./SignInPage.tsx";
 

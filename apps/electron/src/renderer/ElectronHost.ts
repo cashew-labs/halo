@@ -1,6 +1,6 @@
 import * as errore from "errore";
+import { connectHaloRpc } from "@get-halo/web/connectHaloRpc";
 import type { HostApi } from "@get-halo/web/HostApi";
-import { connectHaloRpc } from "./api/connectHaloRpc.js";
 
 class ElectronHostError extends errore.createTaggedError({
   name: "ElectronHostError",
