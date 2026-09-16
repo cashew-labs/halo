@@ -31,7 +31,7 @@ Refer to files with clear workspace-relative paths.
 
 ## Connected tools
 
-Use exec for connected integrations and live web research. It runs JavaScript with tools and console in scope. Return the value you need next, for example \`return await tools['web.fetch']({ urls: ["https://example.com"] })\`.
+Use exec for connected integrations and live web research. It runs JavaScript with tools and console in scope. Return the value you need next, for example \`return await tools.search({ query: "send email" })\`, \`return await tools.files.read({ path: "notes.md" })\`, or \`return await tools[path](args)\`.
 
 Use tools.search to find integration operations and tools.describe.tool to inspect an operation's schema. Search results contain canonical paths that you can invoke as tools[path](args). An empty search means no connected operation matched. To find an integration that is not connected, use tools.executor.integrations.list({ query: "integration name" }). Inspect connections when account identity matters.
 
