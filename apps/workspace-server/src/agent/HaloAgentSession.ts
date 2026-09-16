@@ -10,7 +10,10 @@ import {
 } from "@earendil-works/pi-agent-core";
 import { BACKGROUND_CONTEXT } from "@earendil-works/pi-agent-core/harness/context";
 import type { Session } from "@earendil-works/pi-agent-core/harness/session";
-import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import type { LLMApi } from "../llm/LLMApi.js";
+import { createPiModelRuntime } from "../llm/createPiModelRuntime.js";
+import { PiTrace } from "../traces/PiTrace.js";
+import type { TraceService } from "../traces/TraceService.js";
 import * as errore from "errore";
 import { Stream } from "@get-halo/shared/Stream";
 import {
@@ -60,7 +63,8 @@ type SessionNotification = {
 
 export type HaloAgentSessionOptions = {
   environment: HaloEnvironment;
-  modelRuntime: ModelRuntime;
+  llmApi: LLMApi;
+  traces: TraceService;
   model: Model<Api>;
   filesystem: FilesystemService;
   layout: WorkspaceLayout;
@@ -82,6 +86,13 @@ export class HaloAgentSession {
     cleanup.defer(async () => await stored.close(BACKGROUND_CONTEXT));
     const layout = options.layout;
     const runtime = options.toolRuntime;
+    const trace = new PiTrace({
+      service: options.traces,
+      sessionId: stored.metadata.id,
+      llmApi: options.llmApi,
+    });
+    const modelRuntime = await createPiModelRuntime(trace.api());
+    if (modelRuntime instanceof Error) return modelRuntime;
     const runtimeDescription = await runtime.getAgentDescription();
     if (runtimeDescription instanceof Error) return runtimeDescription;
 
@@ -111,12 +122,13 @@ export class HaloAgentSession {
         runtime,
         runtimeDescription,
         modelId: options.model.id,
+        onToolEvent: (event) => trace.integration(event),
       }),
     ];
     const created = await AgentHarness.create(
       {
         session: stored,
-        models: options.modelRuntime,
+        models: modelRuntime,
         model: options.model,
         tools: customTools,
         systemPrompt: resourceLoader.getSystemPrompt(),
@@ -147,6 +159,7 @@ export class HaloAgentSession {
       created.harness,
       lane,
     );
+    trace.attach(created.harness);
     cleanup.move();
     return session;
   }

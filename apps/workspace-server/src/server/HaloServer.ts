@@ -26,13 +26,14 @@ import { workspaceBashPlugin } from "../agent/tools/bash/workspaceBashPlugin.js"
 import { createWorkspaceFilesPlugin } from "../agent/tools/files/createWorkspaceFilesPlugin.js";
 import { parallelSearchPlugin } from "../agent/tools/web/parallelSearchPlugin.js";
 import type { LLMApi } from "../llm/LLMApi.js";
-import { createPiModelRuntime } from "../llm/createPiModelRuntime.js";
+import { TraceService, type TraceUploader } from "../traces/TraceService.js";
 import type { HaloEnvironment } from "../agent/workspacePrompt.js";
 import type { GoogleWebOAuthClient } from "@get-halo/config/workspaceServer";
 
 export type HaloServerOptions = {
   environment: HaloEnvironment;
   llmApi: LLMApi;
+  traceUploader?: TraceUploader;
   workspaceRoot: string;
   appDataDir: string;
   appVersion: string;
@@ -60,6 +61,7 @@ export class HaloServer {
       sessionRepo: TursoSessionRepo;
       http: ListeningHaloHttp;
       requests: ServingHaloHttp;
+      traces: TraceService;
     },
   ) {}
 
@@ -71,8 +73,6 @@ export class HaloServer {
     },
   ): Promise<HaloServer | Error> {
     await using cleanup = new errore.AsyncDisposableStack();
-    const modelRuntime = await createPiModelRuntime(options.llmApi);
-    if (modelRuntime instanceof Error) return modelRuntime;
     const filesystem = new FilesystemService();
     cleanup.defer(async () => {
       const closed = await filesystem.close();
@@ -108,6 +108,14 @@ export class HaloServer {
     if (ownerUserId instanceof Error) return ownerUserId;
 
     const workspaceRoot = workspace.layout.root;
+    const traces = await TraceService.open({
+      directory: path.join(workspaceRoot, ".halo", "traces"),
+      appVersion: options.appVersion,
+      logger: options.logger,
+      uploader: options.traceUploader,
+    });
+    if (traces instanceof Error) return traces;
+    cleanup.defer(async () => await traces.close());
     const database = await DatabaseClient.open({
       directory: path.join(workspaceRoot, ".halo"),
       filesystem,
@@ -180,6 +188,7 @@ export class HaloServer {
     });
     cleanup.defer(async () => await extensions.stop());
     const context: HaloContext = {
+      traces,
       browsers: new BrowserService(),
       browserControlAllowed: false,
       extensions,
@@ -187,7 +196,8 @@ export class HaloServer {
       sessions: new SessionRegistry({
         environment: options.environment,
         repo: sessionRepo,
-        modelRuntime,
+        llmApi: options.llmApi,
+        traces,
         model: options.llmApi.model,
         filesystem,
         layout: workspace.layout,
@@ -222,6 +232,7 @@ export class HaloServer {
       sessionRepo,
       http,
       requests,
+      traces,
     });
   }
 
@@ -234,11 +245,19 @@ export class HaloServer {
   }
 
   async close() {
-    const { context, filesystem, database, sessionRepo, http, requests } =
-      this.resources;
+    const {
+      context,
+      filesystem,
+      database,
+      sessionRepo,
+      http,
+      requests,
+      traces,
+    } = this.resources;
     await requests.close();
     context.connections.close();
     const sessionsClosed = await context.sessions.shutdown();
+    await traces.close();
     await context.browsers.shutdown();
     await context.extensions.stop();
     const runtimeClosed = await context.toolRuntime.close();

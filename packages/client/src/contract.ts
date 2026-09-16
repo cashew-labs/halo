@@ -7,6 +7,7 @@ import {
   type RouterContractClient,
 } from "@orpc/contract";
 import type { ConnectionRequest } from "./ConnectionRequest.js";
+import type { TraceAgent, TraceEvent, TraceOutcome } from "./traces.js";
 import type {
   SessionWatchItem,
   SessionSnapshot,
@@ -18,7 +19,7 @@ import type {
   WorkspaceTreeEvent,
 } from "./rpc.js";
 
-export const haloProtocolVersion = 10 as const;
+export const haloProtocolVersion = 11 as const;
 
 export const RequestRejectedError = error("BAD_REQUEST", {
   message: "Halo could not complete the request.",
@@ -140,6 +141,17 @@ export const contract = publicProcedure.router({
       oc.input(type<{ sessionId: string; connectionId: string }>()),
     abort: oc.input(type<{ sessionId: string }>()),
     close: oc.input(type<{ sessionId: string }>()),
+  },
+  traces: {
+    start: oc
+      .input(type<{ sessionId: string; agent: TraceAgent; data?: unknown }>())
+      .output(type<{ traceId: string; spanId: string }>()),
+    record: oc
+      .input(type<{ traceId: string; event: TraceEvent }>())
+      .output(type<void>()),
+    finish: oc
+      .input(type<{ traceId: string; outcome: TraceOutcome }>())
+      .output(type<void>()),
   },
   testHarness: {
     loadSession: oc

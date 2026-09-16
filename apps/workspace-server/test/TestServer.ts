@@ -19,6 +19,7 @@ export class TestServer {
       artifacts: TestArtifacts;
       workspaceRoot: string;
       llmApi: HaloServerOptions["llmApi"];
+      traceUploader?: HaloServerOptions["traceUploader"];
     },
   ) {}
 
@@ -47,6 +48,7 @@ export class TestServer {
     const halo = await HaloServer.start({
       environment: "local",
       llmApi: this.options.llmApi,
+      traceUploader: this.options.traceUploader,
       workspaceRoot: this.workspaceRoot,
       appDataDir: this.options.artifacts.paths.userData,
       appVersion: "0.0.0-test",
