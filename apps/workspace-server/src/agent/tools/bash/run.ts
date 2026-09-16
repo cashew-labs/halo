@@ -11,7 +11,14 @@ export class BashTimeoutError extends errore.createTaggedError({
   name: "BashTimeoutError",
   message: "Command timed out after $timeoutMs ms",
   extends: errore.AbortError,
-}) {}
+}) {
+  // Executor only returns host-tool failures to JS when they match UserActionableError.
+  readonly __executorUserActionable = true as const;
+  readonly code = "timeout";
+  get userMessage() {
+    return this.message;
+  }
+}
 
 type BashProcessError = BashRunError | BashTimeoutError;
 

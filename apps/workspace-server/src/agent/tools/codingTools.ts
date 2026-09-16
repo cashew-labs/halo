@@ -42,6 +42,16 @@ export function createAuthorizedCodingTools(input: {
   filesystem: FilesystemService;
   authority: AgentAuthority;
 }) {
+  const bash = createBashTool(input.cwd, {
+    spawnHook: (context) => ({
+      ...context,
+      env: {
+        ...context.env,
+        PATH: workspaceExecutablePath(input.cwd, context.env.PATH),
+        PAGER: "cat",
+      },
+    }),
+  });
   return [
     withAuthority(
       createReadTool(input.filesystem, input.cwd),
@@ -64,18 +74,24 @@ export function createAuthorizedCodingTools(input: {
       authorization("files", "patch", "workspace.files.write"),
     ),
     withAuthority(
-      withDefaultBashTimeout(
-        createBashTool(input.cwd, {
-          spawnHook: (context) => ({
-            ...context,
-            env: {
-              ...context.env,
-              PATH: workspaceExecutablePath(input.cwd, context.env.PATH),
-              PAGER: "cat",
+      {
+        ...bash,
+        description: bash.description.replace(
+          "Optionally provide a timeout in seconds.",
+          "Timeout defaults to 10 seconds.",
+        ),
+        async execute(id, params, signal, onUpdate) {
+          return await bash.execute(
+            id,
+            {
+              ...params,
+              timeout: params.timeout === undefined ? 10 : params.timeout,
             },
-          }),
-        }),
-      ),
+            signal,
+            onUpdate,
+          );
+        },
+      },
       input.authority,
       authorization("bash", "run", "workspace.shell.execute"),
     ),
@@ -88,32 +104,6 @@ function authorization(
   capability: string,
 ): Authorization {
   return { pluginId, toolName, requiredCapabilities: [capability] };
-}
-
-function withDefaultBashTimeout(tool: ReturnType<typeof createBashTool>) {
-  return {
-    ...tool,
-    description: tool.description.replace(
-      "Optionally provide a timeout in seconds.",
-      "Timeout defaults to 10 seconds.",
-    ),
-    async execute(
-      id: Parameters<typeof tool.execute>[0],
-      params: Parameters<typeof tool.execute>[1],
-      signal: Parameters<typeof tool.execute>[2],
-      onUpdate: Parameters<typeof tool.execute>[3],
-    ) {
-      return await tool.execute(
-        id,
-        {
-          ...params,
-          timeout: params.timeout === undefined ? 10 : params.timeout,
-        },
-        signal,
-        onUpdate,
-      );
-    },
-  };
 }
 
 function withAuthority<TParameters extends TSchema, TDetails>(
