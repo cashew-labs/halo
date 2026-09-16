@@ -5,6 +5,7 @@ import * as Exit from "effect/Exit";
 import {
   createExecutionEngine,
   type ExecutionEngine,
+  ExecutionToolError,
   INTEGRATION_INVENTORY_HEADER,
   makeExecutorToolInvoker,
 } from "@executor-js/execution/core";
@@ -112,6 +113,14 @@ const showConnectionCardInputSchema = Type.Object({
   integration: Type.String({
     description: "The integration id returned by executor.integrations.list",
   }),
+});
+
+const describeToolArgsSchema = Type.Object({
+  path: Type.String(),
+});
+
+const webFetchUrlAliasSchema = Type.Object({
+  url: Type.String(),
 });
 
 type ExecActivityUpdate =
@@ -346,7 +355,12 @@ function toExecutorSchema(schema: TObject) {
         if (Value.Check(schema, value)) return { value };
         return {
           issues: [...Value.Errors(schema, value)].map((issue) => ({
-            message: issue.message,
+            message:
+              issue.path === ""
+                ? issue.message
+                : `${issue.path}: ${issue.message}`,
+            path:
+              issue.path === "" ? undefined : issue.path.slice(1).split("/"),
           })),
         };
       },
@@ -779,16 +793,15 @@ function withToolActivity<E extends Cause.YieldableError>(input: {
       const context = input.executionContext.getStore();
       return input.codeExecutor.execute(code, {
         invoke: (invocation) => {
-          const identity = toolIdentity(
-            invocation.path,
-            input.integrationNames,
-          );
+          const canonical = canonicalSandboxInvocation(invocation);
+          const identity = toolIdentity(canonical.path, input.integrationNames);
+          const invoked = invokeSandboxTool(toolInvoker, canonical);
           if (
             context?.onToolEvent === undefined ||
             context.parentToolCallId === undefined ||
             identity === undefined
           ) {
-            return toolInvoker.invoke(invocation);
+            return invoked;
           }
 
           const invocationId = randomUUID();
@@ -798,11 +811,11 @@ function withToolActivity<E extends Cause.YieldableError>(input: {
               id: invocationId,
               parentId: context.parentToolCallId,
               tool: identity,
-              arguments: invocation.args,
+              arguments: canonical.args,
             },
           });
           return Effect.gen(function* () {
-            const result = yield* Effect.exit(toolInvoker.invoke(invocation));
+            const result = yield* Effect.exit(invoked);
             if (Exit.isSuccess(result)) {
               context.onToolEvent?.({
                 type: "tool.finished",
@@ -822,6 +835,52 @@ function withToolActivity<E extends Cause.YieldableError>(input: {
       });
     },
   };
+}
+
+function canonicalSandboxInvocation(invocation: {
+  path: string;
+  args: unknown;
+}) {
+  const path = sandboxPath(invocation.path);
+  return {
+    path,
+    args: canonicalSandboxArgs(path, invocation.args),
+  };
+}
+
+function canonicalSandboxArgs(
+  path: string,
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- QuickJS dumps tool arguments as JSON here.
+  args: unknown,
+) {
+  if (path === "describe.tool") {
+    if (!Value.Check(describeToolArgsSchema, args)) return args;
+    return { ...args, path: sandboxPath(args.path) };
+  }
+  if (path === "web.fetch") {
+    if (!Value.Check(webFetchUrlAliasSchema, args)) return args;
+    if ("urls" in args) return args;
+    return { ...args, urls: [args.url] };
+  }
+  return args;
+}
+
+function invokeSandboxTool(
+  toolInvoker: SandboxToolInvoker,
+  invocation: { path: string; args: unknown },
+) {
+  return Effect.gen(function* () {
+    const result = yield* toolInvoker.invoke(invocation);
+    if (!isToolResult(result)) return result;
+    if (result.ok) return result;
+    if (result.error.code !== "invalid_tool_arguments") return result;
+    const detailsText = JSON.stringify(result.error.details);
+    const message =
+      detailsText === undefined
+        ? result.error.message
+        : `${result.error.message} ${detailsText}`;
+    return yield* Effect.fail(new ExecutionToolError({ message }));
+  });
 }
 
 function toolIdentity(

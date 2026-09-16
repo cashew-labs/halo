@@ -63,6 +63,15 @@ const webFetchParameters = Type.Object({
 type ParallelSearchArgs = Static<typeof webSearchParameters>;
 type ParallelFetchArgs = Static<typeof webFetchParameters>;
 
+function parallelWebFetchArguments(args: ParallelFetchArgs): ParallelFetchArgs {
+  return {
+    urls: args.urls,
+    objective: args.objective,
+    search_queries: args.search_queries,
+    full_content: args.full_content,
+  };
+}
+
 type ParallelMcpCall = {
   objective?: string;
   search_queries?: string[];
@@ -167,7 +176,7 @@ export const parallelSearchPlugin: HaloToolPlugin = {
       execute: async (args, context) =>
         await callParallelTool({
           name: "web_fetch",
-          arguments: args,
+          arguments: parallelWebFetchArguments(args),
           context,
         }),
     }),
