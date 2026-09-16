@@ -137,7 +137,7 @@ jobs:
   release-ready:
     name: Release ready
     if: always() && github.event_name == 'pull_request'
-    needs: [prepare, preview]
+    needs: [prepare, preview, test-e2e]
     runs-on: ubuntu-latest
     steps:
       - name: Check release validation
@@ -145,6 +145,7 @@ jobs:
           IS_RELEASE: ${{ needs.prepare.outputs.is_release }}
           PREPARE_RESULT: ${{ needs.prepare.result }}
           PREVIEW_RESULT: ${{ needs.preview.result }}
+          E2E_RESULT: ${{ needs.test-e2e.result }}
         run: |
           if [ "$PREPARE_RESULT" != "success" ]; then
             echo "Release validation failed"
@@ -154,11 +155,15 @@ jobs:
             echo "The production Pulumi preview failed"
             exit 1
           fi
+          if [ "$IS_RELEASE" = "true" ] && [ "$E2E_RESULT" != "success" ]; then
+            echo "The release E2E tests did not pass"
+            exit 1
+          fi
 
   deploy:
     name: Deploy production
     if: github.event_name == 'push'
-    needs: [prepare, test-electron]
+    needs: prepare
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -325,11 +330,14 @@ jobs:
             fi
           done
 
-  test-electron:
-    name: Test desktop release
-    if: github.event_name == 'push'
+  test-e2e:
+    name: Test release E2Es
+    if: github.event_name == 'pull_request' && needs.prepare.outputs.is_release == 'true' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'release/')
     needs: prepare
-    runs-on: macos-latest
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      TURBO_UI: "0"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -347,15 +355,18 @@ jobs:
       - name: Install Playwright Chromium
         run: pnpm --filter @get-halo/extension-tools exec playwright install chromium
 
-      - name: Run packaged Electron tests
-        run: pnpm --filter @get-halo/desktop test:e2e
+      - name: Run all package E2Es, including packaged Electron
+        run: pnpm run test:e2e:release
 
       - name: Upload failed test artifacts
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: electron-e2e-macos
-          path: tmp/e2e
+          name: release-e2e-macos
+          path: |
+            tmp/e2e
+            tmp/extension-prototype
+            tmp/server
           if-no-files-found: ignore
           retention-days: 7
 

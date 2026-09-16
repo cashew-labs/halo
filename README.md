@@ -103,16 +103,18 @@ pnpm prerelease 0.1.44
 The command creates `release/0.1.44`, bumps the desktop and production image
 versions, adds `releases/0.1.44.json`, pushes the branch, and opens the PR.
 
-The PR runs the normal repository checks and posts the production Pulumi preview.
-Merging it runs `Release Halo` in this order:
+The PR runs the normal repository checks, all package E2Es (including packaged
+macOS tests), and the production Pulumi preview. `Release ready` requires the
+E2Es and preview to pass before merge. E2Es run without Turbo cache reuse and
+without affected-package filtering, so a version-only PR still tests the full release.
+Merging it runs `Release Halo` in this order, without rerunning E2Es:
 
-1. Run the packaged macOS tests.
-2. Build versioned control-plane and workspace images.
-3. Apply the production Pulumi stack.
-4. Check the control-plane health endpoint.
-5. Recreate each workspace VM while preserving its durable data disk.
-6. Create the matching tag and GitHub Release.
-7. Build, sign, notarize, and publish the desktop application.
+1. Build versioned control-plane and workspace images.
+2. Apply the production Pulumi stack.
+3. Check the control-plane health endpoint.
+4. Recreate each workspace VM while preserving its durable data disk.
+5. Create the matching tag and GitHub Release.
+6. Build, sign, notarize, and publish the desktop application.
 
 Packaged macOS and Windows builds check for updates through [update.electronjs.org](https://update.electronjs.org), which reads those GitHub Releases. macOS builds are signed and notarized in CI.
 
@@ -146,8 +148,8 @@ The identity needs access to the Pulumi state bucket and KMS key, permission to
 submit the existing Cloud Build configurations, and the GCP permissions required
 by the production Pulumi stack. Require PR review and `Check / check-affected`
 plus `Release Halo / Release ready` through the `main` branch ruleset. The
-second check is lightweight for ordinary PRs and requires a successful Pulumi
-preview for release PRs. For security, release PRs must use a `release/*` branch
+second check is lightweight for ordinary PRs and requires successful E2Es and a
+Pulumi preview for release PRs. For security, release PRs must use a `release/*` branch
 in this repository; forks cannot access the production preview identity.
 
 ## Checks
@@ -168,6 +170,8 @@ pnpm run test:e2e
 
 For a focused run, use the package's `test:e2e` command. Desktop E2Es also offer
 `test:e2e:build` and `test:e2e:run <test-file> --workers=1` to reuse a build and
-limit CPU usage. The release workflow still runs its packaged desktop E2Es.
+limit CPU usage. CI runs E2Es only on release PRs, using `pnpm run test:e2e:release`
+to run every package suite, including packaged Electron. Ordinary PRs and
+post-merge release jobs do not run E2Es.
 
 Tests do not call a paid model.
