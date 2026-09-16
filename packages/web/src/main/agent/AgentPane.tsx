@@ -304,6 +304,10 @@ const styles = {
       width: "100%",
       minWidth: 0,
       minHeight: 0,
+      "@media (max-width: 700px)": {
+        paddingInline: "16px",
+        paddingBottom: "max(16px, env(safe-area-inset-bottom))",
+      },
     },
   ),
   bodyTop: style(spacing.padding({ top: 12 })),
