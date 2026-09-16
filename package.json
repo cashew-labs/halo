@@ -1,6 +1,10 @@
 {
   "name": "@get-halo/root",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cashew-labs/halo.git"
+  },
   "scripts": {
     "build": "turbo run build",
     "dev": "HALO_WORKSPACE_ROOT=$INIT_CWD/tmp/workspace HALO_USER_DATA=$INIT_CWD/tmp/workspace/.halo turbo run dev --filter=@get-halo/desktop --filter=@get-halo/control-plane --filter=@get-halo/web-app --filter=@get-halo/workspace-server --env-mode=loose",

@@ -5,10 +5,6 @@
   "description": "Halo desktop app",
   "license": "MIT",
   "author": "Saffron Health",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/tanishqkancharla/halo-v2.git"
-  },
   "type": "module",
   "main": ".vite/build/main.cjs",
   "scripts": {
