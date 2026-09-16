@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import type { UserActionableError } from "@executor-js/sdk/core";
 import { workspaceExecutablePath } from "../../../workspace/installHaloCli.js";
 import * as errore from "errore";
 
@@ -7,12 +8,14 @@ export class BashRunError extends errore.createTaggedError({
   message: "Failed to run bash command",
 }) {}
 
-export class BashTimeoutError extends errore.createTaggedError({
-  name: "BashTimeoutError",
-  message: "Command timed out after $timeoutMs ms",
-  extends: errore.AbortError,
-}) {
-  // Executor only returns host-tool failures to JS when they match UserActionableError.
+export class BashTimeoutError
+  extends errore.createTaggedError({
+    name: "BashTimeoutError",
+    message: "Command timed out after $timeoutMs ms",
+    extends: errore.AbortError,
+  })
+  implements UserActionableError
+{
   readonly __executorUserActionable = true as const;
   readonly code = "timeout";
   get userMessage() {
