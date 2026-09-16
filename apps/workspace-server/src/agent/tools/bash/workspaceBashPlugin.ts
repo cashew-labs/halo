@@ -4,7 +4,12 @@ import { runBash } from "./run.js";
 
 const runInput = Type.Object({
   command: Type.String(),
-  timeoutMs: Type.Optional(Type.Integer({ minimum: 1 })),
+  timeoutMs: Type.Optional(
+    Type.Integer({
+      minimum: 1,
+      description: "Timeout in milliseconds. Defaults to 10000.",
+    }),
+  ),
 });
 
 export const workspaceBashPlugin: HaloToolPlugin = {
@@ -13,7 +18,8 @@ export const workspaceBashPlugin: HaloToolPlugin = {
   tools: [
     defineHaloTool({
       name: "run",
-      description: "Run a Bash command in the active Halo workspace.",
+      description:
+        "Run a Bash command in the active Halo workspace. Timeout defaults to 10 seconds.",
       inputSchema: runInput,
       requiredCapabilities: ["workspace.shell.execute"],
       execute: async (input, context) => {

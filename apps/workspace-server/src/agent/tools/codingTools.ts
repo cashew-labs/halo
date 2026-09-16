@@ -64,15 +64,18 @@ export function createAuthorizedCodingTools(input: {
       authorization("files", "patch", "workspace.files.write"),
     ),
     withAuthority(
-      createBashTool(input.cwd, {
-        spawnHook: (context) => ({
-          ...context,
-          env: {
-            ...context.env,
-            PATH: workspaceExecutablePath(input.cwd, context.env.PATH),
-          },
+      withDefaultBashTimeout(
+        createBashTool(input.cwd, {
+          spawnHook: (context) => ({
+            ...context,
+            env: {
+              ...context.env,
+              PATH: workspaceExecutablePath(input.cwd, context.env.PATH),
+              PAGER: "cat",
+            },
+          }),
         }),
-      }),
+      ),
       input.authority,
       authorization("bash", "run", "workspace.shell.execute"),
     ),
@@ -85,6 +88,32 @@ function authorization(
   capability: string,
 ): Authorization {
   return { pluginId, toolName, requiredCapabilities: [capability] };
+}
+
+function withDefaultBashTimeout(tool: ReturnType<typeof createBashTool>) {
+  return {
+    ...tool,
+    description: tool.description.replace(
+      "Optionally provide a timeout in seconds.",
+      "Timeout defaults to 10 seconds.",
+    ),
+    async execute(
+      id: Parameters<typeof tool.execute>[0],
+      params: Parameters<typeof tool.execute>[1],
+      signal: Parameters<typeof tool.execute>[2],
+      onUpdate: Parameters<typeof tool.execute>[3],
+    ) {
+      return await tool.execute(
+        id,
+        {
+          ...params,
+          timeout: params.timeout === undefined ? 10 : params.timeout,
+        },
+        signal,
+        onUpdate,
+      );
+    },
+  };
 }
 
 function withAuthority<TParameters extends TSchema, TDetails>(

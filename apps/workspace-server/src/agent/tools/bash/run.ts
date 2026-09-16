@@ -7,6 +7,14 @@ export class BashRunError extends errore.createTaggedError({
   message: "Failed to run bash command",
 }) {}
 
+export class BashTimeoutError extends errore.createTaggedError({
+  name: "BashTimeoutError",
+  message: "Command timed out after $timeoutMs ms",
+  extends: errore.AbortError,
+}) {}
+
+type BashProcessError = BashRunError | BashTimeoutError;
+
 export async function runBash(
   cwd: string,
   {
@@ -23,12 +31,18 @@ export async function runBash(
     return new BashRunError({ cause: signal.reason });
   }
 
+  const limitMs = timeoutMs === undefined ? 10_000 : timeoutMs;
+
   return await new Promise<
-    { stdout: string; stderr: string; code: number | null } | BashRunError
+    { stdout: string; stderr: string; code: number | null } | BashProcessError
   >((resolve) => {
     const child = spawn("bash", ["-c", command], {
       cwd,
-      env: { ...process.env, PATH: workspaceExecutablePath(cwd) },
+      env: {
+        ...process.env,
+        PATH: workspaceExecutablePath(cwd),
+        PAGER: "cat",
+      },
       detached: true,
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -38,12 +52,12 @@ export async function runBash(
     let settled = false;
     let timeout: NodeJS.Timeout | undefined;
     let forceKill: NodeJS.Timeout | undefined;
-    let terminationError: BashRunError | undefined;
+    let terminationError: BashProcessError | undefined;
 
     const finish = (
       result:
         | { stdout: string; stderr: string; code: number | null }
-        | BashRunError,
+        | BashProcessError,
     ) => {
       if (settled) return;
       settled = true;
@@ -66,7 +80,7 @@ export async function runBash(
       }
     };
 
-    const terminate = (error: BashRunError) => {
+    const terminate = (error: BashProcessError) => {
       if (terminationError !== undefined) return;
       terminationError = error;
       killProcessGroup("SIGTERM");
@@ -79,15 +93,9 @@ export async function runBash(
 
     signal?.addEventListener("abort", onAbort, { once: true });
 
-    if (timeoutMs !== undefined) {
-      timeout = setTimeout(() => {
-        terminate(
-          new BashRunError({
-            cause: new Error(`Command timed out after ${timeoutMs}ms`),
-          }),
-        );
-      }, timeoutMs);
-    }
+    timeout = setTimeout(() => {
+      terminate(new BashTimeoutError({ timeoutMs: limitMs }));
+    }, limitMs);
 
     child.stdout.on("data", (chunk: Buffer) => {
       stdout += chunk.toString("utf8");

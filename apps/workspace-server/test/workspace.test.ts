@@ -663,7 +663,7 @@ serverTest(
       text: "Read the notes and fetch the report",
     });
     const command = `curl --silent --fail '${http.url("/report")}'`;
-    const js = `await tools.files.read({ path: "notes.md" }); return await tools.bash.run({ command: ${JSON.stringify(command)} });`;
+    const js = `await tools.files.read({ path: "notes.md" }); return await tools.bash.run({ command: ${JSON.stringify(command)}, timeoutMs: 60000 });`;
     await llm.respond(
       m.tool.start("exec", { id: "report", arguments: { js } }),
     );
@@ -740,7 +740,7 @@ serverTest(
       m.tool.start("exec", {
         id: "pending-report",
         arguments: {
-          js: `return await tools.bash.run({ command: ${JSON.stringify(command)} });`,
+          js: `return await tools.bash.run({ command: ${JSON.stringify(command)}, timeoutMs: 60000 });`,
         },
       }),
     );
