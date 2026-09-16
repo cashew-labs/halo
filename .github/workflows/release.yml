@@ -349,7 +349,7 @@ jobs:
     name: Test desktop release
     if: github.event_name == 'push'
     needs: prepare
-    runs-on: macos-latest
+    runs-on: macos-15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -410,7 +410,7 @@ jobs:
     if: always() && needs.prepare.result == 'success' && needs.release.result == 'success' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     needs: [prepare, release]
     environment: Release
-    runs-on: macos-latest
+    runs-on: macos-15
     permissions:
       contents: write
     steps:
@@ -445,11 +445,29 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Publish to GitHub Releases
+      - name: Build signed release
         working-directory: apps/electron
         env:
           GITHUB_TOKEN: ${{ github.token }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
-        run: pnpm run publish
+        run: pnpm exec electron-forge publish --dry-run
+
+      - name: Verify signed release
+        working-directory: apps/electron
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          app="out/Halo-darwin-arm64/Halo.app"
+          dmg="out/make/Halo-$VERSION-arm64.dmg"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          spctl --assess --type execute --verbose=2 "$app"
+          xcrun stapler validate "$app"
+          xcrun stapler validate "$dmg"
+
+      - name: Publish to GitHub Releases
+        working-directory: apps/electron
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: pnpm exec electron-forge publish --from-dry-run
