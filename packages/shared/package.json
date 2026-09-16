@@ -4,12 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./ConnectionRequest": "./src/ConnectionRequest.ts",
-    "./contract": "./src/contract.ts",
     "./controlPlaneContract": "./src/controlPlaneContract.ts",
     "./isCallable": "./src/isCallable.ts",
-    "./rpc": "./src/rpc.ts",
-    "./sessionState": "./src/sessionState.ts",
     "./SerialQueue": "./src/SerialQueue.ts",
     "./Stream": "./src/Stream.ts",
     "./testing": "./src/testing.ts",
@@ -20,10 +16,12 @@
     "format:check": "oxfmt --check .",
     "lint": "NODE_OPTIONS=--experimental-strip-types oxlint --deny-warnings src",
     "lint:fix": "NODE_OPTIONS=--experimental-strip-types oxlint --fix src",
-    "test": "vitest run src",
+    "test": "pnpm run test:unit",
+    "test:unit": "vitest run src",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@get-halo/client": "workspace:*",
     "@orpc/contract": "2.0.0-beta.29",
     "@sinclair/typebox": "^0.34.52",
     "errore": "^0.14.1"

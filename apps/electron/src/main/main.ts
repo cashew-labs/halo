@@ -96,6 +96,33 @@ app.whenReady().then(async () => {
     getWindow: () => mainWindow,
   });
   await openMainWindow();
+  // Forge replaces the URL with undefined in packaged builds, excluding app control.
+  if (
+    MAIN_WINDOW_VITE_DEV_SERVER_URL &&
+    applicationConfig.mode === ApplicationMode.Development
+  ) {
+    const { AppControlServer } = await import("./app/AppControlServer.js");
+    const appControl = await AppControlServer.start({
+      target: {
+        cdpUrl: "http://127.0.0.1:4445",
+        pageUrl: MAIN_WINDOW_VITE_DEV_SERVER_URL,
+      },
+      appDataDir: applicationConfig.dataDir,
+    });
+    if (appControl instanceof Error) {
+      logger.error({ event: "app-control-start-failed", error: appControl });
+      app.quit();
+      return;
+    }
+    app.once("will-quit", (event) => {
+      event.preventDefault();
+      // oxlint-disable-next-line typescript/no-floating-promises -- Electron does not await event handlers; resume quitting after cleanup.
+      appControl.close().then((closed) => {
+        if (closed instanceof Error) console.error(closed);
+        app.quit();
+      });
+    });
+  }
   if (applicationConfig.testWindowEvents) {
     const testEvents: NodeJS.EventEmitter = app;
     testEvents.on("halo:e2e:open-window", () => {

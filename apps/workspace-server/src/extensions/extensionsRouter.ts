@@ -1,5 +1,5 @@
 import { implement, os as baseOs, type } from "@orpc/server";
-import { contract } from "@get-halo/shared/contract";
+import { contract } from "@get-halo/client";
 import { orpcErrors } from "../orpcErrors.js";
 import type { ExtensionHost } from "./ExtensionHost.js";
 import type { ToolRuntime } from "../agent/runtime/ToolRuntime.js";

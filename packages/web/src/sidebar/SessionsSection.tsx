@@ -1,4 +1,4 @@
-import type { SessionSummary } from "@get-halo/shared/rpc";
+import type { SessionSummary } from "@get-halo/client";
 import { SidebarItem } from "./navigation/SidebarItem.js";
 import { SidebarSection } from "./navigation/SidebarSection.js";
 

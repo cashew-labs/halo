@@ -1,7 +1,7 @@
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { randomUUID } from "node:crypto";
 import * as errore from "errore";
-import type { WorkspaceInfo, WorkspaceTreeEvent } from "@get-halo/shared/rpc";
+import type { WorkspaceInfo, WorkspaceTreeEvent } from "@get-halo/client";
 import { type ReadonlyStream, Stream } from "@get-halo/shared/Stream";
 import {
   type FilesystemWatchBatch,

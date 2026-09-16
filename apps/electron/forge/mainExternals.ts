@@ -6,6 +6,10 @@ export const mainProcessExternals = ["@parcel/watcher"] as const;
 export function viteMainExternals(): Array<string | RegExp> {
   return [
     ...mainProcessExternals,
+    // App control is dev-only and removed from packaged builds. These packages
+    // load runtime assets relative to their package directories.
+    "playwright",
+    "libretto-browser-tools",
     // @parcel/watcher loads `@parcel/watcher-<platform>-<arch>` at runtime.
     /^@parcel\/watcher-/,
   ];

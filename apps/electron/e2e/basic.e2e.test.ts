@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import nodePath from "node:path";
 import { expect } from "@playwright/test";
-import { haloProtocolVersion } from "@get-halo/shared/contract";
+import { haloProtocolVersion } from "@get-halo/client";
 import type { DesktopBridge } from "../src/shared/desktop.js";
 import { e2eTest } from "./e2eTest.js";
 

@@ -1,0 +1,12 @@
+{
+  "extends": "@get-halo/typescript-config/base.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable", "ESNext.Disposable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "noEmit": true,
+    "types": ["node", "vitest"]
+  },
+  "include": ["src"],
+  "exclude": ["node_modules"]
+}

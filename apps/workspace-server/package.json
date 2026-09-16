@@ -20,7 +20,8 @@
     "format:check": "oxfmt --check .",
     "lint": "NODE_OPTIONS=--experimental-strip-types oxlint --deny-warnings src test",
     "lint:fix": "NODE_OPTIONS=--experimental-strip-types oxlint --fix src test",
-    "test": "vitest run --reporter=agent",
+    "test": "pnpm run test:e2e",
+    "test:e2e": "vitest run --reporter=agent",
     "typecheck": "tsc --noEmit",
     "dev": "tsx watch src/main.ts",
     "start": "tsx src/main.ts"
@@ -36,6 +37,7 @@
     "@executor-js/runtime-quickjs": "1.6.0",
     "@executor-js/sdk": "1.6.0",
     "@get-halo/cli": "workspace:*",
+    "@get-halo/client": "workspace:*",
     "@get-halo/config": "workspace:*",
     "@get-halo/logger": "workspace:*",
     "@get-halo/shared": "workspace:*",
@@ -59,7 +61,6 @@
   },
   "devDependencies": {
     "@get-halo/typescript-config": "workspace:*",
-    "@orpc/client": "2.0.0-beta.29",
     "@types/node": "^22.20.1",
     "openai": "6.26.0",
     "typescript": "7.0.2",

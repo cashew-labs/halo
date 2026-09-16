@@ -1,0 +1,4 @@
+interface:
+  display_name: "Conventions"
+  short_description: "Apply portable code, service, and testing conventions"
+  default_prompt: "Use $conventions to implement or review this change against the repository's design and testing principles."

@@ -1,10 +1,7 @@
 import path from "node:path";
 import { TursoSessionRepo } from "../storage/TursoSessionRepo.js";
 import { DatabaseClient } from "../storage/DatabaseClient.js";
-import {
-  BrowserService,
-  type AppBrowserTarget,
-} from "../browser/BrowserService.js";
+import { BrowserService } from "../browser/BrowserService.js";
 import type { Logger } from "@get-halo/logger";
 import * as errore from "errore";
 import { FilesystemService } from "../filesystem/FilesystemService.js";
@@ -37,7 +34,6 @@ export type HaloServerOptions = {
   environment: HaloEnvironment;
   llmApi: LLMApi;
   workspaceRoot: string;
-  appBrowserTarget?: AppBrowserTarget;
   appDataDir: string;
   appVersion: string;
   cliEntry?: string;
@@ -184,7 +180,7 @@ export class HaloServer {
     });
     cleanup.defer(async () => await extensions.stop());
     const context: HaloContext = {
-      browsers: new BrowserService(options.appBrowserTarget),
+      browsers: new BrowserService(),
       browserControlAllowed: false,
       extensions,
       workspace,

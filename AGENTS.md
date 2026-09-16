@@ -2,10 +2,19 @@
 
 Halo is an open-source self-modifiable desktop app built with Electron and Pi. It's currently a work-in-progress and has not been publically launched.
 
+## Conventions
+
+Use the [conventions skill](.agents/skills/conventions/SKILL.md) when writing,
+refactoring, or reviewing code or tests. Read its relevant pages, not the whole
+handbook for every task. Track repo-specific progress in
+`specs/repo-conventions-migration.md` and update it as changes land; do not expand
+a task into the full migration.
+
 ## Commands
 
-- During iteration, run `pnpm run check:static` and only the relevant tests. Avoid repeated full checks: they package Electron and install test dependencies.
-- `pnpm run check-affected` - Lint, typecheck, format-check, and test affected packages sequentially. Run once when the change is ready, not after every edit. Respect the user's request to avoid heavy runs on their laptop. GitHub Actions runs the same command on pull requests and on pushes to `main`.
+- `pnpm run check-affected` - Lint, typecheck, format-check, and run unit tests for affected packages using Turbo's default concurrency. Use it during iteration and before handing off a change. It does not run E2Es or package Electron. GitHub Actions runs the same command on pull requests and on pushes to `main`.
+- `pnpm run test:e2e` - Run E2Es for affected packages separately. This can package Electron and install test dependencies. During iteration, run only the relevant package or test file; do not run the full E2E command unless requested or needed for the change.
+- `pnpm run test:e2e:release` - Run all package E2Es without Turbo cache reuse. CI runs this only on release PRs; `Release ready` requires it to pass. Ordinary PRs and post-merge release jobs do not run E2Es.
 - For Electron E2Es, build with `pnpm --filter @get-halo/desktop test:e2e:build` after app code changes, then use `pnpm --filter @get-halo/desktop test:e2e:run <test-file>` to reuse that package while editing tests. Electron E2Es use Playwright's default of half the logical CPU cores; pass `--workers=1` to reduce resource usage.
 - `pnpm spec <file>` / `pnpm walkthrough <file>` / `pnpm exec tkstack <file>` - Serve a spec or code walkthrough as a local tkstack page.
 
@@ -51,10 +60,15 @@ Run `pnpm prerelease <version>` from a clean, up-to-date `main` branch. It creat
 
 Don't write tests unless updating tests or writing new ones in existing test files or asked.
 
-When writing tests, load the `testing` skill.
+For test changes or review, use the conventions skill and read its
+[testing page](.agents/skills/conventions/references/testing.md).
+Control-plane auth, routing, proxying, and lifecycle scenarios all use
+`controlPlane`. Existing alternate fixtures are migration work, not examples
+to copy. See Commands above for this repo's focused verification commands.
 
 ## Working Style
 
+- Summarize changes with concise, source-checked call stacks and name the next small step. Manual summaries in chat are enough.
 - Store temporary files and workspaces in a named folder under this repo's `tmp/` directory.
 - Garden as you go. When the current work exposes small, clear friction—such as incorrect guidance, stale docs, misleading comments, dead code, or a confusing local API—fix it in the same change and verify the fix. If the issue is too large, risky, or separate to finish well in the current session, do not derail the main task; note it and discuss or scope it as follow-up work.
 - If straightforward code seems to need surprising guards, wrappers, assertions, or other ceremony, stop and research how the dependency's own code and reference projects handle the same case before keeping that shape.
@@ -73,17 +87,13 @@ This codebase uses the [errore.org](https://errore.org) convention. Always read 
 - Replace `try`/`finally` resource cleanup with `await using` + `errore.AsyncDisposableStack` (or `using` + `errore.DisposableStack`) when cleanup is needed.
 - At legacy boundaries that still require throws (for example Electron IPC rejection), convert a returned error back to a throw only at that edge: `if (result instanceof Error) throw result`.
 
-## Writing Rules
-
-Always adhere to ISO 24495-1 Technical Language Standard for responses.
-
 ## Design Guidance
 
 - Agents and humans should always have access to the same state. Store Halo and Pi state in the chosen workspace filesystem.
 
 ## Cursor Cloud specific instructions
 
-Development runs the independent control plane and workspace server Node services with the Halo Electron client. Start all three from the repo root with `pnpm dev`; they use `tmp/workspace` as the workspace and `tmp/workspace/.halo` for shared application data. The `halo-dev` terminal in `.cursor/environment.json` already runs this. The control plane and workspace server publish their connection information under that application data directory, Electron serves the Vite renderer and opens its window, and dev builds expose Chrome DevTools Protocol on `127.0.0.1:4445`. Drive and inspect the renderer with `pnpm halo app` (see the halo-app skill). Follow the incremental verification workflow in Commands.
+Development runs the independent control plane and workspace server Node services with the Halo Electron client. Start all three from the repo root with `pnpm dev`; they use `tmp/workspace` as the workspace and `tmp/workspace/.halo` for shared application data. The `halo-dev` terminal in `.cursor/environment.json` already runs this. The control plane and workspace server publish their connection information under that application data directory, Electron serves the Vite renderer and opens its window, and dev builds expose Chrome DevTools Protocol on `127.0.0.1:4445`. Drive and inspect the renderer with `pnpm halo-dev app` (see the halo-app skill). Follow the incremental verification workflow in Commands.
 
 Cursor Cloud agents must record a short demo video when they add or change any UI, attach it to the PR, and show it in the walkthrough. Use screen recording against the running Halo app; do not skip this for “small” UI tweaks. This requirement does not apply to agents outside Cursor Cloud.
 

@@ -16,7 +16,7 @@ import {
   type HaloConnectionState,
   type ToolExecution,
   type ToolOutput,
-} from "@get-halo/shared/sessionState";
+} from "@get-halo/client";
 
 const execDetailsSchema = Type.Object({
   toolCalls: Type.Array(execToolCallSchema),

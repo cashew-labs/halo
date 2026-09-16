@@ -6,7 +6,7 @@ import {
   type SessionRepo,
   type SessionMetadata,
 } from "@earendil-works/pi-agent-core";
-import type { SessionSummary } from "@get-halo/shared/rpc";
+import type { SessionSummary } from "@get-halo/client";
 import {
   HaloAgentSession,
   CreateAgentSessionError,

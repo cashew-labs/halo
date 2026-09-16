@@ -1,42 +1,46 @@
 import * as errore from "errore";
-import { connectHaloRpc } from "@get-halo/web/connectHaloRpc";
+import { connectHaloClient } from "@get-halo/client";
 import type { HostApi } from "@get-halo/web/HostApi";
+import type { DesktopBridge } from "../shared/desktop.js";
 
 class ElectronHostError extends errore.createTaggedError({
   name: "ElectronHostError",
   message: "Halo could not $operation through its desktop host.",
 }) {}
 
-const desktopBridge = window.haloDesktop;
-let extensionBaseUrl: URL | undefined = undefined;
+export class ElectronHost implements HostApi {
+  // Tracks the extension endpoint for the connected workspace.
+  private extensionBaseUrl: URL | undefined;
 
-export const electronHost = {
-  onShortcut(listener: Parameters<typeof desktopBridge.onShortcut>[0]) {
-    return desktopBridge.onShortcut(listener);
-  },
+  // Connects this renderer to Electron's preload bridge.
+  private readonly desktopBridge = window.haloDesktop;
+
+  onShortcut(listener: Parameters<DesktopBridge["onShortcut"]>[0]) {
+    return this.desktopBridge.onShortcut(listener);
+  }
 
   async getAuthSession() {
-    return await desktopBridge.getAuthSession().catch(
+    return await this.desktopBridge.getAuthSession().catch(
       (cause) =>
         new ElectronHostError({
           operation: "restore authentication",
           cause,
         }),
     );
-  },
+  }
 
   async signIn() {
-    return await desktopBridge
+    return await this.desktopBridge
       .signIn()
       .catch((cause) => new ElectronHostError({ operation: "sign in", cause }));
-  },
+  }
 
   async connectHalo({
     onDisconnect,
   }: {
     onDisconnect: (error: Error) => void;
   }) {
-    const connection = await desktopBridge.getConnection().catch(
+    const connection = await this.desktopBridge.getConnection().catch(
       (cause) =>
         new ElectronHostError({
           operation: "find the workspace server",
@@ -46,7 +50,7 @@ export const electronHost = {
     if (connection instanceof Error) return connection;
     if (connection === undefined) return undefined;
 
-    const api = await connectHaloRpc({
+    const connected = await connectHaloClient({
       transport: {
         origin: connection.origin,
         path: connection.path,
@@ -54,83 +58,83 @@ export const electronHost = {
       },
       onDisconnect,
     });
-    if (api instanceof Error) return api;
+    if (connected instanceof Error) return connected;
 
-    extensionBaseUrl = new URL(
+    this.extensionBaseUrl = new URL(
       `${connection.extensionPath}/`,
       connection.origin,
     );
-    return api;
-  },
+    return connected.client;
+  }
 
   getExtensionFrameUrl(extensionId: string) {
     return new URL(
       `${encodeURIComponent(extensionId)}/view/`,
-      extensionBaseUrl,
+      this.extensionBaseUrl,
     ).toString();
-  },
+  }
 
   async getAppInfo() {
-    return await desktopBridge.getAppInfo().catch(
+    return await this.desktopBridge.getAppInfo().catch(
       (cause) =>
         new ElectronHostError({
           operation: "read app update information",
           cause,
         }),
     );
-  },
+  }
 
   async checkForAppUpdate() {
-    return await desktopBridge.checkForAppUpdate().catch(
+    return await this.desktopBridge.checkForAppUpdate().catch(
       (cause) =>
         new ElectronHostError({
           operation: "check for an app update",
           cause,
         }),
     );
-  },
+  }
 
   async installAppUpdate() {
-    return await desktopBridge.installAppUpdate().catch(
+    return await this.desktopBridge.installAppUpdate().catch(
       (cause) =>
         new ElectronHostError({
           operation: "install an app update",
           cause,
         }),
     );
-  },
+  }
 
   async openExternalUrl(url: string) {
-    return await desktopBridge.openExternal({ url }).catch(
+    return await this.desktopBridge.openExternal({ url }).catch(
       (cause) =>
         new ElectronHostError({
           operation: "open an external URL",
           cause,
         }),
     );
-  },
+  }
 
   async connectIntegration(
-    input: Parameters<typeof desktopBridge.connectIntegration>[0],
+    input: Parameters<DesktopBridge["connectIntegration"]>[0],
   ) {
-    return await desktopBridge.connectIntegration(input).catch(
+    return await this.desktopBridge.connectIntegration(input).catch(
       (cause) =>
         new ElectronHostError({
           operation: "start an integration connection",
           cause,
         }),
     );
-  },
+  }
 
   async cancelIntegration(
-    input: Parameters<typeof desktopBridge.cancelIntegration>[0],
+    input: Parameters<DesktopBridge["cancelIntegration"]>[0],
   ) {
-    return await desktopBridge.cancelIntegration(input).catch(
+    return await this.desktopBridge.cancelIntegration(input).catch(
       (cause) =>
         new ElectronHostError({
           operation: "cancel an integration connection",
           cause,
         }),
     );
-  },
-} satisfies HostApi;
+  }
+}

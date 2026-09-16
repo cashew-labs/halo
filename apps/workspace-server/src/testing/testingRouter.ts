@@ -1,6 +1,6 @@
 import { implement } from "@orpc/server";
 import * as errore from "errore";
-import { contract } from "@get-halo/shared/contract";
+import { contract } from "@get-halo/client";
 import { orpcErrors } from "../orpcErrors.js";
 import type { SessionRegistry } from "../sessions/SessionRegistry.js";
 import type { ToolRuntime } from "../agent/runtime/ToolRuntime.js";

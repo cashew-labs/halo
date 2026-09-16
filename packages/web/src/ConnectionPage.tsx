@@ -11,7 +11,7 @@ import {
 } from "maui";
 import { style, useStyles } from "purse-styles";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import type { IncompatibleServerError } from "./api/connectHaloRpc.js";
+import type { IncompatibleServerError } from "@get-halo/client";
 import type { AppInfo } from "./HostApi.js";
 import { useHost } from "./HostProvider.js";
 
@@ -77,10 +77,10 @@ function IncompatibleConnection({ error }: { error: IncompatibleServerError }) {
   return (
     <DesktopUpdate
       error={error}
-      getAppInfo={host.getAppInfo}
-      checkForAppUpdate={host.checkForAppUpdate}
-      installAppUpdate={host.installAppUpdate}
-      openExternalUrl={host.openExternalUrl}
+      getAppInfo={host.getAppInfo.bind(host)}
+      checkForAppUpdate={host.checkForAppUpdate.bind(host)}
+      installAppUpdate={host.installAppUpdate.bind(host)}
+      openExternalUrl={host.openExternalUrl?.bind(host)}
     />
   );
 }

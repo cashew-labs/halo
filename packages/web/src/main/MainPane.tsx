@@ -1,5 +1,5 @@
 import { Route, Switch } from "wouter";
-import type { SessionSummary } from "@get-halo/shared/rpc";
+import type { SessionSummary } from "@get-halo/client";
 import { AgentPane, DraftAgentPane } from "./agent/AgentPane.tsx";
 import { FilePane } from "./FilePane.tsx";
 import { ExtensionPane } from "./ExtensionPane.js";

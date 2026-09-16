@@ -17,7 +17,7 @@ import { useHost } from "./HostProvider.js";
 import { shortcuts } from "./shortcuts.js";
 
 export function KeyboardShortcuts() {
-  const onShortcut = useHost().onShortcut;
+  const host = useHost();
   const [open, setOpen] = useState(false);
   const [, navigate] = useLocation();
   const overlay = useStyles(styles.overlay);
@@ -34,14 +34,14 @@ export function KeyboardShortcuts() {
 
   useEffect(
     () =>
-      onShortcut?.((shortcut) => {
+      host.onShortcut?.((shortcut) => {
         if (shortcut === "newChat") {
           newChat();
           return;
         }
         setOpen((value) => !value);
       }),
-    [newChat, onShortcut],
+    [newChat, host],
   );
 
   return (

@@ -3,7 +3,7 @@ import { Plus } from "maui/icons";
 import { style, useStyles } from "purse-styles";
 import { useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import type { SessionSummary } from "@get-halo/shared/rpc";
+import type { SessionSummary } from "@get-halo/client";
 import type { AppInfo } from "../HostApi.js";
 import { useHost } from "../HostProvider.js";
 import { FilesystemSection } from "./FilesystemSection.tsx";
@@ -68,16 +68,19 @@ function UpdateFooter({
   appInfo: AppInfo;
   labelClassName: string;
 }) {
-  const installAppUpdate = useHost().installAppUpdate;
+  const host = useHost();
   const install = useMutation({
     mutationFn: async () => {
-      if (installAppUpdate === undefined) return;
-      const result = await installAppUpdate();
+      if (host.installAppUpdate === undefined) return;
+      const result = await host.installAppUpdate();
       if (result instanceof Error) throw result;
     },
   });
   const restartButton = useStyles(styles.restartButton);
-  if (appInfo.update.state === "downloaded" && installAppUpdate !== undefined) {
+  if (
+    appInfo.update.state === "downloaded" &&
+    host.installAppUpdate !== undefined
+  ) {
     return (
       <Button
         className={restartButton}
