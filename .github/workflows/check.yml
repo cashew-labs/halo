@@ -16,7 +16,7 @@ permissions:
 jobs:
   check:
     name: check-affected
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 60
     env:
       TURBO_UI: "0"
