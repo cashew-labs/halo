@@ -11,16 +11,19 @@ class WebHostError extends errore.createTaggedError({
   message: "Halo could not $operation through its web host.",
 }) {}
 
-// SAFETY: The current origin serves controlPlaneContract at /rpc.
-const controlPlane = createORPCClient(
-  new RPCLink({ origin: window.location.origin, url: "/rpc" }),
-) as ControlPlaneClient;
-const authClient = createAuthClient();
-let haloClient: HaloClient | undefined;
+export class WebHost implements HostApi {
+  // Tracks the active workspace client for integration connections.
+  private haloClient: HaloClient | undefined;
 
-export const webHost = {
+  // Connects to the control plane served on the current origin.
+  private readonly controlPlane = createORPCClient<ControlPlaneClient>(
+    new RPCLink({ origin: window.location.origin, url: "/rpc" }),
+  );
+  // Owns browser authentication for this host.
+  private readonly authClient = createAuthClient();
+
   async getAuthSession() {
-    const authentication = await controlPlane.auth
+    const authentication = await this.controlPlane.auth
       .session()
       .catch(
         (cause) =>
@@ -29,10 +32,10 @@ export const webHost = {
     if (authentication instanceof Error) return authentication;
     if (authentication.status === "signed-out") return undefined;
     return authentication.session;
-  },
+  }
 
   async signIn() {
-    const result = await authClient.signIn
+    const result = await this.authClient.signIn
       .social({
         provider: "google",
         callbackURL: window.location.href,
@@ -45,15 +48,15 @@ export const webHost = {
       return new WebHostError({ operation: "sign in", cause: result.error });
     }
     return undefined;
-  },
+  }
 
   async connectHalo({
     onDisconnect,
   }: {
     onDisconnect: (error: Error) => void;
   }) {
-    haloClient = undefined;
-    const workspace = await controlPlane.workspace
+    this.haloClient = undefined;
+    const workspace = await this.controlPlane.workspace
       .ensure()
       .catch(
         (cause) =>
@@ -78,29 +81,31 @@ export const webHost = {
         headers: {},
       },
       onDisconnect: (error) => {
-        haloClient = undefined;
+        this.haloClient = undefined;
         onDisconnect(error);
       },
     });
     if (connected instanceof Error) return connected;
-    haloClient = connected.client;
+    this.haloClient = connected.client;
     return connected.client;
-  },
+  }
 
   getExtensionFrameUrl(extensionId: string) {
     return new URL(
       `/workspace/extensions/${encodeURIComponent(extensionId)}/view/`,
       window.location.origin,
     ).toString();
-  },
+  }
 
-  async connectIntegration(input) {
-    if (haloClient === undefined) {
+  async connectIntegration(
+    input: Parameters<HostApi["connectIntegration"]>[0],
+  ) {
+    if (this.haloClient === undefined) {
       return new WebHostError({
         operation: "start a connection without a workspace",
       });
     }
-    const started = await haloClient.sessions
+    const started = await this.haloClient.sessions
       .startConnection({
         ...input,
         completion: {
@@ -120,20 +125,20 @@ export const webHost = {
       window.location.assign(started.authorizationUrl);
     }
     return started;
-  },
+  }
 
-  async cancelIntegration(input) {
-    if (haloClient === undefined) {
+  async cancelIntegration(input: Parameters<HostApi["cancelIntegration"]>[0]) {
+    if (this.haloClient === undefined) {
       return new WebHostError({
         operation: "cancel a connection without a workspace",
       });
     }
-    return await haloClient.sessions
+    return await this.haloClient.sessions
       .cancelConnection(input)
       .then(() => undefined)
       .catch(
         (cause) =>
           new WebHostError({ operation: "cancel the connection", cause }),
       );
-  },
-} satisfies HostApi;
+  }
+}

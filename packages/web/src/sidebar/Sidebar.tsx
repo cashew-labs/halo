@@ -68,16 +68,19 @@ function UpdateFooter({
   appInfo: AppInfo;
   labelClassName: string;
 }) {
-  const installAppUpdate = useHost().installAppUpdate;
+  const host = useHost();
   const install = useMutation({
     mutationFn: async () => {
-      if (installAppUpdate === undefined) return;
-      const result = await installAppUpdate();
+      if (host.installAppUpdate === undefined) return;
+      const result = await host.installAppUpdate();
       if (result instanceof Error) throw result;
     },
   });
   const restartButton = useStyles(styles.restartButton);
-  if (appInfo.update.state === "downloaded" && installAppUpdate !== undefined) {
+  if (
+    appInfo.update.state === "downloaded" &&
+    host.installAppUpdate !== undefined
+  ) {
     return (
       <Button
         className={restartButton}

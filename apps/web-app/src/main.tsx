@@ -1,4 +1,4 @@
 import { mountHaloApp } from "@get-halo/web/mountHaloApp";
-import { webHost } from "./WebHost.js";
+import { WebHost } from "./WebHost.js";
 
-mountHaloApp(document.getElementById("root")!, webHost);
+mountHaloApp(document.getElementById("root")!, new WebHost());

@@ -42,7 +42,8 @@ export function HaloApp() {
 }
 
 function useAppInfoQuery() {
-  const getAppInfo = useHost().getAppInfo;
+  const host = useHost();
+  const getAppInfo = host.getAppInfo?.bind(host);
   return useQuery({
     queryKey: ["app-info"],
     queryFn:
