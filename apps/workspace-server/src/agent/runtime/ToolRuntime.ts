@@ -429,7 +429,8 @@ export class ToolRuntime {
 
     const prefix = [
       "Execute JavaScript. tools and console are in scope.",
-      "Return the value you need next. emit(value) shows that value to the user only.",
+      'Return the value you need next, for example `return await tools.search({ query: "send email" })`, `return await tools.files.read({ path: "notes.md" })`, or `return await tools[path](args)`. Without return, exec reports (no result), even when a tool failed.',
+      "Runtime tools do not throw for expected failures. They return { ok: true, data } or { ok: false, error }. Check result.ok.",
     ].join("\n");
     const inventoryStart = executorDescription.indexOf(
       INTEGRATION_INVENTORY_HEADER,
