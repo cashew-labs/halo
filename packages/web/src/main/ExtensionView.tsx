@@ -61,7 +61,7 @@ export function ExtensionView({
 const styles = {
   view: style(flex({ direction: "column" }), {
     width: "100%",
-    height: "100vh",
+    height: "100dvh",
     minWidth: 0,
     minHeight: 0,
     overflow: "hidden",
