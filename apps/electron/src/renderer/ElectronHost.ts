@@ -1,5 +1,5 @@
 import * as errore from "errore";
-import { connectHaloRpc } from "@get-halo/web/connectHaloRpc";
+import { connectHaloClient } from "@get-halo/client";
 import type { HostApi } from "@get-halo/web/HostApi";
 
 class ElectronHostError extends errore.createTaggedError({
@@ -46,7 +46,7 @@ export const electronHost = {
     if (connection instanceof Error) return connection;
     if (connection === undefined) return undefined;
 
-    const api = await connectHaloRpc({
+    const connected = await connectHaloClient({
       transport: {
         origin: connection.origin,
         path: connection.path,
@@ -54,13 +54,13 @@ export const electronHost = {
       },
       onDisconnect,
     });
-    if (api instanceof Error) return api;
+    if (connected instanceof Error) return connected;
 
     extensionBaseUrl = new URL(
       `${connection.extensionPath}/`,
       connection.origin,
     );
-    return api;
+    return connected.client;
   },
 
   getExtensionFrameUrl(extensionId: string) {

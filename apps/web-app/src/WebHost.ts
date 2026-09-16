@@ -1,9 +1,8 @@
 import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
 import type { ControlPlaneClient } from "@get-halo/shared/controlPlaneContract";
-import { connectHaloRpc } from "@get-halo/web/connectHaloRpc";
+import { connectHaloClient, type HaloClient } from "@get-halo/client";
 import type { HostApi } from "@get-halo/web/HostApi";
-import type { HaloClient } from "@get-halo/shared/contract";
 import { createAuthClient } from "better-auth/client";
 import * as errore from "errore";
 
@@ -72,7 +71,7 @@ export const webHost = {
       return new WebHostError({ operation: "reach the workspace server" });
     }
 
-    const connected = await connectHaloRpc({
+    const connected = await connectHaloClient({
       transport: {
         origin: window.location.origin,
         path: "/workspace/rpc",
@@ -84,8 +83,8 @@ export const webHost = {
       },
     });
     if (connected instanceof Error) return connected;
-    haloClient = connected;
-    return connected;
+    haloClient = connected.client;
+    return connected.client;
   },
 
   getExtensionFrameUrl(extensionId: string) {

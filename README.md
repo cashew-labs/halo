@@ -156,9 +156,21 @@ in this repository; forks cannot access the production preview identity.
 ## Checks
 
 Pull requests and pushes to `main` run `pnpm run check-affected` on GitHub Actions (`Check / check-affected`).
+This runs lint, typechecking, formatting checks, and unit tests for affected
+packages. It does not run E2Es or package Electron.
 
 ```sh
 pnpm run check-affected
 ```
+
+Run E2Es for affected packages separately:
+
+```sh
+pnpm run test:e2e
+```
+
+For a focused run, use the package's `test:e2e` command. Desktop E2Es also offer
+`test:e2e:build` and `test:e2e:run <test-file> --workers=1` to reuse a build and
+limit CPU usage. The release workflow still runs its packaged desktop E2Es.
 
 Tests do not call a paid model.

@@ -2,7 +2,7 @@ import Image from "@tiptap/extension-image";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import * as errore from "errore";
-import type { HaloClient } from "@get-halo/shared/contract";
+import type { HaloClient } from "@get-halo/client";
 
 class MarkdownImageError extends errore.createTaggedError({
   name: "MarkdownImageError",

@@ -1,5 +1,8 @@
-import type { ConnectionRequest } from "@get-halo/shared/ConnectionRequest";
-import type { ConnectionStarted, HaloClient } from "@get-halo/shared/contract";
+import type {
+  ConnectionRequest,
+  ConnectionStarted,
+  HaloClient,
+} from "@get-halo/client";
 import type { ControlPlaneSession } from "@get-halo/shared/controlPlaneContract";
 import type { ShortcutId } from "./shortcuts.js";
 

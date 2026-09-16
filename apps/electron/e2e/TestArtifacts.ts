@@ -2,9 +2,7 @@ import type { ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import fsPromises from "node:fs/promises";
 import path from "node:path";
-import { createORPCClient } from "@orpc/client";
-import { RPCLink } from "@orpc/client/fetch";
-import type { HaloClient } from "@get-halo/shared/contract";
+import { createHaloClient, type HaloClient } from "@get-halo/client";
 import type { ConsoleMessage, Page, Request, TestInfo } from "@playwright/test";
 import * as errore from "errore";
 
@@ -92,12 +90,13 @@ export async function createTestArtifacts(
 
   const harness: E2ETestHarness = {
     createClient(serverHost, serverPort) {
-      const link = new RPCLink({
-        origin: `http://${serverHost}:${serverPort}`,
-        url: "/rpc",
+      return createHaloClient({
+        transport: {
+          origin: `http://${serverHost}:${serverPort}`,
+          path: "/rpc",
+          headers: {},
+        },
       });
-      // SAFETY: the server host and port point to the Halo RPC contract.
-      return createORPCClient(link) as HaloClient;
     },
     paths,
   };

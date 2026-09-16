@@ -11,8 +11,8 @@ the guidance to new work without expanding a task into the full migration.
 
 ## Commands
 
-- During iteration, run `pnpm run check:static` and only the relevant tests. Avoid repeated full checks: they package Electron and install test dependencies.
-- `pnpm run check-affected` - Lint, typecheck, format-check, and test affected packages sequentially. Run once when the change is ready, not after every edit. Respect the user's request to avoid heavy runs on their laptop. GitHub Actions runs the same command on pull requests and on pushes to `main`.
+- `pnpm run check-affected` - Lint, typecheck, format-check, and run unit tests for affected packages using Turbo's default concurrency. Use it during iteration and before handing off a change. It does not run E2Es or package Electron. GitHub Actions runs the same command on pull requests and on pushes to `main`.
+- `pnpm run test:e2e` - Run E2Es for affected packages separately. This can package Electron and install test dependencies. During iteration, run only the relevant package or test file; do not run the full E2E command unless requested or needed for the change.
 - For Electron E2Es, build with `pnpm --filter @get-halo/desktop test:e2e:build` after app code changes, then use `pnpm --filter @get-halo/desktop test:e2e:run <test-file>` to reuse that package while editing tests. Electron E2Es use Playwright's default of half the logical CPU cores; pass `--workers=1` to reduce resource usage.
 - `pnpm spec <file>` / `pnpm walkthrough <file>` / `pnpm exec tkstack <file>` - Serve a spec or code walkthrough as a local tkstack page.
 
@@ -60,15 +60,20 @@ Don't write tests unless updating tests or writing new ones in existing test fil
 
 When writing tests, load the `testing` skill.
 
-- Test package behavior end to end through its actual consumer boundary.
-- Use one canonical E2E fixture and test entry per package. Control-plane auth,
+- E2E means package-level tests through the package's main supported exports.
+  Apps use their public UI or protocol. Direct tests of the client package's
+  exported reducers are E2Es; no special exception or server fixture is needed.
+- Use one canonical setup form per package, with one shared fixture and test
+  entry where runtime setup is needed. Pure API tests can call exports directly.
+  Control-plane auth,
   routing, proxying, and lifecycle scenarios all belong on `controlPlane`.
   Feature-specific helpers may compose behind that fixture; do not add alternate
   test exports or fixtures that mount only an internal sub-service.
-- Allow unit tests only for small, encapsulated components that could stand as
-  independent packages. Name the contract and extraction trigger. If a component
+- Allow unit tests of internal components only for small, encapsulated components
+  that could stand as independent packages. Name the contract and extraction trigger. If a component
   outgrows that scope or another package needs it, extract it and make its tests
-  that package's E2Es. Purity or an exported helper alone does not qualify.
+  that package's E2Es. Purity or an internal module export alone does not qualify.
+  Do not add public exports solely to make internals testable.
 - Preserve meaningful consumer coverage when consolidating existing tests.
 
 ## Working Style

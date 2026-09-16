@@ -1,5 +1,5 @@
 import { implement } from "@orpc/server";
-import { contract } from "@get-halo/shared/contract";
+import { contract } from "@get-halo/client";
 import { orpcErrors } from "../orpcErrors.js";
 import type { WorkspaceService } from "../workspace/WorkspaceService.js";
 import { BrowserError } from "./BrowserPage.js";

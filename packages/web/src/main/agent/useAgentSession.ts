@@ -7,7 +7,7 @@ import {
   reduceSessionUpdate,
   type SessionSnapshot,
   type SessionWatchItem,
-} from "@get-halo/shared/sessionState";
+} from "@get-halo/client";
 import { useApi } from "../../api/ApiProvider.tsx";
 import { reconnectStream } from "../../api/reconnectStream.js";
 import { Stream } from "@get-halo/shared/Stream";

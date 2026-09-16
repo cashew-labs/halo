@@ -4,7 +4,7 @@ import { style, useStyles } from "purse-styles";
 import { skipToken, useQuery } from "@tanstack/react-query";
 import { Redirect, Route, Router } from "wouter";
 import { useHashLocation } from "wouter/use-hash-location";
-import type { SessionSummary } from "@get-halo/shared/rpc";
+import type { SessionSummary } from "@get-halo/client";
 import type { AppInfo } from "./HostApi.js";
 import { useHost } from "./HostProvider.js";
 import { LoadingPage } from "./LoadingPage.tsx";

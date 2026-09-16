@@ -1,18 +1,16 @@
 import * as errore from "errore";
 import { Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
-import type { HaloMessage } from "@get-halo/shared/rpc";
 import {
+  type HaloMessage,
   sessionMessages,
   sessionToolExecutions,
   type SessionSnapshot,
   type ToolExecution,
   type ToolIdentity,
-} from "@get-halo/shared/sessionState";
-import {
   connectionRequestSchema,
   type ConnectionRequest,
-} from "@get-halo/shared/ConnectionRequest";
+} from "@get-halo/client";
 
 export type SessionViewItem =
   | { kind: "user"; id: string; text: string }

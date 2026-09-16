@@ -1,11 +1,11 @@
 import { implement } from "@orpc/server";
 import { runWithSignal } from "@orpc/shared";
 import type { Logger } from "@get-halo/logger";
-import { contract } from "@get-halo/shared/contract";
 import {
+  contract,
   connectionRequestLabel,
   type ConnectionRequest,
-} from "@get-halo/shared/ConnectionRequest";
+} from "@get-halo/client";
 import {
   PromptFailedError,
   type HaloAgentSession,

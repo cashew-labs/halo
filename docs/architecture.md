@@ -22,7 +22,7 @@ service's interface to a platform or client protocol.
 | `apps/electron`, `apps/web-app`                      | Start the desktop or browser host and mount the shared product UI.                                                                 |
 | `packages/control-plane`                             | Own authentication, workspace provisioning policy, gateway behavior, and service contracts. Planned extraction from the app.       |
 | `packages/workspace-server`                          | Own workspace files, sessions, tools, integrations, extensions, and their public server behavior. Planned extraction from the app. |
-| `packages/client`                                    | Own product protocol types, client construction, and consumer-visible state handling. Planned package.                             |
+| `packages/client`                                    | Own product protocol types, client construction, and consumer-visible state handling.                                              |
 | `packages/web`                                       | Own shared React product UI and the capabilities it needs from its host.                                                           |
 | `packages/halo-cli`                                  | Adapt product CLI commands to the same operations used by other product clients.                                                   |
 | `packages/extension-sdk`, `packages/extension-tools` | Own extension-facing APIs, scaffolding, and build tools.                                                                           |
@@ -134,24 +134,29 @@ workspace servers, then activate the web client and publish desktop. Client
 activation must wait for its servers. This guide does not add a migration system
 or require backward-compatibility layers for unreleased local/test data.
 
-## Test each package through one E2E fixture
+## Test packages through their public API
 
-Every package tests its behavior end to end through its actual consumer boundary.
-Use Vitest for server and library APIs and Playwright for UI. E2E describes the
-boundary, not the runner: library API-to-output tests do not need Electron.
+An E2E test exercises a package through its main supported exports, as a consumer
+would. For apps, use their public UI or protocol. The boundary defines E2E, not
+the runner or the number of processes. Use Vitest for library and server APIs
+and Playwright for UI. Calling a reducer exported by `@get-halo/client` and
+asserting its output is a package E2E test; it needs no server or browser.
 
-Each package has one canonical test entry and E2E fixture. Control-plane auth,
+Use one canonical setup form per package. Packages that need runtime setup use
+one shared E2E fixture; pure API tests can call the exports directly without an
+artificial fixture. Control-plane auth,
 routing, proxying, and lifecycle scenarios all use `controlPlane`, not an
 auth-only fixture. Feature files and helper modules may remain separate, but
 feature-specific `test.extend(...)` exports are not additional allowed test forms.
 Compose external drivers, extra clients, lifecycle controls, and lazy setup
 behind the same fixture without replacing internal sub-services.
 
-Unit tests are allowed only for a small, encapsulated component that could stand
-as its own package, such as an interesting data structure. Identify its independent
-contract and extraction trigger. If it outgrows that scope or another package
-needs it, extract it; its tests become the new package's E2Es. Purity, an exported
-helper, or test convenience alone does not qualify.
+Unit tests of internal components are allowed only for a small, encapsulated
+component that could stand as its own package, such as an interesting data
+structure. Identify its independent contract and extraction trigger. If it
+outgrows that scope or another package needs it, extract it; its tests become the
+new package's E2Es. Purity, an internal module export, or test convenience alone
+does not qualify. Do not add public exports solely to make internals testable.
 
 Assert consumer-visible results. Workspace files can be observable outcomes when
 humans or agents access them directly; internal database rows and calls between
@@ -161,17 +166,18 @@ for fixture and workflow guidance.
 
 ## Current gaps
 
-These gaps were checked against `2b09be8`. The phase links point to the local
+The original audit checked `2b09be8`; this table includes the client extraction
+completed in Phase 2. The phase links point to the local
 migration plan in Git-ignored `specs/`, which may be absent in another checkout.
 The rules above stand on their own; update this table as migrations land.
 
 | Current evidence                                                                                                                                                                                                                                                        | Planned change                                                                                                                                                                                                                                                                                                       |
 | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`shared/contract.ts`](../packages/shared/src/contract.ts) mixes product, dev-control, and test procedures. Agent file tools are wired to lower-level services in [`HaloServer`](../apps/workspace-server/src/server/HaloServer.ts).                                    | Separate authority and create the common product client; align agent operations ([phases 2–3](../specs/repo-conventions-migration.md#phase-2-create-the-single-product-client-contract), [phase 8](../specs/repo-conventions-migration.md#phase-8-align-agent-tools-with-the-product-application-services)).         |
+| [`client/contract.ts`](../packages/client/src/contract.ts) mixes product, dev-control, and test procedures. Agent file tools are wired to lower-level services in [`HaloServer`](../apps/workspace-server/src/server/HaloServer.ts).                                    | Separate product, dev-control, and test authority; align agent operations ([phase 3](../specs/repo-conventions-migration.md#phase-3-separate-product-development-control-and-test-authority), [phase 8](../specs/repo-conventions-migration.md#phase-8-align-agent-tools-with-the-product-application-services)).    |
 | [`packages/config`](../packages/config/src/workspaceServer.ts) loads configuration during import. Reusable [`ControlPlane`](../apps/control-plane/src/server/ControlPlane.ts) and [`HaloServer`](../apps/workspace-server/src/server/HaloServer.ts) still live in apps. | Move configuration to hosts and services to packages ([phases 4–6](../specs/repo-conventions-migration.md#phase-4-remove-import-time-configuration-and-environment-effects)).                                                                                                                                        |
 | [`shared`](../packages/shared/package.json), [`web`](../packages/web/package.json), and [`workspace-server`](../apps/workspace-server/package.json) expose multiple subpaths.                                                                                           | Normalize public roots; retain the documented SDK exception ([phase 7](../specs/repo-conventions-migration.md#phase-7-normalize-package-public-entry-points)).                                                                                                                                                       |
 | [`ToolRuntime`](../apps/workspace-server/src/agent/runtime/ToolRuntime.ts) combines several domains and owns a global QuickJS promise. [`Electron main`](../apps/electron/src/main/main.ts) owns mutable state at module scope.                                         | Separate host capabilities, service responsibilities, and state owners ([phases 9–12](../specs/repo-conventions-migration.md#phase-9-introduce-narrow-host-capabilities-at-real-variability-points)).                                                                                                                |
 | [`pnpm dev`](../package.json) shares `tmp/workspace/.halo` across runs.                                                                                                                                                                                                 | Add explicit run identity and isolation ([phase 13](../specs/repo-conventions-migration.md#phase-13-build-an-isolated-development-run-host-and-cli)).                                                                                                                                                                |
 | [`AuthService.test.ts`](../apps/control-plane/test/AuthService.test.ts), [`oauth.test.ts`](../apps/workspace-server/test/oauth.test.ts), and [`extensionE2eTest.ts`](../apps/electron/e2e/extensionE2eTest.ts) use separate test compositions or entries.               | Consolidate each package's fixture and assess narrow component exceptions ([phase 5](../specs/repo-conventions-migration.md#phase-5-extract-the-reusable-control-plane-package), [phases 14a–14d](../specs/repo-conventions-migration.md#phase-14a-move-workspace-oauth-scenarios-to-the-canonical-server-fixture)). |
-| The proposed product client package and its SDK/MCP adapters are not yet present.                                                                                                                                                                                       | Add adapters over the common product API ([phase 15](../specs/repo-conventions-migration.md#phase-15-add-sdk-and-mcp-adapters-over-the-same-client)).                                                                                                                                                                |
+| The product client exists; standalone SDK and MCP adapters are not yet present.                                                                                                                                                                                         | Add adapters over the common product API ([phase 15](../specs/repo-conventions-migration.md#phase-15-add-sdk-and-mcp-adapters-over-the-same-client)).                                                                                                                                                                |
 | The [control-plane image](../apps/control-plane/Dockerfile) includes the web bundle, activating it before workspace rollout finishes.                                                                                                                                   | Separate web-client activation from backend deployment ([phase 16](../specs/repo-conventions-migration.md#phase-16-make-database-migration-and-client-activation-explicit-release-layers)).                                                                                                                          |

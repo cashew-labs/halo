@@ -11,7 +11,7 @@ import {
 } from "maui";
 import { style, useStyles } from "purse-styles";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import type { IncompatibleServerError } from "./api/connectHaloRpc.js";
+import type { IncompatibleServerError } from "@get-halo/client";
 import type { AppInfo } from "./HostApi.js";
 import { useHost } from "./HostProvider.js";
 

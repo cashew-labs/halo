@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import * as errore from "errore";
 import { useQueryClient } from "@tanstack/react-query";
 import { useApi } from "../api/ApiProvider.tsx";
-import type { HaloClient } from "@get-halo/shared/contract";
+import type { HaloClient } from "@get-halo/client";
 
 const autosaveDelayMs = 400;
 const fileSaves = new Set<FileAutosave>();

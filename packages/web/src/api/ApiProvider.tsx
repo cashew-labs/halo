@@ -6,12 +6,14 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type { HaloClient } from "@get-halo/shared/contract";
-import type { WorkspaceInfo } from "@get-halo/shared/rpc";
+import {
+  type HaloClient,
+  type WorkspaceInfo,
+  IncompatibleServerError,
+} from "@get-halo/client";
 import { useHost } from "../HostProvider.js";
 import { LoadingPage } from "../LoadingPage.tsx";
 import { ConnectionPage } from "../ConnectionPage.tsx";
-import { IncompatibleServerError } from "./connectHaloRpc.js";
 
 const ApiContext = createContext<HaloClient>(undefined!);
 const haloApiQueryKey = ["halo-api"] as const;

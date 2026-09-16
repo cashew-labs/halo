@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { Cli, z } from "incur";
 import * as errore from "errore";
-import type { HaloClient } from "@get-halo/shared/contract";
+import type { HaloClient } from "@get-halo/client";
 import { connectHalo, type HaloRpcEnv } from "./connectHalo.js";
 
 class BrowserCommandError extends errore.createTaggedError({

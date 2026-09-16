@@ -18,7 +18,7 @@ import {
   type SessionWatchItem,
   type HaloConnectionEvent,
   type HaloConnectionState,
-} from "@get-halo/shared/sessionState";
+} from "@get-halo/client";
 import type { WorkspaceLayout } from "../workspace/WorkspaceService.js";
 import type { FilesystemService } from "../filesystem/FilesystemService.js";
 import type { ToolRuntime } from "./runtime/ToolRuntime.js";

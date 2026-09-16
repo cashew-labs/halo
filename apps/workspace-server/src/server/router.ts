@@ -3,7 +3,7 @@ import {
   appRouter,
   type BrowserRouterContext,
 } from "../browser/browserRouter.js";
-import { contract, haloProtocolVersion } from "@get-halo/shared/contract";
+import { contract, haloProtocolVersion } from "@get-halo/client";
 import { implement } from "@orpc/server";
 import {
   extensionsRouter,

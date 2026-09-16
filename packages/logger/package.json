@@ -13,7 +13,8 @@
     "lint:fix": "NODE_OPTIONS=--experimental-strip-types oxlint --fix .",
     "format": "oxfmt .",
     "format:check": "oxfmt --check .",
-    "test": "vitest run src",
+    "test": "pnpm run test:e2e",
+    "test:e2e": "vitest run src",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

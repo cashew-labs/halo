@@ -1,33 +1,27 @@
 {
-  "name": "@get-halo/shared",
+  "name": "@get-halo/client",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "exports": {
-    "./controlPlaneContract": "./src/controlPlaneContract.ts",
-    "./isCallable": "./src/isCallable.ts",
-    "./SerialQueue": "./src/SerialQueue.ts",
-    "./Stream": "./src/Stream.ts",
-    "./testing": "./src/testing.ts",
-    "./WorkspaceServerConnection": "./src/WorkspaceServerConnection.ts"
+    ".": "./src/index.ts"
   },
   "scripts": {
     "format": "oxfmt .",
     "format:check": "oxfmt --check .",
     "lint": "NODE_OPTIONS=--experimental-strip-types oxlint --deny-warnings src",
     "lint:fix": "NODE_OPTIONS=--experimental-strip-types oxlint --fix src",
-    "test": "pnpm run test:unit",
-    "test:unit": "vitest run src",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "pnpm run test:e2e",
+    "test:e2e": "vitest run src --maxWorkers=1"
   },
   "dependencies": {
-    "@get-halo/client": "workspace:*",
+    "@orpc/client": "2.0.0-beta.29",
     "@orpc/contract": "2.0.0-beta.29",
     "@sinclair/typebox": "^0.34.52",
     "errore": "^0.14.1"
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "0.85.1",
     "@get-halo/typescript-config": "workspace:*",
     "@types/node": "^22.20.1",
     "typescript": "7.0.2",

@@ -3,7 +3,7 @@ import { Plus } from "maui/icons";
 import { style, useStyles } from "purse-styles";
 import { useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import type { SessionSummary } from "@get-halo/shared/rpc";
+import type { SessionSummary } from "@get-halo/client";
 import type { AppInfo } from "../HostApi.js";
 import { useHost } from "../HostProvider.js";
 import { FilesystemSection } from "./FilesystemSection.tsx";

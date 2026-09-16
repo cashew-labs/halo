@@ -1,5 +1,5 @@
 import { createORPCClient } from "@orpc/client";
-import type { HaloClient } from "@get-halo/shared/contract";
+import type { HaloClient } from "@get-halo/client";
 import type {
   readFile,
   writeFile,

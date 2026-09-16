@@ -19,9 +19,9 @@
     "format": "turbo run format",
     "format:check": "turbo run format:check",
     "typecheck": "turbo run typecheck",
-    "check": "turbo run typecheck lint format:check test --affected --concurrency=1",
-    "check:static": "turbo run typecheck lint format:check --affected --concurrency=1",
+    "check": "turbo run typecheck lint format:check test:unit --affected",
     "check-affected": "pnpm run check",
+    "test:e2e": "turbo run test:e2e --affected --concurrency=1",
     "server": "pnpm --filter @get-halo/workspace-server start"
   },
   "devDependencies": {

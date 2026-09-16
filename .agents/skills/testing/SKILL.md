@@ -6,16 +6,25 @@ description: Choose, write, and review tests that exercise real consumer behavio
 # Testing
 
 Use Vitest for service, API, and library E2Es, and Playwright for UI E2Es. These
-rules apply to Halo. See [the architecture guide](../../../docs/architecture.md#test-each-package-through-one-e2e-fixture)
+rules apply to Halo. See [the architecture guide](../../../docs/architecture.md#test-packages-through-their-public-api)
 for package boundaries and the current migration gaps.
+
+`pnpm run check-affected` runs static checks and unit tests, not E2Es. Run only
+the relevant package's `test:e2e` command during iteration. The root
+`pnpm run test:e2e` command runs all affected E2E suites and can package Electron;
+do not run it routinely. See AGENTS.md for focused desktop test commands.
 
 ## Package boundary and test entry
 
-Test each package's behavior end to end through its actual consumer boundary.
-E2E describes the boundary, not the runner. A server test uses HTTP/RPC; a library
-test uses the public API and observes its output. Neither requires the whole app.
+E2E means package-level tests through the package's main supported exports, as
+a consumer would use them. Apps use their public UI or protocol. A direct test
+of a reducer exported by `@get-halo/client` is a package E2E, not a unit-test
+exception. Test state transitions and immutability through that public API.
+E2E does not require a server, browser, or the whole app.
 
-Use one canonical E2E fixture and test entry per package. Control-plane auth,
+Use one canonical setup form per package. Where runtime setup is needed, use one
+shared E2E fixture and test entry. Pure API tests can call the exports directly;
+do not add an artificial fixture. Control-plane auth,
 routing, proxying, and lifecycle tests all use `controlPlane`; do not create a
 separate `AuthService` fixture. Tests may have separate feature files. Compose
 helper modules, external drivers, extra clients, lifecycle controls, and lazy
@@ -25,12 +34,12 @@ work, not examples to copy. Preserve meaningful coverage when consolidating them
 
 ## Narrow unit-test exception
 
-Allow direct tests only for a small, encapsulated component with a contract that
-could stand as its own package, such as an interesting data structure. Name that
+Allow unit tests of internal components only for a small, encapsulated component
+with a contract that could stand as its own package, such as an interesting data structure. Name that
 contract and the trigger for extraction. When the component outgrows its scope or
 another package needs it, extract it; its tests become the new package's E2Es.
-An ordinary parser, reducer, or helper does not qualify merely because it is pure,
-exported, or convenient to isolate. Do not expose internals just to test them.
+A helper does not qualify merely because it is pure, exported from an internal
+module, or convenient to isolate. Do not expose internals just to test them.
 
 ## Consumer workflows
 

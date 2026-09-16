@@ -2,9 +2,11 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { once } from "node:events";
 import { Logger } from "@get-halo/logger";
-import type { ConnectionRequest } from "@get-halo/shared/ConnectionRequest";
-import type { OAuthCompletion } from "@get-halo/shared/contract";
-import type { HaloConnectionEvent } from "@get-halo/shared/sessionState";
+import type {
+  ConnectionRequest,
+  OAuthCompletion,
+  HaloConnectionEvent,
+} from "@get-halo/client";
 import { expect, test } from "vitest";
 import { ConnectionService } from "../src/agent/runtime/ConnectionService.js";
 import { handleOAuthCallback } from "../src/server/oauth.js";

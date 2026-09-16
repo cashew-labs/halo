@@ -1,4 +1,4 @@
-import type { ExecToolCall } from "@get-halo/shared/sessionState";
+import type { ExecToolCall } from "@get-halo/client";
 import type { AgentHarnessTool } from "@earendil-works/pi-agent-core";
 import { formatExecuteResult } from "@executor-js/execution/core";
 import { Type } from "typebox";

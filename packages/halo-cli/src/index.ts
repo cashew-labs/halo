@@ -1,4 +1,3 @@
-export { createHaloRpcClient } from "./haloRpcClient.js";
 export {
   cliVersion,
   connectHalo,

@@ -9,7 +9,7 @@ import {
   type HaloMessage,
   type SessionSnapshot,
   type ToolExecution,
-} from "./sessionState.js";
+} from "@get-halo/client";
 
 const emptyUsage = {
   input: 0,
