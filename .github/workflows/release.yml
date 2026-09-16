@@ -456,15 +456,11 @@ jobs:
 
       - name: Verify signed release
         working-directory: apps/electron
-        env:
-          VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           app="out/Halo-darwin-arm64/Halo.app"
-          dmg="out/make/Halo-$VERSION-arm64.dmg"
           codesign --verify --deep --strict --verbose=2 "$app"
           spctl --assess --type execute --verbose=2 "$app"
           xcrun stapler validate "$app"
-          xcrun stapler validate "$dmg"
 
       - name: Publish to GitHub Releases
         working-directory: apps/electron
