@@ -1,9 +1,7 @@
 import { BrowserWindow, ipcMain, type IpcMainInvokeEvent } from "electron";
-import { createORPCClient } from "@orpc/client";
-import { RPCLink } from "@orpc/client/fetch";
 import { Value } from "@sinclair/typebox/value";
 import * as errore from "errore";
-import type { HaloClient } from "@get-halo/shared/contract";
+import { createHaloClient, type HaloClient } from "@get-halo/client";
 import {
   DESKTOP_CHANNEL,
   desktopRequestSchema,
@@ -268,13 +266,13 @@ async function closeOAuthCallback(callback: ListeningLoopbackCallback) {
 }
 
 function createWorkspaceClient(connection: HaloRpcConnection) {
-  const link = new RPCLink({
-    origin: connection.origin,
-    url: connection.path,
-    headers: { authorization: `Bearer ${connection.token}` },
+  return createHaloClient({
+    transport: {
+      origin: connection.origin,
+      path: connection.path,
+      headers: { authorization: `Bearer ${connection.token}` },
+    },
   });
-  // SAFETY: HaloRpcConnection points to the Halo router.
-  return createORPCClient(link) as HaloClient;
 }
 
 function assertTrustedSender(args: {

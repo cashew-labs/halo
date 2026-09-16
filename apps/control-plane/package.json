@@ -11,7 +11,8 @@
     "lint:fix": "NODE_OPTIONS=--experimental-strip-types oxlint --fix src test",
     "format": "oxfmt .",
     "format:check": "oxfmt --check .",
-    "test": "vitest run"
+    "test": "pnpm run test:e2e",
+    "test:e2e": "vitest run"
   },
   "dependencies": {
     "@get-halo/config": "workspace:*",

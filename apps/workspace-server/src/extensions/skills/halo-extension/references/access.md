@@ -8,8 +8,6 @@ Use a private Halo browser for general access without changing the user's app na
 
 Use a standalone preview when you need isolated data for layout work, local API behavior, routing, or write-heavy checks. Standalone tool calls return `halo_not_connected`, so this surface cannot access Halo tools or connected services.
 
-Use the Halo app renderer when the task concerns the exact pane the user sees, including sidebar navigation, iframe framing, or proxy behavior. `halo app` requires a running development build and deliberately operates the user's current Halo window.
-
 ## Access a running extension
 
 List running extensions, then open the selected direct view URL:
@@ -60,19 +58,6 @@ halo browser exec <id> --file checks.js
 
 `--stdin` is also supported.
 
-## Access the extension inside Halo
-
-Use the extension's display name to navigate to its pane and work within its iframe:
-
-```sh
-halo app exec 'await page.getByRole("link", { name: "Calendar", exact: true }).click()'
-halo app exec 'const frame = page.getByTitle("Calendar", { exact: true }).contentFrame(); return await frame.locator("body").innerText()'
-halo app snapshot
-halo app screenshot
-```
-
-Every `exec` receives the live Playwright `page`. Use `contentFrame()` before locating controls inside an extension. Prefer a private browser when the exact Electron presentation is not relevant, because `halo app` changes the user's navigation.
-
 ## Verify behavior
 
 Build success does not verify a rendered workflow. When verification is part of the task, exercise the requested controls, assert the visible result, and inspect runtime errors.
@@ -87,7 +72,7 @@ For synchronized records:
 
 Do not manipulate `store.json` or recreate the sync transport to prove these behaviors.
 
-For hosted workflows, use the running direct URL from `halo extension list` or the pane inside Halo. After a manual rebuild of a running extension, run `halo extension restart <id>` before accessing the new build. In development, `halo extension update <id>` rebuilds and restarts in one command.
+For hosted workflows, use the running direct URL from `halo extension list`. After a manual rebuild of a running extension, run `halo extension restart <id>` before accessing the new build. In development, `halo extension update <id>` rebuilds and restarts in one command.
 
 Assert the actual integration result. For example, a calendar workflow must wait for a successful event request and render the returned events, or visibly establish that a successful response contained no events. A changing date heading alone does not establish calendar access.
 

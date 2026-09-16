@@ -4,7 +4,6 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./connectHaloRpc": "./src/api/connectHaloRpc.ts",
     "./HostApi": "./src/HostApi.ts",
     "./HostProvider": "./src/HostProvider.tsx",
     "./mountHaloApp": "./src/mountHaloApp.tsx",
@@ -18,8 +17,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@get-halo/client": "workspace:*",
     "@get-halo/shared": "workspace:*",
-    "@orpc/client": "2.0.0-beta.29",
     "@pierre/diffs": "^1.3.5",
     "@sinclair/typebox": "^0.34.52",
     "@streamdown/code": "^1.1.1",

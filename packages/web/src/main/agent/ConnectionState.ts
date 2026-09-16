@@ -1,11 +1,9 @@
 import {
   connectionRequestKey,
   type ConnectionRequest,
-} from "@get-halo/shared/ConnectionRequest";
-import type {
-  HaloConnectionEvent,
-  HaloConnectionState,
-} from "@get-halo/shared/sessionState";
+  type HaloConnectionEvent,
+  type HaloConnectionState,
+} from "@get-halo/client";
 
 export type ConnectionState =
   | { status: "idle" | "connected" | "cancelled" | "expired" }

@@ -8,7 +8,8 @@ Halo is an Electron desktop app with a React renderer and Pi in an independent N
 - `apps/electron/src/main`: Electron main process, preload bridge, and server connection discovery.
 - `apps/workspace-server`: Independent workspace and agent service (`@get-halo/workspace-server`).
 - `infra`: [GCP/Pulumi infrastructure](infra/README.md).
-- `packages/halo-cli`: Workspace commands, private browser testing, and debug app control.
+- `packages/halo-cli`: Workspace commands and private browser testing for workspace agents.
+- `packages/dev-cli`: Local development commands, currently Electron app control.
 - `packages/logger`: Shared structured logger.
 - `packages/typescript-config`: Shared TypeScript settings.
 
@@ -19,14 +20,14 @@ Install [pnpm 12](https://pnpm.io/installation) with the standalone script, not 
 ```sh
 curl -fsSL https://get.pnpm.io/install.sh | env PNPM_VERSION=12.1.0 sh -
 pnpm install
-HALO_WORKSPACE_ROOT=/absolute/path/to/workspace pnpm dev
+pnpm dev
 ```
 
 On Linux hosts without a real GPU (including Cursor cloud agents on Xvfb), set `HALO_USE_SWIFTSHADER=1` before starting Halo. The Cursor environment terminal always exports it.
 
 ```sh
 export HALO_USE_SWIFTSHADER=1
-HALO_WORKSPACE_ROOT=/absolute/path/to/workspace pnpm dev
+pnpm dev
 ```
 
 Halo reads model and authentication credentials from GCP Secret Manager at
@@ -34,12 +35,7 @@ runtime using Application Default Credentials. Follow the
 [infrastructure secret setup](infra/README.md#runtime-secrets) before starting
 development.
 
-Choose the workspace when launching the workspace server with
-`HALO_WORKSPACE_ROOT`. `pnpm dev` starts the server and Electron independently.
-Electron discovers the server through `<repo>/.halo/server.json`; closing Electron
-leaves the server running. Both services accept `HALO_USER_DATA` to select a
-different application-data directory. See
-[workspace-server configuration](apps/workspace-server/README.md).
+`pnpm dev` starts the control plane, workspace server, web app, and Electron independently, using `<repo>/tmp/workspace` and `<repo>/tmp/workspace/.halo`. Electron discovers the server through `server.json` in that application-data directory; closing Electron leaves the server running. When launching services individually, use `HALO_WORKSPACE_ROOT` to select the workspace and `HALO_USER_DATA` to select the application-data directory. See [workspace-server configuration](apps/workspace-server/README.md).
 
 Halo runs Pi's `AgentHarness` with one `main` lane per conversation. `HaloServer` owns a `DatabaseClient` that stores Pi conversations and Executor application data in one embedded Turso database. The file currently lives in the selected workspace:
 
@@ -66,16 +62,17 @@ not pass them through renderer IPC or extension process environments.
 
 ## Debug UI control
 
-Development builds expose Electron's Chrome DevTools Protocol on `127.0.0.1:4445`. The CLI attaches with [Libretto Browser Tools](https://libretto.sh/browser-tools) and leaves Halo running:
+Development builds expose Electron's Chrome DevTools Protocol on `127.0.0.1:4445`. The separate `pnpm halo-dev` command uses Electron's local app-control connection to attach with [Libretto Browser Tools](https://libretto.sh/browser-tools) and leaves Halo running. Electron owns this endpoint; the workspace server does not. For the root dev stack:
 
 ```sh
+export HALO_USER_DATA="$PWD/tmp/workspace/.halo"
 pnpm halo status
-pnpm halo app snapshot
-pnpm halo app exec "return await page.locator('body').innerText()"
-pnpm halo app exec "await page.getByRole('button', { name: 'New session' }).click()"
+pnpm halo-dev app snapshot
+pnpm halo-dev app exec "return await page.locator('body').innerText()"
+pnpm halo-dev app exec "await page.getByRole('button', { name: 'New session' }).click()"
 ```
 
-Use `halo browser open <url>` for an isolated extension preview, followed by `halo browser exec <id>`, `snapshot <id>`, `screenshot <id>`, and `close <id>`. Halo owns these browsers and provisions Chromium on first use.
+The `halo` CLI is the workspace-facing command for agents. Use `halo browser open <url>` for an isolated extension preview, followed by `halo browser exec <id>`, `snapshot <id>`, `screenshot <id>`, and `close <id>`. Halo owns these browsers and provisions Chromium on first use.
 
 Pass `--stdin` or `--file checks.js` for longer scripts. Output uses TOON by default; pass `--json` for JSON. Packaged builds do not expose the debug port.
 
@@ -106,16 +103,18 @@ pnpm prerelease 0.1.44
 The command creates `release/0.1.44`, bumps the desktop and production image
 versions, adds `releases/0.1.44.json`, pushes the branch, and opens the PR.
 
-The PR runs the normal repository checks and posts the production Pulumi preview.
-Merging it runs `Release Halo` in this order:
+The PR runs the normal repository checks, all package E2Es (including packaged
+macOS tests), and the production Pulumi preview. `Release ready` requires the
+E2Es and preview to pass before merge. E2Es run without Turbo cache reuse and
+without affected-package filtering, so a version-only PR still tests the full release.
+Merging it runs `Release Halo` in this order, without rerunning E2Es:
 
-1. Run the packaged macOS tests.
-2. Build versioned control-plane and workspace images.
-3. Apply the production Pulumi stack.
-4. Check the control-plane health endpoint.
-5. Recreate each workspace VM while preserving its durable data disk.
-6. Create the matching tag and GitHub Release.
-7. Build, sign, notarize, and publish the desktop application.
+1. Build versioned control-plane and workspace images.
+2. Apply the production Pulumi stack.
+3. Check the control-plane health endpoint.
+4. Recreate each workspace VM while preserving its durable data disk.
+5. Create the matching tag and GitHub Release.
+6. Build, sign, notarize, and publish the desktop application.
 
 Packaged macOS and Windows builds check for updates through [update.electronjs.org](https://update.electronjs.org), which reads those GitHub Releases. macOS builds are signed and notarized in CI.
 
@@ -149,16 +148,30 @@ The identity needs access to the Pulumi state bucket and KMS key, permission to
 submit the existing Cloud Build configurations, and the GCP permissions required
 by the production Pulumi stack. Require PR review and `Check / check-affected`
 plus `Release Halo / Release ready` through the `main` branch ruleset. The
-second check is lightweight for ordinary PRs and requires a successful Pulumi
-preview for release PRs. For security, release PRs must use a `release/*` branch
+second check is lightweight for ordinary PRs and requires successful E2Es and a
+Pulumi preview for release PRs. For security, release PRs must use a `release/*` branch
 in this repository; forks cannot access the production preview identity.
 
 ## Checks
 
 Pull requests and pushes to `main` run `pnpm run check-affected` on GitHub Actions (`Check / check-affected`).
+This runs lint, typechecking, formatting checks, and unit tests for affected
+packages. It does not run E2Es or package Electron.
 
 ```sh
 pnpm run check-affected
 ```
+
+Run E2Es for affected packages separately:
+
+```sh
+pnpm run test:e2e
+```
+
+For a focused run, use the package's `test:e2e` command. Desktop E2Es also offer
+`test:e2e:build` and `test:e2e:run <test-file> --workers=1` to reuse a build and
+limit CPU usage. CI runs E2Es only on release PRs, using `pnpm run test:e2e:release`
+to run every package suite, including packaged Electron. Ordinary PRs and
+post-merge release jobs do not run E2Es.
 
 Tests do not call a paid model.

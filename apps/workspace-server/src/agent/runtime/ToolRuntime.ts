@@ -59,9 +59,11 @@ import {
 } from "quickjs-emscripten";
 import * as errore from "errore";
 import type { GoogleWebOAuthClient } from "@get-halo/config/workspaceServer";
-import type { ConnectionRequest } from "@get-halo/shared/ConnectionRequest";
-import type { OAuthCompletion } from "@get-halo/shared/contract";
-import type { ToolIdentity } from "@get-halo/shared/sessionState";
+import type {
+  ConnectionRequest,
+  OAuthCompletion,
+  ToolIdentity,
+} from "@get-halo/client";
 import { createExecutorDatabase } from "./createExecutorDatabase.js";
 import type { DatabaseClient } from "../../storage/DatabaseClient.js";
 import type {

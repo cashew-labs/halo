@@ -24,12 +24,12 @@ import { sessionViewItems, type SessionViewItem } from "./sessionView.ts";
 import {
   sessionMessages,
   type SessionSnapshot,
-} from "@get-halo/shared/sessionState";
+  type SessionSummary,
+} from "@get-halo/client";
 import { AssistantMessage } from "./AssistantMessage.tsx";
 import { Editor } from "./Editor.tsx";
 import { ExecutorConnectionCard } from "./ExecutorConnectionCard.tsx";
 import { ToolActivity } from "./ToolActivity.tsx";
-import { type SessionSummary } from "@get-halo/shared/rpc";
 import { PaneHeader } from "../PaneHeader.tsx";
 
 export function AgentPane({

@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { Cli, z } from "incur";
 import * as errore from "errore";
-import type { HaloClient } from "@get-halo/shared/contract";
+import type { HaloClient } from "@get-halo/client";
 import { connectHalo, type HaloRpcEnv } from "./connectHalo.js";
 
 class BrowserCommandError extends errore.createTaggedError({
@@ -60,25 +60,6 @@ async function request<T>(
   );
 }
 
-async function execute(input: {
-  source?: string;
-  file?: string;
-  stdin?: boolean;
-  id?: string;
-  env: HaloRpcEnv;
-}) {
-  const code = await readSource(input);
-  if (code instanceof Error) return code;
-  if (code.trim().length === 0)
-    return new BrowserCommandError({ detail: "The script cannot be empty." });
-  const browserId = input.id;
-  return await request(input.env, async (client) =>
-    browserId === undefined
-      ? await client.app.exec({ source: code })
-      : await client.browser.exec({ id: browserId, source: code }),
-  );
-}
-
 export const browser = Cli.create("browser", {
   description:
     "Access URLs in private browser sessions; browser state survives exec calls",
@@ -117,7 +98,19 @@ export const browser = Cli.create("browser", {
     options: scriptOptions,
     env,
     async run(c) {
-      const result = await execute({ ...c.args, ...c.options, env: c.env });
+      const code = await readSource({ ...c.args, ...c.options });
+      if (code instanceof Error)
+        return c.error({ code: "BROWSER", message: code.message });
+      if (code.trim().length === 0)
+        return c.error({
+          code: "BROWSER",
+          message: "The script cannot be empty.",
+        });
+      const result = await request(
+        c.env,
+        async (client) =>
+          await client.browser.exec({ id: c.args.id, source: code }),
+      );
       if (result instanceof Error)
         return c.error({ code: "BROWSER", message: result.message });
       return c.ok(result);
@@ -163,47 +156,5 @@ export const browser = Cli.create("browser", {
       if (result instanceof Error)
         return c.error({ code: "BROWSER", message: result.message });
       return c.ok({ closed: c.args.id });
-    },
-  });
-
-export const app = Cli.create("app", {
-  description: "Explicitly control the user's running Halo debug renderer",
-})
-  .command("exec", {
-    description: "Run Playwright code against Halo's renderer",
-    args: z.object({ source }),
-    options: scriptOptions,
-    env,
-    async run(c) {
-      const result = await execute({ ...c.args, ...c.options, env: c.env });
-      if (result instanceof Error)
-        return c.error({ code: "BROWSER", message: result.message });
-      return c.ok(result);
-    },
-  })
-  .command("snapshot", {
-    description: "Read Halo's accessibility tree",
-    env,
-    async run(c) {
-      const result = await request(
-        c.env,
-        async (client) => await client.app.snapshot(),
-      );
-      if (result instanceof Error)
-        return c.error({ code: "BROWSER", message: result.message });
-      return c.ok(result);
-    },
-  })
-  .command("screenshot", {
-    description: "Save a screenshot of Halo in the workspace",
-    env,
-    async run(c) {
-      const result = await request(
-        c.env,
-        async (client) => await client.app.screenshot(),
-      );
-      if (result instanceof Error)
-        return c.error({ code: "BROWSER", message: result.message });
-      return c.ok(result);
     },
   });

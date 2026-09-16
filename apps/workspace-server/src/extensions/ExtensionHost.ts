@@ -6,7 +6,7 @@ import {
   FilesystemPathNotFoundError,
   type FilesystemService,
 } from "../filesystem/FilesystemService.js";
-import type { ExtensionSummary } from "@get-halo/shared/contract";
+import type { ExtensionSummary } from "@get-halo/client";
 import { SerialQueue } from "@get-halo/shared/SerialQueue";
 import { readExtensionManifest } from "./readExtensionManifest.js";
 import { startExtension, type ExtensionRuntime } from "./startExtension.js";

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { Cli, z } from "incur";
-import { browser, app } from "./browser.js";
+import { browser } from "./browser.js";
 import { extension } from "./extension.js";
 import { cliVersion, connectHalo } from "./connectHalo.js";
 import { HaloRpcFileError } from "./HaloRpcFile.js";
@@ -23,7 +23,7 @@ const haloVersion = cliVersion();
 
 async function main() {
   await Cli.create("halo", {
-    description: "Talk to a running Halo app",
+    description: "Work with a running Halo workspace",
     version: haloVersion === undefined ? "dev" : haloVersion,
   })
     .command("status", {
@@ -62,7 +62,6 @@ async function main() {
     })
     .command(extension)
     .command(browser)
-    .command(app)
     .serve();
 }
 

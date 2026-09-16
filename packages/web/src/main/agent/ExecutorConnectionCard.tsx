@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { background, Button, Flex, radius, shadow, Spacer, Text } from "maui";
 import { style, useStyles } from "purse-styles";
-import { connectionRequestLabel } from "@get-halo/shared/ConnectionRequest";
+import { connectionRequestLabel } from "@get-halo/client";
 import { useHost } from "../../HostProvider.js";
 import { BrandLogo, brands } from "../../BrandLogo.tsx";
 import {

@@ -23,7 +23,8 @@
     "typecheck": "pnpm run build && tsc --noEmit",
     "lint": "NODE_OPTIONS=--experimental-strip-types oxlint --deny-warnings src test",
     "format:check": "oxfmt --check .",
-    "test": "pnpm --filter @get-halo/extension-sdk build && pnpm run build && playwright test"
+    "test": "pnpm run test:e2e",
+    "test:e2e": "pnpm --filter @get-halo/extension-sdk build && pnpm run build && playwright test"
   },
   "dependencies": {
     "errore": "^0.14.1",

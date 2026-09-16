@@ -1,4 +1,4 @@
 import { mountHaloApp } from "@get-halo/web/mountHaloApp";
-import { electronHost } from "./ElectronHost.js";
+import { ElectronHost } from "./ElectronHost.js";
 
-mountHaloApp(document.getElementById("root")!, electronHost);
+mountHaloApp(document.getElementById("root")!, new ElectronHost());

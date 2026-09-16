@@ -1,6 +1,6 @@
 import { isUtf8 } from "node:buffer";
 import { extname } from "node:path";
-import type { WorkspaceFilePreview } from "@get-halo/shared/rpc";
+import type { WorkspaceFilePreview } from "@get-halo/client";
 
 const mediaTypes = new Map<
   string,

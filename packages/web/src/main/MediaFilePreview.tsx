@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import type { WorkspaceFilePreview } from "@get-halo/shared/rpc";
+import type { WorkspaceFilePreview } from "@get-halo/client";
 import { flex, spacing, text } from "maui";
 import { style, useStyles } from "purse-styles";
 

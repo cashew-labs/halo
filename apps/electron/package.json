@@ -28,6 +28,7 @@
   },
   "dependencies": {
     "@get-halo/cli": "workspace:*",
+    "@get-halo/client": "workspace:*",
     "@get-halo/config": "workspace:*",
     "@get-halo/logger": "workspace:*",
     "@get-halo/shared": "workspace:*",
@@ -55,8 +56,10 @@
     "@electron-forge/plugin-vite": "^7.11.2",
     "@electron-forge/publisher-github": "^7.11.2",
     "@electron-forge/shared-types": "^7.11.2",
+    "@get-halo/app-control": "workspace:*",
     "@get-halo/extension-tools": "workspace:*",
     "@get-halo/typescript-config": "workspace:*",
+    "@orpc/server": "2.0.0-beta.29",
     "@playwright/test": "1.62.1",
     "@types/electron-squirrel-startup": "^1.0.2",
     "@types/node": "^22.20.1",
@@ -67,6 +70,7 @@
     "better-auth": "1.7.4",
     "electron": "^44.0.0",
     "execa": "9.6.1",
+    "libretto-browser-tools": "^0.1.2",
     "playwright": "1.62.1",
     "vite": "^8.2.2",
     "vitest": "^4.1.11"

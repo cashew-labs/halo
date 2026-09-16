@@ -1,6 +1,5 @@
-import { createHaloRpcClient } from "@get-halo/cli";
 import { HaloServer, type HaloServerOptions } from "@get-halo/workspace-server";
-import type { HaloClient } from "@get-halo/shared/contract";
+import { createHaloClient, type HaloClient } from "@get-halo/client";
 import path from "node:path";
 import { FileCredentialVault } from "../src/agent/runtime/FileCredentialVault.js";
 import type { TestArtifacts } from "./TestArtifacts.js";
@@ -71,15 +70,21 @@ export class TestServer {
     this.listenPort = halo.connections.cli.port;
     this.current = {
       halo,
-      rpc: createHaloRpcClient<HaloClient>({
-        version: 1,
-        ...halo.connections.cli,
-        host: "127.0.0.1",
+      rpc: createHaloClient({
+        transport: {
+          origin: `http://127.0.0.1:${halo.connections.cli.port}`,
+          path: "/rpc",
+          headers: { authorization: `Bearer ${halo.connections.cli.token}` },
+        },
       }),
-      rendererRpc: createHaloRpcClient<HaloClient>({
-        version: 1,
-        ...halo.connections.renderer,
-        host: "127.0.0.1",
+      rendererRpc: createHaloClient({
+        transport: {
+          origin: `http://127.0.0.1:${halo.connections.renderer.port}`,
+          path: "/rpc",
+          headers: {
+            authorization: `Bearer ${halo.connections.renderer.token}`,
+          },
+        },
       }),
     };
   }

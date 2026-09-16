@@ -1,12 +1,9 @@
 import { createORPCClient, onError, ORPCError } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
 import * as errore from "errore";
-import {
-  haloProtocolVersion,
-  type HaloClient,
-} from "@get-halo/shared/contract";
+import { haloProtocolVersion, type HaloClient } from "./contract.js";
 
-type HaloRpcTransport = {
+export type HaloRpcTransport = {
   origin: string;
   path: `/${string}`;
   headers: Record<string, string>;
@@ -23,14 +20,17 @@ export class IncompatibleServerError extends errore.createTaggedError({
     "Halo protocol $clientProtocolVersion cannot use server protocol $serverProtocolVersion.",
 }) {}
 
-export async function connectHaloRpc({
+type HaloClientOptions = {
+  transport: HaloRpcTransport;
+  onDisconnect?: (error: Error) => void;
+};
+
+export function createHaloClient({
   transport,
   onDisconnect,
-}: {
-  transport: HaloRpcTransport;
-  onDisconnect: (error: Error) => void;
-}): Promise<Error | HaloClient> {
+}: HaloClientOptions): HaloClient {
   const reportDisconnect = (cause: unknown) => {
+    if (onDisconnect === undefined) return;
     if (errore.isAbortError(cause)) return;
     if (
       cause instanceof ORPCError &&
@@ -46,9 +46,13 @@ export async function connectHaloRpc({
     headers: transport.headers,
   });
   // SAFETY: The host configures this transport for the Halo router.
-  const client = createORPCClient(link, {
+  return createORPCClient(link, {
     interceptors: [onError(reportDisconnect)],
   }) as HaloClient;
+}
+
+export async function connectHaloClient(options: HaloClientOptions) {
+  const client = createHaloClient(options);
   const info = await client.server
     .info()
     .catch((cause) => new HaloRpcConnectionError({ cause }));
@@ -59,5 +63,5 @@ export async function connectHaloRpc({
       serverProtocolVersion: info.protocolVersion,
     });
   }
-  return client;
+  return { client, serverInfo: info };
 }

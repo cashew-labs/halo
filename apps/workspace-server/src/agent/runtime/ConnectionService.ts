@@ -4,16 +4,12 @@ import * as errore from "errore";
 import {
   connectionRequestKey,
   type ConnectionRequest,
-} from "@get-halo/shared/ConnectionRequest";
-import type {
-  ConnectionStarted,
-  OAuthCompletion,
-} from "@get-halo/shared/contract";
-import {
+  type ConnectionStarted,
+  type OAuthCompletion,
   applyConnectionEvent,
   type HaloConnectionEvent,
   type HaloConnectionState,
-} from "@get-halo/shared/sessionState";
+} from "@get-halo/client";
 
 export class ConnectionSessionMismatchError extends errore.createTaggedError({
   name: "ConnectionSessionMismatchError",
