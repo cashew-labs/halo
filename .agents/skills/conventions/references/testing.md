@@ -33,7 +33,7 @@ test("starts sign-in", async ({ controlPlane }) => {
 
 Use the real package and its local dependencies. A frontend that needs a server starts and connects to it. Control unavailable external systems, such as OAuth or inference, at their host boundary; do not mock internal services.
 
-Expose the consumer API and relevant external drivers, such as a second client or provider server. Add drivers for tested behavior, not hypothetical needs. Keep test-only setup in the fixture or test host, outside the product protocol.
+Expose the consumer API and relevant external drivers, such as a second client or provider server. Add drivers for tested behavior, not hypothetical needs. Prepare specific states through semantic test operations rather than writing internal database records. A runtime-gated `testApi` on the normal client contract is a valid setup surface: enable it explicitly for tests, keep it disabled in normal use, and assert results through the ordinary consumer API or UI. Do not add separate hosts, clients, or transports merely to distinguish test setup.
 
 ## Assert what the consumer experiences
 

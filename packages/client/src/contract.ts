@@ -1,4 +1,4 @@
-import type { WorkspaceFilePreview, HaloMessage } from "./rpc.js";
+import type { WorkspaceFilePreview } from "./rpc.js";
 import {
   asyncIteratorObject,
   error,
@@ -11,6 +11,7 @@ import type {
   SessionWatchItem,
   SessionSnapshot,
   ToolIdentity,
+  HaloMessage,
 } from "./sessionState.js";
 import type {
   SessionSummary,
@@ -141,8 +142,8 @@ export const contract = publicProcedure.router({
     abort: oc.input(type<{ sessionId: string }>()),
     close: oc.input(type<{ sessionId: string }>()),
   },
-  testHarness: {
-    loadSession: oc
+  testApi: {
+    seedSession: oc
       .input(type<{ title: string; messages: HaloMessage[] }>())
       .output(type<{ sessionId: string }>()),
     invokeTool: oc

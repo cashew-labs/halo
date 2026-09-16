@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/server/HaloServer.ts",
+    ".": "./src/server/WorkspaceServer.ts",
     "./agent": "./src/agent.ts",
     "./cli": "./src/cli.ts",
     "./filesystem": "./src/filesystem.ts",

@@ -1,6 +1,6 @@
 # Inference dependency
 
-`HaloServer.start({ llmApi, ... })` requires an `LLMApi` supplied by its host. It creates one Pi `ModelRuntime` backed by that API and shares it across sessions. Sessions do not discover providers, select a default model, or load model credentials.
+`WorkspaceServer.start({ llmApi, ... })` requires an `LLMApi` supplied by its host. It creates one Pi `ModelRuntime` backed by that API and shares it across sessions. Sessions do not discover providers, select a default model, or load model credentials.
 
 `LLMApi` exposes the assigned model's metadata and `stream(context, options)`, using Pi's existing message and event types. The implementation owns inference transport and authentication. Forward cancellation through `options.signal`. Halo continues to own tools, conversation state, and persistence. There is no model-selection or model-list API yet.
 
