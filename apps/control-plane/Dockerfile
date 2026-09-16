@@ -13,7 +13,7 @@ COPY packages/web ./packages/web
 COPY apps/control-plane ./apps/control-plane
 COPY apps/web-app ./apps/web-app
 RUN pnpm install --frozen-lockfile --filter @get-halo/control-plane... --filter @get-halo/web-app...
-RUN pnpm --filter @get-halo/web-app build
+RUN PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm --filter @get-halo/web-app build
 
 ENV NODE_ENV=production
 USER node

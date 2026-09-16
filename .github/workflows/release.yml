@@ -1,6 +1,12 @@
 name: Release Halo
 
 on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Existing deployed release version to publish
+        required: true
+        type: string
   pull_request:
   push:
     branches:
@@ -9,7 +15,7 @@ on:
       - "releases/*.json"
 
 concurrency:
-  group: ${{ github.event_name == 'push' && 'halo-production' || format('halo-release-pr-{0}', github.event.pull_request.number) }}
+  group: ${{ github.event_name != 'pull_request' && 'halo-production' || format('halo-release-pr-{0}', github.event.pull_request.number) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -34,8 +40,21 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          REQUESTED_VERSION: ${{ inputs.version }}
         shell: bash
         run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            manifest="releases/$REQUESTED_VERSION.json"
+            version="$(node releases/validateRelease.mjs "$manifest")"
+            if [ "$version" != "$REQUESTED_VERSION" ]; then
+              echo "Release manifest version $version does not match requested version $REQUESTED_VERSION"
+              exit 1
+            fi
+            echo "is_release=true" >> "$GITHUB_OUTPUT"
+            echo "version=$version" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           mapfile -t manifests < <(git diff --diff-filter=A --name-only "$BASE_SHA" "$HEAD_SHA" -- "releases/*.json")
           if [ "${#manifests[@]}" -eq 0 ] && [ "${{ github.event_name }}" = "pull_request" ]; then
             echo "is_release=false" >> "$GITHUB_OUTPUT"
@@ -292,11 +311,12 @@ jobs:
               exit 1
             fi
 
-            metadata=(--metadata "halo-owner-user-id=$owner_user_id")
+            metadata=("halo-owner-user-id=$owner_user_id")
             while IFS=$'\t' read -r key value; do
-              metadata+=(--metadata "$key=$value")
+              metadata+=("$key=$value")
             done < <(jq -r '.properties.metadata.items[] | select(.key != "startup-script" and .key != "halo-owner-user-id") | [.key, .value] | @tsv' \
               <<< "$template_details")
+            metadata_csv="$(IFS=,; echo "${metadata[*]}")"
 
             gcloud compute instances delete "$instance" \
               --project="$PROJECT" --zone="$ZONE" --keep-disks=data --quiet
@@ -305,7 +325,7 @@ jobs:
               --zone="$ZONE" \
               --source-instance-template="$template" \
               --labels="halo-workspace-id=$workspace_id" \
-              "${metadata[@]}" \
+              --metadata="$metadata_csv" \
               --metadata-from-file="startup-script=$startup_script" \
               --disk="name=$disk,device-name=halo-workspace,mode=rw,boot=no,auto-delete=no"
 
@@ -372,7 +392,7 @@ jobs:
 
   release:
     name: Create GitHub Release
-    if: github.event_name == 'push'
+    if: always() && needs.prepare.result == 'success' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && needs.deploy.result == 'success'))
     needs: [prepare, deploy]
     runs-on: ubuntu-latest
     permissions:
@@ -398,10 +418,10 @@ jobs:
 
   publish:
     name: Publish macOS
-    if: github.event_name == 'push'
+    if: always() && needs.prepare.result == 'success' && needs.release.result == 'success' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     needs: [prepare, release]
     environment: Release
-    runs-on: macos-latest
+    runs-on: macos-15
     permissions:
       contents: write
     steps:
@@ -436,11 +456,25 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Publish to GitHub Releases
+      - name: Build signed release
         working-directory: apps/electron
         env:
           GITHUB_TOKEN: ${{ github.token }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
-        run: pnpm run publish
+        run: pnpm exec electron-forge publish --dry-run
+
+      - name: Verify signed release
+        working-directory: apps/electron
+        run: |
+          app="out/Halo-darwin-arm64/Halo.app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          spctl --assess --type execute --verbose=2 "$app"
+          xcrun stapler validate "$app"
+
+      - name: Publish to GitHub Releases
+        working-directory: apps/electron
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: pnpm exec electron-forge publish --from-dry-run
