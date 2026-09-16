@@ -230,6 +230,9 @@ importers:
       errore:
         specifier: ^0.14.1
         version: 0.14.1
+      google-auth-library:
+        specifier: ^11.0.2
+        version: 11.0.2(supports-color@8.1.1)
       maui:
         specifier: npm:@tanishqkancharla/maui@0.0.19
         version: '@tanishqkancharla/maui@0.0.19(@babel/runtime@7.29.7)(@codemirror/search@6.7.1)(@codemirror/theme-one-dark@6.1.3)(@floating-ui/dom@1.8.0)(@tiptap/core@3.29.2(@tiptap/pm@3.29.2))(@tiptap/extensions@3.29.2(@tiptap/core@3.29.2(@tiptap/pm@3.29.2))(@tiptap/pm@3.29.2))(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(codemirror@6.0.2)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(supports-color@8.1.1)'
