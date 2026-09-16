@@ -23,6 +23,22 @@ export class BashTimeoutError
   }
 }
 
+export class BashTimeoutLimitError
+  extends errore.createTaggedError({
+    name: "BashTimeoutLimitError",
+    message: "Timeout $timeoutMs ms is longer than 10 minutes",
+  })
+  implements UserActionableError
+{
+  readonly __executorUserActionable = true as const;
+  readonly code = "timeout_limit";
+  get userMessage() {
+    return this.message;
+  }
+}
+
+export const maxBashTimeoutMs = 10 * 60 * 1_000;
+
 type BashProcessError = BashRunError | BashTimeoutError;
 
 export async function runBash(
@@ -42,6 +58,9 @@ export async function runBash(
   }
 
   const limitMs = timeoutMs === undefined ? 10_000 : timeoutMs;
+  if (limitMs > maxBashTimeoutMs) {
+    return new BashTimeoutLimitError({ timeoutMs: limitMs });
+  }
 
   return await new Promise<
     { stdout: string; stderr: string; code: number | null } | BashProcessError

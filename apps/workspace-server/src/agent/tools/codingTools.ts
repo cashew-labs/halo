@@ -4,6 +4,7 @@ import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { type TSchema, Type } from "typebox";
 import type { FilesystemService } from "../../filesystem/FilesystemService.js";
 import type { AgentAuthority } from "../runtime/AgentAuthority.js";
+import { BashTimeoutLimitError, maxBashTimeoutMs } from "./bash/run.js";
 import { editFile } from "./files/edit.js";
 import { patchFiles } from "./files/patch.js";
 import { readFile } from "./files/read.js";
@@ -78,15 +79,16 @@ export function createAuthorizedCodingTools(input: {
         ...bash,
         description: bash.description.replace(
           "Optionally provide a timeout in seconds.",
-          "Timeout defaults to 10 seconds.",
+          "Timeout defaults to 10 seconds. Maximum 10 minutes.",
         ),
         async execute(id, params, signal, onUpdate) {
+          const timeout = params.timeout === undefined ? 10 : params.timeout;
+          if (timeout > maxBashTimeoutMs / 1_000) {
+            throw new BashTimeoutLimitError({ timeoutMs: timeout * 1_000 });
+          }
           return await bash.execute(
             id,
-            {
-              ...params,
-              timeout: params.timeout === undefined ? 10 : params.timeout,
-            },
+            { ...params, timeout },
             signal,
             onUpdate,
           );

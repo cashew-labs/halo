@@ -1,13 +1,14 @@
 import { Type } from "@sinclair/typebox";
 import { defineHaloTool, type HaloToolPlugin } from "../HaloToolPlugin.js";
-import { runBash } from "./run.js";
+import { maxBashTimeoutMs, runBash } from "./run.js";
 
 const runInput = Type.Object({
   command: Type.String(),
   timeoutMs: Type.Optional(
     Type.Integer({
       minimum: 1,
-      description: "Timeout in milliseconds. Defaults to 10000.",
+      maximum: maxBashTimeoutMs,
+      description: `Timeout in milliseconds. Defaults to 10000. Maximum ${maxBashTimeoutMs} (10 minutes).`,
     }),
   ),
 });
@@ -19,7 +20,7 @@ export const workspaceBashPlugin: HaloToolPlugin = {
     defineHaloTool({
       name: "run",
       description:
-        "Run a Bash command in the active Halo workspace. Timeout defaults to 10 seconds.",
+        "Run a Bash command in the active Halo workspace. Timeout defaults to 10 seconds. Maximum 10 minutes.",
       inputSchema: runInput,
       requiredCapabilities: ["workspace.shell.execute"],
       execute: async (input, context) => {
