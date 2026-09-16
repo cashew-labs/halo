@@ -863,3 +863,92 @@ e2eTest(
     await expect(expand).toBeVisible();
   },
 );
+
+e2eTest("uses a dismissible sidebar on small screens", async ({ app }) => {
+  const page = app.page;
+  await expect(page.getByRole("main", { name: "New session" })).toBeVisible();
+  await app.server.rpc.workspace.writeFile({
+    path: "Mobile notes.md",
+    content: "# Mobile notes\n\nA full-width page.",
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.reload();
+  const open = page.getByRole("button", { name: "Open sidebar", exact: true });
+  const drawer = page.getByRole("dialog", { name: "Workspace navigation" });
+  await expect(open).toBeVisible();
+  await expect(drawer).toHaveCount(0);
+  await page.getByLabel("Message", { exact: true }).fill("Keep this draft");
+  await open.click();
+  await expect(drawer).toBeVisible();
+  await expect(
+    drawer.getByRole("button", { name: "New session", exact: true }),
+  ).toHaveCount(0);
+  await expect
+    .poll(
+      async () =>
+        await page
+          .getByRole("main")
+          .evaluate((element) => element.closest("[inert]") !== null),
+    )
+    .toBe(true);
+  await page.keyboard.press("Escape");
+  await expect(drawer).toHaveCount(0);
+  await expect(open).toBeFocused();
+  await expect(page.getByLabel("Message", { exact: true })).toHaveText(
+    "Keep this draft",
+  );
+
+  await open.click();
+  await drawer
+    .getByRole("link", { name: "Mobile notes.md", exact: true })
+    .click();
+  await expect(drawer).toHaveCount(0);
+  await expect(
+    page.getByRole("main", { name: "Mobile notes.md" }),
+  ).toBeVisible();
+  await open.click();
+  await drawer
+    .getByRole("link", { name: "Mobile notes.md", exact: true })
+    .click();
+  await expect(drawer).toHaveCount(0);
+
+  for (const width of [320, 390, 700]) {
+    await page.setViewportSize({ width, height: 844 });
+    expect(
+      await page.getByRole("main").evaluate((element) => element.clientWidth),
+    ).toBe(width);
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth),
+    ).toBe(width);
+    await open.click();
+    await expect(drawer).toBeVisible();
+    await page.mouse.click(width - 10, 100);
+    await expect(drawer).toHaveCount(0);
+  }
+
+  const newSession = page
+    .locator("header")
+    .getByRole("button", { name: "New session", exact: true });
+  await expect(newSession).toHaveText("");
+  await newSession.click();
+  await expect(drawer).toHaveCount(0);
+  await expect(page.getByRole("main", { name: "New session" })).toBeVisible();
+  await open.click();
+  await drawer
+    .getByRole("button", { name: "Close sidebar", exact: true })
+    .click();
+  await expect(drawer).toHaveCount(0);
+  await open.click();
+  await page.setViewportSize({ width: 1024, height: 844 });
+  await expect(drawer).toHaveCount(0);
+  await expect(open).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "New session", exact: true }),
+  ).toBeVisible();
+  expect(
+    await page.getByRole("main").evaluate((element) => element.clientWidth),
+  ).toBe(784);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(open).toBeVisible();
+  await expect(drawer).toHaveCount(0);
+});
