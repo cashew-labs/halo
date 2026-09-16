@@ -1,6 +1,7 @@
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { EventEmitter, once } from "node:events";
+import { buffer } from "node:stream/consumers";
 import * as errore from "errore";
 
 class HttpServiceError extends errore.createTaggedError({
@@ -9,12 +10,26 @@ class HttpServiceError extends errore.createTaggedError({
 }) {}
 
 export class HttpService {
-  private readonly requests = new Map<string, http.ServerResponse>();
+  private readonly requests = new Map<
+    string,
+    {
+      response: http.ServerResponse;
+      headers: http.IncomingHttpHeaders;
+      body: Promise<Buffer | HttpServiceError>;
+    }
+  >();
   private readonly incoming = new EventEmitter();
 
   private constructor(private readonly server: http.Server) {
     server.on("request", (request, response) => {
-      this.requests.set(request.url!, response);
+      this.requests.set(request.url!, {
+        response,
+        headers: request.headers,
+        body: buffer(request).catch(
+          (cause) =>
+            new HttpServiceError({ operation: "read request body", cause }),
+        ),
+      });
       this.incoming.emit("request");
     });
   }
@@ -46,9 +61,15 @@ export class HttpService {
       );
       if (received instanceof Error) throw received;
     }
-    const response = this.requests.get(path)!;
+    const { response, headers, body } = this.requests.get(path)!;
     this.requests.delete(path);
     return {
+      headers,
+      async body() {
+        const received = await body;
+        if (received instanceof Error) throw received;
+        return received;
+      },
       respond(
         text: string,
         options?: { contentType?: string; status?: number },

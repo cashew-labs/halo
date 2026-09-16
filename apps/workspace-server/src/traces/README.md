@@ -90,3 +90,28 @@ To inspect a downloaded run:
 ```sh
 gzip -dc <traceId>.jsonl.gz | jq .
 ```
+
+## GCP host
+
+Set `traceBucket` in the workspace-server JSON configuration. For local
+development, opt into uploading with `HALO_TRACE_BUCKET`; otherwise traces stay
+local. The standalone host constructs `GcsTraceUploader` with Application Default
+Credentials. GCP VMs use their attached service account, with no stored upload key.
+
+The uploader sends a media upload with `ifGenerationMatch=0`. A successful response
+or GCS's `412` response for an existing immutable object acknowledges the local
+file. Other responses or transport failures leave it pending. Each HTTP upload
+has a 20-second timeout; the service retries from the durable file on its next pass.
+The bucket stores gzip bytes with `application/gzip` rather than HTTP content
+encoding, so downloading preserves the archive bytes.
+
+Pulumi creates `halo-relay-halo-west-traces` in `us-west2` on the production
+`west` stack. It grants workspace identities only `roles/storage.objectCreator`.
+The bucket blocks public access, has no lifecycle expiry, retains soft-deleted
+objects for 30 days, and is protected from Pulumi deletion. Readers use separately
+authorized operator credentials; workspace agents cannot read other users' traces.
+
+```sh
+gcloud storage ls --recursive gs://halo-relay-halo-west-traces/v1/workspaces/
+gcloud storage cp gs://halo-relay-halo-west-traces/v1/workspaces/WORKSPACE/sessions/SESSION/TRACE.jsonl.gz ./
+```

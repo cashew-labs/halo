@@ -197,7 +197,7 @@ export class TraceService {
     const compressed = await pipeline(
       createReadStream(source),
       createGzip(),
-      createWriteStream(`${destination}.tmp`, { mode: 0o600 }),
+      createWriteStream(`${destination}.tmp`, { mode: 0o600, flush: true }),
     ).catch(
       (cause) => new TraceStorageError({ operation: "compress run", cause }),
     );

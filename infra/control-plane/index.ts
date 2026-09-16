@@ -122,6 +122,29 @@ const workspaceRuntime = new gcp.serviceaccount.Account("workspace-runtime", {
   accountId: `${name}-workspace`,
   displayName: `Halo workspace runtime ${pulumi.getStack()}`,
 });
+const traces = new gcp.storage.Bucket(
+  "agent-traces",
+  {
+    name: `${project}-${name}-traces`,
+    project,
+    location: region,
+    storageClass: "STANDARD",
+    uniformBucketLevelAccess: true,
+    publicAccessPrevention: "enforced",
+    forceDestroy: false,
+    // Traces have no expiration; soft delete only controls recovery after deletion.
+    softDeletePolicy: { retentionDurationSeconds: 30 * 24 * 60 * 60 },
+  },
+  { protect: true },
+);
+const workspaceTraceAccess = new gcp.storage.BucketIAMMember(
+  "workspace-trace-writer",
+  {
+    bucket: traces.name,
+    role: "roles/storage.objectCreator",
+    member: pulumi.interpolate`serviceAccount:${workspaceRuntime.email}`,
+  },
+);
 const workspaceImageAccess = new gcp.artifactregistry.RepositoryIamMember(
   "workspace-image-reader",
   {
@@ -208,6 +231,7 @@ const workspaceTemplate = new gcp.compute.InstanceTemplate(
       "enable-oslogin": "TRUE",
       "block-project-ssh-keys": "TRUE",
       "halo-control-plane-service-account": runtime.email,
+      "halo-trace-bucket": traces.name,
     },
     metadataStartupScript: workspaceStartup({
       gateway: true,
@@ -223,6 +247,7 @@ const workspaceTemplate = new gcp.compute.InstanceTemplate(
     dependsOn: [
       workspaceImageAccess,
       workspaceInferenceAccess,
+      workspaceTraceAccess,
       workspaceLogAccess,
       workspaceGoogleWebClientIdAccess,
       workspaceGoogleWebClientSecretAccess,
@@ -467,6 +492,7 @@ export const buildSourceBucket = sources.name;
 export const buildServiceAccount = builder.name;
 export const controlPlaneServiceAccount = runtime.email;
 export const workspaceServiceAccount = workspaceRuntime.email;
+export const traceBucket = traces.name;
 export const workspaceInstanceTemplate = workspaceTemplate.selfLink;
 export const workspaceZone = zone;
 export const controlPlaneDatabaseConnectionName =

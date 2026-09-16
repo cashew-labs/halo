@@ -9,7 +9,8 @@ import {
   removeWorkspaceServerConnection,
 } from "@get-halo/shared/WorkspaceServerConnection";
 import * as errore from "errore";
-import { HaloServer } from "./server/HaloServer.js";
+import { HaloServer, GcsTraceUploader } from "./server/HaloServer.js";
+import { GoogleAuth } from "google-auth-library";
 import { writeHaloRpcFile, removeHaloRpcFile } from "./server/haloRpcFile.js";
 import type { WorkspaceServerReady } from "./server/WorkspaceServerReady.js";
 import { FileCredentialVault } from "./agent/runtime/FileCredentialVault.js";
@@ -57,6 +58,16 @@ async function run() {
   const server = await HaloServer.start({
     ...applicationConfig.server,
     llmApi,
+    traceUploader:
+      applicationConfig.server.traceBucket === undefined
+        ? undefined
+        : new GcsTraceUploader({
+            bucket: applicationConfig.server.traceBucket,
+            origin: "https://storage.googleapis.com",
+            auth: new GoogleAuth({
+              scopes: ["https://www.googleapis.com/auth/devstorage.read_write"],
+            }),
+          }),
     gateway: applicationConfig.server.gateway,
     googleWebOAuthClient: applicationConfig.googleWebOAuthClient,
     ownerUserId: Promise.resolve(applicationConfig.server.ownerUserId),

@@ -9,11 +9,83 @@ import {
 import fs from "node:fs/promises";
 import path from "node:path";
 import { gunzipSync } from "node:zlib";
+import { GoogleAuth, OAuth2Client } from "google-auth-library";
+import { GcsTraceUploader } from "@get-halo/workspace-server";
 import { expect } from "vitest";
 import { contentText } from "@earendil-works/pi-ai";
 import { m } from "@get-halo/shared/testing";
 import { messageText } from "@get-halo/workspace-server/testing";
 import { serverTest } from "./serverTest.js";
+
+serverTest(
+  "uploads immutable GCS objects and acknowledges an already stored run after retry",
+  async ({ createServer, llm, http }) => {
+    const credentials = new OAuth2Client();
+    credentials.setCredentials({
+      access_token: "trace-test-token",
+      expiry_date: Date.now() + 3_600_000,
+    });
+    const uploader = new GcsTraceUploader({
+      bucket: "test-traces",
+      origin: http.url("/"),
+      auth: new GoogleAuth({ authClient: credentials }),
+    });
+    const server = createServer({ traceUploader: uploader });
+    await server.start();
+    const session = await server.rpc.sessions.create();
+    const prompt = server.rpc.sessions.prompt({
+      ...session,
+      text: "Archive me",
+    });
+    await llm.respond(m.assistant("Archived answer"));
+    await prompt;
+    const [trace] = await readTraces(server.workspaceRoot);
+    const query = new URLSearchParams({
+      uploadType: "media",
+      name: trace!.name,
+      ifGenerationMatch: "0",
+    });
+    const target = `/upload/storage/v1/b/test-traces/o?${query}`;
+    const first = await http.request(target);
+    expect(first.headers.authorization).toBe("Bearer trace-test-token");
+    expect(first.headers["content-type"]).toBe("application/gzip");
+    expect(await first.body()).toEqual(trace!.bytes);
+    // The object reached storage, but its acknowledgement did not reach the client.
+    first.respond("Upload acknowledgement lost", { status: 503 });
+    await server.stop();
+    expect(await readTraces(server.workspaceRoot)).toHaveLength(1);
+    await server.start();
+    const retried = await http.request(target);
+    expect(await retried.body()).toEqual(trace!.bytes);
+    retried.respond("Already exists", { status: 412 });
+    await expect
+      .poll(
+        async () => (await readTraces(server.workspaceRoot, "archive")).length,
+      )
+      .toBe(1);
+    expect(await readTraces(server.workspaceRoot, "pending")).toHaveLength(0);
+
+    const next = server.rpc.sessions.prompt({
+      ...session,
+      text: "A later request",
+    });
+    await llm.respond(m.assistant("Another answer"));
+    await next;
+    const [secondTrace] = await readTraces(server.workspaceRoot);
+    expect(secondTrace!.name).not.toBe(trace!.name);
+    query.set("name", secondTrace!.name);
+    const second = await http.request(
+      `/upload/storage/v1/b/test-traces/o?${query}`,
+    );
+    expect(await second.body()).toEqual(secondTrace!.bytes);
+    second.respond("{}", { status: 200, contentType: "application/json" });
+    await expect
+      .poll(
+        async () => (await readTraces(server.workspaceRoot, "archive")).length,
+      )
+      .toBe(2);
+  },
+);
 
 serverTest(
   "archives complete model and nested tool activity without a chat watcher",

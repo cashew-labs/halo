@@ -30,6 +30,8 @@ import { TraceService, type TraceUploader } from "../traces/TraceService.js";
 import type { HaloEnvironment } from "../agent/workspacePrompt.js";
 import type { GoogleWebOAuthClient } from "@get-halo/config/workspaceServer";
 
+export { GcsTraceUploader } from "../traces/GcsTraceUploader.js";
+
 export type HaloServerOptions = {
   environment: HaloEnvironment;
   llmApi: LLMApi;
