@@ -429,7 +429,7 @@ export class ToolRuntime {
 
     const prefix = [
       "Execute JavaScript. tools and console are in scope.",
-      "Return the value you need next. emit(value) shows that value to the user only.",
+      "Return the value you need next, for example `return await tools['web.fetch']({ urls: [\"https://example.com\"] })`.",
     ].join("\n");
     const inventoryStart = executorDescription.indexOf(
       INTEGRATION_INVENTORY_HEADER,
