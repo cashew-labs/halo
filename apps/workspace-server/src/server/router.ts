@@ -1,8 +1,8 @@
 import {
   browserRouter,
-  appRouter,
   type BrowserRouterContext,
 } from "../browser/browserRouter.js";
+import { appRouter, type AppRouterContext } from "../app/appRouter.js";
 import { contract, haloProtocolVersion } from "@get-halo/client";
 import { implement } from "@orpc/server";
 import {
@@ -23,6 +23,7 @@ import {
 } from "../testing/testingRouter.js";
 
 export type HaloContext = BrowserRouterContext &
+  AppRouterContext &
   WorkspaceRouterContext &
   ExtensionsRouterContext &
   SessionsRouterContext &

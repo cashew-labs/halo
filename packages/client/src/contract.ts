@@ -49,19 +49,19 @@ export type ExtensionSummary = {
   displayName: string;
   icon?: string;
 };
-const browserSnapshot = type<{
+export type BrowserSnapshot = {
   url: string;
   title: string;
   tree: string;
   errors: string[];
-}>();
-const browserExecution = type<{
+};
+export type BrowserExecution = {
   result: unknown;
   stdout: string;
   stderr: string;
   snapshotDiff: string;
   errors: string[];
-}>();
+};
 
 export const contract = publicProcedure.router({
   server: {
@@ -80,17 +80,12 @@ export const contract = publicProcedure.router({
     list: oc.output(type<Array<{ id: string; url: string }>>()),
     exec: oc
       .input(type<{ id: string; source: string }>())
-      .output(browserExecution),
-    snapshot: oc.input(type<{ id: string }>()).output(browserSnapshot),
+      .output(type<BrowserExecution>()),
+    snapshot: oc.input(type<{ id: string }>()).output(type<BrowserSnapshot>()),
     screenshot: oc
       .input(type<{ id: string }>())
       .output(type<{ path: string }>()),
     close: oc.input(type<{ id: string }>()).output(type<void>()),
-  },
-  app: {
-    exec: oc.input(type<{ source: string }>()).output(browserExecution),
-    snapshot: oc.output(browserSnapshot),
-    screenshot: oc.output(type<{ path: string }>()),
   },
   extensions: {
     list: oc.output(type<ExtensionSummary[]>()),

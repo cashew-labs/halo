@@ -1,41 +1,26 @@
 {
-  "name": "@get-halo/cli",
-  "version": "0.1.0",
+  "name": "@get-halo/app-control",
+  "version": "0.0.0",
   "private": true,
-  "bin": {
-    "halo": "./bin/halo.cjs"
-  },
   "type": "module",
   "exports": {
     ".": "./src/index.ts"
   },
   "scripts": {
-    "cli": "node --import tsx src/cli.ts",
     "format": "oxfmt .",
     "format:check": "oxfmt --check .",
     "lint": "NODE_OPTIONS=--experimental-strip-types oxlint --deny-warnings src",
     "lint:fix": "NODE_OPTIONS=--experimental-strip-types oxlint --fix src",
-    "test": "vitest run src --passWithNoTests",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@get-halo/app-control": "workspace:*",
     "@get-halo/client": "workspace:*",
-    "@get-halo/extension-tools": "0.1.0",
-    "@get-halo/shared": "workspace:*",
-    "@sinclair/typebox": "^0.34.52",
-    "errore": "^0.14.1",
-    "execa": "9.6.1",
-    "incur": "^0.4.20"
+    "@orpc/client": "2.0.0-beta.29",
+    "@orpc/contract": "2.0.0-beta.29"
   },
   "devDependencies": {
     "@get-halo/typescript-config": "workspace:*",
     "@types/node": "^22.20.1",
-    "tsx": "^4.23.13",
-    "typescript": "7.0.2",
-    "vitest": "^4.1.11"
-  },
-  "engines": {
-    "node": ">=22"
+    "typescript": "7.0.2"
   }
 }

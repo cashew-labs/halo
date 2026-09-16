@@ -1,5 +1,6 @@
 import { HaloServer, type HaloServerOptions } from "@get-halo/workspace-server";
 import { createHaloClient, type HaloClient } from "@get-halo/client";
+import { createAppControlClient } from "@get-halo/app-control";
 import path from "node:path";
 import { FileCredentialVault } from "../src/agent/runtime/FileCredentialVault.js";
 import type { TestArtifacts } from "./TestArtifacts.js";
@@ -36,6 +37,17 @@ export class TestServer {
 
   get rendererRpc() {
     return this.running.rendererRpc;
+  }
+
+  get rendererAppRpc() {
+    const { renderer } = this.running.halo.connections;
+    return createAppControlClient({
+      transport: {
+        origin: `http://${renderer.host}:${renderer.port}`,
+        path: "/rpc",
+        headers: { authorization: `Bearer ${renderer.token}` },
+      },
+    });
   }
 
   async start() {

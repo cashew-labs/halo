@@ -13,6 +13,8 @@ export {
   type ConnectionStarted,
   type OAuthCompletion,
   type ExtensionSummary,
+  type BrowserSnapshot,
+  type BrowserExecution,
 } from "./contract.js";
 export {
   connectionRequestSchema,

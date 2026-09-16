@@ -2,6 +2,10 @@ import { readFile } from "node:fs/promises";
 import { Cli, z } from "incur";
 import * as errore from "errore";
 import type { HaloClient } from "@get-halo/client";
+import {
+  createAppControlClient,
+  type AppControlClient,
+} from "@get-halo/app-control";
 import { connectHalo, type HaloRpcEnv } from "./connectHalo.js";
 
 class BrowserCommandError extends errore.createTaggedError({
@@ -72,10 +76,27 @@ async function execute(input: {
   if (code.trim().length === 0)
     return new BrowserCommandError({ detail: "The script cannot be empty." });
   const browserId = input.id;
-  return await request(input.env, async (client) =>
-    browserId === undefined
-      ? await client.app.exec({ source: code })
-      : await client.browser.exec({ id: browserId, source: code }),
+  if (browserId === undefined)
+    return await requestApp(
+      input.env,
+      async (client) => await client.exec({ source: code }),
+    );
+  return await request(
+    input.env,
+    async (client) =>
+      await client.browser.exec({ id: browserId, source: code }),
+  );
+}
+
+async function requestApp<T>(
+  environment: HaloRpcEnv,
+  run: (client: AppControlClient) => Promise<T>,
+) {
+  const connected = await connectHalo(environment);
+  if (connected instanceof Error) return connected;
+  const client = createAppControlClient({ transport: connected.transport });
+  return await run(client).catch(
+    (cause) => new BrowserCommandError({ detail: cause.message, cause }),
   );
 }
 
@@ -185,9 +206,9 @@ export const app = Cli.create("app", {
     description: "Read Halo's accessibility tree",
     env,
     async run(c) {
-      const result = await request(
+      const result = await requestApp(
         c.env,
-        async (client) => await client.app.snapshot(),
+        async (client) => await client.snapshot(),
       );
       if (result instanceof Error)
         return c.error({ code: "BROWSER", message: result.message });
@@ -198,9 +219,9 @@ export const app = Cli.create("app", {
     description: "Save a screenshot of Halo in the workspace",
     env,
     async run(c) {
-      const result = await request(
+      const result = await requestApp(
         c.env,
-        async (client) => await client.app.screenshot(),
+        async (client) => await client.screenshot(),
       );
       if (result instanceof Error)
         return c.error({ code: "BROWSER", message: result.message });

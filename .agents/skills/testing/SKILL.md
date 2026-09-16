@@ -43,6 +43,11 @@ module, or convenient to isolate. Do not expose internals just to test them.
 
 ## Consumer workflows
 
+- Prefer successful consumer workflows. Test errors when real consumers can
+  encounter them and the outcome matters to their use of the package.
+- Assert what consumers can accomplish, not the history of a refactor. Do not
+  use missing exports or failures caused by incomplete test setup as proof that
+  a feature works.
 - Services are code programs and modules to be tested. Services can compose multiple sub-services. E.g. electron app is a service that uses the renderer and main process as sub-services.
 - Services receive events in, and emit events out.
 - A driver of a service sends events in, and expects some events out.

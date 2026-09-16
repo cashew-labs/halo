@@ -400,6 +400,9 @@ importers:
       '@executor-js/sdk':
         specifier: 1.6.0
         version: 1.6.0(@effect/platform-node@4.0.0-beta.103(effect@4.0.0-beta.103)(ioredis@5.11.1(supports-color@8.1.1)))(drizzle-orm@0.45.0(@cloudflare/workers-types@5.20260804.1)(@electric-sql/pglite@0.3.15)(@libsql/client@0.17.3)(@opentelemetry/api@1.9.0)(better-sqlite3@12.11.1)(kysely@0.28.17))(effect@4.0.0-beta.103)(react@19.2.8)(typeorm@0.3.31(better-sqlite3@12.11.1)(ioredis@5.11.1(supports-color@8.1.1))(pg@8.23.0)(supports-color@8.1.1))
+      '@get-halo/app-control':
+        specifier: workspace:*
+        version: link:../../packages/app-control
       '@get-halo/cli':
         specifier: workspace:*
         version: link:../../packages/halo-cli
@@ -501,6 +504,28 @@ importers:
       '@get-halo/typescript-config':
         specifier: workspace:*
         version: link:../packages/typescript-config
+      '@types/node':
+        specifier: ^22.20.1
+        version: 22.20.1
+      typescript:
+        specifier: 7.0.2
+        version: 7.0.2
+
+  packages/app-control:
+    dependencies:
+      '@get-halo/client':
+        specifier: workspace:*
+        version: link:../client
+      '@orpc/client':
+        specifier: 2.0.0-beta.29
+        version: 2.0.0-beta.29(@opentelemetry/api@1.9.0)
+      '@orpc/contract':
+        specifier: 2.0.0-beta.29
+        version: 2.0.0-beta.29(@opentelemetry/api@1.9.0)
+    devDependencies:
+      '@get-halo/typescript-config':
+        specifier: workspace:*
+        version: link:../typescript-config
       '@types/node':
         specifier: ^22.20.1
         version: 22.20.1
@@ -627,6 +652,9 @@ importers:
 
   packages/halo-cli:
     dependencies:
+      '@get-halo/app-control':
+        specifier: workspace:*
+        version: link:../app-control
       '@get-halo/client':
         specifier: workspace:*
         version: link:../client
