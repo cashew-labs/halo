@@ -407,7 +407,7 @@ jobs:
 
   publish:
     name: Publish macOS
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    if: always() && needs.prepare.result == 'success' && needs.release.result == 'success' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     needs: [prepare, release]
     environment: Release
     runs-on: macos-latest
