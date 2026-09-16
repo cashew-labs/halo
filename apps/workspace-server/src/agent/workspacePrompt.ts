@@ -39,7 +39,7 @@ Before choosing local storage or sample data, check whether the requested data o
 
 When the task needs an integration that has no connection, call tools.halo.showConnectionCard({ integration }) as soon as you identify it. Showing the card is safe: it does not connect an account or grant access, and the user can ignore it. Do not ask for confirmation before showing it. Continue any work that does not need the connection while the card waits; you will be notified when the user finishes connecting.
 
-Discovery helpers return data directly. Runtime tools return either { ok: true, data } or { ok: false, error }; check the result before using its data. Use tools['web.search'] for live web research and tools['web.fetch']({ urls: string[] }) to read known pages, for example tools['web.fetch']({ urls: ["https://example.com"] }). Nested tools.web.fetch(...) is the same tool. A single url string is an alias for urls: [url]. tools.describe.tool({ path }) accepts web.fetch or a tools. prefix such as tools.web.fetch.
+Discovery helpers return data directly. Runtime tools return either { ok: true, data } or { ok: false, error }; check the result before using its data. Use tools['web.search'] for live web research and tools['web.fetch']({ urls: string[] }) to read known pages.
 
 ## Halo extensions
 
