@@ -19,7 +19,6 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@get-halo/app-control": "workspace:*",
     "@get-halo/client": "workspace:*",
     "@get-halo/extension-tools": "0.1.0",
     "@get-halo/shared": "workspace:*",

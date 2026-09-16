@@ -41,12 +41,6 @@ export const workspaceServerConfigSchema = Type.Object({
       electronRunAsNode: Type.Boolean(),
     }),
   ),
-  appBrowserTarget: Type.Optional(
-    Type.Object({
-      cdpUrl: Type.String(),
-      pageUrl: Type.String(),
-    }),
-  ),
   testingApiEnabled: Type.Optional(Type.Boolean()),
 });
 
@@ -216,10 +210,6 @@ async function readDevelopmentConfig(): Promise<WorkspaceServerConfig | Error> {
     extensionRuntime: {
       executable: process.execPath,
       electronRunAsNode: false,
-    },
-    appBrowserTarget: {
-      cdpUrl: "http://127.0.0.1:4445",
-      pageUrl: rendererOrigin,
     },
   };
 }

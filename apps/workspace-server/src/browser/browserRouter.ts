@@ -2,8 +2,7 @@ import { implement } from "@orpc/server";
 import { contract } from "@get-halo/client";
 import { orpcErrors } from "../orpcErrors.js";
 import type { WorkspaceService } from "../workspace/WorkspaceService.js";
-import { BrowserError } from "./BrowserPage.js";
-import type { BrowserService } from "./BrowserService.js";
+import { BrowserError, type BrowserService } from "./BrowserService.js";
 
 export type BrowserRouterContext = {
   browsers: BrowserService;

@@ -131,8 +131,8 @@ importers:
         specifier: 7.0.2001
         version: 7.0.2001
       tkstack:
-        specifier: ^0.1.3
-        version: 0.1.3(@babel/runtime@7.29.7)(@codemirror/search@6.7.1)(@codemirror/theme-one-dark@6.1.3)(@floating-ui/dom@1.8.0)(@shikijs/themes@4.3.1)(@tiptap/core@3.29.2(@tiptap/pm@3.29.2))(@tiptap/extensions@3.29.2(@tiptap/core@3.29.2(@tiptap/pm@3.29.2))(@tiptap/pm@3.29.2))(@types/node@24.13.3)(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(codemirror@6.0.2)(esbuild@0.28.2)(jiti@2.7.0)(supports-color@8.1.1)(terser@5.49.0)(yaml@2.9.0)
+        specifier: github:tanishqkancharla/tkstack#main
+        version: https://codeload.github.com/tanishqkancharla/tkstack/tar.gz/59d718cac27140c83935a3de2e4274f4c438fc00(@babel/runtime@7.29.7)(@codemirror/search@6.7.1)(@codemirror/theme-one-dark@6.1.3)(@floating-ui/dom@1.8.0)(@shikijs/themes@4.3.1)(@tiptap/core@3.29.2(@tiptap/pm@3.29.2))(@tiptap/extensions@3.29.2(@tiptap/core@3.29.2(@tiptap/pm@3.29.2))(@tiptap/pm@3.29.2))(@types/node@24.13.3)(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(codemirror@6.0.2)(esbuild@0.28.2)(jiti@2.7.0)(supports-color@8.1.1)(terser@5.49.0)(typescript@7.0.2)(yaml@2.9.0)
       turbo:
         specifier: ^2.10.12
         version: 2.10.12
@@ -276,12 +276,18 @@ importers:
       '@electron-forge/shared-types':
         specifier: ^7.11.2
         version: 7.11.2(bluebird@3.7.2)(supports-color@8.1.1)
+      '@get-halo/app-control':
+        specifier: workspace:*
+        version: link:../../packages/app-control
       '@get-halo/extension-tools':
         specifier: workspace:*
         version: link:../../packages/extension-tools
       '@get-halo/typescript-config':
         specifier: workspace:*
         version: link:../../packages/typescript-config
+      '@orpc/server':
+        specifier: 2.0.0-beta.29
+        version: 2.0.0-beta.29(@opentelemetry/api@1.9.0)
       '@playwright/test':
         specifier: 1.62.1
         version: 1.62.1
@@ -312,6 +318,9 @@ importers:
       execa:
         specifier: 9.6.1
         version: 9.6.1
+      libretto-browser-tools:
+        specifier: ^0.1.2
+        version: 0.1.2(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(supports-color@8.1.1)(zod@3.25.76))
       playwright:
         specifier: 1.62.1
         version: 1.62.1
@@ -400,9 +409,6 @@ importers:
       '@executor-js/sdk':
         specifier: 1.6.0
         version: 1.6.0(@effect/platform-node@4.0.0-beta.103(effect@4.0.0-beta.103)(ioredis@5.11.1(supports-color@8.1.1)))(drizzle-orm@0.45.0(@cloudflare/workers-types@5.20260804.1)(@electric-sql/pglite@0.3.15)(@libsql/client@0.17.3)(@opentelemetry/api@1.9.0)(better-sqlite3@12.11.1)(kysely@0.28.17))(effect@4.0.0-beta.103)(react@19.2.8)(typeorm@0.3.31(better-sqlite3@12.11.1)(ioredis@5.11.1(supports-color@8.1.1))(pg@8.23.0)(supports-color@8.1.1))
-      '@get-halo/app-control':
-        specifier: workspace:*
-        version: link:../../packages/app-control
       '@get-halo/cli':
         specifier: workspace:*
         version: link:../../packages/halo-cli
@@ -522,6 +528,12 @@ importers:
       '@orpc/contract':
         specifier: 2.0.0-beta.29
         version: 2.0.0-beta.29(@opentelemetry/api@1.9.0)
+      '@sinclair/typebox':
+        specifier: ^0.34.52
+        version: 0.34.52
+      errore:
+        specifier: ^0.14.1
+        version: 0.14.1
     devDependencies:
       '@get-halo/typescript-config':
         specifier: workspace:*
@@ -591,6 +603,31 @@ importers:
 
   packages/copy-path-to-symbol: {}
 
+  packages/dev-cli:
+    dependencies:
+      '@get-halo/app-control':
+        specifier: workspace:*
+        version: link:../app-control
+      errore:
+        specifier: ^0.14.1
+        version: 0.14.1
+      incur:
+        specifier: ^0.4.20
+        version: 0.4.20
+      tsx:
+        specifier: ^4.23.13
+        version: 4.23.13
+    devDependencies:
+      '@get-halo/typescript-config':
+        specifier: workspace:*
+        version: link:../typescript-config
+      '@types/node':
+        specifier: ^22.20.1
+        version: 22.20.1
+      typescript:
+        specifier: 7.0.2
+        version: 7.0.2
+
   packages/extension-sdk:
     dependencies:
       '@orpc/client':
@@ -652,9 +689,6 @@ importers:
 
   packages/halo-cli:
     dependencies:
-      '@get-halo/app-control':
-        specifier: workspace:*
-        version: link:../app-control
       '@get-halo/client':
         specifier: workspace:*
         version: link:../client
@@ -7576,10 +7610,13 @@ packages:
     resolution: {integrity: sha512-Bf+ILmBgretUrdJxzXM0SgXLZ3XfiaUuOj/IKQHuTXip+05Xn+uyEYdVg0kYDipTBcLrCVyUzAPz7QmArb0mmw==}
     engines: {node: '>=14.0.0'}
 
-  tkstack@0.1.3:
-    resolution: {integrity: sha512-dP77Ba8RmuAUNC2UVHiu/N6KCr5VZR4ysnFI4MwFHgbucfr9byleTARkJZRpO7e27Z92Doq+us1yH/nj04Ig0Q==}
+  tkstack@https://codeload.github.com/tanishqkancharla/tkstack/tar.gz/59d718cac27140c83935a3de2e4274f4c438fc00:
+    resolution: {gitHosted: true, integrity: sha512-2zjcVggfUM83DfBOzKf1oY7/2c+mRzZ2fQjdrwDSld4xiUJcvhRXBVh7uir5iWePo7Cg0qs1c9NrL6aCIhxf8A==, tarball: https://codeload.github.com/tanishqkancharla/tkstack/tar.gz/59d718cac27140c83935a3de2e4274f4c438fc00}
+    version: 0.1.3
     engines: {node: '>=22'}
     hasBin: true
+    peerDependencies:
+      typescript: ^7.0.2
 
   tldts-core@7.4.10:
     resolution: {integrity: sha512-KnQjp53ZekKgm/r3l+u8kJGGzYgrWdP8+Mql7a4vijh2WE0IrZWspQj/TpTxDho/YxO+AnOZnIjQcCD+q6iJsw==}
@@ -13920,10 +13957,19 @@ snapshots:
       '@standard-schema/spec': 1.1.0
       playwright: 1.62.1
       sucrase: 3.35.1
-      zod: 4.4.3
+      zod: 4.6.1
     optionalDependencies:
       '@earendil-works/pi-coding-agent': 0.85.1(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(supports-color@8.1.1)(zod@4.6.1))(supports-color@8.1.1)(ws@8.21.1)(zod@4.6.1)
       '@modelcontextprotocol/sdk': 1.30.0(@cfworker/json-schema@4.1.1)(supports-color@8.1.1)(zod@4.6.1)
+
+  libretto-browser-tools@0.1.2(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(supports-color@8.1.1)(zod@3.25.76)):
+    dependencies:
+      '@standard-schema/spec': 1.1.0
+      playwright: 1.62.1
+      sucrase: 3.35.1
+      zod: 4.6.1
+    optionalDependencies:
+      '@modelcontextprotocol/sdk': 1.30.0(@cfworker/json-schema@4.1.1)(supports-color@8.1.1)(zod@3.25.76)
 
   libsql@0.5.29:
     dependencies:
@@ -16106,7 +16152,7 @@ snapshots:
 
   tinyrainbow@3.1.0: {}
 
-  tkstack@0.1.3(@babel/runtime@7.29.7)(@codemirror/search@6.7.1)(@codemirror/theme-one-dark@6.1.3)(@floating-ui/dom@1.8.0)(@shikijs/themes@4.3.1)(@tiptap/core@3.29.2(@tiptap/pm@3.29.2))(@tiptap/extensions@3.29.2(@tiptap/core@3.29.2(@tiptap/pm@3.29.2))(@tiptap/pm@3.29.2))(@types/node@24.13.3)(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(codemirror@6.0.2)(esbuild@0.28.2)(jiti@2.7.0)(supports-color@8.1.1)(terser@5.49.0)(yaml@2.9.0):
+  tkstack@https://codeload.github.com/tanishqkancharla/tkstack/tar.gz/59d718cac27140c83935a3de2e4274f4c438fc00(@babel/runtime@7.29.7)(@codemirror/search@6.7.1)(@codemirror/theme-one-dark@6.1.3)(@floating-ui/dom@1.8.0)(@shikijs/themes@4.3.1)(@tiptap/core@3.29.2(@tiptap/pm@3.29.2))(@tiptap/extensions@3.29.2(@tiptap/core@3.29.2(@tiptap/pm@3.29.2))(@tiptap/pm@3.29.2))(@types/node@24.13.3)(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(codemirror@6.0.2)(esbuild@0.28.2)(jiti@2.7.0)(supports-color@8.1.1)(terser@5.49.0)(typescript@7.0.2)(yaml@2.9.0):
     dependencies:
       '@pierre/diffs': 1.4.1(@shikijs/themes@4.3.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@vitejs/plugin-react': 6.1.1(vite@8.2.2(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.49.0)(tsx@4.23.13)(yaml@2.9.0))
@@ -16119,7 +16165,7 @@ snapshots:
       react: 19.2.8
       react-dom: 19.2.8(react@19.2.8)
       tsx: 4.23.13
-      typescript6: typescript@5.9.3
+      typescript: 7.0.2
       vite: 8.2.2(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.49.0)(tsx@4.23.13)(yaml@2.9.0)
     transitivePeerDependencies:
       - '@babel/runtime'

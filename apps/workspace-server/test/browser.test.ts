@@ -76,12 +76,9 @@ serverTest(
 );
 
 serverTest(
-  "keeps browser and app control on the CLI connection",
+  "keeps browser control on the CLI connection",
   async ({ server }) => {
     await expect(server.rendererRpc.browser.open({ url })).rejects.toThrow(
-      "Browser control requires the Halo CLI connection",
-    );
-    await expect(server.rendererAppRpc.snapshot()).rejects.toThrow(
       "Browser control requires the Halo CLI connection",
     );
   },

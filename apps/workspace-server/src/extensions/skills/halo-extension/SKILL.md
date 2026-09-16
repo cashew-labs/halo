@@ -5,7 +5,7 @@ description: Access, inspect, interact with, create, edit, run, and verify Halo 
 
 # Halo extensions
 
-Extensions are standalone web apps under `.halo/extensions/<id>/` in the selected workspace. Halo runs each extension's server and shows its React view in a sandboxed iframe. Agents can access an existing extension through a private Halo browser or, in development, through the user's live Halo renderer. Each browser owns local UI state; Tandem synchronizes extension-owned records through the extension server.
+Extensions are standalone web apps under `.halo/extensions/<id>/` in the selected workspace. Halo runs each extension's server and shows its React view in a sandboxed iframe. Agents access an existing extension through a private Halo browser. Each browser owns local UI state; Tandem synchronizes extension-owned records through the extension server.
 
 Work inside the extension directory. Do not recreate the SDK transport, edit generated `dist/` output, or write directly to extension persistence files.
 

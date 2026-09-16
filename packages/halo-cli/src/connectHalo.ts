@@ -1,9 +1,5 @@
 import { homedir } from "node:os";
-import {
-  connectHaloClient,
-  IncompatibleServerError,
-  type HaloRpcTransport,
-} from "@get-halo/client";
+import { connectHaloClient, IncompatibleServerError } from "@get-halo/client";
 import * as errore from "errore";
 import { findHaloRpcFile } from "./findHaloRpcFile.js";
 import { HaloRpcFileError } from "./HaloRpcFile.js";
@@ -33,12 +29,13 @@ export async function connectHalo(env: HaloRpcEnv) {
     appData: process.env.APPDATA,
   });
   if (file instanceof Error) return file;
-  const transport: HaloRpcTransport = {
-    origin: `http://${file.host}:${file.port}`,
-    path: "/rpc",
-    headers: { authorization: `Bearer ${file.token}` },
-  };
-  const connected = await connectHaloClient({ transport });
+  const connected = await connectHaloClient({
+    transport: {
+      origin: `http://${file.host}:${file.port}`,
+      path: "/rpc",
+      headers: { authorization: `Bearer ${file.token}` },
+    },
+  });
   if (connected instanceof IncompatibleServerError) {
     return new HaloProtocolVersionError({
       clientProtocolVersion: connected.clientProtocolVersion,
@@ -51,5 +48,5 @@ export async function connectHalo(env: HaloRpcEnv) {
       cause: connected,
     });
   }
-  return { file, transport, ...connected };
+  return { file, ...connected };
 }

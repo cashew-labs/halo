@@ -22,6 +22,31 @@ leaves the server, active conversations, and extensions running. To change
 workspaces, restart the server with a different `HALO_WORKSPACE_ROOT` and reload
 Electron.
 
+### Control the development app
+
+Electron main starts an app-control endpoint on a separate loopback port in
+development. It publishes its own bearer token in `appControl.json` under
+Electron's local application data directory, with mode `0600`. Quitting Electron
+closes the listener and removes the file. The workspace server does not host app
+control, and production and test-mode Electron do not create this endpoint.
+
+App screenshots are stored locally under `<Electron dataDir>/app/screenshots`,
+even when the workspace server is remote. Workspace browser screenshots remain
+under `<workspace>/.halo/browser/screenshots`.
+
+From the repository root, inspect the running development app with:
+
+```sh
+HALO_USER_DATA="$PWD/tmp/workspace/.halo" pnpm halo-dev app snapshot
+```
+
+`halo-dev app` reads `HALO_APP_CONTROL_FILE` when set, otherwise `HALO_USER_DATA`,
+otherwise the nearest `.halo/appControl.json` above the current directory. It
+does not use `rpc.json` or `HALO_RPC_FILE`. The product CLI and renderer tokens
+do not authorize app control. The separate `halo` CLI is for workspace agents;
+its browser and extension commands use the product connection, and it has no
+app-control commands.
+
 ## Production workspace container
 
 The durable workspace disk directory `/mnt/halo/workspace` is mounted directly
@@ -91,9 +116,10 @@ pnpm dev
 ├── workspace-server: tsx watch src/main.ts
 │   ├── read launch configuration
 │   ├── HaloServer.start()
-│   └── publish local connection files
+│   └── publish product connection files
 └── Electron
-    └── read server.json → connect over HTTP RPC
+    ├── read server.json → connect over HTTP RPC
+    └── AppControlServer.start() → publish local appControl.json (development only)
 ```
 
 The server retains the existing workspace files, conversation database, and

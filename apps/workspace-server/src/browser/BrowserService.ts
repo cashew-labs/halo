@@ -1,19 +1,30 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
+import fs from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
-import { chromium } from "playwright";
+import { chromium, type Page } from "playwright";
 import * as errore from "errore";
-import { BrowserError, BrowserPage } from "./BrowserPage.js";
-import { captureScreenshot } from "./captureScreenshot.js";
+import {
+  createBrowserToolsForPage,
+  type BorrowedPageBrowserToolkit,
+  type SnapshotScreenshot,
+} from "libretto-browser-tools";
 
 const exec = promisify(execFile);
 
+export class BrowserError extends errore.createTaggedError({
+  name: "BrowserError",
+  message: "Browser operation failed: $detail",
+}) {}
+
 type BrowserSession = {
   resources: errore.AsyncDisposableStack;
-  view: BrowserPage;
+  page: Page;
+  toolkit: BorrowedPageBrowserToolkit;
+  errors: string[];
 };
 
 export class BrowserService {
@@ -44,35 +55,50 @@ export class BrowserService {
     if (this.installation === undefined) this.installation = this.install();
     const installed = await this.installation;
     if (installed instanceof Error) return installed;
+
     const browser = await chromium
       .launch({ channel: "chromium", headless: true })
       .catch((cause) => new BrowserError({ detail: "launch Chromium", cause }));
     if (browser instanceof Error) return browser;
+
     await using cleanup = new errore.AsyncDisposableStack();
     cleanup.defer(async () => await browser.close());
+
     const page = await browser
       .newPage({ viewport: { width: 1280, height: 800 } })
       .catch((cause) => new BrowserError({ detail: "open page", cause }));
     if (page instanceof Error) return page;
-    const view = new BrowserPage(page);
-    cleanup.defer(async () => await view.dispose());
+
+    page.setDefaultTimeout(10_000);
+    const toolkit = createBrowserToolsForPage(page);
+    cleanup.defer(async () => await toolkit.dispose());
+
+    const errors: string[] = [];
+    const onPageError = (error: Error) => {
+      errors.push(error.message);
+    };
+    page.on("pageerror", onPageError);
+    cleanup.defer(() => {
+      page.off("pageerror", onPageError);
+    });
     const loaded = await page
       .goto(url)
       .catch(
         (cause) => new BrowserError({ detail: "navigate to preview", cause }),
       );
     if (loaded instanceof Error) return loaded;
-    const snapshot = await view.snapshot();
+    const session = { page, toolkit, errors };
+    const snapshot = await this.readSnapshot(session);
     if (snapshot instanceof Error) return snapshot;
     const id = randomUUID();
-    this.sessions.set(id, { resources: cleanup.move(), view });
+    this.sessions.set(id, { resources: cleanup.move(), ...session });
     return { id, ...snapshot };
   }
 
   list() {
     return [...this.sessions].map(([id, session]) => ({
       id,
-      url: session.view.page.url(),
+      url: session.page.url(),
     }));
   }
 
@@ -82,25 +108,77 @@ export class BrowserService {
       return new BrowserError({
         detail: `Unknown browser ${id}. Use halo browser list.`,
       });
-    return session.view;
+    return session;
   }
 
   async exec(id: string, source: string) {
-    const view = this.get(id);
-    if (view instanceof Error) return view;
-    return await view.exec(source);
+    const session = this.get(id);
+    if (session instanceof Error) return session;
+    const result = await session.toolkit.tools.browser_exec.execute({
+      sessionId: session.toolkit.sessionId,
+      code: source,
+    });
+    if (!result.ok) return new BrowserError({ detail: result.error });
+    return {
+      result: result.result,
+      stdout: result.stdout,
+      stderr: result.stderr,
+      snapshotDiff: result.snapshotDiff,
+      errors: session.errors.splice(0),
+    };
   }
 
   async snapshot(id: string) {
-    const view = this.get(id);
-    if (view instanceof Error) return view;
-    return await view.snapshot();
+    const session = this.get(id);
+    if (session instanceof Error) return session;
+    return await this.readSnapshot(session);
+  }
+
+  private async readSnapshot({
+    page,
+    toolkit,
+    errors,
+  }: Omit<BrowserSession, "resources">) {
+    const result = await toolkit.tools.browser_snapshot.execute({
+      sessionId: toolkit.sessionId,
+    });
+    if (!result.ok) return new BrowserError({ detail: result.error });
+    const title = await page
+      .title()
+      .catch((cause) => new BrowserError({ detail: "read page title", cause }));
+    if (title instanceof Error) return title;
+    return {
+      url: page.url(),
+      title,
+      tree: result.tree,
+      errors: errors.splice(0),
+    };
   }
 
   async screenshot(id: string, workspaceRoot: string) {
-    const view = this.get(id);
-    if (view instanceof Error) return view;
-    return await captureScreenshot({ view, workspaceRoot });
+    const session = this.get(id);
+    if (session instanceof Error) return session;
+    const result = await session.toolkit.tools.browser_snapshot.execute({
+      sessionId: session.toolkit.sessionId,
+      screenshot: true,
+    });
+    if (!result.ok) return new BrowserError({ detail: result.error });
+    const directory = join(workspaceRoot, ".halo", "browser", "screenshots");
+    const made = await fs
+      .mkdir(directory, { recursive: true })
+      .catch(
+        (cause) =>
+          new BrowserError({ detail: "create screenshots directory", cause }),
+      );
+    if (made instanceof Error) return made;
+    // SAFETY: Libretto includes PNG bytes on success when screenshot: true is requested.
+    const screenshot = result.screenshot as SnapshotScreenshot;
+    const destination = join(directory, `${randomUUID()}.png`);
+    const written = await fs
+      .writeFile(destination, Buffer.from(screenshot.base64, "base64"))
+      .catch((cause) => new BrowserError({ detail: "save screenshot", cause }));
+    if (written instanceof Error) return written;
+    return { path: destination };
   }
 
   async close(id: string) {

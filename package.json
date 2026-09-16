@@ -5,6 +5,7 @@
     "build": "turbo run build",
     "dev": "HALO_WORKSPACE_ROOT=$INIT_CWD/tmp/workspace HALO_USER_DATA=$INIT_CWD/tmp/workspace/.halo turbo run dev --filter=@get-halo/desktop --filter=@get-halo/control-plane --filter=@get-halo/web-app --filter=@get-halo/workspace-server --env-mode=loose",
     "halo": "pnpm --silent --filter @get-halo/cli cli",
+    "halo-dev": "pnpm --silent --filter @get-halo/dev-cli cli",
     "tkstack": "pnpm --silent exec tkstack",
     "spec": "pnpm --silent exec tkstack",
     "walkthrough": "pnpm --silent exec tkstack",
@@ -29,7 +30,7 @@
     "oxfmt": "^0.65.0",
     "oxlint": "^1.80.0",
     "oxlint-tsgolint": "7.0.2001",
-    "tkstack": "^0.1.3",
+    "tkstack": "github:tanishqkancharla/tkstack#main",
     "turbo": "^2.10.12",
     "typescript": "7.0.2",
     "typescript6": "npm:typescript@5.9.3"
