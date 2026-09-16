@@ -1,13 +1,13 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { chromium } from "playwright";
 import * as errore from "errore";
 import { BrowserError, BrowserPage } from "./BrowserPage.js";
+import { captureScreenshot } from "./captureScreenshot.js";
 
 const exec = promisify(execFile);
 
@@ -15,13 +15,12 @@ type BrowserSession = {
   resources: errore.AsyncDisposableStack;
   view: BrowserPage;
 };
-export type AppBrowserTarget = { cdpUrl: string; pageUrl: string };
 
 export class BrowserService {
+  // Owns isolated browser sessions until they are closed or the service stops.
   private readonly sessions = new Map<string, BrowserSession>();
+  // Shares the Chromium installation attempt across browser opens.
   private installation: Promise<void | BrowserError> | undefined;
-
-  constructor(private readonly appTarget?: AppBrowserTarget) {}
 
   private async install() {
     if (existsSync(chromium.executablePath())) return;
@@ -101,17 +100,7 @@ export class BrowserService {
   async screenshot(id: string, workspaceRoot: string) {
     const view = this.get(id);
     if (view instanceof Error) return view;
-    return await this.capture(view, workspaceRoot);
-  }
-
-  private async capture(view: BrowserPage, workspaceRoot: string) {
-    const directory = join(workspaceRoot, ".halo", "browser", "screenshots");
-    const made = await mkdir(directory, { recursive: true }).catch(
-      (cause) =>
-        new BrowserError({ detail: "create screenshots directory", cause }),
-    );
-    if (made instanceof Error) return made;
-    return await view.screenshot(join(directory, `${randomUUID()}.png`));
+    return await captureScreenshot({ view, workspaceRoot });
   }
 
   async close(id: string) {
@@ -129,46 +118,5 @@ export class BrowserService {
       const closed = await this.close(id);
       if (closed instanceof Error) console.warn(closed);
     }
-  }
-
-  private async withApp<T>(run: (view: BrowserPage) => Promise<T>) {
-    if (this.appTarget === undefined)
-      return new BrowserError({
-        detail: "halo app requires a running Halo debug app",
-      });
-    // Playwright's default media overrides otherwise flash Halo's system theme on attach.
-    const browser = await chromium
-      .connectOverCDP(this.appTarget.cdpUrl, { noDefaults: true })
-      .catch(
-        (cause) =>
-          new BrowserError({ detail: "connect to Halo debugger", cause }),
-      );
-    if (browser instanceof Error) return browser;
-    await using cleanup = new errore.AsyncDisposableStack();
-    cleanup.defer(async () => await browser.close());
-    const url = this.appTarget.pageUrl;
-    const page = browser
-      .contexts()
-      .flatMap((context) => context.pages())
-      .find((candidate) => candidate.url().startsWith(url));
-    if (page === undefined)
-      return new BrowserError({ detail: "Halo renderer is not open" });
-    const view = new BrowserPage(page);
-    cleanup.defer(async () => await view.dispose());
-    return await run(view);
-  }
-
-  async appExec(source: string) {
-    return await this.withApp(async (view) => await view.exec(source));
-  }
-
-  async appSnapshot() {
-    return await this.withApp(async (view) => await view.snapshot());
-  }
-
-  async appScreenshot(workspaceRoot: string) {
-    return await this.withApp(
-      async (view) => await this.capture(view, workspaceRoot),
-    );
   }
 }
