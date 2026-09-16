@@ -692,7 +692,7 @@ e2eTest(
     await llm.respond(
       m.tool.start("bash", {
         id: "verification",
-        arguments: { command: verificationCommand, timeout: 60 },
+        arguments: { command: verificationCommand, timeoutMs: 60_000 },
       }),
     );
     const verification = await http.request("/verify");
@@ -840,11 +840,11 @@ e2eTest(
     await llm.respond([
       m.tool.start("bash", {
         id: "first",
-        arguments: { command: firstCommand, timeout: 60 },
+        arguments: { command: firstCommand, timeoutMs: 60_000 },
       }),
       m.tool.start("bash", {
         id: "second",
-        arguments: { command: secondCommand, timeout: 60 },
+        arguments: { command: secondCommand, timeoutMs: 60_000 },
       }),
     ]);
     const [first, second] = await Promise.all([

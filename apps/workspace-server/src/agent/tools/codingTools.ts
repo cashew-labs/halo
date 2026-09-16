@@ -1,10 +1,8 @@
-import { workspaceExecutablePath } from "../../workspace/installHaloCli.js";
-import { createBashTool } from "@earendil-works/pi-coding-agent";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { type TSchema, Type } from "typebox";
 import type { FilesystemService } from "../../filesystem/FilesystemService.js";
 import type { AgentAuthority } from "../runtime/AgentAuthority.js";
-import { BashTimeoutLimitError, maxBashTimeoutMs } from "./bash/run.js";
+import { maxBashTimeoutMs, runBash } from "./bash/run.js";
 import { editFile } from "./files/edit.js";
 import { patchFiles } from "./files/patch.js";
 import { readFile } from "./files/read.js";
@@ -32,6 +30,17 @@ const patchParameters = Type.Object({
   patchText: Type.String({ description: "Patch in apply_patch format." }),
 });
 
+const bashParameters = Type.Object({
+  command: Type.String(),
+  timeoutMs: Type.Optional(
+    Type.Integer({
+      minimum: 1,
+      maximum: maxBashTimeoutMs,
+      description: `Timeout in milliseconds. Defaults to 10000. Maximum ${maxBashTimeoutMs} (10 minutes).`,
+    }),
+  ),
+});
+
 type Authorization = {
   pluginId: string;
   toolName: string;
@@ -43,16 +52,6 @@ export function createAuthorizedCodingTools(input: {
   filesystem: FilesystemService;
   authority: AgentAuthority;
 }) {
-  const bash = createBashTool(input.cwd, {
-    spawnHook: (context) => ({
-      ...context,
-      env: {
-        ...context.env,
-        PATH: workspaceExecutablePath(input.cwd, context.env.PATH),
-        PAGER: "cat",
-      },
-    }),
-  });
   return [
     withAuthority(
       createReadTool(input.filesystem, input.cwd),
@@ -75,25 +74,7 @@ export function createAuthorizedCodingTools(input: {
       authorization("files", "patch", "workspace.files.write"),
     ),
     withAuthority(
-      {
-        ...bash,
-        description: bash.description.replace(
-          "Optionally provide a timeout in seconds.",
-          "Timeout defaults to 10 seconds. Maximum 10 minutes.",
-        ),
-        async execute(id, params, signal, onUpdate) {
-          const timeout = params.timeout === undefined ? 10 : params.timeout;
-          if (timeout > maxBashTimeoutMs / 1_000) {
-            throw new BashTimeoutLimitError({ timeoutMs: timeout * 1_000 });
-          }
-          return await bash.execute(
-            id,
-            { ...params, timeout },
-            signal,
-            onUpdate,
-          );
-        },
-      },
+      createBashTool(input.cwd),
       input.authority,
       authorization("bash", "run", "workspace.shell.execute"),
     ),
@@ -118,6 +99,29 @@ function withAuthority<TParameters extends TSchema, TDetails>(
     async execute(id, params, signal, onUpdate) {
       await authorize(authority, toolAuthorization);
       return await tool.execute(id, params, signal, onUpdate);
+    },
+  };
+}
+
+function createBashTool(
+  cwd: string,
+): AgentTool<
+  typeof bashParameters,
+  { stdout: string; stderr: string; code: number | null }
+> {
+  return {
+    name: "bash",
+    label: "Bash",
+    description:
+      "Run a bash command in the active workspace. Timeout defaults to 10 seconds. Maximum 10 minutes.",
+    parameters: bashParameters,
+    async execute(_id, params, signal) {
+      const result = await runBash(cwd, { ...params, signal });
+      if (result instanceof Error) throw result;
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, undefined, 2) }],
+        details: result,
+      };
     },
   };
 }
