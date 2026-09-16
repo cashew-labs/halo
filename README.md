@@ -71,7 +71,6 @@ not pass them through renderer IPC or extension process environments.
 Development builds expose Electron's Chrome DevTools Protocol on `127.0.0.1:4445`. The separate `pnpm halo-dev` command uses Electron's local app-control connection to attach with [Libretto Browser Tools](https://libretto.sh/browser-tools) and leaves Halo running. Electron owns this endpoint; the workspace server does not. For the root dev stack:
 
 ```sh
-export HALO_USER_DATA="$PWD/tmp/workspace/.halo"
 pnpm halo status
 pnpm halo-dev app snapshot
 pnpm halo-dev app exec "return await page.locator('body').innerText()"
