@@ -12,11 +12,14 @@ import {
 } from "maui";
 import { useLocation } from "wouter";
 import { style, useStyles } from "purse-styles";
+import type { ReactNode } from "react";
 
 export function PaneHeader({
+  action,
   section,
   title,
 }: {
+  action?: ReactNode;
   section?: string;
   title?: string;
 }) {
@@ -24,6 +27,7 @@ export function PaneHeader({
   const [, navigate] = useLocation();
   const headerButton = useStyles(headerButtonClass);
   const header = useStyles(headerClass);
+  const actionClassName = useStyles(actionClass);
   const titleWrapClassName = useStyles(titleWrapClass);
   const titleClassName = useStyles(titleClass);
   const label = paneLabel(section, title);
@@ -50,6 +54,7 @@ export function PaneHeader({
           {label === undefined ? "New session" : label}
         </div>
       </Crossfade>
+      {action !== undefined && <div className={actionClassName}>{action}</div>}
       <Tooltip content="New session">
         <Button
           variant="quiet"
@@ -71,7 +76,7 @@ function paneLabel(section: string | undefined, title: string | undefined) {
 }
 
 const headerClass = style(
-  flex({ align: "center" }),
+  flex({ align: "center", gap: 2 }),
   flexItem({ size: "hug" }),
   border(["bottom"], "border"),
   spacing.padding({ x: 12, y: 6 }),
@@ -90,6 +95,11 @@ const headerClass = style(
     },
   },
 );
+
+const actionClass = style(flex({ align: "center" }), {
+  flexShrink: 0,
+  WebkitAppRegion: "no-drag",
+});
 
 const titleWrapClass = style({
   minWidth: 0,

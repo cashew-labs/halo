@@ -15,8 +15,7 @@ import type { IncompatibleServerError } from "@get-halo/client";
 import type { AppInfo } from "./HostApi.js";
 import { useHost } from "./HostProvider.js";
 
-const releasesUrl =
-  "https://github.com/tanishqkancharla/halo-v2/releases/latest";
+const releasesUrl = "https://github.com/cashew-labs/halo/releases/latest";
 
 type ConnectionPageProps =
   | { status: "disconnected" | "waiting" }

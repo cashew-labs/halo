@@ -1,4 +1,3 @@
-export type { HaloMessage } from "./sessionState.js";
 export type WorkspaceInfo = {
   name: string;
   workspaceRoot: string;
