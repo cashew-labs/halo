@@ -1,13 +1,6 @@
 import type { ForgeConfig } from "@electron-forge/shared-types";
 import { copyMainProcessExternals } from "./forge/copyMainProcessExternals.js";
-import {
-  readGithubRepository,
-  writeGithubRepositoryToPackagedApp,
-} from "./forge/githubRepository.js";
 import { waitForDevelopmentServices } from "./forge/waitForDevelopmentServices.js";
-
-const githubRepository = readGithubRepository();
-if (githubRepository instanceof Error) throw githubRepository;
 
 const appleApiKey = process.env.APPLE_API_KEY;
 const appleApiKeyId = process.env.APPLE_API_KEY_ID;
@@ -52,8 +45,6 @@ const config: ForgeConfig = {
     },
     packageAfterCopy: async (_forgeConfig, buildPath) => {
       await copyMainProcessExternals(buildPath);
-      const repository = await writeGithubRepositoryToPackagedApp(buildPath);
-      if (repository instanceof Error) throw repository;
     },
   },
   makers: [
@@ -105,8 +96,8 @@ const config: ForgeConfig = {
       name: "@electron-forge/publisher-github",
       config: {
         repository: {
-          owner: githubRepository.owner,
-          name: githubRepository.name,
+          owner: "cashew-labs",
+          name: "halo",
         },
         prerelease: false,
         draft: false,

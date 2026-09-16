@@ -5,6 +5,10 @@
   "description": "Halo desktop app",
   "license": "MIT",
   "author": "Saffron Health",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cashew-labs/halo.git"
+  },
   "type": "module",
   "main": ".vite/build/main.cjs",
   "scripts": {
