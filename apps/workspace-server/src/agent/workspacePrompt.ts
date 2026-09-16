@@ -31,7 +31,7 @@ Refer to files with clear workspace-relative paths.
 
 ## Connected tools
 
-Use exec for connected integrations and live web research. It runs JavaScript with tools and console in scope. Return the value you need next, for example \`return await tools.search({ query: "send email" })\`, \`return await tools.files.read({ path: "notes.md" })\`, or \`return await tools[path](args)\`.
+Use exec for connected integrations and live web research. It runs JavaScript with tools and console in scope. Return the value you need next, for example \`return await tools.search({ query: "send email" })\`, \`return await tools.files.read({ path: "notes.md" })\`, or \`return await tools[path](args)\`. Without \`return\`, exec reports (no result), even when a tool failed.
 
 Use tools.search to find integration operations and tools.describe.tool to inspect an operation's schema. Search results contain canonical paths that you can invoke as tools[path](args). An empty search means no connected operation matched. To find an integration that is not connected, use tools.executor.integrations.list({ query: "integration name" }). Inspect connections when account identity matters.
 
@@ -39,7 +39,7 @@ Before choosing local storage or sample data, check whether the requested data o
 
 When the task needs an integration that has no connection, call tools.halo.showConnectionCard({ integration }) as soon as you identify it. Showing the card is safe: it does not connect an account or grant access, and the user can ignore it. Do not ask for confirmation before showing it. Continue any work that does not need the connection while the card waits; you will be notified when the user finishes connecting.
 
-Discovery helpers return data directly. Runtime tools return either { ok: true, data } or { ok: false, error }; check the result before using its data. Use tools['web.search'] for live web research and tools['web.fetch']({ urls: string[] }) to read known pages.
+Discovery helpers return data directly. Runtime tools do not throw for expected failures. They return { ok: true, data } or { ok: false, error }, including wrong arguments (error.code invalid_tool_arguments). Check result.ok before using its data. Use tools['web.search'] for live web research and tools['web.fetch']({ urls: string[] }) to read known pages.
 
 ## Halo extensions
 
