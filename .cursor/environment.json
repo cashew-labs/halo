@@ -1,6 +1,7 @@
 {
   "name": "halo-v2",
   "install": "pnpm install && node node_modules/electron/install.js",
+  "start": "mkdir -p \"$HOME/.config/halo\" && if [ -n \"$HALO_GCP_SA_KEY\" ]; then (umask 177; printf '%s' \"$HALO_GCP_SA_KEY\" > \"$HOME/.config/halo/gcp-adc.json\"); echo \"Wrote GCP ADC key to $HOME/.config/halo/gcp-adc.json\"; else echo \"HALO_GCP_SA_KEY not set; skipping GCP ADC setup\"; fi",
   "repositoryDependencies": [
     "github.com/tanishqkancharla/tandem",
     "github.com/tanishqkancharla/maui"
@@ -8,8 +9,8 @@
   "terminals": [
     {
       "name": "halo-dev",
-      "command": "HALO_USE_SWIFTSHADER=1 pnpm dev",
-      "description": "Control plane, workspace server, and Electron client; SwiftShader enabled for the headless renderer"
+      "command": "if [ -f \"$HOME/.config/halo/gcp-adc.json\" ]; then export GOOGLE_APPLICATION_CREDENTIALS=\"$HOME/.config/halo/gcp-adc.json\"; fi; HALO_USE_SWIFTSHADER=1 pnpm dev",
+      "description": "Control plane, workspace server, and Electron client; SwiftShader enabled for the headless renderer. Uses GCP ADC from $HOME/.config/halo/gcp-adc.json when present."
     },
     {
       "name": "agentation-mcp",
