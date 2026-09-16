@@ -1,4 +1,0 @@
-interface:
-  display_name: "Testing"
-  short_description: "Write tests that act on real abstractions without mocks"
-  default_prompt: "Use $testing to write focused Vitest and Playwright tests that exercise real consumer behavior."

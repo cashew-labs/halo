@@ -2,12 +2,13 @@
 
 Halo is an open-source self-modifiable desktop app built with Electron and Pi. It's currently a work-in-progress and has not been publically launched.
 
-## Architecture
+## Conventions
 
-Read [docs/architecture.md](docs/architecture.md) when deciding code ownership,
-dependencies, service boundaries, or test structure. It defines the target design
-and labels current gaps; planned packages and APIs are not yet available. Apply
-the guidance to new work without expanding a task into the full migration.
+Use the [conventions skill](.agents/skills/conventions/SKILL.md) when writing,
+refactoring, or reviewing code or tests. Read its relevant pages, not the whole
+handbook for every task. Track repo-specific progress in
+`specs/repo-conventions-migration.md` and update it as changes land; do not expand
+a task into the full migration.
 
 ## Commands
 
@@ -58,26 +59,15 @@ Run `pnpm prerelease <version>` from a clean, up-to-date `main` branch. It creat
 
 Don't write tests unless updating tests or writing new ones in existing test files or asked.
 
-When writing tests, load the `testing` skill.
-
-- E2E means package-level tests through the package's main supported exports.
-  Apps use their public UI or protocol. Direct tests of the client package's
-  exported reducers are E2Es; no special exception or server fixture is needed.
-- Use one canonical setup form per package, with one shared fixture and test
-  entry where runtime setup is needed. Pure API tests can call exports directly.
-  Control-plane auth,
-  routing, proxying, and lifecycle scenarios all belong on `controlPlane`.
-  Feature-specific helpers may compose behind that fixture; do not add alternate
-  test exports or fixtures that mount only an internal sub-service.
-- Allow unit tests of internal components only for small, encapsulated components
-  that could stand as independent packages. Name the contract and extraction trigger. If a component
-  outgrows that scope or another package needs it, extract it and make its tests
-  that package's E2Es. Purity or an internal module export alone does not qualify.
-  Do not add public exports solely to make internals testable.
-- Preserve meaningful consumer coverage when consolidating existing tests.
+For test changes or review, use the conventions skill and read its
+[testing page](.agents/skills/conventions/references/testing.md).
+Control-plane auth, routing, proxying, and lifecycle scenarios all use
+`controlPlane`. Existing alternate fixtures are migration work, not examples
+to copy. See Commands above for this repo's focused verification commands.
 
 ## Working Style
 
+- Summarize changes with concise, source-checked call stacks and name the next small step. Manual summaries in chat are enough.
 - Store temporary files and workspaces in a named folder under this repo's `tmp/` directory.
 - Garden as you go. When the current work exposes small, clear friction—such as incorrect guidance, stale docs, misleading comments, dead code, or a confusing local API—fix it in the same change and verify the fix. If the issue is too large, risky, or separate to finish well in the current session, do not derail the main task; note it and discuss or scope it as follow-up work.
 - If straightforward code seems to need surprising guards, wrappers, assertions, or other ceremony, stop and research how the dependency's own code and reference projects handle the same case before keeping that shape.
@@ -96,17 +86,13 @@ This codebase uses the [errore.org](https://errore.org) convention. Always read 
 - Replace `try`/`finally` resource cleanup with `await using` + `errore.AsyncDisposableStack` (or `using` + `errore.DisposableStack`) when cleanup is needed.
 - At legacy boundaries that still require throws (for example Electron IPC rejection), convert a returned error back to a throw only at that edge: `if (result instanceof Error) throw result`.
 
-## Writing Rules
-
-Always adhere to ISO 24495-1 Technical Language Standard for responses.
-
 ## Design Guidance
 
 - Agents and humans should always have access to the same state. Store Halo and Pi state in the chosen workspace filesystem.
 
 ## Cursor Cloud specific instructions
 
-Development runs the independent control plane and workspace server Node services with the Halo Electron client. Start all three from the repo root with `pnpm dev`; they use `tmp/workspace` as the workspace and `tmp/workspace/.halo` for shared application data. The `halo-dev` terminal in `.cursor/environment.json` already runs this. The control plane and workspace server publish their connection information under that application data directory, Electron serves the Vite renderer and opens its window, and dev builds expose Chrome DevTools Protocol on `127.0.0.1:4445`. Drive and inspect the renderer with `pnpm halo app` (see the halo-app skill). Follow the incremental verification workflow in Commands.
+Development runs the independent control plane and workspace server Node services with the Halo Electron client. Start all three from the repo root with `pnpm dev`; they use `tmp/workspace` as the workspace and `tmp/workspace/.halo` for shared application data. The `halo-dev` terminal in `.cursor/environment.json` already runs this. The control plane and workspace server publish their connection information under that application data directory, Electron serves the Vite renderer and opens its window, and dev builds expose Chrome DevTools Protocol on `127.0.0.1:4445`. Drive and inspect the renderer with `pnpm halo-dev app` (see the halo-app skill). Follow the incremental verification workflow in Commands.
 
 Cursor Cloud agents must record a short demo video when they add or change any UI, attach it to the PR, and show it in the walkthrough. Use screen recording against the running Halo app; do not skip this for “small” UI tweaks. This requirement does not apply to agents outside Cursor Cloud.
 
