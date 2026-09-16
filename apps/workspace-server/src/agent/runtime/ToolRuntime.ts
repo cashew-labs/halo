@@ -429,7 +429,7 @@ export class ToolRuntime {
 
     const prefix = [
       "Execute JavaScript. tools and console are in scope.",
-      "Return the value you need next, for example `return await tools.search({ query: \"send email\" })`, `return await tools.files.read({ path: \"notes.md\" })`, or `return await tools[path](args)`.",
+      'Return the value you need next, for example `return await tools.search({ query: "send email" })`, `return await tools.files.read({ path: "notes.md" })`, or `return await tools[path](args)`.',
     ].join("\n");
     const inventoryStart = executorDescription.indexOf(
       INTEGRATION_INVENTORY_HEADER,
