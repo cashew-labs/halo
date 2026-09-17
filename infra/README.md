@@ -9,14 +9,16 @@ resources outside the application stacks and are not on the application request
 path. Do not delete or move the KMS key: the active `west` stack uses it to
 decrypt Pulumi secrets.
 
-The current Electron release connects directly to the Cloud Run default URL; a
-stable custom hostname can be added separately.
+The production control-plane origin is `https://gethalo.dev`, configured through
+`controlPlaneDomain`. A global HTTPS load balancer routes to Cloud Run;
+HTTP redirects to HTTPS and `www.gethalo.dev` redirects to the apex hostname.
 
 ## Production layout
 
 - `control-plane/` owns the `halo-west` network, Cloud NAT, Artifact Registry,
   build-source bucket, Cloud SQL database, runtime secrets, service accounts,
-  Cloud Run service, and workspace instance template.
+  Cloud Run service, HTTPS load balancer, managed certificate, and workspace
+  instance template.
 - The control plane creates one workspace VM and durable workspace disk per
   user from that template. Production user workspaces are not managed by the
   standalone `workspace/` Pulumi program.
@@ -54,6 +56,7 @@ pnpm infra:control-plane:up
 Always review the selected stack and preview before applying a change. The
 Cloud SQL instance, application secrets, and Cloud Run service have deletion
 protection in both their GCP configuration and Pulumi state.
+The load balancer's static IP address is also protected in Pulumi.
 
 Normal production changes ship through a release PR created by
 `pnpm prerelease <version>`. CI previews this stack on the PR. Merging builds the

@@ -313,13 +313,20 @@ e2eTest(
     await editor.locator(":scope > p").first().click();
     await app.page.keyboard.press("Backspace");
     await expect(editor.locator(":scope > ul")).toHaveCount(1);
-    await editor.evaluate((element) => {
+    await editor.evaluate(async (element) => {
       const paragraphs = [...element.querySelectorAll("p")];
       const start = paragraphs.find((p) => p.textContent === "Second")!;
       const end = paragraphs.find((p) => p.textContent === "Third")!;
+      // ProseMirror reads the DOM selection when Chromium emits selectionchange.
+      const selectionChanged = new Promise<void>((resolve) => {
+        document.addEventListener("selectionchange", () => resolve(), {
+          once: true,
+        });
+      });
       window
         .getSelection()!
         .setBaseAndExtent(start, 0, end, end.childNodes.length);
+      await selectionChanged;
     });
     await app.page.keyboard.press("Tab");
     const nested = editor.locator(":scope > ul > li > ul > li > p");
