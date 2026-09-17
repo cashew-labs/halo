@@ -1,5 +1,5 @@
 import { defineConfig } from "vitest/config";
-import StreamingAgentReporter from "./StreamingAgentReporter.js";
+import StreamingAgentReporter from "./StreamingAgentReporter.ts";
 
 export default defineConfig({
   test: {

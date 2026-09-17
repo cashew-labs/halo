@@ -1,6 +1,7 @@
 {
   "extends": "@get-halo/typescript-config/base.json",
   "compilerOptions": {
+    "allowImportingTsExtensions": true,
     "lib": ["ES2023"],
     "noEmit": true,
     "types": ["node", "vitest"]
