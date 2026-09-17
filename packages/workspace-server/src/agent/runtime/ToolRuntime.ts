@@ -58,7 +58,6 @@ import {
   type QuickJSWASMModule,
 } from "quickjs-emscripten";
 import * as errore from "errore";
-import type { GoogleWebOAuthClient } from "@get-halo/config/workspaceServer";
 import type {
   ConnectionRequest,
   OAuthCompletion,
@@ -74,6 +73,11 @@ import type {
 import type { AgentAuthority } from "./AgentAuthority.js";
 import type { CredentialVault } from "./CredentialVault.js";
 import { createExecutorCredentialProvider } from "./createExecutorCredentialProvider.js";
+
+export type GoogleWebOAuthClient = {
+  clientId: string;
+  clientSecret: string;
+};
 
 export class ToolRuntimeError extends errore.createTaggedError({
   name: "ToolRuntimeError",
@@ -224,19 +228,20 @@ const desktopGoogleOAuthClient: FirstPartyOAuthClientConfig = {
   ],
 };
 
-function configuredOAuthClients(
-  googleWebOAuthClient: GoogleWebOAuthClient | undefined,
-) {
+function configuredOAuthClients(input: {
+  googleWebOAuthClient: GoogleWebOAuthClient | undefined;
+  oauthTestOrigin: string | undefined;
+}) {
   const webClient: FirstPartyOAuthClientConfig | undefined =
-    googleWebOAuthClient === undefined
+    input.googleWebOAuthClient === undefined
       ? undefined
       : {
           ...desktopGoogleOAuthClient,
           name: "google-web",
-          clientId: googleWebOAuthClient.clientId,
-          clientSecret: googleWebOAuthClient.clientSecret,
+          clientId: input.googleWebOAuthClient.clientId,
+          clientSecret: input.googleWebOAuthClient.clientSecret,
         };
-  const testOrigin = process.env.HALO_E2E_OAUTH_ORIGIN;
+  const testOrigin = input.oauthTestOrigin;
   if (testOrigin === undefined)
     return { desktop: desktopGoogleOAuthClient, web: webClient };
   return {
@@ -367,6 +372,7 @@ type ToolRuntimeOptions = {
   authority: AgentAuthority;
   oauthRedirectUri: string;
   googleWebOAuthClient?: GoogleWebOAuthClient;
+  oauthTestOrigin?: string;
 };
 
 export class ToolRuntime {
@@ -653,7 +659,10 @@ export class ToolRuntime {
 async function createToolRuntime(
   input: ToolRuntimeOptions,
 ): Promise<ToolRuntime | ToolRuntimeError> {
-  const oauthClients = configuredOAuthClients(input.googleWebOAuthClient);
+  const oauthClients = configuredOAuthClients({
+    googleWebOAuthClient: input.googleWebOAuthClient,
+    oauthTestOrigin: input.oauthTestOrigin,
+  });
   const firstPartyOAuthClients =
     oauthClients.web === undefined
       ? [oauthClients.desktop]

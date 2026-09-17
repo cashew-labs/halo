@@ -6,7 +6,8 @@ Halo is an Electron desktop app with a React renderer and Pi in an independent N
 
 - `apps/electron/src/renderer`: React UI built with Maui and Vite.
 - `apps/electron/src/main`: Electron main process, preload bridge, and server connection discovery.
-- `apps/workspace-server`: Independent workspace and agent service (`@get-halo/workspace-server`).
+- `apps/workspace-server`: Workspace server process (`@get-halo/workspace-server-app`).
+- `packages/workspace-server`: Reusable workspace server library (`@get-halo/workspace-server`).
 - `infra`: [GCP/Pulumi infrastructure](infra/README.md).
 - `packages/halo-cli`: Workspace commands and private browser testing for workspace agents.
 - `packages/dev-cli`: Local development commands, currently Electron app control.

@@ -87,6 +87,10 @@ export const e2eTest = baseTest.extend<E2EFixtures>({
             "../../../packages/halo-cli/src/cli.ts",
           ),
           cliNodeExecutable: process.execPath,
+          extensionRuntime: {
+            executable: process.execPath,
+            electronRunAsNode: false,
+          },
         },
       });
       if (server instanceof Error) throw server;

@@ -82,7 +82,9 @@ class WorkspaceServerConfigError extends errore.createTaggedError({
   message: "Workspace server configuration failed: $detail",
 }) {}
 
-async function readConfig(): Promise<WorkspaceServerApplicationConfig | Error> {
+export async function readWorkspaceServerApplicationConfig(): Promise<
+  WorkspaceServerApplicationConfig | Error
+> {
   const configPath = process.argv[2];
   const server =
     configPath === undefined
@@ -314,5 +316,3 @@ function readInferenceConfig(
     },
   };
 }
-
-export const config = await readConfig();

@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { readFile } from "node:fs/promises";
+import { readFile, rm, writeFile } from "node:fs/promises";
 import { Type, type Static } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import * as errore from "errore";
@@ -14,7 +14,7 @@ export type HaloRpcFile = Static<typeof haloRpcFileV1>;
 
 export class HaloRpcFileError extends errore.createTaggedError({
   name: "HaloRpcFileError",
-  message: "Failed to read rpc.json: $detail",
+  message: "rpc.json: $detail",
 }) {}
 
 export function rpcFilePath(userDataDir: string) {
@@ -43,4 +43,29 @@ export async function readHaloRpcFile(path: string) {
   return new HaloRpcFileError({
     detail: errorPath.length === 0 ? message : `${errorPath} ${message}`,
   });
+}
+
+export async function writeHaloRpcFile(options: {
+  userDataDir: string;
+  connection: { port: number; token: string };
+}) {
+  const file: HaloRpcFile = {
+    version: 1,
+    host: "127.0.0.1",
+    port: options.connection.port,
+    token: options.connection.token,
+  };
+  const written = await writeFile(
+    rpcFilePath(options.userDataDir),
+    `${JSON.stringify(file)}\n`,
+    { mode: 0o600 },
+  ).catch((cause) => new HaloRpcFileError({ detail: "write failed", cause }));
+  if (written instanceof Error) return written;
+  return file;
+}
+
+export async function removeHaloRpcFile(options: { userDataDir: string }) {
+  return await rm(rpcFilePath(options.userDataDir), { force: true }).catch(
+    (cause) => new HaloRpcFileError({ detail: "remove failed", cause }),
+  );
 }

@@ -1,10 +1,10 @@
 import {
+  FileCredentialVault,
   WorkspaceServer,
   type WorkspaceServerOptions,
 } from "@get-halo/workspace-server";
 import { createHaloClient, type HaloClient } from "@get-halo/client";
 import path from "node:path";
-import { FileCredentialVault } from "../src/agent/runtime/FileCredentialVault.js";
 import type { TestArtifacts } from "./TestArtifacts.js";
 
 type RunningServer = {
@@ -21,17 +21,20 @@ export class TestServer {
 
   readonly workspaceRoot: string;
   private readonly artifacts: TestArtifacts;
-  private readonly llmApi: WorkspaceServerOptions["llmApi"];
+  private readonly llmApi: WorkspaceServerOptions["host"]["llmApi"];
+  private readonly testApiEnabled: boolean;
 
   constructor(ctx: {
     artifacts: TestArtifacts;
     workspaceRoot: string;
-    llmApi: WorkspaceServerOptions["llmApi"];
+    llmApi: WorkspaceServerOptions["host"]["llmApi"];
+    testApiEnabled?: boolean;
   }) {
-    const { artifacts, workspaceRoot, llmApi } = ctx;
+    const { artifacts, workspaceRoot, llmApi, testApiEnabled } = ctx;
     this.artifacts = artifacts;
     this.workspaceRoot = workspaceRoot;
     this.llmApi = llmApi;
+    this.testApiEnabled = testApiEnabled === undefined ? true : testApiEnabled;
   }
 
   get harness() {
@@ -53,27 +56,35 @@ export class TestServer {
       );
     }
     const server = await WorkspaceServer.start({
-      environment: "local",
-      llmApi: this.llmApi,
-      workspaceRoot: this.workspaceRoot,
-      appDataDir: this.artifacts.paths.userData,
-      appVersion: "0.0.0-test",
-      ownerUserId: Promise.resolve("server-test-user"),
-      logger: this.artifacts.logger,
-      createCredentialVault: ({ filesystem, workspaceRoot }) =>
-        new FileCredentialVault({
-          filesystem,
-          directory: path.join(
-            workspaceRoot,
-            ".halo",
-            "executor",
-            "credentials",
-          ),
-        }),
-      host: "127.0.0.1",
-      port: this.listenPort,
-      corsOrigins: [],
-      testApiEnabled: true,
+      config: {
+        environment: "local",
+        workspaceRoot: this.workspaceRoot,
+        appDataDir: this.artifacts.paths.userData,
+        appVersion: "0.0.0-test",
+        ownerUserId: "server-test-user",
+        host: "127.0.0.1",
+        port: this.listenPort,
+        corsOrigins: [],
+        testApiEnabled: this.testApiEnabled,
+        extensionRuntime: {
+          executable: process.execPath,
+          electronRunAsNode: false,
+        },
+      },
+      host: {
+        llmApi: this.llmApi,
+        logger: this.artifacts.logger,
+        createCredentialVault: ({ filesystem, workspaceRoot }) =>
+          new FileCredentialVault({
+            filesystem,
+            directory: path.join(
+              workspaceRoot,
+              ".halo",
+              "executor",
+              "credentials",
+            ),
+          }),
+      },
     });
     if (server instanceof Error) throw server;
     const { connections } = server.ready;

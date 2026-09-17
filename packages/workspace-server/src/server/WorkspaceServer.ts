@@ -12,14 +12,16 @@ import { WorkspaceService } from "../workspace/WorkspaceService.js";
 import { StaticAgentAuthority } from "../agent/runtime/AgentAuthority.js";
 import type { CredentialVault } from "../agent/runtime/CredentialVault.js";
 import { ConnectionService } from "../agent/runtime/ConnectionService.js";
-import { ToolRuntime } from "../agent/runtime/ToolRuntime.js";
+import {
+  ToolRuntime,
+  type GoogleWebOAuthClient,
+} from "../agent/runtime/ToolRuntime.js";
 import { workspaceBashPlugin } from "../agent/tools/bash/workspaceBashPlugin.js";
 import { createWorkspaceFilesPlugin } from "../agent/tools/files/createWorkspaceFilesPlugin.js";
 import { parallelSearchPlugin } from "../agent/tools/web/parallelSearchPlugin.js";
 import type { LLMApi } from "../llm/LLMApi.js";
 import { createPiModelRuntime } from "../llm/createPiModelRuntime.js";
 import type { HaloEnvironment } from "../agent/workspacePrompt.js";
-import type { GoogleWebOAuthClient } from "@get-halo/config/workspaceServer";
 import {
   closeHaloHttp,
   listenHaloHttp,
@@ -30,28 +32,40 @@ import {
 } from "./http.js";
 import type { WorkspaceServerReady } from "./WorkspaceServerReady.js";
 
-export type WorkspaceServerOptions = {
+export type WorkspaceServerConfig = {
   environment: HaloEnvironment;
-  llmApi: LLMApi;
   workspaceRoot: string;
   appDataDir: string;
   appVersion: string;
-  cliEntry?: string;
-  cliNodeExecutable?: string;
-  cliElectronRunAsNode?: boolean;
-  extensionRuntime?: ExtensionRuntime;
-  googleWebOAuthClient?: GoogleWebOAuthClient;
+  ownerUserId: string;
   host: string;
   port: number;
   corsOrigins: readonly string[];
   testApiEnabled?: boolean;
   gateway?: WorkspaceGatewayIdentity;
-  ownerUserId: Promise<string | Error>;
+  cliEntry?: string;
+  cliNodeExecutable?: string;
+  cliElectronRunAsNode?: boolean;
+  extensionRuntime: ExtensionRuntime;
+  googleWebOAuthClient?: GoogleWebOAuthClient;
+  oauthTestOrigin?: string;
+};
+
+export type WorkspaceServerHost = {
+  // Inference client the host constructs and keeps for this process.
+  llmApi: LLMApi;
+  // Logger the host owns; the server writes through it and does not close the sinks.
   logger: Logger;
+  // Host-owned vault. The server passes its FilesystemService; the host must not close it.
   createCredentialVault: (input: {
     filesystem: FilesystemService;
     workspaceRoot: string;
   }) => CredentialVault;
+};
+
+export type WorkspaceServerOptions = {
+  config: WorkspaceServerConfig;
+  host: WorkspaceServerHost;
 };
 
 export class WorkspaceServer {
@@ -109,44 +123,41 @@ export class WorkspaceServer {
   static async start(
     options: WorkspaceServerOptions,
   ): Promise<WorkspaceServer | Error> {
+    const { config, host } = options;
     await using cleanup = new errore.AsyncDisposableStack();
     const http = await listenHaloHttp({
-      host: options.host,
-      port: options.port,
+      host: config.host,
+      port: config.port,
     });
     if (http instanceof Error) return http;
     cleanup.defer(async () => {
       const closed = await closeHaloHttp(http);
       if (closed instanceof Error)
-        options.logger.warn({ event: "http-cleanup-failed", error: closed });
+        host.logger.warn({ event: "http-cleanup-failed", error: closed });
     });
-    const modelRuntime = await createPiModelRuntime(options.llmApi);
+    const modelRuntime = await createPiModelRuntime(host.llmApi);
     if (modelRuntime instanceof Error) return modelRuntime;
     const filesystem = new FilesystemService();
     cleanup.defer(async () => {
       const closed = await filesystem.close();
       if (closed instanceof Error)
-        options.logger.warn({
+        host.logger.warn({
           event: "filesystem-cleanup-failed",
           error: closed,
         });
     });
 
-    const [workspace, ownerUserId] = await Promise.all([
-      WorkspaceService.create({
-        workspaceRoot: options.workspaceRoot,
-        appDataDir: options.appDataDir,
-        filesystem,
-        appVersion: options.appVersion,
-        cliEntry: options.cliEntry,
-        cliNodeExecutable: options.cliNodeExecutable,
-        cliElectronRunAsNode: options.cliElectronRunAsNode,
-      }),
-      options.ownerUserId,
-    ]);
+    const workspace = await WorkspaceService.create({
+      workspaceRoot: config.workspaceRoot,
+      appDataDir: config.appDataDir,
+      filesystem,
+      appVersion: config.appVersion,
+      cliEntry: config.cliEntry,
+      cliNodeExecutable: config.cliNodeExecutable,
+      cliElectronRunAsNode: config.cliElectronRunAsNode,
+    });
     if (!(workspace instanceof Error)) cleanup.defer(() => workspace.close());
     if (workspace instanceof Error) return workspace;
-    if (ownerUserId instanceof Error) return ownerUserId;
 
     const workspaceRoot = workspace.layout.root;
     const database = await DatabaseClient.open({
@@ -157,7 +168,7 @@ export class WorkspaceServer {
     cleanup.defer(async () => {
       const closed = await database.close();
       if (closed instanceof Error)
-        options.logger.warn({
+        host.logger.warn({
           event: "database-cleanup-failed",
           error: closed,
         });
@@ -167,7 +178,7 @@ export class WorkspaceServer {
     cleanup.defer(async () => {
       const closed = await sessionRepo.close();
       if (closed instanceof Error)
-        options.logger.warn({
+        host.logger.warn({
           event: "session-repo-cleanup-failed",
           error: closed,
         });
@@ -177,13 +188,14 @@ export class WorkspaceServer {
       ToolRuntime.create({
         database,
         workspaceRoot,
-        userId: ownerUserId,
-        credentialVault: options.createCredentialVault({
+        userId: config.ownerUserId,
+        credentialVault: host.createCredentialVault({
           filesystem,
           workspaceRoot,
         }),
         oauthRedirectUri: `${http.origin}/oauth/callback`,
-        googleWebOAuthClient: options.googleWebOAuthClient,
+        googleWebOAuthClient: config.googleWebOAuthClient,
+        oauthTestOrigin: config.oauthTestOrigin,
         toolPlugins: [
           createWorkspaceFilesPlugin(filesystem),
           workspaceBashPlugin,
@@ -201,7 +213,7 @@ export class WorkspaceServer {
       cleanup.defer(async () => {
         const closed = await toolRuntime.close();
         if (closed instanceof Error)
-          options.logger.warn({
+          host.logger.warn({
             event: "tool-runtime-cleanup-failed",
             error: closed,
           });
@@ -213,20 +225,17 @@ export class WorkspaceServer {
       workspaceRoot,
       toolsOrigin: http.origin,
       filesystem,
-      logger: options.logger,
-      runtime:
-        options.extensionRuntime === undefined
-          ? { executable: process.execPath, electronRunAsNode: false }
-          : options.extensionRuntime,
+      logger: host.logger,
+      runtime: config.extensionRuntime,
     });
     cleanup.defer(async () => await extensions.stop());
     const browsers = new BrowserService();
     cleanup.defer(async () => await browsers.shutdown());
     const sessions = new SessionRegistry({
-      environment: options.environment,
+      environment: config.environment,
       repo: sessionRepo,
       modelRuntime,
-      model: options.llmApi.model,
+      model: host.llmApi.model,
       filesystem,
       layout: workspace.layout,
       toolRuntime,
@@ -234,7 +243,7 @@ export class WorkspaceServer {
     cleanup.defer(async () => {
       const closed = await sessions.shutdown();
       if (closed instanceof Error)
-        options.logger.warn({
+        host.logger.warn({
           event: "sessions-cleanup-failed",
           error: closed,
         });
@@ -250,12 +259,12 @@ export class WorkspaceServer {
         sessions,
         connections: connectionService,
         toolRuntime,
-        logger: options.logger,
+        logger: host.logger,
         browserControlAllowed: false,
-        testApiEnabled: options.testApiEnabled === true,
+        testApiEnabled: config.testApiEnabled === true,
       },
-      corsOrigins: options.corsOrigins,
-      gateway: options.gateway,
+      corsOrigins: config.corsOrigins,
+      gateway: config.gateway,
     });
     cleanup.defer(async () => await requests.close());
     await extensions.reload();

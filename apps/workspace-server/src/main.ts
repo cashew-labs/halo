@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { config } from "@get-halo/config/workspaceServer";
+import { readWorkspaceServerApplicationConfig } from "@get-halo/config/workspaceServer";
 import { ApplicationMode } from "@get-halo/config/ApplicationMode";
 import { Logger } from "@get-halo/logger";
 import { JsonlLoggerSink } from "@get-halo/logger/JsonlLoggerSink";
@@ -8,12 +8,19 @@ import {
   writeWorkspaceServerConnection,
   removeWorkspaceServerConnection,
 } from "@get-halo/shared/WorkspaceServerConnection";
+import {
+  writeHaloRpcFile,
+  removeHaloRpcFile,
+} from "@get-halo/shared/HaloRpcFile";
+import {
+  FileCredentialVault,
+  WorkspaceServer,
+} from "@get-halo/workspace-server";
+import {
+  createOpenAILLMApi,
+  createPiLLMApi,
+} from "@get-halo/workspace-server/llm";
 import * as errore from "errore";
-import { WorkspaceServer } from "./server/WorkspaceServer.js";
-import { writeHaloRpcFile, removeHaloRpcFile } from "./server/haloRpcFile.js";
-import { FileCredentialVault } from "./agent/runtime/FileCredentialVault.js";
-import { createPiLLMApi } from "./llm/createPiLLMApi.js";
-import { createOpenAILLMApi } from "./llm/createOpenAILLMApi.js";
 
 class WorkspaceServerStartupError extends errore.createTaggedError({
   name: "WorkspaceServerStartupError",
@@ -29,8 +36,8 @@ async function run() {
       if (message === "shutdown") stop();
     });
   });
-  if (config instanceof Error) return config;
-  const applicationConfig = config;
+  const applicationConfig = await readWorkspaceServerApplicationConfig();
+  if (applicationConfig instanceof Error) return applicationConfig;
   const created = await fs
     .mkdir(dirname(applicationConfig.server.logFilePath), { recursive: true })
     .catch(
@@ -53,24 +60,41 @@ async function run() {
   });
   await using cleanup = new errore.AsyncDisposableStack();
   cleanup.defer(() => logger.destroy());
+  const extensionRuntime =
+    applicationConfig.server.extensionRuntime === undefined
+      ? { executable: process.execPath, electronRunAsNode: false }
+      : applicationConfig.server.extensionRuntime;
   const server = await WorkspaceServer.start({
-    ...applicationConfig.server,
-    llmApi,
-    testApiEnabled: applicationConfig.mode === ApplicationMode.Test,
-    gateway: applicationConfig.server.gateway,
-    googleWebOAuthClient: applicationConfig.googleWebOAuthClient,
-    ownerUserId: Promise.resolve(applicationConfig.server.ownerUserId),
-    logger: logger.scope("rpc"),
-    host:
-      applicationConfig.mode === ApplicationMode.Production
-        ? "0.0.0.0"
-        : "127.0.0.1",
-    port: applicationConfig.server.port,
-    createCredentialVault: ({ filesystem, workspaceRoot }) =>
-      new FileCredentialVault({
-        filesystem,
-        directory: join(workspaceRoot, ".halo", "executor", "credentials"),
-      }),
+    config: {
+      environment: applicationConfig.server.environment,
+      workspaceRoot: applicationConfig.server.workspaceRoot,
+      appDataDir: applicationConfig.server.appDataDir,
+      appVersion: applicationConfig.server.appVersion,
+      ownerUserId: applicationConfig.server.ownerUserId,
+      host:
+        applicationConfig.mode === ApplicationMode.Production
+          ? "0.0.0.0"
+          : "127.0.0.1",
+      port: applicationConfig.server.port,
+      corsOrigins: applicationConfig.server.corsOrigins,
+      testApiEnabled: applicationConfig.mode === ApplicationMode.Test,
+      gateway: applicationConfig.server.gateway,
+      cliEntry: applicationConfig.server.cliEntry,
+      cliNodeExecutable: applicationConfig.server.cliNodeExecutable,
+      cliElectronRunAsNode: applicationConfig.server.cliElectronRunAsNode,
+      extensionRuntime,
+      googleWebOAuthClient: applicationConfig.googleWebOAuthClient,
+      oauthTestOrigin: process.env.HALO_E2E_OAUTH_ORIGIN,
+    },
+    host: {
+      llmApi,
+      logger: logger.scope("rpc"),
+      createCredentialVault: ({ filesystem, workspaceRoot }) =>
+        new FileCredentialVault({
+          filesystem,
+          directory: join(workspaceRoot, ".halo", "executor", "credentials"),
+        }),
+    },
   });
   if (server instanceof Error) return server;
   cleanup.defer(async () => {

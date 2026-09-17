@@ -9,6 +9,7 @@
     "./SerialQueue": "./src/SerialQueue.ts",
     "./Stream": "./src/Stream.ts",
     "./testing": "./src/testing.ts",
+    "./HaloRpcFile": "./src/HaloRpcFile.ts",
     "./WorkspaceServerConnection": "./src/WorkspaceServerConnection.ts"
   },
   "scripts": {

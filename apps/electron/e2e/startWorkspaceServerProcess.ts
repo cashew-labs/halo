@@ -6,7 +6,7 @@ import type { WorkspaceServerConfig } from "@get-halo/config/workspaceServer";
 import {
   workspaceServerReadySchema,
   type WorkspaceServerReady,
-} from "@get-halo/workspace-server/process";
+} from "@get-halo/workspace-server";
 import { createHaloClient } from "@get-halo/client";
 import type { Logger } from "@get-halo/logger";
 import type { OpenAILLMApiOptions } from "@get-halo/workspace-server/llm";

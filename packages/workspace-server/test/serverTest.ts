@@ -8,7 +8,7 @@ import { TestServer } from "./TestServer.js";
 // Server setup and teardown can exceed Vitest's five-second default in CI.
 vi.setConfig({ testTimeout: 20_000 });
 
-type ServerOptions = { workspaceRoot?: string };
+type ServerOptions = { workspaceRoot?: string; testApiEnabled?: boolean };
 
 export const serverTest = baseTest.extend<{
   llm: LLMDriver;
@@ -51,6 +51,7 @@ export const serverTest = baseTest.extend<{
           options.workspaceRoot === undefined
             ? artifacts.paths.workspace
             : options.workspaceRoot,
+        testApiEnabled: options.testApiEnabled,
       });
       cleanup.defer(async () => await server.stop());
       return server;

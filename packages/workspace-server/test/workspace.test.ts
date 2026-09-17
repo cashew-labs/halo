@@ -230,6 +230,23 @@ serverTest("reads files prepared by the tool fixture", async ({ server }) => {
 });
 
 serverTest(
+  "rejects test API operations when the host leaves them disabled",
+  async ({ createServer }) => {
+    const server = createServer({ testApiEnabled: false });
+    await server.start();
+    await expect(
+      server.rpc.testApi.seedSession({
+        title: "Should not seed",
+        messages: [],
+      }),
+    ).rejects.toThrow("The test API is disabled for this workspace server.");
+    expect(await server.rpc.workspace.get()).toMatchObject({
+      workspaceRoot: server.workspaceRoot,
+    });
+  },
+);
+
+serverTest(
   "continues a seeded conversation after restarting the server",
   async ({ server, llm }) => {
     const saved = await server.rpc.testApi.seedSession({
