@@ -7,6 +7,7 @@ import {
   session as electronSession,
   shell,
   type IpcMainEvent,
+  type MenuItemConstructorOptions,
 } from "electron";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -281,18 +282,19 @@ function assertTrustedSender(event: IpcMainEvent): BrowserWindow {
 }
 
 function installMenu(): void {
-  const checkForUpdatesItem = {
+  const isMac = process.platform === "darwin";
+  const checkForUpdatesItem: MenuItemConstructorOptions = {
     label: "Check for Updates…",
     click: () => checkForUpdates(),
   };
-  const openLogsItem = {
+  const openLogsItem: MenuItemConstructorOptions = {
     label: "Open Logs",
     click: () => {
       // oxlint-disable-next-line typescript/no-floating-promises -- Electron menu callbacks cannot await command work.
       void openLogs();
     },
   };
-  const fileMenu = {
+  const fileMenu: MenuItemConstructorOptions = {
     label: "File",
     submenu: [
       {
@@ -304,27 +306,47 @@ function installMenu(): void {
             "newChat",
           ),
       },
+      { type: "separator" },
+      isMac ? { role: "close" } : { role: "quit" },
     ],
   };
-  const viewSubmenu = [
-    {
-      label: shortcuts.shortcutMenu.label,
-      accelerator: shortcuts.shortcutMenu.accelerator,
-      click: () =>
-        BrowserWindow.getFocusedWindow()?.webContents.send(
-          SHORTCUT_CHANNEL,
-          "shortcutMenu",
-        ),
-    },
-    {
-      label: "Reload",
-      accelerator: "CmdOrCtrl+R",
-      click: () => mainWindow?.reload(),
-    },
-    { role: "toggleDevTools" as const },
+  const viewMenu: MenuItemConstructorOptions = {
+    label: "View",
+    submenu: [
+      {
+        label: shortcuts.shortcutMenu.label,
+        accelerator: shortcuts.shortcutMenu.accelerator,
+        click: () =>
+          BrowserWindow.getFocusedWindow()?.webContents.send(
+            SHORTCUT_CHANNEL,
+            "shortcutMenu",
+          ),
+      },
+      { type: "separator" },
+      { role: "reload" },
+      { role: "forceReload" },
+      { role: "toggleDevTools" },
+      { type: "separator" },
+      { role: "resetZoom" },
+      { role: "zoomIn" },
+      // Electron's zoomIn role binds CommandOrControl+Plus; browsers also use =.
+      {
+        role: "zoomIn",
+        accelerator: "CommandOrControl+=",
+        visible: false,
+      },
+      { role: "zoomOut" },
+      { type: "separator" },
+      { role: "togglefullscreen" },
+    ],
+  };
+  const menus: MenuItemConstructorOptions[] = [
+    fileMenu,
+    { role: "editMenu" },
+    viewMenu,
+    { role: "windowMenu" },
   ];
-
-  if (process.platform === "darwin") {
+  if (isMac) {
     Menu.setApplicationMenu(
       Menu.buildFromTemplate([
         {
@@ -344,21 +366,14 @@ function installMenu(): void {
             { role: "quit" },
           ],
         },
-        fileMenu,
-        { role: "editMenu" },
-        { label: "View", submenu: viewSubmenu },
-        { role: "windowMenu" },
+        ...menus,
       ]),
     );
     return;
   }
-
   Menu.setApplicationMenu(
     Menu.buildFromTemplate([
-      fileMenu,
-      { role: "editMenu" },
-      { label: "View", submenu: viewSubmenu },
-      { role: "windowMenu" },
+      ...menus,
       { label: "Help", submenu: [checkForUpdatesItem, openLogsItem] },
     ]),
   );
