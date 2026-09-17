@@ -9,18 +9,19 @@ resources outside the application stacks and are not on the application request
 path. Do not delete or move the KMS key: the active `west` stack uses it to
 decrypt Pulumi secrets.
 
-Production Electron builds connect to `https://gethalo.dev`. A global external
-Application Load Balancer terminates TLS and routes the hostname to the Cloud
-Run control plane in `us-west2`. Vercel remains the domain registrar and
-authoritative DNS provider. The Cloud Run default URL remains reachable for
-previously released desktop clients.
+The production control-plane origin is `https://gethalo.dev`, configured through
+`controlPlaneDomain`. A global HTTPS load balancer routes to Cloud Run; HTTP
+redirects to HTTPS and `www.gethalo.dev` redirects to the apex hostname. Vercel
+remains the registrar and authoritative DNS provider. Production Electron
+builds use the custom origin, while the Cloud Run default URL remains reachable
+for previously released desktop clients.
 
 ## Production layout
 
 - `control-plane/` owns the `halo-west` network, Cloud NAT, Artifact Registry,
   build-source bucket, Cloud SQL database, runtime secrets, service accounts,
-  Cloud Run service, global load balancer, managed TLS certificate, and
-  workspace instance template.
+  Cloud Run service, HTTPS load balancer, managed certificate, and workspace
+  instance template.
 - The control plane creates one workspace VM and durable workspace disk per
   user from that template. Production user workspaces are not managed by the
   standalone `workspace/` Pulumi program.
@@ -59,6 +60,7 @@ pnpm infra:control-plane:up
 Always review the selected stack and preview before applying a change. The
 Cloud SQL instance, application secrets, and Cloud Run service have deletion
 protection in both their GCP configuration and Pulumi state.
+The load balancer's static IP address is also protected in Pulumi.
 
 Normal production changes ship through a release PR created by
 `pnpm prerelease <version>`. CI previews this stack on the PR. Merging builds the

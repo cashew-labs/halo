@@ -19,19 +19,12 @@ const googleClientIdSecretId = `${name}-control-plane-google-client-id`;
 const googleClientSecretId = `${name}-control-plane-google-client-secret`;
 const googleWebClientIdSecretId = `${name}-workspace-google-web-client-id`;
 const googleWebClientSecretId = `${name}-workspace-google-web-client-secret`;
-const controlPlaneDomain = "gethalo.dev";
-const controlPlaneWwwDomain = `www.${controlPlaneDomain}`;
+const controlPlaneDomain = configuration.require("controlPlaneDomain");
 const controlPlaneOrigin = `https://${controlPlaneDomain}`;
 
 const vertexAi = new gcp.projects.Service("vertex-ai", {
   project,
   service: "aiplatform.googleapis.com",
-  disableOnDestroy: false,
-});
-
-const certificateManager = new gcp.projects.Service("certificate-manager", {
-  project,
-  service: "certificatemanager.googleapis.com",
   disableOnDestroy: false,
 });
 
@@ -465,20 +458,57 @@ const controlPlane = new gcp.cloudrunv2.Service(
   },
 );
 
+const certificateManager = new gcp.projects.Service("certificate-manager", {
+  project,
+  service: "certificatemanager.googleapis.com",
+  disableOnDestroy: false,
+});
 const controlPlaneAddress = new gcp.compute.GlobalAddress(
   "control-plane-address",
-  {
-    project,
-    name: `${name}-control-plane`,
-  },
+  { name: controlPlaneServiceName, project },
   { protect: true },
+);
+const controlPlaneCertificate = new gcp.certificatemanager.Certificate(
+  "control-plane-certificate",
+  {
+    name: controlPlaneServiceName,
+    project,
+    scope: "DEFAULT",
+    managed: { domains: [controlPlaneDomain, `www.${controlPlaneDomain}`] },
+  },
+  { dependsOn: [certificateManager] },
+);
+const controlPlaneCertificateMap = new gcp.certificatemanager.CertificateMap(
+  "control-plane-certificate-map",
+  { name: controlPlaneServiceName, project },
+  { dependsOn: [certificateManager] },
+);
+new gcp.certificatemanager.CertificateMapEntry(
+  "control-plane-certificate-apex",
+  {
+    name: `${controlPlaneServiceName}-apex`,
+    project,
+    map: controlPlaneCertificateMap.name,
+    certificates: [controlPlaneCertificate.id],
+    hostname: controlPlaneDomain,
+  },
+);
+new gcp.certificatemanager.CertificateMapEntry(
+  "control-plane-certificate-www",
+  {
+    name: `${controlPlaneServiceName}-www`,
+    project,
+    map: controlPlaneCertificateMap.name,
+    certificates: [controlPlaneCertificate.id],
+    hostname: `www.${controlPlaneDomain}`,
+  },
 );
 const controlPlaneEndpoint = new gcp.compute.RegionNetworkEndpointGroup(
   "control-plane-endpoint",
   {
+    name: controlPlaneServiceName,
     project,
     region,
-    name: `${name}-control-plane`,
     networkEndpointType: "SERVERLESS",
     cloudRun: { service: controlPlane.name },
   },
@@ -486,61 +516,21 @@ const controlPlaneEndpoint = new gcp.compute.RegionNetworkEndpointGroup(
 const controlPlaneBackend = new gcp.compute.BackendService(
   "control-plane-backend",
   {
+    name: controlPlaneServiceName,
     project,
-    name: `${name}-control-plane`,
     loadBalancingScheme: "EXTERNAL_MANAGED",
     protocol: "HTTP",
     backends: [{ group: controlPlaneEndpoint.id }],
   },
 );
-const controlPlaneCertificate = new gcp.certificatemanager.Certificate(
-  "control-plane-certificate",
-  {
-    project,
-    name: `${name}-control-plane`,
-    scope: "DEFAULT",
-    managed: {
-      domains: [controlPlaneDomain, controlPlaneWwwDomain],
-    },
-  },
-  { dependsOn: [certificateManager] },
-);
-const controlPlaneCertificateMap = new gcp.certificatemanager.CertificateMap(
-  "control-plane-certificate-map",
-  {
-    project,
-    name: `${name}-control-plane`,
-  },
-  { dependsOn: [certificateManager] },
-);
-new gcp.certificatemanager.CertificateMapEntry(
-  "control-plane-certificate-apex",
-  {
-    project,
-    name: `${name}-control-plane-apex`,
-    map: controlPlaneCertificateMap.name,
-    hostname: controlPlaneDomain,
-    certificates: [controlPlaneCertificate.id],
-  },
-);
-new gcp.certificatemanager.CertificateMapEntry(
-  "control-plane-certificate-www",
-  {
-    project,
-    name: `${name}-control-plane-www`,
-    map: controlPlaneCertificateMap.name,
-    hostname: controlPlaneWwwDomain,
-    certificates: [controlPlaneCertificate.id],
-  },
-);
 const controlPlaneHttpsRoutes = new gcp.compute.URLMap(
   "control-plane-https-routes",
   {
+    name: `${controlPlaneServiceName}-https`,
     project,
-    name: `${name}-control-plane-https`,
     defaultService: controlPlaneBackend.id,
     hostRules: [
-      { hosts: [controlPlaneWwwDomain], pathMatcher: "redirect-www" },
+      { hosts: [`www.${controlPlaneDomain}`], pathMatcher: "redirect-www" },
     ],
     pathMatchers: [
       {
@@ -558,26 +548,25 @@ const controlPlaneHttpsRoutes = new gcp.compute.URLMap(
 const controlPlaneHttpsProxy = new gcp.compute.TargetHttpsProxy(
   "control-plane-https-proxy",
   {
+    name: controlPlaneServiceName,
     project,
-    name: `${name}-control-plane`,
     urlMap: controlPlaneHttpsRoutes.id,
     certificateMap: pulumi.interpolate`//certificatemanager.googleapis.com/${controlPlaneCertificateMap.id}`,
   },
 );
 new gcp.compute.GlobalForwardingRule("control-plane-https", {
+  name: `${controlPlaneServiceName}-https`,
   project,
-  name: `${name}-control-plane-https`,
-  loadBalancingScheme: "EXTERNAL_MANAGED",
   ipAddress: controlPlaneAddress.address,
+  loadBalancingScheme: "EXTERNAL_MANAGED",
   portRange: "443",
   target: controlPlaneHttpsProxy.id,
 });
-
 const controlPlaneHttpRoutes = new gcp.compute.URLMap(
   "control-plane-http-routes",
   {
+    name: `${controlPlaneServiceName}-http`,
     project,
-    name: `${name}-control-plane-http`,
     defaultUrlRedirect: {
       httpsRedirect: true,
       redirectResponseCode: "MOVED_PERMANENTLY_DEFAULT",
@@ -588,16 +577,16 @@ const controlPlaneHttpRoutes = new gcp.compute.URLMap(
 const controlPlaneHttpProxy = new gcp.compute.TargetHttpProxy(
   "control-plane-http-proxy",
   {
+    name: controlPlaneServiceName,
     project,
-    name: `${name}-control-plane`,
     urlMap: controlPlaneHttpRoutes.id,
   },
 );
 new gcp.compute.GlobalForwardingRule("control-plane-http", {
+  name: `${controlPlaneServiceName}-http`,
   project,
-  name: `${name}-control-plane-http`,
-  loadBalancingScheme: "EXTERNAL_MANAGED",
   ipAddress: controlPlaneAddress.address,
+  loadBalancingScheme: "EXTERNAL_MANAGED",
   portRange: "80",
   target: controlPlaneHttpProxy.id,
 });
