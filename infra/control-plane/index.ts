@@ -212,6 +212,7 @@ const workspaceTemplate = new gcp.compute.InstanceTemplate(
     metadataStartupScript: workspaceStartup({
       gateway: true,
       googleWebOAuth: {
+        projectId: project,
         clientIdSecretId: googleWebClientIdSecretId,
         clientSecretSecretId: googleWebClientSecretId,
       },
@@ -462,6 +463,8 @@ export const networkId = network.id;
 export const subnetId = subnet.id;
 export const repositoryId = repository.name;
 export const imageRepository = pulumi.interpolate`${region}-docker.pkg.dev/${project}/${repository.repositoryId}/workspace-server`;
+export const workspaceGoogleWebClientIdSecretId = googleWebClientIdSecretId;
+export const workspaceGoogleWebClientSecretId = googleWebClientSecretId;
 export const controlPlaneImageRepository = pulumi.interpolate`${region}-docker.pkg.dev/${project}/${repository.repositoryId}/control-plane`;
 export const buildSourceBucket = sources.name;
 export const buildServiceAccount = builder.name;

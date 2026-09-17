@@ -68,11 +68,6 @@ export const e2eTest = baseTest.extend<E2EFixtures>({
           sinks: [{ log: (entry) => console.log(entry.data) }],
         }),
         llmConfiguration: llm.configuration,
-        environment: {
-          HALO_E2E_OAUTH_ORIGIN: http.url(""),
-          HALO_GOOGLE_WEB_CLIENT_ID: "e2e-google-web-client",
-          HALO_GOOGLE_WEB_CLIENT_SECRET: "e2e-google-web-secret",
-        },
         config: {
           environment: "local",
           workspaceRoot: testArtifacts.paths.workspace,
@@ -90,6 +85,12 @@ export const e2eTest = baseTest.extend<E2EFixtures>({
           extensionRuntime: {
             executable: process.execPath,
             electronRunAsNode: false,
+          },
+          googleWebOAuth: {
+            kind: "test",
+            clientId: "e2e-google-web-client",
+            clientSecret: "e2e-google-web-secret",
+            tokenOrigin: http.url(""),
           },
         },
       });

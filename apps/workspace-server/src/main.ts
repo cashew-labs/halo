@@ -84,7 +84,7 @@ async function run() {
       cliElectronRunAsNode: applicationConfig.server.cliElectronRunAsNode,
       extensionRuntime,
       googleWebOAuthClient: applicationConfig.googleWebOAuthClient,
-      oauthTestOrigin: process.env.HALO_E2E_OAUTH_ORIGIN,
+      oauthTestOrigin: applicationConfig.oauthTestOrigin,
     },
     host: {
       llmApi,

@@ -12,5 +12,11 @@
   "extensionRuntime": {
     "executable": "/usr/local/bin/node",
     "electronRunAsNode": false
+  },
+  "googleWebOAuth": {
+    "kind": "secretManager",
+    "projectId": "halo-relay",
+    "clientIdSecretId": "halo-west-workspace-google-web-client-id",
+    "clientSecretSecretId": "halo-west-workspace-google-web-client-secret"
   }
 }
