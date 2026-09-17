@@ -37,7 +37,7 @@ under `<workspace>/.halo/browser/screenshots`.
 From the repository root, inspect the running development app with:
 
 ```sh
-HALO_USER_DATA="$PWD/tmp/workspace/.halo" pnpm halo-dev app snapshot
+pnpm halo-dev app snapshot
 ```
 
 `halo-dev app` reads `HALO_APP_CONTROL_FILE` when set, otherwise `HALO_USER_DATA`,

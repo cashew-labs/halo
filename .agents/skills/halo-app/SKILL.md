@@ -19,7 +19,7 @@ pnpm halo-dev app screenshot
 
 `pnpm halo-dev app` targets the Halo renderer, not DevTools. Electron main owns the app-control endpoint and exposes its debug port on `127.0.0.1:4445` in development. The workspace server does not host app control. Start the full stack with `pnpm dev` when the task calls for live testing. If only Electron is missing, start `pnpm --filter @get-halo/desktop dev` in a long-running terminal with the same `HALO_USER_DATA`.
 
-For the root dev stack, set `HALO_USER_DATA="$PWD/tmp/workspace/.halo"` before the commands above. App commands read `HALO_APP_CONTROL_FILE` when set, otherwise `HALO_USER_DATA`, otherwise the nearest `.halo/appControl.json` above the current directory. They do not use `HALO_RPC_FILE` or product credentials. Production does not expose app control.
+The root `pnpm halo-dev` and `pnpm halo` scripts set `HALO_USER_DATA` to `<repo>/tmp/workspace/.halo`, matching `pnpm dev`. App commands read `HALO_APP_CONTROL_FILE` when set, otherwise `HALO_USER_DATA`, otherwise the nearest `.halo/appControl.json` above the current directory. They do not use `HALO_RPC_FILE` or product credentials. Production does not expose app control. Set `HALO_USER_DATA` or `HALO_APP_CONTROL_FILE` when launching Electron yourself with a different data directory.
 
 ## Test an extension independently
 
