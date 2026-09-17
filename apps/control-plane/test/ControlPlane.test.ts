@@ -1,7 +1,9 @@
 import fs from "node:fs/promises";
-import { createServer } from "node:http";
+import { once } from "node:events";
+import http, { createServer, type IncomingHttpHeaders } from "node:http";
 import type { AddressInfo } from "node:net";
 import { join, resolve } from "node:path";
+import type { Duplex } from "node:stream";
 import { DatabaseSync } from "node:sqlite";
 import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
@@ -27,6 +29,11 @@ const desktopAuthState = "desktop-auth-state-0123456789abcdef";
 type ReceivedWorkspaceHeaders = {
   authorization?: string;
   cookie?: string;
+  forwarded?: string;
+  host?: string;
+  origin?: string;
+  xForwardedHost?: string;
+  xForwardedProto?: string;
 };
 
 const controlPlaneTest = test.extend<{
@@ -184,6 +191,20 @@ controlPlaneTest(
 );
 
 controlPlaneTest(
+  "rejects unauthenticated workspace WebSocket upgrades",
+  async ({ plane }) => {
+    expect(
+      await requestUpgrade(
+        `${plane.origin}/workspace/extensions/editor/view/`,
+        {
+          origin: plane.origin,
+        },
+      ),
+    ).toEqual({ type: "response", statusCode: 401 });
+  },
+);
+
+controlPlaneTest(
   "proxies an authenticated browser request to the local workspace",
   async ({ appDataDir, browserHeaders, plane }) => {
     const received: ReceivedWorkspaceHeaders = {};
@@ -225,6 +246,96 @@ controlPlaneTest(
       authorization: "Bearer local-workspace-token",
       cookie: undefined,
     });
+  },
+);
+
+controlPlaneTest(
+  "proxies authenticated WebSocket upgrades to the local workspace",
+  async ({ appDataDir, browserHeaders, plane }) => {
+    const received: ReceivedWorkspaceHeaders & { url?: string } = {};
+    let workspaceSocket: Duplex | undefined;
+    const workspaceServer = createServer();
+    workspaceServer.on("upgrade", (request, socket) => {
+      workspaceSocket = socket;
+      received.authorization = request.headers.authorization;
+      received.cookie = request.headers.cookie;
+      received.forwarded = request.headers.forwarded;
+      received.host = request.headers.host;
+      received.origin = request.headers.origin;
+      received.xForwardedHost = request.headers["x-forwarded-host"] as
+        | string
+        | undefined;
+      received.xForwardedProto = request.headers["x-forwarded-proto"] as
+        | string
+        | undefined;
+      received.url = request.url;
+      socket.write(
+        "HTTP/1.1 101 Switching Protocols\r\n" +
+          "Connection: Upgrade\r\n" +
+          "Upgrade: websocket\r\n\r\n" +
+          "workspace-ready\n",
+      );
+      socket.on("data", (data) => socket.write(data));
+    });
+    await new Promise<void>((resolveListen, rejectListen) => {
+      workspaceServer.once("error", rejectListen);
+      workspaceServer.listen(0, "127.0.0.1", resolveListen);
+    });
+    await using cleanup = new errore.AsyncDisposableStack();
+    cleanup.defer(
+      async () =>
+        await new Promise<void>((resolveClose) => {
+          workspaceServer.close(() => resolveClose());
+        }),
+    );
+
+    // SAFETY: Node returns a TCP address after successfully listening with a numeric port.
+    const address = workspaceServer.address() as AddressInfo;
+    const published = await writeWorkspaceServerConnection({
+      appDataDir,
+      connection: {
+        workspaceRoot: "/test/workspace",
+        origin: `http://127.0.0.1:${address.port}`,
+        token: "local-workspace-token",
+      },
+    });
+    if (published instanceof Error) throw published;
+
+    const origin = new URL(plane.origin);
+    const result = await requestUpgrade(
+      `${plane.origin}/workspace/extensions/editor/view/socket?channel=editor`,
+      {
+        ...Object.fromEntries(browserHeaders.entries()),
+        forwarded: "host=attacker.example;proto=http",
+        origin: plane.origin,
+        "x-forwarded-host": "attacker.example",
+        "x-forwarded-proto": "http",
+      },
+    );
+    if (result.type === "response")
+      throw new Error(`WebSocket upgrade returned ${result.statusCode}`);
+    cleanup.defer(() => {
+      result.socket.destroy();
+      workspaceSocket?.destroy();
+    });
+
+    expect(await readUpgradeLine(result.socket, result.head)).toBe(
+      "workspace-ready",
+    );
+    expect(received).toEqual({
+      authorization: "Bearer local-workspace-token",
+      cookie: undefined,
+      forwarded: undefined,
+      host: origin.host,
+      origin: plane.origin,
+      url: "/extensions/editor/view/socket?channel=editor",
+      xForwardedHost: origin.host,
+      xForwardedProto: "http",
+    });
+
+    result.socket.write("browser-message");
+    const [echoed] = await once(result.socket, "data");
+    expect(echoed.toString()).toBe("browser-message");
   },
 );
 
@@ -368,4 +479,39 @@ async function createAuthenticatedHeaders(appDataDir: string, origin: string) {
   await context.test.saveUser(user);
   const login = await context.test.login({ userId: user.id });
   return login.headers;
+}
+
+async function requestUpgrade(url: string, headers: IncomingHttpHeaders) {
+  return await new Promise<
+    | { type: "response"; statusCode: number | undefined }
+    | { type: "upgrade"; head: Buffer; socket: Duplex }
+  >((resolveRequest, rejectRequest) => {
+    const request = http.request(url, {
+      headers: {
+        ...headers,
+        connection: "Upgrade",
+        "sec-websocket-key": "dGVzdC13ZWJzb2NrZXQta2V5",
+        "sec-websocket-version": "13",
+        upgrade: "websocket",
+      },
+    });
+    request.once("upgrade", (_response, socket, head) => {
+      resolveRequest({ type: "upgrade", socket, head });
+    });
+    request.once("response", (response) => {
+      response.resume();
+      resolveRequest({ type: "response", statusCode: response.statusCode });
+    });
+    request.once("error", rejectRequest);
+    request.end();
+  });
+}
+
+async function readUpgradeLine(socket: Duplex, head: Buffer) {
+  const chunks = [head];
+  while (!Buffer.concat(chunks).includes(10)) {
+    const [chunk] = await once(socket, "data");
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks).toString().split("\n")[0]!;
 }

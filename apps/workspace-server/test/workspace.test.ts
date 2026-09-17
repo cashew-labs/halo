@@ -5,8 +5,11 @@ import {
   sessionToolExecutions,
   type HaloClient,
 } from "@get-halo/client";
+import { once } from "node:events";
 import fs from "node:fs/promises";
+import http, { type IncomingHttpHeaders } from "node:http";
 import path from "node:path";
+import type { Duplex } from "node:stream";
 import { expect } from "vitest";
 import { contentText } from "@earendil-works/pi-ai";
 import { m } from "@get-halo/shared/testing";
@@ -125,6 +128,90 @@ serverTest("reads, writes, and lists workspace files", async ({ server }) => {
   );
   expect(await server.rpc.workspace.listPaths()).toEqual(["notes/today.md"]);
 });
+
+serverTest(
+  "proxies authenticated WebSocket upgrades to a workspace extension",
+  async ({ server }) => {
+    const extensionDirectory = path.join(
+      server.workspaceRoot,
+      ".halo",
+      "extensions",
+      "socket-view",
+    );
+    await fs.mkdir(path.join(extensionDirectory, "dist"), { recursive: true });
+    await Promise.all([
+      fs.writeFile(
+        path.join(extensionDirectory, "package.json"),
+        JSON.stringify({ name: "socket-view" }),
+      ),
+      fs.writeFile(
+        path.join(extensionDirectory, "dist", "start.mjs"),
+        `
+import http from "node:http";
+const server = http.createServer((_request, response) => response.writeHead(404).end());
+server.on("upgrade", (request, socket) => {
+  socket.write(
+    "HTTP/1.1 101 Switching Protocols\\r\\n" +
+      "Connection: Upgrade\\r\\n" +
+      "Upgrade: websocket\\r\\n\\r\\n" +
+      JSON.stringify({ headers: request.headers, url: request.url }) +
+      "\\n",
+  );
+  socket.on("data", (data) => socket.write(data));
+});
+server.listen(0, "127.0.0.1", () => {
+  const address = server.address();
+  process.send("http://127.0.0.1:" + address.port + "/view/");
+});
+process.on("message", (message) => {
+  if (message === "shutdown") server.close(() => process.disconnect());
+});
+`,
+      ),
+    ]);
+    await server.rpc.extensions.reload();
+
+    const { host, port, token } = server.rendererConnection;
+    const origin = `http://${host}:${port}`;
+    const unauthenticated = await requestUpgrade(
+      `${origin}/extensions/socket-view/view/socket`,
+      { origin },
+    );
+    expect(unauthenticated).toEqual({ type: "response", statusCode: 401 });
+
+    const result = await requestUpgrade(
+      `${origin}/extensions/socket-view/view/socket?channel=editor`,
+      {
+        authorization: `Bearer ${token}`,
+        origin,
+        "x-forwarded-host": "attacker.example",
+      },
+    );
+    if (result.type === "response")
+      throw new Error(`WebSocket upgrade returned ${result.statusCode}`);
+    await using cleanup = new errore.AsyncDisposableStack();
+    cleanup.defer(() => {
+      result.socket.destroy();
+    });
+
+    const payload = await readUpgradeLine(result.socket, result.head);
+    expect(JSON.parse(payload)).toMatchObject({
+      headers: {
+        connection: "Upgrade",
+        host: expect.stringMatching(/^127\.0\.0\.1:\d+$/u),
+        origin,
+        upgrade: "websocket",
+        "x-forwarded-host": `${host}:${port}`,
+        "x-forwarded-proto": "http",
+      },
+      url: "/view/socket?channel=editor",
+    });
+
+    result.socket.write("editor-message");
+    const [echoed] = await once(result.socket, "data");
+    expect(echoed.toString()).toBe("editor-message");
+  },
+);
 
 serverTest(
   "omits hidden and dependency files from workspace listings",
@@ -759,6 +846,41 @@ serverTest(
     expect(await server.rpc.sessions.snapshot(session)).toEqual(live);
   },
 );
+
+async function requestUpgrade(url: string, headers: IncomingHttpHeaders) {
+  return await new Promise<
+    | { type: "response"; statusCode: number | undefined }
+    | { type: "upgrade"; head: Buffer; socket: Duplex }
+  >((resolveRequest, rejectRequest) => {
+    const request = http.request(url, {
+      headers: {
+        ...headers,
+        connection: "Upgrade",
+        "sec-websocket-key": "dGVzdC13ZWJzb2NrZXQta2V5",
+        "sec-websocket-version": "13",
+        upgrade: "websocket",
+      },
+    });
+    request.once("upgrade", (_response, socket, head) => {
+      resolveRequest({ type: "upgrade", socket, head });
+    });
+    request.once("response", (response) => {
+      response.resume();
+      resolveRequest({ type: "response", statusCode: response.statusCode });
+    });
+    request.once("error", rejectRequest);
+    request.end();
+  });
+}
+
+async function readUpgradeLine(socket: Duplex, head: Buffer) {
+  const chunks = [head];
+  while (!Buffer.concat(chunks).includes(10)) {
+    const [chunk] = await once(socket, "data");
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks).toString().split("\n")[0]!;
+}
 
 serverTest(
   "reopens a conversation after shutting down with a tool and viewer still active",

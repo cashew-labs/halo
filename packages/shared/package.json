@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     "./controlPlaneContract": "./src/controlPlaneContract.ts",
+    "./httpProxy": "./src/httpProxy.ts",
     "./isCallable": "./src/isCallable.ts",
     "./SerialQueue": "./src/SerialQueue.ts",
     "./Stream": "./src/Stream.ts",

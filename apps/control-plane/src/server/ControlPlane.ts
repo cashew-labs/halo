@@ -7,6 +7,7 @@ import {
   type ListeningControlPlaneHttp,
   listenControlPlaneHttp,
   serveControlPlaneHttp,
+  type ServingControlPlaneHttp,
 } from "./controlPlaneHttp.js";
 import { DatabaseService, type DatabaseConfig } from "../DatabaseService.js";
 import { WorkspaceService } from "../workspace/WorkspaceService.js";
@@ -18,15 +19,19 @@ export class ControlPlane {
   private readonly db: DatabaseService;
   private readonly http: ListeningControlPlaneHttp;
   private readonly publicOrigin: string;
+  // Owns active requests that upgraded beyond the HTTP server lifecycle.
+  private readonly requests: ServingControlPlaneHttp;
 
   private constructor(ctx: {
     db: DatabaseService;
     http: ListeningControlPlaneHttp;
     publicOrigin: string;
+    requests: ServingControlPlaneHttp;
   }) {
     this.db = ctx.db;
     this.http = ctx.http;
     this.publicOrigin = ctx.publicOrigin;
+    this.requests = ctx.requests;
   }
 
   get origin() {
@@ -77,17 +82,25 @@ export class ControlPlane {
     });
     if (workspace instanceof Error) return workspace;
 
-    serveControlPlaneHttp({ server: http.server, auth, workspace, webRoot });
+    const requests = serveControlPlaneHttp({
+      server: http.server,
+      auth,
+      publicOrigin,
+      workspace,
+      webRoot,
+    });
     cleanup.move();
 
     return new ControlPlane({
       db,
       http,
       publicOrigin,
+      requests,
     });
   }
 
   async close() {
+    this.requests.close();
     const httpClosed = await closeControlPlaneHttp(this.http.server);
     const databaseClosed = await this.db.close();
 

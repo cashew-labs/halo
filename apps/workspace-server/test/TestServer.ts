@@ -46,6 +46,10 @@ export class TestServer {
     return this.running.rendererRpc;
   }
 
+  get rendererConnection() {
+    return this.running.server.ready.connections.renderer;
+  }
+
   async start() {
     if (this.current !== undefined) {
       throw new Error(

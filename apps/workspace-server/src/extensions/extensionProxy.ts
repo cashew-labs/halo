@@ -4,6 +4,11 @@ import http, {
   type OutgoingHttpHeaders,
   type ServerResponse,
 } from "node:http";
+import type { Duplex } from "node:stream";
+import {
+  proxyWebSocketUpgrade,
+  respondToWebSocketUpgrade,
+} from "@get-halo/shared/httpProxy";
 import * as errore from "errore";
 import type { ExtensionHost } from "./ExtensionHost.js";
 
@@ -48,6 +53,41 @@ export async function serveExtensionRequest(ctx: {
 
   const target = new URL(`${route.path}${ctx.url.search}`, origin);
   await forwardExtensionRequest({ ...ctx, target });
+}
+
+export async function serveExtensionUpgrade(ctx: {
+  extensions: ExtensionHost;
+  request: IncomingMessage;
+  socket: Duplex;
+  head: Buffer;
+  url: URL;
+}) {
+  const route = parseExtensionRoute(ctx.url);
+  if (route instanceof Error) {
+    respondToWebSocketUpgrade(ctx.socket, 400);
+    return;
+  }
+
+  const origin = ctx.extensions.getOrigin(route.id);
+  if (origin === undefined) {
+    respondToWebSocketUpgrade(ctx.socket, 404);
+    return;
+  }
+
+  const target = new URL(`${route.path}${ctx.url.search}`, origin);
+  const headers = forwardedRequestHeaders(ctx.request.headers, target.host);
+  headers.connection = "Upgrade";
+  headers.upgrade = ctx.request.headers.upgrade;
+  const proxied = await proxyWebSocketUpgrade({ ...ctx, target, headers });
+  if (proxied instanceof Error) {
+    console.error(
+      new ExtensionProxyError({
+        detail: "WebSocket upgrade",
+        cause: proxied,
+      }),
+    );
+  }
+  return proxied;
 }
 
 function parseExtensionRoute(url: URL) {
@@ -115,7 +155,14 @@ function forwardedRequestHeaders(incoming: IncomingHttpHeaders, host: string) {
   const headers = forwardedHeaders(incoming);
   delete headers.authorization;
   delete headers.cookie;
+  delete headers.forwarded;
+  const forwardedProtocol = firstHeader(incoming["x-forwarded-proto"]);
+  delete headers["x-forwarded-host"];
+  delete headers["x-forwarded-proto"];
   headers.host = host;
+  headers["x-forwarded-host"] = incoming.host;
+  headers["x-forwarded-proto"] =
+    forwardedProtocol === undefined ? "http" : forwardedProtocol;
   return headers;
 }
 
@@ -129,4 +176,9 @@ function forwardedHeaders(incoming: IncomingHttpHeaders) {
   }
 
   return headers;
+}
+
+function firstHeader(value: string | string[] | undefined) {
+  if (Array.isArray(value)) return value[0];
+  return value;
 }

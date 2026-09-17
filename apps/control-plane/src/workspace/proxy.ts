@@ -4,6 +4,11 @@ import http, {
   type OutgoingHttpHeaders,
   type ServerResponse,
 } from "node:http";
+import type { Duplex } from "node:stream";
+import {
+  proxyWebSocketUpgrade,
+  respondToWebSocketUpgrade,
+} from "@get-halo/shared/httpProxy";
 import { GoogleAuth, type IdTokenClient } from "google-auth-library";
 import * as errore from "errore";
 import type { AuthService } from "../auth/AuthService.js";
@@ -42,11 +47,17 @@ export class WorkspaceGateway {
 
   private readonly auth: AuthService;
   private readonly googleAuth: GoogleAuth;
+  private readonly publicOrigin: URL;
   private readonly workspace: WorkspaceService;
 
-  constructor(ctx: { auth: AuthService; workspace: WorkspaceService }) {
+  constructor(ctx: {
+    auth: AuthService;
+    publicOrigin: string;
+    workspace: WorkspaceService;
+  }) {
     this.auth = ctx.auth;
     this.googleAuth = new GoogleAuth();
+    this.publicOrigin = new URL(ctx.publicOrigin);
     this.workspace = ctx.workspace;
   }
 
@@ -90,7 +101,57 @@ export class WorkspaceGateway {
       response,
       origin: connection.origin,
       authorization,
+      publicOrigin: this.publicOrigin,
     });
+  }
+
+  async upgrade(request: IncomingMessage, socket: Duplex, head: Buffer) {
+    const session = await this.auth.getSession(requestHeaders(request));
+    if (session instanceof Error) {
+      console.error(session);
+      respondToWebSocketUpgrade(socket, 500);
+      return;
+    }
+    if (session === undefined) {
+      respondToWebSocketUpgrade(socket, 401);
+      return;
+    }
+
+    const connection = await this.workspace.getConnection(session.user.id);
+    if (connection instanceof Error) {
+      console.error(connection);
+      respondToWebSocketUpgrade(socket, 503);
+      return;
+    }
+    if (connection === undefined) {
+      respondToWebSocketUpgrade(socket, 503);
+      return;
+    }
+
+    const authorization = await this.getAuthorization(connection);
+    if (authorization instanceof Error) {
+      console.error(authorization);
+      respondToWebSocketUpgrade(socket, 502);
+      return;
+    }
+
+    const target = workspaceTarget(request, connection.origin);
+    const headers = forwardedRequestHeaders(
+      request.headers,
+      authorization,
+      this.publicOrigin,
+    );
+    headers.connection = "Upgrade";
+    headers.upgrade = request.headers.upgrade;
+    const proxied = await proxyWebSocketUpgrade({
+      request,
+      socket,
+      head,
+      target,
+      headers,
+    });
+    if (proxied instanceof Error) console.error(proxied);
+    return proxied;
   }
 
   private async getAuthorization(connection: WorkspaceConnection) {
@@ -135,18 +196,11 @@ export class WorkspaceGateway {
 async function forwardWorkspaceRequest(ctx: {
   authorization: string;
   origin: string;
+  publicOrigin: URL;
   request: IncomingMessage;
   response: ServerResponse;
 }) {
-  const incomingUrl = new URL(
-    ctx.request.url === undefined ? "/" : ctx.request.url,
-    "http://localhost",
-  );
-  const workspacePath = incomingUrl.pathname.slice(workspacePathPrefix.length);
-  const target = new URL(
-    `${workspacePath === "" ? "/" : workspacePath}${incomingUrl.search}`,
-    ctx.origin,
-  );
+  const target = workspaceTarget(ctx.request, ctx.origin);
 
   return await new Promise<void>((resolve) => {
     const upstreamRequest = http.request(
@@ -155,8 +209,8 @@ async function forwardWorkspaceRequest(ctx: {
         method: ctx.request.method,
         headers: forwardedRequestHeaders(
           ctx.request.headers,
-          target.host,
           ctx.authorization,
+          ctx.publicOrigin,
         ),
       },
       (upstreamResponse) => {
@@ -193,14 +247,19 @@ async function forwardWorkspaceRequest(ctx: {
 
 function forwardedRequestHeaders(
   incoming: IncomingHttpHeaders,
-  host: string,
   authorization: string,
+  publicOrigin: URL,
 ) {
   const headers = forwardedHeaders(incoming);
   delete headers.authorization;
   delete headers.cookie;
+  delete headers.forwarded;
+  delete headers["x-forwarded-host"];
+  delete headers["x-forwarded-proto"];
   headers.authorization = authorization;
-  headers.host = host;
+  headers.host = publicOrigin.host;
+  headers["x-forwarded-host"] = publicOrigin.host;
+  headers["x-forwarded-proto"] = publicOrigin.protocol.slice(0, -1);
   return headers;
 }
 
@@ -214,6 +273,18 @@ function forwardedHeaders(incoming: IncomingHttpHeaders) {
   }
 
   return headers;
+}
+
+function workspaceTarget(request: IncomingMessage, origin: string) {
+  const incomingUrl = new URL(
+    request.url === undefined ? "/" : request.url,
+    "http://localhost",
+  );
+  const workspacePath = incomingUrl.pathname.slice(workspacePathPrefix.length);
+  return new URL(
+    `${workspacePath === "" ? "/" : workspacePath}${incomingUrl.search}`,
+    origin,
+  );
 }
 
 function requestHeaders(request: IncomingMessage) {
