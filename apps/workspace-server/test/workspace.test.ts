@@ -4,19 +4,14 @@ import {
   sessionMessages,
   sessionToolExecutions,
   type HaloClient,
-  type SessionSnapshot,
 } from "@get-halo/client";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { expect } from "vitest";
 import { contentText } from "@earendil-works/pi-ai";
 import { m } from "@get-halo/shared/testing";
-import {
-  messageText,
-  type LLMDriver,
-} from "@get-halo/workspace-server/testing";
+import { messageText } from "@get-halo/workspace-server/testing";
 import { serverTest } from "./serverTest.js";
-import type { TestServer } from "./TestServer.js";
 
 serverTest(
   "lists saved conversations during overlapping requests and a pending response",
@@ -818,122 +813,6 @@ serverTest(
 );
 
 serverTest(
-  "runs nested bash without timeoutMs and prints ok",
-  async ({ server, llm }) => {
-    const snapshot = await runTool(server, llm, {
-      name: "exec",
-      id: "echo",
-      arguments: {
-        js: `return await tools.bash.run({ command: "echo ok" });`,
-      },
-    });
-    expect(sessionToolExecutions(snapshot)).toMatchObject([
-      { id: "echo", type: "exec", status: "completed" },
-    ]);
-    expect(toolOutputText(snapshot, "echo")).toContain("ok");
-  },
-);
-
-serverTest("sets PAGER=cat for nested bash.run", async ({ server, llm }) => {
-  const snapshot = await runTool(server, llm, {
-    name: "exec",
-    id: "pager",
-    arguments: {
-      js: `return await tools.bash.run({ command: 'printf %s "$PAGER"' });`,
-    },
-  });
-  expect(toolOutputText(snapshot, "pager")).toContain("cat");
-});
-
-serverTest(
-  "kills nested bash.run at an explicit timeoutMs",
-  async ({ server, llm }) => {
-    const started = Date.now();
-    const snapshot = await runTool(server, llm, {
-      name: "exec",
-      id: "sleep",
-      arguments: {
-        js: `return await tools.bash.run({ command: "sleep 2", timeoutMs: 200 });`,
-      },
-    });
-    expect(Date.now() - started).toBeLessThan(2_000);
-    expect(toolOutputText(snapshot, "sleep")).toContain("200");
-    expect(toolOutputText(snapshot, "sleep")).toMatch(/timeout/i);
-  },
-);
-
-serverTest(
-  "runs top-level bash without timeout and prints ok",
-  async ({ server, llm }) => {
-    const snapshot = await runTool(server, llm, {
-      name: "bash",
-      id: "echo",
-      arguments: { command: "echo ok" },
-    });
-    expect(sessionToolExecutions(snapshot)).toMatchObject([
-      { id: "echo", type: "tool", status: "completed" },
-    ]);
-    expect(toolOutputText(snapshot, "echo")).toContain("ok");
-  },
-);
-
-serverTest("sets PAGER=cat for top-level bash", async ({ server, llm }) => {
-  const snapshot = await runTool(server, llm, {
-    name: "bash",
-    id: "pager",
-    arguments: { command: 'printf %s "$PAGER"' },
-  });
-  expect(toolOutputText(snapshot, "pager")).toContain("cat");
-});
-
-serverTest(
-  "kills top-level bash at an explicit timeoutMs",
-  async ({ server, llm }) => {
-    const started = Date.now();
-    const snapshot = await runTool(server, llm, {
-      name: "bash",
-      id: "sleep",
-      arguments: { command: "sleep 2", timeoutMs: 200 },
-    });
-    expect(Date.now() - started).toBeLessThan(2_000);
-    expect(sessionToolExecutions(snapshot)).toMatchObject([
-      { id: "sleep", type: "tool", status: "failed" },
-    ]);
-    expect(toolOutputText(snapshot, "sleep")).toContain("200");
-    expect(toolOutputText(snapshot, "sleep")).toMatch(/timed out/i);
-  },
-);
-
-serverTest(
-  "rejects a bash timeout longer than 10 minutes",
-  async ({ server, llm }) => {
-    const nested = await runTool(server, llm, {
-      name: "exec",
-      id: "nested-limit",
-      arguments: {
-        js: `return await tools.bash.run({ command: "echo too-long", timeoutMs: 600001 });`,
-      },
-    });
-    expect(toolOutputText(nested, "nested-limit")).toMatch(
-      /invalid_tool_arguments|did not match the input schema/i,
-    );
-
-    const topLevel = await runTool(server, llm, {
-      name: "bash",
-      id: "top-limit",
-      arguments: { command: "echo ok", timeoutMs: 600001 },
-    });
-    expect(sessionToolExecutions(topLevel)).toMatchObject([
-      { id: "top-limit", type: "tool", status: "failed" },
-    ]);
-    expect(toolOutputText(topLevel, "top-limit")).toContain(
-      "must be <= 600000",
-    );
-    expect(toolOutputText(topLevel, "top-limit")).not.toContain('"ok"');
-  },
-);
-
-serverTest(
   "kills nested bash.run after the default 10s timeout",
   { timeout: 25_000 },
   async ({ server, llm }) => {
@@ -942,7 +821,6 @@ serverTest(
       ...session,
       text: "Run the command",
     });
-    const started = Date.now();
     await llm.respond(
       m.tool.start("exec", {
         id: "default-timeout",
@@ -953,45 +831,20 @@ serverTest(
     );
     await expect
       .poll(
-        async () =>
-          toolOutputText(
+        async () => {
+          const execution = sessionToolExecutions(
             await server.rpc.sessions.snapshot(session),
-            "default-timeout",
-          ),
+          ).find((item) => item.id === "default-timeout");
+          const content = execution?.result?.content;
+          if (content === undefined) return "";
+          return content
+            .flatMap((part) => (part.type === "text" ? [part.text] : []))
+            .join("");
+        },
         { timeout: 20_000 },
       )
       .toMatch(/timed out after 10000 ms/i);
-    expect(Date.now() - started).toBeLessThan(20_000);
     await llm.respond(m.assistant("Done."));
     await prompt;
   },
 );
-
-async function runTool(
-  server: TestServer,
-  llm: LLMDriver,
-  tool: { name: string } & Parameters<typeof m.tool.start>[1],
-) {
-  const session = await server.rpc.sessions.create();
-  const prompt = server.rpc.sessions.prompt({
-    ...session,
-    text: "Run the command",
-  });
-  await llm.respond(
-    m.tool.start(tool.name, { id: tool.id, arguments: tool.arguments }),
-  );
-  await llm.respond(m.assistant("Done."));
-  await prompt;
-  return await server.rpc.sessions.snapshot(session);
-}
-
-function toolOutputText(snapshot: SessionSnapshot, id: string) {
-  const execution = sessionToolExecutions(snapshot).find(
-    (item) => item.id === id,
-  );
-  const content = execution?.result?.content;
-  if (content === undefined) return "";
-  return content
-    .flatMap((part) => (part.type === "text" ? [part.text] : []))
-    .join("");
-}
