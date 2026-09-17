@@ -9,14 +9,18 @@ resources outside the application stacks and are not on the application request
 path. Do not delete or move the KMS key: the active `west` stack uses it to
 decrypt Pulumi secrets.
 
-The current Electron release connects directly to the Cloud Run default URL; a
-stable custom hostname can be added separately.
+Production Electron builds connect to `https://gethalo.dev`. A global external
+Application Load Balancer terminates TLS and routes the hostname to the Cloud
+Run control plane in `us-west2`. Vercel remains the domain registrar and
+authoritative DNS provider. The Cloud Run default URL remains reachable for
+previously released desktop clients.
 
 ## Production layout
 
 - `control-plane/` owns the `halo-west` network, Cloud NAT, Artifact Registry,
   build-source bucket, Cloud SQL database, runtime secrets, service accounts,
-  Cloud Run service, and workspace instance template.
+  Cloud Run service, global load balancer, managed TLS certificate, and
+  workspace instance template.
 - The control plane creates one workspace VM and durable workspace disk per
   user from that template. Production user workspaces are not managed by the
   standalone `workspace/` Pulumi program.
@@ -30,6 +34,7 @@ The production control plane uses these locations:
 | GCP project      | `halo-relay`                                                                               |
 | Runtime region   | `us-west2`                                                                                 |
 | Workspace zone   | `us-west2-a`                                                                               |
+| Public origin    | `https://gethalo.dev`                                                                      |
 | Pulumi stack     | `west`                                                                                     |
 | State backend    | `gs://halo-relay-pulumi-state`                                                             |
 | Secrets provider | `gcpkms://projects/halo-relay/locations/us-central1/keyRings/halo-pulumi/cryptoKeys/state` |
@@ -129,17 +134,26 @@ Production Google OAuth credentials live in Secret Manager as:
 
 The control plane loads its sign-in client through its runtime service account.
 Workspace VMs load the web integration client through their runtime service
-account. Add
-`${controlPlaneUrl}/api/auth/callback/google` as an authorized redirect URI on
-the Google OAuth client, where `controlPlaneUrl` comes from:
+account. The control-plane Google OAuth client must authorize:
+
+```text
+https://gethalo.dev/api/auth/callback/google
+```
+
+The workspace web OAuth client must authorize:
+
+```text
+https://gethalo.dev/workspace/oauth/callback
+```
+
+The public origin is available as the stack output:
 
 ```sh
 pulumi -C infra/control-plane stack output controlPlaneUrl --stack west
 ```
 
-The workspace web OAuth client uses
-`${controlPlaneUrl}/workspace/oauth/callback`. Electron keeps using its separate
-installed-application client and loopback callback.
+Electron keeps using its separate installed-application client and loopback
+callback.
 
 Local development uses separate `halo-dev-local-*` secrets and the active
 Application Default Credentials identity. Production workspace VMs use their
