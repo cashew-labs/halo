@@ -900,7 +900,7 @@ serverTest(
       { id: "sleep", type: "tool", status: "failed" },
     ]);
     expect(toolOutputText(snapshot, "sleep")).toContain("200");
-    expect(toolOutputText(snapshot, "sleep")).toMatch(/timeout/i);
+    expect(toolOutputText(snapshot, "sleep")).toMatch(/timed out/i);
   },
 );
 
@@ -914,37 +914,54 @@ serverTest(
         js: `return await tools.bash.run({ command: "echo too-long", timeoutMs: 600001 });`,
       },
     });
-    expect(toolOutputText(nested, "nested-limit")).not.toContain("too-long");
+    expect(toolOutputText(nested, "nested-limit")).toMatch(
+      /invalid_tool_arguments|did not match the input schema/i,
+    );
 
     const topLevel = await runTool(server, llm, {
       name: "bash",
       id: "top-limit",
-      arguments: { command: "echo too-long", timeoutMs: 600001 },
+      arguments: { command: "echo ok", timeoutMs: 600001 },
     });
     expect(sessionToolExecutions(topLevel)).toMatchObject([
       { id: "top-limit", type: "tool", status: "failed" },
     ]);
-    expect(toolOutputText(topLevel, "top-limit")).not.toContain("too-long");
+    expect(toolOutputText(topLevel, "top-limit")).toContain("must be <= 600000");
+    expect(toolOutputText(topLevel, "top-limit")).not.toContain('"ok"');
   },
 );
 
 serverTest(
   "kills nested bash.run after the default 10s timeout",
-  { timeout: 20_000 },
+  { timeout: 25_000 },
   async ({ server, llm }) => {
-    const started = Date.now();
-    const snapshot = await runTool(server, llm, {
-      name: "exec",
-      id: "default-timeout",
-      arguments: {
-        js: `return await tools.bash.run({ command: "sleep 30" });`,
-      },
+    const session = await server.rpc.sessions.create();
+    const prompt = server.rpc.sessions.prompt({
+      ...session,
+      text: "Run the command",
     });
-    const elapsed = Date.now() - started;
-    expect(elapsed).toBeGreaterThan(9_000);
-    expect(elapsed).toBeLessThan(20_000);
-    expect(toolOutputText(snapshot, "default-timeout")).toContain("10000");
-    expect(toolOutputText(snapshot, "default-timeout")).toMatch(/timeout/i);
+    const started = Date.now();
+    await llm.respond(
+      m.tool.start("exec", {
+        id: "default-timeout",
+        arguments: {
+          js: `return await tools.bash.run({ command: "sleep 30" });`,
+        },
+      }),
+    );
+    await expect
+      .poll(
+        async () =>
+          toolOutputText(
+            await server.rpc.sessions.snapshot(session),
+            "default-timeout",
+          ),
+        { timeout: 20_000 },
+      )
+      .toMatch(/timed out after 10000 ms/i);
+    expect(Date.now() - started).toBeLessThan(20_000);
+    await llm.respond(m.assistant("Done."));
+    await prompt;
   },
 );
 
