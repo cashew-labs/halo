@@ -7,7 +7,7 @@ import {
 } from "@get-halo/client";
 import { once } from "node:events";
 import fs from "node:fs/promises";
-import http, { type IncomingHttpHeaders } from "node:http";
+import nodeHttp, { type IncomingHttpHeaders } from "node:http";
 import path from "node:path";
 import type { Duplex } from "node:stream";
 import { expect } from "vitest";
@@ -853,7 +853,7 @@ async function requestUpgrade(url: string, headers: IncomingHttpHeaders) {
     | { type: "response"; statusCode: number | undefined }
     | { type: "upgrade"; head: Buffer; socket: Duplex }
   >((resolveRequest, rejectRequest) => {
-    const request = http.request(url, {
+    const request = nodeHttp.request(url, {
       headers: {
         ...headers,
         connection: "Upgrade",

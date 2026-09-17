@@ -274,12 +274,14 @@ export function serveHaloHttp(options: {
       url,
     });
   };
-  options.server.on("upgrade", (request, socket, head) => {
+  options.server.on("upgrade", async (request, socket, head) => {
     upgradeSockets.add(socket);
     socket.once("close", () => upgradeSockets.delete(socket));
     const pending = handleUpgrade(request, socket, head);
     pendingUpgrades.add(pending);
-    void pending.finally(() => pendingUpgrades.delete(pending));
+    using cleanup = new errore.DisposableStack();
+    cleanup.defer(() => pendingUpgrades.delete(pending));
+    await pending;
   });
   return {
     async close() {
