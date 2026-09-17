@@ -29,7 +29,7 @@ Create `specs/<short-kebab-case-name>.md` with the format below. Then run, from 
 
 ```sh
 pnpm spec specs/<name>.md
-# or: pnpm exec tkstack specs/<name>.md
+# or: pnpm exec diffmap specs/<name>.md
 ```
 
 Keep the server running and give the user the spec path and local URL. Do not open the URL in a browser unless the user explicitly asks. Do not write the spec to a temporary directory.
