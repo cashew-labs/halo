@@ -262,12 +262,12 @@ controlPlaneTest(
       received.forwarded = request.headers.forwarded;
       received.host = request.headers.host;
       received.origin = request.headers.origin;
-      received.xForwardedHost = request.headers["x-forwarded-host"] as
-        | string
-        | undefined;
-      received.xForwardedProto = request.headers["x-forwarded-proto"] as
-        | string
-        | undefined;
+      received.xForwardedHost = firstHeader(
+        request.headers["x-forwarded-host"],
+      );
+      received.xForwardedProto = firstHeader(
+        request.headers["x-forwarded-proto"],
+      );
       received.url = request.url;
       socket.write(
         "HTTP/1.1 101 Switching Protocols\r\n" +
@@ -514,4 +514,9 @@ async function readUpgradeLine(socket: Duplex, head: Buffer) {
     chunks.push(chunk);
   }
   return Buffer.concat(chunks).toString().split("\n")[0]!;
+}
+
+function firstHeader(value: string | string[] | undefined) {
+  if (Array.isArray(value)) return value[0];
+  return value;
 }
