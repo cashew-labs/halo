@@ -30,6 +30,7 @@ import {
   type DesktopAuthentication,
 } from "./DesktopAuthentication.js";
 import { ControlPlaneAuth } from "./auth/ControlPlaneAuth.js";
+import { createAdcDesktopIdentity } from "./auth/createAdcDesktopIdentity.js";
 import {
   closePendingOAuthCallbacks,
   registerDesktopApi,
@@ -152,17 +153,17 @@ async function createDesktopAuthentication(): Promise<DesktopAuthentication> {
     });
   }
 
-  const authentication = await ControlPlaneAuth.start({
+  if (applicationConfig.mode === ApplicationMode.Development) {
+    return createLocalDesktopAuthentication({
+      dataDir: applicationConfig.dataDir,
+      identity: createAdcDesktopIdentity(),
+    });
+  }
+
+  return await ControlPlaneAuth.start({
     origin: applicationConfig.controlPlaneOrigin,
     dataDir: applicationConfig.dataDir,
   });
-
-  return applicationConfig.mode === ApplicationMode.Development
-    ? createLocalDesktopAuthentication({
-        dataDir: applicationConfig.dataDir,
-        identity: authentication,
-      })
-    : authentication;
 }
 
 async function getWorkspaceConnection(

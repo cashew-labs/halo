@@ -35,6 +35,12 @@ runtime using Application Default Credentials. Follow the
 [infrastructure secret setup](infra/README.md#runtime-secrets) before starting
 development.
 
+In Electron development mode, Halo also derives its local UI identity from the
+active ADC principal. User ADC appears as that Google user; service-account ADC
+appears as the service account email. This skips browser Google sign-in only for
+the local Electron app. Packaged builds and the browser app continue to use
+Better Auth with Google sign-in.
+
 `pnpm dev` starts the control plane, workspace server, web app, and Electron independently, using `<repo>/tmp/workspace` and `<repo>/tmp/workspace/.halo`. Electron discovers the server through `server.json` in that application-data directory; closing Electron leaves the server running. When launching services individually, use `HALO_WORKSPACE_ROOT` to select the workspace and `HALO_USER_DATA` to select the application-data directory. See [workspace-server configuration](apps/workspace-server/README.md).
 
 Halo runs Pi's `AgentHarness` with one `main` lane per conversation. `HaloServer` owns a `DatabaseClient` that stores Pi conversations and Executor application data in one embedded Turso database. The file currently lives in the selected workspace:
@@ -65,7 +71,6 @@ not pass them through renderer IPC or extension process environments.
 Development builds expose Electron's Chrome DevTools Protocol on `127.0.0.1:4445`. The separate `pnpm halo-dev` command uses Electron's local app-control connection to attach with [Libretto Browser Tools](https://libretto.sh/browser-tools) and leaves Halo running. Electron owns this endpoint; the workspace server does not. For the root dev stack:
 
 ```sh
-export HALO_USER_DATA="$PWD/tmp/workspace/.halo"
 pnpm halo status
 pnpm halo-dev app snapshot
 pnpm halo-dev app exec "return await page.locator('body').innerText()"

@@ -14,7 +14,9 @@ import {
 } from "maui";
 import { style, useStyles } from "purse-styles";
 
-export const sidebarPadding = style(spacing.padding({ x: 4 }));
+export const sidebarPadding = style(spacing.padding({ x: 4 }), {
+  "@media (max-width: 700px)": { paddingInline: "16px" },
+});
 
 const sidebarSection = style(
   flex({ direction: "column" }),
@@ -26,6 +28,10 @@ const sidebarSection = style(
     borderTop: "1px solid transparent",
     borderBottom: "1px solid transparent",
     transition: `border-color ${motionDurationMs}ms ${motionEasing}`,
+    "@media (max-width: 700px)": {
+      paddingBlock: 0,
+      border: 0,
+    },
     "&:hover": {
       borderTopColor: borderColor.outline,
       borderBottomColor: borderColor.outline,
@@ -71,6 +77,10 @@ const sectionLabel = style(
     alignItems: "center",
     justifyContent: "space-between",
     minHeight: "28px",
+    "@media (max-width: 700px)": {
+      minHeight: "36px",
+      marginBottom: 0,
+    },
   },
 );
 

@@ -43,4 +43,4 @@ The host owns its private bridges. Callers supply configuration, not the IPC or 
 
 ## Keep authority boundaries explicit
 
-Trusted development control and test setup stay outside the product API. The controlled host owns its development listener and credentials. Browser or shell operations can still be product capabilities when intended for consumers.
+Trusted development control and test setup must not grant ordinary product consumers extra authority. Test setup may share the client contract under an explicit `testApi` namespace, gated server-side by a startup option that is disabled by default. A separate test listener is not required just to distinguish setup from product behavior. The controlled host owns its development listener and credentials. Browser or shell operations can still be product capabilities when intended for consumers.

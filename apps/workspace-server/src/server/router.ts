@@ -17,15 +17,15 @@ import {
   type WorkspaceRouterContext,
 } from "../workspace/workspaceRouter.js";
 import {
-  testingRouter,
-  type TestingRouterContext,
-} from "../testing/testingRouter.js";
+  testApiRouter,
+  type TestApiRouterContext,
+} from "../testing/testApiRouter.js";
 
 export type HaloContext = BrowserRouterContext &
   WorkspaceRouterContext &
   ExtensionsRouterContext &
   SessionsRouterContext &
-  TestingRouterContext;
+  TestApiRouterContext;
 
 const server = implement(contract.server);
 
@@ -39,5 +39,5 @@ export const haloRpcRouter = {
   workspace: workspaceRouter,
   sessions: sessionsRouter,
   extensions: extensionsRouter,
-  testHarness: testingRouter,
+  testApi: testApiRouter,
 };

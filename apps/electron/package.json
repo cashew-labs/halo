@@ -1,6 +1,6 @@
 {
   "name": "@get-halo/desktop",
-  "version": "0.1.47",
+  "version": "0.1.49",
   "private": true,
   "description": "Halo desktop app",
   "license": "MIT",
@@ -39,6 +39,7 @@
     "@sinclair/typebox": "^0.34.52",
     "electron-squirrel-startup": "^1.0.1",
     "errore": "^0.14.1",
+    "google-auth-library": "^11.0.2",
     "maui": "npm:@tanishqkancharla/maui@0.0.19",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
