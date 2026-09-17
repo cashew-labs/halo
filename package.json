@@ -28,13 +28,13 @@
   },
   "devDependencies": {
     "@oxlint/plugins": "^1.80.0",
+    "oxc-parser": "^0.150.0",
     "oxfmt": "^0.65.0",
     "oxlint": "^1.80.0",
     "oxlint-tsgolint": "7.0.2001",
     "tkstack": "github:tanishqkancharla/tkstack#main",
     "turbo": "^2.10.12",
     "typescript": "7.0.2",
-    "typescript6": "npm:typescript@5.9.3",
     "vitest": "^5.0.1"
   },
   "engines": {
