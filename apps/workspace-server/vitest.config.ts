@@ -1,1 +1,1 @@
-export { default } from "../../tools/vitest/vitest.config.js";
+export { default } from "@get-halo/vitest-config";

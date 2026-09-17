@@ -1,5 +1,5 @@
 {
-  "name": "@get-halo/client",
+  "name": "@get-halo/vitest-config",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -11,19 +11,10 @@
     "format:check": "oxfmt --check .",
     "lint": "NODE_OPTIONS=--experimental-strip-types oxlint --deny-warnings src",
     "lint:fix": "NODE_OPTIONS=--experimental-strip-types oxlint --fix src",
-    "typecheck": "tsc --noEmit",
-    "test": "pnpm run test:e2e",
-    "test:e2e": "vitest run src --maxWorkers=1"
-  },
-  "dependencies": {
-    "@orpc/client": "2.0.0-beta.29",
-    "@orpc/contract": "2.0.0-beta.29",
-    "@sinclair/typebox": "^0.34.52",
-    "errore": "^0.14.1"
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
     "@get-halo/typescript-config": "workspace:*",
-    "@get-halo/vitest-config": "workspace:*",
     "@types/node": "^22.20.1",
     "typescript": "7.0.2"
   }

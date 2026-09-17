@@ -19,6 +19,7 @@
   },
   "devDependencies": {
     "@get-halo/typescript-config": "workspace:*",
+    "@get-halo/vitest-config": "workspace:*",
     "@types/node": "^22.20.1",
     "typescript": "7.0.2"
   }

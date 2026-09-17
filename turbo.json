@@ -13,8 +13,7 @@
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/.oxlintrc.json",
         "$TURBO_ROOT$/tools/oxlint/anti-slop/**",
-        "$TURBO_ROOT$/tools/oxlint/no-unused-exports/**",
-        "$TURBO_ROOT$/tools/vitest/**"
+        "$TURBO_ROOT$/tools/oxlint/no-unused-exports/**"
       ]
     },
     "lint:fix": {
@@ -24,37 +23,23 @@
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/.oxlintrc.json",
         "$TURBO_ROOT$/tools/oxlint/anti-slop/**",
-        "$TURBO_ROOT$/tools/oxlint/no-unused-exports/**",
-        "$TURBO_ROOT$/tools/vitest/**"
+        "$TURBO_ROOT$/tools/oxlint/no-unused-exports/**"
       ]
     },
     "format": {
       "dependsOn": ["^format"],
       "cache": false,
-      "inputs": [
-        "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/.oxfmtrc.json",
-        "$TURBO_ROOT$/tools/vitest/**"
-      ]
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/.oxfmtrc.json"]
     },
     "format:check": {
       "dependsOn": ["^format:check"],
-      "inputs": [
-        "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/.oxfmtrc.json",
-        "$TURBO_ROOT$/tools/vitest/**"
-      ]
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/.oxfmtrc.json"]
     },
     "typecheck": {
-      "dependsOn": ["^typecheck"],
-      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/tools/vitest/**"]
+      "dependsOn": ["^typecheck"]
     },
-    "test:unit": {
-      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/tools/vitest/**"]
-    },
-    "test:e2e": {
-      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/tools/vitest/**"]
-    },
+    "test:unit": {},
+    "test:e2e": {},
     "dev": {
       "cache": false,
       "persistent": true

@@ -179,6 +179,9 @@ importers:
       '@get-halo/typescript-config':
         specifier: workspace:*
         version: link:../../packages/typescript-config
+      '@get-halo/vitest-config':
+        specifier: workspace:*
+        version: link:../../packages/vitest-config
       '@orpc/client':
         specifier: 2.0.0-beta.29
         version: 2.0.0-beta.29(@opentelemetry/api@1.9.0)
@@ -479,6 +482,9 @@ importers:
       '@get-halo/typescript-config':
         specifier: workspace:*
         version: link:../../packages/typescript-config
+      '@get-halo/vitest-config':
+        specifier: workspace:*
+        version: link:../../packages/vitest-config
       '@types/node':
         specifier: ^22.20.1
         version: 22.20.1
@@ -560,6 +566,9 @@ importers:
       '@get-halo/typescript-config':
         specifier: workspace:*
         version: link:../typescript-config
+      '@get-halo/vitest-config':
+        specifier: workspace:*
+        version: link:../vitest-config
       '@types/node':
         specifier: ^22.20.1
         version: 22.20.1
@@ -708,6 +717,9 @@ importers:
       '@get-halo/typescript-config':
         specifier: workspace:*
         version: link:../typescript-config
+      '@get-halo/vitest-config':
+        specifier: workspace:*
+        version: link:../vitest-config
       '@types/node':
         specifier: ^22.20.1
         version: 22.20.1
@@ -723,6 +735,9 @@ importers:
       '@get-halo/typescript-config':
         specifier: workspace:*
         version: link:../typescript-config
+      '@get-halo/vitest-config':
+        specifier: workspace:*
+        version: link:../vitest-config
       '@types/node':
         specifier: ^22.20.1
         version: 22.20.1
@@ -751,6 +766,9 @@ importers:
       '@get-halo/typescript-config':
         specifier: workspace:*
         version: link:../typescript-config
+      '@get-halo/vitest-config':
+        specifier: workspace:*
+        version: link:../vitest-config
       '@types/node':
         specifier: ^22.20.1
         version: 22.20.1
@@ -759,6 +777,18 @@ importers:
         version: 7.0.2
 
   packages/typescript-config: {}
+
+  packages/vitest-config:
+    devDependencies:
+      '@get-halo/typescript-config':
+        specifier: workspace:*
+        version: link:../typescript-config
+      '@types/node':
+        specifier: ^22.20.1
+        version: 22.20.1
+      typescript:
+        specifier: 7.0.2
+        version: 7.0.2
 
   packages/web:
     dependencies:
