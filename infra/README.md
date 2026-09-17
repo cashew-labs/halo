@@ -124,12 +124,12 @@ Production Google OAuth credentials live in Secret Manager as:
 
 - `halo-west-control-plane-google-client-id`
 - `halo-west-control-plane-google-client-secret`
-- `halo-west-workspace-google-web-client-id`
-- `halo-west-workspace-google-web-client-secret`
+- `halo-workspace-google-web-client-id`
+- `halo-workspace-google-web-client-secret`
 
 The control plane loads its sign-in client through its runtime service account.
-Workspace VMs load the web integration client through their runtime service
-account. Add
+Every workspace-server app loads the canonical web integration client through
+ADC; IAM grants each local or cloud runtime access to those two secrets. Add
 `${controlPlaneUrl}/api/auth/callback/google` as an authorized redirect URI on
 the Google OAuth client, where `controlPlaneUrl` comes from:
 

@@ -86,10 +86,11 @@ export const e2eTest = baseTest.extend<E2EFixtures>({
             executable: process.execPath,
             electronRunAsNode: false,
           },
-          googleWebOAuth: {
-            kind: "test",
-            clientId: "e2e-google-web-client",
-            clientSecret: "e2e-google-web-secret",
+          oauthTest: {
+            googleWebClient: {
+              clientId: "e2e-google-web-client",
+              clientSecret: "e2e-google-web-secret",
+            },
             tokenOrigin: http.url(""),
           },
         },

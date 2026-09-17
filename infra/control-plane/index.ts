@@ -17,8 +17,8 @@ const controlPlaneImage = configuration.require("controlPlaneImage");
 const workspaceImage = configuration.require("workspaceImage");
 const googleClientIdSecretId = `${name}-control-plane-google-client-id`;
 const googleClientSecretId = `${name}-control-plane-google-client-secret`;
-const googleWebClientIdSecretId = `${name}-workspace-google-web-client-id`;
-const googleWebClientSecretId = `${name}-workspace-google-web-client-secret`;
+const googleWebClientIdSecretId = "halo-workspace-google-web-client-id";
+const googleWebClientSecretId = "halo-workspace-google-web-client-secret";
 const projectInfo = gcp.organizations.getProjectOutput({ projectId: project });
 const controlPlaneOrigin = pulumi.interpolate`https://${controlPlaneServiceName}-${projectInfo.number}.${region}.run.app`;
 
@@ -211,11 +211,6 @@ const workspaceTemplate = new gcp.compute.InstanceTemplate(
     },
     metadataStartupScript: workspaceStartup({
       gateway: true,
-      googleWebOAuth: {
-        projectId: project,
-        clientIdSecretId: googleWebClientIdSecretId,
-        clientSecretSecretId: googleWebClientSecretId,
-      },
       image: workspaceImage,
       registry: `${region}-docker.pkg.dev`,
     }),
@@ -463,8 +458,6 @@ export const networkId = network.id;
 export const subnetId = subnet.id;
 export const repositoryId = repository.name;
 export const imageRepository = pulumi.interpolate`${region}-docker.pkg.dev/${project}/${repository.repositoryId}/workspace-server`;
-export const workspaceGoogleWebClientIdSecretId = googleWebClientIdSecretId;
-export const workspaceGoogleWebClientSecretId = googleWebClientSecretId;
 export const controlPlaneImageRepository = pulumi.interpolate`${region}-docker.pkg.dev/${project}/${repository.repositoryId}/control-plane`;
 export const buildSourceBucket = sources.name;
 export const buildServiceAccount = builder.name;

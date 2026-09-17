@@ -13,12 +13,8 @@ const shared = new pulumi.StackReference(
   configuration.require("controlPlaneStack"),
 );
 const image = configuration.require("image");
-const googleWebClientIdSecretId = shared
-  .requireOutput("workspaceGoogleWebClientIdSecretId")
-  .apply(String);
-const googleWebClientSecretId = shared
-  .requireOutput("workspaceGoogleWebClientSecretId")
-  .apply(String);
+const googleWebClientIdSecretId = "halo-workspace-google-web-client-id";
+const googleWebClientSecretId = "halo-workspace-google-web-client-secret";
 
 const identity = new gcp.serviceaccount.Account("runtime", {
   accountId: name,
@@ -103,19 +99,10 @@ const instance = new gcp.compute.Instance(
       "block-project-ssh-keys": "TRUE",
       "halo-owner-user-id": "development",
     },
-    metadataStartupScript: pulumi
-      .all([googleWebClientIdSecretId, googleWebClientSecretId])
-      .apply(([clientIdSecretId, clientSecretSecretId]) =>
-        workspaceStartup({
-          googleWebOAuth: {
-            projectId: project,
-            clientIdSecretId,
-            clientSecretSecretId,
-          },
-          image,
-          registry: `${region}-docker.pkg.dev`,
-        }),
-      ),
+    metadataStartupScript: workspaceStartup({
+      image,
+      registry: `${region}-docker.pkg.dev`,
+    }),
   },
   {
     dependsOn: [

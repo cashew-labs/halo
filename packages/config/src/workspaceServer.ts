@@ -11,12 +11,8 @@ import { readGcpSecret } from "./readGcpSecret.js";
 
 const inferenceProjectId = "halo-relay";
 const inferenceLocation = "global";
-const developmentGoogleWebOAuth = {
-  kind: "secretManager",
-  projectId: inferenceProjectId,
-  clientIdSecretId: "halo-west-workspace-google-web-client-id",
-  clientSecretSecretId: "halo-west-workspace-google-web-client-secret",
-} as const;
+const googleWebClientIdSecretId = "halo-workspace-google-web-client-id";
+const googleWebClientSecretId = "halo-workspace-google-web-client-secret";
 // Pi reserves this credential value to select Vertex Application Default Credentials.
 const vertexAdcMarker = "gcp-vertex-credentials";
 const developmentUserSchema = Type.Object({
@@ -47,20 +43,15 @@ export const workspaceServerConfigSchema = Type.Object({
       electronRunAsNode: Type.Boolean(),
     }),
   ),
-  googleWebOAuth: Type.Union([
+  oauthTest: Type.Optional(
     Type.Object({
-      kind: Type.Literal("secretManager"),
-      projectId: Type.String({ minLength: 1 }),
-      clientIdSecretId: Type.String({ minLength: 1 }),
-      clientSecretSecretId: Type.String({ minLength: 1 }),
-    }),
-    Type.Object({
-      kind: Type.Literal("test"),
-      clientId: Type.String({ minLength: 1 }),
-      clientSecret: Type.String({ minLength: 1 }),
+      googleWebClient: Type.Object({
+        clientId: Type.String({ minLength: 1 }),
+        clientSecret: Type.String({ minLength: 1 }),
+      }),
       tokenOrigin: Type.String({ minLength: 1 }),
     }),
-  ]),
+  ),
 });
 
 export type WorkspaceServerConfig = Static<typeof workspaceServerConfigSchema>;
@@ -114,14 +105,20 @@ export async function readWorkspaceServerApplicationConfig(): Promise<
   if (server instanceof Error) return server;
   const inference = readInferenceConfig(server.workspaceRoot);
   if (inference instanceof Error) return inference;
-  const googleWebOAuth = await readGoogleWebOAuth(server.googleWebOAuth);
-  if (googleWebOAuth instanceof Error) return googleWebOAuth;
   const mode =
     configPath === undefined
       ? ApplicationMode.Development
       : process.env.HALO_E2E === "1"
         ? ApplicationMode.Test
         : ApplicationMode.Production;
+  const googleWebOAuth =
+    mode === ApplicationMode.Test && server.oauthTest !== undefined
+      ? {
+          client: server.oauthTest.googleWebClient,
+          testOrigin: server.oauthTest.tokenOrigin,
+        }
+      : await readGoogleWebOAuth();
+  if (googleWebOAuth instanceof Error) return googleWebOAuth;
   return {
     mode,
     server,
@@ -131,26 +128,15 @@ export async function readWorkspaceServerApplicationConfig(): Promise<
   };
 }
 
-async function readGoogleWebOAuth(
-  config: WorkspaceServerConfig["googleWebOAuth"],
-) {
-  if (config.kind === "test") {
-    return {
-      client: {
-        clientId: config.clientId,
-        clientSecret: config.clientSecret,
-      },
-      testOrigin: config.tokenOrigin,
-    };
-  }
+async function readGoogleWebOAuth() {
   const [clientId, clientSecret] = await Promise.all([
     readGcpSecret({
-      projectId: config.projectId,
-      secretId: config.clientIdSecretId,
+      projectId: inferenceProjectId,
+      secretId: googleWebClientIdSecretId,
     }),
     readGcpSecret({
-      projectId: config.projectId,
-      secretId: config.clientSecretSecretId,
+      projectId: inferenceProjectId,
+      secretId: googleWebClientSecretId,
     }),
   ]);
   if (clientId instanceof Error) return clientId;
@@ -226,7 +212,6 @@ async function readDevelopmentConfig(): Promise<WorkspaceServerConfig | Error> {
       executable: process.execPath,
       electronRunAsNode: false,
     },
-    googleWebOAuth: developmentGoogleWebOAuth,
   };
 }
 
