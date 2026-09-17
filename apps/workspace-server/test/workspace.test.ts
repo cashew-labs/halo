@@ -926,7 +926,9 @@ serverTest(
     expect(sessionToolExecutions(topLevel)).toMatchObject([
       { id: "top-limit", type: "tool", status: "failed" },
     ]);
-    expect(toolOutputText(topLevel, "top-limit")).toContain("must be <= 600000");
+    expect(toolOutputText(topLevel, "top-limit")).toContain(
+      "must be <= 600000",
+    );
     expect(toolOutputText(topLevel, "top-limit")).not.toContain('"ok"');
   },
 );
