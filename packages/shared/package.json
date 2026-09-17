@@ -29,6 +29,7 @@
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "0.85.1",
     "@get-halo/typescript-config": "workspace:*",
+    "@get-halo/vitest-config": "workspace:*",
     "@types/node": "^22.20.1",
     "typescript": "7.0.2"
   }
