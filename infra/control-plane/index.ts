@@ -610,3 +610,4 @@ export const controlPlaneAuthSecret = authSecret.secretId;
 export const controlPlaneAuthSecretVersion = authSecretVersion.version;
 export const controlPlaneName = controlPlane.name;
 export const controlPlaneUrl = controlPlaneOrigin;
+export const controlPlaneDomainIp = controlPlaneAddress.address;

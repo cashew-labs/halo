@@ -10,8 +10,11 @@ path. Do not delete or move the KMS key: the active `west` stack uses it to
 decrypt Pulumi secrets.
 
 The production control-plane origin is `https://gethalo.dev`, configured through
-`controlPlaneDomain`. A global HTTPS load balancer routes to Cloud Run;
-HTTP redirects to HTTPS and `www.gethalo.dev` redirects to the apex hostname.
+`controlPlaneDomain`. A global HTTPS load balancer routes to Cloud Run; HTTP
+redirects to HTTPS and `www.gethalo.dev` redirects to the apex hostname. Vercel
+remains the registrar and authoritative DNS provider. Production Electron
+builds use the custom origin, while the Cloud Run default URL remains reachable
+for previously released desktop clients.
 
 ## Production layout
 
@@ -32,6 +35,7 @@ The production control plane uses these locations:
 | GCP project      | `halo-relay`                                                                               |
 | Runtime region   | `us-west2`                                                                                 |
 | Workspace zone   | `us-west2-a`                                                                               |
+| Public origin    | `https://gethalo.dev`                                                                      |
 | Pulumi stack     | `west`                                                                                     |
 | State backend    | `gs://halo-relay-pulumi-state`                                                             |
 | Secrets provider | `gcpkms://projects/halo-relay/locations/us-central1/keyRings/halo-pulumi/cryptoKeys/state` |
@@ -132,17 +136,26 @@ Production Google OAuth credentials live in Secret Manager as:
 
 The control plane loads its sign-in client through its runtime service account.
 Workspace VMs load the web integration client through their runtime service
-account. Add
-`${controlPlaneUrl}/api/auth/callback/google` as an authorized redirect URI on
-the Google OAuth client, where `controlPlaneUrl` comes from:
+account. The control-plane Google OAuth client must authorize:
+
+```text
+https://gethalo.dev/api/auth/callback/google
+```
+
+The workspace web OAuth client must authorize:
+
+```text
+https://gethalo.dev/workspace/oauth/callback
+```
+
+The public origin is available as the stack output:
 
 ```sh
 pulumi -C infra/control-plane stack output controlPlaneUrl --stack west
 ```
 
-The workspace web OAuth client uses
-`${controlPlaneUrl}/workspace/oauth/callback`. Electron keeps using its separate
-installed-application client and loopback callback.
+Electron keeps using its separate installed-application client and loopback
+callback.
 
 Local development uses separate `halo-dev-local-*` secrets and the active
 Application Default Credentials identity. Production workspace VMs use their
