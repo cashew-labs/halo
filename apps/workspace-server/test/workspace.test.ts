@@ -118,8 +118,9 @@ serverTest("reads, writes, and lists workspace files", async ({ server }) => {
   const pdfSkill = await server.harness.files.read(
     path.join(server.workspaceRoot, ".agents", "skills", "pdf", "SKILL.md"),
   );
-  expect(pdfSkill).toContain("inspect rendered pages with `viewImage`");
-  expect(pdfSkill).not.toContain("codex-file-citation");
+  const pdfSkillText = Buffer.from(pdfSkill).toString("utf8");
+  expect(pdfSkillText).toContain("Inspect rendered pages with `viewImage`");
+  expect(pdfSkillText).not.toContain("codex-file-citation");
 
   await server.rpc.workspace.writeFile({
     path: "notes/today.md",
@@ -203,22 +204,20 @@ serverTest(
       images.map((image) => ({
         tool: { path: "viewImage", displayName: "View image" },
         status: "completed",
-        output: {
-          type: "tool",
-          result: {
-            content: [
-              { type: "text", text: `Viewed image ${image.path}.` },
-              {
-                type: "image",
-                data: image.base64,
-                mimeType: image.mimeType,
-              },
-            ],
-            details: {
-              path: image.path,
+        type: "tool",
+        result: {
+          content: [
+            { type: "text", text: `Viewed image ${image.path}.` },
+            {
+              type: "image",
+              data: image.base64,
               mimeType: image.mimeType,
-              sizeBytes: Buffer.from(image.base64, "base64").length,
             },
+          ],
+          details: {
+            path: image.path,
+            mimeType: image.mimeType,
+            sizeBytes: Buffer.from(image.base64, "base64").length,
           },
         },
       })),
