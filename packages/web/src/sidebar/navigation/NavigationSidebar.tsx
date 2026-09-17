@@ -67,6 +67,7 @@ const tree = style(flex({ direction: "column", gap: 4 }), {
   width: "100%",
   minWidth: 0,
   outline: "none",
+  "@media (max-width: 700px)": { gap: "16px" },
 });
 
 function canonicalRoute(route: string) {
