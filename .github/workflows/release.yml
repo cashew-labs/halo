@@ -112,28 +112,6 @@ jobs:
       - name: Select Pulumi backend
         run: pnpm --filter @get-halo/infra exec pulumi login gs://halo-relay-pulumi-state
 
-      - name: Inspect existing HTTPS resource definitions
-        run: |
-          pnpm --filter @get-halo/infra exec pulumi -C control-plane stack export \
-            --stack west --file "$RUNNER_TEMP/pulumi-state.json"
-          jq '[.deployment.resources[] |
-            select((.urn | split("::") | last) as $name | [
-              "control-plane-https", "control-plane-https-proxy",
-              "control-plane-certificate-www", "control-plane-certificate-apex",
-              "control-plane-http", "control-plane-https-routes",
-              "control-plane-certificate", "control-plane-backend",
-              "control-plane-certificate-map", "control-plane-http-proxy",
-              "control-plane-address", "control-plane-http-routes",
-              "control-plane-endpoint", "certificate-manager"
-            ] | index($name)) |
-            {urn, type, id, inputs, protect, dependencies, propertyDependencies}
-          ]' "$RUNNER_TEMP/pulumi-state.json"
-          jq '[.deployment.resources[] |
-            select(.type == "gcp:cloudrunv2/service:Service") |
-            {urn, origin: [.inputs.template.containers[].envs[] |
-              select(.name == "BETTER_AUTH_URL")]}
-          ]' "$RUNNER_TEMP/pulumi-state.json"
-
       - name: Preview Pulumi changes
         id: pulumi
         continue-on-error: true
