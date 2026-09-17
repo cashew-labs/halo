@@ -20,6 +20,7 @@ export class TestServer {
       workspaceRoot: string;
       llmApi: HaloServerOptions["llmApi"];
       traceUploader?: HaloServerOptions["traceUploader"];
+      traceWorkspaceId?: string;
     },
   ) {}
 
@@ -49,6 +50,7 @@ export class TestServer {
       environment: "local",
       llmApi: this.options.llmApi,
       traceUploader: this.options.traceUploader,
+      traceWorkspaceId: this.options.traceWorkspaceId,
       workspaceRoot: this.workspaceRoot,
       appDataDir: this.options.artifacts.paths.userData,
       appVersion: "0.0.0-test",

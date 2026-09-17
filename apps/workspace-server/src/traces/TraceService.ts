@@ -46,6 +46,7 @@ export class TraceService {
   }
 
   static async open(ctx: {
+    workspaceId?: string;
     directory: string;
     appVersion: string;
     logger: Logger;
@@ -70,8 +71,20 @@ export class TraceService {
             }),
       );
     if (identity instanceof Error) return identity;
+    if (
+      ctx.workspaceId !== undefined &&
+      identity !== undefined &&
+      ctx.workspaceId !== identity.trim()
+    )
+      return new TraceStorageError({
+        operation: "match configured workspace identity",
+      });
     const workspaceId =
-      identity === undefined ? crypto.randomUUID() : identity.trim();
+      identity === undefined
+        ? ctx.workspaceId === undefined
+          ? crypto.randomUUID()
+          : ctx.workspaceId
+        : identity.trim();
     if (identity === undefined) {
       const saved = await fs
         .writeFile(identityPath, workspaceId, {

@@ -36,7 +36,9 @@ Provider payload capture depends on the LLMApi implementation honoring Pi's
 
 ## Local durability and upload
 
-The stable workspace UUID lives at `.halo/traces/workspaceId`. Active runs append
+The stable workspace UUID lives at `.halo/traces/workspaceId`. Managed VMs use
+the workspace UUID assigned by the control plane; local workspaces generate one.
+A configured UUID must match the saved identity on restart. Active runs append
 and flush to `.halo/traces/active/<sessionId>/<traceId>.jsonl`. On completion,
 the server compresses the file into `pending/` and removes the active file.
 
@@ -91,25 +93,50 @@ To inspect a downloaded run:
 gzip -dc <traceId>.jsonl.gz | jq .
 ```
 
-## GCP host
+## GCP upload boundary
 
-Set `traceBucket` in the workspace-server JSON configuration. For local
-development, opt into uploading with `HALO_TRACE_BUCKET`; otherwise traces stay
-local. The standalone host constructs `GcsTraceUploader` with Application Default
-Credentials. GCP VMs use their attached service account, with no stored upload key.
+Managed workspace VMs configure `traceUpload: { origin, workspaceId }`. The
+control plane provisions both values in VM metadata; the startup script writes
+them into the workspace-server configuration. Local development and standalone
+VMs retain traces locally unless configured as a registered managed workspace.
 
-The uploader sends a media upload with `ifGenerationMatch=0`. A successful response
-or GCS's `412` response for an existing immutable object acknowledges the local
-file. Other responses or transport failures leave it pending. Each HTTP upload
-has a 20-second timeout; the service retries from the durable file on its next pass.
-The bucket stores gzip bytes with `application/gzip` rather than HTTP content
-encoding, so downloading preserves the archive bytes.
+`ControlPlaneTraceUploader` sends a finished archive to
+`POST /api/traces/<sessionId>/<traceId>` on the control plane. It obtains a
+Google-signed full Compute Engine identity token for the `/api/traces` audience
+using Application Default Credentials. Uploads remain asynchronous; failures
+leave the file pending for retry. The client waits up to 60 seconds per upload.
+
+The control plane verifies the token's signature, issuer, audience, expiry,
+service account, project and zone. It requires signed VM claims, checks the
+instance ID against the current Compute Engine instance, and checks that the
+workspace named by that VM is registered in its database. A token identifying
+only the shared workspace service account is insufficient. This authenticates
+the VM's registered workspace/owner without storing the user's login session
+on the VM. See [Google's VM identity documentation](https://docs.cloud.google.com/compute/docs/instances/verifying-instance-identity).
+
+The endpoint constructs the destination using that verified workspace UUID;
+it never accepts a caller-selected workspace path or bucket. It validates the
+gzip JSONL envelope against the verified workspace and requested session/run,
+including record ordering and start/end boundaries. Uploads are limited to
+16 MiB compressed and 64 MiB expanded. Invalid or oversized archives are
+rejected and remain local. Event content is still agent-supplied data, not an
+independent attestation of what happened.
+
+Only the control-plane service account has `roles/storage.objectCreator` on
+the trace bucket. Workspace service accounts have no trace-bucket grant. The
+control plane uploads with `ifGenerationMatch=0`; an existing object's `412`
+response acknowledges an immutable retry without overwriting its bytes.
+Other storage failures return an error to the VM, preserving its pending file.
+Archives use `application/gzip` without HTTP content encoding.
 
 Pulumi creates `halo-relay-halo-west-traces` in `us-west2` on the production
-`west` stack. It grants workspace identities only `roles/storage.objectCreator`.
-The bucket blocks public access, has no lifecycle expiry, retains soft-deleted
-objects for 30 days, and is protected from Pulumi deletion. Readers use separately
-authorized operator credentials; workspace agents cannot read other users' traces.
+`west` stack. The bucket blocks public access, has no lifecycle expiry, retains
+soft-deleted objects for 30 days, and is protected from Pulumi deletion.
+Readers use separately authorized operator credentials.
+
+Deploy the control-plane endpoint and IAM change before replacing workspace
+VMs with the new uploader/configuration. The standalone development VM has no
+production workspace registration and therefore keeps local archives only.
 
 ```sh
 gcloud storage ls --recursive gs://halo-relay-halo-west-traces/v1/workspaces/

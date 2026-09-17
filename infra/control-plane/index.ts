@@ -137,12 +137,12 @@ const traces = new gcp.storage.Bucket(
   },
   { protect: true },
 );
-const workspaceTraceAccess = new gcp.storage.BucketIAMMember(
-  "workspace-trace-writer",
+const controlPlaneTraceAccess = new gcp.storage.BucketIAMMember(
+  "control-plane-trace-writer",
   {
     bucket: traces.name,
     role: "roles/storage.objectCreator",
-    member: pulumi.interpolate`serviceAccount:${workspaceRuntime.email}`,
+    member: pulumi.interpolate`serviceAccount:${runtime.email}`,
   },
 );
 const workspaceImageAccess = new gcp.artifactregistry.RepositoryIamMember(
@@ -231,7 +231,7 @@ const workspaceTemplate = new gcp.compute.InstanceTemplate(
       "enable-oslogin": "TRUE",
       "block-project-ssh-keys": "TRUE",
       "halo-control-plane-service-account": runtime.email,
-      "halo-trace-bucket": traces.name,
+      "halo-control-plane-origin": controlPlaneOrigin,
     },
     metadataStartupScript: workspaceStartup({
       gateway: true,
@@ -247,7 +247,6 @@ const workspaceTemplate = new gcp.compute.InstanceTemplate(
     dependsOn: [
       workspaceImageAccess,
       workspaceInferenceAccess,
-      workspaceTraceAccess,
       workspaceLogAccess,
       workspaceGoogleWebClientIdAccess,
       workspaceGoogleWebClientSecretAccess,
@@ -459,6 +458,11 @@ const controlPlane = new gcp.cloudrunv2.Service(
               name: "GOOGLE_CLIENT_SECRET_ID",
               value: googleClientSecretId,
             },
+            { name: "TRACE_BUCKET", value: traces.name },
+            {
+              name: "WORKSPACE_SERVICE_ACCOUNT",
+              value: workspaceRuntime.email,
+            },
             { name: "WORKSPACE_PROJECT_ID", value: project },
             { name: "WORKSPACE_ZONE", value: zone },
             {
@@ -475,6 +479,7 @@ const controlPlane = new gcp.cloudrunv2.Service(
     dependsOn: [
       authSecretAccess,
       controlPlaneComputeAccess,
+      controlPlaneTraceAccess,
       databaseUrlAccess,
       googleClientIdAccess,
       googleClientSecretAccess,

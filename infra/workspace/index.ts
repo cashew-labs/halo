@@ -38,11 +38,6 @@ const vertexAiAccess = new gcp.projects.IAMMember("vertex-ai", {
   role: "roles/aiplatform.user",
   member: pulumi.interpolate`serviceAccount:${identity.email}`,
 });
-const traceAccess = new gcp.storage.BucketIAMMember("trace-writer", {
-  bucket: shared.requireOutput("traceBucket"),
-  role: "roles/storage.objectCreator",
-  member: pulumi.interpolate`serviceAccount:${identity.email}`,
-});
 const disk = new gcp.compute.Disk(
   "workspace",
   {
@@ -83,7 +78,6 @@ const instance = new gcp.compute.Instance(
       "enable-oslogin": "TRUE",
       "block-project-ssh-keys": "TRUE",
       "halo-owner-user-id": "development",
-      "halo-trace-bucket": shared.requireOutput("traceBucket"),
     },
     metadataStartupScript: workspaceStartup({
       image,
@@ -91,7 +85,7 @@ const instance = new gcp.compute.Instance(
     }),
   },
   {
-    dependsOn: [imageAccess, vertexAiAccess, traceAccess],
+    dependsOn: [imageAccess, vertexAiAccess],
     // Replacing a VM must detach the workspace disk before its replacement attaches it.
     deleteBeforeReplace: true,
   },

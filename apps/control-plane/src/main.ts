@@ -1,3 +1,5 @@
+import { GoogleAuth, OAuth2Client } from "google-auth-library";
+import { TraceCloud } from "./traces/TraceCloud.js";
 import path from "node:path";
 import { config } from "@get-halo/config/controlPlane";
 import * as errore from "errore";
@@ -15,6 +17,21 @@ async function run() {
   if (config instanceof Error) return config;
   const plane = await ControlPlane.start({
     config: config.server,
+    traceCloud:
+      config.server.deployment === "local"
+        ? undefined
+        : new TraceCloud({
+            bucket: config.server.traceBucket,
+            projectId: config.server.workspace.projectId,
+            zone: config.server.workspace.zone,
+            serviceAccount: config.server.workspaceServiceAccount,
+            auth: new GoogleAuth({
+              scopes: ["https://www.googleapis.com/auth/cloud-platform"],
+            }),
+            verifier: new OAuth2Client(),
+            storageOrigin: "https://storage.googleapis.com",
+            computeOrigin: "https://compute.googleapis.com",
+          }),
     webRoot: path.resolve(import.meta.dirname, "../../web-app/dist"),
   });
   if (plane instanceof Error) return plane;

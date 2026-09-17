@@ -19,9 +19,11 @@ stable custom hostname can be added separately.
   Cloud Run service, and workspace instance template.
 - The private agent-trace bucket stores one immutable `.jsonl.gz` object per
   completed, failed, cancelled, or interrupted run. It has no expiry rules and
-  a 30-day soft-delete recovery window. Workspace identities have create-only
-  access. The template publishes `halo-trace-bucket` metadata, which startup
-  writes into the server's `traceBucket` configuration. See the
+  a 30-day soft-delete recovery window. Only the control-plane identity has
+  create-only bucket access. VMs send archives to its authenticated ingestion
+  endpoint; it verifies the signed VM identity and constructs the workspace
+  path. Template/provisioning metadata supplies the control-plane origin and
+  registered workspace ID for the server's `traceUpload` configuration. See the
   [trace archive documentation](../apps/workspace-server/src/traces/README.md).
 - The control plane creates one workspace VM and durable workspace disk per
   user from that template. Production user workspaces are not managed by the

@@ -9,8 +9,8 @@ import {
 import fs from "node:fs/promises";
 import path from "node:path";
 import { gunzipSync } from "node:zlib";
-import { GoogleAuth, OAuth2Client } from "google-auth-library";
-import { GcsTraceUploader } from "@get-halo/workspace-server";
+import { IdTokenClient } from "google-auth-library";
+import { ControlPlaneTraceUploader } from "@get-halo/workspace-server";
 import { expect } from "vitest";
 import { contentText } from "@earendil-works/pi-ai";
 import { m } from "@get-halo/shared/testing";
@@ -18,19 +18,31 @@ import { messageText } from "@get-halo/workspace-server/testing";
 import { serverTest } from "./serverTest.js";
 
 serverTest(
-  "uploads immutable GCS objects and acknowledges an already stored run after retry",
+  "uploads archives through the control plane and retries rejected requests after restart",
   async ({ createServer, llm, http }) => {
-    const credentials = new OAuth2Client();
-    credentials.setCredentials({
-      access_token: "trace-test-token",
-      expiry_date: Date.now() + 3_600_000,
+    const token = `header.${Buffer.from(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600 })).toString("base64url")}.signature`;
+    const uploader = new ControlPlaneTraceUploader({
+      origin: http.url(""),
+      auth: {
+        async getIdTokenClient(audience) {
+          expect(audience).toBe(http.url("/api/traces"));
+          return new IdTokenClient({
+            targetAudience: audience,
+            idTokenProvider: {
+              async fetchIdToken(target) {
+                expect(target).toBe(audience);
+                return token;
+              },
+            },
+          });
+        },
+      },
     });
-    const uploader = new GcsTraceUploader({
-      bucket: "test-traces",
-      origin: http.url("/"),
-      auth: new GoogleAuth({ authClient: credentials }),
+    const workspaceId = "11111111-1111-4111-8111-111111111111";
+    const server = createServer({
+      traceUploader: uploader,
+      traceWorkspaceId: workspaceId,
     });
-    const server = createServer({ traceUploader: uploader });
     await server.start();
     const session = await server.rpc.sessions.create();
     const prompt = server.rpc.sessions.prompt({
@@ -40,14 +52,11 @@ serverTest(
     await llm.respond(m.assistant("Archived answer"));
     await prompt;
     const [trace] = await readTraces(server.workspaceRoot);
-    const query = new URLSearchParams({
-      uploadType: "media",
-      name: trace!.name,
-      ifGenerationMatch: "0",
-    });
-    const target = `/upload/storage/v1/b/test-traces/o?${query}`;
+    const record = trace!.records[0]!;
+    expect(record.workspaceId).toBe(workspaceId);
+    const target = `/api/traces/${record.sessionId}/${record.traceId}`;
     const first = await http.request(target);
-    expect(first.headers.authorization).toBe("Bearer trace-test-token");
+    expect(first.headers.authorization).toBe(`Bearer ${token}`);
     expect(first.headers["content-type"]).toBe("application/gzip");
     expect(await first.body()).toEqual(trace!.bytes);
     // The object reached storage, but its acknowledgement did not reach the client.
@@ -57,7 +66,7 @@ serverTest(
     await server.start();
     const retried = await http.request(target);
     expect(await retried.body()).toEqual(trace!.bytes);
-    retried.respond("Already exists", { status: 412 });
+    retried.respond("", { status: 204 });
     await expect
       .poll(
         async () => (await readTraces(server.workspaceRoot, "archive")).length,
@@ -73,12 +82,12 @@ serverTest(
     await next;
     const [secondTrace] = await readTraces(server.workspaceRoot);
     expect(secondTrace!.name).not.toBe(trace!.name);
-    query.set("name", secondTrace!.name);
+    const secondRecord = secondTrace!.records[0]!;
     const second = await http.request(
-      `/upload/storage/v1/b/test-traces/o?${query}`,
+      `/api/traces/${secondRecord.sessionId}/${secondRecord.traceId}`,
     );
     expect(await second.body()).toEqual(secondTrace!.bytes);
-    second.respond("{}", { status: 200, contentType: "application/json" });
+    second.respond("", { status: 204 });
     await expect
       .poll(
         async () => (await readTraces(server.workspaceRoot, "archive")).length,

@@ -12,6 +12,7 @@ vi.setConfig({ testTimeout: 20_000 });
 type ServerOptions = {
   workspaceRoot?: string;
   traceUploader?: HaloServerOptions["traceUploader"];
+  traceWorkspaceId?: string;
 };
 
 export const serverTest = baseTest.extend<{
@@ -52,6 +53,7 @@ export const serverTest = baseTest.extend<{
         artifacts,
         llmApi: createOpenAILLMApi(llm.configuration),
         traceUploader: options.traceUploader,
+        traceWorkspaceId: options.traceWorkspaceId,
         workspaceRoot:
           options.workspaceRoot === undefined
             ? artifacts.paths.workspace

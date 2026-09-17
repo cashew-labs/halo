@@ -30,12 +30,13 @@ import { TraceService, type TraceUploader } from "../traces/TraceService.js";
 import type { HaloEnvironment } from "../agent/workspacePrompt.js";
 import type { GoogleWebOAuthClient } from "@get-halo/config/workspaceServer";
 
-export { GcsTraceUploader } from "../traces/GcsTraceUploader.js";
+export { ControlPlaneTraceUploader } from "../traces/ControlPlaneTraceUploader.js";
 
 export type HaloServerOptions = {
   environment: HaloEnvironment;
   llmApi: LLMApi;
   traceUploader?: TraceUploader;
+  traceWorkspaceId?: string;
   workspaceRoot: string;
   appDataDir: string;
   appVersion: string;
@@ -115,6 +116,7 @@ export class HaloServer {
       appVersion: options.appVersion,
       logger: options.logger,
       uploader: options.traceUploader,
+      workspaceId: options.traceWorkspaceId,
     });
     if (traces instanceof Error) return traces;
     cleanup.defer(async () => await traces.close());
