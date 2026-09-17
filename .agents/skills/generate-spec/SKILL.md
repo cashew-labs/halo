@@ -181,4 +181,4 @@ After the spec file exists, serve it from the repo root with tkstack:
 pnpm spec specs/<name>.md
 ```
 
-Or `pnpm exec diffmap specs/<name>.md`. Tell the user the spec path and the printed URL. Do not open the URL in a browser unless the user explicitly asks.
+Or `pnpm exec tkstack specs/<name>.md`. Tell the user the spec path and the printed URL. Do not open the URL in a browser unless the user explicitly asks.

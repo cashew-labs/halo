@@ -16,7 +16,7 @@ a task into the full migration.
 - `pnpm run test:e2e` - Run E2Es for affected packages separately. This can package Electron and install test dependencies. During iteration, run only the relevant package or test file; do not run the full E2E command unless requested or needed for the change.
 - `pnpm run test:e2e:release` - Run all package E2Es without Turbo cache reuse. CI runs this only on release PRs; `Release ready` requires it to pass. Ordinary PRs and post-merge release jobs do not run E2Es.
 - For Electron E2Es, build with `pnpm --filter @get-halo/desktop test:e2e:build` after app code changes, then use `pnpm --filter @get-halo/desktop test:e2e:run <test-file>` to reuse that package while editing tests. Electron E2Es use Playwright's default of half the logical CPU cores; pass `--workers=1` to reduce resource usage.
-- `pnpm spec <file>` / `pnpm walkthrough <file>` / `pnpm exec diffmap <file>` - Serve a spec or code walkthrough as a local diffmap page.
+- `pnpm spec <file>` / `pnpm walkthrough <file>` / `pnpm exec tkstack <file>` - Serve a spec or code walkthrough as a local tkstack page.
 
 ## Releasing
 
