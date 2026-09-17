@@ -13,12 +13,12 @@ const shared = new pulumi.StackReference(
   configuration.require("controlPlaneStack"),
 );
 const image = configuration.require("image");
-const googleWebClientIdSecretId = shared.requireOutput(
-  "workspaceGoogleWebClientIdSecretId",
-) as pulumi.Output<string>;
-const googleWebClientSecretId = shared.requireOutput(
-  "workspaceGoogleWebClientSecretId",
-) as pulumi.Output<string>;
+const googleWebClientIdSecretId = shared
+  .requireOutput("workspaceGoogleWebClientIdSecretId")
+  .apply(String);
+const googleWebClientSecretId = shared
+  .requireOutput("workspaceGoogleWebClientSecretId")
+  .apply(String);
 
 const identity = new gcp.serviceaccount.Account("runtime", {
   accountId: name,
