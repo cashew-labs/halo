@@ -8,7 +8,6 @@ import type {
   Vitest,
 } from "vitest/node";
 
-// oxlint-disable-next-line anti-slop/no-unused-exports -- Vitest loads this reporter from the package script.
 export default class StreamingAgentReporter implements Reporter {
   // Tracks the start of the current run for the final elapsed time.
   private startedAt = 0;

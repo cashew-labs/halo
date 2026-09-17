@@ -16,13 +16,13 @@
     "./process": "./src/server/WorkspaceServerReady.ts"
   },
   "scripts": {
-    "format": "oxfmt .",
-    "format:check": "oxfmt --check .",
-    "lint": "NODE_OPTIONS=--experimental-strip-types oxlint --deny-warnings src test",
-    "lint:fix": "NODE_OPTIONS=--experimental-strip-types oxlint --fix src test",
+    "format": "oxfmt . && (cd ../../tools/vitest && oxfmt .)",
+    "format:check": "oxfmt --check . && (cd ../../tools/vitest && oxfmt --check .)",
+    "lint": "NODE_OPTIONS=--experimental-strip-types oxlint --deny-warnings src test && (cd ../../tools/vitest && NODE_OPTIONS=--experimental-strip-types oxlint --deny-warnings .)",
+    "lint:fix": "NODE_OPTIONS=--experimental-strip-types oxlint --fix src test && (cd ../../tools/vitest && NODE_OPTIONS=--experimental-strip-types oxlint --fix .)",
     "test": "pnpm run test:e2e",
-    "test:e2e": "vitest run --reporter=./test/StreamingAgentReporter.ts",
-    "typecheck": "tsc --noEmit",
+    "test:e2e": "vitest run",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p ../../tools/vitest",
     "dev": "tsx watch src/main.ts",
     "start": "tsx src/main.ts"
   },
