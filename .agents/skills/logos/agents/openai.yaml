@@ -1,0 +1,4 @@
+interface:
+  display_name: "Logos"
+  short_description: "Source product logos from SVGL"
+  default_prompt: "Use $logos to pick SVGL marks for this integration."

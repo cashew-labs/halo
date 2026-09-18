@@ -10,6 +10,9 @@ handbook for every task. Track repo-specific progress in
 `specs/repo-conventions-migration.md` and update it as changes land; do not expand
 a task into the full migration.
 
+Use the [logos skill](.agents/skills/logos/SKILL.md) when adding product or
+integration marks. Source them from [SVGL](https://svgl.app/).
+
 ## Commands
 
 - `pnpm run check-affected` - Lint, typecheck, format-check, and run unit tests for affected packages using Turbo's default concurrency. Use it during iteration and before handing off a change. It does not run E2Es or package Electron. GitHub Actions runs the same command on pull requests and on pushes to `main`.
