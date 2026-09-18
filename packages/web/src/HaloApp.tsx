@@ -1,3 +1,4 @@
+import { useAuthenticatedUserId } from "./Authentication.js";
 import { KeyboardShortcuts } from "./KeyboardShortcuts.js";
 import { spacing, text } from "maui";
 import { style, useStyles } from "purse-styles";
@@ -34,6 +35,7 @@ export function HaloApp() {
 
   return (
     <WorkspaceShell
+      workspaceRoot={workspace.workspaceRoot}
       sessions={sessions}
       alertMessage={
         sessionsQuery.error ? String(sessionsQuery.error) : undefined
@@ -61,14 +63,17 @@ function useAppInfoQuery() {
 }
 
 function WorkspaceShell({
+  workspaceRoot,
   sessions,
   alertMessage,
   appInfo,
 }: {
+  workspaceRoot: string;
   sessions: SessionSummary[];
   alertMessage?: string;
   appInfo?: AppInfo;
 }) {
+  const userId = useAuthenticatedUserId();
   const readyApp = useStyles(styles.readyApp);
   const errorClassName = useStyles(styles.error);
 
@@ -79,7 +84,12 @@ function WorkspaceShell({
           {alertMessage}
         </div>
       )}
-      <WorkspacePanesProvider initialPath={initialHostPath(sessions)}>
+      <WorkspacePanesProvider
+        key={JSON.stringify([userId, workspaceRoot])}
+        userId={userId}
+        workspaceRoot={workspaceRoot}
+        initialPath={initialHostPath(sessions)}
+      >
         {/* oxlint-disable-next-line react/hooks -- Wouter calls the location hook supplied to Router. */}
         <Router hook={usePaneLocation}>
           <KeyboardShortcuts />

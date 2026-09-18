@@ -1305,6 +1305,80 @@ e2eTest(
 );
 
 e2eTest(
+  "restores open tabs, selection, and closed tabs after refresh and restart",
+  async ({ app }) => {
+    const page = app.page;
+    for (const name of ["One", "Two", "Three"]) {
+      await app.server.rpc.workspace.writeFile({
+        path: `${name}.md`,
+        content: `# ${name}`,
+      });
+      await page
+        .getByRole("link", { name: `${name}.md`, exact: true })
+        .click({ modifiers: ["Meta"] });
+    }
+    await page.getByRole("tab", { name: "Two.md", exact: true }).click();
+    await page.reload();
+    await expect(page.getByRole("tab")).toHaveText([
+      "New session",
+      "One.md",
+      "Two.md",
+      "Three.md",
+    ]);
+    await expect(
+      page.getByRole("tab", { name: "Two.md", exact: true }),
+    ).toHaveAttribute("aria-selected", "true");
+    await expect(
+      page.getByRole("main", { name: "Two.md", exact: true }),
+    ).toBeVisible();
+    await page
+      .getByRole("button", { name: "Close Two.md", exact: true })
+      .click();
+    await page.reload();
+    await expect(page.getByRole("tab")).toHaveText([
+      "New session",
+      "One.md",
+      "Three.md",
+    ]);
+    await expect(
+      page.getByRole("tab", { name: "Three.md", exact: true }),
+    ).toHaveAttribute("aria-selected", "true");
+    await app.quit();
+    await app.open();
+    await expect(app.page.getByRole("tab")).toHaveText([
+      "New session",
+      "One.md",
+      "Three.md",
+    ]);
+    await expect(
+      app.page.getByRole("tab", { name: "Three.md", exact: true }),
+    ).toHaveAttribute("aria-selected", "true");
+    // A full navigation loads the URL before the pane manager starts.
+    await app.page.evaluate(() =>
+      window.history.replaceState(undefined, "", "#/files/Two.md"),
+    );
+    await app.page.reload();
+    await expect(app.page.getByRole("tab")).toHaveText([
+      "New session",
+      "One.md",
+      "Three.md",
+      "Two.md",
+    ]);
+    await expect(
+      app.page.getByRole("tab", { name: "Two.md", exact: true }),
+    ).toHaveAttribute("aria-selected", "true");
+    await app.page.evaluate(() =>
+      window.history.replaceState(undefined, "", "#/files/One.md"),
+    );
+    await app.page.reload();
+    await expect(app.page.getByRole("tab")).toHaveCount(4);
+    await expect(
+      app.page.getByRole("tab", { name: "One.md", exact: true }),
+    ).toHaveAttribute("aria-selected", "true");
+  },
+);
+
+e2eTest(
   "splits panes with tabs and sidebar items, then moves and closes them",
   async ({ app, harness }) => {
     await harness.loadSession({ title: "Pane conversation", messages: [] });
@@ -1366,6 +1440,34 @@ e2eTest(
     await divider.focus();
     await divider.press("ArrowRight");
     await expect(divider).toHaveAttribute("aria-valuenow", "55");
+    await page.getByRole("tab", { name: "Right.md", exact: true }).click();
+    await page.reload();
+    await expect(page.getByRole("tablist")).toHaveCount(2);
+    await expect(page.getByRole("tablist").first().getByRole("tab")).toHaveText(
+      ["Left.md", "Pane conversation"],
+    );
+    await expect(
+      page.getByRole("tab", { name: "Pane conversation", exact: true }),
+    ).toHaveAttribute("aria-selected", "true");
+    await expect(
+      page.getByRole("tab", { name: "Right.md", exact: true }),
+    ).toHaveAttribute("aria-selected", "true");
+    await expect(divider).toHaveAttribute("aria-valuenow", "55");
+    await expect(page.getByLabel("Message", { exact: true })).toBeEditable();
+    // Allow editor mount autofocus and its animation frame to finish.
+    await page.evaluate(
+      async () =>
+        await new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    );
+    await expect(
+      page.locator('.workspacePane[data-active="true"]').getByRole("tab"),
+    ).toHaveText("Right.md");
+    await expect(page).toHaveURL(/#\/files\/Right.md$/);
+    await page
+      .getByLabel("Message", { exact: true })
+      .fill("Unsent draft survives moving");
     await page
       .getByRole("button", { name: "Close Right.md", exact: true })
       .click();

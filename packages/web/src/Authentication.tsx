@@ -1,4 +1,10 @@
-import { useEffect, useState, type ReactElement } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  type ReactElement,
+} from "react";
 import { useHost } from "./HostProvider.js";
 import { LoadingPage } from "./LoadingPage.tsx";
 import { SignInPage } from "./SignInPage.tsx";
@@ -7,7 +13,13 @@ type AuthenticationState =
   | { status: "checking" }
   | { status: "signedOut"; error?: string }
   | { status: "signingIn" }
-  | { status: "signedIn" };
+  | { status: "signedIn"; userId: string };
+
+const AuthenticatedUserContext = createContext<string | undefined>(undefined);
+
+export function useAuthenticatedUserId() {
+  return useContext(AuthenticatedUserContext)!;
+}
 
 export function Authentication({ children }: { children: ReactElement }) {
   const host = useHost();
@@ -31,9 +43,11 @@ export function Authentication({ children }: { children: ReactElement }) {
           return;
         }
 
-        setState({
-          status: session === undefined ? "signedOut" : "signedIn",
-        });
+        setState(
+          session === undefined
+            ? { status: "signedOut" }
+            : { status: "signedIn", userId: session.user.id },
+        );
       },
       (cause) => {
         throw cause;
@@ -46,7 +60,12 @@ export function Authentication({ children }: { children: ReactElement }) {
   }, [host]);
 
   if (state.status === "checking") return <LoadingPage />;
-  if (state.status === "signedIn") return children;
+  if (state.status === "signedIn")
+    return (
+      <AuthenticatedUserContext value={state.userId}>
+        {children}
+      </AuthenticatedUserContext>
+    );
 
   const signIn = async () => {
     setState({ status: "signingIn" });
@@ -63,7 +82,7 @@ export function Authentication({ children }: { children: ReactElement }) {
     }
     if (session === undefined) return;
 
-    setState({ status: "signedIn" });
+    setState({ status: "signedIn", userId: session.user.id });
   };
 
   return (
