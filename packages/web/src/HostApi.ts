@@ -19,8 +19,12 @@ export type AppInfo = {
   update: AppUpdateStatus;
 };
 
+export type SignedOutView = "sign-in" | "public-site";
+
 export interface HostApi {
   onShortcut?(listener: (shortcut: ShortcutId) => void): () => void;
+  // Desktop always signs in. The public website reserves `/` for marketing.
+  signedOutView?(path: string): SignedOutView;
   getAuthSession(): Promise<ControlPlaneSession | Error | undefined>;
   signIn(): Promise<ControlPlaneSession | Error | undefined>;
   connectHalo(options: {
