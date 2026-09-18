@@ -6,7 +6,7 @@ export class ToolApprovalNotFoundError extends errore.createTaggedError({
   message: "Tool approval '$approvalId' is no longer pending",
 }) {}
 
-export type ToolApprovalResponse = ToolApprovalDecision | "cancel";
+type ToolApprovalResponse = ToolApprovalDecision | "cancel";
 
 type PendingApproval = {
   resolve: (response: ToolApprovalResponse) => void;
