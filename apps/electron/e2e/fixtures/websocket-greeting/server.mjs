@@ -55,8 +55,8 @@ server.on("upgrade", (request, socket) => {
   );
 });
 server.listen(Number(values.port), "127.0.0.1", () => {
+  // The server is listening on a numeric TCP port at this point.
   const address = server.address();
-  if (address === null || typeof address === "string") return;
   process.send?.(`http://127.0.0.1:${address.port}/view/`);
 });
 process.on("message", (message) => {
