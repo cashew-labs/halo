@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import fs from "node:fs";
 import nodeHttp, {
   createServer,
   type Server as HttpServer,
@@ -245,6 +246,33 @@ export function serveHaloHttp(options: {
       gateway: options.gateway,
       identityVerifier,
     });
+    // #region agent log
+    const debugUrl = new URL(
+      request.url === undefined ? "/" : request.url,
+      "http://localhost",
+    );
+    fs.appendFileSync(
+      "/opt/cursor/logs/debug.log",
+      `${JSON.stringify({
+        hypothesisId: "H5",
+        location: "http.ts:handleUpgrade:authorization",
+        message: "Workspace server authorized WebSocket upgrade",
+        data: {
+          pathname: debugUrl.pathname,
+          queryKeys: [...debugUrl.searchParams.keys()],
+          hasAuthorizationHeader: request.headers.authorization !== undefined,
+          authorization:
+            authorization instanceof Error ? "error" : authorization,
+          host: request.headers.host,
+          origin: request.headers.origin,
+          connection: request.headers.connection,
+          upgrade: request.headers.upgrade,
+          headBytes: head.byteLength,
+        },
+        timestamp: Date.now(),
+      })}\n`,
+    );
+    // #endregion
     if (authorization instanceof Error) {
       options.context.logger.warn({
         event: "workspace-gateway-authentication-failed",
