@@ -110,128 +110,153 @@ e2eTest(
   },
 );
 
-e2eTest(
-  "pastes images into Markdown and keeps relative images after reopening",
-  async ({ app, harness }) => {
-    const path = "Notes #1/Images.md";
-    const svg =
-      '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="60"><rect width="80" height="60" fill="blue"/></svg>';
-    await app.server.rpc.workspace.writeFile({
-      path: "reference #1.svg",
-      content: svg,
-    });
-    await app.server.rpc.workspace.writeFile({
-      path,
-      content:
-        "# Images\n\nPaste here\n\n![Reference](../reference%20%231.svg)",
-    });
-    await app.page
-      .getByRole("button", { name: "Expand Notes #1", exact: true })
-      .click();
-    await app.page
-      .getByRole("link", { name: "Images.md", exact: true })
-      .click();
-    const editor = app.page
-      .getByRole("main", { name: path, exact: true })
-      .getByLabel(path, { exact: true });
-    await expect
-      .poll(
-        async () =>
-          await editor
-            .getByRole("img", { name: "Reference", exact: true })
-            .evaluate((element: HTMLImageElement) => element.naturalWidth),
-      )
-      .toBe(80);
-    const reference = editor.getByRole("img", {
-      name: "Reference",
-      exact: true,
-    });
-    await reference.click();
-    await expect(reference).toHaveCSS("outline-style", "solid");
-    await editor.getByText("Paste here", { exact: true }).click();
-    await expect(reference).toHaveCSS("outline-style", "none");
-    await editor.press("End");
-    const png = await editor.evaluate(async (element) => {
-      const canvas = document.createElement("canvas");
-      canvas.width = 120;
-      canvas.height = 80;
-      const context = canvas.getContext("2d")!;
-      context.fillStyle = "#d97706";
-      context.fillRect(0, 0, 120, 80);
-      const bytes = await (await fetch(canvas.toDataURL())).arrayBuffer();
-      const clipboardData = new DataTransfer();
-      clipboardData.items.add(
-        new File([bytes], "screen]shot.png", { type: "image/png" }),
-      );
-      clipboardData.items.add(
-        new File([bytes], "second.png", { type: "image/png" }),
-      );
-      clipboardData.setData(
-        "text/html",
-        '<img src="https://example.invalid/duplicate.png">',
-      );
-      element.dispatchEvent(
-        new ClipboardEvent("paste", {
-          clipboardData,
-          bubbles: true,
-          cancelable: true,
-        }),
-      );
-      return [...new Uint8Array(bytes)];
-    });
-    await expect(editor.getByRole("img")).toHaveCount(3);
-    await expect
-      .poll(
-        async () =>
-          await editor
-            .getByRole("img", { name: "screen]shot.png", exact: true })
-            .evaluate((element: HTMLImageElement) => element.naturalWidth),
-      )
-      .toBe(120);
-    await expect
-      .poll(async () => await app.server.rpc.workspace.readFile({ path }))
-      .toContain("![second.png](image-");
-    const markdown = await app.server.rpc.workspace.readFile({ path });
-    const sources = [...markdown.matchAll(/\]\((image-[^)]+\.png)\)/g)].map(
-      (match) => match[1]!,
-    );
-    expect(sources).toHaveLength(2);
-    expect(new Set(sources).size).toBe(2);
-    for (const src of sources) {
-      expect(
-        await fs.readFile(
-          nodePath.join(harness.paths.workspace, "Notes #1", src),
-        ),
-      ).toEqual(Buffer.from(png));
-    }
-    expect(markdown).toContain("![Reference](../reference%20%231.svg)");
-    expect(markdown).not.toContain("blob:");
-    await app.quit();
-    await app.open();
-    await app.page
-      .getByRole("button", { name: "Expand Notes #1", exact: true })
-      .click();
-    await app.page
-      .getByRole("link", { name: "Images.md", exact: true })
-      .click();
-    await expect(
-      app.page
+for (const hybrid of [false, true]) {
+  e2eTest(
+    `${hybrid ? "hybrid" : "rich"} editor pastes images into Markdown and keeps relative images after reopening`,
+    async ({ app, harness }) => {
+      if (hybrid) {
+        await app.page
+          .getByRole("button", { name: "New session", exact: true })
+          .waitFor();
+        const previewUrl = new URL(app.page.url());
+        previewUrl.searchParams.set("markdown", "hybrid");
+        await app.page.goto(previewUrl.href);
+      }
+
+      const path = "Notes #1/Images.md";
+      const svg =
+        '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="60"><rect width="80" height="60" fill="blue"/></svg>';
+      await app.server.rpc.workspace.writeFile({
+        path: "reference #1.svg",
+        content: svg,
+      });
+      await app.server.rpc.workspace.writeFile({
+        path,
+        content:
+          "# Images\n\nPaste here\n\n![Reference](../reference%20%231.svg)",
+      });
+      await app.page
+        .getByRole("button", { name: "Expand Notes #1", exact: true })
+        .click();
+      await app.page
+        .getByRole("link", { name: "Images.md", exact: true })
+        .click();
+      const editor = app.page
         .getByRole("main", { name: path, exact: true })
-        .getByLabel(path, { exact: true })
-        .getByRole("img"),
-    ).toHaveCount(3);
-    await expect
-      .poll(
-        async () =>
-          await app.page
-            .getByRole("main", { name: path, exact: true })
-            .getByLabel(path, { exact: true })
-            .getByRole("img", { name: "screen]shot.png", exact: true })
-            .evaluate((element: HTMLImageElement) => element.naturalWidth),
-      )
-      .toBe(120);
-  },
-);
+        .getByLabel(path, { exact: true });
+      await expect
+        .poll(
+          async () =>
+            await editor
+              .getByRole("img", { name: "Reference", exact: true })
+              .evaluate((element: HTMLImageElement) => element.naturalWidth),
+        )
+        .toBe(80);
+      const reference = editor.getByRole("img", {
+        name: "Reference",
+        exact: true,
+      });
+      await reference.click();
+      if (hybrid)
+        await expect(editor).toContainText(
+          "![Reference](../reference%20%231.svg)",
+        );
+      else await expect(reference).toHaveCSS("outline-style", "solid");
+      await editor.getByText("Paste here", { exact: true }).click();
+      if (hybrid) await expect(reference).toBeVisible();
+      else await expect(reference).toHaveCSS("outline-style", "none");
+      await editor.press("End");
+      const png = await editor.evaluate(async (element) => {
+        const canvas = document.createElement("canvas");
+        canvas.width = 120;
+        canvas.height = 80;
+        const context = canvas.getContext("2d")!;
+        context.fillStyle = "#d97706";
+        context.fillRect(0, 0, 120, 80);
+        const bytes = await (await fetch(canvas.toDataURL())).arrayBuffer();
+        const clipboardData = new DataTransfer();
+        clipboardData.items.add(
+          new File([bytes], "screen]shot.png", { type: "image/png" }),
+        );
+        clipboardData.items.add(
+          new File([bytes], "second.png", { type: "image/png" }),
+        );
+        clipboardData.setData(
+          "text/html",
+          '<img src="https://example.invalid/duplicate.png">',
+        );
+        element.dispatchEvent(
+          new ClipboardEvent("paste", {
+            clipboardData,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+        return [...new Uint8Array(bytes)];
+      });
+      await expect(editor.getByRole("img")).toHaveCount(3);
+      await expect
+        .poll(
+          async () =>
+            await editor
+              .getByRole("img", { name: "screen]shot.png", exact: true })
+              .evaluate((element: HTMLImageElement) => element.naturalWidth),
+        )
+        .toBe(120);
+      await expect
+        .poll(async () => await app.server.rpc.workspace.readFile({ path }))
+        .toContain("![second.png](image-");
+      const markdown = await app.server.rpc.workspace.readFile({ path });
+      const sources = [...markdown.matchAll(/\]\((image-[^)]+\.png)\)/g)].map(
+        (match) => match[1]!,
+      );
+      expect(sources).toHaveLength(2);
+      expect(new Set(sources).size).toBe(2);
+      for (const src of sources) {
+        expect(
+          await fs.readFile(
+            nodePath.join(harness.paths.workspace, "Notes #1", src),
+          ),
+        ).toEqual(Buffer.from(png));
+      }
+      expect(markdown).toContain("![Reference](../reference%20%231.svg)");
+      expect(markdown).not.toContain("blob:");
+      await app.quit();
+      await app.open();
+      if (hybrid) {
+        await app.page
+          .getByRole("button", { name: "New session", exact: true })
+          .waitFor();
+        const previewUrl = new URL(app.page.url());
+        previewUrl.searchParams.set("markdown", "hybrid");
+        await app.page.goto(previewUrl.href);
+      }
+
+      await app.page
+        .getByRole("button", { name: "Expand Notes #1", exact: true })
+        .click();
+      await app.page
+        .getByRole("link", { name: "Images.md", exact: true })
+        .click();
+      await expect(
+        app.page
+          .getByRole("main", { name: path, exact: true })
+          .getByLabel(path, { exact: true })
+          .getByRole("img"),
+      ).toHaveCount(3);
+      await expect
+        .poll(
+          async () =>
+            await app.page
+              .getByRole("main", { name: path, exact: true })
+              .getByLabel(path, { exact: true })
+              .getByRole("img", { name: "screen]shot.png", exact: true })
+              .evaluate((element: HTMLImageElement) => element.naturalWidth),
+        )
+        .toBe(120);
+    },
+  );
+}
 
 e2eTest("keeps the current file after reload", async ({ app }) => {
   const path = "Meeting notes #1.md";
@@ -1071,5 +1096,208 @@ e2eTest(
     await app.page.keyboard.type("Plain");
     await expect(message.locator("h1")).toHaveCount(0);
     await expect(message).toContainText("Plain");
+  },
+);
+
+e2eTest(
+  "reveals only the Markdown element containing the caret",
+  async ({ app }) => {
+    await app.page
+      .getByRole("button", { name: "New session", exact: true })
+      .waitFor();
+    const previewUrl = new URL(app.page.url());
+    previewUrl.searchParams.set("markdown", "hybrid");
+    await app.page.goto(previewUrl.href);
+
+    const original =
+      "## Heading\n\nBefore **bold text** between *italic text* after.\n\nAnother paragraph.";
+    await app.server.rpc.workspace.writeFile({
+      path: "hybrid.md",
+      content: original,
+    });
+    await app.page
+      .getByRole("link", { name: "hybrid.md", exact: true })
+      .click();
+    const editor = app.page.getByRole("textbox", {
+      name: "hybrid.md",
+      exact: true,
+    });
+    await expect(editor.locator("strong")).toHaveText("bold text");
+    await expect(editor.locator("em")).toHaveText("italic text");
+    await expect(editor.locator(".markdown-marker")).toHaveCount(0);
+    await editor.locator("strong").click();
+    await expect(editor.locator(".markdown-marker")).toHaveText(["**", "**"]);
+    await expect(editor.locator("em")).toHaveText("italic text");
+    await editor.locator("em").click();
+    await expect(editor.locator(".markdown-marker")).toHaveText(["*", "*"]);
+    await editor
+      .locator(".cm-line")
+      .filter({ hasText: "Before" })
+      .click({ position: { x: 4, y: 8 } });
+    await expect(editor.locator(".markdown-marker")).toHaveCount(0);
+    await editor.getByRole("heading").click();
+    await expect(editor.locator(".markdown-marker")).toHaveText(["## "]);
+    await app.page
+      .getByRole("button", { name: "New session", exact: true })
+      .focus();
+    await expect(editor.locator(".markdown-marker")).toHaveCount(0);
+    expect(await app.server.rpc.workspace.readFile({ path: "hybrid.md" })).toBe(
+      original,
+    );
+  },
+);
+
+e2eTest(
+  "edits hybrid Markdown markers with undo and exact persistence",
+  async ({ app }) => {
+    await app.page
+      .getByRole("button", { name: "New session", exact: true })
+      .waitFor();
+    const previewUrl = new URL(app.page.url());
+    previewUrl.searchParams.set("markdown", "hybrid");
+    await app.page.goto(previewUrl.href);
+
+    const original =
+      "## Heading\n\nBefore **bold text** after.\n\nAnother paragraph.";
+    await app.server.rpc.workspace.writeFile({
+      path: "hybrid.md",
+      content: original,
+    });
+    await app.page
+      .getByRole("link", { name: "hybrid.md", exact: true })
+      .click();
+    const editor = app.page.getByRole("textbox", {
+      name: "hybrid.md",
+      exact: true,
+    });
+    await editor.locator("strong").click();
+    await expect(editor.locator(".markdown-marker")).toHaveText(["**", "**"]);
+    await editor
+      .locator(".markdown-marker")
+      .last()
+      .evaluate(async (element) => {
+        const changed = new Promise<void>((resolve) =>
+          document.addEventListener("selectionchange", () => resolve(), {
+            once: true,
+          }),
+        );
+        window.getSelection()!.selectAllChildren(element);
+        await changed;
+      });
+    await app.page.keyboard.press("Backspace");
+    await expect(editor.locator("strong")).toHaveCount(0);
+    await expect
+      .poll(
+        async () =>
+          await app.server.rpc.workspace.readFile({ path: "hybrid.md" }),
+      )
+      .toBe(original.replace("text**", "text"));
+    await app.page.keyboard.press("ControlOrMeta+z");
+    await expect(editor.locator("strong")).toHaveText("bold text");
+    await expect
+      .poll(
+        async () =>
+          await app.server.rpc.workspace.readFile({ path: "hybrid.md" }),
+      )
+      .toBe(original);
+    await editor.getByRole("heading").click();
+    await editor.locator(".markdown-marker").evaluate(async (element) => {
+      const changed = new Promise<void>((resolve) =>
+        document.addEventListener("selectionchange", () => resolve(), {
+          once: true,
+        }),
+      );
+      window.getSelection()!.selectAllChildren(element);
+      await changed;
+    });
+    await app.page.keyboard.press("Backspace");
+    await expect(editor.getByRole("heading")).toHaveCount(0);
+    await expect
+      .poll(
+        async () =>
+          await app.server.rpc.workspace.readFile({ path: "hybrid.md" }),
+      )
+      .toBe(original.replace("## ", ""));
+    await app.page.reload();
+    await expect(editor.locator("strong")).toHaveText("bold text");
+    await expect(editor.getByRole("heading")).toHaveCount(0);
+    await app.page.screenshot({ path: "../../tmp/hybrid-markdown.png" });
+  },
+);
+
+e2eTest(
+  "keeps the caret and source stable while editing hybrid inline formatting",
+  async ({ app }) => {
+    await app.page
+      .getByRole("button", { name: "New session", exact: true })
+      .waitFor();
+    const previewUrl = new URL(app.page.url());
+    previewUrl.searchParams.set("markdown", "hybrid");
+    await app.page.goto(previewUrl.href);
+
+    const source =
+      "Before **bold text** between *italic text* after.\n\n***Nested*** and `**literal**`.";
+    await app.server.rpc.workspace.writeFile({
+      path: "hybrid.md",
+      content: source,
+    });
+    await app.page
+      .getByRole("link", { name: "hybrid.md", exact: true })
+      .click();
+    const editor = app.page.getByRole("textbox", {
+      name: "hybrid.md",
+      exact: true,
+    });
+    const bold = editor.locator("strong").filter({ hasText: "bold text" });
+    await bold.click();
+    await bold.evaluate(async (element) => {
+      const changed = new Promise<void>((resolve) =>
+        document.addEventListener("selectionchange", () => resolve(), {
+          once: true,
+        }),
+      );
+      window.getSelection()!.selectAllChildren(element);
+      await changed;
+    });
+    await app.page.keyboard.press("ArrowRight");
+    await app.page.keyboard.type("!");
+    await expect(bold).toHaveText("bold text!");
+    await expect(editor.locator(".markdown-marker")).toHaveText(["**", "**"]);
+    await editor.locator("em").filter({ hasText: "italic text" }).click();
+    await expect(editor.locator(".markdown-marker")).toHaveText(["*", "*"]);
+    await app.page.keyboard.press("ControlOrMeta+z");
+    await expect(bold).toHaveText("bold text");
+    await expect
+      .poll(
+        async () =>
+          await app.server.rpc.workspace.readFile({ path: "hybrid.md" }),
+      )
+      .toBe(source);
+    await editor.locator("strong").filter({ hasText: "Nested" }).click();
+    await expect(editor.locator(".markdown-marker")).toHaveText([
+      "*",
+      "**",
+      "**",
+      "*",
+    ]);
+    await editor.locator("code").click();
+    await expect(editor.locator(".markdown-marker")).toHaveText(["`", "`"]);
+    await expect(editor.locator("code")).toHaveText("**literal**");
+    await editor.press(
+      process.platform === "darwin" ? "Meta+ArrowDown" : "Control+End",
+    );
+    await app.page.keyboard.press("ArrowRight");
+    await app.page.keyboard.insertText("\n\n**unfinished");
+    await app.page
+      .getByRole("button", { name: "New session", exact: true })
+      .focus();
+    await expect
+      .poll(
+        async () =>
+          await app.server.rpc.workspace.readFile({ path: "hybrid.md" }),
+      )
+      .toBe(source + "\n\n**unfinished");
+    await app.page.reload();
+    await expect(editor).toContainText("**unfinished");
   },
 );
