@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Button, Flex, MauiProvider, Padding, Text } from "maui";
+import { Button, Flex, MauiProvider, Text } from "maui";
 import type { ExtensionViewProps } from "@get-halo/extension-sdk/view";
 import * as errore from "errore";
 import type router from "./api.js";
@@ -19,27 +19,25 @@ export default function WorkspaceNotes({
 
   return (
     <MauiProvider>
-      <Padding xy={8}>
-        <Flex column gap={4}>
-          <Button
-            onClick={async () => {
-              const result = await api
-                .notes()
-                .catch((cause) => new NotesError({ cause }));
-              if (result instanceof Error) {
-                setError(result.message);
-                return;
-              }
-              setError(undefined);
-              setNotes(result);
-            }}
-          >
-            Refresh notes
-          </Button>
-          <Text role="status">{notes}</Text>
-          {error === undefined ? undefined : <Text role="alert">{error}</Text>}
-        </Flex>
-      </Padding>
+      <Flex column gap={4} p={8}>
+        <Button
+          onClick={async () => {
+            const result = await api
+              .notes()
+              .catch((cause) => new NotesError({ cause }));
+            if (result instanceof Error) {
+              setError(result.message);
+              return;
+            }
+            setError(undefined);
+            setNotes(result);
+          }}
+        >
+          Refresh notes
+        </Button>
+        <Text role="status">{notes}</Text>
+        {error === undefined ? undefined : <Text role="alert">{error}</Text>}
+      </Flex>
     </MauiProvider>
   );
 }

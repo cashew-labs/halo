@@ -105,10 +105,13 @@ const styles = {
     spacing.padding({ all: 4 }),
     { margin: 0 },
   ),
-  row: style(flex({ align: "center", justify: "between", gap: 8 }), {
-    width: "100%",
-    minHeight: "28px",
-  }),
+  row: style(
+    flex({ alignItems: "center", justifyContent: "between", gap: 8 }),
+    {
+      width: "100%",
+      minHeight: "28px",
+    },
+  ),
   hint: style(
     text({ size: "xs", color: "lowContrast" }),
     spacing.padding({ all: 4 }),

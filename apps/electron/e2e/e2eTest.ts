@@ -271,7 +271,7 @@ function extensionBaseFiles(input: {
             "@get-halo/extension-sdk": input.packages.sdk,
             react: "^19.2.8",
             "react-dom": "^19.2.8",
-            maui: "npm:@tanishqkancharla/maui@0.0.19",
+            maui: "npm:@tanishqkancharla/maui@0.0.30",
             errore: "^0.14.1",
           },
           devDependencies: {

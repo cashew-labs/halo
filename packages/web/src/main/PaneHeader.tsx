@@ -76,7 +76,7 @@ function paneLabel(section: string | undefined, title: string | undefined) {
 }
 
 const headerClass = style(
-  flex({ align: "center", gap: 2 }),
+  flex({ alignItems: "center", gap: 2 }),
   flexItem({ size: "hug" }),
   border(["bottom"], "border"),
   spacing.padding({ x: 12, y: 6 }),
@@ -96,7 +96,7 @@ const headerClass = style(
   },
 );
 
-const actionClass = style(flex({ align: "center" }), {
+const actionClass = style(flex({ alignItems: "center" }), {
   flexShrink: 0,
   WebkitAppRegion: "no-drag",
 });

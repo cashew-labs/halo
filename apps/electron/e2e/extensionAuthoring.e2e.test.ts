@@ -15,12 +15,12 @@ e2eTest(
     await harness.tools.files.write({
       path: ".halo/extensions/greeting/view.tsx",
       content: `
-        import { H1, MauiProvider, Padding } from "maui";
+        import { Flex, H1, MauiProvider } from "maui";
 
         export default function View() {
           return (
             <MauiProvider>
-              <Padding xy={8}><H1>Authored through Halo tools</H1></Padding>
+              <Flex column p={8}><H1>Authored through Halo tools</H1></Flex>
             </MauiProvider>
           );
         }
@@ -59,12 +59,12 @@ e2eTest(
     await harness.tools.files.write({
       path: ".halo/extensions/greeting/view.tsx",
       content: `
-        import { H1, MauiProvider, Padding } from "maui";
+        import { Flex, H1, MauiProvider } from "maui";
 
         export default function View() {
           return (
             <MauiProvider>
-              <Padding xy={8}><H1>Updated through Halo tools</H1></Padding>
+              <Flex column p={8}><H1>Updated through Halo tools</H1></Flex>
             </MauiProvider>
           );
         }

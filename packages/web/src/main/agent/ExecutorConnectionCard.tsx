@@ -152,7 +152,7 @@ export function ExecutorConnectionCard({
             variantColor={brand.buttonColor}
             style={{ color: brand.buttonForeground }}
             className={brandButtonClassName}
-            disabled={
+            isDisabled={
               sessionId === undefined ||
               status === "starting" ||
               status === "connecting"
@@ -174,7 +174,7 @@ export function ExecutorConnectionCard({
           {status === "connecting" ? (
             <Button
               variant="quiet"
-              disabled={cancel.isPending}
+              isDisabled={cancel.isPending}
               onClick={() => cancel.mutate()}
             >
               Cancel

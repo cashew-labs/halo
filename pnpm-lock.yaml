@@ -123,7 +123,7 @@ importers:
         version: 1.80.0
       '@tanishqkancharla/diffmap':
         specifier: github:tanishqkancharla/diffmap#main
-        version: https://codeload.github.com/tanishqkancharla/diffmap/tar.gz/8a7703dfcd6f13da4e00cb7c5d3c364a5b65185e(@babel/runtime@7.29.7)(@codemirror/search@6.7.1)(@codemirror/theme-one-dark@6.1.3)(@floating-ui/dom@1.8.0)(@shikijs/themes@4.3.1)(@tiptap/core@3.29.2(@tiptap/pm@3.29.2))(@tiptap/extensions@3.29.2(@tiptap/core@3.29.2(@tiptap/pm@3.29.2))(@tiptap/pm@3.29.2))(@types/node@24.13.3)(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(codemirror@6.0.2)(esbuild@0.28.2)(jiti@2.7.0)(supports-color@8.1.1)(terser@5.49.0)(typescript@7.0.2)(yaml@2.9.0)
+        version: https://codeload.github.com/tanishqkancharla/diffmap/tar.gz/bcae41ac345f95ae83e91dc62c4ee16134b2d853(@babel/runtime@7.29.7)(@codemirror/search@6.7.1)(@codemirror/theme-one-dark@6.1.3)(@floating-ui/dom@1.8.0)(@shikijs/themes@4.3.1)(@tiptap/core@3.29.2(@tiptap/pm@3.29.2))(@tiptap/extensions@3.29.2(@tiptap/core@3.29.2(@tiptap/pm@3.29.2))(@tiptap/pm@3.29.2))(@types/node@24.13.3)(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(codemirror@6.0.2)(esbuild@0.28.2)(jiti@2.7.0)(supports-color@8.1.1)(terser@5.49.0)(typescript@7.0.2)(yaml@2.9.0)
       oxc-parser:
         specifier: ^0.150.0
         version: 0.150.0
@@ -234,8 +234,8 @@ importers:
         specifier: ^11.0.2
         version: 11.0.2(supports-color@8.1.1)
       maui:
-        specifier: npm:@tanishqkancharla/maui@0.0.19
-        version: '@tanishqkancharla/maui@0.0.19(@babel/runtime@7.29.7)(@codemirror/search@6.7.1)(@codemirror/theme-one-dark@6.1.3)(@floating-ui/dom@1.8.0)(@tiptap/core@3.29.2(@tiptap/pm@3.29.2))(@tiptap/extensions@3.29.2(@tiptap/core@3.29.2(@tiptap/pm@3.29.2))(@tiptap/pm@3.29.2))(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(codemirror@6.0.2)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(supports-color@8.1.1)'
+        specifier: npm:@tanishqkancharla/maui@0.0.30
+        version: '@tanishqkancharla/maui@0.0.30(@babel/runtime@7.29.7)(@codemirror/search@6.7.1)(@codemirror/theme-one-dark@6.1.3)(@floating-ui/dom@1.8.0)(@tiptap/core@3.29.2(@tiptap/pm@3.29.2))(@tiptap/extensions@3.29.2(@tiptap/core@3.29.2(@tiptap/pm@3.29.2))(@tiptap/pm@3.29.2))(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(codemirror@6.0.2)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(supports-color@8.1.1)'
       react:
         specifier: ^19.2.8
         version: 19.2.8
@@ -736,8 +736,8 @@ importers:
         specifier: ^0.14.1
         version: 0.14.1
       maui:
-        specifier: npm:@tanishqkancharla/maui@0.0.19
-        version: '@tanishqkancharla/maui@0.0.19(@babel/runtime@7.29.7)(@codemirror/search@6.7.1)(@codemirror/theme-one-dark@6.1.3)(@floating-ui/dom@1.8.0)(@tiptap/core@3.29.2(@tiptap/pm@3.29.2))(@tiptap/extensions@3.29.2(@tiptap/core@3.29.2(@tiptap/pm@3.29.2))(@tiptap/pm@3.29.2))(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(codemirror@6.0.2)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(supports-color@8.1.1)'
+        specifier: npm:@tanishqkancharla/maui@0.0.30
+        version: '@tanishqkancharla/maui@0.0.30(@babel/runtime@7.29.7)(@codemirror/search@6.7.1)(@codemirror/theme-one-dark@6.1.3)(@floating-ui/dom@1.8.0)(@tiptap/core@3.29.2(@tiptap/pm@3.29.2))(@tiptap/extensions@3.29.2(@tiptap/core@3.29.2(@tiptap/pm@3.29.2))(@tiptap/pm@3.29.2))(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(codemirror@6.0.2)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(supports-color@8.1.1)'
       purse-styles:
         specifier: ^0.2.3
         version: 0.2.3(react@19.2.8)
@@ -854,8 +854,8 @@ importers:
         specifier: ^0.1.2
         version: 0.1.2(@earendil-works/pi-coding-agent@0.85.1(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(supports-color@8.1.1)(zod@4.6.1))(supports-color@8.1.1)(ws@8.21.1)(zod@4.6.1))(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(supports-color@8.1.1)(zod@4.6.1))
       maui:
-        specifier: npm:@tanishqkancharla/maui@0.0.19
-        version: '@tanishqkancharla/maui@0.0.19(@babel/runtime@7.29.7)(@codemirror/search@6.7.1)(@codemirror/theme-one-dark@6.1.3)(@floating-ui/dom@1.8.0)(@tiptap/core@3.29.2(@tiptap/pm@3.29.2))(@tiptap/extensions@3.29.2(@tiptap/core@3.29.2(@tiptap/pm@3.29.2))(@tiptap/pm@3.29.2))(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(codemirror@6.0.2)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(supports-color@8.1.1)'
+        specifier: npm:@tanishqkancharla/maui@0.0.30
+        version: '@tanishqkancharla/maui@0.0.30(@babel/runtime@7.29.7)(@codemirror/search@6.7.1)(@codemirror/theme-one-dark@6.1.3)(@floating-ui/dom@1.8.0)(@tiptap/core@3.29.2(@tiptap/pm@3.29.2))(@tiptap/extensions@3.29.2(@tiptap/core@3.29.2(@tiptap/pm@3.29.2))(@tiptap/pm@3.29.2))(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(codemirror@6.0.2)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(supports-color@8.1.1)'
       playwright:
         specifier: 1.62.1
         version: 1.62.1
@@ -3191,8 +3191,8 @@ packages:
     resolution: {integrity: sha512-4BAffykYOgO+5nzBWYwE3W90sBgLJoUPRWWcL8wlyiM8IB8ipJz3UMJ9KXQd1RKQXpKp8Tutn80HZtWsu2u76w==}
     engines: {node: '>=10'}
 
-  '@tanishqkancharla/diffmap@https://codeload.github.com/tanishqkancharla/diffmap/tar.gz/8a7703dfcd6f13da4e00cb7c5d3c364a5b65185e':
-    resolution: {gitHosted: true, integrity: sha512-47+YmUEEAjT6klzVp6bEBew6mSuO45lINAJshN7NqjpAfdhXFhAO0i51/EH+zmhkY10RuzKrcGQMokgb7QXn9g==, tarball: https://codeload.github.com/tanishqkancharla/diffmap/tar.gz/8a7703dfcd6f13da4e00cb7c5d3c364a5b65185e}
+  '@tanishqkancharla/diffmap@https://codeload.github.com/tanishqkancharla/diffmap/tar.gz/bcae41ac345f95ae83e91dc62c4ee16134b2d853':
+    resolution: {gitHosted: true, integrity: sha512-/3olc3fLsj5rrl47HA0XqHIBD8dmpCE6SyROu6M7/TlKHtKF+HC6cY23Axg6fQSVf/SXRQ39uILFXuCx8eSyWw==, tarball: https://codeload.github.com/tanishqkancharla/diffmap/tar.gz/bcae41ac345f95ae83e91dc62c4ee16134b2d853}
     version: 0.1.4
     engines: {node: '>=22'}
     hasBin: true
@@ -3205,8 +3205,8 @@ packages:
       react: ^19.0.0
       react-dom: ^19.0.0
 
-  '@tanishqkancharla/maui@0.0.19':
-    resolution: {integrity: sha512-aktfDMojyfwXsnvilVUF2zxxanwtMLMq8hgXBtBLyrGHkV41aYnv+JZxc81VQsB5B9mmQm+zCvcgNKdOWIX4dg==}
+  '@tanishqkancharla/maui@0.0.30':
+    resolution: {integrity: sha512-D+Q+sojJKRDrtaLm8vkmfFDvmVzqHYGg4L/UR3biyk4u+0DtW9D4vPFTaLbjFrulJGB2ZsL4nAd07zHtZfJHbg==}
     peerDependencies:
       react: ^19.0.0
       react-dom: ^19.0.0
@@ -11245,7 +11245,7 @@ snapshots:
     dependencies:
       defer-to-connect: 2.0.1
 
-  '@tanishqkancharla/diffmap@https://codeload.github.com/tanishqkancharla/diffmap/tar.gz/8a7703dfcd6f13da4e00cb7c5d3c364a5b65185e(@babel/runtime@7.29.7)(@codemirror/search@6.7.1)(@codemirror/theme-one-dark@6.1.3)(@floating-ui/dom@1.8.0)(@shikijs/themes@4.3.1)(@tiptap/core@3.29.2(@tiptap/pm@3.29.2))(@tiptap/extensions@3.29.2(@tiptap/core@3.29.2(@tiptap/pm@3.29.2))(@tiptap/pm@3.29.2))(@types/node@24.13.3)(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(codemirror@6.0.2)(esbuild@0.28.2)(jiti@2.7.0)(supports-color@8.1.1)(terser@5.49.0)(typescript@7.0.2)(yaml@2.9.0)':
+  '@tanishqkancharla/diffmap@https://codeload.github.com/tanishqkancharla/diffmap/tar.gz/bcae41ac345f95ae83e91dc62c4ee16134b2d853(@babel/runtime@7.29.7)(@codemirror/search@6.7.1)(@codemirror/theme-one-dark@6.1.3)(@floating-ui/dom@1.8.0)(@shikijs/themes@4.3.1)(@tiptap/core@3.29.2(@tiptap/pm@3.29.2))(@tiptap/extensions@3.29.2(@tiptap/core@3.29.2(@tiptap/pm@3.29.2))(@tiptap/pm@3.29.2))(@types/node@24.13.3)(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(codemirror@6.0.2)(esbuild@0.28.2)(jiti@2.7.0)(supports-color@8.1.1)(terser@5.49.0)(typescript@7.0.2)(yaml@2.9.0)':
     dependencies:
       '@pierre/diffs': 1.4.1(@shikijs/themes@4.3.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@vitejs/plugin-react': 6.1.1(vite@8.2.2(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.49.0)(tsx@4.23.13)(yaml@2.9.0))
@@ -11338,7 +11338,7 @@ snapshots:
       - codemirror
       - supports-color
 
-  '@tanishqkancharla/maui@0.0.19(@babel/runtime@7.29.7)(@codemirror/search@6.7.1)(@codemirror/theme-one-dark@6.1.3)(@floating-ui/dom@1.8.0)(@tiptap/core@3.29.2(@tiptap/pm@3.29.2))(@tiptap/extensions@3.29.2(@tiptap/core@3.29.2(@tiptap/pm@3.29.2))(@tiptap/pm@3.29.2))(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(codemirror@6.0.2)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(supports-color@8.1.1)':
+  '@tanishqkancharla/maui@0.0.30(@babel/runtime@7.29.7)(@codemirror/search@6.7.1)(@codemirror/theme-one-dark@6.1.3)(@floating-ui/dom@1.8.0)(@tiptap/core@3.29.2(@tiptap/pm@3.29.2))(@tiptap/extensions@3.29.2(@tiptap/core@3.29.2(@tiptap/pm@3.29.2))(@tiptap/pm@3.29.2))(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(codemirror@6.0.2)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(supports-color@8.1.1)':
     dependencies:
       '@codemirror/autocomplete': 6.20.3
       '@codemirror/commands': 6.11.0

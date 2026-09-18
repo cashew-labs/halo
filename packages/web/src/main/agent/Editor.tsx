@@ -112,7 +112,7 @@ const editorShellClass = style(
 );
 
 const editorActionsClass = style(
-  flex({ align: "center", justify: "end", gap: 3 }),
+  flex({ alignItems: "center", justifyContent: "end", gap: 3 }),
 );
 
 function joinClassNames(...classNames: Array<string | undefined>) {

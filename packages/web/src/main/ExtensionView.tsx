@@ -1,6 +1,6 @@
 /* oxlint-disable react/iframe-missing-sandbox -- Extension views need their origin identity for API and storage access. */
 import * as errore from "errore";
-import { backgroundColor, Button, flex, Padding, Text, Tooltip } from "maui";
+import { backgroundColor, Button, Flex, flex, Text, Tooltip } from "maui";
 import { Link } from "maui/icons";
 import { style, useStyles } from "purse-styles";
 import { useHost } from "../HostProvider.js";
@@ -67,19 +67,19 @@ export function ExtensionView({
         />
       )}
       {extensions.isPending && (
-        <Padding xy={8}>
+        <Flex column p={8}>
           <Text role="status">Loading extension…</Text>
-        </Padding>
+        </Flex>
       )}
       {extensions.isError && (
-        <Padding xy={8}>
+        <Flex column p={8}>
           <Text role="alert">{extensions.error.message}</Text>
-        </Padding>
+        </Flex>
       )}
       {extensions.isSuccess && extension === undefined && (
-        <Padding xy={8}>
+        <Flex column p={8}>
           <Text>Extension '{extensionId}' is not running.</Text>
-        </Padding>
+        </Flex>
       )}
       {extension !== undefined && extensionUrl !== undefined && (
         <iframe

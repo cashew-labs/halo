@@ -547,11 +547,11 @@ function fileRoute(path: string) {
 }
 
 const styles = {
-  controls: style(flex({ align: "center", gap: 1 })),
+  controls: style(flex({ alignItems: "center", gap: 1 })),
   menuButton: style(
     focusRing(),
     radius.sm,
-    flex({ align: "center", gap: 1 }),
+    flex({ alignItems: "center", gap: 1 }),
     text({ size: "xs" }),
     {
       height: "24px",
