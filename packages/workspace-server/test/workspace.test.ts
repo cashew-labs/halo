@@ -15,7 +15,6 @@ import { expect } from "vitest";
 import { contentText } from "@earendil-works/pi-ai";
 import { m } from "@get-halo/shared/testing";
 import { messageText } from "@get-halo/workspace-server/testing";
-import * as errore from "errore";
 import { serverTest } from "./serverTest.js";
 
 serverTest(
