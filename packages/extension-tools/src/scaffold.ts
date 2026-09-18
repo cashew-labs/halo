@@ -14,7 +14,7 @@ export async function scaffoldExtension(args: {
 }) {
   const packages =
     args.packages === undefined
-      ? { sdk: "0.1.0", tools: "0.1.0" }
+      ? { sdk: "0.2.0", tools: "0.2.0" }
       : args.packages;
   const created = await mkdir(args.directory).catch(
     (cause) => new ExtensionScaffoldError({ directory: args.directory, cause }),

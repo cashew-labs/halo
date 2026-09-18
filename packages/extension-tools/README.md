@@ -23,7 +23,7 @@ const result = await scaffoldExtension({
 if (result instanceof Error) throw result;
 ```
 
-The equivalent CLI is `npx @get-halo/extension-tools@0.1.0 scaffold my-extension`. Scaffolding
+The equivalent CLI is `npx @get-halo/extension-tools@0.2.0 scaffold my-extension`. Scaffolding
 creates a new directory and writes the source, package scripts, dependencies,
 TypeScript configuration, and gitignore. Installation is explicit:
 
