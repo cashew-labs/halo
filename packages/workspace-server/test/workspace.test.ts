@@ -495,6 +495,11 @@ serverTest("reads, writes, and lists workspace files", async ({ server }) => {
   expect(await server.rpc.workspace.get()).toMatchObject({
     workspaceRoot: server.workspaceRoot,
   });
+  const pdfSkill = await server.harness.files.read(
+    path.join(server.workspaceRoot, ".agents", "skills", "pdf", "SKILL.md"),
+  );
+  const pdfSkillText = Buffer.from(pdfSkill).toString("utf8");
+  expect(pdfSkillText).toContain("Inspect rendered pages with `viewImage`");
 
   await server.rpc.workspace.writeFile({
     path: "notes/today.md",
@@ -505,6 +510,114 @@ serverTest("reads, writes, and lists workspace files", async ({ server }) => {
   );
   expect(await server.rpc.workspace.listPaths()).toEqual(["notes/today.md"]);
 });
+
+serverTest(
+  "returns validated workspace images directly to the model",
+  async ({ server, llm }) => {
+    const images = [
+      {
+        path: "pixel.png",
+        mimeType: "image/png",
+        base64:
+          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC",
+      },
+      {
+        path: "pixel.jpg",
+        mimeType: "image/jpeg",
+        base64:
+          "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAABAAEDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDi6KKK+ZP3E//Z",
+      },
+      {
+        path: "pixel.webp",
+        mimeType: "image/webp",
+        base64:
+          "UklGRiIAAABXRUJQVlA4IBYAAAAwAQCdASoBAAEAAUAmJaQAA3AA/v89WAAAAA==",
+      },
+    ] as const;
+    for (const image of images) {
+      await server.harness.files.write({
+        path: path.join(server.workspaceRoot, image.path),
+        content: Buffer.from(image.base64, "base64"),
+      });
+    }
+    await server.harness.files.write({
+      path: path.join(server.workspaceRoot, "corrupt.png"),
+      content: Buffer.concat([
+        Buffer.from(images[0].base64, "base64").subarray(0, 8),
+        Buffer.from("not valid PNG data"),
+      ]),
+    });
+    await server.harness.files.write({
+      path: path.join(server.workspaceRoot, "too-large.png"),
+      content: Buffer.concat([
+        Buffer.from(images[0].base64, "base64").subarray(0, 8),
+        Buffer.alloc(20 * 1024 * 1024),
+      ]),
+    });
+
+    const session = await server.rpc.sessions.create();
+    const prompted = server.rpc.sessions.prompt({
+      ...session,
+      text: "View the workspace images",
+    });
+    await llm.respond([
+      ...images.map((image, index) =>
+        m.tool.start("viewImage", {
+          id: `image-${index}`,
+          arguments: { path: image.path },
+        }),
+      ),
+      m.tool.start("viewImage", {
+        id: "invalid-image",
+        arguments: { path: "corrupt.png" },
+      }),
+      m.tool.start("viewImage", {
+        id: "large-image",
+        arguments: { path: "too-large.png" },
+      }),
+    ]);
+    await llm.respond(m.assistant("I viewed the supported images."));
+    await prompted;
+
+    const executions = sessionToolExecutions(
+      await server.rpc.sessions.snapshot(session),
+    );
+    expect(executions.slice(0, 3)).toMatchObject(
+      images.map((image) => ({
+        tool: { path: "viewImage", displayName: "View image" },
+        status: "completed",
+        type: "tool",
+        result: {
+          content: [
+            { type: "text", text: `Viewed image ${image.path}.` },
+            {
+              type: "image",
+              data: image.base64,
+              mimeType: image.mimeType,
+            },
+          ],
+          details: {
+            path: image.path,
+            mimeType: image.mimeType,
+            sizeBytes: Buffer.from(image.base64, "base64").length,
+          },
+        },
+      })),
+    );
+    expect(executions.slice(3)).toMatchObject([
+      {
+        id: "invalid-image",
+        tool: { path: "viewImage", displayName: "View image" },
+        status: "failed",
+      },
+      {
+        id: "large-image",
+        tool: { path: "viewImage", displayName: "View image" },
+        status: "failed",
+      },
+    ]);
+  },
+);
 
 serverTest(
   "omits hidden and dependency files from workspace listings",

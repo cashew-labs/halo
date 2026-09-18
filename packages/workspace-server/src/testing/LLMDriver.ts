@@ -68,7 +68,7 @@ export class LLMDriver {
         provider: "halo-scripted",
         baseUrl: `http://127.0.0.1:${address.port}/v1`,
         reasoning: false,
-        input: ["text"],
+        input: ["text", "image"],
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
         contextWindow: 128_000,
         maxTokens: 16_384,
