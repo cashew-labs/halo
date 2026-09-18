@@ -185,9 +185,15 @@ async function getWorkspaceConnection(
 }
 
 function authorizeExtensionRequests(connection: HaloRpcConnection) {
+  const webSocketOrigin = new URL(connection.origin);
+  webSocketOrigin.protocol =
+    webSocketOrigin.protocol === "http:" ? "ws:" : "wss:";
   electronSession.defaultSession.webRequest.onBeforeSendHeaders(
     {
-      urls: [`${connection.origin}${connection.extensionPath}/*`],
+      urls: [
+        `${connection.origin}${connection.extensionPath}/*`,
+        `${webSocketOrigin.origin}${connection.extensionPath}/*`,
+      ],
     },
     (details, callback) => {
       details.requestHeaders.authorization = `Bearer ${connection.token}`;
