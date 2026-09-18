@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import nodePath from "node:path";
-import { expect } from "@playwright/test";
+import { expect, type Locator } from "@playwright/test";
+import { m } from "@get-halo/shared/testing";
 import { haloProtocolVersion } from "@get-halo/client";
 import type { DesktopBridge } from "../src/shared/desktop.js";
 import { e2eTest } from "./e2eTest.js";
@@ -1533,3 +1534,166 @@ e2eTest(
     await expect(editor.getByRole("status")).toHaveCount(0);
   },
 );
+
+e2eTest(
+  "opens Command-clicked Markdown and assistant links in the system browser",
+  async ({ app, harness }) => {
+    const opened = await app.observeExternalUrls();
+    const url = "https://example.com/guide?q=halo%20app#start";
+    await app.server.rpc.workspace.writeFile({
+      path: "Links.md",
+      content: `Read [project docs](${url}).`,
+    });
+    await app.page.getByRole("link", { name: "Links.md", exact: true }).click();
+    const editor = app.page.getByRole("main", { name: "Links.md" });
+    const docs = editor.getByRole("link", { name: "project docs" });
+    await docs.click();
+    expect(await opened.evaluate((urls) => urls)).toEqual([]);
+    await docs.click({ modifiers: ["Meta"] });
+    await expect
+      .poll(async () => await opened.evaluate((urls) => urls))
+      .toEqual([url]);
+    await expect(editor).toBeVisible();
+    await harness.loadSession({
+      title: "Helpful links",
+      messages: [
+        m.user("Show a link"),
+        m.assistant(`Open [**project docs**](${url}).`),
+      ],
+    });
+    await app.page
+      .getByRole("log")
+      .getByRole("link", { name: "project docs" })
+      .click({ modifiers: ["Meta"] });
+    await expect
+      .poll(async () => await opened.evaluate((urls) => urls))
+      .toEqual([url, url]);
+    await expect(
+      app.page.getByRole("main", { name: "Helpful links" }),
+    ).toBeVisible();
+    await opened.dispose();
+  },
+);
+
+e2eTest(
+  "uploads dropped local files, images and nested folders to the workspace",
+  async ({ app, harness }) => {
+    const local = nodePath.join(harness.paths.root, "local-files");
+    const folder = nodePath.join(local, "Research");
+    await fs.mkdir(nodePath.join(folder, "empty"), { recursive: true });
+    await fs.mkdir(nodePath.join(folder, "batch"));
+    await fs.writeFile(nodePath.join(folder, ".DS_Store"), "Finder metadata");
+    await fs.mkdir(nodePath.join(folder, ".git"));
+    await fs.mkdir(nodePath.join(folder, "node_modules"));
+    await fs.writeFile(
+      nodePath.join(local, "notes.txt"),
+      "Notes from this computer",
+    );
+    const image =
+      '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10" fill="blue"/></svg>';
+    await fs.writeFile(nodePath.join(local, "picture.svg"), image);
+    await Promise.all(
+      Array.from({ length: 105 }, async (_, index) => {
+        await fs.writeFile(
+          nodePath.join(folder, "batch", `note-${index}.txt`),
+          `Local note ${index}`,
+        );
+      }),
+    );
+    const header = app.page.getByRole("row").filter({
+      has: app.page.getByRole("button", { name: "New file", exact: true }),
+    });
+    await dropLocalPaths({
+      target: header,
+      paths: [
+        nodePath.join(local, "notes.txt"),
+        nodePath.join(local, "picture.svg"),
+        folder,
+      ],
+    });
+    await expect(app.page.getByRole("status")).toHaveText(
+      "Uploaded 110 items. Skipped 3 hidden or dependency items.",
+      { timeout: 20_000 },
+    );
+    expect(await app.server.rpc.workspace.readFile({ path: "notes.txt" })).toBe(
+      "Notes from this computer",
+    );
+    expect(
+      await app.server.rpc.workspace.readFile({
+        path: "Research/batch/note-104.txt",
+      }),
+    ).toBe("Local note 104");
+    expect(await app.server.rpc.workspace.listPaths()).toContain(
+      "Research/empty/",
+    );
+    await app.page
+      .getByRole("link", { name: "picture.svg", exact: true })
+      .click();
+    await expect(app.page.getByRole("main").getByRole("img")).toBeVisible();
+    expect(
+      await fs.readFile(
+        nodePath.join(harness.paths.workspace, "picture.svg"),
+        "utf8",
+      ),
+    ).toBe(image);
+
+    await app.server.rpc.workspace.createEntry({
+      path: "Archive",
+      kind: "directory",
+    });
+    await dropLocalPaths({
+      target: app.page.locator('[data-file-path="Archive"]'),
+      paths: [nodePath.join(local, "notes.txt")],
+    });
+    await expect(app.page.getByRole("status")).toHaveText("Uploaded 1 item.");
+    expect(
+      await app.server.rpc.workspace.readFile({ path: "Archive/notes.txt" }),
+    ).toBe("Notes from this computer");
+    await fs.writeFile(
+      nodePath.join(local, "notes.txt"),
+      "Do not overwrite the VM file",
+    );
+    await dropLocalPaths({
+      target: app.page.locator('[data-file-path="Archive"]'),
+      paths: [nodePath.join(local, "notes.txt")],
+    });
+    await expect(app.page.getByRole("alert")).toContainText("already exists");
+    expect(
+      await app.server.rpc.workspace.readFile({ path: "Archive/notes.txt" }),
+    ).toBe("Notes from this computer");
+  },
+);
+
+async function dropLocalPaths({
+  target,
+  paths,
+}: {
+  target: Locator;
+  paths: string[];
+}) {
+  await expect(target).toBeVisible();
+  const bounds = await target.boundingBox();
+  if (bounds === null) throw new Error("The file drop target is not visible");
+  const client = await target.page().context().newCDPSession(target.page());
+  const data = { items: [], files: paths, dragOperationsMask: 1 };
+  const position = {
+    x: bounds.x + bounds.width / 2,
+    y: bounds.y + bounds.height / 2,
+  };
+  await client.send("Input.dispatchDragEvent", {
+    type: "dragEnter",
+    ...position,
+    data,
+  });
+  await client.send("Input.dispatchDragEvent", {
+    type: "dragOver",
+    ...position,
+    data,
+  });
+  await client.send("Input.dispatchDragEvent", {
+    type: "drop",
+    ...position,
+    data,
+  });
+  await client.detach();
+}

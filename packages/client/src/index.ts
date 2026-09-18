@@ -57,6 +57,7 @@ export type {
 export type {
   WorkspaceInfo,
   SessionSummary,
+  SessionSummariesUpdate,
   WorkspaceTreeEvent,
   WorkspaceFilePreview,
 } from "./rpc.js";

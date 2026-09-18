@@ -282,6 +282,25 @@ export class WorkspaceService {
     return { src };
   }
 
+  async uploadFile(input: { path: string; file: File }) {
+    const path = await this.resolveEntryPath(input.path);
+    if (path instanceof Error) return path;
+    const available = await this.checkAvailable(path);
+    if (available instanceof Error) return available;
+    const contents = await input.file
+      .arrayBuffer()
+      .catch((cause) => new WorkspaceIoError({ cause }));
+    if (contents instanceof Error) return contents;
+    const written = await this.options.filesystem.writeFile(
+      path,
+      new Uint8Array(contents),
+      { flag: "wx" },
+    );
+    if (written instanceof Error)
+      return new WorkspaceIoError({ cause: written });
+    return { path: input.path };
+  }
+
   async createEntry(input: { path: string; kind: "file" | "directory" }) {
     const path = await this.resolveEntryPath(input.path);
     if (path instanceof Error) return path;

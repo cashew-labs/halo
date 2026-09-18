@@ -23,6 +23,9 @@ export type SessionsRouterContext = {
 const os = implement(contract.sessions).$context<SessionsRouterContext>();
 
 export const sessionsRouter = os.router({
+  watchSummaries: os.watchSummaries.handler(({ context, signal }) =>
+    context.sessions.watchSummaries(signal),
+  ),
   list: os.list.handler(async ({ context }) => {
     context.logger.info({ event: "listSessions" });
     const sessions = await context.sessions.list();
