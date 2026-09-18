@@ -9,7 +9,7 @@ const googleG =
 const googlePhotosIcon =
   "https://www.gstatic.com/images/branding/product/2x/photos_96dp.png";
 
-const googleIntegrationDisplays: Record<string, GoogleIntegrationDisplay> = {
+const googleIntegrationDisplays = {
   google_calendar: {
     name: "Google Calendar",
     description: "Search events and schedule meetings.",
@@ -116,10 +116,13 @@ const googleIntegrationDisplays: Record<string, GoogleIntegrationDisplay> = {
     description: "See projects, folders, and organizations.",
     icon: "https://fonts.gstatic.com/s/i/productlogos/google_cloud/v6/192px.svg",
   },
-};
+} as const satisfies Record<string, GoogleIntegrationDisplay>;
 
 export function googleIntegrationDisplay(
   integration: string,
 ): GoogleIntegrationDisplay | undefined {
-  return googleIntegrationDisplays[integration];
+  // SAFETY: unknown slugs are missing catalog keys, so this index is undefined.
+  return googleIntegrationDisplays[
+    integration as keyof typeof googleIntegrationDisplays
+  ];
 }
