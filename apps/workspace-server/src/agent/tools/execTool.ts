@@ -4,8 +4,9 @@ import { formatExecuteResult } from "@executor-js/execution/core";
 import { Type } from "typebox";
 import {
   ConnectionRequiredError,
-  type ToolRuntime,
   type ExecActivityUpdate,
+  type ToolRuntime,
+  ToolApprovalRequiredError,
 } from "../runtime/ToolRuntime.js";
 
 const execParameters = Type.Object({
@@ -17,6 +18,7 @@ export function createExecTool(input: {
   runtimeDescription: string;
   modelId: string;
   onToolEvent?: (event: ExecActivityUpdate) => void;
+  consumeApproval: Parameters<ToolRuntime["executeCode"]>[0]["consumeApproval"];
 }): AgentHarnessTool<object | undefined> {
   return {
     name: "exec",
@@ -32,6 +34,7 @@ export function createExecTool(input: {
         signal: context.abortSignal,
         modelId: input.modelId,
         parentToolCallId: id,
+        consumeApproval: input.consumeApproval,
         onToolEvent: (event) => {
           input.onToolEvent?.(event);
           if (event.type === "tool.started") {
@@ -50,7 +53,10 @@ export function createExecTool(input: {
           onUpdate(
             {
               content: [],
-              details: { toolCalls: [...toolCalls.values()] },
+              details: {
+                toolCalls: [...toolCalls.values()],
+                toolApprovals: [],
+              },
             },
             { checkpoint: true },
           );
@@ -62,7 +68,18 @@ export function createExecTool(input: {
           details: {
             error: result.message,
             toolCalls: [...toolCalls.values()],
+            toolApprovals: [],
             connectionRequests: result.connectionRequests,
+          },
+        };
+      }
+      if (result instanceof ToolApprovalRequiredError) {
+        return {
+          content: [{ type: "text" as const, text: result.message }],
+          details: {
+            error: result.message,
+            toolCalls: [...toolCalls.values()],
+            toolApprovals: result.approvals,
           },
         };
       }
@@ -72,6 +89,7 @@ export function createExecTool(input: {
           details: {
             error: result.message,
             toolCalls: [...toolCalls.values()],
+            toolApprovals: [],
           },
           isError: true,
         };
@@ -82,6 +100,7 @@ export function createExecTool(input: {
         details: {
           ...formatted.structured,
           toolCalls: [...toolCalls.values()],
+          toolApprovals: [],
         },
         isError: formatted.isError,
       };

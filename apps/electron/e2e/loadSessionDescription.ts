@@ -87,7 +87,7 @@ export async function loadSessionDescription(args: {
       item.type === "connectionRequest"
         ? { connectionRequests: [item.request] }
         : item.type === "exec"
-          ? { toolCalls }
+          ? { toolCalls, toolApprovals: item.approvals }
           : item.details;
     messages.push({
       role: "toolResult",

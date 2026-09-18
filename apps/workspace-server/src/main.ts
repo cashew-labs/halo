@@ -70,6 +70,7 @@ async function run() {
     traceWorkspaceId: applicationConfig.server.traceUpload?.workspaceId,
     gateway: applicationConfig.server.gateway,
     googleWebOAuthClient: applicationConfig.googleWebOAuthClient,
+    testApiEnabled: process.env.HALO_E2E === "1",
     ownerUserId: Promise.resolve(applicationConfig.server.ownerUserId),
     logger: logger.scope("rpc"),
     host:

@@ -1,4 +1,5 @@
 import { type Static, Type } from "@sinclair/typebox";
+import { Value } from "@sinclair/typebox/value";
 import {
   connectionRequestKey,
   connectionRequestSchema,
@@ -157,6 +158,28 @@ const toolIdentitySchema = Type.Object({
 
 export type ToolIdentity = Static<typeof toolIdentitySchema>;
 
+export const toolApprovalSchema = Type.Object({
+  id: Type.String(),
+  toolPath: Type.String(),
+  message: Type.String(),
+  arguments: Type.Unknown(),
+  status: Type.Union([
+    Type.Literal("pending"),
+    Type.Literal("allowed"),
+    Type.Literal("denied"),
+    Type.Literal("cancelled"),
+  ]),
+});
+
+export type ToolApproval = Static<typeof toolApprovalSchema>;
+export type ToolApprovalDecision = "allow" | "deny";
+export const toolApprovalDecisionCustomType = "halo.tool.approval.decision";
+
+const toolApprovalDecisionDetailsSchema = Type.Object({
+  approvalId: Type.String(),
+  decision: Type.Union([Type.Literal("allow"), Type.Literal("deny")]),
+});
+
 export const execToolCallSchema = Type.Object({
   id: Type.String(),
   parentId: Type.String(),
@@ -220,7 +243,12 @@ export type ToolResult = Static<typeof toolResultSchema>;
 
 export type ToolOutput =
   | { type: "tool"; result: ToolResult }
-  | { type: "exec"; result: ToolResult; calls: ExecToolCall[] };
+  | {
+      type: "exec";
+      result: ToolResult;
+      calls: ExecToolCall[];
+      approvals: ToolApproval[];
+    };
 
 export type ToolExecution = {
   id: string;
@@ -229,7 +257,12 @@ export type ToolExecution = {
   status: "running" | "completed" | "failed" | "aborted";
 } & (
   | { type: "tool"; result?: ToolResult }
-  | { type: "exec"; result?: ToolResult; calls: ExecToolCall[] }
+  | {
+      type: "exec";
+      result?: ToolResult;
+      calls: ExecToolCall[];
+      approvals: ToolApproval[];
+    }
 );
 
 export type HaloEntry =
@@ -455,5 +488,33 @@ export function sessionToolExecutions(
   }
   if (snapshot.activeRun !== undefined)
     for (const tool of snapshot.activeRun.tools) executions.set(tool.id, tool);
-  return [...executions.values()];
+  const decisions = toolApprovalDecisions(snapshot);
+  return [...executions.values()].map((execution) => {
+    if (execution.type !== "exec") return execution;
+    return {
+      ...execution,
+      approvals: execution.approvals.map((approval) => {
+        const decision = decisions.get(approval.id);
+        if (decision === undefined) return approval;
+        return {
+          ...approval,
+          status: decision === "allow" ? "allowed" : "denied",
+        };
+      }),
+    };
+  });
+}
+
+function toolApprovalDecisions(snapshot: SessionSnapshot) {
+  const decisions = new Map<string, ToolApprovalDecision>();
+  for (const entry of snapshot.entries) {
+    if (entry.type !== "message") continue;
+    const message = entry.message;
+    if (message.role !== "custom") continue;
+    if (message.customType !== toolApprovalDecisionCustomType) continue;
+    if (!Value.Check(toolApprovalDecisionDetailsSchema, message.details))
+      continue;
+    decisions.set(message.details.approvalId, message.details.decision);
+  }
+  return decisions;
 }

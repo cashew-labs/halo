@@ -8,6 +8,7 @@ import { Value } from "@sinclair/typebox/value";
 import {
   directToolIdentity,
   execToolCallSchema,
+  toolApprovalSchema,
   executionWithOutput,
   type ToolResult,
   type HaloEntry,
@@ -20,15 +21,21 @@ import {
 
 const execDetailsSchema = Type.Object({
   toolCalls: Type.Array(execToolCallSchema),
+  toolApprovals: Type.Optional(Type.Array(toolApprovalSchema)),
 });
 
 function toolOutput(name: string, result: ToolResult): ToolOutput {
   if (name !== "exec") return { type: "tool", result };
   // Pi can reject a tool before exec.execute runs, producing a result without Halo details.
   if (!Value.Check(execDetailsSchema, result.details))
-    return { type: "exec", result, calls: [] };
-  const { toolCalls, ...details } = result.details;
-  return { type: "exec", result: { ...result, details }, calls: toolCalls };
+    return { type: "exec", result, calls: [], approvals: [] };
+  const { toolCalls, toolApprovals, ...details } = result.details;
+  return {
+    type: "exec",
+    result: { ...result, details },
+    calls: toolCalls,
+    approvals: toolApprovals === undefined ? [] : toolApprovals,
+  };
 }
 
 function toolExecution(
@@ -42,7 +49,8 @@ function toolExecution(
     arguments: args,
     status: "running" as const,
   };
-  if (name === "exec") return { ...execution, type: "exec", calls: [] };
+  if (name === "exec")
+    return { ...execution, type: "exec", calls: [], approvals: [] };
   return { ...execution, type: "tool" };
 }
 

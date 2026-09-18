@@ -5,6 +5,7 @@ import {
   reduceSessionUpdate,
   sessionMessages,
   sessionToolExecutions,
+  toolApprovalDecisionCustomType,
   type HaloEntry,
   type HaloMessage,
   type SessionSnapshot,
@@ -128,6 +129,7 @@ test("exposes exec's nested calls during execution and from its committed result
     arguments: { js: "await tools.read()" },
     status: "running",
     calls: [],
+    approvals: [],
   };
   snapshot = applySessionEvent(snapshot, {
     type: "tool.started",
@@ -146,7 +148,12 @@ test("exposes exec's nested calls during execution and from its committed result
     runId: "run-1",
     toolCallId: "exec-1",
     status: "running",
-    output: { type: "exec", result: { content: [] }, calls: [call] },
+    output: {
+      type: "exec",
+      result: { content: [] },
+      calls: [call],
+      approvals: [],
+    },
   });
   expect(sessionToolExecutions(snapshot)).toMatchObject([
     { type: "exec", status: "running", calls: [call] },
@@ -163,6 +170,7 @@ test("exposes exec's nested calls during execution and from its committed result
       type: "exec",
       result: { content: [{ type: "text", text: "Read notes" }] },
       calls: [{ ...call, status: "completed" }],
+      approvals: [],
     },
   };
   snapshot = applySessionEvent(snapshot, { type: "entry.committed", entry });
@@ -182,6 +190,65 @@ test("exposes exec's nested calls during execution and from its committed result
   expect(sessionToolExecutions(during)).toMatchObject([
     { calls: [{ status: "running" }] },
   ]);
+});
+
+test("overlays persisted tool approval decisions", () => {
+  const request = assistantMessage({
+    stopReason: "toolUse",
+    content: [
+      {
+        type: "toolCall",
+        id: "exec-approval",
+        name: "exec",
+        arguments: { js: "return await tools.example.create({ id: 1 })" },
+      },
+    ],
+  });
+  const snapshot: SessionSnapshot = {
+    ...emptySessionSnapshot(),
+    entries: [
+      { type: "message", id: "request", message: request },
+      {
+        type: "toolResult",
+        id: "approval-result",
+        toolCallId: "exec-approval",
+        tool: { path: "exec", displayName: "Exec" },
+        timestamp: 2,
+        isError: false,
+        output: {
+          type: "exec",
+          result: { content: [] },
+          calls: [],
+          approvals: [
+            {
+              id: "approval-1",
+              toolPath: "example.create",
+              message: "Create example",
+              arguments: { id: 1 },
+              status: "pending",
+            },
+          ],
+        },
+      },
+      {
+        type: "message",
+        id: "decision",
+        message: {
+          role: "custom",
+          customType: toolApprovalDecisionCustomType,
+          content: "Approved",
+          display: false,
+          details: { approvalId: "approval-1", decision: "allow" },
+          timestamp: 3,
+        },
+      },
+    ],
+  };
+
+  expect(sessionToolExecutions(snapshot)[0]).toMatchObject({
+    type: "exec",
+    approvals: [{ id: "approval-1", status: "allowed" }],
+  });
 });
 
 test("replaces a previous session and continues the snapshot's active run", () => {

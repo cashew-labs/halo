@@ -21,6 +21,9 @@ import {
   type SessionWatchItem,
   type HaloConnectionEvent,
   type HaloConnectionState,
+  sessionToolExecutions,
+  toolApprovalDecisionCustomType,
+  type ToolApprovalDecision,
 } from "@get-halo/client";
 import type { WorkspaceLayout } from "../workspace/WorkspaceService.js";
 import type { FilesystemService } from "../filesystem/FilesystemService.js";
@@ -30,6 +33,10 @@ import { createExecTool } from "./tools/execTool.js";
 import { WorkspaceResourceLoader } from "./WorkspaceResourceLoader.js";
 import type { HaloEnvironment } from "./workspacePrompt.js";
 import { adaptPiEvent, sessionSnapshot } from "./sessionEvents.js";
+import {
+  ToolApprovalNotFoundError,
+  ToolApprovalService,
+} from "./ToolApprovalService.js";
 
 export class EmptyPromptError extends errore.createTaggedError({
   name: "EmptyPromptError",
@@ -57,8 +64,11 @@ export class SessionStorageError extends errore.createTaggedError({
 }) {}
 
 type SessionNotification = {
-  customType: "halo.integration.connected";
+  customType:
+    | "halo.integration.connected"
+    | typeof toolApprovalDecisionCustomType;
   content: string;
+  details?: unknown;
 };
 
 export type HaloAgentSessionOptions = {
@@ -72,14 +82,27 @@ export type HaloAgentSessionOptions = {
 };
 
 export class HaloAgentSession {
+  // Publishes connection progress alongside persisted agent events.
   private readonly connectionEvents = new Stream<HaloConnectionEvent>();
+  // Cancels subscriptions and in-flight session work during close.
   private readonly closed = new AbortController();
 
-  private constructor(
-    readonly sessionId: string,
-    private readonly harness: AgentHarness,
-    private readonly lane: AgentLane,
-  ) {}
+  readonly sessionId: string;
+  private readonly harness: AgentHarness;
+  private readonly lane: AgentLane;
+  private readonly approvals: ToolApprovalService;
+
+  private constructor(ctx: {
+    sessionId: string;
+    harness: AgentHarness;
+    lane: AgentLane;
+    approvals: ToolApprovalService;
+  }) {
+    this.sessionId = ctx.sessionId;
+    this.harness = ctx.harness;
+    this.lane = ctx.lane;
+    this.approvals = ctx.approvals;
+  }
 
   static async attach(options: HaloAgentSessionOptions, stored: Session) {
     await using cleanup = new errore.AsyncDisposableStack();
@@ -102,6 +125,8 @@ export class HaloAgentSession {
     });
     const reloaded = await resourceLoader.reload();
     if (reloaded instanceof Error) return reloaded;
+    const approvals = new ToolApprovalService();
+    cleanup.defer(() => approvals.close());
     const customTools: AgentHarnessTool<object | undefined>[] = [
       ...createAuthorizedCodingTools({
         cwd: layout.root,
@@ -123,6 +148,7 @@ export class HaloAgentSession {
         runtimeDescription,
         modelId: options.model.id,
         onToolEvent: (event) => trace.integration(event),
+        consumeApproval: (input) => approvals.consume(input),
       }),
     ];
     const created = await AgentHarness.create(
@@ -154,11 +180,12 @@ export class HaloAgentSession {
       { createAt: null },
       BACKGROUND_CONTEXT,
     );
-    const session = new HaloAgentSession(
-      stored.metadata.id,
-      created.harness,
+    const session = new HaloAgentSession({
+      sessionId: stored.metadata.id,
+      harness: created.harness,
       lane,
-    );
+      approvals,
+    });
     trace.attach(created.harness);
     cleanup.move();
     return session;
@@ -208,6 +235,44 @@ export class HaloAgentSession {
 
   publishConnectionEvent(event: HaloConnectionEvent) {
     this.connectionEvents.append(event);
+  }
+
+  async respondToToolApproval(input: {
+    approvalId: string;
+    decision: ToolApprovalDecision;
+  }) {
+    const snapshot = await this.readSnapshot([]);
+    if (snapshot instanceof Error) return snapshot;
+    const approval = sessionToolExecutions(snapshot)
+      .flatMap((execution) =>
+        execution.type === "exec" ? execution.approvals : [],
+      )
+      .find((candidate) => candidate.id === input.approvalId);
+    if (approval === undefined || approval.status !== "pending") {
+      return new ToolApprovalNotFoundError({
+        approvalId: input.approvalId,
+      });
+    }
+    const decided = this.approvals.decide({
+      approval,
+      decision: input.decision,
+    });
+    if (decided instanceof Error) return decided;
+    const response = await this.notify({
+      customType: toolApprovalDecisionCustomType,
+      content:
+        input.decision === "allow"
+          ? `[System] The user approved ${approval.toolPath} once. Retry that operation with the same arguments and continue their last request.`
+          : `[System] The user denied ${approval.toolPath}. Do not retry that operation. Continue their last request without it.`,
+      details: {
+        approvalId: approval.id,
+        decision: input.decision,
+      },
+    });
+    if (response instanceof Error) {
+      this.approvals.release(approval.id);
+      return response;
+    }
   }
 
   async appendMessages(messages: readonly StoredMessage[]) {
@@ -299,6 +364,7 @@ export class HaloAgentSession {
 
   async close() {
     this.closed.abort();
+    this.approvals.close();
     const closed = await this.harness
       .close(BACKGROUND_CONTEXT)
       .catch(

@@ -28,6 +28,7 @@ import {
 } from "@get-halo/client";
 import { AssistantMessage } from "./AssistantMessage.tsx";
 import { Editor } from "./Editor.tsx";
+import { ExecutorApprovalCard } from "./ExecutorApprovalCard.tsx";
 import { ExecutorConnectionCard } from "./ExecutorConnectionCard.tsx";
 import { ToolActivity } from "./ToolActivity.tsx";
 import { PaneHeader } from "../PaneHeader.tsx";
@@ -266,6 +267,15 @@ function SessionViewRow({
         if (part.kind === "executorConnection") {
           return (
             <ExecutorConnectionCard
+              key={part.id}
+              sessionId={sessionId}
+              part={part}
+            />
+          );
+        }
+        if (part.kind === "toolApproval") {
+          return (
+            <ExecutorApprovalCard
               key={part.id}
               sessionId={sessionId}
               part={part}
