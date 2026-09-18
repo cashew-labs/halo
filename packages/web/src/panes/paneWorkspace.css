@@ -115,3 +115,25 @@
 .paneDivider:focus-visible::after {
   background: var(--pane-accent);
 }
+
+.paneDropShield {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+}
+.paneDropPreview {
+  position: absolute;
+  z-index: 6;
+  pointer-events: none;
+  display: grid;
+  place-items: center;
+  padding: 8px;
+  border: 2px solid var(--pane-accent);
+  background: var(--pane-drop);
+}
+.paneDropPreview span {
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--pane-background);
+  white-space: nowrap;
+}

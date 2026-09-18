@@ -498,7 +498,6 @@ function FileNavigationItem({
         draggable={!pending}
         data-file-path={path}
         onDragStart={(event) => {
-          event.stopPropagation();
           event.dataTransfer.setData(fileDragType, path);
           event.dataTransfer.effectAllowed = "move";
           onDrag(path);

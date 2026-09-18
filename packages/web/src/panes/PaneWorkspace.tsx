@@ -1,17 +1,29 @@
-import { useRef, type CSSProperties } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type DragEvent,
+  type CSSProperties,
+} from "react";
 import { Router } from "wouter";
 import type { SessionSummary } from "@get-halo/client";
 import { backgroundColor, colors, focusRing, text } from "maui";
 import { Plus, Close } from "maui/icons";
 import { style, useStyles } from "purse-styles";
 import { MainPane } from "../main/MainPane.js";
-import { paneLayout, type Rect, type WorkspaceTab } from "./WorkspacePanes.js";
+import {
+  paneLayout,
+  type Rect,
+  type DropEdge,
+  type WorkspaceTab,
+} from "./WorkspacePanes.js";
 import {
   TabRouteContext,
   usePaneLocation,
   usePaneState,
   useWorkspacePanes,
 } from "./WorkspacePanesProvider.js";
+import { isPaneDrag, paneRouteDragType, paneTabDragType } from "./paneDrag.js";
 import "./paneWorkspace.css";
 
 function bounds(rect: Rect): CSSProperties {
@@ -36,10 +48,101 @@ export function PaneWorkspace({ sessions }: { sessions: SessionSummary[] }) {
   const state = usePaneState();
   const { leaves, dividers } = paneLayout(state.root);
   const root = useRef<HTMLDivElement>(null);
+  const [dragging, setDragging] = useState(false);
+  const [drop, setDrop] = useState<{
+    paneId: string;
+    edge: DropEdge;
+    rect: Rect;
+  }>();
+  useEffect(() => {
+    const start = (event: globalThis.DragEvent) => {
+      if (event.dataTransfer !== null && isPaneDrag(event.dataTransfer))
+        setDragging(true);
+    };
+    const end = () => {
+      setDragging(false);
+      setDrop(undefined);
+    };
+    document.addEventListener("dragstart", start);
+    document.addEventListener("dragend", end);
+    document.addEventListener("drop", end);
+    return () => {
+      document.removeEventListener("dragstart", start);
+      document.removeEventListener("dragend", end);
+      document.removeEventListener("drop", end);
+    };
+  }, []);
+  function targetAt(event: DragEvent) {
+    if (root.current === null) return;
+    const box = root.current.getBoundingClientRect();
+    const x = ((event.clientX - box.left) / box.width) * 100;
+    const y = ((event.clientY - box.top) / box.height) * 100;
+    const target = leaves.find(
+      ({ rect }) =>
+        x >= rect.x &&
+        x <= rect.x + rect.width &&
+        y >= rect.y &&
+        y <= rect.y + rect.height,
+    );
+    if (target === undefined) return;
+    const { pane, rect } = target;
+    const localX = (x - rect.x) / rect.width;
+    const localY = (y - rect.y) / rect.height;
+    const inTabs = ((y - rect.y) / 100) * box.height < 36;
+    const distances: [DropEdge, number][] = [
+      ["left", localX],
+      ["right", 1 - localX],
+      ["top", localY],
+      ["bottom", 1 - localY],
+    ];
+    distances.sort((a, b) => a[1] - b[1]);
+    const closest = distances[0]!;
+    const edge: DropEdge = inTabs || closest[1] > 0.23 ? "center" : closest[0];
+    return { paneId: pane.id, edge, rect };
+  }
+
   const className = useStyles(workspaceStyle);
 
   return (
-    <div ref={root} className={`${className} paneWorkspace`}>
+    <div
+      ref={root}
+      className={`${className} paneWorkspace`}
+      onDragOverCapture={(event) => {
+        if (!isPaneDrag(event.dataTransfer)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        event.dataTransfer.dropEffect = event.dataTransfer.types.includes(
+          paneTabDragType,
+        )
+          ? "move"
+          : "copy";
+        setDrop(targetAt(event));
+      }}
+      onDragLeave={(event) => {
+        if (
+          !(event.relatedTarget instanceof Node) ||
+          !event.currentTarget.contains(event.relatedTarget)
+        )
+          setDrop(undefined);
+      }}
+      onDropCapture={(event) => {
+        if (!isPaneDrag(event.dataTransfer)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const target = targetAt(event);
+        const tabId = event.dataTransfer.getData(paneTabDragType) || undefined;
+        const path = event.dataTransfer.getData(paneRouteDragType) || undefined;
+        if (
+          target !== undefined &&
+          (tabId !== undefined ||
+            (path !== undefined &&
+              /^\/(files|sessions|draft|extensions)\//.test(path)))
+        )
+          workspace.place({ ...target, tabId, path });
+        setDragging(false);
+        setDrop(undefined);
+      }}
+    >
       {leaves.map(({ pane, rect }, index) => (
         <section
           key={pane.id}
@@ -60,6 +163,11 @@ export function PaneWorkspace({ sessions }: { sessions: SessionSummary[] }) {
                 <div
                   key={tab.id}
                   className="paneTab"
+                  draggable
+                  onDragStart={(event) => {
+                    event.dataTransfer.setData(paneTabDragType, tab.id);
+                    event.dataTransfer.effectAllowed = "move";
+                  }}
                   data-selected={pane.activeTabId === tab.id}
                 >
                   <button
@@ -154,6 +262,32 @@ export function PaneWorkspace({ sessions }: { sessions: SessionSummary[] }) {
           </div>
         )),
       )}
+      {dragging &&
+        leaves.map(({ pane, rect }) => (
+          <div
+            key={pane.id}
+            className="paneDropShield"
+            style={{
+              left: `${rect.x}%`,
+              right: `${100 - rect.x - rect.width}%`,
+              top: `calc(${rect.y}% + 36px)`,
+              bottom: `${100 - rect.y - rect.height}%`,
+            }}
+          />
+        ))}
+      {drop !== undefined && (
+        <div
+          className="paneDropPreview"
+          data-drop-edge={drop.edge}
+          style={bounds(dropPreview(drop.rect, drop.edge))}
+        >
+          <span>
+            {drop.edge === "center"
+              ? "Open in this pane"
+              : `Split ${drop.edge}`}
+          </span>
+        </div>
+      )}
       {dividers.map(({ split, rect }) => {
         const horizontal = split.axis === "horizontal";
         return (
@@ -240,3 +374,13 @@ const workspaceStyle = style(
     "& button": { color: "inherit" },
   },
 );
+
+function dropPreview(rect: Rect, edge: DropEdge): Rect {
+  if (edge === "left") return { ...rect, width: rect.width / 2 };
+  if (edge === "right")
+    return { ...rect, x: rect.x + rect.width / 2, width: rect.width / 2 };
+  if (edge === "top") return { ...rect, height: rect.height / 2 };
+  if (edge === "bottom")
+    return { ...rect, y: rect.y + rect.height / 2, height: rect.height / 2 };
+  return rect;
+}
