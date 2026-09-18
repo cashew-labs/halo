@@ -429,7 +429,21 @@ e2eTest(
     });
     await expect(editor.locator(":scope > ul")).toHaveCount(2);
     await expect(editor.locator("ul ul")).toHaveCount(1);
-    await editor.getByText("Second", { exact: true }).click({ delay: 50 });
+    const second = editor.getByText("Second", { exact: true });
+    await second.click({ position: { x: 5, y: 10 } });
+    await expect
+      .poll(
+        async () =>
+          await second.evaluate((paragraph) => {
+            const selection = paragraph.ownerDocument.getSelection();
+            return (
+              selection?.isCollapsed === true &&
+              paragraph.contains(selection.anchorNode) &&
+              paragraph.contains(selection.focusNode)
+            );
+          }),
+      )
+      .toBe(true);
     await app.page.keyboard.press("Tab");
     await expect(editor.locator("ul ul > li > p")).toHaveText([
       "Second",
