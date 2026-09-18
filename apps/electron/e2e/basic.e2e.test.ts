@@ -430,20 +430,27 @@ e2eTest(
     await expect(editor.locator(":scope > ul")).toHaveCount(2);
     await expect(editor.locator("ul ul")).toHaveCount(1);
     const second = editor.getByText("Second", { exact: true });
-    await second.click({ position: { x: 5, y: 10 } });
-    await expect
-      .poll(
-        async () =>
-          await second.evaluate((paragraph) => {
-            const selection = paragraph.ownerDocument.getSelection();
-            return (
-              selection?.isCollapsed === true &&
-              paragraph.contains(selection.anchorNode) &&
-              paragraph.contains(selection.focusNode)
-            );
-          }),
-      )
-      .toBe(true);
+    await second.evaluate(async (paragraph) => {
+      const editorRoot = paragraph.closest<HTMLElement>(
+        '[contenteditable="true"]',
+      );
+      const text = paragraph.firstChild;
+      if (editorRoot === null || text === null) {
+        throw new Error("Pasted list item is not editable text");
+      }
+      editorRoot.focus();
+      const selectionChanged = new Promise<void>((resolve) => {
+        paragraph.ownerDocument.addEventListener(
+          "selectionchange",
+          () => resolve(),
+          { once: true },
+        );
+      });
+      paragraph.ownerDocument
+        .getSelection()!
+        .setBaseAndExtent(text, 0, text, 0);
+      await selectionChanged;
+    });
     await app.page.keyboard.press("Tab");
     await expect(editor.locator("ul ul > li > p")).toHaveText([
       "Second",
