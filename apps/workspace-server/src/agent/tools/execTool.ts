@@ -5,6 +5,7 @@ import { Type } from "typebox";
 import {
   ConnectionRequiredError,
   type ToolRuntime,
+  type ExecActivityUpdate,
 } from "../runtime/ToolRuntime.js";
 
 const execParameters = Type.Object({
@@ -15,6 +16,7 @@ export function createExecTool(input: {
   runtime: ToolRuntime;
   runtimeDescription: string;
   modelId: string;
+  onToolEvent?: (event: ExecActivityUpdate) => void;
 }): AgentHarnessTool<object | undefined> {
   return {
     name: "exec",
@@ -31,6 +33,7 @@ export function createExecTool(input: {
         modelId: input.modelId,
         parentToolCallId: id,
         onToolEvent: (event) => {
+          input.onToolEvent?.(event);
           if (event.type === "tool.started") {
             toolCalls.set(event.invocation.id, {
               ...event.invocation,

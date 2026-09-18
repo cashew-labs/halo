@@ -4,14 +4,394 @@ import {
   sessionMessages,
   sessionToolExecutions,
   type HaloClient,
+  type TraceRecord,
 } from "@get-halo/client";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { gunzipSync } from "node:zlib";
+import { IdTokenClient } from "google-auth-library";
+import { ControlPlaneTraceUploader } from "@get-halo/workspace-server";
 import { expect } from "vitest";
 import { contentText } from "@earendil-works/pi-ai";
 import { m } from "@get-halo/shared/testing";
 import { messageText } from "@get-halo/workspace-server/testing";
 import { serverTest } from "./serverTest.js";
+
+serverTest(
+  "uploads archives through the control plane and retries rejected requests after restart",
+  async ({ createServer, llm, http }) => {
+    const token = `header.${Buffer.from(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600 })).toString("base64url")}.signature`;
+    const uploader = new ControlPlaneTraceUploader({
+      origin: http.url(""),
+      auth: {
+        async getIdTokenClient(audience) {
+          expect(audience).toBe(http.url("/api/traces"));
+          return new IdTokenClient({
+            targetAudience: audience,
+            idTokenProvider: {
+              async fetchIdToken(target) {
+                expect(target).toBe(audience);
+                return token;
+              },
+            },
+          });
+        },
+      },
+    });
+    const workspaceId = "11111111-1111-4111-8111-111111111111";
+    const server = createServer({
+      traceUploader: uploader,
+      traceWorkspaceId: workspaceId,
+    });
+    await server.start();
+    const session = await server.rpc.sessions.create();
+    const prompt = server.rpc.sessions.prompt({
+      ...session,
+      text: "Archive me",
+    });
+    await llm.respond(m.assistant("Archived answer"));
+    await prompt;
+    const [trace] = await readTraces(server.workspaceRoot);
+    const record = trace!.records[0]!;
+    expect(record.workspaceId).toBe(workspaceId);
+    const target = `/api/traces/${record.sessionId}/${record.traceId}`;
+    const first = await http.request(target);
+    expect(first.headers.authorization).toBe(`Bearer ${token}`);
+    expect(first.headers["content-type"]).toBe("application/gzip");
+    expect(await first.body()).toEqual(trace!.bytes);
+    // The object reached storage, but its acknowledgement did not reach the client.
+    first.respond("Upload acknowledgement lost", { status: 503 });
+    await server.stop();
+    expect(await readTraces(server.workspaceRoot)).toHaveLength(1);
+    await server.start();
+    const retried = await http.request(target);
+    expect(await retried.body()).toEqual(trace!.bytes);
+    retried.respond("", { status: 204 });
+    await expect
+      .poll(
+        async () => (await readTraces(server.workspaceRoot, "archive")).length,
+      )
+      .toBe(1);
+    expect(await readTraces(server.workspaceRoot, "pending")).toHaveLength(0);
+
+    const next = server.rpc.sessions.prompt({
+      ...session,
+      text: "A later request",
+    });
+    await llm.respond(m.assistant("Another answer"));
+    await next;
+    const [secondTrace] = await readTraces(server.workspaceRoot);
+    expect(secondTrace!.name).not.toBe(trace!.name);
+    const secondRecord = secondTrace!.records[0]!;
+    const second = await http.request(
+      `/api/traces/${secondRecord.sessionId}/${secondRecord.traceId}`,
+    );
+    expect(await second.body()).toEqual(secondTrace!.bytes);
+    second.respond("", { status: 204 });
+    await expect
+      .poll(
+        async () => (await readTraces(server.workspaceRoot, "archive")).length,
+      )
+      .toBe(2);
+  },
+);
+
+serverTest(
+  "archives complete model and nested tool activity without a chat watcher",
+  async ({ server, llm }) => {
+    const session = await server.rpc.sessions.create();
+    await server.rpc.workspace.writeFile({
+      path: "notes.md",
+      content: "Trace me",
+    });
+    const prompt = server.rpc.sessions.prompt({
+      ...session,
+      text: "Read notes",
+    });
+    await llm.respond(
+      m.tool.start("exec", {
+        id: "read-notes",
+        arguments: {
+          js: 'return await tools.files.read({ path: "notes.md" });',
+        },
+      }),
+    );
+    await llm.respond(m.assistant("Your notes say Trace me."));
+    await prompt;
+
+    const [trace] = await readTraces(server.workspaceRoot);
+    expect(trace).toBeDefined();
+    expect(trace!.records[0]).toMatchObject({
+      sessionId: session.sessionId,
+      sequence: 0,
+      type: "run.started",
+    });
+    expect(trace!.records.at(-1)).toMatchObject({
+      type: "run.finished",
+      data: { outcome: "completed" },
+    });
+    expect(trace!.records.map((record) => record.sequence)).toEqual(
+      trace!.records.map((_, index) => index),
+    );
+    const starts = trace!.records.filter(
+      (record) => record.type === "model.started",
+    );
+    expect(starts).toHaveLength(2);
+    expect(starts[0]).toMatchObject({
+      data: {
+        model: { id: "scripted" },
+        context: {
+          systemPrompt: expect.any(String),
+          tools: expect.arrayContaining([
+            expect.objectContaining({ name: "exec" }),
+          ]),
+          messages: expect.arrayContaining([
+            expect.objectContaining({ role: "user", content: "Read notes" }),
+          ]),
+        },
+      },
+    });
+    expect(
+      trace!.records.filter((record) => record.type === "model.payload"),
+    ).toHaveLength(2);
+    expect(
+      trace!.records.filter((record) => record.type === "model.finished"),
+    ).toHaveLength(2);
+    const tool = trace!.records.find(
+      (record) => record.type === "tool.started",
+    )!;
+    const integration = trace!.records.find(
+      (record) => record.type === "integration.started",
+    )!;
+    expect(integration.parentSpanId).toBe(tool.spanId);
+    expect(
+      trace!.records.find((record) => record.type === "integration.finished"),
+    ).toMatchObject({
+      spanId: integration.spanId,
+      data: { isError: false, result: expect.anything() },
+    });
+    expect(trace!.name).toMatch(
+      /v1\/workspaces\/[\da-f-]+\/sessions\/[\da-f-]+\/[\da-f]{32}\.jsonl\.gz$/,
+    );
+    expect(JSON.stringify(trace!.records)).not.toContain("halo-e2e");
+  },
+);
+
+serverTest(
+  "adds immutable runs to a conversation after restart and separates concurrent sessions",
+  async ({ server, llm }) => {
+    const session = await server.rpc.sessions.create();
+    const first = server.rpc.sessions.prompt({
+      ...session,
+      text: "First request",
+    });
+    await llm.respond(m.assistant("First answer"));
+    await first;
+    const [original] = await readTraces(server.workspaceRoot);
+    await server.stop();
+    await server.start();
+    const other = await server.rpc.sessions.create();
+    const second = server.rpc.sessions.prompt({
+      ...session,
+      text: "Continue later",
+    });
+    const separate = server.rpc.sessions.prompt({
+      ...other,
+      text: "Separate conversation",
+    });
+    await llm.respond(m.assistant("Answer one"));
+    await llm.respond(m.assistant("Answer two"));
+    await Promise.all([second, separate]);
+    const traces = await readTraces(server.workspaceRoot);
+    expect(traces).toHaveLength(3);
+    expect(
+      traces.find((trace) => trace.name === original!.name)?.bytes,
+    ).toEqual(original!.bytes);
+    expect(
+      new Set(traces.map((trace) => trace.records[0]!.workspaceId)).size,
+    ).toBe(1);
+    expect(
+      traces.filter(
+        (trace) => trace.records[0]!.sessionId === session.sessionId,
+      ),
+    ).toHaveLength(2);
+    for (const trace of traces) {
+      expect(new Set(trace.records.map((record) => record.traceId)).size).toBe(
+        1,
+      );
+      expect(
+        new Set(trace.records.map((record) => record.sessionId)).size,
+      ).toBe(1);
+    }
+  },
+);
+
+serverTest(
+  "archives cancelled model calls and extension-defined runs",
+  async ({ server, llm }) => {
+    const session = await server.rpc.sessions.create();
+    const prompt = server.rpc.sessions.prompt({
+      ...session,
+      text: "Keep working",
+    });
+    await llm.waitForRequest();
+    await server.rpc.sessions.abort(session);
+    await prompt;
+    const external = await server.rpc.traces.start({
+      sessionId: "extension-conversation",
+      agent: { id: "expenses", version: "build-12" },
+    });
+    await server.rpc.traces.record({
+      traceId: external.traceId,
+      event: {
+        type: "model.started",
+        spanId: "1234567890abcdef",
+        parentSpanId: external.spanId,
+        data: { systemPrompt: "Extension-owned prompt" },
+      },
+    });
+    await server.rpc.traces.finish({
+      traceId: external.traceId,
+      outcome: "failed",
+    });
+    const traces = await readTraces(server.workspaceRoot);
+    expect(traces).toHaveLength(2);
+    expect(
+      traces
+        .find((trace) => trace.records[0]!.sessionId === session.sessionId)
+        ?.records.at(-1),
+    ).toMatchObject({ data: { outcome: "cancelled" } });
+    const extension = traces.find(
+      (trace) => trace.records[0]!.sessionId === "extension-conversation",
+    )!;
+    expect(extension.records[0]).toMatchObject({
+      data: { agent: { id: "expenses", version: "build-12" } },
+    });
+    expect(extension.records.at(-1)).toMatchObject({
+      data: { outcome: "failed" },
+    });
+    await expect(
+      server.rpc.traces.record({
+        traceId: external.traceId,
+        event: { type: "late", spanId: external.spanId },
+      }),
+    ).rejects.toThrow();
+    await expect(
+      server.rpc.traces.start({
+        sessionId: "../escape",
+        agent: { id: "expenses" },
+      }),
+    ).rejects.toThrow();
+  },
+);
+
+serverTest(
+  "retries pending uploads after restart without interrupting conversations",
+  async ({ createServer, llm }) => {
+    const uploads = new Map<string, Buffer>();
+    let available = false;
+    let attempted = false;
+    const server = createServer({
+      traceUploader: {
+        async upload({ key, filePath }) {
+          attempted = true;
+          if (!available) return new Error("Storage unavailable");
+          uploads.set(key, await fs.readFile(filePath));
+        },
+      },
+    });
+    await server.start();
+    const session = await server.rpc.sessions.create();
+    const prompt = server.rpc.sessions.prompt({
+      ...session,
+      text: "Work while storage is offline",
+    });
+    await llm.respond(m.assistant("Done"));
+    await prompt;
+    await expect.poll(() => attempted).toBe(true);
+    expect(uploads.size).toBe(0);
+    const [pending] = await readTraces(server.workspaceRoot);
+    await server.stop();
+    available = true;
+    await server.start();
+    await expect.poll(() => uploads.size).toBe(1);
+    expect([...uploads.values()][0]).toEqual(pending!.bytes);
+    await expect
+      .poll(
+        async () => (await readTraces(server.workspaceRoot, "pending")).length,
+      )
+      .toBe(0);
+    expect(await readTraces(server.workspaceRoot, "archive")).toHaveLength(1);
+  },
+);
+
+serverTest(
+  "recovers a torn active file as one interrupted run",
+  async ({ server }) => {
+    const run = await server.rpc.traces.start({
+      sessionId: "recover-session",
+      agent: { id: "custom" },
+    });
+    const activePath = path.join(
+      server.workspaceRoot,
+      ".halo",
+      "traces",
+      "active",
+      "recover-session",
+      `${run.traceId}.jsonl`,
+    );
+    const active = await fs.readFile(activePath, "utf8");
+    await server.stop();
+    const [completed] = await readTraces(server.workspaceRoot);
+    await fs.rm(
+      path.join(
+        server.workspaceRoot,
+        ".halo",
+        "traces",
+        "pending",
+        completed!.name,
+      ),
+    );
+    // Reproduce the durable bytes left by a process killed partway through its next append.
+    await fs.writeFile(activePath, `${active}{"partial":`);
+    await server.start();
+    const [recovered] = await readTraces(server.workspaceRoot);
+    expect(recovered!.records).toHaveLength(2);
+    expect(recovered!.records.at(-1)).toMatchObject({
+      traceId: run.traceId,
+      sequence: 1,
+      type: "run.finished",
+      data: { outcome: "interrupted" },
+    });
+    await server.stop();
+    await server.start();
+    expect(await readTraces(server.workspaceRoot)).toHaveLength(1);
+  },
+);
+
+async function readTraces(workspaceRoot: string, state = "pending") {
+  const root = path.join(workspaceRoot, ".halo", "traces", state);
+  const files = await fs
+    .readdir(root, { recursive: true })
+    .catch((cause: NodeJS.ErrnoException) => {
+      if (cause.code === "ENOENT") return [];
+      throw cause;
+    });
+  return await Promise.all(
+    files
+      .filter((file) => file.endsWith(".jsonl.gz"))
+      .map(async (name) => {
+        const bytes = await fs.readFile(path.join(root, name));
+        // SAFETY: The test reads the public versioned JSONL trace archive produced by the server.
+        const records = gunzipSync(bytes)
+          .toString("utf8")
+          .trimEnd()
+          .split("\n")
+          .map((line) => JSON.parse(line) as TraceRecord);
+        return { name, records, bytes };
+      }),
+  );
+}
 
 serverTest(
   "lists saved conversations during overlapping requests and a pending response",

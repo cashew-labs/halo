@@ -22,16 +22,28 @@ export class TestServer {
   readonly workspaceRoot: string;
   private readonly artifacts: TestArtifacts;
   private readonly llmApi: WorkspaceServerOptions["llmApi"];
+  private readonly traceWorkspaceId: string | undefined;
+  private readonly traceUploader: WorkspaceServerOptions["traceUploader"];
 
   constructor(ctx: {
     artifacts: TestArtifacts;
     workspaceRoot: string;
     llmApi: WorkspaceServerOptions["llmApi"];
+    traceUploader?: WorkspaceServerOptions["traceUploader"];
+    traceWorkspaceId?: string;
   }) {
-    const { artifacts, workspaceRoot, llmApi } = ctx;
+    const {
+      artifacts,
+      workspaceRoot,
+      llmApi,
+      traceUploader,
+      traceWorkspaceId,
+    } = ctx;
     this.artifacts = artifacts;
     this.workspaceRoot = workspaceRoot;
     this.llmApi = llmApi;
+    this.traceUploader = traceUploader;
+    this.traceWorkspaceId = traceWorkspaceId;
   }
 
   get harness() {
@@ -55,6 +67,8 @@ export class TestServer {
     const server = await WorkspaceServer.start({
       environment: "local",
       llmApi: this.llmApi,
+      traceUploader: this.traceUploader,
+      traceWorkspaceId: this.traceWorkspaceId,
       workspaceRoot: this.workspaceRoot,
       appDataDir: this.artifacts.paths.userData,
       appVersion: "0.0.0-test",

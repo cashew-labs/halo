@@ -1,3 +1,5 @@
+import { gzipSync } from "node:zlib";
+import { TraceCloudDriver } from "./TraceCloudDriver.js";
 import fs from "node:fs/promises";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -30,6 +32,7 @@ type ReceivedWorkspaceHeaders = {
 };
 
 const controlPlaneTest = test.extend<{
+  traceCloud: TraceCloudDriver;
   appDataDir: string;
   authenticatedRpc: ControlPlaneClient;
   browserHeaders: Headers;
@@ -37,6 +40,12 @@ const controlPlaneTest = test.extend<{
   rpc: ControlPlaneClient;
   webRoot: string;
 }>({
+  // oxlint-disable-next-line eslint/no-empty-pattern -- Vitest requires destructured fixture parameters.
+  traceCloud: async ({}, use) => {
+    const cloud = await TraceCloudDriver.start();
+    await use(cloud);
+    await cloud.close();
+  },
   appDataDir: async ({ task }, use) => {
     const parent = resolve(import.meta.dirname, "../../../tmp/control-plane");
     await fs.mkdir(parent, { recursive: true });
@@ -53,7 +62,7 @@ const controlPlaneTest = test.extend<{
     ]);
     await use(webRoot);
   },
-  plane: async ({ appDataDir, webRoot }, use) => {
+  plane: async ({ appDataDir, webRoot, traceCloud }, use) => {
     const plane = await ControlPlane.start({
       config: {
         deployment: "local",
@@ -63,6 +72,7 @@ const controlPlaneTest = test.extend<{
         auth: testAuth,
       },
       webRoot,
+      traceCloud: traceCloud.cloud(),
     });
     if (plane instanceof Error) throw plane;
     await use(plane);
@@ -341,18 +351,26 @@ controlPlaneTest(
   },
 );
 
-function createControlPlaneRpcClient(origin: string, token?: string) {
+function createControlPlaneRpcClient(origin: string, token?: string | Headers) {
   const link = new RPCLink({
     origin,
     url: "/rpc",
     headers:
-      token === undefined ? undefined : { authorization: `Bearer ${token}` },
+      token instanceof Headers
+        ? token
+        : token === undefined
+          ? undefined
+          : { authorization: `Bearer ${token}` },
   });
   // SAFETY: The control-plane origin serves controlPlaneContract at /rpc.
   return createORPCClient(link) as ControlPlaneClient;
 }
 
-async function createAuthenticatedHeaders(appDataDir: string, origin: string) {
+async function createAuthenticatedHeaders(
+  appDataDir: string,
+  origin: string,
+  email = "desktop@example.com",
+) {
   using database = new DatabaseSync(join(appDataDir, "control-plane.db"));
   const auth = betterAuth({
     baseURL: origin,
@@ -362,10 +380,233 @@ async function createAuthenticatedHeaders(appDataDir: string, origin: string) {
   });
   const context = await auth.$context;
   const user = context.test.createUser({
-    email: "desktop@example.com",
+    email,
     name: "Desktop User",
   });
   await context.test.saveUser(user);
   const login = await context.test.login({ userId: user.id });
   return login.headers;
+}
+
+controlPlaneTest(
+  "isolates trace uploads by verified VM identity and preserves immutable retries",
+  async ({ plane, traceCloud, authenticatedRpc, appDataDir }) => {
+    const alice = await authenticatedRpc.workspace.ensure();
+    const bobHeaders = await createAuthenticatedHeaders(
+      appDataDir,
+      plane.origin,
+      "bob@example.com",
+    );
+    const bob = await createControlPlaneRpcClient(
+      plane.origin,
+      bobHeaders,
+    ).workspace.ensure();
+    traceCloud.instances.set(alice.id, "101");
+    traceCloud.instances.set(bob.id, "202");
+    const traceId = "a".repeat(32);
+    const endpoint = `${plane.origin}/api/traces/conversation/${traceId}`;
+    const send = async (
+      workspaceId: string,
+      body: Buffer,
+      suffix = "",
+      extraHeaders = {},
+    ) =>
+      await fetch(endpoint + suffix, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${traceCloud.token({ origin: plane.origin, workspaceId })}`,
+          "content-type": "application/gzip",
+          ...extraHeaders,
+        },
+        body,
+      });
+    const aliceArchive = traceArchive(alice.id, traceId);
+    const bobArchive = traceArchive(bob.id, traceId);
+    expect((await send(alice.id, bobArchive)).status).toBe(400);
+    expect(
+      (await send(alice.id, aliceArchive, `?workspaceId=${bob.id}`)).status,
+    ).toBe(400);
+    expect(traceCloud.uploads).toHaveLength(0);
+    expect(
+      (
+        await send(alice.id, aliceArchive, "", {
+          "x-workspace-id": bob.id,
+          "x-user-id": "bob",
+        })
+      ).status,
+    ).toBe(204);
+    expect((await send(bob.id, bobArchive)).status).toBe(204);
+    const aliceKey = `v1/workspaces/${alice.id}/sessions/conversation/${traceId}.jsonl.gz`;
+    const bobKey = `v1/workspaces/${bob.id}/sessions/conversation/${traceId}.jsonl.gz`;
+    expect(traceCloud.objects.get(aliceKey)).toEqual(aliceArchive);
+    expect(traceCloud.objects.get(bobKey)).toEqual(bobArchive);
+    expect(
+      (await send(alice.id, traceArchive(alice.id, traceId, "modified")))
+        .status,
+    ).toBe(204);
+    expect(traceCloud.objects.get(aliceKey)).toEqual(aliceArchive);
+    traceCloud.nextUploadStatus = 503;
+    expect((await send(alice.id, aliceArchive)).status).toBe(503);
+    expect((await send(alice.id, aliceArchive)).status).toBe(204);
+    expect(traceCloud.objects.size).toBe(2);
+    expect(
+      traceCloud.uploads.every(
+        (upload) =>
+          upload.precondition === "0" &&
+          upload.authorization === "Bearer control-plane-storage-token",
+      ),
+    ).toBe(true);
+  },
+);
+
+controlPlaneTest(
+  "rejects invalid, shared-only, foreign, expired and replaced VM identities before storage",
+  async ({ plane, traceCloud, authenticatedRpc }) => {
+    const workspace = await authenticatedRpc.workspace.ensure();
+    traceCloud.instances.set(workspace.id, "101");
+    const traceId = "b".repeat(32);
+    const endpoint = `${plane.origin}/api/traces/conversation/${traceId}`;
+    const body = traceArchive(workspace.id, traceId);
+    const token = (
+      claims: Parameters<TraceCloudDriver["token"]>[0]["claims"] = {},
+    ) =>
+      traceCloud.token({
+        origin: plane.origin,
+        workspaceId: workspace.id,
+        claims,
+      });
+    const send = async (credential: string) =>
+      await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${credential}`,
+          "content-type": "application/gzip",
+        },
+        body,
+      });
+    expect((await fetch(endpoint, { method: "POST", body })).status).toBe(401);
+    for (const credential of [
+      "invalid",
+      token({ aud: "https://other.example/api/traces" }),
+      token({ iss: "https://other.example" }),
+      token({ iat: 1, exp: 2 }),
+      token({ google: undefined }),
+      token({ email_verified: false }),
+      token({ email: "another@trace-project.iam.gserviceaccount.com" }),
+      token({
+        google: {
+          compute_engine: {
+            project_id: "foreign-project",
+            zone: "us-west2-a",
+            instance_id: "101",
+            instance_name: `halo-${workspace.id}`,
+          },
+        },
+      }),
+      token({
+        google: {
+          compute_engine: {
+            project_id: "trace-project",
+            zone: "us-east1-a",
+            instance_id: "101",
+            instance_name: `halo-${workspace.id}`,
+          },
+        },
+      }),
+    ])
+      expect((await send(credential)).status).toBe(401);
+    const valid = token();
+    const pieces = valid.split(".");
+    const forgedPayload = Buffer.from(
+      `${Buffer.from(pieces[1]!, "base64url").toString("utf8")} `,
+    ).toString("base64url");
+    expect(
+      (await send(`${pieces[0]}.${forgedPayload}.${pieces[2]}`)).status,
+    ).toBe(401);
+    traceCloud.instances.set(workspace.id, "999");
+    expect((await send(valid)).status).toBe(401);
+    traceCloud.instances.delete(workspace.id);
+    expect((await send(valid)).status).toBe(401);
+    const unregistered = "11111111-1111-4111-8111-111111111111";
+    traceCloud.instances.set(unregistered, "303");
+    expect(
+      (
+        await send(
+          traceCloud.token({ origin: plane.origin, workspaceId: unregistered }),
+        )
+      ).status,
+    ).toBe(403);
+    expect(traceCloud.uploads).toHaveLength(0);
+  },
+);
+
+controlPlaneTest(
+  "rejects unsafe paths, oversized or malformed archives and mismatched record identities",
+  async ({ plane, traceCloud, authenticatedRpc }) => {
+    const workspace = await authenticatedRpc.workspace.ensure();
+    traceCloud.instances.set(workspace.id, "101");
+    const traceId = "c".repeat(32);
+    const headers = {
+      authorization: `Bearer ${traceCloud.token({ origin: plane.origin, workspaceId: workspace.id })}`,
+      "content-type": "application/gzip",
+    };
+    for (const path of [
+      `/api/traces/%2e%2e%2fother/${traceId}`,
+      `/api/traces/conversation/${traceId}/extra`,
+      `/api/traces/conversation/not-a-trace`,
+    ]) {
+      expect(
+        (
+          await fetch(plane.origin + path, {
+            method: "POST",
+            headers,
+            body: traceArchive(workspace.id, traceId),
+          })
+        ).status,
+      ).toBe(400);
+    }
+    for (const body of [
+      Buffer.from("not gzip"),
+      gzipSync(Buffer.alloc(64 * 1024 * 1024 + 1)),
+      gzipSync("not json\n"),
+      traceArchive(workspace.id, "d".repeat(32)),
+      gzipSync("{}\n"),
+      gzipSync("{}"),
+    ]) {
+      expect(
+        (
+          await fetch(`${plane.origin}/api/traces/conversation/${traceId}`, {
+            method: "POST",
+            headers,
+            body,
+          })
+        ).status,
+      ).toBe(400);
+    }
+    expect(traceCloud.uploads).toHaveLength(0);
+  },
+);
+
+function traceArchive(
+  workspaceId: string,
+  traceId: string,
+  content = "original",
+) {
+  return gzipSync(
+    ["run.started", "run.finished"]
+      .map((type, sequence) =>
+        JSON.stringify({
+          schemaVersion: 1,
+          workspaceId,
+          sessionId: "conversation",
+          traceId,
+          spanId: "1".repeat(16),
+          sequence,
+          timestamp: new Date(0).toISOString(),
+          type,
+          data: { content },
+        }),
+      )
+      .join("\n") + "\n",
+  );
 }

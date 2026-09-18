@@ -9,7 +9,11 @@ import {
   removeWorkspaceServerConnection,
 } from "@get-halo/shared/WorkspaceServerConnection";
 import * as errore from "errore";
-import { WorkspaceServer } from "./server/WorkspaceServer.js";
+import {
+  WorkspaceServer,
+  ControlPlaneTraceUploader,
+} from "./server/WorkspaceServer.js";
+import { GoogleAuth } from "google-auth-library";
 import { writeHaloRpcFile, removeHaloRpcFile } from "./server/haloRpcFile.js";
 import { FileCredentialVault } from "./agent/runtime/FileCredentialVault.js";
 import { createPiLLMApi } from "./llm/createPiLLMApi.js";
@@ -56,7 +60,14 @@ async function run() {
   const server = await WorkspaceServer.start({
     ...applicationConfig.server,
     llmApi,
-    testApiEnabled: applicationConfig.mode === ApplicationMode.Test,
+    traceUploader:
+      applicationConfig.server.traceUpload === undefined
+        ? undefined
+        : new ControlPlaneTraceUploader({
+            origin: applicationConfig.server.traceUpload.origin,
+            auth: new GoogleAuth(),
+          }),
+    traceWorkspaceId: applicationConfig.server.traceUpload?.workspaceId,
     gateway: applicationConfig.server.gateway,
     googleWebOAuthClient: applicationConfig.googleWebOAuthClient,
     ownerUserId: Promise.resolve(applicationConfig.server.ownerUserId),
