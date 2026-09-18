@@ -191,7 +191,7 @@ ToolRuntime.executeCode [[apps/workspace-server/src/agent/runtime/ToolRuntime.ts
 - [x] Return approval details as a non-error `exec` result with agent-facing
       retry instructions.
 - [x] Keep `connectionInput` interception ahead of generic approval handling.
-- [ ] Run the focused workspace-server approval test.
+- [x] Run the focused workspace-server approval test.
 
 ### Phase 2: Persist decisions and issue one-time grants
 
@@ -233,13 +233,13 @@ sessionToolExecutions [[packages/client/src/sessionState.ts#sessionToolExecution
 
 ### Phase 4: Verify the non-blocking lifecycle
 
-- [ ] Server test: the original run finishes while the approval remains pending.
-- [ ] Server test: deny records the decision without starting another run.
-- [ ] Server test: allow records the decision, starts a continuation run, and
+- [x] Server test: the original run finishes while the approval remains pending.
+- [x] Server test: deny records the decision and tells the agent not to retry.
+- [x] Server test: allow records the decision, starts a continuation run, and
       consumes the grant on an identical retry.
-- [ ] Server test: changed arguments create a new approval request.
-- [ ] Electron E2E: pending Gmail approval card renders the requested layout.
-- [ ] Run `pnpm run check-affected`.
-- [ ] Build the Electron E2E package and run the focused session-view test.
-- [ ] Record a short Halo walkthrough showing that the initial run is not held
+- [x] Server test: changed arguments create a new approval request.
+- [x] Electron E2E: pending Gmail approval card renders the requested layout.
+- [x] Run `pnpm run check-affected`.
+- [x] Build the Electron E2E package and run the focused session-view test.
+- [x] Record a short Halo walkthrough showing that the initial run is not held
       open and that Allow once leads to a successful agent retry.
