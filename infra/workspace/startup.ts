@@ -7,11 +7,13 @@ export function workspaceStartup(ctx: {
     ctx.gateway === undefined
       ? ""
       : `workspace_hostname=$(curl -fsS -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/hostname)
-gateway_service_account=$(curl -fsS -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/halo-control-plane-service-account)`;
+gateway_service_account=$(curl -fsS -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/halo-control-plane-service-account)
+control_plane_origin=$(curl -fsS -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/halo-control-plane-origin)
+workspace_id=$(curl -fsS -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/halo-workspace-id)`;
   const writeConfig =
     ctx.gateway === undefined
       ? `jq --arg owner "$owner_user_id" '.ownerUserId = $owner' /run/halo-workspace-server.json > /mnt/halo/workspace/.halo/workspace-server.json`
-      : `jq --arg owner "$owner_user_id" --arg audience "http://$workspace_hostname:8788" --arg service_account "$gateway_service_account" '.ownerUserId = $owner | .gateway = { audience: $audience, serviceAccountEmail: $service_account }' /run/halo-workspace-server.json > /mnt/halo/workspace/.halo/workspace-server.json`;
+      : `jq --arg owner "$owner_user_id" --arg traces "$control_plane_origin" --arg workspace "$workspace_id" --arg audience "http://$workspace_hostname:8788" --arg service_account "$gateway_service_account" '.ownerUserId = $owner | .traceUpload = { origin: $traces, workspaceId: $workspace } | .gateway = { audience: $audience, serviceAccountEmail: $service_account }' /run/halo-workspace-server.json > /mnt/halo/workspace/.halo/workspace-server.json`;
 
   return `#!/usr/bin/env bash
 set -euo pipefail
@@ -87,5 +89,18 @@ systemctl daemon-reload
 systemctl enable halo
 /usr/local/bin/halo-workspace-pull
 systemctl restart halo
+
+for attempt in $(seq 1 120); do
+  if health=$(docker inspect --format '{{.State.Health.Status}}' halo-workspace 2>/dev/null); then
+    if [ "$health" = "healthy" ]; then
+      echo "HALO_WORKSPACE_READY image=${ctx.image}"
+      exit 0
+    fi
+  fi
+  sleep 5
+done
+
+echo "Halo workspace did not become healthy"
+exit 1
 `;
 }

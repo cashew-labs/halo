@@ -1,10 +1,6 @@
 import type { SessionDescription } from "@get-halo/shared/testing";
 import crypto from "node:crypto";
-import type {
-  HaloMessage,
-  ExecToolCall,
-  ToolIdentity,
-} from "@get-halo/shared/sessionState";
+import type { HaloMessage, ExecToolCall, ToolIdentity } from "@get-halo/client";
 import * as errore from "errore";
 
 class LoadSessionError extends errore.createTaggedError({

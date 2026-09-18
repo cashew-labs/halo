@@ -11,7 +11,8 @@
   "publisher": "halo",
   "main": "./extension.js",
   "scripts": {
-    "test": "node --test rangePath.test.js"
+    "test": "pnpm run test:unit",
+    "test:unit": "node --test rangePath.test.js"
   },
   "contributes": {
     "commands": [

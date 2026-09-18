@@ -16,10 +16,9 @@ permissions:
 jobs:
   check:
     name: check-affected
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 60
     env:
-      HALO_USE_SWIFTSHADER: "1"
       TURBO_UI: "0"
       TURBO_SCM_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
     steps:
@@ -35,28 +34,8 @@ jobs:
           cache: true
           install: false
 
-      - name: Install Linux display server
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y xvfb
-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Install Playwright Chromium
-        run: pnpm --filter @get-halo/extension-tools exec playwright install --with-deps chromium
-
       - name: Run check-affected
-        run: xvfb-run --auto-servernum pnpm run check-affected
-
-      - name: Upload failed test artifacts
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: check-artifacts
-          path: |
-            tmp/e2e
-            tmp/server
-            tmp/extension-prototype/results
-          if-no-files-found: ignore
-          retention-days: 7
+        run: pnpm run check-affected

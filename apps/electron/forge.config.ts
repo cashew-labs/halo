@@ -96,8 +96,8 @@ const config: ForgeConfig = {
       name: "@electron-forge/publisher-github",
       config: {
         repository: {
-          owner: "tanishqkancharla",
-          name: "halo-v2",
+          owner: "cashew-labs",
+          name: "halo",
         },
         prerelease: false,
         draft: false,

@@ -7,9 +7,12 @@ import { Type, type Static } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import * as errore from "errore";
 import { ApplicationMode } from "./ApplicationMode.js";
+import { readGcpSecret } from "./readGcpSecret.js";
 
 const inferenceProjectId = "halo-relay";
 const inferenceLocation = "global";
+const googleWebClientIdSecretId = "halo-workspace-google-web-client-id";
+const googleWebClientSecretId = "halo-workspace-google-web-client-secret";
 // Pi reserves this credential value to select Vertex Application Default Credentials.
 const vertexAdcMarker = "gcp-vertex-credentials";
 const developmentUserSchema = Type.Object({
@@ -23,6 +26,15 @@ export const workspaceServerConfigSchema = Type.Object({
   appVersion: Type.String(),
   ownerUserId: Type.String(),
   logFilePath: Type.String(),
+  traceUpload: Type.Optional(
+    Type.Object({
+      origin: Type.String({ pattern: "^https://" }),
+      workspaceId: Type.String({
+        pattern:
+          "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      }),
+    }),
+  ),
   corsOrigins: Type.Array(Type.String()),
   gateway: Type.Optional(
     Type.Object({
@@ -40,13 +52,15 @@ export const workspaceServerConfigSchema = Type.Object({
       electronRunAsNode: Type.Boolean(),
     }),
   ),
-  appBrowserTarget: Type.Optional(
+  oauthTest: Type.Optional(
     Type.Object({
-      cdpUrl: Type.String(),
-      pageUrl: Type.String(),
+      googleWebClient: Type.Object({
+        clientId: Type.String({ minLength: 1 }),
+        clientSecret: Type.String({ minLength: 1 }),
+      }),
+      tokenOrigin: Type.String({ minLength: 1 }),
     }),
   ),
-  testingApiEnabled: Type.Optional(Type.Boolean()),
 });
 
 export type WorkspaceServerConfig = Static<typeof workspaceServerConfigSchema>;
@@ -75,6 +89,13 @@ export type WorkspaceServerApplicationConfig = {
   mode: ApplicationMode;
   server: WorkspaceServerConfig;
   inference: OpenAIInferenceConfig | PiInferenceConfig;
+  googleWebOAuthClient: GoogleWebOAuthClient;
+  oauthTestOrigin: string | undefined;
+};
+
+export type GoogleWebOAuthClient = {
+  clientId: string;
+  clientSecret: string;
 };
 
 class WorkspaceServerConfigError extends errore.createTaggedError({
@@ -82,7 +103,9 @@ class WorkspaceServerConfigError extends errore.createTaggedError({
   message: "Workspace server configuration failed: $detail",
 }) {}
 
-async function readConfig(): Promise<WorkspaceServerApplicationConfig | Error> {
+export async function readWorkspaceServerApplicationConfig(): Promise<
+  WorkspaceServerApplicationConfig | Error
+> {
   const configPath = process.argv[2];
   const server =
     configPath === undefined
@@ -97,7 +120,40 @@ async function readConfig(): Promise<WorkspaceServerApplicationConfig | Error> {
       : process.env.HALO_E2E === "1"
         ? ApplicationMode.Test
         : ApplicationMode.Production;
-  return { mode, server, inference };
+  const googleWebOAuth =
+    mode === ApplicationMode.Test && server.oauthTest !== undefined
+      ? {
+          client: server.oauthTest.googleWebClient,
+          testOrigin: server.oauthTest.tokenOrigin,
+        }
+      : await readGoogleWebOAuth();
+  if (googleWebOAuth instanceof Error) return googleWebOAuth;
+  return {
+    mode,
+    server,
+    inference,
+    googleWebOAuthClient: googleWebOAuth.client,
+    oauthTestOrigin: googleWebOAuth.testOrigin,
+  };
+}
+
+async function readGoogleWebOAuth() {
+  const [clientId, clientSecret] = await Promise.all([
+    readGcpSecret({
+      projectId: inferenceProjectId,
+      secretId: googleWebClientIdSecretId,
+    }),
+    readGcpSecret({
+      projectId: inferenceProjectId,
+      secretId: googleWebClientSecretId,
+    }),
+  ]);
+  if (clientId instanceof Error) return clientId;
+  if (clientSecret instanceof Error) return clientSecret;
+  return {
+    client: { clientId, clientSecret },
+    testOrigin: undefined,
+  };
 }
 
 async function readConfigFile(configPath: string) {
@@ -164,10 +220,6 @@ async function readDevelopmentConfig(): Promise<WorkspaceServerConfig | Error> {
     extensionRuntime: {
       executable: process.execPath,
       electronRunAsNode: false,
-    },
-    appBrowserTarget: {
-      cdpUrl: "http://127.0.0.1:4445",
-      pageUrl: rendererOrigin,
     },
   };
 }
@@ -273,5 +325,3 @@ function readInferenceConfig(
     },
   };
 }
-
-export const config = await readConfig();

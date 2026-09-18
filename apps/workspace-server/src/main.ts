@@ -1,20 +1,28 @@
 import fs from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { config } from "@get-halo/config/workspaceServer";
+import { readWorkspaceServerApplicationConfig } from "@get-halo/config/workspaceServer";
 import { ApplicationMode } from "@get-halo/config/ApplicationMode";
-import { Logger } from "@repo/logger";
-import { JsonlLoggerSink } from "@repo/logger/JsonlLoggerSink";
-import * as errore from "errore";
-import { HaloServer } from "./server/HaloServer.js";
+import { Logger } from "@get-halo/logger";
+import { JsonlLoggerSink } from "@get-halo/logger/JsonlLoggerSink";
 import {
   writeWorkspaceServerConnection,
   removeWorkspaceServerConnection,
-} from "./server/WorkspaceServerConnection.js";
-import { writeHaloRpcFile, removeHaloRpcFile } from "./server/haloRpcFile.js";
-import type { WorkspaceServerReady } from "./server/WorkspaceServerReady.js";
-import { FileCredentialVault } from "./agent/runtime/FileCredentialVault.js";
-import { createPiLLMApi } from "./llm/createPiLLMApi.js";
-import { createOpenAILLMApi } from "./llm/createOpenAILLMApi.js";
+} from "@get-halo/shared/WorkspaceServerConnection";
+import {
+  writeHaloRpcFile,
+  removeHaloRpcFile,
+} from "@get-halo/shared/HaloRpcFile";
+import {
+  ControlPlaneTraceUploader,
+  FileCredentialVault,
+  WorkspaceServer,
+} from "@get-halo/workspace-server";
+import {
+  createOpenAILLMApi,
+  createPiLLMApi,
+} from "@get-halo/workspace-server/llm";
+import { GoogleAuth } from "google-auth-library";
+import * as errore from "errore";
 
 class WorkspaceServerStartupError extends errore.createTaggedError({
   name: "WorkspaceServerStartupError",
@@ -30,8 +38,8 @@ async function run() {
       if (message === "shutdown") stop();
     });
   });
-  if (config instanceof Error) return config;
-  const applicationConfig = config;
+  const applicationConfig = await readWorkspaceServerApplicationConfig();
+  if (applicationConfig instanceof Error) return applicationConfig;
   const created = await fs
     .mkdir(dirname(applicationConfig.server.logFilePath), { recursive: true })
     .catch(
@@ -54,31 +62,59 @@ async function run() {
   });
   await using cleanup = new errore.AsyncDisposableStack();
   cleanup.defer(() => logger.destroy());
-  const server = await HaloServer.start({
-    ...applicationConfig.server,
-    llmApi,
-    gateway: applicationConfig.server.gateway,
-    ownerUserId: Promise.resolve(applicationConfig.server.ownerUserId),
-    logger: logger.scope("rpc"),
-    host:
-      applicationConfig.mode === ApplicationMode.Production
-        ? "0.0.0.0"
-        : "127.0.0.1",
-    port: applicationConfig.server.port,
-    createCredentialVault: ({ filesystem, workspaceRoot }) =>
-      new FileCredentialVault({
-        filesystem,
-        directory: join(workspaceRoot, ".halo", "executor", "credentials"),
-      }),
+  const extensionRuntime =
+    applicationConfig.server.extensionRuntime === undefined
+      ? { executable: process.execPath, electronRunAsNode: false }
+      : applicationConfig.server.extensionRuntime;
+  const server = await WorkspaceServer.start({
+    config: {
+      environment: applicationConfig.server.environment,
+      workspaceRoot: applicationConfig.server.workspaceRoot,
+      appDataDir: applicationConfig.server.appDataDir,
+      appVersion: applicationConfig.server.appVersion,
+      ownerUserId: applicationConfig.server.ownerUserId,
+      host:
+        applicationConfig.mode === ApplicationMode.Production
+          ? "0.0.0.0"
+          : "127.0.0.1",
+      port: applicationConfig.server.port,
+      corsOrigins: applicationConfig.server.corsOrigins,
+      testApiEnabled: applicationConfig.mode === ApplicationMode.Test,
+      traceWorkspaceId: applicationConfig.server.traceUpload?.workspaceId,
+      gateway: applicationConfig.server.gateway,
+      cliEntry: applicationConfig.server.cliEntry,
+      cliNodeExecutable: applicationConfig.server.cliNodeExecutable,
+      cliElectronRunAsNode: applicationConfig.server.cliElectronRunAsNode,
+      extensionRuntime,
+      googleWebOAuthClient: applicationConfig.googleWebOAuthClient,
+      oauthTestOrigin: applicationConfig.oauthTestOrigin,
+    },
+    host: {
+      llmApi,
+      traceUploader:
+        applicationConfig.server.traceUpload === undefined
+          ? undefined
+          : new ControlPlaneTraceUploader({
+              origin: applicationConfig.server.traceUpload.origin,
+              auth: new GoogleAuth(),
+            }),
+      logger: logger.scope("rpc"),
+      createCredentialVault: ({ filesystem, workspaceRoot }) =>
+        new FileCredentialVault({
+          filesystem,
+          directory: join(workspaceRoot, ".halo", "executor", "credentials"),
+        }),
+    },
   });
   if (server instanceof Error) return server;
   cleanup.defer(async () => {
     const closed = await server.close();
     if (closed instanceof Error) console.error(closed);
   });
+  const ready = server.ready;
   const cliPublished = await writeHaloRpcFile({
     userDataDir: applicationConfig.server.appDataDir,
-    connection: server.connections.cli,
+    connection: ready.connections.cli,
   });
   if (cliPublished instanceof Error) return cliPublished;
   cleanup.defer(async () => {
@@ -87,11 +123,11 @@ async function run() {
     });
     if (removed instanceof Error) console.error(removed);
   });
-  const renderer = server.connections.renderer;
+  const renderer = ready.connections.renderer;
   const published = await writeWorkspaceServerConnection({
     appDataDir: applicationConfig.server.appDataDir,
     connection: {
-      workspaceRoot: server.getWorkspace().workspaceRoot,
+      workspaceRoot: ready.workspace.workspaceRoot,
       origin: `http://${renderer.host}:${renderer.port}`,
       token: renderer.token,
     },
@@ -103,10 +139,6 @@ async function run() {
     );
     if (removed instanceof Error) console.error(removed);
   });
-  const ready: WorkspaceServerReady = {
-    workspace: server.getWorkspace(),
-    connections: server.connections,
-  };
   console.log(`Workspace server ready for ${ready.workspace.workspaceRoot}`);
   if (process.connected) process.send?.(ready);
 

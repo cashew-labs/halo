@@ -1,12 +1,8 @@
 import { homedir } from "node:os";
-import {
-  haloProtocolVersion,
-  type HaloClient,
-} from "@get-halo/shared/contract";
+import { connectHaloClient, IncompatibleServerError } from "@get-halo/client";
 import * as errore from "errore";
-import { createHaloRpcClient } from "./haloRpcClient.js";
 import { findHaloRpcFile } from "./findHaloRpcFile.js";
-import { HaloRpcFileError } from "./HaloRpcFile.js";
+import { HaloRpcFileError } from "@get-halo/shared/HaloRpcFile";
 
 export type HaloRpcEnv = {
   HALO_RPC_FILE?: string;
@@ -33,18 +29,24 @@ export async function connectHalo(env: HaloRpcEnv) {
     appData: process.env.APPDATA,
   });
   if (file instanceof Error) return file;
-  const client = createHaloRpcClient<HaloClient>(file);
-  const info = await client.server
-    .info()
-    .catch(
-      (e) => new HaloRpcFileError({ detail: "server.info failed", cause: e }),
-    );
-  if (info instanceof Error) return info;
-  if (info.protocolVersion !== haloProtocolVersion) {
+  const connected = await connectHaloClient({
+    transport: {
+      origin: `http://${file.host}:${file.port}`,
+      path: "/rpc",
+      headers: { authorization: `Bearer ${file.token}` },
+    },
+  });
+  if (connected instanceof IncompatibleServerError) {
     return new HaloProtocolVersionError({
-      clientProtocolVersion: haloProtocolVersion,
-      serverProtocolVersion: info.protocolVersion,
+      clientProtocolVersion: connected.clientProtocolVersion,
+      serverProtocolVersion: connected.serverProtocolVersion,
     });
   }
-  return { file, client, serverInfo: info };
+  if (connected instanceof Error) {
+    return new HaloRpcFileError({
+      detail: "server.info failed",
+      cause: connected,
+    });
+  }
+  return { file, ...connected };
 }

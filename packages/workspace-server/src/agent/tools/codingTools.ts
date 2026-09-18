@@ -1,0 +1,264 @@
+import type { AgentTool } from "@earendil-works/pi-agent-core";
+import { type TSchema, Type } from "typebox";
+import type { FilesystemService } from "../../filesystem/FilesystemService.js";
+import type { AgentAuthority } from "../runtime/AgentAuthority.js";
+import { maxBashTimeoutMs, runBash } from "./bash/run.js";
+import { editFile } from "./files/edit.js";
+import { patchFiles } from "./files/patch.js";
+import { readFile } from "./files/read.js";
+import { viewImage } from "./files/viewImage.js";
+import { writeFile } from "./files/write.js";
+
+const readParameters = Type.Object({
+  path: Type.String(),
+  offset: Type.Optional(Type.Number()),
+  limit: Type.Optional(Type.Number()),
+});
+
+const viewImageParameters = Type.Object({
+  path: Type.String(),
+});
+
+const editParameters = Type.Object({
+  path: Type.String(),
+  oldText: Type.String(),
+  newText: Type.String(),
+  replaceAll: Type.Optional(Type.Boolean()),
+});
+
+const writeParameters = Type.Object({
+  path: Type.String(),
+  content: Type.String(),
+});
+
+const patchParameters = Type.Object({
+  patchText: Type.String({ description: "Patch in apply_patch format." }),
+});
+
+const bashParameters = Type.Object({
+  command: Type.String(),
+  timeoutMs: Type.Optional(
+    Type.Integer({
+      minimum: 1,
+      maximum: maxBashTimeoutMs,
+      description: `Timeout in milliseconds. Defaults to 10000. Maximum ${maxBashTimeoutMs} (10 minutes).`,
+    }),
+  ),
+});
+
+type Authorization = {
+  pluginId: string;
+  toolName: string;
+  requiredCapabilities: readonly string[];
+};
+
+export function createAuthorizedCodingTools(input: {
+  cwd: string;
+  filesystem: FilesystemService;
+  authority: AgentAuthority;
+}) {
+  return [
+    withAuthority(
+      createReadTool(input.filesystem, input.cwd),
+      input.authority,
+      authorization("files", "read", "workspace.files.read"),
+    ),
+    withAuthority(
+      createViewImageTool(input.filesystem, input.cwd),
+      input.authority,
+      authorization("files", "viewImage", "workspace.files.read"),
+    ),
+    withAuthority(
+      createEditTool(input.filesystem, input.cwd),
+      input.authority,
+      authorization("files", "edit", "workspace.files.write"),
+    ),
+    withAuthority(
+      createWriteTool(input.filesystem, input.cwd),
+      input.authority,
+      authorization("files", "write", "workspace.files.write"),
+    ),
+    withAuthority(
+      createPatchTool(input.filesystem, input.cwd),
+      input.authority,
+      authorization("files", "patch", "workspace.files.write"),
+    ),
+    withAuthority(
+      createBashTool(input.cwd),
+      input.authority,
+      authorization("bash", "run", "workspace.shell.execute"),
+    ),
+  ] as const;
+}
+
+function authorization(
+  pluginId: string,
+  toolName: string,
+  capability: string,
+): Authorization {
+  return { pluginId, toolName, requiredCapabilities: [capability] };
+}
+
+function withAuthority<TParameters extends TSchema, TDetails>(
+  tool: AgentTool<TParameters, TDetails>,
+  authority: AgentAuthority,
+  toolAuthorization: Authorization,
+): AgentTool<TParameters, TDetails> {
+  return {
+    ...tool,
+    async execute(id, params, signal, onUpdate) {
+      await authorize(authority, toolAuthorization);
+      return await tool.execute(id, params, signal, onUpdate);
+    },
+  };
+}
+
+function createBashTool(
+  cwd: string,
+): AgentTool<
+  typeof bashParameters,
+  { stdout: string; stderr: string; code: number | null }
+> {
+  return {
+    name: "bash",
+    label: "Bash",
+    description:
+      "Run a bash command in the active workspace. Timeout defaults to 10 seconds. Maximum 10 minutes.",
+    parameters: bashParameters,
+    async execute(_id, params, signal) {
+      const result = await runBash(cwd, { ...params, signal });
+      if (result instanceof Error) throw result;
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, undefined, 2) }],
+        details: result,
+      };
+    },
+  };
+}
+
+function createPatchTool(
+  filesystem: FilesystemService,
+  cwd: string,
+): AgentTool<
+  typeof patchParameters,
+  { added: string[]; modified: string[]; deleted: string[] }
+> {
+  return {
+    name: "patch",
+    label: "Patch",
+    description: "Apply an apply_patch patch to files in the active workspace.",
+    parameters: patchParameters,
+    async execute(_id, params) {
+      const result = await patchFiles({ filesystem, cwd, input: params });
+      if (result instanceof Error) throw result;
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, undefined, 2) }],
+        details: result,
+      };
+    },
+  };
+}
+
+function createReadTool(
+  filesystem: FilesystemService,
+  cwd: string,
+): AgentTool<typeof readParameters, { path: string; text: string }> {
+  return {
+    name: "read",
+    label: "Read",
+    description: "Read a UTF-8 file in the active workspace.",
+    parameters: readParameters,
+    async execute(_id, params) {
+      const result = await readFile({ filesystem, cwd, input: params });
+      if (result instanceof Error) throw result;
+      return {
+        content: [{ type: "text", text: result.text }],
+        details: result,
+      };
+    },
+  };
+}
+
+function createViewImageTool(
+  filesystem: FilesystemService,
+  cwd: string,
+): AgentTool<
+  typeof viewImageParameters,
+  { path: string; mimeType: string; sizeBytes: number }
+> {
+  return {
+    name: "viewImage",
+    label: "View image",
+    description:
+      "View a PNG, JPEG, or WebP image from the active workspace. Source images must be 20 MiB or smaller.",
+    parameters: viewImageParameters,
+    async execute(_id, params) {
+      const result = await viewImage({ filesystem, cwd, input: params });
+      if (result instanceof Error) throw result;
+      return {
+        content: [
+          { type: "text", text: `Viewed image ${result.path}.` },
+          {
+            type: "image",
+            data: result.data,
+            mimeType: result.mimeType,
+          },
+        ],
+        details: {
+          path: result.path,
+          mimeType: result.mimeType,
+          sizeBytes: result.sizeBytes,
+        },
+      };
+    },
+  };
+}
+
+function createEditTool(
+  filesystem: FilesystemService,
+  cwd: string,
+): AgentTool<typeof editParameters, { path: string; replacements: number }> {
+  return {
+    name: "edit",
+    label: "Edit",
+    description: "Replace exact text in a workspace file.",
+    parameters: editParameters,
+    async execute(_id, params) {
+      const result = await editFile({ filesystem, cwd, input: params });
+      if (result instanceof Error) throw result;
+      return {
+        content: [{ type: "text", text: JSON.stringify(result) }],
+        details: result,
+      };
+    },
+  };
+}
+
+function createWriteTool(
+  filesystem: FilesystemService,
+  cwd: string,
+): AgentTool<typeof writeParameters, { path: string }> {
+  return {
+    name: "write",
+    label: "Write",
+    description: "Write a UTF-8 file in the active workspace.",
+    parameters: writeParameters,
+    async execute(_id, params) {
+      const result = await writeFile({ filesystem, cwd, input: params });
+      if (result instanceof Error) throw result;
+      return {
+        content: [{ type: "text", text: JSON.stringify(result) }],
+        details: result,
+      };
+    },
+  };
+}
+
+async function authorize(
+  authority: AgentAuthority,
+  toolAuthorization: Authorization,
+) {
+  const denied = await authority.authorize(toolAuthorization);
+  // Pi reports rejected tool promises as failed tool calls.
+  if (denied instanceof Error) throw denied;
+}

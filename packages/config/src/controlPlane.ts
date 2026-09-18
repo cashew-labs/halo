@@ -10,8 +10,8 @@ const developmentPort = 8787;
 const secretProjectId = "halo-relay";
 const developmentAuthSecretIds = {
   secret: "halo-dev-local-better-auth-secret",
-  googleClientId: "halo-dev-control-plane-google-client-id",
-  googleClientSecret: "halo-dev-control-plane-google-client-secret",
+  googleClientId: "halo-west-control-plane-google-client-id",
+  googleClientSecret: "halo-west-control-plane-google-client-secret",
 };
 
 const authSchema = Type.Object({
@@ -47,6 +47,8 @@ export const controlPlaneConfigSchema = Type.Union([
     port: portSchema,
     origin: Type.String({ pattern: "^https://" }),
     databaseUrl: Type.String({ minLength: 1 }),
+    traceBucket: Type.String({ minLength: 1 }),
+    workspaceServiceAccount: Type.String({ minLength: 1 }),
     auth: authSchema,
     workspace: gcpWorkspaceSchema,
   }),
@@ -215,6 +217,8 @@ async function readCloudRunConfig(): Promise<ControlPlaneConfig | Error> {
     port: Number(portValue),
     origin,
     databaseUrl,
+    traceBucket: process.env.TRACE_BUCKET,
+    workspaceServiceAccount: process.env.WORKSPACE_SERVICE_ACCOUNT,
     auth,
     workspace: {
       deployment: "gcp" as const,

@@ -1,5 +1,4 @@
-import type { ConnectionRequest } from "./ConnectionRequest.js";
-import type { HaloMessage } from "./sessionState.js";
+import type { ConnectionRequest, HaloMessage } from "@get-halo/client";
 
 type ToolArguments = Extract<
   Extract<HaloMessage, { role: "assistant" }>["content"][number],

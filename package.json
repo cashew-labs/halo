@@ -1,38 +1,45 @@
 {
-  "name": "halo-v2",
+  "name": "@get-halo/root",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cashew-labs/halo.git"
+  },
   "scripts": {
     "build": "turbo run build",
-    "dev": "HALO_WORKSPACE_ROOT=$INIT_CWD/tmp/workspace HALO_USER_DATA=$INIT_CWD/tmp/workspace/.halo turbo run dev --filter=@halo/desktop --filter=@get-halo/control-plane --filter=@get-halo/workspace-server --env-mode=loose",
-    "halo": "pnpm --silent --filter @halo/cli cli",
-    "tkstack": "pnpm --silent exec tkstack",
-    "spec": "pnpm --silent exec tkstack",
-    "walkthrough": "pnpm --silent exec tkstack",
+    "dev": "HALO_WORKSPACE_ROOT=$INIT_CWD/tmp/workspace HALO_USER_DATA=$INIT_CWD/tmp/workspace/.halo turbo run dev --filter=@get-halo/desktop --filter=@get-halo/control-plane --filter=@get-halo/web-app --filter=@get-halo/workspace-server-app --env-mode=loose",
+    "halo": "HALO_USER_DATA=$INIT_CWD/tmp/workspace/.halo pnpm --silent --filter @get-halo/cli cli",
+    "halo-dev": "HALO_USER_DATA=$INIT_CWD/tmp/workspace/.halo pnpm --silent --filter @get-halo/dev-cli cli",
+    "diffmap": "pnpm --silent exec diffmap",
+    "spec": "pnpm --silent exec diffmap",
+    "walkthrough": "pnpm --silent exec diffmap",
     "infra:bootstrap": "bash infra/bootstrap.sh",
-    "infra:control-plane:preview": "pnpm --filter @halo/infra control-plane:preview",
-    "infra:control-plane:up": "pnpm --filter @halo/infra control-plane:up",
-    "infra:workspace:preview": "pnpm --filter @halo/infra workspace:preview",
-    "infra:workspace:up": "pnpm --filter @halo/infra workspace:up",
+    "infra:control-plane:preview": "pnpm --filter @get-halo/infra control-plane:preview",
+    "infra:control-plane:up": "pnpm --filter @get-halo/infra control-plane:up",
+    "infra:workspace:preview": "pnpm --filter @get-halo/infra workspace:preview",
+    "infra:workspace:up": "pnpm --filter @get-halo/infra workspace:up",
     "prerelease": "node releases/createRelease.mjs",
     "lint": "turbo run lint",
     "lint:fix": "turbo run lint:fix",
     "format": "turbo run format",
     "format:check": "turbo run format:check",
     "typecheck": "turbo run typecheck",
-    "check": "turbo run typecheck lint format:check test --affected --concurrency=1",
-    "check:static": "turbo run typecheck lint format:check --affected --concurrency=1",
+    "check": "turbo run typecheck lint format:check test:unit --affected",
     "check-affected": "pnpm run check",
-    "server": "pnpm --filter @get-halo/workspace-server start"
+    "test:e2e": "turbo run test:e2e --affected --concurrency=1",
+    "test:e2e:release": "turbo run test:e2e --concurrency=1 --force",
+    "server": "pnpm --filter @get-halo/workspace-server-app start"
   },
   "devDependencies": {
     "@oxlint/plugins": "^1.80.0",
+    "oxc-parser": "^0.150.0",
     "oxfmt": "^0.65.0",
     "oxlint": "^1.80.0",
     "oxlint-tsgolint": "7.0.2001",
-    "tkstack": "^0.1.3",
+    "@tanishqkancharla/diffmap": "github:tanishqkancharla/diffmap#main",
     "turbo": "^2.10.12",
     "typescript": "7.0.2",
-    "typescript6": "npm:typescript@5.9.3"
+    "vitest": "^5.0.1"
   },
   "engines": {
     "node": ">=22.19.0"

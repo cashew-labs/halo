@@ -1,6 +1,6 @@
 import type { ChildProcess } from "node:child_process";
-import { createHaloRpcClient, readHaloRpcFile, rpcFilePath } from "@halo/cli";
-import type { HaloClient } from "@get-halo/shared/contract";
+import { readHaloRpcFile, rpcFilePath } from "@get-halo/shared/HaloRpcFile";
+import { createHaloClient, type HaloClient } from "@get-halo/client";
 import * as errore from "errore";
 import {
   _electron as electron,
@@ -81,7 +81,13 @@ export class ElectronTestApp {
       server: {
         host: connection.host,
         port: connection.port,
-        rpc: createHaloRpcClient<HaloClient>(connection),
+        rpc: createHaloClient({
+          transport: {
+            origin: `http://${connection.host}:${connection.port}`,
+            path: "/rpc",
+            headers: { authorization: `Bearer ${connection.token}` },
+          },
+        }),
       },
       resources: resources.move(),
     };

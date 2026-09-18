@@ -1,20 +1,21 @@
 {
   "name": "halo-v2",
-  "install": "pnpm install && node node_modules/electron/install.js",
-  "repositoryDependencies": [
-    "github.com/tanishqkancharla/tandem",
-    "github.com/tanishqkancharla/maui"
-  ],
+  "install": "export NVM_DIR=\"$HOME/.nvm\"; . \"$NVM_DIR/nvm.sh\"; NODE_V=\"$(nvm version default)\"; if [ \"$NODE_V\" = \"N/A\" ]; then NODE_V=\"$(nvm version node)\"; fi; export PATH=\"$NVM_DIR/versions/node/$NODE_V/bin:$PATH\"; COREPACK_ENABLE_DOWNLOAD_PROMPT=0 corepack prepare pnpm@12.1.0 --activate && corepack pnpm install && node node_modules/electron/install.js",
+  "start": "set -euo pipefail; : \"${HALO_GCP_SA_KEY:?HALO_GCP_SA_KEY is required}\"; install -d -m 700 \"$HOME/.config/gcloud\"; (umask 177; printf '%s' \"$HALO_GCP_SA_KEY\" > \"$HOME/.config/gcloud/application_default_credentials.json\")",
   "terminals": [
     {
       "name": "halo-dev",
-      "command": "HALO_USE_SWIFTSHADER=1 pnpm dev",
-      "description": "Control plane, workspace server, and Electron client; SwiftShader enabled for the headless renderer"
+      "command": "export NVM_DIR=\"$HOME/.nvm\"; . \"$NVM_DIR/nvm.sh\"; NODE_V=\"$(nvm version default)\"; if [ \"$NODE_V\" = \"N/A\" ]; then NODE_V=\"$(nvm version node)\"; fi; export PATH=\"$NVM_DIR/versions/node/$NODE_V/bin:$PATH\"; HALO_USE_SWIFTSHADER=1 corepack pnpm dev",
+      "description": "Control plane, workspace server, and Electron client. Forces nvm node (>=22.19) ahead of any shadowing PATH entry and runs the stack with SwiftShader for the headless renderer."
     },
     {
       "name": "agentation-mcp",
-      "command": "AGENTATION_STORE=memory npx -y agentation-mcp server --port 4747",
+      "command": "export NVM_DIR=\"$HOME/.nvm\"; . \"$NVM_DIR/nvm.sh\"; NODE_V=\"$(nvm version default)\"; if [ \"$NODE_V\" = \"N/A\" ]; then NODE_V=\"$(nvm version node)\"; fi; export PATH=\"$NVM_DIR/versions/node/$NODE_V/bin:$PATH\"; AGENTATION_STORE=memory npx -y agentation-mcp server --port 4747",
       "description": "Agentation HTTP server so the dev toolbar can sync annotation notes"
     }
+  ],
+  "repositoryDependencies": [
+    "github.com/tanishqkancharla/tandem",
+    "github.com/tanishqkancharla/maui"
   ]
 }

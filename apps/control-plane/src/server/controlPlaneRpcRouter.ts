@@ -73,8 +73,11 @@ const getAuthSession = os.auth.session
   .use(loadSession)
   .handler(({ context }) =>
     context.session === undefined
-      ? undefined
-      : serializeSession(context.session),
+      ? { status: "signed-out" as const }
+      : {
+          status: "signed-in" as const,
+          session: serializeSession(context.session),
+        },
   );
 
 const ensureWorkspace = os.workspace.ensure

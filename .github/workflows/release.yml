@@ -1,6 +1,12 @@
 name: Release Halo
 
 on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Existing deployed release version to publish
+        required: true
+        type: string
   pull_request:
   push:
     branches:
@@ -9,7 +15,7 @@ on:
       - "releases/*.json"
 
 concurrency:
-  group: ${{ github.event_name == 'push' && 'halo-production' || format('halo-release-pr-{0}', github.event.pull_request.number) }}
+  group: ${{ github.event_name != 'pull_request' && 'halo-production' || format('halo-release-pr-{0}', github.event.pull_request.number) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -18,7 +24,7 @@ permissions:
 jobs:
   prepare:
     name: Validate release
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     outputs:
       is_release: ${{ steps.release.outputs.is_release }}
       version: ${{ steps.release.outputs.version }}
@@ -34,8 +40,21 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          REQUESTED_VERSION: ${{ inputs.version }}
         shell: bash
         run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            manifest="releases/$REQUESTED_VERSION.json"
+            version="$(node releases/validateRelease.mjs "$manifest")"
+            if [ "$version" != "$REQUESTED_VERSION" ]; then
+              echo "Release manifest version $version does not match requested version $REQUESTED_VERSION"
+              exit 1
+            fi
+            echo "is_release=true" >> "$GITHUB_OUTPUT"
+            echo "version=$version" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           mapfile -t manifests < <(git diff --diff-filter=A --name-only "$BASE_SHA" "$HEAD_SHA" -- "releases/*.json")
           if [ "${#manifests[@]}" -eq 0 ] && [ "${{ github.event_name }}" = "pull_request" ]; then
             echo "is_release=false" >> "$GITHUB_OUTPUT"
@@ -53,7 +72,7 @@ jobs:
     name: Preview production infrastructure
     if: github.event_name == 'pull_request' && needs.prepare.outputs.is_release == 'true' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'release/')
     needs: prepare
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
       contents: read
       id-token: write
@@ -91,13 +110,13 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Select Pulumi backend
-        run: pnpm --filter @halo/infra exec pulumi login gs://halo-relay-pulumi-state
+        run: pnpm --filter @get-halo/infra exec pulumi login gs://halo-relay-pulumi-state
 
       - name: Preview Pulumi changes
         id: pulumi
         continue-on-error: true
         run: |
-          pnpm --filter @halo/infra exec pulumi -C control-plane preview \
+          pnpm --filter @get-halo/infra exec pulumi -C control-plane preview \
             --stack west \
             --non-interactive \
             --color never \
@@ -137,14 +156,15 @@ jobs:
   release-ready:
     name: Release ready
     if: always() && github.event_name == 'pull_request'
-    needs: [prepare, preview]
-    runs-on: ubuntu-latest
+    needs: [prepare, preview, test-e2e]
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - name: Check release validation
         env:
           IS_RELEASE: ${{ needs.prepare.outputs.is_release }}
           PREPARE_RESULT: ${{ needs.prepare.result }}
           PREVIEW_RESULT: ${{ needs.preview.result }}
+          E2E_RESULT: ${{ needs.test-e2e.result }}
         run: |
           if [ "$PREPARE_RESULT" != "success" ]; then
             echo "Release validation failed"
@@ -154,12 +174,16 @@ jobs:
             echo "The production Pulumi preview failed"
             exit 1
           fi
+          if [ "$IS_RELEASE" = "true" ] && [ "$E2E_RESULT" != "success" ]; then
+            echo "The release E2E tests did not pass"
+            exit 1
+          fi
 
   deploy:
     name: Deploy production
     if: github.event_name == 'push'
-    needs: [prepare, test-electron]
-    runs-on: ubuntu-latest
+    needs: prepare
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
       contents: read
       id-token: write
@@ -202,13 +226,13 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Select Pulumi backend
-        run: pnpm --filter @halo/infra exec pulumi login gs://halo-relay-pulumi-state
+        run: pnpm --filter @get-halo/infra exec pulumi login gs://halo-relay-pulumi-state
 
       - name: Build release images
         shell: bash
         run: |
-          bucket="$(pnpm --silent --filter @halo/infra exec pulumi -C control-plane stack output buildSourceBucket --stack west)"
-          builder="$(pnpm --silent --filter @halo/infra exec pulumi -C control-plane stack output buildServiceAccount --stack west)"
+          bucket="$(pnpm --silent --filter @get-halo/infra exec pulumi -C control-plane stack output buildSourceBucket --stack west)"
+          builder="$(pnpm --silent --filter @get-halo/infra exec pulumi -C control-plane stack output buildServiceAccount --stack west)"
           control_plane_image="$REGION-docker.pkg.dev/$PROJECT/halo-west-workspaces/control-plane:$VERSION"
           workspace_image="$REGION-docker.pkg.dev/$PROJECT/halo-west-workspaces/workspace-server:$VERSION"
 
@@ -234,18 +258,18 @@ jobs:
           build_image "$workspace_image" infra/cloudbuild.yaml
 
       - name: Apply Pulumi changes
-        run: pnpm --filter @halo/infra exec pulumi -C control-plane up --stack west --yes --non-interactive
+        run: pnpm --filter @get-halo/infra exec pulumi -C control-plane up --stack west --yes --non-interactive
 
       - name: Check control plane
         shell: bash
         run: |
-          origin="$(pnpm --silent --filter @halo/infra exec pulumi -C control-plane stack output controlPlaneUrl --stack west)"
+          origin="$(pnpm --silent --filter @get-halo/infra exec pulumi -C control-plane stack output controlPlaneUrl --stack west)"
           curl --fail --show-error --silent --retry 12 --retry-all-errors --retry-delay 5 "$origin/health"
 
       - name: Recreate workspace VMs
         shell: bash
         run: |
-          template="$(pnpm --silent --filter @halo/infra exec pulumi -C control-plane stack output workspaceInstanceTemplate --stack west)"
+          template="$(pnpm --silent --filter @get-halo/infra exec pulumi -C control-plane stack output workspaceInstanceTemplate --stack west)"
           template_name="${template##*/}"
           template_details="$(gcloud compute instance-templates describe "$template_name" \
             --project="$PROJECT" --format=json)"
@@ -256,20 +280,43 @@ jobs:
           mapfile -t instances < <(gcloud compute instances list \
             --project="$PROJECT" \
             --zones="$ZONE" \
-            --filter='labels.halo-workspace-id:*' \
+            --filter='name~"^halo-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"' \
             --format='value(name)')
+
+          if [ "${#instances[@]}" -eq 0 ]; then
+            echo "No production workspace VMs found; refusing to publish the desktop"
+            exit 1
+          fi
 
           for instance in "${instances[@]}"; do
             details="$(gcloud compute instances describe "$instance" \
               --project="$PROJECT" --zone="$ZONE" --format=json)"
-            workspace_id="$(jq -r '.labels["halo-workspace-id"]' <<< "$details")"
+            workspace_id="${instance#halo-}"
+            workspace_label="$(jq -r '.labels["halo-workspace-id"] // empty' <<< "$details")"
+            if [ -n "$workspace_label" ] && [ "$workspace_label" != "$workspace_id" ]; then
+              echo "$instance has workspace label $workspace_label; expected $workspace_id"
+              exit 1
+            fi
+
             owner_user_id="$(jq -r '.metadata.items[] | select(.key == "halo-owner-user-id") | .value' <<< "$details")"
-            disk="halo-$workspace_id-workspace"
-            metadata=(--metadata "halo-owner-user-id=$owner_user_id")
+            if [ -z "$owner_user_id" ]; then
+              echo "$instance has no halo-owner-user-id metadata"
+              exit 1
+            fi
+
+            disk="$(jq -r '[.disks[] | select(.boot == false and .deviceName == "halo-workspace") | .source | split("/")[-1]] | if length == 1 then .[0] else empty end' <<< "$details")"
+            expected_disk="halo-$workspace_id-workspace"
+            if [ "$disk" != "$expected_disk" ]; then
+              echo "$instance has workspace disk $disk; expected $expected_disk"
+              exit 1
+            fi
+
+            metadata=("halo-owner-user-id=$owner_user_id" "halo-workspace-id=$workspace_id")
             while IFS=$'\t' read -r key value; do
-              metadata+=(--metadata "$key=$value")
-            done < <(jq -r '.properties.metadata.items[] | select(.key != "startup-script" and .key != "halo-owner-user-id") | [.key, .value] | @tsv' \
+              metadata+=("$key=$value")
+            done < <(jq -r '.properties.metadata.items[] | select(.key != "startup-script" and .key != "halo-owner-user-id" and .key != "halo-workspace-id") | [.key, .value] | @tsv' \
               <<< "$template_details")
+            metadata_csv="$(IFS=,; echo "${metadata[*]}")"
 
             gcloud compute instances delete "$instance" \
               --project="$PROJECT" --zone="$ZONE" --keep-disks=data --quiet
@@ -278,16 +325,39 @@ jobs:
               --zone="$ZONE" \
               --source-instance-template="$template" \
               --labels="halo-workspace-id=$workspace_id" \
-              "${metadata[@]}" \
+              --metadata="$metadata_csv" \
               --metadata-from-file="startup-script=$startup_script" \
               --disk="name=$disk,device-name=halo-workspace,mode=rw,boot=no,auto-delete=no"
+
+            expected_image="$REGION-docker.pkg.dev/$PROJECT/halo-west-workspaces/workspace-server:$VERSION"
+            ready_marker="HALO_WORKSPACE_READY image=$expected_image"
+            ready=false
+            for attempt in $(seq 1 120); do
+              if gcloud compute instances get-serial-port-output "$instance" \
+                --project="$PROJECT" --zone="$ZONE" --port=1 2>/dev/null | \
+                grep --fixed-strings --quiet "$ready_marker"; then
+                ready=true
+                break
+              fi
+              sleep 5
+            done
+
+            if [ "$ready" != "true" ]; then
+              echo "$instance did not report readiness for $expected_image"
+              gcloud compute instances get-serial-port-output "$instance" \
+                --project="$PROJECT" --zone="$ZONE" --port=1 | tail -n 200
+              exit 1
+            fi
           done
 
-  test-electron:
-    name: Test desktop release
-    if: github.event_name == 'push'
+  test-e2e:
+    name: Test release E2Es
+    if: github.event_name == 'pull_request' && needs.prepare.outputs.is_release == 'true' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'release/')
     needs: prepare
-    runs-on: macos-latest
+    runs-on: blacksmith-6vcpu-macos-15
+    timeout-minutes: 60
+    env:
+      TURBO_UI: "0"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -302,23 +372,29 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Run packaged Electron tests
-        run: pnpm --filter @halo/desktop test:e2e
+      - name: Install Playwright Chromium
+        run: pnpm --filter @get-halo/extension-tools exec playwright install chromium
+
+      - name: Run all package E2Es, including packaged Electron
+        run: pnpm run test:e2e:release
 
       - name: Upload failed test artifacts
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: electron-e2e-macos
-          path: tmp/e2e
+          name: release-e2e-macos
+          path: |
+            tmp/e2e
+            tmp/extension-prototype
+            tmp/server
           if-no-files-found: ignore
           retention-days: 7
 
   release:
     name: Create GitHub Release
-    if: github.event_name == 'push'
+    if: always() && needs.prepare.result == 'success' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && needs.deploy.result == 'success'))
     needs: [prepare, deploy]
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
       contents: write
     steps:
@@ -342,10 +418,10 @@ jobs:
 
   publish:
     name: Publish macOS
-    if: github.event_name == 'push'
+    if: always() && needs.prepare.result == 'success' && needs.release.result == 'success' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     needs: [prepare, release]
     environment: Release
-    runs-on: macos-latest
+    runs-on: blacksmith-6vcpu-macos-15
     permissions:
       contents: write
     steps:
@@ -380,11 +456,25 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Publish to GitHub Releases
+      - name: Build signed release
         working-directory: apps/electron
         env:
           GITHUB_TOKEN: ${{ github.token }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
-        run: pnpm run publish
+        run: pnpm exec electron-forge publish --dry-run
+
+      - name: Verify signed release
+        working-directory: apps/electron
+        run: |
+          app="out/Halo-darwin-arm64/Halo.app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          spctl --assess --type execute --verbose=2 "$app"
+          xcrun stapler validate "$app"
+
+      - name: Publish to GitHub Releases
+        working-directory: apps/electron
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: pnpm exec electron-forge publish --from-dry-run

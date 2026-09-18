@@ -1,4 +1,8 @@
+import { gzipSync } from "node:zlib";
+import { TraceCloudDriver } from "./TraceCloudDriver.js";
 import fs from "node:fs/promises";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { createORPCClient } from "@orpc/client";
@@ -7,6 +11,7 @@ import {
   controlPlaneProtocolVersion,
   type ControlPlaneClient,
 } from "@get-halo/shared/controlPlaneContract";
+import { writeWorkspaceServerConnection } from "@get-halo/shared/WorkspaceServerConnection";
 import { betterAuth } from "better-auth";
 import { testUtils } from "better-auth/plugins";
 import * as errore from "errore";
@@ -21,12 +26,26 @@ const testAuth = {
 
 const desktopAuthState = "desktop-auth-state-0123456789abcdef";
 
+type ReceivedWorkspaceHeaders = {
+  authorization?: string;
+  cookie?: string;
+};
+
 const controlPlaneTest = test.extend<{
+  traceCloud: TraceCloudDriver;
   appDataDir: string;
   authenticatedRpc: ControlPlaneClient;
+  browserHeaders: Headers;
   plane: ControlPlane;
   rpc: ControlPlaneClient;
+  webRoot: string;
 }>({
+  // oxlint-disable-next-line eslint/no-empty-pattern -- Vitest requires destructured fixture parameters.
+  traceCloud: async ({}, use) => {
+    const cloud = await TraceCloudDriver.start();
+    await use(cloud);
+    await cloud.close();
+  },
   appDataDir: async ({ task }, use) => {
     const parent = resolve(import.meta.dirname, "../../../tmp/control-plane");
     await fs.mkdir(parent, { recursive: true });
@@ -34,13 +53,26 @@ const controlPlaneTest = test.extend<{
     await use(appDataDir);
     await fs.rm(appDataDir, { recursive: true, force: true });
   },
-  plane: async ({ appDataDir }, use) => {
+  webRoot: async ({ appDataDir }, use) => {
+    const webRoot = join(appDataDir, "web");
+    await fs.mkdir(join(webRoot, "assets"), { recursive: true });
+    await Promise.all([
+      fs.writeFile(join(webRoot, "index.html"), "<main>Halo web app</main>"),
+      fs.writeFile(join(webRoot, "assets", "app.js"), "window.Halo = true;"),
+    ]);
+    await use(webRoot);
+  },
+  plane: async ({ appDataDir, webRoot, traceCloud }, use) => {
     const plane = await ControlPlane.start({
-      deployment: "local",
-      workspace: { deployment: "local" },
-      appDataDir,
-      port: 0,
-      auth: testAuth,
+      config: {
+        deployment: "local",
+        workspace: { deployment: "local" },
+        appDataDir,
+        port: 0,
+        auth: testAuth,
+      },
+      webRoot,
+      traceCloud: traceCloud.cloud(),
     });
     if (plane instanceof Error) throw plane;
     await use(plane);
@@ -50,11 +82,10 @@ const controlPlaneTest = test.extend<{
   rpc: async ({ plane }, use) => {
     await use(createControlPlaneRpcClient(plane.origin));
   },
-  authenticatedRpc: async ({ appDataDir, plane, rpc }, use) => {
-    const browserHeaders = await createAuthenticatedHeaders(
-      appDataDir,
-      plane.origin,
-    );
+  browserHeaders: async ({ appDataDir, plane }, use) => {
+    await use(await createAuthenticatedHeaders(appDataDir, plane.origin));
+  },
+  authenticatedRpc: async ({ browserHeaders, plane, rpc }, use) => {
     const complete = new URL("/api/desktop-auth/complete", plane.origin);
     complete.searchParams.set(
       "callback",
@@ -78,14 +109,17 @@ const controlPlaneTest = test.extend<{
 
 controlPlaneTest(
   "stays reachable on loopback until closed",
-  async ({ appDataDir }) => {
+  async ({ appDataDir, webRoot }) => {
     await using cleanup = new errore.AsyncDisposableStack();
     const plane = await ControlPlane.start({
-      deployment: "local",
-      workspace: { deployment: "local" },
-      appDataDir,
-      port: 0,
-      auth: testAuth,
+      config: {
+        deployment: "local",
+        workspace: { deployment: "local" },
+        appDataDir,
+        port: 0,
+        auth: testAuth,
+      },
+      webRoot,
     });
     if (plane instanceof Error) throw plane;
     const lifetime = { open: true };
@@ -110,6 +144,100 @@ controlPlaneTest(
   },
 );
 
+controlPlaneTest(
+  "serves browser navigation and built assets",
+  async ({ plane }) => {
+    const root = await fetch(plane.origin);
+    expect(root.status).toBe(200);
+    expect(root.headers.get("cache-control")).toBe("no-cache");
+    expect(root.headers.get("content-security-policy")).toContain(
+      "frame-ancestors 'none'",
+    );
+    expect(root.headers.get("content-security-policy")).toContain(
+      "frame-src 'self'",
+    );
+    expect(root.headers.get("content-type")).toBe("text/html; charset=utf-8");
+    expect(await root.text()).toBe("<main>Halo web app</main>");
+
+    const navigation = await fetch(`${plane.origin}/sessions/example`);
+    expect(navigation.status).toBe(200);
+    expect(navigation.headers.get("cache-control")).toBe("no-cache");
+    expect(await navigation.text()).toBe("<main>Halo web app</main>");
+
+    const asset = await fetch(`${plane.origin}/assets/app.js`);
+    expect(asset.status).toBe(200);
+    expect(asset.headers.get("cache-control")).toBe(
+      "public, max-age=31536000, immutable",
+    );
+    expect(asset.headers.get("content-type")).toBe(
+      "text/javascript; charset=utf-8",
+    );
+    expect(await asset.text()).toBe("window.Halo = true;");
+  },
+);
+
+controlPlaneTest(
+  "does not serve the SPA for missing assets or service routes",
+  async ({ plane }) => {
+    const responses = await Promise.all([
+      fetch(`${plane.origin}/assets/missing.js`),
+      fetch(`${plane.origin}/api/missing`),
+      fetch(`${plane.origin}/rpc/missing`),
+      fetch(`${plane.origin}/workspace/missing`),
+      fetch(`${plane.origin}/health/missing`),
+    ]);
+
+    expect(responses.map((response) => response.status)).toEqual([
+      404, 404, 404, 401, 404,
+    ]);
+  },
+);
+
+controlPlaneTest(
+  "proxies an authenticated browser request to the local workspace",
+  async ({ appDataDir, browserHeaders, plane }) => {
+    const received: ReceivedWorkspaceHeaders = {};
+    const workspaceServer = createServer((request, response) => {
+      received.authorization = request.headers.authorization;
+      received.cookie = request.headers.cookie;
+      response.writeHead(200).end("workspace healthy");
+    });
+    await new Promise<void>((resolveListen, rejectListen) => {
+      workspaceServer.once("error", rejectListen);
+      workspaceServer.listen(0, "127.0.0.1", resolveListen);
+    });
+    await using cleanup = new errore.AsyncDisposableStack();
+    cleanup.defer(
+      async () =>
+        await new Promise<void>((resolveClose) => {
+          workspaceServer.close(() => resolveClose());
+        }),
+    );
+
+    // SAFETY: Node returns a TCP address after successfully listening with a numeric port.
+    const address = workspaceServer.address() as AddressInfo;
+    const published = await writeWorkspaceServerConnection({
+      appDataDir,
+      connection: {
+        workspaceRoot: "/test/workspace",
+        origin: `http://127.0.0.1:${address.port}`,
+        token: "local-workspace-token",
+      },
+    });
+    if (published instanceof Error) throw published;
+
+    const response = await fetch(`${plane.origin}/workspace/health`, {
+      headers: browserHeaders,
+    });
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("workspace healthy");
+    expect(received).toEqual({
+      authorization: "Bearer local-workspace-token",
+      cookie: undefined,
+    });
+  },
+);
+
 controlPlaneTest("serves Better Auth at /api/auth", async ({ plane }) => {
   const ok = await fetch(`${plane.origin}/api/auth/ok`);
   expect(ok.status).toBe(200);
@@ -120,7 +248,7 @@ controlPlaneTest("serves the typed control-plane RPC", async ({ rpc }) => {
   expect(await rpc.server.info()).toEqual({
     protocolVersion: controlPlaneProtocolVersion,
   });
-  expect(await rpc.auth.session()).toBeUndefined();
+  expect(await rpc.auth.session()).toEqual({ status: "signed-out" });
 });
 
 controlPlaneTest(
@@ -199,7 +327,8 @@ controlPlaneTest(
       payload.token,
     );
     expect(await authenticated.auth.session()).toMatchObject({
-      user: { email: "desktop@example.com" },
+      status: "signed-in",
+      session: { user: { email: "desktop@example.com" } },
     });
 
     await expect(rpc.auth.exchange({ code })).rejects.toMatchObject({
@@ -222,18 +351,26 @@ controlPlaneTest(
   },
 );
 
-function createControlPlaneRpcClient(origin: string, token?: string) {
+function createControlPlaneRpcClient(origin: string, token?: string | Headers) {
   const link = new RPCLink({
     origin,
     url: "/rpc",
     headers:
-      token === undefined ? undefined : { authorization: `Bearer ${token}` },
+      token instanceof Headers
+        ? token
+        : token === undefined
+          ? undefined
+          : { authorization: `Bearer ${token}` },
   });
   // SAFETY: The control-plane origin serves controlPlaneContract at /rpc.
   return createORPCClient(link) as ControlPlaneClient;
 }
 
-async function createAuthenticatedHeaders(appDataDir: string, origin: string) {
+async function createAuthenticatedHeaders(
+  appDataDir: string,
+  origin: string,
+  email = "desktop@example.com",
+) {
   using database = new DatabaseSync(join(appDataDir, "control-plane.db"));
   const auth = betterAuth({
     baseURL: origin,
@@ -243,10 +380,233 @@ async function createAuthenticatedHeaders(appDataDir: string, origin: string) {
   });
   const context = await auth.$context;
   const user = context.test.createUser({
-    email: "desktop@example.com",
+    email,
     name: "Desktop User",
   });
   await context.test.saveUser(user);
   const login = await context.test.login({ userId: user.id });
   return login.headers;
+}
+
+controlPlaneTest(
+  "isolates trace uploads by verified VM identity and preserves immutable retries",
+  async ({ plane, traceCloud, authenticatedRpc, appDataDir }) => {
+    const alice = await authenticatedRpc.workspace.ensure();
+    const bobHeaders = await createAuthenticatedHeaders(
+      appDataDir,
+      plane.origin,
+      "bob@example.com",
+    );
+    const bob = await createControlPlaneRpcClient(
+      plane.origin,
+      bobHeaders,
+    ).workspace.ensure();
+    traceCloud.instances.set(alice.id, "101");
+    traceCloud.instances.set(bob.id, "202");
+    const traceId = "a".repeat(32);
+    const endpoint = `${plane.origin}/api/traces/conversation/${traceId}`;
+    const send = async (
+      workspaceId: string,
+      body: Buffer,
+      suffix = "",
+      extraHeaders = {},
+    ) =>
+      await fetch(endpoint + suffix, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${traceCloud.token({ origin: plane.origin, workspaceId })}`,
+          "content-type": "application/gzip",
+          ...extraHeaders,
+        },
+        body,
+      });
+    const aliceArchive = traceArchive(alice.id, traceId);
+    const bobArchive = traceArchive(bob.id, traceId);
+    expect((await send(alice.id, bobArchive)).status).toBe(400);
+    expect(
+      (await send(alice.id, aliceArchive, `?workspaceId=${bob.id}`)).status,
+    ).toBe(400);
+    expect(traceCloud.uploads).toHaveLength(0);
+    expect(
+      (
+        await send(alice.id, aliceArchive, "", {
+          "x-workspace-id": bob.id,
+          "x-user-id": "bob",
+        })
+      ).status,
+    ).toBe(204);
+    expect((await send(bob.id, bobArchive)).status).toBe(204);
+    const aliceKey = `v1/workspaces/${alice.id}/sessions/conversation/${traceId}.jsonl.gz`;
+    const bobKey = `v1/workspaces/${bob.id}/sessions/conversation/${traceId}.jsonl.gz`;
+    expect(traceCloud.objects.get(aliceKey)).toEqual(aliceArchive);
+    expect(traceCloud.objects.get(bobKey)).toEqual(bobArchive);
+    expect(
+      (await send(alice.id, traceArchive(alice.id, traceId, "modified")))
+        .status,
+    ).toBe(204);
+    expect(traceCloud.objects.get(aliceKey)).toEqual(aliceArchive);
+    traceCloud.nextUploadStatus = 503;
+    expect((await send(alice.id, aliceArchive)).status).toBe(503);
+    expect((await send(alice.id, aliceArchive)).status).toBe(204);
+    expect(traceCloud.objects.size).toBe(2);
+    expect(
+      traceCloud.uploads.every(
+        (upload) =>
+          upload.precondition === "0" &&
+          upload.authorization === "Bearer control-plane-storage-token",
+      ),
+    ).toBe(true);
+  },
+);
+
+controlPlaneTest(
+  "rejects invalid, shared-only, foreign, expired and replaced VM identities before storage",
+  async ({ plane, traceCloud, authenticatedRpc }) => {
+    const workspace = await authenticatedRpc.workspace.ensure();
+    traceCloud.instances.set(workspace.id, "101");
+    const traceId = "b".repeat(32);
+    const endpoint = `${plane.origin}/api/traces/conversation/${traceId}`;
+    const body = traceArchive(workspace.id, traceId);
+    const token = (
+      claims: Parameters<TraceCloudDriver["token"]>[0]["claims"] = {},
+    ) =>
+      traceCloud.token({
+        origin: plane.origin,
+        workspaceId: workspace.id,
+        claims,
+      });
+    const send = async (credential: string) =>
+      await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${credential}`,
+          "content-type": "application/gzip",
+        },
+        body,
+      });
+    expect((await fetch(endpoint, { method: "POST", body })).status).toBe(401);
+    for (const credential of [
+      "invalid",
+      token({ aud: "https://other.example/api/traces" }),
+      token({ iss: "https://other.example" }),
+      token({ iat: 1, exp: 2 }),
+      token({ google: undefined }),
+      token({ email_verified: false }),
+      token({ email: "another@trace-project.iam.gserviceaccount.com" }),
+      token({
+        google: {
+          compute_engine: {
+            project_id: "foreign-project",
+            zone: "us-west2-a",
+            instance_id: "101",
+            instance_name: `halo-${workspace.id}`,
+          },
+        },
+      }),
+      token({
+        google: {
+          compute_engine: {
+            project_id: "trace-project",
+            zone: "us-east1-a",
+            instance_id: "101",
+            instance_name: `halo-${workspace.id}`,
+          },
+        },
+      }),
+    ])
+      expect((await send(credential)).status).toBe(401);
+    const valid = token();
+    const pieces = valid.split(".");
+    const forgedPayload = Buffer.from(
+      `${Buffer.from(pieces[1]!, "base64url").toString("utf8")} `,
+    ).toString("base64url");
+    expect(
+      (await send(`${pieces[0]}.${forgedPayload}.${pieces[2]}`)).status,
+    ).toBe(401);
+    traceCloud.instances.set(workspace.id, "999");
+    expect((await send(valid)).status).toBe(401);
+    traceCloud.instances.delete(workspace.id);
+    expect((await send(valid)).status).toBe(401);
+    const unregistered = "11111111-1111-4111-8111-111111111111";
+    traceCloud.instances.set(unregistered, "303");
+    expect(
+      (
+        await send(
+          traceCloud.token({ origin: plane.origin, workspaceId: unregistered }),
+        )
+      ).status,
+    ).toBe(403);
+    expect(traceCloud.uploads).toHaveLength(0);
+  },
+);
+
+controlPlaneTest(
+  "rejects unsafe paths, oversized or malformed archives and mismatched record identities",
+  async ({ plane, traceCloud, authenticatedRpc }) => {
+    const workspace = await authenticatedRpc.workspace.ensure();
+    traceCloud.instances.set(workspace.id, "101");
+    const traceId = "c".repeat(32);
+    const headers = {
+      authorization: `Bearer ${traceCloud.token({ origin: plane.origin, workspaceId: workspace.id })}`,
+      "content-type": "application/gzip",
+    };
+    for (const path of [
+      `/api/traces/%2e%2e%2fother/${traceId}`,
+      `/api/traces/conversation/${traceId}/extra`,
+      `/api/traces/conversation/not-a-trace`,
+    ]) {
+      expect(
+        (
+          await fetch(plane.origin + path, {
+            method: "POST",
+            headers,
+            body: traceArchive(workspace.id, traceId),
+          })
+        ).status,
+      ).toBe(400);
+    }
+    for (const body of [
+      Buffer.from("not gzip"),
+      gzipSync(Buffer.alloc(64 * 1024 * 1024 + 1)),
+      gzipSync("not json\n"),
+      traceArchive(workspace.id, "d".repeat(32)),
+      gzipSync("{}\n"),
+      gzipSync("{}"),
+    ]) {
+      expect(
+        (
+          await fetch(`${plane.origin}/api/traces/conversation/${traceId}`, {
+            method: "POST",
+            headers,
+            body,
+          })
+        ).status,
+      ).toBe(400);
+    }
+    expect(traceCloud.uploads).toHaveLength(0);
+  },
+);
+
+function traceArchive(
+  workspaceId: string,
+  traceId: string,
+  content = "original",
+) {
+  return gzipSync(
+    ["run.started", "run.finished"]
+      .map((type, sequence) =>
+        JSON.stringify({
+          schemaVersion: 1,
+          workspaceId,
+          sessionId: "conversation",
+          traceId,
+          spanId: "1".repeat(16),
+          sequence,
+          timestamp: new Date(0).toISOString(),
+          type,
+          data: { content },
+        }),
+      )
+      .join("\n") + "\n",
+  );
 }

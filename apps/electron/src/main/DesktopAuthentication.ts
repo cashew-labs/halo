@@ -1,5 +1,5 @@
 import type { ControlPlaneSession } from "@get-halo/shared/controlPlaneContract";
-import { readWorkspaceServerConnection } from "@get-halo/workspace-server/connection";
+import { readWorkspaceServerConnection } from "@get-halo/shared/WorkspaceServerConnection";
 import type { HaloRpcConnection } from "../shared/HaloRpcConnection.js";
 
 export type DesktopAuthentication = {
@@ -8,7 +8,10 @@ export type DesktopAuthentication = {
   signIn: () => Promise<ControlPlaneSession | Error>;
 };
 
-type DesktopIdentity = Pick<DesktopAuthentication, "getSession" | "signIn">;
+export type DesktopIdentity = Pick<
+  DesktopAuthentication,
+  "getSession" | "signIn"
+>;
 
 export function createLocalDesktopAuthentication(ctx: {
   dataDir: string;

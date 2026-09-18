@@ -13,9 +13,9 @@ e2eTest("keeps saved data after reopening", async ({ app }) => {
 });
 ```
 
-`quit()` closes Electron and its windows. The independently launched workspace server remains running until fixture teardown. `open()` launches a fresh process using the same test workspace and user-data directory. Read `app.page` and `app.server` again after reopening; saved pages and locators belong to the previous Electron launch. The server RPC connection remains available while Electron is closed. Harness tool and session helpers resolve the current connection when called. Teardown quits any remaining app, including when the test has already quit it. If setup must happen while Halo is closed, call `app.quit()`, prepare the workspace, then `app.open()`.
+`quit()` closes Electron and its windows. The independently launched workspace server remains running until fixture teardown. `open()` launches a fresh process using the same test workspace and user-data directory. Read `app.page` and `app.server` again after reopening; saved pages and locators belong to the previous Electron launch. The separate `server` fixture owns a normal RPC client that remains available while Electron is closed. Harness tool helpers use `server.rpc.testApi`; `harness.loadSession` also reloads and selects the session in the UI, so it requires an open app. Teardown quits any remaining app, including when the test has already quit it. If setup must happen while Halo is closed, use `server.rpc.testApi` or the harness file/tool helpers before `app.open()`.
 
-The ordinary `e2eTest` fixture uses `LLMDriver` from `@get-halo/workspace-server/testing`, shared with the server suite, to own a scripted OpenAI-compatible HTTP endpoint on a random loopback port. The fixture launches `apps/workspace-server/src/main.ts` under Node with the workspace launch configuration and passes the model endpoint through `HALO_LLM_CONFIG`. The workspace server constructs the HTTP-backed `LLMApi` and `HaloServer`. Electron only reads the published connection. The endpoint lives in the harness and stays running across app restarts. Electron has no LLM test event handlers.
+The ordinary `e2eTest` fixture uses `LLMDriver` from `@get-halo/workspace-server/testing`, shared with the server suite, to own a scripted OpenAI-compatible HTTP endpoint on a random loopback port. The fixture launches `apps/workspace-server/src/main.ts` under Node with the workspace launch configuration and passes the model endpoint through `HALO_LLM_CONFIG`. The entry point constructs the HTTP-backed `LLMApi` and starts `WorkspaceServer` directly. Test mode enables its runtime-gated `testApi` namespace on the same authenticated RPC connection. There is no separate test listener or token. Both the inference endpoint and workspace process stay running across app restarts. Electron has no LLM test event handlers.
 
 Import `m` from `@get-halo/shared/testing`; server and Electron tests share this response vocabulary. Responses follow the timeline of the test:
 
@@ -39,7 +39,15 @@ Use static replies unless the response needs to depend on the request. A respons
 
 These tests exercise the real Pi agent loop, tools, and persistence through Pi's real HTTP inference client and a scripted endpoint. They do not verify local Pi authentication, a commercial provider, or a future control-plane transport. The restart scenario in `sessionView.e2e.test.ts` creates its history through actual prompts and tool execution, then proves that restored messages and tool results support the next answer. Separate scenarios cover stopping or quitting during a pending response, and preserving the submitted message while recovering from an inference error.
 
-Extension tests use `extensionE2eTest` and `loadExtension("./fixtures/name")`. The fixture scaffolds an independent package, copies the extension's source files, installs the SDK, typechecks and builds the package, and reloads Halo. Extension source is checked against its installed dependencies, separately from the harness TypeScript project.
+Extension tests use the canonical `e2eTest` fixture and request
+`loadExtension("./fixtures/name")`. Its worker-scoped package fixture builds and
+packs the SDK and tools lazily. The helper describes a complete extension
+directory from those package references and the supplied source directory,
+writes it through the same file tools available to agents, and runs install,
+typecheck, and build through the same shell tool. It then reloads extensions
+through the workspace server and reloads Halo. Extension source is checked
+against its installed dependencies, separately from the harness TypeScript
+project. Tests that do not load extensions do not build the extension packages.
 
 `extensionTools.e2e.test.ts` loads a real trusted extension and clicks Refresh notes to display a workspace file through `context.tools.files.read`, with no approval step. Its source declares the types of the tool it consumes. A separate scenario verifies that the tool bridge works after restarting Halo. These cover a real workspace tool; they do not establish OAuth or external-service behavior.
 
@@ -60,19 +68,19 @@ The app fixture has a separate 60-second setup and teardown timeout, so concurre
 Run the suite:
 
 ```sh
-pnpm --filter @halo/desktop test:e2e
+pnpm --filter @get-halo/desktop test:e2e
 ```
 
 Show the Electron window while the tests run:
 
 ```sh
-HALO_E2E_HEADFUL=1 pnpm --filter @halo/desktop test:e2e
+HALO_E2E_HEADFUL=1 pnpm --filter @get-halo/desktop test:e2e
 ```
 
 Open Playwright Inspector and show the Electron window:
 
 ```sh
-PWDEBUG=1 pnpm --filter @halo/desktop test:e2e
+PWDEBUG=1 pnpm --filter @get-halo/desktop test:e2e
 ```
 
 Passing tests remove their temporary files. Failed tests, including expected failures, retain their workspace, Electron user data, Halo JSONL logs, renderer console log, and each launch's main-process output, screenshot, and Playwright trace under `tmp/e2e/`. Files use `launch-1`, `launch-2`, etc. so reopening preserves earlier diagnostics. The test output prints the exact retained directory.
@@ -80,5 +88,5 @@ Passing tests remove their temporary files. Failed tests, including expected fai
 Open a retained trace with:
 
 ```sh
-pnpm --filter @halo/desktop exec playwright show-trace tmp/e2e/<test-directory>/launch-1.trace.zip
+pnpm --filter @get-halo/desktop exec playwright show-trace tmp/e2e/<test-directory>/launch-1.trace.zip
 ```

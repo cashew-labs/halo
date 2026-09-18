@@ -1,10 +1,10 @@
 import { createORPCClient } from "@orpc/client";
-import type { HaloClient } from "@get-halo/shared/contract";
+import type { HaloClient } from "@get-halo/client";
 import type {
   readFile,
+  runBash,
   writeFile,
 } from "@get-halo/workspace-server/filesystem";
-import type { runBash } from "../../workspace-server/src/agent/tools/bash/run.js";
 
 type HarnessTools = {
   bash: {
@@ -22,10 +22,12 @@ type HarnessTools = {
   };
 };
 
-export function createHarnessTools(getClient: () => HaloClient): HarnessTools {
+export function createHarnessTools(
+  client: HaloClient["testApi"],
+): HarnessTools {
   return createORPCClient<HarnessTools>({
     async call(path, input, options) {
-      return await getClient().testHarness.invokeTool(
+      return await client.invokeTool(
         { path: path.join("."), input },
         { signal: options.signal },
       );

@@ -53,9 +53,12 @@ for (let tubeIndex = 0; tubeIndex < tubularSegments; tubeIndex += 1) {
   }
 }
 
-const assetDirectory = new URL("../apps/electron/src/renderer/assets/", import.meta.url);
+const assetDirectory = new URL("../packages/web/src/assets/", import.meta.url);
 
-await writeFile(new URL("halo-donut-3d.obj", assetDirectory), `${lines.join("\n")}\n`);
+await writeFile(
+  new URL("halo-donut-3d.obj", assetDirectory),
+  `${lines.join("\n")}\n`,
+);
 await writeFile(
   new URL("halo-donut-3d.mtl", assetDirectory),
   [

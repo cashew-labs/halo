@@ -3,6 +3,114 @@ import { e2eTest } from "./e2eTest.js";
 import { m } from "@get-halo/shared/testing";
 import { messageText } from "@get-halo/workspace-server/testing";
 
+e2eTest(
+  "preserves the reading position during streaming and follows again at the bottom",
+  async ({ app, llm }) => {
+    await app.page.getByRole("button", { name: "New session" }).click();
+    await app.page
+      .getByLabel("Message", { exact: true })
+      .fill("Explain the plan");
+    await app.page.getByRole("button", { name: "Send", exact: true }).click();
+    const transcript = app.page.getByRole("log", {
+      name: "Session transcript",
+    });
+    const response = await llm.stream();
+    response.write(
+      m.assistant(
+        Array.from({ length: 50 }, (_, i) => `Plan step ${i + 1}.`).join(
+          "\n\n",
+        ),
+      ),
+    );
+    await expect(transcript).toContainText("Plan step 50.");
+    await expect
+      .poll(async () => await bottomGap(transcript))
+      .toBeLessThanOrEqual(1);
+
+    await transcript.hover();
+    await app.page.mouse.wheel(0, -400);
+    await expect
+      .poll(async () => await bottomGap(transcript))
+      .toBeGreaterThan(300);
+    const readingPosition = await transcript.evaluate(
+      (element) => element.scrollTop,
+    );
+
+    for (const chunk of ["More details.", "Another update."]) {
+      response.write(m.assistant(`\n\n${chunk}`));
+      await expect(transcript).toContainText(chunk);
+      expect(
+        await transcript.evaluate((element) => element.scrollTop),
+      ).toBeCloseTo(readingPosition, 0);
+    }
+
+    await app.page.mouse.wheel(0, 10_000);
+    await expect
+      .poll(async () => await bottomGap(transcript))
+      .toBeLessThanOrEqual(1);
+    response.write(m.assistant("\n\nThe final step.\n\nThe plan is ready."));
+    await expect(transcript).toContainText("The plan is ready.");
+    await expect
+      .poll(async () => await bottomGap(transcript))
+      .toBeLessThanOrEqual(1);
+    response.end();
+    await expect(
+      app.page.getByRole("button", { name: "Stop", exact: true }),
+    ).not.toBeVisible();
+    await expect
+      .poll(async () => await bottomGap(transcript))
+      .toBeLessThanOrEqual(1);
+  },
+);
+
+async function bottomGap(transcript: Locator) {
+  return await transcript.evaluate(
+    (element) =>
+      element.scrollHeight - element.clientHeight - element.scrollTop,
+  );
+}
+
+e2eTest(
+  "opens another session at the bottom after reading older messages",
+  async ({ app, harness }) => {
+    for (const title of [
+      "First long conversation",
+      "Second long conversation",
+    ]) {
+      await harness.loadSession({
+        title,
+        messages: [
+          m.user(title),
+          m.assistant(
+            Array.from({ length: 50 }, (_, i) => `Saved step ${i + 1}.`).join(
+              "\n\n",
+            ),
+          ),
+        ],
+      });
+    }
+    const transcript = app.page.getByRole("log", {
+      name: "Session transcript",
+    });
+    await expect
+      .poll(async () => await bottomGap(transcript))
+      .toBeLessThanOrEqual(1);
+    await transcript.hover();
+    await app.page.mouse.wheel(0, -400);
+    await expect
+      .poll(async () => await bottomGap(transcript))
+      .toBeGreaterThan(300);
+
+    await app.page
+      .getByRole("link", { name: "First long conversation", exact: true })
+      .click();
+    await expect(transcript).toContainText("First long conversation");
+    await expect
+      .poll(async () => await bottomGap(transcript))
+      .toBeLessThanOrEqual(1);
+  },
+);
+
 e2eTest("starts a new session", async ({ harness, app }) => {
   await harness.loadSession({
     title: "Existing conversation",
@@ -446,7 +554,7 @@ e2eTest(
       .fill("Read the notes and fetch the report");
     await app.page.getByRole("button", { name: "Send", exact: true }).click();
     const command = `curl --silent --fail '${http.url("/report")}'`;
-    const js = `await tools.files.read({ path: "notes.md" }); return await tools.bash.run({ command: ${JSON.stringify(command)} });`;
+    const js = `await tools.files.read({ path: "notes.md" }); return await tools.bash.run({ command: ${JSON.stringify(command)}, timeoutMs: 60000 });`;
     await llm.respond(
       m.tool.start("exec", { id: "report", arguments: { js } }),
     );
@@ -557,7 +665,7 @@ e2eTest(
     await app.page.getByRole("button", { name: "Send", exact: true }).click();
     const firstCommand = `curl --silent --fail '${http.url("/first")}'`;
     const secondCommand = `curl --silent --fail '${http.url("/second")}'`;
-    const js = `await tools.bash.run({ command: ${JSON.stringify(firstCommand)} }); return await tools.bash.run({ command: ${JSON.stringify(secondCommand)} });`;
+    const js = `await tools.bash.run({ command: ${JSON.stringify(firstCommand)}, timeoutMs: 60000 }); return await tools.bash.run({ command: ${JSON.stringify(secondCommand)}, timeoutMs: 60000 });`;
     await llm.respond(
       m.tool.start("exec", { id: "reports", arguments: { js } }),
     );
@@ -591,7 +699,7 @@ e2eTest(
     await llm.respond(
       m.tool.start("bash", {
         id: "verification",
-        arguments: { command: verificationCommand },
+        arguments: { command: verificationCommand, timeoutMs: 60_000 },
       }),
     );
     const verification = await http.request("/verify");
@@ -739,11 +847,11 @@ e2eTest(
     await llm.respond([
       m.tool.start("bash", {
         id: "first",
-        arguments: { command: firstCommand },
+        arguments: { command: firstCommand, timeoutMs: 60_000 },
       }),
       m.tool.start("bash", {
         id: "second",
-        arguments: { command: secondCommand },
+        arguments: { command: secondCommand, timeoutMs: 60_000 },
       }),
     ]);
     const [first, second] = await Promise.all([

@@ -11,6 +11,9 @@ import {
 import { DatabaseService, type DatabaseConfig } from "../DatabaseService.js";
 import { WorkspaceService } from "../workspace/WorkspaceService.js";
 
+import { TraceIngestion } from "../traces/TraceIngestion.js";
+import type { TraceCloud } from "../traces/TraceCloud.js";
+
 const loopbackHost = "127.0.0.1";
 const cloudRunHost = "0.0.0.0";
 
@@ -33,7 +36,12 @@ export class ControlPlane {
     return this.publicOrigin;
   }
 
-  static async start(config: ControlPlaneConfig) {
+  static async start(ctx: {
+    config: ControlPlaneConfig;
+    webRoot: string;
+    traceCloud?: TraceCloud;
+  }) {
+    const { config, webRoot } = ctx;
     await using cleanup = new errore.AsyncDisposableStack();
 
     const http = await listenControlPlaneHttp(
@@ -69,11 +77,27 @@ export class ControlPlane {
 
     const workspace = await WorkspaceService.start({
       db,
-      config: config.workspace,
+      config:
+        config.deployment === "local"
+          ? { deployment: "local", appDataDir: config.appDataDir }
+          : config.workspace,
     });
     if (workspace instanceof Error) return workspace;
 
-    serveControlPlaneHttp({ server: http.server, auth, workspace });
+    serveControlPlaneHttp({
+      server: http.server,
+      auth,
+      workspace,
+      webRoot,
+      traces:
+        ctx.traceCloud === undefined
+          ? undefined
+          : new TraceIngestion({
+              cloud: ctx.traceCloud,
+              workspace,
+              origin: publicOrigin,
+            }),
+    });
     cleanup.move();
 
     return new ControlPlane({

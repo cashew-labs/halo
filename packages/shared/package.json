@@ -4,35 +4,33 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./ConnectionRequest": "./src/ConnectionRequest.ts",
-    "./GoogleIntegrationDisplay": "./src/GoogleIntegrationDisplay.ts",
-    "./contract": "./src/contract.ts",
     "./controlPlaneContract": "./src/controlPlaneContract.ts",
     "./isCallable": "./src/isCallable.ts",
-    "./rpc": "./src/rpc.ts",
-    "./sessionState": "./src/sessionState.ts",
     "./SerialQueue": "./src/SerialQueue.ts",
     "./Stream": "./src/Stream.ts",
-    "./testing": "./src/testing.ts"
+    "./testing": "./src/testing.ts",
+    "./HaloRpcFile": "./src/HaloRpcFile.ts",
+    "./WorkspaceServerConnection": "./src/WorkspaceServerConnection.ts"
   },
   "scripts": {
     "format": "oxfmt .",
     "format:check": "oxfmt --check .",
     "lint": "NODE_OPTIONS=--experimental-strip-types oxlint --deny-warnings src",
     "lint:fix": "NODE_OPTIONS=--experimental-strip-types oxlint --fix src",
-    "test": "vitest run src",
+    "test": "pnpm run test:unit",
+    "test:unit": "vitest run src",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@get-halo/client": "workspace:*",
     "@orpc/contract": "2.0.0-beta.29",
     "@sinclair/typebox": "^0.34.52",
     "errore": "^0.14.1"
   },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "0.85.1",
-    "@repo/typescript-config": "workspace:*",
+    "@get-halo/typescript-config": "workspace:*",
     "@types/node": "^22.20.1",
-    "typescript": "7.0.2",
-    "vitest": "^4.1.11"
+    "typescript": "7.0.2"
   }
 }

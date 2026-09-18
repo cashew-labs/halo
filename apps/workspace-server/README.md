@@ -1,8 +1,9 @@
 # Workspace server
 
-`apps/workspace-server` runs Halo's workspace, agent, integrations, and extensions in
-an independent Node process. Its workspace package name is `@get-halo/workspace-server`.
-Electron is an HTTP client: it neither starts nor stops this process.
+`apps/workspace-server` (`@get-halo/workspace-server-app`) is the Node process that
+runs Halo's workspace server. It reads launch settings, supplies host capabilities,
+starts `WorkspaceServer` from `@get-halo/workspace-server`, and publishes discovery
+files. Electron is an HTTP client: it neither starts nor stops this process.
 
 ## Development
 
@@ -21,6 +22,31 @@ Electron waits for the server to publish its connection. Closing Electron
 leaves the server, active conversations, and extensions running. To change
 workspaces, restart the server with a different `HALO_WORKSPACE_ROOT` and reload
 Electron.
+
+### Control the development app
+
+Electron main starts an app-control endpoint on a separate loopback port in
+development. It publishes its own bearer token in `appControl.json` under
+Electron's local application data directory, with mode `0600`. Quitting Electron
+closes the listener and removes the file. The workspace server does not host app
+control, and production and test-mode Electron do not create this endpoint.
+
+App screenshots are stored locally under `<Electron dataDir>/app/screenshots`,
+even when the workspace server is remote. Workspace browser screenshots remain
+under `<workspace>/.halo/browser/screenshots`.
+
+From the repository root, inspect the running development app with:
+
+```sh
+pnpm halo-dev app snapshot
+```
+
+`halo-dev app` reads `HALO_APP_CONTROL_FILE` when set, otherwise `HALO_USER_DATA`,
+otherwise the nearest `.halo/appControl.json` above the current directory. It
+does not use `rpc.json` or `HALO_RPC_FILE`. The product CLI and renderer tokens
+do not authorize app control. The separate `halo` CLI is for workspace agents;
+its browser and extension commands use the product connection, and it has no
+app-control commands.
 
 ## Production workspace container
 
@@ -71,7 +97,7 @@ connection, including after a server restart.
 
 `HALO_LLM_CONFIG` selects the existing OpenAI-compatible inference transport.
 Otherwise the process uses the same local Pi provider/model configuration as
-before. See [the inference boundary](src/llm/README.md).
+before. See [the inference boundary](../../packages/workspace-server/src/llm/README.md).
 
 ## Credential storage
 
@@ -82,18 +108,27 @@ store has no Electron or OS-keyring dependency; credentials will move to the
 control plane in a later phase. Existing encrypted credential files are not
 migrated.
 
+## Test setup
+
+The existing workspace `serverTest` and Electron `e2eTest` fixtures start the same `WorkspaceServer` used by the app, with temporary data and controlled inference. The normal client exposes `testApi.seedSession`, `testApi.invokeTool`, and `testApi.getToolIdentity`. A shared server-side gate rejects these operations unless `WorkspaceServer.start` receives `config.testApiEnabled: true`. Omission disables them. Tests prepare state through these semantic operations, not internal database records, then observe it through ordinary product RPC or the UI.
+
+Electron's fixture launches the same `src/main.ts` as normal runs. The app enables `testApi` only in `ApplicationMode.Test`; development and production leave it disabled. The fixture receives the normal server readiness through child-process IPC and creates an ordinary client. There is no separate test host, entry point, listener, token, contract, or client implementation.
+
 ## Ownership
+
+`WorkspaceServer` lives in `@get-halo/workspace-server`. It owns service construction, the shared database, product HTTP, and cleanup; there is no separate runtime object or public bag of child services. The app's `main.ts` reads launch settings, supplies inference, credentials, bind address, and executable choices, calls `WorkspaceServer.start({ config, host })`, and owns discovery files and process shutdown. Tests construct the same class through the package root.
 
 ```text
 pnpm dev
 ├── control-plane: tsx watch src/main.ts
 │   └── publish local connection information
 ├── workspace-server: tsx watch src/main.ts
-│   ├── read launch configuration
-│   ├── HaloServer.start()
-│   └── publish local connection files
+│   ├── readWorkspaceServerApplicationConfig()
+│   ├── WorkspaceServer.start({ config, host })
+│   └── publish product connection files
 └── Electron
-    └── read server.json → connect over HTTP RPC
+    ├── read server.json → connect over HTTP RPC
+    └── AppControlServer.start() → publish local appControl.json (development only)
 ```
 
 The server retains the existing workspace files, conversation database, and

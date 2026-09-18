@@ -17,4 +17,4 @@ mkdir -p "$niteshift_extensions_dir"
 ln -sfn \
   "$repository_root/packages/copy-path-to-symbol" \
   "$niteshift_extensions_dir/halo.halo-copy-path-to-symbol"
-pnpm --filter @halo/desktop exec playwright install chromium
+pnpm --filter @get-halo/desktop exec playwright install chromium

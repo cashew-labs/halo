@@ -1,17 +1,7 @@
-import fs from "node:fs/promises";
-import path from "node:path";
-import {
-  BrowserWindow,
-  ipcMain,
-  shell,
-  type IpcMainInvokeEvent,
-} from "electron";
-import { createORPCClient } from "@orpc/client";
-import { RPCLink } from "@orpc/client/fetch";
+import { BrowserWindow, ipcMain, type IpcMainInvokeEvent } from "electron";
 import { Value } from "@sinclair/typebox/value";
 import * as errore from "errore";
-import type { WorkspaceServerConnection } from "@get-halo/workspace-server/connection";
-import type { HaloClient } from "@get-halo/shared/contract";
+import { createHaloClient, type HaloClient } from "@get-halo/client";
 import {
   DESKTOP_CHANNEL,
   desktopRequestSchema,
@@ -19,7 +9,11 @@ import {
   type ConnectIntegrationRequest,
   type DesktopRequest,
 } from "../../shared/desktop.js";
-import { getAppInfo, installAppUpdate } from "../app/appUpdate.js";
+import {
+  checkForAppUpdate,
+  getAppInfo,
+  installAppUpdate,
+} from "../app/appUpdate.js";
 import type { DesktopAuthentication } from "../DesktopAuthentication.js";
 import type { HaloRpcConnection } from "../../shared/HaloRpcConnection.js";
 import {
@@ -41,7 +35,6 @@ class DesktopOperationError extends errore.createTaggedError({
 export function registerDesktopApi(args: {
   authentication: DesktopAuthentication;
   getConnection: () => Promise<HaloRpcConnection | Error | undefined>;
-  getServer: () => Promise<WorkspaceServerConnection | Error | undefined>;
   ownsWindow: (window: BrowserWindow) => boolean;
 }): void {
   ipcMain.handle(DESKTOP_CHANNEL, async (event, request: DesktopRequest) => {
@@ -52,7 +45,6 @@ export function registerDesktopApi(args: {
       request: validated,
       authentication: args.authentication,
       getConnection: args.getConnection,
-      getServer: args.getServer,
     });
     if (result instanceof Error) throw result;
     return result;
@@ -70,14 +62,8 @@ async function handleDesktopRequest(args: {
   request: DesktopRequest;
   authentication: DesktopAuthentication;
   getConnection: () => Promise<HaloRpcConnection | Error | undefined>;
-  getServer: () => Promise<WorkspaceServerConnection | Error | undefined>;
 }) {
   switch (args.request.type) {
-    case "openWorkspaceFile": {
-      const server = await args.getServer();
-      if (server instanceof Error) return server;
-      return await openWorkspaceFile(server?.workspaceRoot, args.request.path);
-    }
     case "getConnection": {
       return await args.getConnection();
     }
@@ -87,6 +73,8 @@ async function handleDesktopRequest(args: {
       return await args.authentication.signIn();
     case "getAppInfo":
       return getAppInfo();
+    case "checkForAppUpdate":
+      return checkForAppUpdate();
     case "installAppUpdate":
       return installAppUpdate();
     case "openExternal":
@@ -140,7 +128,10 @@ async function connectIntegration(args: {
     .startConnection({
       sessionId: args.request.sessionId,
       request: args.request.request,
-      redirectUri: callback.callbackUrl,
+      completion: {
+        kind: "client-loopback",
+        redirectUri: callback.callbackUrl,
+      },
     })
     .catch(
       (cause) =>
@@ -275,13 +266,13 @@ async function closeOAuthCallback(callback: ListeningLoopbackCallback) {
 }
 
 function createWorkspaceClient(connection: HaloRpcConnection) {
-  const link = new RPCLink({
-    origin: connection.origin,
-    url: connection.path,
-    headers: { authorization: `Bearer ${connection.token}` },
+  return createHaloClient({
+    transport: {
+      origin: connection.origin,
+      path: connection.path,
+      headers: { authorization: `Bearer ${connection.token}` },
+    },
   });
-  // SAFETY: HaloRpcConnection points to the Halo router.
-  return createORPCClient(link) as HaloClient;
 }
 
 function assertTrustedSender(args: {
@@ -293,45 +284,4 @@ function assertTrustedSender(args: {
     throw new Error("Halo rejected IPC from an unknown renderer.");
   }
   return senderWindow;
-}
-
-async function openWorkspaceFile(
-  root: string | undefined,
-  relativePath: string,
-) {
-  if (root === undefined)
-    return new DesktopOperationError({
-      operation: "open a file without a workspace",
-    });
-  const absolutePath = path.resolve(root, relativePath);
-  if (
-    path.relative(root, absolutePath).split(path.sep).join("/") !==
-      relativePath ||
-    relativePath
-      .split("/")
-      .some((part) => part.startsWith(".") || part === "node_modules")
-  ) {
-    return new DesktopRequestError({ operation: "workspace file" });
-  }
-  const resolved = await fs
-    .realpath(absolutePath)
-    .catch(
-      (cause) =>
-        new DesktopOperationError({ operation: "locate the file", cause }),
-    );
-  if (resolved instanceof Error) return resolved;
-  if (!resolved.startsWith(`${root}${path.sep}`))
-    return new DesktopRequestError({ operation: "workspace file" });
-  const error = await shell
-    .openPath(resolved)
-    .catch(
-      (cause) =>
-        new DesktopOperationError({ operation: "open the file", cause }),
-    );
-  if (error instanceof Error) return error;
-  if (error !== "")
-    return new DesktopOperationError({
-      operation: "open the file",
-      cause: new Error(error),
-    });
 }
