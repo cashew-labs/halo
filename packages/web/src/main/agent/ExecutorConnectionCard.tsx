@@ -22,7 +22,7 @@ import {
   googleIntegrationDisplay,
 } from "@get-halo/client";
 import { useHost } from "../../HostProvider.js";
-import { BrandLogo, brands, LogoImage } from "../../BrandLogo.tsx";
+import { brands, LogoImage } from "../../BrandLogo.tsx";
 import {
   connectionStateQueryKey,
   idleConnectionState,
@@ -148,11 +148,10 @@ export function ExecutorConnectionCard({
     >
       <Flex column gap={1} p={6}>
         <Flex row gap={4} alignItems="center">
-          {display === undefined ? (
-            <BrandLogo brand="google" size="xl" />
-          ) : (
-            <LogoImage src={display.icon} size="xl" />
-          )}
+          <LogoImage
+            src={display === undefined ? brand.logoUrl : display.icon}
+            size="xl"
+          />
           <Text size="md" fontWeight={600} style={{ flex: 1, minWidth: 0 }}>
             {label}
           </Text>

@@ -16,8 +16,6 @@ export const brands = {
   },
 } satisfies Record<string, BrandDefinition>;
 
-type Brand = keyof typeof brands;
-
 export function LogoImage(props: { src: string; size: IconSize }) {
   const className = useStyles(logo);
   const box = iconSizeValues[props.size];
@@ -31,10 +29,6 @@ export function LogoImage(props: { src: string; size: IconSize }) {
       style={{ width: box, height: box }}
     />
   );
-}
-
-export function BrandLogo(props: { brand: Brand; size: IconSize }) {
-  return <LogoImage src={brands[props.brand].logoUrl} size={props.size} />;
 }
 
 const logo = style({
