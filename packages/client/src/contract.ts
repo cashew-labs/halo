@@ -16,11 +16,12 @@ import type {
 } from "./sessionState.js";
 import type {
   SessionSummary,
+  SessionSummariesUpdate,
   WorkspaceInfo,
   WorkspaceTreeEvent,
 } from "./rpc.js";
 
-export const haloProtocolVersion = 12 as const;
+export const haloProtocolVersion = 13 as const;
 
 export const RequestRejectedError = error("BAD_REQUEST", {
   message: "Halo could not complete the request.",
@@ -120,6 +121,9 @@ export const contract = publicProcedure.router({
   },
   sessions: {
     list: oc.output(type<SessionSummary[]>()),
+    watchSummaries: oc.output(
+      asyncIteratorObject(type<SessionSummariesUpdate>()),
+    ),
     create: oc.output(type<{ sessionId: string }>()),
     snapshot: oc
       .input(type<{ sessionId: string }>())

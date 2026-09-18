@@ -5,9 +5,12 @@ import {
   type Session,
   type SessionRepo,
   type SessionMetadata,
+  type HarnessEvent,
 } from "@earendil-works/pi-agent-core";
 import { laneState } from "@earendil-works/pi-agent-core/harness/session";
-import type { SessionSummary } from "@get-halo/client";
+import { Stream } from "@get-halo/shared/Stream";
+import { SerialQueue } from "@get-halo/shared/SerialQueue";
+import type { SessionSummary, SessionSummariesUpdate } from "@get-halo/client";
 import {
   HaloAgentSession,
   CreateAgentSessionError,
@@ -45,6 +48,12 @@ type SessionRegistryOptions = HaloAgentSessionOptions & {
 
 export class SessionRegistry {
   private closing = false;
+  private readonly closed = new AbortController();
+  // Serializes snapshots and updates so reconnect cannot miss a transition.
+  private readonly summaryQueue = new SerialQueue();
+  private readonly summaries = new Map<string, SessionSummary>();
+  private readonly summaryChanges = new Stream<SessionSummariesUpdate>();
+  private readonly summarySubscriptions = new Map<string, () => void>();
   private readonly pending = new Set<Promise<unknown>>();
   private readonly sessions = new Map<string, HaloAgentSession>();
   private readonly stored = new Map<string, Promise<Session | Error>>();
@@ -55,7 +64,36 @@ export class SessionRegistry {
   constructor(private readonly options: SessionRegistryOptions) {}
 
   async list() {
-    return await this.track(async () => await this.listSessions());
+    return await this.track(
+      async () =>
+        await this.summaryQueue.run(async () => await this.listSessions()),
+    );
+  }
+
+  async *watchSummaries(
+    signal: AbortSignal | undefined,
+  ): AsyncGenerator<SessionSummariesUpdate> {
+    const abortSignal =
+      signal === undefined
+        ? this.closed.signal
+        : AbortSignal.any([signal, this.closed.signal]);
+    const initial = await this.track(
+      async () =>
+        await this.summaryQueue.run(async () => {
+          const sessions = await this.listSessions();
+          if (sessions instanceof Error) return sessions;
+          // Subscribe in the same queue turn as the snapshot; subsequent updates are buffered.
+          return {
+            sessions,
+            updates: this.summaryChanges.consume({ abortSignal }),
+          };
+        }),
+    );
+    if (initial instanceof Error) throw initial;
+    using updates = initial.updates;
+    if (abortSignal.aborted) return;
+    yield { type: "snapshot", sessions: initial.sessions };
+    yield* updates;
   }
 
   async create() {
@@ -86,6 +124,11 @@ export class SessionRegistry {
     if (metadata instanceof Error) return metadata;
     const summaries: SessionSummary[] = [];
     for (const item of metadata) {
+      const cached = this.summaries.get(item.id);
+      if (cached !== undefined) {
+        summaries.push(cached);
+        continue;
+      }
       const stored = await this.openStored(item);
       if (stored instanceof Error) return stored;
       const summary = await readSessionSummary(
@@ -93,11 +136,13 @@ export class SessionRegistry {
         this.options.layout.root,
       ).catch((cause) => new ListAgentSessionsError({ cause }));
       if (summary instanceof Error) return summary;
-      summaries.push({
+      // Unfinished operations in storage are recovered only when a session opens.
+      const current = {
         ...summary,
-        // Stored unfinished operations are recovered only when the session opens.
         isRunning: this.sessions.has(item.id) && summary.isRunning,
-      });
+      };
+      this.summaries.set(item.id, current);
+      summaries.push(current);
     }
     return summaries.toSorted((left, right) =>
       right.updatedAt.localeCompare(left.updatedAt),
@@ -129,13 +174,23 @@ export class SessionRegistry {
   private async closeSession(sessionId: string) {
     const session = this.sessions.get(sessionId);
     if (session === undefined) return new SessionNotOpenError({ sessionId });
+    const closed = await session.close();
     this.sessions.delete(sessionId);
+    await this.summaryQueue.run(() => {
+      const summary = this.summaries.get(sessionId);
+      if (summary !== undefined) this.publish({ ...summary, isRunning: false });
+    });
+    this.summarySubscriptions.get(sessionId)?.();
+    this.summarySubscriptions.delete(sessionId);
     this.stored.delete(sessionId);
-    return await session.close();
+    if (closed instanceof Error) return closed;
   }
 
   async shutdown() {
     this.closing = true;
+    this.closed.abort();
+    for (const unsubscribe of this.summarySubscriptions.values()) unsubscribe();
+    this.summarySubscriptions.clear();
     await Promise.all(this.pending);
 
     const sessions = [...this.sessions.values()];
@@ -161,6 +216,17 @@ export class SessionRegistry {
       return session;
     }
     this.register(session);
+    const published = await this.publishSummary(sessionId);
+    if (published instanceof Error) {
+      this.summarySubscriptions.get(sessionId)?.();
+      this.summarySubscriptions.delete(sessionId);
+      this.sessions.delete(sessionId);
+      this.stored.delete(sessionId);
+      this.summaries.delete(sessionId);
+      const closed = await session.close();
+      if (closed instanceof Error) console.warn(closed);
+      return published;
+    }
     return session;
   }
 
@@ -190,6 +256,80 @@ export class SessionRegistry {
 
   private register(session: HaloAgentSession) {
     this.sessions.set(session.sessionId, session);
+    this.summarySubscriptions.set(
+      session.sessionId,
+      session.onSummaryChange(async (event) => {
+        if (this.closing) return;
+        const published = await this.publishSummary(session.sessionId, event);
+        if (published instanceof Error) console.warn(published);
+      }),
+    );
+  }
+
+  private async publishSummary(sessionId: string, event?: HarnessEvent) {
+    return await this.track(
+      async () =>
+        await this.summaryQueue.run(async () => {
+          const cached = this.summaries.get(sessionId);
+          if (
+            cached !== undefined &&
+            event !== undefined &&
+            event.type !== "value_update"
+          ) {
+            this.publish(applySummaryEvent(cached, event));
+            return;
+          }
+          const stored = await this.stored.get(sessionId);
+          if (stored === undefined) return;
+          if (stored instanceof Error) return stored;
+          const summary = await readSessionSummary(
+            stored,
+            this.options.layout.root,
+          ).catch((cause) => new ListAgentSessionsError({ cause }));
+          if (summary instanceof Error) return summary;
+          this.publish({
+            ...summary,
+            isRunning: this.sessions.has(sessionId) && summary.isRunning,
+          });
+        }),
+    );
+  }
+
+  private publish(session: SessionSummary) {
+    this.summaries.set(session.sessionId, session);
+    this.summaryChanges.append({ type: "updated", session });
+  }
+}
+
+function applySummaryEvent(
+  summary: SessionSummary,
+  event: HarnessEvent,
+): SessionSummary {
+  switch (event.type) {
+    case "run_start":
+      return { ...summary, isRunning: true };
+    case "run_end":
+      return { ...summary, isRunning: false, latestResultId: event.runId };
+    case "fault":
+      return { ...summary, isRunning: false };
+    case "entry_added": {
+      const entry = event.entry;
+      const message = entry.type === "message" ? entry.message : undefined;
+      const title =
+        summary.title ??
+        (message?.role === "user" ? contentText(message.content) : undefined);
+      return {
+        ...summary,
+        title: title?.trim().length === 0 ? undefined : title,
+        updatedAt: new Date(entry.timestamp).toISOString(),
+        latestResultId:
+          !summary.isRunning && message?.role === "assistant"
+            ? entry.id
+            : summary.latestResultId,
+      };
+    }
+    default:
+      return summary;
   }
 }
 

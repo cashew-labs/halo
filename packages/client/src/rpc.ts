@@ -14,6 +14,10 @@ export type SessionSummary = {
   latestResultId?: string;
 };
 
+export type SessionSummariesUpdate =
+  | { type: "snapshot"; sessions: SessionSummary[] }
+  | { type: "updated"; session: SessionSummary };
+
 export type WorkspaceTreeEvent =
   | { type: "create"; path: string }
   | { type: "delete"; path: string };

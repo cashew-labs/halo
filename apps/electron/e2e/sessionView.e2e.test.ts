@@ -1058,6 +1058,27 @@ e2eTest(
 e2eTest(
   "shows running sessions and keeps completed results unread until opened",
   async ({ app, llm }) => {
+    const listRequests: string[] = [];
+    await app.page.route("**/rpc/sessions/list", async (route) => {
+      listRequests.push(route.request().url());
+      await route.abort();
+    });
+    // An interrupted transport must reconnect automatically before showing the list.
+    let summaryConnections = 0;
+    await app.page.route("**/rpc/sessions/watchSummaries", async (route) => {
+      summaryConnections++;
+      if (summaryConnections === 1) {
+        await route.fulfill({
+          status: 200,
+          contentType: "text/event-stream",
+          body: "",
+        });
+        return;
+      }
+      await route.continue();
+    });
+    await app.page.reload();
+
     await app.page.getByRole("button", { name: "New session" }).click();
     await app.page
       .getByLabel("Message", { exact: true })
@@ -1108,6 +1129,8 @@ e2eTest(
     await app.page.reload();
     await expect(row).toBeVisible();
     await expect(unread).not.toBeVisible();
+    expect(summaryConnections).toBeGreaterThanOrEqual(2);
+    expect(listRequests).toEqual([]);
   },
 );
 

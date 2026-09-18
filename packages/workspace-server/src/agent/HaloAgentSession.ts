@@ -2,6 +2,7 @@ import type { Api, Model } from "@earendil-works/pi-ai";
 import {
   AgentHarness,
   type AgentLane,
+  type HarnessEvent,
   type AgentTool,
   type AgentMessage,
   type AgentHarnessTool,
@@ -162,6 +163,27 @@ export class HaloAgentSession {
     trace.attach(created.harness);
     cleanup.move();
     return session;
+  }
+
+  onSummaryChange(listener: (event: HarnessEvent) => Promise<void>) {
+    const types = [
+      "run_start",
+      "run_end",
+      "fault",
+      "entry_added",
+      "value_update",
+    ] as const;
+    const subscriptions = types.map((type) =>
+      this.harness.events.on(type, async (event) => {
+        if (event.lane !== undefined && event.lane !== "main") return;
+        if (event.type === "value_update" && event.value !== "session_name")
+          return;
+        await listener(event);
+      }),
+    );
+    return () => {
+      for (const unsubscribe of subscriptions) unsubscribe();
+    };
   }
 
   async readSnapshot(connections: HaloConnectionState[]) {
