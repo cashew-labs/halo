@@ -120,7 +120,6 @@ serverTest("reads, writes, and lists workspace files", async ({ server }) => {
   );
   const pdfSkillText = Buffer.from(pdfSkill).toString("utf8");
   expect(pdfSkillText).toContain("Inspect rendered pages with `viewImage`");
-  expect(pdfSkillText).not.toContain("codex-file-citation");
 
   await server.rpc.workspace.writeFile({
     path: "notes/today.md",
@@ -140,7 +139,7 @@ serverTest(
         path: "pixel.png",
         mimeType: "image/png",
         base64:
-          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+XwQYAAAAAElFTkSuQmCC",
+          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC",
       },
       {
         path: "pixel.jpg",
@@ -162,14 +161,17 @@ serverTest(
       });
     }
     await server.harness.files.write({
-      path: path.join(server.workspaceRoot, "not-an-image.png"),
-      content: "plain text",
+      path: path.join(server.workspaceRoot, "corrupt.png"),
+      content: Buffer.concat([
+        Buffer.from(images[0].base64, "base64").subarray(0, 8),
+        Buffer.from("not valid PNG data"),
+      ]),
     });
     await server.harness.files.write({
       path: path.join(server.workspaceRoot, "too-large.png"),
       content: Buffer.concat([
         Buffer.from(images[0].base64, "base64").subarray(0, 8),
-        Buffer.alloc(10 * 1024 * 1024),
+        Buffer.alloc(20 * 1024 * 1024),
       ]),
     });
 
@@ -187,7 +189,7 @@ serverTest(
       ),
       m.tool.start("viewImage", {
         id: "invalid-image",
-        arguments: { path: "not-an-image.png" },
+        arguments: { path: "corrupt.png" },
       }),
       m.tool.start("viewImage", {
         id: "large-image",

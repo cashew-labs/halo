@@ -1,8 +1,9 @@
 import path from "node:path";
+import { resizeImage } from "@earendil-works/pi-coding-agent";
 import * as errore from "errore";
 import type { FilesystemService } from "../../../filesystem/FilesystemService.js";
 
-const maximumImageSizeBytes = 10 * 1024 * 1024;
+const maximumSourceImageSizeBytes = 20 * 1024 * 1024;
 
 const imageSignatures = [
   {
@@ -51,10 +52,10 @@ export async function viewImage(args: {
     });
   }
 
-  if (contents.length > maximumImageSizeBytes) {
+  if (contents.length > maximumSourceImageSizeBytes) {
     return new FilesViewImageError({
       path: filePath,
-      reason: "images must be 10 MiB or smaller",
+      reason: "source images must be 20 MiB or smaller",
     });
   }
 
@@ -66,10 +67,18 @@ export async function viewImage(args: {
     });
   }
 
+  const resized = await resizeImage(contents, image.mimeType);
+  if (resized === null) {
+    return new FilesViewImageError({
+      path: filePath,
+      reason: "image data could not be decoded or resized for the model",
+    });
+  }
+
   return {
     path: filePath,
-    mimeType: image.mimeType,
+    mimeType: resized.mimeType,
     sizeBytes: contents.length,
-    data: contents.toString("base64"),
+    data: resized.data,
   };
 }

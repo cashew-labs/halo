@@ -190,7 +190,7 @@ function createViewImageTool(
     name: "viewImage",
     label: "View image",
     description:
-      "View a PNG, JPEG, or WebP image from the active workspace. Images must be 10 MiB or smaller.",
+      "View a PNG, JPEG, or WebP image from the active workspace. Source images must be 20 MiB or smaller.",
     parameters: viewImageParameters,
     async execute(_id, params) {
       const result = await viewImage({ filesystem, cwd, input: params });
