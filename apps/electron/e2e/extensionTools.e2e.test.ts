@@ -9,7 +9,7 @@ e2eTest(
       .getByRole("link", { name: "workspaceNotes", exact: true })
       .click();
     const pane = app.page
-      .getByTitle("workspaceNotes", { exact: true })
+      .locator('iframe[title="workspaceNotes"]')
       .contentFrame();
 
     await harness.tools.files.write({
@@ -38,7 +38,7 @@ e2eTest(
       .getByRole("link", { name: "workspaceNotes", exact: true })
       .click();
     const pane = app.page
-      .getByTitle("workspaceNotes", { exact: true })
+      .locator('iframe[title="workspaceNotes"]')
       .contentFrame();
     await pane.getByRole("button", { name: "Refresh notes" }).click();
 

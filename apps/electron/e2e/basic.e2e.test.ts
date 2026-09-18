@@ -1202,6 +1202,7 @@ e2eTest(
       )
       .toBe(original);
     await editor.getByRole("heading").click();
+    await expect(editor.locator(".markdown-marker")).toHaveText(["## "]);
     await editor.locator(".markdown-marker").evaluate(async (element) => {
       const changed = new Promise<void>((resolve) =>
         document.addEventListener("selectionchange", () => resolve(), {

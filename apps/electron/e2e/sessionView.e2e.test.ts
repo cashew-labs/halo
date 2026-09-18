@@ -10,6 +10,7 @@ e2eTest(
       .getByRole("button", { name: "New session", exact: true })
       .click();
     await app.page
+      .getByRole("main")
       .getByLabel("Message", { exact: true })
       .fill("Explain the plan");
     await app.page.getByRole("button", { name: "Send", exact: true }).click();
@@ -175,6 +176,7 @@ e2eTest(
       .getByRole("button", { name: "New session", exact: true })
       .click();
     await app.page
+      .getByRole("main")
       .getByLabel("Message", { exact: true })
       .fill("Read the project notes");
     await app.page.getByRole("button", { name: "Send", exact: true }).click();
@@ -257,12 +259,14 @@ e2eTest(
       .getByRole("button", { name: "New session", exact: true })
       .click();
     await app.page
+      .getByRole("main")
       .getByLabel("Message", { exact: true })
       .fill("Start a long answer");
     await app.page.getByRole("button", { name: "Send", exact: true }).click();
 
     await app.page.getByRole("button", { name: "Stop", exact: true }).click();
     await app.page
+      .getByRole("main")
       .getByLabel("Message", { exact: true })
       .fill("Answer this instead");
     await app.page.getByRole("button", { name: "Send", exact: true }).click();
@@ -281,6 +285,7 @@ e2eTest(
       .getByRole("button", { name: "New session", exact: true })
       .click();
     await app.page
+      .getByRole("main")
       .getByLabel("Message", { exact: true })
       .fill("Start an answer");
     await app.page.getByRole("button", { name: "Send", exact: true }).click();
@@ -565,6 +570,7 @@ e2eTest(
       .getByRole("button", { name: "New session", exact: true })
       .click();
     await app.page
+      .getByRole("main")
       .getByLabel("Message", { exact: true })
       .fill("Read the notes and fetch the report");
     await app.page.getByRole("button", { name: "Send", exact: true }).click();
@@ -677,6 +683,7 @@ e2eTest(
       .getByRole("button", { name: "New session", exact: true })
       .click();
     await app.page
+      .getByRole("main")
       .getByLabel("Message", { exact: true })
       .fill("Fetch both reports and summarize them");
     await app.page.getByRole("button", { name: "Send", exact: true }).click();
@@ -858,6 +865,7 @@ e2eTest(
       .getByRole("button", { name: "New session", exact: true })
       .click();
     await app.page
+      .getByRole("main")
       .getByLabel("Message", { exact: true })
       .fill("Fetch both reports");
     await app.page.getByRole("button", { name: "Send", exact: true }).click();
@@ -946,6 +954,7 @@ e2eTest(
       .getByRole("button", { name: "New session", exact: true })
       .click();
     await app.page
+      .getByRole("main")
       .getByLabel("Message", { exact: true })
       .fill("Run the same command twice");
     await app.page.getByRole("button", { name: "Send", exact: true }).click();
@@ -1054,6 +1063,7 @@ e2eTest(
       .getByRole("button", { name: "New session", exact: true })
       .click();
     await app.page
+      .getByRole("main")
       .getByLabel("Message", { exact: true })
       .fill("Explain the plan");
     await app.page.getByRole("button", { name: "Send", exact: true }).click();
