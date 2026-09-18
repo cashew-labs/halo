@@ -1302,3 +1302,41 @@ e2eTest(
     await otherWindow.close();
   },
 );
+
+e2eTest(
+  "Tiptap submits edited source fragments from the composer",
+  async ({ app, llm }) => {
+    const editor = app.page
+      .getByRole("main", { name: "New session" })
+      .getByLabel("Message", { exact: true });
+    await editor.fill("");
+    await editor.evaluate((element) => {
+      const data = new DataTransfer();
+      data.setData(
+        "text/html",
+        "<p>Send <strong>this</strong> and <em>that</em>.</p>",
+      );
+      element.dispatchEvent(
+        new ClipboardEvent("paste", {
+          clipboardData: data,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    await editor.locator("strong").click();
+    const source = editor.getByRole("textbox", { name: "Markdown syntax" });
+    await expect(source).toHaveText("**this**");
+    await source.fill("*changed*");
+    await source.press("ControlOrMeta+Enter");
+    await llm.respond(({ messages }) => {
+      expect(messageText(messages.at(-1)!)).toContain(
+        "Send *changed* and *that*.",
+      );
+      return m.assistant("Received the edited formatting.");
+    });
+    await expect(
+      app.page.getByRole("log", { name: "Session transcript" }),
+    ).toContainText("Received the edited formatting.");
+  },
+);

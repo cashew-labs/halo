@@ -1871,3 +1871,504 @@ for (const edge of ["left", "top", "bottom"] as const) {
     },
   );
 }
+
+e2eTest(
+  "Tiptap reveals an editable fragment after the pointer settles without saving",
+  async ({ app }) => {
+    const path = "tiptap.md";
+    const original =
+      "## Heading\n\nBefore **bold text** between *italic text* after.\n\nPlain paragraph.";
+    await app.server.rpc.workspace.writeFile({ path, content: original });
+    await app.page.getByRole("link", { name: path, exact: true }).click();
+    const editor = app.page.getByTestId("file-page-content").locator(".tiptap");
+    const bold = editor.locator("strong");
+    const bounds = (await bold.boundingBox())!;
+    await app.page.mouse.move(
+      bounds.x + bounds.width / 2,
+      bounds.y + bounds.height / 2,
+    );
+    await app.page.mouse.down();
+    await app.page.mouse.move(
+      bounds.x + bounds.width / 2 + 1,
+      bounds.y + bounds.height / 2,
+    );
+    await expect(editor.locator(".markdown-source")).toHaveCount(0);
+    await app.page.mouse.up();
+    const source = editor.getByRole("textbox", {
+      name: "Markdown syntax",
+      exact: true,
+    });
+    await expect(source).toHaveText("**bold text**");
+    await expect(source.locator(".markdown-marker")).toHaveText(["**", "**"]);
+    expect(
+      await source.evaluate(() => window.getSelection()!.isCollapsed),
+    ).toBe(true);
+    await app.page.keyboard.type("X");
+    await app.page.keyboard.press("ControlOrMeta+z");
+    await expect(source).toHaveText("**bold text**");
+    await editor.locator("em").click();
+    await expect(source).toHaveText("*italic text*");
+    await editor.getByText("Plain paragraph.", { exact: true }).click();
+    await expect(source).toHaveCount(0);
+    await expect
+      .poll(async () => await app.server.rpc.workspace.readFile({ path }))
+      .toBe(original);
+    await app.page.keyboard.press("ControlOrMeta+z");
+    await expect
+      .poll(async () => await app.server.rpc.workspace.readFile({ path }))
+      .toBe(original);
+  },
+);
+
+e2eTest(
+  "Tiptap edits Markdown delimiters with undo and persists rich formatting",
+  async ({ app }) => {
+    const path = "tiptap.md";
+    await app.server.rpc.workspace.writeFile({
+      path,
+      content: "## Heading\n\nBefore **bold** after.\n\nPlain paragraph.",
+    });
+    await app.page.getByRole("link", { name: path, exact: true }).click();
+    const editor = app.page.getByTestId("file-page-content").locator(".tiptap");
+    await editor.locator("strong").click();
+    const source = editor.getByRole("textbox", {
+      name: "Markdown syntax",
+      exact: true,
+    });
+    await expect(source).toHaveText("**bold**");
+    await source.fill("*bold*");
+    await expect
+      .poll(async () => await app.server.rpc.workspace.readFile({ path }))
+      .toContain("Before *bold* after.");
+    await source.press("ControlOrMeta+z");
+    await expect(source).toHaveText("**bold**");
+    await source.press("ControlOrMeta+Shift+z");
+    await expect(source).toHaveText("*bold*");
+    await source.fill("bold");
+    await editor.getByText("Plain paragraph.", { exact: true }).click();
+    await expect(editor.locator("strong, em")).toHaveCount(0);
+    await editor.getByRole("heading").click();
+    await expect(source).toHaveText("## Heading");
+    await source.fill("Heading");
+    await editor.getByText("Plain paragraph.", { exact: true }).click();
+    await expect(editor.getByRole("heading")).toHaveCount(0);
+    await expect
+      .poll(async () => await app.server.rpc.workspace.readFile({ path }))
+      .toBe("Heading\n\nBefore bold after.\n\nPlain paragraph.");
+    await app.page.reload();
+    await expect(editor).toContainText("Heading");
+    await expect(editor.locator("strong, em, h1, h2")).toHaveCount(0);
+  },
+);
+
+e2eTest(
+  "Tiptap retains rich HTML paste and nested lists with Markdown reveal",
+  async ({ app }) => {
+    const path = "paste.md";
+    await app.server.rpc.workspace.writeFile({ path, content: "Start here" });
+    await app.page.getByRole("link", { name: path, exact: true }).click();
+    const editor = app.page.getByTestId("file-page-content").locator(".tiptap");
+    await editor.fill("");
+    await editor.evaluate((element) => {
+      const data = new DataTransfer();
+      data.setData(
+        "text/html",
+        "<p><strong>Rich bold</strong> and <em>italic</em></p><ul><li>Parent<ul><li>Child</li></ul></li><li>Second</li></ul>",
+      );
+      element.dispatchEvent(
+        new ClipboardEvent("paste", {
+          clipboardData: data,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    await expect(editor.locator("strong")).toHaveText("Rich bold");
+    await expect(editor.locator("ul ul li")).toHaveText("Child");
+    await editor.locator("strong").click();
+    await expect(
+      editor.getByRole("textbox", { name: "Markdown syntax" }),
+    ).toHaveText("**Rich bold**");
+    await editor.getByText("Second", { exact: true }).click();
+    await expect(editor.locator(".markdown-source")).toHaveCount(0);
+    await app.page.keyboard.press("Tab");
+    await expect(editor.locator("ul ul li")).toHaveText(["Child", "Second"]);
+    await expect
+      .poll(async () => await app.server.rpc.workspace.readFile({ path }))
+      .toContain("**Rich bold** and *italic*");
+  },
+);
+
+e2eTest(
+  "Tiptap keeps the caret during source typing and delimiter deletion",
+  async ({ app }) => {
+    const path = "caret.md";
+    await app.server.rpc.workspace.writeFile({
+      path,
+      content: "Before **bold** after.\n\nPlain paragraph.",
+    });
+    await app.page.getByRole("link", { name: path, exact: true }).click();
+    const editor = app.page.getByTestId("file-page-content").locator(".tiptap");
+    await editor.locator("strong").click();
+    const source = editor.getByRole("textbox", { name: "Markdown syntax" });
+    await expect(source).toHaveText("**bold**");
+    await source
+      .locator(".markdown-source-bold")
+      .evaluate((element) =>
+        window.getSelection()!.collapse(element.firstChild, 2),
+      );
+    await app.page.keyboard.type("XYZ");
+    await expect(source).toHaveText("**boXYZld**");
+    await source
+      .locator(".markdown-marker")
+      .first()
+      .evaluate((element) =>
+        window.getSelection()!.collapse(element.firstChild, 1),
+      );
+    await app.page.keyboard.press("Backspace");
+    await expect(source).toHaveText("*boXYZld**");
+    await app.page.keyboard.press("ControlOrMeta+z");
+    await expect(source).toHaveText("**bold**");
+    await source.press("ControlOrMeta+a");
+    await app.page.keyboard.press("ControlOrMeta+\\");
+    await expect(editor.locator("strong, em, .markdown-source")).toHaveCount(0);
+    await expect
+      .poll(async () => await app.server.rpc.workspace.readFile({ path }))
+      .toBe("Before bold after.\n\nPlain paragraph.");
+  },
+);
+
+e2eTest(
+  "Tiptap keeps intentional drag selections and reveals nested marks, code, and links",
+  async ({ app }) => {
+    const path = "elements.md";
+    const original =
+      "Before **bold and *italic*** between `code` and [a link](https://example.com).\n\nPlain paragraph.";
+    await app.server.rpc.workspace.writeFile({ path, content: original });
+    await app.page.getByRole("link", { name: path, exact: true }).click();
+    const editor = app.page.getByTestId("file-page-content").locator(".tiptap");
+    const bold = (await editor.locator("strong").boundingBox())!;
+    await app.page.mouse.move(bold.x + 2, bold.y + bold.height / 2);
+    await app.page.mouse.down();
+    await app.page.mouse.move(
+      bold.x + bold.width - 2,
+      bold.y + bold.height / 2,
+      { steps: 12 },
+    );
+    await app.page.mouse.up();
+    await expect(editor.locator(".markdown-source")).toHaveCount(0);
+    expect(
+      await editor.evaluate(() => window.getSelection()!.toString()),
+    ).toContain("bold and italic");
+    await editor.locator("em").click();
+    const source = editor.getByRole("textbox", { name: "Markdown syntax" });
+    await expect(source).toHaveText("**bold and *italic***");
+    await editor.locator("code").click();
+    await expect(source).toHaveText("`code`");
+    await editor.getByRole("link").click();
+    await expect(source).toHaveText("[a link](https://example.com)");
+    await editor.getByText("Plain paragraph.", { exact: true }).click();
+    await expect(source).toHaveCount(0);
+    expect(await app.server.rpc.workspace.readFile({ path })).toBe(original);
+  },
+);
+
+e2eTest(
+  "Tiptap preserves multiline and rich paste inside a revealed fragment",
+  async ({ app }) => {
+    const path = "source-paste.md";
+    await app.server.rpc.workspace.writeFile({
+      path,
+      content: "Before **bold** after.",
+    });
+    await app.page.getByRole("link", { name: path, exact: true }).click();
+    const editor = app.page.getByTestId("file-page-content").locator(".tiptap");
+    await editor.locator("strong").click();
+    const source = editor.getByRole("textbox", { name: "Markdown syntax" });
+    await expect(source).toHaveText("**bold**");
+    await source
+      .locator(".markdown-source-bold")
+      .evaluate((element) =>
+        window.getSelection()!.collapse(element.firstChild, 2),
+      );
+    await source.evaluate((element) => {
+      const data = new DataTransfer();
+      data.setData("text/plain", "ONE\n\nTWO");
+      element.dispatchEvent(
+        new ClipboardEvent("paste", {
+          clipboardData: data,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    await expect(editor).toContainText("ONE");
+    await expect(editor).toContainText("TWO");
+    await expect
+      .poll(async () => await app.server.rpc.workspace.readFile({ path }))
+      .toContain("TWO");
+    await editor.locator("strong").first().click();
+    await expect(source).toHaveCount(1);
+    await source.evaluate((element) => {
+      const data = new DataTransfer();
+      data.setData("text/html", "<em>Rich italic</em>");
+      element.dispatchEvent(
+        new ClipboardEvent("paste", {
+          clipboardData: data,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    await expect(editor.locator("em")).toHaveText("Rich italic");
+    await expect
+      .poll(async () => await app.server.rpc.workspace.readFile({ path }))
+      .toContain("*Rich italic*");
+  },
+);
+
+e2eTest(
+  "Tiptap hands keyboard movement and Enter back to the rich editor",
+  async ({ app }) => {
+    const path = "keyboard.md";
+    await app.server.rpc.workspace.writeFile({
+      path,
+      content: "Before **bold** after.\n\nPlain paragraph.",
+    });
+    await app.page.getByRole("link", { name: path, exact: true }).click();
+    const editor = app.page.getByTestId("file-page-content").locator(".tiptap");
+    await editor.locator("strong").click();
+    const source = editor.getByRole("textbox", { name: "Markdown syntax" });
+    await expect(source).toHaveText("**bold**");
+    await source
+      .locator(".markdown-marker")
+      .last()
+      .evaluate((element) =>
+        window.getSelection()!.collapse(element.firstChild, 2),
+      );
+    await app.page.keyboard.press("ArrowRight");
+    await expect(source).toHaveCount(0);
+    await app.page.keyboard.type("NEXT");
+    await expect(editor).toHaveText("Before bold NEXTafter.Plain paragraph.");
+    await editor.locator("strong").click();
+    await expect(source).toHaveText("**bold**");
+    await source
+      .locator(".markdown-source-bold")
+      .evaluate((element) =>
+        window.getSelection()!.collapse(element.firstChild, 2),
+      );
+    await app.page.keyboard.press("Enter");
+    await expect(source).toHaveCount(0);
+    await expect(editor.locator(":scope > p")).toHaveText([
+      "Before bo",
+      "ld NEXTafter.",
+      "Plain paragraph.",
+    ]);
+    await app.page.keyboard.press("ArrowDown");
+    await expect(source).toHaveCount(0);
+    await expect
+      .poll(async () => await app.server.rpc.workspace.readFile({ path }))
+      .toContain("Before **bo**\n\n**ld** NEXTafter.");
+  },
+);
+
+e2eTest(
+  "Tiptap reveals one-character formatting without revealing adjacent text",
+  async ({ app }) => {
+    const path = "short.md";
+    await app.server.rpc.workspace.writeFile({
+      path,
+      content: "Before **A** and *B* after.",
+    });
+    await app.page.getByRole("link", { name: path, exact: true }).click();
+    const editor = app.page.getByTestId("file-page-content").locator(".tiptap");
+    const source = editor.getByRole("textbox", { name: "Markdown syntax" });
+    await editor.locator("strong").click();
+    await expect(source).toHaveText("**A**");
+    await editor.locator("em").click();
+    await expect(source).toHaveText("*B*");
+    await source.press("Escape");
+    await expect(source).toHaveCount(0);
+    await app.page.keyboard.press("ControlOrMeta+ArrowRight");
+    await app.page.keyboard.type(" Plain.");
+    await expect(source).toHaveCount(0);
+    await expect
+      .poll(async () => await app.server.rpc.workspace.readFile({ path }))
+      .toBe("Before **A** and *B* after. Plain.");
+  },
+);
+
+e2eTest(
+  "Tiptap leaves IME candidate keys inside the source fragment until composition commits",
+  async ({ app }) => {
+    const path = "composition.md";
+    await app.server.rpc.workspace.writeFile({
+      path,
+      content: "Before **bold** after.",
+    });
+    await app.page.getByRole("link", { name: path, exact: true }).click();
+    const editor = app.page.getByTestId("file-page-content").locator(".tiptap");
+    await editor.locator("strong").click();
+    const source = editor.getByRole("textbox", { name: "Markdown syntax" });
+    await expect(source).toHaveText("**bold**");
+    const retained = await source.evaluate((element) => {
+      element.dispatchEvent(
+        new CompositionEvent("compositionstart", { bubbles: true }),
+      );
+      element.textContent = "**日本語**";
+      element.dispatchEvent(
+        new InputEvent("input", {
+          bubbles: true,
+          inputType: "insertCompositionText",
+          data: "日本語",
+          isComposing: true,
+        }),
+      );
+      const keys = ["ArrowDown", "ArrowUp", "Enter"].map((key) => {
+        const event = new KeyboardEvent("keydown", {
+          key,
+          bubbles: true,
+          cancelable: true,
+          isComposing: true,
+        });
+        element.dispatchEvent(event);
+        return {
+          connected: element.isConnected,
+          prevented: event.defaultPrevented,
+        };
+      });
+      element.dispatchEvent(
+        new CompositionEvent("compositionend", {
+          bubbles: true,
+          data: "日本語",
+        }),
+      );
+      return keys;
+    });
+    expect(retained).toEqual(
+      Array.from({ length: 3 }, () => ({ connected: true, prevented: false })),
+    );
+    await expect(source).toHaveText("**日本語**");
+    await expect
+      .poll(async () => await app.server.rpc.workspace.readFile({ path }))
+      .toBe("Before **日本語** after.");
+    await source.press("Escape");
+    await expect(editor.locator("strong")).toHaveText("日本語");
+  },
+);
+
+e2eTest(
+  "Tiptap preserves block-like punctuation inside inline source edits",
+  async ({ app }) => {
+    const path = "inline-prefix.md";
+    await app.server.rpc.workspace.writeFile({
+      path,
+      content: "Before **bold** after.\n\nPlain paragraph.",
+    });
+    await app.page.getByRole("link", { name: path, exact: true }).click();
+    const editor = app.page.getByTestId("file-page-content").locator(".tiptap");
+    const source = editor.getByRole("textbox", { name: "Markdown syntax" });
+    await editor.locator("strong").click();
+    await expect(source).toHaveText("**bold**");
+    await source.fill("# **title**");
+    await editor.getByText("Plain paragraph.", { exact: true }).click();
+    await expect(source).toHaveCount(0);
+    await expect(editor.locator("p").first()).toHaveText(
+      "Before # title after.",
+    );
+    await expect(editor.locator("strong")).toHaveText("title");
+    await expect
+      .poll(async () => await app.server.rpc.workspace.readFile({ path }))
+      .toContain("Before # **title** after.");
+    await app.page.reload();
+    await expect(editor.locator("p").first()).toHaveText(
+      "Before # title after.",
+    );
+  },
+);
+
+e2eTest(
+  "Tiptap keeps the caret beside escaped characters in both source and rich text",
+  async ({ app }) => {
+    const path = "entities.md";
+    await app.server.rpc.workspace.writeFile({
+      path,
+      content: "Before **a & b** after.",
+    });
+    await app.page.getByRole("link", { name: path, exact: true }).click();
+    const editor = app.page.getByTestId("file-page-content").locator(".tiptap");
+    await editor.locator("strong").evaluate((element) => {
+      element.closest<HTMLElement>(".tiptap")!.focus();
+      window.getSelection()!.collapse(element.firstChild, 4);
+    });
+    const source = editor.getByRole("textbox", { name: "Markdown syntax" });
+    await expect(source).toHaveText("**a &amp; b**");
+    expect(
+      await source.evaluate((element) => {
+        const selection = window.getSelection()!;
+        const range = document.createRange();
+        range.selectNodeContents(element);
+        range.setEnd(selection.anchorNode!, selection.anchorOffset);
+        return range.toString();
+      }),
+    ).toBe("**a &amp; ");
+    await app.page.keyboard.type("X");
+    await expect(source).toHaveText("**a &amp; Xb**");
+    await source.press("Escape");
+    await app.page.keyboard.type("Y");
+    await expect
+      .poll(async () => await app.server.rpc.workspace.readFile({ path }))
+      .toBe("Before **a &amp; XYb** after.");
+    await app.page.reload();
+    await expect(editor.locator("strong")).toHaveText("a & XYb");
+  },
+);
+
+e2eTest(
+  "Tiptap preserves literal backticks and code padding when editing and reopening",
+  async ({ app }) => {
+    const path = "backticks.md";
+    await app.server.rpc.workspace.writeFile({
+      path,
+      content: "Before `` `code` `` after.\n\nPlain paragraph.",
+    });
+    await app.page.getByRole("link", { name: path, exact: true }).click();
+    const editor = app.page.getByTestId("file-page-content").locator(".tiptap");
+    await expect(editor.locator("code")).toHaveText("`code`");
+    await editor.locator("code").evaluate((element) => {
+      element.closest<HTMLElement>(".tiptap")!.focus();
+      window.getSelection()!.collapse(element.firstChild, 3);
+    });
+    const source = editor.getByRole("textbox", { name: "Markdown syntax" });
+    await expect(source).toHaveText("`` `code` ``");
+    await app.page.keyboard.type("X");
+    await expect(source).toHaveText("`` `coXde` ``");
+    await source.press("Escape");
+    await app.page.keyboard.type("Y");
+    await expect
+      .poll(async () => await app.server.rpc.workspace.readFile({ path }))
+      .toContain("Before `` `coXYde` `` after.");
+    await app.page.reload();
+    await expect(editor.locator("code")).toHaveText("`coXYde`");
+  },
+);
+
+e2eTest(
+  "Tiptap leaves original line endings unchanged when only revealing formatting",
+  async ({ app }) => {
+    const path = "line-endings.md";
+    const original =
+      "## Heading\r\n\r\nBefore **bold** and _italic_ after.\r\n\r\nPlain paragraph.\r\n";
+    await app.server.rpc.workspace.writeFile({ path, content: original });
+    await app.page.getByRole("link", { name: path, exact: true }).click();
+    const editor = app.page.getByTestId("file-page-content").locator(".tiptap");
+    const source = editor.getByRole("textbox", { name: "Markdown syntax" });
+    await editor.locator("em").click();
+    await expect(source).toHaveText("*italic*");
+    await editor.getByText("Plain paragraph.", { exact: true }).click();
+    await expect(source).toHaveCount(0);
+    // Wait through the autosave debounce to detect reveal/blur being treated as edits.
+    await app.page.waitForTimeout(750);
+    expect(await app.server.rpc.workspace.readFile({ path })).toBe(original);
+  },
+);
