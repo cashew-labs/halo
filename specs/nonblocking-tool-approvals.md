@@ -99,58 +99,72 @@ retry, as it already does after a connection completes.
 - [`node_modules/@executor-js/sdk/dist/elicitation.d.ts`](../node_modules/@executor-js/sdk/dist/elicitation.d.ts)
   — Executor's `accept`, `decline`, and `cancel` elicitation contract.
 
-## Current branch behavior
+## Implemented flow
 
 ```callstack
 ToolRuntime.executeCode [[apps/workspace-server/src/agent/runtime/ToolRuntime.ts#ToolRuntime.executeCode]]
-└── Executor onElicitation [[blocking:new:472-512]]
-    ├── publish pending ToolApproval
-    └── ToolApprovalService.request [[apps/workspace-server/src/agent/ToolApprovalService.ts#ToolApprovalService.request]]
-        └── await user response # holds exec and agent run open
+├── Executor onElicitation
+│   ├── ToolApprovalService.consume [[apps/workspace-server/src/agent/ToolApprovalService.ts#ToolApprovalService.consume]]
+│   └── collect approval request and decline this attempt
+└── ToolApprovalRequiredError [[apps/workspace-server/src/agent/runtime/ToolRuntime.ts#ToolApprovalRequiredError]]
+    └── createExecTool returns request details [[apps/workspace-server/src/agent/tools/execTool.ts#createExecTool]]
 ```
 
-```source-diff:blocking:apps/workspace-server/src/agent/runtime/ToolRuntime.ts
+```source-diff:nonblocking:apps/workspace-server/src/agent/runtime/ToolRuntime.ts
 diff --git a/apps/workspace-server/src/agent/runtime/ToolRuntime.ts b/apps/workspace-server/src/agent/runtime/ToolRuntime.ts
-index 92dc2f3..d2be18c 100644
+index d2be18c..9237c23 100644
 --- a/apps/workspace-server/src/agent/runtime/ToolRuntime.ts
 +++ b/apps/workspace-server/src/agent/runtime/ToolRuntime.ts
-@@ -470,8 +477,38 @@ export class ToolRuntime {
-               );
-               if (connection !== undefined) {
+@@ -479,36 +491,23 @@ export class ToolRuntime {
                  connectionRequests.push(connection);
-+                return Effect.succeed({ action: "decline" as const });
+                 return Effect.succeed({ action: "decline" as const });
                }
--              return Effect.succeed({ action: "decline" });
-+              return Effect.promise(async () => {
-+                const approval: ToolApproval = {
-+                  id: randomUUID(),
-+                  toolPath: sandboxPath(String(context.address)),
-+                  message: context.request.message.split("\n", 1).join(),
-+                  status: "pending",
-+                };
-+                input.onApprovalUpdate(approval);
-+                const response = await input.requestApproval({
-+                  approval,
-+                  signal: input.signal,
-+                });
-+                input.onApprovalUpdate({
-+                  ...approval,
-+                  status:
-+                    response === "allow"
-+                      ? "allowed"
-+                      : response === "deny"
-+                        ? "denied"
-+                        : "cancelled",
-+                });
-+                return {
-+                  action:
-+                    response === "allow"
-+                      ? ("accept" as const)
-+                      : response === "deny"
-+                        ? ("decline" as const)
-+                        : ("cancel" as const),
-+                };
-+              });
+-              return Effect.promise(async () => {
+-                const approval: ToolApproval = {
+-                  id: randomUUID(),
+-                  toolPath: sandboxPath(String(context.address)),
+-                  message: context.request.message.split("\n", 1).join(),
+-                  status: "pending",
+-                };
+-                input.onApprovalUpdate(approval);
+-                const response = await input.requestApproval({
+-                  approval,
+-                  signal: input.signal,
+-                });
+-                input.onApprovalUpdate({
+-                  ...approval,
+-                  status:
+-                    response === "allow"
+-                      ? "allowed"
+-                      : response === "deny"
+-                        ? "denied"
+-                        : "cancelled",
+-                });
+-                return {
+-                  action:
+-                    response === "allow"
+-                      ? ("accept" as const)
+-                      : response === "deny"
+-                        ? ("decline" as const)
+-                        : ("cancel" as const),
+-                };
++              const toolPath = sandboxPath(String(context.address));
++              if (
++                input.consumeApproval({
++                  toolPath,
++                  arguments: context.args,
++                })
++              ) {
++                return Effect.succeed({ action: "accept" as const });
++              }
++              approvalRequests.push({
++                id: randomUUID(),
++                toolPath,
++                message: context.request.message.split("\n", 1).join(),
++                arguments: context.args,
++                status: "pending",
+               });
++              return Effect.succeed({ action: "decline" as const });
              },
            }),
          ).catch(
