@@ -112,7 +112,8 @@ export async function serveExtensionUpgrade(ctx: {
     data: {
       error: proxied instanceof Error ? proxied.message : undefined,
       clientDestroyed: ctx.socket.destroyed,
-      upstreamDestroyed: proxied instanceof Error ? undefined : proxied.destroyed,
+      upstreamDestroyed:
+        proxied instanceof Error ? undefined : proxied.destroyed,
     },
     timestamp: Date.now(),
   });
