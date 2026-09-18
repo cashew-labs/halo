@@ -22,6 +22,10 @@ type E2ETestHarness = TestArtifacts["harness"] & {
 type E2EFixtures = {
   llm: LLMDriver;
   http: HttpService;
+  server: Exclude<
+    Awaited<ReturnType<typeof startWorkspaceServerProcess>>,
+    Error
+  >;
   app: ElectronTestApp;
   testArtifacts: TestArtifacts;
   harness: E2ETestHarness;
@@ -51,7 +55,7 @@ export const e2eTest = baseTest.extend<E2EFixtures>({
     const finished = await artifacts.finish();
     if (finished instanceof Error) throw finished;
   },
-  app: [
+  server: [
     async ({ testArtifacts, llm, http }, use) => {
       await using cleanup = new errore.AsyncDisposableStack();
       const server = await startWorkspaceServerProcess({
@@ -83,7 +87,6 @@ export const e2eTest = baseTest.extend<E2EFixtures>({
             "../../../packages/halo-cli/src/cli.ts",
           ),
           cliNodeExecutable: process.execPath,
-          testingApiEnabled: true,
         },
       });
       if (server instanceof Error) throw server;
@@ -91,6 +94,14 @@ export const e2eTest = baseTest.extend<E2EFixtures>({
         const closed = await server.close();
         if (closed instanceof Error) throw closed;
       });
+      await use(server);
+    },
+    { timeout: 60_000 },
+  ],
+  app: [
+    // The server fixture publishes discovery files before Electron opens.
+    async ({ testArtifacts, server: _server }, use) => {
+      await using cleanup = new errore.AsyncDisposableStack();
       const app = new ElectronTestApp(testArtifacts);
       cleanup.defer(async () => await app.quit());
       await app.open();
@@ -99,18 +110,17 @@ export const e2eTest = baseTest.extend<E2EFixtures>({
     // Concurrent process startup has its own budget, separate from test actions.
     { auto: true, timeout: 60_000 },
   ],
-  harness: async ({ app, testArtifacts }, use) => {
+  harness: async ({ app, server, testArtifacts }, use) => {
     await use({
       ...testArtifacts.harness,
-      tools: createHarnessTools(() => app.server.rpc),
+      tools: createHarnessTools(server.rpc.testApi),
       async loadSession(description) {
         await app.page.getByRole("main").waitFor();
         const loaded = await loadSessionDescription({
           description,
-          load: async (input) =>
-            await app.server.rpc.testHarness.loadSession(input),
+          load: async (input) => await server.rpc.testApi.seedSession(input),
           getToolIdentity: async (path) =>
-            await app.server.rpc.testHarness.getToolIdentity({ path }),
+            await server.rpc.testApi.getToolIdentity({ path }),
         });
         if (loaded instanceof Error) throw loaded;
         await app.page.reload();

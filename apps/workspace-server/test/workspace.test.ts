@@ -518,14 +518,51 @@ serverTest("rejects files outside the public workspace", async ({ server }) => {
   ).rejects.toThrow("'../outside.txt' is not a workspace file");
 });
 
-serverTest("disables the tool bridge outside E2E runs", async ({ server }) => {
-  await expect(
-    server.rpc.testHarness.invokeTool({
-      path: "files.write",
-      input: { path: "notes.md", content: "This must not be written" },
-    }),
-  ).rejects.toThrow("The testing API is unavailable outside an E2E run.");
+serverTest("reads files prepared by the tool fixture", async ({ server }) => {
+  await server.rpc.testApi.invokeTool({
+    path: "files.write",
+    input: { path: "notes.md", content: "Prepared notes" },
+  });
+  expect(await server.rpc.workspace.readFile({ path: "notes.md" })).toBe(
+    "Prepared notes",
+  );
 });
+
+serverTest(
+  "continues a seeded conversation after restarting the server",
+  async ({ server, llm }) => {
+    const saved = await server.rpc.testApi.seedSession({
+      title: "Saved notes",
+      messages: [
+        { role: "user", content: "Blue notebook", timestamp: Date.now() },
+      ],
+    });
+    expect(await server.rpc.sessions.list()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ ...saved, title: "Saved notes" }),
+      ]),
+    );
+    await server.stop();
+    await server.start();
+
+    const continued = server.rpc.sessions.prompt({
+      ...saved,
+      text: "Continue",
+    });
+    await llm.respond(({ messages }) =>
+      m.assistant(
+        messages
+          .filter((message) => message.role === "user")
+          .map((message) => messageText(message))
+          .join(" → "),
+      ),
+    );
+    await continued;
+    expect(assistantReplies(await server.rpc.sessions.snapshot(saved))).toEqual(
+      ["Blue notebook → Continue"],
+    );
+  },
+);
 
 serverTest(
   "serves each workspace independently in the same process",
@@ -1071,5 +1108,42 @@ serverTest(
         assistantReplies(await server.rpc.sessions.snapshot(session)),
       )
       .toContain("Continuing without it.");
+  },
+);
+
+serverTest(
+  "kills nested bash.run after the default 10s timeout",
+  { timeout: 25_000 },
+  async ({ server, llm }) => {
+    const session = await server.rpc.sessions.create();
+    const prompt = server.rpc.sessions.prompt({
+      ...session,
+      text: "Run the command",
+    });
+    await llm.respond(
+      m.tool.start("exec", {
+        id: "default-timeout",
+        arguments: {
+          js: `return await tools.bash.run({ command: "sleep 30" });`,
+        },
+      }),
+    );
+    await expect
+      .poll(
+        async () => {
+          const execution = sessionToolExecutions(
+            await server.rpc.sessions.snapshot(session),
+          ).find((item) => item.id === "default-timeout");
+          const content = execution?.result?.content;
+          if (content === undefined) return "";
+          return content
+            .flatMap((part) => (part.type === "text" ? [part.text] : []))
+            .join("");
+        },
+        { timeout: 20_000 },
+      )
+      .toMatch(/timed out after 10000 ms/i);
+    await llm.respond(m.assistant("Done."));
+    await prompt;
   },
 );

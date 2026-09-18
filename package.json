@@ -4,8 +4,8 @@
   "scripts": {
     "build": "turbo run build",
     "dev": "HALO_WORKSPACE_ROOT=$INIT_CWD/tmp/workspace HALO_USER_DATA=$INIT_CWD/tmp/workspace/.halo turbo run dev --filter=@get-halo/desktop --filter=@get-halo/control-plane --filter=@get-halo/web-app --filter=@get-halo/workspace-server --env-mode=loose",
-    "halo": "pnpm --silent --filter @get-halo/cli cli",
-    "halo-dev": "pnpm --silent --filter @get-halo/dev-cli cli",
+    "halo": "HALO_USER_DATA=$INIT_CWD/tmp/workspace/.halo pnpm --silent --filter @get-halo/cli cli",
+    "halo-dev": "HALO_USER_DATA=$INIT_CWD/tmp/workspace/.halo pnpm --silent --filter @get-halo/dev-cli cli",
     "tkstack": "pnpm --silent exec tkstack",
     "spec": "pnpm --silent exec tkstack",
     "walkthrough": "pnpm --silent exec tkstack",
@@ -28,13 +28,14 @@
   },
   "devDependencies": {
     "@oxlint/plugins": "^1.80.0",
+    "oxc-parser": "^0.150.0",
     "oxfmt": "^0.65.0",
     "oxlint": "^1.80.0",
     "oxlint-tsgolint": "7.0.2001",
     "tkstack": "github:tanishqkancharla/tkstack#main",
     "turbo": "^2.10.12",
     "typescript": "7.0.2",
-    "typescript6": "npm:typescript@5.9.3"
+    "vitest": "^5.0.1"
   },
   "engines": {
     "node": ">=22.19.0"

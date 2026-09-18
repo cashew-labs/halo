@@ -30,7 +30,6 @@
     "@orpc/client": "2.0.0-beta.29",
     "@types/node": "^22.20.1",
     "@types/pg": "^8.23.1",
-    "typescript": "7.0.2",
-    "vitest": "^4.1.11"
+    "typescript": "7.0.2"
   }
 }

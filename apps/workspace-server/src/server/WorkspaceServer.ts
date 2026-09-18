@@ -5,17 +5,8 @@ import { BrowserService } from "../browser/BrowserService.js";
 import type { Logger } from "@get-halo/logger";
 import * as errore from "errore";
 import { FilesystemService } from "../filesystem/FilesystemService.js";
-import {
-  closeHaloHttp,
-  listenHaloHttp,
-  serveHaloHttp,
-  type ListeningHaloHttp,
-  type ServingHaloHttp,
-  type WorkspaceGatewayIdentity,
-} from "./http.js";
 import { ExtensionHost } from "../extensions/ExtensionHost.js";
 import type { ExtensionRuntime } from "../extensions/startExtension.js";
-import type { HaloContext } from "./router.js";
 import { SessionRegistry } from "../sessions/SessionRegistry.js";
 import { WorkspaceService } from "../workspace/WorkspaceService.js";
 import { StaticAgentAuthority } from "../agent/runtime/AgentAuthority.js";
@@ -29,8 +20,17 @@ import type { LLMApi } from "../llm/LLMApi.js";
 import { TraceService, type TraceUploader } from "../traces/TraceService.js";
 import type { HaloEnvironment } from "../agent/workspacePrompt.js";
 import type { GoogleWebOAuthClient } from "@get-halo/config/workspaceServer";
+import {
+  closeHaloHttp,
+  listenHaloHttp,
+  serveHaloHttp,
+  type ListeningHaloHttp,
+  type ServingHaloHttp,
+  type WorkspaceGatewayIdentity,
+} from "./http.js";
+import type { WorkspaceServerReady } from "./WorkspaceServerReady.js";
 
-export type HaloServerOptions = {
+export type WorkspaceServerOptions = {
   environment: HaloEnvironment;
   llmApi: LLMApi;
   traceUploader?: TraceUploader;
@@ -41,9 +41,12 @@ export type HaloServerOptions = {
   cliNodeExecutable?: string;
   cliElectronRunAsNode?: boolean;
   extensionRuntime?: ExtensionRuntime;
-  gateway?: WorkspaceGatewayIdentity;
   googleWebOAuthClient?: GoogleWebOAuthClient;
-  testingApiEnabled?: boolean;
+  host: string;
+  port: number;
+  corsOrigins: readonly string[];
+  testApiEnabled?: boolean;
+  gateway?: WorkspaceGatewayIdentity;
   ownerUserId: Promise<string | Error>;
   logger: Logger;
   createCredentialVault: (input: {
@@ -52,27 +55,76 @@ export type HaloServerOptions = {
   }) => CredentialVault;
 };
 
-export class HaloServer {
-  private constructor(
-    private readonly resources: {
-      context: HaloContext;
-      filesystem: FilesystemService;
-      database: DatabaseClient;
-      sessionRepo: TursoSessionRepo;
-      http: ListeningHaloHttp;
-      requests: ServingHaloHttp;
-      traces: TraceService;
-    },
-  ) {}
+export class WorkspaceServer {
+  private readonly filesystem: FilesystemService;
+  private readonly database: DatabaseClient;
+  private readonly sessionRepo: TursoSessionRepo;
+  private readonly workspace: WorkspaceService;
+  private readonly sessions: SessionRegistry;
+  private readonly toolRuntime: ToolRuntime;
+  private readonly connectionService: ConnectionService;
+  private readonly browsers: BrowserService;
+  private readonly extensions: ExtensionHost;
+  private readonly http: ListeningHaloHttp;
+  private readonly requests: ServingHaloHttp;
+  private readonly traces: TraceService;
+
+  private constructor(ctx: {
+    filesystem: FilesystemService;
+    database: DatabaseClient;
+    sessionRepo: TursoSessionRepo;
+    workspace: WorkspaceService;
+    sessions: SessionRegistry;
+    toolRuntime: ToolRuntime;
+    connectionService: ConnectionService;
+    browsers: BrowserService;
+    extensions: ExtensionHost;
+    http: ListeningHaloHttp;
+    requests: ServingHaloHttp;
+    traces: TraceService;
+  }) {
+    const {
+      filesystem,
+      database,
+      sessionRepo,
+      workspace,
+      sessions,
+      toolRuntime,
+      connectionService,
+      browsers,
+      extensions,
+      http,
+      requests,
+      traces,
+    } = ctx;
+    this.filesystem = filesystem;
+    this.database = database;
+    this.sessionRepo = sessionRepo;
+    this.workspace = workspace;
+    this.sessions = sessions;
+    this.toolRuntime = toolRuntime;
+    this.connectionService = connectionService;
+    this.browsers = browsers;
+    this.extensions = extensions;
+    this.http = http;
+    this.requests = requests;
+    this.traces = traces;
+  }
 
   static async start(
-    options: HaloServerOptions & {
-      host: string;
-      port: number;
-      corsOrigins: readonly string[];
-    },
-  ): Promise<HaloServer | Error> {
+    options: WorkspaceServerOptions,
+  ): Promise<WorkspaceServer | Error> {
     await using cleanup = new errore.AsyncDisposableStack();
+    const http = await listenHaloHttp({
+      host: options.host,
+      port: options.port,
+    });
+    if (http instanceof Error) return http;
+    cleanup.defer(async () => {
+      const closed = await closeHaloHttp(http);
+      if (closed instanceof Error)
+        options.logger.warn({ event: "http-cleanup-failed", error: closed });
+    });
     const filesystem = new FilesystemService();
     cleanup.defer(async () => {
       const closed = await filesystem.close();
@@ -83,7 +135,7 @@ export class HaloServer {
         });
     });
 
-    const [workspace, http, ownerUserId] = await Promise.all([
+    const [workspace, ownerUserId] = await Promise.all([
       WorkspaceService.create({
         workspaceRoot: options.workspaceRoot,
         appDataDir: options.appDataDir,
@@ -93,18 +145,10 @@ export class HaloServer {
         cliNodeExecutable: options.cliNodeExecutable,
         cliElectronRunAsNode: options.cliElectronRunAsNode,
       }),
-      listenHaloHttp({ host: options.host, port: options.port }),
       options.ownerUserId,
     ]);
     if (!(workspace instanceof Error)) cleanup.defer(() => workspace.close());
-    if (!(http instanceof Error))
-      cleanup.defer(async () => {
-        const closed = await closeHaloHttp(http);
-        if (closed instanceof Error)
-          options.logger.warn({ event: "http-cleanup-failed", error: closed });
-      });
     if (workspace instanceof Error) return workspace;
-    if (http instanceof Error) return http;
     if (ownerUserId instanceof Error) return ownerUserId;
 
     const workspaceRoot = workspace.layout.root;
@@ -187,89 +231,88 @@ export class HaloServer {
           : options.extensionRuntime,
     });
     cleanup.defer(async () => await extensions.stop());
-    const context: HaloContext = {
+    const browsers = new BrowserService();
+    cleanup.defer(async () => await browsers.shutdown());
+    const sessions = new SessionRegistry({
+      environment: options.environment,
+      repo: sessionRepo,
+      llmApi: options.llmApi,
       traces,
-      browsers: new BrowserService(),
-      browserControlAllowed: false,
-      extensions,
-      workspace,
-      sessions: new SessionRegistry({
-        environment: options.environment,
-        repo: sessionRepo,
-        llmApi: options.llmApi,
-        traces,
-        model: options.llmApi.model,
-        filesystem,
-        layout: workspace.layout,
-        toolRuntime,
-      }),
-      connections: new ConnectionService(toolRuntime),
+      model: options.llmApi.model,
+      filesystem,
+      layout: workspace.layout,
       toolRuntime,
-      logger: options.logger,
-      testingApiEnabled: options.testingApiEnabled === true,
-    };
+    });
     cleanup.defer(async () => {
-      const closed = await context.sessions.shutdown();
+      const closed = await sessions.shutdown();
       if (closed instanceof Error)
         options.logger.warn({
           event: "sessions-cleanup-failed",
           error: closed,
         });
     });
+    const connectionService = new ConnectionService(toolRuntime);
+    cleanup.defer(() => connectionService.close());
     const requests = serveHaloHttp({
       ...http,
-      context,
+      context: {
+        traces,
+        browsers,
+        extensions,
+        workspace,
+        sessions,
+        connections: connectionService,
+        toolRuntime,
+        logger: options.logger,
+        browserControlAllowed: false,
+        testApiEnabled: options.testApiEnabled === true,
+      },
       corsOrigins: options.corsOrigins,
       gateway: options.gateway,
     });
     cleanup.defer(async () => await requests.close());
     await extensions.reload();
     cleanup.move();
-    return new HaloServer({
-      context,
+    return new WorkspaceServer({
       filesystem,
       database,
       sessionRepo,
+      workspace,
+      sessions,
+      toolRuntime,
+      connectionService,
+      browsers,
+      extensions,
       http,
       requests,
       traces,
     });
   }
 
-  get connections() {
-    return this.resources.http.connections;
-  }
-
-  getWorkspace() {
-    return this.resources.context.workspace.getWorkspace();
+  get ready(): WorkspaceServerReady {
+    return {
+      workspace: this.workspace.getWorkspace(),
+      connections: this.http.connections,
+    };
   }
 
   async close() {
-    const {
-      context,
-      filesystem,
-      database,
-      sessionRepo,
-      http,
-      requests,
-      traces,
-    } = this.resources;
-    await requests.close();
-    context.connections.close();
-    const sessionsClosed = await context.sessions.shutdown();
-    await traces.close();
-    await context.browsers.shutdown();
-    await context.extensions.stop();
-    const runtimeClosed = await context.toolRuntime.close();
-    const repoClosed = await sessionRepo.close();
-    const databaseClosed = await database.close();
-    const httpClosed = await closeHaloHttp(http);
-    context.workspace.close();
-    const filesystemClosed = await filesystem.close();
+    await this.requests.close();
+    this.connectionService.close();
+    const sessionsClosed = await this.sessions.shutdown();
+    await this.traces.close();
+    await this.browsers.shutdown();
+    await this.extensions.stop();
+    const toolsClosed = await this.toolRuntime.close();
+    const repoClosed = await this.sessionRepo.close();
+    const databaseClosed = await this.database.close();
+    const httpClosed = await closeHaloHttp(this.http);
+    this.workspace.close();
+    const filesystemClosed = await this.filesystem.close();
 
     if (httpClosed instanceof Error) return httpClosed;
     if (sessionsClosed instanceof Error) return sessionsClosed;
-    if (runtimeClosed instanceof Error) return runtimeClosed;
+    if (toolsClosed instanceof Error) return toolsClosed;
     if (repoClosed instanceof Error) return repoClosed;
     if (databaseClosed instanceof Error) return databaseClosed;
     if (filesystemClosed instanceof Error) return filesystemClosed;

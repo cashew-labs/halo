@@ -1,5 +1,5 @@
 import { KeyboardShortcuts } from "./KeyboardShortcuts.js";
-import { colors, spacing, text } from "maui";
+import { spacing, text } from "maui";
 import { style, useStyles } from "purse-styles";
 import { skipToken, useQuery } from "@tanstack/react-query";
 import { Redirect, Route, Router } from "wouter";
@@ -8,9 +8,8 @@ import type { SessionSummary } from "@get-halo/client";
 import type { AppInfo } from "./HostApi.js";
 import { useHost } from "./HostProvider.js";
 import { LoadingPage } from "./LoadingPage.tsx";
-import { MainPane } from "./main/MainPane.tsx";
+import { WorkspaceLayout } from "./WorkspaceLayout.js";
 import { ConnectionPage } from "./ConnectionPage.tsx";
-import { Sidebar } from "./sidebar/Sidebar.tsx";
 import { useSessionsQuery, useWorkspaceQuery } from "./api/ApiProvider.tsx";
 
 export function HaloApp() {
@@ -68,7 +67,6 @@ function WorkspaceShell({
   appInfo?: AppInfo;
 }) {
   const readyApp = useStyles(styles.readyApp);
-  const shell = useStyles(styles.shell);
   const errorClassName = useStyles(styles.error);
 
   return (
@@ -84,10 +82,7 @@ function WorkspaceShell({
         <Route path="/">
           <Redirect to={initialHostPath(sessions)} replace />
         </Route>
-        <div className={shell} data-testid="sessions-shell">
-          <Sidebar sessions={sessions} appInfo={appInfo} />
-          <MainPane sessions={sessions} />
-        </div>
+        <WorkspaceLayout sessions={sessions} appInfo={appInfo} />
       </Router>
     </div>
   );
@@ -103,23 +98,10 @@ const styles = {
   readyApp: style({
     position: "relative",
     width: "100%",
-    height: "100vh",
+    height: "100dvh",
     minWidth: 0,
     minHeight: 0,
     overflow: "hidden",
-  }),
-  shell: style({
-    display: "grid",
-    gridTemplateColumns: "240px minmax(0, 1fr)",
-    width: "100%",
-    height: "100vh",
-    minWidth: 0,
-    minHeight: 0,
-    overflow: "hidden",
-    backgroundColor: colors.gray[4],
-    "@media (max-width: 560px)": {
-      gridTemplateColumns: "180px minmax(0, 1fr)",
-    },
   }),
   error: style(
     text({ size: "xs", fontWeight: 500, color: "highContrast" }),

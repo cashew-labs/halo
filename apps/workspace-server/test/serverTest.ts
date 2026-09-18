@@ -4,14 +4,14 @@ import { createTestArtifacts } from "./TestArtifacts.js";
 import { createOpenAILLMApi } from "@get-halo/workspace-server/llm";
 import { HttpService, LLMDriver } from "@get-halo/workspace-server/testing";
 import { TestServer } from "./TestServer.js";
-import type { HaloServerOptions } from "@get-halo/workspace-server";
+import type { WorkspaceServerOptions } from "@get-halo/workspace-server";
 
 // Server setup and teardown can exceed Vitest's five-second default in CI.
 vi.setConfig({ testTimeout: 20_000 });
 
 type ServerOptions = {
   workspaceRoot?: string;
-  traceUploader?: HaloServerOptions["traceUploader"];
+  traceUploader?: WorkspaceServerOptions["traceUploader"];
 };
 
 export const serverTest = baseTest.extend<{

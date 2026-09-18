@@ -86,7 +86,9 @@ extensionE2eTest(
     const signedInPage = await signedInContext.newPage();
     await signedInPage.goto(new URL(route, plane.origin).toString());
 
+    await signedInPage.setViewportSize({ width: 390, height: 844 });
     const frame = signedInPage.getByTitle("greeting", { exact: true });
+    await expect(frame).toHaveCSS("height", "844px");
     await expect(frame).toHaveAttribute(
       "src",
       /\/workspace\/extensions\/greeting\/view\/$/,

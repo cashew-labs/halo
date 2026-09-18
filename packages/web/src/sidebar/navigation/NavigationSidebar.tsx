@@ -1,3 +1,4 @@
+import { useSidebar } from "../../WorkspaceLayout.js";
 import { createContext, useContext, useState, type ReactNode } from "react";
 import type { Key } from "react-aria-components";
 import { RouterProvider } from "react-aria-components";
@@ -20,6 +21,7 @@ export function useExpandSidebar() {
 
 export function NavigationSidebar(props: NavigationSidebarProps) {
   const [location, navigate] = useLocation();
+  const sidebar = useSidebar();
   const [expanded, setExpanded] = useState<Set<Key>>(() => {
     if (!location.startsWith("/files/")) return new Set();
     const segments = decodeURIComponent(location.slice("/files/".length)).split(
@@ -41,7 +43,12 @@ export function NavigationSidebar(props: NavigationSidebarProps) {
 
   return (
     <ExpandContext value={expand}>
-      <RouterProvider navigate={navigate}>
+      <RouterProvider
+        navigate={(path) => {
+          navigate(path);
+          sidebar.close();
+        }}
+      >
         <NavigationTree
           aria-label={props["aria-label"]}
           className={joinClassNames(treeClassName, props.className)}
@@ -60,6 +67,7 @@ const tree = style(flex({ direction: "column", gap: 4 }), {
   width: "100%",
   minWidth: 0,
   outline: "none",
+  "@media (max-width: 700px)": { gap: "16px" },
 });
 
 function canonicalRoute(route: string) {
