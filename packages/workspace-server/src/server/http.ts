@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import http, {
+import nodeHttp, {
   createServer,
   type Server as HttpServer,
   type IncomingMessage,
@@ -353,7 +353,7 @@ async function listen(
 
 function respondToUpgrade(socket: Duplex, statusCode: number) {
   socket.end(
-    `HTTP/1.1 ${statusCode} ${http.STATUS_CODES[statusCode]}\r\n` +
+    `HTTP/1.1 ${statusCode} ${nodeHttp.STATUS_CODES[statusCode]}\r\n` +
       "Connection: close\r\n" +
       "Content-Length: 0\r\n" +
       "\r\n",
