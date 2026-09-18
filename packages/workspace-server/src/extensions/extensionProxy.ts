@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import http, {
   type IncomingHttpHeaders,
   type IncomingMessage,
@@ -62,7 +63,34 @@ export async function serveExtensionUpgrade(ctx: {
   }
 
   const target = new URL(`${route.path}${ctx.url.search}`, origin);
+  // #region agent log
+  appendAgentLog({
+    hypothesisId: "H1,H2,H4",
+    location: "extensionProxy.ts:serveExtensionUpgrade:beforePrepare",
+    message: "Workspace extension upgrade before request preparation",
+    data: {
+      incoming: safeUrl(ctx.request.url),
+      target: safeUrl(target.toString()),
+      headers: safeUpgradeHeaders(ctx.request),
+      headBytes: ctx.head.byteLength,
+    },
+    timestamp: Date.now(),
+  });
+  // #endregion
   prepareRequest(ctx.request, target);
+  // #region agent log
+  appendAgentLog({
+    hypothesisId: "H1,H2,H4",
+    location: "extensionProxy.ts:serveExtensionUpgrade:afterPrepare",
+    message: "Workspace extension upgrade after request preparation",
+    data: {
+      outgoing: safeUrl(ctx.request.url),
+      targetOrigin: target.origin,
+      headers: safeUpgradeHeaders(ctx.request),
+    },
+    timestamp: Date.now(),
+  });
+  // #endregion
   const proxied = await proxyUpgrade(
     target.origin,
     ctx.request,
@@ -76,6 +104,19 @@ export async function serveExtensionUpgrade(ctx: {
         cause,
       }),
   );
+  // #region agent log
+  appendAgentLog({
+    hypothesisId: "H3",
+    location: "extensionProxy.ts:serveExtensionUpgrade:proxyResult",
+    message: "Workspace extension upgrade proxy completed",
+    data: {
+      error: proxied instanceof Error ? proxied.message : undefined,
+      clientDestroyed: ctx.socket.destroyed,
+      upstreamDestroyed: proxied instanceof Error ? undefined : proxied.destroyed,
+    },
+    timestamp: Date.now(),
+  });
+  // #endregion
   if (proxied instanceof Error) {
     console.error(proxied);
   }
@@ -139,6 +180,38 @@ function removePrivateHeaders(headers: IncomingHttpHeaders) {
 function firstHeader(value: string | string[] | undefined) {
   if (Array.isArray(value)) return value[0];
   return value;
+}
+
+function appendAgentLog(entry: {
+  hypothesisId: string;
+  location: string;
+  message: string;
+  data: object;
+  timestamp: number;
+}) {
+  fs.appendFileSync("/opt/cursor/logs/debug.log", `${JSON.stringify(entry)}\n`);
+}
+
+function safeUpgradeHeaders(request: IncomingMessage) {
+  return {
+    connection: request.headers.connection,
+    forwarded: request.headers.forwarded,
+    host: request.headers.host,
+    origin: request.headers.origin,
+    secWebSocketProtocolPresent:
+      request.headers["sec-websocket-protocol"] !== undefined,
+    upgrade: request.headers.upgrade,
+    xForwardedHost: request.headers["x-forwarded-host"],
+    xForwardedProto: request.headers["x-forwarded-proto"],
+  };
+}
+
+function safeUrl(value: string | undefined) {
+  const url = new URL(value === undefined ? "/" : value, "http://localhost");
+  return {
+    pathname: url.pathname,
+    queryKeys: [...url.searchParams.keys()],
+  };
 }
 
 function respondToUpgrade(socket: Duplex, statusCode: number) {
