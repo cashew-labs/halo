@@ -22,16 +22,16 @@ export class ToolApprovalService {
     approval: ToolApproval;
     signal: AbortSignal | undefined;
   }): Promise<ToolApprovalResponse> {
-    const { promise, resolve } = Promise.withResolvers<ToolApprovalResponse>();
-    const onAbort = () => this.finish(input.approval.id, "cancel");
-    this.pendingApprovals.set(input.approval.id, {
-      resolve,
-      signal: input.signal,
-      onAbort,
+    return await new Promise<ToolApprovalResponse>((resolve) => {
+      const onAbort = () => this.finish(input.approval.id, "cancel");
+      this.pendingApprovals.set(input.approval.id, {
+        resolve,
+        signal: input.signal,
+        onAbort,
+      });
+      input.signal?.addEventListener("abort", onAbort, { once: true });
+      if (input.signal?.aborted) this.finish(input.approval.id, "cancel");
     });
-    input.signal?.addEventListener("abort", onAbort, { once: true });
-    if (input.signal?.aborted) this.finish(input.approval.id, "cancel");
-    return await promise;
   }
 
   respond(input: {

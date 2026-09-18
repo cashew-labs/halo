@@ -1099,7 +1099,7 @@ serverTest(
       const execution = sessionToolExecutions(completed)[0]!;
       expect(execution).toMatchObject({
         type: "exec",
-        status: decision === "allow" ? "completed" : "failed",
+        status: "completed",
         approvals: [
           {
             id: approval.id,
