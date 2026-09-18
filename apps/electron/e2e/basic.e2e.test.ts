@@ -959,3 +959,117 @@ e2eTest("uses a dismissible sidebar on small screens", async ({ app }) => {
   await expect(open).toBeVisible();
   await expect(drawer).toHaveCount(0);
 });
+
+e2eTest(
+  "removes heading formatting with Backspace without deleting or joining text",
+  async ({ app }) => {
+    await app.server.rpc.workspace.writeFile({
+      path: "format.md",
+      content: "# First\n\nParagraph\n\n## Second",
+    });
+    await app.page
+      .getByRole("link", { name: "format.md", exact: true })
+      .click();
+    const editor = app.page
+      .getByRole("main", { name: "format.md" })
+      .getByLabel("format.md", { exact: true });
+
+    for (const name of ["First", "Second"]) {
+      await editor.getByRole("heading", { name }).click({ delay: 50 });
+      await editor.getByRole("heading", { name }).evaluate(async (heading) => {
+        const selectionChanged = new Promise<void>((resolve) => {
+          document.addEventListener("selectionchange", () => resolve(), {
+            once: true,
+          });
+        });
+        window.getSelection()!.collapse(heading.firstChild, 0);
+        await selectionChanged;
+      });
+      await app.page.keyboard.press("Backspace");
+      await expect(editor.locator("p", { hasText: name })).toHaveText(name);
+      await app.page.keyboard.press("ControlOrMeta+z");
+      await expect(editor.getByRole("heading", { name })).toBeVisible();
+      await app.page.keyboard.press("ControlOrMeta+Shift+z");
+      await expect(editor.locator("p", { hasText: name })).toHaveText(name);
+    }
+    await expect(
+      editor.locator(":scope > p").filter({ hasText: /\S/ }),
+    ).toHaveText(["First", "Paragraph", "Second"]);
+    await expect
+      .poll(async () =>
+        (
+          await app.server.rpc.workspace.readFile({ path: "format.md" })
+        ).trimEnd(),
+      )
+      .toBe("First\n\nParagraph\n\nSecond");
+    await app.page.reload();
+    await expect(editor.locator("h1, h2")).toHaveCount(0);
+    await expect(
+      editor.locator(":scope > p").filter({ hasText: /\S/ }),
+    ).toHaveText(["First", "Paragraph", "Second"]);
+  },
+);
+
+e2eTest(
+  "clears selected Markdown formatting and stops carrying it into new text",
+  async ({ app }) => {
+    await app.server.rpc.workspace.writeFile({
+      path: "format.md",
+      content: "# **Title**\n\n**Bold** and *italic*",
+    });
+    await app.page
+      .getByRole("link", { name: "format.md", exact: true })
+      .click();
+    const editor = app.page
+      .getByRole("main", { name: "format.md" })
+      .getByLabel("format.md", { exact: true });
+    await editor.click();
+    await app.page.keyboard.press("ControlOrMeta+a");
+    await app.page.keyboard.press("ControlOrMeta+\\");
+    await expect(editor.locator("h1, strong, em")).toHaveCount(0);
+    await expect(editor.locator("p")).toHaveText(["Title", "Bold and italic"]);
+    await app.page.keyboard.press("ControlOrMeta+z");
+    await expect(editor.locator("h1 strong")).toHaveText("Title");
+    await expect(editor.locator("p strong")).toHaveText("Bold");
+    await expect(editor.locator("em")).toHaveText("italic");
+    await app.page.keyboard.press("ControlOrMeta+Shift+z");
+    await expect(editor.locator("h1, strong, em")).toHaveCount(0);
+    await expect
+      .poll(
+        async () =>
+          await app.server.rpc.workspace.readFile({ path: "format.md" }),
+      )
+      .toBe("Title\n\nBold and italic");
+    await app.page.reload();
+    await expect(editor.locator("p")).toHaveText(["Title", "Bold and italic"]);
+    await expect(editor.locator("h1, strong, em")).toHaveCount(0);
+
+    await app.page
+      .getByRole("button", { name: "New session", exact: true })
+      .click();
+    const message = app.page
+      .getByRole("main", { name: "New session" })
+      .getByLabel("Message", { exact: true });
+    await message.fill("");
+    await app.page.keyboard.press("ControlOrMeta+b");
+    await app.page.keyboard.type("Bold");
+    await expect(message.locator("strong")).toHaveText("Bold");
+    await app.page.keyboard.press("ControlOrMeta+\\");
+    await app.page.keyboard.type(" plain");
+    await expect(message).toHaveText("Bold plain");
+    await expect(message.locator("strong")).toHaveText("Bold");
+    await app.page.keyboard.press("ControlOrMeta+a");
+    await app.page.keyboard.press("ControlOrMeta+\\");
+    await expect(message.locator("strong")).toHaveCount(0);
+    await expect(message).toHaveText("Bold plain");
+
+    await message.fill("");
+    await app.page.keyboard.type("# ");
+    await expect(message.locator("h1")).toHaveCount(1);
+    await app.page.keyboard.press("Backspace");
+    await expect(message.locator("h1")).toHaveCount(0);
+    await app.page.keyboard.type("Plain");
+    await expect(message.locator("h1")).toHaveCount(0);
+    await expect(message).toContainText("Plain");
+  },
+);
