@@ -67,6 +67,8 @@ retry, as it already does after a connection completes.
   reopening the session.
 - Connection requests keep their existing behavior.
 - The existing Maui card layout and Gmail-specific copy remain unchanged.
+- Gmail draft approvals use a mail icon; unrelated approvals use a generic
+  authorization icon.
 
 ## Non-goals
 
@@ -229,6 +231,8 @@ sessionToolExecutions [[packages/client/src/sessionState.ts#sessionToolExecution
       deriving `ToolExecution`.
 - [x] Keep card placement attached to the original `exec` result.
 - [x] Preserve pending, allowed-once, and denied card presentations.
+- [x] Select the mail icon only for Gmail draft approvals and a shield icon for
+      generic approvals.
 - [x] Keep raw arguments out of visible card copy.
 
 ### Phase 4: Verify the non-blocking lifecycle
@@ -238,7 +242,8 @@ sessionToolExecutions [[packages/client/src/sessionState.ts#sessionToolExecution
 - [x] Server test: allow records the decision, starts a continuation run, and
       consumes the grant on an identical retry.
 - [x] Server test: changed arguments create a new approval request.
-- [x] Electron E2E: pending Gmail approval card renders the requested layout.
+- [x] Electron E2E: Gmail and generic approval cards render their semantic
+      icons.
 - [x] Run `pnpm run check-affected`.
 - [x] Build the Electron E2E package and run the focused session-view test.
 - [x] Record a short Halo walkthrough showing that the initial run is not held

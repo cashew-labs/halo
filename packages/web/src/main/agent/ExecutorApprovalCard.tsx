@@ -1,6 +1,6 @@
 import { useMutation } from "@tanstack/react-query";
 import { background, Button, Flex, radius, shadow, Text } from "maui";
-import { Mail } from "maui/icons";
+import { Mail, ShieldTick } from "maui/icons";
 import { style, useStyles } from "purse-styles";
 import type { ToolApproval, ToolApprovalDecision } from "@get-halo/client";
 import { useApi } from "../../api/ApiProvider.tsx";
@@ -51,7 +51,11 @@ export function ExecutorApprovalCard({
       <Flex column gap={6} p={6}>
         <Flex column gap={4} alignItems="start">
           <Flex row gap={4}>
-            <Mail size="lg" />
+            {isGmailDraftApproval(approval) ? (
+              <Mail size="lg" data-approval-icon="mail" />
+            ) : (
+              <ShieldTick size="lg" data-approval-icon="generic" />
+            )}
             <Flex column gap={1}>
               <Text size="md" fontWeight={600}>
                 {copy.title}
@@ -91,7 +95,7 @@ export function ExecutorApprovalCard({
 }
 
 function approvalCopy(approval: ToolApproval) {
-  if (approval.toolPath.endsWith(".gmail.users.drafts.create")) {
+  if (isGmailDraftApproval(approval)) {
     return {
       title: "Create Gmail draft?",
       description:
@@ -102,6 +106,10 @@ function approvalCopy(approval: ToolApproval) {
     title: "Approve this tool action?",
     description: approval.message,
   };
+}
+
+function isGmailDraftApproval(approval: ToolApproval) {
+  return approval.toolPath.endsWith(".gmail.users.drafts.create");
 }
 
 function approvalStatusLabel(approval: ToolApproval) {

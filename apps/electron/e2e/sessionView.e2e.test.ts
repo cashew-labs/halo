@@ -389,6 +389,8 @@ e2eTest("shows a Gmail draft approval request", async ({ harness, app }) => {
     name: "Create Gmail draft? approval",
   });
   await expect(card).toBeVisible();
+  await expect(card.locator('[data-approval-icon="mail"]')).toBeVisible();
+  await expect(card.locator('[data-approval-icon="generic"]')).toHaveCount(0);
   await expect(
     card.getByText(
       "The agent wants to create a draft reply in your Gmail account.",
@@ -397,6 +399,36 @@ e2eTest("shows a Gmail draft approval request", async ({ harness, app }) => {
   await expect(card.getByRole("button", { name: "Deny" })).toBeVisible();
   await expect(card.getByRole("button", { name: "Allow once" })).toBeVisible();
 });
+
+e2eTest(
+  "shows a generic icon for other approvals",
+  async ({ harness, app }) => {
+    await harness.loadSession({
+      title: "Policy approval",
+      messages: [
+        m.user("Create a tool policy"),
+        m.exec({
+          js: "return await tools.executor.coreTools.policies.create({})",
+          approvals: [
+            {
+              id: "policy-approval",
+              toolPath: "executor.coreTools.policies.create",
+              message: "Approve executor.coreTools.policies.create?",
+              arguments: {},
+              status: "pending",
+            },
+          ],
+        }),
+      ],
+    });
+
+    const card = app.page.getByRole("region", {
+      name: "Approve this tool action? approval",
+    });
+    await expect(card.locator('[data-approval-icon="generic"]')).toBeVisible();
+    await expect(card.locator('[data-approval-icon="mail"]')).toHaveCount(0);
+  },
+);
 
 e2eTest(
   "starts connecting a tool from the connection card",
