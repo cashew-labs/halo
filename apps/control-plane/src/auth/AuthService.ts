@@ -66,11 +66,11 @@ export type AuthSession = {
   user: AuthUser;
 };
 
-export type DesktopAuthSession = AuthSession & {
+type DesktopAuthSession = AuthSession & {
   token: string;
 };
 
-export type GoogleAccessTokenIdentity = {
+type GoogleAccessTokenIdentity = {
   email: string;
   name: string;
   subject: string;

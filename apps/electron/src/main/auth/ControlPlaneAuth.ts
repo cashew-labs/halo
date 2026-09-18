@@ -10,7 +10,10 @@ import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
-import { type ControlPlaneClient } from "@get-halo/shared/controlPlaneContract";
+import {
+  type ControlPlaneClient,
+  type ControlPlaneSession,
+} from "@get-halo/shared/controlPlaneContract";
 import { SerialQueue } from "@get-halo/shared/SerialQueue";
 import { safeStorage } from "electron";
 import * as errore from "errore";
@@ -153,7 +156,13 @@ export class ControlPlaneAuth implements DesktopAuthentication {
 
   private async signInUnqueued() {
     if (this.createSession !== undefined) {
-      return await this.getSessionUnqueued();
+      const session = await this.getSessionUnqueued();
+      if (session === undefined) {
+        return new ControlPlaneAuthError({
+          operation: "sign in with Application Default Credentials",
+        });
+      }
+      return session;
     }
 
     const client = this.createClient();
@@ -231,7 +240,10 @@ export class ControlPlaneAuth implements DesktopAuthentication {
     return created;
   }
 
-  private async readSignedInSession(token: string, allowCreate: boolean) {
+  private async readSignedInSession(
+    token: string,
+    allowCreate: boolean,
+  ): Promise<ControlPlaneSession | Error | undefined> {
     const client = this.createClient(token);
     const authentication = await client.auth.session().catch(
       (cause) =>

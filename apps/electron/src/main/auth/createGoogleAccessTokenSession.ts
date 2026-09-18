@@ -49,7 +49,7 @@ export async function createGoogleAccessTokenSession(ctx: { origin: string }) {
     });
   }
 
-  const payload = await (response.json() as Promise<unknown>).catch(
+  const payload = await response.json().catch(
     (cause) =>
       new GoogleAccessTokenSessionError({
         operation: "read the control-plane session",

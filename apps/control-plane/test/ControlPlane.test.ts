@@ -13,6 +13,8 @@ import {
   type ControlPlaneClient,
 } from "@get-halo/shared/controlPlaneContract";
 import { writeWorkspaceServerConnection } from "@get-halo/shared/WorkspaceServerConnection";
+import { Type } from "@sinclair/typebox";
+import { Value } from "@sinclair/typebox/value";
 import { betterAuth } from "better-auth";
 import { testUtils } from "better-auth/plugins";
 import * as errore from "errore";
@@ -27,6 +29,13 @@ const testAuth = {
 };
 
 const desktopAuthState = "desktop-auth-state-0123456789abcdef";
+
+const googleAccessTokenSessionResponseSchema = Type.Object({
+  token: Type.String({ minLength: 1 }),
+  user: Type.Object({
+    email: Type.String(),
+  }),
+});
 
 function testLogger() {
   return new Logger({ sinks: [] });
@@ -332,10 +341,11 @@ controlPlaneTest(
       body: JSON.stringify({ accessToken: "adc-access-token" }),
     });
     expect(created.status).toBe(200);
-    const session = (await created.json()) as {
-      token: string;
-      user: { email: string };
-    };
+    // SAFETY: Response.json is untyped; googleAccessTokenSessionResponseSchema validates below.
+    const session = (await created.json()) as unknown;
+    if (!Value.Check(googleAccessTokenSessionResponseSchema, session)) {
+      throw new Error("Google access token session response was invalid");
+    }
     expect(session.user.email).toBe("adc@example.com");
 
     const authenticated = createControlPlaneRpcClient(

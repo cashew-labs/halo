@@ -373,6 +373,7 @@ async function readJsonBody(request: IncomingMessage) {
   }
   const raw = Buffer.concat(chunks).toString("utf8");
   return errore.try({
+    // SAFETY: JSON.parse is untyped; callers validate the result with TypeBox.
     try: () => JSON.parse(raw) as unknown,
     catch: (cause) =>
       new ControlPlaneHttpError({ detail: "parse JSON body", cause }),
