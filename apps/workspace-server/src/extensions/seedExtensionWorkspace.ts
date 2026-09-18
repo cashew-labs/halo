@@ -17,7 +17,7 @@ export async function seedExtensionWorkspace(
   layout: WorkspaceLayout,
 ) {
   const skillsDirectory = join(layout.root, ".agents", "skills");
-  for (const name of ["halo-extension", "maui"]) {
+  for (const name of ["halo-extension", "maui", "pdf"]) {
     const removed = await filesystem.remove(
       join(layout.agentDir, "skills", name),
       {
@@ -36,6 +36,13 @@ export async function seedExtensionWorkspace(
   });
   if (haloExtension instanceof Error)
     return new ExtensionSeedError({ cause: haloExtension });
+
+  const pdf = await copySkillDirectory({
+    filesystem,
+    source: join(import.meta.dirname, "skills", "pdf"),
+    destination: join(skillsDirectory, "pdf"),
+  });
+  if (pdf instanceof Error) return new ExtensionSeedError({ cause: pdf });
 
   const maui = await copySkillFile({
     filesystem,

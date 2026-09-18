@@ -6,12 +6,17 @@ import { maxBashTimeoutMs, runBash } from "./bash/run.js";
 import { editFile } from "./files/edit.js";
 import { patchFiles } from "./files/patch.js";
 import { readFile } from "./files/read.js";
+import { viewImage } from "./files/viewImage.js";
 import { writeFile } from "./files/write.js";
 
 const readParameters = Type.Object({
   path: Type.String(),
   offset: Type.Optional(Type.Number()),
   limit: Type.Optional(Type.Number()),
+});
+
+const viewImageParameters = Type.Object({
+  path: Type.String(),
 });
 
 const editParameters = Type.Object({
@@ -57,6 +62,11 @@ export function createAuthorizedCodingTools(input: {
       createReadTool(input.filesystem, input.cwd),
       input.authority,
       authorization("files", "read", "workspace.files.read"),
+    ),
+    withAuthority(
+      createViewImageTool(input.filesystem, input.cwd),
+      input.authority,
+      authorization("files", "viewImage", "workspace.files.read"),
     ),
     withAuthority(
       createEditTool(input.filesystem, input.cwd),
@@ -164,6 +174,41 @@ function createReadTool(
       return {
         content: [{ type: "text", text: result.text }],
         details: result,
+      };
+    },
+  };
+}
+
+function createViewImageTool(
+  filesystem: FilesystemService,
+  cwd: string,
+): AgentTool<
+  typeof viewImageParameters,
+  { path: string; mimeType: string; sizeBytes: number }
+> {
+  return {
+    name: "viewImage",
+    label: "View image",
+    description:
+      "View a PNG, JPEG, or WebP image from the active workspace. Source images must be 20 MiB or smaller.",
+    parameters: viewImageParameters,
+    async execute(_id, params) {
+      const result = await viewImage({ filesystem, cwd, input: params });
+      if (result instanceof Error) throw result;
+      return {
+        content: [
+          { type: "text", text: `Viewed image ${result.path}.` },
+          {
+            type: "image",
+            data: result.data,
+            mimeType: result.mimeType,
+          },
+        ],
+        details: {
+          path: result.path,
+          mimeType: result.mimeType,
+          sizeBytes: result.sizeBytes,
+        },
       };
     },
   };

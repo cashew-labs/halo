@@ -191,6 +191,7 @@ export function directToolIdentity(name: string): ToolIdentity {
     ["exec", "Exec"],
     ["patch", "Patch"],
     ["read", "Read"],
+    ["viewImage", "View image"],
     ["write", "Write"],
   ]);
   const label = labels.get(name);
