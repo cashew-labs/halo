@@ -1054,3 +1054,114 @@ e2eTest(
     ).not.toBeVisible();
   },
 );
+
+e2eTest(
+  "shows running sessions and keeps completed results unread until opened",
+  async ({ app, llm }) => {
+    const listRequests: string[] = [];
+    await app.page.route("**/rpc/sessions/list", async (route) => {
+      listRequests.push(route.request().url());
+      await route.abort();
+    });
+    // An interrupted transport must reconnect automatically before showing the list.
+    let summaryConnections = 0;
+    await app.page.route("**/rpc/sessions/watchSummaries", async (route) => {
+      summaryConnections++;
+      if (summaryConnections === 1) {
+        await route.fulfill({
+          status: 200,
+          contentType: "text/event-stream",
+          body: "",
+        });
+        return;
+      }
+      await route.continue();
+    });
+    await app.page.reload();
+
+    await app.page.getByRole("button", { name: "New session" }).click();
+    await app.page
+      .getByLabel("Message", { exact: true })
+      .fill("Prepare my report");
+    await app.page.getByRole("button", { name: "Send", exact: true }).click();
+    const row = app.page.getByRole("row").filter({
+      has: app.page.getByRole("link", {
+        name: "Prepare my report",
+        exact: true,
+      }),
+    });
+    const working = row.getByRole("img", { name: "Agent is working" });
+    const unread = row.getByRole("img", { name: "Unread result" });
+    await expect(working).toBeVisible();
+    await expect(unread).not.toBeVisible();
+
+    // Opening a running session must not count its future result as read.
+    await app.page.getByRole("button", { name: "New session" }).click();
+    await row.getByRole("link").click();
+    await expect(working).toBeVisible();
+    await app.page.getByRole("button", { name: "New session" }).click();
+    const response = await llm.stream();
+    response.write(m.assistant("The report is ready."));
+    await expect(working).toBeVisible();
+    response.end();
+    await expect(unread).toBeVisible();
+    await expect(working).not.toBeVisible();
+
+    await app.page.reload();
+    await expect(unread).toBeVisible();
+    await row.getByRole("link").click();
+    await expect(app.page.getByRole("log")).toContainText(
+      "The report is ready.",
+    );
+    await expect(unread).not.toBeVisible();
+    await app.page.reload();
+    await expect(row).toBeVisible();
+    await expect(unread).not.toBeVisible();
+
+    await app.page
+      .getByLabel("Message", { exact: true })
+      .fill("Add a conclusion");
+    await app.page.getByRole("button", { name: "Send", exact: true }).click();
+    await expect(working).toBeVisible();
+    await llm.respond(m.assistant("Here is the conclusion."));
+    await expect(working).not.toBeVisible();
+    await app.page.getByRole("button", { name: "New session" }).click();
+    await app.page.reload();
+    await expect(row).toBeVisible();
+    await expect(unread).not.toBeVisible();
+    expect(summaryConnections).toBeGreaterThanOrEqual(2);
+    expect(listRequests).toEqual([]);
+  },
+);
+
+e2eTest(
+  "shares unread results and read receipts between windows",
+  async ({ app, llm }) => {
+    await app.page.getByRole("button", { name: "New session" }).click();
+    await app.page
+      .getByLabel("Message", { exact: true })
+      .fill("Work while I am away");
+    await app.page.getByRole("button", { name: "Send", exact: true }).click();
+    await expect(
+      app.page.getByRole("img", { name: "Agent is working" }),
+    ).toBeVisible();
+    const otherWindow = await app.openWindow();
+    await otherWindow.getByRole("main").waitFor();
+    await otherWindow.getByRole("button", { name: "New session" }).click();
+    await app.page.getByRole("button", { name: "New session" }).click();
+    await llm.respond(m.assistant("Your result arrived while you were away."));
+    const unread = app.page.getByRole("img", { name: "Unread result" });
+    await expect(unread).toBeVisible();
+    await expect(
+      otherWindow.getByRole("img", { name: "Unread result" }),
+    ).toBeVisible();
+    await app.page
+      .getByRole("link", { name: "Work while I am away", exact: true })
+      .click();
+    await expect(unread).not.toBeVisible();
+    await expect(
+      otherWindow.getByRole("img", { name: "Unread result" }),
+    ).not.toBeVisible();
+    await otherWindow.close();
+  },
+);
