@@ -32,7 +32,7 @@ import {
   type DesktopAuthentication,
 } from "./DesktopAuthentication.js";
 import { ControlPlaneAuth } from "./auth/ControlPlaneAuth.js";
-import { createAdcDesktopIdentity } from "./auth/createAdcDesktopIdentity.js";
+import { createGoogleAccessTokenSession } from "./auth/createGoogleAccessTokenSession.js";
 import {
   closePendingOAuthCallbacks,
   registerDesktopApi,
@@ -123,7 +123,9 @@ app.whenReady().then(async () => {
       event.preventDefault();
       // oxlint-disable-next-line typescript/no-floating-promises -- Electron does not await event handlers; resume quitting after cleanup.
       appControl.close().then((closed) => {
-        if (closed instanceof Error) console.error(closed);
+        if (closed instanceof Error) {
+          logger.error({ event: "app-control-close-failed", error: closed });
+        }
         app.quit();
       });
     });
@@ -161,9 +163,12 @@ async function createDesktopAuthentication(): Promise<DesktopAuthentication> {
   }
 
   if (applicationConfig.mode === ApplicationMode.Development) {
-    return createLocalDesktopAuthentication({
-      dataDir: applicationConfig.dataDir,
-      identity: createAdcDesktopIdentity(),
+    return await ControlPlaneAuth.start({
+      origin: applicationConfig.controlPlaneOrigin,
+      createSession: async () =>
+        await createGoogleAccessTokenSession({
+          origin: applicationConfig.controlPlaneOrigin,
+        }),
     });
   }
 
@@ -226,7 +231,10 @@ app.on("window-all-closed", () => {
 
 app.on("will-quit", () => {
   void closePendingOAuthCallbacks().catch((cause) => {
-    console.warn("OAuth callback close failed:", cause);
+    logger.warn({
+      event: "oauth-callback-close-failed",
+      error: new Error("OAuth callback close failed", { cause }),
+    });
   });
   logger.destroy();
 });

@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@get-halo/config": "workspace:*",
+    "@get-halo/logger": "workspace:*",
     "@get-halo/shared": "workspace:*",
     "@orpc/server": "2.0.0-beta.29",
     "@sinclair/typebox": "^0.34.52",

@@ -12,11 +12,15 @@ import {
   RequestHeadersHandlerPlugin,
   ResponseHeadersHandlerPlugin,
 } from "@orpc/server/plugins";
+import { Type } from "@sinclair/typebox";
+import { Value } from "@sinclair/typebox/value";
+import type { Logger } from "@get-halo/logger";
 import * as errore from "errore";
 import {
   type AuthService,
   DesktopAuthRequiredError,
   InvalidDesktopSignInRequestError,
+  InvalidGoogleAccessTokenError,
 } from "../auth/AuthService.js";
 import {
   controlPlaneRpcRouter,
@@ -28,6 +32,10 @@ import {
   isWorkspaceProxyRequest,
   WorkspaceGateway,
 } from "../workspace/proxy.js";
+
+const googleAccessTokenSessionSchema = Type.Object({
+  accessToken: Type.String({ minLength: 1 }),
+});
 
 const requestUrlBase = "http://localhost";
 const webContentSecurityPolicy = [
@@ -82,6 +90,9 @@ export async function listenControlPlaneHttp(host: string, port: number) {
 export function serveControlPlaneHttp(ctx: {
   server: HttpServer;
   auth: AuthService;
+  corsOrigins: readonly string[];
+  googleAccessTokenSessions: boolean;
+  logger: Logger;
   workspace: WorkspaceService;
   webRoot: string;
   traces?: TraceIngestion;
@@ -93,7 +104,12 @@ export function serveControlPlaneHttp(ctx: {
       new ResponseHeadersHandlerPlugin(),
     ],
   });
-  const gateway = new WorkspaceGateway({ auth, workspace });
+  const gateway = new WorkspaceGateway({
+    auth,
+    corsOrigins: ctx.corsOrigins,
+    logger: ctx.logger,
+    workspace,
+  });
 
   server.removeListener("request", respondStarting);
   server.on("request", async (request, response) => {
@@ -101,8 +117,10 @@ export function serveControlPlaneHttp(ctx: {
       request,
       response,
       auth,
+      googleAccessTokenSessions: ctx.googleAccessTokenSessions,
       workspace,
       gateway,
+      logger: ctx.logger,
       traces,
       rpc,
       webRoot,
@@ -136,7 +154,9 @@ async function routeControlPlaneRequest(ctx: {
   request: IncomingMessage;
   response: ServerResponse;
   auth: AuthService;
+  googleAccessTokenSessions: boolean;
   gateway: WorkspaceGateway;
+  logger: Logger;
   traces?: TraceIngestion;
   workspace: WorkspaceService;
   rpc: RPCHandler<ControlPlaneContext>;
@@ -163,7 +183,7 @@ async function routeControlPlaneRequest(ctx: {
   }
 
   if (request.method === "GET" && url.pathname === "/api/desktop-auth/start") {
-    await serveDesktopAuthStart(response, auth, url);
+    await serveDesktopAuthStart(response, auth, url, ctx.logger);
     return;
   }
 
@@ -171,12 +191,21 @@ async function routeControlPlaneRequest(ctx: {
     request.method === "GET" &&
     url.pathname === "/api/desktop-auth/complete"
   ) {
-    await serveDesktopAuthCompletion(request, response, auth, url);
+    await serveDesktopAuthCompletion(request, response, auth, url, ctx.logger);
+    return;
+  }
+
+  if (
+    ctx.googleAccessTokenSessions &&
+    request.method === "POST" &&
+    url.pathname === "/api/dev/google-session"
+  ) {
+    await serveGoogleAccessTokenSession(request, response, auth, ctx.logger);
     return;
   }
 
   if (isBetterAuthRequest(url)) {
-    await serveBetterAuth(request, response, auth);
+    await serveBetterAuth(request, response, auth, ctx.logger);
     return;
   }
 
@@ -198,7 +227,13 @@ async function routeControlPlaneRequest(ctx: {
     return;
   }
 
-  await serveWebApp({ request, response, url, webRoot });
+  await serveWebApp({
+    request,
+    response,
+    url,
+    webRoot,
+    logger: ctx.logger,
+  });
 }
 
 function isPathWithin(pathname: string, root: string) {
@@ -209,6 +244,7 @@ async function serveDesktopAuthStart(
   response: ServerResponse,
   auth: AuthService,
   url: URL,
+  logger: Logger,
 ) {
   const callback = url.searchParams.get("callback");
   const state = url.searchParams.get("state");
@@ -226,7 +262,7 @@ async function serveDesktopAuthStart(
   }
 
   if (started instanceof Error) {
-    console.error(started);
+    logger.error({ event: "desktop-auth-start-failed", error: started });
     response.writeHead(500).end();
     return;
   }
@@ -246,6 +282,7 @@ async function serveDesktopAuthCompletion(
   response: ServerResponse,
   auth: AuthService,
   url: URL,
+  logger: Logger,
 ) {
   const callback = url.searchParams.get("callback");
   const state = url.searchParams.get("state");
@@ -271,7 +308,7 @@ async function serveDesktopAuthCompletion(
   }
 
   if (location instanceof Error) {
-    console.error(location);
+    logger.error({ event: "desktop-auth-complete-failed", error: location });
     response.writeHead(500).end();
     return;
   }
@@ -289,15 +326,69 @@ function isBetterAuthRequest(url: URL) {
   return url.pathname === "/api/auth" || url.pathname.startsWith("/api/auth/");
 }
 
+async function serveGoogleAccessTokenSession(
+  request: IncomingMessage,
+  response: ServerResponse,
+  auth: AuthService,
+  logger: Logger,
+) {
+  const body = await readJsonBody(request);
+  if (body instanceof Error) {
+    response.writeHead(400).end("Invalid Google access token session request.");
+    return;
+  }
+  if (!Value.Check(googleAccessTokenSessionSchema, body)) {
+    response.writeHead(400).end("Invalid Google access token session request.");
+    return;
+  }
+
+  const session = await auth.signInWithGoogleAccessToken(body.accessToken);
+  if (session instanceof InvalidGoogleAccessTokenError) {
+    response.writeHead(401).end("Google access token is invalid.");
+    return;
+  }
+  if (session instanceof Error) {
+    logger.error({
+      event: "google-access-token-session-failed",
+      error: session,
+    });
+    response.writeHead(500).end();
+    return;
+  }
+
+  const payload = Buffer.from(`${JSON.stringify(session)}\n`);
+  response
+    .writeHead(200, {
+      "cache-control": "no-store",
+      "content-length": payload.byteLength,
+      "content-type": "application/json; charset=utf-8",
+    })
+    .end(payload);
+}
+
+async function readJsonBody(request: IncomingMessage) {
+  const chunks: Buffer[] = [];
+  for await (const chunk of request) {
+    chunks.push(chunk);
+  }
+  const raw = Buffer.concat(chunks).toString("utf8");
+  return errore.try({
+    try: () => JSON.parse(raw) as unknown,
+    catch: (cause) =>
+      new ControlPlaneHttpError({ detail: "parse JSON body", cause }),
+  });
+}
+
 async function serveBetterAuth(
   request: IncomingMessage,
   response: ServerResponse,
   auth: AuthService,
+  logger: Logger,
 ) {
   const handled = await auth.handleHttp(request, response);
 
   if (handled instanceof Error) {
-    console.error(handled);
+    logger.error({ event: "better-auth-failed", error: handled });
     if (!response.writableEnded) response.writeHead(500).end();
   }
 }
@@ -325,6 +416,7 @@ async function serveWebApp(ctx: {
   response: ServerResponse;
   url: URL;
   webRoot: string;
+  logger: Logger;
 }) {
   const { request, response, url, webRoot } = ctx;
   if (request.method !== "GET" && request.method !== "HEAD") {
@@ -345,7 +437,7 @@ async function serveWebApp(ctx: {
 
   const file = await readWebFile(filePath);
   if (file instanceof Error) {
-    console.error(file);
+    ctx.logger.error({ event: "web-asset-read-failed", error: file });
     response.writeHead(500).end();
     return;
   }

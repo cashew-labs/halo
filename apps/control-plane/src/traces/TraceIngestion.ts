@@ -3,6 +3,7 @@ import { Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { promisify } from "node:util";
 import { gunzip } from "node:zlib";
+import type { Logger } from "@get-halo/logger";
 import { Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import * as errore from "errore";
@@ -30,16 +31,19 @@ class TraceArchiveError extends errore.createTaggedError({
 
 export class TraceIngestion {
   private readonly cloud: TraceCloud;
+  private readonly logger: Logger;
   private readonly workspace: WorkspaceService;
   private readonly audience: string;
 
   constructor(ctx: {
     cloud: TraceCloud;
+    logger: Logger;
     workspace: WorkspaceService;
     origin: string;
   }) {
-    const { cloud, workspace, origin } = ctx;
+    const { cloud, logger, workspace, origin } = ctx;
     this.cloud = cloud;
+    this.logger = logger;
     this.workspace = workspace;
     this.audience = new URL("/api/traces", origin).toString();
   }
@@ -54,13 +58,19 @@ export class TraceIngestion {
       return;
     }
     if (workspaceId instanceof Error) {
-      console.error(workspaceId);
+      this.logger.error({
+        event: "trace-identity-failed",
+        error: workspaceId,
+      });
       response.writeHead(503).end();
       return;
     }
     const registered = await this.workspace.hasWorkspace(workspaceId);
     if (registered instanceof Error) {
-      console.error(registered);
+      this.logger.error({
+        event: "trace-workspace-lookup-failed",
+        error: registered,
+      });
       response.writeHead(503).end();
       return;
     }
@@ -106,7 +116,7 @@ export class TraceIngestion {
       body,
     });
     if (uploaded instanceof Error) {
-      console.error(uploaded);
+      this.logger.error({ event: "trace-upload-failed", error: uploaded });
       response.writeHead(503).end();
       return;
     }

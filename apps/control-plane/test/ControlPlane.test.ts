@@ -1,3 +1,4 @@
+import { Logger } from "@get-halo/logger";
 import { gzipSync } from "node:zlib";
 import { TraceCloudDriver } from "./TraceCloudDriver.js";
 import fs from "node:fs/promises";
@@ -17,6 +18,7 @@ import { testUtils } from "better-auth/plugins";
 import * as errore from "errore";
 import { expect, test } from "vitest";
 import { ControlPlane } from "../src/server/ControlPlane.js";
+import { InvalidGoogleAccessTokenError } from "../src/auth/AuthService.js";
 
 const testAuth = {
   secret: "test-control-plane-auth-secret-key!",
@@ -25,6 +27,10 @@ const testAuth = {
 };
 
 const desktopAuthState = "desktop-auth-state-0123456789abcdef";
+
+function testLogger() {
+  return new Logger({ sinks: [] });
+}
 
 type ReceivedWorkspaceHeaders = {
   authorization?: string;
@@ -71,6 +77,7 @@ const controlPlaneTest = test.extend<{
         port: 0,
         auth: testAuth,
       },
+      logger: testLogger(),
       webRoot,
       traceCloud: traceCloud.cloud(),
     });
@@ -119,6 +126,7 @@ controlPlaneTest(
         port: 0,
         auth: testAuth,
       },
+      logger: testLogger(),
       webRoot,
     });
     if (plane instanceof Error) throw plane;
@@ -235,6 +243,147 @@ controlPlaneTest(
       authorization: "Bearer local-workspace-token",
       cookie: undefined,
     });
+  },
+);
+
+controlPlaneTest(
+  "reflects the Vite renderer origin on workspace CORS",
+  async ({ plane }) => {
+    const allowed = await fetch(`${plane.origin}/workspace/health`, {
+      headers: { origin: "http://localhost:1420" },
+    });
+    expect(allowed.status).toBe(401);
+    expect(allowed.headers.get("access-control-allow-origin")).toBe(
+      "http://localhost:1420",
+    );
+
+    const preflight = await fetch(`${plane.origin}/workspace/rpc`, {
+      method: "OPTIONS",
+      headers: {
+        origin: "http://localhost:1420",
+        "access-control-request-headers": "authorization",
+        "access-control-request-method": "POST",
+      },
+    });
+    expect(preflight.status).toBe(204);
+    expect(preflight.headers.get("access-control-allow-origin")).toBe(
+      "http://localhost:1420",
+    );
+    expect(preflight.headers.get("access-control-allow-headers")).toBe(
+      "authorization, content-type",
+    );
+
+    const rejected = await fetch(`${plane.origin}/workspace/health`, {
+      headers: { origin: "https://evil.example" },
+    });
+    expect(rejected.status).toBe(401);
+    expect(rejected.headers.get("access-control-allow-origin")).toBeNull();
+  },
+);
+
+controlPlaneTest(
+  "exchanges a Google access token for a bearer workspace session",
+  async ({ appDataDir, webRoot }) => {
+    await using cleanup = new errore.AsyncDisposableStack();
+    const plane = await ControlPlane.start({
+      config: {
+        deployment: "local",
+        workspace: { deployment: "local" },
+        appDataDir,
+        port: 0,
+        auth: testAuth,
+      },
+      logger: testLogger(),
+      webRoot,
+      verifyGoogleAccessToken: async (accessToken) => {
+        if (accessToken !== "adc-access-token") {
+          return new InvalidGoogleAccessTokenError();
+        }
+        return {
+          email: "adc@example.com",
+          name: "ADC User",
+          subject: "adc-subject-1",
+        };
+      },
+    });
+    if (plane instanceof Error) throw plane;
+    cleanup.defer(async () => {
+      const closed = await plane.close();
+      if (closed instanceof Error) console.warn(closed);
+    });
+
+    const invalidBody = await fetch(`${plane.origin}/api/dev/google-session`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    expect(invalidBody.status).toBe(400);
+
+    const invalidToken = await fetch(`${plane.origin}/api/dev/google-session`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ accessToken: "nope" }),
+    });
+    expect(invalidToken.status).toBe(401);
+
+    const created = await fetch(`${plane.origin}/api/dev/google-session`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ accessToken: "adc-access-token" }),
+    });
+    expect(created.status).toBe(200);
+    const session = (await created.json()) as {
+      token: string;
+      user: { email: string };
+    };
+    expect(session.user.email).toBe("adc@example.com");
+
+    const authenticated = createControlPlaneRpcClient(
+      plane.origin,
+      session.token,
+    );
+    expect(await authenticated.auth.session()).toMatchObject({
+      status: "signed-in",
+      session: { user: { email: "adc@example.com" } },
+    });
+
+    const workspaceServer = createServer((_request, response) => {
+      response.writeHead(200).end("workspace healthy");
+    });
+    await new Promise<void>((resolveListen, rejectListen) => {
+      workspaceServer.once("error", rejectListen);
+      workspaceServer.listen(0, "127.0.0.1", resolveListen);
+    });
+    cleanup.defer(
+      async () =>
+        await new Promise<void>((resolveClose) => {
+          workspaceServer.close(() => resolveClose());
+        }),
+    );
+
+    // SAFETY: Node returns a TCP address after successfully listening with a numeric port.
+    const address = workspaceServer.address() as AddressInfo;
+    const published = await writeWorkspaceServerConnection({
+      appDataDir,
+      connection: {
+        workspaceRoot: "/test/workspace",
+        origin: `http://127.0.0.1:${address.port}`,
+        token: "local-workspace-token",
+      },
+    });
+    if (published instanceof Error) throw published;
+
+    const health = await fetch(`${plane.origin}/workspace/health`, {
+      headers: {
+        authorization: `Bearer ${session.token}`,
+        origin: "http://localhost:1420",
+      },
+    });
+    expect(health.status).toBe(200);
+    expect(await health.text()).toBe("workspace healthy");
+    expect(health.headers.get("access-control-allow-origin")).toBe(
+      "http://localhost:1420",
+    );
   },
 );
 

@@ -123,7 +123,7 @@ importers:
         version: 1.80.0
       '@tanishqkancharla/diffmap':
         specifier: github:tanishqkancharla/diffmap#main
-        version: https://codeload.github.com/tanishqkancharla/diffmap/tar.gz/8a7703dfcd6f13da4e00cb7c5d3c364a5b65185e(@babel/runtime@7.29.7)(@codemirror/search@6.7.1)(@codemirror/theme-one-dark@6.1.3)(@floating-ui/dom@1.8.0)(@shikijs/themes@4.3.1)(@tiptap/core@3.29.2(@tiptap/pm@3.29.2))(@tiptap/extensions@3.29.2(@tiptap/core@3.29.2(@tiptap/pm@3.29.2))(@tiptap/pm@3.29.2))(@types/node@24.13.3)(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(codemirror@6.0.2)(esbuild@0.28.2)(jiti@2.7.0)(supports-color@8.1.1)(terser@5.49.0)(typescript@7.0.2)(yaml@2.9.0)
+        version: https://codeload.github.com/tanishqkancharla/diffmap/tar.gz/bcae41ac345f95ae83e91dc62c4ee16134b2d853(@babel/runtime@7.29.7)(@codemirror/search@6.7.1)(@codemirror/theme-one-dark@6.1.3)(@floating-ui/dom@1.8.0)(@shikijs/themes@4.3.1)(@tiptap/core@3.29.2(@tiptap/pm@3.29.2))(@tiptap/extensions@3.29.2(@tiptap/core@3.29.2(@tiptap/pm@3.29.2))(@tiptap/pm@3.29.2))(@types/node@24.13.3)(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(codemirror@6.0.2)(esbuild@0.28.2)(jiti@2.7.0)(supports-color@8.1.1)(terser@5.49.0)(typescript@7.0.2)(yaml@2.9.0)
       oxc-parser:
         specifier: ^0.150.0
         version: 0.150.0
@@ -151,6 +151,9 @@ importers:
       '@get-halo/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@get-halo/logger':
+        specifier: workspace:*
+        version: link:../../packages/logger
       '@get-halo/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -336,6 +339,9 @@ importers:
       '@get-halo/client':
         specifier: workspace:*
         version: link:../../packages/client
+      '@get-halo/logger':
+        specifier: workspace:*
+        version: link:../../packages/logger
       '@get-halo/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -690,6 +696,9 @@ importers:
       '@get-halo/client':
         specifier: workspace:*
         version: link:../client
+      '@get-halo/logger':
+        specifier: workspace:*
+        version: link:../logger
       '@get-halo/shared':
         specifier: workspace:*
         version: link:../shared
@@ -3191,8 +3200,8 @@ packages:
     resolution: {integrity: sha512-4BAffykYOgO+5nzBWYwE3W90sBgLJoUPRWWcL8wlyiM8IB8ipJz3UMJ9KXQd1RKQXpKp8Tutn80HZtWsu2u76w==}
     engines: {node: '>=10'}
 
-  '@tanishqkancharla/diffmap@https://codeload.github.com/tanishqkancharla/diffmap/tar.gz/8a7703dfcd6f13da4e00cb7c5d3c364a5b65185e':
-    resolution: {gitHosted: true, integrity: sha512-47+YmUEEAjT6klzVp6bEBew6mSuO45lINAJshN7NqjpAfdhXFhAO0i51/EH+zmhkY10RuzKrcGQMokgb7QXn9g==, tarball: https://codeload.github.com/tanishqkancharla/diffmap/tar.gz/8a7703dfcd6f13da4e00cb7c5d3c364a5b65185e}
+  '@tanishqkancharla/diffmap@https://codeload.github.com/tanishqkancharla/diffmap/tar.gz/bcae41ac345f95ae83e91dc62c4ee16134b2d853':
+    resolution: {gitHosted: true, integrity: sha512-/3olc3fLsj5rrl47HA0XqHIBD8dmpCE6SyROu6M7/TlKHtKF+HC6cY23Axg6fQSVf/SXRQ39uILFXuCx8eSyWw==, tarball: https://codeload.github.com/tanishqkancharla/diffmap/tar.gz/bcae41ac345f95ae83e91dc62c4ee16134b2d853}
     version: 0.1.4
     engines: {node: '>=22'}
     hasBin: true
@@ -11245,7 +11254,7 @@ snapshots:
     dependencies:
       defer-to-connect: 2.0.1
 
-  '@tanishqkancharla/diffmap@https://codeload.github.com/tanishqkancharla/diffmap/tar.gz/8a7703dfcd6f13da4e00cb7c5d3c364a5b65185e(@babel/runtime@7.29.7)(@codemirror/search@6.7.1)(@codemirror/theme-one-dark@6.1.3)(@floating-ui/dom@1.8.0)(@shikijs/themes@4.3.1)(@tiptap/core@3.29.2(@tiptap/pm@3.29.2))(@tiptap/extensions@3.29.2(@tiptap/core@3.29.2(@tiptap/pm@3.29.2))(@tiptap/pm@3.29.2))(@types/node@24.13.3)(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(codemirror@6.0.2)(esbuild@0.28.2)(jiti@2.7.0)(supports-color@8.1.1)(terser@5.49.0)(typescript@7.0.2)(yaml@2.9.0)':
+  '@tanishqkancharla/diffmap@https://codeload.github.com/tanishqkancharla/diffmap/tar.gz/bcae41ac345f95ae83e91dc62c4ee16134b2d853(@babel/runtime@7.29.7)(@codemirror/search@6.7.1)(@codemirror/theme-one-dark@6.1.3)(@floating-ui/dom@1.8.0)(@shikijs/themes@4.3.1)(@tiptap/core@3.29.2(@tiptap/pm@3.29.2))(@tiptap/extensions@3.29.2(@tiptap/core@3.29.2(@tiptap/pm@3.29.2))(@tiptap/pm@3.29.2))(@types/node@24.13.3)(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(codemirror@6.0.2)(esbuild@0.28.2)(jiti@2.7.0)(supports-color@8.1.1)(terser@5.49.0)(typescript@7.0.2)(yaml@2.9.0)':
     dependencies:
       '@pierre/diffs': 1.4.1(@shikijs/themes@4.3.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@vitejs/plugin-react': 6.1.1(vite@8.2.2(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.49.0)(tsx@4.23.13)(yaml@2.9.0))
