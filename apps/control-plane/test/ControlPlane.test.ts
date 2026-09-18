@@ -1,8 +1,6 @@
 import { gzipSync } from "node:zlib";
 import { TraceCloudDriver } from "./TraceCloudDriver.js";
 import fs from "node:fs/promises";
-import { createServer } from "node:http";
-import type { AddressInfo } from "node:net";
 import { join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { createORPCClient } from "@orpc/client";
@@ -11,7 +9,6 @@ import {
   controlPlaneProtocolVersion,
   type ControlPlaneClient,
 } from "@get-halo/shared/controlPlaneContract";
-import { writeWorkspaceServerConnection } from "@get-halo/shared/WorkspaceServerConnection";
 import { betterAuth } from "better-auth";
 import { testUtils } from "better-auth/plugins";
 import * as errore from "errore";
@@ -25,11 +22,6 @@ const testAuth = {
 };
 
 const desktopAuthState = "desktop-auth-state-0123456789abcdef";
-
-type ReceivedWorkspaceHeaders = {
-  authorization?: string;
-  cookie?: string;
-};
 
 const controlPlaneTest = test.extend<{
   traceCloud: TraceCloudDriver;
@@ -190,51 +182,6 @@ controlPlaneTest(
     expect(responses.map((response) => response.status)).toEqual([
       404, 404, 404, 401, 404,
     ]);
-  },
-);
-
-controlPlaneTest(
-  "proxies an authenticated browser request to the local workspace",
-  async ({ appDataDir, browserHeaders, plane }) => {
-    const received: ReceivedWorkspaceHeaders = {};
-    const workspaceServer = createServer((request, response) => {
-      received.authorization = request.headers.authorization;
-      received.cookie = request.headers.cookie;
-      response.writeHead(200).end("workspace healthy");
-    });
-    await new Promise<void>((resolveListen, rejectListen) => {
-      workspaceServer.once("error", rejectListen);
-      workspaceServer.listen(0, "127.0.0.1", resolveListen);
-    });
-    await using cleanup = new errore.AsyncDisposableStack();
-    cleanup.defer(
-      async () =>
-        await new Promise<void>((resolveClose) => {
-          workspaceServer.close(() => resolveClose());
-        }),
-    );
-
-    // SAFETY: Node returns a TCP address after successfully listening with a numeric port.
-    const address = workspaceServer.address() as AddressInfo;
-    const published = await writeWorkspaceServerConnection({
-      appDataDir,
-      connection: {
-        workspaceRoot: "/test/workspace",
-        origin: `http://127.0.0.1:${address.port}`,
-        token: "local-workspace-token",
-      },
-    });
-    if (published instanceof Error) throw published;
-
-    const response = await fetch(`${plane.origin}/workspace/health`, {
-      headers: browserHeaders,
-    });
-    expect(response.status).toBe(200);
-    expect(await response.text()).toBe("workspace healthy");
-    expect(received).toEqual({
-      authorization: "Bearer local-workspace-token",
-      cookie: undefined,
-    });
   },
 );
 

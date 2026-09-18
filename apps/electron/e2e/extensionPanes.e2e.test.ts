@@ -24,6 +24,22 @@ e2eTest(
 );
 
 e2eTest(
+  "opens an extension WebSocket from the workspace sidebar",
+  async ({ app, harness }) => {
+    await harness.loadExtension("./fixtures/websocket-greeting");
+
+    await app.page
+      .getByRole("link", { name: "WebSocket Greeting", exact: true })
+      .click();
+
+    const frame = app.page
+      .getByTitle("WebSocket Greeting", { exact: true })
+      .contentFrame();
+    await expect(frame.getByRole("status")).toHaveText("Hello from WebSocket");
+  },
+);
+
+e2eTest(
   "syncs tasks from a separate browser into an open Halo pane without losing its draft",
   async ({ app, harness }) => {
     e2eTest.setTimeout(240_000);

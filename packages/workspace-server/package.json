@@ -42,6 +42,7 @@
     "effect": "4.0.0-beta.59",
     "errore": "^0.14.1",
     "google-auth-library": "^11.0.2",
+    "httpxy": "^0.5.5",
     "libretto-browser-tools": "^0.1.2",
     "maui": "npm:@tanishqkancharla/maui@0.0.19",
     "playwright": "1.62.1",

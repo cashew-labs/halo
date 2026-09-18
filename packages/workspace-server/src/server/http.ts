@@ -1,11 +1,12 @@
 import crypto from "node:crypto";
-import {
+import nodeHttp, {
   createServer,
   type Server as HttpServer,
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
 import type { AddressInfo } from "node:net";
+import type { Duplex } from "node:stream";
 import { RPCHandler, type RPCHandlerOptions } from "@orpc/server/node";
 import { CORSHandlerPlugin } from "@orpc/server/plugins";
 import { anyAbortSignal } from "@orpc/shared";
@@ -17,6 +18,7 @@ import { extensionToolRouter } from "../extensions/extensionsRouter.js";
 import {
   isExtensionProxyRequest,
   serveExtensionRequest,
+  serveExtensionUpgrade,
 } from "../extensions/extensionProxy.js";
 
 const localConnectionHost = "127.0.0.1";
@@ -103,6 +105,8 @@ export function serveHaloHttp(options: {
 }): ServingHaloHttp {
   const shutdown = new AbortController();
   const pendingRequests = new Set<Promise<void>>();
+  const pendingUpgrades = new Set<Promise<void>>();
+  const upgradeSockets = new Set<Duplex>();
   const cliToken = options.connections.cli.token;
   const rendererToken = options.connections.renderer.token;
   const identityVerifier = new OAuth2Client();
@@ -225,10 +229,64 @@ export function serveHaloHttp(options: {
     cleanup.defer(() => pendingRequests.delete(pending));
     await pending;
   });
+  const handleUpgrade = async (
+    request: IncomingMessage,
+    socket: Duplex,
+    head: Buffer,
+  ) => {
+    if (shutdown.signal.aborted) {
+      respondToUpgrade(socket, 503);
+      return;
+    }
+    const authorization = await authorizeWorkspaceRequest({
+      authorization: request.headers.authorization,
+      cliToken,
+      rendererToken,
+      gateway: options.gateway,
+      identityVerifier,
+    });
+    if (authorization instanceof Error) {
+      options.context.logger.warn({
+        event: "workspace-gateway-authentication-failed",
+        error: authorization,
+      });
+      respondToUpgrade(socket, 401);
+      return;
+    }
+    if (authorization === undefined) {
+      respondToUpgrade(socket, 401);
+      return;
+    }
+    const url = new URL(
+      request.url === undefined ? "/" : request.url,
+      "http://localhost",
+    );
+    if (!isExtensionProxyRequest(url)) {
+      respondToUpgrade(socket, 404);
+      return;
+    }
+    await serveExtensionUpgrade({
+      extensions: options.context.extensions,
+      request,
+      socket,
+      head,
+      url,
+    });
+  };
+  options.server.on("upgrade", async (request, socket, head) => {
+    upgradeSockets.add(socket);
+    socket.once("close", () => upgradeSockets.delete(socket));
+    const pending = handleUpgrade(request, socket, head);
+    pendingUpgrades.add(pending);
+    using cleanup = new errore.DisposableStack();
+    cleanup.defer(() => pendingUpgrades.delete(pending));
+    await pending;
+  });
   return {
     async close() {
       shutdown.abort(new HaloRequestsClosedError());
-      await Promise.all(pendingRequests);
+      for (const socket of upgradeSockets) socket.destroy();
+      await Promise.all([...pendingRequests, ...pendingUpgrades]);
     },
   };
 }
@@ -291,4 +349,13 @@ async function listen(
     });
     server.listen(options.port, options.host, () => resolve(undefined));
   });
+}
+
+function respondToUpgrade(socket: Duplex, statusCode: number) {
+  socket.end(
+    `HTTP/1.1 ${statusCode} ${nodeHttp.STATUS_CODES[statusCode]}\r\n` +
+      "Connection: close\r\n" +
+      "Content-Length: 0\r\n" +
+      "\r\n",
+  );
 }

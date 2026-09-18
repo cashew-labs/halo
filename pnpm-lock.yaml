@@ -169,6 +169,9 @@ importers:
       google-auth-library:
         specifier: ^11.0.2
         version: 11.0.2(supports-color@8.1.1)
+      httpxy:
+        specifier: ^0.5.5
+        version: 0.5.5
       pg:
         specifier: ^8.23.0
         version: 8.23.0
@@ -868,6 +871,9 @@ importers:
       google-auth-library:
         specifier: ^11.0.2
         version: 11.0.2(supports-color@8.1.1)
+      httpxy:
+        specifier: ^0.5.5
+        version: 0.5.5
       libretto-browser-tools:
         specifier: ^0.1.2
         version: 0.1.2(@earendil-works/pi-coding-agent@0.85.1(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(supports-color@8.1.1)(zod@4.6.1))(supports-color@8.1.1)(ws@8.21.1)(zod@4.6.1))(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(supports-color@8.1.1)(zod@4.6.1))
@@ -5650,6 +5656,9 @@ packages:
   https-proxy-agent@7.0.6:
     resolution: {integrity: sha512-vK9P5/iUfdl95AI+JVyUuIcVtd4ofvtrOr3HNtM2yxC9bnMbEdp3x01OhQNnjb8IJYi38VlTE3mBXwcfvywuSw==}
     engines: {node: '>= 14'}
+
+  httpxy@0.5.5:
+    resolution: {integrity: sha512-uDjmnPyp1q4Sgzf3w+J/Fc6UqcCEj0x4Wjp7OqK5dGhNeDgpyrAmnS6ey8QWrX3SWDon2DMKf9sBa5X9+CVyMA==}
 
   human-signals@2.1.0:
     resolution: {integrity: sha512-B4FFZ6q/T2jhhksgkbEW3HBvWIfDW85snkQgawt07S7J5QXTk6BkNV+0yAeZrM5QpMAdYlocGoljn0sJ/WQkFw==}
@@ -14057,6 +14066,8 @@ snapshots:
       debug: 4.4.3(supports-color@8.1.1)
     transitivePeerDependencies:
       - supports-color
+
+  httpxy@0.5.5: {}
 
   human-signals@2.1.0: {}
 
