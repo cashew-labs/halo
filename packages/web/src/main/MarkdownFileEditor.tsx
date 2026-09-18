@@ -1,5 +1,3 @@
-import { HybridMarkdownEditor } from "./HybridMarkdownEditor.js";
-import { hybridMarkdownEnabled } from "./hybridMarkdownEnabled.js";
 import { EditorContent } from "@tiptap/react";
 import { useMemo, useState } from "react";
 import { colors, flex } from "maui";
@@ -9,7 +7,7 @@ import { useMarkdownEditor } from "./useMarkdownEditor.js";
 import { markdownImage } from "./markdownImage.js";
 import { useApi } from "../api/ApiProvider.js";
 
-function RichMarkdownFileEditor({
+export function MarkdownFileEditor({
   path,
   loaded,
 }: {
@@ -62,35 +60,3 @@ const editorClass = style(flex({ direction: "column" }), {
     pointerEvents: "none",
   },
 });
-
-export function MarkdownFileEditor(props: { path: string; loaded: string }) {
-  return hybridMarkdownEnabled() ? (
-    <HybridMarkdownFileEditor {...props} />
-  ) : (
-    <RichMarkdownFileEditor {...props} />
-  );
-}
-
-function HybridMarkdownFileEditor({
-  path,
-  loaded,
-}: {
-  path: string;
-  loaded: string;
-}) {
-  const autosave = useAutosaveFile({ path, loaded });
-  const api = useApi();
-  const [error, setError] = useState<string>();
-  return (
-    <>
-      {error !== undefined && <p role="alert">{error}</p>}
-      <HybridMarkdownEditor
-        content={loaded}
-        onChange={autosave.onChange}
-        aria-label={path}
-        size="sm"
-        resources={{ api, documentPath: path, onError: setError }}
-      />
-    </>
-  );
-}
