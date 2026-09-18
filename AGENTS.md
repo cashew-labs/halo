@@ -19,8 +19,8 @@ Always adhere to ISO 24495-1 Technical Language Standard for responses, except t
 - `pnpm run test:e2e:release` - Run all package E2Es without Turbo cache reuse. CI runs this only on release PRs; `Release ready` requires it to pass. Ordinary PRs and post-merge release jobs do not run E2Es.
 - For Electron E2Es, build with `pnpm --filter @get-halo/desktop test:e2e:build` after app code changes, then use `pnpm --filter @get-halo/desktop test:e2e:run <test-file>` to reuse that package while editing tests. Electron E2Es use Playwright's default of half the logical CPU cores; pass `--workers=1` to reduce resource usage.
 - `pnpm review:sync` - Prepare the latest untouched upstream Diffmap and the separately maintained custom viewer.
-- `pnpm walkthrough <upstream.md> <custom.md> --root <source-workspace>` - Serve both review versions on ports 4178 and 4179. Use the [code-walkthrough skill](.agents/skills/code-walkthrough/SKILL.md) to author both documents from the same changes.
-- `pnpm spec <file>` / `pnpm exec diffmap <file>` - Serve an individual spec or document as a local Diffmap page.
+- `pnpm review:compare <upstream.md> <custom.md> --root <source-workspace>` - Serve both review versions on ports 4178 and 4179 when a comparison is requested. Use the [diffmap-compare skill](.agents/skills/diffmap-compare/SKILL.md) to author both documents from the same changes.
+- `pnpm spec <file>` / `pnpm walkthrough <file>` / `pnpm exec diffmap <file>` - Serve a spec or code walkthrough as a local Diffmap page.
 - `pnpm prerelease <version>` - Run from a clean, up-to-date `main` branch to create and open a release PR that bumps the desktop version and pins the production images. CI tests the PR and previews Pulumi. Merging deploys the control plane and workspace VMs before publishing the desktop application and matching GitHub tag. Packaged apps check for updates via `update.electronjs.org`.
 
 ## Working Style

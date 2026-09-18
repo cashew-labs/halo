@@ -1,10 +1,12 @@
 ---
 name: diffmap-compare
 description: >-
-  Generate and serve two versions of a code review or walkthrough: untouched upstream Diffmap and the user's custom tabbed review. Use for local code-walkthrough requests and for comparing or improving these review styles.
+  Compare two presentations of a requested code diff: untouched upstream Diffmap and the custom tabbed review. Use when the user requests this comparison or invokes $diffmap-compare, not for ordinary code-walkthrough requests.
 ---
 
 # Compare two review experiences
+
+This is an opt-in orchestration of two code-walkthrough variants for the branch, PR, commit range or working-tree diff the user requests. Ordinary `$code-walkthrough` requests keep their existing single-review workflow.
 
 Create two separately authored documents from the same researched change. Keep the upstream viewer and its skill instructions unchanged. Customize only the experimental viewer and [custom authoring instructions](references/custom.md).
 
@@ -12,7 +14,7 @@ Create two separately authored documents from the same researched change. Keep t
 
 From the Halo repo root, run `pnpm review:sync` (or `python3 .agents/skills/diffmap-compare/scripts/review.py sync`). It prints the two instruction paths and the exact revisions. Python 3, Node 22.19+ (Node 24 recommended), npm and git must be available on PATH. No personal skill installation is needed; all maintained inputs live in `.agents/skills/diffmap-compare/`.
 
-Read the printed `upstreamSkill` and its referenced material for the standard document. Read [references/custom.md](references/custom.md) for the custom document. Research the code once; use the same base/head, source root, real patches and verification evidence in both documents. User instructions about task scope still apply: a request to explain landed code does not authorize new implementation or public sharing.
+Use the code-walkthrough skill at the printed `upstreamSkill` path, with its referenced material, to research and author the standard document. For the second document, reuse that research and apply the custom authoring instructions below. This comparison skill owns launching both documents; do not run a separate single-viewer launch from the nested walkthrough instructions. Read [references/custom.md](references/custom.md) for the custom document. Research the code once; use the same base/head, source root, real patches and verification evidence in both documents. User instructions about task scope still apply: a request to explain landed code does not authorize new implementation or public sharing.
 
 The upstream checkout lives in `<project>/tmp/diffmap-compare/upstream` at the latest remote `main`. The custom checkout lives beside it in `custom`, reconstructed from the pinned base in `assets/versions.json` plus `assets/custom.patch` (upstream MIT notice in `assets/LICENSE`). Never apply the custom patch or custom authoring rules to upstream. Sync refuses to overwrite local edits.
 
@@ -25,7 +27,7 @@ Keep facts equivalent while allowing the presentation to differ. Do not turn thi
 ## Start both
 
 ```sh
-pnpm walkthrough <upstream.md> <custom.md> --root <source-workspace>
+pnpm review:compare <upstream.md> <custom.md> --root <source-workspace>
 ```
 
 Run from the project root. For a separate runtime workspace, use `python3 .agents/skills/diffmap-compare/scripts/review.py --workspace <project> serve ...`. The defaults are upstream at **http://127.0.0.1:4178** and custom at **http://127.0.0.1:4179**. Both ports can be overridden with `--upstream-port` and `--custom-port`.
