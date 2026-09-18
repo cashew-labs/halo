@@ -1,28 +1,16 @@
-import http, {
-  type IncomingHttpHeaders,
-  type IncomingMessage,
-  type OutgoingHttpHeaders,
-  type ServerResponse,
+import type {
+  IncomingHttpHeaders,
+  IncomingMessage,
+  ServerResponse,
 } from "node:http";
 import type { Duplex } from "node:stream";
-import {
-  proxyWebSocketUpgrade,
-  respondToWebSocketUpgrade,
-} from "@get-halo/shared/httpProxy";
+import { respondToHttpUpgrade } from "@get-halo/shared/httpUpgrade";
+import { createProxyServer, proxyUpgrade } from "httpxy";
 import * as errore from "errore";
 import type { ExtensionHost } from "./ExtensionHost.js";
 
 const extensionPathPrefix = "/extensions/";
-const hopByHopHeaders = new Set([
-  "connection",
-  "keep-alive",
-  "proxy-authenticate",
-  "proxy-authorization",
-  "te",
-  "trailer",
-  "transfer-encoding",
-  "upgrade",
-]);
+const extensionProxy = createProxyServer();
 
 class ExtensionProxyError extends errore.createTaggedError({
   name: "ExtensionProxyError",
@@ -64,30 +52,34 @@ export async function serveExtensionUpgrade(ctx: {
 }) {
   const route = parseExtensionRoute(ctx.url);
   if (route instanceof Error) {
-    respondToWebSocketUpgrade(ctx.socket, 400);
+    respondToHttpUpgrade(ctx.socket, 400);
     return;
   }
 
   const origin = ctx.extensions.getOrigin(route.id);
   if (origin === undefined) {
-    respondToWebSocketUpgrade(ctx.socket, 404);
+    respondToHttpUpgrade(ctx.socket, 404);
     return;
   }
 
   const target = new URL(`${route.path}${ctx.url.search}`, origin);
-  const headers = forwardedRequestHeaders(ctx.request.headers, target.host);
-  headers.connection = "Upgrade";
-  headers.upgrade = ctx.request.headers.upgrade;
-  const proxied = await proxyWebSocketUpgrade({ ...ctx, target, headers });
-  if (proxied instanceof Error) {
-    console.error(
+  prepareRequest(ctx.request, target);
+  const proxied = await proxyUpgrade(
+    target.origin,
+    ctx.request,
+    ctx.socket,
+    ctx.head,
+    { xfwd: false },
+  ).catch(
+    (cause) =>
       new ExtensionProxyError({
         detail: "WebSocket upgrade",
-        cause: proxied,
+        cause,
       }),
-    );
+  );
+  if (proxied instanceof Error) {
+    console.error(proxied);
   }
-  return proxied;
 }
 
 function parseExtensionRoute(url: URL) {
@@ -112,70 +104,37 @@ async function forwardExtensionRequest(ctx: {
   response: ServerResponse;
   target: URL;
 }) {
-  await new Promise<void>((resolve) => {
-    const upstreamRequest = http.request(
-      ctx.target,
-      {
-        method: ctx.request.method,
-        headers: forwardedRequestHeaders(ctx.request.headers, ctx.target.host),
-      },
-      (upstreamResponse) => {
-        const statusCode =
-          upstreamResponse.statusCode === undefined
-            ? 502
-            : upstreamResponse.statusCode;
-        ctx.response.writeHead(
-          statusCode,
-          forwardedHeaders(upstreamResponse.headers),
-        );
-        upstreamResponse.pipe(ctx.response);
-        ctx.response.once("finish", resolve);
-        ctx.response.once("close", () => {
-          upstreamResponse.destroy();
-          resolve();
-        });
-      },
-    );
+  prepareRequest(ctx.request, ctx.target);
+  const proxied = await extensionProxy
+    .web(ctx.request, ctx.response, {
+      target: ctx.target.origin,
+      xfwd: false,
+    })
+    .catch((cause) => new ExtensionProxyError({ detail: "request", cause }));
+  if (!(proxied instanceof Error)) return;
 
-    upstreamRequest.once("error", (cause) => {
-      console.error(new ExtensionProxyError({ detail: "request", cause }));
-      if (!ctx.response.headersSent) ctx.response.writeHead(502);
-      if (!ctx.response.writableEnded) ctx.response.end();
-      resolve();
-    });
-    ctx.request.once("aborted", () => {
-      upstreamRequest.destroy();
-      resolve();
-    });
-    ctx.request.pipe(upstreamRequest);
-  });
+  console.error(proxied);
+  if (!ctx.response.headersSent) ctx.response.writeHead(502);
+  if (!ctx.response.writableEnded) ctx.response.end();
 }
 
-function forwardedRequestHeaders(incoming: IncomingHttpHeaders, host: string) {
-  const headers = forwardedHeaders(incoming);
+function prepareRequest(request: IncomingMessage, target: URL) {
+  const publicHost = request.headers.host;
+  const forwardedProtocol = firstHeader(request.headers["x-forwarded-proto"]);
+  removePrivateHeaders(request.headers);
+  request.headers.host = target.host;
+  request.headers["x-forwarded-host"] = publicHost;
+  request.headers["x-forwarded-proto"] =
+    forwardedProtocol === undefined ? "http" : forwardedProtocol;
+  request.url = `${target.pathname}${target.search}`;
+}
+
+function removePrivateHeaders(headers: IncomingHttpHeaders) {
   delete headers.authorization;
   delete headers.cookie;
   delete headers.forwarded;
-  const forwardedProtocol = firstHeader(incoming["x-forwarded-proto"]);
   delete headers["x-forwarded-host"];
   delete headers["x-forwarded-proto"];
-  headers.host = host;
-  headers["x-forwarded-host"] = incoming.host;
-  headers["x-forwarded-proto"] =
-    forwardedProtocol === undefined ? "http" : forwardedProtocol;
-  return headers;
-}
-
-function forwardedHeaders(incoming: IncomingHttpHeaders) {
-  const headers: OutgoingHttpHeaders = {};
-
-  for (const [name, value] of Object.entries(incoming)) {
-    if (value === undefined || hopByHopHeaders.has(name.toLowerCase()))
-      continue;
-    headers[name] = value;
-  }
-
-  return headers;
 }
 
 function firstHeader(value: string | string[] | undefined) {

@@ -8,7 +8,7 @@ import {
 import type { AddressInfo } from "node:net";
 import type { Duplex } from "node:stream";
 import path from "node:path";
-import { respondToWebSocketUpgrade } from "@get-halo/shared/httpProxy";
+import { respondToHttpUpgrade } from "@get-halo/shared/httpUpgrade";
 import { RPCHandler } from "@orpc/server/node";
 import {
   RequestHeadersHandlerPlugin,
@@ -124,7 +124,7 @@ export function serveControlPlaneHttp(ctx: {
       requestUrlBase,
     );
     if (!isWorkspaceProxyRequest(url)) {
-      respondToWebSocketUpgrade(socket, 404);
+      respondToHttpUpgrade(socket, 404);
       return;
     }
     await gateway.upgrade(request, socket, head);

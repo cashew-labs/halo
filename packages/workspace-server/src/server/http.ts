@@ -7,7 +7,7 @@ import {
 } from "node:http";
 import type { AddressInfo } from "node:net";
 import type { Duplex } from "node:stream";
-import { respondToWebSocketUpgrade } from "@get-halo/shared/httpProxy";
+import { respondToHttpUpgrade } from "@get-halo/shared/httpUpgrade";
 import { RPCHandler, type RPCHandlerOptions } from "@orpc/server/node";
 import { CORSHandlerPlugin } from "@orpc/server/plugins";
 import { anyAbortSignal } from "@orpc/shared";
@@ -236,7 +236,7 @@ export function serveHaloHttp(options: {
     head: Buffer,
   ) => {
     if (shutdown.signal.aborted) {
-      respondToWebSocketUpgrade(socket, 503);
+      respondToHttpUpgrade(socket, 503);
       return;
     }
     const authorization = await authorizeWorkspaceRequest({
@@ -251,11 +251,11 @@ export function serveHaloHttp(options: {
         event: "workspace-gateway-authentication-failed",
         error: authorization,
       });
-      respondToWebSocketUpgrade(socket, 401);
+      respondToHttpUpgrade(socket, 401);
       return;
     }
     if (authorization === undefined) {
-      respondToWebSocketUpgrade(socket, 401);
+      respondToHttpUpgrade(socket, 401);
       return;
     }
     const url = new URL(
@@ -263,7 +263,7 @@ export function serveHaloHttp(options: {
       "http://localhost",
     );
     if (!isExtensionProxyRequest(url)) {
-      respondToWebSocketUpgrade(socket, 404);
+      respondToHttpUpgrade(socket, 404);
       return;
     }
     await serveExtensionUpgrade({
