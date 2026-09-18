@@ -8,10 +8,7 @@ export type DesktopAuthentication = {
   signIn: () => Promise<ControlPlaneSession | Error>;
 };
 
-export type DesktopIdentity = Pick<
-  DesktopAuthentication,
-  "getSession" | "signIn"
->;
+type DesktopIdentity = Pick<DesktopAuthentication, "getSession" | "signIn">;
 
 export function createLocalDesktopAuthentication(ctx: {
   dataDir: string;

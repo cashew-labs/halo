@@ -27,6 +27,7 @@ export type LoggerEntry = {
 
 export type LoggerSinkApi = {
   log: (entry: LoggerEntry) => void;
+  flush?: () => Promise<void>;
   destroy?: () => void;
 };
 
@@ -36,6 +37,7 @@ export type LoggerApi = {
   warn: (data: LoggerData) => void;
   log: (data: LoggerData) => void;
   error: (data: LoggerData) => void;
+  flush: () => Promise<void>;
 };
 
 type LoggerArgs = {
@@ -97,6 +99,15 @@ export class Logger implements LoggerApi {
       sinks: [...this.sinks, sink],
       scopes: this.scopes,
     });
+  }
+
+  async flush() {
+    await Promise.all(
+      [...new Set(this.sinks)].flatMap((sink) => {
+        if (sink.flush === undefined) return [];
+        return [sink.flush()];
+      }),
+    );
   }
 
   destroy() {

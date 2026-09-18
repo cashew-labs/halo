@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@get-halo/client": "workspace:*",
+    "@get-halo/logger": "workspace:*",
     "@get-halo/shared": "workspace:*",
     "@get-halo/web": "workspace:*",
     "@orpc/client": "2.0.0-beta.29",

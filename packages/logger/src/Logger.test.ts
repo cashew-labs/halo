@@ -25,6 +25,7 @@ loggerTest(
     const error = new Error("boom");
 
     logger.error({ message: "failed", error });
+    await logger.flush();
 
     const lines = (await fs.readFile(filePath, "utf8")).trimEnd().split("\n");
     expect(lines).toHaveLength(1);
@@ -65,6 +66,7 @@ loggerTest("adds another real sink", async ({ directory }) => {
     .addSink(new JsonlLoggerSink({ filePath: secondPath }));
 
   logger.log({ event: "ready" });
+  await logger.flush();
 
   const [first, second] = await Promise.all([
     fs.readFile(firstPath, "utf8"),
@@ -75,4 +77,20 @@ loggerTest("adds another real sink", async ({ directory }) => {
     scopes: [{ name: "main", data: {} }],
     data: { event: "ready" },
   });
+});
+
+loggerTest("batches queued writes until flush", async ({ directory }) => {
+  const filePath = path.join(directory, "batch.jsonl");
+  const logger = new Logger({
+    sinks: [new JsonlLoggerSink({ filePath })],
+  });
+
+  logger.info({ event: "one" });
+  logger.info({ event: "two" });
+  await logger.flush();
+
+  const lines = (await fs.readFile(filePath, "utf8")).trimEnd().split("\n");
+  expect(lines).toHaveLength(2);
+  expect(JSON.parse(lines[0]!)).toMatchObject({ data: { event: "one" } });
+  expect(JSON.parse(lines[1]!)).toMatchObject({ data: { event: "two" } });
 });

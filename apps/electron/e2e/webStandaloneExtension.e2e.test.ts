@@ -4,6 +4,7 @@ import { expect } from "@playwright/test";
 import { betterAuth } from "better-auth";
 import { testUtils } from "better-auth/plugins";
 import * as errore from "errore";
+import { Logger } from "@get-halo/logger";
 import { ControlPlane } from "../../control-plane/src/server/ControlPlane.js";
 import { m } from "@get-halo/shared/testing";
 import { e2eTest } from "./e2eTest.js";
@@ -27,6 +28,7 @@ e2eTest(
         port: 0,
         auth,
       },
+      logger: new Logger({ sinks: [] }),
       webRoot: path.resolve(import.meta.dirname, "../../web-app/dist"),
     });
     if (plane instanceof Error) throw plane;
@@ -135,6 +137,7 @@ e2eTest(
         port: 0,
         auth,
       },
+      logger: new Logger({ sinks: [] }),
       webRoot: path.resolve(import.meta.dirname, "../../web-app/dist"),
     });
     if (plane instanceof Error) throw plane;

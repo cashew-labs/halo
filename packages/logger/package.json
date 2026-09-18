@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/Logger.ts",
+    "./ConsoleLoggerSink": "./src/ConsoleLoggerSink.ts",
     "./JsonlLoggerSink": "./src/JsonlLoggerSink.ts",
     "./PrettyConsoleLoggerSink": "./src/PrettyConsoleLoggerSink.ts"
   },

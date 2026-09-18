@@ -1,5 +1,6 @@
-import { useEffect, useState, type ReactElement } from "react";
+import { useEffect, useMemo, useState, type ReactElement } from "react";
 import { useHost } from "./HostProvider.js";
+import { useLogger } from "./LoggerProvider.js";
 import { LoadingPage } from "./LoadingPage.tsx";
 import { SignInPage } from "./SignInPage.tsx";
 
@@ -11,6 +12,8 @@ type AuthenticationState =
 
 export function Authentication({ children }: { children: ReactElement }) {
   const host = useHost();
+  const rootLogger = useLogger();
+  const logger = useMemo(() => rootLogger.scope("auth"), [rootLogger]);
   const [state, setState] = useState<AuthenticationState>({
     status: "checking",
   });
@@ -23,7 +26,7 @@ export function Authentication({ children }: { children: ReactElement }) {
         if (!active) return;
 
         if (session instanceof Error) {
-          console.warn(session);
+          logger.warn({ event: "restore-failed", error: session });
           setState({
             status: "signedOut",
             error: "Halo couldn't restore your sign-in. You can sign in again.",
@@ -43,7 +46,7 @@ export function Authentication({ children }: { children: ReactElement }) {
     return () => {
       active = false;
     };
-  }, [host]);
+  }, [host, logger]);
 
   if (state.status === "checking") return <LoadingPage />;
   if (state.status === "signedIn") return children;
@@ -54,7 +57,7 @@ export function Authentication({ children }: { children: ReactElement }) {
     const session = await host.signIn();
 
     if (session instanceof Error) {
-      console.warn(session);
+      logger.warn({ event: "sign-in-failed", error: session });
       setState({
         status: "signedOut",
         error: "Halo couldn't sign you in. Try again.",

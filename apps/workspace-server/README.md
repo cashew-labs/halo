@@ -90,7 +90,7 @@ pnpm server /absolute/path/to/config.json
 
 Electron must use the same `appDataDir` through `HALO_USER_DATA`. Packaged
 Electron also accepts its `--user-data-dir` argument. The server binds to loopback on the configured port
-and publishes `server.json` for Electron and `rpc.json` for the CLI. These files
+and publishes `server.json` for the local control-plane gateway and `rpc.json` for the CLI. These files
 contain distinct local bearer credentials and are written with mode `0600`.
 Graceful server shutdown removes both files. Desktop reload reads the latest
 connection, including after a server restart.
@@ -127,7 +127,7 @@ pnpm dev
 │   ├── WorkspaceServer.start({ config, host })
 │   └── publish product connection files
 └── Electron
-    ├── read server.json → connect over HTTP RPC
+    ├── ControlPlaneAuth → /workspace/rpc (development and production)
     └── AppControlServer.start() → publish local appControl.json (development only)
 ```
 

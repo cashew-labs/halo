@@ -1,4 +1,5 @@
 import { appendFileSync } from "node:fs";
+import { appendFile } from "node:fs/promises";
 import type { LoggerEntry, LoggerSinkApi, LoggerValue } from "./Logger.js";
 
 export type JsonLogValue =
@@ -49,7 +50,20 @@ function serializeLoggerValue(
   return value as string | number | boolean;
 }
 
+function serializeEntries(entries: readonly LoggerEntry[]) {
+  return entries
+    .map(
+      (entry) => `${JSON.stringify(serializeLoggerValue({ value: entry }))}\n`,
+    )
+    .join("");
+}
+
 export class JsonlLoggerSink implements LoggerSinkApi {
+  // Entries waiting for the next batched write.
+  private pending: LoggerEntry[] = [];
+  // Serializes writes so overlapping flush/log calls append in order.
+  private writing: Promise<void> = Promise.resolve();
+
   private readonly filePath: string;
 
   constructor({ filePath }: { filePath: string }) {
@@ -57,9 +71,37 @@ export class JsonlLoggerSink implements LoggerSinkApi {
   }
 
   log(entry: LoggerEntry) {
-    appendFileSync(
-      this.filePath,
-      `${JSON.stringify(serializeLoggerValue({ value: entry }))}\n`,
+    this.pending.push(entry);
+    this.writing = this.writing.then(
+      async () => await this.writePending(),
+      async () => await this.writePending(),
     );
+  }
+
+  async flush() {
+    this.writing = this.writing.then(
+      async () => await this.writePending(),
+      async () => await this.writePending(),
+    );
+    await this.writing;
+  }
+
+  destroy() {
+    const entries = this.takePending();
+    if (entries.length === 0) return;
+    appendFileSync(this.filePath, serializeEntries(entries));
+  }
+
+  private takePending() {
+    const entries = this.pending;
+    this.pending = [];
+    return entries;
+  }
+
+  private async writePending() {
+    while (this.pending.length > 0) {
+      const entries = this.takePending();
+      await appendFile(this.filePath, serializeEntries(entries));
+    }
   }
 }

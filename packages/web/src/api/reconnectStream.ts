@@ -1,3 +1,4 @@
+import type { Logger } from "@get-halo/logger";
 import * as errore from "errore";
 
 const reconnectDelayMs = 1_000;
@@ -9,6 +10,7 @@ class StreamDisconnectedError extends errore.createTaggedError({
 
 type ReconnectStreamContext<T> = {
   name: string;
+  logger: Logger;
   open: () => Promise<AsyncIterable<T>>;
   onItem: (item: T) => Promise<void> | void;
   onOpen?: () => Promise<void> | void;
@@ -18,10 +20,11 @@ type ReconnectStreamContext<T> = {
 export function reconnectStream<T>(ctx: ReconnectStreamContext<T>) {
   runReconnectStream(ctx).catch((cause) => {
     if (ctx.signal.aborted) return;
-    console.error(
-      `${ctx.name} reconnect loop failed:`,
-      new StreamDisconnectedError({ stream: ctx.name, cause }),
-    );
+    ctx.logger.error({
+      event: "reconnect-loop-failed",
+      stream: ctx.name,
+      error: new StreamDisconnectedError({ stream: ctx.name, cause }),
+    });
   });
 }
 
@@ -31,11 +34,13 @@ async function runReconnectStream<T>(ctx: ReconnectStreamContext<T>) {
       (cause) => new StreamDisconnectedError({ stream: ctx.name, cause }),
     );
     if (ctx.signal.aborted) return;
+    if (disconnected === undefined) return;
 
-    console.warn(
-      `${ctx.name} stream disconnected; reconnecting:`,
-      disconnected,
-    );
+    ctx.logger.warn({
+      event: "stream-disconnected",
+      stream: ctx.name,
+      error: disconnected,
+    });
     await waitForReconnect(ctx.signal);
   }
 }

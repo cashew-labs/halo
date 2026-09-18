@@ -1,7 +1,11 @@
 import { join } from "node:path";
 import type { ControlPlaneConfig } from "@get-halo/config/controlPlane";
+import type { Logger } from "@get-halo/logger";
 import * as errore from "errore";
-import { AuthService } from "../auth/AuthService.js";
+import {
+  AuthService,
+  type GoogleAccessTokenVerifier,
+} from "../auth/AuthService.js";
 import {
   closeControlPlaneHttp,
   type ListeningControlPlaneHttp,
@@ -10,12 +14,12 @@ import {
 } from "./controlPlaneHttp.js";
 import { DatabaseService, type DatabaseConfig } from "../DatabaseService.js";
 import { WorkspaceService } from "../workspace/WorkspaceService.js";
-
 import { TraceIngestion } from "../traces/TraceIngestion.js";
 import type { TraceCloud } from "../traces/TraceCloud.js";
 
 const loopbackHost = "127.0.0.1";
 const cloudRunHost = "0.0.0.0";
+const defaultRendererPort = "1420";
 
 export class ControlPlane {
   private readonly db: DatabaseService;
@@ -38,10 +42,12 @@ export class ControlPlane {
 
   static async start(ctx: {
     config: ControlPlaneConfig;
+    logger: Logger;
     webRoot: string;
     traceCloud?: TraceCloud;
+    verifyGoogleAccessToken?: GoogleAccessTokenVerifier;
   }) {
-    const { config, webRoot } = ctx;
+    const { config, logger, webRoot } = ctx;
     await using cleanup = new errore.AsyncDisposableStack();
 
     const http = await listenControlPlaneHttp(
@@ -52,7 +58,9 @@ export class ControlPlane {
 
     cleanup.defer(async () => {
       const closed = await closeControlPlaneHttp(http.server);
-      if (closed instanceof Error) console.error(closed);
+      if (closed instanceof Error) {
+        logger.error({ event: "http-close-failed", error: closed });
+      }
     });
 
     const publicOrigin =
@@ -63,7 +71,9 @@ export class ControlPlane {
 
     cleanup.defer(async () => {
       const closed = await db.close();
-      if (closed instanceof Error) console.error(closed);
+      if (closed instanceof Error) {
+        logger.error({ event: "database-close-failed", error: closed });
+      }
     });
 
     const auth = await AuthService.start({
@@ -72,6 +82,7 @@ export class ControlPlane {
       secret: config.auth.secret,
       googleClientId: config.auth.googleClientId,
       googleClientSecret: config.auth.googleClientSecret,
+      verifyGoogleAccessToken: ctx.verifyGoogleAccessToken,
     });
     if (auth instanceof Error) return auth;
 
@@ -87,6 +98,9 @@ export class ControlPlane {
     serveControlPlaneHttp({
       server: http.server,
       auth,
+      corsOrigins: controlPlaneCorsOrigins(config),
+      googleAccessTokenSessions: config.deployment === "local",
+      logger,
       workspace,
       webRoot,
       traces:
@@ -94,6 +108,7 @@ export class ControlPlane {
           ? undefined
           : new TraceIngestion({
               cloud: ctx.traceCloud,
+              logger,
               workspace,
               origin: publicOrigin,
             }),
@@ -118,6 +133,19 @@ export class ControlPlane {
 
 function controlPlaneHost(config: ControlPlaneConfig) {
   return config.deployment === "local" ? loopbackHost : cloudRunHost;
+}
+
+function controlPlaneCorsOrigins(config: ControlPlaneConfig) {
+  if (config.deployment !== "local") return ["null"];
+
+  const configuredPort = process.env.HALO_RENDERER_PORT;
+  const rendererPort =
+    configuredPort === undefined ? defaultRendererPort : configuredPort;
+  return [
+    `http://localhost:${rendererPort}`,
+    `http://127.0.0.1:${rendererPort}`,
+    "null",
+  ];
 }
 
 function databaseConfig(config: ControlPlaneConfig): DatabaseConfig {

@@ -4,8 +4,10 @@ import { Agentation } from "agentation";
 import { MauiProvider } from "maui";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Route, Switch } from "wouter";
+import type { Logger } from "@get-halo/logger";
 import type { HostApi } from "./HostApi.js";
 import { HostProvider } from "./HostProvider.js";
+import { LoggerProvider } from "./LoggerProvider.js";
 import { HaloApp } from "./HaloApp.tsx";
 import { Authentication } from "./Authentication.tsx";
 import { StandaloneExtension } from "./StandaloneExtension.js";
@@ -25,23 +27,29 @@ const queryClient = new QueryClient({
   },
 });
 
-export function mountHaloApp(root: HTMLElement, host: HostApi) {
-  createRoot(root).render(
+export function mountHaloApp(ctx: {
+  root: HTMLElement;
+  host: HostApi;
+  logger: Logger;
+}) {
+  createRoot(ctx.root).render(
     <StrictMode>
-      <HostProvider host={host}>
-        <MauiProvider>
-          <Authentication>
-            <QueryClientProvider client={queryClient}>
-              <ApiProvider>
-                <HaloRoutes />
-                {import.meta.env.DEV && (
-                  <Agentation endpoint="http://127.0.0.1:4747" />
-                )}
-              </ApiProvider>
-            </QueryClientProvider>
-          </Authentication>
-        </MauiProvider>
-      </HostProvider>
+      <LoggerProvider logger={ctx.logger}>
+        <HostProvider host={ctx.host}>
+          <MauiProvider>
+            <Authentication>
+              <QueryClientProvider client={queryClient}>
+                <ApiProvider>
+                  <HaloRoutes />
+                  {import.meta.env.DEV && (
+                    <Agentation endpoint="http://127.0.0.1:4747" />
+                  )}
+                </ApiProvider>
+              </QueryClientProvider>
+            </Authentication>
+          </MauiProvider>
+        </HostProvider>
+      </LoggerProvider>
     </StrictMode>,
   );
 }
