@@ -1,3 +1,4 @@
+import { ExtensionsProvider } from "./ExtensionsProvider.js";
 import { reconnectStream } from "./reconnectStream.js";
 import { useQuery, useQueryClient, skipToken } from "@tanstack/react-query";
 import {
@@ -54,7 +55,11 @@ export function ApiProvider({ children }: { children: ReactNode }) {
     return <ConnectionPage status="disconnected" />;
   }
 
-  return <ApiContext value={connected}>{children}</ApiContext>;
+  return (
+    <ApiContext value={connected}>
+      <ExtensionsProvider api={connected}>{children}</ExtensionsProvider>
+    </ApiContext>
+  );
 }
 
 export function useApi(): HaloClient {
@@ -132,16 +137,5 @@ export function useWorkspaceFileQuery(path: string) {
   return useQuery({
     queryKey: ["workspace-file", path],
     queryFn: async () => await api.workspace.readFile({ path }),
-  });
-}
-
-export function useExtensionsQuery(workspace: WorkspaceInfo | undefined) {
-  const api = useApi();
-  const workspaceRoot = workspace?.workspaceRoot;
-
-  return useQuery({
-    queryKey: ["extensions", workspaceRoot],
-    queryFn: async () => await api.extensions.list(),
-    enabled: workspaceRoot !== undefined,
   });
 }

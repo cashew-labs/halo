@@ -2,12 +2,11 @@
 import { backgroundColor, Flex, flex, Text } from "maui";
 import { style, useStyles } from "purse-styles";
 import { useHost } from "../HostProvider.js";
-import { useExtensionsQuery, useWorkspaceQuery } from "../api/ApiProvider.tsx";
+import { useExtensions } from "../api/ExtensionsProvider.js";
 
 export function ExtensionView({ extensionId }: { extensionId: string }) {
   const host = useHost();
-  const workspace = useWorkspaceQuery().data;
-  const extensions = useExtensionsQuery(workspace);
+  const extensions = useExtensions();
   const extension = extensions.data?.find((entry) => entry.id === extensionId);
   const extensionUrl =
     extension === undefined
@@ -20,17 +19,17 @@ export function ExtensionView({ extensionId }: { extensionId: string }) {
 
   return (
     <main className={view} aria-label={displayName}>
-      {extensions.isPending && (
+      {extensions.data === undefined && extensions.error === undefined && (
         <Flex column p={8}>
           <Text role="status">Loading extension…</Text>
         </Flex>
       )}
-      {extensions.isError && (
+      {extensions.error !== undefined && (
         <Flex column p={8}>
           <Text role="alert">{extensions.error.message}</Text>
         </Flex>
       )}
-      {extensions.isSuccess && extension === undefined && (
+      {extensions.data !== undefined && extension === undefined && (
         <Flex column p={8}>
           <Text>Extension '{extensionId}' is not running.</Text>
         </Flex>
