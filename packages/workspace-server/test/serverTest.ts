@@ -59,7 +59,8 @@ export const serverTest = baseTest.extend<{
           options.workspaceRoot === undefined
             ? artifacts.paths.workspace
             : options.workspaceRoot,
-        testApiEnabled: options.testApiEnabled,
+        testApiEnabled:
+          options.testApiEnabled === undefined ? true : options.testApiEnabled,
       });
       cleanup.defer(async () => await server.stop());
       return server;

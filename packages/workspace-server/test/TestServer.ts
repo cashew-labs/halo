@@ -45,7 +45,7 @@ export class TestServer {
     this.artifacts = artifacts;
     this.workspaceRoot = workspaceRoot;
     this.llmApi = llmApi;
-    this.testApiEnabled = testApiEnabled === undefined ? true : testApiEnabled;
+    this.testApiEnabled = testApiEnabled === undefined ? false : testApiEnabled;
     this.traceUploader = traceUploader;
     this.traceWorkspaceId = traceWorkspaceId;
   }
