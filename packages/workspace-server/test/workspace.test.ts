@@ -828,3 +828,40 @@ serverTest(
       .toContain("Continuing without it.");
   },
 );
+
+serverTest(
+  "kills nested bash.run after the default 10s timeout",
+  { timeout: 25_000 },
+  async ({ server, llm }) => {
+    const session = await server.rpc.sessions.create();
+    const prompt = server.rpc.sessions.prompt({
+      ...session,
+      text: "Run the command",
+    });
+    await llm.respond(
+      m.tool.start("exec", {
+        id: "default-timeout",
+        arguments: {
+          js: `return await tools.bash.run({ command: "sleep 30" });`,
+        },
+      }),
+    );
+    await expect
+      .poll(
+        async () => {
+          const execution = sessionToolExecutions(
+            await server.rpc.sessions.snapshot(session),
+          ).find((item) => item.id === "default-timeout");
+          const content = execution?.result?.content;
+          if (content === undefined) return "";
+          return content
+            .flatMap((part) => (part.type === "text" ? [part.text] : []))
+            .join("");
+        },
+        { timeout: 20_000 },
+      )
+      .toMatch(/timed out after 10000 ms/i);
+    await llm.respond(m.assistant("Done."));
+    await prompt;
+  },
+);

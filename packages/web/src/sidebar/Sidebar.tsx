@@ -121,10 +121,14 @@ const styles = {
     position: "relative",
     zIndex: 1,
     backgroundColor: `light-dark(${colors.gray[1]}, ${colors.gray[2]})`,
+    "@media (max-width: 700px)": {
+      gap: 0,
+      paddingBottom: "env(safe-area-inset-bottom)",
+    },
   }),
   mobileHeader: style(flex({ align: "center", gap: 3 }), {
     minHeight: "56px",
-    padding: "6px 12px",
+    padding: "6px 2px",
     paddingTop: "max(6px, env(safe-area-inset-top))",
     flexShrink: 0,
   }),

@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import type { UserActionableError } from "@executor-js/sdk/core";
 import { workspaceExecutablePath } from "../../../workspace/installHaloCli.js";
 import * as errore from "errore";
 
@@ -6,6 +7,39 @@ export class BashRunError extends errore.createTaggedError({
   name: "BashRunError",
   message: "Failed to run bash command",
 }) {}
+
+export class BashTimeoutError
+  extends errore.createTaggedError({
+    name: "BashTimeoutError",
+    message: "Command timed out after $timeoutMs ms",
+    extends: errore.AbortError,
+  })
+  implements UserActionableError
+{
+  readonly __executorUserActionable = true as const;
+  readonly code = "timeout";
+  get userMessage() {
+    return this.message;
+  }
+}
+
+export class BashTimeoutLimitError
+  extends errore.createTaggedError({
+    name: "BashTimeoutLimitError",
+    message: "Timeout $timeoutMs ms is longer than 10 minutes",
+  })
+  implements UserActionableError
+{
+  readonly __executorUserActionable = true as const;
+  readonly code = "timeout_limit";
+  get userMessage() {
+    return this.message;
+  }
+}
+
+export const maxBashTimeoutMs = 10 * 60 * 1_000;
+
+type BashProcessError = BashRunError | BashTimeoutError;
 
 export async function runBash(
   cwd: string,
@@ -23,12 +57,21 @@ export async function runBash(
     return new BashRunError({ cause: signal.reason });
   }
 
+  const limitMs = timeoutMs === undefined ? 10_000 : timeoutMs;
+  if (limitMs > maxBashTimeoutMs) {
+    return new BashTimeoutLimitError({ timeoutMs: limitMs });
+  }
+
   return await new Promise<
-    { stdout: string; stderr: string; code: number | null } | BashRunError
+    { stdout: string; stderr: string; code: number | null } | BashProcessError
   >((resolve) => {
     const child = spawn("bash", ["-c", command], {
       cwd,
-      env: { ...process.env, PATH: workspaceExecutablePath(cwd) },
+      env: {
+        ...process.env,
+        PATH: workspaceExecutablePath(cwd),
+        PAGER: "cat",
+      },
       detached: true,
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -38,17 +81,17 @@ export async function runBash(
     let settled = false;
     let timeout: NodeJS.Timeout | undefined;
     let forceKill: NodeJS.Timeout | undefined;
-    let terminationError: BashRunError | undefined;
+    let terminationError: BashProcessError | undefined;
 
     const finish = (
       result:
         | { stdout: string; stderr: string; code: number | null }
-        | BashRunError,
+        | BashProcessError,
     ) => {
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
-      if (terminationError === undefined) clearTimeout(forceKill);
+      clearTimeout(forceKill);
       signal?.removeEventListener("abort", onAbort);
       resolve(result);
     };
@@ -66,7 +109,7 @@ export async function runBash(
       }
     };
 
-    const terminate = (error: BashRunError) => {
+    const terminate = (error: BashProcessError) => {
       if (terminationError !== undefined) return;
       terminationError = error;
       killProcessGroup("SIGTERM");
@@ -79,15 +122,9 @@ export async function runBash(
 
     signal?.addEventListener("abort", onAbort, { once: true });
 
-    if (timeoutMs !== undefined) {
-      timeout = setTimeout(() => {
-        terminate(
-          new BashRunError({
-            cause: new Error(`Command timed out after ${timeoutMs}ms`),
-          }),
-        );
-      }, timeoutMs);
-    }
+    timeout = setTimeout(() => {
+      terminate(new BashTimeoutError({ timeoutMs: limitMs }));
+    }, limitMs);
 
     child.stdout.on("data", (chunk: Buffer) => {
       stdout += chunk.toString("utf8");

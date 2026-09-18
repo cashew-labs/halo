@@ -213,9 +213,9 @@ const desktopGoogleOAuthClient: FirstPartyOAuthClientConfig = {
   authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth",
   tokenUrl: "https://oauth2.googleapis.com/token",
   clientId:
-    "536106843012-1gteqlblqk8pkr1ov4dgd6m867otjrdo.apps.googleusercontent.com",
+    "912701444316-56kksjel6n6tqbkhki2ujd8h1u9bug1d.apps.googleusercontent.com",
   // Google desktop apps receive a secret, but Google does not treat it as confidential.
-  clientSecret: "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",
+  clientSecret: "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",
   integrations: installableGooglePresets.map((preset) =>
     IntegrationSlug.make(preset.defaultSlug),
   ),
