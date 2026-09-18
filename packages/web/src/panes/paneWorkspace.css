@@ -22,10 +22,10 @@
 .paneTab {
   position: relative;
   display: flex;
-  flex: 1 1 200px;
-  width: 200px;
+  flex: 1 1 160px;
+  width: 160px;
   min-width: 80px;
-  max-width: 200px;
+  max-width: 160px;
   padding: 1px 3px 4px;
   border-radius: 6px 6px 0 0;
   color: var(--pane-muted);
