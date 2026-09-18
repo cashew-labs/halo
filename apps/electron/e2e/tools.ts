@@ -2,9 +2,9 @@ import { createORPCClient } from "@orpc/client";
 import type { HaloClient } from "@get-halo/client";
 import type {
   readFile,
+  runBash,
   writeFile,
 } from "@get-halo/workspace-server/filesystem";
-import type { runBash } from "../../workspace-server/src/agent/tools/bash/run.js";
 
 type HarnessTools = {
   bash: {

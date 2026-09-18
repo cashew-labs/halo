@@ -24,6 +24,7 @@ import {
   controlPlaneRpcRouter,
   type ControlPlaneContext,
 } from "./controlPlaneRpcRouter.js";
+import type { TraceIngestion } from "../traces/TraceIngestion.js";
 import type { WorkspaceService } from "../workspace/WorkspaceService.js";
 import {
   isWorkspaceProxyRequest,
@@ -90,8 +91,9 @@ export function serveControlPlaneHttp(ctx: {
   publicOrigin: string;
   workspace: WorkspaceService;
   webRoot: string;
+  traces?: TraceIngestion;
 }) {
-  const { server, auth, publicOrigin, workspace, webRoot } = ctx;
+  const { server, auth, publicOrigin, workspace, webRoot, traces } = ctx;
   const upgradeSockets = new Set<Duplex>();
   const rpc = new RPCHandler<ControlPlaneContext>(controlPlaneRpcRouter, {
     plugins: [
@@ -109,6 +111,7 @@ export function serveControlPlaneHttp(ctx: {
       auth,
       workspace,
       gateway,
+      traces,
       rpc,
       webRoot,
     });
@@ -160,6 +163,7 @@ async function routeControlPlaneRequest(ctx: {
   response: ServerResponse;
   auth: AuthService;
   gateway: WorkspaceGateway;
+  traces?: TraceIngestion;
   workspace: WorkspaceService;
   rpc: RPCHandler<ControlPlaneContext>;
   webRoot: string;
@@ -169,6 +173,15 @@ async function routeControlPlaneRequest(ctx: {
     request.url === undefined ? "/" : request.url,
     requestUrlBase,
   );
+
+  if (isPathWithin(url.pathname, "/api/traces")) {
+    if (ctx.traces === undefined) {
+      response.writeHead(503).end();
+      return;
+    }
+    await ctx.traces.serve(request, response, url);
+    return;
+  }
 
   if (request.method === "GET" && url.pathname === "/health") {
     response.writeHead(200).end();

@@ -6,7 +6,7 @@ import type { WorkspaceServerConfig } from "@get-halo/config/workspaceServer";
 import {
   workspaceServerReadySchema,
   type WorkspaceServerReady,
-} from "@get-halo/workspace-server/process";
+} from "@get-halo/workspace-server";
 import { createHaloClient } from "@get-halo/client";
 import type { Logger } from "@get-halo/logger";
 import type { OpenAILLMApiOptions } from "@get-halo/workspace-server/llm";
@@ -23,7 +23,6 @@ export async function startWorkspaceServerProcess(ctx: {
   logger: Logger;
   configPath: string;
   llmConfiguration: OpenAILLMApiOptions;
-  environment?: Record<string, string>;
 }) {
   const written = await fs
     .writeFile(ctx.configPath, JSON.stringify(ctx.config), { mode: 0o600 })
@@ -41,7 +40,6 @@ export async function startWorkspaceServerProcess(ctx: {
         execArgv: ["--import", "tsx"],
         env: {
           ...process.env,
-          ...ctx.environment,
           ELECTRON_RUN_AS_NODE: undefined,
           HALO_E2E: "1",
           HALO_LLM_CONFIG: JSON.stringify(ctx.llmConfiguration),

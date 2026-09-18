@@ -17,8 +17,8 @@ const controlPlaneImage = configuration.require("controlPlaneImage");
 const workspaceImage = configuration.require("workspaceImage");
 const googleClientIdSecretId = `${name}-control-plane-google-client-id`;
 const googleClientSecretId = `${name}-control-plane-google-client-secret`;
-const googleWebClientIdSecretId = `${name}-workspace-google-web-client-id`;
-const googleWebClientSecretId = `${name}-workspace-google-web-client-secret`;
+const googleWebClientIdSecretId = "halo-workspace-google-web-client-id";
+const googleWebClientSecretId = "halo-workspace-google-web-client-secret";
 const controlPlaneDomain = configuration.require("controlPlaneDomain");
 const controlPlaneOrigin = `https://${controlPlaneDomain}`;
 
@@ -122,6 +122,29 @@ const workspaceRuntime = new gcp.serviceaccount.Account("workspace-runtime", {
   accountId: `${name}-workspace`,
   displayName: `Halo workspace runtime ${pulumi.getStack()}`,
 });
+const traces = new gcp.storage.Bucket(
+  "agent-traces",
+  {
+    name: `${project}-${name}-traces`,
+    project,
+    location: region,
+    storageClass: "STANDARD",
+    uniformBucketLevelAccess: true,
+    publicAccessPrevention: "enforced",
+    forceDestroy: false,
+    // Traces have no expiration; soft delete only controls recovery after deletion.
+    softDeletePolicy: { retentionDurationSeconds: 30 * 24 * 60 * 60 },
+  },
+  { protect: true },
+);
+const controlPlaneTraceAccess = new gcp.storage.BucketIAMMember(
+  "control-plane-trace-writer",
+  {
+    bucket: traces.name,
+    role: "roles/storage.objectCreator",
+    member: pulumi.interpolate`serviceAccount:${runtime.email}`,
+  },
+);
 const workspaceImageAccess = new gcp.artifactregistry.RepositoryIamMember(
   "workspace-image-reader",
   {
@@ -208,13 +231,10 @@ const workspaceTemplate = new gcp.compute.InstanceTemplate(
       "enable-oslogin": "TRUE",
       "block-project-ssh-keys": "TRUE",
       "halo-control-plane-service-account": runtime.email,
+      "halo-control-plane-origin": controlPlaneOrigin,
     },
     metadataStartupScript: workspaceStartup({
       gateway: true,
-      googleWebOAuth: {
-        clientIdSecretId: googleWebClientIdSecretId,
-        clientSecretSecretId: googleWebClientSecretId,
-      },
       image: workspaceImage,
       registry: `${region}-docker.pkg.dev`,
     }),
@@ -434,6 +454,11 @@ const controlPlane = new gcp.cloudrunv2.Service(
               name: "GOOGLE_CLIENT_SECRET_ID",
               value: googleClientSecretId,
             },
+            { name: "TRACE_BUCKET", value: traces.name },
+            {
+              name: "WORKSPACE_SERVICE_ACCOUNT",
+              value: workspaceRuntime.email,
+            },
             { name: "WORKSPACE_PROJECT_ID", value: project },
             { name: "WORKSPACE_ZONE", value: zone },
             {
@@ -450,6 +475,7 @@ const controlPlane = new gcp.cloudrunv2.Service(
     dependsOn: [
       authSecretAccess,
       controlPlaneComputeAccess,
+      controlPlaneTraceAccess,
       databaseUrlAccess,
       googleClientIdAccess,
       googleClientSecretAccess,
@@ -600,6 +626,7 @@ export const buildSourceBucket = sources.name;
 export const buildServiceAccount = builder.name;
 export const controlPlaneServiceAccount = runtime.email;
 export const workspaceServiceAccount = workspaceRuntime.email;
+export const traceBucket = traces.name;
 export const workspaceInstanceTemplate = workspaceTemplate.selfLink;
 export const workspaceZone = zone;
 export const controlPlaneDatabaseConnectionName =
