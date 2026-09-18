@@ -19,6 +19,7 @@ import {
 } from "./WorkspacePanes.js";
 import {
   TabRouteContext,
+  TabVisibilityContext,
   usePaneLocation,
   usePaneState,
   useWorkspacePanes,
@@ -312,12 +313,14 @@ export function PaneWorkspace({ sessions }: { sessions: SessionSummary[] }) {
             onPointerDownCapture={() => workspace.select(pane.id)}
             onFocusCapture={() => workspace.select(pane.id)}
           >
-            <TabRouteContext value={tab.id}>
-              {/* oxlint-disable-next-line react/hooks -- Wouter calls the location hook supplied to Router. */}
-              <Router hook={usePaneLocation}>
-                <MainPane sessions={sessions} />
-              </Router>
-            </TabRouteContext>
+            <TabVisibilityContext value={pane.activeTabId === tab.id}>
+              <TabRouteContext value={tab.id}>
+                {/* oxlint-disable-next-line react/hooks -- Wouter calls the location hook supplied to Router. */}
+                <Router hook={usePaneLocation}>
+                  <MainPane sessions={sessions} />
+                </Router>
+              </TabRouteContext>
+            </TabVisibilityContext>
           </div>
         )),
       )}

@@ -10,6 +10,7 @@ import { WorkspacePanes, panes, type PaneState } from "./WorkspacePanes.js";
 
 const PanesContext = createContext<WorkspacePanes | undefined>(undefined);
 export const TabRouteContext = createContext<string | undefined>(undefined);
+export const TabVisibilityContext = createContext(true);
 
 export function WorkspacePanesProvider({
   initialPath,

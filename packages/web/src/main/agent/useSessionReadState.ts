@@ -1,5 +1,11 @@
-import { useCallback, useEffect, useSyncExternalStore } from "react";
+import {
+  useCallback,
+  useContext,
+  useEffect,
+  useSyncExternalStore,
+} from "react";
 import * as errore from "errore";
+import { TabVisibilityContext } from "../../panes/WorkspacePanesProvider.js";
 import type { SessionSnapshot } from "@get-halo/client";
 import { useWorkspaceQuery } from "../../api/ApiProvider.js";
 
@@ -79,6 +85,7 @@ export function useMarkSessionRead({
 }) {
   const { seenResultId, markSeen } = useSessionReadState(sessionId);
   const isViewing = useSyncExternalStore(subscribeToFocus, isViewingWindow);
+  const isTabVisible = useContext(TabVisibilityContext);
   const resultId =
     state.lastRun?.id ??
     state.entries
@@ -91,11 +98,12 @@ export function useMarkSessionRead({
   useEffect(() => {
     if (
       !isViewing ||
+      !isTabVisible ||
       isRunning ||
       resultId === undefined ||
       resultId === seenResultId
     )
       return;
     markSeen(resultId);
-  }, [isViewing, isRunning, resultId, seenResultId, markSeen]);
+  }, [isViewing, isTabVisible, isRunning, resultId, seenResultId, markSeen]);
 }

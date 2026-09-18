@@ -126,7 +126,10 @@ e2eTest("starts a new session", async ({ harness, app }) => {
     .getByRole("button", { name: "New session", exact: true })
     .click();
 
-  const newSession = app.page.getByRole("main", { name: "New session" });
+  const newSession = app.page.getByRole("main", {
+    name: "New session",
+    exact: true,
+  });
   await expect(newSession).toBeVisible();
   await expect(newSession.getByLabel("Message", { exact: true })).toBeFocused();
 });
@@ -151,7 +154,10 @@ e2eTest(
     await app.page
       .getByRole("button", { name: "New session", exact: true })
       .click();
-    const draft = app.page.getByRole("main", { name: "New session" });
+    const draft = app.page.getByRole("main", {
+      name: "New session",
+      exact: true,
+    });
     await expect(draft).toBeVisible();
     await app.page.reload();
     await expect(draft).toBeVisible();
@@ -1176,8 +1182,11 @@ e2eTest(
     });
     await app.page.reload();
 
-    await app.page.getByRole("button", { name: "New session" }).click();
     await app.page
+      .getByRole("button", { name: "New session", exact: true })
+      .click();
+    await app.page
+      .getByRole("main")
       .getByLabel("Message", { exact: true })
       .fill("Prepare my report");
     await app.page.getByRole("button", { name: "Send", exact: true }).click();
@@ -1193,10 +1202,14 @@ e2eTest(
     await expect(unread).not.toBeVisible();
 
     // Opening a running session must not count its future result as read.
-    await app.page.getByRole("button", { name: "New session" }).click();
+    await app.page
+      .getByRole("button", { name: "New session", exact: true })
+      .click();
     await row.getByRole("link").click();
     await expect(working).toBeVisible();
-    await app.page.getByRole("button", { name: "New session" }).click();
+    await app.page
+      .getByRole("button", { name: "New session", exact: true })
+      .click();
     const response = await llm.stream();
     response.write(m.assistant("The report is ready."));
     await expect(working).toBeVisible();
@@ -1216,13 +1229,16 @@ e2eTest(
     await expect(unread).not.toBeVisible();
 
     await app.page
+      .getByRole("main")
       .getByLabel("Message", { exact: true })
       .fill("Add a conclusion");
     await app.page.getByRole("button", { name: "Send", exact: true }).click();
     await expect(working).toBeVisible();
     await llm.respond(m.assistant("Here is the conclusion."));
     await expect(working).not.toBeVisible();
-    await app.page.getByRole("button", { name: "New session" }).click();
+    await app.page
+      .getByRole("button", { name: "New session", exact: true })
+      .click();
     await app.page.reload();
     await expect(row).toBeVisible();
     await expect(unread).not.toBeVisible();
@@ -1234,8 +1250,11 @@ e2eTest(
 e2eTest(
   "shares unread results and read receipts between windows",
   async ({ app, llm }) => {
-    await app.page.getByRole("button", { name: "New session" }).click();
     await app.page
+      .getByRole("button", { name: "New session", exact: true })
+      .click();
+    await app.page
+      .getByRole("main")
       .getByLabel("Message", { exact: true })
       .fill("Work while I am away");
     await app.page.getByRole("button", { name: "Send", exact: true }).click();
@@ -1244,8 +1263,12 @@ e2eTest(
     ).toBeVisible();
     const otherWindow = await app.openWindow();
     await otherWindow.getByRole("main").waitFor();
-    await otherWindow.getByRole("button", { name: "New session" }).click();
-    await app.page.getByRole("button", { name: "New session" }).click();
+    await otherWindow
+      .getByRole("button", { name: "New session", exact: true })
+      .click();
+    await app.page
+      .getByRole("button", { name: "New session", exact: true })
+      .click();
     await llm.respond(m.assistant("Your result arrived while you were away."));
     const unread = app.page.getByRole("img", { name: "Unread result" });
     await expect(unread).toBeVisible();
