@@ -37,7 +37,7 @@ Adapt the generated package:
 
 - `view.tsx` default-exports the React view.
 - `api.ts` default-exports an oRPC router.
-- `schema.ts` default-exports the Tandem schema.
+- `schema.ts` default-exports the Tandem schema and named-exports its relations.
 - `package.json` owns dependencies, scripts, and optional Halo presentation metadata.
 
 Read `.agents/skills/maui/SKILL.md` before designing or editing the view. Keep `MauiProvider` at the view root. Resolve Maui source references from the extension's `node_modules/maui/` directory.
