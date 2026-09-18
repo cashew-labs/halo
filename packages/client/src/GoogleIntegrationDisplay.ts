@@ -9,7 +9,7 @@ const googleG =
 const googlePhotosIcon =
   "https://www.gstatic.com/images/branding/product/2x/photos_96dp.png";
 
-const googleIntegrationDisplays = {
+const googleIntegrationDisplays: Record<string, GoogleIntegrationDisplay> = {
   google_calendar: {
     name: "Google Calendar",
     description: "Search events and schedule meetings.",
@@ -116,14 +116,10 @@ const googleIntegrationDisplays = {
     description: "See projects, folders, and organizations.",
     icon: "https://fonts.gstatic.com/s/i/productlogos/google_cloud/v6/192px.svg",
   },
-} as const satisfies Record<string, GoogleIntegrationDisplay>;
-
-const displays = new Map<string, GoogleIntegrationDisplay>(
-  Object.entries(googleIntegrationDisplays),
-);
+};
 
 export function googleIntegrationDisplay(
   integration: string,
 ): GoogleIntegrationDisplay | undefined {
-  return displays.get(integration);
+  return googleIntegrationDisplays[integration];
 }
