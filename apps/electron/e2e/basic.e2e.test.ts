@@ -2077,9 +2077,34 @@ e2eTest(
     ).toBeVisible();
     await app.pressShortcut({ key: "P" });
     await expect(
-      page.getByRole("menuitem", { name: "Quick chat" }),
+      page
+        .getByRole("list", { name: "Shortcuts" })
+        .getByText("Quick chat", { exact: true }),
     ).toBeVisible();
+    const popup = page.getByRole("dialog", { name: "Keyboard shortcuts" });
+    const tabCount = await page
+      .getByRole("tab", { includeHidden: true })
+      .count();
+    await popup.getByText("New chat tab", { exact: true }).click();
+    await popup.getByText("Quick chat", { exact: true }).click();
+    await popup
+      .getByRole("listitem")
+      .filter({ hasText: "Quick chat" })
+      .locator("kbd")
+      .click();
+    await popup.getByRole("heading", { name: "Keyboard shortcuts" }).click();
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("Enter");
+    await expect(popup).toBeVisible();
+    await expect(page.getByRole("tab", { includeHidden: true })).toHaveCount(
+      tabCount,
+    );
+    await page.mouse.click(10, 10);
+    await expect(popup).toHaveCount(0);
+    await app.pressShortcut({ key: "P" });
+    await expect(popup).toBeVisible();
     await page.keyboard.press("Escape");
+    await expect(popup).toHaveCount(0);
     await app.pressShortcut({ key: "K", shift: true });
     await expect(page.getByRole("tab")).toHaveCount(2);
     await page
@@ -2104,10 +2129,14 @@ e2eTest(
     });
     await app.pressShortcut({ key: "P" });
     await expect(
-      page.getByRole("menuitem", { name: "Open notes" }),
+      page
+        .getByRole("list", { name: "Shortcuts" })
+        .getByText("Open notes", { exact: true }),
     ).toBeVisible();
     await expect(
-      page.getByRole("menuitem", { name: "Quick chat" }),
+      page
+        .getByRole("list", { name: "Shortcuts" })
+        .getByText("Quick chat", { exact: true }),
     ).toHaveCount(0);
     await page.keyboard.press("Escape");
     await app.pressShortcut({ key: "K", shift: true });
@@ -2121,7 +2150,9 @@ e2eTest(
     await expect(app.page.getByRole("tabpanel")).toBeVisible();
     await app.pressShortcut({ key: "P" });
     await expect(
-      app.page.getByRole("menuitem", { name: "Open notes" }),
+      app.page
+        .getByRole("list", { name: "Shortcuts" })
+        .getByText("Open notes", { exact: true }),
     ).toBeVisible();
     await app.page.keyboard.press("Escape");
     await app.pressShortcut({ key: "L", shift: true });
@@ -2131,7 +2162,9 @@ e2eTest(
     await app.server.rpc.hotkeys.remove({ id: hotkey!.id });
     await app.pressShortcut({ key: "P" });
     await expect(
-      app.page.getByRole("menuitem", { name: "Open notes" }),
+      app.page
+        .getByRole("list", { name: "Shortcuts" })
+        .getByText("Open notes", { exact: true }),
     ).toHaveCount(0);
     await app.server.rpc.hotkeys.save({
       label: "My shortcuts",
@@ -2139,7 +2172,9 @@ e2eTest(
       action: { type: "shortcutMenu" },
     });
     await expect(
-      app.page.getByRole("menuitem", { name: "My shortcuts" }),
+      app.page
+        .getByRole("list", { name: "Shortcuts" })
+        .getByText("My shortcuts", { exact: true }),
     ).toBeVisible();
     await app.page.keyboard.press("Escape");
     await app.pressShortcut({ key: "7", shift: true, alt: true });

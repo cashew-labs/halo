@@ -2,8 +2,6 @@ import { useCallback, useEffect, useState } from "react";
 import { Dialog, Modal, ModalOverlay } from "react-aria-components";
 import {
   Kbd,
-  Menu,
-  MenuItem,
   backgroundColor,
   flex,
   radius,
@@ -26,6 +24,7 @@ export function KeyboardShortcuts() {
   const overlay = useStyles(styles.overlay);
   const modal = useStyles(styles.modal);
   const heading = useStyles(styles.heading);
+  const list = useStyles(styles.list);
   const row = useStyles(styles.row);
   const hint = useStyles(styles.hint);
   const isMac = navigator.platform.startsWith("Mac");
@@ -125,44 +124,30 @@ export function KeyboardShortcuts() {
       <Modal className={modal}>
         <Dialog aria-label="Keyboard shortcuts">
           <h2 className={heading}>Keyboard shortcuts</h2>
-          <Menu
-            aria-label="Shortcuts"
-            autoFocus="first"
-            onAction={(key) => runShortcut(String(key))}
-          >
+          <ul aria-label="Shortcuts" role="list" className={list}>
             {Object.entries(shortcuts).map(([id, shortcut]) => (
-              <MenuItem id={id} key={id} textValue={shortcut.label}>
-                <span className={row}>
-                  <span>{shortcut.label}</span>
-                  <Kbd>{modifier + shortcut.key}</Kbd>
-                </span>
-              </MenuItem>
+              <li key={id} className={row}>
+                <span>{shortcut.label}</span>
+                <Kbd>{modifier + shortcut.key}</Kbd>
+              </li>
             ))}
             {hotkeys.map((hotkey) => (
-              <MenuItem
-                id={`custom:${hotkey.id}`}
-                key={hotkey.id}
-                textValue={hotkey.label}
-              >
-                <span className={row}>
-                  <span>{hotkey.label}</span>
-                  <Kbd>
-                    {hotkey.accelerator
-                      .replace("CmdOrCtrl+", modifier)
-                      .replace("Shift+", isMac ? "⇧" : "Shift+")
-                      .replace("Alt+", isMac ? "⌥" : "Alt+")}
-                  </Kbd>
-                </span>
-              </MenuItem>
+              <li key={hotkey.id} className={row}>
+                <span>{hotkey.label}</span>
+                <Kbd>
+                  {hotkey.accelerator
+                    .replace("CmdOrCtrl+", modifier)
+                    .replace("Shift+", isMac ? "⇧" : "Shift+")
+                    .replace("Alt+", isMac ? "⌥" : "Alt+")}
+                </Kbd>
+              </li>
             ))}
-          </Menu>
+          </ul>
           <p className={hint}>
             {hotkeys.length === 0 ? "No custom hotkeys yet. " : ""}
             Ask in chat to add, change, or remove a hotkey.
           </p>
-          <p className={hint}>
-            ↑ ↓ to navigate · Enter to select · Esc to close
-          </p>
+          <p className={hint}>Click outside or press Esc to close</p>
         </Dialog>
       </Modal>
     </ModalOverlay>
@@ -185,16 +170,18 @@ const styles = {
     maxHeight: "70dvh",
     overflowY: "auto",
     backgroundColor: backgroundColor.app,
-    "& [role='dialog'], & [role='menu']": { outline: "none" },
-    "& [role='menuitem']": { transition: "none" },
+    "& [role='dialog']": { outline: "none" },
   }),
   heading: style(
     text({ size: "sm", fontWeight: 600, color: "highContrast" }),
     spacing.padding({ all: 4 }),
     { margin: 0 },
   ),
+  list: style({ margin: 0, padding: 0, listStyle: "none" }),
   row: style(
     flex({ alignItems: "center", justifyContent: "between", gap: 8 }),
+    text({ size: "sm", color: "highContrast" }),
+    spacing.padding({ all: 4 }),
     {
       width: "100%",
       minHeight: "28px",
