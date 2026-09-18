@@ -18,6 +18,11 @@ import {
   type ConnectionState,
 } from "./ConnectionState.ts";
 
+class SessionListRefreshError extends errore.createTaggedError({
+  name: "SessionListRefreshError",
+  message: "Could not refresh session activity",
+}) {}
+
 class PromptFailedError extends errore.createTaggedError({
   name: "PromptFailedError",
   message: "$reason",
@@ -85,6 +90,20 @@ export function useAgentSession(
           );
         }
         updates.append(item);
+        if (
+          item.type === "event" &&
+          (item.event.type === "run.started" ||
+            item.event.type === "run.finished" ||
+            item.event.type === "session.failed")
+        ) {
+          queryClientRef.current
+            .invalidateQueries({
+              queryKey: ["sessions"],
+            })
+            .catch((cause) => {
+              console.warn(new SessionListRefreshError({ cause }));
+            });
+        }
       },
     });
 

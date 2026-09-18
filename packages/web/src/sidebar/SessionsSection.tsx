@@ -1,3 +1,4 @@
+import { SessionActivity } from "./SessionActivity.js";
 import type { SessionSummary } from "@get-halo/client";
 import { SidebarItem } from "./navigation/SidebarItem.js";
 import { SidebarSection } from "./navigation/SidebarSection.js";
@@ -14,6 +15,7 @@ export function SessionsSection({ sessions }: { sessions: SessionSummary[] }) {
             id={`session:${session.sessionId}`}
             href={`/sessions/${session.sessionId}`}
             pageTitle={title}
+            trailing={<SessionActivity session={session} />}
           >
             {title}
           </SidebarItem>

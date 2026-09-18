@@ -10,6 +10,8 @@ export type SessionSummary = {
   title?: string;
   createdAt: string;
   updatedAt: string;
+  isRunning: boolean;
+  latestResultId?: string;
 };
 
 export type WorkspaceTreeEvent =

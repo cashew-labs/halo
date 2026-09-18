@@ -1,3 +1,4 @@
+import { useMarkSessionRead } from "./useSessionReadState.js";
 import { lastAssistantTurnWasAborted } from "./sessionView.js";
 import { useLayoutEffect, useRef, useState } from "react";
 import { skipToken, useQuery } from "@tanstack/react-query";
@@ -43,6 +44,7 @@ export function AgentPane({
   const body = useStyles(styles.body);
   const column = useStyles(styles.column);
   const { state, error, prompt, abort } = useAgentSession(sessionId);
+  useMarkSessionRead({ sessionId, state });
   const sessionMeta = sessions.find(
     ({ sessionId: candidate }) => candidate === sessionId,
   );

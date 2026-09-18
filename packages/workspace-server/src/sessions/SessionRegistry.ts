@@ -6,6 +6,7 @@ import {
   type SessionRepo,
   type SessionMetadata,
 } from "@earendil-works/pi-agent-core";
+import { laneState } from "@earendil-works/pi-agent-core/harness/session";
 import type { SessionSummary } from "@get-halo/client";
 import {
   HaloAgentSession,
@@ -92,7 +93,11 @@ export class SessionRegistry {
         this.options.layout.root,
       ).catch((cause) => new ListAgentSessionsError({ cause }));
       if (summary instanceof Error) return summary;
-      summaries.push(summary);
+      summaries.push({
+        ...summary,
+        // Stored unfinished operations are recovered only when the session opens.
+        isRunning: this.sessions.has(item.id) && summary.isRunning,
+      });
     }
     return summaries.toSorted((left, right) =>
       right.updatedAt.localeCompare(left.updatedAt),
@@ -203,8 +208,14 @@ async function readSessionSummary(session: Session, cwd: string) {
       : "";
   const title = name === undefined ? firstMessage : name;
   const latest = entries.at(-1);
+  const lane = await session.getValue(laneState("main"), BACKGROUND_CONTEXT);
+  const lastAssistant = entries.findLast(
+    (entry) => entry.type === "message" && entry.message.role === "assistant",
+  );
   return {
     sessionId: session.metadata.id,
+    isRunning: lane !== undefined && lane.value.currentOperationId !== null,
+    latestResultId: lane?.value.lastOperationId ?? lastAssistant?.id,
     agent: "pi" as const,
     cwd,
     title: title.trim().length === 0 ? undefined : title,

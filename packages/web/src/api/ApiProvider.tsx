@@ -73,6 +73,8 @@ export function useSessionsQuery(workspace: WorkspaceInfo | undefined) {
   return useQuery({
     queryKey: ["sessions", workspaceRoot],
     queryFn: async () => await api.sessions.list(),
+    refetchInterval: 1_000,
+    refetchIntervalInBackground: true,
     enabled: workspaceRoot !== undefined,
   });
 }

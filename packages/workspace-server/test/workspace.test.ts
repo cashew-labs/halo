@@ -108,6 +108,10 @@ serverTest(
       ...session,
       text: "Read notes",
     });
+    await llm.waitForRequest();
+    expect(await server.rpc.sessions.list()).toEqual([
+      expect.objectContaining({ ...session, isRunning: true }),
+    ]);
     await llm.respond(
       m.tool.start("exec", {
         id: "read-notes",
@@ -118,6 +122,13 @@ serverTest(
     );
     await llm.respond(m.assistant("Your notes say Trace me."));
     await prompt;
+    expect(await server.rpc.sessions.list()).toEqual([
+      expect.objectContaining({
+        ...session,
+        isRunning: false,
+        latestResultId: expect.any(String),
+      }),
+    ]);
 
     const [trace] = await readTraces(server.workspaceRoot);
     expect(trace).toBeDefined();
