@@ -67,3 +67,14 @@ export type {
 } from "./rpc.js";
 
 export { imageFilename, imageMediaTypes } from "./imageFilename.js";
+export {
+  hotkeyActionSchema,
+  hotkeyInputSchema,
+  hotkeySchema,
+  normalizeHotkey,
+  matchesHotkey,
+  InvalidHotkeyError,
+  type Hotkey,
+  type HotkeyInput,
+  type HotkeyAction,
+} from "./hotkeys.js";

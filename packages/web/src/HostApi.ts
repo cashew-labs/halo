@@ -2,6 +2,7 @@ import type {
   ConnectionRequest,
   ConnectionStarted,
   HaloClient,
+  Hotkey,
 } from "@get-halo/client";
 import type { ControlPlaneSession } from "@get-halo/shared/controlPlaneContract";
 import type { ShortcutId } from "./shortcuts.js";
@@ -20,6 +21,7 @@ export type AppInfo = {
 };
 
 export interface HostApi {
+  setHotkeys?(hotkeys: Hotkey[]): void;
   onShortcut?(listener: (shortcut: ShortcutId) => void): () => void;
   getAuthSession(): Promise<ControlPlaneSession | Error | undefined>;
   signIn(): Promise<ControlPlaneSession | Error | undefined>;

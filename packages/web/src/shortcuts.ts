@@ -8,4 +8,4 @@ export const shortcuts = {
   },
 } as const;
 
-export type ShortcutId = keyof typeof shortcuts;
+export type ShortcutId = keyof typeof shortcuts | `custom:${string}`;
