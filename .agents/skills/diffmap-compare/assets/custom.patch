@@ -1752,11 +1752,257 @@ index 0000000..afb2f5c
 +    </div>
 +  );
 +}
+diff --git a/src/viewer/TableOfContents.tsx b/src/viewer/TableOfContents.tsx
+new file mode 100644
+index 0000000..095adb7
+--- /dev/null
++++ b/src/viewer/TableOfContents.tsx
+@@ -0,0 +1,240 @@
++import { useEffect, useMemo, useState, type RefObject } from "react";
++import { colors, focusRing, radius, spacing, text } from "maui";
++import { style, useStyles } from "purse-styles";
++import type { ViewerNode } from "../parseViewer.js";
++
++type ViewerHeading = { id: string; text: string; level: number };
++function collectHeadings(nodes: ViewerNode[]): ViewerHeading[] {
++  return nodes.flatMap((node) => {
++    if (node.type !== "element") return [];
++    if (/^h[1-6]$/.test(node.tag) && node.attrs.id !== undefined)
++      return [
++        {
++          id: node.attrs.id,
++          text: headingText(node.children),
++          level: Number(node.tag.slice(1)),
++        },
++      ];
++    return collectHeadings(node.children);
++  });
++}
++function headingText(nodes: ViewerNode[]): string {
++  return nodes
++    .map((node) =>
++      node.type === "text"
++        ? node.value
++        : node.type === "element"
++          ? headingText(node.children)
++          : "",
++    )
++    .join("");
++}
++
++type TocItem = ViewerHeading & { children: TocItem[] };
++
++export function TableOfContents(props: {
++  nodes: ViewerNode[];
++  articleRef: RefObject<HTMLElement | null>;
++}) {
++  const headings = useMemo(() => collectHeadings(props.nodes), [props.nodes]);
++  const items = nestHeadings(tocHeadings(headings));
++  const { activeId, setActiveId } = useActiveHeading(
++    headings,
++    props.articleRef,
++  );
++  const navClass = useStyles(styles.nav);
++  const listClass = useStyles(styles.list);
++  if (items.length === 0) return undefined;
++
++  return (
++    <nav
++      className={navClass}
++      aria-label="Table of contents"
++      data-tkstack-kind="toc"
++    >
++      <TocList
++        items={items}
++        className={listClass}
++        activeId={activeId}
++        onSelect={setActiveId}
++      />
++    </nav>
++  );
++}
++
++function TocList(props: {
++  items: TocItem[];
++  className: string;
++  activeId: string | undefined;
++  onSelect: (id: string) => void;
++}) {
++  return (
++    <ol className={props.className}>
++      {props.items.map((item) => (
++        <TocEntry
++          key={item.id}
++          item={item}
++          listClass={props.className}
++          activeId={props.activeId}
++          onSelect={props.onSelect}
++        />
++      ))}
++    </ol>
++  );
++}
++
++function TocEntry(props: {
++  item: TocItem;
++  listClass: string;
++  activeId: string | undefined;
++  onSelect: (id: string) => void;
++}) {
++  const itemClass = useStyles(styles.item);
++  const linkClass = useStyles(styles.link);
++  const current = props.activeId === props.item.id;
++  return (
++    <li className={itemClass}>
++      <a
++        className={linkClass}
++        href={`#${props.item.id}`}
++        aria-current={current ? "location" : undefined}
++        onClick={(event) => {
++          const heading = document.getElementById(props.item.id);
++          if (!heading) return;
++          event.preventDefault();
++          props.onSelect(props.item.id);
++          heading.scrollIntoView({ behavior: "smooth", block: "start" });
++          history.pushState({}, "", `#${props.item.id}`);
++        }}
++      >
++        {props.item.text}
++      </a>
++      {props.item.children.length > 0 && (
++        <TocList
++          items={props.item.children}
++          className={props.listClass}
++          activeId={props.activeId}
++          onSelect={props.onSelect}
++        />
++      )}
++    </li>
++  );
++}
++
++function tocHeadings(headings: ViewerHeading[]) {
++  const first = headings[0];
++  if (first?.level === 1) return headings.slice(1);
++  return headings;
++}
++
++function nestHeadings(headings: ViewerHeading[]): TocItem[] {
++  const items: TocItem[] = [];
++  const stack: TocItem[] = [];
++  for (const heading of headings) {
++    const item: TocItem = { ...heading, children: [] };
++    while (stack.length > 0) {
++      const parent = stack[stack.length - 1];
++      if (parent === undefined || parent.level < heading.level) break;
++      stack.pop();
++    }
++    const parent = stack[stack.length - 1];
++    if (parent === undefined) items.push(item);
++    else parent.children.push(item);
++    stack.push(item);
++  }
++  return items;
++}
++
++function useActiveHeading(
++  headings: ViewerHeading[],
++  articleRef: RefObject<HTMLElement | null>,
++) {
++  const [activeId, setActiveId] = useState<string>();
++
++  useEffect(() => {
++    const ids = tocHeadings(headings).map((heading) => heading.id);
++    const nodes = ids.flatMap((id) => {
++      const node = document.getElementById(id);
++      return node ? [node] : [];
++    });
++    if (nodes.length === 0) return;
++    const root = articleRef.current ?? undefined;
++    const visible = new Set<string>();
++    const observer = new IntersectionObserver(
++      (entries) => {
++        for (const entry of entries) {
++          if (entry.isIntersecting) visible.add(entry.target.id);
++          else visible.delete(entry.target.id);
++        }
++        const next = ids.find((id) => visible.has(id));
++        if (next !== undefined) setActiveId(next);
++      },
++      { root, rootMargin: "0px 0px -70% 0px", threshold: 0 },
++    );
++    for (const node of nodes) observer.observe(node);
++    return () => observer.disconnect();
++  }, [articleRef, headings]);
++
++  return { activeId, setActiveId };
++}
++
++const styles = {
++  nav: style(spacing.padding({ left: 3, right: 3, top: 8, bottom: 8 }), {
++    boxSizing: "border-box",
++    gridColumn: "1",
++    alignSelf: "stretch",
++    minWidth: 0,
++    width: "200px",
++    maxWidth: "200px",
++    minHeight: 0,
++    height: "fit-content",
++    maxHeight: "100%",
++    marginTop: "auto",
++    marginBottom: "auto",
++    overflowY: "auto",
++    backgroundColor: "transparent",
++    "@media (max-width: 1200px)": {
++      display: "none",
++    },
++    "&[data-tkstack-kind='toc'] ol": {
++      listStyle: "none",
++      counterReset: "none",
++      margin: 0,
++      padding: 0,
++    },
++    "&[data-tkstack-kind='toc'] ol ol": {
++      paddingInlineStart: spacing.value(6),
++    },
++    "&[data-tkstack-kind='toc'] ol > li::before": {
++      content: "none",
++    },
++    "&[data-tkstack-kind='toc'] a": {
++      fontWeight: 400,
++      textDecoration: "none",
++    },
++  }),
++  list: style(text({ size: "sm", fontWeight: 400, color: "lowContrast" })),
++  item: style({
++    "&::before": {
++      content: "none",
++    },
++  }),
++  link: style(
++    radius.sm,
++    spacing.padding({ x: 4, y: 2 }),
++    text({ size: "sm", fontWeight: 400, color: "lowContrast" }),
++    focusRing(),
++    {
++      display: "block",
++      overflowWrap: "anywhere",
++      cursor: "pointer",
++      "&:hover": {
++        backgroundColor: colors.gray[3],
++      },
++      "&[aria-current='location']": {
++        color: colors.accent[9],
++        fontWeight: 500,
++      },
++    },
++  ),
++};
 diff --git a/src/viewer/ViewerApp.tsx b/src/viewer/ViewerApp.tsx
-index 6af3a81..9ee0b4e 100644
+index 6af3a81..64ef1d5 100644
 --- a/src/viewer/ViewerApp.tsx
 +++ b/src/viewer/ViewerApp.tsx
-@@ -1,48 +1,81 @@
+@@ -1,48 +1,82 @@
 -import { useEffect, useState } from "react";
 +import { useCallback, useEffect, useRef, useState } from "react";
  import {
@@ -1778,6 +2024,7 @@ index 6af3a81..9ee0b4e 100644
 +import { SourceDiffPanel, type SourceSelection } from "./SourceDiffPanel.js";
  
 -import { ExplorationPanel } from "./ExplorationPanel.js";
++import { TableOfContents } from "./TableOfContents.js";
 +import { ReviewTabs } from "./ReviewTabs.js";
 +import "./exploration.css";
  import type { SourceAnnotation } from "../annotations.js";
@@ -1863,7 +2110,7 @@ index 6af3a81..9ee0b4e 100644
    const selectAnnotation = (annotation: SourceAnnotation) => {
      const detail = annotation.explanationId
        ? viewerDocument.explanations[annotation.explanationId]
-@@ -50,8 +83,7 @@ export function ViewerApp() {
+@@ -50,8 +84,7 @@ export function ViewerApp() {
      const references = annotation.references.length
        ? annotation.references
        : (detail?.references ?? []);
@@ -1873,7 +2120,7 @@ index 6af3a81..9ee0b4e 100644
        annotation:
          references === annotation.references
            ? annotation
-@@ -59,73 +91,150 @@ export function ViewerApp() {
+@@ -59,73 +92,116 @@ export function ViewerApp() {
        reference: references[0],
      });
    };
@@ -1896,6 +2143,7 @@ index 6af3a81..9ee0b4e 100644
 +    () => codeScrollPositions.current.get(codeScrollKey),
 +    [codeScrollKey],
 +  );
++  const articleRef = useRef<HTMLElement>(null);
    const article = useStyles(styles.article);
    const prose = useStyles(proseHtml("md"), styles.prose);
 -  const closed = useStyles(styles.closed);
@@ -1934,8 +2182,10 @@ index 6af3a81..9ee0b4e 100644
 -            />
 -          </div>
 -        </article>
++        <TableOfContents nodes={viewerDocument.nodes} articleRef={articleRef} />
 +        <section className="review-left" aria-label="Review pages">
 +          <article
++            ref={articleRef}
 +            id="review-home"
 +            aria-label="Review overview"
 +            className={article}
@@ -1949,43 +2199,6 @@ index 6af3a81..9ee0b4e 100644
 +                selectedAnnotation={selection?.annotation}
 +                onSelectAnnotation={selectAnnotation}
 +              />
-+              <nav className="review-files" aria-label="Changed files">
-+                <h2>Files in this change</h2>
-+                {viewerDocument.sourceDiffs.map((item) => (
-+                  <button
-+                    key={item.id}
-+                    onClick={() => {
-+                      const explanation = Object.values(
-+                        viewerDocument.explanations,
-+                      ).find((entry) => entry.file === item.fileDiff.name);
-+                      const hunk = item.fileDiff.hunks[0]!;
-+                      const side: "new" | "old" =
-+                        hunk.additionCount > 0 ? "new" : "old";
-+                      const start =
-+                        side === "new"
-+                          ? hunk.additionStart
-+                          : hunk.deletionStart;
-+                      const reference = {
-+                        kind: "diff" as const,
-+                        id: item.id,
-+                        side,
-+                        start,
-+                        end: start,
-+                      };
-+                      visit({
-+                        annotation: {
-+                          text: item.fileDiff.name,
-+                          explanationId: explanation?.id,
-+                          references: [reference],
-+                        },
-+                        reference,
-+                      });
-+                    }}
-+                  >
-+                    {item.fileDiff.name}
-+                  </button>
-+                ))}
-+              </nav>
 +            </div>
 +          </article>
 +        </section>
@@ -2072,7 +2285,7 @@ index 6af3a81..9ee0b4e 100644
  function useViewerMeta() {
    const [meta, setMeta] = useState<ViewerMeta>();
    useEffect(() => {
-@@ -140,10 +249,6 @@ function useViewerMeta() {
+@@ -140,10 +216,6 @@ function useViewerMeta() {
    return meta;
  }
  
@@ -2083,7 +2296,7 @@ index 6af3a81..9ee0b4e 100644
  const styles = {
    shell: style(flex({ direction: "column" }), {
      width: "100%",
-@@ -153,24 +258,14 @@ const styles = {
+@@ -153,34 +225,29 @@ const styles = {
      overflow: "hidden",
      backgroundColor: colors.gray[4],
    }),
@@ -2116,7 +2329,24 @@ index 6af3a81..9ee0b4e 100644
    }),
    body: style({
      display: "grid",
-@@ -206,10 +301,6 @@ const styles = {
+     gridTemplateColumns: "var(--tkstack-columns)",
+-    "--tkstack-columns": "minmax(0, 1fr)",
++    "--tkstack-columns": "200px minmax(0, 1fr)",
++    "--compact-columns": "minmax(0, 1fr)",
+     flex: "1 1 auto",
+     minHeight: 0,
+     minWidth: 0,
+     "&[data-has-source-diffs='true']": {
+-      "--tkstack-columns": "minmax(0, 1fr) minmax(0, 1fr)",
++      "--tkstack-columns": "200px minmax(0, 1fr) minmax(0, 1fr)",
++      "--compact-columns": "minmax(0, 1fr) minmax(0, 1fr)",
++    },
++    "@media (max-width: 1200px)": {
++      gridTemplateColumns: "var(--compact-columns)",
+     },
+     "@media (max-width: 900px)": {
+       gridTemplateColumns: "minmax(0, 1fr)",
+@@ -206,10 +273,6 @@ const styles = {
        maxWidth: "none",
        minWidth: 0,
      },
@@ -2127,7 +2357,7 @@ index 6af3a81..9ee0b4e 100644
      "& ul > li[data-task]::before, & ol > li[data-task]::before": {
        content: "none",
      },
-@@ -232,12 +323,4 @@ const styles = {
+@@ -232,12 +295,4 @@ const styles = {
        border: 0,
      },
    }),
@@ -2141,7 +2371,7 @@ index 6af3a81..9ee0b4e 100644
 -  ),
  };
 diff --git a/src/viewer/exploration.css b/src/viewer/exploration.css
-index 8ae7e1a..b795632 100644
+index 8ae7e1a..48eac0c 100644
 --- a/src/viewer/exploration.css
 +++ b/src/viewer/exploration.css
 @@ -5,61 +5,24 @@
@@ -2241,7 +2471,7 @@ index 8ae7e1a..b795632 100644
    }
    .exploration-header {
      padding: 12px 18px 0;
-@@ -143,3 +87,240 @@
+@@ -143,3 +87,219 @@
      padding: 18px;
    }
  }
@@ -2323,27 +2553,6 @@ index 8ae7e1a..b795632 100644
 +}
 +.symbol-link:hover {
 +  background: var(--explore-surface);
-+}
-+
-+.review-files {
-+  margin-top: 32px;
-+}
-+.review-files button {
-+  display: block;
-+  width: 100%;
-+  border: 0;
-+  border-bottom: 1px solid var(--explore-border, #ddd);
-+  padding: 10px 0;
-+  background: transparent;
-+  color: inherit;
-+  text-align: left;
-+  font: inherit;
-+  font-size: 13px;
-+  overflow-wrap: anywhere;
-+  cursor: pointer;
-+}
-+.review-files button:hover {
-+  text-decoration: underline;
 +}
 +
 +.review-page {
