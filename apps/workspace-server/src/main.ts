@@ -13,6 +13,7 @@ import {
   removeHaloRpcFile,
 } from "@get-halo/shared/HaloRpcFile";
 import {
+  ControlPlaneTraceUploader,
   FileCredentialVault,
   WorkspaceServer,
 } from "@get-halo/workspace-server";
@@ -20,6 +21,7 @@ import {
   createOpenAILLMApi,
   createPiLLMApi,
 } from "@get-halo/workspace-server/llm";
+import { GoogleAuth } from "google-auth-library";
 import * as errore from "errore";
 
 class WorkspaceServerStartupError extends errore.createTaggedError({
@@ -78,6 +80,7 @@ async function run() {
       port: applicationConfig.server.port,
       corsOrigins: applicationConfig.server.corsOrigins,
       testApiEnabled: applicationConfig.mode === ApplicationMode.Test,
+      traceWorkspaceId: applicationConfig.server.traceUpload?.workspaceId,
       gateway: applicationConfig.server.gateway,
       cliEntry: applicationConfig.server.cliEntry,
       cliNodeExecutable: applicationConfig.server.cliNodeExecutable,
@@ -88,6 +91,13 @@ async function run() {
     },
     host: {
       llmApi,
+      traceUploader:
+        applicationConfig.server.traceUpload === undefined
+          ? undefined
+          : new ControlPlaneTraceUploader({
+              origin: applicationConfig.server.traceUpload.origin,
+              auth: new GoogleAuth(),
+            }),
       logger: logger.scope("rpc"),
       createCredentialVault: ({ filesystem, workspaceRoot }) =>
         new FileCredentialVault({

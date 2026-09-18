@@ -4,11 +4,17 @@ import { createTestArtifacts } from "./TestArtifacts.js";
 import { createOpenAILLMApi } from "@get-halo/workspace-server/llm";
 import { HttpService, LLMDriver } from "@get-halo/workspace-server/testing";
 import { TestServer } from "./TestServer.js";
+import type { WorkspaceServerOptions } from "@get-halo/workspace-server";
 
 // Server setup and teardown can exceed Vitest's five-second default in CI.
 vi.setConfig({ testTimeout: 20_000 });
 
-type ServerOptions = { workspaceRoot?: string; testApiEnabled?: boolean };
+type ServerOptions = {
+  workspaceRoot?: string;
+  testApiEnabled?: boolean;
+  traceUploader?: WorkspaceServerOptions["host"]["traceUploader"];
+  traceWorkspaceId?: string;
+};
 
 export const serverTest = baseTest.extend<{
   llm: LLMDriver;
@@ -47,6 +53,8 @@ export const serverTest = baseTest.extend<{
       const server = new TestServer({
         artifacts,
         llmApi: createOpenAILLMApi(llm.configuration),
+        traceUploader: options.traceUploader,
+        traceWorkspaceId: options.traceWorkspaceId,
         workspaceRoot:
           options.workspaceRoot === undefined
             ? artifacts.paths.workspace

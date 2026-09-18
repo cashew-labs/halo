@@ -311,10 +311,10 @@ jobs:
               exit 1
             fi
 
-            metadata=("halo-owner-user-id=$owner_user_id")
+            metadata=("halo-owner-user-id=$owner_user_id" "halo-workspace-id=$workspace_id")
             while IFS=$'\t' read -r key value; do
               metadata+=("$key=$value")
-            done < <(jq -r '.properties.metadata.items[] | select(.key != "startup-script" and .key != "halo-owner-user-id") | [.key, .value] | @tsv' \
+            done < <(jq -r '.properties.metadata.items[] | select(.key != "startup-script" and .key != "halo-owner-user-id" and .key != "halo-workspace-id") | [.key, .value] | @tsv' \
               <<< "$template_details")
             metadata_csv="$(IFS=,; echo "${metadata[*]}")"
 

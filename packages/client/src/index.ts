@@ -49,6 +49,12 @@ export {
   type SessionWatchItem,
 } from "./sessionState.js";
 export type {
+  TraceAgent,
+  TraceEvent,
+  TraceOutcome,
+  TraceRecord,
+} from "./traces.js";
+export type {
   WorkspaceInfo,
   SessionSummary,
   WorkspaceTreeEvent,

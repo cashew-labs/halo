@@ -20,7 +20,7 @@ import { workspaceBashPlugin } from "../agent/tools/bash/workspaceBashPlugin.js"
 import { createWorkspaceFilesPlugin } from "../agent/tools/files/createWorkspaceFilesPlugin.js";
 import { parallelSearchPlugin } from "../agent/tools/web/parallelSearchPlugin.js";
 import type { LLMApi } from "../llm/LLMApi.js";
-import { createPiModelRuntime } from "../llm/createPiModelRuntime.js";
+import { TraceService, type TraceUploader } from "../traces/TraceService.js";
 import type { HaloEnvironment } from "../agent/workspacePrompt.js";
 import {
   closeHaloHttp,
@@ -42,6 +42,7 @@ export type WorkspaceServerConfig = {
   port: number;
   corsOrigins: readonly string[];
   testApiEnabled?: boolean;
+  traceWorkspaceId?: string;
   gateway?: WorkspaceGatewayIdentity;
   cliEntry?: string;
   cliNodeExecutable?: string;
@@ -54,6 +55,8 @@ export type WorkspaceServerConfig = {
 export type WorkspaceServerHost = {
   // Inference client the host constructs and keeps for this process.
   llmApi: LLMApi;
+  // Optional upload transport the host owns; the server submits completed traces through it.
+  traceUploader?: TraceUploader;
   // Logger the host owns; the server writes through it and does not close the sinks.
   logger: Logger;
   // Host-owned vault. The server passes its FilesystemService; the host must not close it.
@@ -80,6 +83,7 @@ export class WorkspaceServer {
   private readonly extensions: ExtensionHost;
   private readonly http: ListeningHaloHttp;
   private readonly requests: ServingHaloHttp;
+  private readonly traces: TraceService;
 
   private constructor(ctx: {
     filesystem: FilesystemService;
@@ -93,6 +97,7 @@ export class WorkspaceServer {
     extensions: ExtensionHost;
     http: ListeningHaloHttp;
     requests: ServingHaloHttp;
+    traces: TraceService;
   }) {
     const {
       filesystem,
@@ -106,6 +111,7 @@ export class WorkspaceServer {
       extensions,
       http,
       requests,
+      traces,
     } = ctx;
     this.filesystem = filesystem;
     this.database = database;
@@ -118,6 +124,7 @@ export class WorkspaceServer {
     this.extensions = extensions;
     this.http = http;
     this.requests = requests;
+    this.traces = traces;
   }
 
   static async start(
@@ -135,8 +142,6 @@ export class WorkspaceServer {
       if (closed instanceof Error)
         host.logger.warn({ event: "http-cleanup-failed", error: closed });
     });
-    const modelRuntime = await createPiModelRuntime(host.llmApi);
-    if (modelRuntime instanceof Error) return modelRuntime;
     const filesystem = new FilesystemService();
     cleanup.defer(async () => {
       const closed = await filesystem.close();
@@ -160,6 +165,15 @@ export class WorkspaceServer {
     if (workspace instanceof Error) return workspace;
 
     const workspaceRoot = workspace.layout.root;
+    const traces = await TraceService.open({
+      directory: path.join(workspaceRoot, ".halo", "traces"),
+      appVersion: config.appVersion,
+      logger: host.logger,
+      uploader: host.traceUploader,
+      workspaceId: config.traceWorkspaceId,
+    });
+    if (traces instanceof Error) return traces;
+    cleanup.defer(async () => await traces.close());
     const database = await DatabaseClient.open({
       directory: path.join(workspaceRoot, ".halo"),
       filesystem,
@@ -234,7 +248,8 @@ export class WorkspaceServer {
     const sessions = new SessionRegistry({
       environment: config.environment,
       repo: sessionRepo,
-      modelRuntime,
+      llmApi: host.llmApi,
+      traces,
       model: host.llmApi.model,
       filesystem,
       layout: workspace.layout,
@@ -253,6 +268,7 @@ export class WorkspaceServer {
     const requests = serveHaloHttp({
       ...http,
       context: {
+        traces,
         browsers,
         extensions,
         workspace,
@@ -281,6 +297,7 @@ export class WorkspaceServer {
       extensions,
       http,
       requests,
+      traces,
     });
   }
 
@@ -295,6 +312,7 @@ export class WorkspaceServer {
     await this.requests.close();
     this.connectionService.close();
     const sessionsClosed = await this.sessions.shutdown();
+    await this.traces.close();
     await this.browsers.shutdown();
     await this.extensions.stop();
     const toolsClosed = await this.toolRuntime.close();

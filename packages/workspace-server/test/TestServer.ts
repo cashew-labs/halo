@@ -23,18 +23,31 @@ export class TestServer {
   private readonly artifacts: TestArtifacts;
   private readonly llmApi: WorkspaceServerOptions["host"]["llmApi"];
   private readonly testApiEnabled: boolean;
+  private readonly traceWorkspaceId: WorkspaceServerOptions["config"]["traceWorkspaceId"];
+  private readonly traceUploader: WorkspaceServerOptions["host"]["traceUploader"];
 
   constructor(ctx: {
     artifacts: TestArtifacts;
     workspaceRoot: string;
     llmApi: WorkspaceServerOptions["host"]["llmApi"];
     testApiEnabled?: boolean;
+    traceUploader?: WorkspaceServerOptions["host"]["traceUploader"];
+    traceWorkspaceId?: string;
   }) {
-    const { artifacts, workspaceRoot, llmApi, testApiEnabled } = ctx;
+    const {
+      artifacts,
+      workspaceRoot,
+      llmApi,
+      testApiEnabled,
+      traceUploader,
+      traceWorkspaceId,
+    } = ctx;
     this.artifacts = artifacts;
     this.workspaceRoot = workspaceRoot;
     this.llmApi = llmApi;
     this.testApiEnabled = testApiEnabled === undefined ? true : testApiEnabled;
+    this.traceUploader = traceUploader;
+    this.traceWorkspaceId = traceWorkspaceId;
   }
 
   get harness() {
@@ -66,6 +79,7 @@ export class TestServer {
         port: this.listenPort,
         corsOrigins: [],
         testApiEnabled: this.testApiEnabled,
+        traceWorkspaceId: this.traceWorkspaceId,
         extensionRuntime: {
           executable: process.execPath,
           electronRunAsNode: false,
@@ -73,6 +87,7 @@ export class TestServer {
       },
       host: {
         llmApi: this.llmApi,
+        traceUploader: this.traceUploader,
         logger: this.artifacts.logger,
         createCredentialVault: ({ filesystem, workspaceRoot }) =>
           new FileCredentialVault({

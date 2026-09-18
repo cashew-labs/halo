@@ -18,6 +18,7 @@
     "@get-halo/shared": "workspace:*",
     "@get-halo/workspace-server": "workspace:*",
     "errore": "^0.14.1",
+    "google-auth-library": "^11.0.2",
     "tsx": "^4.23.13"
   },
   "devDependencies": {

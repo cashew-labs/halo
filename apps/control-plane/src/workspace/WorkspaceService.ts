@@ -109,6 +109,34 @@ export class WorkspaceService {
     } satisfies WorkspaceConnection;
   }
 
+  async hasWorkspace(workspaceId: string) {
+    const client = this.db.client;
+    if (client instanceof DatabaseSync) {
+      return errore.try({
+        try: () =>
+          client
+            .prepare("SELECT id FROM workspace WHERE id = ?")
+            .get(workspaceId) !== undefined,
+        catch: (cause) =>
+          new WorkspaceServiceError({
+            detail: "authorize trace workspace",
+            cause,
+          }),
+      });
+    }
+    const found = await client
+      .query("SELECT id FROM workspace WHERE id = $1", [workspaceId])
+      .catch(
+        (cause) =>
+          new WorkspaceServiceError({
+            detail: "authorize trace workspace",
+            cause,
+          }),
+      );
+    if (found instanceof Error) return found;
+    return found.rows.length === 1;
+  }
+
   private async findRecord(userId: string) {
     const client = this.db.client;
 

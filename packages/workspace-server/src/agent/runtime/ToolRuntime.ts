@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
-import type * as Cause from "effect/Cause";
+import * as Cause from "effect/Cause";
 import * as Exit from "effect/Exit";
 import {
   createExecutionEngine,
@@ -118,7 +118,7 @@ const showConnectionCardInputSchema = Type.Object({
   }),
 });
 
-type ExecActivityUpdate =
+export type ExecActivityUpdate =
   | {
       type: "tool.started";
       invocation: {
@@ -128,7 +128,12 @@ type ExecActivityUpdate =
         arguments: unknown;
       };
     }
-  | { type: "tool.finished"; invocationId: string; isError: boolean };
+  | {
+      type: "tool.finished";
+      invocationId: string;
+      isError: boolean;
+      result: unknown;
+    };
 
 type ToolExecutionContext = Pick<
   HaloToolContext,
@@ -818,6 +823,7 @@ function withToolActivity<E extends Cause.YieldableError>(input: {
                 type: "tool.finished",
                 invocationId,
                 isError: isToolResult(result.value) && !result.value.ok,
+                result: result.value,
               });
               return result.value;
             }
@@ -825,6 +831,7 @@ function withToolActivity<E extends Cause.YieldableError>(input: {
               type: "tool.finished",
               invocationId,
               isError: true,
+              result: Cause.pretty(result.cause),
             });
             return yield* Effect.failCause(result.cause);
           });
