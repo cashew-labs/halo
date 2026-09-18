@@ -17,8 +17,8 @@ const controlPlaneImage = configuration.require("controlPlaneImage");
 const workspaceImage = configuration.require("workspaceImage");
 const googleClientIdSecretId = `${name}-control-plane-google-client-id`;
 const googleClientSecretId = `${name}-control-plane-google-client-secret`;
-const googleWebClientIdSecretId = `${name}-workspace-google-web-client-id`;
-const googleWebClientSecretId = `${name}-workspace-google-web-client-secret`;
+const googleWebClientIdSecretId = "halo-workspace-google-web-client-id";
+const googleWebClientSecretId = "halo-workspace-google-web-client-secret";
 const controlPlaneDomain = configuration.require("controlPlaneDomain");
 const controlPlaneOrigin = `https://${controlPlaneDomain}`;
 
@@ -235,10 +235,6 @@ const workspaceTemplate = new gcp.compute.InstanceTemplate(
     },
     metadataStartupScript: workspaceStartup({
       gateway: true,
-      googleWebOAuth: {
-        clientIdSecretId: googleWebClientIdSecretId,
-        clientSecretSecretId: googleWebClientSecretId,
-      },
       image: workspaceImage,
       registry: `${region}-docker.pkg.dev`,
     }),

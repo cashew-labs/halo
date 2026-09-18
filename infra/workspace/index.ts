@@ -13,6 +13,8 @@ const shared = new pulumi.StackReference(
   configuration.require("controlPlaneStack"),
 );
 const image = configuration.require("image");
+const googleWebClientIdSecretId = "halo-workspace-google-web-client-id";
+const googleWebClientSecretId = "halo-workspace-google-web-client-secret";
 
 const identity = new gcp.serviceaccount.Account("runtime", {
   accountId: name,
@@ -38,6 +40,24 @@ const vertexAiAccess = new gcp.projects.IAMMember("vertex-ai", {
   role: "roles/aiplatform.user",
   member: pulumi.interpolate`serviceAccount:${identity.email}`,
 });
+const googleWebClientIdAccess = new gcp.secretmanager.SecretIamMember(
+  "workspace-google-web-client-id",
+  {
+    project,
+    secretId: googleWebClientIdSecretId,
+    role: "roles/secretmanager.secretAccessor",
+    member: pulumi.interpolate`serviceAccount:${identity.email}`,
+  },
+);
+const googleWebClientSecretAccess = new gcp.secretmanager.SecretIamMember(
+  "workspace-google-web-client-secret",
+  {
+    project,
+    secretId: googleWebClientSecretId,
+    role: "roles/secretmanager.secretAccessor",
+    member: pulumi.interpolate`serviceAccount:${identity.email}`,
+  },
+);
 const disk = new gcp.compute.Disk(
   "workspace",
   {
@@ -85,7 +105,12 @@ const instance = new gcp.compute.Instance(
     }),
   },
   {
-    dependsOn: [imageAccess, vertexAiAccess],
+    dependsOn: [
+      imageAccess,
+      vertexAiAccess,
+      googleWebClientIdAccess,
+      googleWebClientSecretAccess,
+    ],
     // Replacing a VM must detach the workspace disk before its replacement attaches it.
     deleteBeforeReplace: true,
   },

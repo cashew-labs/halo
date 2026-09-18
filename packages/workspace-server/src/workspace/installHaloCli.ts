@@ -9,7 +9,7 @@ export class InstallHaloCliError extends errore.createTaggedError({
   message: "Failed to install halo CLI: $detail",
 }) {}
 
-export function haloCliBinDir(workspaceRoot: string) {
+function haloCliBinDir(workspaceRoot: string) {
   return join(workspaceRoot, ".halo", "bin");
 }
 

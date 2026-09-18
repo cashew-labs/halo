@@ -5,7 +5,7 @@ import {
   HaloRpcFileError,
   readHaloRpcFile,
   rpcFilePath,
-} from "./HaloRpcFile.js";
+} from "@get-halo/shared/HaloRpcFile";
 
 export type FindHaloRpcFileArgs = {
   rpcFile: string | undefined;

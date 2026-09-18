@@ -1,16 +1,8 @@
 export function workspaceStartup(ctx: {
   gateway?: true;
-  googleWebOAuth?: {
-    clientIdSecretId: string;
-    clientSecretSecretId: string;
-  };
   image: string;
   registry: string;
 }) {
-  const googleWebOAuthEnvironment =
-    ctx.googleWebOAuth === undefined
-      ? ""
-      : `--env GOOGLE_WEB_CLIENT_ID_SECRET_ID=${ctx.googleWebOAuth.clientIdSecretId} --env GOOGLE_WEB_CLIENT_SECRET_ID=${ctx.googleWebOAuth.clientSecretSecretId}`;
   const gatewayMetadata =
     ctx.gateway === undefined
       ? ""
@@ -88,7 +80,7 @@ TimeoutStartSec=600
 TimeoutStopSec=45
 ExecStartPre=/usr/local/bin/halo-workspace-pull
 ExecStartPre=/usr/local/bin/halo-workspace-config
-ExecStart=/usr/bin/docker run --rm --name halo-workspace --network host --init --shm-size=1g --volume /mnt/halo/workspace:/home/node ${googleWebOAuthEnvironment} ${ctx.image} /home/node/.halo/workspace-server.json
+ExecStart=/usr/bin/docker run --rm --name halo-workspace --network host --init --shm-size=1g --volume /mnt/halo/workspace:/home/node ${ctx.image} /home/node/.halo/workspace-server.json
 ExecStop=/usr/bin/docker stop --time 30 halo-workspace
 [Install]
 WantedBy=multi-user.target

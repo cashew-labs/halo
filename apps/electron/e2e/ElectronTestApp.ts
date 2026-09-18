@@ -1,5 +1,5 @@
 import type { ChildProcess } from "node:child_process";
-import { readHaloRpcFile, rpcFilePath } from "@get-halo/cli";
+import { readHaloRpcFile, rpcFilePath } from "@get-halo/shared/HaloRpcFile";
 import { createHaloClient, type HaloClient } from "@get-halo/client";
 import * as errore from "errore";
 import {

@@ -11,7 +11,8 @@ vi.setConfig({ testTimeout: 20_000 });
 
 type ServerOptions = {
   workspaceRoot?: string;
-  traceUploader?: WorkspaceServerOptions["traceUploader"];
+  testApiEnabled?: boolean;
+  traceUploader?: WorkspaceServerOptions["host"]["traceUploader"];
   traceWorkspaceId?: string;
 };
 
@@ -58,6 +59,8 @@ export const serverTest = baseTest.extend<{
           options.workspaceRoot === undefined
             ? artifacts.paths.workspace
             : options.workspaceRoot,
+        testApiEnabled:
+          options.testApiEnabled === undefined ? true : options.testApiEnabled,
       });
       cleanup.defer(async () => await server.stop());
       return server;
