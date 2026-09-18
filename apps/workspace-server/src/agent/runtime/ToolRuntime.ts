@@ -62,6 +62,8 @@ import type { GoogleWebOAuthClient } from "@get-halo/config/workspaceServer";
 import type {
   ConnectionRequest,
   OAuthCompletion,
+  ToolApproval,
+  ToolApprovalDecision,
   ToolIdentity,
 } from "@get-halo/client";
 import { createExecutorDatabase } from "./createExecutorDatabase.js";
@@ -450,6 +452,11 @@ export class ToolRuntime {
     modelId?: string;
     parentToolCallId: string;
     onToolEvent?: (event: ExecActivityUpdate) => void;
+    onApprovalUpdate: (approval: ToolApproval) => void;
+    requestApproval: (input: {
+      approval: ToolApproval;
+      signal: AbortSignal | undefined;
+    }) => Promise<ToolApprovalDecision | "cancel">;
   }) {
     const connectionRequests: ConnectionRequest[] = [];
     const execution = await this.executionContext.run(
@@ -470,8 +477,38 @@ export class ToolRuntime {
               );
               if (connection !== undefined) {
                 connectionRequests.push(connection);
+                return Effect.succeed({ action: "decline" as const });
               }
-              return Effect.succeed({ action: "decline" });
+              return Effect.promise(async () => {
+                const approval: ToolApproval = {
+                  id: randomUUID(),
+                  toolPath: sandboxPath(String(context.address)),
+                  message: context.request.message.split("\n", 1).join(),
+                  status: "pending",
+                };
+                input.onApprovalUpdate(approval);
+                const response = await input.requestApproval({
+                  approval,
+                  signal: input.signal,
+                });
+                input.onApprovalUpdate({
+                  ...approval,
+                  status:
+                    response === "allow"
+                      ? "allowed"
+                      : response === "deny"
+                        ? "denied"
+                        : "cancelled",
+                });
+                return {
+                  action:
+                    response === "allow"
+                      ? ("accept" as const)
+                      : response === "deny"
+                        ? ("decline" as const)
+                        : ("cancel" as const),
+                };
+              });
             },
           }),
         ).catch(

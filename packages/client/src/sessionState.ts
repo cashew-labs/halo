@@ -157,6 +157,21 @@ const toolIdentitySchema = Type.Object({
 
 export type ToolIdentity = Static<typeof toolIdentitySchema>;
 
+export const toolApprovalSchema = Type.Object({
+  id: Type.String(),
+  toolPath: Type.String(),
+  message: Type.String(),
+  status: Type.Union([
+    Type.Literal("pending"),
+    Type.Literal("allowed"),
+    Type.Literal("denied"),
+    Type.Literal("cancelled"),
+  ]),
+});
+
+export type ToolApproval = Static<typeof toolApprovalSchema>;
+export type ToolApprovalDecision = "allow" | "deny";
+
 export const execToolCallSchema = Type.Object({
   id: Type.String(),
   parentId: Type.String(),
@@ -219,7 +234,12 @@ export type ToolResult = Static<typeof toolResultSchema>;
 
 export type ToolOutput =
   | { type: "tool"; result: ToolResult }
-  | { type: "exec"; result: ToolResult; calls: ExecToolCall[] };
+  | {
+      type: "exec";
+      result: ToolResult;
+      calls: ExecToolCall[];
+      approvals: ToolApproval[];
+    };
 
 export type ToolExecution = {
   id: string;
@@ -228,7 +248,12 @@ export type ToolExecution = {
   status: "running" | "completed" | "failed" | "aborted";
 } & (
   | { type: "tool"; result?: ToolResult }
-  | { type: "exec"; result?: ToolResult; calls: ExecToolCall[] }
+  | {
+      type: "exec";
+      result?: ToolResult;
+      calls: ExecToolCall[];
+      approvals: ToolApproval[];
+    }
 );
 
 export type HaloEntry =

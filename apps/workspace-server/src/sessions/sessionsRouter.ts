@@ -137,6 +137,20 @@ export const sessionsRouter = os.router({
     const cancelled = await context.connections.cancelConnection(input);
     if (cancelled instanceof Error) return orpcErrors.badRequest(cancelled);
   }),
+  respondToToolApproval: os.respondToToolApproval.handler(
+    async ({ input, context }) => {
+      context.logger.info({
+        event: "agentSession.respondToToolApproval",
+        sessionId: input.sessionId,
+        approvalId: input.approvalId,
+        decision: input.decision,
+      });
+      const session = await context.sessions.open(input.sessionId);
+      if (session instanceof Error) return orpcErrors.badRequest(session);
+      const responded = session.respondToToolApproval(input);
+      if (responded instanceof Error) return orpcErrors.badRequest(responded);
+    },
+  ),
   abort: os.abort.handler(async ({ input, context }) => {
     context.logger.info({
       event: "abort",

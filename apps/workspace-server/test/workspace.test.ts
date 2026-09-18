@@ -1056,6 +1056,62 @@ serverTest(
 );
 
 serverTest(
+  "resumes approval-gated Executor tools from session responses",
+  async ({ server, llm }) => {
+    for (const decision of ["allow", "deny"] as const) {
+      const session = await server.rpc.sessions.create();
+      const prompting = server.rpc.sessions.prompt({
+        ...session,
+        text: `${decision} the policy`,
+      });
+      const js = `return await tools.executor.coreTools.policies.create({ owner: "user", pattern: "approval-test-${decision}.*", action: "block" });`;
+      await llm.respond(
+        m.tool.start("exec", {
+          id: `approval-${decision}`,
+          arguments: { js },
+        }),
+      );
+
+      await expect
+        .poll(async () =>
+          sessionToolExecutions(
+            await server.rpc.sessions.snapshot(session),
+          ).flatMap((execution) =>
+            execution.type === "exec"
+              ? execution.approvals.map((approval) => approval.status)
+              : [],
+          ),
+        )
+        .toContain("pending");
+      const pending = await server.rpc.sessions.snapshot(session);
+      const approval = sessionToolExecutions(pending).flatMap((execution) =>
+        execution.type === "exec" ? execution.approvals : [],
+      )[0]!;
+      await server.rpc.sessions.respondToToolApproval({
+        ...session,
+        approvalId: approval.id,
+        decision,
+      });
+      await llm.respond(m.assistant(`${decision} finished`));
+      await prompting;
+
+      const completed = await server.rpc.sessions.snapshot(session);
+      const execution = sessionToolExecutions(completed)[0]!;
+      expect(execution).toMatchObject({
+        type: "exec",
+        status: decision === "allow" ? "completed" : "failed",
+        approvals: [
+          {
+            id: approval.id,
+            status: decision === "allow" ? "allowed" : "denied",
+          },
+        ],
+      });
+    }
+  },
+);
+
+serverTest(
   "exposes the same exec activity through live updates, snapshots, and server restart",
   async ({ server, llm, http }) => {
     await server.rpc.workspace.writeFile({

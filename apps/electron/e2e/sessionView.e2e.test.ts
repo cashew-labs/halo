@@ -365,6 +365,38 @@ e2eTest("shows a connection request", async ({ harness, app }) => {
   await expect(card.getByRole("button", { name: "Connect" })).toBeVisible();
 });
 
+e2eTest("shows a Gmail draft approval request", async ({ harness, app }) => {
+  await harness.loadSession({
+    title: "Draft reply",
+    messages: [
+      m.user("Draft a reply"),
+      m.exec({
+        js: "return await tools.google_gmail.user.default.gmail.users.drafts.create({})",
+        approvals: [
+          {
+            id: "draft-approval",
+            toolPath: "google_gmail.user.default.gmail.users.drafts.create",
+            message: "POST /gmail/v1/users/{userId}/drafts",
+            status: "pending",
+          },
+        ],
+      }),
+    ],
+  });
+
+  const card = app.page.getByRole("region", {
+    name: "Create Gmail draft? approval",
+  });
+  await expect(card).toBeVisible();
+  await expect(
+    card.getByText(
+      "The agent wants to create a draft reply in your Gmail account.",
+    ),
+  ).toBeVisible();
+  await expect(card.getByRole("button", { name: "Deny" })).toBeVisible();
+  await expect(card.getByRole("button", { name: "Allow once" })).toBeVisible();
+});
+
 e2eTest(
   "starts connecting a tool from the connection card",
   async ({ harness, app }) => {

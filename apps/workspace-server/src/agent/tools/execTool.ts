@@ -1,4 +1,4 @@
-import type { ExecToolCall } from "@get-halo/client";
+import type { ExecToolCall, ToolApproval } from "@get-halo/client";
 import type { AgentHarnessTool } from "@earendil-works/pi-agent-core";
 import { formatExecuteResult } from "@executor-js/execution/core";
 import { Type } from "typebox";
@@ -17,6 +17,7 @@ export function createExecTool(input: {
   runtimeDescription: string;
   modelId: string;
   onToolEvent?: (event: ExecActivityUpdate) => void;
+  requestApproval: Parameters<ToolRuntime["executeCode"]>[0]["requestApproval"];
 }): AgentHarnessTool<object | undefined> {
   return {
     name: "exec",
@@ -27,11 +28,26 @@ export function createExecTool(input: {
       // SAFETY: execParameters schema guarantees params has a string `js` property.
       const { js } = params as { js: string };
       const toolCalls = new Map<string, ExecToolCall>();
+      const toolApprovals = new Map<string, ToolApproval>();
       const result = await input.runtime.executeCode({
         code: js,
         signal: context.abortSignal,
         modelId: input.modelId,
         parentToolCallId: id,
+        requestApproval: input.requestApproval,
+        onApprovalUpdate: (approval) => {
+          toolApprovals.set(approval.id, approval);
+          onUpdate(
+            {
+              content: [],
+              details: {
+                toolCalls: [...toolCalls.values()],
+                toolApprovals: [...toolApprovals.values()],
+              },
+            },
+            { checkpoint: true },
+          );
+        },
         onToolEvent: (event) => {
           input.onToolEvent?.(event);
           if (event.type === "tool.started") {
@@ -50,7 +66,10 @@ export function createExecTool(input: {
           onUpdate(
             {
               content: [],
-              details: { toolCalls: [...toolCalls.values()] },
+              details: {
+                toolCalls: [...toolCalls.values()],
+                toolApprovals: [...toolApprovals.values()],
+              },
             },
             { checkpoint: true },
           );
@@ -62,6 +81,7 @@ export function createExecTool(input: {
           details: {
             error: result.message,
             toolCalls: [...toolCalls.values()],
+            toolApprovals: [...toolApprovals.values()],
             connectionRequests: result.connectionRequests,
           },
         };
@@ -72,6 +92,7 @@ export function createExecTool(input: {
           details: {
             error: result.message,
             toolCalls: [...toolCalls.values()],
+            toolApprovals: [...toolApprovals.values()],
           },
           isError: true,
         };
@@ -82,6 +103,7 @@ export function createExecTool(input: {
         details: {
           ...formatted.structured,
           toolCalls: [...toolCalls.values()],
+          toolApprovals: [...toolApprovals.values()],
         },
         isError: formatted.isError,
       };

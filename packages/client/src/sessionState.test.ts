@@ -128,6 +128,7 @@ test("exposes exec's nested calls during execution and from its committed result
     arguments: { js: "await tools.read()" },
     status: "running",
     calls: [],
+    approvals: [],
   };
   snapshot = applySessionEvent(snapshot, {
     type: "tool.started",
@@ -146,7 +147,12 @@ test("exposes exec's nested calls during execution and from its committed result
     runId: "run-1",
     toolCallId: "exec-1",
     status: "running",
-    output: { type: "exec", result: { content: [] }, calls: [call] },
+    output: {
+      type: "exec",
+      result: { content: [] },
+      calls: [call],
+      approvals: [],
+    },
   });
   expect(sessionToolExecutions(snapshot)).toMatchObject([
     { type: "exec", status: "running", calls: [call] },
@@ -163,6 +169,7 @@ test("exposes exec's nested calls during execution and from its committed result
       type: "exec",
       result: { content: [{ type: "text", text: "Read notes" }] },
       calls: [{ ...call, status: "completed" }],
+      approvals: [],
     },
   };
   snapshot = applySessionEvent(snapshot, { type: "entry.committed", entry });

@@ -7,6 +7,7 @@ import {
   sessionToolExecutions,
   type SessionSnapshot,
   type ToolExecution,
+  type ToolApproval,
   type ToolIdentity,
   connectionRequestSchema,
   type ConnectionRequest,
@@ -44,6 +45,11 @@ export type SessionViewPart =
       kind: "executorConnection";
       id: string;
       request: ConnectionRequest;
+    }
+  | {
+      kind: "toolApproval";
+      id: string;
+      approval: ToolApproval;
     };
 
 type ToolActivitySummary = {
@@ -72,6 +78,7 @@ type ToolPartLabel = {
 type CollectedTool = {
   id: string;
   connectionRequests: ConnectionRequest[];
+  approvals: ToolApproval[];
 };
 
 type TextSegment = {
@@ -114,6 +121,7 @@ const bashArgsSchema = Type.Object({
 export function sessionViewItems(state: SessionSnapshot): SessionViewItem[] {
   const items: SessionViewItem[] = [];
   const toolResults = toolResultsByCallId(state);
+  const toolApprovals = toolApprovalsByCallId(state);
   const invocations = reduceToolInvocations(state);
   const emittedTools = new Set<string>();
   let pending: PendingTurn | undefined;
@@ -164,10 +172,12 @@ export function sessionViewItems(state: SessionSnapshot): SessionViewItem[] {
       if (emittedTools.has(part.id)) continue;
       emittedTools.add(part.id);
       const toolResult = toolResults.get(part.id);
+      const approvals = toolApprovals.get(part.id);
       const collected: CollectedTool = {
         id: part.id,
         connectionRequests:
           toolResult === undefined ? [] : toolResult.connectionRequests,
+        approvals: approvals === undefined ? [] : approvals,
       };
       const last = turn.segments.at(-1);
       if (last?.kind === "group") {
@@ -345,6 +355,13 @@ function projectTurn(args: {
     });
     if (activity !== undefined) parts.push(activity);
     for (const tool of tools) {
+      for (const approval of tool.approvals) {
+        parts.push({
+          kind: "toolApproval",
+          id: approval.id,
+          approval,
+        });
+      }
       for (const [index, request] of tool.connectionRequests.entries()) {
         parts.push({
           kind: "executorConnection",
@@ -674,6 +691,15 @@ function toolResultsByCallId(state: SessionSnapshot) {
     });
   }
   return map;
+}
+
+function toolApprovalsByCallId(state: SessionSnapshot) {
+  const approvals = new Map<string, ToolApproval[]>();
+  for (const execution of sessionToolExecutions(state)) {
+    if (execution.type !== "exec") continue;
+    approvals.set(execution.id, execution.approvals);
+  }
+  return approvals;
 }
 
 function userText(message: HaloMessage): string {
