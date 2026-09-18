@@ -31,7 +31,6 @@ import { AssistantMessage } from "./AssistantMessage.tsx";
 import { Editor } from "./Editor.tsx";
 import { ExecutorConnectionCard } from "./ExecutorConnectionCard.tsx";
 import { ToolActivity } from "./ToolActivity.tsx";
-import { PaneHeader } from "../PaneHeader.tsx";
 
 export function AgentPane({
   sessionId,
@@ -57,7 +56,6 @@ export function AgentPane({
 
   return (
     <main className={pane} aria-label={title}>
-      <PaneHeader title={title} />
       <div className={body}>
         <div className={column}>
           <SessionView state={state} sessionId={sessionId} />
@@ -92,7 +90,6 @@ export function DraftAgentPane({ draftId }: { draftId: string }) {
       aria-label={title === undefined ? "New session" : title}
       data-draft-id={draftId}
     >
-      <PaneHeader title={title} />
       <div className={body}>
         <div className={column}>
           {hasMessages ? (

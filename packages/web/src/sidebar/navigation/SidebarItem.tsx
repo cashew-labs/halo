@@ -20,6 +20,7 @@ import { style, useStyles } from "purse-styles";
 import { useRoute, useRouter } from "wouter";
 import { useWorkspacePanes } from "../../panes/WorkspacePanesProvider.js";
 import { useSidebar } from "../../WorkspaceLayout.js";
+import { paneRouteDragType } from "../../panes/paneDrag.js";
 import { sidebarPadding } from "./SidebarSection.js";
 
 type IconComponent = ComponentType<SVGProps<SVGSVGElement>>;
@@ -103,7 +104,17 @@ export function SidebarItem(props: SidebarItemProps) {
                 sidebar.close();
               }}
             >
-              {props.children}
+              <span
+                draggable={props.href !== undefined}
+                onDragStart={(event) => {
+                  if (props.href === undefined) return;
+                  event.dataTransfer.setData(paneRouteDragType, props.href);
+                  event.dataTransfer.effectAllowed = "copyMove";
+                }}
+                style={{ display: "block", width: "100%" }}
+              >
+                {props.children}
+              </span>
             </Link>
             {props.trailing === undefined ? undefined : (
               <span className={trailingClassName}>{props.trailing}</span>

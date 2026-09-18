@@ -14,7 +14,7 @@ type Split = {
   second: PaneNode;
 };
 type PaneNode = Pane | Split;
-type DropEdge = "center" | "left" | "right" | "top" | "bottom";
+export type DropEdge = "center" | "left" | "right" | "top" | "bottom";
 export type PaneState = { root: PaneNode; activePaneId: string };
 export type Rect = { x: number; y: number; width: number; height: number };
 
@@ -148,9 +148,9 @@ export class WorkspacePanes {
         root: mapNode(this.state.root, target.id, () => ({
           ...target,
           tabs,
-          activeTabId: tab.id,
+          activeTabId: tabId === undefined ? tab.id : target.activeTabId,
         })),
-        activePaneId: target.id,
+        activePaneId: tabId === undefined ? target.id : this.state.activePaneId,
       },
       history,
     );

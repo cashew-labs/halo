@@ -11,7 +11,7 @@ e2eTest("opens the server-configured workspace", async ({ harness, app }) => {
     app.page.getByRole("main", { name: "New session" }),
   ).toBeVisible();
   await expect(
-    app.page.getByRole("button", { name: "New session" }),
+    app.page.getByRole("button", { name: "New session", exact: true }),
   ).toBeVisible();
   await expect(app.page.getByText(/^Halo \d+\.\d+\.\d+$/)).toBeVisible();
 
@@ -960,7 +960,7 @@ e2eTest("uses a dismissible sidebar on small screens", async ({ app }) => {
   }
 
   const newSession = page
-    .locator("header")
+    .locator(".paneTabBar")
     .getByRole("button", { name: "New session", exact: true });
   await expect(newSession).toHaveText("");
   await newSession.click();
@@ -1745,3 +1745,128 @@ e2eTest(
     );
   },
 );
+
+e2eTest(
+  "splits panes with tabs and sidebar items, then moves and closes them",
+  async ({ app, harness }) => {
+    await harness.loadSession({ title: "Pane conversation", messages: [] });
+    const page = app.page;
+    await app.server.rpc.workspace.writeFile({
+      path: "Left.md",
+      content: "# Left",
+    });
+    await app.server.rpc.workspace.writeFile({
+      path: "Right.md",
+      content: "# Right",
+    });
+    await page.getByRole("link", { name: "Left.md", exact: true }).click();
+    await page
+      .getByRole("link", { name: "Right.md", exact: true })
+      .click({ modifiers: ["Meta"] });
+    const area = page.locator(".paneWorkspace");
+    const box = (await area.boundingBox())!;
+    await page
+      .getByRole("tab", { name: "Right.md", exact: true })
+      .dragTo(area, {
+        targetPosition: { x: box.width - 10, y: box.height / 2 },
+      });
+    await expect(page.getByRole("tablist")).toHaveCount(2);
+    await expect(
+      page.getByRole("main", { name: "Left.md", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("main", { name: "Right.md", exact: true }),
+    ).toBeVisible();
+    const right = (await page
+      .getByRole("main", { name: "Right.md", exact: true })
+      .boundingBox())!;
+    const left = (await page
+      .getByRole("main", { name: "Left.md", exact: true })
+      .boundingBox())!;
+    expect(right.x).toBeGreaterThan(left.x);
+    await page
+      .getByRole("link", { name: "Pane conversation", exact: true })
+      .locator("span")
+      .dragTo(area, {
+        targetPosition: { x: box.width * 0.75, y: box.height - 10 },
+      });
+    await expect(page.getByRole("tablist")).toHaveCount(3);
+    await page
+      .getByRole("main", { name: "Pane conversation", exact: true })
+      .getByLabel("Message", { exact: true })
+      .fill("Unsent draft survives moving");
+    await page
+      .getByRole("tab", { name: "Pane conversation", exact: true })
+      .dragTo(area, {
+        targetPosition: { x: box.width * 0.25, y: box.height / 2 },
+      });
+    await expect(page.getByRole("tablist")).toHaveCount(2);
+    await expect(page.getByLabel("Message", { exact: true })).toHaveText(
+      "Unsent draft survives moving",
+    );
+    const divider = page.getByRole("separator", { name: "Resize panes" });
+    await divider.focus();
+    await divider.press("ArrowRight");
+    await expect(divider).toHaveAttribute("aria-valuenow", "55");
+    await page
+      .getByRole("button", { name: "Close Right.md", exact: true })
+      .click();
+    await expect(page.getByRole("tablist")).toHaveCount(1);
+    await expect(page.getByLabel("Message", { exact: true })).toHaveText(
+      "Unsent draft survives moving",
+    );
+  },
+);
+
+for (const edge of ["left", "top", "bottom"] as const) {
+  e2eTest(
+    `opens a sidebar file at the ${edge} edge without moving it on disk`,
+    async ({ app }) => {
+      const page = app.page;
+      await app.server.rpc.workspace.writeFile({
+        path: "Keep.md",
+        content: "# Keep",
+      });
+      await app.server.rpc.workspace.writeFile({
+        path: "Drop.md",
+        content: "# Drop",
+      });
+      await page.getByRole("link", { name: "Keep.md", exact: true }).click();
+      const area = page.locator(".paneWorkspace");
+      const box = (await area.boundingBox())!;
+      await page.locator('[data-file-path="Drop.md"]').dragTo(area, {
+        targetPosition: {
+          x: edge === "left" ? 10 : box.width / 2,
+          y:
+            edge === "top"
+              ? 45
+              : edge === "bottom"
+                ? box.height - 10
+                : box.height / 2,
+        },
+      });
+      await expect(page.getByRole("tablist")).toHaveCount(2);
+      const keep = (await page
+        .getByRole("main", { name: "Keep.md", exact: true })
+        .boundingBox())!;
+      const drop = (await page
+        .getByRole("main", { name: "Drop.md", exact: true })
+        .boundingBox())!;
+      if (edge === "left") expect(drop.x).toBeLessThan(keep.x);
+      else if (edge === "top") expect(drop.y).toBeLessThan(keep.y);
+      else expect(drop.y).toBeGreaterThan(keep.y);
+      expect(await app.server.rpc.workspace.listPaths()).toEqual([
+        "Drop.md",
+        "Keep.md",
+      ]);
+      await page
+        .getByRole("main", { name: "Keep.md", exact: true })
+        .getByLabel("Keep.md", { exact: true })
+        .click();
+      await page.getByRole("link", { name: "Drop.md", exact: true }).click();
+      await expect(
+        page.getByRole("main", { name: "Drop.md", exact: true }),
+      ).toHaveCount(2);
+    },
+  );
+}
