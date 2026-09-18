@@ -10,7 +10,7 @@ e2eTest(
       .getByRole("link", { name: "greeting", exact: true })
       .click({ timeout: 10_000 });
 
-    const frame = app.page.getByTitle("greeting", { exact: true });
+    const frame = app.page.locator('iframe[title="greeting"]');
     await expect(frame).toHaveAttribute(
       "src",
       /\/extensions\/greeting\/view\/$/,
@@ -31,7 +31,7 @@ e2eTest(
       "../../../packages/extension-tools/test/fixtures/tasks",
     );
     await app.page.getByRole("link", { name: "tasks", exact: true }).click();
-    const pane = app.page.getByTitle("tasks", { exact: true }).contentFrame();
+    const pane = app.page.locator('iframe[title="tasks"]').contentFrame();
     await pane.getByRole("textbox", { name: "New task" }).fill("My draft");
 
     const extensions = await app.server.rpc.extensions.list();
