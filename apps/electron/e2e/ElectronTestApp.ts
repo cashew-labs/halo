@@ -114,6 +114,15 @@ export class ElectronTestApp {
     killIfRunning(child);
   }
 
+  async observeExternalUrls() {
+    return await this.running.electron.evaluateHandle(({ app }) => {
+      const urls: string[] = [];
+      const events: NodeJS.EventEmitter = app;
+      events.on("halo:e2e:open-external", (url: string) => urls.push(url));
+      return urls;
+    });
+  }
+
   async openWindow() {
     const electronApp = this.running.electron;
     const opened = electronApp.waitForEvent("window");
