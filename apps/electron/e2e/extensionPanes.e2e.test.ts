@@ -33,7 +33,7 @@ e2eTest(
       .click();
 
     const frame = app.page
-      .getByTitle("WebSocket Greeting", { exact: true })
+      .locator('iframe[title="WebSocket Greeting"]')
       .contentFrame();
     await expect(frame.getByRole("status")).toHaveText("Hello from WebSocket");
   },
