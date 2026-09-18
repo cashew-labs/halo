@@ -2,7 +2,7 @@ import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
 import type { ControlPlaneClient } from "@get-halo/shared/controlPlaneContract";
 import { connectHaloClient, type HaloClient } from "@get-halo/client";
-import type { HostApi, SignedOutView } from "@get-halo/web/HostApi";
+import type { HostApi } from "@get-halo/web/HostApi";
 import { createAuthClient } from "better-auth/client";
 import * as errore from "errore";
 
@@ -14,10 +14,6 @@ class WebHostError extends errore.createTaggedError({
 export class WebHost implements HostApi {
   // Tracks the active workspace client for integration connections.
   private haloClient: HaloClient | undefined;
-
-  signedOutView(path: string): SignedOutView {
-    return path === "/" ? "public-site" : "sign-in";
-  }
 
   // Connects to the control plane served on the current origin.
   private readonly controlPlane = createORPCClient<ControlPlaneClient>(

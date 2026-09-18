@@ -1,8 +1,6 @@
 import { useEffect, useState, type ReactElement } from "react";
-import { useLocation } from "wouter";
 import { useHost } from "./HostProvider.js";
 import { LoadingPage } from "./LoadingPage.tsx";
-import { MarketingPage } from "./MarketingPage.tsx";
 import { SignInPage } from "./SignInPage.tsx";
 
 type AuthenticationState =
@@ -13,7 +11,6 @@ type AuthenticationState =
 
 export function Authentication({ children }: { children: ReactElement }) {
   const host = useHost();
-  const [path] = useLocation();
   const [state, setState] = useState<AuthenticationState>({
     status: "checking",
   });
@@ -68,10 +65,6 @@ export function Authentication({ children }: { children: ReactElement }) {
 
     setState({ status: "signedIn" });
   };
-
-  if ((host.signedOutView?.(path) ?? "sign-in") === "public-site") {
-    return <MarketingPage />;
-  }
 
   return (
     <SignInPage
