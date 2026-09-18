@@ -69,8 +69,8 @@ loggerTest("adds another real sink", async ({ directory }) => {
   await logger.flush();
 
   const [first, second] = await Promise.all([
-    await fs.readFile(firstPath, "utf8"),
-    await fs.readFile(secondPath, "utf8"),
+    fs.readFile(firstPath, "utf8"),
+    fs.readFile(secondPath, "utf8"),
   ]);
   expect(first).toBe(second);
   expect(JSON.parse(first)).toMatchObject({

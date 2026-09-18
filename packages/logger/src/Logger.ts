@@ -102,9 +102,7 @@ export class Logger implements LoggerApi {
   }
 
   async flush() {
-    await Promise.all(
-      [...new Set(this.sinks)].map(async (sink) => await sink.flush?.()),
-    );
+    await Promise.all([...new Set(this.sinks)].map((sink) => sink.flush?.()));
   }
 
   destroy() {
