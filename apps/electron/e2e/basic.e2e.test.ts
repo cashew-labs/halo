@@ -1697,3 +1697,51 @@ async function dropLocalPaths({
   });
   await client.detach();
 }
+
+e2eTest(
+  "opens sidebar items in replaceable tabs and preserves inactive drafts",
+  async ({ app }) => {
+    const page = app.page;
+    await app.server.rpc.workspace.writeFile({
+      path: "One.md",
+      content: "# One",
+    });
+    await app.server.rpc.workspace.writeFile({
+      path: "Two.md",
+      content: "# Two",
+    });
+    await page.getByLabel("Message", { exact: true }).fill("Keep my draft");
+    await page
+      .getByRole("link", { name: "One.md", exact: true })
+      .click({ modifiers: ["Meta"] });
+    await expect(page.getByRole("tab")).toHaveCount(2);
+    await expect(
+      page.getByRole("tab", { name: "One.md", exact: true }),
+    ).toHaveAttribute("aria-selected", "true");
+    await page.getByRole("link", { name: "Two.md", exact: true }).click();
+    await expect(page.getByRole("tab")).toHaveCount(2);
+    await expect(
+      page.getByRole("main", { name: "Two.md", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("tab", { name: "One.md", exact: true }),
+    ).toHaveCount(0);
+    await page.getByRole("tab", { name: "New session", exact: true }).click();
+    await expect(page.getByLabel("Message", { exact: true })).toHaveText(
+      "Keep my draft",
+    );
+    await page
+      .getByRole("tab", { name: "New session", exact: true })
+      .press("ArrowRight");
+    await expect(
+      page.getByRole("tab", { name: "Two.md", exact: true }),
+    ).toBeFocused();
+    await page
+      .getByRole("button", { name: "Close Two.md", exact: true })
+      .click();
+    await expect(page.getByRole("tab")).toHaveCount(1);
+    await expect(page.getByLabel("Message", { exact: true })).toHaveText(
+      "Keep my draft",
+    );
+  },
+);

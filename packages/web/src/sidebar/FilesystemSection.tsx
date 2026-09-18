@@ -26,6 +26,7 @@ import {
 } from "maui";
 import { style, useStyles } from "purse-styles";
 import { useLocation } from "wouter";
+import { useWorkspacePanes } from "../panes/WorkspacePanesProvider.js";
 import { FileEntryDialog, type FileEntryAction } from "./FileEntryDialog.js";
 import { flushFileAutosaves } from "../main/useAutosaveFile.js";
 import { File, Folder, FilePlus, FolderPlus, DotsHorizontal } from "maui/icons";
@@ -76,7 +77,8 @@ export function FilesystemSection() {
     [pathsQuery.data],
   );
   const workspaceRoot = workspace?.workspaceRoot;
-  const [location, navigate] = useLocation();
+  const [, navigate] = useLocation();
+  const workspacePanes = useWorkspacePanes();
   const [action, setAction] = useState<FileAction>();
   const [dragged, setDragged] = useState<string>();
   const [dropTarget, setDropTarget] = useState<string>();
@@ -140,31 +142,10 @@ export function FilesystemSection() {
         setAction(undefined);
         return;
       }
-      if (!location.startsWith("/files/")) {
-        setAction(undefined);
-        return;
-      }
-      const openPath = decodeURIComponent(location.slice("/files/".length));
-      if (operation.kind === "delete") {
-        if (
-          openPath === operation.path ||
-          openPath.startsWith(`${operation.path}/`)
-        )
-          navigate("/", { replace: true });
-        setAction(undefined);
-        return;
-      }
-      if (
-        openPath === operation.source ||
-        openPath.startsWith(`${operation.source}/`)
-      ) {
-        navigate(
-          fileRoute(
-            operation.destination + openPath.slice(operation.source.length),
-          ),
-          { replace: true },
-        );
-      }
+      workspacePanes.updateFiles(
+        operation.kind === "delete" ? operation.path : operation.source,
+        operation.kind === "move" ? operation.destination : undefined,
+      );
       setAction(undefined);
     },
     onError: () => setUploadStatus(undefined),

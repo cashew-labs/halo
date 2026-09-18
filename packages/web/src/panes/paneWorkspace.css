@@ -1,0 +1,117 @@
+.workspacePane {
+  position: absolute;
+  overflow: hidden;
+  background: var(--pane-background);
+}
+.paneTabBar {
+  height: 36px;
+  display: flex;
+  align-items: stretch;
+  background: var(--pane-tab-background);
+  border-bottom: 1px solid var(--pane-border);
+}
+.paneTabs {
+  display: flex;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.paneTab {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  min-width: 80px;
+  max-width: 220px;
+  border-right: 1px solid var(--pane-border);
+  border-top: 2px solid transparent;
+}
+.paneTab[data-selected="true"] {
+  background: var(--pane-background);
+}
+.workspacePane[data-active="true"] .paneTab[data-selected="true"] {
+  border-top-color: var(--pane-accent);
+}
+.paneTab button,
+.paneAdd {
+  border: 0;
+  background: transparent;
+  font: inherit;
+  cursor: default;
+  -webkit-app-region: no-drag;
+}
+.paneTab [role="tab"] {
+  min-width: 0;
+  flex: 1;
+  height: 100%;
+  padding: 0 8px 0 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow: hidden;
+  text-align: left;
+}
+.paneClose,
+.paneAdd {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  align-self: center;
+  border-radius: 4px;
+}
+.paneClose {
+  margin-right: 4px;
+}
+.paneAdd {
+  margin: 0 4px;
+}
+.paneTab button:hover,
+.paneAdd:hover {
+  background: var(--pane-hover);
+}
+.paneContent {
+  position: absolute;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.paneContent[hidden] {
+  display: none;
+}
+.paneContent > main {
+  flex: 1;
+}
+.paneDivider {
+  position: absolute;
+  z-index: 4;
+  touch-action: none;
+  outline: none;
+}
+.paneDivider::after {
+  content: "";
+  position: absolute;
+  background: var(--pane-border);
+}
+.paneDivider[data-axis="horizontal"] {
+  cursor: col-resize;
+}
+.paneDivider[data-axis="vertical"] {
+  cursor: row-resize;
+}
+.paneDivider[data-axis="horizontal"]::after {
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: 1px;
+}
+.paneDivider[data-axis="vertical"]::after {
+  left: 0;
+  right: 0;
+  top: 2px;
+  height: 1px;
+}
+.paneDivider:hover::after,
+.paneDivider:focus-visible::after {
+  background: var(--pane-accent);
+}
