@@ -1056,6 +1056,79 @@ e2eTest(
 );
 
 e2eTest(
+  "edits and submits literal Markdown from the hybrid composer",
+  async ({ app, llm }) => {
+    await app.page
+      .getByRole("button", { name: "New session", exact: true })
+      .waitFor();
+    const previewUrl = new URL(app.page.url());
+    previewUrl.searchParams.set("markdown", "hybrid");
+    await app.page.goto(previewUrl.href);
+    const editor = app.page.getByRole("textbox", {
+      name: "Message",
+      exact: true,
+    });
+    await editor.fill("Before **bold** and *italic* after.");
+    await editor.locator("strong").click();
+    await expect(editor.locator(".markdown-marker")).toHaveText(["**", "**"]);
+    await editor.locator("em").click();
+    await expect(editor.locator(".markdown-marker")).toHaveText(["*", "*"]);
+    await editor
+      .locator(".markdown-marker")
+      .last()
+      .evaluate(async (element) => {
+        const changed = new Promise<void>((resolve) =>
+          document.addEventListener("selectionchange", () => resolve(), {
+            once: true,
+          }),
+        );
+        window.getSelection()!.selectAllChildren(element);
+        await changed;
+      });
+    await app.page.keyboard.press("Backspace");
+    await expect(editor.locator("em")).toHaveCount(0);
+    await app.page.keyboard.press("ControlOrMeta+z");
+    await expect(editor.locator("em")).toHaveText("italic");
+    await editor.locator("strong").click();
+    await app.page.keyboard.press("ControlOrMeta+b");
+    await expect(editor.locator("strong")).toHaveCount(0);
+    await expect(editor).toContainText("Before bold and");
+    await app.page.keyboard.press("ControlOrMeta+z");
+    await expect(editor.locator("strong")).toHaveText("bold");
+    await editor.locator("em").click();
+    await app.page.keyboard.press("ControlOrMeta+i");
+    await expect(editor.locator("em")).toHaveCount(0);
+    await app.page.keyboard.press("ControlOrMeta+z");
+    await expect(editor.locator("em")).toHaveText("italic");
+    await editor.fill("## Heading");
+    await editor.getByRole("heading").click();
+    await expect(editor.locator(".markdown-marker")).toHaveText(["## "]);
+    await editor.locator(".markdown-marker").evaluate(async (element) => {
+      const changed = new Promise<void>((resolve) =>
+        document.addEventListener("selectionchange", () => resolve(), {
+          once: true,
+        }),
+      );
+      window.getSelection()!.selectAllChildren(element);
+      await changed;
+    });
+    await app.page.keyboard.press("Backspace");
+    await expect(editor.getByRole("heading")).toHaveCount(0);
+    await editor.fill("Send **this** and *that*.");
+    await app.page.keyboard.press("ControlOrMeta+Enter");
+    await llm.respond(({ messages }) => {
+      expect(messageText(messages.at(-1)!)).toContain(
+        "Send **this** and *that*.",
+      );
+      return m.assistant("Got your Markdown.");
+    });
+    await expect(
+      app.page.getByRole("log", { name: "Session transcript" }),
+    ).toContainText("Got your Markdown.");
+  },
+);
+
+e2eTest(
   "shows running sessions and keeps completed results unread until opened",
   async ({ app, llm }) => {
     const listRequests: string[] = [];

@@ -9,6 +9,7 @@ import { proseHtml, type ProseSize } from "maui";
 import { useStyles } from "purse-styles";
 import { useRefCurrent } from "./agent/useRefCurrent.js";
 import { ListEditing } from "./ListEditing.js";
+import { MarkdownFormatting } from "./MarkdownFormatting.js";
 
 const MarkdownParagraph = Paragraph.extend({
   parseMarkdown(token, helpers) {
@@ -74,6 +75,7 @@ export function useMarkdownEditor({
       MarkdownParagraph,
       ...extensions,
       ListEditing,
+      MarkdownFormatting,
       Placeholder.configure({
         placeholder,
       }),

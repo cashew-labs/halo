@@ -61,3 +61,5 @@ export type {
   WorkspaceTreeEvent,
   WorkspaceFilePreview,
 } from "./rpc.js";
+
+export { imageFilename, imageMediaTypes } from "./imageFilename.js";
