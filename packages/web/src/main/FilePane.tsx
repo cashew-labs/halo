@@ -7,7 +7,6 @@ import { style, useStyles } from "purse-styles";
 import { useWorkspaceFileQuery } from "../api/ApiProvider.tsx";
 import { CodeViewFileEditor } from "./CodeViewFileEditor.tsx";
 import { fileKind } from "./fileKind.ts";
-import { PaneHeader } from "./PaneHeader.tsx";
 import { MarkdownFileEditor } from "./MarkdownFileEditor.js";
 
 export function FilePane({ path }: { path: string }) {
@@ -22,7 +21,6 @@ export function FilePane({ path }: { path: string }) {
   const status = useStyles(styles.status);
   return (
     <main className={pane} aria-label={path} inert={changingEntry > 0}>
-      <PaneHeader section="Files" title={path} />
       {preview.isPending ? (
         <div className={status}>Loading file…</div>
       ) : preview.isError ? (

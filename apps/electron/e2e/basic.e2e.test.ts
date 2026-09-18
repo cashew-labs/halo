@@ -11,7 +11,7 @@ e2eTest("opens the server-configured workspace", async ({ harness, app }) => {
     app.page.getByRole("main", { name: "New session" }),
   ).toBeVisible();
   await expect(
-    app.page.getByRole("button", { name: "New session" }),
+    app.page.getByRole("button", { name: "New session", exact: true }),
   ).toBeVisible();
   await expect(app.page.getByText(/^Halo \d+\.\d+\.\d+$/)).toBeVisible();
 
@@ -960,7 +960,7 @@ e2eTest("uses a dismissible sidebar on small screens", async ({ app }) => {
   }
 
   const newSession = page
-    .locator("header")
+    .locator(".paneTabBar")
     .getByRole("button", { name: "New session", exact: true });
   await expect(newSession).toHaveText("");
   await newSession.click();

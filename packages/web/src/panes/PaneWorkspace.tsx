@@ -8,7 +8,7 @@ import {
 import { Router } from "wouter";
 import type { SessionSummary } from "@get-halo/client";
 import { backgroundColor, colors, focusRing, text } from "maui";
-import { Plus, Close } from "maui/icons";
+import { Plus, Close, Menu } from "maui/icons";
 import { style, useStyles } from "purse-styles";
 import { MainPane } from "../main/MainPane.js";
 import {
@@ -24,7 +24,14 @@ import {
   useWorkspacePanes,
 } from "./WorkspacePanesProvider.js";
 import { isPaneDrag, paneRouteDragType, paneTabDragType } from "./paneDrag.js";
+import { queryOptions, skipToken, useQueries } from "@tanstack/react-query";
+import { useSidebar } from "../WorkspaceLayout.js";
+import { useExtensionsQuery, useWorkspaceQuery } from "../api/ApiProvider.js";
+import { sessionTitleQueryKey } from "../main/agent/useAgentSession.js";
+import { CopyExtensionLinkButton } from "./CopyExtensionLinkButton.js";
 import "./paneWorkspace.css";
+
+const tabBarHeight = 42;
 
 function bounds(rect: Rect): CSSProperties {
   return {
@@ -34,19 +41,44 @@ function bounds(rect: Rect): CSSProperties {
     height: `${rect.height}%`,
   };
 }
-function tabTitle(tab: WorkspaceTab, sessions: SessionSummary[]) {
-  if (tab.path.startsWith("/draft/")) return "New session";
-  if (tab.path.startsWith("/sessions/")) {
-    const id = tab.path.slice(10);
-    return sessions.find((session) => session.sessionId === id)?.title ?? id;
-  }
-  return decodeURIComponent(tab.path.split("/").at(-1) ?? tab.path);
-}
-
 export function PaneWorkspace({ sessions }: { sessions: SessionSummary[] }) {
   const workspace = useWorkspacePanes();
+  const sidebar = useSidebar();
+  const extensions = useExtensionsQuery(useWorkspaceQuery().data).data;
   const state = usePaneState();
   const { leaves, dividers } = paneLayout(state.root);
+  const sessionTabs = leaves
+    .flatMap(({ pane }) => pane.tabs)
+    .filter((tab) => tab.path.startsWith("/sessions/"));
+  const submittedTitles = useQueries({
+    queries: sessionTabs.map((tab) =>
+      queryOptions<string>({
+        queryKey: sessionTitleQueryKey(tab.path.slice(10)),
+        queryFn: skipToken,
+      }),
+    ),
+  });
+  function tabTitle(tab: WorkspaceTab) {
+    if (tab.path.startsWith("/draft/")) return "New session";
+    if (tab.path.startsWith("/sessions/")) {
+      const id = tab.path.slice(10);
+      const submitted =
+        submittedTitles[sessionTabs.findIndex((item) => item.id === tab.id)]
+          ?.data;
+      return (
+        sessions.find((session) => session.sessionId === id)?.title ??
+        submitted ??
+        "Session"
+      );
+    }
+    if (tab.path.startsWith("/extensions/")) {
+      const id = decodeURIComponent(tab.path.slice(12));
+      return (
+        extensions?.find((extension) => extension.id === id)?.displayName ?? id
+      );
+    }
+    return decodeURIComponent(tab.path.split("/").at(-1) ?? tab.path);
+  }
   const root = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState(false);
   const [drop, setDrop] = useState<{
@@ -88,7 +120,7 @@ export function PaneWorkspace({ sessions }: { sessions: SessionSummary[] }) {
     const { pane, rect } = target;
     const localX = (x - rect.x) / rect.width;
     const localY = (y - rect.y) / rect.height;
-    const inTabs = ((y - rect.y) / 100) * box.height < 36;
+    const inTabs = ((y - rect.y) / 100) * box.height < tabBarHeight;
     const distances: [DropEdge, number][] = [
       ["left", localX],
       ["right", 1 - localX],
@@ -154,6 +186,17 @@ export function PaneWorkspace({ sessions }: { sessions: SessionSummary[] }) {
           onPointerDownCapture={() => workspace.select(pane.id)}
         >
           <div className="paneTabBar">
+            {sidebar.isMobile && (
+              <button
+                type="button"
+                className="paneAdd"
+                aria-label="Open sidebar"
+                aria-haspopup="dialog"
+                onClick={sidebar.open}
+              >
+                <Menu size="sm" />
+              </button>
+            )}
             <div
               role="tablist"
               aria-label={`Pane ${index + 1} tabs`}
@@ -180,7 +223,7 @@ export function PaneWorkspace({ sessions }: { sessions: SessionSummary[] }) {
                     title={
                       tab.path.startsWith("/files/")
                         ? decodeURIComponent(tab.path.slice(7))
-                        : tabTitle(tab, sessions)
+                        : tabTitle(tab)
                     }
                     onClick={() => workspace.select(pane.id, tab.id)}
                     onKeyDown={(event) => {
@@ -202,12 +245,12 @@ export function PaneWorkspace({ sessions }: { sessions: SessionSummary[] }) {
                       document.getElementById(`tab-${next.id}`)?.focus();
                     }}
                   >
-                    {tabTitle(tab, sessions)}
+                    {tabTitle(tab)}
                   </button>
                   <button
                     type="button"
                     className="paneClose"
-                    aria-label={`Close ${tabTitle(tab, sessions)}`}
+                    aria-label={`Close ${tabTitle(tab)}`}
                     onClick={() => workspace.close(tab.id)}
                   >
                     <Close size="sm" />
@@ -218,7 +261,7 @@ export function PaneWorkspace({ sessions }: { sessions: SessionSummary[] }) {
             <button
               type="button"
               className="paneAdd"
-              aria-label="New tab"
+              aria-label="New session"
               title="New tab"
               onClick={() => {
                 workspace.select(pane.id);
@@ -230,6 +273,19 @@ export function PaneWorkspace({ sessions }: { sessions: SessionSummary[] }) {
             >
               <Plus size="sm" />
             </button>
+            <div className="paneWindowDrag" aria-hidden="true" />
+            {pane.tabs
+              .filter(
+                (tab) =>
+                  tab.id === pane.activeTabId &&
+                  tab.path.startsWith("/extensions/"),
+              )
+              .map((tab) => (
+                <CopyExtensionLinkButton
+                  key={tab.id}
+                  extensionId={decodeURIComponent(tab.path.slice(12))}
+                />
+              ))}
           </div>
         </section>
       ))}
@@ -247,7 +303,7 @@ export function PaneWorkspace({ sessions }: { sessions: SessionSummary[] }) {
             style={{
               left: `${rect.x}%`,
               right: `${100 - rect.x - rect.width}%`,
-              top: `calc(${rect.y}% + 36px)`,
+              top: `calc(${rect.y}% + ${tabBarHeight}px)`,
               bottom: `${100 - rect.y - rect.height}%`,
             }}
             onPointerDownCapture={() => workspace.select(pane.id)}
@@ -270,7 +326,7 @@ export function PaneWorkspace({ sessions }: { sessions: SessionSummary[] }) {
             style={{
               left: `${rect.x}%`,
               right: `${100 - rect.x - rect.width}%`,
-              top: `calc(${rect.y}% + 36px)`,
+              top: `calc(${rect.y}% + ${tabBarHeight}px)`,
               bottom: `${100 - rect.y - rect.height}%`,
             }}
           />
@@ -364,8 +420,9 @@ const workspaceStyle = style(
     minHeight: 0,
     overflow: "hidden",
     backgroundColor: backgroundColor.app,
+    "--pane-tab-height": `${tabBarHeight}px`,
     "--pane-background": backgroundColor.app,
-    "--pane-tab-background": colors.gray[3],
+    "--pane-tab-background": colors.gray[2],
     "--pane-border": colors.gray[6],
     "--pane-muted": colors.gray[11],
     "--pane-accent": colors.accent[9],

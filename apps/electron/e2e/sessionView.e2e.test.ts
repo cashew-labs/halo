@@ -6,7 +6,9 @@ import { messageText } from "@get-halo/workspace-server/testing";
 e2eTest(
   "preserves the reading position during streaming and follows again at the bottom",
   async ({ app, llm }) => {
-    await app.page.getByRole("button", { name: "New session" }).click();
+    await app.page
+      .getByRole("button", { name: "New session", exact: true })
+      .click();
     await app.page
       .getByLabel("Message", { exact: true })
       .fill("Explain the plan");
@@ -120,7 +122,9 @@ e2eTest("starts a new session", async ({ harness, app }) => {
     ],
   });
 
-  await app.page.getByRole("button", { name: "New session" }).click();
+  await app.page
+    .getByRole("button", { name: "New session", exact: true })
+    .click();
 
   const newSession = app.page.getByRole("main", { name: "New session" });
   await expect(newSession).toBeVisible();
@@ -144,7 +148,9 @@ e2eTest(
       app.page.getByRole("main", { name: "Earlier conversation" }),
     ).toBeVisible();
 
-    await app.page.getByRole("button", { name: "New session" }).click();
+    await app.page
+      .getByRole("button", { name: "New session", exact: true })
+      .click();
     const draft = app.page.getByRole("main", { name: "New session" });
     await expect(draft).toBeVisible();
     await app.page.reload();
@@ -159,7 +165,9 @@ e2eTest(
       path: "notes.md",
       content: "The project mascot is a blue bicycle.",
     });
-    await app.page.getByRole("button", { name: "New session" }).click();
+    await app.page
+      .getByRole("button", { name: "New session", exact: true })
+      .click();
     await app.page
       .getByLabel("Message", { exact: true })
       .fill("Read the project notes");
@@ -239,7 +247,9 @@ e2eTest(
 e2eTest(
   "answers a new message after stopping a pending model response",
   async ({ app, llm }) => {
-    await app.page.getByRole("button", { name: "New session" }).click();
+    await app.page
+      .getByRole("button", { name: "New session", exact: true })
+      .click();
     await app.page
       .getByLabel("Message", { exact: true })
       .fill("Start a long answer");
@@ -261,7 +271,9 @@ e2eTest(
 e2eTest(
   "finishes a pending response while Electron is closed",
   async ({ app, llm }) => {
-    await app.page.getByRole("button", { name: "New session" }).click();
+    await app.page
+      .getByRole("button", { name: "New session", exact: true })
+      .click();
     await app.page
       .getByLabel("Message", { exact: true })
       .fill("Start an answer");
@@ -286,14 +298,16 @@ e2eTest(
 e2eTest(
   "titles a session immediately and keeps its first message when inference is denied",
   async ({ app, llm }) => {
-    await app.page.getByRole("button", { name: "New session" }).click();
+    await app.page
+      .getByRole("button", { name: "New session", exact: true })
+      .click();
     const pane = app.page.getByRole("main");
     const observed = await app.page.evaluateHandle(() => {
       const titles: string[] = [];
       const observer = new MutationObserver(() => {
-        const title = document
-          .querySelector("main > header")
-          ?.getAttribute("aria-label");
+        const title = document.querySelector(
+          '[role="tab"][aria-selected="true"]',
+        )?.textContent;
         if (title !== undefined && title !== null) titles.push(title);
       });
       observer.observe(document.body, {
@@ -307,7 +321,7 @@ e2eTest(
       .getByLabel("Message", { exact: true })
       .fill("Keep my original question");
     await pane.getByRole("button", { name: "Send", exact: true }).click();
-    await expect(app.page.locator("main > header")).toHaveText(
+    await expect(app.page.getByRole("tab", { selected: true })).toHaveText(
       "Keep my original question",
     );
     await llm.respond(m.error("Model access denied"));
@@ -325,7 +339,7 @@ e2eTest(
       pane.getByRole("log", { name: "Session transcript" }),
     ).toContainText("Ready to continue.");
     await expect(pane.getByRole("alert")).not.toBeVisible();
-    await expect(app.page.locator("main > header")).toHaveText(
+    await expect(app.page.getByRole("tab", { selected: true })).toHaveText(
       "Keep my original question",
     );
     const [session] = await app.server.rpc.sessions.list();
@@ -541,7 +555,9 @@ e2eTest(
       path: "notes.md",
       content: "Read before the request",
     });
-    await app.page.getByRole("button", { name: "New session" }).click();
+    await app.page
+      .getByRole("button", { name: "New session", exact: true })
+      .click();
     await app.page
       .getByLabel("Message", { exact: true })
       .fill("Read the notes and fetch the report");
@@ -651,7 +667,9 @@ e2eTest(
 e2eTest(
   "keeps tool details expanded through exec progress and assistant streaming",
   async ({ app, llm, http }) => {
-    await app.page.getByRole("button", { name: "New session" }).click();
+    await app.page
+      .getByRole("button", { name: "New session", exact: true })
+      .click();
     await app.page
       .getByLabel("Message", { exact: true })
       .fill("Fetch both reports and summarize them");
@@ -830,7 +848,9 @@ for (const scenario of expansionScenarios) {
 e2eTest(
   "keeps parallel tool activity visible when another tool finishes",
   async ({ app, llm, http }) => {
-    await app.page.getByRole("button", { name: "New session" }).click();
+    await app.page
+      .getByRole("button", { name: "New session", exact: true })
+      .click();
     await app.page
       .getByLabel("Message", { exact: true })
       .fill("Fetch both reports");
@@ -916,7 +936,9 @@ e2eTest(
 e2eTest(
   "shows identical parallel commands as separate active work",
   async ({ app, llm }) => {
-    await app.page.getByRole("button", { name: "New session" }).click();
+    await app.page
+      .getByRole("button", { name: "New session", exact: true })
+      .click();
     await app.page
       .getByLabel("Message", { exact: true })
       .fill("Run the same command twice");
@@ -1022,7 +1044,9 @@ e2eTest(
 e2eTest(
   "restores partial assistant text on reload and continues the same response",
   async ({ app, llm }) => {
-    await app.page.getByRole("button", { name: "New session" }).click();
+    await app.page
+      .getByRole("button", { name: "New session", exact: true })
+      .click();
     await app.page
       .getByLabel("Message", { exact: true })
       .fill("Explain the plan");
