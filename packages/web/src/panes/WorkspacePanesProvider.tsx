@@ -14,12 +14,18 @@ export const TabVisibilityContext = createContext(true);
 
 export function WorkspacePanesProvider({
   initialPath,
+  userId,
+  workspaceRoot,
   children,
 }: {
   initialPath: string;
+  userId: string;
+  workspaceRoot: string;
   children: ReactNode;
 }) {
-  const [workspace] = useState(() => new WorkspacePanes(initialPath));
+  const [workspace] = useState(
+    () => new WorkspacePanes({ initialPath, userId, workspaceRoot }),
+  );
   useEffect(() => {
     window.addEventListener("popstate", workspace.followHistory);
     window.addEventListener("hashchange", workspace.followHistory);
@@ -62,4 +68,12 @@ export function usePaneLocation(): [
         history: options?.replace ? "replace" : "push",
       }),
   ];
+}
+
+export function useIsActiveTab() {
+  const state = usePaneState();
+  const tabId = useContext(TabRouteContext);
+  return panes(state.root).some(
+    (pane) => pane.id === state.activePaneId && pane.activeTabId === tabId,
+  );
 }

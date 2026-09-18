@@ -1,3 +1,7 @@
+import * as errore from "errore";
+import { Type } from "@sinclair/typebox";
+import { Value } from "@sinclair/typebox/value";
+
 export type WorkspaceTab = { id: string; path: string };
 type Pane = {
   kind: "pane";
@@ -17,6 +21,80 @@ type PaneNode = Pane | Split;
 export type DropEdge = "center" | "left" | "right" | "top" | "bottom";
 export type PaneState = { root: PaneNode; activePaneId: string };
 export type Rect = { x: number; y: number; width: number; height: number };
+
+class PaneStorageError extends errore.createTaggedError({
+  name: "PaneStorageError",
+  message: "Could not $operation workspace tabs",
+}) {}
+
+const paneNodeSchema = Type.Recursive((node) =>
+  Type.Union([
+    Type.Object({
+      kind: Type.Literal("pane"),
+      id: Type.String(),
+      tabs: Type.Array(
+        Type.Object({
+          id: Type.String(),
+          path: Type.String({ pattern: "^/" }),
+        }),
+        { minItems: 1 },
+      ),
+      activeTabId: Type.String(),
+    }),
+    Type.Object({
+      kind: Type.Literal("split"),
+      id: Type.String(),
+      axis: Type.Union([Type.Literal("horizontal"), Type.Literal("vertical")]),
+      ratio: Type.Number({ minimum: 0.15, maximum: 0.85 }),
+      first: node,
+      second: node,
+    }),
+  ]),
+);
+const paneStateSchema = Type.Object({
+  root: paneNodeSchema,
+  activePaneId: Type.String(),
+});
+
+function readState(key: string) {
+  const stored = errore.try({
+    try: () => window.localStorage.getItem(key),
+    catch: (cause) => new PaneStorageError({ operation: "read", cause }),
+  });
+  if (stored instanceof Error) return stored;
+  if (stored === null) return undefined;
+  const parsed = errore.try({
+    // SAFETY: JSON input stays unknown until the pane schema validates it below.
+    try: () => JSON.parse(stored) as unknown,
+    catch: (cause) => new PaneStorageError({ operation: "restore", cause }),
+  });
+  if (parsed instanceof Error) return parsed;
+  if (!Value.Check(paneStateSchema, parsed))
+    return new PaneStorageError({ operation: "restore" });
+  const state: PaneState = parsed;
+  const leaves = panes(state.root);
+  const ids = new Set<string>();
+  function validIds(node: PaneNode): boolean {
+    if (ids.has(node.id)) return false;
+    ids.add(node.id);
+    if (node.kind === "split")
+      return validIds(node.first) && validIds(node.second);
+    return (
+      node.tabs.every((tab) => {
+        if (ids.has(tab.id)) return false;
+        ids.add(tab.id);
+        return true;
+      }) && node.tabs.some((tab) => tab.id === node.activeTabId)
+    );
+  }
+  if (
+    !validIds(state.root) ||
+    !leaves.some((pane) => pane.id === state.activePaneId)
+  ) {
+    return new PaneStorageError({ operation: "restore" });
+  }
+  return state;
+}
 
 function newTab(path: string): WorkspaceTab {
   return { id: crypto.randomUUID(), path };
@@ -73,11 +151,49 @@ export class WorkspacePanes {
   private state: PaneState;
   private readonly listeners = new Set<() => void>();
   private readonly initialPath: string;
+  private readonly storageKey: string;
 
-  constructor(initialPath: string) {
+  constructor({
+    initialPath,
+    userId,
+    workspaceRoot,
+  }: {
+    initialPath: string;
+    userId: string;
+    workspaceRoot: string;
+  }) {
     this.initialPath = initialPath;
+    this.storageKey = JSON.stringify([
+      "halo:workspace-panes",
+      userId,
+      workspaceRoot,
+    ]);
+    const saved = readState(this.storageKey);
+    if (saved instanceof Error) console.warn(saved);
     const pane = newPane(newTab(this.hashPath()));
-    this.state = { root: pane, activePaneId: pane.id };
+    this.state =
+      saved instanceof Error || saved === undefined
+        ? { root: pane, activePaneId: pane.id }
+        : saved;
+    // A direct link takes focus without replacing a restored tab.
+    const path = window.location.hash.slice(1);
+    if (path !== "" && path !== "/") {
+      const active = this.activePane();
+      const target =
+        active.tabs.find((tab) => tab.id === active.activeTabId)?.path === path
+          ? active
+          : panes(this.state.root).find((item) =>
+              item.tabs.some((tab) => tab.path === path),
+            );
+      if (target === undefined)
+        this.open({ path, newTab: true, history: false });
+      else
+        this.select(
+          target.id,
+          target.tabs.find((tab) => tab.path === path)!.id,
+        );
+    }
+    this.publish(this.state, "replace");
   }
   getSnapshot = () => this.state;
   subscribe = (listener: () => void) => {
@@ -94,6 +210,12 @@ export class WorkspacePanes {
     history: "push" | "replace" | false = "push",
   ) {
     this.state = state;
+    const saved = errore.try({
+      try: () =>
+        window.localStorage.setItem(this.storageKey, JSON.stringify(state)),
+      catch: (cause) => new PaneStorageError({ operation: "save", cause }),
+    });
+    if (saved instanceof Error) console.warn(saved);
     const pane = panes(state.root).find(
       (candidate) => candidate.id === state.activePaneId,
     )!;

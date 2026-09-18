@@ -1,3 +1,4 @@
+import { useIsActiveTab } from "../../panes/WorkspacePanesProvider.js";
 import { useMarkSessionRead } from "./useSessionReadState.js";
 import { lastAssistantTurnWasAborted } from "./sessionView.js";
 import { useLayoutEffect, useRef, useState } from "react";
@@ -39,6 +40,7 @@ export function AgentPane({
   sessionId: string;
   sessions: SessionSummary[];
 }) {
+  const isActiveTab = useIsActiveTab();
   const pane = useStyles(styles.pane);
   const body = useStyles(styles.body);
   const column = useStyles(styles.column);
@@ -61,7 +63,7 @@ export function AgentPane({
           <SessionView state={state} sessionId={sessionId} />
           <Composer
             key={sessionId}
-            autoFocus
+            autoFocus={isActiveTab}
             error={error}
             isWorking={state.activeRun !== undefined}
             onSubmit={prompt}
@@ -79,6 +81,7 @@ export function DraftAgentPane({ draftId }: { draftId: string }) {
     useDraftAgentSession((createdSessionId) => {
       navigate(`/sessions/${createdSessionId}`);
     });
+  const isActiveTab = useIsActiveTab();
   const pane = useStyles(styles.pane);
   const body = useStyles(styles.body, styles.bodyTop);
   const column = useStyles(styles.column);
@@ -96,7 +99,7 @@ export function DraftAgentPane({ draftId }: { draftId: string }) {
             <SessionView state={state} sessionId={sessionId} />
           ) : undefined}
           <Composer
-            autoFocus
+            autoFocus={isActiveTab}
             error={error}
             isWorking={state.activeRun !== undefined}
             onSubmit={prompt}
