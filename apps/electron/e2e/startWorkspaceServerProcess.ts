@@ -7,6 +7,7 @@ import {
   workspaceServerReadySchema,
   type WorkspaceServerReady,
 } from "@get-halo/workspace-server/process";
+import { createHaloClient } from "@get-halo/client";
 import type { Logger } from "@get-halo/logger";
 import type { OpenAILLMApiOptions } from "@get-halo/workspace-server/llm";
 import * as errore from "errore";
@@ -82,6 +83,13 @@ export async function startWorkspaceServerProcess(ctx: {
   }
   return {
     ...ready,
+    rpc: createHaloClient({
+      transport: {
+        origin: `http://${ready.connections.cli.host}:${ready.connections.cli.port}`,
+        path: "/rpc",
+        headers: { authorization: `Bearer ${ready.connections.cli.token}` },
+      },
+    }),
     exited,
     isRunning: () => child.exitCode === null && child.signalCode === null,
     async close() {

@@ -37,7 +37,7 @@ under `<workspace>/.halo/browser/screenshots`.
 From the repository root, inspect the running development app with:
 
 ```sh
-HALO_USER_DATA="$PWD/tmp/workspace/.halo" pnpm halo-dev app snapshot
+pnpm halo-dev app snapshot
 ```
 
 `halo-dev app` reads `HALO_APP_CONTROL_FILE` when set, otherwise `HALO_USER_DATA`,
@@ -107,7 +107,15 @@ store has no Electron or OS-keyring dependency; credentials will move to the
 control plane in a later phase. Existing encrypted credential files are not
 migrated.
 
+## Test setup
+
+The existing workspace `serverTest` and Electron `e2eTest` fixtures start the same `WorkspaceServer` used by the app, with temporary data and controlled inference. The normal client exposes `testApi.seedSession`, `testApi.invokeTool`, and `testApi.getToolIdentity`. A shared server-side gate rejects these operations unless `WorkspaceServer.start` receives `testApiEnabled: true`. Omission disables them. Tests prepare state through these semantic operations, not internal database records, then observe it through ordinary product RPC or the UI.
+
+Electron's fixture launches the same `src/main.ts` as normal runs. The app enables `testApi` only in `ApplicationMode.Test`; development and production leave it disabled. The fixture receives the normal server readiness through child-process IPC and creates an ordinary client. There is no separate test host, entry point, listener, token, contract, or client implementation.
+
 ## Ownership
+
+`WorkspaceServer` is the package's single server class. It owns service construction, the shared database, product HTTP, and cleanup; there is no separate runtime object or public bag of child services. The app's `main.ts` supplies launch configuration, inference, credentials, and data locations, calls `WorkspaceServer.start(options)` directly, and owns discovery files and process shutdown. Tests supply their own environment through the same startup options. Moving the reusable code physically into `packages/workspace-server` remains a later migration step.
 
 ```text
 pnpm dev
@@ -115,7 +123,7 @@ pnpm dev
 │   └── publish local connection information
 ├── workspace-server: tsx watch src/main.ts
 │   ├── read launch configuration
-│   ├── HaloServer.start()
+│   ├── WorkspaceServer.start()
 │   └── publish product connection files
 └── Electron
     ├── read server.json → connect over HTTP RPC

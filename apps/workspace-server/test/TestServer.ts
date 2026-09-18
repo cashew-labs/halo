@@ -1,34 +1,44 @@
-import { HaloServer, type HaloServerOptions } from "@get-halo/workspace-server";
+import {
+  WorkspaceServer,
+  type WorkspaceServerOptions,
+} from "@get-halo/workspace-server";
 import { createHaloClient, type HaloClient } from "@get-halo/client";
 import path from "node:path";
 import { FileCredentialVault } from "../src/agent/runtime/FileCredentialVault.js";
 import type { TestArtifacts } from "./TestArtifacts.js";
 
 type RunningServer = {
-  halo: HaloServer;
+  server: WorkspaceServer;
   rpc: HaloClient;
   rendererRpc: HaloClient;
 };
 
 export class TestServer {
+  // Tracks the running host and its fixture-owned clients.
   private current: RunningServer | undefined;
+  // Reuses the product port when a scenario restarts its host.
   private listenPort = 0;
 
-  constructor(
-    private readonly options: {
-      artifacts: TestArtifacts;
-      workspaceRoot: string;
-      llmApi: HaloServerOptions["llmApi"];
-      traceUploader?: HaloServerOptions["traceUploader"];
-    },
-  ) {}
+  readonly workspaceRoot: string;
+  private readonly artifacts: TestArtifacts;
+  private readonly llmApi: WorkspaceServerOptions["llmApi"];
+  private readonly traceUploader: WorkspaceServerOptions["traceUploader"];
 
-  get workspaceRoot() {
-    return this.options.workspaceRoot;
+  constructor(ctx: {
+    artifacts: TestArtifacts;
+    workspaceRoot: string;
+    llmApi: WorkspaceServerOptions["llmApi"];
+    traceUploader?: WorkspaceServerOptions["traceUploader"];
+  }) {
+    const { artifacts, workspaceRoot, llmApi, traceUploader } = ctx;
+    this.artifacts = artifacts;
+    this.workspaceRoot = workspaceRoot;
+    this.llmApi = llmApi;
+    this.traceUploader = traceUploader;
   }
 
   get harness() {
-    return this.options.artifacts.harness;
+    return this.artifacts.harness;
   }
 
   get rpc() {
@@ -45,15 +55,15 @@ export class TestServer {
         "The server is already running. Call server.stop() before starting it again.",
       );
     }
-    const halo = await HaloServer.start({
+    const server = await WorkspaceServer.start({
       environment: "local",
-      llmApi: this.options.llmApi,
-      traceUploader: this.options.traceUploader,
+      llmApi: this.llmApi,
+      traceUploader: this.traceUploader,
       workspaceRoot: this.workspaceRoot,
-      appDataDir: this.options.artifacts.paths.userData,
+      appDataDir: this.artifacts.paths.userData,
       appVersion: "0.0.0-test",
       ownerUserId: Promise.resolve("server-test-user"),
-      logger: this.options.artifacts.logger,
+      logger: this.artifacts.logger,
       createCredentialVault: ({ filesystem, workspaceRoot }) =>
         new FileCredentialVault({
           filesystem,
@@ -67,24 +77,26 @@ export class TestServer {
       host: "127.0.0.1",
       port: this.listenPort,
       corsOrigins: [],
+      testApiEnabled: true,
     });
-    if (halo instanceof Error) throw halo;
-    this.listenPort = halo.connections.cli.port;
+    if (server instanceof Error) throw server;
+    const { connections } = server.ready;
+    this.listenPort = connections.cli.port;
     this.current = {
-      halo,
+      server,
       rpc: createHaloClient({
         transport: {
-          origin: `http://127.0.0.1:${halo.connections.cli.port}`,
+          origin: `http://127.0.0.1:${connections.cli.port}`,
           path: "/rpc",
-          headers: { authorization: `Bearer ${halo.connections.cli.token}` },
+          headers: { authorization: `Bearer ${connections.cli.token}` },
         },
       }),
       rendererRpc: createHaloClient({
         transport: {
-          origin: `http://127.0.0.1:${halo.connections.renderer.port}`,
+          origin: `http://127.0.0.1:${connections.renderer.port}`,
           path: "/rpc",
           headers: {
-            authorization: `Bearer ${halo.connections.renderer.token}`,
+            authorization: `Bearer ${connections.renderer.token}`,
           },
         },
       }),
@@ -95,7 +107,7 @@ export class TestServer {
     const current = this.current;
     if (current === undefined) return;
     this.current = undefined;
-    const closed = await current.halo.close();
+    const closed = await current.server.close();
     if (closed instanceof Error) throw closed;
   }
 
