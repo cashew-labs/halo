@@ -9,10 +9,12 @@ import {
   removeWorkspaceServerConnection,
 } from "@get-halo/shared/WorkspaceServerConnection";
 import * as errore from "errore";
-import { HaloServer, ControlPlaneTraceUploader } from "./server/HaloServer.js";
+import {
+  WorkspaceServer,
+  ControlPlaneTraceUploader,
+} from "./server/WorkspaceServer.js";
 import { GoogleAuth } from "google-auth-library";
 import { writeHaloRpcFile, removeHaloRpcFile } from "./server/haloRpcFile.js";
-import type { WorkspaceServerReady } from "./server/WorkspaceServerReady.js";
 import { FileCredentialVault } from "./agent/runtime/FileCredentialVault.js";
 import { createPiLLMApi } from "./llm/createPiLLMApi.js";
 import { createOpenAILLMApi } from "./llm/createOpenAILLMApi.js";
@@ -55,7 +57,7 @@ async function run() {
   });
   await using cleanup = new errore.AsyncDisposableStack();
   cleanup.defer(() => logger.destroy());
-  const server = await HaloServer.start({
+  const server = await WorkspaceServer.start({
     ...applicationConfig.server,
     llmApi,
     traceUploader:
@@ -86,9 +88,10 @@ async function run() {
     const closed = await server.close();
     if (closed instanceof Error) console.error(closed);
   });
+  const ready = server.ready;
   const cliPublished = await writeHaloRpcFile({
     userDataDir: applicationConfig.server.appDataDir,
-    connection: server.connections.cli,
+    connection: ready.connections.cli,
   });
   if (cliPublished instanceof Error) return cliPublished;
   cleanup.defer(async () => {
@@ -97,11 +100,11 @@ async function run() {
     });
     if (removed instanceof Error) console.error(removed);
   });
-  const renderer = server.connections.renderer;
+  const renderer = ready.connections.renderer;
   const published = await writeWorkspaceServerConnection({
     appDataDir: applicationConfig.server.appDataDir,
     connection: {
-      workspaceRoot: server.getWorkspace().workspaceRoot,
+      workspaceRoot: ready.workspace.workspaceRoot,
       origin: `http://${renderer.host}:${renderer.port}`,
       token: renderer.token,
     },
@@ -113,10 +116,6 @@ async function run() {
     );
     if (removed instanceof Error) console.error(removed);
   });
-  const ready: WorkspaceServerReady = {
-    workspace: server.getWorkspace(),
-    connections: server.connections,
-  };
   console.log(`Workspace server ready for ${ready.workspace.workspaceRoot}`);
   if (process.connected) process.send?.(ready);
 

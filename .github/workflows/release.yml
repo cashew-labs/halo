@@ -24,7 +24,7 @@ permissions:
 jobs:
   prepare:
     name: Validate release
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     outputs:
       is_release: ${{ steps.release.outputs.is_release }}
       version: ${{ steps.release.outputs.version }}
@@ -72,7 +72,7 @@ jobs:
     name: Preview production infrastructure
     if: github.event_name == 'pull_request' && needs.prepare.outputs.is_release == 'true' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'release/')
     needs: prepare
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
       contents: read
       id-token: write
@@ -157,7 +157,7 @@ jobs:
     name: Release ready
     if: always() && github.event_name == 'pull_request'
     needs: [prepare, preview, test-e2e]
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - name: Check release validation
         env:
@@ -183,7 +183,7 @@ jobs:
     name: Deploy production
     if: github.event_name == 'push'
     needs: prepare
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
       contents: read
       id-token: write
@@ -354,7 +354,7 @@ jobs:
     name: Test release E2Es
     if: github.event_name == 'pull_request' && needs.prepare.outputs.is_release == 'true' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'release/')
     needs: prepare
-    runs-on: macos-15
+    runs-on: blacksmith-6vcpu-macos-15
     timeout-minutes: 60
     env:
       TURBO_UI: "0"
@@ -394,7 +394,7 @@ jobs:
     name: Create GitHub Release
     if: always() && needs.prepare.result == 'success' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && needs.deploy.result == 'success'))
     needs: [prepare, deploy]
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
       contents: write
     steps:
@@ -421,7 +421,7 @@ jobs:
     if: always() && needs.prepare.result == 'success' && needs.release.result == 'success' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     needs: [prepare, release]
     environment: Release
-    runs-on: macos-15
+    runs-on: blacksmith-6vcpu-macos-15
     permissions:
       contents: write
     steps:

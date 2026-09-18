@@ -1,8 +1,8 @@
+import { useSidebar } from "../WorkspaceLayout.js";
 import { Button, colors, flex, flexItem, shadow, spacing, text } from "maui";
-import { Plus } from "maui/icons";
+import { Close } from "maui/icons";
 import { style, useStyles } from "purse-styles";
 import { useMutation } from "@tanstack/react-query";
-import { useLocation } from "wouter";
 import type { SessionSummary } from "@get-halo/client";
 import type { AppInfo } from "../HostApi.js";
 import { useHost } from "../HostProvider.js";
@@ -18,21 +18,32 @@ type SidebarProps = {
 };
 
 export function Sidebar({ sessions, appInfo }: SidebarProps) {
+  const { isMobile, close } = useSidebar();
+  const mobileHeader = useStyles(styles.mobileHeader);
+  const closeButton = useStyles(styles.closeButton);
   const sidebar = useStyles(styles.sidebar);
   const titleBar = useStyles(styles.titleBar);
-  const newButton = useStyles(styles.newButton);
   const navigation = useStyles(styles.navigation);
   const footer = useStyles(styles.footer);
   const versionLabel = useStyles(styles.versionLabel);
   const updateLabel = useStyles(styles.updateLabel);
-  const newSessionPad = useStyles(sidebarPadding);
 
   return (
     <nav className={sidebar} aria-label="Workspace">
-      <div className={titleBar} aria-hidden="true" />
-      <div className={newSessionPad}>
-        <NewSessionButton className={newButton} />
-      </div>
+      {isMobile ? (
+        <div className={mobileHeader}>
+          <Button
+            variant="quiet"
+            aria-label="Close sidebar"
+            className={closeButton}
+            onClick={close}
+          >
+            <Close size="md" />
+          </Button>
+        </div>
+      ) : (
+        <div className={titleBar} aria-hidden="true" />
+      )}
       <NavigationSidebar aria-label="Workspace" className={navigation}>
         <FilesystemSection />
         <SessionsSection sessions={sessions} />
@@ -45,19 +56,6 @@ export function Sidebar({ sessions, appInfo }: SidebarProps) {
         </div>
       )}
     </nav>
-  );
-}
-
-function NewSessionButton({ className }: { className: string }) {
-  const [, navigate] = useLocation();
-  return (
-    <Button
-      className={className}
-      onClick={() => navigate(`/draft/${crypto.randomUUID()}`)}
-    >
-      <Plus size="sm" aria-hidden="true" />
-      New session
-    </Button>
   );
 }
 
@@ -123,15 +121,22 @@ const styles = {
     position: "relative",
     zIndex: 1,
     backgroundColor: `light-dark(${colors.gray[1]}, ${colors.gray[2]})`,
+    "@media (max-width: 700px)": {
+      gap: 0,
+      paddingBottom: "env(safe-area-inset-bottom)",
+    },
   }),
+  mobileHeader: style(flex({ align: "center", gap: 3 }), {
+    minHeight: "56px",
+    padding: "6px 2px",
+    paddingTop: "max(6px, env(safe-area-inset-top))",
+    flexShrink: 0,
+  }),
+  closeButton: style({ minWidth: "44px", minHeight: "44px", flexShrink: 0 }),
   titleBar: style({
     minHeight: "36px",
     flexShrink: 0,
     WebkitAppRegion: "drag",
-  }),
-  newButton: style(flex({ align: "center", gap: 3 }), {
-    alignSelf: "stretch",
-    width: "100%",
   }),
   navigation: style(flexItem({ size: "auto" }), {
     minHeight: 0,

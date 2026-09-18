@@ -1,5 +1,6 @@
 import {
   app,
+  autoUpdater,
   BrowserWindow,
   dialog,
   ipcMain,
@@ -7,6 +8,7 @@ import {
   session as electronSession,
   shell,
   type IpcMainEvent,
+  type MenuItemConstructorOptions,
 } from "electron";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -30,6 +32,7 @@ import {
   type DesktopAuthentication,
 } from "./DesktopAuthentication.js";
 import { ControlPlaneAuth } from "./auth/ControlPlaneAuth.js";
+import { createAdcDesktopIdentity } from "./auth/createAdcDesktopIdentity.js";
 import {
   closePendingOAuthCallbacks,
   registerDesktopApi,
@@ -79,6 +82,8 @@ if (applicationConfig.useSwiftShader) {
 
 let mainWindow: BrowserWindow | undefined;
 const windows = new Set<BrowserWindow>();
+// True after Quit / quitAndInstall so Close and Cmd+W destroy windows instead of hiding them.
+let isQuitting = false;
 
 // oxlint-disable-next-line typescript/no-floating-promises -- Electron owns the app-ready lifecycle and keeps the process alive for this work.
 app.whenReady().then(async () => {
@@ -133,9 +138,12 @@ app.whenReady().then(async () => {
   logger.info({ event: "app-ready" });
 
   app.on("activate", () => {
-    if (mainWindow !== undefined) return;
-    // oxlint-disable-next-line typescript/no-floating-promises -- Electron activate callbacks cannot await window loading.
-    void openMainWindow();
+    if (mainWindow === undefined) {
+      // oxlint-disable-next-line typescript/no-floating-promises -- Electron activate callbacks cannot await window loading.
+      void openMainWindow();
+      return;
+    }
+    mainWindow.show();
   });
 });
 
@@ -152,17 +160,17 @@ async function createDesktopAuthentication(): Promise<DesktopAuthentication> {
     });
   }
 
-  const authentication = await ControlPlaneAuth.start({
+  if (applicationConfig.mode === ApplicationMode.Development) {
+    return createLocalDesktopAuthentication({
+      dataDir: applicationConfig.dataDir,
+      identity: createAdcDesktopIdentity(),
+    });
+  }
+
+  return await ControlPlaneAuth.start({
     origin: applicationConfig.controlPlaneOrigin,
     dataDir: applicationConfig.dataDir,
   });
-
-  return applicationConfig.mode === ApplicationMode.Development
-    ? createLocalDesktopAuthentication({
-        dataDir: applicationConfig.dataDir,
-        identity: authentication,
-      })
-    : authentication;
 }
 
 async function getWorkspaceConnection(
@@ -202,6 +210,14 @@ function testAuthSession(): ControlPlaneSession {
     },
   };
 }
+
+app.on("before-quit", () => {
+  isQuitting = true;
+});
+// quitAndInstall() emits window close before before-quit.
+autoUpdater.on("before-quit-for-update", () => {
+  isQuitting = true;
+});
 
 app.on("window-all-closed", () => {
   if (process.platform === "darwin") return;
@@ -243,6 +259,13 @@ async function createWindow(): Promise<BrowserWindow> {
   });
   windows.add(window);
   window.once("closed", () => windows.delete(window));
+  if (process.platform === "darwin") {
+    window.on("close", (event) => {
+      if (isQuitting) return;
+      event.preventDefault();
+      hideWindow(window);
+    });
+  }
 
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
     await window.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
@@ -252,6 +275,20 @@ async function createWindow(): Promise<BrowserWindow> {
     );
   }
   return window;
+}
+
+function hideWindow(window: BrowserWindow): void {
+  if (!window.isFullScreen()) {
+    window.hide();
+    return;
+  }
+  // macOS ignores hide() while the window is full screen.
+  // https://github.com/desktop/desktop/issues/12838
+  window.once("leave-full-screen", () => {
+    if (window.isDestroyed()) return;
+    window.hide();
+  });
+  window.setFullScreen(false);
 }
 
 function registerLogBridge(): void {
@@ -280,18 +317,19 @@ function assertTrustedSender(event: IpcMainEvent): BrowserWindow {
 }
 
 function installMenu(): void {
-  const checkForUpdatesItem = {
+  const isMac = process.platform === "darwin";
+  const checkForUpdatesItem: MenuItemConstructorOptions = {
     label: "Check for Updates…",
     click: () => checkForUpdates(),
   };
-  const openLogsItem = {
+  const openLogsItem: MenuItemConstructorOptions = {
     label: "Open Logs",
     click: () => {
       // oxlint-disable-next-line typescript/no-floating-promises -- Electron menu callbacks cannot await command work.
       void openLogs();
     },
   };
-  const fileMenu = {
+  const fileMenu: MenuItemConstructorOptions = {
     label: "File",
     submenu: [
       {
@@ -303,27 +341,47 @@ function installMenu(): void {
             "newChat",
           ),
       },
+      { type: "separator" },
+      isMac ? { role: "close" } : { role: "quit" },
     ],
   };
-  const viewSubmenu = [
-    {
-      label: shortcuts.shortcutMenu.label,
-      accelerator: shortcuts.shortcutMenu.accelerator,
-      click: () =>
-        BrowserWindow.getFocusedWindow()?.webContents.send(
-          SHORTCUT_CHANNEL,
-          "shortcutMenu",
-        ),
-    },
-    {
-      label: "Reload",
-      accelerator: "CmdOrCtrl+R",
-      click: () => mainWindow?.reload(),
-    },
-    { role: "toggleDevTools" as const },
+  const viewMenu: MenuItemConstructorOptions = {
+    label: "View",
+    submenu: [
+      {
+        label: shortcuts.shortcutMenu.label,
+        accelerator: shortcuts.shortcutMenu.accelerator,
+        click: () =>
+          BrowserWindow.getFocusedWindow()?.webContents.send(
+            SHORTCUT_CHANNEL,
+            "shortcutMenu",
+          ),
+      },
+      { type: "separator" },
+      { role: "reload" },
+      { role: "forceReload" },
+      { role: "toggleDevTools" },
+      { type: "separator" },
+      { role: "resetZoom" },
+      { role: "zoomIn" },
+      // Electron's zoomIn role binds CommandOrControl+Plus; browsers also use =.
+      {
+        role: "zoomIn",
+        accelerator: "CommandOrControl+=",
+        visible: false,
+      },
+      { role: "zoomOut" },
+      { type: "separator" },
+      { role: "togglefullscreen" },
+    ],
+  };
+  const menus: MenuItemConstructorOptions[] = [
+    fileMenu,
+    { role: "editMenu" },
+    viewMenu,
+    { role: "windowMenu" },
   ];
-
-  if (process.platform === "darwin") {
+  if (isMac) {
     Menu.setApplicationMenu(
       Menu.buildFromTemplate([
         {
@@ -343,21 +401,14 @@ function installMenu(): void {
             { role: "quit" },
           ],
         },
-        fileMenu,
-        { role: "editMenu" },
-        { label: "View", submenu: viewSubmenu },
-        { role: "windowMenu" },
+        ...menus,
       ]),
     );
     return;
   }
-
   Menu.setApplicationMenu(
     Menu.buildFromTemplate([
-      fileMenu,
-      { role: "editMenu" },
-      { label: "View", submenu: viewSubmenu },
-      { role: "windowMenu" },
+      ...menus,
       { label: "Help", submenu: [checkForUpdatesItem, openLogsItem] },
     ]),
   );

@@ -113,6 +113,11 @@ const sidebarItem = style(navigationItem, sidebarPadding, {
   textDecoration: "none",
   textAlign: "left",
   backgroundColor: "transparent",
+  "@media (max-width: 700px)": {
+    minHeight: "44px",
+    fontSize: "16px",
+    paddingLeft: "calc(16px + (var(--tree-item-level, 1) - 1) * 16px)",
+  },
   "&[aria-current='page']": {
     backgroundColor: backgroundColor.elementActive,
     color: colors.accent[11],

@@ -1,13 +1,13 @@
 {
   "name": "@get-halo/desktop",
-  "version": "0.1.47",
+  "version": "0.1.49",
   "private": true,
   "description": "Halo desktop app",
   "license": "MIT",
   "author": "Saffron Health",
   "repository": {
     "type": "git",
-    "url": "https://github.com/tanishqkancharla/halo-v2.git"
+    "url": "https://github.com/cashew-labs/halo.git"
   },
   "type": "module",
   "main": ".vite/build/main.cjs",
@@ -16,10 +16,10 @@
     "dev": "electron-forge start",
     "make": "electron-forge make",
     "publish": "electron-forge publish",
-    "format": "oxfmt src forge e2e index.html package.json tsconfig.json forge.config.ts playwright.config.ts vitest.config.ts vite.main.config.ts vite.preload.config.ts vite.renderer.config.ts",
-    "format:check": "oxfmt --check src forge e2e index.html package.json tsconfig.json forge.config.ts playwright.config.ts vitest.config.ts vite.main.config.ts vite.preload.config.ts vite.renderer.config.ts",
-    "lint": "NODE_OPTIONS=--experimental-strip-types oxlint --deny-warnings src forge e2e forge.config.ts playwright.config.ts vitest.config.ts vite.main.config.ts vite.preload.config.ts vite.renderer.config.ts",
-    "lint:fix": "NODE_OPTIONS=--experimental-strip-types oxlint --fix src forge e2e forge.config.ts playwright.config.ts vitest.config.ts vite.main.config.ts vite.preload.config.ts vite.renderer.config.ts",
+    "format": "oxfmt src forge e2e index.html package.json tsconfig.json forge.config.ts playwright.config.ts vite.main.config.ts vite.preload.config.ts vite.renderer.config.ts",
+    "format:check": "oxfmt --check src forge e2e index.html package.json tsconfig.json forge.config.ts playwright.config.ts vite.main.config.ts vite.preload.config.ts vite.renderer.config.ts",
+    "lint": "NODE_OPTIONS=--experimental-strip-types oxlint --deny-warnings src forge e2e forge.config.ts playwright.config.ts vite.main.config.ts vite.preload.config.ts vite.renderer.config.ts",
+    "lint:fix": "NODE_OPTIONS=--experimental-strip-types oxlint --fix src forge e2e forge.config.ts playwright.config.ts vite.main.config.ts vite.preload.config.ts vite.renderer.config.ts",
     "test": "pnpm run test:e2e",
     "test:e2e:build": "pnpm --filter @get-halo/web-app build && electron-forge package",
     "test:e2e:run": "playwright test",
@@ -39,6 +39,7 @@
     "@sinclair/typebox": "^0.34.52",
     "electron-squirrel-startup": "^1.0.1",
     "errore": "^0.14.1",
+    "google-auth-library": "^11.0.2",
     "maui": "npm:@tanishqkancharla/maui@0.0.19",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
@@ -72,8 +73,7 @@
     "execa": "9.6.1",
     "libretto-browser-tools": "^0.1.2",
     "playwright": "1.62.1",
-    "vite": "^8.2.2",
-    "vitest": "^4.1.11"
+    "vite": "^8.2.2"
   },
   "productName": "Halo"
 }

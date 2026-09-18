@@ -50,7 +50,6 @@ export const workspaceServerConfigSchema = Type.Object({
       electronRunAsNode: Type.Boolean(),
     }),
   ),
-  testingApiEnabled: Type.Optional(Type.Boolean()),
 });
 
 export type WorkspaceServerConfig = Static<typeof workspaceServerConfigSchema>;

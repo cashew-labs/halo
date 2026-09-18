@@ -547,7 +547,7 @@ e2eTest(
       .fill("Read the notes and fetch the report");
     await app.page.getByRole("button", { name: "Send", exact: true }).click();
     const command = `curl --silent --fail '${http.url("/report")}'`;
-    const js = `await tools.files.read({ path: "notes.md" }); return await tools.bash.run({ command: ${JSON.stringify(command)} });`;
+    const js = `await tools.files.read({ path: "notes.md" }); return await tools.bash.run({ command: ${JSON.stringify(command)}, timeoutMs: 60000 });`;
     await llm.respond(
       m.tool.start("exec", { id: "report", arguments: { js } }),
     );
@@ -658,7 +658,7 @@ e2eTest(
     await app.page.getByRole("button", { name: "Send", exact: true }).click();
     const firstCommand = `curl --silent --fail '${http.url("/first")}'`;
     const secondCommand = `curl --silent --fail '${http.url("/second")}'`;
-    const js = `await tools.bash.run({ command: ${JSON.stringify(firstCommand)} }); return await tools.bash.run({ command: ${JSON.stringify(secondCommand)} });`;
+    const js = `await tools.bash.run({ command: ${JSON.stringify(firstCommand)}, timeoutMs: 60000 }); return await tools.bash.run({ command: ${JSON.stringify(secondCommand)}, timeoutMs: 60000 });`;
     await llm.respond(
       m.tool.start("exec", { id: "reports", arguments: { js } }),
     );
@@ -692,7 +692,7 @@ e2eTest(
     await llm.respond(
       m.tool.start("bash", {
         id: "verification",
-        arguments: { command: verificationCommand },
+        arguments: { command: verificationCommand, timeoutMs: 60_000 },
       }),
     );
     const verification = await http.request("/verify");
@@ -840,11 +840,11 @@ e2eTest(
     await llm.respond([
       m.tool.start("bash", {
         id: "first",
-        arguments: { command: firstCommand },
+        arguments: { command: firstCommand, timeoutMs: 60_000 },
       }),
       m.tool.start("bash", {
         id: "second",
-        arguments: { command: secondCommand },
+        arguments: { command: secondCommand, timeoutMs: 60_000 },
       }),
     ]);
     const [first, second] = await Promise.all([
