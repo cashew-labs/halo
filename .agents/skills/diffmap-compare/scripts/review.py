@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run an untouched upstream Diffmap beside the separately maintained custom viewer."""
+"""Run two separately maintained Diffmap review variants."""
 import argparse
 import hashlib
 import json
@@ -14,6 +14,7 @@ import urllib.request
 SKILL = Path(__file__).resolve().parents[1]
 VERSIONS = json.loads((SKILL / "assets/versions.json").read_text())
 PATCH = SKILL / "assets/custom.patch"
+UPSTREAM_PATCH = SKILL / "assets/upstream.patch"
 
 
 def run(*args, cwd=None, capture=False):
@@ -43,12 +44,25 @@ def install(directory, state, name):
 def sync(runtime):
     runtime.mkdir(parents=True, exist_ok=True)
     upstream = runtime / "upstream"
-    if not upstream.exists():
-        run("git", "clone", VERSIONS["repository"], str(upstream))
-    if git(upstream, "status", "--porcelain").strip():
-        raise RuntimeError(f"Upstream checkout has local changes: {upstream}. Preserve them before syncing.")
-    run("git", "-C", str(upstream), "fetch", "origin", VERSIONS["upstreamBranch"])
-    run("git", "-C", str(upstream), "checkout", "--detach", "FETCH_HEAD")
+    upstream_base = VERSIONS.get("upstreamBase")
+    if upstream_base:
+        if not upstream.exists():
+            run("git", "clone", "--no-checkout", VERSIONS["repository"], str(upstream))
+            run("git", "-C", str(upstream), "fetch", "origin", upstream_base)
+            run("git", "-C", str(upstream), "checkout", "--detach", upstream_base)
+            run("git", "-C", str(upstream), "apply", str(UPSTREAM_PATCH))
+            run("git", "-C", str(upstream), "add", "--intent-to-add", ".")
+        if git(upstream, "rev-parse", "HEAD").decode().strip() != upstream_base:
+            raise RuntimeError("Version 1 checkout is not at its pinned base; preserve it before syncing.")
+        if git(upstream, "diff", "--binary", upstream_base) != UPSTREAM_PATCH.read_bytes():
+            raise RuntimeError("Version 1 differs from its saved patch. Use capture-upstream to preserve intentional edits.")
+    else:
+        if not upstream.exists():
+            run("git", "clone", VERSIONS["repository"], str(upstream))
+        if git(upstream, "status", "--porcelain").strip():
+            raise RuntimeError(f"Upstream checkout has local changes: {upstream}. Preserve them before syncing.")
+        run("git", "-C", str(upstream), "fetch", "origin", VERSIONS["upstreamBranch"])
+        run("git", "-C", str(upstream), "checkout", "--detach", "FETCH_HEAD")
     custom = runtime / "custom"
     if not custom.exists():
         run("git", "clone", "--no-checkout", VERSIONS["repository"], str(custom))
@@ -65,6 +79,7 @@ def sync(runtime):
     result = {
         "upstreamCommit": git(upstream, "rev-parse", "HEAD").decode().strip(),
         "upstreamSkill": str(upstream / "skills/code-walkthrough/SKILL.md"),
+        "upstreamPatchSha256": hashlib.sha256(UPSTREAM_PATCH.read_bytes()).hexdigest() if upstream_base else None,
         "customBase": VERSIONS["customBase"],
         "customInstructions": str(SKILL / "references/custom.md"),
         "customPatchSha256": hashlib.sha256(PATCH.read_bytes()).hexdigest(),
@@ -130,7 +145,7 @@ def serve(args, runtime):
         for name, document, port, prefix in plans:
             document = str(document.resolve())
             previous = state.get(name)
-            revision = revisions["upstreamCommit"] if name == "upstream" else revisions["customPatchSha256"]
+            revision = (revisions.get("upstreamPatchSha256") or revisions["upstreamCommit"]) if name == "upstream" else revisions["customPatchSha256"]
             if previous and owned(previous):
                 if previous["file"] == document and previous["root"] == root and previous["port"] == port and previous["revision"] == revision:
                     continue
@@ -167,7 +182,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--workspace", type=Path, default=Path.cwd(), help="Project workspace; runtime checkouts/logs live under its tmp/diffmap-compare directory")
     commands = parser.add_subparsers(dest="command", required=True)
-    commands.add_parser("sync", help="Fetch latest untouched upstream, prepare pinned custom viewer, install locked dependencies")
+    commands.add_parser("sync", help="Prepare separately pinned review variants and install locked dependencies")
     start = commands.add_parser("serve", help="Serve separately authored upstream and custom documents; reuse matching servers")
     start.add_argument("upstream", type=Path)
     start.add_argument("custom", type=Path)
@@ -176,6 +191,7 @@ def main():
     start.add_argument("--custom-port", type=int, default=VERSIONS["customPort"])
     commands.add_parser("status")
     commands.add_parser("stop", help="Stop only this launcher's recorded servers")
+    commands.add_parser("capture-upstream", help="Save intentional version 1 edits into assets/upstream.patch")
     commands.add_parser("capture-custom", help="Save intentional custom viewer changes back into assets/custom.patch")
     args = parser.parse_args()
     args.workspace = args.workspace.resolve()
@@ -184,14 +200,17 @@ def main():
         sync(runtime)
     elif args.command == "serve":
         serve(args, runtime)
-    elif args.command == "capture-custom":
-        custom = runtime / "custom"
-        run("git", "-C", str(custom), "add", "--intent-to-add", ".")
-        PATCH.write_bytes(git(custom, "diff", "--binary", VERSIONS["customBase"]))
+    elif args.command in ("capture-custom", "capture-upstream"):
+        name = "custom" if args.command == "capture-custom" else "upstream"
+        checkout = runtime / name
+        base = VERSIONS["customBase" if name == "custom" else "upstreamBase"]
+        patch = PATCH if name == "custom" else UPSTREAM_PATCH
+        run("git", "-C", str(checkout), "add", "--intent-to-add", ".")
+        patch.write_bytes(git(checkout, "diff", "--binary", base))
         revisions = read_json(runtime / "versions.json")
-        revisions["customPatchSha256"] = hashlib.sha256(PATCH.read_bytes()).hexdigest()
+        revisions[f"{name}PatchSha256"] = hashlib.sha256(patch.read_bytes()).hexdigest()
         write_json(runtime / "versions.json", revisions)
-        print(f"Saved {PATCH}. Upstream is unchanged.")
+        print(f"Saved {patch}. The other variant is unchanged.")
     else:
         state = read_json(runtime / "servers.json")
         if args.command == "stop":

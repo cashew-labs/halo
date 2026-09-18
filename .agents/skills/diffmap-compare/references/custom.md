@@ -1,20 +1,20 @@
-# Custom review authoring
-
-This is the experimental counterpart to the untouched upstream skill. It captures the user's requested review experience, not rules to impose on upstream.
+# Review authoring for both variants
 
 ## Reading experience
 
-- Start with a short overview and an ordered list of what to review. Give each step a concise explanation and a link to its details. Avoid repetitive goals/non-goals sections and repeated versions of the same flow.
-- Use plain language to explain where code runs and what services/classes do. A class is not automatically a deployed service. Explain unfamiliar names before relying on them.
-- The overview is the first, permanent tab on the **left**. Clicking a step, component or symbol opens an active detail tab in its place. Diagrams and examples stay inline with those details. No separate Diagram/Details pages, Back/Forward controls, Done button, or Components and next steps footer.
-- The **right** shows the selected file's code. An About this file card names its exact path, purpose and changes. Populate a file explanation for every included patch so this card stays accurate when switching sources. Files can be chosen from the overview's file list; do not add a redundant dropdown.
-- Detail pages should mix concise explanations with worked examples, realistic JSON/data, pseudocode or linked call stacks when they help. Use simple, selectable diagrams whose labels match the surrounding text. Avoid graphics with no explanation.
-- Explain important classes, services and functions, including inputs and outputs. Code symbols open a left-side inspector with compiler-derived contracts; authored descriptions complement those types. Do not duplicate giant type declarations in the overview.
-- Describe tests by actions and outcomes they actually checked. Distinguish simulated boundaries, live integrations and checks not run.
+- Start with the user-visible problem and result. Use a table of PR, user action, and resulting behavior. Put revision hashes and implementation metadata at the end.
+- Open on a useful, code-free overview. Keep the full explanation, examples, diagrams, verification, and file links in the main page. Never replace that page with a sentence-sized detail page.
+- State review order explicitly by PR number. Do not say “bottom to top.” Omit non-goals unless they explain a practical limitation the reviewer needs to assess.
+- Use familiar words: “remember which answer was opened,” not “browser read receipt”; “ask the desktop app to open the link,” not “cross the host boundary.” If a technical term matters, explain why it matters before naming it.
+- Put a concise explanation immediately beside each graph. Graph labels describe actions and outcomes. Every linked call-stack row needs a complete purpose comment: what the code does and why. Expand implementation steps inline; comments wrap rather than truncate.
+- Selecting a graph node, call-stack step, or file opens relevant code with its intent visible. Local file links select the source pane without navigating or reloading the page. Section links scroll within the overview.
+- Version 1 retains a continuous document, table of contents, and single code pane. Version 2 keeps the overview visible on the left while file tabs, explanations, and code share the right pane. Reuse a file tab for another line in that file; do not create a new tab for each sentence.
+- File summaries explain the file's role in plain language. Do not repeat the same paragraph under multiple headings. Keep compiler details secondary to the reason for looking at the code.
+- Explain tests as actions and observed outcomes. Clearly identify scripted model responses, simulated browser launch, local server checks, and production checks not run. Keep both versions factually equivalent.
 
 ## Document syntax
 
-Read the custom checkout's `README.md` and `src/explanations.ts` when authoring unfamiliar fields. The main markdown links to hidden explanations:
+Read the custom checkout's `README.md` and `src/explanations.ts` when authoring unfamiliar fields. Use the main markdown for the full explanation. In version 2, hidden file explanations supply context above code; avoid using explanation links as the primary navigation:
 
 ```md
 1. [Where the request runs](explain:request-flow) — Follow the request into the server and storage.
