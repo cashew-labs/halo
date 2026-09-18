@@ -1551,3 +1551,60 @@ async function nextSummary(
       return next.value.session;
   }
 }
+
+serverTest(
+  "uploads original file bytes into the workspace without overwriting files",
+  async ({ server }) => {
+    await server.rpc.workspace.createEntry({
+      path: "Uploads",
+      kind: "directory",
+    });
+    const bytes = new Uint8Array([0, 255, 13, 10, 128, 42]);
+    const file = new File([bytes], "local.bin", {
+      type: "application/octet-stream",
+    });
+    expect(
+      await server.rpc.workspace.uploadFile({ path: "Uploads/data.bin", file }),
+    ).toEqual({ path: "Uploads/data.bin" });
+    expect(
+      await fs.readFile(path.join(server.workspaceRoot, "Uploads/data.bin")),
+    ).toEqual(Buffer.from(bytes));
+    expect(await server.rpc.workspace.listPaths()).toContain(
+      "Uploads/data.bin",
+    );
+    await expect(
+      server.rpc.workspace.uploadFile({
+        path: "Uploads/data.bin",
+        file: new File(["replacement"], "local.bin"),
+      }),
+    ).rejects.toThrow("already exists");
+    expect(
+      await fs.readFile(path.join(server.workspaceRoot, "Uploads/data.bin")),
+    ).toEqual(Buffer.from(bytes));
+  },
+);
+
+serverTest(
+  "rejects file uploads outside the workspace and through symlinks",
+  async ({ server }) => {
+    const outside = path.join(server.harness.paths.root, "outside-upload");
+    await fs.mkdir(outside);
+    await fs.symlink(
+      outside,
+      path.join(server.workspaceRoot, "Shortcut"),
+      "junction",
+    );
+    const file = new File(["local data"], "notes.txt");
+    for (const invalid of [
+      "../outside.txt",
+      ".halo/state.db",
+      "Shortcut/notes.txt",
+      "",
+    ]) {
+      await expect(
+        server.rpc.workspace.uploadFile({ path: invalid, file }),
+      ).rejects.toThrow("not a workspace file");
+    }
+    expect(await fs.readdir(outside)).toEqual([]);
+  },
+);

@@ -57,6 +57,11 @@ export const workspaceRouter = os.router({
     if (written instanceof Error) return orpcErrors.badRequest(written);
     return written;
   }),
+  uploadFile: os.uploadFile.handler(async ({ context, input }) => {
+    const uploaded = await context.workspace.uploadFile(input);
+    if (uploaded instanceof Error) return orpcErrors.badRequest(uploaded);
+    return uploaded;
+  }),
   saveImage: os.saveImage.handler(async ({ context, input }) => {
     const saved = await context.workspace.saveImage(input);
     if (saved instanceof Error) return orpcErrors.badRequest(saved);
