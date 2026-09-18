@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import nodePath from "node:path";
 import { expect } from "@playwright/test";
+import { m } from "@get-halo/shared/testing";
 import { haloProtocolVersion } from "@get-halo/client";
 import type { DesktopBridge } from "../src/shared/desktop.js";
 import { e2eTest } from "./e2eTest.js";
@@ -959,3 +960,43 @@ e2eTest("uses a dismissible sidebar on small screens", async ({ app }) => {
   await expect(open).toBeVisible();
   await expect(drawer).toHaveCount(0);
 });
+
+e2eTest(
+  "opens Command-clicked Markdown and assistant links in the system browser",
+  async ({ app, harness }) => {
+    const opened = await app.observeExternalUrls();
+    const url = "https://example.com/guide?q=halo%20app#start";
+    await app.server.rpc.workspace.writeFile({
+      path: "Links.md",
+      content: `Read [project docs](${url}).`,
+    });
+    await app.page.getByRole("link", { name: "Links.md", exact: true }).click();
+    const editor = app.page.getByRole("main", { name: "Links.md" });
+    const docs = editor.getByRole("link", { name: "project docs" });
+    await docs.click();
+    expect(await opened.evaluate((urls) => urls)).toEqual([]);
+    await docs.click({ modifiers: ["Meta"] });
+    await expect
+      .poll(async () => await opened.evaluate((urls) => urls))
+      .toEqual([url]);
+    await expect(editor).toBeVisible();
+    await harness.loadSession({
+      title: "Helpful links",
+      messages: [
+        m.user("Show a link"),
+        m.assistant(`Open [**project docs**](${url}).`),
+      ],
+    });
+    await app.page
+      .getByRole("log")
+      .getByRole("link", { name: "project docs" })
+      .click({ modifiers: ["Meta"] });
+    await expect
+      .poll(async () => await opened.evaluate((urls) => urls))
+      .toEqual([url, url]);
+    await expect(
+      app.page.getByRole("main", { name: "Helpful links" }),
+    ).toBeVisible();
+    await opened.dispose();
+  },
+);
