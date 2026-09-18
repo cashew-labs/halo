@@ -80,8 +80,8 @@ minimumReleaseAgeExclude:
   - '@executor-js/sdk@1.6.0'
   - tsx@4.23.13
   - '@tanishqkancharla/maui@0.0.19'
-  - '@tanishqkancharla/tandem-core@0.2.0'
-  - '@tanishqkancharla/tandem-server@0.2.0'
+  - '@tanishqkancharla/tandem-core@0.3.0'
+  - '@tanishqkancharla/tandem-server@0.3.0'
   - purse-styles@0.2.3
   - '@internationalized/date@3.12.4'
   - '@internationalized/number@3.6.8'

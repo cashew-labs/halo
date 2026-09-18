@@ -73,7 +73,8 @@ createRoot(document.getElementById("root")).render(<View {...client} />);`,
 import { fileURLToPath } from "node:url";
 import { runExtension } from "@get-halo/extension-sdk/server";
 import router from "./api.ts";
-await runExtension({ router, publicDirectory: fileURLToPath(new URL("./public/", import.meta.url)) });`,
+import { relations, schema } from "./schema.ts";
+await runExtension({ router, schema, relations, publicDirectory: fileURLToPath(new URL("./public/", import.meta.url)) });`,
       },
       outfile: join(output, "server.mjs"),
     }).catch(

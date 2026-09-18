@@ -634,11 +634,11 @@ importers:
         specifier: ^0.34.52
         version: 0.34.52
       '@tanishqkancharla/tandem-core':
-        specifier: 0.2.0
-        version: 0.2.0(react@19.2.8)
+        specifier: 0.3.0
+        version: 0.3.0(react@19.2.8)
       '@tanishqkancharla/tandem-server':
-        specifier: 0.2.0
-        version: 0.2.0(react@19.2.8)
+        specifier: 0.3.0
+        version: 0.3.0(react@19.2.8)
       errore:
         specifier: ^0.14.1
         version: 0.14.1
@@ -3183,16 +3183,11 @@ packages:
       react: ^19.0.0
       react-dom: ^19.0.0
 
-  '@tanishqkancharla/tandem-core@0.2.0':
-    resolution: {integrity: sha512-Nuh++scUZFmHENVwThDS64eIXAUuXoldjHSx+dfRQLUa8zqFGTHft8dm365vKakFCAkKIWJ3ym1ARiNHt23KPQ==}
+  '@tanishqkancharla/tandem-core@0.3.0':
+    resolution: {integrity: sha512-lM7L3eiAhTSXE47ex071Og0nkuXKUJ9cP99NQvd2M+A4ypA8laUFTQT3YZIHPaGmhnlFcj5N/+lHXSgvuE9nzw==}
 
-  '@tanishqkancharla/tandem-server@0.2.0':
-    resolution: {integrity: sha512-PWabUMGtCE8fg18CX+bSMIRFi5Hux/3+SsTgVRGMJgX8VtlaJtT/SunmaiJpqLGKVRU3jpVUBnJ0eJcvyX8dXw==}
-    peerDependencies:
-      drizzle-orm: ^0.44.0
-    peerDependenciesMeta:
-      drizzle-orm:
-        optional: true
+  '@tanishqkancharla/tandem-server@0.3.0':
+    resolution: {integrity: sha512-d20B8iZoU8HSRd3W5SX9YkJXmSVmntRds1p4NMuBqd3WIMLLRmogRtC/tFWEFqQUDS3ykKkWCU9WPYStowKB8g==}
 
   '@tanstack/query-core@5.101.4':
     resolution: {integrity: sha512-gNwcvOJcRbLWPOLG/2OBm+zM+Yv+MKsXKEOWC57USuZDEsI71hEErQsiEGx5wX9rzWWkfwM0fVSPoiIFSsxfiw==}
@@ -11280,19 +11275,22 @@ snapshots:
       - codemirror
       - supports-color
 
-  '@tanishqkancharla/tandem-core@0.2.0(react@19.2.8)':
+  '@tanishqkancharla/tandem-core@0.3.0(react@19.2.8)':
     dependencies:
       '@triplit/tuple-database': 2.2.33(react@19.2.8)
       '@types/lodash-es': 4.17.12
+      errore: 0.14.1
       idb: 8.0.3
       lodash-es: 4.18.1
       tuple-database: 2.2.4(react@19.2.8)
     transitivePeerDependencies:
       - react
 
-  '@tanishqkancharla/tandem-server@0.2.0(react@19.2.8)':
+  '@tanishqkancharla/tandem-server@0.3.0(react@19.2.8)':
     dependencies:
-      '@tanishqkancharla/tandem-core': 0.2.0(react@19.2.8)
+      '@tanishqkancharla/tandem-core': 0.3.0(react@19.2.8)
+      errore: 0.14.1
+      tuple-database: 2.2.4(react@19.2.8)
     transitivePeerDependencies:
       - react
 

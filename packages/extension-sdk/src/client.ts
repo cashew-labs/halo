@@ -3,8 +3,8 @@ import { RPCLink } from "@orpc/client/fetch";
 import type { AnyRouter, RouterClient } from "@orpc/server";
 import {
   TandemClient,
+  type AnyRelations,
   type AnySchema,
-  type RuntimeRelationsDefinition,
   type RuntimeSchemaDefinition,
   type RemoteApi,
 } from "@tanishqkancharla/tandem-core";
@@ -26,7 +26,7 @@ type SyncClient<Schema extends AnySchema> = {
 
 export async function connectExtension<
   Schema extends AnySchema,
-  Relations extends RuntimeRelationsDefinition<Schema>,
+  Relations extends AnyRelations<Schema>,
 >(args: { schema: RuntimeSchemaDefinition<Schema>; relations: Relations }) {
   const viewPath = "/view/";
   const extensionPath = location.pathname.slice(

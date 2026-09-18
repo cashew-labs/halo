@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import type { RouterClient, AnyRouter } from "@orpc/server";
 import type {
+  AnyRelations,
   AnySchema,
   RelationalQuery,
-  RuntimeRelationsDefinition,
   RuntimeSchemaDefinition,
   TandemClient,
 } from "@tanishqkancharla/tandem-core";
@@ -13,7 +13,7 @@ type InferSchema<Definition> =
 export type ExtensionViewProps<
   Router extends AnyRouter,
   Definition extends RuntimeSchemaDefinition,
-  Relations extends RuntimeRelationsDefinition<InferSchema<Definition>>,
+  Relations extends AnyRelations<InferSchema<Definition>>,
 > = {
   api: RouterClient<Router>;
   storage: TandemClient<InferSchema<Definition>, Relations>;
@@ -21,7 +21,7 @@ export type ExtensionViewProps<
 
 export function useQuery<
   Schema extends AnySchema,
-  Relations extends RuntimeRelationsDefinition<Schema>,
+  Relations extends AnyRelations<Schema>,
   Query extends RelationalQuery<Schema, Relations>,
 >(storage: TandemClient<Schema, Relations>, query: Query) {
   const [rows, setRows] = useState(() => storage.query(query));

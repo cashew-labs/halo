@@ -70,7 +70,7 @@ For synchronized records:
 4. Confirm unfinished input and other React-local state did not synchronize.
 5. Close both browsers, restart the preview, open a fresh browser, and assert the committed record persisted.
 
-Do not manipulate `store.json` or recreate the sync transport to prove these behaviors.
+Do not manipulate `tandem.json`, a legacy `store.json`, or the sync transport to prove these behaviors.
 
 For hosted workflows, use the running direct URL from `halo extension list`. After a manual rebuild of a running extension, run `halo extension restart <id>` before accessing the new build. In development, `halo extension update <id>` rebuilds and restarts in one command.
 

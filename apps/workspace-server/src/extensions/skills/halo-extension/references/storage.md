@@ -1,6 +1,6 @@
 # Schema and storage SDK
 
-`schema.ts` named-exports its Tandem `schema` and `relations` definitions. The SDK connects the browser client to `/sync/` and stores hosted data in `.halo/extension-data/<id>/store.json`. Never read or write that file directly.
+`schema.ts` named-exports its Tandem `schema` and `relations` definitions. The SDK connects the browser client to `/sync/`, where one `TandemServer` persists hosted data through `TandemServerJsonFileStorage` at `.halo/extension-data/<id>/tandem.json`. The tuple file is an SDK-owned implementation detail; never read or write it directly. An extension rebuilt from the earlier runtime starts a fresh `tandem.json` and leaves any legacy `store.json` untouched and recoverable.
 
 ## Schema exports
 

@@ -48,7 +48,11 @@ loading the development tools. Existing processes continue using their original
 build. Successful build generations are retained; pruning is not implemented.
 
 The server listens on loopback and serves `/view/`, `/api/`, and `/sync/`.
-Data is persisted to `<data-dir>/store.json` using Tandem's `JsonFileRemote`.
+It owns one `TandemServer` backed by `TandemServerJsonFileStorage`, which
+persists data to `<data-dir>/tandem.json`. The tuple file is an SDK-owned
+implementation detail and extension code must not read or write it directly.
+Rebuilding an extension from the earlier runtime starts a fresh `tandem.json`;
+any legacy `store.json` remains untouched and recoverable.
 Halo discovers built apps in `<workspace>/.halo/extensions/<id>/` when opening
 the workspace. It starts each app with the bundled Node runtime and stores data
 in `<workspace>/.halo/extension-data/<id>/`. `extensions.list()` exposes their
