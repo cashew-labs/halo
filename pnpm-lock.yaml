@@ -687,8 +687,8 @@ importers:
         specifier: workspace:*
         version: link:../client
       '@get-halo/extension-tools':
-        specifier: 0.1.0
-        version: 0.1.0
+        specifier: 0.2.0
+        version: 0.2.0
       '@get-halo/shared':
         specifier: workspace:*
         version: link:../shared
@@ -1583,8 +1583,8 @@ packages:
   '@gar/promisify@1.1.3':
     resolution: {integrity: sha512-k2Ty1JcVojjJFwrg/ThKi2ujJ7XNLYaFGNB/bWT9wGR+oSMJHMa5w+CUq6p/pVrKeNNgA7pCqEcjSnHVoqJQFw==}
 
-  '@get-halo/extension-tools@0.1.0':
-    resolution: {integrity: sha512-7lajjaJ+UH1/nhXzNY7SBD5FcVomcTlh5JYfY60iLwBre+L8/BV0hfEFb5yBeDMi1MSvDmYnIknREY6uhNUVLA==}
+  '@get-halo/extension-tools@0.2.0':
+    resolution: {integrity: sha512-6XDu0Qi/uFaYzKvOapA0HGW6VQAl8k2iA4QjqKMri/M6Blny18EfadK7dEGbi5waAyWy+5gCkZSIiLSaZD6CHQ==}
     hasBin: true
 
   '@google/genai@1.52.0':
@@ -9576,7 +9576,7 @@ snapshots:
 
   '@gar/promisify@1.1.3': {}
 
-  '@get-halo/extension-tools@0.1.0':
+  '@get-halo/extension-tools@0.2.0':
     dependencies:
       errore: 0.14.1
       esbuild: 0.28.2
