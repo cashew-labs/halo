@@ -1089,6 +1089,9 @@ e2eTest(
     const editor = app.page.getByRole("main", { name: "Links.md" });
     const docs = editor.getByRole("link", { name: "project docs" });
     await docs.click();
+    await expect(editor.locator(".markdown-source")).toHaveText(
+      `[project docs](${url})`,
+    );
     expect(await opened.evaluate((urls) => urls)).toEqual([]);
     await docs.click({ modifiers: ["Meta"] });
     await expect
