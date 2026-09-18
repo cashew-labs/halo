@@ -1,4 +1,4 @@
 interface:
-  display_name: "Code Walkthrough"
-  short_description: "Explain implemented changes with call stack diffs and prose"
-  default_prompt: "Use $code-walkthrough to explain the changes already made using annotated call stack diffs and prose, with linked source patches in the shared diff panel."
+  display_name: "Code Walkthrough Comparison"
+  short_description: "Compare upstream Diffmap with the custom review"
+  default_prompt: "Use $code-walkthrough to review these changes and return both the upstream and custom local URLs."

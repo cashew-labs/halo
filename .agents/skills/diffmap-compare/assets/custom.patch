@@ -1,0 +1,2382 @@
+diff --git a/README.md b/README.md
+index 4c1f687..1e2c9af 100644
+--- a/README.md
++++ b/README.md
+@@ -21,7 +21,7 @@ Options:
+ - `--port <n>` — listen port (default `4177`)
+ - `--root <dir>` — workspace root for file excerpts (default the directory you ran the command from)
+ 
+-**Done** in the top right stops the server.
++Stop the local server from the terminal when finished.
+ 
+ The server also stops after 24 hours without a page or source request.
+ Loading or refreshing the page resets the timer; background health checks and
+@@ -159,8 +159,8 @@ Unknown IDs, duplicate definitions, malformed references, mismatched paths, and
+ ranges outside the included hunks produce a parse error. Source patches are
+ embedded snapshots; the viewer does not regenerate them from the working tree.
+ 
+-Cmd-click (or Ctrl-click) a Python, TypeScript or JavaScript symbol in the source panel
+-to open its definition. Use Back to retrace navigation and return to the reference.
++Click a Python, TypeScript or JavaScript symbol in the source panel
++to open its definition alongside available descriptions and types. Use the open-page tabs to switch between references.
+ Resolution uses the workspace's TypeScript configuration and current files.
+ Deleted files and lines that no longer match the workspace show a message;
+ their call stack references still highlight the embedded old-side diff.
+@@ -200,7 +200,7 @@ Enter or Space. Directives are Mermaid comments, so they remain hidden and do
+ not change the diagram when rendered by other Mermaid tools. Missing diagram
+ targets display an error. See [the runnable example](fixtures/references.md).
+ 
+-## Explore explanations before code
++## Explore explanations alongside code
+ 
+ Diagram nodes, arrows, and call-stack rows can link to `[[explain:detail-id]]`.
+ Define each detail in an `explain:detail-id` JSON fence with a `title`, `summary`,
+@@ -208,15 +208,33 @@ and optional `steps`, `inputs`, `outputs`, `why`, `example`, `caveat`, `diagram`
+ `sources`, and `related` fields. Sources use the usual reference syntax without
+ brackets; related entries are other detail IDs. The first detail opens by default.
+ 
+-The right panel offers Explanation, Diagram, and Code tabs. Detail diagrams can
+-link to further details, Back returns to the previous selection, and diagram zoom
++Browser-style tabs on the left replace the main walkthrough with the selected detail. The right pane shows its code. Detail diagrams can
++link to further details, tabs keep previous selections available, and diagram zoom
+ controls keep dense views readable. Try the runnable example with `node bin.js fixtures/exploration.md --root .`
+ from this checkout. See [the explanation format](skills/code-walkthrough/references/explanations.md)
+ and [the walkthrough skill](skills/code-walkthrough/SKILL.md) for authoring guidance.
+ 
+ Python navigation uses the bundled Pyright language server. It follows resolvable
+ imports and methods within the selected workspace without executing project code.
+-Click a token to reveal an explicit Open definition action, or use Cmd/Ctrl-click.
++Click a Python token to open its definition, or use Cmd/Ctrl-click.
+ Dynamic calls and missing dependencies can remain unresolved. Existing TS/JS
+ navigation continues to use TypeScript. Stale diff lines cannot be resolved against
+ current workspace code.
++
++### Text-first reviews
++
++Use ordinary Markdown links such as `[TraceService](explain:trace-service)` to open a detail in a new active left-side tab. These links are validated alongside diagram and callstack references. Keep the main page to a short ordered reading path; put component definitions and implementation detail in `explain:` blocks.
++
++An explanation can include `file` (an exact workspace-relative path) and `changes` (what this diff changes in that file). The left tab shows the full explanation. The code pane has an About this file card with the exact path, file purpose and change summary directly above the patch. This card follows the displayed file, including when an overview links to several files. Select files from the list beneath the walkthrough. Explain each file represented in the patch, including tests and configuration. Describe tests by the actions and outcomes they verify, and distinguish simulated checks from live results.
++
++Diagrams are optional detail views. Keep their nodes aligned with the surrounding prose and link each unfamiliar component to its explanation. Avoid repeating the same explanation across an overview, goals, diagrams and call stacks.
++
++Detail explanations can mix prose with `callstack` (a source-annotated execution sketch), `flowCaption`, `codeExample`, `codeLanguage`, `codeCaption`, and `diagramCaption`. Diagrams render inline in Details alongside the explanation. Callstack links use the same validated explanation/source references as the main document. Label pseudocode as illustrative and state when an example record omits fields; prefer actual saved test records when demonstrating the stored format.
++
++The left pane keeps opened explanations, files and symbols in browser-style tabs. The first tab is the walkthrough overview and stays available. Opening an existing destination selects its tab. Each tab restores description and code scroll positions; close tabs with × or Delete. Arrow keys, Home and End move between tabs. Tabs last for the current page visit.
++
++### Symbol details
++
++Click a TypeScript or JavaScript symbol in a diff or definition to inspect its purpose, compiler-resolved signature, parameters, return type and members. The definition stays visible on the right, with its description on the left. Type names and members in the inspector are also selectable and use the same open-page tabs.
++
++Attach authored descriptions using an explanation’s `symbols` array, with entries such as `apps/server/TraceService.ts#TraceService` or `apps/server/RunTrace.ts#RunTrace.record`. Add `:method` or another compiler symbol kind when a static method and an instance property share the same name. The explanation’s summary, inputs, outputs and steps describe the symbol; TypeScript supplies its current contract. Without an authored explanation, the inspector uses JSDoc when available and explicitly indicates when prose is missing.
+diff --git a/src/definitions.ts b/src/definitions.ts
+index 82dd61a..e3fd315 100644
+--- a/src/definitions.ts
++++ b/src/definitions.ts
+@@ -5,7 +5,25 @@ import ts from "typescript6";
+ import * as errore from "errore";
+ import { TkstackDefinitionError } from "./errors.js";
+ 
++export type SymbolLocation = {
++  path: string;
++  line: number;
++  column: number;
++  text: string;
++};
++export type SymbolInfo = {
++  name: string;
++  kind: string;
++  signature: string;
++  documentation: string;
++  parameters: { name: string; type: string }[];
++  returnType?: string;
++  members: { name: string; type: string; location?: SymbolLocation }[];
++  typeLinks: { name: string; location: SymbolLocation }[];
++};
++
+ export type SourceDefinition = {
++  symbol?: SymbolInfo;
+   path: string;
+   contents: string;
+   start: number;
+@@ -86,6 +104,12 @@ export async function findDefinition(
+   }
+   const target = service.getProgram()!.getSourceFile(definition.fileName)!;
+   const result: SourceDefinition = {
++    symbol: describeSymbol(
++      service,
++      target,
++      definition.textSpan.start,
++      workspaceRoot,
++    ),
+     path: path.relative(workspaceRoot, definition.fileName),
+     contents: target.text,
+     start:
+@@ -98,6 +122,142 @@ export async function findDefinition(
+   return result;
+ }
+ 
++function describeSymbol(
++  service: ts.LanguageService,
++  source: ts.SourceFile,
++  position: number,
++  workspaceRoot: string,
++): SymbolInfo | undefined {
++  const checker = service.getProgram()!.getTypeChecker();
++  const quick = service.getQuickInfoAtPosition(source.fileName, position);
++  if (quick === undefined) return undefined;
++  let token: ts.Node = source;
++  const visit = (node: ts.Node) => {
++    if (node.getStart(source) <= position && position < node.end) {
++      token = node;
++      ts.forEachChild(node, visit);
++    }
++  };
++  visit(source);
++  let symbol = checker.getSymbolAtLocation(token);
++  if (symbol === undefined) return undefined;
++  if (symbol.flags & ts.SymbolFlags.Alias)
++    symbol = checker.getAliasedSymbol(symbol);
++  const declaration =
++    symbol.valueDeclaration === undefined
++      ? symbol.declarations?.[0]
++      : symbol.valueDeclaration;
++  if (declaration === undefined) return undefined;
++  const type = checker.getTypeOfSymbolAtLocation(symbol, declaration);
++  const isClass = ts.isClassDeclaration(declaration);
++  const constructor = isClass
++    ? declaration.members.find(ts.isConstructorDeclaration)
++    : undefined;
++  const signature =
++    constructor === undefined
++      ? type.getCallSignatures()[0]
++      : checker.getSignatureFromDeclaration(constructor);
++  const parent = declaration.parent;
++  const owner =
++    ts.isClassDeclaration(parent) || ts.isInterfaceDeclaration(parent)
++      ? parent.name?.text
++      : undefined;
++  const name = owner === undefined ? symbol.name : `${owner}.${symbol.name}`;
++  const flags =
++    ts.TypeFormatFlags.NoTruncation |
++    ts.TypeFormatFlags.MultilineObjectLiterals;
++  const format = (value: ts.Type) =>
++    checker.typeToString(value, declaration, flags);
++  const parameters =
++    signature === undefined
++      ? []
++      : signature.getParameters().map((parameter) => ({
++          name: parameter.name,
++          type: format(
++            checker.getTypeOfSymbolAtLocation(parameter, declaration),
++          ),
++        }));
++  const structural =
++    isClass ||
++    ts.isInterfaceDeclaration(declaration) ||
++    ts.isTypeAliasDeclaration(declaration);
++  const declared = structural
++    ? checker.getDeclaredTypeOfSymbol(symbol)
++    : undefined;
++  const sourceLocation = (node: ts.Declaration): SymbolLocation | undefined => {
++    const named = node as ts.NamedDeclaration;
++    if (named.name === undefined) return undefined;
++    const targetFile = node.getSourceFile();
++    const relative = path.relative(workspaceRoot, targetFile.fileName);
++    if (relative.startsWith("..") || path.isAbsolute(relative))
++      return undefined;
++    const start = targetFile.getLineAndCharacterOfPosition(
++      named.name.getStart(targetFile),
++    );
++    return {
++      path: relative,
++      line: start.line + 1,
++      column: start.character,
++      text: targetFile.text.split(/\r?\n/)[start.line]!,
++    };
++  };
++  const signatureText = ts.displayPartsToString(quick.displayParts);
++  const returnType = isClass
++    ? symbol.name
++    : signature === undefined
++      ? undefined
++      : format(signature.getReturnType());
++  const members =
++    declared === undefined
++      ? []
++      : declared.getProperties().map((member) => {
++          const node =
++            member.valueDeclaration === undefined
++              ? member.declarations?.[0]
++              : member.valueDeclaration;
++          return {
++            name: member.name,
++            type: format(
++              checker.getTypeOfSymbolAtLocation(member, declaration),
++            ),
++            location: node === undefined ? undefined : sourceLocation(node),
++          };
++        });
++  const typeText = [
++    signatureText,
++    ...parameters.map((parameter) => parameter.type),
++    returnType === undefined ? "" : returnType,
++    ...members.map((member) => member.type),
++  ].join(" ");
++  const typeNames = new Set(typeText.match(/[A-Za-z_$][\w$]*/g));
++  const typeLinks: SymbolInfo["typeLinks"] = [];
++  for (const typeName of typeNames) {
++    let resolved = checker.resolveName(
++      typeName,
++      declaration,
++      ts.SymbolFlags.Type | ts.SymbolFlags.Alias,
++      false,
++    );
++    if (resolved === undefined) continue;
++    if (resolved.flags & ts.SymbolFlags.Alias)
++      resolved = checker.getAliasedSymbol(resolved);
++    const node = resolved.declarations?.[0];
++    if (node === undefined) continue;
++    const location = sourceLocation(node);
++    if (location !== undefined) typeLinks.push({ name: typeName, location });
++  }
++  return {
++    name,
++    kind: quick.kind,
++    signature: signatureText,
++    documentation: ts.displayPartsToString(quick.documentation),
++    parameters,
++    returnType,
++    members,
++    typeLinks,
++  };
++}
++
+ function createLanguageService(workspaceRoot: string, fileName: string) {
+   const configPath = ts.findConfigFile(
+     path.dirname(fileName),
+diff --git a/src/explanations.ts b/src/explanations.ts
+index 94c76f1..f9fea64 100644
+--- a/src/explanations.ts
++++ b/src/explanations.ts
+@@ -1,4 +1,11 @@
+-import { parseAnnotation, type SourceReference } from "./annotations.js";
++import * as errore from "errore";
++import { TkstackAnnotationError } from "./errors.js";
++import {
++  parseAnnotation,
++  parseCallStack,
++  type SourceAnnotation,
++  type SourceReference,
++} from "./annotations.js";
+ import {
+   parseDiagramAnnotations,
+   type DiagramAnnotation,
+@@ -9,64 +16,116 @@ export type Explanation = {
+   title: string;
+   summary: string;
+   why?: string;
++  file?: string;
++  changes?: string;
+   steps: string[];
+   example?: string;
+   inputs?: string;
+   outputs?: string;
+   caveat?: string;
+   diagram?: string;
++  diagramCaption?: string;
++  flow: SourceAnnotation[];
++  flowCaption?: string;
++  codeExample?: string;
++  codeLanguage?: string;
++  codeCaption?: string;
+   annotations: DiagramAnnotation[];
+   related: string[];
++  symbols: string[];
+   references: SourceReference[];
+ };
+ 
+-export function parseExplanation(id: string, source: string): Explanation {
+-  const value: unknown = JSON.parse(source);
++export function parseExplanation(
++  id: string,
++  source: string,
++): Explanation | TkstackAnnotationError {
++  const parsed = errore.try({
++    try: () => ({ value: JSON.parse(source) as unknown }),
++    catch: (cause) =>
++      new TkstackAnnotationError({
++        reason: `Invalid explanation ${id}`,
++        cause,
++      }),
++  });
++  if (parsed instanceof Error) return parsed;
++  const value = parsed.value;
+   if (typeof value !== "object" || value === null || Array.isArray(value))
+-    throw new Error(`Explanation ${id} must be an object.`);
++    return new TkstackAnnotationError({
++      reason: `Explanation ${id} must be an object.`,
++    });
+   const data = value as Record<string, unknown>;
+   for (const key of ["title", "summary"])
+     if (typeof data[key] !== "string" || !data[key].trim())
+-      throw new Error(`Explanation ${id} needs a ${key}.`);
++      return new TkstackAnnotationError({
++        reason: `Explanation ${id} needs a ${key}.`,
++      });
+   for (const key of [
+     "why",
++    "file",
++    "changes",
+     "example",
+     "inputs",
+     "outputs",
+     "caveat",
+     "diagram",
++    "diagramCaption",
++    "callstack",
++    "flowCaption",
++    "codeExample",
++    "codeLanguage",
++    "codeCaption",
+   ])
+     if (data[key] !== undefined && typeof data[key] !== "string")
+-      throw new Error(`Explanation ${id}: ${key} must be text.`);
+-  for (const key of ["steps", "related", "sources"])
++      return new TkstackAnnotationError({
++        reason: `Explanation ${id}: ${key} must be text.`,
++      });
++  for (const key of ["steps", "related", "sources", "symbols"])
+     if (
+       data[key] !== undefined &&
+       (!Array.isArray(data[key]) ||
+         !data[key].every((item: unknown) => typeof item === "string"))
+     )
+-      throw new Error(`Explanation ${id}: ${key} must be an array of strings.`);
+-  const references = ((data.sources ?? []) as string[]).flatMap((sourceRef) => {
+-    const parsed = parseAnnotation(`[[${sourceRef}]]`);
++      return new TkstackAnnotationError({
++        reason: `Explanation ${id}: ${key} must be an array of strings.`,
++      });
++  const references: SourceReference[] = [];
++  const sources = data.sources === undefined ? [] : (data.sources as string[]);
++  for (const sourceRef of sources) {
++    const annotation = parseAnnotation(`[[${sourceRef}]]`);
+     if (
+-      parsed.references.length !== 1 ||
+-      parsed.explanationId ||
+-      parsed.text.trim()
++      annotation.references.length !== 1 ||
++      annotation.explanationId !== undefined ||
++      annotation.text.trim()
+     )
+-      throw new Error(`Explanation ${id}: invalid source ${sourceRef}.`);
+-    return parsed.references;
+-  });
++      return new TkstackAnnotationError({
++        reason: `Explanation ${id}: invalid source ${sourceRef}.`,
++      });
++    references.push(...annotation.references);
++  }
+   return {
+     id,
+     title: data.title as string,
+     summary: data.summary as string,
++    file: data.file as string | undefined,
++    changes: data.changes as string | undefined,
+     why: data.why as string | undefined,
+     example: data.example as string | undefined,
+     inputs: data.inputs as string | undefined,
+     outputs: data.outputs as string | undefined,
+     caveat: data.caveat as string | undefined,
+     diagram: data.diagram as string | undefined,
++    diagramCaption: data.diagramCaption as string | undefined,
++    flow: parseCallStack(
++      data.callstack === undefined ? "" : (data.callstack as string),
++    ).filter((line) => line.text.trim().length > 0),
++    flowCaption: data.flowCaption as string | undefined,
++    codeExample: data.codeExample as string | undefined,
++    codeLanguage: data.codeLanguage as string | undefined,
++    codeCaption: data.codeCaption as string | undefined,
+     steps: (data.steps ?? []) as string[],
+     related: (data.related ?? []) as string[],
++    symbols: data.symbols === undefined ? [] : (data.symbols as string[]),
+     references,
+     annotations: parseDiagramAnnotations((data.diagram ?? "") as string),
+   };
+diff --git a/src/parseViewer.ts b/src/parseViewer.ts
+index 6881275..c776805 100644
+--- a/src/parseViewer.ts
++++ b/src/parseViewer.ts
+@@ -69,11 +69,9 @@ export function parseViewerDocument(source: string) {
+       return new TkstackAnnotationError({
+         reason: `Duplicate explanation ${fence.id}`,
+       });
+-    try {
+-      explanations[fence.id] = parseExplanation(fence.id, fence.source);
+-    } catch (cause) {
+-      return new TkstackAnnotationError({ reason: String(cause) });
+-    }
++    const explanation = parseExplanation(fence.id, fence.source);
++    if (explanation instanceof Error) return explanation;
++    explanations[fence.id] = explanation;
+   }
+   const diagrams = [
+     ...fences.filter((fence) => fence.kind === "mermaid"),
+@@ -122,12 +120,14 @@ export function parseViewerDocument(source: string) {
+       return fence.annotations.map((link) => link.annotation);
+     return [];
+   });
++  annotations.push(...collectExplanationLinks(nodes));
+   for (const explanation of Object.values(explanations)) {
+     annotations.push({
+       text: explanation.title,
+       references: explanation.references,
+     });
+     annotations.push(...explanation.annotations.map((link) => link.annotation));
++    annotations.push(...explanation.flow);
+     for (const id of explanation.related)
+       if (!explanations[id])
+         return new TkstackAnnotationError({
+@@ -216,6 +216,25 @@ export function parseViewerDocument(source: string) {
+   };
+ }
+ 
++function collectExplanationLinks(
++  nodes: ViewerNode[],
++): import("./annotations.js").SourceAnnotation[] {
++  return nodes.flatMap((node) => {
++    if (node.type !== "element") return [];
++    const children = collectExplanationLinks(node.children);
++    if (node.tag !== "a" || !node.attrs.href?.startsWith("explain:"))
++      return children;
++    return [
++      {
++        text: node.attrs.href,
++        explanationId: node.attrs.href.slice(8),
++        references: [],
++      },
++      ...children,
++    ];
++  });
++}
++
+ function collectFences(nodes: ViewerNode[]): Fence[] {
+   return nodes.flatMap((node) => {
+     if (node.type === "view") return [node.fence];
+diff --git a/src/viewer/Check.tsx b/src/viewer/Check.tsx
+deleted file mode 100644
+index 747a7f8..0000000
+--- a/src/viewer/Check.tsx
++++ /dev/null
+@@ -1,24 +0,0 @@
+-import type { SVGProps } from "react";
+-
+-export function Check(props: SVGProps<SVGSVGElement>) {
+-  return (
+-    <svg
+-      focusable="false"
+-      aria-hidden="true"
+-      role="img"
+-      width={24}
+-      height={24}
+-      fill="none"
+-      viewBox="0 0 24 24"
+-      {...props}
+-    >
+-      <path
+-        stroke="currentColor"
+-        strokeLinecap="round"
+-        strokeLinejoin="round"
+-        strokeWidth={1.5}
+-        d="M5.75 12.5L10 16.75L18.25 7.25"
+-      />
+-    </svg>
+-  );
+-}
+diff --git a/src/viewer/ComarkView.tsx b/src/viewer/ComarkView.tsx
+index 2d3441c..dd0e260 100644
+--- a/src/viewer/ComarkView.tsx
++++ b/src/viewer/ComarkView.tsx
+@@ -2,6 +2,7 @@ import { createElement, type ReactNode, useState } from "react";
+ import {
+   Checkbox,
+   colors,
++  focusRing,
+   monospace,
+   radius,
+   spacing,
+@@ -79,6 +80,17 @@ function renderElement(
+       </TaskListItem>
+     );
+   }
++  if (node.tag === "a" && node.attrs.href?.startsWith("explain:")) {
++    return (
++      <ExplanationLink
++        key={key}
++        id={node.attrs.href.slice(8)}
++        navigation={navigation}
++      >
++        {children}
++      </ExplanationLink>
++    );
++  }
+   if (node.tag === "code") {
+     return <InlineChip key={key}>{children}</InlineChip>;
+   }
+@@ -197,3 +209,45 @@ const inlineCodeClass = style(
+     backgroundColor: colors.gray[4],
+   },
+ );
++
++function ExplanationLink(props: {
++  id: string;
++  navigation: SourceNavigation;
++  children: ReactNode;
++}) {
++  const className = useStyles(explanationLink);
++  return (
++    <button
++      type="button"
++      className={className}
++      aria-controls="exploration-panel"
++      aria-pressed={
++        props.navigation.selectedAnnotation?.explanationId === props.id
++      }
++      onClick={() =>
++        props.navigation.onSelectAnnotation({
++          text: "",
++          explanationId: props.id,
++          references: [],
++        })
++      }
++    >
++      {props.children}
++      <span aria-hidden="true"> ↗</span>
++    </button>
++  );
++}
++const explanationLink = style(focusRing(), {
++  display: "inline",
++  font: "inherit",
++  textAlign: "left",
++  color: colors.accent[11],
++  background: "transparent",
++  border: 0,
++  padding: "2px 0",
++  cursor: "pointer",
++  textDecoration: "underline",
++  textUnderlineOffset: "3px",
++  borderRadius: "3px",
++  "&:hover, &[aria-pressed='true']": { backgroundColor: colors.accent[3] },
++});
+diff --git a/src/viewer/DoneButton.tsx b/src/viewer/DoneButton.tsx
+deleted file mode 100644
+index 4b2419b..0000000
+--- a/src/viewer/DoneButton.tsx
++++ /dev/null
+@@ -1,32 +0,0 @@
+-import { Button, background, colors, iconSizeValues, text } from "maui";
+-import { style, useStyles } from "purse-styles";
+-import { Check } from "./Check.tsx";
+-
+-const checkIcon = style({
+-  width: iconSizeValues.sm,
+-  height: iconSizeValues.sm,
+-});
+-
+-export function DoneButton(props: { onClick?: () => void }) {
+-  const checkClass = useStyles(checkIcon);
+-  const primaryClass = useStyles(primaryButtonClass);
+-  return (
+-    <Button className={primaryClass} onClick={props.onClick}>
+-      <Check className={checkClass} />
+-      Done
+-    </Button>
+-  );
+-}
+-
+-const primaryButtonClass = style(
+-  background.accent,
+-  text({ size: "xs", fontWeight: 400, color: "onAccent" }),
+-  {
+-    "&:hover": {
+-      backgroundColor: colors.accent[10],
+-    },
+-    "&:active": {
+-      backgroundColor: colors.accent[11],
+-    },
+-  },
+-);
+diff --git a/src/viewer/ExplorationPanel.tsx b/src/viewer/ExplorationPanel.tsx
+index 4c524db..8c3c5f0 100644
+--- a/src/viewer/ExplorationPanel.tsx
++++ b/src/viewer/ExplorationPanel.tsx
+@@ -1,53 +1,44 @@
+-import { useId, useState } from "react";
+-import type { CodeViewDiffItem } from "@pierre/diffs";
++import { useLayoutEffect, useRef } from "react";
+ import type { Explanation } from "../explanations.js";
+ import type { SourceAnnotation } from "../annotations.js";
++import { SymbolDetails } from "./SymbolDetails.js";
++import { CallStackDiff } from "./CallStackDiff.js";
+ import { MermaidBlock } from "./MermaidBlock.js";
+-import { SourceDiffPanel, type SourceSelection } from "./SourceDiffPanel.js";
+-import { backgroundColor, colors } from "maui";
+-import { style, useStyles } from "purse-styles";
++import { type SourceSelection } from "./SourceDiffPanel.js";
++import { CodeBlock } from "maui";
+ import "./exploration.css";
+ 
+ export function ExplorationPanel(props: {
+   explanations: Record<string, Explanation>;
+-  items: CodeViewDiffItem[];
+   selection: SourceSelection | undefined;
+-  history: SourceSelection[];
++  locationId: number;
++  hidden: boolean;
+   onSelect: (annotation: SourceAnnotation) => void;
+   onSource: (selection: SourceSelection) => void;
+-  onBack: () => void;
+ }) {
+-  const panelId = useId();
+-  const theme = useStyles(panelTheme);
++  const definition = props.selection?.definition;
++  const symbol = definition?.symbol;
++  const symbolExplanation =
++    symbol === undefined || definition === undefined
++      ? undefined
++      : Object.values(props.explanations).find(
++          (item) =>
++            item.symbols.includes(`${definition.path}#${symbol.name}`) ||
++            item.symbols.includes(
++              `${definition.path}#${symbol.name}:${symbol.kind}`,
++            ),
++        );
+   const explanation = props.selection?.annotation.explanationId
+     ? props.explanations[props.selection.annotation.explanationId]
+-    : undefined;
+-  const [view, setView] = useState<{
+-    annotation: SourceAnnotation | undefined;
+-    tab: "explain" | "diagram" | "code";
+-  }>({
+-    annotation: props.selection?.annotation,
+-    tab: explanation ? "explain" : "code",
+-  });
+-  if (view.annotation !== props.selection?.annotation)
+-    setView({
+-      annotation: props.selection?.annotation,
+-      tab: explanation ? "explain" : "code",
+-    });
+-  const tab =
+-    view.annotation === props.selection?.annotation
+-      ? view.tab
+-      : explanation
+-        ? "explain"
+-        : "code";
+-  const open = (id: string) => {
+-    const item = props.explanations[id]!;
+-    props.onSelect({
+-      text: item.title,
+-      explanationId: id,
+-      references: item.references,
+-    });
+-  };
++    : symbolExplanation;
++  const content = useRef<HTMLDivElement>(null);
++  const scrollPositions = useRef(new Map<string, number>());
++  const scrollKey = String(props.locationId);
++  useLayoutEffect(() => {
++    const saved = scrollPositions.current.get(scrollKey);
++    if (content.current !== null)
++      content.current.scrollTop = saved === undefined ? 0 : saved;
++  }, [scrollKey]);
+   const diagram = explanation?.diagram ? (
+     <MermaidBlock
+       source={explanation.diagram}
+@@ -59,188 +50,150 @@ export function ExplorationPanel(props: {
+   return (
+     <section
+       id="exploration-panel"
+-      className={`exploration-panel ${theme}`}
+-      aria-label="Explanation, diagrams and code"
++      className="exploration-panel"
++      hidden={props.hidden}
++      aria-label="Active review page"
+     >
+-      <header className="exploration-header">
+-        <div className="exploration-breadcrumb">
+-          <span>EXPLORE THE PROJECT</span>
+-          {props.history.length > 0 && (
+-            <button onClick={props.onBack}>← Back</button>
+-          )}
+-        </div>
+-        <h2>
+-          {explanation?.title ??
+-            props.selection?.annotation.text ??
+-            "Choose a step to explore"}
+-        </h2>
+-        <div
+-          className="exploration-tabs"
+-          role="tablist"
+-          aria-label="Detail view"
+-          onKeyDown={(event) => {
+-            if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key))
+-              return;
+-            const tabs = [
+-              ...event.currentTarget.querySelectorAll<HTMLButtonElement>(
+-                "button:not(:disabled)",
+-              ),
+-            ];
+-            const current = tabs.indexOf(
+-              document.activeElement as HTMLButtonElement,
+-            );
+-            const next =
+-              event.key === "Home"
+-                ? 0
+-                : event.key === "End"
+-                  ? tabs.length - 1
+-                  : (current +
+-                      (event.key === "ArrowRight" ? 1 : -1) +
+-                      tabs.length) %
+-                    tabs.length;
+-            event.preventDefault();
+-            tabs[next]?.focus();
+-            tabs[next]?.click();
+-          }}
+-        >
+-          {(["explain", "diagram", "code"] as const).map((name) => (
+-            <button
+-              key={name}
+-              role="tab"
+-              id={`${panelId}-${name}`}
+-              aria-controls={`${panelId}-content`}
+-              tabIndex={tab === name ? 0 : -1}
+-              aria-selected={tab === name}
+-              disabled={
+-                name === "diagram"
+-                  ? !diagram
+-                  : name === "explain"
+-                    ? !explanation
+-                    : !props.selection?.reference && props.items.length === 0
+-              }
+-              onClick={() =>
+-                setView({ annotation: props.selection?.annotation, tab: name })
+-              }
+-            >
+-              {name === "explain"
+-                ? "Explanation"
+-                : name === "diagram"
+-                  ? "Diagram"
+-                  : "Code"}
+-            </button>
+-          ))}
+-        </div>
+-      </header>
+       <div
+-        className="exploration-tabpanel"
+-        id={`${panelId}-content`}
++        id="review-page"
++        className="review-page"
+         role="tabpanel"
+-        aria-labelledby={`${panelId}-${tab}`}
++        aria-labelledby={
++          props.locationId === undefined
++            ? undefined
++            : `review-tab-${props.locationId}`
++        }
+       >
+-        {tab === "code" ? (
+-          <SourceDiffPanel
+-            items={props.items}
+-            selection={props.selection}
+-            onSelect={props.onSource}
+-          />
+-        ) : (
+-          <div className="exploration-content" key={explanation?.id + tab}>
+-            {explanation &&
+-              (tab === "diagram" ? (
+-                <>
+-                  <p>{explanation.summary}</p>
+-                  {diagram}
+-                  <p className="exploration-hint">
+-                    Click a linked step or arrow to go deeper. Use Back to
+-                    return.
+-                  </p>
+-                </>
+-              ) : (
+-                <>
+-                  <p className="exploration-summary">{explanation.summary}</p>
+-                  {explanation.why && (
+-                    <>
+-                      <h3>Why this happens</h3>
+-                      <p>{explanation.why}</p>
+-                    </>
+-                  )}
+-                  {(explanation.inputs || explanation.outputs) && (
+-                    <div className="exploration-io">
+-                      {explanation.inputs && (
+-                        <div>
+-                          <h3>What goes in</h3>
+-                          <p>{explanation.inputs}</p>
+-                        </div>
+-                      )}
+-                      {explanation.outputs && (
+-                        <div>
+-                          <h3>What comes back</h3>
+-                          <p>{explanation.outputs}</p>
+-                        </div>
+-                      )}
+-                    </div>
+-                  )}
+-                  {explanation.steps.length > 0 && (
+-                    <>
+-                      <h3>What happens</h3>
+-                      <ol>
+-                        {explanation.steps.map((step, i) => (
+-                          <li key={i}>{step}</li>
+-                        ))}
+-                      </ol>
+-                    </>
+-                  )}
+-                  {explanation.example && (
+-                    <div className="exploration-example">
+-                      <h3>A concrete example</h3>
+-                      <p>{explanation.example}</p>
+-                    </div>
+-                  )}
+-                  {diagram && (
+-                    <>
+-                      <h3>Look inside</h3>
+-                      {diagram}
+-                    </>
+-                  )}
+-                  {explanation.caveat && (
+-                    <>
+-                      <h3>A detail that matters</h3>
+-                      <p>{explanation.caveat}</p>
+-                    </>
+-                  )}
+-                </>
+-              ))}
+-            {explanation && explanation.related.length > 0 && (
+-              <nav
+-                className="exploration-related"
+-                aria-label="Explore related steps"
+-              >
+-                <h3>Keep exploring</h3>
+-                {explanation.related.map((id) => (
+-                  <button key={id} onClick={() => open(id)}>
+-                    {props.explanations[id]!.title} →
+-                  </button>
+-                ))}
+-              </nav>
++        <header className="exploration-header">
++          <h2>
++            {explanation?.title ??
++              props.selection?.annotation.text ??
++              "Choose a step to explore"}
++          </h2>
++        </header>
++        <div className="exploration-body">
++          <div
++            className="exploration-content"
++            key={scrollKey}
++            ref={content}
++            onScroll={(event) =>
++              scrollPositions.current.set(
++                scrollKey,
++                event.currentTarget.scrollTop,
++              )
++            }
++          >
++            {definition !== undefined && symbol !== undefined && (
++              <SymbolDetails
++                key={props.locationId}
++                onSource={props.onSource}
++                definition={definition}
++                explanation={symbolExplanation}
++              />
++            )}
++            {explanation && symbol === undefined && (
++              <>
++                <p className="exploration-summary">{explanation.summary}</p>
++                {explanation.changes && (
++                  <>
++                    <h3>What changed</h3>
++                    <p>{explanation.changes}</p>
++                  </>
++                )}
++                {diagram && (
++                  <figure className="exploration-visual">
++                    {diagram}
++                    {explanation.diagramCaption && (
++                      <figcaption>{explanation.diagramCaption}</figcaption>
++                    )}
++                  </figure>
++                )}
++                {explanation.flow.length > 0 && (
++                  <figure className="exploration-visual">
++                    <h3>Execution sketch</h3>
++                    <CallStackDiff
++                      lines={explanation.flow}
++                      selectedAnnotation={props.selection?.annotation}
++                      onSelectAnnotation={props.onSelect}
++                    />
++                    <figcaption>
++                      {explanation.flowCaption === undefined
++                        ? "Source-checked sketch. Select a linked row for the component’s explanation."
++                        : explanation.flowCaption}
++                    </figcaption>
++                  </figure>
++                )}
++                {explanation.why && (
++                  <>
++                    <h3>Why it exists</h3>
++                    <p>{explanation.why}</p>
++                  </>
++                )}
++                {(explanation.inputs || explanation.outputs) && (
++                  <div className="exploration-io">
++                    {explanation.inputs && (
++                      <div>
++                        <h3>What goes in</h3>
++                        <p>{explanation.inputs}</p>
++                      </div>
++                    )}
++                    {explanation.outputs && (
++                      <div>
++                        <h3>What comes back</h3>
++                        <p>{explanation.outputs}</p>
++                      </div>
++                    )}
++                  </div>
++                )}
++                {explanation.steps.length > 0 && (
++                  <>
++                    <h3>How it works</h3>
++                    <ol>
++                      {explanation.steps.map((step, i) => (
++                        <li key={i}>{step}</li>
++                      ))}
++                    </ol>
++                  </>
++                )}
++                {explanation.example && (
++                  <div className="exploration-example">
++                    <h3>A concrete example</h3>
++                    <p>{explanation.example}</p>
++                  </div>
++                )}
++                {explanation.codeExample && (
++                  <figure className="exploration-visual exploration-code-example">
++                    <h3>Worked example</h3>
++                    {explanation.codeCaption && (
++                      <figcaption>{explanation.codeCaption}</figcaption>
++                    )}
++                    <CodeBlock
++                      lang={
++                        explanation.codeLanguage === undefined
++                          ? "text"
++                          : explanation.codeLanguage
++                      }
++                    >
++                      {explanation.codeExample}
++                    </CodeBlock>
++                  </figure>
++                )}
++                {explanation.caveat && (
++                  <>
++                    <h3>A detail that matters</h3>
++                    <p>{explanation.caveat}</p>
++                  </>
++                )}
++              </>
+             )}
+-            {!explanation && (
++            {!explanation && symbol === undefined && (
+               <p>
+                 Click a linked step or arrow in the walkthrough to explore it.
+               </p>
+             )}
+           </div>
+-        )}
++        </div>
+       </div>
+     </section>
+   );
+ }
+-
+-const panelTheme = style({
+-  "--explore-background": backgroundColor.app,
+-  "--explore-text": colors.gray[12],
+-  "--explore-muted": colors.gray[11],
+-  "--explore-border": colors.gray[6],
+-  "--explore-accent": colors.accent[11],
+-  "--explore-surface": backgroundColor.element,
+-  "--explore-focus": colors.accent[8],
+-});
+diff --git a/src/viewer/MermaidBlock.tsx b/src/viewer/MermaidBlock.tsx
+index 884c06f..046d03a 100644
+--- a/src/viewer/MermaidBlock.tsx
++++ b/src/viewer/MermaidBlock.tsx
+@@ -99,7 +99,7 @@ export function MermaidBlock(
+       <div className="diagram-toolbar" aria-label="Diagram zoom">
+         <span>
+           {props.annotations.length
+-            ? "Click a box or arrow to explore"
++            ? "Select a linked item to explore"
+             : "Diagram"}
+         </span>
+         <button
+diff --git a/src/viewer/ReviewTabs.tsx b/src/viewer/ReviewTabs.tsx
+new file mode 100644
+index 0000000..752cff7
+--- /dev/null
++++ b/src/viewer/ReviewTabs.tsx
+@@ -0,0 +1,86 @@
++import { useLayoutEffect, useRef } from "react";
++
++export function ReviewTabs(props: {
++  tabs: { id: number; label: string }[];
++  activeId: number;
++  onActivate: (id: number) => void;
++  onClose: (id: number) => void;
++}) {
++  const tabStrip = useRef<HTMLDivElement>(null);
++  const restoreTabFocus = useRef(false);
++  useLayoutEffect(() => {
++    const active = tabStrip.current?.querySelector<HTMLButtonElement>(
++      '[aria-selected="true"]',
++    );
++    active?.scrollIntoView({ block: "nearest", inline: "nearest" });
++    if (restoreTabFocus.current) {
++      active?.focus();
++      restoreTabFocus.current = false;
++    }
++    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Selection and closure changes reveal and focus the active tab after React updates the strip.
++  }, [props.activeId, props.tabs.length]);
++  return (
++    <div
++      className="review-tabstrip"
++      ref={tabStrip}
++      role="tablist"
++      aria-label="Open review pages"
++    >
++      {props.tabs.map((tab, index) => (
++        <div
++          className="review-tab"
++          key={tab.id}
++          data-active={tab.id === props.activeId}
++        >
++          <button
++            role="tab"
++            id={`review-tab-${tab.id}`}
++            aria-selected={tab.id === props.activeId}
++            aria-controls={tab.id === 0 ? "review-home" : "review-page"}
++            tabIndex={tab.id === props.activeId ? 0 : -1}
++            title={tab.label}
++            onClick={() => props.onActivate(tab.id)}
++            onKeyDown={(event) => {
++              if (event.key === "Delete" && tab.id !== 0) {
++                event.preventDefault();
++                restoreTabFocus.current = true;
++                props.onClose(tab.id);
++                return;
++              }
++              if (
++                !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)
++              )
++                return;
++              event.preventDefault();
++              const target =
++                event.key === "Home"
++                  ? 0
++                  : event.key === "End"
++                    ? props.tabs.length - 1
++                    : (index +
++                        (event.key === "ArrowRight" ? 1 : -1) +
++                        props.tabs.length) %
++                      props.tabs.length;
++              restoreTabFocus.current = true;
++              props.onActivate(props.tabs[target]!.id);
++            }}
++          >
++            {tab.label}
++          </button>
++          {tab.id !== 0 && (
++            <button
++              className="review-tab-close"
++              aria-label={`Close ${tab.label}`}
++              onClick={() => {
++                restoreTabFocus.current = true;
++                props.onClose(tab.id);
++              }}
++            >
++              ×
++            </button>
++          )}
++        </div>
++      ))}
++    </div>
++  );
++}
+diff --git a/src/viewer/SourceDiffPanel.tsx b/src/viewer/SourceDiffPanel.tsx
+index e6942df..1e0e2bd 100644
+--- a/src/viewer/SourceDiffPanel.tsx
++++ b/src/viewer/SourceDiffPanel.tsx
+@@ -1,3 +1,4 @@
++import type { Explanation } from "../explanations.js";
+ import { useEffect, useMemo, useRef, useState } from "react";
+ import { CodeView, type CodeViewHandle } from "@pierre/diffs/react";
+ import type {
+@@ -31,41 +32,34 @@ import { pierreDiffOptions, sourceSelectionCss } from "./pierre.js";
+ export type SourceSelection = {
+   annotation: SourceAnnotation;
+   reference: SourceReference | undefined;
+-};
+-
+-type DefinitionNavigation = {
+-  selection: SourceSelection | undefined;
+-  history: SourceDefinition[];
+-  status: string | undefined;
++  definition?: SourceDefinition;
+ };
+ 
+ export function SourceDiffPanel(props: {
+   items: CodeViewDiffItem[];
++  explanations: Record<string, Explanation>;
+   selection: SourceSelection | undefined;
++  getScrollPosition: () => number | undefined;
++  onScroll: (position: number) => void;
+   onSelect: (selection: SourceSelection) => void;
+ }) {
+   const { resolvedTheme } = useTheme();
+   const viewer = useRef<CodeViewHandle<undefined, undefined>>(null);
+-  const [navigation, setNavigation] = useState<DefinitionNavigation>({
+-    selection: props.selection,
+-    history: [],
+-    status: undefined,
+-  });
+-  if (navigation.selection !== props.selection) {
+-    setNavigation({
+-      selection: props.selection,
+-      history: [],
+-      status: undefined,
+-    });
+-  }
+-  const { history } = navigation;
+-  const [pendingSymbol, setPendingSymbol] = useState<{
+-    params: URLSearchParams;
+-    label: string;
++  const codeContainer = useRef<HTMLDivElement>(null);
++  const readyToSaveScroll = useRef(false);
++  const [lookup, setLookup] = useState<{
+     selection: SourceSelection | undefined;
++    message: string;
+   }>();
+   const request = useRef(0);
+-  const definition = history.at(-1);
++  const definition = props.selection?.definition;
++  useEffect(() => {
++    const requestSequence = request;
++    return () => {
++      requestSequence.current++;
++    };
++    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Selection changes end the lifetime of in-flight definition lookups.
++  }, [props.selection]);
+   const panel = useStyles(styles.panel);
+   const header = useStyles(styles.header);
+   const links = useStyles(styles.links);
+@@ -75,7 +69,9 @@ export function SourceDiffPanel(props: {
+     disableFileHeader: false,
+   });
+   const selection = props.selection;
+-  const source = useSourceReference(selection?.reference);
++  const source = useSourceReference(
++    definition === undefined ? selection?.reference : undefined,
++  );
+   const resolvedFile = source instanceof Error ? undefined : source;
+   const linkedDiff = useMemo(
+     () =>
+@@ -91,11 +87,13 @@ export function SourceDiffPanel(props: {
+         : undefined
+       : definition;
+   const status =
+-    navigation.status !== undefined
+-      ? navigation.status
++    lookup !== undefined && lookup.selection === selection
++      ? lookup.message
+       : source instanceof Error
+         ? source.message
+-        : selection?.reference?.kind === "file" && source === undefined
++        : definition === undefined &&
++            selection?.reference?.kind === "file" &&
++            source === undefined
+           ? "Opening source…"
+           : undefined;
+   const selectedLines = useMemo<CodeViewLineSelection | null>(() => {
+@@ -115,16 +113,29 @@ export function SourceDiffPanel(props: {
+     };
+   }, [selection, file, linkedDiff]);
+ 
++  const { getScrollPosition } = props;
+   useEffect(() => {
+     if (selectedLines === null) return;
+-    viewer.current?.scrollTo({
+-      type: "range",
+-      ...selectedLines,
+-      align: "center",
+-      behavior: "instant",
+-    });
+-  }, [selectedLines]);
++    const saved = getScrollPosition();
++    if (saved === undefined) {
++      viewer.current?.scrollTo({
++        type: "range",
++        ...selectedLines,
++        align: "center",
++        behavior: "instant",
++      });
++    } else {
++      // Pierre's position targets subtract the sticky header height; restore the actual container offset.
++      codeContainer.current?.scrollTo({ top: saved, behavior: "instant" });
++    }
++    readyToSaveScroll.current = true;
++  }, [selectedLines, getScrollPosition]);
+ 
++  const activeDiff = props.items.find((item) => item.id === selectedLines?.id);
++  const activePath = file === undefined ? activeDiff?.fileDiff.name : file.path;
++  const fileExplanation = Object.values(props.explanations).find(
++    (entry) => entry.file === activePath,
++  );
+   const onTokenClick: CodeViewOptions<undefined, undefined>["onTokenClick"] = (
+     token,
+     event,
+@@ -158,29 +169,33 @@ export function SourceDiffPanel(props: {
+       column: String(token.lineCharStart),
+       text: lineText,
+     });
+-    if (!event.metaKey && !event.ctrlKey) {
+-      setPendingSymbol({ params, label: token.tokenText, selection });
+-      return;
+-    }
+     navigate(params);
+   };
+ 
+   const navigate = (params: URLSearchParams) => {
+-    setPendingSymbol(undefined);
+     const currentRequest = ++request.current;
+-    setNavigation({ selection, history, status: "Finding definition…" });
++    setLookup({ selection, message: "Reading symbol…" });
+     // oxlint-disable-next-line typescript/no-floating-promises -- Token callbacks cannot await; the request owns its status update.
+     void requestSource("definition", params).then((result) => {
+       if (currentRequest !== request.current) return;
+-      setNavigation((current) => {
+-        if (current.selection !== selection) return current;
+-        if (result instanceof Error)
+-          return { ...current, status: result.message };
+-        return {
+-          selection,
+-          history: [...history, result],
+-          status: undefined,
+-        };
++      if (result instanceof Error) {
++        setLookup({ selection, message: result.message });
++        return;
++      }
++      setLookup(undefined);
++      const reference: SourceReference = {
++        kind: "file",
++        path: result.path,
++        start: result.start,
++        end: result.end,
++      };
++      props.onSelect({
++        annotation: {
++          text: result.symbol === undefined ? result.path : result.symbol.name,
++          references: [reference],
++        },
++        reference,
++        definition: result,
+       });
+     });
+   };
+@@ -206,14 +221,6 @@ export function SourceDiffPanel(props: {
+           column: token.dataset.char!,
+           text: file.contents.split(/\r?\n/)[lineNumber - 1]!,
+         });
+-        if (!event.metaKey && !event.ctrlKey) {
+-          setPendingSymbol({
+-            params,
+-            label: token.textContent ?? "symbol",
+-            selection,
+-          });
+-          return;
+-        }
+         event.preventDefault();
+         navigate(params);
+       }}
+@@ -226,30 +233,9 @@ export function SourceDiffPanel(props: {
+               ? "Source file"
+               : "Source changes"}
+         </strong>
+-        {definition !== undefined && (
+-          <Button
+-            variant="quiet"
+-            onClick={() => {
+-              request.current++;
+-              setNavigation({
+-                selection,
+-                history: history.slice(0, -1),
+-                status: undefined,
+-              });
+-            }}
+-          >
+-            {history.length === 1 ? "Back to reference" : "Back"}
+-          </Button>
+-        )}
+-        <span>⌘-click or Ctrl-click a symbol to go to its definition.</span>
+-        {pendingSymbol && pendingSymbol.selection === selection && (
+-          <Button
+-            variant="quiet"
+-            onClick={() => navigate(pendingSymbol.params)}
+-          >
+-            Open definition: {pendingSymbol.label}
+-          </Button>
+-        )}
++        <span>
++          Click a symbol to inspect its purpose, types and definition.
++        </span>
+         {status !== undefined && <span role="status">{status}</span>}
+         {selection === undefined ? (
+           <span>
+@@ -283,16 +269,38 @@ export function SourceDiffPanel(props: {
+             )}
+           </>
+         )}
++        {fileExplanation !== undefined && (
++          <section
++            className="source-file-context"
++            aria-label={`About ${activePath}`}
++            data-file-path={activePath}
++          >
++            <div className="source-file-context-label">About this file</div>
++            <code className="source-file-context-path">{activePath}</code>
++            <p>{fileExplanation.summary}</p>
++            {fileExplanation.changes !== undefined && (
++              <p className="source-file-change">
++                <strong>This change:</strong> {fileExplanation.changes}
++              </p>
++            )}
++          </section>
++        )}
+       </div>
+       <CodeView
+         ref={viewer}
++        containerRef={codeContainer}
++        onScroll={(position) => {
++          if (readyToSaveScroll.current) props.onScroll(position);
++        }}
+         className={code}
+         items={
+           file === undefined
+             ? selection?.reference?.kind === "file" &&
+               resolvedFile === undefined
+               ? []
+-              : props.items
++              : activeDiff === undefined
++                ? []
++                : [activeDiff]
+             : [
+                 {
+                   type: "file",
+@@ -337,7 +345,7 @@ const styles = {
+     {
+       gap: "6px",
+       overflowWrap: "anywhere",
+-      maxHeight: "35%",
++      maxHeight: "38%",
+       overflowY: "auto",
+       flexShrink: 0,
+     },
+diff --git a/src/viewer/SymbolDetails.tsx b/src/viewer/SymbolDetails.tsx
+new file mode 100644
+index 0000000..afb2f5c
+--- /dev/null
++++ b/src/viewer/SymbolDetails.tsx
+@@ -0,0 +1,164 @@
++import { useEffect, useRef, useState } from "react";
++import { requestSource } from "./sourceNavigation.js";
++import type { SourceSelection } from "./SourceDiffPanel.js";
++import type { SymbolLocation } from "../definitions.js";
++import type { SourceDefinition } from "../definitions.js";
++import type { Explanation } from "../explanations.js";
++
++export function SymbolDetails(props: {
++  definition: SourceDefinition;
++  explanation: Explanation | undefined;
++  onSource: (selection: SourceSelection) => void;
++}) {
++  const symbol = props.definition.symbol!;
++  const request = useRef(0);
++  const [status, setStatus] = useState<string>();
++  useEffect(() => {
++    const sequence = request;
++    return () => {
++      sequence.current++;
++    };
++  }, []);
++  const inspect = (location: SymbolLocation) => {
++    const sequence = ++request.current;
++    setStatus("Reading symbol…");
++    const params = new URLSearchParams({
++      path: location.path,
++      line: String(location.line),
++      column: String(location.column),
++      text: location.text,
++    });
++    // oxlint-disable-next-line typescript/no-floating-promises -- This navigation request owns its status and ignores results after unmount.
++    void requestSource("definition", params).then((result) => {
++      if (sequence !== request.current) return;
++      if (result instanceof Error) {
++        setStatus(result.message);
++        return;
++      }
++      const reference = {
++        kind: "file" as const,
++        path: result.path,
++        start: result.start,
++        end: result.end,
++      };
++      props.onSource({
++        annotation: {
++          text: result.symbol === undefined ? result.path : result.symbol.name,
++          references: [reference],
++        },
++        reference,
++        definition: result,
++      });
++    });
++  };
++  const renderType = (value: string) => (
++    <pre className="symbol-type">
++      <code>
++        {value.split(/(\b[A-Za-z_$][\w$]*\b)/g).map((token, index) => {
++          const link = symbol.typeLinks.find((entry) => entry.name === token);
++          return link === undefined ? (
++            token
++          ) : (
++            <button
++              key={index}
++              className="symbol-link"
++              onClick={() => inspect(link.location)}
++              title={`Explain ${token}`}
++            >
++              {token}
++            </button>
++          );
++        })}
++      </code>
++    </pre>
++  );
++  return (
++    <div className="symbol-details">
++      <p className="exploration-hint">
++        {symbol.kind} · {props.definition.path}:{props.definition.start}
++      </p>
++      {props.explanation !== undefined ? (
++        <p className="exploration-summary">{props.explanation.summary}</p>
++      ) : symbol.documentation !== "" ? (
++        <p className="exploration-summary">{symbol.documentation}</p>
++      ) : (
++        <p>
++          No prose description is available for this symbol. Its
++          compiler-resolved contract is below.
++        </p>
++      )}
++      {status !== undefined && <p role="status">{status}</p>}
++      <h3>Type signature</h3>
++      {renderType(symbol.signature)}
++      <p className="exploration-hint">
++        Types come from the current workspace’s TypeScript compiler.
++      </p>
++      <h3>{symbol.kind === "class" ? "Constructor inputs" : "Inputs"}</h3>
++      {props.explanation?.inputs !== undefined && (
++        <p>{props.explanation.inputs}</p>
++      )}
++      {symbol.parameters.length > 0 ? (
++        <dl className="symbol-fields">
++          {symbol.parameters.map((parameter) => (
++            <div key={parameter.name}>
++              <dt>{parameter.name}</dt>
++              <dd>{renderType(parameter.type)}</dd>
++            </div>
++          ))}
++        </dl>
++      ) : (
++        <p>
++          {symbol.returnType === undefined
++            ? "This is a type or value, not a callable operation."
++            : "No arguments."}
++        </p>
++      )}
++      <h3>Output</h3>
++      {props.explanation?.outputs !== undefined && (
++        <p>{props.explanation.outputs}</p>
++      )}
++      {symbol.returnType !== undefined ? (
++        renderType(symbol.returnType)
++      ) : (
++        <p>The type or value is described by the signature above.</p>
++      )}
++      {symbol.members.length > 0 && (
++        <details className="symbol-members" open={symbol.kind !== "class"}>
++          <summary>
++            <h3>Members and their types</h3>
++          </summary>
++          <dl className="symbol-fields">
++            {symbol.members.map((member) => (
++              <div key={member.name}>
++                <dt>
++                  {member.location === undefined ? (
++                    member.name
++                  ) : (
++                    <button
++                      className="symbol-link"
++                      onClick={() => inspect(member.location!)}
++                    >
++                      {member.name}
++                    </button>
++                  )}
++                </dt>
++                <dd>{renderType(member.type)}</dd>
++              </div>
++            ))}
++          </dl>
++        </details>
++      )}
++      {props.explanation?.steps !== undefined &&
++        props.explanation.steps.length > 0 && (
++          <>
++            <h3>How it works</h3>
++            <ol>
++              {props.explanation.steps.map((step, index) => (
++                <li key={index}>{step}</li>
++              ))}
++            </ol>
++          </>
++        )}
++    </div>
++  );
++}
+diff --git a/src/viewer/ViewerApp.tsx b/src/viewer/ViewerApp.tsx
+index 6af3a81..8d6098e 100644
+--- a/src/viewer/ViewerApp.tsx
++++ b/src/viewer/ViewerApp.tsx
+@@ -1,21 +1,18 @@
+-import { useEffect, useState } from "react";
++import { useCallback, useEffect, useRef, useState } from "react";
+ import {
+   backgroundColor,
+-  border,
+   colors,
+   flex,
+-  flexItem,
+   proseHtml,
+   proseMaxWidth,
+   spacing,
+-  text,
+ } from "maui";
+ import { style, useStyles } from "purse-styles";
+ import { viewerDocument } from "virtual:tkstack";
+ import { ComarkView } from "./ComarkView.tsx";
+-import { type SourceSelection } from "./SourceDiffPanel.js";
+-import { DoneButton } from "./DoneButton.tsx";
++import { SourceDiffPanel, type SourceSelection } from "./SourceDiffPanel.js";
+ 
++import { ReviewTabs } from "./ReviewTabs.js";
+ import { ExplorationPanel } from "./ExplorationPanel.js";
+ import type { SourceAnnotation } from "../annotations.js";
+ 
+@@ -23,26 +20,81 @@ type ViewerMeta = {
+   title: string;
+ };
+ 
++type PanelTab = {
++  id: number;
++  key: string;
++  label: string;
++  selection: SourceSelection | undefined;
++};
++type OpenPanels = {
++  tabs: PanelTab[];
++  activeId: number;
++  nextId: number;
++};
++
+ export function ViewerApp() {
+   const meta = useViewerMeta();
+-  const [selection, setSelection] = useState<SourceSelection | undefined>(
+-    () => {
+-      const first = viewerDocument.initialExplanationId
+-        ? viewerDocument.explanations[viewerDocument.initialExplanationId]
+-        : undefined;
+-      return first
+-        ? {
++  const [panels, setPanels] = useState<OpenPanels>(() => {
++    const first =
++      viewerDocument.initialExplanationId === undefined
++        ? undefined
++        : viewerDocument.explanations[viewerDocument.initialExplanationId];
++    const selection =
++      first === undefined
++        ? undefined
++        : {
+             annotation: {
+               text: first.title,
+               explanationId: first.id,
+               references: first.references,
+             },
+             reference: first.references[0],
+-          }
+-        : undefined;
+-    },
+-  );
+-  const [history, setHistory] = useState<SourceSelection[]>([]);
++          };
++    return {
++      tabs: [{ id: 0, key: "home", label: "", selection }],
++      activeId: 0,
++      nextId: 1,
++    };
++  });
++  const activeTab = panels.tabs.find((tab) => tab.id === panels.activeId);
++  const selection = activeTab?.selection;
++  const visit = (nextSelection: SourceSelection) => {
++    setPanels((current) => {
++      const next = makeTab(nextSelection, current.nextId);
++      const existing = current.tabs.find((tab) => tab.key === next.key);
++      if (existing !== undefined)
++        return {
++          ...current,
++          activeId: existing.id,
++          tabs: current.tabs.map((tab) =>
++            tab.id === existing.id &&
++            JSON.stringify(tab.selection?.reference) !==
++              JSON.stringify(nextSelection.reference)
++              ? { ...tab, selection: nextSelection }
++              : tab,
++          ),
++        };
++      return {
++        tabs: [...current.tabs, next],
++        activeId: next.id,
++        nextId: current.nextId + 1,
++      };
++    });
++  };
++  const closeTab = (id: number) => {
++    setPanels((current) => {
++      const index = current.tabs.findIndex((tab) => tab.id === id);
++      const tabs = current.tabs.filter((tab) => tab.id !== id);
++      return {
++        ...current,
++        tabs,
++        activeId:
++          current.activeId === id
++            ? tabs[Math.min(index, tabs.length - 1)]!.id
++            : current.activeId,
++      };
++    });
++  };
+   const selectAnnotation = (annotation: SourceAnnotation) => {
+     const detail = annotation.explanationId
+       ? viewerDocument.explanations[annotation.explanationId]
+@@ -50,8 +102,7 @@ export function ViewerApp() {
+     const references = annotation.references.length
+       ? annotation.references
+       : (detail?.references ?? []);
+-    if (selection) setHistory((previous) => [...previous, selection]);
+-    setSelection({
++    visit({
+       annotation:
+         references === annotation.references
+           ? annotation
+@@ -64,61 +115,109 @@ export function ViewerApp() {
+     viewerDocument.hasReferences ||
+     Object.keys(viewerDocument.explanations).length > 0;
+   const body = useStyles(styles.body);
+-  const [shutDown, setShutDown] = useState(false);
+   const title = meta === undefined ? document.title : meta.title;
+   const shell = useStyles(styles.shell);
+-  const header = useStyles(styles.header);
+-  const heading = useStyles(styles.heading);
+-  const titleClass = useStyles(styles.title);
++  const theme = useStyles(styles.theme);
++  const codeScrollPositions = useRef(new Map<string, number>());
++  const codeScrollKey = `${panels.activeId}:${JSON.stringify(selection?.reference)}`;
++  const getCodeScrollPosition = useCallback(
++    () => codeScrollPositions.current.get(codeScrollKey),
++    [codeScrollKey],
++  );
+   const article = useStyles(styles.article);
+   const prose = useStyles(proseHtml("md"), styles.prose);
+-  const closed = useStyles(styles.closed);
+ 
+   useEffect(() => {
+     if (meta === undefined) return;
+     document.title = meta.title;
+   }, [meta]);
+ 
+-  if (shutDown) {
+-    return <main className={closed}>Closed.</main>;
+-  }
+-
+   return (
+-    <div className={shell}>
+-      <header className={header}>
+-        <div className={heading}>
+-          <div className={titleClass}>{title}</div>
+-        </div>
+-        <DoneButton
+-          onClick={() => {
+-            setShutDown(true);
+-            // oxlint-disable-next-line typescript/no-floating-promises -- React click callbacks cannot await the server shutdown request.
+-            void closeViewer();
+-          }}
+-        />
+-      </header>
++    <div className={`${shell} ${theme}`}>
+       <div className={body} data-has-source-diffs={hasSourceDiffs}>
+-        <article className={article}>
+-          <div className={prose}>
+-            <ComarkView
+-              document={viewerDocument}
+-              selectedAnnotation={selection?.annotation}
+-              onSelectAnnotation={selectAnnotation}
+-            />
+-          </div>
+-        </article>
+-        {hasSourceDiffs && (
++        <section className="review-left" aria-label="Review pages">
++          <ReviewTabs
++            tabs={panels.tabs.map((tab) =>
++              tab.id === 0 ? { ...tab, label: title } : tab,
++            )}
++            activeId={panels.activeId}
++            onActivate={(id) =>
++              setPanels((current) => ({ ...current, activeId: id }))
++            }
++            onClose={closeTab}
++          />
++          <article
++            id="review-home"
++            role="tabpanel"
++            aria-labelledby="review-tab-0"
++            hidden={panels.activeId !== 0}
++            className={article}
++          >
++            <div className={prose}>
++              <ComarkView
++                document={viewerDocument}
++                selectedAnnotation={selection?.annotation}
++                onSelectAnnotation={selectAnnotation}
++              />
++              <nav className="review-files" aria-label="Changed files">
++                <h2>Files in this change</h2>
++                {viewerDocument.sourceDiffs.map((item) => (
++                  <button
++                    key={item.id}
++                    onClick={() => {
++                      const explanation = Object.values(
++                        viewerDocument.explanations,
++                      ).find((entry) => entry.file === item.fileDiff.name);
++                      const hunk = item.fileDiff.hunks[0]!;
++                      const side: "new" | "old" =
++                        hunk.additionCount > 0 ? "new" : "old";
++                      const start =
++                        side === "new"
++                          ? hunk.additionStart
++                          : hunk.deletionStart;
++                      const reference = {
++                        kind: "diff" as const,
++                        id: item.id,
++                        side,
++                        start,
++                        end: start,
++                      };
++                      visit({
++                        annotation: {
++                          text: item.fileDiff.name,
++                          explanationId: explanation?.id,
++                          references: [reference],
++                        },
++                        reference,
++                      });
++                    }}
++                  >
++                    {item.fileDiff.name}
++                  </button>
++                ))}
++              </nav>
++            </div>
++          </article>
+           <ExplorationPanel
+             explanations={viewerDocument.explanations}
+-            history={history}
+-            onBack={() => {
+-              setSelection(history.at(-1));
+-              setHistory(history.slice(0, -1));
+-            }}
+-            items={viewerDocument.sourceDiffs}
++            locationId={panels.activeId}
++            hidden={panels.activeId === 0}
+             selection={selection}
+             onSelect={selectAnnotation}
+-            onSource={setSelection}
++            onSource={visit}
++          />
++        </section>
++        {hasSourceDiffs && (
++          <SourceDiffPanel
++            key={codeScrollKey}
++            getScrollPosition={getCodeScrollPosition}
++            onScroll={(position) =>
++              codeScrollPositions.current.set(codeScrollKey, position)
++            }
++            items={viewerDocument.sourceDiffs}
++            explanations={viewerDocument.explanations}
++            selection={selection}
++            onSelect={visit}
+           />
+         )}
+       </div>
+@@ -126,6 +225,31 @@ export function ViewerApp() {
+   );
+ }
+ 
++function makeTab(selection: SourceSelection, id: number): PanelTab {
++  const explanationId = selection.annotation.explanationId;
++  const explanation =
++    explanationId === undefined
++      ? undefined
++      : viewerDocument.explanations[explanationId];
++  const definition = selection.definition;
++  const reference = selection.reference;
++  const key =
++    definition !== undefined
++      ? `symbol:${definition.path}:${definition.start}:${definition.symbol?.kind}`
++      : explanationId !== undefined
++        ? `explanation:${explanationId}`
++        : `source:${JSON.stringify(reference)}`;
++  const title =
++    explanation === undefined ? selection.annotation.text : explanation.title;
++  const label =
++    definition?.symbol !== undefined
++      ? definition.symbol.name
++      : explanation?.file !== undefined
++        ? explanation.file.split("/").at(-1)!
++        : title;
++  return { id, key, label, selection };
++}
++
+ function useViewerMeta() {
+   const [meta, setMeta] = useState<ViewerMeta>();
+   useEffect(() => {
+@@ -140,10 +264,6 @@ function useViewerMeta() {
+   return meta;
+ }
+ 
+-async function closeViewer() {
+-  await fetch("/__tkstack/shutdown", { method: "POST" });
+-}
+-
+ const styles = {
+   shell: style(flex({ direction: "column" }), {
+     width: "100%",
+@@ -153,24 +273,14 @@ const styles = {
+     overflow: "hidden",
+     backgroundColor: colors.gray[4],
+   }),
+-  header: style(
+-    flex({ direction: "row", align: "center", justify: "between" }),
+-    spacing.padding({ x: 6, y: 3 }),
+-    flexItem({ size: "hug" }),
+-    border(["bottom"], "border"),
+-    {
+-      minWidth: 0,
+-      backgroundColor: backgroundColor.app,
+-    },
+-  ),
+-  heading: style(flex({ direction: "column" }), {
+-    minWidth: 0,
+-  }),
+-  title: style(text({ size: "md", fontWeight: 600, color: "highContrast" }), {
+-    minWidth: 0,
+-    overflow: "hidden",
+-    textOverflow: "ellipsis",
+-    whiteSpace: "nowrap",
++  theme: style({
++    "--explore-background": backgroundColor.app,
++    "--explore-text": colors.gray[12],
++    "--explore-muted": colors.gray[11],
++    "--explore-border": colors.gray[6],
++    "--explore-accent": colors.accent[11],
++    "--explore-surface": backgroundColor.element,
++    "--explore-focus": colors.accent[8],
+   }),
+   body: style({
+     display: "grid",
+@@ -232,12 +342,4 @@ const styles = {
+       border: 0,
+     },
+   }),
+-  closed: style(
+-    text({ size: "md", fontWeight: 500, color: "highContrast" }),
+-    spacing.padding({ all: 12 }),
+-    {
+-      minHeight: "100vh",
+-      backgroundColor: backgroundColor.app,
+-    },
+-  ),
+ };
+diff --git a/src/viewer/exploration.css b/src/viewer/exploration.css
+index 8ae7e1a..98c370b 100644
+--- a/src/viewer/exploration.css
++++ b/src/viewer/exploration.css
+@@ -5,61 +5,24 @@
+   min-width: 0;
+   background: var(--explore-background);
+   color: var(--explore-text);
+-  border-left: 1px solid var(--explore-border);
+ }
+-.exploration-tabpanel {
++.exploration-body {
+   display: flex;
+   flex-direction: column;
+-  overflow: hidden;
+-}
+-.exploration-tabpanel,
+-.exploration-tabpanel > aside {
+   flex: 1;
+   min-height: 0;
++  overflow: hidden;
+ }
+ .exploration-header {
+   padding: 22px 26px 0;
+   border-bottom: 1px solid var(--explore-border);
+ }
+-.exploration-breadcrumb {
+-  display: flex;
+-  align-items: center;
+-  justify-content: space-between;
+-  gap: 12px;
+-  min-height: 28px;
+-  color: var(--explore-muted);
+-  font-size: 11px;
+-  letter-spacing: 0.09em;
+-}
+ .exploration-header h2 {
+   margin: 12px 0 18px;
+   font-size: 24px;
+   line-height: 1.25;
+   font-weight: 650;
+ }
+-.exploration-tabs {
+-  display: flex;
+-  gap: 18px;
+-}
+-.exploration-tabs button {
+-  border: 0;
+-  border-bottom: 3px solid transparent;
+-  background: transparent;
+-  padding: 10px 1px 12px;
+-  font: inherit;
+-  font-size: 14px;
+-  color: var(--explore-muted);
+-  cursor: pointer;
+-}
+-.exploration-tabs button[aria-selected="true"] {
+-  color: var(--explore-accent);
+-  border-color: var(--explore-accent);
+-  font-weight: 650;
+-}
+-.exploration-tabs button:disabled {
+-  opacity: 0.35;
+-  cursor: default;
+-}
+ .exploration-content {
+   flex: 1;
+   overflow: auto;
+@@ -102,22 +65,6 @@
+ .exploration-example h3 {
+   margin-top: 14px;
+ }
+-.exploration-breadcrumb button,
+-.exploration-related button {
+-  font: inherit;
+-  background: var(--explore-surface);
+-  color: var(--explore-accent);
+-  border: 1px solid var(--explore-border);
+-  border-radius: 6px;
+-  padding: 8px 12px;
+-  cursor: pointer;
+-  text-align: left;
+-}
+-.exploration-related button {
+-  display: block;
+-  width: 100%;
+-  margin: 8px 0;
+-}
+ .exploration-hint {
+   font-size: 13px;
+   color: var(--explore-muted);
+@@ -128,9 +75,6 @@
+ }
+ @media (max-width: 900px) {
+   .exploration-panel {
+-    height: 52vh;
+-    border-top: 1px solid var(--explore-border);
+-    border-left: 0;
+   }
+   .exploration-header {
+     padding: 12px 18px 0;
+@@ -143,3 +87,214 @@
+     padding: 18px;
+   }
+ }
++
++.exploration-visual {
++  margin: 20px 0;
++  min-width: 0;
++}
++.exploration-visual figcaption {
++  color: var(--explore-muted);
++  font-size: 13px;
++  line-height: 1.6;
++  margin: 10px 0;
++}
++.exploration-code-example {
++  border: 1px solid var(--explore-border);
++  border-radius: 8px;
++  padding: 0 14px 14px;
++}
++.exploration-code-example pre {
++  max-width: 100%;
++  overflow-x: auto;
++}
++
++.symbol-details {
++  min-width: 0;
++}
++.symbol-details pre {
++  max-width: 100%;
++  overflow-x: auto;
++}
++.symbol-fields {
++  margin: 0;
++}
++.symbol-fields > div {
++  padding: 10px 0;
++  border-bottom: 1px solid var(--explore-border);
++}
++.symbol-fields dt {
++  font-weight: 600;
++  margin-bottom: 8px;
++}
++.symbol-fields dd {
++  margin: 0;
++}
++
++.symbol-details pre {
++  white-space: pre-wrap;
++  overflow-wrap: anywhere;
++}
++.symbol-details pre code {
++  white-space: pre-wrap;
++}
++.symbol-members summary {
++  cursor: pointer;
++  margin-top: 24px;
++}
++.symbol-members summary h3 {
++  display: inline;
++  margin: 0;
++}
++.symbol-type {
++  padding: 12px;
++  border: 1px solid var(--explore-border);
++  border-radius: 6px;
++  font-size: 13px;
++  line-height: 1.6;
++}
++.symbol-link {
++  display: inline;
++  padding: 0;
++  border: 0;
++  background: transparent;
++  color: var(--explore-accent);
++  font: inherit;
++  cursor: pointer;
++  text-decoration: underline;
++  text-underline-offset: 3px;
++}
++.symbol-link:hover {
++  background: var(--explore-surface);
++}
++
++.review-files {
++  margin-top: 32px;
++}
++.review-files button {
++  display: block;
++  width: 100%;
++  border: 0;
++  border-bottom: 1px solid var(--explore-border, #ddd);
++  padding: 10px 0;
++  background: transparent;
++  color: inherit;
++  text-align: left;
++  font: inherit;
++  font-size: 13px;
++  overflow-wrap: anywhere;
++  cursor: pointer;
++}
++.review-files button:hover {
++  text-decoration: underline;
++}
++
++.review-page {
++  display: flex;
++  flex-direction: column;
++  flex: 1;
++  min-height: 0;
++}
++.review-tabstrip {
++  display: flex;
++  gap: 4px;
++  flex-shrink: 0;
++  overflow-x: auto;
++  padding: 8px 8px 0;
++  border-bottom: 1px solid var(--explore-border);
++  background: var(--explore-surface);
++}
++.review-tab {
++  display: flex;
++  align-items: center;
++  flex: 0 0 auto;
++  min-width: 100px;
++  max-width: 210px;
++  border: 1px solid transparent;
++  border-radius: 7px 7px 0 0;
++  border-bottom: 2px solid transparent;
++}
++.review-tab[data-active="true"] {
++  background: var(--explore-background);
++  border-color: var(--explore-border);
++  border-bottom-color: var(--explore-accent);
++}
++.review-tab button {
++  font: inherit;
++  font-size: 13px;
++  border: 0;
++  background: transparent;
++  color: var(--explore-muted);
++  cursor: pointer;
++  padding: 10px;
++}
++.review-tab button[role="tab"] {
++  min-width: 0;
++  overflow: hidden;
++  text-overflow: ellipsis;
++  white-space: nowrap;
++  flex: 1;
++  text-align: left;
++}
++.review-tab button[aria-selected="true"] {
++  color: var(--explore-text);
++  font-weight: 600;
++}
++.review-tab .review-tab-close {
++  padding: 8px;
++  font-size: 17px;
++}
++.review-tab .review-tab-close:hover {
++  color: var(--explore-text);
++  background: var(--explore-surface);
++}
++
++.review-left {
++  display: flex;
++  flex-direction: column;
++  min-width: 0;
++  min-height: 0;
++  background: var(--explore-background);
++}
++.review-left > .exploration-panel {
++  flex: 1;
++  overflow: hidden;
++}
++.review-left > [hidden] {
++  display: none;
++}
++.review-left .exploration-content {
++  flex: 1;
++  min-height: 0;
++}
++.review-tabstrip button:focus-visible {
++  outline: 3px solid var(--explore-focus);
++  outline-offset: -3px;
++}
++
++.source-file-context {
++  margin-top: 8px;
++  padding: 12px 14px;
++  border: 1px solid var(--explore-border);
++  border-radius: 6px;
++  background: var(--explore-surface);
++  color: var(--explore-text);
++  line-height: 1.5;
++}
++.source-file-context-label {
++  color: var(--explore-muted);
++  font-size: 11px;
++  letter-spacing: 0.04em;
++  text-transform: uppercase;
++  margin-bottom: 4px;
++}
++.source-file-context-path {
++  display: block;
++  font-size: 12px;
++  overflow-wrap: anywhere;
++}
++.source-file-context p {
++  margin: 8px 0 0;
++}
++.source-file-change {
++  color: var(--explore-muted);
++}
+diff --git a/tests/explanations.test.ts b/tests/explanations.test.ts
+index 208f68f..c8dc21b 100644
+--- a/tests/explanations.test.ts
++++ b/tests/explanations.test.ts
+@@ -80,3 +80,63 @@ test("Initial detail follows document order even for numeric IDs", () => {
+   assert.ok(!(result instanceof Error));
+   assert.equal(result.initialExplanationId, "20");
+ });
++
++test("Text links open validated explanations with file context", () => {
++  const source =
++    "[Read the validator](explain:validate)\n\n" +
++    document({
++      ...explanation,
++      file: "main.py",
++      changes: "Reject invalid rows before saving.",
++    } as typeof explanation);
++  const result = parseViewerDocument(source);
++  assert.ok(!(result instanceof Error));
++  assert.equal(result.explanations.validate?.file, "main.py");
++  assert.equal(
++    result.explanations.validate?.changes,
++    "Reject invalid rows before saving.",
++  );
++  assert.ok(
++    parseViewerDocument(
++      source.replace("(explain:validate)", "(explain:missing)"),
++    ) instanceof Error,
++  );
++  assert.ok(
++    parseViewerDocument(
++      document({ ...explanation, file: 42 } as typeof explanation),
++    ) instanceof Error,
++  );
++});
++
++test("Detail media validates linked call stacks and preserves code examples", () => {
++  const detail = {
++    ...explanation,
++    callstack:
++      "Request\n└── Validate [[explain:validate]]\n    └── Runner.run [[main.py#Runner.run]]",
++    codeExample: '{"sequence":0,"type":"run.started"}',
++    codeLanguage: "json",
++    codeCaption: "Illustrative record excerpt.",
++    diagramCaption: "Each arrow passes a file.",
++  };
++  const result = parseViewerDocument(document(detail));
++  assert.ok(!(result instanceof Error));
++  assert.equal(
++    result.explanations.validate?.flow[1]?.explanationId,
++    "validate",
++  );
++  assert.equal(
++    result.explanations.validate?.flow[2]?.references[0]?.kind,
++    "file",
++  );
++  assert.equal(result.explanations.validate?.codeExample, detail.codeExample);
++  assert.ok(
++    parseViewerDocument(
++      document({ ...detail, callstack: "Unknown [[explain:missing]]" }),
++    ) instanceof Error,
++  );
++  assert.ok(
++    parseViewerDocument(
++      document({ ...detail, codeExample: 42 } as unknown as typeof explanation),
++    ) instanceof Error,
++  );
++});
+diff --git a/tests/navigation.test.ts b/tests/navigation.test.ts
+index b2b8ece..0dfef3b 100644
+--- a/tests/navigation.test.ts
++++ b/tests/navigation.test.ts
+@@ -124,3 +124,51 @@ test("Python union calls with multiple definitions report ambiguity", async () =
+   assert.ok(result instanceof Error);
+   assert.match(result.message, /multiple possible definitions/);
+ });
++
++test("Code inspection resolves aliases, constructor inputs, method outputs and record fields", async () => {
++  const declarations = `/** Tracks an accumulated total. */
++export class Counter {
++  constructor(ctx: { start: number }) { this.total = ctx.start; }
++  total: number;
++  /** Adds a value to the total. */
++  add(value: number): number { return this.total += value; }
++}
++export type Item = { name: string; count: number };
++`;
++  fs.writeFileSync(path.join(root, "counter.ts"), declarations);
++  const calls =
++    'import { Counter as Renamed, type Item } from "./counter.js";\nconst counter = new Renamed({ start: 1 });\ncounter.add(2);\nconst item: Item = { name: "x", count: 1 };\n';
++  fs.writeFileSync(path.join(root, "calls.ts"), calls);
++  const type = await findDefinition(
++    root,
++    params("calls.ts", 2, "Renamed", calls),
++  );
++  assert.ok(type && !(type instanceof Error));
++  assert.equal(type.symbol?.name, "Counter");
++  assert.match(type.symbol!.documentation, /accumulated total/);
++  assert.equal(type.symbol?.parameters[0]?.name, "ctx");
++  assert.match(type.symbol!.parameters[0]!.type, /start: number/);
++  assert.equal(type.symbol?.returnType, "Counter");
++  const method = await findDefinition(
++    root,
++    params("calls.ts", 3, "add", calls),
++  );
++  assert.ok(method && !(method instanceof Error));
++  assert.equal(method.symbol?.name, "Counter.add");
++  assert.deepEqual(method.symbol?.parameters, [
++    { name: "value", type: "number" },
++  ]);
++  assert.equal(method.symbol?.returnType, "number");
++  const record = await findDefinition(
++    root,
++    params("calls.ts", 4, "Item", calls),
++  );
++  assert.ok(record && !(record instanceof Error));
++  assert.deepEqual(
++    record.symbol?.members.map(({ name, type }) => ({ name, type })),
++    [
++      { name: "name", type: "string" },
++      { name: "count", type: "number" },
++    ],
++  );
++});
