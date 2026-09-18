@@ -1,7 +1,11 @@
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { randomUUID } from "node:crypto";
 import * as errore from "errore";
-import type { WorkspaceInfo, WorkspaceTreeEvent } from "@get-halo/client";
+import {
+  imageFilename,
+  type WorkspaceInfo,
+  type WorkspaceTreeEvent,
+} from "@get-halo/client";
 import { type ReadonlyStream, Stream } from "@get-halo/shared/Stream";
 import {
   type FilesystemWatchBatch,
@@ -9,10 +13,7 @@ import {
   FilesystemService,
   FilesystemPathNotFoundError,
 } from "../filesystem/FilesystemService.js";
-import {
-  workspaceFilePreview,
-  workspaceImageExtension,
-} from "./workspaceFilePreview.js";
+import { workspaceFilePreview } from "./workspaceFilePreview.js";
 import { installHaloCli } from "./installHaloCli.js";
 import { seedExtensionWorkspace } from "../extensions/seedExtensionWorkspace.js";
 
@@ -259,16 +260,18 @@ export class WorkspaceService {
     return { path };
   }
 
-  async saveImage(input: { documentPath: string; file: File }) {
+  async saveImage(input: { documentPath: string; file: File; id?: string }) {
     const documentPath = await this.resolveEntryPath(input.documentPath);
     if (documentPath instanceof Error) return documentPath;
-    const extension = workspaceImageExtension(input.file.type);
-    if (extension === undefined) return new WorkspaceInvalidImageError();
+    const src = imageFilename({
+      id: input.id ?? randomUUID(),
+      mime: input.file.type,
+    });
+    if (src === undefined) return new WorkspaceInvalidImageError();
     const contents = await input.file
       .arrayBuffer()
       .catch((cause) => new WorkspaceIoError({ cause }));
     if (contents instanceof Error) return contents;
-    const src = `image-${randomUUID()}.${extension}`;
     const written = await this.options.filesystem.writeFile(
       join(dirname(documentPath), src),
       new Uint8Array(contents),

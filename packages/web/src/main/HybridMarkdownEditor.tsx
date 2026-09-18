@@ -59,6 +59,16 @@ export function HybridMarkdownEditor(props: {
   const className = useStyles(proseHtml(props.size ?? "md"), editorStyle);
   useEffect(() => {
     if (host.current === null) return;
+    const lineSeparator = current.current.content.includes("\r\n")
+      ? "\r\n"
+      : "\n";
+    const resources =
+      current.current.resources === undefined
+        ? undefined
+        : {
+            ...current.current.resources,
+            localImages: new Map<string, File>(),
+          };
     const editor = new EditorView({
       parent: host.current,
       state: EditorState.create({
@@ -88,10 +98,8 @@ export function HybridMarkdownEditor(props: {
             editorPlaceholder(current.current.placeholder ?? "Write…"),
           ]),
           indentUnit.of("  "),
-          hybridPreview(current.current.resources),
-          current.current.resources === undefined
-            ? []
-            : markdownImagePaste(current.current.resources),
+          hybridPreview(resources),
+          resources === undefined ? [] : markdownImagePaste(resources),
           keymap.of([
             {
               key: "Mod-Enter",
@@ -115,7 +123,13 @@ export function HybridMarkdownEditor(props: {
           ]),
           EditorView.updateListener.of((update) => {
             if (update.docChanged) {
-              current.current.onChange(update.state.doc.toString());
+              current.current.onChange(
+                update.state.doc.sliceString(
+                  0,
+                  update.state.doc.length,
+                  lineSeparator,
+                ),
+              );
             }
           }),
         ],
@@ -144,7 +158,11 @@ export function HybridMarkdownEditor(props: {
 
   useEffect(() => {
     const editor = view.current;
-    if (editor === undefined || editor.state.doc.toString() === props.content)
+    // CodeMirror normalizes line breaks internally; opening CRLF source is not an edit.
+    if (
+      editor === undefined ||
+      editor.state.doc.eq(editor.state.toText(props.content))
+    )
       return;
     editor.dispatch({
       changes: { from: 0, to: editor.state.doc.length, insert: props.content },

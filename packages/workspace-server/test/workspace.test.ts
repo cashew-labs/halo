@@ -1358,3 +1358,28 @@ serverTest(
     await prompt;
   },
 );
+
+serverTest(
+  "saves client-named images without overwriting or accepting path traversal",
+  async ({ createServer }) => {
+    const server = createServer();
+    await server.start();
+    const id = "11111111-1111-4111-8111-111111111111";
+    const file = new File([new Uint8Array([1, 2, 3])], "clipboard.png", {
+      type: "image/png",
+    });
+    const input = { documentPath: "notes.md", file, id };
+    const src = `image-${id}.png`;
+    expect(await server.rpc.workspace.saveImage(input)).toEqual({ src });
+    await expect(server.rpc.workspace.saveImage(input)).rejects.toThrow();
+    await expect(
+      server.rpc.workspace.saveImage({ ...input, id: "../../outside" }),
+    ).rejects.toThrow();
+    expect(await fs.readFile(path.join(server.workspaceRoot, src))).toEqual(
+      Buffer.from([1, 2, 3]),
+    );
+    expect(
+      await server.rpc.workspace.saveImage({ documentPath: "notes.md", file }),
+    ).toMatchObject({ src: expect.stringMatching(/^image-[0-9a-f-]+\.png$/) });
+  },
+);

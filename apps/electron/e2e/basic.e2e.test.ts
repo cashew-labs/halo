@@ -1387,3 +1387,149 @@ e2eTest(
     await expect(bold).toHaveText("bold phrase");
   },
 );
+
+e2eTest(
+  "preserves CRLF Markdown when opening, editing, and undoing",
+  async ({ app }) => {
+    await app.page
+      .getByRole("button", { name: "New session", exact: true })
+      .waitFor();
+    const url = new URL(app.page.url());
+    url.searchParams.set("markdown", "hybrid");
+    await app.page.goto(url.href);
+    const original = "## Heading\r\n\r\nBefore **bold text** after.\r\n";
+    await app.server.rpc.workspace.writeFile({
+      path: "line-endings.md",
+      content: original,
+    });
+    const writes: string[] = [];
+    app.page.on("request", (request) => {
+      if (new URL(request.url()).pathname === "/rpc/workspace/writeFile")
+        writes.push(request.url());
+    });
+    await app.page
+      .getByRole("link", { name: "line-endings.md", exact: true })
+      .click();
+    const editor = app.page.getByRole("textbox", {
+      name: "line-endings.md",
+      exact: true,
+    });
+    await editor.locator("strong").click();
+    await expect(editor.locator(".markdown-marker")).toHaveText(["**", "**"]);
+    // Wait through autosave to catch a mount/reveal incorrectly being treated as an edit.
+    await app.page.waitForTimeout(750);
+    expect(writes).toEqual([]);
+    expect(
+      await app.server.rpc.workspace.readFile({ path: "line-endings.md" }),
+    ).toBe(original);
+    await editor.press(
+      process.platform === "darwin" ? "Meta+ArrowDown" : "Control+End",
+    );
+    await app.page.keyboard.insertText("Added");
+    await expect
+      .poll(
+        async () =>
+          await app.server.rpc.workspace.readFile({ path: "line-endings.md" }),
+      )
+      .toBe(original + "Added");
+    await app.page.keyboard.press("ControlOrMeta+z");
+    await expect
+      .poll(
+        async () =>
+          await app.server.rpc.workspace.readFile({ path: "line-endings.md" }),
+      )
+      .toBe(original);
+    await editor.press("ControlOrMeta+a");
+    await app.page.keyboard.insertText("Single line");
+    await expect
+      .poll(
+        async () =>
+          await app.server.rpc.workspace.readFile({ path: "line-endings.md" }),
+      )
+      .toBe("Single line");
+    await app.page.keyboard.press("ControlOrMeta+z");
+    await expect
+      .poll(
+        async () =>
+          await app.server.rpc.workspace.readFile({ path: "line-endings.md" }),
+      )
+      .toBe(original);
+  },
+);
+
+e2eTest(
+  "undo and redo remain intact when an image upload finishes while undone",
+  async ({ app }) => {
+    await app.page
+      .getByRole("button", { name: "New session", exact: true })
+      .waitFor();
+    const url = new URL(app.page.url());
+    url.searchParams.set("markdown", "hybrid");
+    await app.page.goto(url.href);
+    const path = "undo-image.md";
+    const original = "Original text";
+    await app.server.rpc.workspace.writeFile({ path, content: original });
+    await app.page.getByRole("link", { name: path, exact: true }).click();
+    const editor = app.page.getByRole("textbox", { name: path, exact: true });
+    const releaseUpload = { run: () => {} };
+    const uploadGate = new Promise<void>((resolve) => {
+      releaseUpload.run = resolve;
+    });
+    await app.page.route("**/rpc/workspace/saveImage", async (route) => {
+      await uploadGate;
+      await route.continue();
+    });
+    await editor.click();
+    await editor.press("ControlOrMeta+a");
+    await editor.evaluate((element) => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 20;
+      canvas.height = 10;
+      canvas.getContext("2d")!.fillRect(0, 0, 20, 10);
+      const bytes = Uint8Array.from(
+        atob(canvas.toDataURL().split(",")[1]!),
+        (character) => character.charCodeAt(0),
+      );
+      const clipboardData = new DataTransfer();
+      clipboardData.items.add(
+        new File([bytes], "undo.png", { type: "image/png" }),
+      );
+      element.dispatchEvent(
+        new ClipboardEvent("paste", {
+          clipboardData,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    await expect(editor.getByRole("status")).toHaveText("Saving image…");
+    await app.page.keyboard.insertText(" after");
+    await app.page.keyboard.press("ControlOrMeta+z");
+    await app.page.keyboard.press("ControlOrMeta+z");
+    await expect(editor).toHaveText(original);
+    const completed = app.page.waitForResponse("**/rpc/workspace/saveImage");
+    releaseUpload.run();
+    await completed;
+    await expect
+      .poll(async () => await app.server.rpc.workspace.readFile({ path }))
+      .toBe(original);
+    await app.page.keyboard.press("ControlOrMeta+Shift+z");
+    await expect
+      .poll(async () => await app.server.rpc.workspace.readFile({ path }))
+      .toMatch(/^!\[undo\.png\]\(image-[^)]+\.png\)$/);
+    await app.page.keyboard.press("ControlOrMeta+Shift+z");
+    await expect
+      .poll(async () => await app.server.rpc.workspace.readFile({ path }))
+      .toMatch(/^!\[undo\.png\]\(image-[^)]+\.png\) after$/);
+    await app.page.keyboard.press("ArrowRight");
+    await expect
+      .poll(
+        async () =>
+          await editor
+            .getByRole("img", { name: "undo.png" })
+            .evaluate((image: HTMLImageElement) => image.naturalWidth),
+      )
+      .toBe(20);
+    await expect(editor.getByRole("status")).toHaveCount(0);
+  },
+);

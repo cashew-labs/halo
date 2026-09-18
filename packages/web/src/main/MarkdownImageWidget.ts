@@ -5,6 +5,7 @@ import * as errore from "errore";
 export type MarkdownResources = {
   api: HaloClient;
   documentPath: string;
+  localImages?: Map<string, File>;
   onError(message: string | undefined): void;
 };
 
@@ -52,6 +53,12 @@ export class MarkdownImageWidget extends WidgetType {
       return;
     }
     if (this.resources === undefined) return;
+    const local = this.resources.localImages?.get(this.source);
+    if (local !== undefined) {
+      dom.src = URL.createObjectURL(local);
+      dom.dataset.objectUrl = dom.src;
+      return;
+    }
     const { api, documentPath, onError } = this.resources;
     const path = errore.try({
       try: () => {
