@@ -31,6 +31,7 @@ import {
   workspacePathsQueryKey,
 } from "../api/ApiProvider.tsx";
 import { reconnectStream } from "../api/reconnectStream.js";
+import { useLogger } from "../LoggerProvider.js";
 import { useExpandSidebar } from "./navigation/NavigationSidebar.js";
 import { SidebarItem } from "./navigation/SidebarItem.js";
 import { SidebarSection } from "./navigation/SidebarSection.js";
@@ -59,6 +60,8 @@ export function FilesystemSection() {
   const pathsQuery = useWorkspacePathsQuery(workspace);
   const queryClient = useQueryClient();
   const api = useApi();
+  const rootLogger = useLogger();
+  const logger = useMemo(() => rootLogger.scope("filesystem"), [rootLogger]);
   const expand = useExpandSidebar();
   const files = useMemo(
     () =>
@@ -191,6 +194,7 @@ export function FilesystemSection() {
     const controller = new AbortController();
     reconnectStream({
       name: "Workspace tree",
+      logger,
       signal: controller.signal,
       open: async () =>
         await api.workspace.events(undefined, { signal: controller.signal }),
@@ -206,7 +210,7 @@ export function FilesystemSection() {
     });
 
     return () => controller.abort();
-  }, [api, queryClient, workspaceRoot]);
+  }, [api, logger, queryClient, workspaceRoot]);
 
   const creation: FileCreationRow | undefined =
     action !== undefined &&

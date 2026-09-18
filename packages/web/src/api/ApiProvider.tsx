@@ -3,6 +3,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useMemo,
   useState,
   type ReactNode,
 } from "react";
@@ -12,6 +13,7 @@ import {
   IncompatibleServerError,
 } from "@get-halo/client";
 import { useHost } from "../HostProvider.js";
+import { useLogger } from "../LoggerProvider.js";
 import { LoadingPage } from "../LoadingPage.tsx";
 import { ConnectionPage } from "../ConnectionPage.tsx";
 
@@ -21,11 +23,16 @@ const workspaceQueryKey = ["workspace"] as const;
 
 export function ApiProvider({ children }: { children: ReactNode }) {
   const host = useHost();
+  const rootLogger = useLogger();
+  const logger = useMemo(() => rootLogger.scope("api"), [rootLogger]);
   const [disconnected, setDisconnected] = useState(false);
-  const disconnect = useCallback((error: Error) => {
-    console.warn("Halo disconnected from its server:", error);
-    setDisconnected(true);
-  }, []);
+  const disconnect = useCallback(
+    (error: Error) => {
+      logger.warn({ event: "disconnected", error });
+      setDisconnected(true);
+    },
+    [logger],
+  );
   const apiQuery = useQuery({
     queryKey: haloApiQueryKey,
     // Development starts clients and the workspace server independently; discovery may arrive later.
@@ -38,7 +45,7 @@ export function ApiProvider({ children }: { children: ReactNode }) {
 
   if (apiQuery.isPending) return <LoadingPage />;
   if (apiQuery.isError) {
-    console.warn("Halo API initialization failed:", apiQuery.error);
+    logger.warn({ event: "initialize-failed", error: apiQuery.error });
     return <ConnectionPage status="disconnected" />;
   }
   if (disconnected) return <ConnectionPage status="disconnected" />;

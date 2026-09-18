@@ -1,5 +1,5 @@
 import { sessionError } from "./sessionView.js";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import * as errore from "errore";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -10,6 +10,7 @@ import {
 } from "@get-halo/client";
 import { useApi } from "../../api/ApiProvider.tsx";
 import { reconnectStream } from "../../api/reconnectStream.js";
+import { useLogger } from "../../LoggerProvider.js";
 import { Stream } from "@get-halo/shared/Stream";
 import {
   applyConnectionEvent,
@@ -41,6 +42,8 @@ export function useAgentSession(
   const api = useApi();
   const queryClient = useQueryClient();
   const queryClientRef = useRef(queryClient);
+  const rootLogger = useLogger();
+  const logger = useMemo(() => rootLogger.scope("session"), [rootLogger]);
   const [readySessionId, setReadySessionId] = useState<string | undefined>(
     undefined,
   );
@@ -64,6 +67,7 @@ export function useAgentSession(
     const unsubscribe = states.subscribe(setState);
     reconnectStream({
       name: "Session event",
+      logger,
       signal: controller.signal,
       open: async () =>
         await api.sessions.watch({ sessionId }, { signal: controller.signal }),
@@ -92,7 +96,7 @@ export function useAgentSession(
       unsubscribe();
       controller.abort();
     };
-  }, [api, sessionId]);
+  }, [api, logger, sessionId]);
 
   async function prompt(text: string) {
     if (readySessionId === undefined) {
