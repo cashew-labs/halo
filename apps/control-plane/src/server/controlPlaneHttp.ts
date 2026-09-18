@@ -175,6 +175,11 @@ async function routeControlPlaneRequest(ctx: {
     return;
   }
 
+  if (request.method === "GET" && url.pathname === "/api/desktop-auth/error") {
+    serveDesktopAuthError(response, url);
+    return;
+  }
+
   if (isBetterAuthRequest(url)) {
     await serveBetterAuth(request, response, auth);
     return;
@@ -283,6 +288,21 @@ async function serveDesktopAuthCompletion(
       "referrer-policy": "no-referrer",
     })
     .end();
+}
+
+function serveDesktopAuthError(response: ServerResponse, url: URL) {
+  const error = url.searchParams.get("error");
+  const detail =
+    error === null || error === ""
+      ? "Halo could not finish signing in. Return to the app and try again."
+      : `Halo could not finish signing in (${error}). Return to the app and try again.`;
+
+  response
+    .writeHead(200, {
+      "cache-control": "no-store",
+      "content-type": "text/plain; charset=utf-8",
+    })
+    .end(detail);
 }
 
 function isBetterAuthRequest(url: URL) {

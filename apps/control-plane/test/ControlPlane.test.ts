@@ -261,24 +261,57 @@ controlPlaneTest(
 );
 
 controlPlaneTest(
-  "starts Google sign-in in the browser with its state cookie",
+  "starts Google sign-in in the browser without opening the website",
   async ({ plane, rpc }) => {
     const result = await rpc.auth.start({
       callback: "http://127.0.0.1:49152/auth/callback",
       state: desktopAuthState,
     });
 
-    const start = new URL(result.authorizationUrl);
-    expect(start.origin).toBe(plane.origin);
-    expect(start.pathname).toBe("/api/desktop-auth/start");
+    const google = new URL(result.authorizationUrl);
+    expect(google.origin).toBe("https://accounts.google.com");
+    expect(google.pathname).toBe("/o/oauth2/v2/auth");
+    expect(google.searchParams.get("client_id")).toBe(testAuth.googleClientId);
+    expect(google.searchParams.get("redirect_uri")).toBe(
+      `${plane.origin}/api/auth/callback/google`,
+    );
+  },
+);
+
+controlPlaneTest(
+  "keeps the desktop start page as a Google redirect",
+  async ({ plane }) => {
+    const start = new URL("/api/desktop-auth/start", plane.origin);
+    start.searchParams.set("callback", "http://127.0.0.1:49152/auth/callback");
+    start.searchParams.set("state", desktopAuthState);
 
     const response = await fetch(start, { redirect: "manual" });
     expect(response.status).toBe(302);
-    expect(response.headers.getSetCookie()).not.toHaveLength(0);
 
     const google = new URL(response.headers.get("location")!);
     expect(google.origin).toBe("https://accounts.google.com");
     expect(google.pathname).toBe("/o/oauth2/v2/auth");
+  },
+);
+
+controlPlaneTest(
+  "does not send OAuth errors to the website homepage",
+  async ({ plane }) => {
+    const response = await fetch(`${plane.origin}/api/auth/callback/google`, {
+      redirect: "manual",
+    });
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe(
+      `${plane.origin}/api/desktop-auth/error?error=state_not_found`,
+    );
+
+    const error = await fetch(
+      `${plane.origin}/api/desktop-auth/error?error=state_not_found`,
+    );
+    expect(error.status).toBe(200);
+    const body = await error.text();
+    expect(body).toContain("state_not_found");
+    expect(body).not.toContain("Halo web app");
   },
 );
 
