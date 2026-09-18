@@ -22,7 +22,7 @@ The service still owns page lifetime, permissions, error conversion, and where s
 
 ## Put it in the right layer
 
-Use pnpm workspaces and Turborepo. Keep deployable hosts in `apps/`, reusable services and UI in `packages/`, and deployment configuration in `infra/`. Apps compose packages; reusable packages do not import app internals. Keep dependencies acyclic.
+Use pnpm workspaces and Turborepo. Name workspace packages with the `@get-halo/*` scope. Keep deployable hosts in `apps/`, reusable services and UI in `packages/`, and deployment configuration in `infra/`. Apps compose packages; reusable packages do not import app internals. Keep dependencies acyclic.
 
 ## Expose the contract, not the file tree
 

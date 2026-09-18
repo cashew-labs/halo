@@ -2,6 +2,8 @@
 
 Start with what a consumer can do, drive that behavior through the package's public surface, and check the result they can observe.
 
+Do not write tests unless you are updating existing tests, adding coverage to an existing test file, or the user asks for them. When changing tests, extend the existing canonical test file and fixture where they fit.
+
 ## Choose the consumer boundary
 
 Package tests are E2Es through the main supported exports. Apps use their public UI or protocol. The consumer boundary defines E2E, not the number of processes: an exported reducer can be tested directly. Use Vitest for library/server APIs and Playwright for UI workflows.
@@ -12,7 +14,7 @@ For an exported reducer, that means testing `applySessionEvent(emptySessionSnaps
 
 Use one canonical setup form per package, with one shared fixture and test entry where runtime setup is needed. Pure API tests need no artificial fixture. Feature files and setup helpers can remain separate, but must compose behind that fixture rather than export alternate fixtures or mount internal subsets.
 
-For example, auth scenarios belong to the complete control-plane fixture:
+Control-plane auth, routing, proxying, and lifecycle scenarios use the complete `controlPlane` fixture. Existing alternate fixtures are migration work, not examples to copy. For example:
 
 ```ts
 // Avoid: an auth-only fixture bypasses the control plane.
