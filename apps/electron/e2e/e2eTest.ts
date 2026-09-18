@@ -1,5 +1,5 @@
 import { execa } from "execa";
-import { cp, mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import nodePath, { join, resolve } from "node:path";
 import { Logger } from "@get-halo/logger";
 import { startWorkspaceServerProcess } from "./startWorkspaceServerProcess.js";
@@ -143,9 +143,10 @@ export const e2eTest = baseTest.extend<E2EFixtures, E2EWorkerFixtures>({
     use,
     testInfo,
   ) => {
+    const tools = createHarnessTools(server.rpc.testApi);
     await use({
       ...testArtifacts.harness,
-      tools: createHarnessTools(server.rpc.testApi),
+      tools,
       async loadSession(description) {
         await app.page.getByRole("main").waitFor();
         const loaded = await loadSessionDescription({
@@ -165,44 +166,50 @@ export const e2eTest = baseTest.extend<E2EFixtures, E2EWorkerFixtures>({
         return loaded;
       },
       async loadExtension(sourceDirectory) {
-        const { scaffoldExtension } =
-          await import("@get-halo/extension-tools/scaffold");
         const source = nodePath.resolve(
           nodePath.dirname(testInfo.file),
           sourceDirectory,
         );
         const id = nodePath.basename(source);
-        const parent = nodePath.join(
+        const relativeDirectory = `.halo/extensions/${id}`;
+        const directoryArgument = JSON.stringify(relativeDirectory);
+        const directory = nodePath.join(
           testArtifacts.paths.workspace,
-          ".halo",
-          "extensions",
+          relativeDirectory,
         );
-        await mkdir(parent, { recursive: true });
-        const directory = nodePath.join(parent, id);
-        const scaffolded = await scaffoldExtension({
-          directory,
-          name: id,
-          packages: await getExtensionPackages(),
+        const packages = await getExtensionPackages();
+        const files = new Map(
+          extensionBaseFiles({ id, packages }).map((file) => [
+            file.path,
+            file.content,
+          ]),
+        );
+        for (const file of await readExtensionFiles(source)) {
+          files.set(file.path, file.content);
+        }
+        await runHarnessCommand({
+          tools,
+          command: `mkdir -p -- ${directoryArgument}`,
         });
-        if (scaffolded instanceof Error) throw scaffolded;
-        await cp(source, directory, { recursive: true });
-        await extensionCommand(
-          "pnpm",
-          [
-            "install",
-            "--dir",
-            directory,
-            "--lockfile-dir",
-            directory,
-            "--ignore-workspace",
-            "--ignore-scripts",
-            "--config.manage-package-manager-versions=false",
-          ],
-          directory,
-        );
-        await extensionCommand("npm", ["run", "typecheck"], directory);
-        await extensionCommand("npm", ["run", "build"], directory);
-        await app.server.rpc.extensions.reload();
+        for (const [filePath, content] of files) {
+          await tools.files.write({
+            path: `${relativeDirectory}/${filePath}`,
+            content,
+          });
+        }
+        await runHarnessCommand({
+          tools,
+          command: `pnpm install --dir ${directoryArgument} --lockfile-dir ${directoryArgument} --ignore-workspace --ignore-scripts --config.manage-package-manager-versions=false`,
+        });
+        await runHarnessCommand({
+          tools,
+          command: `npm --prefix ${directoryArgument} run typecheck`,
+        });
+        await runHarnessCommand({
+          tools,
+          command: `npm --prefix ${directoryArgument} run build`,
+        });
+        await server.rpc.extensions.reload();
         await app.page.reload();
         return { id, directory };
       },
@@ -242,6 +249,109 @@ export const e2eTest = baseTest.extend<E2EFixtures, E2EWorkerFixtures>({
     { scope: "worker", timeout: 180_000 },
   ],
 });
+
+function extensionBaseFiles(input: {
+  id: string;
+  packages: ExtensionPackages;
+}) {
+  return [
+    {
+      path: "package.json",
+      content: `${JSON.stringify(
+        {
+          name: input.id,
+          private: true,
+          type: "module",
+          scripts: {
+            build: "halo-extension build",
+            start: "node dist/start.mjs",
+            typecheck: "tsc --noEmit",
+          },
+          dependencies: {
+            "@get-halo/extension-sdk": input.packages.sdk,
+            react: "^19.2.8",
+            "react-dom": "^19.2.8",
+            maui: "npm:@tanishqkancharla/maui@0.0.19",
+            errore: "^0.14.1",
+          },
+          devDependencies: {
+            "@get-halo/extension-tools": input.packages.tools,
+            "@types/react": "19.2.18",
+            typescript: "7.0.2",
+          },
+        },
+        undefined,
+        2,
+      )}\n`,
+    },
+    {
+      path: "tsconfig.json",
+      content: `${JSON.stringify(
+        {
+          compilerOptions: {
+            target: "ES2022",
+            lib: ["ESNext", "DOM", "DOM.Iterable"],
+            module: "ESNext",
+            moduleResolution: "Bundler",
+            jsx: "react-jsx",
+            strict: true,
+            noUncheckedIndexedAccess: true,
+            skipLibCheck: true,
+            noEmit: true,
+          },
+          include: ["*.ts", "*.tsx"],
+        },
+        undefined,
+        2,
+      )}\n`,
+    },
+    {
+      path: "api.ts",
+      content:
+        'import { os } from "@get-halo/extension-sdk/api";\nexport default { hello: os.handler(() => "Hello from your extension") };\n',
+    },
+    {
+      path: "schema.ts",
+      content:
+        'import { defineSchema } from "@get-halo/extension-sdk/schema";\nexport default defineSchema({});\n',
+    },
+  ];
+}
+
+async function readExtensionFiles(
+  directory: string,
+  relativeDirectory = "",
+): Promise<{ path: string; content: string }[]> {
+  const files: { path: string; content: string }[] = [];
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const relativePath = nodePath.join(relativeDirectory, entry.name);
+    const absolutePath = nodePath.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...(await readExtensionFiles(absolutePath, relativePath)));
+      continue;
+    }
+    files.push({
+      path: relativePath,
+      content: await readFile(absolutePath, "utf8"),
+    });
+  }
+  return files;
+}
+
+async function runHarnessCommand(input: {
+  tools: ReturnType<typeof createHarnessTools>;
+  command: string;
+}) {
+  const result = await input.tools.bash.run({
+    command: input.command,
+    timeoutMs: 180_000,
+  });
+  if (result.code === 0) return;
+  throw new ExtensionSetupError({
+    command: input.command,
+    cause: new Error(`${result.stdout}\n${result.stderr}`),
+  });
+}
 
 async function extensionCommand(
   executable: string,

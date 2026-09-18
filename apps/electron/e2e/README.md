@@ -41,11 +41,13 @@ These tests exercise the real Pi agent loop, tools, and persistence through Pi's
 
 Extension tests use the canonical `e2eTest` fixture and request
 `loadExtension("./fixtures/name")`. Its worker-scoped package fixture builds and
-packs the SDK and tools lazily, then the test-scoped helper scaffolds an
-independent extension package, installs those packages, typechecks and builds
-the extension, and reloads Halo. Extension source is checked against its
-installed dependencies, separately from the harness TypeScript project. Tests
-that do not request extension helpers do not build the extension packages.
+packs the SDK and tools lazily. The helper describes a complete extension
+directory from those package references and the supplied source directory,
+writes it through the same file tools available to agents, and runs install,
+typecheck, and build through the same shell tool. It then reloads extensions
+through the workspace server and reloads Halo. Extension source is checked
+against its installed dependencies, separately from the harness TypeScript
+project. Tests that do not load extensions do not build the extension packages.
 
 `extensionTools.e2e.test.ts` loads a real trusted extension and clicks Refresh notes to display a workspace file through `context.tools.files.read`, with no approval step. Its source declares the types of the tool it consumes. A separate scenario verifies that the tool bridge works after restarting Halo. These cover a real workspace tool; they do not establish OAuth or external-service behavior.
 
