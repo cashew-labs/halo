@@ -1,0 +1,7 @@
+{
+  "repository": "https://github.com/tanishqkancharla/diffmap.git",
+  "upstreamBranch": "main",
+  "customBase": "214a534bd234844379713754d042ddbd964df49c",
+  "upstreamPort": 4178,
+  "customPort": 4179
+}
