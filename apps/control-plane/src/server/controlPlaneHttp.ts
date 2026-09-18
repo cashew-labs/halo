@@ -1,5 +1,5 @@
 import fs from "node:fs/promises";
-import {
+import http, {
   createServer,
   type Server as HttpServer,
   type IncomingMessage,
@@ -8,7 +8,6 @@ import {
 import type { AddressInfo } from "node:net";
 import type { Duplex } from "node:stream";
 import path from "node:path";
-import { respondToHttpUpgrade } from "@get-halo/shared/httpUpgrade";
 import { RPCHandler } from "@orpc/server/node";
 import {
   RequestHeadersHandlerPlugin,
@@ -124,7 +123,7 @@ export function serveControlPlaneHttp(ctx: {
       requestUrlBase,
     );
     if (!isWorkspaceProxyRequest(url)) {
-      respondToHttpUpgrade(socket, 404);
+      respondToUpgrade(socket, 404);
       return;
     }
     await gateway.upgrade(request, socket, head);
@@ -156,6 +155,15 @@ export async function closeControlPlaneHttp(server: HttpServer) {
 
 function respondStarting(_request: IncomingMessage, response: ServerResponse) {
   response.writeHead(503).end("Control plane is starting.");
+}
+
+function respondToUpgrade(socket: Duplex, statusCode: number) {
+  socket.end(
+    `HTTP/1.1 ${statusCode} ${http.STATUS_CODES[statusCode]}\r\n` +
+      "Connection: close\r\n" +
+      "Content-Length: 0\r\n" +
+      "\r\n",
+  );
 }
 
 async function routeControlPlaneRequest(ctx: {

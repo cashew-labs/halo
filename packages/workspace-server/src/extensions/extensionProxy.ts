@@ -1,10 +1,9 @@
-import type {
-  IncomingHttpHeaders,
-  IncomingMessage,
-  ServerResponse,
+import http, {
+  type IncomingHttpHeaders,
+  type IncomingMessage,
+  type ServerResponse,
 } from "node:http";
 import type { Duplex } from "node:stream";
-import { respondToHttpUpgrade } from "@get-halo/shared/httpUpgrade";
 import { createProxyServer, proxyUpgrade } from "httpxy";
 import * as errore from "errore";
 import type { ExtensionHost } from "./ExtensionHost.js";
@@ -52,13 +51,13 @@ export async function serveExtensionUpgrade(ctx: {
 }) {
   const route = parseExtensionRoute(ctx.url);
   if (route instanceof Error) {
-    respondToHttpUpgrade(ctx.socket, 400);
+    respondToUpgrade(ctx.socket, 400);
     return;
   }
 
   const origin = ctx.extensions.getOrigin(route.id);
   if (origin === undefined) {
-    respondToHttpUpgrade(ctx.socket, 404);
+    respondToUpgrade(ctx.socket, 404);
     return;
   }
 
@@ -140,4 +139,13 @@ function removePrivateHeaders(headers: IncomingHttpHeaders) {
 function firstHeader(value: string | string[] | undefined) {
   if (Array.isArray(value)) return value[0];
   return value;
+}
+
+function respondToUpgrade(socket: Duplex, statusCode: number) {
+  socket.end(
+    `HTTP/1.1 ${statusCode} ${http.STATUS_CODES[statusCode]}\r\n` +
+      "Connection: close\r\n" +
+      "Content-Length: 0\r\n" +
+      "\r\n",
+  );
 }

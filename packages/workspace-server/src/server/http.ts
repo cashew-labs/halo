@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import {
+import http, {
   createServer,
   type Server as HttpServer,
   type IncomingMessage,
@@ -7,7 +7,6 @@ import {
 } from "node:http";
 import type { AddressInfo } from "node:net";
 import type { Duplex } from "node:stream";
-import { respondToHttpUpgrade } from "@get-halo/shared/httpUpgrade";
 import { RPCHandler, type RPCHandlerOptions } from "@orpc/server/node";
 import { CORSHandlerPlugin } from "@orpc/server/plugins";
 import { anyAbortSignal } from "@orpc/shared";
@@ -236,7 +235,7 @@ export function serveHaloHttp(options: {
     head: Buffer,
   ) => {
     if (shutdown.signal.aborted) {
-      respondToHttpUpgrade(socket, 503);
+      respondToUpgrade(socket, 503);
       return;
     }
     const authorization = await authorizeWorkspaceRequest({
@@ -251,11 +250,11 @@ export function serveHaloHttp(options: {
         event: "workspace-gateway-authentication-failed",
         error: authorization,
       });
-      respondToHttpUpgrade(socket, 401);
+      respondToUpgrade(socket, 401);
       return;
     }
     if (authorization === undefined) {
-      respondToHttpUpgrade(socket, 401);
+      respondToUpgrade(socket, 401);
       return;
     }
     const url = new URL(
@@ -263,7 +262,7 @@ export function serveHaloHttp(options: {
       "http://localhost",
     );
     if (!isExtensionProxyRequest(url)) {
-      respondToHttpUpgrade(socket, 404);
+      respondToUpgrade(socket, 404);
       return;
     }
     await serveExtensionUpgrade({
@@ -350,4 +349,13 @@ async function listen(
     });
     server.listen(options.port, options.host, () => resolve(undefined));
   });
+}
+
+function respondToUpgrade(socket: Duplex, statusCode: number) {
+  socket.end(
+    `HTTP/1.1 ${statusCode} ${http.STATUS_CODES[statusCode]}\r\n` +
+      "Connection: close\r\n" +
+      "Content-Length: 0\r\n" +
+      "\r\n",
+  );
 }

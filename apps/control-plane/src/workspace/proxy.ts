@@ -1,6 +1,5 @@
-import type { IncomingMessage, ServerResponse } from "node:http";
+import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import type { Duplex } from "node:stream";
-import { respondToHttpUpgrade } from "@get-halo/shared/httpUpgrade";
 import { GoogleAuth, type IdTokenClient } from "google-auth-library";
 import { createProxyServer, proxyUpgrade } from "httpxy";
 import * as errore from "errore";
@@ -93,29 +92,29 @@ export class WorkspaceGateway {
     const session = await this.auth.getSession(requestHeaders(request));
     if (session instanceof Error) {
       console.error(session);
-      respondToHttpUpgrade(socket, 500);
+      respondToUpgrade(socket, 500);
       return;
     }
     if (session === undefined) {
-      respondToHttpUpgrade(socket, 401);
+      respondToUpgrade(socket, 401);
       return;
     }
 
     const connection = await this.workspace.getConnection(session.user.id);
     if (connection instanceof Error) {
       console.error(connection);
-      respondToHttpUpgrade(socket, 503);
+      respondToUpgrade(socket, 503);
       return;
     }
     if (connection === undefined) {
-      respondToHttpUpgrade(socket, 503);
+      respondToUpgrade(socket, 503);
       return;
     }
 
     const authorization = await this.getAuthorization(connection);
     if (authorization instanceof Error) {
       console.error(authorization);
-      respondToHttpUpgrade(socket, 502);
+      respondToUpgrade(socket, 502);
       return;
     }
 
@@ -273,4 +272,13 @@ function respond(
 function corsHeaders(request: IncomingMessage) {
   if (request.headers.origin !== "null") return {};
   return { "access-control-allow-origin": "null" };
+}
+
+function respondToUpgrade(socket: Duplex, statusCode: number) {
+  socket.end(
+    `HTTP/1.1 ${statusCode} ${http.STATUS_CODES[statusCode]}\r\n` +
+      "Connection: close\r\n" +
+      "Content-Length: 0\r\n" +
+      "\r\n",
+  );
 }
