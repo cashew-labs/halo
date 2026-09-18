@@ -7,7 +7,6 @@ import * as errore from "errore";
 import { ControlPlane } from "../../control-plane/src/server/ControlPlane.js";
 import { m } from "@get-halo/shared/testing";
 import { e2eTest } from "./e2eTest.js";
-import { extensionE2eTest } from "./extensionE2eTest.js";
 
 const auth = {
   secret: "test-control-plane-auth-secret-key!",
@@ -15,11 +14,11 @@ const auth = {
   googleClientSecret: "test-google-client-secret",
 };
 
-extensionE2eTest(
+e2eTest(
   "opens an owner-authenticated extension at its standalone web URL",
-  async ({ browser, loadExtension, testArtifacts }) => {
-    extensionE2eTest.setTimeout(120_000);
-    const extension = await loadExtension("./fixtures/greeting");
+  async ({ browser, harness, testArtifacts }) => {
+    e2eTest.setTimeout(120_000);
+    const extension = await harness.loadExtension("./fixtures/greeting");
     const plane = await ControlPlane.start({
       config: {
         deployment: "local",
