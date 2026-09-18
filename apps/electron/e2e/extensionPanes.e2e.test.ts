@@ -1,10 +1,10 @@
 import { expect } from "@playwright/test";
-import { extensionE2eTest } from "./extensionE2eTest.js";
+import { e2eTest } from "./e2eTest.js";
 
-extensionE2eTest(
+e2eTest(
   "opens an interactive extension pane from the workspace sidebar",
-  async ({ app, loadExtension }) => {
-    await loadExtension("./fixtures/greeting");
+  async ({ app, harness }) => {
+    await harness.loadExtension("./fixtures/greeting");
 
     await app.page
       .getByRole("link", { name: "greeting", exact: true })
@@ -23,11 +23,11 @@ extensionE2eTest(
   },
 );
 
-extensionE2eTest(
+e2eTest(
   "syncs tasks from a separate browser into an open Halo pane without losing its draft",
-  async ({ app, loadExtension }) => {
-    extensionE2eTest.setTimeout(240_000);
-    const loaded = await loadExtension(
+  async ({ app, harness }) => {
+    e2eTest.setTimeout(240_000);
+    const loaded = await harness.loadExtension(
       "../../../packages/extension-tools/test/fixtures/tasks",
     );
     await app.page.getByRole("link", { name: "tasks", exact: true }).click();
@@ -54,11 +54,11 @@ extensionE2eTest(
   },
 );
 
-extensionE2eTest(
+e2eTest(
   "removes a deleted extension from the sidebar and stops its server on reload",
-  async ({ app, loadExtension, harness, request }) => {
-    extensionE2eTest.setTimeout(60_000);
-    const loaded = await loadExtension("./fixtures/greeting");
+  async ({ app, harness, request }) => {
+    e2eTest.setTimeout(60_000);
+    const loaded = await harness.loadExtension("./fixtures/greeting");
     const extension = (await app.server.rpc.extensions.list()).find(
       (entry) => entry.id === loaded.id,
     )!;
@@ -79,10 +79,10 @@ extensionE2eTest(
   },
 );
 
-extensionE2eTest(
+e2eTest(
   "updates an extension's name and icon on renderer reload without changing its URL",
-  async ({ app, loadExtension, harness }) => {
-    await loadExtension("./fixtures/greeting");
+  async ({ app, harness }) => {
+    await harness.loadExtension("./fixtures/greeting");
     const [before] = await app.server.rpc.extensions.list();
 
     await harness.tools.bash.run({
