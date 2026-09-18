@@ -23,6 +23,10 @@ export {
   type ConnectionRequest,
 } from "./ConnectionRequest.js";
 export {
+  googleIntegrationDisplay,
+  type GoogleIntegrationDisplay,
+} from "./GoogleIntegrationDisplay.js";
+export {
   haloMessageSchema,
   execToolCallSchema,
   directToolIdentity,
@@ -57,6 +61,9 @@ export type {
 export type {
   WorkspaceInfo,
   SessionSummary,
+  SessionSummariesUpdate,
   WorkspaceTreeEvent,
   WorkspaceFilePreview,
 } from "./rpc.js";
+
+export { imageFilename, imageMediaTypes } from "./imageFilename.js";

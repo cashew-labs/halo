@@ -1,3 +1,8 @@
+import {
+  hasDroppedFiles,
+  readDroppedFiles,
+  uploadDroppedFiles,
+} from "./droppedFiles.js";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   useEffect,
@@ -19,6 +24,7 @@ import {
 } from "maui";
 import { style, useStyles } from "purse-styles";
 import { useLocation } from "wouter";
+import { useWorkspacePanes } from "../panes/WorkspacePanesProvider.js";
 import { FileEntryDialog, type FileEntryAction } from "./FileEntryDialog.js";
 import { flushFileAutosaves } from "../main/useAutosaveFile.js";
 import { File, Folder, FilePlus, FolderPlus, DotsHorizontal } from "maui/icons";
@@ -46,6 +52,11 @@ type FileNavigationNode = {
 };
 
 type FileOperation =
+  | {
+      kind: "upload";
+      path: string;
+      entries: ReturnType<typeof readDroppedFiles>;
+    }
   | { kind: "create"; path: string; entryKind: "file" | "directory" }
   | { kind: "delete"; path: string }
   | { kind: "move"; source: string; destination: string };
@@ -64,16 +75,31 @@ export function FilesystemSection() {
     [pathsQuery.data],
   );
   const workspaceRoot = workspace?.workspaceRoot;
-  const [location, navigate] = useLocation();
+  const [, navigate] = useLocation();
+  const workspacePanes = useWorkspacePanes();
   const [action, setAction] = useState<FileAction>();
   const [dragged, setDragged] = useState<string>();
   const [dropTarget, setDropTarget] = useState<string>();
+  const [uploadStatus, setUploadStatus] = useState<string>();
   const dropRow = useStyles(styles.dropRow);
   const feedback = useStyles(styles.feedback);
   const controls = useStyles(styles.controls);
   const mutation = useMutation({
     mutationKey: ["workspace-entry"],
     mutationFn: async (operation: FileOperation) => {
+      if (operation.kind === "upload") {
+        setUploadStatus("Uploading…");
+        const dropped = await operation.entries;
+        if (dropped instanceof Error) throw dropped;
+        const uploaded = await uploadDroppedFiles({
+          api,
+          folder: operation.path,
+          ...dropped,
+          onProgress: setUploadStatus,
+        });
+        if (uploaded instanceof Error) throw uploaded;
+        return;
+      }
       if (operation.kind === "create") {
         return await api.workspace.createEntry({
           path: operation.path,
@@ -89,7 +115,7 @@ export function FilesystemSection() {
     onSuccess: async (_result, operation) => {
       const destination =
         operation.kind !== "move" ? operation.path : operation.destination;
-      const segments = destination.split("/");
+      const segments = destination === "" ? [] : destination.split("/");
       expand(
         segments.map(
           (segment, index) =>
@@ -107,42 +133,24 @@ export function FilesystemSection() {
         queryKey: ["workspace-preview"],
         refetchType: "none",
       });
+      if (operation.kind === "upload") return;
       if (operation.kind === "create") {
         if (operation.entryKind === "file") navigate(fileRoute(operation.path));
         setAction(undefined);
         return;
       }
-      if (!location.startsWith("/files/")) {
-        setAction(undefined);
-        return;
-      }
-      const openPath = decodeURIComponent(location.slice("/files/".length));
-      if (operation.kind === "delete") {
-        if (
-          openPath === operation.path ||
-          openPath.startsWith(`${operation.path}/`)
-        )
-          navigate("/", { replace: true });
-        setAction(undefined);
-        return;
-      }
-      if (
-        openPath === operation.source ||
-        openPath.startsWith(`${operation.source}/`)
-      ) {
-        navigate(
-          fileRoute(
-            operation.destination + openPath.slice(operation.source.length),
-          ),
-          { replace: true },
-        );
-      }
+      workspacePanes.updateFiles(
+        operation.kind === "delete" ? operation.path : operation.source,
+        operation.kind === "move" ? operation.destination : undefined,
+      );
       setAction(undefined);
     },
+    onError: () => setUploadStatus(undefined),
   });
   const folders = ["", ...allFolders(files)];
   function openAction(next: FileAction) {
     mutation.reset();
+    setUploadStatus(undefined);
     setAction(next);
     if (
       (next.kind === "file" || next.kind === "directory") &&
@@ -150,9 +158,10 @@ export function FilesystemSection() {
     )
       expand([`file:${next.parent}/`]);
   }
-  function canDrop(folder: string) {
-    if (dragged === undefined || mutation.isPending || action !== undefined)
-      return false;
+  function canDrop(folder: string, transfer?: DataTransfer) {
+    if (mutation.isPending || action !== undefined) return false;
+    if (transfer !== undefined && hasDroppedFiles(transfer)) return true;
+    if (dragged === undefined) return false;
     const parent = dragged.slice(0, Math.max(0, dragged.lastIndexOf("/")));
     return (
       folder !== dragged &&
@@ -165,6 +174,17 @@ export function FilesystemSection() {
     setDropTarget(undefined);
   }
   function drop(event: DragEvent, folder: string) {
+    if (hasDroppedFiles(event.dataTransfer)) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!canDrop(folder, event.dataTransfer)) return;
+      mutation.mutate({
+        kind: "upload",
+        path: folder,
+        entries: readDroppedFiles(event.dataTransfer),
+      });
+      return;
+    }
     if (
       !canDrop(folder) ||
       event.dataTransfer.getData(fileDragType) !== dragged
@@ -234,16 +254,47 @@ export function FilesystemSection() {
   return (
     <SidebarSection
       headerClassName={dropRow}
+      render={(props) => (
+        <div
+          {...props}
+          onDragOver={(event) => {
+            if (!hasDroppedFiles(event.dataTransfer)) return;
+            event.preventDefault();
+            event.stopPropagation();
+            if (!canDrop("", event.dataTransfer)) {
+              event.dataTransfer.dropEffect = "none";
+              return;
+            }
+            event.dataTransfer.dropEffect = "copy";
+            setDropTarget("");
+          }}
+          onDragLeave={(event) => {
+            if (
+              !(event.relatedTarget instanceof Node) ||
+              !event.currentTarget.contains(event.relatedTarget)
+            )
+              setDropTarget(undefined);
+          }}
+          onDrop={(event) => {
+            if (!hasDroppedFiles(event.dataTransfer)) return;
+            setDropTarget(undefined);
+            drop(event, "");
+          }}
+        />
+      )}
       renderHeader={(props) => (
         <div
           {...props}
-          data-drop-target={
-            canDrop("") && dropTarget === "" ? "true" : undefined
-          }
+          data-drop-target={dropTarget === "" ? "true" : undefined}
           onDragOver={(event) => {
-            if (canDrop("")) {
+            if (canDrop("", event.dataTransfer)) {
               event.preventDefault();
-              event.dataTransfer.dropEffect = "move";
+              event.stopPropagation();
+              event.dataTransfer.dropEffect = hasDroppedFiles(
+                event.dataTransfer,
+              )
+                ? "copy"
+                : "move";
               setDropTarget("");
             }
           }}
@@ -263,6 +314,11 @@ export function FilesystemSection() {
       label={
         <span>
           Files
+          {uploadStatus !== undefined && (
+            <span role="status" className={feedback}>
+              {uploadStatus}
+            </span>
+          )}
           {action === undefined && mutation.isError && (
             <span role="alert" className={feedback}>
               {mutation.error.message}
@@ -355,7 +411,7 @@ function FileNavigationItem({
   onDrag(path: string | undefined): void;
   dropTarget: string | undefined;
   onDropTarget(path: string | undefined): void;
-  canDrop(folder: string): boolean;
+  canDrop(folder: string, transfer?: DataTransfer): boolean;
   onDrop(event: DragEvent, folder: string): void;
   pending: boolean;
   creation: FileCreationRow | undefined;
@@ -363,7 +419,9 @@ function FileNavigationItem({
   const path = node.isDirectory ? node.path.slice(0, -1) : node.path;
   const label = useStyles(styles.fileLabel);
   const row = useStyles(styles.dropRow);
-  const droppable = node.isDirectory && canDrop(path);
+  const destination = node.isDirectory
+    ? path
+    : path.slice(0, Math.max(0, path.lastIndexOf("/")));
   return (
     <SidebarItem
       id={`file:${node.path}`}
@@ -376,13 +434,18 @@ function FileNavigationItem({
         <div
           {...props}
           data-drop-target={
-            droppable && dropTarget === path ? "true" : undefined
+            node.isDirectory && dropTarget === path ? "true" : undefined
           }
           onDragOver={(event) => {
-            if (droppable) {
+            const localFiles = hasDroppedFiles(event.dataTransfer);
+            if (
+              (node.isDirectory || localFiles) &&
+              canDrop(destination, event.dataTransfer)
+            ) {
               event.preventDefault();
-              event.dataTransfer.dropEffect = "move";
-              onDropTarget(path);
+              event.stopPropagation();
+              event.dataTransfer.dropEffect = localFiles ? "copy" : "move";
+              onDropTarget(destination);
             }
           }}
           onDragLeave={(event) => {
@@ -394,7 +457,8 @@ function FileNavigationItem({
           }}
           onDrop={(event) => {
             onDropTarget(undefined);
-            if (node.isDirectory) onDrop(event, path);
+            if (node.isDirectory || hasDroppedFiles(event.dataTransfer))
+              onDrop(event, destination);
           }}
         />
       )}
@@ -431,7 +495,6 @@ function FileNavigationItem({
         draggable={!pending}
         data-file-path={path}
         onDragStart={(event) => {
-          event.stopPropagation();
           event.dataTransfer.setData(fileDragType, path);
           event.dataTransfer.effectAllowed = "move";
           onDrag(path);

@@ -2,8 +2,11 @@ import { KeyboardShortcuts } from "./KeyboardShortcuts.js";
 import { spacing, text } from "maui";
 import { style, useStyles } from "purse-styles";
 import { skipToken, useQuery } from "@tanstack/react-query";
-import { Redirect, Route, Router } from "wouter";
-import { useHashLocation } from "wouter/use-hash-location";
+import { Router } from "wouter";
+import {
+  WorkspacePanesProvider,
+  usePaneLocation,
+} from "./panes/WorkspacePanesProvider.js";
 import type { SessionSummary } from "@get-halo/client";
 import type { AppInfo } from "./HostApi.js";
 import { useHost } from "./HostProvider.js";
@@ -76,14 +79,13 @@ function WorkspaceShell({
           {alertMessage}
         </div>
       )}
-      {/* oxlint-disable-next-line react/hooks -- Wouter calls the location hook supplied to Router. */}
-      <Router hook={useHashLocation}>
-        <KeyboardShortcuts />
-        <Route path="/">
-          <Redirect to={initialHostPath(sessions)} replace />
-        </Route>
-        <WorkspaceLayout sessions={sessions} appInfo={appInfo} />
-      </Router>
+      <WorkspacePanesProvider initialPath={initialHostPath(sessions)}>
+        {/* oxlint-disable-next-line react/hooks -- Wouter calls the location hook supplied to Router. */}
+        <Router hook={usePaneLocation}>
+          <KeyboardShortcuts />
+          <WorkspaceLayout sessions={sessions} appInfo={appInfo} />
+        </Router>
+      </WorkspacePanesProvider>
     </div>
   );
 }

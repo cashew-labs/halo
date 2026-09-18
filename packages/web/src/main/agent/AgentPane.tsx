@@ -1,3 +1,4 @@
+import { useMarkSessionRead } from "./useSessionReadState.js";
 import { lastAssistantTurnWasAborted } from "./sessionView.js";
 import { useLayoutEffect, useRef, useState } from "react";
 import { skipToken, useQuery } from "@tanstack/react-query";
@@ -30,7 +31,6 @@ import { AssistantMessage } from "./AssistantMessage.tsx";
 import { Editor } from "./Editor.tsx";
 import { ExecutorConnectionCard } from "./ExecutorConnectionCard.tsx";
 import { ToolActivity } from "./ToolActivity.tsx";
-import { PaneHeader } from "../PaneHeader.tsx";
 
 export function AgentPane({
   sessionId,
@@ -43,6 +43,7 @@ export function AgentPane({
   const body = useStyles(styles.body);
   const column = useStyles(styles.column);
   const { state, error, prompt, abort } = useAgentSession(sessionId);
+  useMarkSessionRead({ sessionId, state });
   const sessionMeta = sessions.find(
     ({ sessionId: candidate }) => candidate === sessionId,
   );
@@ -55,7 +56,6 @@ export function AgentPane({
 
   return (
     <main className={pane} aria-label={title}>
-      <PaneHeader title={title} />
       <div className={body}>
         <div className={column}>
           <SessionView state={state} sessionId={sessionId} />
@@ -90,7 +90,6 @@ export function DraftAgentPane({ draftId }: { draftId: string }) {
       aria-label={title === undefined ? "New session" : title}
       data-draft-id={draftId}
     >
-      <PaneHeader title={title} />
       <div className={body}>
         <div className={column}>
           {hasMessages ? (

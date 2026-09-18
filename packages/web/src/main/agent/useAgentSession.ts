@@ -115,10 +115,6 @@ export function useAgentSession(
       setLocalError(result.message);
       return result;
     }
-    await queryClient.invalidateQueries({
-      queryKey: ["sessions"],
-      refetchType: "all",
-    });
   }
 
   async function abort() {
@@ -218,10 +214,6 @@ export function useDraftAgentSession(
       setTitle(undefined);
       return result;
     }
-    await queryClient.invalidateQueries({
-      queryKey: ["sessions"],
-      refetchType: "all",
-    });
   }
 
   return {

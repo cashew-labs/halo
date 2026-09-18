@@ -199,7 +199,7 @@ export const e2eTest = baseTest.extend<E2EFixtures, E2EWorkerFixtures>({
         }
         await runHarnessCommand({
           tools,
-          command: `pnpm install --dir ${directoryArgument} --lockfile-dir ${directoryArgument} --ignore-workspace --ignore-scripts --config.manage-package-manager-versions=false`,
+          command: `pnpm install --dir ${directoryArgument} --lockfile-dir . --ignore-workspace --ignore-scripts --config.manage-package-manager-versions=false`,
         });
         await runHarnessCommand({
           tools,

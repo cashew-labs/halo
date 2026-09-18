@@ -6,8 +6,11 @@ import { messageText } from "@get-halo/workspace-server/testing";
 e2eTest(
   "preserves the reading position during streaming and follows again at the bottom",
   async ({ app, llm }) => {
-    await app.page.getByRole("button", { name: "New session" }).click();
     await app.page
+      .getByRole("button", { name: "New session", exact: true })
+      .click();
+    await app.page
+      .getByRole("main")
       .getByLabel("Message", { exact: true })
       .fill("Explain the plan");
     await app.page.getByRole("button", { name: "Send", exact: true }).click();
@@ -120,9 +123,14 @@ e2eTest("starts a new session", async ({ harness, app }) => {
     ],
   });
 
-  await app.page.getByRole("button", { name: "New session" }).click();
+  await app.page
+    .getByRole("button", { name: "New session", exact: true })
+    .click();
 
-  const newSession = app.page.getByRole("main", { name: "New session" });
+  const newSession = app.page.getByRole("main", {
+    name: "New session",
+    exact: true,
+  });
   await expect(newSession).toBeVisible();
   await expect(newSession.getByLabel("Message", { exact: true })).toBeFocused();
 });
@@ -144,8 +152,13 @@ e2eTest(
       app.page.getByRole("main", { name: "Earlier conversation" }),
     ).toBeVisible();
 
-    await app.page.getByRole("button", { name: "New session" }).click();
-    const draft = app.page.getByRole("main", { name: "New session" });
+    await app.page
+      .getByRole("button", { name: "New session", exact: true })
+      .click();
+    const draft = app.page.getByRole("main", {
+      name: "New session",
+      exact: true,
+    });
     await expect(draft).toBeVisible();
     await app.page.reload();
     await expect(draft).toBeVisible();
@@ -159,8 +172,11 @@ e2eTest(
       path: "notes.md",
       content: "The project mascot is a blue bicycle.",
     });
-    await app.page.getByRole("button", { name: "New session" }).click();
     await app.page
+      .getByRole("button", { name: "New session", exact: true })
+      .click();
+    await app.page
+      .getByRole("main")
       .getByLabel("Message", { exact: true })
       .fill("Read the project notes");
     await app.page.getByRole("button", { name: "Send", exact: true }).click();
@@ -239,14 +255,18 @@ e2eTest(
 e2eTest(
   "answers a new message after stopping a pending model response",
   async ({ app, llm }) => {
-    await app.page.getByRole("button", { name: "New session" }).click();
     await app.page
+      .getByRole("button", { name: "New session", exact: true })
+      .click();
+    await app.page
+      .getByRole("main")
       .getByLabel("Message", { exact: true })
       .fill("Start a long answer");
     await app.page.getByRole("button", { name: "Send", exact: true }).click();
 
     await app.page.getByRole("button", { name: "Stop", exact: true }).click();
     await app.page
+      .getByRole("main")
       .getByLabel("Message", { exact: true })
       .fill("Answer this instead");
     await app.page.getByRole("button", { name: "Send", exact: true }).click();
@@ -261,8 +281,11 @@ e2eTest(
 e2eTest(
   "finishes a pending response while Electron is closed",
   async ({ app, llm }) => {
-    await app.page.getByRole("button", { name: "New session" }).click();
     await app.page
+      .getByRole("button", { name: "New session", exact: true })
+      .click();
+    await app.page
+      .getByRole("main")
       .getByLabel("Message", { exact: true })
       .fill("Start an answer");
     await app.page.getByRole("button", { name: "Send", exact: true }).click();
@@ -286,14 +309,16 @@ e2eTest(
 e2eTest(
   "titles a session immediately and keeps its first message when inference is denied",
   async ({ app, llm }) => {
-    await app.page.getByRole("button", { name: "New session" }).click();
+    await app.page
+      .getByRole("button", { name: "New session", exact: true })
+      .click();
     const pane = app.page.getByRole("main");
     const observed = await app.page.evaluateHandle(() => {
       const titles: string[] = [];
       const observer = new MutationObserver(() => {
-        const title = document
-          .querySelector("main > header")
-          ?.getAttribute("aria-label");
+        const title = document.querySelector(
+          '[role="tab"][aria-selected="true"]',
+        )?.textContent;
         if (title !== undefined && title !== null) titles.push(title);
       });
       observer.observe(document.body, {
@@ -307,7 +332,7 @@ e2eTest(
       .getByLabel("Message", { exact: true })
       .fill("Keep my original question");
     await pane.getByRole("button", { name: "Send", exact: true }).click();
-    await expect(app.page.locator("main > header")).toHaveText(
+    await expect(app.page.getByRole("tab", { selected: true })).toHaveText(
       "Keep my original question",
     );
     await llm.respond(m.error("Model access denied"));
@@ -325,7 +350,7 @@ e2eTest(
       pane.getByRole("log", { name: "Session transcript" }),
     ).toContainText("Ready to continue.");
     await expect(pane.getByRole("alert")).not.toBeVisible();
-    await expect(app.page.locator("main > header")).toHaveText(
+    await expect(app.page.getByRole("tab", { selected: true })).toHaveText(
       "Keep my original question",
     );
     const [session] = await app.server.rpc.sessions.list();
@@ -362,7 +387,13 @@ e2eTest("shows a connection request", async ({ harness, app }) => {
     name: "Google Drive connection",
   });
   await expect(card).toBeVisible();
+  await expect(
+    card.getByText("Search, read, create, and share files."),
+  ).toBeVisible();
   await expect(card.getByRole("button", { name: "Connect" })).toBeVisible();
+  await expect(
+    card.getByText("Connect your account so the agent can continue"),
+  ).toHaveCount(0);
 });
 
 e2eTest(
@@ -379,16 +410,17 @@ e2eTest(
     const card = app.page.getByRole("region", {
       name: "Google Drive connection",
     });
+    await expect(
+      card.getByText("Search, read, create, and share files."),
+    ).toBeVisible();
     await card.getByRole("button", { name: "Connect" }).click();
+    await expect(card.getByText("Opened in your browser")).toBeVisible();
     await expect(
-      card.getByRole("button", { name: "Connecting" }),
+      card.getByText("Search, read, create, and share files."),
     ).toBeVisible();
-    await expect(
-      card.getByText("Finish connecting in your browser"),
-    ).toBeVisible();
-    await card.getByRole("button", { name: "Cancel" }).click();
-    await expect(card.getByRole("button", { name: "Try again" })).toBeVisible();
-    await expect(card.getByText("Authorization cancelled")).toBeVisible();
+    await card.getByRole("button", { name: "Google Drive actions" }).click();
+    await app.page.getByRole("menuitem", { name: "Cancel" }).click();
+    await expect(card.getByText("Cancelled", { exact: true })).toBeVisible();
   },
 );
 
@@ -541,8 +573,11 @@ e2eTest(
       path: "notes.md",
       content: "Read before the request",
     });
-    await app.page.getByRole("button", { name: "New session" }).click();
     await app.page
+      .getByRole("button", { name: "New session", exact: true })
+      .click();
+    await app.page
+      .getByRole("main")
       .getByLabel("Message", { exact: true })
       .fill("Read the notes and fetch the report");
     await app.page.getByRole("button", { name: "Send", exact: true }).click();
@@ -651,8 +686,11 @@ e2eTest(
 e2eTest(
   "keeps tool details expanded through exec progress and assistant streaming",
   async ({ app, llm, http }) => {
-    await app.page.getByRole("button", { name: "New session" }).click();
     await app.page
+      .getByRole("button", { name: "New session", exact: true })
+      .click();
+    await app.page
+      .getByRole("main")
       .getByLabel("Message", { exact: true })
       .fill("Fetch both reports and summarize them");
     await app.page.getByRole("button", { name: "Send", exact: true }).click();
@@ -830,8 +868,11 @@ for (const scenario of expansionScenarios) {
 e2eTest(
   "keeps parallel tool activity visible when another tool finishes",
   async ({ app, llm, http }) => {
-    await app.page.getByRole("button", { name: "New session" }).click();
     await app.page
+      .getByRole("button", { name: "New session", exact: true })
+      .click();
+    await app.page
+      .getByRole("main")
       .getByLabel("Message", { exact: true })
       .fill("Fetch both reports");
     await app.page.getByRole("button", { name: "Send", exact: true }).click();
@@ -916,8 +957,11 @@ e2eTest(
 e2eTest(
   "shows identical parallel commands as separate active work",
   async ({ app, llm }) => {
-    await app.page.getByRole("button", { name: "New session" }).click();
     await app.page
+      .getByRole("button", { name: "New session", exact: true })
+      .click();
+    await app.page
+      .getByRole("main")
       .getByLabel("Message", { exact: true })
       .fill("Run the same command twice");
     await app.page.getByRole("button", { name: "Send", exact: true }).click();
@@ -1022,8 +1066,11 @@ e2eTest(
 e2eTest(
   "restores partial assistant text on reload and continues the same response",
   async ({ app, llm }) => {
-    await app.page.getByRole("button", { name: "New session" }).click();
     await app.page
+      .getByRole("button", { name: "New session", exact: true })
+      .click();
+    await app.page
+      .getByRole("main")
       .getByLabel("Message", { exact: true })
       .fill("Explain the plan");
     await app.page.getByRole("button", { name: "Send", exact: true }).click();
@@ -1052,5 +1099,206 @@ e2eTest(
     await expect(
       app.page.getByRole("button", { name: "Stop", exact: true }),
     ).not.toBeVisible();
+  },
+);
+
+e2eTest(
+  "edits and submits literal Markdown from the hybrid composer",
+  async ({ app, llm }) => {
+    await app.page
+      .getByRole("button", { name: "New session", exact: true })
+      .waitFor();
+    const previewUrl = new URL(app.page.url());
+    previewUrl.searchParams.set("markdown", "hybrid");
+    await app.page.goto(previewUrl.href);
+    const editor = app.page.getByRole("textbox", {
+      name: "Message",
+      exact: true,
+    });
+    await editor.fill("Before **bold** and *italic* after.");
+    await editor.locator("strong").click();
+    await expect(editor.locator(".markdown-marker")).toHaveText(["**", "**"]);
+    await editor.locator("em").click();
+    await expect(editor.locator(".markdown-marker")).toHaveText(["*", "*"]);
+    await editor
+      .locator(".markdown-marker")
+      .last()
+      .evaluate(async (element) => {
+        const changed = new Promise<void>((resolve) =>
+          document.addEventListener("selectionchange", () => resolve(), {
+            once: true,
+          }),
+        );
+        window.getSelection()!.selectAllChildren(element);
+        await changed;
+      });
+    await app.page.keyboard.press("Backspace");
+    await expect(editor.locator("em")).toHaveCount(0);
+    await app.page.keyboard.press("ControlOrMeta+z");
+    await expect(editor.locator("em")).toHaveText("italic");
+    await editor.locator("strong").click();
+    await app.page.keyboard.press("ControlOrMeta+b");
+    await expect(editor.locator("strong")).toHaveCount(0);
+    await expect(editor).toContainText("Before bold and");
+    await app.page.keyboard.press("ControlOrMeta+z");
+    await expect(editor.locator("strong")).toHaveText("bold");
+    await editor.locator("em").click();
+    await app.page.keyboard.press("ControlOrMeta+i");
+    await expect(editor.locator("em")).toHaveCount(0);
+    await app.page.keyboard.press("ControlOrMeta+z");
+    await expect(editor.locator("em")).toHaveText("italic");
+    await editor.fill("## Heading");
+    await editor.getByRole("heading").click();
+    await expect(editor.locator(".markdown-marker")).toHaveText(["## "]);
+    await editor.locator(".markdown-marker").evaluate(async (element) => {
+      const changed = new Promise<void>((resolve) =>
+        document.addEventListener("selectionchange", () => resolve(), {
+          once: true,
+        }),
+      );
+      window.getSelection()!.selectAllChildren(element);
+      await changed;
+    });
+    await app.page.keyboard.press("Backspace");
+    await expect(editor.getByRole("heading")).toHaveCount(0);
+    await editor.fill("Send **this** and *that*.");
+    await app.page.keyboard.press("ControlOrMeta+Enter");
+    await llm.respond(({ messages }) => {
+      expect(messageText(messages.at(-1)!)).toContain(
+        "Send **this** and *that*.",
+      );
+      return m.assistant("Got your Markdown.");
+    });
+    await expect(
+      app.page.getByRole("log", { name: "Session transcript" }),
+    ).toContainText("Got your Markdown.");
+  },
+);
+
+e2eTest(
+  "shows running sessions and keeps completed results unread until opened",
+  async ({ app, llm }) => {
+    const listRequests: string[] = [];
+    await app.page.route("**/rpc/sessions/list", async (route) => {
+      listRequests.push(route.request().url());
+      await route.abort();
+    });
+    // An interrupted transport must reconnect automatically before showing the list.
+    let summaryConnections = 0;
+    await app.page.route("**/rpc/sessions/watchSummaries", async (route) => {
+      summaryConnections++;
+      if (summaryConnections === 1) {
+        await route.fulfill({
+          status: 200,
+          contentType: "text/event-stream",
+          body: "",
+        });
+        return;
+      }
+      await route.continue();
+    });
+    await app.page.reload();
+
+    await app.page
+      .getByRole("button", { name: "New session", exact: true })
+      .click();
+    await app.page
+      .getByRole("main")
+      .getByLabel("Message", { exact: true })
+      .fill("Prepare my report");
+    await app.page.getByRole("button", { name: "Send", exact: true }).click();
+    const row = app.page.getByRole("row").filter({
+      has: app.page.getByRole("link", {
+        name: "Prepare my report",
+        exact: true,
+      }),
+    });
+    const working = row.getByRole("img", { name: "Agent is working" });
+    const unread = row.getByRole("img", { name: "Unread result" });
+    await expect(working).toBeVisible();
+    await expect(unread).not.toBeVisible();
+
+    // Opening a running session must not count its future result as read.
+    await app.page
+      .getByRole("button", { name: "New session", exact: true })
+      .click();
+    await row.getByRole("link").click();
+    await expect(working).toBeVisible();
+    await app.page
+      .getByRole("button", { name: "New session", exact: true })
+      .click();
+    const response = await llm.stream();
+    response.write(m.assistant("The report is ready."));
+    await expect(working).toBeVisible();
+    response.end();
+    await expect(unread).toBeVisible();
+    await expect(working).not.toBeVisible();
+
+    await app.page.reload();
+    await expect(unread).toBeVisible();
+    await row.getByRole("link").click();
+    await expect(app.page.getByRole("log")).toContainText(
+      "The report is ready.",
+    );
+    await expect(unread).not.toBeVisible();
+    await app.page.reload();
+    await expect(row).toBeVisible();
+    await expect(unread).not.toBeVisible();
+
+    await app.page
+      .getByRole("main")
+      .getByLabel("Message", { exact: true })
+      .fill("Add a conclusion");
+    await app.page.getByRole("button", { name: "Send", exact: true }).click();
+    await expect(working).toBeVisible();
+    await llm.respond(m.assistant("Here is the conclusion."));
+    await expect(working).not.toBeVisible();
+    await app.page
+      .getByRole("button", { name: "New session", exact: true })
+      .click();
+    await app.page.reload();
+    await expect(row).toBeVisible();
+    await expect(unread).not.toBeVisible();
+    expect(summaryConnections).toBeGreaterThanOrEqual(2);
+    expect(listRequests).toEqual([]);
+  },
+);
+
+e2eTest(
+  "shares unread results and read receipts between windows",
+  async ({ app, llm }) => {
+    await app.page
+      .getByRole("button", { name: "New session", exact: true })
+      .click();
+    await app.page
+      .getByRole("main")
+      .getByLabel("Message", { exact: true })
+      .fill("Work while I am away");
+    await app.page.getByRole("button", { name: "Send", exact: true }).click();
+    await expect(
+      app.page.getByRole("img", { name: "Agent is working" }),
+    ).toBeVisible();
+    const otherWindow = await app.openWindow();
+    await otherWindow.getByRole("main").waitFor();
+    await otherWindow
+      .getByRole("button", { name: "New session", exact: true })
+      .click();
+    await app.page
+      .getByRole("button", { name: "New session", exact: true })
+      .click();
+    await llm.respond(m.assistant("Your result arrived while you were away."));
+    const unread = app.page.getByRole("img", { name: "Unread result" });
+    await expect(unread).toBeVisible();
+    await expect(
+      otherWindow.getByRole("img", { name: "Unread result" }),
+    ).toBeVisible();
+    await app.page
+      .getByRole("link", { name: "Work while I am away", exact: true })
+      .click();
+    await expect(unread).not.toBeVisible();
+    await expect(
+      otherWindow.getByRole("img", { name: "Unread result" }),
+    ).not.toBeVisible();
+    await otherWindow.close();
   },
 );

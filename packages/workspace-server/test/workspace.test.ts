@@ -1,3 +1,4 @@
+import * as errore from "errore";
 import {
   emptySessionSnapshot,
   reduceSessionUpdate,
@@ -5,6 +6,8 @@ import {
   sessionToolExecutions,
   type HaloClient,
   type TraceRecord,
+  type SessionSummary,
+  type SessionSummariesUpdate,
 } from "@get-halo/client";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -108,6 +111,10 @@ serverTest(
       ...session,
       text: "Read notes",
     });
+    await llm.waitForRequest();
+    expect(await server.rpc.sessions.list()).toEqual([
+      expect.objectContaining({ ...session, isRunning: true }),
+    ]);
     await llm.respond(
       m.tool.start("exec", {
         id: "read-notes",
@@ -118,6 +125,13 @@ serverTest(
     );
     await llm.respond(m.assistant("Your notes say Trace me."));
     await prompt;
+    expect(await server.rpc.sessions.list()).toEqual([
+      expect.objectContaining({
+        ...session,
+        isRunning: false,
+        latestResultId: expect.any(String),
+      }),
+    ]);
 
     const [trace] = await readTraces(server.workspaceRoot);
     expect(trace).toBeDefined();
@@ -1356,5 +1370,266 @@ serverTest(
       .toMatch(/timed out after 10000 ms/i);
     await llm.respond(m.assistant("Done."));
     await prompt;
+  },
+);
+
+serverTest(
+  "pushes session summaries and catches up after reconnect and restart",
+  async ({ server, llm }) => {
+    using cleanup = new errore.DisposableStack();
+    const first = new AbortController();
+    cleanup.defer(() => first.abort());
+    const updates = await server.rpc.sessions.watchSummaries(undefined, {
+      signal: first.signal,
+    });
+    expect((await updates.next()).value).toEqual({
+      type: "snapshot",
+      sessions: [],
+    });
+    const session = await server.rpc.sessions.create();
+    expect((await updates.next()).value).toMatchObject({
+      type: "updated",
+      session: { ...session, isRunning: false },
+    });
+
+    const prompting = server.rpc.sessions.prompt({
+      ...session,
+      text: "Work without an open conversation",
+    });
+    const running = await nextSummary(
+      updates,
+      (summary) => summary.isRunning && summary.title !== undefined,
+    );
+    expect(running).toMatchObject({
+      ...session,
+      title: "Work without an open conversation",
+    });
+    await llm.respond(m.assistant("First result"));
+    await prompting;
+    const completed = await nextSummary(
+      updates,
+      (summary) => !summary.isRunning && summary.latestResultId !== undefined,
+    );
+    expect(completed.latestResultId).toBeDefined();
+    first.abort();
+
+    // Finish another run while this client is disconnected.
+    const again = server.rpc.sessions.prompt({
+      ...session,
+      text: "Finish while I am disconnected",
+    });
+    await llm.respond(m.assistant("Second result"));
+    await again;
+    const reconnect = new AbortController();
+    cleanup.defer(() => reconnect.abort());
+    const resumed = await server.rpc.sessions.watchSummaries(undefined, {
+      signal: reconnect.signal,
+    });
+    const current = await resumed.next();
+    expect(current.value).toMatchObject({
+      type: "snapshot",
+      sessions: [{ ...session, isRunning: false }],
+    });
+    if (current.done || current.value.type !== "snapshot")
+      throw new Error("Expected summary snapshot");
+    const resultId = current.value.sessions[0]!.latestResultId;
+    expect(resultId).toBeDefined();
+    expect(resultId).not.toBe(completed.latestResultId);
+
+    // Aborting an active run also pushes its settled status.
+    const aborted = server.rpc.sessions.prompt({
+      ...session,
+      text: "Stop this run",
+    });
+    await nextSummary(resumed, (summary) => summary.isRunning);
+    await llm.waitForRequest();
+    await server.rpc.sessions.abort(session);
+    await aborted;
+    const stopped = await nextSummary(
+      resumed,
+      (summary) => !summary.isRunning && summary.latestResultId !== resultId,
+    );
+    expect(stopped.latestResultId).toBeDefined();
+    reconnect.abort();
+    await server.stop();
+    await server.start();
+    const restart = new AbortController();
+    cleanup.defer(() => restart.abort());
+    const restored = await server.rpc.sessions.watchSummaries(undefined, {
+      signal: restart.signal,
+    });
+    expect((await restored.next()).value).toMatchObject({
+      type: "snapshot",
+      sessions: [
+        {
+          ...session,
+          isRunning: false,
+          latestResultId: stopped.latestResultId,
+        },
+      ],
+    });
+    restart.abort();
+  },
+);
+
+serverTest(
+  "pushes named seeded sessions to every summary subscriber",
+  async ({ server }) => {
+    using cleanup = new errore.DisposableStack();
+    const controller = new AbortController();
+    cleanup.defer(() => controller.abort());
+    const first = await server.rpc.sessions.watchSummaries(undefined, {
+      signal: controller.signal,
+    });
+    const second = await server.rpc.sessions.watchSummaries(undefined, {
+      signal: controller.signal,
+    });
+    await first.next();
+    await second.next();
+    const session = await server.rpc.testApi.seedSession({
+      title: "Saved title",
+      messages: [
+        { role: "user", content: "Initial question", timestamp: Date.now() },
+      ],
+    });
+    for (const stream of [first, second]) {
+      const summary = await nextSummary(
+        stream,
+        (item) => item.title === "Saved title",
+      );
+      expect(summary).toMatchObject({
+        ...session,
+        title: "Saved title",
+        isRunning: false,
+      });
+    }
+    controller.abort();
+  },
+);
+
+serverTest(
+  "pushes failed run completion without an open conversation",
+  async ({ server, llm }) => {
+    using cleanup = new errore.DisposableStack();
+    const controller = new AbortController();
+    cleanup.defer(() => controller.abort());
+    const updates = await server.rpc.sessions.watchSummaries(undefined, {
+      signal: controller.signal,
+    });
+    await updates.next();
+    const session = await server.rpc.sessions.create();
+    const prompted = server.rpc.sessions.prompt({
+      ...session,
+      text: "Denied model",
+    });
+    await nextSummary(updates, (summary) => summary.isRunning);
+    await llm.respond(m.error("Model access denied"));
+    await prompted;
+    const failed = await nextSummary(
+      updates,
+      (summary) => !summary.isRunning && summary.latestResultId !== undefined,
+    );
+    expect(await server.rpc.sessions.snapshot(session)).toMatchObject({
+      lastRun: { id: failed.latestResultId, status: "failed" },
+    });
+  },
+);
+
+async function nextSummary(
+  updates: AsyncIterable<SessionSummariesUpdate>,
+  matches: (summary: SessionSummary) => boolean,
+) {
+  // Consume without returning the iterator so the same connection remains usable.
+  const iterator = updates[Symbol.asyncIterator]();
+  while (true) {
+    const next = await iterator.next();
+    if (next.done)
+      throw new Error(
+        "Session summary stream ended before the expected update",
+      );
+    if (next.value.type === "updated" && matches(next.value.session))
+      return next.value.session;
+  }
+}
+
+serverTest(
+  "uploads original file bytes into the workspace without overwriting files",
+  async ({ server }) => {
+    await server.rpc.workspace.createEntry({
+      path: "Uploads",
+      kind: "directory",
+    });
+    const bytes = new Uint8Array([0, 255, 13, 10, 128, 42]);
+    const file = new File([bytes], "local.bin", {
+      type: "application/octet-stream",
+    });
+    expect(
+      await server.rpc.workspace.uploadFile({ path: "Uploads/data.bin", file }),
+    ).toEqual({ path: "Uploads/data.bin" });
+    expect(
+      await fs.readFile(path.join(server.workspaceRoot, "Uploads/data.bin")),
+    ).toEqual(Buffer.from(bytes));
+    expect(await server.rpc.workspace.listPaths()).toContain(
+      "Uploads/data.bin",
+    );
+    await expect(
+      server.rpc.workspace.uploadFile({
+        path: "Uploads/data.bin",
+        file: new File(["replacement"], "local.bin"),
+      }),
+    ).rejects.toThrow("already exists");
+    expect(
+      await fs.readFile(path.join(server.workspaceRoot, "Uploads/data.bin")),
+    ).toEqual(Buffer.from(bytes));
+  },
+);
+
+serverTest(
+  "rejects file uploads outside the workspace and through symlinks",
+  async ({ server }) => {
+    const outside = path.join(server.harness.paths.root, "outside-upload");
+    await fs.mkdir(outside);
+    await fs.symlink(
+      outside,
+      path.join(server.workspaceRoot, "Shortcut"),
+      "junction",
+    );
+    const file = new File(["local data"], "notes.txt");
+    for (const invalid of [
+      "../outside.txt",
+      ".halo/state.db",
+      "Shortcut/notes.txt",
+      "",
+    ]) {
+      await expect(
+        server.rpc.workspace.uploadFile({ path: invalid, file }),
+      ).rejects.toThrow("not a workspace file");
+    }
+    expect(await fs.readdir(outside)).toEqual([]);
+  },
+);
+
+serverTest(
+  "saves client-named images without overwriting or accepting path traversal",
+  async ({ createServer }) => {
+    const server = createServer();
+    await server.start();
+    const id = "11111111-1111-4111-8111-111111111111";
+    const file = new File([new Uint8Array([1, 2, 3])], "clipboard.png", {
+      type: "image/png",
+    });
+    const input = { documentPath: "notes.md", file, id };
+    const src = `image-${id}.png`;
+    expect(await server.rpc.workspace.saveImage(input)).toEqual({ src });
+    await expect(server.rpc.workspace.saveImage(input)).rejects.toThrow();
+    await expect(
+      server.rpc.workspace.saveImage({ ...input, id: "../../outside" }),
+    ).rejects.toThrow();
+    expect(await fs.readFile(path.join(server.workspaceRoot, src))).toEqual(
+      Buffer.from([1, 2, 3]),
+    );
+    expect(
+      await server.rpc.workspace.saveImage({ documentPath: "notes.md", file }),
+    ).toMatchObject({ src: expect.stringMatching(/^image-[0-9a-f-]+\.png$/) });
   },
 );

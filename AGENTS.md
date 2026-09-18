@@ -12,6 +12,10 @@ When editing TypeScript that handles failures, also read the [errore skill](.age
 
 Always adhere to ISO 24495-1 Technical Language Standard for responses, except the 80-column layout instruction.
 
+Use the [logos skill](.agents/skills/logos/SKILL.md) when adding product or
+integration marks. Download them from [SVGL](https://svgl.app/) into
+`apps/web-app/public/logos/` and reference `https://gethalo.dev/logos/`.
+
 ## Commands
 
 - `pnpm run check-affected` - Lint, typecheck, format-check, and run unit tests for affected packages using Turbo's default concurrency. Use it during iteration and before handing off a change. It does not run E2Es or package Electron. GitHub Actions runs the same command on pull requests and on pushes to `main`.
@@ -32,7 +36,7 @@ Always adhere to ISO 24495-1 Technical Language Standard for responses, except t
 
 Development runs the independent control plane and workspace server Node services with the Halo Electron client. Start all three from the repo root with `pnpm dev`; they use `tmp/workspace` as the workspace and `tmp/workspace/.halo` for shared application data. `.cursor/environment.json` defines a `halo-dev` terminal that starts this stack with ADC and SwiftShader; start it if it is not already running. The control plane and workspace server publish their connection information under that application data directory, Electron serves the Vite renderer and opens its window, and dev builds expose Chrome DevTools Protocol on `127.0.0.1:4445`. Drive and inspect the renderer with `pnpm halo-dev app` (see the halo-app skill). Follow the incremental verification workflow in Commands.
 
-Cursor Cloud agents must record a short demo video when they add or change any UI, attach it to the PR, and show it in the walkthrough. Use screen recording against the running Halo app; do not skip this for “small” UI tweaks. This requirement does not apply to agents outside Cursor Cloud.
+Cursor Cloud agents record a short demo video for large UI changes: new screens, layout, or interaction. Attach it to the PR and show it in the walkthrough. Record against the running Halo app. Copy, color, spacing, and other small tweaks do not need a demo. This requirement does not apply to agents outside Cursor Cloud.
 
 Dev Agentation notes sync through the `agentation-mcp` terminal (`127.0.0.1:4747`). Query pending notes with `GET http://127.0.0.1:4747/pending`. Cursor loads the same server from `.cursor/mcp.json`.
 

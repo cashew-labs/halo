@@ -9,7 +9,7 @@ import { Drawer, colors } from "maui";
 import { style, useStyles } from "purse-styles";
 import type { SessionSummary } from "@get-halo/client";
 import type { AppInfo } from "./HostApi.js";
-import { MainPane } from "./main/MainPane.js";
+import { PaneWorkspace } from "./panes/PaneWorkspace.js";
 import { Sidebar } from "./sidebar/Sidebar.js";
 
 const SidebarContext = createContext<{
@@ -67,7 +67,7 @@ export function WorkspaceLayout({
     >
       <div className={shell} data-testid="sessions-shell">
         {!isMobile && <Sidebar sessions={sessions} appInfo={appInfo} />}
-        <MainPane sessions={sessions} />
+        <PaneWorkspace sessions={sessions} />
       </div>
       <Drawer
         isOpen={isMobile && sidebarState.isOpen}

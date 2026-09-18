@@ -1,4 +1,5 @@
 import { type Static, Type } from "@sinclair/typebox";
+import { googleIntegrationDisplay } from "./GoogleIntegrationDisplay.js";
 
 export const connectionRequestSchema = Type.Object({
   client: Type.String(),
@@ -27,6 +28,8 @@ export function connectionRequestKey(request: ConnectionRequest) {
 }
 
 export function connectionRequestLabel(request: ConnectionRequest) {
+  const display = googleIntegrationDisplay(request.integration);
+  if (display !== undefined) return display.name;
   return request.integration
     .split("_")
     .map((word) => `${word.charAt(0).toUpperCase()}${word.slice(1)}`)

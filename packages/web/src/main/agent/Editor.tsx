@@ -1,3 +1,5 @@
+import { HybridMarkdownEditor } from "../HybridMarkdownEditor.js";
+import { hybridMarkdownEnabled } from "../hybridMarkdownEnabled.js";
 import type React from "react";
 import { EditorContent } from "@tiptap/react";
 import {
@@ -37,7 +39,7 @@ type EditorProps = {
  * TipTap markdown editor with CommonMark shortcuts (`#`, `**`, `-`, `>`, …)
  * and Maui prose type styles on the ProseMirror surface.
  */
-export function Editor({
+function RichEditor({
   content = "",
   autoFocus = false,
   onChange,
@@ -117,4 +119,45 @@ const editorActionsClass = style(
 
 function joinClassNames(...classNames: Array<string | undefined>) {
   return classNames.filter(Boolean).join(" ");
+}
+
+export function Editor(props: EditorProps) {
+  return hybridMarkdownEnabled() ? (
+    <HybridComposer {...props} />
+  ) : (
+    <RichEditor {...props} />
+  );
+}
+
+function HybridComposer(props: EditorProps) {
+  const shellClassName = useStyles(editorShellClass);
+  const actionsClassName = useStyles(editorActionsClass);
+  return (
+    <div
+      className={joinClassNames(shellClassName, props.className)}
+      onClick={(event) => {
+        const editable = event.currentTarget.querySelector<HTMLElement>(
+          '[contenteditable="true"]',
+        );
+        if (event.target instanceof Node && editable?.contains(event.target))
+          return;
+        editable?.focus();
+      }}
+    >
+      <HybridMarkdownEditor
+        content={props.content ?? ""}
+        autoFocus={props.autoFocus}
+        onChange={(value) => props.onChange?.(value)}
+        placeholder={props.placeholder ?? "Write a message…"}
+        size={props.size}
+        editable={props.editable}
+        aria-label={props["aria-label"] ?? "Message editor"}
+        onSubmit={props.onSubmit}
+      />
+      {props.error}
+      {props.actions ? (
+        <div className={actionsClassName}>{props.actions}</div>
+      ) : undefined}
+    </div>
+  );
 }
