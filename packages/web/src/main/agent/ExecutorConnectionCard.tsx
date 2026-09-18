@@ -170,17 +170,16 @@ export function ExecutorConnectionCard({
           ) : (
             <Flex row gap={2} alignItems="center" style={{ flexShrink: 0 }}>
               <ConnectionStatusLabel status={status} />
-              <ConnectionOverflowMenu
-                label={menuLabel}
-                status={status}
-                canConnect={canConnect}
-                cancelPending={cancel.isPending}
-                onCancel={() => cancel.mutate()}
-                onConnect={() => connect.mutate()}
-                onDisconnect={() => {
-                  queryClient.setQueryData(statusKey, idleConnectionState);
-                }}
-              />
+              {status === "starting" ? undefined : (
+                <ConnectionOverflowMenu
+                  label={menuLabel}
+                  status={status}
+                  canConnect={canConnect}
+                  cancelPending={cancel.isPending}
+                  onCancel={() => cancel.mutate()}
+                  onConnect={() => connect.mutate()}
+                />
+              )}
             </Flex>
           )}
         </Flex>
@@ -245,15 +244,13 @@ function ConnectionOverflowMenu({
   cancelPending,
   onCancel,
   onConnect,
-  onDisconnect,
 }: {
   label: string;
-  status: Exclude<ConnectionState["status"], "idle">;
+  status: Exclude<ConnectionState["status"], "idle" | "starting">;
   canConnect: boolean;
   cancelPending: boolean;
   onCancel(): void;
   onConnect(): void;
-  onDisconnect(): void;
 }) {
   const buttonClassName = useStyles(menuButton);
   const items = overflowItems({
@@ -262,7 +259,6 @@ function ConnectionOverflowMenu({
     cancelPending,
     onCancel,
     onConnect,
-    onDisconnect,
   });
 
   return (
@@ -281,14 +277,12 @@ function overflowItems({
   cancelPending,
   onCancel,
   onConnect,
-  onDisconnect,
 }: {
-  status: Exclude<ConnectionState["status"], "idle">;
+  status: Exclude<ConnectionState["status"], "idle" | "starting">;
   canConnect: boolean;
   cancelPending: boolean;
   onCancel(): void;
   onConnect(): void;
-  onDisconnect(): void;
 }): ReactNode {
   if (status === "connecting") {
     return (
@@ -299,29 +293,16 @@ function overflowItems({
   }
   if (status === "connected") {
     return (
-      <>
-        <MenuItem onAction={onConnect} isDisabled={!canConnect}>
-          Connect different account
-        </MenuItem>
-        <MenuItem onAction={onDisconnect}>Disconnect</MenuItem>
-      </>
-    );
-  }
-  if (status === "cancelled") {
-    return (
       <MenuItem onAction={onConnect} isDisabled={!canConnect}>
-        Connect
+        Connect different account
       </MenuItem>
     );
   }
-  if (status === "expired") {
-    return (
-      <MenuItem onAction={onConnect} isDisabled={!canConnect}>
-        Connect
-      </MenuItem>
-    );
-  }
-  return undefined;
+  return (
+    <MenuItem onAction={onConnect} isDisabled={!canConnect}>
+      Connect
+    </MenuItem>
+  );
 }
 
 const menuButton = style(focusRing(), radius.sm, {
