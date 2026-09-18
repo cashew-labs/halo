@@ -2,7 +2,7 @@ import { homedir } from "node:os";
 import { connectHaloClient, IncompatibleServerError } from "@get-halo/client";
 import * as errore from "errore";
 import { findHaloRpcFile } from "./findHaloRpcFile.js";
-import { HaloRpcFileError } from "./HaloRpcFile.js";
+import { HaloRpcFileError } from "@get-halo/shared/HaloRpcFile";
 
 export type HaloRpcEnv = {
   HALO_RPC_FILE?: string;

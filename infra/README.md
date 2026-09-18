@@ -29,7 +29,7 @@ for previously released desktop clients.
   endpoint; it verifies the signed VM identity and constructs the workspace
   path. Template/provisioning metadata supplies the control-plane origin and
   registered workspace ID for the server's `traceUpload` configuration. See the
-  [trace archive documentation](../apps/workspace-server/src/traces/README.md).
+  [trace archive documentation](../packages/workspace-server/src/traces/README.md).
 - The control plane creates one workspace VM and durable workspace disk per
   user from that template. Production user workspaces are not managed by the
   standalone `workspace/` Pulumi program.
@@ -139,12 +139,13 @@ Production Google OAuth credentials live in Secret Manager as:
 
 - `halo-west-control-plane-google-client-id`
 - `halo-west-control-plane-google-client-secret`
-- `halo-west-workspace-google-web-client-id`
-- `halo-west-workspace-google-web-client-secret`
+- `halo-workspace-google-web-client-id`
+- `halo-workspace-google-web-client-secret`
 
 The control plane loads its sign-in client through its runtime service account.
-Workspace VMs load the web integration client through their runtime service
-account. The control-plane Google OAuth client must authorize:
+Every workspace-server app loads the canonical web integration client through
+ADC; IAM grants each local or cloud runtime access to those two secrets. The
+control-plane Google OAuth client must authorize:
 
 ```text
 https://gethalo.dev/api/auth/callback/google
@@ -165,10 +166,11 @@ pulumi -C infra/control-plane stack output controlPlaneUrl --stack west
 Electron keeps using its separate installed-application client and loopback
 callback.
 
-Local development uses separate `halo-dev-local-*` secrets and the active
+Local development reads the canonical workspace secrets with the active
 Application Default Credentials identity. Production workspace VMs use their
-attached service account for `google-vertex/gemini-3.8-flash`; Pulumi grants it
-`roles/aiplatform.user`.
+attached service account for both those secrets and
+`google-vertex/gemini-3.8-flash`; Pulumi grants the corresponding Secret Manager
+and Vertex AI roles.
 
 ## Recovery snapshots
 

@@ -1,10 +1,10 @@
 import {
+  FileCredentialVault,
   WorkspaceServer,
   type WorkspaceServerOptions,
 } from "@get-halo/workspace-server";
 import { createHaloClient, type HaloClient } from "@get-halo/client";
 import path from "node:path";
-import { FileCredentialVault } from "../src/agent/runtime/FileCredentialVault.js";
 import type { TestArtifacts } from "./TestArtifacts.js";
 
 type RunningServer = {
@@ -21,27 +21,31 @@ export class TestServer {
 
   readonly workspaceRoot: string;
   private readonly artifacts: TestArtifacts;
-  private readonly llmApi: WorkspaceServerOptions["llmApi"];
-  private readonly traceWorkspaceId: string | undefined;
-  private readonly traceUploader: WorkspaceServerOptions["traceUploader"];
+  private readonly llmApi: WorkspaceServerOptions["host"]["llmApi"];
+  private readonly testApiEnabled: boolean;
+  private readonly traceWorkspaceId: WorkspaceServerOptions["config"]["traceWorkspaceId"];
+  private readonly traceUploader: WorkspaceServerOptions["host"]["traceUploader"];
 
   constructor(ctx: {
     artifacts: TestArtifacts;
     workspaceRoot: string;
-    llmApi: WorkspaceServerOptions["llmApi"];
-    traceUploader?: WorkspaceServerOptions["traceUploader"];
+    llmApi: WorkspaceServerOptions["host"]["llmApi"];
+    testApiEnabled?: boolean;
+    traceUploader?: WorkspaceServerOptions["host"]["traceUploader"];
     traceWorkspaceId?: string;
   }) {
     const {
       artifacts,
       workspaceRoot,
       llmApi,
+      testApiEnabled,
       traceUploader,
       traceWorkspaceId,
     } = ctx;
     this.artifacts = artifacts;
     this.workspaceRoot = workspaceRoot;
     this.llmApi = llmApi;
+    this.testApiEnabled = testApiEnabled === undefined ? false : testApiEnabled;
     this.traceUploader = traceUploader;
     this.traceWorkspaceId = traceWorkspaceId;
   }
@@ -65,29 +69,37 @@ export class TestServer {
       );
     }
     const server = await WorkspaceServer.start({
-      environment: "local",
-      llmApi: this.llmApi,
-      traceUploader: this.traceUploader,
-      traceWorkspaceId: this.traceWorkspaceId,
-      workspaceRoot: this.workspaceRoot,
-      appDataDir: this.artifacts.paths.userData,
-      appVersion: "0.0.0-test",
-      ownerUserId: Promise.resolve("server-test-user"),
-      logger: this.artifacts.logger,
-      createCredentialVault: ({ filesystem, workspaceRoot }) =>
-        new FileCredentialVault({
-          filesystem,
-          directory: path.join(
-            workspaceRoot,
-            ".halo",
-            "executor",
-            "credentials",
-          ),
-        }),
-      host: "127.0.0.1",
-      port: this.listenPort,
-      corsOrigins: [],
-      testApiEnabled: true,
+      config: {
+        environment: "local",
+        workspaceRoot: this.workspaceRoot,
+        appDataDir: this.artifacts.paths.userData,
+        appVersion: "0.0.0-test",
+        ownerUserId: "server-test-user",
+        host: "127.0.0.1",
+        port: this.listenPort,
+        corsOrigins: [],
+        testApiEnabled: this.testApiEnabled,
+        traceWorkspaceId: this.traceWorkspaceId,
+        extensionRuntime: {
+          executable: process.execPath,
+          electronRunAsNode: false,
+        },
+      },
+      host: {
+        llmApi: this.llmApi,
+        traceUploader: this.traceUploader,
+        logger: this.artifacts.logger,
+        createCredentialVault: ({ filesystem, workspaceRoot }) =>
+          new FileCredentialVault({
+            filesystem,
+            directory: path.join(
+              workspaceRoot,
+              ".halo",
+              "executor",
+              "credentials",
+            ),
+          }),
+      },
     });
     if (server instanceof Error) throw server;
     const { connections } = server.ready;

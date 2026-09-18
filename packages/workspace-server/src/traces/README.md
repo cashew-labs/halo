@@ -48,11 +48,13 @@ Pending files use this object key:
 v1/workspaces/<workspaceId>/sessions/<sessionId>/<traceId>.jsonl.gz
 ```
 
-The host can supply `WorkspaceServer.start({ traceUploader, ... })`. Uploads happen
-in the background after completion, on startup, and every 30 seconds while there
-is pending data. Failed uploads remain pending. Successful uploads move the local
-copy from `pending/` to `archive/`; local and remote archives have no automatic
-expiry. Hosts without an uploader retain pending files locally.
+The host can supply
+`WorkspaceServer.start({ config, host: { traceUploader, ... } })`. Uploads
+happen in the background after completion, on startup, and every 30 seconds
+while there is pending data. Failed uploads remain pending. Successful uploads
+move the local copy from `pending/` to `archive/`; local and remote archives
+have no automatic expiry. Hosts without an uploader retain pending files
+locally.
 
 Restart recovery discards an incomplete final JSON line and adds an `interrupted`
 outcome to unfinished runs. A complete terminal record is preserved if shutdown
