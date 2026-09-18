@@ -1,4 +1,6 @@
-import { join, resolve } from "node:path";
+import { execa } from "execa";
+import { cp, mkdir, mkdtemp, rm } from "node:fs/promises";
+import path, { join, resolve } from "node:path";
 import { Logger } from "@get-halo/logger";
 import { startWorkspaceServerProcess } from "./startWorkspaceServerProcess.js";
 import type { SessionDescription } from "@get-halo/shared/testing";
@@ -17,6 +19,10 @@ type E2ESession = {
 type E2ETestHarness = TestArtifacts["harness"] & {
   tools: ReturnType<typeof createHarnessTools>;
   loadSession(description: SessionDescription): Promise<E2ESession>;
+  loadExtension(sourceDirectory: string): Promise<{
+    id: string;
+    directory: string;
+  }>;
 };
 
 type E2EFixtures = {
@@ -31,7 +37,23 @@ type E2EFixtures = {
   harness: E2ETestHarness;
 };
 
-export const e2eTest = baseTest.extend<E2EFixtures>({
+type ExtensionPackages = {
+  sdk: string;
+  tools: string;
+};
+
+type E2EWorkerFixtures = {
+  getExtensionPackages(): Promise<ExtensionPackages>;
+};
+
+const repository = path.resolve(import.meta.dirname, "../../..");
+
+class ExtensionSetupError extends errore.createTaggedError({
+  name: "ExtensionSetupError",
+  message: "Could not prepare workspace extension: $command",
+}) {}
+
+export const e2eTest = baseTest.extend<E2EFixtures, E2EWorkerFixtures>({
   // oxlint-disable-next-line eslint/no-empty-pattern -- Fixture callbacks require destructured parameters.
   http: async ({}, use) => {
     const http = await HttpService.start();
@@ -116,7 +138,11 @@ export const e2eTest = baseTest.extend<E2EFixtures>({
     // Concurrent process startup has its own budget, separate from test actions.
     { auto: true, timeout: 60_000 },
   ],
-  harness: async ({ app, server, testArtifacts }, use) => {
+  harness: async (
+    { app, server, testArtifacts, getExtensionPackages },
+    use,
+    testInfo,
+  ) => {
     await use({
       ...testArtifacts.harness,
       tools: createHarnessTools(server.rpc.testApi),
@@ -138,6 +164,100 @@ export const e2eTest = baseTest.extend<E2EFixtures>({
           .waitFor();
         return loaded;
       },
+      async loadExtension(sourceDirectory) {
+        const { scaffoldExtension } =
+          await import("@get-halo/extension-tools/scaffold");
+        const source = path.resolve(
+          path.dirname(testInfo.file),
+          sourceDirectory,
+        );
+        const id = path.basename(source);
+        const parent = path.join(
+          testArtifacts.paths.workspace,
+          ".halo",
+          "extensions",
+        );
+        await mkdir(parent, { recursive: true });
+        const directory = path.join(parent, id);
+        const scaffolded = await scaffoldExtension({
+          directory,
+          name: id,
+          packages: await getExtensionPackages(),
+        });
+        if (scaffolded instanceof Error) throw scaffolded;
+        await cp(source, directory, { recursive: true });
+        await extensionCommand(
+          "pnpm",
+          [
+            "install",
+            "--dir",
+            directory,
+            "--lockfile-dir",
+            directory,
+            "--ignore-workspace",
+            "--ignore-scripts",
+            "--config.manage-package-manager-versions=false",
+          ],
+          directory,
+        );
+        await extensionCommand("npm", ["run", "typecheck"], directory);
+        await extensionCommand("npm", ["run", "build"], directory);
+        await app.server.rpc.extensions.reload();
+        await app.page.reload();
+        return { id, directory };
+      },
     });
   },
+  getExtensionPackages: [
+    // oxlint-disable-next-line eslint/no-empty-pattern -- Playwright fixture callbacks require destructured parameters.
+    async ({}, use) => {
+      await using cleanup = new errore.AsyncDisposableStack();
+      let extensionPackages: ExtensionPackages | undefined;
+      await use(async () => {
+        if (extensionPackages !== undefined) return extensionPackages;
+        const parent = path.join(repository, "tmp", "extension-host");
+        await mkdir(parent, { recursive: true });
+        const directory = await mkdtemp(path.join(parent, "packages-"));
+        cleanup.defer(
+          async () => await rm(directory, { recursive: true, force: true }),
+        );
+        const packed: string[] = [];
+        for (const name of ["extension-sdk", "extension-tools"]) {
+          const cwd = path.join(repository, "packages", name);
+          await extensionCommand("npm", ["run", "build"], cwd);
+          const result = await extensionCommand(
+            "npm",
+            ["pack", "--ignore-scripts", "--pack-destination", directory],
+            cwd,
+          );
+          packed.push(`file:${path.join(directory, result.stdout.trim())}`);
+        }
+        extensionPackages = {
+          sdk: packed[0]!,
+          tools: packed[1]!,
+        };
+        return extensionPackages;
+      });
+    },
+    { scope: "worker", timeout: 180_000 },
+  ],
 });
+
+async function extensionCommand(
+  executable: string,
+  args: string[],
+  cwd: string,
+) {
+  const result = await execa(executable, args, {
+    cwd,
+    maxBuffer: 4 * 1024 * 1024,
+  }).catch(
+    (cause) =>
+      new ExtensionSetupError({
+        command: `${executable} ${args.join(" ")}`,
+        cause,
+      }),
+  );
+  if (result instanceof Error) throw result;
+  return result;
+}
