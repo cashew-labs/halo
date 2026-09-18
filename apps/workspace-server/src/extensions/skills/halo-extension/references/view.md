@@ -6,7 +6,7 @@
 
 `@get-halo/extension-sdk/view` exports:
 
-- `ExtensionViewProps<Router, Schema>`: the inferred `api` client and Tandem `storage` props.
+- `ExtensionViewProps<Router, Schema, Relations>`: the inferred `api` client and relation-aware Tandem `storage` props.
 - `useQuery(storage, query)`: a React hook that returns a typed, reactive query result.
 
 ## Type the injected props
@@ -17,23 +17,24 @@ import {
   type ExtensionViewProps,
 } from "@get-halo/extension-sdk/view";
 import type router from "./api.js";
-import type schema from "./schema.js";
+import type { relations, schema } from "./schema.js";
 
 const tasksQuery = {
   collection: "tasks",
+  with: { project: true },
   orderBy: { label: "asc" },
 } as const;
 
 export default function View({
   api,
   storage,
-}: ExtensionViewProps<typeof router, typeof schema>) {
+}: ExtensionViewProps<typeof router, typeof schema, typeof relations>) {
   const tasks = useQuery(storage, tasksQuery);
   // ...
 }
 ```
 
-Import the router and schema with `import type`. The build already includes their runtime entrypoints where needed.
+Import the router, schema, and relations with `import type`. The build already includes their runtime entrypoints where needed. Passing the concrete relations type lets `useQuery` validate `with` clauses and infer their nested result fields.
 
 ## `useQuery`
 

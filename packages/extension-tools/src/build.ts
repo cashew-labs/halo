@@ -43,8 +43,8 @@ export async function buildExtension(directory: string) {
 import { createRoot } from "react-dom/client";
 import { connectExtension } from "@get-halo/extension-sdk/client";
 import View from "./view.tsx";
-import schema from "./schema.ts";
-const client = await connectExtension(schema);
+import { relations, schema } from "./schema.ts";
+const client = await connectExtension({ schema, relations });
 if (client instanceof Error) throw client;
 createRoot(document.getElementById("root")).render(<View {...client} />);`,
       },

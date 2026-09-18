@@ -10,7 +10,8 @@ An extension contains three source files:
 - `view.tsx`: the default-exported React app, served under `/view/`. Nested URLs
   load the same app, which owns its frontend routing.
 - `api.ts`: the default-exported oRPC router, mounted directly under `/api/`.
-- `schema.ts`: the default-exported Tandem schema. The SDK owns `/sync/`.
+- `schema.ts`: the named Tandem `schema` and `relations` exports. The SDK owns
+  `/sync/`.
 
 ```ts
 import { scaffoldExtension } from "@get-halo/extension-tools/scaffold";

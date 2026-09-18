@@ -21,20 +21,24 @@ import {
 } from "@get-halo/extension-sdk/view";
 import * as errore from "errore";
 import type router from "./api.js";
-import type schema from "./schema.js";
+import type { relations, schema } from "./schema.js";
 
 class TasksError extends errore.createTaggedError({
   name: "TasksError",
   message: "Task operation failed",
 }) {}
 
-const tasksQuery = { collection: "tasks" } as const;
+const project = { id: "launch", name: "Launch" };
+const tasksQuery = {
+  collection: "tasks",
+  with: { project: true },
+} as const;
 
 // oxlint-disable-next-line anti-slop/no-unused-exports -- The extension builder imports this entry from the scaffolded test package.
 export default function Tasks({
   api,
   storage,
-}: ExtensionViewProps<typeof router, typeof schema>) {
+}: ExtensionViewProps<typeof router, typeof schema, typeof relations>) {
   const [title, setTitle] = useState("Tasks");
   const [label, setLabel] = useState("");
   const [error, setError] = useState<string>();
@@ -45,8 +49,14 @@ export default function Tasks({
       .then(setTitle)
       .catch((cause) => setError(new TasksError({ cause }).message));
   }, [api]);
-  async function save(task: { id: string; label: string; done: boolean }) {
+  async function save(task: {
+    id: string;
+    projectId: string;
+    label: string;
+    done: boolean;
+  }) {
     const tx = storage.transact();
+    tx.set("projects", project);
     tx.set("tasks", task);
     const saved = await storage
       .commit(tx)
@@ -69,6 +79,7 @@ export default function Tasks({
               onClick={async () => {
                 await save({
                   id: crypto.randomUUID(),
+                  projectId: project.id,
                   label: label.trim(),
                   done: false,
                 });
@@ -81,6 +92,7 @@ export default function Tasks({
           <Table aria-label="Tasks">
             <TableHeader>
               <TableHead isRowHeader>Task</TableHead>
+              <TableHead>Project</TableHead>
               <TableHead>Status</TableHead>
             </TableHeader>
             <TableBody
@@ -95,9 +107,17 @@ export default function Tasks({
                       label={task.label}
                       checked={task.done}
                       setChecked={async (done) => {
-                        await save({ ...task, done });
+                        await save({
+                          id: task.id,
+                          projectId: task.projectId,
+                          label: task.label,
+                          done,
+                        });
                       }}
                     />
+                  </TableCell>
+                  <TableCell>
+                    {task.project === null ? "No project" : task.project.name}
                   </TableCell>
                   <TableCell>{task.done ? "Done" : "Open"}</TableCell>
                 </TableRow>

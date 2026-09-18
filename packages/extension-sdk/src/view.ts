@@ -13,15 +13,17 @@ type InferSchema<Definition> =
 export type ExtensionViewProps<
   Router extends AnyRouter,
   Definition extends RuntimeSchemaDefinition,
+  Relations extends RuntimeRelationsDefinition<InferSchema<Definition>>,
 > = {
   api: RouterClient<Router>;
-  storage: TandemClient<InferSchema<Definition>>;
+  storage: TandemClient<InferSchema<Definition>, Relations>;
 };
 
 export function useQuery<
   Schema extends AnySchema,
-  Query extends RelationalQuery<Schema, RuntimeRelationsDefinition<Schema>>,
->(storage: TandemClient<Schema>, query: Query) {
+  Relations extends RuntimeRelationsDefinition<Schema>,
+  Query extends RelationalQuery<Schema, Relations>,
+>(storage: TandemClient<Schema, Relations>, query: Query) {
   const [rows, setRows] = useState(() => storage.query(query));
   useEffect(() => {
     const subscription = storage.subscribe(query, setRows);

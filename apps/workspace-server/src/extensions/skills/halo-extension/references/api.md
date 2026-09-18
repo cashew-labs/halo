@@ -79,13 +79,13 @@ Import the router as a type so the browser bundle does not pull server implement
 
 ```ts
 import type router from "./api.js";
-import type schema from "./schema.js";
+import type { relations, schema } from "./schema.js";
 import type { ExtensionViewProps } from "@get-halo/extension-sdk/view";
 
 export default function View({
   api,
   storage,
-}: ExtensionViewProps<typeof router, typeof schema>) {
+}: ExtensionViewProps<typeof router, typeof schema, typeof relations>) {
   // api is inferred from the complete router.
 }
 ```

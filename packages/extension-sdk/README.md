@@ -3,7 +3,7 @@
 Runtime libraries shared by standalone Halo extensions:
 
 - `/api`: oRPC procedure builders and TypeBox schemas for `api.ts`.
-- `/schema`: Tandem schema builders for `schema.ts`.
+- `/schema`: Tandem schema and relation builders for `schema.ts`.
 - `/view`: typed `ExtensionViewProps` and the `useQuery` React hook.
 - `/client`: browser API and Tandem connection setup.
 - `/server`: the standalone HTTP server and command-line startup.
@@ -11,6 +11,9 @@ Runtime libraries shared by standalone Halo extensions:
 `view.tsx` receives `{ api, storage }`. `api` calls the extension's router at
 `/api/`; `storage` is its Tandem client, connected through `/sync/`. Pass a stable
 query object to `useQuery(storage, query)` and use Tandem transactions for edits.
+The schema module named-exports `schema` and `relations`; the generated browser
+entry passes both definitions to the client so relational
+`with` queries remain typed through `ExtensionViewProps` and `useQuery`.
 Each browser owns its client and local navigation; the server owns persistent
 shared data. The SDK does not import Halo or require Electron.
 
