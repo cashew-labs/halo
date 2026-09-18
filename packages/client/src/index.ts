@@ -26,6 +26,7 @@ export {
   haloMessageSchema,
   execToolCallSchema,
   toolApprovalSchema,
+  toolApprovalDecisionCustomType,
   directToolIdentity,
   emptySessionSnapshot,
   reduceSessionUpdate,

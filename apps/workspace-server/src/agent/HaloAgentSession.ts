@@ -21,6 +21,8 @@ import {
   type SessionWatchItem,
   type HaloConnectionEvent,
   type HaloConnectionState,
+  sessionToolExecutions,
+  toolApprovalDecisionCustomType,
   type ToolApprovalDecision,
 } from "@get-halo/client";
 import type { WorkspaceLayout } from "../workspace/WorkspaceService.js";
@@ -31,7 +33,10 @@ import { createExecTool } from "./tools/execTool.js";
 import { WorkspaceResourceLoader } from "./WorkspaceResourceLoader.js";
 import type { HaloEnvironment } from "./workspacePrompt.js";
 import { adaptPiEvent, sessionSnapshot } from "./sessionEvents.js";
-import { ToolApprovalService } from "./ToolApprovalService.js";
+import {
+  ToolApprovalNotFoundError,
+  ToolApprovalService,
+} from "./ToolApprovalService.js";
 
 export class EmptyPromptError extends errore.createTaggedError({
   name: "EmptyPromptError",
@@ -59,8 +64,11 @@ export class SessionStorageError extends errore.createTaggedError({
 }) {}
 
 type SessionNotification = {
-  customType: "halo.integration.connected";
+  customType:
+    | "halo.integration.connected"
+    | typeof toolApprovalDecisionCustomType;
   content: string;
+  details?: unknown;
 };
 
 export type HaloAgentSessionOptions = {
@@ -140,7 +148,7 @@ export class HaloAgentSession {
         runtimeDescription,
         modelId: options.model.id,
         onToolEvent: (event) => trace.integration(event),
-        requestApproval: async (input) => await approvals.request(input),
+        consumeApproval: (input) => approvals.consume(input),
       }),
     ];
     const created = await AgentHarness.create(
@@ -229,11 +237,42 @@ export class HaloAgentSession {
     this.connectionEvents.append(event);
   }
 
-  respondToToolApproval(input: {
+  async respondToToolApproval(input: {
     approvalId: string;
     decision: ToolApprovalDecision;
   }) {
-    return this.approvals.respond(input);
+    const snapshot = await this.readSnapshot([]);
+    if (snapshot instanceof Error) return snapshot;
+    const approval = sessionToolExecutions(snapshot)
+      .flatMap((execution) =>
+        execution.type === "exec" ? execution.approvals : [],
+      )
+      .find((candidate) => candidate.id === input.approvalId);
+    if (approval === undefined || approval.status !== "pending") {
+      return new ToolApprovalNotFoundError({
+        approvalId: input.approvalId,
+      });
+    }
+    const decided = this.approvals.decide({
+      approval,
+      decision: input.decision,
+    });
+    if (decided instanceof Error) return decided;
+    const response = await this.notify({
+      customType: toolApprovalDecisionCustomType,
+      content:
+        input.decision === "allow"
+          ? `[System] The user approved ${approval.toolPath} once. Retry that operation with the same arguments and continue their last request.`
+          : `[System] The user denied ${approval.toolPath}. Do not retry that operation. Continue their last request without it.`,
+      details: {
+        approvalId: approval.id,
+        decision: input.decision,
+      },
+    });
+    if (response instanceof Error) {
+      this.approvals.release(approval.id);
+      return response;
+    }
   }
 
   async appendMessages(messages: readonly StoredMessage[]) {

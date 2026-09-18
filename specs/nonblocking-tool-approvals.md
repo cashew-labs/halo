@@ -47,7 +47,7 @@ Treat an approval requirement as a normal tool result, parallel to
    invocation so the current `exec` attempt returns immediately.
 4. The agent receives a non-error result explaining that an approval card was
    shown and that it will be notified after approval.
-5. `Deny` persists a denied decision and does not restart the agent.
+5. `Deny` persists a denied decision and tells the agent not to retry.
 6. `Allow once` persists an allowed decision, stores one exact tool-and-arguments
    grant in the session, and sends a hidden continuation message.
 7. When the agent retries, Halo consumes the matching grant and Executor runs
@@ -169,14 +169,14 @@ ToolRuntime.executeCode [[apps/workspace-server/src/agent/runtime/ToolRuntime.ts
         └── createExecTool returns non-error request details [[apps/workspace-server/src/agent/tools/execTool.ts#createExecTool]]
 ```
 
-- [ ] Add the invoked arguments to `ToolApproval` so a later grant can match the
-  exact request without trusting a client payload.
-- [ ] Replace `onApprovalUpdate` and `requestApproval` with a synchronous
-  grant-consumption callback.
-- [ ] Add `ToolApprovalRequiredError`, parallel to `ConnectionRequiredError`.
-- [ ] Return approval details as a non-error `exec` result with agent-facing
-  retry instructions.
-- [ ] Keep `connectionInput` interception ahead of generic approval handling.
+- [x] Add the invoked arguments to `ToolApproval` so a later grant can match the
+      exact request without trusting a client payload.
+- [x] Replace `onApprovalUpdate` and `requestApproval` with a synchronous
+      grant-consumption callback.
+- [x] Add `ToolApprovalRequiredError`, parallel to `ConnectionRequiredError`.
+- [x] Return approval details as a non-error `exec` result with agent-facing
+      retry instructions.
+- [x] Keep `connectionInput` interception ahead of generic approval handling.
 - [ ] Run the focused workspace-server approval test.
 
 ### Phase 2: Persist decisions and issue one-time grants
@@ -191,16 +191,15 @@ sessions.respondToToolApproval [[apps/workspace-server/src/sessions/sessionsRout
         └── next ToolRuntime.executeCode consumes exact grant
 ```
 
-- [ ] Replace pending Promise resolvers with session-owned single-use grants.
-- [ ] Match grants by tool path and structurally equal arguments, then consume
-  the grant before execution.
-- [ ] Reject stale or already-decided approval IDs.
-- [ ] Persist allow/deny decisions as hidden custom session entries.
-- [ ] On allow, send a separate hidden continuation prompt after the decision
-  has been recorded; do not notify on deny.
-- [ ] Serialize only decision recording; do not hold the queue during the
-  continuation model run.
-- [ ] Keep grants scoped to one `HaloAgentSession` and clear them on close.
+- [x] Replace pending Promise resolvers with session-owned single-use grants.
+- [x] Match grants by tool path and structurally equal arguments, then consume
+      the grant before execution.
+- [x] Reject stale or already-decided approval IDs.
+- [x] Persist allow/deny decisions as hidden custom session entries.
+- [x] Send a hidden continuation prompt that tells the agent whether to retry.
+- [x] Claim the decision synchronously before starting the continuation model
+      run, without holding a queue during model work.
+- [x] Keep grants scoped to one `HaloAgentSession` and clear them on close.
 
 ### Phase 3: Derive durable card state
 
@@ -211,22 +210,22 @@ sessionToolExecutions [[packages/client/src/sessionState.ts#sessionToolExecution
         └── ExecutorApprovalCard [[packages/web/src/main/agent/ExecutorApprovalCard.tsx#ExecutorApprovalCard]]
 ```
 
-- [ ] Define and decode the hidden approval-decision detail shape.
-- [ ] Overlay `allowed` and `denied` onto the original pending approval when
-  deriving `ToolExecution`.
-- [ ] Keep card placement attached to the original `exec` result.
-- [ ] Preserve pending, allowed-once, and denied card presentations.
-- [ ] Keep raw arguments out of visible card copy.
+- [x] Define and decode the hidden approval-decision detail shape.
+- [x] Overlay `allowed` and `denied` onto the original pending approval when
+      deriving `ToolExecution`.
+- [x] Keep card placement attached to the original `exec` result.
+- [x] Preserve pending, allowed-once, and denied card presentations.
+- [x] Keep raw arguments out of visible card copy.
 
 ### Phase 4: Verify the non-blocking lifecycle
 
 - [ ] Server test: the original run finishes while the approval remains pending.
 - [ ] Server test: deny records the decision without starting another run.
 - [ ] Server test: allow records the decision, starts a continuation run, and
-  consumes the grant on an identical retry.
+      consumes the grant on an identical retry.
 - [ ] Server test: changed arguments create a new approval request.
 - [ ] Electron E2E: pending Gmail approval card renders the requested layout.
 - [ ] Run `pnpm run check-affected`.
 - [ ] Build the Electron E2E package and run the focused session-view test.
 - [ ] Record a short Halo walkthrough showing that the initial run is not held
-  open and that Allow once leads to a successful agent retry.
+      open and that Allow once leads to a successful agent retry.

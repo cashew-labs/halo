@@ -1169,7 +1169,7 @@ serverTest(
 );
 
 serverTest(
-  "resumes approval-gated Executor tools from session responses",
+  "finishes approval requests and retries only after a session response",
   async ({ server, llm }) => {
     for (const decision of ["allow", "deny"] as const) {
       const session = await server.rpc.sessions.create();
@@ -1180,37 +1180,38 @@ serverTest(
       const js = `return await tools.executor.coreTools.policies.create({ owner: "user", pattern: "approval-test-${decision}.*", action: "block" });`;
       await llm.respond(
         m.tool.start("exec", {
-          id: `approval-${decision}`,
+          id: `approval-request-${decision}`,
           arguments: { js },
         }),
       );
-
-      await expect
-        .poll(async () =>
-          sessionToolExecutions(
-            await server.rpc.sessions.snapshot(session),
-          ).flatMap((execution) =>
-            execution.type === "exec"
-              ? execution.approvals.map((approval) => approval.status)
-              : [],
-          ),
-        )
-        .toContain("pending");
+      await llm.respond(m.assistant(`Waiting for ${decision}`));
+      await prompting;
       const pending = await server.rpc.sessions.snapshot(session);
+      expect(pending.activeRun).toBeUndefined();
       const approval = sessionToolExecutions(pending).flatMap((execution) =>
         execution.type === "exec" ? execution.approvals : [],
       )[0]!;
-      await server.rpc.sessions.respondToToolApproval({
+      expect(approval.status).toBe("pending");
+
+      const responding = server.rpc.sessions.respondToToolApproval({
         ...session,
         approvalId: approval.id,
         decision,
       });
+      if (decision === "allow") {
+        await llm.respond(
+          m.tool.start("exec", {
+            id: "approval-retry-allow",
+            arguments: { js },
+          }),
+        );
+      }
       await llm.respond(m.assistant(`${decision} finished`));
-      await prompting;
+      await responding;
 
       const completed = await server.rpc.sessions.snapshot(session);
-      const execution = sessionToolExecutions(completed)[0]!;
-      expect(execution).toMatchObject({
+      const executions = sessionToolExecutions(completed);
+      expect(executions[0]).toMatchObject({
         type: "exec",
         status: "completed",
         approvals: [
@@ -1220,7 +1221,65 @@ serverTest(
           },
         ],
       });
+      expect(executions).toHaveLength(decision === "allow" ? 2 : 1);
+      if (decision === "allow") {
+        expect(executions[1]).toMatchObject({
+          id: "approval-retry-allow",
+          status: "completed",
+          approvals: [],
+        });
+      }
     }
+  },
+);
+
+serverTest(
+  "requires another approval when retry arguments change",
+  async ({ server, llm }) => {
+    const session = await server.rpc.sessions.create();
+    const originalJs =
+      'return await tools.executor.coreTools.policies.create({ owner: "user", pattern: "approval-original.*", action: "block" });';
+    const prompting = server.rpc.sessions.prompt({
+      ...session,
+      text: "Create the policy",
+    });
+    await llm.respond(
+      m.tool.start("exec", {
+        id: "approval-original",
+        arguments: { js: originalJs },
+      }),
+    );
+    await llm.respond(m.assistant("Waiting for approval"));
+    await prompting;
+    const pending = await server.rpc.sessions.snapshot(session);
+    const originalApproval = sessionToolExecutions(pending).flatMap(
+      (execution) => (execution.type === "exec" ? execution.approvals : []),
+    )[0]!;
+
+    const responding = server.rpc.sessions.respondToToolApproval({
+      ...session,
+      approvalId: originalApproval.id,
+      decision: "allow",
+    });
+    const changedJs =
+      'return await tools.executor.coreTools.policies.create({ owner: "user", pattern: "approval-changed.*", action: "block" });';
+    await llm.respond(
+      m.tool.start("exec", {
+        id: "approval-changed",
+        arguments: { js: changedJs },
+      }),
+    );
+    await llm.respond(m.assistant("The changed request needs approval"));
+    await responding;
+
+    const completed = await server.rpc.sessions.snapshot(session);
+    const approvals = sessionToolExecutions(completed).flatMap((execution) =>
+      execution.type === "exec" ? execution.approvals : [],
+    );
+    expect(approvals).toMatchObject([
+      { id: originalApproval.id, status: "allowed" },
+      { status: "pending", arguments: { pattern: "approval-changed.*" } },
+    ]);
   },
 );
 

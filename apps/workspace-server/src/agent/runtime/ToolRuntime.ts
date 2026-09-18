@@ -63,7 +63,6 @@ import type {
   ConnectionRequest,
   OAuthCompletion,
   ToolApproval,
-  ToolApprovalDecision,
   ToolIdentity,
 } from "@get-halo/client";
 import { createExecutorDatabase } from "./createExecutorDatabase.js";
@@ -100,6 +99,19 @@ export class ConnectionRequiredError extends errore.createTaggedError({
   }) {
     super({ cause: input.cause });
     this.connectionRequests = input.connectionRequests;
+  }
+}
+
+export class ToolApprovalRequiredError extends errore.createTaggedError({
+  name: "ToolApprovalRequiredError",
+  message:
+    "Approval is required before this code can run. An approval card has been shown to the user. Tell them to use it to approve or deny the action. You will be notified after they respond.",
+}) {
+  readonly approvals: ToolApproval[];
+
+  constructor(input: { approvals: ToolApproval[]; cause: Error | undefined }) {
+    super({ cause: input.cause });
+    this.approvals = input.approvals;
   }
 }
 
@@ -452,13 +464,13 @@ export class ToolRuntime {
     modelId?: string;
     parentToolCallId: string;
     onToolEvent?: (event: ExecActivityUpdate) => void;
-    onApprovalUpdate: (approval: ToolApproval) => void;
-    requestApproval: (input: {
-      approval: ToolApproval;
-      signal: AbortSignal | undefined;
-    }) => Promise<ToolApprovalDecision | "cancel">;
+    consumeApproval: (input: {
+      toolPath: string;
+      arguments: unknown;
+    }) => boolean;
   }) {
     const connectionRequests: ConnectionRequest[] = [];
+    const approvalRequests: ToolApproval[] = [];
     const execution = await this.executionContext.run(
       {
         signal: input.signal,
@@ -479,36 +491,23 @@ export class ToolRuntime {
                 connectionRequests.push(connection);
                 return Effect.succeed({ action: "decline" as const });
               }
-              return Effect.promise(async () => {
-                const approval: ToolApproval = {
-                  id: randomUUID(),
-                  toolPath: sandboxPath(String(context.address)),
-                  message: context.request.message.split("\n", 1).join(),
-                  status: "pending",
-                };
-                input.onApprovalUpdate(approval);
-                const response = await input.requestApproval({
-                  approval,
-                  signal: input.signal,
-                });
-                input.onApprovalUpdate({
-                  ...approval,
-                  status:
-                    response === "allow"
-                      ? "allowed"
-                      : response === "deny"
-                        ? "denied"
-                        : "cancelled",
-                });
-                return {
-                  action:
-                    response === "allow"
-                      ? ("accept" as const)
-                      : response === "deny"
-                        ? ("decline" as const)
-                        : ("cancel" as const),
-                };
+              const toolPath = sandboxPath(String(context.address));
+              if (
+                input.consumeApproval({
+                  toolPath,
+                  arguments: context.args,
+                })
+              ) {
+                return Effect.succeed({ action: "accept" as const });
+              }
+              approvalRequests.push({
+                id: randomUUID(),
+                toolPath,
+                message: context.request.message.split("\n", 1).join(),
+                arguments: context.args,
+                status: "pending",
               });
+              return Effect.succeed({ action: "decline" as const });
             },
           }),
         ).catch(
@@ -521,6 +520,12 @@ export class ToolRuntime {
       execution.error === undefined ? undefined : new Error(execution.error);
     if (connectionRequests.length > 0) {
       return new ConnectionRequiredError({ connectionRequests, cause });
+    }
+    if (approvalRequests.length > 0) {
+      return new ToolApprovalRequiredError({
+        approvals: approvalRequests,
+        cause,
+      });
     }
     return execution;
   }

@@ -147,7 +147,7 @@ export const sessionsRouter = os.router({
       });
       const session = await context.sessions.open(input.sessionId);
       if (session instanceof Error) return orpcErrors.badRequest(session);
-      const responded = session.respondToToolApproval(input);
+      const responded = await session.respondToToolApproval(input);
       if (responded instanceof Error) return orpcErrors.badRequest(responded);
     },
   ),

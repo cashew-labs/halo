@@ -377,6 +377,7 @@ e2eTest("shows a Gmail draft approval request", async ({ harness, app }) => {
             id: "draft-approval",
             toolPath: "google_gmail.user.default.gmail.users.drafts.create",
             message: "POST /gmail/v1/users/{userId}/drafts",
+            arguments: {},
             status: "pending",
           },
         ],
