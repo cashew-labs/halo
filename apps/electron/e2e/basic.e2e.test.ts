@@ -1301,3 +1301,89 @@ e2eTest(
     await expect(editor).toContainText("**unfinished");
   },
 );
+
+e2eTest(
+  "settles pointer selection before revealing hybrid Markdown",
+  async ({ app }) => {
+    await app.page
+      .getByRole("button", { name: "New session", exact: true })
+      .waitFor();
+    const previewUrl = new URL(app.page.url());
+    previewUrl.searchParams.set("markdown", "hybrid");
+    await app.page.goto(previewUrl.href);
+    await app.server.rpc.workspace.writeFile({
+      path: "pointer.md",
+      content:
+        "## Heading words\n\nBefore **bold phrase** between *italic phrase* after.",
+    });
+    await app.page
+      .getByRole("link", { name: "pointer.md", exact: true })
+      .click();
+    const editor = app.page.getByRole("textbox", {
+      name: "pointer.md",
+      exact: true,
+    });
+    const markers = editor.locator(".markdown-marker");
+    const bold = editor.locator("strong");
+    const italic = editor.locator("em");
+    const heading = editor.getByRole("heading");
+    for (const [target, expected] of [
+      [bold, ["**", "**"]],
+      [italic, ["*", "*"]],
+      [heading, ["## "]],
+      [bold, ["**", "**"]],
+    ] as const) {
+      const before = await markers.allTextContents();
+      const box = (await target.boundingBox())!;
+      const x = box.x + box.width / 2;
+      const y = box.y + box.height / 2;
+      await app.page.mouse.move(x, y);
+      await app.page.mouse.down();
+      // Hold across paint frames, like a physical click with slight hand movement.
+      await app.page.evaluate(
+        async () =>
+          await new Promise<void>((resolve) => {
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+          }),
+      );
+      await expect(markers).toHaveText(before);
+      expect(await target.boundingBox()).toEqual(box);
+      await app.page.mouse.move(x, y + 1);
+      await app.page.mouse.up();
+      await expect(markers).toHaveText([...expected]);
+      expect(
+        await editor.evaluate(() => window.getSelection()?.isCollapsed),
+      ).toBe(true);
+    }
+
+    // A deliberate drag still selects the intended text, even when starting outside it.
+    await editor
+      .locator(".cm-line")
+      .filter({ hasText: "Before" })
+      .click({ position: { x: 2, y: 8 } });
+    await expect(markers).toHaveCount(0);
+    const edges = await bold.evaluate((element) => {
+      const range = document.createRange();
+      range.selectNodeContents(element);
+      const rect = range.getBoundingClientRect();
+      return {
+        left: rect.left + 1,
+        right: rect.right - 1,
+        y: rect.top + rect.height / 2,
+      };
+    });
+    await app.page.mouse.move(edges.left, edges.y);
+    await app.page.mouse.down();
+    await app.page.mouse.move(edges.right, edges.y, { steps: 8 });
+    await expect(markers).toHaveCount(0);
+    await app.page.mouse.up();
+    await expect(markers).toHaveText(["**", "**"]);
+    expect(await editor.evaluate(() => window.getSelection()?.toString())).toBe(
+      "bold phrase",
+    );
+    await app.page.keyboard.insertText("replacement");
+    await expect(bold).toHaveText("replacement");
+    await app.page.keyboard.press("ControlOrMeta+z");
+    await expect(bold).toHaveText("bold phrase");
+  },
+);

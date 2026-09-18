@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   Compartment,
   EditorState,
+  StateEffect,
   Transaction,
   type Range,
 } from "@codemirror/state";
@@ -170,17 +171,76 @@ export function HybridMarkdownEditor(props: {
   );
 }
 
+const settlePointer = StateEffect.define<void>();
+
 const hybridPreview = (resources: MarkdownResources | undefined) =>
   ViewPlugin.fromClass(
     class {
       decorations: DecorationSet;
+      // Freeze layout throughout a pointer gesture, including its final selection update.
+      private pointerId: number | undefined;
+      private revealFrame: number | undefined;
+      private readonly view: EditorView;
+      private readonly window: Window;
 
       constructor(view: EditorView) {
+        this.view = view;
+        this.window = view.dom.ownerDocument.defaultView!;
         this.decorations = decorate(view, resources);
+        view.dom.addEventListener("pointerdown", this.pointerDown, true);
+        view.dom.ownerDocument.addEventListener("pointerup", this.pointerUp);
+        view.dom.ownerDocument.addEventListener(
+          "pointercancel",
+          this.pointerUp,
+        );
+        this.window.addEventListener("blur", this.settle);
+      }
+
+      private pointerDown = (event: PointerEvent) => {
+        if (event.button !== 0 || !event.isPrimary) return;
+        if (this.revealFrame !== undefined)
+          this.window.cancelAnimationFrame(this.revealFrame);
+        this.revealFrame = undefined;
+        this.pointerId = event.pointerId;
+      };
+
+      private pointerUp = (event: PointerEvent) => {
+        if (event.pointerId === this.pointerId) this.settle();
+      };
+
+      private settle = () => {
+        if (this.pointerId === undefined || this.revealFrame !== undefined)
+          return;
+        // Mouse-up and CodeMirror's selection handling must finish before geometry changes.
+        this.revealFrame = this.window.requestAnimationFrame(() => {
+          this.revealFrame = undefined;
+          this.pointerId = undefined;
+          this.view.dispatch({ effects: settlePointer.of(undefined) });
+        });
+      };
+
+      destroy() {
+        const { view } = this;
+        view.dom.removeEventListener("pointerdown", this.pointerDown, true);
+        view.dom.ownerDocument.removeEventListener("pointerup", this.pointerUp);
+        view.dom.ownerDocument.removeEventListener(
+          "pointercancel",
+          this.pointerUp,
+        );
+        this.window.removeEventListener("blur", this.settle);
+        if (this.revealFrame !== undefined)
+          this.window.cancelAnimationFrame(this.revealFrame);
       }
 
       update(update: ViewUpdate) {
+        if (this.pointerId !== undefined) {
+          this.decorations = this.decorations.map(update.changes);
+          return;
+        }
         if (
+          update.transactions.some((tr) =>
+            tr.effects.some((effect) => effect.is(settlePointer)),
+          ) ||
           update.docChanged ||
           update.selectionSet ||
           update.focusChanged ||
