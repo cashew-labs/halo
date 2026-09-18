@@ -114,6 +114,9 @@ export const contract = publicProcedure.router({
     writeFile: oc
       .input(type<{ path: string; content: string }>())
       .output(type<{ path: string }>()),
+    uploadFile: oc
+      .input(type<{ path: string; file: File }>())
+      .output(type<{ path: string }>()),
     saveImage: oc
       .input(type<{ documentPath: string; file: File }>())
       .output(type<{ src: string }>()),
