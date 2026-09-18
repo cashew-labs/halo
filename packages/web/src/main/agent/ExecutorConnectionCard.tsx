@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode } from "react";
+import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button as AriaButton } from "react-aria-components";
 import {
@@ -252,55 +252,24 @@ function ConnectionOverflowMenu({
   onConnect(): void;
 }) {
   const buttonClassName = useStyles(menuButton);
-  const items = overflowItems({
-    status,
-    canConnect,
-    cancelPending,
-    onCancel,
-    onConnect,
-  });
 
   return (
     <MenuTrigger placement="bottom end">
       <AriaButton aria-label={label} className={buttonClassName}>
         <DotsHorizontal size="sm" />
       </AriaButton>
-      <Menu aria-label={label}>{items}</Menu>
+      <Menu aria-label={label}>
+        {status === "connecting" ? (
+          <MenuItem onAction={onCancel} isDisabled={cancelPending}>
+            Cancel
+          </MenuItem>
+        ) : (
+          <MenuItem onAction={onConnect} isDisabled={!canConnect}>
+            {status === "connected" ? "Connect different account" : "Connect"}
+          </MenuItem>
+        )}
+      </Menu>
     </MenuTrigger>
-  );
-}
-
-function overflowItems({
-  status,
-  canConnect,
-  cancelPending,
-  onCancel,
-  onConnect,
-}: {
-  status: Exclude<ConnectionState["status"], "idle" | "starting">;
-  canConnect: boolean;
-  cancelPending: boolean;
-  onCancel(): void;
-  onConnect(): void;
-}): ReactNode {
-  if (status === "connecting") {
-    return (
-      <MenuItem onAction={onCancel} isDisabled={cancelPending}>
-        Cancel
-      </MenuItem>
-    );
-  }
-  if (status === "connected") {
-    return (
-      <MenuItem onAction={onConnect} isDisabled={!canConnect}>
-        Connect different account
-      </MenuItem>
-    );
-  }
-  return (
-    <MenuItem onAction={onConnect} isDisabled={!canConnect}>
-      Connect
-    </MenuItem>
   );
 }
 
