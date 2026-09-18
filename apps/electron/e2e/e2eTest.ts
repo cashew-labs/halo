@@ -1,6 +1,6 @@
 import { execa } from "execa";
 import { cp, mkdir, mkdtemp, rm } from "node:fs/promises";
-import path, { join, resolve } from "node:path";
+import nodePath, { join, resolve } from "node:path";
 import { Logger } from "@get-halo/logger";
 import { startWorkspaceServerProcess } from "./startWorkspaceServerProcess.js";
 import type { SessionDescription } from "@get-halo/shared/testing";
@@ -46,7 +46,7 @@ type E2EWorkerFixtures = {
   getExtensionPackages(): Promise<ExtensionPackages>;
 };
 
-const repository = path.resolve(import.meta.dirname, "../../..");
+const repository = nodePath.resolve(import.meta.dirname, "../../..");
 
 class ExtensionSetupError extends errore.createTaggedError({
   name: "ExtensionSetupError",
@@ -167,18 +167,18 @@ export const e2eTest = baseTest.extend<E2EFixtures, E2EWorkerFixtures>({
       async loadExtension(sourceDirectory) {
         const { scaffoldExtension } =
           await import("@get-halo/extension-tools/scaffold");
-        const source = path.resolve(
-          path.dirname(testInfo.file),
+        const source = nodePath.resolve(
+          nodePath.dirname(testInfo.file),
           sourceDirectory,
         );
-        const id = path.basename(source);
-        const parent = path.join(
+        const id = nodePath.basename(source);
+        const parent = nodePath.join(
           testArtifacts.paths.workspace,
           ".halo",
           "extensions",
         );
         await mkdir(parent, { recursive: true });
-        const directory = path.join(parent, id);
+        const directory = nodePath.join(parent, id);
         const scaffolded = await scaffoldExtension({
           directory,
           name: id,
@@ -215,22 +215,22 @@ export const e2eTest = baseTest.extend<E2EFixtures, E2EWorkerFixtures>({
       let extensionPackages: ExtensionPackages | undefined;
       await use(async () => {
         if (extensionPackages !== undefined) return extensionPackages;
-        const parent = path.join(repository, "tmp", "extension-host");
+        const parent = nodePath.join(repository, "tmp", "extension-host");
         await mkdir(parent, { recursive: true });
-        const directory = await mkdtemp(path.join(parent, "packages-"));
+        const directory = await mkdtemp(nodePath.join(parent, "packages-"));
         cleanup.defer(
           async () => await rm(directory, { recursive: true, force: true }),
         );
         const packed: string[] = [];
         for (const name of ["extension-sdk", "extension-tools"]) {
-          const cwd = path.join(repository, "packages", name);
+          const cwd = nodePath.join(repository, "packages", name);
           await extensionCommand("npm", ["run", "build"], cwd);
           const result = await extensionCommand(
             "npm",
             ["pack", "--ignore-scripts", "--pack-destination", directory],
             cwd,
           );
-          packed.push(`file:${path.join(directory, result.stdout.trim())}`);
+          packed.push(`file:${nodePath.join(directory, result.stdout.trim())}`);
         }
         extensionPackages = {
           sdk: packed[0]!,
