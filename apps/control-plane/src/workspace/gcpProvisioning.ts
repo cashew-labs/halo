@@ -228,6 +228,7 @@ async function insertInstance(
             (item) => item.key !== ownerUserIdMetadataKey,
           ),
           { key: ownerUserIdMetadataKey, value: ctx.ownerUserId },
+          { key: "halo-workspace-id", value: ctx.workspaceId },
         ],
       },
       disks: [

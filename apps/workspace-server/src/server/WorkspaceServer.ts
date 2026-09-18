@@ -17,7 +17,7 @@ import { workspaceBashPlugin } from "../agent/tools/bash/workspaceBashPlugin.js"
 import { createWorkspaceFilesPlugin } from "../agent/tools/files/createWorkspaceFilesPlugin.js";
 import { parallelSearchPlugin } from "../agent/tools/web/parallelSearchPlugin.js";
 import type { LLMApi } from "../llm/LLMApi.js";
-import { createPiModelRuntime } from "../llm/createPiModelRuntime.js";
+import { TraceService, type TraceUploader } from "../traces/TraceService.js";
 import type { HaloEnvironment } from "../agent/workspacePrompt.js";
 import type { GoogleWebOAuthClient } from "@get-halo/config/workspaceServer";
 import {
@@ -30,9 +30,13 @@ import {
 } from "./http.js";
 import type { WorkspaceServerReady } from "./WorkspaceServerReady.js";
 
+export { ControlPlaneTraceUploader } from "../traces/ControlPlaneTraceUploader.js";
+
 export type WorkspaceServerOptions = {
   environment: HaloEnvironment;
   llmApi: LLMApi;
+  traceUploader?: TraceUploader;
+  traceWorkspaceId?: string;
   workspaceRoot: string;
   appDataDir: string;
   appVersion: string;
@@ -66,6 +70,7 @@ export class WorkspaceServer {
   private readonly extensions: ExtensionHost;
   private readonly http: ListeningHaloHttp;
   private readonly requests: ServingHaloHttp;
+  private readonly traces: TraceService;
 
   private constructor(ctx: {
     filesystem: FilesystemService;
@@ -79,6 +84,7 @@ export class WorkspaceServer {
     extensions: ExtensionHost;
     http: ListeningHaloHttp;
     requests: ServingHaloHttp;
+    traces: TraceService;
   }) {
     const {
       filesystem,
@@ -92,6 +98,7 @@ export class WorkspaceServer {
       extensions,
       http,
       requests,
+      traces,
     } = ctx;
     this.filesystem = filesystem;
     this.database = database;
@@ -104,6 +111,7 @@ export class WorkspaceServer {
     this.extensions = extensions;
     this.http = http;
     this.requests = requests;
+    this.traces = traces;
   }
 
   static async start(
@@ -120,8 +128,6 @@ export class WorkspaceServer {
       if (closed instanceof Error)
         options.logger.warn({ event: "http-cleanup-failed", error: closed });
     });
-    const modelRuntime = await createPiModelRuntime(options.llmApi);
-    if (modelRuntime instanceof Error) return modelRuntime;
     const filesystem = new FilesystemService();
     cleanup.defer(async () => {
       const closed = await filesystem.close();
@@ -149,6 +155,15 @@ export class WorkspaceServer {
     if (ownerUserId instanceof Error) return ownerUserId;
 
     const workspaceRoot = workspace.layout.root;
+    const traces = await TraceService.open({
+      directory: path.join(workspaceRoot, ".halo", "traces"),
+      appVersion: options.appVersion,
+      logger: options.logger,
+      uploader: options.traceUploader,
+      workspaceId: options.traceWorkspaceId,
+    });
+    if (traces instanceof Error) return traces;
+    cleanup.defer(async () => await traces.close());
     const database = await DatabaseClient.open({
       directory: path.join(workspaceRoot, ".halo"),
       filesystem,
@@ -225,7 +240,8 @@ export class WorkspaceServer {
     const sessions = new SessionRegistry({
       environment: options.environment,
       repo: sessionRepo,
-      modelRuntime,
+      llmApi: options.llmApi,
+      traces,
       model: options.llmApi.model,
       filesystem,
       layout: workspace.layout,
@@ -244,6 +260,7 @@ export class WorkspaceServer {
     const requests = serveHaloHttp({
       ...http,
       context: {
+        traces,
         browsers,
         extensions,
         workspace,
@@ -272,6 +289,7 @@ export class WorkspaceServer {
       extensions,
       http,
       requests,
+      traces,
     });
   }
 
@@ -286,6 +304,7 @@ export class WorkspaceServer {
     await this.requests.close();
     this.connectionService.close();
     const sessionsClosed = await this.sessions.shutdown();
+    await this.traces.close();
     await this.browsers.shutdown();
     await this.extensions.stop();
     const toolsClosed = await this.toolRuntime.close();

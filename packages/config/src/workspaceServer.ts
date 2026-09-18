@@ -24,6 +24,15 @@ export const workspaceServerConfigSchema = Type.Object({
   appVersion: Type.String(),
   ownerUserId: Type.String(),
   logFilePath: Type.String(),
+  traceUpload: Type.Optional(
+    Type.Object({
+      origin: Type.String({ pattern: "^https://" }),
+      workspaceId: Type.String({
+        pattern:
+          "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      }),
+    }),
+  ),
   corsOrigins: Type.Array(Type.String()),
   gateway: Type.Optional(
     Type.Object({

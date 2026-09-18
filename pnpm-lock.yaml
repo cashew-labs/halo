@@ -121,6 +121,9 @@ importers:
       '@oxlint/plugins':
         specifier: ^1.80.0
         version: 1.80.0
+      '@tanishqkancharla/diffmap':
+        specifier: github:tanishqkancharla/diffmap#main
+        version: https://codeload.github.com/tanishqkancharla/diffmap/tar.gz/aa5a20e1f2faf80f188aab96d3d8f92201c49401(@babel/runtime@7.29.7)(@codemirror/search@6.7.1)(@codemirror/theme-one-dark@6.1.3)(@floating-ui/dom@1.8.0)(@shikijs/themes@4.3.1)(@tiptap/core@3.29.2(@tiptap/pm@3.29.2))(@tiptap/extensions@3.29.2(@tiptap/core@3.29.2(@tiptap/pm@3.29.2))(@tiptap/pm@3.29.2))(@types/node@24.13.3)(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(codemirror@6.0.2)(esbuild@0.28.2)(jiti@2.7.0)(supports-color@8.1.1)(terser@5.49.0)(typescript@7.0.2)(yaml@2.9.0)
       oxc-parser:
         specifier: ^0.150.0
         version: 0.150.0
@@ -133,9 +136,6 @@ importers:
       oxlint-tsgolint:
         specifier: 7.0.2001
         version: 7.0.2001
-      tkstack:
-        specifier: github:tanishqkancharla/tkstack#main
-        version: '@tanishqkancharla/diffmap@https://codeload.github.com/tanishqkancharla/tkstack/tar.gz/d40b8816285c0671ed9128a947024907919cbf05(@babel/runtime@7.29.7)(@codemirror/search@6.7.1)(@codemirror/theme-one-dark@6.1.3)(@floating-ui/dom@1.8.0)(@shikijs/themes@4.3.1)(@tiptap/core@3.29.2(@tiptap/pm@3.29.2))(@tiptap/extensions@3.29.2(@tiptap/core@3.29.2(@tiptap/pm@3.29.2))(@tiptap/pm@3.29.2))(@types/node@24.13.3)(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(codemirror@6.0.2)(esbuild@0.28.2)(jiti@2.7.0)(supports-color@8.1.1)(terser@5.49.0)(typescript@7.0.2)(yaml@2.9.0)'
       turbo:
         specifier: ^2.10.12
         version: 2.10.12
@@ -3163,8 +3163,8 @@ packages:
     resolution: {integrity: sha512-4BAffykYOgO+5nzBWYwE3W90sBgLJoUPRWWcL8wlyiM8IB8ipJz3UMJ9KXQd1RKQXpKp8Tutn80HZtWsu2u76w==}
     engines: {node: '>=10'}
 
-  '@tanishqkancharla/diffmap@https://codeload.github.com/tanishqkancharla/tkstack/tar.gz/d40b8816285c0671ed9128a947024907919cbf05':
-    resolution: {gitHosted: true, integrity: sha512-wX7wAgszKzTcXuGEzd4iMFqeI6MY+sVl80U6823NoeqhrRTzkQqIppRDBa26T0WuFVmlKiwUCcCnXFO+pYkM6w==, tarball: https://codeload.github.com/tanishqkancharla/tkstack/tar.gz/d40b8816285c0671ed9128a947024907919cbf05}
+  '@tanishqkancharla/diffmap@https://codeload.github.com/tanishqkancharla/diffmap/tar.gz/aa5a20e1f2faf80f188aab96d3d8f92201c49401':
+    resolution: {gitHosted: true, integrity: sha512-mFcJgYbKNTtb5QYH4l+LhpUdGdi9VfJuH+SlWFdjIirUsaZ9Qtdbz+AGB2TJCQRxG7FMlHnNg8bBPSeReJKhbA==, tarball: https://codeload.github.com/tanishqkancharla/diffmap/tar.gz/aa5a20e1f2faf80f188aab96d3d8f92201c49401}
     version: 0.1.3
     engines: {node: '>=22'}
     hasBin: true
@@ -11136,7 +11136,7 @@ snapshots:
     dependencies:
       defer-to-connect: 2.0.1
 
-  '@tanishqkancharla/diffmap@https://codeload.github.com/tanishqkancharla/tkstack/tar.gz/d40b8816285c0671ed9128a947024907919cbf05(@babel/runtime@7.29.7)(@codemirror/search@6.7.1)(@codemirror/theme-one-dark@6.1.3)(@floating-ui/dom@1.8.0)(@shikijs/themes@4.3.1)(@tiptap/core@3.29.2(@tiptap/pm@3.29.2))(@tiptap/extensions@3.29.2(@tiptap/core@3.29.2(@tiptap/pm@3.29.2))(@tiptap/pm@3.29.2))(@types/node@24.13.3)(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(codemirror@6.0.2)(esbuild@0.28.2)(jiti@2.7.0)(supports-color@8.1.1)(terser@5.49.0)(typescript@7.0.2)(yaml@2.9.0)':
+  '@tanishqkancharla/diffmap@https://codeload.github.com/tanishqkancharla/diffmap/tar.gz/aa5a20e1f2faf80f188aab96d3d8f92201c49401(@babel/runtime@7.29.7)(@codemirror/search@6.7.1)(@codemirror/theme-one-dark@6.1.3)(@floating-ui/dom@1.8.0)(@shikijs/themes@4.3.1)(@tiptap/core@3.29.2(@tiptap/pm@3.29.2))(@tiptap/extensions@3.29.2(@tiptap/core@3.29.2(@tiptap/pm@3.29.2))(@tiptap/pm@3.29.2))(@types/node@24.13.3)(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(codemirror@6.0.2)(esbuild@0.28.2)(jiti@2.7.0)(supports-color@8.1.1)(terser@5.49.0)(typescript@7.0.2)(yaml@2.9.0)':
     dependencies:
       '@pierre/diffs': 1.4.1(@shikijs/themes@4.3.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@vitejs/plugin-react': 6.1.1(vite@8.2.2(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.49.0)(tsx@4.23.13)(yaml@2.9.0))
