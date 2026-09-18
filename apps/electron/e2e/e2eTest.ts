@@ -313,7 +313,7 @@ function extensionBaseFiles(input: {
     {
       path: "schema.ts",
       content:
-        'import { defineSchema } from "@get-halo/extension-sdk/schema";\nexport default defineSchema({});\n',
+        'import { defineRelations, defineSchema } from "@get-halo/extension-sdk/schema";\nexport const schema = defineSchema({});\nexport const relations = defineRelations(schema, () => ({}));\n',
     },
   ];
 }
