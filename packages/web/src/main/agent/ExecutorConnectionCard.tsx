@@ -161,7 +161,7 @@ export function ExecutorConnectionCard({
               variantColor={brand.buttonColor}
               style={{ color: brand.buttonForeground }}
               className={brandButtonClassName}
-              disabled={!canConnect}
+              isDisabled={!canConnect}
               onClick={() => connect.mutate()}
             >
               Connect

@@ -159,7 +159,7 @@ function Composer({
         <Button
           aria-label={showStop ? "Stop" : "Send"}
           className={sendButton}
-          disabled={!showStop && trimmedText.length === 0}
+          isDisabled={!showStop && trimmedText.length === 0}
           onClick={showStop ? onStop : submit}
         >
           {showStop ? (
@@ -372,7 +372,7 @@ const styles = {
       overflowWrap: "anywhere",
     },
   ),
-  userRow: style(flex({ justify: "end" }), spacing.padding({ top: 3 }), {
+  userRow: style(flex({ justifyContent: "end" }), spacing.padding({ top: 3 }), {
     // position: "sticky",
     // top: 0,
     // zIndex: 1,

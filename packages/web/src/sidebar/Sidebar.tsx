@@ -126,7 +126,7 @@ const styles = {
       paddingBottom: "env(safe-area-inset-bottom)",
     },
   }),
-  mobileHeader: style(flex({ align: "center", gap: 3 }), {
+  mobileHeader: style(flex({ alignItems: "center", gap: 3 }), {
     minHeight: "56px",
     padding: "6px 2px",
     paddingTop: "max(6px, env(safe-area-inset-top))",

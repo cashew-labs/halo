@@ -11,16 +11,14 @@ import {
   type DragEvent,
   type ReactNode,
 } from "react";
-import { Button as AriaButton } from "react-aria-components";
 import {
+  Button,
   Menu,
   MenuItem,
   MenuTrigger,
   Tooltip,
   colors,
   flex,
-  focusRing,
-  radius,
   spacing,
   text,
 } from "maui";
@@ -86,7 +84,6 @@ export function FilesystemSection() {
   const dropRow = useStyles(styles.dropRow);
   const feedback = useStyles(styles.feedback);
   const controls = useStyles(styles.controls);
-  const iconButton = useStyles(styles.menuButton);
   const mutation = useMutation({
     mutationKey: ["workspace-entry"],
     mutationFn: async (operation: FileOperation) => {
@@ -333,24 +330,24 @@ export function FilesystemSection() {
         <>
           <span className={controls}>
             <Tooltip content="New file">
-              <AriaButton
+              <Button
+                variant="quiet"
                 aria-label="New file"
-                className={iconButton}
                 isDisabled={mutation.isPending || action !== undefined}
                 onPress={() => openAction({ kind: "file", parent: "" })}
               >
                 <FilePlus size="sm" />
-              </AriaButton>
+              </Button>
             </Tooltip>
             <Tooltip content="New folder">
-              <AriaButton
+              <Button
+                variant="quiet"
                 aria-label="New folder"
-                className={iconButton}
                 isDisabled={mutation.isPending || action !== undefined}
                 onPress={() => openAction({ kind: "directory", parent: "" })}
               >
                 <FolderPlus size="sm" />
-              </AriaButton>
+              </Button>
             </Tooltip>
           </span>
           {action !== undefined &&
@@ -525,9 +522,14 @@ function FileMenu({
   const parent = node.path;
   return (
     <MenuTrigger>
-      <AriaButton aria-label={label} className={button} isDisabled={disabled}>
+      <Button
+        variant="quiet"
+        aria-label={label}
+        className={button}
+        isDisabled={disabled}
+      >
         <DotsHorizontal size="sm" />
-      </AriaButton>
+      </Button>
       <Menu aria-label={label}>
         {node.isDirectory && (
           <MenuItem onAction={() => onAction({ kind: "file", parent })}>
@@ -610,23 +612,9 @@ function fileRoute(path: string) {
 }
 
 const styles = {
-  controls: style(flex({ align: "center", gap: 1 })),
-  menuButton: style(
-    focusRing(),
-    radius.sm,
-    flex({ align: "center", gap: 1 }),
-    text({ size: "xs" }),
-    {
-      height: "24px",
-      padding: "3px 5px",
-      border: 0,
-      backgroundColor: "transparent",
-      color: colors.gray[11],
-      cursor: "pointer",
-      "&:hover": { backgroundColor: colors.gray[4] },
-      "&[data-disabled]": { opacity: 0.5 },
-    },
-  ),
+  controls: style(flex({ alignItems: "center", gap: 1 })),
+  // Pull the 28px button into the row's block padding so file rows stay compact.
+  menuButton: style({ marginBlock: "-2px" }),
   fileLabel: style({
     display: "block",
     width: "100%",

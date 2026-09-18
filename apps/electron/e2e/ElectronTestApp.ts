@@ -41,7 +41,10 @@ export class ElectronTestApp {
     const launch = this.artifacts.createLaunch();
     const electronApp = await electron.launch({
       executablePath,
-      args: [`--user-data-dir=${this.artifacts.paths.userData}`],
+      args: [
+        `--user-data-dir=${this.artifacts.paths.userData}`,
+        "--force-device-scale-factor=1",
+      ],
       artifactsDir: this.artifacts.paths.playwright,
       env: {
         ...processEnvironment(),

@@ -4,15 +4,13 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import { Dialog, Modal, ModalOverlay } from "react-aria-components";
 import { useLocation } from "wouter";
-import { colors } from "maui";
+import { Drawer, colors } from "maui";
 import { style, useStyles } from "purse-styles";
 import type { SessionSummary } from "@get-halo/client";
 import type { AppInfo } from "./HostApi.js";
 import { PaneWorkspace } from "./panes/PaneWorkspace.js";
 import { Sidebar } from "./sidebar/Sidebar.js";
-import "./workspaceLayout.css";
 
 const SidebarContext = createContext<{
   isMobile: boolean;
@@ -58,7 +56,6 @@ export function WorkspaceLayout({
     setSidebarState({ location, isMobile, isOpen });
   }
   const shell = useStyles(shellStyle);
-  const overlay = useStyles(overlayStyle);
 
   return (
     <SidebarContext
@@ -72,21 +69,14 @@ export function WorkspaceLayout({
         {!isMobile && <Sidebar sessions={sessions} appInfo={appInfo} />}
         <PaneWorkspace sessions={sessions} />
       </div>
-      <ModalOverlay
+      <Drawer
         isOpen={isMobile && sidebarState.isOpen}
         onOpenChange={setIsOpen}
-        isDismissable
-        className={overlay}
+        side="start"
+        aria-label="Workspace navigation"
       >
-        <Modal className="workspaceDrawer">
-          <Dialog
-            aria-label="Workspace navigation"
-            className="workspaceDrawerDialog"
-          >
-            <Sidebar sessions={sessions} appInfo={appInfo} />
-          </Dialog>
-        </Modal>
-      </ModalOverlay>
+        <Sidebar sessions={sessions} appInfo={appInfo} />
+      </Drawer>
     </SidebarContext>
   );
 }
@@ -103,12 +93,4 @@ const shellStyle = style({
   "@media (max-width: 700px)": {
     gridTemplateColumns: "minmax(0, 1fr)",
   },
-});
-
-const overlayStyle = style({
-  position: "fixed",
-  inset: 0,
-  height: "100dvh",
-  zIndex: 100,
-  backgroundColor: "rgb(0 0 0 / 35%)",
 });
