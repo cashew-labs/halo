@@ -38,7 +38,7 @@ const webContentSecurityPolicy = [
   "form-action 'self'",
   "frame-ancestors 'none'",
   "frame-src 'self'",
-  "img-src 'self' blob: data:",
+  "img-src 'self' blob: data: https://gethalo.dev",
   "object-src 'none'",
   "script-src 'self'",
   "style-src 'self' 'unsafe-inline'",

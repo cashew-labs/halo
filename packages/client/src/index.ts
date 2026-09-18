@@ -23,6 +23,10 @@ export {
   type ConnectionRequest,
 } from "./ConnectionRequest.js";
 export {
+  googleIntegrationDisplay,
+  type GoogleIntegrationDisplay,
+} from "./GoogleIntegrationDisplay.js";
+export {
   haloMessageSchema,
   execToolCallSchema,
   directToolIdentity,

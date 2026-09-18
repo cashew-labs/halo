@@ -382,7 +382,13 @@ e2eTest("shows a connection request", async ({ harness, app }) => {
     name: "Google Drive connection",
   });
   await expect(card).toBeVisible();
+  await expect(
+    card.getByText("Search, read, create, and share files."),
+  ).toBeVisible();
   await expect(card.getByRole("button", { name: "Connect" })).toBeVisible();
+  await expect(
+    card.getByText("Connect your account so the agent can continue"),
+  ).toHaveCount(0);
 });
 
 e2eTest(
@@ -399,16 +405,17 @@ e2eTest(
     const card = app.page.getByRole("region", {
       name: "Google Drive connection",
     });
+    await expect(
+      card.getByText("Search, read, create, and share files."),
+    ).toBeVisible();
     await card.getByRole("button", { name: "Connect" }).click();
+    await expect(card.getByText("Opened in your browser")).toBeVisible();
     await expect(
-      card.getByRole("button", { name: "Connecting" }),
+      card.getByText("Search, read, create, and share files."),
     ).toBeVisible();
-    await expect(
-      card.getByText("Finish connecting in your browser"),
-    ).toBeVisible();
-    await card.getByRole("button", { name: "Cancel" }).click();
-    await expect(card.getByRole("button", { name: "Try again" })).toBeVisible();
-    await expect(card.getByText("Authorization cancelled")).toBeVisible();
+    await card.getByRole("button", { name: "Google Drive actions" }).click();
+    await app.page.getByRole("menuitem", { name: "Cancel" }).click();
+    await expect(card.getByText("Cancelled", { exact: true })).toBeVisible();
   },
 );
 
