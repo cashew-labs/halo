@@ -10,6 +10,7 @@ import type { SessionSummary } from "@get-halo/client";
 import { backgroundColor, colors, focusRing, text } from "maui";
 import { Plus, Close, Menu } from "maui/icons";
 import { style, useStyles } from "purse-styles";
+import { chromeBackground } from "../chromeBackground.js";
 import { MainPane } from "../main/MainPane.js";
 import {
   paneLayout,
@@ -428,7 +429,7 @@ const workspaceStyle = style(
     backgroundColor: backgroundColor.app,
     "--pane-tab-height": `${tabBarHeight}px`,
     "--pane-background": backgroundColor.app,
-    "--pane-tab-background": colors.gray[2],
+    "--pane-tab-background": chromeBackground,
     "--pane-border": colors.gray[6],
     "--pane-muted": colors.gray[11],
     "--pane-accent": colors.accent[9],
