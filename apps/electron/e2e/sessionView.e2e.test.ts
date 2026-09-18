@@ -1108,9 +1108,6 @@ e2eTest(
     await app.page
       .getByRole("button", { name: "New session", exact: true })
       .waitFor();
-    const previewUrl = new URL(app.page.url());
-    previewUrl.searchParams.set("markdown", "hybrid");
-    await app.page.goto(previewUrl.href);
     const editor = app.page.getByRole("textbox", {
       name: "Message",
       exact: true,

@@ -1,10 +1,7 @@
 import { HybridMarkdownEditor } from "../HybridMarkdownEditor.js";
-import { hybridMarkdownEnabled } from "../hybridMarkdownEnabled.js";
 import type React from "react";
-import { EditorContent } from "@tiptap/react";
 import {
   backgroundColor,
-  colors,
   flex,
   focusRing,
   proseMaxWidth,
@@ -15,8 +12,6 @@ import {
   type ProseSize,
 } from "maui";
 import { style, useStyles } from "purse-styles";
-import { proseInlineCode } from "./proseInlineCode.ts";
-import { useMarkdownEditor } from "../useMarkdownEditor.js";
 
 type EditorProps = {
   /** Initial markdown content. Updates are applied when this value changes. */
@@ -35,59 +30,6 @@ type EditorProps = {
   error?: React.ReactNode;
 };
 
-/**
- * TipTap markdown editor with CommonMark shortcuts (`#`, `**`, `-`, `>`, …)
- * and Maui prose type styles on the ProseMirror surface.
- */
-function RichEditor({
-  content = "",
-  autoFocus = false,
-  onChange,
-  placeholder = "Write a message…",
-  size = "md",
-  editable = true,
-  className,
-  "aria-label": ariaLabel = "Message editor",
-  onSubmit,
-  actions,
-  error,
-}: EditorProps) {
-  const shellClassName = useStyles(editorShellClass);
-  const actionsClassName = useStyles(editorActionsClass);
-  const inlineCodeClassName = useStyles(proseInlineCode);
-  const editor = useMarkdownEditor({
-    content,
-    autoFocus,
-    onChange,
-    placeholder,
-    size,
-    editable,
-    "aria-label": ariaLabel,
-    onSubmit,
-    inlineCodeClassName,
-  });
-
-  return (
-    <div
-      className={joinClassNames(shellClassName, className)}
-      onClick={(event) => {
-        const editorElement = editor?.view.dom;
-        if (
-          event.target instanceof Node &&
-          editorElement?.contains(event.target)
-        ) {
-          return;
-        }
-        editor?.commands.focus();
-      }}
-    >
-      <EditorContent editor={editor} />
-      {error}
-      {actions ? <div className={actionsClassName}>{actions}</div> : undefined}
-    </div>
-  );
-}
-
 const editorShellClass = style(
   radius.lg,
   shadow.subtle,
@@ -99,17 +41,6 @@ const editorShellClass = style(
     backgroundColor: backgroundColor.element,
     maxWidth: proseMaxWidth,
     minWidth: 0,
-    "& .ProseMirror": {
-      outline: "none",
-      minHeight: "2.75em",
-    },
-    "& .ProseMirror p.is-editor-empty:first-child::before": {
-      color: colors.gray[9],
-      content: "attr(data-placeholder)",
-      float: "left",
-      height: 0,
-      pointerEvents: "none",
-    },
   },
 );
 
@@ -122,14 +53,6 @@ function joinClassNames(...classNames: Array<string | undefined>) {
 }
 
 export function Editor(props: EditorProps) {
-  return hybridMarkdownEnabled() ? (
-    <HybridComposer {...props} />
-  ) : (
-    <RichEditor {...props} />
-  );
-}
-
-function HybridComposer(props: EditorProps) {
   const shellClassName = useStyles(editorShellClass);
   const actionsClassName = useStyles(editorActionsClass);
   return (

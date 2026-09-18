@@ -111,153 +111,129 @@ e2eTest(
   },
 );
 
-for (const hybrid of [false, true]) {
-  e2eTest(
-    `${hybrid ? "hybrid" : "rich"} editor pastes images into Markdown and keeps relative images after reopening`,
-    async ({ app, harness }) => {
-      if (hybrid) {
-        await app.page
-          .getByRole("button", { name: "New session", exact: true })
-          .waitFor();
-        const previewUrl = new URL(app.page.url());
-        previewUrl.searchParams.set("markdown", "hybrid");
-        await app.page.goto(previewUrl.href);
-      }
-
-      const path = "Notes #1/Images.md";
-      const svg =
-        '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="60"><rect width="80" height="60" fill="blue"/></svg>';
-      await app.server.rpc.workspace.writeFile({
-        path: "reference #1.svg",
-        content: svg,
-      });
-      await app.server.rpc.workspace.writeFile({
-        path,
-        content:
-          "# Images\n\nPaste here\n\n![Reference](../reference%20%231.svg)",
-      });
-      await app.page
-        .getByRole("button", { name: "Expand Notes #1", exact: true })
-        .click();
-      await app.page
-        .getByRole("link", { name: "Images.md", exact: true })
-        .click();
-      const editor = app.page
-        .getByRole("main", { name: path, exact: true })
-        .getByLabel(path, { exact: true });
-      await expect
-        .poll(
-          async () =>
-            await editor
-              .getByRole("img", { name: "Reference", exact: true })
-              .evaluate((element: HTMLImageElement) => element.naturalWidth),
-        )
-        .toBe(80);
-      const reference = editor.getByRole("img", {
-        name: "Reference",
-        exact: true,
-      });
-      await reference.click();
-      if (hybrid)
-        await expect(editor).toContainText(
-          "![Reference](../reference%20%231.svg)",
-        );
-      else await expect(reference).toHaveCSS("outline-style", "solid");
-      await editor.getByText("Paste here", { exact: true }).click();
-      if (hybrid) await expect(reference).toBeVisible();
-      else await expect(reference).toHaveCSS("outline-style", "none");
-      await editor.press("End");
-      const png = await editor.evaluate(async (element) => {
-        const canvas = document.createElement("canvas");
-        canvas.width = 120;
-        canvas.height = 80;
-        const context = canvas.getContext("2d")!;
-        context.fillStyle = "#d97706";
-        context.fillRect(0, 0, 120, 80);
-        const bytes = await (await fetch(canvas.toDataURL())).arrayBuffer();
-        const clipboardData = new DataTransfer();
-        clipboardData.items.add(
-          new File([bytes], "screen]shot.png", { type: "image/png" }),
-        );
-        clipboardData.items.add(
-          new File([bytes], "second.png", { type: "image/png" }),
-        );
-        clipboardData.setData(
-          "text/html",
-          '<img src="https://example.invalid/duplicate.png">',
-        );
-        element.dispatchEvent(
-          new ClipboardEvent("paste", {
-            clipboardData,
-            bubbles: true,
-            cancelable: true,
-          }),
-        );
-        return [...new Uint8Array(bytes)];
-      });
-      await expect(editor.getByRole("img")).toHaveCount(3);
-      await expect
-        .poll(
-          async () =>
-            await editor
-              .getByRole("img", { name: "screen]shot.png", exact: true })
-              .evaluate((element: HTMLImageElement) => element.naturalWidth),
-        )
-        .toBe(120);
-      await expect
-        .poll(async () => await app.server.rpc.workspace.readFile({ path }))
-        .toContain("![second.png](image-");
-      const markdown = await app.server.rpc.workspace.readFile({ path });
-      const sources = [...markdown.matchAll(/\]\((image-[^)]+\.png)\)/g)].map(
-        (match) => match[1]!,
+e2eTest(
+  "pastes images into Markdown and keeps relative images after reopening",
+  async ({ app, harness }) => {
+    const path = "Notes #1/Images.md";
+    const svg =
+      '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="60"><rect width="80" height="60" fill="blue"/></svg>';
+    await app.server.rpc.workspace.writeFile({
+      path: "reference #1.svg",
+      content: svg,
+    });
+    await app.server.rpc.workspace.writeFile({
+      path,
+      content:
+        "# Images\n\nPaste here\n\n![Reference](../reference%20%231.svg)",
+    });
+    await app.page
+      .getByRole("button", { name: "Expand Notes #1", exact: true })
+      .click();
+    await app.page
+      .getByRole("link", { name: "Images.md", exact: true })
+      .click();
+    const editor = app.page
+      .getByRole("main", { name: path, exact: true })
+      .getByLabel(path, { exact: true });
+    await expect
+      .poll(
+        async () =>
+          await editor
+            .getByRole("img", { name: "Reference", exact: true })
+            .evaluate((element: HTMLImageElement) => element.naturalWidth),
+      )
+      .toBe(80);
+    const reference = editor.getByRole("img", {
+      name: "Reference",
+      exact: true,
+    });
+    await reference.click();
+    await expect(editor).toContainText("![Reference](../reference%20%231.svg)");
+    await editor.getByText("Paste here", { exact: true }).click();
+    await expect(reference).toBeVisible();
+    await editor.press("End");
+    const png = await editor.evaluate(async (element) => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 120;
+      canvas.height = 80;
+      const context = canvas.getContext("2d")!;
+      context.fillStyle = "#d97706";
+      context.fillRect(0, 0, 120, 80);
+      const bytes = await (await fetch(canvas.toDataURL())).arrayBuffer();
+      const clipboardData = new DataTransfer();
+      clipboardData.items.add(
+        new File([bytes], "screen]shot.png", { type: "image/png" }),
       );
-      expect(sources).toHaveLength(2);
-      expect(new Set(sources).size).toBe(2);
-      for (const src of sources) {
-        expect(
-          await fs.readFile(
-            nodePath.join(harness.paths.workspace, "Notes #1", src),
-          ),
-        ).toEqual(Buffer.from(png));
-      }
-      expect(markdown).toContain("![Reference](../reference%20%231.svg)");
-      expect(markdown).not.toContain("blob:");
-      await app.quit();
-      await app.open();
-      if (hybrid) {
-        await app.page
-          .getByRole("button", { name: "New session", exact: true })
-          .waitFor();
-        const previewUrl = new URL(app.page.url());
-        previewUrl.searchParams.set("markdown", "hybrid");
-        await app.page.goto(previewUrl.href);
-      }
+      clipboardData.items.add(
+        new File([bytes], "second.png", { type: "image/png" }),
+      );
+      clipboardData.setData(
+        "text/html",
+        '<img src="https://example.invalid/duplicate.png">',
+      );
+      element.dispatchEvent(
+        new ClipboardEvent("paste", {
+          clipboardData,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+      return [...new Uint8Array(bytes)];
+    });
+    await expect(editor.getByRole("img")).toHaveCount(3);
+    await expect
+      .poll(
+        async () =>
+          await editor
+            .getByRole("img", { name: "screen]shot.png", exact: true })
+            .evaluate((element: HTMLImageElement) => element.naturalWidth),
+      )
+      .toBe(120);
+    await expect
+      .poll(async () => await app.server.rpc.workspace.readFile({ path }))
+      .toContain("![second.png](image-");
+    const markdown = await app.server.rpc.workspace.readFile({ path });
+    const sources = [...markdown.matchAll(/\]\((image-[^)]+\.png)\)/g)].map(
+      (match) => match[1]!,
+    );
+    expect(sources).toHaveLength(2);
+    expect(new Set(sources).size).toBe(2);
+    for (const src of sources) {
+      expect(
+        await fs.readFile(
+          nodePath.join(harness.paths.workspace, "Notes #1", src),
+        ),
+      ).toEqual(Buffer.from(png));
+    }
+    expect(markdown).toContain("![Reference](../reference%20%231.svg)");
+    expect(markdown).not.toContain("blob:");
+    await app.quit();
+    await app.open();
 
-      await app.page
-        .getByRole("button", { name: "Expand Notes #1", exact: true })
-        .click();
-      await app.page
-        .getByRole("link", { name: "Images.md", exact: true })
-        .click();
-      await expect(
-        app.page
-          .getByRole("main", { name: path, exact: true })
-          .getByLabel(path, { exact: true })
-          .getByRole("img"),
-      ).toHaveCount(3);
-      await expect
-        .poll(
-          async () =>
-            await app.page
-              .getByRole("main", { name: path, exact: true })
-              .getByLabel(path, { exact: true })
-              .getByRole("img", { name: "screen]shot.png", exact: true })
-              .evaluate((element: HTMLImageElement) => element.naturalWidth),
-        )
-        .toBe(120);
-    },
-  );
-}
+    await app.page
+      .getByRole("button", { name: "Expand Notes #1", exact: true })
+      .click();
+    await app.page
+      .getByRole("link", { name: "Images.md", exact: true })
+      .click();
+    await expect(
+      app.page
+        .getByRole("main", { name: path, exact: true })
+        .getByLabel(path, { exact: true })
+        .getByRole("img"),
+    ).toHaveCount(3);
+    await expect
+      .poll(
+        async () =>
+          await app.page
+            .getByRole("main", { name: path, exact: true })
+            .getByLabel(path, { exact: true })
+            .getByRole("img", { name: "screen]shot.png", exact: true })
+            .evaluate((element: HTMLImageElement) => element.naturalWidth),
+      )
+      .toBe(120);
+  },
+);
 
 e2eTest("keeps the current file after reload", async ({ app }) => {
   const path = "Meeting notes #1.md";
@@ -315,134 +291,108 @@ e2eTest(
 );
 
 e2eTest(
-  "indents selected bullets after deleting the gap between lists",
+  "continues lists and indents selected Markdown lines after deleting a gap",
   async ({ app }) => {
     await app.server.rpc.workspace.writeFile({ path: "lists.md", content: "" });
     await app.page.getByRole("link", { name: "lists.md", exact: true }).click();
-    const editor = app.page
-      .getByRole("main", { name: "lists.md" })
-      .getByLabel("lists.md", { exact: true });
-    await editor.fill("");
-    await app.page.keyboard.type("- Parent");
-    await app.page.keyboard.press("Enter");
-    await app.page.keyboard.press("Enter");
-    await app.page.keyboard.press("Enter");
-    await app.page.keyboard.type("- Second");
-    await app.page.keyboard.press("Enter");
-    await app.page.keyboard.type("Child");
-    await app.page.keyboard.press("Tab");
-    await app.page.keyboard.press("Enter");
-    await app.page.keyboard.press("Shift+Tab");
-    await app.page.keyboard.type("Third");
-    await expect(editor.locator(":scope > ul")).toHaveCount(2);
-
-    await editor.locator(":scope > p").first().click();
-    await app.page.keyboard.press("Backspace");
-    await expect(editor.locator(":scope > ul")).toHaveCount(1);
+    const editor = app.page.getByRole("textbox", {
+      name: "lists.md",
+      exact: true,
+    });
+    await editor.fill("- Parent");
+    await editor.press("End");
+    await editor.press("Enter");
+    await app.page.keyboard.type("Second");
+    await expect(editor).toContainText("- Second");
+    await editor.fill("- Parent\n\n- Second\n  - Child\n- Third");
+    await editor.getByText("- Second", { exact: true }).click();
+    await editor.press("Home");
+    await editor.press("Backspace");
+    await expect(editor.locator(".cm-line")).toHaveText([
+      "- Parent",
+      "- Second",
+      "  - Child",
+      "- Third",
+    ]);
     await editor.evaluate(async (element) => {
-      const paragraphs = [...element.querySelectorAll("p")];
-      const start = paragraphs.find((p) => p.textContent === "Second")!;
-      const end = paragraphs.find((p) => p.textContent === "Third")!;
-      // ProseMirror reads the DOM selection when Chromium emits selectionchange.
-      const selectionChanged = new Promise<void>((resolve) => {
+      const lines = element.querySelectorAll(".cm-line");
+      const changed = new Promise<void>((resolve) =>
         document.addEventListener("selectionchange", () => resolve(), {
           once: true,
-        });
-      });
+        }),
+      );
       window
         .getSelection()!
-        .setBaseAndExtent(start, 0, end, end.childNodes.length);
-      await selectionChanged;
+        .setBaseAndExtent(lines[1]!, 0, lines[3]!, lines[3]!.childNodes.length);
+      await changed;
     });
-    await app.page.keyboard.press("Tab");
-    const nested = editor.locator(":scope > ul > li > ul > li > p");
-    await expect(nested).toHaveText(["Second", "Third"]);
-    await expect(editor.locator("ul ul ul > li > p")).toHaveText(["Child"]);
-    await expect(editor).toBeFocused();
-
-    await app.page.keyboard.press("Shift+Tab");
-    await expect(editor.locator(":scope > ul > li > p")).toHaveText([
-      "Parent",
-      "Second",
-      "Third",
+    await editor.press("Tab");
+    const indented = ["- Parent", "  - Second", "    - Child", "  - Third"];
+    await expect(editor.locator(".cm-line")).toHaveText(indented);
+    await editor.press("Shift+Tab");
+    await expect(editor.locator(".cm-line")).toHaveText([
+      "- Parent",
+      "- Second",
+      "  - Child",
+      "- Third",
     ]);
-    await app.page.keyboard.press("Tab");
-    await expect(nested).toHaveText(["Second", "Third"]);
+    await editor.press("Tab");
     await expect
       .poll(
         async () =>
           await app.server.rpc.workspace.readFile({ path: "lists.md" }),
       )
-      .toContain("- Parent\n  - Second\n    - Child\n  - Third");
+      .toBe(indented.join("\n"));
     await app.page.reload();
-    await expect(nested).toHaveText(["Second", "Third"]);
-    await expect(editor.locator("ul ul ul > li > p")).toHaveText(["Child"]);
-
-    // Chromium reports selectionchange asynchronously after a pointer press.
-    await editor.getByText("Third", { exact: true }).click({ delay: 50 });
-    await app.page.keyboard.press("Shift+Tab");
-    await expect(editor.locator(":scope > ul > li > p")).toHaveText([
-      "Parent",
-      "Third",
-    ]);
-    await app.page.keyboard.press("ControlOrMeta+z");
-    await expect(nested).toHaveText(["Second", "Third"]);
-    await app.page.keyboard.press("ControlOrMeta+Shift+z");
-    await expect(editor.locator(":scope > ul > li > p")).toHaveText([
-      "Parent",
-      "Third",
-    ]);
-    await app.page.keyboard.press("Tab");
-    await expect(nested).toHaveText(["Second", "Third"]);
-
-    await editor.getByText("Parent", { exact: true }).click({ delay: 50 });
-    await app.page.keyboard.press("Tab");
-    await expect(editor).toBeFocused();
-    await expect(editor.locator(":scope > ul > li > p")).toHaveText(["Parent"]);
+    await expect(editor.locator(".cm-line")).toHaveText(indented);
+    await editor.getByText("- Third", { exact: true }).click();
+    await editor.press("Shift+Tab");
+    await expect(editor.locator(".cm-line").last()).toHaveText("- Third");
+    await editor.press("ControlOrMeta+z");
+    await expect(editor.locator(".cm-line")).toHaveText(indented);
+    await editor.press("ControlOrMeta+Shift+z");
+    await expect
+      .poll(
+        async () =>
+          await app.server.rpc.workspace.readFile({ path: "lists.md" }),
+      )
+      .toBe("- Parent\n  - Second\n    - Child\n- Third");
   },
 );
 
 e2eTest(
-  "indents a loaded Markdown list with mixed bullet markers",
+  "indents a loaded Markdown list while preserving mixed bullet markers",
   async ({ app }) => {
+    const path = "markers.md";
     await app.server.rpc.workspace.writeFile({
-      path: "markers.md",
+      path,
       content: "- Parent\n+ Second\n* Third",
     });
-    await app.page
-      .getByRole("link", { name: "markers.md", exact: true })
-      .click();
-    const editor = app.page
-      .getByRole("main", { name: "markers.md" })
-      .getByLabel("markers.md", { exact: true });
-    await expect(editor.locator(":scope > ul")).toHaveCount(1);
-    await editor.getByText("Third", { exact: true }).click({ delay: 50 });
-    await app.page.keyboard.press("Tab");
-    await expect(editor.locator("ul ul > li > p")).toHaveText(["Third"]);
+    await app.page.getByRole("link", { name: path, exact: true }).click();
+    const editor = app.page.getByRole("textbox", { name: path, exact: true });
+    await editor.getByText("* Third", { exact: true }).click();
+    await editor.press("Tab");
+    await expect
+      .poll(async () => await app.server.rpc.workspace.readFile({ path }))
+      .toBe("- Parent\n+ Second\n  * Third");
     await expect(editor).toBeFocused();
   },
 );
 
 e2eTest(
-  "joins pasted bullet lists at every depth so individual bullets can indent",
+  "pastes Markdown lists without rewriting their source",
   async ({ app }) => {
-    await app.server.rpc.workspace.writeFile({ path: "paste.md", content: "" });
-    await app.page.getByRole("link", { name: "paste.md", exact: true }).click();
-    const editor = app.page
-      .getByRole("main", { name: "paste.md" })
-      .getByLabel("paste.md", { exact: true });
+    const path = "paste.md";
+    await app.server.rpc.workspace.writeFile({ path, content: "" });
+    await app.page.getByRole("link", { name: path, exact: true }).click();
+    const editor = app.page.getByRole("textbox", { name: path, exact: true });
     await editor.fill("");
-    await editor.evaluate((element) => {
+    const source =
+      "- Parent\n- Second\n  - Child\n  - Another child\n- Third\n\nSeparate section\n- Separate bullet\n3. Numbered";
+    await editor.evaluate((element, clipboardSource) => {
       const data = new DataTransfer();
-      data.setData(
-        "text/html",
-        "<ul><li><p>Parent</p></li></ul>" +
-          "<ul><li><p>Second</p><ul><li><p>Child</p></li></ul>" +
-          "<ul><li><p>Another child</p></li></ul></li></ul>" +
-          "<ul><li><p>Third</p></li></ul>" +
-          "<p>Separate section</p><ul><li><p>Separate bullet</p></li></ul>" +
-          '<ol start="3"><li><p>Numbered</p></li></ol>',
-      );
+      data.setData("text/plain", clipboardSource);
+      data.setData("text/html", "<p>Formatted clipboard alternative</p>");
       element.dispatchEvent(
         new ClipboardEvent("paste", {
           clipboardData: data,
@@ -450,26 +400,15 @@ e2eTest(
           cancelable: true,
         }),
       );
-    });
-    await expect(editor.locator(":scope > ul")).toHaveCount(2);
-    await expect(editor.locator("ul ul")).toHaveCount(1);
-    await editor.getByText("Second", { exact: true }).click({ delay: 50 });
-    await app.page.keyboard.press("Tab");
-    await expect(editor.locator("ul ul > li > p")).toHaveText([
-      "Second",
-      "Child",
-      "Another child",
-    ]);
-    await expect(editor.locator("ul ul ul > li > p")).toHaveText([
-      "Child",
-      "Another child",
-    ]);
-    await expect(editor.locator(":scope > ul > li > p")).toHaveText([
-      "Parent",
-      "Third",
-      "Separate bullet",
-    ]);
-    await expect(editor.locator("ol")).toHaveAttribute("start", "3");
+    }, source);
+    await expect
+      .poll(async () => await app.server.rpc.workspace.readFile({ path }))
+      .toBe(source);
+    await editor.getByText("- Third", { exact: true }).click();
+    await editor.press("Tab");
+    await expect
+      .poll(async () => await app.server.rpc.workspace.readFile({ path }))
+      .toBe(source.replace("\n- Third", "\n  - Third"));
     await expect(editor).toBeFocused();
   },
 );
@@ -987,116 +926,31 @@ e2eTest("uses a dismissible sidebar on small screens", async ({ app }) => {
 });
 
 e2eTest(
-  "removes heading formatting with Backspace without deleting or joining text",
+  "toggles bold and italic formatting in the default composer",
   async ({ app }) => {
-    await app.server.rpc.workspace.writeFile({
-      path: "format.md",
-      content: "# First\n\nParagraph\n\n## Second",
+    const editor = app.page.getByRole("textbox", {
+      name: "Message",
+      exact: true,
     });
-    await app.page
-      .getByRole("link", { name: "format.md", exact: true })
-      .click();
-    const editor = app.page
-      .getByRole("main", { name: "format.md" })
-      .getByLabel("format.md", { exact: true });
-
-    for (const name of ["First", "Second"]) {
-      await editor.getByRole("heading", { name }).click({ delay: 50 });
-      await editor.getByRole("heading", { name }).evaluate(async (heading) => {
-        const selectionChanged = new Promise<void>((resolve) => {
-          document.addEventListener("selectionchange", () => resolve(), {
-            once: true,
-          });
-        });
-        window.getSelection()!.collapse(heading.firstChild, 0);
-        await selectionChanged;
-      });
-      await app.page.keyboard.press("Backspace");
-      await expect(editor.locator("p", { hasText: name })).toHaveText(name);
-      await app.page.keyboard.press("ControlOrMeta+z");
-      await expect(editor.getByRole("heading", { name })).toBeVisible();
-      await app.page.keyboard.press("ControlOrMeta+Shift+z");
-      await expect(editor.locator("p", { hasText: name })).toHaveText(name);
-    }
-    await expect(
-      editor.locator(":scope > p").filter({ hasText: /\S/ }),
-    ).toHaveText(["First", "Paragraph", "Second"]);
-    await expect
-      .poll(async () =>
-        (
-          await app.server.rpc.workspace.readFile({ path: "format.md" })
-        ).trimEnd(),
-      )
-      .toBe("First\n\nParagraph\n\nSecond");
-    await app.page.reload();
-    await expect(editor.locator("h1, h2")).toHaveCount(0);
-    await expect(
-      editor.locator(":scope > p").filter({ hasText: /\S/ }),
-    ).toHaveText(["First", "Paragraph", "Second"]);
-  },
-);
-
-e2eTest(
-  "clears selected Markdown formatting and stops carrying it into new text",
-  async ({ app }) => {
-    await app.server.rpc.workspace.writeFile({
-      path: "format.md",
-      content: "# **Title**\n\n**Bold** and *italic*",
-    });
-    await app.page
-      .getByRole("link", { name: "format.md", exact: true })
-      .click();
-    const editor = app.page
-      .getByRole("main", { name: "format.md" })
-      .getByLabel("format.md", { exact: true });
-    await editor.click();
-    await app.page.keyboard.press("ControlOrMeta+a");
-    await app.page.keyboard.press("ControlOrMeta+\\");
-    await expect(editor.locator("h1, strong, em")).toHaveCount(0);
-    await expect(editor.locator("p")).toHaveText(["Title", "Bold and italic"]);
-    await app.page.keyboard.press("ControlOrMeta+z");
-    await expect(editor.locator("h1 strong")).toHaveText("Title");
-    await expect(editor.locator("p strong")).toHaveText("Bold");
+    await editor.fill("Before **bold** and *italic* after.");
+    await editor.locator("strong").click();
+    await editor.press("ControlOrMeta+b");
+    await expect(editor.locator("strong")).toHaveCount(0);
+    await expect(editor).toContainText("Before bold and italic after.");
+    await editor.press("ControlOrMeta+z");
+    await expect(editor.locator("strong")).toHaveText("bold");
+    await editor.locator("em").click();
+    await editor.press("ControlOrMeta+i");
+    await expect(editor.locator("em")).toHaveCount(0);
+    await editor.press("ControlOrMeta+z");
     await expect(editor.locator("em")).toHaveText("italic");
-    await app.page.keyboard.press("ControlOrMeta+Shift+z");
-    await expect(editor.locator("h1, strong, em")).toHaveCount(0);
-    await expect
-      .poll(
-        async () =>
-          await app.server.rpc.workspace.readFile({ path: "format.md" }),
-      )
-      .toBe("Title\n\nBold and italic");
-    await app.page.reload();
-    await expect(editor.locator("p")).toHaveText(["Title", "Bold and italic"]);
-    await expect(editor.locator("h1, strong, em")).toHaveCount(0);
-
-    await app.page
-      .getByRole("button", { name: "New session", exact: true })
-      .click();
-    const message = app.page
-      .getByRole("main", { name: "New session" })
-      .getByLabel("Message", { exact: true });
-    await message.fill("");
-    await app.page.keyboard.press("ControlOrMeta+b");
-    await app.page.keyboard.type("Bold");
-    await expect(message.locator("strong")).toHaveText("Bold");
-    await app.page.keyboard.press("ControlOrMeta+\\");
-    await app.page.keyboard.type(" plain");
-    await expect(message).toHaveText("Bold plain");
-    await expect(message.locator("strong")).toHaveText("Bold");
-    await app.page.keyboard.press("ControlOrMeta+a");
-    await app.page.keyboard.press("ControlOrMeta+\\");
-    await expect(message.locator("strong")).toHaveCount(0);
-    await expect(message).toHaveText("Bold plain");
-
-    await message.fill("");
-    await app.page.keyboard.type("# ");
-    await expect(message.locator("h1")).toHaveCount(1);
-    await app.page.keyboard.press("Backspace");
-    await expect(message.locator("h1")).toHaveCount(0);
-    await app.page.keyboard.type("Plain");
-    await expect(message.locator("h1")).toHaveCount(0);
-    await expect(message).toContainText("Plain");
+    await editor.fill("plain");
+    await editor.press("ControlOrMeta+a");
+    await editor.press("ControlOrMeta+b");
+    await expect(editor.locator("strong")).toHaveText("plain");
+    await editor.press("ControlOrMeta+b");
+    await expect(editor.locator("strong")).toHaveCount(0);
+    await expect(editor).toHaveText("plain");
   },
 );
 
@@ -1106,9 +960,6 @@ e2eTest(
     await app.page
       .getByRole("button", { name: "New session", exact: true })
       .waitFor();
-    const previewUrl = new URL(app.page.url());
-    previewUrl.searchParams.set("markdown", "hybrid");
-    await app.page.goto(previewUrl.href);
 
     const original =
       "## Heading\n\nBefore **bold text** between *italic text* after.\n\nAnother paragraph.";
@@ -1154,9 +1005,6 @@ e2eTest(
     await app.page
       .getByRole("button", { name: "New session", exact: true })
       .waitFor();
-    const previewUrl = new URL(app.page.url());
-    previewUrl.searchParams.set("markdown", "hybrid");
-    await app.page.goto(previewUrl.href);
 
     const original =
       "## Heading\n\nBefore **bold text** after.\n\nAnother paragraph.";
@@ -1233,9 +1081,6 @@ e2eTest(
     await app.page
       .getByRole("button", { name: "New session", exact: true })
       .waitFor();
-    const previewUrl = new URL(app.page.url());
-    previewUrl.searchParams.set("markdown", "hybrid");
-    await app.page.goto(previewUrl.href);
 
     const source =
       "Before **bold text** between *italic text* after.\n\n***Nested*** and `**literal**`.";
@@ -1310,9 +1155,6 @@ e2eTest(
     await app.page
       .getByRole("button", { name: "New session", exact: true })
       .waitFor();
-    const previewUrl = new URL(app.page.url());
-    previewUrl.searchParams.set("markdown", "hybrid");
-    await app.page.goto(previewUrl.href);
     await app.server.rpc.workspace.writeFile({
       path: "pointer.md",
       content:
@@ -1396,9 +1238,6 @@ e2eTest(
     await app.page
       .getByRole("button", { name: "New session", exact: true })
       .waitFor();
-    const url = new URL(app.page.url());
-    url.searchParams.set("markdown", "hybrid");
-    await app.page.goto(url.href);
     const original = "## Heading\r\n\r\nBefore **bold text** after.\r\n";
     await app.server.rpc.workspace.writeFile({
       path: "line-endings.md",
@@ -1465,9 +1304,6 @@ e2eTest(
     await app.page
       .getByRole("button", { name: "New session", exact: true })
       .waitFor();
-    const url = new URL(app.page.url());
-    url.searchParams.set("markdown", "hybrid");
-    await app.page.goto(url.href);
     const path = "undo-image.md";
     const original = "Original text";
     await app.server.rpc.workspace.writeFile({ path, content: original });
