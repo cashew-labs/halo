@@ -1,24 +1,43 @@
 # Schema and storage SDK
 
-`schema.ts` default-exports the Tandem schema. The SDK connects the browser client to `/sync/` and stores hosted data in `.halo/extension-data/<id>/store.json`. Never read or write that file directly.
+`schema.ts` named-exports its Tandem `schema` and `relations` definitions. The SDK connects the browser client to `/sync/`, where one `TandemServer` persists hosted data through `TandemServerJsonFileStorage` at `.halo/extension-data/<id>/tandem.json`. The tuple file is an SDK-owned implementation detail; never read or write it directly. An extension rebuilt from the earlier runtime starts a fresh `tandem.json` and leaves any legacy `store.json` untouched and recoverable.
 
 ## Schema exports
 
-`@get-halo/extension-sdk/schema` exports `defineSchema`, `collection`, and `t`.
+`@get-halo/extension-sdk/schema` exports `defineSchema`, `defineRelations`, `collection`, and `t`.
 
 Define collections with field builders:
 
 ```ts
-import { collection, defineSchema, t } from "@get-halo/extension-sdk/schema";
+import {
+  collection,
+  defineRelations,
+  defineSchema,
+  t,
+} from "@get-halo/extension-sdk/schema";
 
-export default defineSchema({
+export const schema = defineSchema({
+  projects: collection({
+    id: t.id(),
+    name: t.string(),
+  }),
   tasks: collection({
     id: t.id(),
+    projectId: t.string(),
     label: t.string(),
     priority: t.number(),
     done: t.boolean(),
   }),
 });
+
+export const relations = defineRelations(schema, ({ one, many }) => ({
+  projects: {
+    tasks: many("tasks", { from: "id", to: "projectId" }),
+  },
+  tasks: {
+    project: one("projects", { from: "projectId", to: "id" }),
+  },
+}));
 ```
 
 The available builders are:
@@ -28,9 +47,11 @@ The available builders are:
 - `t.number()`: a number field.
 - `t.boolean()`: a boolean field.
 
-These builders produce required fields. Optional fields, arrays, objects, and relations are not exposed by the current extension schema API. Model optional states explicitly when needed. Do not import Tandem internals to extend the hosted schema contract.
+These builders produce required fields. Optional fields, arrays, and objects are not exposed by the current extension schema API. Model optional states explicitly when needed. Do not import Tandem internals to extend the hosted schema contract.
 
-`collection<Record>({ fields })` is an advanced overload for explicitly typed records whose `id` is a string or number. Prefer the field-builder form because it keeps the runtime schema and inferred record type together. The SDK does not re-export Tandem codecs or relation builders.
+Define relations after the schema so Tandem can validate collection and field names. `one` adds a many-to-one relation whose query result is one target record or `null`; `many` adds a one-to-many relation whose result is an array. In both cases, `from` names the source collection field and `to` names the target collection field. Export the definitions as `schema` and `relations`; the generated browser entry imports those exact names.
+
+`collection<Record>({ fields })` is an advanced overload for explicitly typed records whose `id` is a string or number. Prefer the field-builder form because it keeps the runtime schema and inferred record type together. The SDK does not re-export Tandem codecs.
 
 ## Queries
 
@@ -52,6 +73,9 @@ const visibleTasks = {
     done: false,
     priority: { gte: 2, lt: 5 },
   },
+  with: {
+    project: { select: { id: true, name: true } },
+  },
   orderBy: { priority: "desc", label: "asc" },
   offset: 0,
   limit: 20,
@@ -64,8 +88,9 @@ const visibleTasks = {
 - `orderBy` accepts `asc` or `desc`. Multiple entries are applied in object insertion order.
 - `offset` is applied before `limit`.
 - Omitting `select` returns the complete record.
+- `with` includes relations declared for the queried collection. Use `true` for every target field or a nested query options object for `select`, `where`, `with`, `orderBy`, `offset`, and `limit` on that relation.
 
-The underlying Tandem query type contains relational `with`, but the extension SDK does not expose or connect relation definitions. Do not use `with` in an extension.
+Relation names and nested results are inferred from the exported `relations` definition. A relation created with `one` returns a record or `null`; a relation created with `many` returns an array. Nested `with` clauses can follow relations exposed by the target collection.
 
 Keep a React query object's identity stable. Define static queries at module scope or memoize queries that depend on props or state.
 

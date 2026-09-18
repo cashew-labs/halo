@@ -559,11 +559,11 @@ importers:
         specifier: ^0.34.52
         version: 0.34.52
       '@tanishqkancharla/tandem-core':
-        specifier: 0.2.0
-        version: 0.2.0(react@19.2.8)
+        specifier: 0.3.0
+        version: 0.3.0(react@19.2.8)
       '@tanishqkancharla/tandem-server':
-        specifier: 0.2.0
-        version: 0.2.0(react@19.2.8)
+        specifier: 0.3.0
+        version: 0.3.0(react@19.2.8)
       errore:
         specifier: ^0.14.1
         version: 0.14.1
@@ -612,8 +612,8 @@ importers:
         specifier: workspace:*
         version: link:../client
       '@get-halo/extension-tools':
-        specifier: 0.1.0
-        version: 0.1.0
+        specifier: 0.2.0
+        version: 0.2.0
       '@get-halo/shared':
         specifier: workspace:*
         version: link:../shared
@@ -1611,8 +1611,8 @@ packages:
   '@gar/promisify@1.1.3':
     resolution: {integrity: sha512-k2Ty1JcVojjJFwrg/ThKi2ujJ7XNLYaFGNB/bWT9wGR+oSMJHMa5w+CUq6p/pVrKeNNgA7pCqEcjSnHVoqJQFw==}
 
-  '@get-halo/extension-tools@0.1.0':
-    resolution: {integrity: sha512-7lajjaJ+UH1/nhXzNY7SBD5FcVomcTlh5JYfY60iLwBre+L8/BV0hfEFb5yBeDMi1MSvDmYnIknREY6uhNUVLA==}
+  '@get-halo/extension-tools@0.2.0':
+    resolution: {integrity: sha512-6XDu0Qi/uFaYzKvOapA0HGW6VQAl8k2iA4QjqKMri/M6Blny18EfadK7dEGbi5waAyWy+5gCkZSIiLSaZD6CHQ==}
     hasBin: true
 
   '@google/genai@1.52.0':
@@ -3211,16 +3211,11 @@ packages:
       react: ^19.0.0
       react-dom: ^19.0.0
 
-  '@tanishqkancharla/tandem-core@0.2.0':
-    resolution: {integrity: sha512-Nuh++scUZFmHENVwThDS64eIXAUuXoldjHSx+dfRQLUa8zqFGTHft8dm365vKakFCAkKIWJ3ym1ARiNHt23KPQ==}
+  '@tanishqkancharla/tandem-core@0.3.0':
+    resolution: {integrity: sha512-lM7L3eiAhTSXE47ex071Og0nkuXKUJ9cP99NQvd2M+A4ypA8laUFTQT3YZIHPaGmhnlFcj5N/+lHXSgvuE9nzw==}
 
-  '@tanishqkancharla/tandem-server@0.2.0':
-    resolution: {integrity: sha512-PWabUMGtCE8fg18CX+bSMIRFi5Hux/3+SsTgVRGMJgX8VtlaJtT/SunmaiJpqLGKVRU3jpVUBnJ0eJcvyX8dXw==}
-    peerDependencies:
-      drizzle-orm: ^0.44.0
-    peerDependenciesMeta:
-      drizzle-orm:
-        optional: true
+  '@tanishqkancharla/tandem-server@0.3.0':
+    resolution: {integrity: sha512-d20B8iZoU8HSRd3W5SX9YkJXmSVmntRds1p4NMuBqd3WIMLLRmogRtC/tFWEFqQUDS3ykKkWCU9WPYStowKB8g==}
 
   '@tanstack/query-core@5.101.4':
     resolution: {integrity: sha512-gNwcvOJcRbLWPOLG/2OBm+zM+Yv+MKsXKEOWC57USuZDEsI71hEErQsiEGx5wX9rzWWkfwM0fVSPoiIFSsxfiw==}
@@ -9695,7 +9690,7 @@ snapshots:
 
   '@gar/promisify@1.1.3': {}
 
-  '@get-halo/extension-tools@0.1.0':
+  '@get-halo/extension-tools@0.2.0':
     dependencies:
       errore: 0.14.1
       esbuild: 0.28.2
@@ -11394,19 +11389,22 @@ snapshots:
       - codemirror
       - supports-color
 
-  '@tanishqkancharla/tandem-core@0.2.0(react@19.2.8)':
+  '@tanishqkancharla/tandem-core@0.3.0(react@19.2.8)':
     dependencies:
       '@triplit/tuple-database': 2.2.33(react@19.2.8)
       '@types/lodash-es': 4.17.12
+      errore: 0.14.1
       idb: 8.0.3
       lodash-es: 4.18.1
       tuple-database: 2.2.4(react@19.2.8)
     transitivePeerDependencies:
       - react
 
-  '@tanishqkancharla/tandem-server@0.2.0(react@19.2.8)':
+  '@tanishqkancharla/tandem-server@0.3.0(react@19.2.8)':
     dependencies:
-      '@tanishqkancharla/tandem-core': 0.2.0(react@19.2.8)
+      '@tanishqkancharla/tandem-core': 0.3.0(react@19.2.8)
+      errore: 0.14.1
+      tuple-database: 2.2.4(react@19.2.8)
     transitivePeerDependencies:
       - react
 

@@ -12,7 +12,9 @@ class ExtensionSyncError extends errore.createTaggedError({
   message: "Extension sync failed",
 }) {}
 
-export function syncRouter(remote: RemoteApi<AnySchema>) {
+export function syncRouter<Schema extends AnySchema>(
+  remote: RemoteApi<Schema>,
+) {
   return {
     push: os
       .input(type<Parameters<typeof remote.push>[0]>())

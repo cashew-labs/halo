@@ -29,7 +29,7 @@ overrides:
   # A hoisted tree can pair 0.28.2 JS with a 0.28.1 binary and fail CLI builds.
   esbuild: "0.28.2"
 minimumReleaseAgeExclude:
-  - '@get-halo/extension-tools@0.1.0'
+  - '@get-halo/extension-tools@0.2.0'
   - '@effect/platform-node-shared@4.0.0-beta.103'
   - '@effect/platform-node@4.0.0-beta.103'
   - effect@4.0.0-beta.103
@@ -80,8 +80,8 @@ minimumReleaseAgeExclude:
   - '@executor-js/sdk@1.6.0'
   - tsx@4.23.13
   - '@tanishqkancharla/maui@0.0.19'
-  - '@tanishqkancharla/tandem-core@0.2.0'
-  - '@tanishqkancharla/tandem-server@0.2.0'
+  - '@tanishqkancharla/tandem-core@0.3.0'
+  - '@tanishqkancharla/tandem-server@0.3.0'
   - purse-styles@0.2.3
   - '@internationalized/date@3.12.4'
   - '@internationalized/number@3.6.8'

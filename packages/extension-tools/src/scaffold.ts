@@ -14,7 +14,7 @@ export async function scaffoldExtension(args: {
 }) {
   const packages =
     args.packages === undefined
-      ? { sdk: "0.1.0", tools: "0.1.0" }
+      ? { sdk: "0.2.0", tools: "0.2.0" }
       : args.packages;
   const created = await mkdir(args.directory).catch(
     (cause) => new ExtensionScaffoldError({ directory: args.directory, cause }),
@@ -69,7 +69,7 @@ export async function scaffoldExtension(args: {
     "api.ts":
       'import { os } from "@get-halo/extension-sdk/api";\nexport default { hello: os.handler(() => "Hello from your extension") };\n',
     "schema.ts":
-      'import { defineSchema } from "@get-halo/extension-sdk/schema";\nexport default defineSchema({});\n',
+      'import { defineRelations, defineSchema } from "@get-halo/extension-sdk/schema";\nexport const schema = defineSchema({});\nexport const relations = defineRelations(schema, () => ({}));\n',
     "view.tsx":
       'import { H1, MauiProvider, Padding } from "maui";\nexport default function View() { return <MauiProvider><Padding xy={8}><H1>Hello, extension</H1></Padding></MauiProvider>; }\n',
   };
