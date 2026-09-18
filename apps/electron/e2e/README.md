@@ -51,6 +51,8 @@ project. Tests that do not load extensions do not build the extension packages.
 
 `extensionTools.e2e.test.ts` loads a real trusted extension and clicks Refresh notes to display a workspace file through `context.tools.files.read`, with no approval step. Its source declares the types of the tool it consumes. A separate scenario verifies that the tool bridge works after restarting Halo. These cover a real workspace tool; they do not establish OAuth or external-service behavior.
 
+`webStandaloneExtension.e2e.test.ts` loads a minimal extension-owned WebSocket server and waits for its greeting inside the iframe. The message travels through the authenticated control-plane and workspace-server upgrade proxies before reaching the browser.
+
 Use `harness.tools.files.read({ path })` and `harness.tools.files.write({ path, content })` to author workspace files. These calls reach the running app's real tool runtime through the E2E-only RPC bridge. The runtime checks agent authority, validates tool inputs, resolves workspace paths, and invokes the registered production file tool. The harness has no filesystem implementation or separate runtime.
 
 The bridge returns successful tool data directly (`read` returns `{ path, text }`) and rejects failed calls through RPC. The typed harness surface currently exposes file reads and writes; their input/output types come from the production implementations. The bridge is disabled outside E2E runs.
