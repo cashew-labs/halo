@@ -213,48 +213,51 @@ export function PaneWorkspace({ sessions }: { sessions: SessionSummary[] }) {
                   }}
                   data-selected={pane.activeTabId === tab.id}
                 >
-                  <button
-                    type="button"
-                    role="tab"
-                    id={`tab-${tab.id}`}
-                    aria-controls={`panel-${tab.id}`}
-                    aria-selected={pane.activeTabId === tab.id}
-                    tabIndex={pane.activeTabId === tab.id ? 0 : -1}
-                    title={
-                      tab.path.startsWith("/files/")
-                        ? decodeURIComponent(tab.path.slice(7))
-                        : tabTitle(tab)
-                    }
-                    onClick={() => workspace.select(pane.id, tab.id)}
-                    onKeyDown={(event) => {
-                      const nextIndex =
-                        event.key === "ArrowRight"
-                          ? (tabIndex + 1) % pane.tabs.length
-                          : event.key === "ArrowLeft"
-                            ? (tabIndex + pane.tabs.length - 1) %
-                              pane.tabs.length
-                            : event.key === "Home"
-                              ? 0
-                              : event.key === "End"
-                                ? pane.tabs.length - 1
-                                : undefined;
-                      if (nextIndex === undefined) return;
-                      event.preventDefault();
-                      const next = pane.tabs[nextIndex]!;
-                      workspace.select(pane.id, next.id);
-                      document.getElementById(`tab-${next.id}`)?.focus();
-                    }}
-                  >
-                    {tabTitle(tab)}
-                  </button>
-                  <button
-                    type="button"
-                    className="paneClose"
-                    aria-label={`Close ${tabTitle(tab)}`}
-                    onClick={() => workspace.close(tab.id)}
-                  >
-                    <Close size="sm" />
-                  </button>
+                  <div className="paneTabInner">
+                    <button
+                      type="button"
+                      role="tab"
+                      id={`tab-${tab.id}`}
+                      aria-controls={`panel-${tab.id}`}
+                      aria-selected={pane.activeTabId === tab.id}
+                      tabIndex={pane.activeTabId === tab.id ? 0 : -1}
+                      title={
+                        tab.path.startsWith("/files/")
+                          ? decodeURIComponent(tab.path.slice(7))
+                          : tabTitle(tab)
+                      }
+                      onClick={() => workspace.select(pane.id, tab.id)}
+                      onKeyDown={(event) => {
+                        const nextIndex =
+                          event.key === "ArrowRight"
+                            ? (tabIndex + 1) % pane.tabs.length
+                            : event.key === "ArrowLeft"
+                              ? (tabIndex + pane.tabs.length - 1) %
+                                pane.tabs.length
+                              : event.key === "Home"
+                                ? 0
+                                : event.key === "End"
+                                  ? pane.tabs.length - 1
+                                  : undefined;
+                        if (nextIndex === undefined) return;
+                        event.preventDefault();
+                        const next = pane.tabs[nextIndex]!;
+                        workspace.select(pane.id, next.id);
+                        document.getElementById(`tab-${next.id}`)?.focus();
+                      }}
+                    >
+                      {tabTitle(tab)}
+                    </button>
+                    <button
+                      type="button"
+                      className="paneClose"
+                      aria-label={`Close ${tabTitle(tab)}`}
+                      title="Close tab"
+                      onClick={() => workspace.close(tab.id)}
+                    >
+                      <Close size="sm" />
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
