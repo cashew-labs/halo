@@ -35,7 +35,7 @@ export function SignInPage(props: {
           <Flex column gap={4}>
             <Button
               className={button}
-              disabled={props.signingIn}
+              isDisabled={props.signingIn}
               onClick={props.onSignIn}
             >
               <LogoImage src={brands.google.logoUrl} size="md" />
