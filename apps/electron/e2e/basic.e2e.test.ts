@@ -3,6 +3,7 @@ import nodePath from "node:path";
 import { expect, type Locator } from "@playwright/test";
 import { m } from "@get-halo/shared/testing";
 import { haloProtocolVersion } from "@get-halo/client";
+import { ORPCError } from "@orpc/client";
 import type { DesktopBridge } from "../src/shared/desktop.js";
 import { e2eTest } from "./e2eTest.js";
 
@@ -2181,5 +2182,215 @@ e2eTest(
     await expect(
       app.page.getByRole("dialog", { name: "Keyboard shortcuts" }),
     ).toBeVisible();
+  },
+);
+
+e2eTest(
+  "runs a saved agent hotkey in a fresh chat and generates a Markdown file",
+  async ({ app, llm }) => {
+    const instruction =
+      "Create daily.md with an original summary of the workspace notes.";
+    await app.page
+      .getByRole("tabpanel")
+      .getByLabel("Message", { exact: true })
+      .fill("Make Cmd+Shift+J create daily.md with an agent-generated summary");
+    await app.page.getByRole("button", { name: "Send", exact: true }).click();
+    await llm.respond(
+      m.tool.start("exec", {
+        id: "save-agent-hotkey",
+        arguments: {
+          js: `return await tools.hotkeys.save(${JSON.stringify({
+            label: "Daily summary",
+            accelerator: "CmdOrCtrl+Shift+J",
+            action: { type: "runAgent", prompt: instruction },
+          })});`,
+        },
+      }),
+    );
+    await llm.respond(m.assistant("Your daily summary shortcut is ready."));
+    await expect(
+      app.page.getByText("Your daily summary shortcut is ready.", {
+        exact: true,
+      }),
+    ).toBeVisible();
+    expect(await app.server.rpc.sessions.list()).toHaveLength(1);
+    const [hotkey] = await app.server.rpc.hotkeys.list();
+    expect(hotkey?.action).toEqual({ type: "runAgent", prompt: instruction });
+    await app.quit();
+    await app.open();
+    await expect(app.page.getByRole("tabpanel")).toBeVisible();
+    await app.pressShortcut({ key: "T" });
+    await app.page
+      .getByRole("tabpanel")
+      .getByLabel("Message", { exact: true })
+      .fill("Keep my draft");
+    const count = await app.page.getByRole("tab").count();
+    // Opening the list synchronizes with the restored bindings, without invoking them.
+    await app.pressShortcut({ key: "P" });
+    await expect(
+      app.page
+        .getByRole("list", { name: "Shortcuts" })
+        .getByText("Daily summary", { exact: true }),
+    ).toBeVisible();
+    await app.page.keyboard.press("Escape");
+    await app.pressShortcut({ key: "J", shift: true });
+    await expect(app.page.getByRole("tab")).toHaveCount(count + 1);
+    await expect(
+      app.page.getByRole("tabpanel").getByText(instruction, { exact: true }),
+    ).toBeVisible();
+    await llm.respond((request) => {
+      expect(
+        request.messages.filter((message) => message.role === "user"),
+      ).toEqual([
+        expect.objectContaining({
+          content: expect.stringContaining(instruction),
+        }),
+      ]);
+      return m.tool.start("exec", {
+        id: "write-daily-summary",
+        arguments: {
+          js: 'return await tools.files.write({ path: "daily.md", content: "# Daily summary\\n\\nThe agent generated this summary from the workspace notes.\\n" });',
+        },
+      });
+    });
+    await llm.respond(m.assistant("Created daily.md with your summary."));
+    await expect(
+      app.page.getByText("Created daily.md with your summary.", {
+        exact: true,
+      }),
+    ).toBeVisible();
+    expect(await app.server.rpc.workspace.readFile({ path: "daily.md" })).toBe(
+      "# Daily summary\n\nThe agent generated this summary from the workspace notes.\n",
+    );
+    const firstRun = app.page.url();
+    const updated = "Create weekly.md with an original weekly summary.";
+    await app.page
+      .getByRole("tabpanel")
+      .getByLabel("Message", { exact: true })
+      .fill("Change the shortcut to make a weekly summary instead");
+    await app.page.getByRole("button", { name: "Send", exact: true }).click();
+    await llm.respond(
+      m.tool.start("exec", {
+        id: "update-agent-hotkey",
+        arguments: {
+          js: `return await tools.hotkeys.save(${JSON.stringify({
+            ...hotkey!,
+            label: "Weekly summary",
+            action: { type: "runAgent", prompt: updated },
+          })});`,
+        },
+      }),
+    );
+    await llm.respond(m.assistant("The shortcut now creates weekly.md."));
+    await expect(
+      app.page.getByText("The shortcut now creates weekly.md.", {
+        exact: true,
+      }),
+    ).toBeVisible();
+    await app.pressShortcut({ key: "P" });
+    await expect(
+      app.page
+        .getByRole("list", { name: "Shortcuts" })
+        .getByText("Weekly summary", { exact: true }),
+    ).toBeVisible();
+    await app.page.keyboard.press("Escape");
+    await app.pressShortcut({ key: "J", shift: true });
+    await expect(app.page.getByRole("tab")).toHaveCount(count + 2);
+    await expect(
+      app.page.getByRole("tabpanel").getByText(updated, { exact: true }),
+    ).toBeVisible();
+    expect(app.page.url()).not.toBe(firstRun);
+    await app.page
+      .getByRole("tab", { name: "New session", exact: true })
+      .click();
+    await expect(
+      app.page.getByRole("tabpanel").getByLabel("Message", { exact: true }),
+    ).toHaveText("Keep my draft");
+    await llm.respond(
+      m.tool.start("exec", {
+        id: "write-weekly-summary",
+        arguments: {
+          js: 'return await tools.files.write({ path: "weekly.md", content: "# Weekly summary\\n\\nA newly generated summary.\\n" });',
+        },
+      }),
+    );
+    await llm.respond(m.assistant("Created weekly.md."));
+    await app.page.getByRole("tab", { name: updated, exact: true }).click();
+    await expect(
+      app.page.getByText("Created weekly.md.", { exact: true }),
+    ).toBeVisible();
+    expect(
+      await app.server.rpc.workspace.readFile({ path: "weekly.md" }),
+    ).toContain("# Weekly summary");
+    await app.page
+      .getByRole("tab", { name: "New session", exact: true })
+      .click();
+    await expect(
+      app.page.getByRole("tabpanel").getByLabel("Message", { exact: true }),
+    ).toHaveText("Keep my draft");
+  },
+);
+
+e2eTest(
+  "reports agent hotkey failures and lets the user retry",
+  async ({ app, llm }) => {
+    await expect(
+      app.page.getByRole("main", { name: "New session" }),
+    ).toBeVisible();
+    await app.server.rpc.hotkeys.save({
+      label: "Generate notes",
+      accelerator: "CmdOrCtrl+Shift+J",
+      action: { type: "runAgent", prompt: "Draft a note." },
+    });
+    await app.pressShortcut({ key: "P" });
+    await expect(
+      app.page
+        .getByRole("list", { name: "Shortcuts" })
+        .getByText("Generate notes", { exact: true }),
+    ).toBeVisible();
+    await app.page.keyboard.press("Escape");
+    await app.page.route("**/rpc/sessions/create", async (route) => {
+      await route.fulfill({
+        status: 400,
+        contentType: "application/json",
+        body: JSON.stringify({
+          json: new ORPCError("BAD_REQUEST", {
+            message: "Session creation failed",
+          }).toJSON(),
+        }),
+      });
+    });
+    await app.pressShortcut({ key: "J", shift: true });
+    await expect(app.page.getByRole("alert")).toContainText(
+      "Could not run the hotkey",
+    );
+    await expect(
+      app.page.getByRole("tab", { includeHidden: true }),
+    ).toHaveCount(1);
+    await app.page.keyboard.press("Escape");
+    await app.page.unroute("**/rpc/sessions/create");
+    await app.page.route("**/rpc/sessions/prompt", async (route) => {
+      await route.fulfill({
+        status: 400,
+        contentType: "application/json",
+        body: JSON.stringify({
+          json: new ORPCError("BAD_REQUEST", {
+            message: "Prompt failed",
+          }).toJSON(),
+        }),
+      });
+    });
+    await app.pressShortcut({ key: "J", shift: true });
+    await expect(app.page.getByRole("alert")).toContainText(
+      "Could not run the hotkey",
+    );
+    await app.page.keyboard.press("Escape");
+    await app.page.unroute("**/rpc/sessions/prompt");
+    await app.pressShortcut({ key: "J", shift: true });
+    await llm.respond(m.assistant("Your generated note."));
+    await expect(
+      app.page.getByText("Your generated note.", { exact: true }),
+    ).toBeVisible();
+    await expect(app.page.getByRole("alert")).toHaveCount(0);
   },
 );

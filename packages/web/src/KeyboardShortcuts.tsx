@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
+import * as errore from "errore";
+import { useQueryClient } from "@tanstack/react-query";
 import { Dialog, Modal, ModalOverlay } from "react-aria-components";
 import {
   Kbd,
@@ -15,11 +17,21 @@ import { useWorkspacePanes } from "./panes/WorkspacePanesProvider.js";
 import { shortcuts } from "./shortcuts.js";
 import { matchesHotkey, type HotkeyAction } from "@get-halo/client";
 import { useHotkeys } from "./useHotkeys.js";
+import { useApi } from "./api/ApiProvider.js";
+import { sessionTitleQueryKey } from "./main/agent/useAgentSession.js";
+
+class HotkeyRunError extends errore.createTaggedError({
+  name: "HotkeyRunError",
+  message: "Could not run the hotkey: $reason",
+}) {}
 
 export function KeyboardShortcuts() {
   const host = useHost();
+  const api = useApi();
+  const queryClient = useQueryClient();
   const workspace = useWorkspacePanes();
   const [open, setOpen] = useState(false);
+  const [error, setError] = useState<string>();
   const hotkeys = useHotkeys();
   const overlay = useStyles(styles.overlay);
   const modal = useStyles(styles.modal);
@@ -31,12 +43,54 @@ export function KeyboardShortcuts() {
   const modifier = isMac ? "⌘" : "Ctrl+";
 
   const runAction = useCallback(
-    (action: HotkeyAction) => {
+    async (action: HotkeyAction) => {
       if (action.type === "shortcutMenu") {
         setOpen((value) => !value);
         return;
       }
       setOpen(false);
+      setError(undefined);
+      if (action.type === "runAgent") {
+        const created = await api.sessions.create().catch(
+          (cause) =>
+            new HotkeyRunError({
+              reason: cause instanceof Error ? cause.message : String(cause),
+              cause,
+            }),
+        );
+        if (created instanceof Error) {
+          console.warn("Agent hotkey failed:", created);
+          setError(created.message);
+          setOpen(true);
+          return;
+        }
+        queryClient.setQueryData(
+          sessionTitleQueryKey(created.sessionId),
+          action.prompt,
+        );
+        workspace.open({
+          path: `/sessions/${created.sessionId}`,
+          newTab: true,
+        });
+        const prompted = await api.sessions
+          .prompt({
+            sessionId: created.sessionId,
+            text: action.prompt,
+          })
+          .catch(
+            (cause) =>
+              new HotkeyRunError({
+                reason: cause instanceof Error ? cause.message : String(cause),
+                cause,
+              }),
+          );
+        if (prompted instanceof Error) {
+          console.warn("Agent hotkey failed:", prompted);
+          setError(prompted.message);
+          setOpen(true);
+        }
+        return;
+      }
       if (action.type === "closeTab") {
         workspace.close(workspace.activePane().activeTabId);
         return;
@@ -60,17 +114,18 @@ export function KeyboardShortcuts() {
         newTab: action.type === "newTab",
       });
     },
-    [workspace],
+    [api, queryClient, workspace],
   );
 
   const runShortcut = useCallback(
     (id: string) => {
       if (id === "newTab" || id === "newChat" || id === "shortcutMenu") {
-        runAction({ type: id });
+        void runAction({ type: id }).catch(console.error);
         return;
       }
       const hotkey = hotkeys.find((item) => `custom:${item.id}` === id);
-      if (hotkey !== undefined) runAction(hotkey.action);
+      if (hotkey !== undefined)
+        void runAction(hotkey.action).catch(console.error);
     },
     [hotkeys, runAction],
   );
@@ -105,7 +160,7 @@ export function KeyboardShortcuts() {
       event.stopPropagation();
       if (event.repeat) return;
       if (custom !== undefined) {
-        runAction(custom.action);
+        void runAction(custom.action).catch(console.error);
         return;
       }
       runShortcut(builtin![0]);
@@ -124,6 +179,11 @@ export function KeyboardShortcuts() {
       <Modal className={modal}>
         <Dialog aria-label="Keyboard shortcuts">
           <h2 className={heading}>Keyboard shortcuts</h2>
+          {error === undefined ? undefined : (
+            <p role="alert" className={hint}>
+              {error}
+            </p>
+          )}
           <ul aria-label="Shortcuts" role="list" className={list}>
             {Object.entries(shortcuts).map(([id, shortcut]) => (
               <li key={id} className={row}>

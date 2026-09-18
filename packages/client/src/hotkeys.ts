@@ -7,6 +7,10 @@ export const hotkeyActionSchema = Type.Union([
   Type.Object({ type: Type.Literal("closeTab") }),
   Type.Object({ type: Type.Literal("shortcutMenu") }),
   Type.Object({
+    type: Type.Literal("runAgent"),
+    prompt: Type.String({ minLength: 1 }),
+  }),
+  Type.Object({
     type: Type.Literal("openFile"),
     path: Type.String({ minLength: 1 }),
   }),

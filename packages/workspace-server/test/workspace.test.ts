@@ -1695,11 +1695,21 @@ serverTest(
         action: { type: "openFile", path: "../secret.md" },
       }),
     ).rejects.toThrow("workspace-relative");
+    await expect(
+      server.rpc.hotkeys.save({
+        label: "Empty task",
+        accelerator: "CmdOrCtrl+Shift+L",
+        action: { type: "runAgent", prompt: "   " },
+      }),
+    ).rejects.toThrow("needs an instruction");
     const changed = await server.rpc.hotkeys.save({
       ...hotkey!,
-      label: "Close active tab",
+      label: "Draft daily notes",
       accelerator: "CmdOrCtrl+Shift+L",
-      action: { type: "closeTab" },
+      action: {
+        type: "runAgent",
+        prompt: "Create daily.md with a summary of the workspace notes.",
+      },
     });
     expect((await updates.next()).value).toEqual([changed]);
     controller.abort();
