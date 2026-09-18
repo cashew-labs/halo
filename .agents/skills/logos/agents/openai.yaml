@@ -1,4 +1,4 @@
 interface:
   display_name: "Logos"
-  short_description: "Source product logos from SVGL"
+  short_description: "Vendor SVGL logos onto gethalo.dev"
   default_prompt: "Use $logos to pick SVGL marks for this integration."

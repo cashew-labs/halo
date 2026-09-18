@@ -4,36 +4,36 @@ export type GoogleIntegrationDisplay = {
   icon: string;
 };
 
-const svglLibrary = "https://svgl.app/library";
-const googleLogo = `${svglLibrary}/google.svg`;
-const googleCloudLogo = `${svglLibrary}/google-cloud.svg`;
+const logos = "https://gethalo.dev/logos";
+const googleLogo = `${logos}/google.svg`;
+const googleCloudLogo = `${logos}/google-cloud.svg`;
 
 const googleIntegrationDisplays = {
   google_calendar: {
     name: "Google Calendar",
     description: "Search events and schedule meetings.",
-    icon: `${svglLibrary}/google-calendar.svg`,
+    icon: `${logos}/google-calendar.svg`,
   },
   google_meet: {
     name: "Google Meet",
     description:
       "Start meetings and manage spaces, recordings, and transcripts.",
-    icon: `${svglLibrary}/google-meet.svg`,
+    icon: `${logos}/google-meet.svg`,
   },
   google_gmail: {
     name: "Gmail",
     description: "Search, read, draft, and manage email.",
-    icon: `${svglLibrary}/gmail.svg`,
+    icon: `${logos}/gmail.svg`,
   },
   google_sheets: {
     name: "Google Sheets",
     description: "Read and update spreadsheets.",
-    icon: `${svglLibrary}/google-sheets.svg`,
+    icon: `${logos}/google-sheets.svg`,
   },
   google_drive: {
     name: "Google Drive",
     description: "Search, read, create, and share files.",
-    icon: `${svglLibrary}/drive.svg`,
+    icon: `${logos}/drive.svg`,
   },
   google_docs: {
     name: "Google Docs",
@@ -43,7 +43,7 @@ const googleIntegrationDisplays = {
   google_slides: {
     name: "Google Slides",
     description: "Read and update presentations.",
-    icon: `${svglLibrary}/google-slides.svg`,
+    icon: `${logos}/google-slides.svg`,
   },
   google_forms: {
     name: "Google Forms",
@@ -73,12 +73,12 @@ const googleIntegrationDisplays = {
   google_chat: {
     name: "Google Chat",
     description: "Read and send messages in Chat spaces.",
-    icon: `${svglLibrary}/google-chat.svg`,
+    icon: `${logos}/google-chat.svg`,
   },
   google_youtube_data: {
     name: "YouTube Data",
     description: "Manage channels, videos, and playlists.",
-    icon: `${svglLibrary}/youtube.svg`,
+    icon: `${logos}/youtube.svg`,
   },
   google_search_console: {
     name: "Google Search Console",
@@ -88,7 +88,7 @@ const googleIntegrationDisplays = {
   google_classroom: {
     name: "Google Classroom",
     description: "Access courses, rosters, and coursework.",
-    icon: `${svglLibrary}/google-classroom.svg`,
+    icon: `${logos}/google-classroom.svg`,
   },
   google_admin_directory: {
     name: "Google Admin Directory",

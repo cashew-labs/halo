@@ -11,7 +11,8 @@ handbook for every task. Track repo-specific progress in
 a task into the full migration.
 
 Use the [logos skill](.agents/skills/logos/SKILL.md) when adding product or
-integration marks. Source them from [SVGL](https://svgl.app/).
+integration marks. Download them from [SVGL](https://svgl.app/) into
+`apps/web-app/public/logos/` and reference `https://gethalo.dev/logos/`.
 
 ## Commands
 
