@@ -1,5 +1,8 @@
 import * as errore from "errore";
 import { Link } from "maui/icons";
+import { useStyles } from "purse-styles";
+import { paneStyles } from "./paneStyles.js";
+
 const publicExtensionOrigin =
   "https://halo-west-control-plane-912701444316.us-west2.run.app";
 
@@ -23,10 +26,12 @@ export function CopyExtensionLinkButton({
 }: {
   extensionId: string;
 }) {
+  const className = useStyles(paneStyles.add);
   return (
     <button
       type="button"
-      className="paneAdd"
+      className={className}
+      data-pane-add=""
       aria-label="Copy link"
       title="Copy link"
       onClick={() => void copyExtensionLink(extensionId)}
