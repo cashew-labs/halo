@@ -1,5 +1,13 @@
 import { useSidebar } from "../WorkspaceLayout.js";
-import { Button, colors, flex, flexItem, shadow, spacing, text } from "maui";
+import {
+  Button,
+  backgroundColor,
+  flex,
+  flexItem,
+  shadow,
+  spacing,
+  text,
+} from "maui";
 import { Close } from "maui/icons";
 import { style, useStyles } from "purse-styles";
 import { useMutation } from "@tanstack/react-query";
@@ -117,10 +125,11 @@ const styles = {
     minWidth: 0,
     height: "100%",
     minHeight: 0,
-    overflowY: "auto",
+    // Electron ignores -webkit-app-region: drag inside overflow:auto ancestors.
+    overflow: "hidden",
     position: "relative",
     zIndex: 1,
-    backgroundColor: `light-dark(${colors.gray[1]}, ${colors.gray[2]})`,
+    backgroundColor: backgroundColor.element,
     "@media (max-width: 700px)": {
       gap: 0,
       paddingBottom: "env(safe-area-inset-bottom)",

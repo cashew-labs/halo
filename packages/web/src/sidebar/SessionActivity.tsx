@@ -2,6 +2,7 @@ import type { SessionSummary } from "@get-halo/client";
 import { colors } from "maui";
 import { style, useStyles } from "purse-styles";
 import { useSessionReadState } from "../main/agent/useSessionReadState.js";
+// purse-styles cannot express @keyframes; this file only registers sessionActivitySpin.
 import "./sessionActivity.css";
 
 export function SessionActivity({ session }: { session: SessionSummary }) {

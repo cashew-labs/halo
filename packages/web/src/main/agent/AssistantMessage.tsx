@@ -29,6 +29,7 @@ import {
   inlineCodeAnimateTag,
   rehypeInlineCodeAnimate,
 } from "./rehypeInlineCodeAnimate.ts";
+// Streamdown ships required markdown chrome as a CSS file.
 import "streamdown/styles.css";
 
 type AssistantMessageProps = {

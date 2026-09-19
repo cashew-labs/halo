@@ -965,7 +965,7 @@ e2eTest("uses a dismissible sidebar on small screens", async ({ app }) => {
   }
 
   const newSession = page
-    .locator(".paneTabBar")
+    .locator("[data-testid='pane-tab-bar']")
     .getByRole("button", { name: "New session", exact: true });
   await expect(newSession).toHaveText("");
   await newSession.click();
@@ -1410,7 +1410,7 @@ e2eTest(
     await page
       .getByRole("link", { name: "Right.md", exact: true })
       .click({ modifiers: ["Meta"] });
-    const area = page.locator(".paneWorkspace");
+    const area = page.locator("[data-testid='pane-workspace']");
     const box = (await area.boundingBox())!;
     await page
       .getByRole("tab", { name: "Right.md", exact: true })
@@ -1507,7 +1507,7 @@ for (const edge of ["left", "top", "bottom"] as const) {
         content: "# Drop",
       });
       await page.getByRole("link", { name: "Keep.md", exact: true }).click();
-      const area = page.locator(".paneWorkspace");
+      const area = page.locator("[data-testid='pane-workspace']");
       const box = (await area.boundingBox())!;
       await page.locator('[data-file-path="Drop.md"]').dragTo(area, {
         targetPosition: {

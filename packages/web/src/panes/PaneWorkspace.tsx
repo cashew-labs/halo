@@ -7,9 +7,7 @@ import {
 } from "react";
 import { Router } from "wouter";
 import type { SessionSummary } from "@get-halo/client";
-import { backgroundColor, colors, focusRing, text } from "maui";
 import { Plus, Close, Menu } from "maui/icons";
-import { style, useStyles } from "purse-styles";
 import { MainPane } from "../main/MainPane.js";
 import {
   paneLayout,
@@ -30,9 +28,7 @@ import { useSidebar } from "../WorkspaceLayout.js";
 import { useExtensions } from "../api/WorkspaceUpdatesProvider.js";
 import { sessionTitleQueryKey } from "../main/agent/useAgentSession.js";
 import { CopyExtensionLinkButton } from "./CopyExtensionLinkButton.js";
-import "./paneWorkspace.css";
-
-const tabBarHeight = 42;
+import { tabBarHeight, usePaneStyles } from "./paneStyles.js";
 
 function bounds(rect: Rect): CSSProperties {
   return {
@@ -134,12 +130,13 @@ export function PaneWorkspace({ sessions }: { sessions: SessionSummary[] }) {
     return { paneId: pane.id, edge, rect };
   }
 
-  const className = useStyles(workspaceStyle);
+  const chrome = usePaneStyles();
 
   return (
     <div
       ref={root}
-      className={`${className} paneWorkspace`}
+      data-testid="pane-workspace"
+      className={chrome.workspace}
       onDragOverCapture={(event) => {
         if (!isPaneDrag(event.dataTransfer)) return;
         event.preventDefault();
@@ -179,18 +176,19 @@ export function PaneWorkspace({ sessions }: { sessions: SessionSummary[] }) {
       {leaves.map(({ pane, rect }, index) => (
         <section
           key={pane.id}
-          className="workspacePane"
+          className={chrome.pane}
           style={bounds(rect)}
           data-pane-id={pane.id}
           data-active={state.activePaneId === pane.id}
           aria-label={`Pane ${index + 1}`}
           onPointerDownCapture={() => workspace.select(pane.id)}
         >
-          <div className="paneTabBar">
+          <div className={chrome.tabBar} data-testid="pane-tab-bar">
             {sidebar.isMobile && (
               <button
                 type="button"
-                className="paneAdd"
+                className={chrome.add}
+                data-pane-add=""
                 aria-label="Open sidebar"
                 aria-haspopup="dialog"
                 onClick={sidebar.open}
@@ -201,12 +199,13 @@ export function PaneWorkspace({ sessions }: { sessions: SessionSummary[] }) {
             <div
               role="tablist"
               aria-label={`Pane ${index + 1} tabs`}
-              className="paneTabs"
+              className={chrome.tabs}
             >
               {pane.tabs.map((tab, tabIndex) => (
                 <div
                   key={tab.id}
-                  className="paneTab"
+                  className={chrome.tab}
+                  data-pane-tab=""
                   draggable
                   onDragStart={(event) => {
                     event.dataTransfer.setData(paneTabDragType, tab.id);
@@ -214,7 +213,7 @@ export function PaneWorkspace({ sessions }: { sessions: SessionSummary[] }) {
                   }}
                   data-selected={pane.activeTabId === tab.id}
                 >
-                  <div className="paneTabInner">
+                  <div className={chrome.tabInner} data-pane-tab-inner="">
                     <button
                       type="button"
                       role="tab"
@@ -251,7 +250,8 @@ export function PaneWorkspace({ sessions }: { sessions: SessionSummary[] }) {
                     </button>
                     <button
                       type="button"
-                      className="paneClose"
+                      className={chrome.close}
+                      data-pane-close=""
                       aria-label={`Close ${tabTitle(tab)}`}
                       title="Close tab"
                       onClick={() => workspace.close(tab.id)}
@@ -264,7 +264,8 @@ export function PaneWorkspace({ sessions }: { sessions: SessionSummary[] }) {
             </div>
             <button
               type="button"
-              className="paneAdd"
+              className={chrome.add}
+              data-pane-add=""
               aria-label="New session"
               title="New tab"
               onClick={() => {
@@ -277,7 +278,7 @@ export function PaneWorkspace({ sessions }: { sessions: SessionSummary[] }) {
             >
               <Plus size="sm" />
             </button>
-            <div className="paneWindowDrag" aria-hidden="true" />
+            <div className={chrome.windowDrag} aria-hidden="true" />
             {pane.tabs
               .filter(
                 (tab) =>
@@ -301,7 +302,7 @@ export function PaneWorkspace({ sessions }: { sessions: SessionSummary[] }) {
             id={`panel-${tab.id}`}
             role="tabpanel"
             aria-labelledby={`tab-${tab.id}`}
-            className="paneContent"
+            className={chrome.content}
             hidden={pane.activeTabId !== tab.id}
             data-pane-id={pane.id}
             style={{
@@ -328,7 +329,7 @@ export function PaneWorkspace({ sessions }: { sessions: SessionSummary[] }) {
         leaves.map(({ pane, rect }) => (
           <div
             key={pane.id}
-            className="paneDropShield"
+            className={chrome.dropShield}
             style={{
               left: `${rect.x}%`,
               right: `${100 - rect.x - rect.width}%`,
@@ -339,7 +340,7 @@ export function PaneWorkspace({ sessions }: { sessions: SessionSummary[] }) {
         ))}
       {drop !== undefined && (
         <div
-          className="paneDropPreview"
+          className={chrome.dropPreview}
           data-drop-edge={drop.edge}
           style={bounds(dropPreview(drop.rect, drop.edge))}
         >
@@ -362,7 +363,7 @@ export function PaneWorkspace({ sessions }: { sessions: SessionSummary[] }) {
             aria-valuemax={85}
             aria-valuenow={Math.round(split.ratio * 100)}
             tabIndex={0}
-            className="paneDivider"
+            className={chrome.divider}
             data-axis={split.axis}
             style={
               horizontal
@@ -416,27 +417,6 @@ export function PaneWorkspace({ sessions }: { sessions: SessionSummary[] }) {
     </div>
   );
 }
-
-const workspaceStyle = style(
-  focusRing("& button:focus-visible, & [role=separator]:focus-visible"),
-  text({ size: "sm" }),
-  {
-    position: "relative",
-    minWidth: 0,
-    minHeight: 0,
-    overflow: "hidden",
-    backgroundColor: backgroundColor.app,
-    "--pane-tab-height": `${tabBarHeight}px`,
-    "--pane-background": backgroundColor.app,
-    "--pane-tab-background": colors.gray[2],
-    "--pane-border": colors.gray[6],
-    "--pane-muted": colors.gray[11],
-    "--pane-accent": colors.accent[9],
-    "--pane-hover": colors.gray[4],
-    "--pane-drop": colors.accentAlpha[4],
-    "& button": { color: "inherit" },
-  },
-);
 
 function dropPreview(rect: Rect, edge: DropEdge): Rect {
   if (edge === "left") return { ...rect, width: rect.width / 2 };

@@ -11,6 +11,7 @@ import { Authentication } from "./Authentication.tsx";
 import { StandaloneExtension } from "./StandaloneExtension.js";
 import { ApiProvider } from "./api/ApiProvider.tsx";
 import "./css.js";
+// Document shell (html/body/#root) must apply before React; purse-styles injects in layout effect.
 import "./styles.css";
 
 const queryClient = new QueryClient({
