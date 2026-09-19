@@ -16,7 +16,7 @@ import { useHost } from "./HostProvider.js";
 import { useWorkspacePanes } from "./panes/WorkspacePanesProvider.js";
 import { shortcuts } from "./shortcuts.js";
 import { matchesHotkey, type HotkeyAction } from "@get-halo/client";
-import { useHotkeys } from "./useHotkeys.js";
+import { useHotkeys } from "./api/WorkspaceUpdatesProvider.js";
 import { useApi } from "./api/ApiProvider.js";
 import { sessionTitleQueryKey } from "./main/agent/useAgentSession.js";
 

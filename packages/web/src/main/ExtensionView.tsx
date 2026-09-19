@@ -2,7 +2,7 @@
 import { backgroundColor, Flex, flex, Text } from "maui";
 import { style, useStyles } from "purse-styles";
 import { useHost } from "../HostProvider.js";
-import { useExtensions } from "../api/ExtensionsProvider.js";
+import { useExtensions } from "../api/WorkspaceUpdatesProvider.js";
 
 export function ExtensionView({ extensionId }: { extensionId: string }) {
   const host = useHost();

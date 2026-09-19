@@ -27,7 +27,7 @@ import {
 import { isPaneDrag, paneRouteDragType, paneTabDragType } from "./paneDrag.js";
 import { queryOptions, skipToken, useQueries } from "@tanstack/react-query";
 import { useSidebar } from "../WorkspaceLayout.js";
-import { useExtensions } from "../api/ExtensionsProvider.js";
+import { useExtensions } from "../api/WorkspaceUpdatesProvider.js";
 import { sessionTitleQueryKey } from "../main/agent/useAgentSession.js";
 import { CopyExtensionLinkButton } from "./CopyExtensionLinkButton.js";
 import "./paneWorkspace.css";

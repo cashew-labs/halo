@@ -22,7 +22,7 @@ import type {
   WorkspaceTreeEvent,
 } from "./rpc.js";
 
-export const haloProtocolVersion = 16 as const;
+export const haloProtocolVersion = 17 as const;
 
 export const RequestRejectedError = error("BAD_REQUEST", {
   message: "Halo could not complete the request.",
@@ -67,9 +67,17 @@ export type BrowserExecution = {
   errors: string[];
 };
 
+export type WorkspaceUpdate =
+  | { type: "hotkeys"; hotkeys: Hotkey[] }
+  | { type: "extensions"; extensions: ExtensionSummary[] }
+  | { type: "extensionsError"; message: string }
+  | { type: "sessions"; update: SessionSummariesUpdate }
+  | { type: "files"; events: WorkspaceTreeEvent[] };
+
 export const contract = publicProcedure.router({
   server: {
     info: oc.output(type<{ protocolVersion: typeof haloProtocolVersion }>()),
+    watch: oc.output(asyncIteratorObject(type<WorkspaceUpdate>())),
   },
   browser: {
     open: oc.input(type<{ url: string }>()).output(

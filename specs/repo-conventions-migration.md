@@ -6,12 +6,14 @@ Implemented a workspace-owned `HotkeyService` that borrows the server's database
 
 Keyboard actions reuse `WorkspacePanes.open` and `close`. Command T creates a fresh draft in a new tab. Custom shortcuts support app actions, workspace files, and extensions, with reserved-key and duplicate checks.
 
-Agent hotkeys store a `runAgent` action with a self-contained prompt. Pressing the binding creates a normal session, opens it in a new tab, and submits the saved instruction through the existing sessions API. The agent can use its normal tools to generate files and perform multi-step work. Saving the binding does not run it, and each invocation starts a fresh conversation. Empty instructions are rejected; creation and prompt failures are shown in the shortcuts dialog. Protocol 16 prevents older clients from misinterpreting the new action.
+Agent hotkeys store a `runAgent` action with a self-contained prompt. Pressing the binding creates a normal session, opens it in a new tab, and submits the saved instruction through the existing sessions API. The agent can use its normal tools to generate files and perform multi-step work. Saving the binding does not run it, and each invocation starts a fresh conversation. Empty instructions are rejected; creation and prompt failures are shown in the shortcuts dialog. Protocol 17 includes the agent action and shared workspace update stream.
 
 Hidden chat tabs release their transcript streams and reconnect with a fresh snapshot when shown. This retains drafts while preventing inactive tabs from exhausting browser HTTP connections as agent shortcuts create more sessions.
 
 Verification extends the existing workspace-server and Electron consumer tests, covering chat tool invocation, live updates, restart persistence, conflict rejection, and preserved drafts.
 
 Agent-action coverage in those same files checks persisted instructions, chat-driven creation and updates, generated Markdown file contents, fresh sessions, preserved drafts, and recovery after session-creation or prompt failures. Inference is scripted at the provider boundary; file writes use the real agent tool runtime and workspace filesystem.
+
+The renderer consumes one `server.watch` stream for hotkeys, extension snapshots, session summaries, and filesystem changes. Existing owners retain snapshot ordering and buffer their updates; disconnecting aborts and disposes every constituent subscription. This avoids exhausting browser HTTP connections with independent app-wide streams and leaves capacity for agent prompts and cancellation in split panes. The server consumer test covers initial snapshots, hotkey updates, reconnect, and cancellation; the desktop regression covers launching and stopping an agent hotkey with two visible chats.
 
 The shortcuts popup is a read-only list. Clicking labels, key badges, or popup content does not run actions or dismiss it. Clicking the backdrop or pressing Escape dismisses it. The existing desktop flow covers these interactions.

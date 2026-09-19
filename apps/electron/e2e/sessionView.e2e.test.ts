@@ -1112,7 +1112,7 @@ e2eTest(
     });
     // An interrupted transport must reconnect automatically before showing the list.
     let summaryConnections = 0;
-    await app.page.route("**/rpc/sessions/watchSummaries", async (route) => {
+    await app.page.route("**/rpc/server/watch", async (route) => {
       summaryConnections++;
       if (summaryConnections === 1) {
         await route.fulfill({
