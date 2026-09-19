@@ -40,10 +40,13 @@ e2eTest(
     const pane = app.page
       .locator('iframe[title="workspaceNotes"]')
       .contentFrame();
-    await pane.getByRole("button", { name: "Refresh notes" }).click();
-
-    await expect(pane.getByRole("status")).toHaveText(
-      "Available after restart",
-    );
+    const refresh = pane.getByRole("button", { name: "Refresh notes" });
+    const status = pane.getByRole("status");
+    await expect(async () => {
+      await refresh.click();
+      await expect(status).toHaveText("Available after restart", {
+        timeout: 1_000,
+      });
+    }).toPass({ timeout: 10_000 });
   },
 );

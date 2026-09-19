@@ -22,8 +22,18 @@ const desktopBridge: DesktopBridge = {
       ipcRenderer.removeListener(SHORTCUT_CHANNEL, handleShortcut);
     };
   },
-  getConnection: async () =>
-    await ipcRenderer.invoke(DESKTOP_CHANNEL, { type: "getConnection" }),
+  getConnection: async () => {
+    const connection: Awaited<ReturnType<DesktopBridge["getConnection"]>> =
+      await ipcRenderer.invoke(DESKTOP_CHANNEL, { type: "getConnection" });
+    if (
+      connection === undefined ||
+      !process.argv.includes("--halo-e2e-rpc-localhost")
+    )
+      return connection;
+    const origin = new URL(connection.origin);
+    origin.hostname = "localhost";
+    return { ...connection, origin: origin.origin };
+  },
   getAuthSession: async () =>
     await ipcRenderer.invoke(DESKTOP_CHANNEL, { type: "getAuthSession" }),
   signIn: async () =>

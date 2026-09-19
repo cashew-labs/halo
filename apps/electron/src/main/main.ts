@@ -132,8 +132,10 @@ app.whenReady().then(async () => {
   if (applicationConfig.testWindowEvents) {
     const testEvents: NodeJS.EventEmitter = app;
     testEvents.on("halo:e2e:open-window", () => {
+      // Give the test-created window a separate HTTP/1.1 connection pool while
+      // retaining the default Electron session used for cross-window storage.
       // oxlint-disable-next-line typescript/no-floating-promises -- The harness waits for Electron's window event.
-      void createWindow();
+      void createWindow(["--halo-e2e-rpc-localhost"]);
     });
   }
   logger.info({ event: "app-ready" });
@@ -246,7 +248,9 @@ async function openMainWindow(): Promise<void> {
   });
 }
 
-async function createWindow(): Promise<BrowserWindow> {
+async function createWindow(
+  additionalArguments: string[] = [],
+): Promise<BrowserWindow> {
   const window = new BrowserWindow({
     show: applicationConfig.showMainWindow,
     title: "Halo",
@@ -262,6 +266,7 @@ async function createWindow(): Promise<BrowserWindow> {
       contextIsolation: true,
       sandbox: true,
       nodeIntegration: false,
+      additionalArguments,
     },
   });
   const hotkeys = new WindowHotkeys();

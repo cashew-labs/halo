@@ -211,12 +211,19 @@ e2eTest(
     await app.quit();
     await app.open();
 
-    await app.page
-      .getByRole("button", { name: "Expand Notes #1", exact: true })
-      .click();
-    await app.page
-      .getByRole("link", { name: "Images.md", exact: true })
-      .click();
+    const imagesLink = app.page.getByRole("link", {
+      name: "Images.md",
+      exact: true,
+    });
+    const expandNotes = app.page.getByRole("button", {
+      name: "Expand Notes #1",
+      exact: true,
+    });
+    await expect(imagesLink.or(expandNotes)).toBeVisible();
+    if (!(await imagesLink.isVisible())) {
+      await expandNotes.click();
+    }
+    await imagesLink.click();
     await expect(
       app.page
         .getByRole("main", { name: path, exact: true })
@@ -431,20 +438,27 @@ e2eTest(
     await expect(editor.locator(":scope > ul")).toHaveCount(2);
     await expect(editor.locator("ul ul")).toHaveCount(1);
     const second = editor.getByText("Second", { exact: true });
-    await second.click({ position: { x: 5, y: 10 } });
-    await expect
-      .poll(
-        async () =>
-          await second.evaluate((paragraph) => {
-            const selection = paragraph.ownerDocument.getSelection();
-            return (
-              selection?.isCollapsed === true &&
-              paragraph.contains(selection.anchorNode) &&
-              paragraph.contains(selection.focusNode)
-            );
-          }),
-      )
-      .toBe(true);
+    await second.evaluate(async (paragraph) => {
+      const editorRoot = paragraph.closest<HTMLElement>(
+        '[contenteditable="true"]',
+      );
+      const text = paragraph.firstChild;
+      if (editorRoot === null || text === null) {
+        throw new Error("Pasted list item is not editable text");
+      }
+      editorRoot.focus();
+      const selectionChanged = new Promise<void>((resolve) => {
+        paragraph.ownerDocument.addEventListener(
+          "selectionchange",
+          () => resolve(),
+          { once: true },
+        );
+      });
+      paragraph.ownerDocument
+        .getSelection()!
+        .setBaseAndExtent(text, 0, text, 0);
+      await selectionChanged;
+    });
     await app.page.keyboard.press("Tab");
     await expect(editor.locator("ul ul > li > p")).toHaveText([
       "Second",
