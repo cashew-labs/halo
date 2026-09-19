@@ -2031,3 +2031,25 @@ e2eTest(
     expect(await app.server.rpc.workspace.readFile({ path })).toBe(original);
   },
 );
+
+e2eTest(
+  "opens fresh chat tabs with the keyboard and preserves drafts",
+  async ({ app }) => {
+    const page = app.page;
+    await page
+      .getByRole("tabpanel")
+      .getByLabel("Message", { exact: true })
+      .fill("Keep my draft");
+    await app.pressShortcut({ key: "T" });
+    await expect(page.getByRole("tab")).toHaveCount(2);
+    await expect(
+      page.getByRole("tabpanel").getByLabel("Message", { exact: true }),
+    ).toHaveText("");
+    await app.pressShortcut({ key: "T" });
+    await expect(page.getByRole("tab")).toHaveCount(3);
+    await page.getByRole("tab").first().click();
+    await expect(
+      page.getByRole("tabpanel").getByLabel("Message", { exact: true }),
+    ).toHaveText("Keep my draft");
+  },
+);

@@ -14,10 +14,12 @@ import {
 import { style, useStyles } from "purse-styles";
 import { useLocation } from "wouter";
 import { useHost } from "./HostProvider.js";
+import { useWorkspacePanes } from "./panes/WorkspacePanesProvider.js";
 import { shortcuts } from "./shortcuts.js";
 
 export function KeyboardShortcuts() {
   const host = useHost();
+  const workspace = useWorkspacePanes();
   const [open, setOpen] = useState(false);
   const [, navigate] = useLocation();
   const overlay = useStyles(styles.overlay);
@@ -32,16 +34,25 @@ export function KeyboardShortcuts() {
     navigate(`/draft/${crypto.randomUUID()}`);
   }, [navigate]);
 
+  const newTab = useCallback(() => {
+    setOpen(false);
+    workspace.open({ path: `/draft/${crypto.randomUUID()}`, newTab: true });
+  }, [workspace]);
+
   useEffect(
     () =>
       host.onShortcut?.((shortcut) => {
+        if (shortcut === "newTab") {
+          newTab();
+          return;
+        }
         if (shortcut === "newChat") {
           newChat();
           return;
         }
         setOpen((value) => !value);
       }),
-    [newChat, host],
+    [newChat, newTab, host],
   );
 
   return (
@@ -58,6 +69,10 @@ export function KeyboardShortcuts() {
             aria-label="Shortcuts"
             autoFocus="first"
             onAction={(key) => {
+              if (key === "newTab") {
+                newTab();
+                return;
+              }
               if (key === "newChat") {
                 newChat();
                 return;
