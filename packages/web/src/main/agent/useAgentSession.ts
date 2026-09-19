@@ -1,5 +1,5 @@
 import { sessionError } from "./sessionView.js";
-import { useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import * as errore from "errore";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -9,6 +9,7 @@ import {
   type SessionWatchItem,
 } from "@get-halo/client";
 import { useApi } from "../../api/ApiProvider.tsx";
+import { TabVisibilityContext } from "../../panes/WorkspacePanesProvider.js";
 import { reconnectStream } from "../../api/reconnectStream.js";
 import { Stream } from "@get-halo/shared/Stream";
 import {
@@ -39,6 +40,7 @@ export function useAgentSession(
   sessionId: string | undefined,
 ): UseAgentSessionResult {
   const api = useApi();
+  const isTabVisible = useContext(TabVisibilityContext);
   const queryClient = useQueryClient();
   const queryClientRef = useRef(queryClient);
   const [readySessionId, setReadySessionId] = useState<string | undefined>(
@@ -56,7 +58,9 @@ export function useAgentSession(
   }
 
   useEffect(() => {
-    if (sessionId === undefined) return;
+    // Hidden tabs retain their UI state, but must release HTTP streams so new
+    // chats and prompts are not blocked by the browser's connection limit.
+    if (sessionId === undefined || !isTabVisible) return;
     const controller = new AbortController();
 
     const updates = new Stream<SessionWatchItem>();
@@ -92,7 +96,7 @@ export function useAgentSession(
       unsubscribe();
       controller.abort();
     };
-  }, [api, sessionId]);
+  }, [api, sessionId, isTabVisible]);
 
   async function prompt(text: string) {
     if (readySessionId === undefined) {

@@ -81,6 +81,10 @@ export class HotkeyService {
     if (accelerator instanceof Error) return accelerator;
     if (input.label.trim() === "")
       return new InvalidHotkeyError({ reason: "A hotkey needs a label" });
+    if (input.action.type === "runAgent" && input.action.prompt.trim() === "")
+      return new InvalidHotkeyError({
+        reason: "An agent hotkey needs an instruction",
+      });
     if (
       input.action.type === "openFile" &&
       (input.action.path.startsWith("/") ||
