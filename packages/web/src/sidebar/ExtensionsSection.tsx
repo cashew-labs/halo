@@ -1,7 +1,7 @@
 import { Text } from "maui";
 import * as MauiIcons from "maui/icons";
 
-import { useExtensions } from "../api/ExtensionsProvider.js";
+import { useExtensions } from "../api/WorkspaceUpdatesProvider.js";
 import { SidebarItem } from "./navigation/SidebarItem.js";
 import { SidebarSection } from "./navigation/SidebarSection.js";
 

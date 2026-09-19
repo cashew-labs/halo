@@ -2394,3 +2394,61 @@ e2eTest(
     await expect(app.page.getByRole("alert")).toHaveCount(0);
   },
 );
+
+e2eTest(
+  "runs and stops an agent hotkey with two visible chat panes",
+  async ({ app, harness, llm }) => {
+    await harness.loadSession({
+      title: "Left conversation",
+      messages: [m.user("Left question"), m.assistant("Left answer")],
+    });
+    await harness.loadSession({
+      title: "Right conversation",
+      messages: [m.user("Right question"), m.assistant("Right answer")],
+    });
+    const page = app.page;
+    await page
+      .getByRole("link", { name: "Left conversation", exact: true })
+      .click();
+    const area = page.locator(".paneWorkspace");
+    const box = (await area.boundingBox())!;
+    await page
+      .getByRole("link", { name: "Right conversation", exact: true })
+      .locator("span")
+      .dragTo(area, {
+        targetPosition: { x: box.width - 10, y: box.height / 2 },
+      });
+    await expect(page.getByRole("tablist")).toHaveCount(2);
+    await expect(page.getByText("Left answer", { exact: true })).toBeVisible();
+    await expect(page.getByText("Right answer", { exact: true })).toBeVisible();
+    await app.server.rpc.hotkeys.save({
+      label: "Generate report",
+      accelerator: "CmdOrCtrl+Shift+J",
+      action: { type: "runAgent", prompt: "Generate a long report." },
+    });
+    await app.pressShortcut({ key: "P" });
+    await expect(
+      page
+        .getByRole("list", { name: "Shortcuts" })
+        .getByText("Generate report", { exact: true }),
+    ).toBeVisible();
+    await page.keyboard.press("Escape");
+    await app.pressShortcut({ key: "J", shift: true });
+    await page.getByRole("button", { name: "Stop", exact: true }).click();
+    await expect(
+      page.getByRole("button", { name: "Stop", exact: true }),
+    ).toHaveCount(0);
+    const left = page.getByRole("main", {
+      name: "Left conversation",
+      exact: true,
+    });
+    await left
+      .getByLabel("Message", { exact: true })
+      .fill("Continue in this pane");
+    await left.getByRole("button", { name: "Send", exact: true }).click();
+    await llm.respond(m.assistant("Both panes remain responsive."));
+    await expect(
+      left.getByText("Both panes remain responsive.", { exact: true }),
+    ).toBeVisible();
+  },
+);

@@ -4,13 +4,7 @@ import {
   uploadDroppedFiles,
 } from "./droppedFiles.js";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import {
-  useEffect,
-  useMemo,
-  useState,
-  type DragEvent,
-  type ReactNode,
-} from "react";
+import { useMemo, useState, type DragEvent, type ReactNode } from "react";
 import {
   Button,
   Menu,
@@ -34,7 +28,6 @@ import {
   useWorkspaceQuery,
   workspacePathsQueryKey,
 } from "../api/ApiProvider.tsx";
-import { reconnectStream } from "../api/reconnectStream.js";
 import { useExpandSidebar } from "./navigation/NavigationSidebar.js";
 import { SidebarItem } from "./navigation/SidebarItem.js";
 import { SidebarSection } from "./navigation/SidebarSection.js";
@@ -201,29 +194,6 @@ export function FilesystemSection() {
     });
     setDragged(undefined);
   }
-
-  useEffect(() => {
-    if (workspaceRoot === undefined) return;
-
-    const controller = new AbortController();
-    reconnectStream({
-      name: "Workspace tree",
-      signal: controller.signal,
-      open: async () =>
-        await api.workspace.events(undefined, { signal: controller.signal }),
-      // Refresh after opening each stream to cover events missed while reconnecting.
-      onOpen: async () =>
-        await queryClient.invalidateQueries({
-          queryKey: workspacePathsQueryKey(workspaceRoot),
-        }),
-      onItem: async () =>
-        await queryClient.invalidateQueries({
-          queryKey: workspacePathsQueryKey(workspaceRoot),
-        }),
-    });
-
-    return () => controller.abort();
-  }, [api, queryClient, workspaceRoot]);
 
   const creation: FileCreationRow | undefined =
     action !== undefined &&

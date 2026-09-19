@@ -14,7 +14,7 @@ import path from "node:path";
 import { gunzipSync } from "node:zlib";
 import { IdTokenClient } from "google-auth-library";
 import { ControlPlaneTraceUploader } from "@get-halo/workspace-server";
-import { expect } from "vitest";
+import { assert, expect } from "vitest";
 import { contentText } from "@earendil-works/pi-ai";
 import { m } from "@get-halo/shared/testing";
 import { messageText } from "@get-halo/workspace-server/testing";
@@ -1862,6 +1862,46 @@ serverTest(
     cancelled.abort();
     await pending;
     // An idle subscription must not hold server shutdown open.
+    await server.stop();
+  },
+);
+
+serverTest(
+  "shares live workspace updates over one cancellable subscription",
+  async ({ server }) => {
+    using cleanup = new errore.DisposableStack();
+    const controller = new AbortController();
+    cleanup.defer(() => controller.abort());
+    const updates = await server.rendererRpc.server.watch(undefined, {
+      signal: controller.signal,
+    });
+    const initial = new Set<string>();
+    while (initial.size < 3) {
+      const next = await updates.next();
+      assert(!next.done, "Workspace stream ended before initial snapshots");
+      if (next.value.type === "files") continue;
+      initial.add(next.value.type);
+    }
+    expect(initial).toEqual(new Set(["hotkeys", "extensions", "sessions"]));
+    const hotkey = await server.rpc.hotkeys.save({
+      label: "Quick task",
+      accelerator: "CmdOrCtrl+Shift+J",
+      action: { type: "runAgent", prompt: "Write a summary." },
+    });
+    for await (const item of updates) {
+      if (item.type !== "hotkeys") continue;
+      expect(item.hotkeys).toEqual([hotkey]);
+      break;
+    }
+    const reconnected = await server.rendererRpc.server.watch(undefined, {
+      signal: controller.signal,
+    });
+    for await (const item of reconnected) {
+      if (item.type !== "hotkeys") continue;
+      expect(item.hotkeys).toEqual([hotkey]);
+      break;
+    }
+    // Leaving a for-await loop must cancel every source, including idle ones.
     await server.stop();
   },
 );
