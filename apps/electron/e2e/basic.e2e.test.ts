@@ -210,12 +210,19 @@ e2eTest(
     await app.quit();
     await app.open();
 
-    await app.page
-      .getByRole("button", { name: "Expand Notes #1", exact: true })
-      .click();
-    await app.page
-      .getByRole("link", { name: "Images.md", exact: true })
-      .click();
+    const imagesLink = app.page.getByRole("link", {
+      name: "Images.md",
+      exact: true,
+    });
+    const expandNotes = app.page.getByRole("button", {
+      name: "Expand Notes #1",
+      exact: true,
+    });
+    await expect(imagesLink.or(expandNotes)).toBeVisible();
+    if (!(await imagesLink.isVisible())) {
+      await expandNotes.click();
+    }
+    await imagesLink.click();
     await expect(
       app.page
         .getByRole("main", { name: path, exact: true })
