@@ -2,8 +2,6 @@ import { useCallback, useEffect, useState } from "react";
 import { Dialog, Modal, ModalOverlay } from "react-aria-components";
 import {
   Kbd,
-  Menu,
-  MenuItem,
   backgroundColor,
   flex,
   radius,
@@ -12,48 +10,109 @@ import {
   text,
 } from "maui";
 import { style, useStyles } from "purse-styles";
-import { useLocation } from "wouter";
 import { useHost } from "./HostProvider.js";
 import { useWorkspacePanes } from "./panes/WorkspacePanesProvider.js";
 import { shortcuts } from "./shortcuts.js";
+import { matchesHotkey, type HotkeyAction } from "@get-halo/client";
+import { useHotkeys } from "./useHotkeys.js";
 
 export function KeyboardShortcuts() {
   const host = useHost();
   const workspace = useWorkspacePanes();
   const [open, setOpen] = useState(false);
-  const [, navigate] = useLocation();
+  const hotkeys = useHotkeys();
   const overlay = useStyles(styles.overlay);
   const modal = useStyles(styles.modal);
   const heading = useStyles(styles.heading);
+  const list = useStyles(styles.list);
   const row = useStyles(styles.row);
   const hint = useStyles(styles.hint);
-  const modifier = navigator.platform.startsWith("Mac") ? "⌘" : "Ctrl+";
+  const isMac = navigator.platform.startsWith("Mac");
+  const modifier = isMac ? "⌘" : "Ctrl+";
 
-  const newChat = useCallback(() => {
-    setOpen(false);
-    navigate(`/draft/${crypto.randomUUID()}`);
-  }, [navigate]);
-
-  const newTab = useCallback(() => {
-    setOpen(false);
-    workspace.open({ path: `/draft/${crypto.randomUUID()}`, newTab: true });
-  }, [workspace]);
-
-  useEffect(
-    () =>
-      host.onShortcut?.((shortcut) => {
-        if (shortcut === "newTab") {
-          newTab();
-          return;
-        }
-        if (shortcut === "newChat") {
-          newChat();
-          return;
-        }
+  const runAction = useCallback(
+    (action: HotkeyAction) => {
+      if (action.type === "shortcutMenu") {
         setOpen((value) => !value);
-      }),
-    [newChat, newTab, host],
+        return;
+      }
+      setOpen(false);
+      if (action.type === "closeTab") {
+        workspace.close(workspace.activePane().activeTabId);
+        return;
+      }
+      if (action.type === "openFile") {
+        workspace.open({
+          path: `/files/${action.path.split("/").map(encodeURIComponent).join("/")}`,
+          newTab: true,
+        });
+        return;
+      }
+      if (action.type === "openExtension") {
+        workspace.open({
+          path: `/extensions/${encodeURIComponent(action.id)}`,
+          newTab: true,
+        });
+        return;
+      }
+      workspace.open({
+        path: `/draft/${crypto.randomUUID()}`,
+        newTab: action.type === "newTab",
+      });
+    },
+    [workspace],
   );
+
+  const runShortcut = useCallback(
+    (id: string) => {
+      if (id === "newTab" || id === "newChat" || id === "shortcutMenu") {
+        runAction({ type: id });
+        return;
+      }
+      const hotkey = hotkeys.find((item) => `custom:${item.id}` === id);
+      if (hotkey !== undefined) runAction(hotkey.action);
+    },
+    [hotkeys, runAction],
+  );
+
+  useEffect(() => host.onShortcut?.(runShortcut), [host, runShortcut]);
+  useEffect(() => {
+    host.setHotkeys?.(hotkeys);
+    return () => host.setHotkeys?.([]);
+  }, [host, hotkeys]);
+  useEffect(() => {
+    // Electron handles keys before editors and extension frames. Browsers use DOM events.
+    if (host.onShortcut !== undefined) return;
+    const listener = (event: KeyboardEvent) => {
+      if (event.isComposing || event.getModifierState("AltGraph")) return;
+      const matches = (accelerator: string) =>
+        matchesHotkey({
+          accelerator,
+          key: event.key,
+          code: event.code,
+          meta: event.metaKey,
+          control: event.ctrlKey,
+          shift: event.shiftKey,
+          alt: event.altKey,
+          isMac: navigator.platform.startsWith("Mac"),
+        });
+      const builtin = Object.entries(shortcuts).find(([, shortcut]) =>
+        matches(shortcut.accelerator),
+      );
+      const custom = hotkeys.find((hotkey) => matches(hotkey.accelerator));
+      if (builtin === undefined && custom === undefined) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.repeat) return;
+      if (custom !== undefined) {
+        runAction(custom.action);
+        return;
+      }
+      runShortcut(builtin![0]);
+    };
+    window.addEventListener("keydown", listener, true);
+    return () => window.removeEventListener("keydown", listener, true);
+  }, [host, hotkeys, runAction, runShortcut]);
 
   return (
     <ModalOverlay
@@ -65,33 +124,30 @@ export function KeyboardShortcuts() {
       <Modal className={modal}>
         <Dialog aria-label="Keyboard shortcuts">
           <h2 className={heading}>Keyboard shortcuts</h2>
-          <Menu
-            aria-label="Shortcuts"
-            autoFocus="first"
-            onAction={(key) => {
-              if (key === "newTab") {
-                newTab();
-                return;
-              }
-              if (key === "newChat") {
-                newChat();
-                return;
-              }
-              setOpen(false);
-            }}
-          >
+          <ul aria-label="Shortcuts" role="list" className={list}>
             {Object.entries(shortcuts).map(([id, shortcut]) => (
-              <MenuItem id={id} key={id} textValue={shortcut.label}>
-                <span className={row}>
-                  <span>{shortcut.label}</span>
-                  <Kbd>{modifier + shortcut.key}</Kbd>
-                </span>
-              </MenuItem>
+              <li key={id} className={row}>
+                <span>{shortcut.label}</span>
+                <Kbd>{modifier + shortcut.key}</Kbd>
+              </li>
             ))}
-          </Menu>
+            {hotkeys.map((hotkey) => (
+              <li key={hotkey.id} className={row}>
+                <span>{hotkey.label}</span>
+                <Kbd>
+                  {hotkey.accelerator
+                    .replace("CmdOrCtrl+", modifier)
+                    .replace("Shift+", isMac ? "⇧" : "Shift+")
+                    .replace("Alt+", isMac ? "⌥" : "Alt+")}
+                </Kbd>
+              </li>
+            ))}
+          </ul>
           <p className={hint}>
-            ↑ ↓ to navigate · Enter to select · Esc to close
+            {hotkeys.length === 0 ? "No custom hotkeys yet. " : ""}
+            Ask in chat to add, change, or remove a hotkey.
           </p>
+          <p className={hint}>Click outside or press Esc to close</p>
         </Dialog>
       </Modal>
     </ModalOverlay>
@@ -111,17 +167,21 @@ const styles = {
   }),
   modal: style(shadow.strong, radius.lg, spacing.padding({ all: 4 }), {
     width: "min(440px, 100%)",
+    maxHeight: "70dvh",
+    overflowY: "auto",
     backgroundColor: backgroundColor.app,
-    "& [role='dialog'], & [role='menu']": { outline: "none" },
-    "& [role='menuitem']": { transition: "none" },
+    "& [role='dialog']": { outline: "none" },
   }),
   heading: style(
     text({ size: "sm", fontWeight: 600, color: "highContrast" }),
     spacing.padding({ all: 4 }),
     { margin: 0 },
   ),
+  list: style({ margin: 0, padding: 0, listStyle: "none" }),
   row: style(
     flex({ alignItems: "center", justifyContent: "between", gap: 8 }),
+    text({ size: "sm", color: "highContrast" }),
+    spacing.padding({ all: 4 }),
     {
       width: "100%",
       minHeight: "28px",

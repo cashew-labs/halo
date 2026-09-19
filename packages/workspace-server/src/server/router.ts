@@ -1,4 +1,8 @@
 import {
+  hotkeysRouter,
+  type HotkeysRouterContext,
+} from "../hotkeys/hotkeysRouter.js";
+import {
   browserRouter,
   type BrowserRouterContext,
 } from "../browser/browserRouter.js";
@@ -25,7 +29,8 @@ import {
   type TestApiRouterContext,
 } from "../testing/testApiRouter.js";
 
-export type HaloContext = BrowserRouterContext &
+export type HaloContext = HotkeysRouterContext &
+  BrowserRouterContext &
   TracesRouterContext &
   WorkspaceRouterContext &
   ExtensionsRouterContext &
@@ -40,6 +45,7 @@ const serverRouter = server.router({
 
 export const haloRpcRouter = {
   server: serverRouter,
+  hotkeys: hotkeysRouter,
   browser: browserRouter,
   workspace: workspaceRouter,
   sessions: sessionsRouter,

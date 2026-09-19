@@ -1,3 +1,4 @@
+import { WindowHotkeys } from "./WindowHotkeys.js";
 import {
   app,
   autoUpdater,
@@ -263,6 +264,8 @@ async function createWindow(): Promise<BrowserWindow> {
       nodeIntegration: false,
     },
   });
+  const hotkeys = new WindowHotkeys();
+  hotkeys.attach(window);
   // Route app shortcuts through the originating window, including embedded frames.
   window.webContents.on("before-input-event", (event, input) => {
     if (

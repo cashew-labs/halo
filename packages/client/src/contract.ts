@@ -1,3 +1,4 @@
+import type { Hotkey, HotkeyInput } from "./hotkeys.js";
 import type { WorkspaceFilePreview } from "./rpc.js";
 import {
   asyncIteratorObject,
@@ -122,6 +123,12 @@ export const contract = publicProcedure.router({
       .input(type<{ documentPath: string; file: File; id?: string }>())
       .output(type<{ src: string }>()),
     events: oc.output(asyncIteratorObject(type<WorkspaceTreeEvent[]>())),
+  },
+  hotkeys: {
+    list: oc.output(type<Hotkey[]>()),
+    watch: oc.output(asyncIteratorObject(type<Hotkey[]>())),
+    save: oc.input(type<HotkeyInput>()).output(type<Hotkey>()),
+    remove: oc.input(type<{ id: string }>()).output(type<void>()),
   },
   sessions: {
     list: oc.output(type<SessionSummary[]>()),

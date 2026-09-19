@@ -1635,6 +1635,94 @@ serverTest(
 );
 
 serverTest(
+  "configures persistent hotkeys through chat and streams changes to clients",
+  async ({ server, llm }) => {
+    const controller = new AbortController();
+    using cleanup = new errore.DisposableStack();
+    cleanup.defer(() => controller.abort());
+    const updates = await server.rendererRpc.hotkeys.watch(undefined, {
+      signal: controller.signal,
+    });
+    expect((await updates.next()).value).toEqual([]);
+    const session = await server.rpc.sessions.create();
+    const prompt = server.rpc.sessions.prompt({
+      ...session,
+      text: "Make Cmd+Shift+K open a new chat tab",
+    });
+    await llm.respond(
+      m.tool.start("exec", {
+        id: "save-hotkey",
+        arguments: {
+          js: 'return await tools.hotkeys.save({ label: "Quick chat", accelerator: "Cmd+Shift+K", action: { type: "newTab" } });',
+        },
+      }),
+    );
+    await llm.respond(m.assistant("Your hotkey is ready."));
+    await prompt;
+    const [hotkey] = await server.rpc.hotkeys.list();
+    expect(hotkey).toMatchObject({
+      label: "Quick chat",
+      accelerator: "CmdOrCtrl+Shift+K",
+      action: { type: "newTab" },
+    });
+    expect((await updates.next()).value).toEqual([hotkey]);
+    const id = hotkey!.id;
+    await expect(
+      server.rpc.hotkeys.save({
+        label: "Conflict",
+        accelerator: "Shift+Control+K",
+        action: { type: "closeTab" },
+      }),
+    ).rejects.toThrow("already assigned");
+    await expect(
+      server.rpc.hotkeys.save({
+        label: "Reserved",
+        accelerator: "Cmd+T",
+        action: { type: "closeTab" },
+      }),
+    ).rejects.toThrow("reserved");
+    await expect(
+      server.rpc.hotkeys.save({
+        label: "Typing",
+        accelerator: "K",
+        action: { type: "newTab" },
+      }),
+    ).rejects.toThrow("CmdOrCtrl");
+    await expect(
+      server.rpc.hotkeys.save({
+        label: "Escape workspace",
+        accelerator: "Cmd+Shift+L",
+        action: { type: "openFile", path: "../secret.md" },
+      }),
+    ).rejects.toThrow("workspace-relative");
+    const changed = await server.rpc.hotkeys.save({
+      ...hotkey!,
+      label: "Close active tab",
+      accelerator: "CmdOrCtrl+Shift+L",
+      action: { type: "closeTab" },
+    });
+    expect((await updates.next()).value).toEqual([changed]);
+    controller.abort();
+    await server.stop();
+    await server.start();
+    expect(await server.rpc.hotkeys.list()).toEqual([changed]);
+    const listed = await server.rpc.testApi.invokeTool({
+      path: "hotkeys.list",
+      input: {},
+    });
+    expect(listed).toEqual([changed]);
+    await server.rpc.testApi.invokeTool({
+      path: "hotkeys.remove",
+      input: { id },
+    });
+    expect(await server.rendererRpc.hotkeys.list()).toEqual([]);
+    await server.stop();
+    await server.start();
+    expect(await server.rpc.hotkeys.list()).toEqual([]);
+  },
+);
+
+serverTest(
   "streams extension snapshots across reload, reconnect, and restart failure",
   async ({ server }) => {
     using cleanup = new errore.DisposableStack();

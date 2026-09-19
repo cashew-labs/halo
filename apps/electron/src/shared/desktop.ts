@@ -2,6 +2,7 @@ import type { ShortcutId } from "./shortcuts.js";
 import { type Static, Type } from "@sinclair/typebox";
 import {
   connectionRequestSchema,
+  type Hotkey,
   type ConnectionRequest,
   type ConnectionStarted,
 } from "@get-halo/client";
@@ -72,6 +73,7 @@ export type CancelIntegrationRequest = Extract<
 >;
 
 export type DesktopBridge = {
+  setHotkeys: (hotkeys: Hotkey[]) => void;
   onShortcut: (listener: (shortcut: ShortcutId) => void) => () => void;
   getConnection: () => Promise<HaloRpcConnection | undefined>;
   getAuthSession: () => Promise<ControlPlaneSession | undefined>;

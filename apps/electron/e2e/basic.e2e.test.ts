@@ -2053,3 +2053,133 @@ e2eTest(
     ).toHaveText("Keep my draft");
   },
 );
+
+e2eTest(
+  "creates hotkeys through chat and applies updates without restarting",
+  async ({ app, llm }) => {
+    const page = app.page;
+    await page
+      .getByRole("tabpanel")
+      .getByLabel("Message", { exact: true })
+      .fill("Make Cmd+Shift+K open a new chat tab");
+    await page.getByRole("button", { name: "Send", exact: true }).click();
+    await llm.respond(
+      m.tool.start("exec", {
+        id: "create-hotkey",
+        arguments: {
+          js: 'return await tools.hotkeys.save({ label: "Quick chat", accelerator: "CmdOrCtrl+Shift+K", action: { type: "newTab" } });',
+        },
+      }),
+    );
+    await llm.respond(m.assistant("Your Quick chat hotkey is ready."));
+    await expect(
+      page.getByText("Your Quick chat hotkey is ready.", { exact: true }),
+    ).toBeVisible();
+    await app.pressShortcut({ key: "P" });
+    await expect(
+      page
+        .getByRole("list", { name: "Shortcuts" })
+        .getByText("Quick chat", { exact: true }),
+    ).toBeVisible();
+    const popup = page.getByRole("dialog", { name: "Keyboard shortcuts" });
+    const tabCount = await page
+      .getByRole("tab", { includeHidden: true })
+      .count();
+    await popup.getByText("New chat tab", { exact: true }).click();
+    await popup.getByText("Quick chat", { exact: true }).click();
+    await popup
+      .getByRole("listitem")
+      .filter({ hasText: "Quick chat" })
+      .locator("kbd")
+      .click();
+    await popup.getByRole("heading", { name: "Keyboard shortcuts" }).click();
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("Enter");
+    await expect(popup).toBeVisible();
+    await expect(page.getByRole("tab", { includeHidden: true })).toHaveCount(
+      tabCount,
+    );
+    await page.mouse.click(10, 10);
+    await expect(popup).toHaveCount(0);
+    await app.pressShortcut({ key: "P" });
+    await expect(popup).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(popup).toHaveCount(0);
+    await app.pressShortcut({ key: "K", shift: true });
+    await expect(page.getByRole("tab")).toHaveCount(2);
+    await page
+      .getByRole("tabpanel")
+      .getByLabel("Message", { exact: true })
+      .fill("Keep this draft too");
+    await app.pressShortcut({ key: "K", shift: true });
+    await expect(page.getByRole("tab")).toHaveCount(3);
+    await expect(
+      page.getByRole("tabpanel").getByLabel("Message", { exact: true }),
+    ).toHaveText("");
+    const [hotkey] = await app.server.rpc.hotkeys.list();
+    await app.server.rpc.workspace.writeFile({
+      path: "Hotkey notes.md",
+      content: "# Opened by hotkey",
+    });
+    await app.server.rpc.hotkeys.save({
+      ...hotkey!,
+      label: "Open notes",
+      accelerator: "CmdOrCtrl+Shift+L",
+      action: { type: "openFile", path: "Hotkey notes.md" },
+    });
+    await app.pressShortcut({ key: "P" });
+    await expect(
+      page
+        .getByRole("list", { name: "Shortcuts" })
+        .getByText("Open notes", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page
+        .getByRole("list", { name: "Shortcuts" })
+        .getByText("Quick chat", { exact: true }),
+    ).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    await app.pressShortcut({ key: "K", shift: true });
+    await expect(page.getByRole("tab")).toHaveCount(3);
+    await app.pressShortcut({ key: "L", shift: true });
+    await expect(
+      page.getByRole("tab", { name: "Hotkey notes.md", exact: true }),
+    ).toHaveAttribute("aria-selected", "true");
+    await app.quit();
+    await app.open();
+    await expect(app.page.getByRole("tabpanel")).toBeVisible();
+    await app.pressShortcut({ key: "P" });
+    await expect(
+      app.page
+        .getByRole("list", { name: "Shortcuts" })
+        .getByText("Open notes", { exact: true }),
+    ).toBeVisible();
+    await app.page.keyboard.press("Escape");
+    await app.pressShortcut({ key: "L", shift: true });
+    await expect(
+      app.page.getByRole("tab", { name: "Hotkey notes.md", exact: true }),
+    ).toHaveAttribute("aria-selected", "true");
+    await app.server.rpc.hotkeys.remove({ id: hotkey!.id });
+    await app.pressShortcut({ key: "P" });
+    await expect(
+      app.page
+        .getByRole("list", { name: "Shortcuts" })
+        .getByText("Open notes", { exact: true }),
+    ).toHaveCount(0);
+    await app.server.rpc.hotkeys.save({
+      label: "My shortcuts",
+      accelerator: "CmdOrCtrl+Shift+Alt+7",
+      action: { type: "shortcutMenu" },
+    });
+    await expect(
+      app.page
+        .getByRole("list", { name: "Shortcuts" })
+        .getByText("My shortcuts", { exact: true }),
+    ).toBeVisible();
+    await app.page.keyboard.press("Escape");
+    await app.pressShortcut({ key: "7", shift: true, alt: true });
+    await expect(
+      app.page.getByRole("dialog", { name: "Keyboard shortcuts" }),
+    ).toBeVisible();
+  },
+);
