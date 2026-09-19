@@ -210,7 +210,6 @@ export const e2eTest = baseTest.extend<E2EFixtures, E2EWorkerFixtures>({
           command: `npm --prefix ${directoryArgument} run build`,
         });
         await server.rpc.extensions.reload();
-        await app.page.reload();
         return { id, directory };
       },
     });

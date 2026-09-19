@@ -1633,3 +1633,137 @@ serverTest(
     ).toMatchObject({ src: expect.stringMatching(/^image-[0-9a-f-]+\.png$/) });
   },
 );
+
+serverTest(
+  "streams extension snapshots across reload, reconnect, and restart failure",
+  async ({ server }) => {
+    using cleanup = new errore.DisposableStack();
+    const controller = new AbortController();
+    cleanup.defer(() => controller.abort());
+    const first = await server.rpc.extensions.watch(undefined, {
+      signal: controller.signal,
+    });
+    const second = await server.rendererRpc.extensions.watch(undefined, {
+      signal: controller.signal,
+    });
+    expect((await first.next()).value).toEqual([]);
+    expect((await second.next()).value).toEqual([]);
+
+    const directory = path.join(
+      server.workspaceRoot,
+      ".halo/extensions/snapshot-test",
+    );
+    const manifest = path.join(directory, "package.json");
+    const launcher = path.join(directory, "dist/start.mjs");
+    await fs.mkdir(path.dirname(launcher), { recursive: true });
+    await fs.writeFile(manifest, JSON.stringify({ name: "snapshot-test" }));
+    // A real process implements the extension host's readiness and shutdown protocol.
+    await fs.writeFile(
+      launcher,
+      `
+    import http from "node:http";
+    const server = http.createServer((_, response) => response.end("Ready"));
+    server.listen(0, "127.0.0.1", () => {
+      process.send("http://127.0.0.1:" + server.address().port + "/view/");
+    });
+    process.on("message", (message) => {
+      if (message === "shutdown") server.close(() => process.exit(0));
+    });
+  `,
+    );
+    // Opening another watch concurrently must include this reload, either in its
+    // first snapshot or in the next buffered update.
+    const opening = server.rpc.extensions.watch(undefined, {
+      signal: controller.signal,
+    });
+    await Promise.all([
+      server.rpc.extensions.reload(),
+      server.rpc.extensions.reload(),
+    ]);
+    const started = await server.rpc.extensions.list();
+    expect(started).toMatchObject([
+      { id: "snapshot-test", displayName: "snapshot-test" },
+    ]);
+    for (const stream of [first, second]) {
+      expect((await stream.next()).value).toEqual(started);
+      expect((await stream.next()).value).toEqual(started);
+    }
+    const racing = await opening;
+    const initial = await racing.next();
+    if (initial.done) throw new Error("Expected initial extension snapshot");
+    if (initial.value.length === 0)
+      expect((await racing.next()).value).toEqual(started);
+    else expect(initial.value).toEqual(started);
+    await racing.return();
+
+    await fs.writeFile(
+      manifest,
+      JSON.stringify({
+        name: "snapshot-test",
+        halo: { displayName: "Renamed", icon: "Calendar" },
+      }),
+    );
+    await server.rpc.extensions.reload();
+    const renamed = [
+      { ...started[0], displayName: "Renamed", icon: "Calendar" },
+    ];
+    expect((await first.next()).value).toEqual(renamed);
+    expect((await second.next()).value).toEqual(renamed);
+    const reconnect = await server.rpc.extensions.watch(undefined, {
+      signal: controller.signal,
+    });
+    expect((await reconnect.next()).value).toEqual(renamed);
+    await reconnect.return();
+
+    await fs.writeFile(manifest, "{");
+    const failedFirst = expect(first.next()).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+    });
+    const failedSecond = expect(second.next()).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+    });
+    await server.rpc.extensions.reload();
+    await Promise.all([failedFirst, failedSecond]);
+    await fs.writeFile(manifest, JSON.stringify({ name: "snapshot-test" }));
+    const recovered = await server.rpc.extensions.watch(undefined, {
+      signal: controller.signal,
+    });
+    expect((await recovered.next()).value).toEqual(started);
+
+    await server.rpc.extensions.restart({ id: "snapshot-test" });
+    const restartUpdate = await recovered.next();
+    if (restartUpdate.done)
+      throw new Error("Expected restarted extension snapshot");
+    const restarted = restartUpdate.value;
+    expect(restarted).toMatchObject([
+      { id: "snapshot-test", displayName: "snapshot-test" },
+    ]);
+    expect(restarted?.[0]?.url).not.toBe(started[0]?.url);
+    await fs.rename(launcher, launcher + ".saved");
+    await expect(
+      server.rpc.extensions.restart({ id: "snapshot-test" }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect((await recovered.next()).value).toEqual([]);
+    await fs.rename(launcher + ".saved", launcher);
+    await server.rpc.extensions.reload();
+    expect((await recovered.next()).value).toMatchObject([
+      { id: "snapshot-test" },
+    ]);
+    await fs.rm(directory, { recursive: true });
+    await server.rpc.extensions.reload();
+    expect((await recovered.next()).value).toEqual([]);
+
+    const cancelled = new AbortController();
+    const abortable = await server.rpc.extensions.watch(undefined, {
+      signal: cancelled.signal,
+    });
+    await abortable.next();
+    const pending = expect(abortable.next()).rejects.toSatisfy(
+      errore.isAbortError,
+    );
+    cancelled.abort();
+    await pending;
+    // An idle subscription must not hold server shutdown open.
+    await server.stop();
+  },
+);

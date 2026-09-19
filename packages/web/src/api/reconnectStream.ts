@@ -12,6 +12,7 @@ type ReconnectStreamContext<T> = {
   open: () => Promise<AsyncIterable<T>>;
   onItem: (item: T) => Promise<void> | void;
   onOpen?: () => Promise<void> | void;
+  onError?: (error: Error) => void;
   signal: AbortSignal;
 };
 
@@ -32,6 +33,7 @@ async function runReconnectStream<T>(ctx: ReconnectStreamContext<T>) {
     );
     if (ctx.signal.aborted) return;
 
+    if (disconnected !== undefined) ctx.onError?.(disconnected);
     console.warn(
       `${ctx.name} stream disconnected; reconnecting:`,
       disconnected,

@@ -65,8 +65,8 @@ Workspace switching and app shutdown stop the hosted processes.
 Halo lists running extensions in its sidebar. Opening an entry displays its
 `/view/` app in a sandboxed iframe at `/extensions/<id>`, with a Halo-owned pane
 header. The iframe retains its extension origin for API calls and storage.
-After adding an extension, call `extensions.reload()` and reload the renderer
-to refresh the sidebar.
+After adding an extension, call `extensions.reload()`. The sidebar receives the
+updated list automatically through `extensions.watch()`.
 
 Named sub-panes, dynamic sidebar contributions, authentication, and workspace
 tool access are not connected yet.

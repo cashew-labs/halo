@@ -6,6 +6,13 @@ e2eTest(
   async ({ harness, app }) => {
     e2eTest.setTimeout(120_000);
     const harnessBashTimeoutMs = 120_000;
+    await app.page.getByRole("main").waitFor();
+    await app.page.evaluate(() =>
+      document.documentElement.setAttribute(
+        "data-extension-authoring",
+        "original",
+      ),
+    );
     const created = await harness.tools.bash.run({
       command: "halo extension new greeting",
       timeoutMs: harnessBashTimeoutMs,
@@ -47,7 +54,10 @@ e2eTest(
     expect(listed.stdout).toContain("greeting");
     expect(listed.stdout).toContain("http://127.0.0.1:");
 
-    await app.page.reload();
+    await expect(app.page.locator("html")).toHaveAttribute(
+      "data-extension-authoring",
+      "original",
+    );
     await app.page.getByRole("link", { name: "greeting", exact: true }).click();
     const pane = app.page.locator('iframe[title="greeting"]').contentFrame();
     await expect(

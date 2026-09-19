@@ -7,6 +7,7 @@ import {
   type FilesystemService,
 } from "../filesystem/FilesystemService.js";
 import type { ExtensionSummary } from "@get-halo/client";
+import { Stream } from "@get-halo/shared/Stream";
 import { SerialQueue } from "@get-halo/shared/SerialQueue";
 import { readExtensionManifest } from "./readExtensionManifest.js";
 import { startExtension, type ExtensionRuntime } from "./startExtension.js";
@@ -21,7 +22,17 @@ class ExtensionNotRunningError extends errore.createTaggedError({
   message: "Extension '$id' is not running",
 }) {}
 
+class ExtensionsClosedError extends errore.createTaggedError({
+  name: "ExtensionsClosedError",
+  message: "Extension host is shutting down.",
+  extends: errore.AbortError,
+}) {}
+
 export class ExtensionHost {
+  // Publishes ordered snapshots to connected clients.
+  private readonly changes = new Stream<ExtensionSummary[] | Error>();
+  // Ends subscriptions when the host shuts down.
+  private readonly closed = new AbortController();
   // Extension processes indexed by extension ID.
   private readonly processes = new Map<string, RunningExtension>();
   // Serializes extension process changes.
@@ -51,6 +62,26 @@ export class ExtensionHost {
   }
 
   async list() {
+    return await this.actionQueue.run(async () => await this.listUnqueued());
+  }
+
+  async *watch(signal: AbortSignal | undefined) {
+    const abortSignal =
+      signal === undefined
+        ? this.closed.signal
+        : AbortSignal.any([signal, this.closed.signal]);
+    const initial = await this.actionQueue.run(async () => ({
+      snapshot: await this.listUnqueued(),
+      // Register in the snapshot's queue turn so later changes are buffered.
+      updates: this.changes.consume({ abortSignal }),
+    }));
+    using updates = initial.updates;
+    if (abortSignal.aborted) return;
+    yield initial.snapshot;
+    yield* updates;
+  }
+
+  private async listUnqueued() {
     const workspaceRoot = this.workspaceRoot;
     const extensions: ExtensionSummary[] = [];
     for (const { id, url, isRunning } of this.processes.values()) {
@@ -89,6 +120,7 @@ export class ExtensionHost {
   }
 
   async stop() {
+    this.closed.abort(new ExtensionsClosedError());
     return await this.actionQueue.run(async () => {
       const processes = [...this.processes.values()];
       this.processes.clear();
@@ -155,6 +187,7 @@ export class ExtensionHost {
           });
         }
       }
+      await this.publishUnqueued();
     });
   }
 
@@ -167,10 +200,19 @@ export class ExtensionHost {
       const stopped = await extension.stop();
       this.processes.delete(id);
       this.removeToolConnection(id);
-      if (stopped instanceof Error) return stopped;
+      if (stopped instanceof Error) {
+        await this.publishUnqueued();
+        return stopped;
+      }
 
-      return await this.startUnqueued(id);
+      const started = await this.startUnqueued(id);
+      await this.publishUnqueued();
+      return started;
     });
+  }
+
+  private async publishUnqueued() {
+    this.changes.append(await this.listUnqueued());
   }
 
   private async startUnqueued(id: string) {
