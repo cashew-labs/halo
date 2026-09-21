@@ -42,6 +42,7 @@
     "effect": "4.0.0-beta.59",
     "errore": "^0.14.1",
     "google-auth-library": "^11.0.2",
+    "heic-convert": "2.1.0",
     "httpxy": "^0.5.5",
     "icojs": "1.0.1",
     "libretto-browser-tools": "^0.1.2",
@@ -54,6 +55,7 @@
   },
   "devDependencies": {
     "@get-halo/typescript-config": "workspace:*",
+    "@types/heic-convert": "2.1.1",
     "@types/node": "^22.20.1",
     "openai": "6.26.0",
     "typescript": "7.0.2",

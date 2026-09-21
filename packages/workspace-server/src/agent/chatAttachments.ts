@@ -4,6 +4,7 @@ import path from "node:path";
 import util from "node:util";
 import buffer from "node:buffer";
 import sharp from "sharp";
+import convertHeic from "heic-convert";
 import { decodeIco } from "icojs";
 import { OfficeParser } from "officeparser";
 import { convertToPng } from "@earendil-works/pi-coding-agent";
@@ -242,8 +243,33 @@ async function imageContent(input: {
   bytes: Buffer;
   name: string;
 }): Promise<ImageContent | ChatAttachmentError> {
+  if (input.bytes.length === 0)
+    return new ChatAttachmentError({
+      fileName: input.name,
+      reason: "the image is empty",
+    });
   // libvips does not support BMP or ICO input.
   const extension = path.extname(input.name).toLowerCase();
+  // Prebuilt libvips omits HEVC decoding; use the portable decoder for photos.
+  if (extension === ".heic" || extension === ".heif") {
+    const decoded = await convertHeic({
+      buffer: input.bytes,
+      format: "JPEG",
+      quality: 0.9,
+    }).catch(
+      (cause) =>
+        new ChatAttachmentError({
+          fileName: input.name,
+          reason: "the HEIC image could not be decoded",
+          cause,
+        }),
+    );
+    if (decoded instanceof Error) return decoded;
+    return await imageContent({
+      bytes: Buffer.from(decoded),
+      name: `${input.name}.jpg`,
+    });
+  }
   if (extension === ".ico") {
     const icons = await decodeIco(input.bytes, "image/png").catch(
       (cause) =>

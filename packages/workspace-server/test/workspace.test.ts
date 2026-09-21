@@ -30,6 +30,8 @@ const attachmentFixtures = [
   { name: "picture.tiff", images: 1 },
   { name: "picture.bmp", images: 1 },
   { name: "picture.ico", images: 1 },
+  { name: "picture.heic", images: 1 },
+  { name: "picture.heif", images: 1 },
   { name: "document.pdf", text: "orange heron", images: 2 },
   { name: "scan.pdf", images: 1 },
   { name: "document.docx", text: "scarlet robin", images: 1 },
