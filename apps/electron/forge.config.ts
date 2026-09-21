@@ -1,3 +1,4 @@
+import path from "node:path";
 import type { ForgeConfig } from "@electron-forge/shared-types";
 import { copyMainProcessExternals } from "./forge/copyMainProcessExternals.js";
 import { waitForDevelopmentServices } from "./forge/waitForDevelopmentServices.js";
@@ -14,6 +15,10 @@ const shouldNotarize =
 
 const packagerConfig: NonNullable<ForgeConfig["packagerConfig"]> = {
   asar: true,
+  extraResource: [
+    path.resolve(import.meta.dirname, "../../LICENSE"),
+    path.resolve(import.meta.dirname, "../../NOTICE"),
+  ],
   appBundleId: "com.saffronhealth.halo",
   appCategoryType: "public.app-category.medical",
   icon: "icons/icon",
@@ -53,7 +58,7 @@ const config: ForgeConfig = {
       platforms: ["win32"],
       config: {
         name: "Halo",
-        authors: "Saffron Health",
+        authors: "Saffron Health, Inc.",
         description: "Halo desktop app",
       },
     },
@@ -86,7 +91,7 @@ const config: ForgeConfig = {
           name: "halo",
           bin: "Halo",
           productName: "Halo",
-          license: "MIT",
+          license: "Apache-2.0",
         },
       },
     },
