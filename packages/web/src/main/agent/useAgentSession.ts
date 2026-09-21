@@ -46,7 +46,12 @@ export function useAgentSession(
   const [readySessionId, setReadySessionId] = useState<string | undefined>(
     undefined,
   );
-  const [state, setState] = useState<SessionSnapshot>(emptySessionSnapshot);
+  const [state, setState] = useState<SessionSnapshot>(
+    () =>
+      queryClient.getQueryData<SessionSnapshot>(
+        draftSessionSnapshotQueryKey(sessionId),
+      ) ?? emptySessionSnapshot(),
+  );
   const [localError, setLocalError] = useState<string | undefined>(undefined);
   const [openedFor, setOpenedFor] = useState(sessionId);
 
@@ -73,6 +78,10 @@ export function useAgentSession(
         await api.sessions.watch({ sessionId }, { signal: controller.signal }),
       onItem: (item) => {
         if (item.type === "snapshot") {
+          queryClientRef.current.removeQueries({
+            queryKey: draftSessionSnapshotQueryKey(sessionId),
+            exact: true,
+          });
           setReadySessionId(sessionId);
           for (const connection of item.snapshot.connections) {
             queryClientRef.current.setQueryData<ConnectionState>(
@@ -160,6 +169,10 @@ export function sessionTitleQueryKey(sessionId: string) {
   return ["session-title", sessionId] as const;
 }
 
+function draftSessionSnapshotQueryKey(sessionId: string | undefined) {
+  return ["draft-session-snapshot", sessionId] as const;
+}
+
 export function useDraftAgentSession(
   onAccepted: (sessionId: string) => void,
 ): UseDraftAgentSessionResult {
@@ -179,8 +192,11 @@ export function useDraftAgentSession(
 
   useEffect(() => {
     if (sessionId === undefined || !hasMessages) return;
+    // Navigation remounts the session pane. Keep its confirmed transcript visible
+    // until the replacement subscription delivers a fresh snapshot.
+    queryClient.setQueryData(draftSessionSnapshotQueryKey(sessionId), state);
     onAcceptedRef.current(sessionId);
-  }, [sessionId, hasMessages]);
+  }, [sessionId, hasMessages, queryClient, state]);
 
   async function prompt(text: string) {
     setLocalError(undefined);
