@@ -1,3 +1,4 @@
+import events from "node:events";
 import fs from "node:fs/promises";
 import nodePath from "node:path";
 import { expect, type Locator } from "@playwright/test";
@@ -2686,8 +2687,8 @@ e2eTest(
 );
 
 e2eTest(
-  "keeps dirty file edits and checks for conflicts after reconnecting",
-  async ({ app }) => {
+  "automatically merges an offline note after reconnecting without a conflict dialog",
+  async ({ app, llm }) => {
     await app.server.rpc.workspace.writeFile({
       path: "offline.md",
       content: "Original",
@@ -2712,29 +2713,135 @@ e2eTest(
       content: "Changed elsewhere",
     });
     await app.page.context().setOffline(false);
-    await expect(
-      app.page.getByRole("button", {
-        name: "Connection: Connected",
-        exact: true,
-      }),
-    ).toBeVisible();
-    await expect(editor).toHaveText("My unsaved edit");
-    await app.page
-      .getByRole("button", { name: "Retry save", exact: true })
-      .click();
+    await llm.respond(
+      m.assistant(
+        JSON.stringify({
+          markdown: "My unsaved edit and the detail changed elsewhere.",
+        }),
+      ),
+    );
+    await expect(editor).toHaveText(
+      "My unsaved edit and the detail changed elsewhere.",
+    );
+    await expect
+      .poll(
+        async () =>
+          await app.server.rpc.workspace.readFile({ path: "offline.md" }),
+      )
+      .toBe("My unsaved edit and the detail changed elsewhere.");
     await expect(
       app.page.getByText(/This file changed on the server/),
-    ).toBeVisible();
-    expect(
-      await app.server.rpc.workspace.readFile({ path: "offline.md" }),
-    ).toBe("Changed elsewhere");
-    await editor.fill("Changed elsewhere");
-    await app.page
-      .getByRole("button", { name: "Retry save", exact: true })
-      .click();
+    ).toHaveCount(0);
     await expect(
       app.page.getByRole("button", { name: "Retry save", exact: true }),
     ).toHaveCount(0);
+  },
+);
+
+e2eTest(
+  "keeps typing during a note merge and discards the stale model result",
+  async ({ app, llm }) => {
+    await app.server.rpc.workspace.writeFile({
+      path: "typing.md",
+      content: "Original",
+    });
+    await app.page
+      .getByRole("link", { name: "typing.md", exact: true })
+      .click();
+    const editor = app.page
+      .getByRole("main", { name: "typing.md" })
+      .getByLabel("typing.md", { exact: true });
+    await expect(editor).toHaveText("Original");
+    await app.server.rpc.workspace.writeFile({
+      path: "typing.md",
+      content: "Server version",
+    });
+    await editor.fill("Local version");
+    await llm.waitForRequest();
+    await editor.fill("Newer local version");
+    await llm.respond(
+      m.assistant(JSON.stringify({ markdown: "Stale merged text" })),
+    );
+    await llm.waitForRequest();
+    expect(await app.server.rpc.workspace.readFile({ path: "typing.md" })).toBe(
+      "Server version",
+    );
+    await expect(editor).toHaveText("Newer local version");
+    await llm.respond(
+      m.assistant(
+        JSON.stringify({ markdown: "Newer local version with server detail" }),
+      ),
+    );
+    await expect(editor).toHaveText("Newer local version with server detail");
+    await expect
+      .poll(
+        async () =>
+          await app.server.rpc.workspace.readFile({ path: "typing.md" }),
+      )
+      .toBe("Newer local version with server detail");
+  },
+);
+
+e2eTest(
+  "preserves typing while a merged note is being committed",
+  async ({ app, llm }) => {
+    await app.server.rpc.workspace.writeFile({
+      path: "committing.md",
+      content: "Original",
+    });
+    await app.page
+      .getByRole("link", { name: "committing.md", exact: true })
+      .click();
+    const editor = app.page
+      .getByRole("main", { name: "committing.md" })
+      .getByLabel("committing.md", { exact: true });
+    await expect(editor).toHaveText("Original");
+    await app.server.rpc.workspace.writeFile({
+      path: "committing.md",
+      content: "Server version",
+    });
+    const gate = new events.EventEmitter();
+    const reached = events.once(gate, "reached");
+    const release = events.once(gate, "release");
+    await app.page.route(
+      "**/rpc/workspace/writeFile",
+      async (route) => {
+        gate.emit("reached");
+        await release;
+        await route.continue();
+      },
+      { times: 1 },
+    );
+    await editor.fill("Local version");
+    await llm.respond(
+      m.assistant(
+        JSON.stringify({ markdown: "Local version and server detail" }),
+      ),
+    );
+    await reached;
+    await editor.fill("Local version with extra typing");
+    gate.emit("release");
+    await llm.waitForRequest();
+    await expect(editor).toHaveText("Local version with extra typing");
+    expect(
+      await app.server.rpc.workspace.readFile({ path: "committing.md" }),
+    ).toBe("Local version and server detail");
+    await llm.respond(
+      m.assistant(
+        JSON.stringify({
+          markdown: "Local version with extra typing and server detail",
+        }),
+      ),
+    );
+    await expect(editor).toHaveText(
+      "Local version with extra typing and server detail",
+    );
+    await expect
+      .poll(
+        async () =>
+          await app.server.rpc.workspace.readFile({ path: "committing.md" }),
+      )
+      .toBe("Local version with extra typing and server detail");
   },
 );
 

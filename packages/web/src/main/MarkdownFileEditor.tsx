@@ -36,7 +36,7 @@ export function MarkdownFileEditor({
   /* oxlint-enable react/refs */
   const className = useStyles(editorClass);
   const editor = useMarkdownEditor({
-    content: loaded,
+    content: autosave.loaded,
     onChange: autosave.onChange,
     "aria-label": path,
     size: "sm",

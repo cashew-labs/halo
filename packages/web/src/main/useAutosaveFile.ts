@@ -1,3 +1,4 @@
+import { fileKind } from "./fileKind.js";
 import { useRestartWarning } from "../confirmRestart.js";
 import { useEffect, useState } from "react";
 import * as errore from "errore";
@@ -29,10 +30,12 @@ class FileAutosave {
   private api: HaloClient;
   private connected = false;
   private reconcile = false;
+  private pendingMerge = false;
   private timer: ReturnType<typeof setTimeout> | undefined;
   private readonly actionQueue = new SerialQueue();
   private readonly path: string;
   private readonly cache: (content: string) => void;
+  private readonly synced: (content: string) => void;
   private readonly status: (message: string | undefined) => void;
 
   constructor(ctx: {
@@ -41,6 +44,7 @@ class FileAutosave {
     api: HaloClient;
     cache(content: string): void;
     status(message: string | undefined): void;
+    synced(content: string): void;
   }) {
     this.path = ctx.path;
     this.content = ctx.loaded;
@@ -48,6 +52,7 @@ class FileAutosave {
     this.api = ctx.api;
     this.cache = ctx.cache;
     this.status = ctx.status;
+    this.synced = ctx.synced;
   }
   mount() {
     this.mounted = true;
@@ -67,6 +72,13 @@ class FileAutosave {
           ? "Unsaved changes. Review and retry saving."
           : "Unsaved changes. Waiting for connection.",
       );
+    if (
+      connected &&
+      fileKind(this.path) === "markdown" &&
+      (this.content !== this.lastWritten || this.pendingMerge)
+    ) {
+      void this.flush().catch(console.error);
+    }
   }
   beforeUnload = (event: BeforeUnloadEvent) => {
     if (this.content === this.lastWritten) return;
@@ -91,13 +103,15 @@ class FileAutosave {
   }
   private async save() {
     const content = this.content;
-    if (content === this.lastWritten) return;
+    if (content === this.lastWritten && !this.pendingMerge) return;
     if (!this.connected)
       return this.failed(
         new WorkspaceFileWriteError({
           detail: "Unsaved changes. Reconnect, then retry saving.",
         }),
       );
+    if (fileKind(this.path) === "markdown")
+      return await this.saveMarkdown(content);
     const api = this.api;
     if (this.reconcile) {
       const remote = await api.workspace.readFile({ path: this.path }).catch(
@@ -138,6 +152,61 @@ class FileAutosave {
     }
     this.saved(content);
   }
+  private async saveMarkdown(content: string) {
+    const api = this.api;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (!this.connected || api !== this.api || content !== this.content)
+        return;
+      this.status("Saving note…");
+      const prepared = await api.workspace
+        .reconcileNote({
+          path: this.path,
+          base: this.lastWritten,
+          content,
+        })
+        .catch(
+          (cause) =>
+            new WorkspaceFileWriteError({
+              detail:
+                "Could not merge this note. Your edits are still here; retry when connected.",
+              cause,
+            }),
+        );
+      if (prepared instanceof Error) return this.failed(prepared);
+      // Inference can finish after the user types again or the connection changes.
+      if (!this.connected || api !== this.api || content !== this.content)
+        return;
+      const written = await api.workspace
+        .writeFile({ path: this.path, ...prepared })
+        .catch(
+          (cause) =>
+            new WorkspaceFileWriteError({
+              detail:
+                "Could not save this note. Your edits are still here; retry when connected.",
+              cause,
+            }),
+        );
+      if (written instanceof Error) return this.failed(written);
+      if (written.conflict) continue;
+      // Edits typed during the final write still descend from the submitted draft,
+      // not the merged result. The next save merges those edits against that base.
+      this.lastWritten = content;
+      this.pendingMerge = prepared.content !== content;
+      if (content !== this.content) return;
+      this.pendingMerge = false;
+      this.content = prepared.content;
+      this.lastWritten = prepared.content;
+      this.cache(prepared.content);
+      this.synced(prepared.content);
+      this.status(undefined);
+      return;
+    }
+    this.status("The note is still changing. Retrying save…");
+    this.timer = setTimeout(() => {
+      void this.flush().catch(console.error);
+    }, 1000);
+  }
+
   private saved(content: string) {
     this.lastWritten = content;
     if (content !== this.content) return;
@@ -152,6 +221,7 @@ export function useAutosaveFile(args: { path: string; loaded: string }) {
   const connected = state.status === "connected";
   const queryClient = useQueryClient();
   const [message, setMessage] = useState<string>();
+  const [loaded, setLoaded] = useState(args.loaded);
   useRestartWarning(message !== undefined);
   const [save] = useState(
     () =>
@@ -159,6 +229,7 @@ export function useAutosaveFile(args: { path: string; loaded: string }) {
         ...args,
         api,
         status: setMessage,
+        synced: setLoaded,
         cache: (content) =>
           queryClient.setQueryData(["workspace-file", args.path], content),
       }),
@@ -176,6 +247,7 @@ export function useAutosaveFile(args: { path: string; loaded: string }) {
     };
   }, [save]);
   return {
+    loaded,
     onChange: (content: string) => save.onChange(content),
     message,
     retry: async () => {
