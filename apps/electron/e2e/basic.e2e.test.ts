@@ -113,6 +113,70 @@ e2eTest(
 );
 
 e2eTest(
+  "opens Markdown attachment links in new tabs and preserves the source document",
+  async ({ app }) => {
+    const path = "Notes #1/Links.md";
+    const content =
+      "# References\n\n[Data](../data%20%231.csv)\n\n[Picture](/files/picture.svg)\n\n[Data again](#/files/data%20%231.csv)";
+    await app.server.rpc.workspace.writeFile({ path, content });
+    await app.server.rpc.workspace.writeFile({
+      path: "data #1.csv",
+      content: "name,value\nexample,42",
+    });
+    await app.server.rpc.workspace.writeFile({
+      path: "picture.svg",
+      content:
+        '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="60"><rect width="80" height="60" fill="blue"/></svg>',
+    });
+    await app.page
+      .getByRole("button", { name: "Expand Notes #1", exact: true })
+      .click();
+    await app.page.getByRole("link", { name: "Links.md", exact: true }).click();
+    const sourceTab = app.page.getByRole("tab", {
+      name: "Links.md",
+      exact: true,
+    });
+    const editor = app.page
+      .getByRole("main", { name: path, exact: true })
+      .getByLabel(path, { exact: true });
+    const initialTabCount = await app.page.getByRole("tab").count();
+    await editor.getByRole("link", { name: "Data", exact: true }).click();
+    await expect(app.page.getByRole("tab")).toHaveCount(initialTabCount + 1);
+    await expect(
+      app.page.getByRole("tab", {
+        name: "data #1.csv",
+        selected: true,
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(
+      app.page.getByRole("textbox", { name: "data #1.csv", exact: true }),
+    ).toHaveValue("name,value\nexample,42");
+    await sourceTab.click();
+    await editor
+      .getByRole("link", { name: "Picture", exact: true })
+      .click({ button: "middle" });
+    await expect(app.page.getByRole("tab")).toHaveCount(initialTabCount + 2);
+    await expect(
+      app.page.getByRole("img", { name: "picture.svg", exact: true }),
+    ).toBeVisible();
+    await sourceTab.click();
+    await editor.getByRole("link", { name: "Data again", exact: true }).click();
+    await expect(app.page.getByRole("tab")).toHaveCount(initialTabCount + 2);
+    await expect(
+      app.page.getByRole("tab", {
+        name: "data #1.csv",
+        selected: true,
+        exact: true,
+      }),
+    ).toBeVisible();
+    await sourceTab.click();
+    await expect(editor).toContainText("References");
+    expect(await app.server.rpc.workspace.readFile({ path })).toBe(content);
+  },
+);
+
+e2eTest(
   "pastes images into Markdown and keeps relative images after reopening",
   async ({ app, harness }) => {
     const path = "Notes #1/Images.md";

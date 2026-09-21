@@ -112,6 +112,38 @@ e2eTest(
     await expect(pane.getByRole("log")).toContainText(
       "I can see the image and both PDF pages.",
     );
+    const chatTabId = await app.page
+      .getByRole("tab", { selected: true })
+      .getAttribute("id");
+    expect(chatTabId).not.toBeNull();
+    const chatTab = app.page.locator(`#${chatTabId}`);
+    const initialTabCount = await app.page.getByRole("tab").count();
+    await editor.fill("Keep this follow-up draft");
+    for (const [index, name] of [
+      "picture.png",
+      "document.pdf",
+      "document.docx",
+    ].entries()) {
+      await userMessage.getByRole("link", { name, exact: true }).click();
+      await expect(app.page.getByRole("tab")).toHaveCount(
+        initialTabCount + index + 1,
+      );
+      await expect(app.page.getByRole("tab", { selected: true })).toHaveText(
+        name,
+      );
+      await expect(chatTab).toBeVisible();
+      await chatTab.click();
+      await expect(editor).toHaveText("Keep this follow-up draft");
+      await expect(userMessage).toContainText("Summarize my attached files");
+    }
+    await userMessage
+      .getByRole("link", { name: "picture.png", exact: true })
+      .click();
+    await expect(app.page.getByRole("tab")).toHaveCount(initialTabCount + 3);
+    await expect(
+      app.page.getByRole("img", { name: /\/picture\.png$/ }),
+    ).toBeVisible();
+    await chatTab.click();
     await app.page.reload();
     await expect(
       userMessage.getByRole("link", { name: "document.docx", exact: true }),
