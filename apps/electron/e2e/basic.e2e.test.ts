@@ -2687,6 +2687,69 @@ e2eTest(
 );
 
 e2eTest(
+  "saves normal Markdown edits with one write request and skips reconciliation after a clean reconnect",
+  async ({ app }) => {
+    await app.server.rpc.workspace.writeFile({
+      path: "normal.md",
+      content: "Original",
+    });
+    await app.page
+      .getByRole("link", { name: "normal.md", exact: true })
+      .click();
+    const editor = app.page
+      .getByRole("main", { name: "normal.md" })
+      .getByLabel("normal.md", { exact: true });
+    await expect(editor).toHaveText("Original");
+    const fileRequests: string[] = [];
+    app.page.on("request", (request) => {
+      const pathname = new URL(request.url()).pathname;
+      if (pathname.startsWith("/rpc/workspace/")) fileRequests.push(pathname);
+    });
+    for (const content of ["First edit", "Second edit"]) {
+      await editor.fill(content);
+      await expect
+        .poll(
+          async () =>
+            await app.server.rpc.workspace.readFile({ path: "normal.md" }),
+        )
+        .toBe(content);
+      await expect(
+        app.page.getByRole("button", { name: "Retry save", exact: true }),
+      ).toHaveCount(0);
+    }
+    expect(fileRequests).toEqual([
+      "/rpc/workspace/writeFile",
+      "/rpc/workspace/writeFile",
+    ]);
+    await app.page.context().setOffline(true);
+    await expect(
+      app.page.getByRole("button", {
+        name: "Connection: Disconnected",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await editor.fill("Offline edit without a competing server change");
+    await app.page.context().setOffline(false);
+    await expect
+      .poll(
+        async () =>
+          await app.server.rpc.workspace.readFile({ path: "normal.md" }),
+      )
+      .toBe("Offline edit without a competing server change");
+    await expect(
+      app.page.getByRole("button", { name: "Retry save", exact: true }),
+    ).toHaveCount(0);
+    // Reconnection can refresh read queries independently of autosave.
+    expect(
+      fileRequests.filter((pathname) => pathname.endsWith("/writeFile")),
+    ).toHaveLength(3);
+    expect(
+      fileRequests.filter((pathname) => pathname.endsWith("/reconcileNote")),
+    ).toHaveLength(0);
+  },
+);
+
+e2eTest(
   "automatically merges an offline note after reconnecting without a conflict dialog",
   async ({ app, llm }) => {
     await app.server.rpc.workspace.writeFile({
@@ -2803,6 +2866,8 @@ e2eTest(
     const gate = new events.EventEmitter();
     const reached = events.once(gate, "reached");
     const release = events.once(gate, "release");
+    await editor.fill("Local version");
+    await llm.waitForRequest();
     await app.page.route(
       "**/rpc/workspace/writeFile",
       async (route) => {
@@ -2812,7 +2877,6 @@ e2eTest(
       },
       { times: 1 },
     );
-    await editor.fill("Local version");
     await llm.respond(
       m.assistant(
         JSON.stringify({ markdown: "Local version and server detail" }),

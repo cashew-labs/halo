@@ -4,8 +4,9 @@
 
 ```mermaid
 flowchart TD
-  A[Markdown edit or reconnect] --> B[Read current server file]
-  B --> C[Three-way merge]
+  A[Markdown edit or reconnect] --> B[One conditional save request]
+  B -->|Server unchanged: saved| J[Show saved Markdown in existing editor]
+  B -->|Server changed| C[Read current file and three-way merge]
   C --> D[Independent edits: deterministic result]
   C --> E[Overlapping sections: scoped model request]
   E --> F[Preserve ambiguous alternatives]
@@ -13,16 +14,16 @@ flowchart TD
   F --> G
   G --> H[Check local draft is unchanged]
   H --> I[Conditional server write]
-  I --> J[Show merged Markdown in existing editor]
+  I --> J
 ```
 
 ## Problem overview
 
-An offline Markdown draft currently stops at a conflict warning if the server file changes. The user wants automatic reconciliation while retaining one ordinary Markdown editor.
+An offline Markdown draft previously stopped at a conflict warning if the server file changes. The user wants automatic reconciliation while retaining one ordinary Markdown editor.
 
 ## Solution overview
 
-Use line-preserving three-way merging. Only overlapping sections invoke the host's existing inference service. Supply the original/local/server sections, heading, and nearby document text. The system prompt explains Halo and the merge assistant's narrow role; treat document instructions as data, preserve distinct information and ambiguous alternatives, honor uncontested deletions, and return only the replacement Markdown. Preserve all versions in hidden workspace history. Invalid or failed model output retains both changed sections deterministically. Prepare and commit separately to guard local edits during inference and server changes before writing.
+Normal saves use one conditional write request. If the server still matches the editor's base, save immediately with no reconciliation, diff, model request, or merge history. Only a rejected conditional write starts line-preserving three-way merging. Only overlapping sections invoke the host's existing inference service. Supply the original/local/server sections, heading, and nearby document text. The system prompt explains Halo and the merge assistant's narrow role; treat document instructions as data, preserve distinct information and ambiguous alternatives, honor uncontested deletions, and return only the replacement Markdown. Preserve all versions in hidden workspace history. Invalid or failed model output retains both changed sections deterministically. Prepare and commit separately to guard local edits during inference and server changes before writing.
 
 ## Goals
 
@@ -55,7 +56,7 @@ Use line-preserving three-way merging. Only overlapping sections invoke the host
 
 ### Phase 2: Editor integration and verification
 
-- [x] Automatically prepare and save Markdown drafts after reconnect.
+- [x] Save ordinary Markdown edits with one conditional write; reconcile only after a server-content conflict, including after reconnect.
 - [x] Apply merged text only to the draft it was prepared from.
 - [x] Verify reconnect and concurrent typing through Electron.
 - [x] Run affected checks and focused package E2Es.
@@ -262,7 +263,7 @@ index 0000000..cbdd78d
 
 - `pnpm run check-affected`: passed lint, formatting, type checks, and affected unit checks.
 - Workspace-server targeted E2Es: 17 passed; an additional focused run verified protocol-18 compatibility and a real `files.write` agent-tool edit during inference (2 passed).
-- Packaged Electron E2Es: 5 passed — offline reconnect, typing during inference, typing during commit, note persistence across restart, and Tiptap formatting/undo persistence.
+- Packaged Electron E2Es: 6 passed — single-request normal saves and clean reconnect, offline conflict recovery, typing during inference, typing during commit, note persistence across restart, and Tiptap formatting/undo persistence.
 - Live `google-vertex/gemini-3.8-flash` through the real workspace API: competing deadlines retained as alternatives; packing lists combined; deletion versus revision retained revised content. All three final cases passed without fallback. An initial provider 429 exercised fallback and exposed a paragraph-boundary bug, now fixed and covered by a CRLF regression.
 - Recovery inputs and resolved output persist under `.halo/note-history/` before conditional save. This is background recovery history, not a new history UI.
 
@@ -279,15 +280,15 @@ index 0000000..cbdd78d
  MarkdownFileEditor [[packages/web/src/main/MarkdownFileEditor.tsx#MarkdownFileEditor]]
  └── useAutosaveFile [[packages/web/src/main/useAutosaveFile.ts#useAutosaveFile]]
      └── FileAutosave.saveMarkdown [[packages/web/src/main/useAutosaveFile.ts#FileAutosave.saveMarkdown]]
-         ├── workspace.reconcileNote
+         ├── workspace.writeFile with expectedContent # one request when unchanged
+         ├── on conflict: workspace.reconcileNote, then conditional write again
          ├── discard result if draft or accepted client changed
-         ├── workspace.writeFile with expectedContent
          └── update editor only if the submitted draft is still current
 ```
 
 ```source-diff:autosave:packages/web/src/main/useAutosaveFile.ts
 diff --git a/packages/web/src/main/useAutosaveFile.ts b/packages/web/src/main/useAutosaveFile.ts
-index ca72b06..538ccca 100644
+index ca72b06..7aa8185 100644
 --- a/packages/web/src/main/useAutosaveFile.ts
 +++ b/packages/web/src/main/useAutosaveFile.ts
 @@ -0,0 +1 @@
@@ -314,31 +315,16 @@ index ca72b06..538ccca 100644
 @@ -100,0 +113,2 @@ class FileAutosave {
 +    if (fileKind(this.path) === "markdown")
 +      return await this.saveMarkdown(content);
-@@ -140,0 +155,55 @@ class FileAutosave {
+@@ -140,0 +155,58 @@ class FileAutosave {
 +  private async saveMarkdown(content: string) {
 +    const api = this.api;
++    // The common case needs one request. Only a rejected conditional write
++    // pays for reconciliation and a second write.
++    let prepared = { content, expectedContent: this.lastWritten };
 +    for (let attempt = 0; attempt < 3; attempt++) {
 +      if (!this.connected || api !== this.api || content !== this.content)
 +        return;
 +      this.status("Saving note…");
-+      const prepared = await api.workspace
-+        .reconcileNote({
-+          path: this.path,
-+          base: this.lastWritten,
-+          content,
-+        })
-+        .catch(
-+          (cause) =>
-+            new WorkspaceFileWriteError({
-+              detail:
-+                "Could not merge this note. Your edits are still here; retry when connected.",
-+              cause,
-+            }),
-+        );
-+      if (prepared instanceof Error) return this.failed(prepared);
-+      // Inference can finish after the user types again or the connection changes.
-+      if (!this.connected || api !== this.api || content !== this.content)
-+        return;
 +      const written = await api.workspace
 +        .writeFile({ path: this.path, ...prepared })
 +        .catch(
@@ -350,7 +336,25 @@ index ca72b06..538ccca 100644
 +            }),
 +        );
 +      if (written instanceof Error) return this.failed(written);
-+      if (written.conflict) continue;
++      if (written.conflict) {
++        if (attempt === 2) break;
++        if (!this.connected || api !== this.api || content !== this.content)
++          return;
++        const merged = await api.workspace
++          .reconcileNote({ path: this.path, base: this.lastWritten, content })
++          .catch(
++            (cause) =>
++              new WorkspaceFileWriteError({
++                detail:
++                  "Could not merge this note. Your edits are still here; retry when connected.",
++                cause,
++              }),
++          );
++        if (merged instanceof Error) return this.failed(merged);
++        prepared = merged;
++        // The next iteration checks the draft and connection again before writing.
++        continue;
++      }
 +      // Edits typed during the final write still descend from the submitted draft,
 +      // not the merged result. The next save merges those edits against that base.
 +      this.lastWritten = content;
@@ -370,10 +374,17 @@ index ca72b06..538ccca 100644
 +    }, 1000);
 +  }
 +
-@@ -154,0 +224 @@ export function useAutosaveFile(args: { path: string; loaded: string }) {
+@@ -154,0 +227 @@ export function useAutosaveFile(args: { path: string; loaded: string }) {
 +  const [loaded, setLoaded] = useState(args.loaded);
-@@ -161,0 +232 @@ export function useAutosaveFile(args: { path: string; loaded: string }) {
+@@ -161,0 +235 @@ export function useAutosaveFile(args: { path: string; loaded: string }) {
 +        synced: setLoaded,
-@@ -178,0 +250 @@ export function useAutosaveFile(args: { path: string; loaded: string }) {
+@@ -178,0 +253 @@ export function useAutosaveFile(args: { path: string; loaded: string }) {
 +    loaded,
 ```
+
+### Normal-save optimization verification
+
+- [x] Verify consecutive ordinary saves issue one write each and no preliminary read or reconciliation request.
+- [x] Verify a clean reconnect saves without reconciliation.
+- [x] Rerun conflict, concurrent-typing, note persistence, and formatting/undo E2Es.
+- [x] Run affected checks.

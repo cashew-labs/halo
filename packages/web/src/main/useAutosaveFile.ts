@@ -154,28 +154,13 @@ class FileAutosave {
   }
   private async saveMarkdown(content: string) {
     const api = this.api;
+    // The common case needs one request. Only a rejected conditional write
+    // pays for reconciliation and a second write.
+    let prepared = { content, expectedContent: this.lastWritten };
     for (let attempt = 0; attempt < 3; attempt++) {
       if (!this.connected || api !== this.api || content !== this.content)
         return;
       this.status("Saving note…");
-      const prepared = await api.workspace
-        .reconcileNote({
-          path: this.path,
-          base: this.lastWritten,
-          content,
-        })
-        .catch(
-          (cause) =>
-            new WorkspaceFileWriteError({
-              detail:
-                "Could not merge this note. Your edits are still here; retry when connected.",
-              cause,
-            }),
-        );
-      if (prepared instanceof Error) return this.failed(prepared);
-      // Inference can finish after the user types again or the connection changes.
-      if (!this.connected || api !== this.api || content !== this.content)
-        return;
       const written = await api.workspace
         .writeFile({ path: this.path, ...prepared })
         .catch(
@@ -187,7 +172,25 @@ class FileAutosave {
             }),
         );
       if (written instanceof Error) return this.failed(written);
-      if (written.conflict) continue;
+      if (written.conflict) {
+        if (attempt === 2) break;
+        if (!this.connected || api !== this.api || content !== this.content)
+          return;
+        const merged = await api.workspace
+          .reconcileNote({ path: this.path, base: this.lastWritten, content })
+          .catch(
+            (cause) =>
+              new WorkspaceFileWriteError({
+                detail:
+                  "Could not merge this note. Your edits are still here; retry when connected.",
+                cause,
+              }),
+          );
+        if (merged instanceof Error) return this.failed(merged);
+        prepared = merged;
+        // The next iteration checks the draft and connection again before writing.
+        continue;
+      }
       // Edits typed during the final write still descend from the submitted draft,
       // not the merged result. The next save merges those edits against that base.
       this.lastWritten = content;
