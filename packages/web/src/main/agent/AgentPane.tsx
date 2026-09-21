@@ -419,7 +419,7 @@ function SessionViewRow({
               {item.attachments.map((attachment) => (
                 <li key={attachment.path}>
                   <Link
-                    href={`/files/${encodeURIComponent(attachment.path)}`}
+                    href={`/files/${attachment.path.split("/").map(encodeURIComponent).join("/")}`}
                     className={attachmentChip}
                   >
                     <FileText size="sm" aria-hidden="true" />
