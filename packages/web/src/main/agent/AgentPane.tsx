@@ -194,9 +194,11 @@ function ChatPane({
         dragDepth.current++;
         setDragging(true);
       }}
-      onDragOver={(event) => {
+      onDragOverCapture={(event) => {
         if (!event.dataTransfer.types.includes("Files")) return;
         event.preventDefault();
+        // File drops attach to the chat; do not show the editor's insertion cursor.
+        event.stopPropagation();
         event.dataTransfer.dropEffect = "copy";
       }}
       onDragLeave={(event) => {
@@ -530,7 +532,7 @@ const styles = {
       display: "grid",
       placeItems: "center",
       pointerEvents: "none",
-      backgroundColor: backgroundColor.element,
+      backgroundColor: `color-mix(in srgb, ${backgroundColor.element} 80%, transparent)`,
       border: `2px dashed ${colors.gray[7]}`,
     },
   ),
