@@ -102,9 +102,9 @@ export function serveControlPlaneHttp(ctx: {
   const upgradeSockets = new Set<Duplex>();
   const rpc = new RPCHandler<ControlPlaneContext>(controlPlaneRpcRouter, {
     clientInterceptors: [
-      ({ path, context, next }) => {
+      async ({ path: rpcPath, context, next }) => {
         if (
-          path.join(".") !== "server.info" &&
+          rpcPath.join(".") !== "server.info" &&
           !acceptsProtocol({
             selected: context.reqHeaders?.get(protocolHeader) ?? undefined,
             supported: controlPlaneSupportedProtocols,
@@ -114,7 +114,7 @@ export function serveControlPlaneHttp(ctx: {
           throw new ORPCError("UNSUPPORTED_PROTOCOL", {
             data: { supportedProtocols: controlPlaneSupportedProtocols },
           });
-        return next();
+        return await next();
       },
     ],
     plugins: [

@@ -1,3 +1,5 @@
+import { Type } from "@sinclair/typebox";
+import { Value } from "@sinclair/typebox/value";
 import * as errore from "errore";
 
 export const protocolHeader = "x-halo-protocol-version";
@@ -5,6 +7,7 @@ export type ProtocolService = "workspace" | "control-plane";
 export type ServerInfo = {
   protocolVersion: number;
   supportedProtocols?: number[];
+  build?: { version: string; revision: string };
 };
 
 export class IncompatibleServerError extends errore.createTaggedError({
@@ -32,31 +35,31 @@ export class InvalidServerInfoError extends errore.createTaggedError({
   message: "The $service API returned invalid protocol information.",
 }) {}
 
+const protocolSchema = Type.Integer({
+  minimum: 1,
+  maximum: Number.MAX_SAFE_INTEGER,
+});
+const serverInfoSchema = Type.Object({
+  protocolVersion: protocolSchema,
+  supportedProtocols: Type.Optional(
+    Type.Array(protocolSchema, { minItems: 1 }),
+  ),
+});
+
 export function checkServerCompatibility(ctx: {
   info: unknown;
   service: ProtocolService;
   clientProtocolVersion: number;
 }) {
   const { info, service, clientProtocolVersion } = ctx;
-  if (typeof info !== "object" || info === null || !("protocolVersion" in info))
+  if (!Value.Check(serverInfoSchema, info))
     return new InvalidServerInfoError({ service });
-  if (!isProtocol(info.protocolVersion))
-    return new InvalidServerInfoError({ service });
-  const supported =
-    "supportedProtocols" in info
-      ? info.supportedProtocols
-      : [info.protocolVersion];
-  if (
-    !Array.isArray(supported) ||
-    supported.length === 0 ||
-    !supported.every(isProtocol)
-  )
-    return new InvalidServerInfoError({ service });
+  const supported = info.supportedProtocols ?? [info.protocolVersion];
   if (!supported.includes(clientProtocolVersion))
     return new IncompatibleServerError({
       service,
       clientProtocolVersion,
-      supportedProtocols: supported as number[],
+      supportedProtocols: supported,
     });
 }
 
@@ -69,8 +72,4 @@ export function acceptsProtocol(ctx: {
   return (
     /^\d+$/.test(ctx.selected) && ctx.supported.includes(Number(ctx.selected))
   );
-}
-
-function isProtocol(value: unknown): value is number {
-  return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
 }

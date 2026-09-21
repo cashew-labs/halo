@@ -133,7 +133,7 @@ export function serveHaloHttp(options: {
   const handler = new RPCHandler<HaloContext>(haloRpcRouter, {
     interceptors,
     clientInterceptors: [
-      ({ path, context, next }) => {
+      async ({ path, context, next }) => {
         if (
           path.join(".") !== "server.info" &&
           !acceptsProtocol({
@@ -145,7 +145,7 @@ export function serveHaloHttp(options: {
           throw new ORPCError("UNSUPPORTED_PROTOCOL", {
             data: { supportedProtocols: haloSupportedProtocols },
           });
-        return next();
+        return await next();
       },
     ],
     plugins: [
