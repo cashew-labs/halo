@@ -34,9 +34,6 @@ export class HotkeyService {
 
   static async open(ctx: { database: DatabaseClient; userId: string }) {
     const stored = await ctx.database.access((connection) => {
-      connection.exec(
-        "CREATE TABLE IF NOT EXISTS user_hotkeys (user_id TEXT PRIMARY KEY, hotkeys TEXT NOT NULL)",
-      );
       // SAFETY: user_hotkeys stores a non-null TEXT hotkeys column.
       return connection
         .prepare("SELECT hotkeys FROM user_hotkeys WHERE user_id = ?")

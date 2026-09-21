@@ -14,7 +14,7 @@ flowchart TD
 
     %% ref node:server [[packages/workspace-server/src/server/WorkspaceServer.ts#WorkspaceServer.start]]
     %% ref node:open [[packages/workspace-server/src/storage/DatabaseClient.ts#DatabaseClient.open]]
-    %% ref node:sessions [[packages/workspace-server/src/storage/TursoSessionRepo.ts#TursoSessionRepo.open]]
+    %% ref node:sessions [[packages/workspace-server/src/storage/TursoSessionRepo.ts#TursoSessionRepo.constructor]]
     %% ref node:hotkeys [[packages/workspace-server/src/hotkeys/HotkeyService.ts#HotkeyService.open]]
     %% ref node:tools [[packages/workspace-server/src/agent/runtime/ToolRuntime.ts#ToolRuntime.create]]
     %% ref node:executor [[packages/workspace-server/src/agent/runtime/createExecutorDatabase.ts#createExecutorDatabase]]
@@ -23,7 +23,7 @@ flowchart TD
 
 ## Problem overview
 
-The workspace server already has the centralized database client needed for one connection and one ordering boundary: `WorkspaceServer` owns `DatabaseClient`, and Pi sessions, hotkeys, and Executor borrow it. Schema ownership is not centralized. `TursoSessionRepo.open()` creates the Pi tables, `HotkeyService.open()` creates its table while loading data, and `createExecutorDatabase()` executes generated DDL while constructing the Executor adapter.
+Before this work, the workspace server already had the centralized database client needed for one connection and one ordering boundary: `WorkspaceServer` owned `DatabaseClient`, and Pi sessions, hotkeys, and Executor borrowed it. Schema ownership was not centralized. `TursoSessionRepo.open()` created the Pi tables, `HotkeyService.open()` created its table while loading data, and `createExecutorDatabase()` executed generated DDL while constructing the Executor adapter.
 
 These initializers are safe for the current create-if-missing schemas, but they provide no ordered migration history. A future column change, data rewrite, or migration failure would be spread across service startup paths, and there is no durable record showing which changes a workspace database has applied.
 
@@ -96,10 +96,11 @@ CREATE TABLE IF NOT EXISTS halo_migrations (
 - [`packages/workspace-server/src/storage/Migration.ts`](../packages/workspace-server/src/storage/Migration.ts) — Defines migration values and applies an ordered list transactionally for `DatabaseClient`.
 - [`packages/workspace-server/src/storage/DatabaseError.ts`](../packages/workspace-server/src/storage/DatabaseError.ts) — Defines the shared typed failure returned by connection and migration operations.
 - [`packages/workspace-server/src/storage/migrations/workspaceMigrations.ts`](../packages/workspace-server/src/storage/migrations/workspaceMigrations.ts) — Explicit append-only registry for workspace-owned migration modules.
+- [`packages/workspace-server/src/storage/migrations/20260921130000-initialWorkspace.ts`](../packages/workspace-server/src/storage/migrations/20260921130000-initialWorkspace.ts) — Creates or adopts the current Pi session and hotkey tables.
 - [`packages/workspace-server/src/server/WorkspaceServer.ts`](../packages/workspace-server/src/server/WorkspaceServer.ts) — Owns database startup and does not serve product requests until its child services are ready.
-- [`packages/workspace-server/src/storage/sessionSchema.ts`](../packages/workspace-server/src/storage/sessionSchema.ts) — Contains the current Pi table DDL and typed row helpers.
-- [`packages/workspace-server/src/storage/TursoSessionRepo.ts`](../packages/workspace-server/src/storage/TursoSessionRepo.ts) — Currently creates the Pi schema before constructing the repository.
-- [`packages/workspace-server/src/hotkeys/HotkeyService.ts`](../packages/workspace-server/src/hotkeys/HotkeyService.ts) — Currently creates `user_hotkeys` while loading the user's saved configuration.
+- [`packages/workspace-server/src/storage/sessionSchema.ts`](../packages/workspace-server/src/storage/sessionSchema.ts) — Contains typed Pi row helpers; migrations now own its former DDL.
+- [`packages/workspace-server/src/storage/TursoSessionRepo.ts`](../packages/workspace-server/src/storage/TursoSessionRepo.ts) — Assumes startup migrations established the Pi tables and implements the repository contract.
+- [`packages/workspace-server/src/hotkeys/HotkeyService.ts`](../packages/workspace-server/src/hotkeys/HotkeyService.ts) — Loads and persists hotkeys without creating its table.
 - [`packages/workspace-server/src/agent/runtime/createExecutorDatabase.ts`](../packages/workspace-server/src/agent/runtime/createExecutorDatabase.ts) — Receives generated Fuma tables during tool-runtime startup and constructs the coordinated Drizzle adapter.
 - [`packages/workspace-server/src/storage/TursoSessionRepo.test.ts`](../packages/workspace-server/src/storage/TursoSessionRepo.test.ts) and [`TursoStorage.test.ts`](../packages/workspace-server/src/storage/TursoStorage.test.ts) — Protect the consumer APIs of the Pi repository and storage implementations against Pi's conformance suites.
 - [`packages/workspace-server/test/workspace.test.ts`](../packages/workspace-server/test/workspace.test.ts) — Exercises persistence and restart behavior through the workspace server's public APIs.
@@ -145,33 +146,28 @@ The centralized connection already exists, but it cannot distinguish schema init
 Once migration execution has one owner, move the schemas currently hidden in service initialization into an explicit workspace plan. Pi and hotkey services can then assume startup established their tables and focus only on their storage contracts.
 
 ```callstack
- WorkspaceServer.start [[packages/workspace-server/src/server/WorkspaceServer.ts#WorkspaceServer.start]]
--├── DatabaseClient.open({ directory, filesystem }) [[packages/workspace-server/src/storage/DatabaseClient.ts#DatabaseClient.open]]
--├── TursoSessionRepo.open(database) [[packages/workspace-server/src/storage/TursoSessionRepo.ts#TursoSessionRepo.open]]
--│   └── database.access
--│       └── transaction
--│           └── exec(sessionSchema)
--├── HotkeyService.open({ database, userId }) [[packages/workspace-server/src/hotkeys/HotkeyService.ts#HotkeyService.open]]
--│   ├── CREATE TABLE IF NOT EXISTS user_hotkeys
--│   └── SELECT saved hotkeys
-+├── DatabaseClient.open({ directory, filesystem })
-+│   └── 20260921090000 initial workspace migration
-+│       ├── create or adopt Pi session tables
-+│       └── create or adopt user_hotkeys
-+├── new TursoSessionRepo({ database })
-+├── HotkeyService.open({ database, userId })
-+│   └── SELECT saved hotkeys
+ WorkspaceServer.start [[phase2-server:new:192]]
+ ├── DatabaseClient.open({ directory, filesystem }) [[packages/workspace-server/src/storage/DatabaseClient.ts#DatabaseClient.open]]
+ │   └── workspaceMigrations [[phase2-registry:new:4-6]]
+ │       └── 20260921130000 initial workspace migration [[phase2-migration:new:1-53]]
+ │           ├── create or adopt Pi session tables
+ │           └── create or adopt user_hotkeys
+ ├── new TursoSessionRepo(database) [[phase2-server:new:192]]
+ │   # Repository-owned DDL removed. [[phase2-repo:old:33-41]]
+ ├── HotkeyService.open({ database, userId }) [[packages/workspace-server/src/hotkeys/HotkeyService.ts#HotkeyService.open]]
+ │   └── SELECT saved hotkeys
+ │       # Service-owned DDL removed. [[phase2-hotkeys:old:37-39]]
  └── continue startup
 ```
 
 - [x] Add the explicit `workspaceMigrations` registry imported internally by `DatabaseClient`.
-- [ ] Add a timestamped TypeScript migration module under `storage/migrations/`. The module exports one `Migration` value whose SQL creates the current Pi and hotkey tables using their existing names and constraints, then append it to `workspaceMigrations`.
-- [ ] Keep the initial migration idempotent so an existing database with those tables but no ledger is adopted and recorded without changing its data.
-- [ ] Remove schema creation from `TursoSessionRepo.open()` and construct the repository synchronously with `DatabaseClient`, while retaining its session lifetime and Pi error behavior.
-- [ ] Remove table creation from `HotkeyService.open()`; it continues receiving `DatabaseClient` and remains asynchronous because it loads and validates saved hotkeys.
-- [ ] Move or update schema-ownership comments so they name workspace migrations instead of the repository that formerly created the tables.
-- [ ] Update the Pi conformance harness to open `DatabaseClient` with the real workspace plan.
-- [ ] Verify existing database adoption, session persistence, and hotkey persistence through behavior. Run the `TursoSessionRepo.test.ts` and `TursoStorage.test.ts` unit suites and the persistent-hotkeys workflow in `test/workspace.test.ts`.
+- [x] Add `20260921130000-initialWorkspace.ts`, whose single `Migration` value creates the current Pi and hotkey tables using their existing names and constraints, and append it to `workspaceMigrations`.
+- [x] Keep the initial migration idempotent so an existing database with those tables but no ledger is adopted and recorded without changing its data.
+- [x] Remove schema creation from `TursoSessionRepo.open()` and construct the repository synchronously with `DatabaseClient`, while retaining its session lifetime and Pi error behavior.
+- [x] Remove table creation from `HotkeyService.open()`; it continues receiving `DatabaseClient` and remains asynchronous because it loads and validates saved hotkeys.
+- [x] Move schema-ownership comments so they name workspace migrations instead of the repository that formerly created the tables.
+- [x] Update the Pi conformance fixture to rely on `DatabaseClient` applying the real workspace registry automatically.
+- [x] Verify fresh session schema creation and session behavior with the `TursoSessionRepo.test.ts` and `TursoStorage.test.ts` unit suites. Verify hotkey persistence across restart with the focused workflow in `test/workspace.test.ts`.
 
 ### Phase 3: Move Executor's schema into the linear migration history
 
@@ -240,4 +236,133 @@ index 7929f36..d069750 100644
 @@ -51 +53 @@ export class DatabaseClient {
 -    return client;
 +    return new DatabaseClient({ connection });
+```
+
+## Phase 2 source changes
+
+```source-diff:phase2-registry:packages/workspace-server/src/storage/migrations/workspaceMigrations.ts
+diff --git a/packages/workspace-server/src/storage/migrations/workspaceMigrations.ts b/packages/workspace-server/src/storage/migrations/workspaceMigrations.ts
+index 004ddb7..2b752b6 100644
+--- a/packages/workspace-server/src/storage/migrations/workspaceMigrations.ts
++++ b/packages/workspace-server/src/storage/migrations/workspaceMigrations.ts
+@@ -1,0 +2 @@ import type { Migration } from "../Migration.js";
++import { initialWorkspaceMigration } from "./20260921130000-initialWorkspace.js";
+@@ -3 +4,3 @@ import type { Migration } from "../Migration.js";
+-export const workspaceMigrations = [] satisfies readonly Migration[];
++export const workspaceMigrations = [
++  initialWorkspaceMigration,
++] satisfies readonly Migration[];
+```
+
+```source-diff:phase2-migration:packages/workspace-server/src/storage/migrations/20260921130000-initialWorkspace.ts
+diff --git a/packages/workspace-server/src/storage/migrations/20260921130000-initialWorkspace.ts b/packages/workspace-server/src/storage/migrations/20260921130000-initialWorkspace.ts
+new file mode 100644
+index 0000000..8f6abd6
+--- /dev/null
++++ b/packages/workspace-server/src/storage/migrations/20260921130000-initialWorkspace.ts
+@@ -0,0 +1,53 @@
++import type { Migration } from "../Migration.js";
++
++export const initialWorkspaceMigration: Migration = {
++  id: "20260921130000-initial-workspace",
++  sql: `
++    CREATE TABLE IF NOT EXISTS halo_sessions (
++      id TEXT PRIMARY KEY NOT NULL,
++      metadata TEXT NOT NULL,
++      next_seq INTEGER NOT NULL,
++      stats TEXT NOT NULL
++    );
++    CREATE TABLE IF NOT EXISTS halo_session_entries (
++      session_id TEXT NOT NULL REFERENCES halo_sessions(id) ON DELETE CASCADE,
++      id TEXT NOT NULL,
++      parent_id TEXT,
++      seq INTEGER NOT NULL,
++      timestamp INTEGER NOT NULL,
++      type TEXT NOT NULL,
++      custom_type TEXT,
++      payload TEXT NOT NULL,
++      PRIMARY KEY (session_id, id),
++      UNIQUE (session_id, seq)
++    );
++    CREATE TABLE IF NOT EXISTS halo_session_values (
++      session_id TEXT NOT NULL REFERENCES halo_sessions(id) ON DELETE CASCADE,
++      namespace TEXT NOT NULL,
++      key TEXT NOT NULL,
++      seq INTEGER NOT NULL,
++      payload TEXT NOT NULL,
++      PRIMARY KEY (session_id, namespace, key)
++    );
++    CREATE TABLE IF NOT EXISTS halo_session_lists (
++      session_id TEXT NOT NULL REFERENCES halo_sessions(id) ON DELETE CASCADE,
++      namespace TEXT NOT NULL,
++      key TEXT NOT NULL,
++      seq INTEGER NOT NULL,
++      payload TEXT NOT NULL,
++      PRIMARY KEY (session_id, namespace, key, seq)
++    );
++    CREATE TABLE IF NOT EXISTS halo_session_usage (
++      session_id TEXT NOT NULL REFERENCES halo_sessions(id) ON DELETE CASCADE,
++      id TEXT NOT NULL,
++      seq INTEGER NOT NULL,
++      payload TEXT NOT NULL,
++      PRIMARY KEY (session_id, id),
++      UNIQUE (session_id, seq)
++    );
++    CREATE TABLE IF NOT EXISTS user_hotkeys (
++      user_id TEXT PRIMARY KEY,
++      hotkeys TEXT NOT NULL
++    );
++  `,
++};
+```
+
+```source-diff:phase2-repo:packages/workspace-server/src/storage/TursoSessionRepo.ts
+diff --git a/packages/workspace-server/src/storage/TursoSessionRepo.ts b/packages/workspace-server/src/storage/TursoSessionRepo.ts
+index 2210151..f7e7178 100644
+--- a/packages/workspace-server/src/storage/TursoSessionRepo.ts
++++ b/packages/workspace-server/src/storage/TursoSessionRepo.ts
+@@ -22 +21,0 @@ import {
+-  sessionSchema,
+@@ -33,9 +32 @@ export class TursoSessionRepo implements SessionRepo {
+-  private constructor(private readonly database: DatabaseClient) {}
+-
+-  static async open(database: DatabaseClient) {
+-    const initialized = await database.access((connection) =>
+-      connection.transaction(() => connection.exec(sessionSchema))(),
+-    );
+-    if (initialized instanceof Error) return initialized;
+-    return new TursoSessionRepo(database);
+-  }
++  constructor(private readonly database: DatabaseClient) {}
+@@ -78 +69 @@ export class TursoSessionRepo implements SessionRepo {
+-      // SAFETY: The projection matches the session schema initialized by this repository.
++      // SAFETY: The projection matches the session schema owned by workspace migrations.
+@@ -110 +101 @@ export class TursoSessionRepo implements SessionRepo {
+-      // SAFETY: The projection matches the session schema initialized by this repository.
++      // SAFETY: The projection matches the session schema owned by workspace migrations.
+@@ -116 +107 @@ export class TursoSessionRepo implements SessionRepo {
+-      // SAFETY: The projection matches the session schema initialized by this repository.
++      // SAFETY: The projection matches the session schema owned by workspace migrations.
+```
+
+```source-diff:phase2-hotkeys:packages/workspace-server/src/hotkeys/HotkeyService.ts
+diff --git a/packages/workspace-server/src/hotkeys/HotkeyService.ts b/packages/workspace-server/src/hotkeys/HotkeyService.ts
+index 0e8c5cd..af3217d 100644
+--- a/packages/workspace-server/src/hotkeys/HotkeyService.ts
++++ b/packages/workspace-server/src/hotkeys/HotkeyService.ts
+@@ -37,3 +36,0 @@ export class HotkeyService {
+-      connection.exec(
+-        "CREATE TABLE IF NOT EXISTS user_hotkeys (user_id TEXT PRIMARY KEY, hotkeys TEXT NOT NULL)",
+-      );
+```
+
+```source-diff:phase2-server:packages/workspace-server/src/server/WorkspaceServer.ts
+diff --git a/packages/workspace-server/src/server/WorkspaceServer.ts b/packages/workspace-server/src/server/WorkspaceServer.ts
+index 5cbf8e7..f2f5fcb 100644
+--- a/packages/workspace-server/src/server/WorkspaceServer.ts
++++ b/packages/workspace-server/src/server/WorkspaceServer.ts
+@@ -192,2 +192 @@ export class WorkspaceServer {
+-    const sessionRepo = await TursoSessionRepo.open(database);
+-    if (sessionRepo instanceof Error) return sessionRepo;
++    const sessionRepo = new TursoSessionRepo(database);
 ```

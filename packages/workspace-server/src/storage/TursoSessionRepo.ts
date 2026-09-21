@@ -19,7 +19,6 @@ import type { DatabaseClient } from "./DatabaseClient.js";
 import { TursoStorage, applySessionWrites } from "./TursoStorage.js";
 import {
   decodeSessionJson,
-  sessionSchema,
   emptySessionStats,
   readSessionRow,
   SessionBackendError,
@@ -30,15 +29,7 @@ export class TursoSessionRepo implements SessionRepo {
   private readonly sessions = new Set<Session>();
   private closed = false;
 
-  private constructor(private readonly database: DatabaseClient) {}
-
-  static async open(database: DatabaseClient) {
-    const initialized = await database.access((connection) =>
-      connection.transaction(() => connection.exec(sessionSchema))(),
-    );
-    if (initialized instanceof Error) return initialized;
-    return new TursoSessionRepo(database);
-  }
+  constructor(private readonly database: DatabaseClient) {}
 
   async create(options: SessionCreateOptions | undefined) {
     const createdAt = Date.now();
@@ -75,7 +66,7 @@ export class TursoSessionRepo implements SessionRepo {
   async list() {
     this.assertOpen();
     const result = await this.database.access((connection) => {
-      // SAFETY: The projection matches the session schema initialized by this repository.
+      // SAFETY: The projection matches the session schema owned by workspace migrations.
       const rows = connection
         .prepare("SELECT metadata FROM halo_sessions")
         .all() as { metadata: string }[];
@@ -107,13 +98,13 @@ export class TursoSessionRepo implements SessionRepo {
     const id = options.id === undefined ? uuidv7(createdAt) : options.id;
     return await this.openSession(id, (connection) => {
       readSessionRow(connection, source.id);
-      // SAFETY: The projection matches the session schema initialized by this repository.
+      // SAFETY: The projection matches the session schema owned by workspace migrations.
       const entryRows = connection
         .prepare(
           "SELECT payload FROM halo_session_entries WHERE session_id = ? ORDER BY seq",
         )
         .all(source.id) as { payload: string }[];
-      // SAFETY: The projection matches the session schema initialized by this repository.
+      // SAFETY: The projection matches the session schema owned by workspace migrations.
       const valueRows = connection
         .prepare(
           "SELECT namespace, key, seq, payload FROM halo_session_values WHERE session_id = ? ORDER BY seq",

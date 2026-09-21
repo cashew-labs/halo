@@ -29,8 +29,7 @@ export const piBackendTest = baseTest.extend<{
       filesystem,
     });
     if (database instanceof Error) throw database;
-    const repo = await TursoSessionRepo.open(database);
-    if (repo instanceof Error) throw repo;
+    const repo = new TursoSessionRepo(database);
 
     await use({
       repo,
