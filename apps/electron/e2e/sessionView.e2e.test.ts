@@ -37,13 +37,28 @@ e2eTest(
         );
       return data;
     }, fixtures);
+    const editor = pane.getByLabel("Message", { exact: true });
+    await editor.fill("Summarize my attached files");
     await pane.dispatchEvent("dragenter", { dataTransfer: transfer });
     await expect(
       pane.getByText("Drop files to attach", { exact: true }),
     ).toBeVisible();
-    await pane
-      .getByLabel("Message", { exact: true })
-      .dispatchEvent("drop", { dataTransfer: transfer });
+    const editorBounds = await editor.boundingBox();
+    expect(editorBounds).not.toBeNull();
+    await editor.dispatchEvent("dragover", {
+      dataTransfer: transfer,
+      clientX: editorBounds!.x + 12,
+      clientY: editorBounds!.y + 8,
+    });
+    expect(
+      await app.page
+        .locator(
+          ".prosemirror-dropcursor-block, .prosemirror-dropcursor-inline",
+        )
+        .count(),
+    ).toBe(0);
+    await app.page.screenshot({ path: testInfo.outputPath("file-drag.png") });
+    await editor.dispatchEvent("drop", { dataTransfer: transfer });
     await transfer.dispose();
     await expect(
       pane.getByText("Drop files to attach", { exact: true }),
@@ -56,9 +71,6 @@ e2eTest(
       await expect(
         attachments.getByText(fixture.name, { exact: true }),
       ).toBeVisible();
-    await pane
-      .getByLabel("Message", { exact: true })
-      .fill("Summarize my attached files");
     await app.page.screenshot({
       path: testInfo.outputPath("attachments-ready.png"),
     });
