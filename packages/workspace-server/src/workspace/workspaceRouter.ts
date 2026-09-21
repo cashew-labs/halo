@@ -53,10 +53,18 @@ export const workspaceRouter = os.router({
     const written = await context.workspace.writeFile(
       input.path,
       input.content,
+      input.expectedContent,
     );
     if (written instanceof Error) return orpcErrors.badRequest(written);
     return written;
   }),
+  reconcileNote: os.reconcileNote.handler(
+    async ({ context, input, signal }) => {
+      const merged = await context.workspace.reconcileNote(input, signal);
+      if (merged instanceof Error) return orpcErrors.badRequest(merged);
+      return merged;
+    },
+  ),
   uploadFile: os.uploadFile.handler(async ({ context, input }) => {
     const uploaded = await context.workspace.uploadFile(input);
     if (uploaded instanceof Error) return orpcErrors.badRequest(uploaded);

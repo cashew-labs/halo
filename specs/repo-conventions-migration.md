@@ -39,3 +39,7 @@ HEIC and HEIF chat photos use a portable HEVC decoder because the prebuilt image
 ## Connection recovery
 
 The shared frontend now owns connection retries, probes, cancellation and accepted-client state in an instance-scoped `ConnectionService`, exposed through the repository Stream primitive. React subscribes to that owner and preserves mounted panes while replaceable RPC clients and subscriptions recover. Structured protocol/authentication failures survive desktop IPC; dirty-file writes remain serialized and check remote contents before an explicit retry. Existing Electron, workspace-server and control-plane consumer fixtures verify the changed behavior. Transport failures are reported through the shared connection indicator; a real-server shutdown regression verifies draft preservation and prevents duplicate extension errors.
+
+## Markdown reconciliation
+
+WorkspaceService owns note reconciliation and recovery records, borrowing the host-owned LLMApi. A pure merge helper isolates conflicting sections before inference. FilesystemService orders conditional saves with its normal asynchronous writes; inference runs outside that queue. The additive protocol supports existing protocol-18 clients while protocol 19 exposes reconciliation. Existing workspace-server consumer tests exercise the public RPC and real agent file tool, including stale results, inference failures, paragraph boundaries, and recovery history.

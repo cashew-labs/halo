@@ -3,6 +3,7 @@ import {
   createHaloClient,
   connectHaloClient,
   haloProtocolVersion,
+  haloSupportedProtocols,
   emptySessionSnapshot,
   reduceSessionUpdate,
   sessionMessages,
@@ -2100,8 +2101,23 @@ serverTest(
     assert(!(connected instanceof Error));
     expect(connected.serverInfo).toEqual({
       protocolVersion: haloProtocolVersion,
-      supportedProtocols: [haloProtocolVersion],
+      supportedProtocols: haloSupportedProtocols,
     });
+    const previousProtocol = createHaloClient({
+      transport: {
+        ...server.transport,
+        headers: {
+          ...server.transport.headers,
+          "x-halo-protocol-version": "18",
+        },
+      },
+    });
+    expect(
+      await previousProtocol.workspace.writeFile({
+        path: "legacy.md",
+        content: "Legacy client",
+      }),
+    ).toEqual({ path: "legacy.md" });
     const unsupported = createHaloClient({
       transport: {
         ...server.transport,
@@ -2112,7 +2128,7 @@ serverTest(
       },
     });
     expect(await unsupported.server.info()).toMatchObject({
-      supportedProtocols: [haloProtocolVersion],
+      supportedProtocols: haloSupportedProtocols,
     });
     await expect(
       unsupported.workspace.writeFile({
@@ -2122,6 +2138,269 @@ serverTest(
     ).rejects.toMatchObject({ code: "UNSUPPORTED_PROTOCOL" });
     expect(await server.rpc.workspace.listPaths()).not.toContain(
       "unsupported.md",
+    );
+  },
+);
+
+serverTest(
+  "merges independent note edits and uncontested deletions without inference",
+  async ({ server }) => {
+    const base =
+      "# Plan\n\nMeet Tuesday at 2pm.\n\nRemove this paragraph.\n\nKeep this footer.\n";
+    const local = base
+      .replace("Tuesday", "Wednesday")
+      .replace("Remove this paragraph.\n\n", "");
+    const remote = base.replace("2pm", "3pm");
+    await server.rpc.workspace.writeFile({ path: "plan.md", content: remote });
+    const prepared = await server.rpc.workspace.reconcileNote({
+      path: "plan.md",
+      base,
+      content: local,
+    });
+    expect(prepared.content).toBe(
+      "# Plan\n\nMeet Wednesday at 3pm.\n\nKeep this footer.\n",
+    );
+    expect(
+      await server.rpc.workspace.writeFile({ path: "plan.md", ...prepared }),
+    ).toMatchObject({ conflict: false });
+    expect(await server.rpc.workspace.readFile({ path: "plan.md" })).toBe(
+      prepared.content,
+    );
+    const historyDirectory = path.join(
+      server.workspaceRoot,
+      ".halo",
+      "note-history",
+    );
+    const records = await fs.readdir(historyDirectory);
+    expect(records).toHaveLength(1);
+    expect(
+      JSON.parse(
+        await fs.readFile(path.join(historyDirectory, records[0]!), "utf8"),
+      ),
+    ).toMatchObject({
+      original: base,
+      local,
+      remote,
+      resolved: prepared.content,
+    });
+    await server.stop();
+    await server.start();
+    expect(await server.rpc.workspace.readFile({ path: "plan.md" })).toBe(
+      prepared.content,
+    );
+    expect(await fs.readdir(historyDirectory)).toEqual(records);
+  },
+);
+
+serverTest(
+  "resolves only overlapping note sections with document context",
+  async ({ server, llm }) => {
+    const prefix = "# Travel\n\nWe are arranging the team trip.\n\n";
+    const suffix =
+      "\nBudget is unchanged.\n\n" + "Unrelated private appendix.\n".repeat(10);
+    const base = prefix + "Depart Tuesday.\n" + suffix;
+    await server.rpc.workspace.writeFile({
+      path: "trip.md",
+      content: base.replace("Tuesday", "Thursday"),
+    });
+    const preparing = server.rpc.workspace.reconcileNote({
+      path: "trip.md",
+      base,
+      content: base.replace("Tuesday", "Wednesday"),
+    });
+    await llm.respond(({ messages, tools }) => {
+      const system = messages
+        .filter(
+          (message) =>
+            message.role === "system" || message.role === "developer",
+        )
+        .map(messageText)
+        .join("\n");
+      expect(system).toContain("Halo's Markdown reconciliation assistant");
+      expect(system).toContain("untrusted data");
+      expect(system).toContain(
+        "retain content so the person can delete it later",
+      );
+      expect(tools ?? []).toHaveLength(0);
+      const user = messages.findLast((message) => message.role === "user")!;
+      const request = JSON.parse(messageText(user));
+      expect(request).toMatchObject({
+        heading: "# Travel\n",
+        original: "Depart Tuesday.\n",
+        local: "Depart Wednesday.\n",
+        remote: "Depart Thursday.\n",
+      });
+      expect(request.contextBefore).toContain("arranging the team trip");
+      expect(request.contextAfter).toContain("Budget is unchanged");
+      expect(messageText(user)).not.toContain(
+        "Unrelated private appendix.\n".repeat(10),
+      );
+      return m.assistant(
+        JSON.stringify({
+          markdown: "Departure options: Wednesday or Thursday.",
+        }),
+      );
+    });
+    const prepared = await preparing;
+    expect(prepared.content).toBe(
+      prefix + "Departure options: Wednesday or Thursday.\n" + suffix,
+    );
+    await server.rpc.workspace.writeFile({ path: "trip.md", ...prepared });
+    expect(await server.rpc.workspace.readFile({ path: "trip.md" })).toBe(
+      prepared.content,
+    );
+  },
+);
+
+for (const response of [
+  m.error("Provider unavailable"),
+  m.assistant("not JSON"),
+  m.assistant('{"markdown":""}'),
+  m.assistant('{"markdown":"<<<<<<< local"}'),
+]) {
+  serverTest(
+    `preserves both note alternatives when inference returns ${JSON.stringify(response)}`,
+    async ({ server, llm }) => {
+      await server.rpc.workspace.writeFile({
+        path: "fallback.md",
+        content: "# Heading\n\nServer detail.\n\nFooter.\n",
+      });
+      const preparing = server.rpc.workspace.reconcileNote({
+        path: "fallback.md",
+        base: "# Heading\n\nOriginal.\n\nFooter.\n",
+        content: "# Heading\n\nLocal detail.\n\nFooter.\n",
+      });
+      await llm.respond(response);
+      const prepared = await preparing;
+      expect(prepared.content).toBe(
+        "# Heading\n\nLocal detail.\n\nServer detail.\n\nFooter.\n",
+      );
+      await server.rpc.workspace.writeFile({
+        path: "fallback.md",
+        ...prepared,
+      });
+      expect(await server.rpc.workspace.readFile({ path: "fallback.md" })).toBe(
+        prepared.content,
+      );
+    },
+  );
+}
+
+serverTest(
+  "rejects a stale note merge when the server changes during inference",
+  async ({ server, llm }) => {
+    await server.rpc.workspace.writeFile({
+      path: "race.md",
+      content: "Server version",
+    });
+    const preparing = server.rpc.workspace.reconcileNote({
+      path: "race.md",
+      base: "Original",
+      content: "Local version",
+    });
+    await llm.waitForRequest();
+    await server.rpc.testApi.invokeTool({
+      path: "files.write",
+      input: { path: "race.md", content: "Newer server version" },
+    });
+    await llm.respond(
+      m.assistant(JSON.stringify({ markdown: "Local and server versions" })),
+    );
+    const prepared = await preparing;
+    expect(
+      await server.rpc.workspace.writeFile({ path: "race.md", ...prepared }),
+    ).toMatchObject({ conflict: true });
+    expect(await server.rpc.workspace.readFile({ path: "race.md" })).toBe(
+      "Newer server version",
+    );
+  },
+);
+
+serverTest(
+  "serializes competing conditional file saves and refuses deleted files",
+  async ({ server }) => {
+    await server.rpc.workspace.writeFile({
+      path: "race.md",
+      content: "Original",
+    });
+    const results = await Promise.all(
+      ["One", "Two"].map(
+        async (content) =>
+          await server.rpc.workspace.writeFile({
+            path: "race.md",
+            content,
+            expectedContent: "Original",
+          }),
+      ),
+    );
+    expect(results.filter((result) => result.conflict)).toHaveLength(1);
+    const winner = results[0]!.conflict ? "Two" : "One";
+    expect(await server.rpc.workspace.readFile({ path: "race.md" })).toBe(
+      winner,
+    );
+    await server.rpc.workspace.deleteEntry({ path: "race.md" });
+    await expect(
+      server.rpc.workspace.writeFile({
+        path: "race.md",
+        content: "Stale",
+        expectedContent: winner,
+      }),
+    ).rejects.toThrow();
+    expect(await server.rpc.workspace.listPaths()).not.toContain("race.md");
+  },
+);
+
+serverTest(
+  "limits automatic reconciliation to Markdown and preserves identical edits",
+  async ({ server }) => {
+    await server.rpc.workspace.writeFile({
+      path: "same.MD",
+      content: "Same edit",
+    });
+    expect(
+      await server.rpc.workspace.reconcileNote({
+        path: "same.MD",
+        base: "Original",
+        content: "Same edit",
+      }),
+    ).toEqual({ content: "Same edit", expectedContent: "Same edit" });
+    await server.rpc.workspace.writeFile({
+      path: "code.ts",
+      content: "remote",
+    });
+    await expect(
+      server.rpc.workspace.reconcileNote({
+        path: "code.ts",
+        base: "base",
+        content: "local",
+      }),
+    ).rejects.toThrow();
+    expect(await server.rpc.workspace.readFile({ path: "code.ts" })).toBe(
+      "remote",
+    );
+  },
+);
+
+serverTest(
+  "preserves note paragraph boundaries when deletion conflicts with a revision and inference fails",
+  async ({ server, llm }) => {
+    const base = "# Notes\r\n\r\nBudget is $100.\r\n\r\nKeep this footer.\r\n";
+    const remote = base.replace("$100", "$150 including delivery");
+    await server.rpc.workspace.writeFile({
+      path: "deletion.md",
+      content: remote,
+    });
+    const preparing = server.rpc.workspace.reconcileNote({
+      path: "deletion.md",
+      base,
+      content: "# Notes\r\n\r\nKeep this footer.\r\n",
+    });
+    await llm.respond(m.error("Rate limited"));
+    const prepared = await preparing;
+    expect(prepared.content).toBe(remote);
+    await server.rpc.workspace.writeFile({ path: "deletion.md", ...prepared });
+    expect(await server.rpc.workspace.readFile({ path: "deletion.md" })).toBe(
+      remote,
     );
   },
 );
