@@ -8,6 +8,8 @@ Use the [conventions skill](.agents/skills/conventions/SKILL.md) when writing, r
 
 When editing TypeScript that handles failures, also read the [errore skill](.agents/skills/errore/SKILL.md).
 
+When reviewing a pull request or branch diff, use the [code-review skill](.agents/skills/code-review/SKILL.md).
+
 ## Writing Rules
 
 Always adhere to ISO 24495-1 Technical Language Standard for responses, except the 80-column layout instruction.
