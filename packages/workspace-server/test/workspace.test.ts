@@ -20,6 +20,188 @@ import { m } from "@get-halo/shared/testing";
 import { messageText } from "@get-halo/workspace-server/testing";
 import { serverTest } from "./serverTest.js";
 
+const attachmentFixtures = [
+  { name: "picture.png", images: 1 },
+  { name: "picture.jpg", images: 1 },
+  { name: "picture.webp", images: 1 },
+  { name: "picture.gif", images: 1 },
+  { name: "picture.avif", images: 1 },
+  { name: "picture.svg", images: 1 },
+  { name: "picture.tiff", images: 1 },
+  { name: "picture.bmp", images: 1 },
+  { name: "picture.ico", images: 1 },
+  { name: "document.pdf", text: "orange heron", images: 2 },
+  { name: "scan.pdf", images: 1 },
+  { name: "document.docx", text: "scarlet robin", images: 1 },
+  { name: "workbook.xlsx", text: "indigo jay", images: 0 },
+  { name: "slides.pptx", text: "turquoise crane", images: 1 },
+  { name: "document.odt", text: "bronze eagle", images: 0 },
+  { name: "workbook.ods", text: "ruby duck", images: 0 },
+  { name: "slides.odp", text: "sapphire swan", images: 0 },
+  { name: "drawing.odg", text: "copper falcon", images: 0 },
+  { name: "book.epub", text: "teal swallow", images: 0 },
+  { name: "document.rtf", text: "amber lynx", images: 0 },
+  { name: "notes.txt", text: "cedar fox", images: 0 },
+  { name: "windows.txt", text: "violet hare", images: 0 },
+  { name: "notes.md", text: "silver otter", images: 0 },
+  { name: "data.csv", text: "golden finch", images: 0 },
+  { name: "data.tsv", text: "river owl", images: 0 },
+  { name: "data.json", text: "blue whale", images: 0 },
+  { name: "source.ts", text: "green turtle", images: 0 },
+  { name: "document.html", text: "red kite", images: 0 },
+];
+
+for (const fixture of attachmentFixtures) {
+  serverTest(
+    `sends ${fixture.name} attachment contents to the model`,
+    async ({ server, llm }) => {
+      const session = await server.rpc.sessions.create();
+      const bytes = await fs.readFile(
+        path.join(import.meta.dirname, "fixtures", "attachments", fixture.name),
+      );
+      // Browsers may omit MIME types. Conversion must still use the file's contents.
+      const file = new File([bytes], fixture.name);
+      const prompt = server.rpc.sessions.prompt({
+        ...session,
+        text: "Explain the attachment",
+        files: [file],
+      });
+      const response = llm.respond(({ messages }) => {
+        const message = messages.findLast((item) => item.role === "user");
+        assert(message !== undefined && Array.isArray(message.content));
+        if (fixture.text !== undefined)
+          expect(messageText(message)).toContain(fixture.text);
+        expect(messageText(message)).toContain(fixture.name);
+        const images = message.content.filter(
+          (part) => part.type === "image_url",
+        );
+        expect(images).toHaveLength(fixture.images);
+        for (const image of images) {
+          expect(image.image_url.url).toMatch(/^data:image\/jpeg;base64,/);
+          const data = Buffer.from(
+            image.image_url.url.split(",")[1]!,
+            "base64",
+          );
+          expect([...data.subarray(0, 3)]).toEqual([0xff, 0xd8, 0xff]);
+          expect(data.length).toBeGreaterThan(100);
+        }
+        return m.assistant("I received the attachment contents.");
+      });
+      await Promise.all([prompt, response]);
+      const snapshot = await server.rpc.sessions.snapshot(session);
+      const user = sessionMessages(snapshot).find(
+        (message) => message.role === "user",
+      );
+      assert(user?.role === "user");
+      expect(user.displayText).toBe("Explain the attachment");
+      expect(user.attachments).toHaveLength(1);
+      expect(user.attachments![0]!.name).toBe(fixture.name);
+      expect(
+        await fs.readFile(
+          path.join(server.workspaceRoot, user.attachments![0]!.path),
+        ),
+      ).toEqual(bytes);
+      expect((await server.rpc.sessions.list())[0]!.title).toBe(
+        "Explain the attachment",
+      );
+    },
+  );
+}
+
+serverTest(
+  "retains attachment-only messages, duplicate filenames, and model context after restart",
+  async ({ server, llm }) => {
+    const session = await server.rpc.sessions.create();
+    const files = [
+      new File(["First note: crimson fox"], "notes.txt"),
+      new File(["Second note: cobalt owl"], "notes.txt"),
+    ];
+    const prompt = server.rpc.sessions.prompt({ ...session, text: "", files });
+    await llm.respond(m.assistant("I have both files."));
+    await prompt;
+    await server.stop();
+    await server.start();
+    const snapshot = await server.rpc.sessions.snapshot(session);
+    const user = sessionMessages(snapshot).find(
+      (message) => message.role === "user",
+    );
+    assert(user?.role === "user");
+    expect(user.attachments).toHaveLength(2);
+    expect(user.attachments![0]!.path).not.toBe(user.attachments![1]!.path);
+    expect((await server.rpc.sessions.list())[0]!.title).toBe(
+      "notes.txt, notes.txt",
+    );
+    const next = server.rpc.sessions.prompt({
+      ...session,
+      text: "Recall both notes",
+    });
+    await llm.respond(({ messages }) => {
+      const context = messages.map(messageText).join("\n");
+      expect(context).toContain("crimson fox");
+      expect(context).toContain("cobalt owl");
+      return m.assistant("The notes mention a crimson fox and cobalt owl.");
+    });
+    await next;
+  },
+);
+
+serverTest(
+  "rejects unreadable and oversized attachments without sending an empty user message",
+  async ({ server, llm }) => {
+    const session = await server.rpc.sessions.create();
+    const cases = [
+      {
+        files: [new File([new Uint8Array([0, 1, 2, 3])], "archive.bin")],
+        reason: "file format cannot be read",
+      },
+      {
+        files: [new File(["invalid PDF"], "corrupt.pdf")],
+        reason: "PDF could not be read",
+      },
+      {
+        files: [new File(["invalid image"], "corrupt.png")],
+        reason: "image could not be decoded",
+      },
+      { files: [new File([], "empty.txt")], reason: "empty" },
+      {
+        files: [new File([new Uint8Array(20 * 1024 * 1024 + 1)], "large.txt")],
+        reason: "too large",
+      },
+      {
+        files: Array.from({ length: 11 }, () => new File(["note"], "note.txt")),
+        reason: "up to 10 files",
+      },
+      {
+        files: [new File(["x".repeat(200_001)], "long.txt")],
+        reason: "200,000 characters",
+      },
+      {
+        files: [new File(["note"], "../note.txt")],
+        reason: "invalid filename",
+      },
+    ];
+    for (const input of cases) {
+      await expect(
+        server.rpc.sessions.prompt({
+          ...session,
+          text: "Read these",
+          files: input.files,
+        }),
+      ).rejects.toThrow(input.reason);
+      expect(
+        sessionMessages(await server.rpc.sessions.snapshot(session)),
+      ).toHaveLength(0);
+    }
+    const prompt = server.rpc.sessions.prompt({
+      ...session,
+      text: "Try a readable file",
+      files: [new File(["Valid note"], "valid.txt")],
+    });
+    await llm.respond(m.assistant("The valid file works."));
+    await prompt;
+  },
+);
+
 serverTest(
   "uploads archives through the control plane and retries rejected requests after restart",
   async ({ createServer, llm, http }) => {

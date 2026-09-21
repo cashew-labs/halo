@@ -69,6 +69,14 @@ export type {
 
 export { imageFilename, imageMediaTypes } from "./imageFilename.js";
 export {
+  chatAttachmentLimits,
+  chatAttachmentSchema,
+  chatPromptTitle,
+  validateChatFiles,
+  type ChatAttachment,
+  type ChatPrompt,
+} from "./chatAttachments.js";
+export {
   hotkeyActionSchema,
   hotkeyInputSchema,
   hotkeySchema,
