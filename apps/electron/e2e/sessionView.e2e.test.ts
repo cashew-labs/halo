@@ -2,6 +2,326 @@ import { expect, type Locator, type Route } from "@playwright/test";
 import { e2eTest } from "./e2eTest.js";
 import { m } from "@get-halo/shared/testing";
 import { messageText } from "@get-halo/workspace-server/testing";
+import fs from "node:fs/promises";
+import path from "node:path";
+
+e2eTest(
+  "drops images, PDFs, and Word files into chat and keeps their model context after reload",
+  async ({ app, llm }, testInfo) => {
+    await app.page
+      .getByRole("button", { name: "New session", exact: true })
+      .click();
+    const pane = app.page.getByRole("main");
+    const fixtures = await Promise.all(
+      ["picture.png", "document.pdf", "document.docx"].map(async (name) => ({
+        name,
+        data: (
+          await fs.readFile(
+            path.resolve(
+              import.meta.dirname,
+              "../../../packages/workspace-server/test/fixtures/attachments",
+              name,
+            ),
+          )
+        ).toString("base64"),
+      })),
+    );
+    const transfer = await app.page.evaluateHandle((files) => {
+      const data = new DataTransfer();
+      for (const file of files)
+        data.items.add(
+          new File(
+            [Uint8Array.from(atob(file.data), (char) => char.charCodeAt(0))],
+            file.name,
+          ),
+        );
+      return data;
+    }, fixtures);
+    await pane.dispatchEvent("dragenter", { dataTransfer: transfer });
+    await expect(
+      pane.getByText("Drop files to attach", { exact: true }),
+    ).toBeVisible();
+    await pane
+      .getByLabel("Message", { exact: true })
+      .dispatchEvent("drop", { dataTransfer: transfer });
+    await transfer.dispose();
+    await expect(
+      pane.getByText("Drop files to attach", { exact: true }),
+    ).not.toBeVisible();
+    const attachments = pane.getByRole("list", {
+      name: "Attachments",
+      exact: true,
+    });
+    for (const fixture of fixtures)
+      await expect(
+        attachments.getByText(fixture.name, { exact: true }),
+      ).toBeVisible();
+    await pane
+      .getByLabel("Message", { exact: true })
+      .fill("Summarize my attached files");
+    await app.page.screenshot({
+      path: testInfo.outputPath("attachments-ready.png"),
+    });
+    const uploads: Route[] = [];
+    await app.page.route("**/rpc/sessions/prompt", (route) => {
+      uploads.push(route);
+    });
+    await pane.getByRole("button", { name: "Send", exact: true }).click();
+    await expect.poll(() => uploads.length).toBe(1);
+    await expect(
+      pane.getByRole("button", { name: "Send", exact: true }),
+    ).toBeDisabled();
+    await expect(pane.getByRole("status")).toHaveText("Preparing attachments…");
+    await expect(attachments.getByRole("listitem")).toHaveCount(3);
+    await uploads[0]!.continue();
+    await app.page.unroute("**/rpc/sessions/prompt");
+    await llm.respond(({ messages }) => {
+      const user = messages.findLast((message) => message.role === "user");
+      expect(user).toBeDefined();
+      expect(messageText(user!)).toContain("scarlet robin");
+      expect(messageText(user!)).toContain("orange heron");
+      expect(
+        Array.isArray(user!.content)
+          ? user!.content.filter((part) => part.type === "image_url")
+          : [],
+      ).toHaveLength(4);
+      return m.assistant(
+        "The Word document says scarlet robin; the PDF says orange heron. I can see the image and both PDF pages.",
+      );
+    });
+    const userMessage = pane.getByRole("article", { name: "You message" });
+    await expect(userMessage).toContainText("Summarize my attached files");
+    await expect(
+      userMessage
+        .getByRole("list", { name: "Attached files" })
+        .getByRole("listitem"),
+    ).toHaveCount(3);
+    await expect(userMessage).not.toContainText("scarlet robin");
+    await expect(pane.getByRole("log")).toContainText(
+      "I can see the image and both PDF pages.",
+    );
+    await app.page.reload();
+    await expect(
+      userMessage.getByRole("link", { name: "document.docx", exact: true }),
+    ).toBeVisible();
+    await pane
+      .getByLabel("Message", { exact: true })
+      .fill("Recall those attachments");
+    await pane.getByRole("button", { name: "Send", exact: true }).click();
+    await llm.respond(({ messages }) => {
+      const context = messages.map(messageText).join("\n");
+      expect(context).toContain("scarlet robin");
+      expect(context).toContain("coral raven");
+      return m.assistant("I still have the attached file contents.");
+    });
+    await expect(pane.getByRole("log")).toContainText(
+      "I still have the attached file contents.",
+    );
+  },
+);
+
+e2eTest(
+  "chooses spreadsheets and presentations in an existing chat and removes individual duplicate filenames",
+  async ({ app, harness, llm }) => {
+    await harness.loadSession({
+      title: "Review the files",
+      messages: [m.user("Review the files"), m.assistant("Ready.")],
+    });
+    const pane = app.page.getByRole("main");
+    const files = await Promise.all(
+      ["workbook.xlsx", "slides.pptx"].map(async (name) => ({
+        name,
+        mimeType: "application/octet-stream",
+        buffer: await fs.readFile(
+          path.resolve(
+            import.meta.dirname,
+            "../../../packages/workspace-server/test/fixtures/attachments",
+            name,
+          ),
+        ),
+      })),
+    );
+    const chooser = app.page.waitForEvent("filechooser");
+    await pane
+      .getByRole("button", { name: "Add attachments", exact: true })
+      .click();
+    await (
+      await chooser
+    ).setFiles([
+      ...files,
+      {
+        name: "notes.txt",
+        mimeType: "text/plain",
+        buffer: Buffer.from("REMOVE THIS NOTE"),
+      },
+      {
+        name: "notes.txt",
+        mimeType: "text/plain",
+        buffer: Buffer.from("KEEP THIS NOTE"),
+      },
+    ]);
+    const attachments = pane.getByRole("list", {
+      name: "Attachments",
+      exact: true,
+    });
+    await expect(attachments.getByRole("listitem")).toHaveCount(4);
+    await attachments
+      .getByRole("button", { name: "Remove notes.txt", exact: true })
+      .first()
+      .click();
+    await expect(attachments.getByRole("listitem")).toHaveCount(3);
+    await expect(pane.getByLabel("Message", { exact: true })).toHaveText("");
+    await pane.getByRole("button", { name: "Send", exact: true }).click();
+    await llm.waitForRequest();
+    await expect(
+      pane.getByRole("button", { name: "Stop", exact: true }),
+    ).toBeVisible();
+    await pane
+      .getByLabel("Message", { exact: true })
+      .fill("Draft while the model answers");
+    await llm.respond(({ messages }) => {
+      const user = messages.findLast((message) => message.role === "user");
+      expect(user).toBeDefined();
+      const context = messageText(user!);
+      for (const marker of [
+        "indigo jay",
+        "pearl dove",
+        "turquoise crane",
+        "olive wren",
+        "KEEP THIS NOTE",
+      ])
+        expect(context).toContain(marker);
+      expect(context).not.toContain("REMOVE THIS NOTE");
+      return m.assistant(
+        "I can read both sheets, the slide, its notes, and the remaining text file.",
+      );
+    });
+    await expect(pane.getByRole("log")).toContainText("I can read both sheets");
+    await expect(
+      app.page.getByRole("img", { name: "Agent is working", exact: true }),
+    ).not.toBeVisible();
+    await expect(pane.getByLabel("Message", { exact: true })).toHaveText(
+      "Draft while the model answers",
+    );
+    await expect(
+      pane
+        .getByRole("article", { name: "You message" })
+        .last()
+        .getByRole("link"),
+    ).toHaveCount(3);
+    await expect(app.page.getByRole("tab", { selected: true })).toHaveText(
+      "Review the files",
+    );
+  },
+);
+
+e2eTest(
+  "preserves the draft and files after an attachment error and sends a corrected selection",
+  async ({ app, llm }) => {
+    await app.page
+      .getByRole("button", { name: "New session", exact: true })
+      .click();
+    const pane = app.page.getByRole("main");
+    await pane
+      .getByLabel("Message", { exact: true })
+      .fill("Please read my document");
+    await pane.getByLabel("Attach files", { exact: true }).setInputFiles({
+      name: "broken.pdf",
+      mimeType: "application/pdf",
+      buffer: Buffer.from("This is not a valid PDF"),
+    });
+    await pane.getByRole("button", { name: "Send", exact: true }).click();
+    await expect(pane.getByRole("alert")).toContainText(
+      "PDF could not be read",
+    );
+    await expect(pane.getByLabel("Message", { exact: true })).toHaveText(
+      "Please read my document",
+    );
+    await expect(
+      pane.getByRole("button", { name: "Remove broken.pdf", exact: true }),
+    ).toBeEnabled();
+    await expect(
+      pane.getByRole("article", { name: "You message" }),
+    ).toHaveCount(0);
+    await pane
+      .getByRole("button", { name: "Remove broken.pdf", exact: true })
+      .click();
+    await pane.getByLabel("Attach files", { exact: true }).setInputFiles({
+      name: "corrected.txt",
+      mimeType: "text/plain",
+      buffer: Buffer.from("The corrected document says violet deer."),
+    });
+    await pane.getByRole("button", { name: "Send", exact: true }).click();
+    await llm.respond(({ messages }) => {
+      const user = messages.findLast((message) => message.role === "user");
+      expect(messageText(user!)).toContain("violet deer");
+      return m.assistant("I can read the corrected document.");
+    });
+    await expect(pane.getByRole("log")).toContainText(
+      "I can read the corrected document.",
+    );
+    await expect(pane.getByRole("alert")).not.toBeVisible();
+  },
+);
+
+e2eTest(
+  "pastes an image into a new attachment-only chat",
+  async ({ app, llm }) => {
+    await app.page
+      .getByRole("button", { name: "New session", exact: true })
+      .click();
+    const pane = app.page.getByRole("main");
+    const image = await fs.readFile(
+      path.resolve(
+        import.meta.dirname,
+        "../../../packages/workspace-server/test/fixtures/attachments/picture.png",
+      ),
+    );
+    await pane
+      .getByLabel("Message", { exact: true })
+      .evaluate((element, base64) => {
+        const data = new DataTransfer();
+        data.items.add(
+          new File(
+            [Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))],
+            "clipboard.png",
+            { type: "image/png" },
+          ),
+        );
+        element.dispatchEvent(
+          new ClipboardEvent("paste", {
+            clipboardData: data,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      }, image.toString("base64"));
+    await expect(
+      pane.getByRole("button", { name: "Remove clipboard.png", exact: true }),
+    ).toBeVisible();
+    await pane.getByRole("button", { name: "Send", exact: true }).click();
+    await llm.respond(({ messages }) => {
+      const user = messages.findLast((message) => message.role === "user");
+      expect(
+        Array.isArray(user?.content)
+          ? user.content.filter((part) => part.type === "image_url")
+          : [],
+      ).toHaveLength(1);
+      return m.assistant("I received your pasted image.");
+    });
+    await expect(pane.getByRole("log")).toContainText(
+      "I received your pasted image.",
+    );
+    await expect(app.page.getByRole("tab", { selected: true })).toHaveText(
+      "clipboard.png",
+    );
+    await expect(
+      pane
+        .getByRole("article", { name: "You message" })
+        .getByRole("link", { name: "clipboard.png", exact: true }),
+    ).toBeVisible();
+  },
+);
 
 e2eTest(
   "keeps the first message visible while the saved session reconnects",

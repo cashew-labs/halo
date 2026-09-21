@@ -17,7 +17,11 @@ export const chatAttachmentSchema = Type.Object({
 });
 
 export type ChatAttachment = Static<typeof chatAttachmentSchema>;
-export type ChatPrompt = { text: string; files?: File[] };
+export type ChatPrompt = {
+  text: string;
+  files?: File[];
+  clientMessageId?: string;
+};
 
 export function validateChatFiles(
   files: readonly Pick<File, "name" | "size">[],
