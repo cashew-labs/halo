@@ -6,6 +6,8 @@ The sessions prompt API accepts files alongside text. `HaloAgentSession` prepare
 
 The server consumer tests inspect actual inference-provider requests for images, PDF and scanned PDF, Office and OpenDocument files, RTF, EPUB, and text/code exports. They also cover duplicate names, attachment-only messages, restart persistence, invalid files, and size/count limits. Unsupported binary formats are rejected explicitly. Poppler is required for PDF conversion and is already installed in the workspace-server container.
 
+The shared chat pane owns pending files and accepts drops anywhere in the pane, file-picker selection, and pasted files. Users can remove individual files, send attachments without text, and open saved originals from transcript links. Failed preparation keeps the draft and file selection. Client message IDs correlate stream acknowledgements with submissions, releasing the composer when the user message is committed while the model continues; late prompt responses cannot clear a newer draft. Electron tests cover the complete paths through the real server and inspect inference requests after reload.
+
 ## Draft chat handoff
 
 The draft chat passes its confirmed session snapshot through the app-owned query cache before navigating to the saved session. The new pane uses that snapshot until its subscription receives fresh server state, then removes the temporary handoff data. This keeps the first message and running state visible across the route change. The Electron session-view regression pauses the replacement subscription and checks that the message remains visible without disappearing or duplicating through the handoff.

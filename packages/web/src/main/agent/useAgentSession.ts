@@ -7,6 +7,8 @@ import {
   reduceSessionUpdate,
   type SessionSnapshot,
   type SessionWatchItem,
+  type ChatPrompt,
+  chatPromptTitle,
 } from "@get-halo/client";
 import { useApi } from "../../api/ApiProvider.tsx";
 import { TabVisibilityContext } from "../../panes/WorkspacePanesProvider.js";
@@ -32,7 +34,7 @@ class AbortFailedError extends errore.createTaggedError({
 type UseAgentSessionResult = {
   state: SessionSnapshot;
   error: string | undefined;
-  prompt: (text: string) => Promise<void | PromptFailedError>;
+  prompt: (input: ChatPrompt) => Promise<void | PromptFailedError>;
   abort: () => Promise<void | AbortFailedError>;
 };
 
@@ -107,7 +109,7 @@ export function useAgentSession(
     };
   }, [api, sessionId, isTabVisible]);
 
-  async function prompt(text: string) {
+  async function prompt(input: ChatPrompt) {
     if (readySessionId === undefined) {
       const error = new PromptFailedError({ reason: "Session is not ready." });
       setLocalError(error.message);
@@ -115,7 +117,7 @@ export function useAgentSession(
     }
     setLocalError(undefined);
     const result = await api.sessions
-      .prompt({ sessionId: readySessionId, text })
+      .prompt({ sessionId: readySessionId, ...input })
       .then(() => undefined)
       .catch(
         (e) =>
@@ -161,7 +163,7 @@ type UseDraftAgentSessionResult = {
   error: string | undefined;
   sessionId: string | undefined;
   title: string | undefined;
-  prompt: (text: string) => Promise<void | PromptFailedError>;
+  prompt: (input: ChatPrompt) => Promise<void | PromptFailedError>;
   abort: () => Promise<void | AbortFailedError>;
 };
 
@@ -198,9 +200,10 @@ export function useDraftAgentSession(
     onAcceptedRef.current(sessionId);
   }, [sessionId, hasMessages, queryClient, state]);
 
-  async function prompt(text: string) {
+  async function prompt(input: ChatPrompt) {
     setLocalError(undefined);
-    setTitle(text);
+    const submittedTitle = chatPromptTitle(input);
+    setTitle(submittedTitle);
     if (sessionIdRef.current === undefined) {
       const created = await api.sessions.create().catch(
         (e) =>
@@ -218,9 +221,12 @@ export function useDraftAgentSession(
       setSessionId(created.sessionId);
     }
 
-    queryClient.setQueryData(sessionTitleQueryKey(sessionIdRef.current), text);
+    queryClient.setQueryData(
+      sessionTitleQueryKey(sessionIdRef.current),
+      submittedTitle,
+    );
     const result = await api.sessions
-      .prompt({ sessionId: sessionIdRef.current, text })
+      .prompt({ sessionId: sessionIdRef.current, ...input })
       .then(() => undefined)
       .catch(
         (e) =>

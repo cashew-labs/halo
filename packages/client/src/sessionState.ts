@@ -64,6 +64,7 @@ const userMessageSchema = Type.Object({
   role: Type.Literal("user"),
   attachments: Type.Optional(Type.Array(chatAttachmentSchema)),
   displayText: Type.Optional(Type.String()),
+  clientMessageId: Type.Optional(Type.String()),
   content: Type.Union([
     Type.String(),
     Type.Array(Type.Union([textContentSchema, imageContentSchema])),

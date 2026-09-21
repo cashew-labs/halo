@@ -281,15 +281,18 @@ export class HaloAgentSession {
         content: [{ type: "text", text }, ...prepared.content],
         displayText: text,
         attachments: prepared.attachments,
+        clientMessageId: input.clientMessageId,
         timestamp: Date.now(),
       };
       return await this.send(message);
     }
-    return await this.send({
+    const message: Extract<StoredMessage, { role: "user" }> = {
       role: "user",
       content: text,
+      clientMessageId: input.clientMessageId,
       timestamp: Date.now(),
-    });
+    };
+    return await this.send(message);
   }
 
   private async send(message: AgentMessage) {
