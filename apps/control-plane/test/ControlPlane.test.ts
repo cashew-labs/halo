@@ -56,6 +56,7 @@ const controlPlaneTest = test.extend<{
   },
   plane: async ({ appDataDir, webRoot, traceCloud }, use) => {
     const plane = await ControlPlane.start({
+      build: { version: "test-release", revision: "test-revision" },
       config: {
         deployment: "local",
         workspace: { deployment: "local" },
@@ -195,6 +196,7 @@ controlPlaneTest("serves the typed control-plane RPC", async ({ rpc }) => {
   expect(await rpc.server.info()).toEqual({
     protocolVersion: controlPlaneProtocolVersion,
     supportedProtocols: [controlPlaneProtocolVersion],
+    build: { version: "test-release", revision: "test-revision" },
   });
   expect(await rpc.auth.session()).toEqual({ status: "signed-out" });
 });

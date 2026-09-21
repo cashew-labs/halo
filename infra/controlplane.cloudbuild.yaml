@@ -1,14 +1,28 @@
 steps:
   - name: gcr.io/cloud-builders/docker
+    env: ["DOCKER_BUILDKIT=1"]
     args:
       - build
       - --file
       - apps/control-plane/Dockerfile
       - --tag
       - ${_IMAGE}
+      - --build-arg
+      - VERSION=${_VERSION}
+      - --build-arg
+      - REVISION=${_REVISION}
+      - --target
+      - ${_TARGET}
+      - --build-arg
+      - PREVIOUS_WEB_IMAGE=${_PREVIOUS_IMAGE}
       - .
 images:
   - ${_IMAGE}
 options:
   logging: CLOUD_LOGGING_ONLY
 timeout: 900s
+substitutions:
+  _TARGET: standalone
+  _PREVIOUS_IMAGE: node:22-bookworm-slim
+  _VERSION: dev
+  _REVISION: local

@@ -42,14 +42,15 @@ export type HaloContext = RequestHeadersHandlerPluginContext &
   WorkspaceRouterContext &
   ExtensionsRouterContext &
   SessionsRouterContext &
-  TestApiRouterContext;
+  TestApiRouterContext & { build?: { version: string; revision: string } };
 
 const server = implement(contract.server).$context<HaloContext>();
 
 const serverRouter = server.router({
-  info: server.info.handler(() => ({
+  info: server.info.handler(({ context }) => ({
     protocolVersion: haloProtocolVersion,
     supportedProtocols: haloSupportedProtocols,
+    build: context.build,
   })),
   watch: server.watch.handler(({ context, signal }) =>
     watchWorkspace({ context, signal }),
