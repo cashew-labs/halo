@@ -121,15 +121,6 @@ export function WorkspaceUpdatesProvider({
       },
       onError: (error) => {
         service.fail(api, error);
-        setState((current) => {
-          const previous =
-            current.workspaceRoot === workspaceRoot ? current : empty;
-          return {
-            ...previous,
-            workspaceRoot,
-            extensions: { ...previous.extensions, error },
-          };
-        });
       },
     });
     return () => controller.abort();

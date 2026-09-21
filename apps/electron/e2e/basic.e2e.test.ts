@@ -2839,3 +2839,30 @@ e2eTest(
     ).toBeVisible();
   },
 );
+
+e2eTest(
+  "reports a stopped server only through the connection indicator",
+  async ({ app, server }) => {
+    await app.page
+      .getByRole("button", { name: "New session", exact: true })
+      .click();
+    const draft = app.page
+      .getByRole("main", { name: "New session", exact: true })
+      .getByLabel("Message", { exact: true });
+    await draft.fill("Keep this draft when the server stops");
+    const stopped = await server.close();
+    if (stopped instanceof Error) throw stopped;
+    await expect(
+      app.page.getByRole("button", {
+        name: "Connection: Reconnecting…",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(draft).toHaveText("Keep this draft when the server stops");
+    await expect(
+      app.page.getByText("Extensions: Workspace updates stream disconnected.", {
+        exact: true,
+      }),
+    ).toHaveCount(0);
+  },
+);
