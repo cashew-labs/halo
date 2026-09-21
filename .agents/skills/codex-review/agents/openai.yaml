@@ -1,4 +1,0 @@
-interface:
-  display_name: "Codex Review"
-  short_description: "Flag convention violations in code review"
-  default_prompt: "Use $codex-review to review this diff against the conventions handbook."

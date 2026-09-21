@@ -8,11 +8,11 @@ Use the [conventions skill](.agents/skills/conventions/SKILL.md) when writing, r
 
 When editing TypeScript that handles failures, also read the [errore skill](.agents/skills/errore/SKILL.md).
 
-When reviewing a pull request or branch diff, use the [codex-review skill](.agents/skills/codex-review/SKILL.md).
+When reviewing a pull request or branch diff, use the [code-review skill](.agents/skills/code-review/SKILL.md).
 
 ## Code Review Rules
 
-Use the [codex-review skill](.agents/skills/codex-review/SKILL.md).
+Use the [code-review skill](.agents/skills/code-review/SKILL.md).
 
 ## Writing Rules
 
