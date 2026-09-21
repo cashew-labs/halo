@@ -50,12 +50,18 @@ e2eTest(
     });
     await app.page.reload();
 
+    await app.page
+      .getByRole("button", {
+        name: "Connection: App update required",
+        exact: true,
+      })
+      .click();
     await expect(
       app.page.getByRole("heading", { name: "Update Halo to reconnect" }),
     ).toBeVisible();
     await expect(
       app.page.getByText(
-        `This app uses protocol ${haloProtocolVersion}, while your server uses protocol 999.`,
+        `This app uses protocol ${haloProtocolVersion}, while the workspace API supports protocols 999.`,
       ),
     ).toBeVisible();
     await expect(
@@ -217,6 +223,20 @@ e2eTest(
     await editor.getByText("Paste here", { exact: true }).click();
     await expect(reference).toHaveCSS("outline-style", "none");
     await editor.press("End");
+    await app.page.context().setOffline(true);
+    await expect(
+      app.page.getByRole("button", {
+        name: "Connection: Disconnected",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await app.page.context().setOffline(false);
+    await expect(
+      app.page.getByRole("button", {
+        name: "Connection: Connected",
+        exact: true,
+      }),
+    ).toBeVisible();
     const png = await editor.evaluate(async (element) => {
       const canvas = document.createElement("canvas");
       canvas.width = 120;
@@ -707,7 +727,7 @@ e2eTest(
     await page.getByRole("textbox", { name: "Name" }).fill("renamed.md");
     await page.getByRole("button", { name: "Rename", exact: true }).click();
     await expect(page.getByRole("dialog").getByRole("alert")).toContainText(
-      "Failed to save notes.md",
+      /Could not (save|check)/,
     );
     await fs.rmdir(file);
     await app.server.rpc.workspace.writeFile({
@@ -1248,10 +1268,11 @@ e2eTest(
         folder,
       ],
     });
-    await expect(app.page.getByRole("status")).toHaveText(
-      "Uploaded 110 items. Skipped 3 hidden or dependency items.",
-      { timeout: 20_000 },
-    );
+    await expect(
+      app.page.getByRole("status").filter({ hasText: "Uploaded" }),
+    ).toHaveText("Uploaded 110 items. Skipped 3 hidden or dependency items.", {
+      timeout: 20_000,
+    });
     expect(await app.server.rpc.workspace.readFile({ path: "notes.txt" })).toBe(
       "Notes from this computer",
     );
@@ -1282,7 +1303,9 @@ e2eTest(
       target: app.page.locator('[data-file-path="Archive"]'),
       paths: [nodePath.join(local, "notes.txt")],
     });
-    await expect(app.page.getByRole("status")).toHaveText("Uploaded 1 item.");
+    await expect(
+      app.page.getByRole("status").filter({ hasText: "Uploaded" }),
+    ).toHaveText("Uploaded 1 item.");
     expect(
       await app.server.rpc.workspace.readFile({ path: "Archive/notes.txt" }),
     ).toBe("Notes from this computer");
@@ -2527,6 +2550,292 @@ e2eTest(
     await llm.respond(m.assistant("Both panes remain responsive."));
     await expect(
       left.getByText("Both panes remain responsive.", { exact: true }),
+    ).toBeVisible();
+  },
+);
+
+e2eTest(
+  "recovers after returning online without losing the draft",
+  async ({ app }) => {
+    await expect(
+      app.page.getByRole("button", {
+        name: "Connection: Connected",
+        exact: true,
+      }),
+    ).toBeVisible();
+    const input = app.page
+      .getByRole("tabpanel")
+      .getByLabel("Message", { exact: true });
+    await input.fill("Keep this while I leave the office");
+    await app.page.clock.install();
+    await app.page.context().setOffline(true);
+    await expect(
+      app.page.getByRole("button", {
+        name: "Connection: Disconnected",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await app.page.clock.fastForward(60 * 60 * 1000);
+    await expect(input).toHaveText("Keep this while I leave the office");
+    await app.page.context().setOffline(false);
+    await expect(
+      app.page.getByRole("button", {
+        name: "Connection: Connected",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(input).toHaveText("Keep this while I leave the office");
+    await expect(
+      app.page.getByText("Halo disconnected from its server", { exact: true }),
+    ).toHaveCount(0);
+    expect(await app.server.rpc.sessions.list()).toHaveLength(0);
+  },
+);
+
+e2eTest(
+  "retries an initial transport failure without reloading",
+  async ({ app }) => {
+    await expect(
+      app.page.getByRole("button", {
+        name: "Connection: Connected",
+        exact: true,
+      }),
+    ).toBeVisible();
+    let requests = 0;
+    await app.page.route("**/rpc/server/info", async (route) => {
+      requests++;
+      if (requests === 1) {
+        await route.abort("failed");
+        return;
+      }
+      await route.continue();
+    });
+    await app.page.reload();
+    await expect(
+      app.page.getByRole("button", {
+        name: "Connection: Connected",
+        exact: true,
+      }),
+    ).toBeVisible();
+    expect(requests).toBeGreaterThan(1);
+  },
+);
+
+e2eTest(
+  "accepts an explicitly supported protocol and reports an older server",
+  async ({ app }) => {
+    await app.page.route("**/rpc/server/info", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          json: {
+            protocolVersion: haloProtocolVersion - 1,
+            supportedProtocols: [haloProtocolVersion - 1, haloProtocolVersion],
+          },
+        }),
+      });
+    });
+    await app.page.reload();
+    await expect(
+      app.page.getByRole("button", {
+        name: "Connection: Connected",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await app.page.unroute("**/rpc/server/info");
+    await app.page.route("**/rpc/server/info", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          json: {
+            protocolVersion: haloProtocolVersion - 1,
+            supportedProtocols: [haloProtocolVersion - 1],
+          },
+        }),
+      });
+    });
+    await app.page.evaluate(() =>
+      document.dispatchEvent(new Event("visibilitychange")),
+    );
+    await expect(
+      app.page.getByRole("button", {
+        name: "Connection: Server update required",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await app.page.unroute("**/rpc/server/info");
+    await app.page
+      .getByRole("button", {
+        name: "Connection: Server update required",
+        exact: true,
+      })
+      .click();
+    await app.page
+      .getByRole("button", { name: "Retry now", exact: true })
+      .click();
+    await app.page.getByRole("button", { name: "Close", exact: true }).click();
+    await expect(
+      app.page.getByRole("button", {
+        name: "Connection: Connected",
+        exact: true,
+      }),
+    ).toBeVisible();
+  },
+);
+
+e2eTest(
+  "keeps dirty file edits and checks for conflicts after reconnecting",
+  async ({ app }) => {
+    await app.server.rpc.workspace.writeFile({
+      path: "offline.md",
+      content: "Original",
+    });
+    await app.page
+      .getByRole("link", { name: "offline.md", exact: true })
+      .click();
+    const editor = app.page
+      .getByRole("main", { name: "offline.md" })
+      .getByLabel("offline.md", { exact: true });
+    await expect(editor).toHaveText("Original");
+    await app.page.context().setOffline(true);
+    await expect(
+      app.page.getByRole("button", {
+        name: "Connection: Disconnected",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await editor.fill("My unsaved edit");
+    await app.server.rpc.workspace.writeFile({
+      path: "offline.md",
+      content: "Changed elsewhere",
+    });
+    await app.page.context().setOffline(false);
+    await expect(
+      app.page.getByRole("button", {
+        name: "Connection: Connected",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(editor).toHaveText("My unsaved edit");
+    await app.page
+      .getByRole("button", { name: "Retry save", exact: true })
+      .click();
+    await expect(
+      app.page.getByText(/This file changed on the server/),
+    ).toBeVisible();
+    expect(
+      await app.server.rpc.workspace.readFile({ path: "offline.md" }),
+    ).toBe("Changed elsewhere");
+    await editor.fill("Changed elsewhere");
+    await app.page
+      .getByRole("button", { name: "Retry save", exact: true })
+      .click();
+    await expect(
+      app.page.getByRole("button", { name: "Retry save", exact: true }),
+    ).toHaveCount(0);
+  },
+);
+
+e2eTest(
+  "recovers from a gateway outage and requests sign-in only for unauthorized access",
+  async ({ app }) => {
+    await app.page
+      .getByRole("button", { name: "New session", exact: true })
+      .click();
+    const draft = app.page
+      .getByRole("main", { name: "New session", exact: true })
+      .getByLabel("Message", { exact: true });
+    await draft.fill("Keep this draft through authentication recovery");
+    for (const [status, label] of [
+      [503, "Reconnecting…"],
+      [401, "Sign in required"],
+    ] as const) {
+      await app.page.route("**/rpc/server/info", async (route) => {
+        await route.fulfill({ status, body: "Unavailable" });
+      });
+      await app.page.evaluate(() =>
+        document.dispatchEvent(new Event("visibilitychange")),
+      );
+      const indicator = app.page.getByRole("button", {
+        name: `Connection: ${label}`,
+        exact: true,
+      });
+      await expect(indicator).toBeVisible();
+      await expect(draft).toHaveText(
+        "Keep this draft through authentication recovery",
+      );
+      await app.page.unroute("**/rpc/server/info");
+      await indicator.click();
+      await app.page
+        .getByRole("button", {
+          name: status === 401 ? "Sign in" : "Retry now",
+          exact: true,
+        })
+        .click();
+      await expect(
+        app.page.getByRole("button", {
+          name: "Connection: Connected",
+          exact: true,
+        }),
+      ).toBeVisible();
+      await app.page
+        .getByRole("button", { name: "Close", exact: true })
+        .click();
+    }
+    expect(await app.server.rpc.sessions.list()).toHaveLength(0);
+  },
+);
+
+e2eTest(
+  "validates bootstrap protocol lists and accepts the legacy singleton response",
+  async ({ app }) => {
+    await expect(
+      app.page.getByRole("button", {
+        name: "Connection: Connected",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await app.page.route("**/rpc/server/info", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          json: {
+            protocolVersion: haloProtocolVersion,
+            supportedProtocols: [],
+          },
+        }),
+      });
+    });
+    await app.page.evaluate(() =>
+      document.dispatchEvent(new Event("visibilitychange")),
+    );
+    const indicator = app.page.getByRole("button", {
+      name: "Connection: Reconnecting…",
+      exact: true,
+    });
+    await expect(indicator).toBeVisible();
+    await app.page.unroute("**/rpc/server/info");
+    await app.page.route("**/rpc/server/info", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          json: { protocolVersion: haloProtocolVersion },
+        }),
+      });
+    });
+    await indicator.click();
+    await app.page
+      .getByRole("button", { name: "Retry now", exact: true })
+      .click();
+    await expect(
+      app.page.getByRole("button", {
+        name: "Connection: Connected",
+        exact: true,
+      }),
     ).toBeVisible();
   },
 );

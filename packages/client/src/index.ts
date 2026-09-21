@@ -1,4 +1,12 @@
 export {
+  AuthenticationRequiredError,
+  ConnectionUnavailableError,
+  ConnectionHttpError,
+  serializeConnectionFailure,
+  restoreConnectionFailure,
+  type ConnectionFailureData,
+} from "./connectionErrors.js";
+export {
   checkServerCompatibility,
   acceptsProtocol,
   protocolHeader,

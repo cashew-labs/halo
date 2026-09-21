@@ -1,3 +1,8 @@
+import {
+  AuthenticationRequiredError,
+  ConnectionUnavailableError,
+  ConnectionHttpError,
+} from "./connectionErrors.js";
 import { createORPCClient, onError, ORPCError } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
 import * as errore from "errore";
@@ -20,26 +25,66 @@ type HaloClientOptions = {
   transport: HaloRpcTransport;
   onDisconnect?: (error: Error) => void;
   signal?: AbortSignal;
+  canRequest?: (path: string[]) => boolean;
 };
 
 export function createHaloClient({
   transport,
   onDisconnect,
+  signal,
+  canRequest,
 }: HaloClientOptions): HaloClient {
   const reportDisconnect = (cause: unknown) => {
     if (onDisconnect === undefined) return;
-    if (errore.isAbortError(cause)) return;
+    if (
+      errore.isAbortError(cause) ||
+      cause instanceof ConnectionUnavailableError
+    )
+      return;
     if (
       cause instanceof ORPCError &&
-      cause.code !== "MALFORMED_ORPC_RESPONSE"
+      ![
+        "MALFORMED_ORPC_RESPONSE",
+        "UNAUTHORIZED",
+        "UNSUPPORTED_PROTOCOL",
+      ].includes(cause.code)
     ) {
       return;
     }
-    onDisconnect(new HaloRpcConnectionError({ cause }));
+    onDisconnect(
+      cause instanceof ORPCError && cause.code === "UNAUTHORIZED"
+        ? new AuthenticationRequiredError({ cause })
+        : cause instanceof Error
+          ? cause
+          : new HaloRpcConnectionError({ cause }),
+    );
   };
   const link = new RPCLink({
     origin: transport.origin,
     url: transport.path,
+    fetch: async (url, init, _options, path) => {
+      if (canRequest !== undefined && !canRequest(path))
+        throw new ConnectionUnavailableError();
+      const signals = [init.signal, signal].filter(
+        (value): value is AbortSignal => value !== undefined && value !== null,
+      );
+      const response = await fetch(url, {
+        ...init,
+        signal: AbortSignal.any(signals),
+      });
+      if (response.status === 401) throw new AuthenticationRequiredError();
+      if (
+        response.status === 502 ||
+        response.status === 503 ||
+        response.status === 504
+      )
+        throw new ConnectionHttpError({
+          service: "workspace",
+          stage: "rpc",
+          status: response.status,
+        });
+      return response;
+    },
     headers: {
       [protocolHeader]: String(haloProtocolVersion),
       ...transport.headers,

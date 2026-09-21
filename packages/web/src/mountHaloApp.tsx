@@ -31,16 +31,16 @@ export function mountHaloApp(root: HTMLElement, host: HostApi) {
     <StrictMode>
       <HostProvider host={host}>
         <MauiProvider>
-          <Authentication>
-            <QueryClientProvider client={queryClient}>
+          <QueryClientProvider client={queryClient}>
+            <Authentication>
               <ApiProvider>
                 <HaloRoutes />
                 {import.meta.env.DEV && (
                   <Agentation endpoint="http://127.0.0.1:4747" />
                 )}
               </ApiProvider>
-            </QueryClientProvider>
-          </Authentication>
+            </Authentication>
+          </QueryClientProvider>
         </MauiProvider>
       </HostProvider>
     </StrictMode>,
