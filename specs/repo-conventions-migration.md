@@ -1,5 +1,11 @@
 # Repository conventions progress
 
+## Chat attachments
+
+The sessions prompt API accepts files alongside text. `HaloAgentSession` prepares attachments before submitting the user message: originals are saved under unique workspace `attachments/` paths, text is extracted from documents, and images are normalized into native model image parts. PDFs include extracted text and every rendered page, including image-only scans and vector artwork. File metadata and the original prompt text persist with the message so transcript presentation and session titles do not expose the expanded model context.
+
+The server consumer tests inspect actual inference-provider requests for images, PDF and scanned PDF, Office and OpenDocument files, RTF, EPUB, and text/code exports. They also cover duplicate names, attachment-only messages, restart persistence, invalid files, and size/count limits. Unsupported binary formats are rejected explicitly. Poppler is required for PDF conversion and is already installed in the workspace-server container.
+
 ## Draft chat handoff
 
 The draft chat passes its confirmed session snapshot through the app-owned query cache before navigating to the saved session. The new pane uses that snapshot until its subscription receives fresh server state, then removes the temporary handoff data. This keeps the first message and running state visible across the route change. The Electron session-view regression pauses the replacement subscription and checks that the message remains visible without disappearing or duplicating through the handoff.
