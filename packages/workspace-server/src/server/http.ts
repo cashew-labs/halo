@@ -1,3 +1,10 @@
+import {
+  acceptsProtocol,
+  protocolHeader,
+  haloProtocolVersion,
+  haloSupportedProtocols,
+} from "@get-halo/client";
+import { ORPCError } from "@orpc/server";
 import crypto from "node:crypto";
 import nodeHttp, {
   createServer,
@@ -8,7 +15,10 @@ import nodeHttp, {
 import type { AddressInfo } from "node:net";
 import type { Duplex } from "node:stream";
 import { RPCHandler, type RPCHandlerOptions } from "@orpc/server/node";
-import { CORSHandlerPlugin } from "@orpc/server/plugins";
+import {
+  CORSHandlerPlugin,
+  RequestHeadersHandlerPlugin,
+} from "@orpc/server/plugins";
 import { anyAbortSignal } from "@orpc/shared";
 import { OAuth2Client } from "google-auth-library";
 import * as errore from "errore";
@@ -122,10 +132,27 @@ export function serveHaloHttp(options: {
   ];
   const handler = new RPCHandler<HaloContext>(haloRpcRouter, {
     interceptors,
+    clientInterceptors: [
+      ({ path, context, next }) => {
+        if (
+          path.join(".") !== "server.info" &&
+          !acceptsProtocol({
+            selected: context.reqHeaders?.get(protocolHeader) ?? undefined,
+            supported: haloSupportedProtocols,
+            legacy: haloProtocolVersion,
+          })
+        )
+          throw new ORPCError("UNSUPPORTED_PROTOCOL", {
+            data: { supportedProtocols: haloSupportedProtocols },
+          });
+        return next();
+      },
+    ],
     plugins: [
+      new RequestHeadersHandlerPlugin(),
       new CORSHandlerPlugin({
         origin: options.corsOrigins,
-        allowHeaders: ["authorization", "content-type"],
+        allowHeaders: ["authorization", "content-type", protocolHeader],
       }),
     ],
   });

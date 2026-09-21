@@ -54,6 +54,15 @@ export class TestServer {
     return this.artifacts.harness;
   }
 
+  get transport() {
+    const connection = this.running.server.ready.connections.cli;
+    return {
+      origin: `http://127.0.0.1:${connection.port}`,
+      path: "/rpc" as const,
+      headers: { authorization: `Bearer ${connection.token}` },
+    };
+  }
+
   get rpc() {
     return this.running.rpc;
   }

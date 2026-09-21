@@ -1,3 +1,9 @@
+import { acceptsProtocol, protocolHeader } from "@get-halo/client";
+import {
+  controlPlaneProtocolVersion,
+  controlPlaneSupportedProtocols,
+} from "@get-halo/shared/controlPlaneContract";
+import { ORPCError } from "@orpc/server";
 import fs from "node:fs/promises";
 import http, {
   createServer,
@@ -95,6 +101,22 @@ export function serveControlPlaneHttp(ctx: {
   const { server, auth, publicOrigin, workspace, webRoot, traces } = ctx;
   const upgradeSockets = new Set<Duplex>();
   const rpc = new RPCHandler<ControlPlaneContext>(controlPlaneRpcRouter, {
+    clientInterceptors: [
+      ({ path, context, next }) => {
+        if (
+          path.join(".") !== "server.info" &&
+          !acceptsProtocol({
+            selected: context.reqHeaders?.get(protocolHeader) ?? undefined,
+            supported: controlPlaneSupportedProtocols,
+            legacy: controlPlaneProtocolVersion,
+          })
+        )
+          throw new ORPCError("UNSUPPORTED_PROTOCOL", {
+            data: { supportedProtocols: controlPlaneSupportedProtocols },
+          });
+        return next();
+      },
+    ],
     plugins: [
       new RequestHeadersHandlerPlugin(),
       new ResponseHeadersHandlerPlugin(),

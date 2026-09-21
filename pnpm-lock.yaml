@@ -148,6 +148,9 @@ importers:
 
   apps/control-plane:
     dependencies:
+      '@get-halo/client':
+        specifier: workspace:*
+        version: link:../../packages/client
       '@get-halo/config':
         specifier: workspace:*
         version: link:../../packages/config

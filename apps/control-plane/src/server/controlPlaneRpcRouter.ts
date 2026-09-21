@@ -1,6 +1,7 @@
 import {
   controlPlaneContract,
   controlPlaneProtocolVersion,
+  controlPlaneSupportedProtocols,
   type ControlPlaneSession,
 } from "@get-halo/shared/controlPlaneContract";
 import { implement, ORPCError } from "@orpc/server";
@@ -43,6 +44,7 @@ const os = implementer.use(({ context, next }) => {
 
 const getServerInfo = os.server.info.handler(() => ({
   protocolVersion: controlPlaneProtocolVersion,
+  supportedProtocols: controlPlaneSupportedProtocols,
 }));
 
 const startDesktopSignIn = os.auth.start.handler(async ({ context, input }) => {

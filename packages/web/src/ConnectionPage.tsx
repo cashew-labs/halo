@@ -103,7 +103,7 @@ function DesktopUpdate({
     queryKey: [
       "incompatible-app-update-check",
       error.clientProtocolVersion,
-      error.serverProtocolVersion,
+      error.supportedProtocols,
     ],
     queryFn: async () => {
       const result = await checkForAppUpdate();
@@ -199,7 +199,7 @@ function DesktopUpdate({
 }
 
 function protocolMismatchMessage(error: IncompatibleServerError) {
-  return `This app uses protocol ${error.clientProtocolVersion}, while your server uses protocol ${error.serverProtocolVersion}.`;
+  return `This app uses protocol ${error.clientProtocolVersion}, while the ${error.service} API supports protocols ${error.supportedProtocols.join(", ")}.`;
 }
 
 function updateStatusMessage({

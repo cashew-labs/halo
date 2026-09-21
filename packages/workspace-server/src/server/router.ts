@@ -7,7 +7,12 @@ import {
   browserRouter,
   type BrowserRouterContext,
 } from "../browser/browserRouter.js";
-import { contract, haloProtocolVersion } from "@get-halo/client";
+import {
+  contract,
+  haloProtocolVersion,
+  haloSupportedProtocols,
+} from "@get-halo/client";
+import type { RequestHeadersHandlerPluginContext } from "@orpc/server/plugins";
 import { implement } from "@orpc/server";
 import {
   tracesRouter,
@@ -30,7 +35,8 @@ import {
   type TestApiRouterContext,
 } from "../testing/testApiRouter.js";
 
-export type HaloContext = HotkeysRouterContext &
+export type HaloContext = RequestHeadersHandlerPluginContext &
+  HotkeysRouterContext &
   BrowserRouterContext &
   TracesRouterContext &
   WorkspaceRouterContext &
@@ -41,7 +47,10 @@ export type HaloContext = HotkeysRouterContext &
 const server = implement(contract.server).$context<HaloContext>();
 
 const serverRouter = server.router({
-  info: server.info.handler(() => ({ protocolVersion: haloProtocolVersion })),
+  info: server.info.handler(() => ({
+    protocolVersion: haloProtocolVersion,
+    supportedProtocols: haloSupportedProtocols,
+  })),
   watch: server.watch.handler(({ context, signal }) =>
     watchWorkspace({ context, signal }),
   ),

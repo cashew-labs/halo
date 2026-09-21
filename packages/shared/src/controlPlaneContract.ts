@@ -1,6 +1,8 @@
+import type { ServerInfo } from "@get-halo/client";
 import { error, oc, type, type RouterContractClient } from "@orpc/contract";
 
 export const controlPlaneProtocolVersion = 3 as const;
+export const controlPlaneSupportedProtocols = [controlPlaneProtocolVersion];
 
 export type ControlPlaneSession = {
   session: {
@@ -44,9 +46,7 @@ const authenticatedProcedure = publicProcedure.errors({
 
 export const controlPlaneContract = publicProcedure.router({
   server: {
-    info: oc.output(
-      type<{ protocolVersion: typeof controlPlaneProtocolVersion }>(),
-    ),
+    info: oc.output(type<ServerInfo>()),
   },
   auth: {
     start: publicProcedure
