@@ -8,94 +8,11 @@ Use the [conventions skill](.agents/skills/conventions/SKILL.md) when writing, r
 
 When editing TypeScript that handles failures, also read the [errore skill](.agents/skills/errore/SKILL.md).
 
+When reviewing a pull request or branch diff, use the [codex-review skill](.agents/skills/codex-review/SKILL.md).
+
 ## Code Review Rules
 
-Codex GitHub review and `codex review` follow this section. The conventions handbook at `.agents/skills/conventions/` is the source of truth. Start at `SKILL.md`. Read only the reference pages that apply to the changed files.
-
-If the diff introduces a violation of those pages:
-
-- Treat it as P1 so GitHub review posts it. Treat a new package, authority, or persistent-state boundary that contradicts the handbook as P0.
-- Cite the page path and the violating symbol or import.
-- Do not restate the handbook in the comment.
-- Do not invent extra rules.
-- Do not flag pre-existing mismatches that the change does not expand. Those are tracked in `specs/repo-conventions-migration.md`.
-- Leave formatting, lint, and typecheck to CI.
-
-Apply the change in front of you. Do not require a repo-wide conventions migration.
-
-### Packages
-
-Source: `.agents/skills/conventions/references/packages.md`
-
-- Do not add a package that only forwards another library or exists so an internal test can be labeled an E2E.
-  Safe path: call the library from the owning service.
-- Keep deployable hosts in `apps/`, reusable code in `packages/`, and deployment configuration in `infra/`. Reusable packages must not import app internals.
-  Safe path: move shared behavior into a package, or keep host-only code in the app.
-- Consumers import a package's supported public entry, not internal files.
-  Safe path: export the needed contract from the package root, or document a runtime-split export.
-
-### Services
-
-Source: `.agents/skills/conventions/references/services.md`
-
-- Human UI, agents, CLI, SDK, and MCP must reach the same owning service for a product operation. Do not add a parallel path that bypasses it.
-  Safe path: add a transport or permission check, then call the existing operation.
-- A shared dependency has one owner. Children borrow it. Do not open a second connection, database, or listener for the same resource, and do not move it into a process-global singleton.
-  Safe path: construct the resource in the lowest common owner and pass it in.
-- Importing a reusable package must not read deployment configuration, touch disk, or start services.
-  Safe path: the host supplies capabilities and configuration at startup.
-- Test-only authority belongs on an explicit `testApi` namespace, gated by a startup option that is disabled by default.
-  Safe path: enable `testApi` in fixtures; keep it off in normal hosts.
-
-### State
-
-Source: `.agents/skills/conventions/references/state.md`
-
-- Keep mutable runtime state on service instances, not module globals.
-  Safe path: own the client or cache on the host or service instance.
-- Humans and agents share the same product state. Do not add an agent-only store for workspace data.
-  Safe path: persist in the chosen workspace filesystem.
-- Use `SerialQueue` from `@get-halo/shared/SerialQueue` for ordered mutations. Name a class's single queue `actionQueue`. Public methods stay semantic. Already-queued work calls `*Unqueued` helpers and must not re-enter a method that enqueues on the same queue.
-  Safe path: inline the ordered work, or extract `*Unqueued` when it is shared.
-- Do not hold the control queue across long-running model calls, tools, or subscriptions.
-  Safe path: enqueue setup or state commits only; run the long work off-queue.
-
-### TypeScript and errors
-
-Source: `.agents/skills/conventions/references/typescript.md`
-
-- Halo is pre-1.0. Do not add compatibility shims or migration branches unless the task requires them.
-  Safe path: rebuild obsolete state.
-- Expected failures return `Value | DomainError` with `errore`. Do not throw expected failures or wrap them in a Result type. Import `errore` as a namespace. Convert throwing external APIs at the call boundary with `.catch()` or `errore.try`, not a `try`/`catch` around the whole operation.
-  Safe path: return tagged domain errors with `cause`; `instanceof Error` early-return on the caller.
-- Use `using` / `await using` with `errore.DisposableStack` or `errore.AsyncDisposableStack` for cleanup, not `try`/`finally`.
-- Use `undefined` for absence. Keep `null` only at external APIs that require it.
-
-### Tests
-
-Source: `.agents/skills/conventions/references/testing.md`
-
-- Drive package tests through the public exports. Do not import private modules or expose internals solely to test them.
-  Safe path: test the consumer API. Extract a package only when the internal contract could stand alone.
-- Use one canonical fixture per package. Do not add alternate fixtures that mount an internal subset.
-  Safe path: extend the existing fixture, or use a runtime-gated `testApi` on the normal client.
-- Assert consumer-visible results. Do not assert spies on internal calls or private database rows.
-- Do not mock internal services. Control unavailable externals at the host boundary.
-
-### Environments
-
-Source: `.agents/skills/conventions/references/environments.md`
-
-- Do not read arguments, environment variables, files, or secrets by importing a reusable module.
-  Safe path: read configuration in the host startup function and pass it in.
-- Test fixtures call the same programmatic host APIs as development. They must not shell out to the development CLI.
-
-### Research
-
-Source: `.agents/skills/conventions/references/research.md`
-
-- Flag new wrappers, retries, fallbacks, or compatibility logic around an external dependency when the diff does not show that the dependency requires them.
-  Safe path: call the library directly, or cite the dependency behavior that makes the ceremony necessary.
+Use the [codex-review skill](.agents/skills/codex-review/SKILL.md).
 
 ## Writing Rules
 
@@ -115,7 +32,6 @@ integration marks. Download them from [SVGL](https://svgl.app/) into
 - `pnpm review:compare <upstream.md> <custom.md> --root <source-workspace>` - Serve both review versions on ports 4178 and 4179 when a comparison is requested. Use the [diffmap-compare skill](.agents/skills/diffmap-compare/SKILL.md) to author both documents from the same changes.
 - `pnpm spec <file>` / `pnpm walkthrough <file>` / `pnpm exec diffmap <file>` - Serve a spec or code walkthrough as a local Diffmap page.
 - `pnpm prerelease <version>` - Run from a clean, up-to-date `main` branch to create and open a release PR that bumps the desktop version and pins the production images. CI tests the PR and previews Pulumi. Merging deploys the control plane and workspace VMs before publishing the desktop application and matching GitHub tag. Packaged apps check for updates via `update.electronjs.org`.
-- `@codex review` on a GitHub pull request starts a Codex code review. Locally, `codex review --base main` reviews the branch diff against `main`. Both follow the Code Review Rules above.
 
 ## Working Style
 
