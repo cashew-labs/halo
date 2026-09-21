@@ -14,8 +14,9 @@
     "format:check": "oxfmt --check .",
     "lint": "NODE_OPTIONS=--experimental-strip-types oxlint --deny-warnings src test",
     "lint:fix": "NODE_OPTIONS=--experimental-strip-types oxlint --fix src test",
-    "test": "pnpm run test:e2e",
-    "test:e2e": "vitest run --reporter=agent",
+    "test": "vitest run --exclude '**/fixtures.test.ts' --reporter=agent",
+    "test:unit": "vitest run --dir src --exclude '**/fixtures.test.ts' --reporter=agent",
+    "test:e2e": "vitest run --dir test --reporter=agent",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

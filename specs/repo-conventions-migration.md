@@ -1,5 +1,11 @@
 # Repository conventions progress
 
+## Native test fixtures
+
+Repository testing conventions now require Vitest or Playwright's native fixture API for test setup and teardown. File-local fixtures live near the top of their test file and use a fixture-specific extended test name. Fixtures shared by multiple E2Es are consolidated in `test/fixtures.ts`; source-local fixtures and other test helpers use a `*.test.ts` suffix and are explicitly excluded from test discovery.
+
+Package E2Es live under `test/` as `*.spec.ts` and enter through the package's main export. File-level unit tests live beside their source as `<MainExport>.test.ts` and treat that export as a consumer API rather than testing implementation details. This layout applies as tests are added or changed; unrelated legacy tests are not part of the migration. The migration algorithm coverage now uses a file-local `migrationTest` fixture in `src/storage/Migration.test.ts`. Pi's backend conformance coverage lives beside `TursoSessionRepo` and `TursoStorage` and shares the native `piBackendTest` fixture from `src/storage/fixtures.test.ts`. Both fixtures own their temporary files, database connections, and cleanup.
+
 ## Chat-configurable hotkeys
 
 Implemented a workspace-owned `HotkeyService` that borrows the server's database. Chat tools and RPC clients share its validation and persistence operations. A per-service queue orders writes and initial subscriptions; clients receive committed snapshots over a reconnecting stream. Each desktop window owns its native keyboard bindings, and the shortcuts menu derives from the same saved state.

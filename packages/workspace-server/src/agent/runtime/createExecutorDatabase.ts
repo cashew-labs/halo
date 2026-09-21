@@ -10,10 +10,8 @@ import {
   type ExecutorFumaDb,
 } from "@executor-js/sdk/host-internal";
 import { drizzle } from "drizzle-orm/better-sqlite3";
-import type {
-  DatabaseClient,
-  DatabaseError,
-} from "../../storage/DatabaseClient.js";
+import type { DatabaseClient } from "../../storage/DatabaseClient.js";
+import type { DatabaseError } from "../../storage/DatabaseError.js";
 
 export async function createExecutorDatabase<T extends FumaTables>(
   client: DatabaseClient,
