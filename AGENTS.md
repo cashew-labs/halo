@@ -10,10 +10,6 @@ When editing TypeScript that handles failures, also read the [errore skill](.age
 
 When reviewing a pull request or branch diff, use the [code-review skill](.agents/skills/code-review/SKILL.md).
 
-## Code Review Rules
-
-Use the [code-review skill](.agents/skills/code-review/SKILL.md).
-
 ## Writing Rules
 
 Always adhere to ISO 24495-1 Technical Language Standard for responses, except the 80-column layout instruction.
