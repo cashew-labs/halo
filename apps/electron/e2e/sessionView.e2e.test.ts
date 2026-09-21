@@ -1,7 +1,63 @@
-import { expect, type Locator } from "@playwright/test";
+import { expect, type Locator, type Route } from "@playwright/test";
 import { e2eTest } from "./e2eTest.js";
 import { m } from "@get-halo/shared/testing";
 import { messageText } from "@get-halo/workspace-server/testing";
+
+e2eTest(
+  "keeps the first message visible while the saved session reconnects",
+  async ({ app, llm }) => {
+    await app.page
+      .getByRole("button", { name: "New session", exact: true })
+      .click();
+    const subscriptions: Route[] = [];
+    await app.page.route("**/rpc/sessions/watch", async (route) => {
+      subscriptions.push(route);
+      if (subscriptions.length === 2) return;
+      await route.continue();
+    });
+
+    const prompt = "Keep this message on screen";
+    const observed = await app.page.evaluateHandle((text) => {
+      const counts: number[] = [];
+      const observer = new MutationObserver(() => {
+        const count = [
+          ...document.querySelectorAll('article[aria-label="You message"]'),
+        ].filter((element) => element.textContent === text).length;
+        if (count > 0 || counts.length > 0) counts.push(count);
+      });
+      observer.observe(document.body, {
+        subtree: true,
+        childList: true,
+        characterData: true,
+      });
+      return { counts, observer };
+    }, prompt);
+    const pane = app.page.getByRole("main");
+    await pane.getByLabel("Message", { exact: true }).fill(prompt);
+    await pane.getByRole("button", { name: "Send", exact: true }).click();
+    await expect.poll(() => subscriptions.length).toBe(2);
+
+    const message = pane.getByRole("article", { name: "You message" });
+    await expect(message).toHaveText(prompt);
+    await expect(message).toBeVisible();
+    await expect(
+      pane.getByRole("button", { name: "Stop", exact: true }),
+    ).toBeVisible();
+    await subscriptions[1]!.continue();
+    await llm.respond(m.assistant("The message stayed visible."));
+    await expect(
+      pane.getByRole("log", { name: "Session transcript" }),
+    ).toContainText("The message stayed visible.");
+    await expect(message).toHaveCount(1);
+    const observedCounts = await observed.evaluate(({ counts, observer }) => {
+      observer.disconnect();
+      return counts;
+    });
+    expect(observedCounts.length).toBeGreaterThan(0);
+    expect(observedCounts.every((count) => count === 1)).toBe(true);
+    await observed.dispose();
+  },
+);
 
 e2eTest(
   "preserves the reading position during streaming and follows again at the bottom",
