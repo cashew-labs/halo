@@ -225,14 +225,14 @@ e2eTest(
     await editor.press("End");
     await app.page.context().setOffline(true);
     await expect(
-      app.page.getByRole("button", {
+      app.page.getByRole("status", {
         name: "Connection: Disconnected",
         exact: true,
       }),
     ).toBeVisible();
     await app.page.context().setOffline(false);
     await expect(
-      app.page.getByRole("button", {
+      app.page.getByRole("status", {
         name: "Connection: Connected",
         exact: true,
       }),
@@ -2567,7 +2567,7 @@ e2eTest(
   "recovers after returning online without losing the draft",
   async ({ app }) => {
     await expect(
-      app.page.getByRole("button", {
+      app.page.getByRole("status", {
         name: "Connection: Connected",
         exact: true,
       }),
@@ -2579,7 +2579,7 @@ e2eTest(
     await app.page.clock.install();
     await app.page.context().setOffline(true);
     await expect(
-      app.page.getByRole("button", {
+      app.page.getByRole("status", {
         name: "Connection: Disconnected",
         exact: true,
       }),
@@ -2588,7 +2588,7 @@ e2eTest(
     await expect(input).toHaveText("Keep this while I leave the office");
     await app.page.context().setOffline(false);
     await expect(
-      app.page.getByRole("button", {
+      app.page.getByRole("status", {
         name: "Connection: Connected",
         exact: true,
       }),
@@ -2605,7 +2605,7 @@ e2eTest(
   "retries an initial transport failure without reloading",
   async ({ app }) => {
     await expect(
-      app.page.getByRole("button", {
+      app.page.getByRole("status", {
         name: "Connection: Connected",
         exact: true,
       }),
@@ -2621,7 +2621,7 @@ e2eTest(
     });
     await app.page.reload();
     await expect(
-      app.page.getByRole("button", {
+      app.page.getByRole("status", {
         name: "Connection: Connected",
         exact: true,
       }),
@@ -2647,7 +2647,7 @@ e2eTest(
     });
     await app.page.reload();
     await expect(
-      app.page.getByRole("button", {
+      app.page.getByRole("status", {
         name: "Connection: Connected",
         exact: true,
       }),
@@ -2684,9 +2684,8 @@ e2eTest(
     await app.page
       .getByRole("button", { name: "Retry now", exact: true })
       .click();
-    await app.page.getByRole("button", { name: "Close", exact: true }).click();
     await expect(
-      app.page.getByRole("button", {
+      app.page.getByRole("status", {
         name: "Connection: Connected",
         exact: true,
       }),
@@ -2710,7 +2709,7 @@ e2eTest(
     await expect(editor).toHaveText("Original");
     await app.page.context().setOffline(true);
     await expect(
-      app.page.getByRole("button", {
+      app.page.getByRole("status", {
         name: "Connection: Disconnected",
         exact: true,
       }),
@@ -2722,7 +2721,7 @@ e2eTest(
     });
     await app.page.context().setOffline(false);
     await expect(
-      app.page.getByRole("button", {
+      app.page.getByRole("status", {
         name: "Connection: Connected",
         exact: true,
       }),
@@ -2767,31 +2766,31 @@ e2eTest(
       await app.page.evaluate(() =>
         document.dispatchEvent(new Event("visibilitychange")),
       );
-      const indicator = app.page.getByRole("button", {
-        name: `Connection: ${label}`,
-        exact: true,
-      });
+      const indicator = app.page.getByRole(
+        status === 401 ? "button" : "status",
+        {
+          name: `Connection: ${label}`,
+          exact: true,
+        },
+      );
       await expect(indicator).toBeVisible();
       await expect(draft).toHaveText(
         "Keep this draft through authentication recovery",
       );
       await app.page.unroute("**/rpc/server/info");
-      await indicator.click();
-      await app.page
-        .getByRole("button", {
-          name: status === 401 ? "Sign in" : "Retry now",
-          exact: true,
-        })
-        .click();
+      if (status === 401) {
+        await indicator.click();
+        await app.page
+          .getByRole("button", { name: "Sign in", exact: true })
+          .click();
+      }
       await expect(
-        app.page.getByRole("button", {
+        app.page.getByRole("status", {
           name: "Connection: Connected",
           exact: true,
         }),
       ).toBeVisible();
-      await app.page
-        .getByRole("button", { name: "Close", exact: true })
-        .click();
+      await expect(app.page.getByRole("dialog")).toHaveCount(0);
     }
     expect(await app.server.rpc.sessions.list()).toHaveLength(0);
   },
@@ -2801,7 +2800,7 @@ e2eTest(
   "validates bootstrap protocol lists and accepts the legacy singleton response",
   async ({ app }) => {
     await expect(
-      app.page.getByRole("button", {
+      app.page.getByRole("status", {
         name: "Connection: Connected",
         exact: true,
       }),
@@ -2821,7 +2820,7 @@ e2eTest(
     await app.page.evaluate(() =>
       document.dispatchEvent(new Event("visibilitychange")),
     );
-    const indicator = app.page.getByRole("button", {
+    const indicator = app.page.getByRole("status", {
       name: "Connection: Reconnecting…",
       exact: true,
     });
@@ -2836,12 +2835,8 @@ e2eTest(
         }),
       });
     });
-    await indicator.click();
-    await app.page
-      .getByRole("button", { name: "Retry now", exact: true })
-      .click();
     await expect(
-      app.page.getByRole("button", {
+      app.page.getByRole("status", {
         name: "Connection: Connected",
         exact: true,
       }),
@@ -2852,6 +2847,13 @@ e2eTest(
 e2eTest(
   "reports a stopped server only through the connection indicator",
   async ({ app, server }) => {
+    const connected = app.page.getByRole("status", {
+      name: "Connection: Connected",
+      exact: true,
+    });
+    await connected.click();
+    await expect(app.page.getByRole("dialog")).toHaveCount(0);
+    await expect(connected).not.toHaveAttribute("tabindex", "0");
     await app.page
       .getByRole("button", { name: "New session", exact: true })
       .click();
@@ -2862,11 +2864,18 @@ e2eTest(
     const stopped = await server.close();
     if (stopped instanceof Error) throw stopped;
     await expect(
-      app.page.getByRole("button", {
+      app.page.getByRole("status", {
         name: "Connection: Reconnecting…",
         exact: true,
       }),
     ).toBeVisible();
+    await app.page
+      .getByRole("status", {
+        name: "Connection: Reconnecting…",
+        exact: true,
+      })
+      .click();
+    await expect(app.page.getByRole("dialog")).toHaveCount(0);
     await expect(draft).toHaveText("Keep this draft when the server stops");
     await expect(
       app.page.getByText("Extensions: Workspace updates stream disconnected.", {
