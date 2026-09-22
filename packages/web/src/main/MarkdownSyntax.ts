@@ -168,9 +168,9 @@ class SyntaxController {
       !this.source.contains(event.target)
     ) {
       // Nested contenteditables otherwise retain focus when clicking their outer editor.
-      // Focus the outer editor before its normal mouse handler places the selection.
+      // Focus without scrolling before the normal mouse handler places the new selection.
       this.source.blur();
-      this.view.dom.focus();
+      this.view.dom.focus({ preventScroll: true });
     }
   };
   private pointerUp = (event: PointerEvent) => {
