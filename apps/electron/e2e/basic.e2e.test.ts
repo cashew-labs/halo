@@ -2732,7 +2732,7 @@ e2eTest(
     ]);
     await app.page.context().setOffline(true);
     await expect(
-      app.page.getByRole("button", {
+      app.page.getByRole("status", {
         name: "Connection: Disconnected",
         exact: true,
       }),
