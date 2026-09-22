@@ -3,6 +3,7 @@ import {
   useRef,
   useState,
   type DragEvent,
+  type MouseEvent,
   type CSSProperties,
 } from "react";
 import { Router } from "wouter";
@@ -131,6 +132,40 @@ export function PaneWorkspace({ sessions }: { sessions: SessionSummary[] }) {
   }
 
   const chrome = usePaneStyles();
+
+  function openFileLink(event: MouseEvent, paneId: string, sourcePath: string) {
+    if (event.type === "click" ? event.button !== 0 : event.button !== 1)
+      return;
+    const link =
+      event.target instanceof Element
+        ? event.target.closest("a[href]")
+        : undefined;
+    if (!(link instanceof HTMLAnchorElement)) return;
+    const href = link.getAttribute("href")?.trim();
+    if (!href) return;
+    let path: string;
+    if (href.startsWith("#/files/")) path = href.slice(1);
+    else if (href.startsWith("/files/")) path = href;
+    else {
+      if (
+        /^(?:[a-z][a-z0-9+.-]*:|\/\/|#)/i.test(href) ||
+        /^\/(?:sessions|draft|extensions)\//.test(href)
+      )
+        return;
+      const documentPath = sourcePath.startsWith("/files/")
+        ? decodeURIComponent(sourcePath.slice(7))
+            .split("/")
+            .map(encodeURIComponent)
+            .join("/")
+        : "";
+      const base = new URL(documentPath, "https://workspace.invalid/");
+      path = `/files${new URL(href, base).pathname}`;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    workspace.select(paneId);
+    workspace.open({ path, newTab: true });
+  }
 
   return (
     <div
@@ -313,6 +348,10 @@ export function PaneWorkspace({ sessions }: { sessions: SessionSummary[] }) {
             }}
             onPointerDownCapture={() => workspace.select(pane.id)}
             onFocusCapture={() => workspace.select(pane.id)}
+            onClickCapture={(event) => openFileLink(event, pane.id, tab.path)}
+            onAuxClickCapture={(event) =>
+              openFileLink(event, pane.id, tab.path)
+            }
           >
             <TabVisibilityContext value={pane.activeTabId === tab.id}>
               <TabRouteContext value={tab.id}>

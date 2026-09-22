@@ -1,4 +1,5 @@
 import type { Hotkey, HotkeyInput } from "./hotkeys.js";
+import type { ChatPrompt } from "./chatAttachments.js";
 import type { WorkspaceFilePreview } from "./rpc.js";
 import {
   asyncIteratorObject,
@@ -22,7 +23,7 @@ import type {
   WorkspaceTreeEvent,
 } from "./rpc.js";
 
-export const haloProtocolVersion = 17 as const;
+export const haloProtocolVersion = 18 as const;
 
 export const RequestRejectedError = error("BAD_REQUEST", {
   message: "Halo could not complete the request.",
@@ -150,7 +151,7 @@ export const contract = publicProcedure.router({
     watch: oc
       .input(type<{ sessionId: string }>())
       .output(asyncIteratorObject(type<SessionWatchItem>())),
-    prompt: oc.input(type<{ sessionId: string; text: string }>()),
+    prompt: oc.input(type<ChatPrompt & { sessionId: string }>()),
     startConnection: oc
       .input(
         type<{

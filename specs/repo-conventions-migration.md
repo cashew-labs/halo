@@ -10,6 +10,22 @@ Repository testing conventions now require Vitest or Playwright's native fixture
 
 Package E2Es live under `test/` as `*.spec.ts` and enter through the package's main export. File-level unit tests live beside their source as `<MainExport>.test.ts` and treat that export as a consumer API rather than testing implementation details. This layout applies as tests are added or changed; unrelated legacy tests are not part of the migration. The migration algorithm coverage now uses a file-local `migrationTest` fixture in `src/storage/Migration.test.ts`. Pi's backend conformance coverage lives beside `TursoSessionRepo` and `TursoStorage` and shares the native `piBackendTest` fixture from `src/storage/fixtures.test.ts`. Both fixtures own their temporary files, database connections, and cleanup.
 
+## Chat attachments
+
+The sessions prompt API accepts files alongside text. `HaloAgentSession` prepares attachments before submitting the user message: originals are saved under unique workspace `attachments/` paths, text is extracted from documents, and images are normalized into native model image parts. PDFs include extracted text and every rendered page, including image-only scans and vector artwork. File metadata and the original prompt text persist with the message so transcript presentation and session titles do not expose the expanded model context.
+
+The server consumer tests inspect actual inference-provider requests for images, PDF and scanned PDF, Office and OpenDocument files, RTF, EPUB, and text/code exports. They also cover duplicate names, attachment-only messages, restart persistence, invalid files, and size/count limits. Unsupported binary formats are rejected explicitly. Poppler is required for PDF conversion and is already installed in the workspace-server container.
+
+Workspace file links in tab content open or focus a separate tab in the same pane. The pane owner handles chat attachments, Markdown file links, and relative document paths before editors or routers consume the click. Electron tests cover original-tab and draft preservation, encoded filenames, middle-click, and reusing an already-open attachment.
+
+The file-drop overlay uses a translucent surface so the chat stays visible. File drag-over events are captured before they reach the editor, preventing its insertion cursor from appearing. The existing Electron file-drop flow covers dragging over the composer.
+
+The shared chat pane owns pending files and accepts drops anywhere in the pane, file-picker selection, and pasted files. Users can remove individual files, send attachments without text, and open saved originals from transcript links. Failed preparation keeps the draft and file selection. Client message IDs correlate stream acknowledgements with submissions, releasing the composer when the user message is committed while the model continues; late prompt responses cannot clear a newer draft. Electron tests cover the complete paths through the real server and inspect inference requests after reload.
+
+## Draft chat handoff
+
+The draft chat passes its confirmed session snapshot through the app-owned query cache before navigating to the saved session. The new pane uses that snapshot until its subscription receives fresh server state, then removes the temporary handoff data. This keeps the first message and running state visible across the route change. The Electron session-view regression pauses the replacement subscription and checks that the message remains visible without disappearing or duplicating through the handoff.
+
 ## Chat-configurable hotkeys
 
 Implemented a workspace-owned `HotkeyService` that borrows the server's database. Chat tools and RPC clients share its validation and persistence operations. A per-service queue orders writes and initial subscriptions; clients receive committed snapshots over a reconnecting stream. Each desktop window owns its native keyboard bindings, and the shortcuts menu derives from the same saved state.
@@ -27,3 +43,5 @@ Agent-action coverage in those same files checks persisted instructions, chat-dr
 The renderer consumes one `server.watch` stream for hotkeys, extension snapshots, session summaries, and filesystem changes. Existing owners retain snapshot ordering and buffer their updates; disconnecting aborts and disposes every constituent subscription. This avoids exhausting browser HTTP connections with independent app-wide streams and leaves capacity for agent prompts and cancellation in split panes. The server consumer test covers initial snapshots, hotkey updates, reconnect, and cancellation; the desktop regression covers launching and stopping an agent hotkey with two visible chats.
 
 The shortcuts popup is a read-only list. Clicking labels, key badges, or popup content does not run actions or dismiss it. Clicking the backdrop or pressing Escape dismisses it. The existing desktop flow covers these interactions.
+
+HEIC and HEIF chat photos use a portable HEVC decoder because the prebuilt image library omits that codec. The workspace consumer tests verify both extensions reach the inference provider as native JPEG image parts.

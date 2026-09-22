@@ -3,8 +3,8 @@
   "version": "0.1.52",
   "private": true,
   "description": "Halo desktop app",
-  "license": "MIT",
-  "author": "Saffron Health",
+  "license": "Apache-2.0",
+  "author": "Saffron Health, Inc.",
   "repository": {
     "type": "git",
     "url": "https://github.com/cashew-labs/halo.git"

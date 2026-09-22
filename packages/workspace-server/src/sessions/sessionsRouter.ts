@@ -66,7 +66,7 @@ export const sessionsRouter = os.router({
     if (session instanceof Error) return orpcErrors.badRequest(session);
     const prompted = await runWithSignal(
       signal,
-      async () => await session.prompt(input.text),
+      async () => await session.prompt(input),
     );
     if (prompted instanceof Error) return orpcErrors.badRequest(prompted);
   }),

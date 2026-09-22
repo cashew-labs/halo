@@ -10,7 +10,12 @@ import {
 import { laneState } from "@earendil-works/pi-agent-core/harness/session";
 import { Stream } from "@get-halo/shared/Stream";
 import { SerialQueue } from "@get-halo/shared/SerialQueue";
-import type { SessionSummary, SessionSummariesUpdate } from "@get-halo/client";
+import {
+  chatPromptTitle,
+  type HaloMessage,
+  type SessionSummary,
+  type SessionSummariesUpdate,
+} from "@get-halo/client";
 import {
   HaloAgentSession,
   CreateAgentSessionError,
@@ -317,7 +322,7 @@ function applySummaryEvent(
       const message = entry.type === "message" ? entry.message : undefined;
       const title =
         summary.title ??
-        (message?.role === "user" ? contentText(message.content) : undefined);
+        (message?.role === "user" ? userTitle(message) : undefined);
       return {
         ...summary,
         title: title?.trim().length === 0 ? undefined : title,
@@ -344,7 +349,7 @@ async function readSessionSummary(session: Session, cwd: string) {
   );
   const firstMessage =
     first?.type === "message" && first.message.role === "user"
-      ? contentText(first.message.content)
+      ? userTitle(first.message)
       : "";
   const title = name === undefined ? firstMessage : name;
   const latest = entries.at(-1);
@@ -364,4 +369,12 @@ async function readSessionSummary(session: Session, cwd: string) {
       latest === undefined ? session.metadata.createdAt : latest.timestamp,
     ).toISOString(),
   };
+}
+
+function userTitle(message: Extract<HaloMessage, { role: "user" }>) {
+  if (message.attachments === undefined) return contentText(message.content);
+  return chatPromptTitle({
+    text: message.displayText ?? contentText(message.content),
+    files: message.attachments,
+  });
 }
