@@ -3234,3 +3234,66 @@ e2eTest(
     ).toHaveCount(0);
   },
 );
+
+e2eTest(
+  "keeps a long note scrolled when clicking out of active Markdown syntax",
+  async ({ app }) => {
+    const path = "scroll.md";
+    const filler = Array.from(
+      { length: 60 },
+      (_, index) => `Paragraph ${index}.`,
+    ).join("\n\n");
+    const original = `${filler}\n\n**Bold target**\n\nPlain click target.\n\n**Second bold target**\n\n${filler}`;
+    await app.server.rpc.workspace.writeFile({ path, content: original });
+    await app.page.getByRole("link", { name: path, exact: true }).click();
+    const pane = app.page.getByRole("main", { name: path, exact: true });
+    const editor = pane.getByLabel(path, { exact: true });
+    const scroll = pane.getByTestId("file-page-content").locator("..");
+    const bold = editor
+      .locator("strong")
+      .getByText("Bold target", { exact: true });
+    await bold.evaluate((element) =>
+      element.scrollIntoView({ block: "center" }),
+    );
+    const before = await scroll.evaluate((element) => element.scrollTop);
+    expect(before).toBeGreaterThan(1000);
+    await bold.click();
+    const syntax = editor.getByRole("textbox", { name: "Markdown syntax" });
+    await expect(syntax).toBeFocused();
+    await expect(syntax).toHaveText("**Bold target**");
+    const second = editor.getByText("Second bold target", { exact: true });
+    const secondBox = await second.boundingBox();
+    expect(secondBox).not.toBeNull();
+    await app.page.mouse.click(
+      secondBox!.x + secondBox!.width / 2,
+      secondBox!.y + secondBox!.height / 2,
+    );
+    await expect(syntax).toBeFocused();
+    await expect(syntax).toHaveText("**Second bold target**");
+    expect(
+      Math.abs(
+        (await scroll.evaluate((element) => element.scrollTop)) - before,
+      ),
+    ).toBeLessThan(2);
+    const target = editor.getByText("Plain click target.", { exact: true });
+    const box = await target.boundingBox();
+    expect(box).not.toBeNull();
+    // Real pointer coordinates preserve the viewport; locator.click can scroll a target back into view.
+    await app.page.mouse.click(
+      box!.x + box!.width / 2,
+      box!.y + box!.height / 2,
+    );
+    await expect(syntax).toHaveCount(0);
+    expect(
+      Math.abs(
+        (await scroll.evaluate((element) => element.scrollTop)) - before,
+      ),
+    ).toBeLessThan(2);
+    await expect(target).toBeInViewport();
+    await app.page.keyboard.type(" Edited");
+    await expect(target).toHaveCount(0);
+    await expect
+      .poll(async () => await app.server.rpc.workspace.readFile({ path }))
+      .toContain("Plain click target. Edited");
+  },
+);
