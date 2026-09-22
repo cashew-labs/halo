@@ -39,6 +39,7 @@ export type WorkspaceServerConfig = {
   workspaceRoot: string;
   appDataDir: string;
   appVersion: string;
+  build?: { version: string; revision: string };
   ownerUserId: string;
   host: string;
   port: number;
@@ -277,6 +278,7 @@ export class WorkspaceServer {
     const requests = serveHaloHttp({
       ...http,
       context: {
+        build: config.build,
         hotkeys,
         traces,
         browsers,

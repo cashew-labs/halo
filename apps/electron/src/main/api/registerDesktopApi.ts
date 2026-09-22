@@ -1,7 +1,11 @@
 import { BrowserWindow, ipcMain, type IpcMainInvokeEvent } from "electron";
 import { Value } from "@sinclair/typebox/value";
 import * as errore from "errore";
-import { createHaloClient, type HaloClient } from "@get-halo/client";
+import {
+  createHaloClient,
+  serializeConnectionFailure,
+  type HaloClient,
+} from "@get-halo/client";
 import {
   DESKTOP_CHANNEL,
   desktopRequestSchema,
@@ -46,6 +50,11 @@ export function registerDesktopApi(args: {
       authentication: args.authentication,
       getConnection: args.getConnection,
     });
+    if (
+      result instanceof Error &&
+      ["getConnection", "getAuthSession", "signIn"].includes(request.type)
+    )
+      return serializeConnectionFailure(result);
     if (result instanceof Error) throw result;
     return result;
   });

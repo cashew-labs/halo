@@ -3,6 +3,7 @@ import { type Static, Type } from "@sinclair/typebox";
 import {
   connectionRequestSchema,
   type Hotkey,
+  type ConnectionFailureData,
   type ConnectionRequest,
   type ConnectionStarted,
 } from "@get-halo/client";
@@ -75,9 +76,13 @@ export type CancelIntegrationRequest = Extract<
 export type DesktopBridge = {
   setHotkeys: (hotkeys: Hotkey[]) => void;
   onShortcut: (listener: (shortcut: ShortcutId) => void) => () => void;
-  getConnection: () => Promise<HaloRpcConnection | undefined>;
-  getAuthSession: () => Promise<ControlPlaneSession | undefined>;
-  signIn: () => Promise<ControlPlaneSession>;
+  getConnection: () => Promise<
+    HaloRpcConnection | ConnectionFailureData | undefined
+  >;
+  getAuthSession: () => Promise<
+    ControlPlaneSession | ConnectionFailureData | undefined
+  >;
+  signIn: () => Promise<ControlPlaneSession | ConnectionFailureData>;
   getAppInfo: () => Promise<AppInfo>;
   checkForAppUpdate: () => Promise<void>;
   installAppUpdate: () => Promise<void>;

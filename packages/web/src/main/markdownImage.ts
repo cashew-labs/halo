@@ -14,11 +14,11 @@ type PastePlaceholder =
   | { remove: string };
 
 export function markdownImage(options: {
-  api: HaloClient;
+  client: { current: HaloClient };
   documentPath: string;
   onError: (message: string | undefined) => void;
 }) {
-  const { api, documentPath, onError } = options;
+  const { client, documentPath, onError } = options;
   const placeholders = new PluginKey<DecorationSet>("imagePaste");
 
   return Image.extend({
@@ -51,7 +51,7 @@ export function markdownImage(options: {
             "https://workspace.invalid/",
           );
           const path = decodeURIComponent(new URL(src, base).pathname.slice(1));
-          const preview = await api.workspace
+          const preview = await client.current.workspace
             .previewFile({ path })
             .catch(
               (cause) => new MarkdownImageError({ operation: "load", cause }),
@@ -127,7 +127,7 @@ export function markdownImage(options: {
               const save = async () => {
                 const results = await Promise.all(
                   files.map(async (file) => {
-                    const saved = await api.workspace
+                    const saved = await client.current.workspace
                       .saveImage({ documentPath, file })
                       .catch(
                         (cause) =>

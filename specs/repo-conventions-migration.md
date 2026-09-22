@@ -35,3 +35,7 @@ The renderer consumes one `server.watch` stream for hotkeys, extension snapshots
 The shortcuts popup is a read-only list. Clicking labels, key badges, or popup content does not run actions or dismiss it. Clicking the backdrop or pressing Escape dismisses it. The existing desktop flow covers these interactions.
 
 HEIC and HEIF chat photos use a portable HEVC decoder because the prebuilt image library omits that codec. The workspace consumer tests verify both extensions reach the inference provider as native JPEG image parts.
+
+## Connection recovery
+
+The shared frontend now owns connection retries, probes, cancellation and accepted-client state in an instance-scoped `ConnectionService`, exposed through the repository Stream primitive. React subscribes to that owner and preserves mounted panes while replaceable RPC clients and subscriptions recover. Structured protocol/authentication failures survive desktop IPC; dirty-file writes remain serialized and check remote contents before an explicit retry. Existing Electron, workspace-server and control-plane consumer fixtures verify the changed behavior. Transport failures are reported through the shared connection indicator; a real-server shutdown regression verifies draft preservation and prevents duplicate extension errors.

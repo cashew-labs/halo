@@ -1,3 +1,4 @@
+import { useConnection } from "./ConnectionContext.js";
 import {
   createContext,
   useContext,
@@ -41,14 +42,19 @@ export function WorkspaceUpdatesProvider({
   api: HaloClient;
   children: ReactNode;
 }) {
+  const { service, state: connection } = useConnection();
+  const enabled =
+    connection.status === "synchronizing" || connection.status === "connected";
   const workspaceRoot = useWorkspaceQuery().data?.workspaceRoot;
   const queryClient = useQueryClient();
-  const [state, setState] = useState<WorkspaceState & { api: HaloClient }>({
+  const [state, setState] = useState<
+    WorkspaceState & { workspaceRoot: string | undefined }
+  >({
     ...empty,
-    api,
+    workspaceRoot,
   });
   useEffect(() => {
-    if (workspaceRoot === undefined) return;
+    if (workspaceRoot === undefined || !enabled) return;
     const controller = new AbortController();
     reconnectStream({
       name: "Workspace updates",
@@ -56,10 +62,7 @@ export function WorkspaceUpdatesProvider({
       open: async () =>
         await api.server.watch(undefined, { signal: controller.signal }),
       // Filesystem events do not have a snapshot; refetch after every reconnect.
-      onOpen: async () =>
-        await queryClient.invalidateQueries({
-          queryKey: workspacePathsQueryKey(workspaceRoot),
-        }),
+
       onItem: async (item) => {
         if (item.type === "files") {
           await queryClient.invalidateQueries({
@@ -69,6 +72,14 @@ export function WorkspaceUpdatesProvider({
         }
         if (item.type === "sessions") {
           const update = item.update;
+          if (update.type === "snapshot") {
+            service.ready(api);
+            void queryClient
+              .invalidateQueries({
+                queryKey: workspacePathsQueryKey(workspaceRoot),
+              })
+              .catch(console.error);
+          }
           queryClient.setQueryData<SessionSummary[]>(
             ["sessions", workspaceRoot],
             (current = []) => {
@@ -88,18 +99,19 @@ export function WorkspaceUpdatesProvider({
           return;
         }
         setState((current) => {
-          const previous = current.api === api ? current : empty;
+          const previous =
+            current.workspaceRoot === workspaceRoot ? current : empty;
           if (item.type === "hotkeys")
-            return { ...previous, api, hotkeys: item.hotkeys };
+            return { ...previous, workspaceRoot, hotkeys: item.hotkeys };
           if (item.type === "extensions")
             return {
               ...previous,
-              api,
+              workspaceRoot,
               extensions: { data: item.extensions, error: undefined },
             };
           return {
             ...previous,
-            api,
+            workspaceRoot,
             extensions: {
               ...previous.extensions,
               error: new WorkspaceUpdatesError({ reason: item.message }),
@@ -107,20 +119,16 @@ export function WorkspaceUpdatesProvider({
           };
         });
       },
-      onError: (error) =>
-        setState((current) => {
-          const previous = current.api === api ? current : empty;
-          return {
-            ...previous,
-            api,
-            extensions: { ...previous.extensions, error },
-          };
-        }),
+      onError: (error) => {
+        service.fail(api, error);
+      },
     });
     return () => controller.abort();
-  }, [api, queryClient, workspaceRoot]);
+  }, [api, queryClient, workspaceRoot, service, enabled]);
   return (
-    <WorkspaceUpdatesContext value={state.api === api ? state : empty}>
+    <WorkspaceUpdatesContext
+      value={state.workspaceRoot === workspaceRoot ? state : empty}
+    >
       {children}
     </WorkspaceUpdatesContext>
   );

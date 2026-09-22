@@ -1,3 +1,4 @@
+import { useConnection } from "../api/ConnectionContext.js";
 import { useQuery, useIsMutating } from "@tanstack/react-query";
 import { useApi } from "../api/ApiProvider.js";
 import { MediaFilePreview } from "./MediaFilePreview.js";
@@ -11,9 +12,11 @@ import { MarkdownFileEditor } from "./MarkdownFileEditor.js";
 
 export function FilePane({ path }: { path: string }) {
   const api = useApi();
+  const { state } = useConnection();
   const changingEntry = useIsMutating({ mutationKey: ["workspace-entry"] });
   const preview = useQuery({
     queryKey: ["workspace-preview", path],
+    enabled: state.status === "connected",
     queryFn: async () => await api.workspace.previewFile({ path }),
     gcTime: 0,
   });
@@ -23,7 +26,7 @@ export function FilePane({ path }: { path: string }) {
     <main className={pane} aria-label={path} inert={changingEntry > 0}>
       {preview.isPending ? (
         <div className={status}>Loading file…</div>
-      ) : preview.isError ? (
+      ) : preview.isError && preview.data === undefined ? (
         <div role="alert" className={status}>
           {preview.error.message}
         </div>
@@ -51,7 +54,7 @@ function TextFileContent({ path }: { path: string }) {
     <div className={body}>
       {file.isPending ? (
         <div className={status}>Loading file…</div>
-      ) : file.isError ? (
+      ) : file.isError && file.data === undefined ? (
         <div className={status} role="alert">
           {String(file.error)}
         </div>

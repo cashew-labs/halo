@@ -33,6 +33,17 @@ if (compareVersions(version, desktopPackage.version) <= 0)
 const releaseBranch = `release/${version}`;
 run("git", ["switch", "-c", releaseBranch]);
 
+const previousVersion = desktopPackage.version;
+const protocols = JSON.parse(
+  exec("pnpm", [
+    "--silent",
+    "--filter",
+    "@get-halo/control-plane",
+    "exec",
+    "tsx",
+    "../../releases/protocols.mjs",
+  ]),
+);
 desktopPackage.version = version;
 fs.writeFileSync(
   desktopPackagePath,
@@ -59,7 +70,10 @@ fs.writeFileSync(pulumiConfigPath, pulumiConfig);
 const releaseDirectory = path.join(root, "releases");
 const releasePath = path.join(releaseDirectory, `${version}.json`);
 fs.mkdirSync(releaseDirectory, { recursive: true });
-fs.writeFileSync(releasePath, `${JSON.stringify({ version }, undefined, 2)}\n`);
+fs.writeFileSync(
+  releasePath,
+  `${JSON.stringify({ version, previousVersion, protocols }, undefined, 2)}\n`,
+);
 
 run("node", ["releases/validateRelease.mjs", releasePath]);
 run("git", ["add", desktopPackagePath, pulumiConfigPath, releasePath]);

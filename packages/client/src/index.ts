@@ -1,4 +1,20 @@
 export {
+  AuthenticationRequiredError,
+  ConnectionUnavailableError,
+  ConnectionHttpError,
+  serializeConnectionFailure,
+  restoreConnectionFailure,
+  type ConnectionFailureData,
+} from "./connectionErrors.js";
+export {
+  checkServerCompatibility,
+  acceptsProtocol,
+  protocolHeader,
+  InvalidServerInfoError,
+  type ProtocolService,
+  type ServerInfo,
+} from "./protocol.js";
+export {
   createHaloClient,
   connectHaloClient,
   HaloRpcConnectionError,
@@ -8,6 +24,7 @@ export {
 export {
   contract,
   haloProtocolVersion,
+  haloSupportedProtocols,
   RequestRejectedError,
   type HaloClient,
   type ConnectionStarted,

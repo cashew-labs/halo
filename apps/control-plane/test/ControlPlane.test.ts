@@ -56,6 +56,7 @@ const controlPlaneTest = test.extend<{
   },
   plane: async ({ appDataDir, webRoot, traceCloud }, use) => {
     const plane = await ControlPlane.start({
+      build: { version: "test-release", revision: "test-revision" },
       config: {
         deployment: "local",
         workspace: { deployment: "local" },
@@ -194,6 +195,8 @@ controlPlaneTest("serves Better Auth at /api/auth", async ({ plane }) => {
 controlPlaneTest("serves the typed control-plane RPC", async ({ rpc }) => {
   expect(await rpc.server.info()).toEqual({
     protocolVersion: controlPlaneProtocolVersion,
+    supportedProtocols: [controlPlaneProtocolVersion],
+    build: { version: "test-release", revision: "test-revision" },
   });
   expect(await rpc.auth.session()).toEqual({ status: "signed-out" });
 });
@@ -590,3 +593,24 @@ function traceArchive(
       .join("\n") + "\n",
   );
 }
+
+controlPlaneTest(
+  "rejects unsupported protocols before provisioning",
+  async ({ plane, browserHeaders }) => {
+    const headers = new Headers(browserHeaders);
+    headers.set("x-halo-protocol-version", "999");
+    const rpc = createORPCClient<ControlPlaneClient>(
+      new RPCLink({
+        origin: plane.origin,
+        url: "/rpc",
+        headers: Object.fromEntries(headers),
+      }),
+    );
+    expect(await rpc.server.info()).toMatchObject({
+      supportedProtocols: [controlPlaneProtocolVersion],
+    });
+    await expect(rpc.workspace.ensure()).rejects.toMatchObject({
+      code: "UNSUPPORTED_PROTOCOL",
+    });
+  },
+);

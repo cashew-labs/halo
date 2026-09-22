@@ -1,7 +1,5 @@
 import * as errore from "errore";
 
-const reconnectDelayMs = 1_000;
-
 class StreamDisconnectedError extends errore.createTaggedError({
   name: "StreamDisconnectedError",
   message: "$stream stream disconnected.",
@@ -27,19 +25,11 @@ export function reconnectStream<T>(ctx: ReconnectStreamContext<T>) {
 }
 
 async function runReconnectStream<T>(ctx: ReconnectStreamContext<T>) {
-  while (!ctx.signal.aborted) {
-    const disconnected = await consumeStream(ctx).catch(
-      (cause) => new StreamDisconnectedError({ stream: ctx.name, cause }),
-    );
-    if (ctx.signal.aborted) return;
-
-    if (disconnected !== undefined) ctx.onError?.(disconnected);
-    console.warn(
-      `${ctx.name} stream disconnected; reconnecting:`,
-      disconnected,
-    );
-    await waitForReconnect(ctx.signal);
-  }
+  const disconnected = await consumeStream(ctx).catch(
+    (cause) => new StreamDisconnectedError({ stream: ctx.name, cause }),
+  );
+  if (ctx.signal.aborted) return;
+  if (disconnected !== undefined) ctx.onError?.(disconnected);
 }
 
 async function consumeStream<T>(ctx: ReconnectStreamContext<T>) {
@@ -52,16 +42,4 @@ async function consumeStream<T>(ctx: ReconnectStreamContext<T>) {
   }
 
   return new StreamDisconnectedError({ stream: ctx.name });
-}
-
-async function waitForReconnect(signal: AbortSignal) {
-  await new Promise<void>((resolve) => {
-    const finish = () => {
-      clearTimeout(timeout);
-      signal.removeEventListener("abort", finish);
-      resolve();
-    };
-    const timeout = setTimeout(finish, reconnectDelayMs);
-    signal.addEventListener("abort", finish, { once: true });
-  });
 }

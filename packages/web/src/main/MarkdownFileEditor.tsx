@@ -1,5 +1,6 @@
+import { FileSaveStatus } from "./FileSaveStatus.js";
 import { EditorContent } from "@tiptap/react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { colors, flex } from "maui";
 import { style, useStyles } from "purse-styles";
 import { useAutosaveFile } from "./useAutosaveFile.js";
@@ -16,11 +17,23 @@ export function MarkdownFileEditor({
 }) {
   const autosave = useAutosaveFile({ path, loaded });
   const api = useApi();
+  const apiRef = useRef(api);
+  useEffect(() => {
+    apiRef.current = api;
+  }, [api]);
   const [error, setError] = useState<string>();
+  /* oxlint-disable react/refs -- The factory stores the ref; only later plugin event handlers read its client. */
   const extensions = useMemo(
-    () => [markdownImage({ api, documentPath: path, onError: setError })],
-    [api, path],
+    () => [
+      markdownImage({
+        client: apiRef,
+        documentPath: path,
+        onError: setError,
+      }),
+    ],
+    [path, apiRef],
   );
+  /* oxlint-enable react/refs */
   const className = useStyles(editorClass);
   const editor = useMarkdownEditor({
     content: loaded,
@@ -31,6 +44,7 @@ export function MarkdownFileEditor({
   });
   return (
     <>
+      <FileSaveStatus save={autosave} />
       {error !== undefined && <p role="alert">{error}</p>}
       <EditorContent editor={editor} className={className} />
     </>
