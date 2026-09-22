@@ -398,6 +398,9 @@ jobs:
       - name: Install Playwright Chromium
         run: pnpm --filter @get-halo/extension-tools exec playwright install chromium
 
+      - name: Install PDF conversion tools
+        run: brew install poppler
+
       - name: Run all package E2Es, including packaged Electron
         env:
           VERSION: ${{ needs.prepare.outputs.version }}

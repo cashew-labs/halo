@@ -488,6 +488,9 @@ e2eTest(
     await app.page.keyboard.press("Tab");
     await expect(editor.locator("ul ul > li > p")).toHaveText(["Third"]);
     await expect(editor).toBeFocused();
+    await expect(
+      app.page.getByRole("main", { name: "markers.md" }).getByRole("status"),
+    ).toHaveCount(0);
   },
 );
 
@@ -560,6 +563,9 @@ e2eTest(
     ]);
     await expect(editor.locator("ol")).toHaveAttribute("start", "3");
     await expect(editor).toBeFocused();
+    await expect(
+      app.page.getByRole("main", { name: "paste.md" }).getByRole("status"),
+    ).toHaveCount(0);
   },
 );
 
@@ -1564,7 +1570,7 @@ e2eTest(
         ),
     );
     await expect(
-      page.locator('.workspacePane[data-active="true"]').getByRole("tab"),
+      page.locator('[data-pane-id][data-active="true"]').getByRole("tab"),
     ).toHaveText("Right.md");
     await expect(page).toHaveURL(/#\/files\/Right.md$/);
     await page
@@ -1757,6 +1763,9 @@ e2eTest(
     await expect
       .poll(async () => await app.server.rpc.workspace.readFile({ path }))
       .toContain("**Rich bold** and *italic*");
+    await expect(
+      app.page.getByRole("main", { name: path }).getByRole("status"),
+    ).toHaveCount(0);
   },
 );
 
@@ -2511,7 +2520,7 @@ e2eTest(
     await page
       .getByRole("link", { name: "Left conversation", exact: true })
       .click();
-    const area = page.locator(".paneWorkspace");
+    const area = page.getByTestId("pane-workspace");
     const box = (await area.boundingBox())!;
     await page
       .getByRole("link", { name: "Right conversation", exact: true })
