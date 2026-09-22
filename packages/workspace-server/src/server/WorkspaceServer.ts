@@ -190,8 +190,7 @@ export class WorkspaceServer {
           error: closed,
         });
     });
-    const sessionRepo = await TursoSessionRepo.open(database);
-    if (sessionRepo instanceof Error) return sessionRepo;
+    const sessionRepo = new TursoSessionRepo(database);
     cleanup.defer(async () => {
       const closed = await sessionRepo.close();
       if (closed instanceof Error)

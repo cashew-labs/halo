@@ -10,51 +10,6 @@ export class SessionBackendError extends errore.createTaggedError({
   message: "Session storage: $detail",
 }) {}
 
-export const sessionSchema = `
-CREATE TABLE IF NOT EXISTS halo_sessions (
-  id TEXT PRIMARY KEY NOT NULL,
-  metadata TEXT NOT NULL,
-  next_seq INTEGER NOT NULL,
-  stats TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS halo_session_entries (
-  session_id TEXT NOT NULL REFERENCES halo_sessions(id) ON DELETE CASCADE,
-  id TEXT NOT NULL,
-  parent_id TEXT,
-  seq INTEGER NOT NULL,
-  timestamp INTEGER NOT NULL,
-  type TEXT NOT NULL,
-  custom_type TEXT,
-  payload TEXT NOT NULL,
-  PRIMARY KEY (session_id, id),
-  UNIQUE (session_id, seq)
-);
-CREATE TABLE IF NOT EXISTS halo_session_values (
-  session_id TEXT NOT NULL REFERENCES halo_sessions(id) ON DELETE CASCADE,
-  namespace TEXT NOT NULL,
-  key TEXT NOT NULL,
-  seq INTEGER NOT NULL,
-  payload TEXT NOT NULL,
-  PRIMARY KEY (session_id, namespace, key)
-);
-CREATE TABLE IF NOT EXISTS halo_session_lists (
-  session_id TEXT NOT NULL REFERENCES halo_sessions(id) ON DELETE CASCADE,
-  namespace TEXT NOT NULL,
-  key TEXT NOT NULL,
-  seq INTEGER NOT NULL,
-  payload TEXT NOT NULL,
-  PRIMARY KEY (session_id, namespace, key, seq)
-);
-CREATE TABLE IF NOT EXISTS halo_session_usage (
-  session_id TEXT NOT NULL REFERENCES halo_sessions(id) ON DELETE CASCADE,
-  id TEXT NOT NULL,
-  seq INTEGER NOT NULL,
-  payload TEXT NOT NULL,
-  PRIMARY KEY (session_id, id),
-  UNIQUE (session_id, seq)
-);
-`;
-
 export function emptySessionStats(): SessionStats {
   return {
     messageCount: 0,
@@ -70,7 +25,7 @@ export function emptySessionStats(): SessionStats {
 }
 
 export function readSessionRow(connection: Database, id: string) {
-  // SAFETY: The projection matches halo_sessions, whose schema is initialized by TursoSessionRepo.
+  // SAFETY: The projection matches halo_sessions, which workspace migrations initialize before repositories open.
   const row = connection
     .prepare("SELECT metadata, next_seq, stats FROM halo_sessions WHERE id = ?")
     .get(id) as

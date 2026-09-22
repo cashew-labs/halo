@@ -1,5 +1,15 @@
 # Repository conventions progress
 
+## Test value
+
+Repository testing conventions now favor a smaller suite of durable tests that protect meaningful consumer behavior or realistic non-obvious regressions. Tests that mainly mirror implementation details or intentional nearby changes do not merit permanent coverage. Temporary scaffolding tests may be used during implementation but should not be checked in.
+
+## Native test fixtures
+
+Repository testing conventions now require Vitest or Playwright's native fixture API for test setup and teardown. File-local fixtures live near the top of their test file and use a fixture-specific extended test name. Fixtures shared by multiple E2Es are consolidated in `test/fixtures.ts`; source-local fixtures and other test helpers use a `*.test.ts` suffix and are explicitly excluded from test discovery.
+
+Package E2Es live under `test/` as `*.spec.ts` and enter through the package's main export. File-level unit tests live beside their source as `<MainExport>.test.ts` and treat that export as a consumer API rather than testing implementation details. This layout applies as tests are added or changed; unrelated legacy tests are not part of the migration. The migration algorithm coverage now uses a file-local `migrationTest` fixture in `src/storage/Migration.test.ts`. Pi's backend conformance coverage lives beside `TursoSessionRepo` and `TursoStorage` and shares the native `piBackendTest` fixture from `src/storage/fixtures.test.ts`. Both fixtures own their temporary files, database connections, and cleanup.
+
 ## Chat attachments
 
 The sessions prompt API accepts files alongside text. `HaloAgentSession` prepares attachments before submitting the user message: originals are saved under unique workspace `attachments/` paths, text is extracted from documents, and images are normalized into native model image parts. PDFs include extracted text and every rendered page, including image-only scans and vector artwork. File metadata and the original prompt text persist with the message so transcript presentation and session titles do not expose the expanded model context.

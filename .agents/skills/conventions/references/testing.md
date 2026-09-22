@@ -4,15 +4,29 @@ Start with what a consumer can do, drive that behavior through the package's pub
 
 Do not write tests unless you are updating existing tests, adding coverage to an existing test file, or the user asks for them. When changing tests, extend the existing canonical test file and fixture where they fit.
 
+## Test value
+
+Prefer a smaller suite of durable tests over broad low-value coverage. Keep a test when it protects meaningful consumer behavior or a non-obvious invariant that could realistically regress. If a test mainly mirrors the implementation or would only fail when intentionally changing nearby code, it probably does not merit permanent coverage. Temporary tests are fine as implementation scaffolding, but should not be checked in.
+
 ## Choose the consumer boundary
 
 Package tests are E2Es through the main supported exports. Apps use their public UI or protocol. The consumer boundary defines E2E, not the number of processes: an exported reducer can be tested directly. Use Vitest for library/server APIs and Playwright for UI workflows.
 
 For an exported reducer, that means testing `applySessionEvent(emptySessionSnapshot(), event)` through the client package's root export. Do not start a server just to call it, or import a private module and relabel the test as a package E2E.
 
+## Locate and name tests by boundary
+
+Put package E2Es under `path/to/package/test/` and name them `*.spec.ts`. Import the package's main export and use that public surface as the fixture API; do not reach into source files from an E2E.
+
+Put unit tests beside their source and name them after the file's main export: `<MainExport>.test.ts`. Name source-local fixtures and other test-only helpers `*.test.ts` too, so production source discovery cannot mistake them for runtime modules. Explicitly exclude support-only `*.test.ts` files from test discovery; never add placeholder tests to make Vitest accept them. A unit test is a convenient in-package pseudo-E2E for that export. Exercise the same consumer-facing API that another module would use, and do not test private state, helper calls, or implementation details. Use a package E2E instead when the behavior belongs to the package contract rather than one file's cohesive API.
+
+Apply this layout to new or currently changed tests. Do not expand a focused task into renaming unrelated legacy tests.
+
 ## Build one realistic setup
 
 Use one canonical setup form per package, with one shared fixture and test entry where runtime setup is needed. Pure API tests need no artificial fixture. Feature files and setup helpers can remain separate, but must compose behind that fixture rather than export alternate fixtures or mount internal subsets.
+
+Always implement test fixtures with Vitest or Playwright's native fixture API. If a fixture is used by multiple test files, consolidate it in `fixtures.ts` under an E2E `test/` directory or `fixtures.test.ts` beside production source. If it belongs to one test file, define it near the top of that file. Name the extended test for the fixture it provides, such as `databaseTest`. Test filenames follow the consumer boundary rules above rather than the fixture name. Do not approximate fixture lifecycle with setup helpers and `onTestFinished`.
 
 Control-plane auth, routing, proxying, and lifecycle scenarios use the complete `controlPlane` fixture. Existing alternate fixtures are migration work, not examples to copy. For example:
 
@@ -62,6 +76,6 @@ expect(bytes.subarray(0, 8)).toEqual(
 
 This applies when consumers access files directly. An internal database file does not make private rows a valid assertion surface.
 
-## Keep internal unit tests a narrow exception
+## Keep unit tests at the file boundary
 
-Unit-test an internal component only when it has a small, encapsulated contract that could stand as an independent package, such as a data structure. Identify that contract and its extraction trigger. If it grows or another package needs it, extract it; its tests become the new package's E2Es. Purity or an internal export alone does not qualify. Do not expose internals solely to test them.
+Unit-test a file when its main export has a cohesive consumer contract, such as a service or data structure. Test that export as a consumer would. Do not expose internals solely for tests. If the contract grows across files or another package needs it, extract it; its tests become package E2Es through the extracted package's main export.
