@@ -1,4 +1,3 @@
-import { FileSaveStatus } from "./FileSaveStatus.js";
 import { useState } from "react";
 import { backgroundColor, colors, monoFontFamily, text } from "maui";
 import { style, useStyles } from "purse-styles";
@@ -16,7 +15,6 @@ export function TextFileEditor({
   const editor = useStyles(editorStyle);
   return (
     <>
-      <FileSaveStatus save={autosave} />
       <textarea
         aria-label={path}
         className={editor}

@@ -7,7 +7,7 @@
   "categories": [
     "Other"
   ],
-  "license": "MIT",
+  "license": "Apache-2.0",
   "publisher": "halo",
   "main": "./extension.js",
   "scripts": {

@@ -181,3 +181,11 @@ to run every package suite, including packaged Electron. Ordinary PRs and
 post-merge release jobs do not run E2Es.
 
 Tests do not call a paid model.
+
+## License
+
+Copyright 2026 Saffron Health, Inc.
+
+Halo is licensed under the [Apache License, Version 2.0](LICENSE). See [NOTICE](NOTICE)
+for attribution. Third-party code and dependencies retain their respective licenses,
+including the MIT-licensed tool in `tools/oxlint/anti-slop/`.

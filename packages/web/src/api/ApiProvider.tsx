@@ -1,3 +1,4 @@
+import { FileSaveErrorsProvider } from "../main/FileSaveErrors.js";
 import { useAuthenticatedUserId } from "../Authentication.js";
 import { WorkspaceUpdatesProvider } from "./WorkspaceUpdatesProvider.js";
 import { useQuery, skipToken, useQueryClient } from "@tanstack/react-query";
@@ -74,7 +75,7 @@ export function ApiProvider({ children }: { children: ReactNode }) {
             key={state.workspace?.workspaceRoot}
             api={state.api}
           >
-            {children}
+            <FileSaveErrorsProvider>{children}</FileSaveErrorsProvider>
           </WorkspaceUpdatesProvider>
         </ApiContext>
       )}

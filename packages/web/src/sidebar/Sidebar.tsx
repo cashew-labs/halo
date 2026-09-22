@@ -1,3 +1,4 @@
+import { FileSaveErrorIndicator } from "../FileSaveErrorIndicator.js";
 import { confirmRestart } from "../confirmRestart.js";
 import { ConnectionStatus } from "../ConnectionStatus.js";
 import { useSidebar } from "../WorkspaceLayout.js";
@@ -64,6 +65,7 @@ export function Sidebar({ sessions, appInfo }: SidebarProps) {
           <div className={versionLabel}>Halo {appInfo.version}</div>
         )}
         <ConnectionStatus />
+        <FileSaveErrorIndicator />
         {appInfo !== undefined && (
           <UpdateFooter appInfo={appInfo} labelClassName={updateLabel} />
         )}
