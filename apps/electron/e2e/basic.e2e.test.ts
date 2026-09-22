@@ -4,6 +4,7 @@ import { expect, type Locator } from "@playwright/test";
 import { m } from "@get-halo/shared/testing";
 import { haloProtocolVersion } from "@get-halo/client";
 import { ORPCError } from "@orpc/client";
+import * as errore from "errore";
 import type { DesktopBridge } from "../src/shared/desktop.js";
 import { e2eTest } from "./e2eTest.js";
 
@@ -2736,10 +2737,11 @@ e2eTest(
     expect(
       await app.server.rpc.workspace.readFile({ path: "offline.md" }),
     ).toBe("Changed elsewhere");
+    const checked = app.page.waitForResponse((response) =>
+      new URL(response.url()).pathname.endsWith("/rpc/workspace/readFile"),
+    );
     await editor.fill("Changed elsewhere");
-    await app.page
-      .getByRole("button", { name: "Retry save", exact: true })
-      .click();
+    await checked;
     await expect(
       app.page.getByRole("button", { name: "Retry save", exact: true }),
     ).toHaveCount(0);
@@ -2882,5 +2884,73 @@ e2eTest(
         exact: true,
       }),
     ).toHaveCount(0);
+  },
+);
+
+e2eTest(
+  "keeps pending Markdown autosaves quiet and offers retry only after failure",
+  async ({ app }) => {
+    await app.server.rpc.workspace.writeFile({
+      path: "quiet.md",
+      content: "Original",
+    });
+    await app.page.getByRole("link", { name: "quiet.md", exact: true }).click();
+    const pane = app.page.getByRole("main", { name: "quiet.md", exact: true });
+    const editor = pane.getByLabel("quiet.md", { exact: true });
+    await expect(editor).toHaveText("Original");
+    const retry = pane.getByRole("button", { name: "Retry save", exact: true });
+    const writing = app.page.waitForRequest("**/rpc/workspace/writeFile");
+    let releaseWrite: (() => void) | undefined;
+    const release = new Promise<void>((resolve) => {
+      releaseWrite = resolve;
+    });
+    using cleanup = new errore.DisposableStack();
+    cleanup.defer(() => releaseWrite?.());
+    await app.page.route("**/rpc/workspace/writeFile", async (route) => {
+      await release;
+      await route.continue();
+    });
+    await app.page.clock.install();
+    await app.page.clock.pauseAt(new Date());
+    await editor.fill("Edited");
+    for (const character of " note") {
+      await editor.pressSequentially(character);
+      await expect(retry).toHaveCount(0);
+      await expect(pane.getByRole("status")).toHaveCount(0);
+    }
+    expect(await app.server.rpc.workspace.readFile({ path: "quiet.md" })).toBe(
+      "Original",
+    );
+    await app.page.clock.runFor(400);
+    await writing;
+    await expect(retry).toHaveCount(0);
+    await expect(pane.getByRole("status")).toHaveCount(0);
+    releaseWrite?.();
+    await app.page.clock.resume();
+    await expect
+      .poll(
+        async () =>
+          await app.server.rpc.workspace.readFile({ path: "quiet.md" }),
+      )
+      .toContain("Edited note");
+    await app.page.unroute("**/rpc/workspace/writeFile");
+    await app.page.route("**/rpc/workspace/writeFile", async (route) => {
+      await route.fulfill({ status: 500, body: "Write failed" });
+    });
+    await editor.fill("Keep this after failure");
+    await expect(retry).toBeVisible();
+    await expect(pane.getByRole("status")).toContainText(
+      "Could not save this file",
+    );
+    await expect(editor).toHaveText("Keep this after failure");
+    await app.page.unroute("**/rpc/workspace/writeFile");
+    await retry.click();
+    await expect
+      .poll(
+        async () =>
+          await app.server.rpc.workspace.readFile({ path: "quiet.md" }),
+      )
+      .toContain("Keep this after failure");
+    await expect(retry).toHaveCount(0);
   },
 );
