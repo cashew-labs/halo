@@ -490,9 +490,12 @@ e2eTest(
     await app.page.keyboard.press("Tab");
     await expect(editor.locator("ul ul > li > p")).toHaveText(["Third"]);
     await expect(editor).toBeFocused();
-    await expect(
-      app.page.getByRole("main", { name: "markers.md" }).getByRole("status"),
-    ).toHaveCount(0);
+    await expect
+      .poll(
+        async () =>
+          await app.server.rpc.workspace.readFile({ path: "markers.md" }),
+      )
+      .toContain("- Parent\n- Second\n  - Third");
   },
 );
 
@@ -565,9 +568,14 @@ e2eTest(
     ]);
     await expect(editor.locator("ol")).toHaveAttribute("start", "3");
     await expect(editor).toBeFocused();
-    await expect(
-      app.page.getByRole("main", { name: "paste.md" }).getByRole("status"),
-    ).toHaveCount(0);
+    await expect
+      .poll(
+        async () =>
+          await app.server.rpc.workspace.readFile({ path: "paste.md" }),
+      )
+      .toContain(
+        "- Parent\n  - Second\n    - Child\n    - Another child\n- Third",
+      );
   },
 );
 
@@ -1099,15 +1107,9 @@ e2eTest(
 
     for (const name of ["First", "Second"]) {
       await editor.getByRole("heading", { name }).click({ delay: 50 });
-      await editor.getByRole("heading", { name }).evaluate(async (heading) => {
-        const selectionChanged = new Promise<void>((resolve) => {
-          document.addEventListener("selectionchange", () => resolve(), {
-            once: true,
-          });
-        });
-        window.getSelection()!.collapse(heading.firstChild, 0);
-        await selectionChanged;
-      });
+      const syntax = editor.getByRole("textbox", { name: "Markdown syntax" });
+      await expect(syntax).toBeFocused();
+      await syntax.press("ControlOrMeta+ArrowLeft");
       await app.page.keyboard.press("Backspace");
       await expect(editor.locator("p", { hasText: name })).toHaveText(name);
       await app.page.keyboard.press("ControlOrMeta+z");
