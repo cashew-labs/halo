@@ -33,7 +33,7 @@ import {
   type DesktopAuthentication,
 } from "./DesktopAuthentication.js";
 import { ControlPlaneAuth } from "./auth/ControlPlaneAuth.js";
-import { createAdcDesktopIdentity } from "./auth/createAdcDesktopIdentity.js";
+import { createGoogleAccessTokenSession } from "./auth/createGoogleAccessTokenSession.js";
 import {
   closePendingOAuthCallbacks,
   registerDesktopApi,
@@ -164,9 +164,12 @@ async function createDesktopAuthentication(): Promise<DesktopAuthentication> {
   }
 
   if (applicationConfig.mode === ApplicationMode.Development) {
-    return createLocalDesktopAuthentication({
-      dataDir: applicationConfig.dataDir,
-      identity: createAdcDesktopIdentity(),
+    return await ControlPlaneAuth.start({
+      origin: applicationConfig.controlPlaneOrigin,
+      createSession: async () =>
+        await createGoogleAccessTokenSession({
+          origin: applicationConfig.controlPlaneOrigin,
+        }),
     });
   }
 
