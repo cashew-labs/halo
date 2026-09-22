@@ -97,8 +97,8 @@ To reuse the production path, Electron must use `ControlPlaneAuth.getWorkspaceCo
 - [`apps/electron/src/main/auth/ControlPlaneAuth.ts`](../apps/electron/src/main/auth/ControlPlaneAuth.ts) — Production connection shape to reuse.
 - [`apps/control-plane/src/workspace/proxy.ts`](../apps/control-plane/src/workspace/proxy.ts) — Gateway; CORS and session check.
 - [`apps/control-plane/src/workspace/WorkspaceService.ts`](../apps/control-plane/src/workspace/WorkspaceService.ts) — Local proxy already uses `server.json`.
-- [`apps/control-plane/src/auth/AuthService.ts`](../apps/control-plane/src/auth/AuthService.ts) — Must mint a session from an ADC access token.
-- [`apps/control-plane/src/server/controlPlaneHttp.ts`](../apps/control-plane/src/server/controlPlaneHttp.ts) — HTTP routes.
+- [`apps/control-plane/src/auth/AuthService.ts`](../apps/control-plane/src/auth/AuthService.ts) — Mints a Better Auth session from an ADC access token.
+- [`apps/control-plane/src/server/controlPlaneHttp.ts`](../apps/control-plane/src/server/controlPlaneHttp.ts) — HTTP routes, including local `POST /api/dev/google-session`.
 - [`apps/control-plane/test/ControlPlane.test.ts`](../apps/control-plane/test/ControlPlane.test.ts) — CORS and session tests.
 
 ## Implementation
@@ -424,23 +424,605 @@ index e0e36cc..facc93d 100644
 
 ### Phase 2: Mint a Better Auth session from ADC (local only)
 
-Needed so `WorkspaceGateway` sees the same kind of bearer production uses, without browser Google.
+Done. `POST /api/dev/google-session` exists only when `deployment === "local"`. It checks the ADC access token, then creates or reuses a Google account and a Better Auth session. Production leaves the route unset, so `/api` returns 404. Development Electron does not call this yet. That is phase 3.
 
 ```callstack
  routeControlPlaneRequest [[apps/control-plane/src/server/controlPlaneHttp.ts#routeControlPlaneRequest]]
-+└── POST /api/dev/google-session  # only when deployment === "local"
-+    └── AuthService.signInWithGoogleAccessToken
-+        ├── OAuth2Client.getTokenInfo
-+        ├── internalAdapter.findAccountOwnerByKey
-+        ├── internalAdapter.createOAuthUser
-+        └── internalAdapter.createSession
++└── POST /api/dev/google-session [[session-http:new:232-240]] [[session-plane:new:102]]
++    └── AuthService.signInWithGoogleAccessToken [[session-auth:new:252-292]]
++        ├── OAuth2Client.getTokenInfo [[session-auth:new:387-403]]
++        ├── internalAdapter.findAccountOwnerByKey [[session-auth:new:261-269]]
++        ├── internalAdapter.createOAuthUser [[session-auth:new:367-385]]
++        └── internalAdapter.createSession [[session-auth:new:280-286]]
+     └── bearer session and /workspace/health [[session-test:new:238-332]]
 ```
 
-- [ ] `AuthService.signInWithGoogleAccessToken`. Optional verifier injectable for tests.
-- [ ] Route only when `config.deployment === "local"`. Production 404s `/api/dev/google-session`.
-- [ ] Test: 400 / 401 / 200, then bearer `auth.session()` and `/workspace/health`.
-- [ ] `pnpm --filter @get-halo/control-plane test:e2e -- test/ControlPlane.test.ts`
-- [ ] `pnpm run check-affected`
+- [x] `AuthService.signInWithGoogleAccessToken`. Optional verifier injectable for tests.
+- [x] Route only when `config.deployment === "local"`. Production 404s `/api/dev/google-session`.
+- [x] Test: 400 / 401 / 200, then bearer `auth.session()` and `/workspace/health`.
+- [x] `pnpm --filter @get-halo/control-plane test:e2e -- test/ControlPlane.test.ts`
+- [x] `pnpm run check-affected`
+
+```source-diff:session-auth:apps/control-plane/src/auth/AuthService.ts
+diff --git a/apps/control-plane/src/auth/AuthService.ts b/apps/control-plane/src/auth/AuthService.ts
+index 3ac4d74..400f723 100644
+--- a/apps/control-plane/src/auth/AuthService.ts
++++ b/apps/control-plane/src/auth/AuthService.ts
+@@ -5,6 +5,7 @@ import { getMigrations } from "better-auth/db/migration";
+ import { toNodeHandler } from "better-auth/node";
+ import { bearer, oneTimeToken } from "better-auth/plugins";
+ import * as errore from "errore";
++import { OAuth2Client } from "google-auth-library";
+ import type { DatabaseClient, DatabaseService } from "../DatabaseService.js";
+ 
+ const loopbackHost = "127.0.0.1";
+@@ -30,12 +31,28 @@ export class InvalidDesktopAuthCodeError extends errore.createTaggedError({
+   message: "Desktop sign-in code is invalid or expired",
+ }) {}
+ 
++export class InvalidGoogleAccessTokenError extends errore.createTaggedError({
++  name: "InvalidGoogleAccessTokenError",
++  message: "Google access token is invalid",
++}) {}
++
++type GoogleAccessTokenIdentity = {
++  email: string;
++  name: string;
++  subject: string;
++};
++
++export type GoogleAccessTokenVerifier = (
++  accessToken: string,
++) => Promise<GoogleAccessTokenIdentity | Error>;
++
+ type AuthServiceOptions = {
+   db: DatabaseService;
+   origin: string;
+   secret: string;
+   googleClientId: string;
+   googleClientSecret: string;
++  verifyGoogleAccessToken?: GoogleAccessTokenVerifier;
+ };
+ 
+ type DesktopSignInRequest = {
+@@ -102,20 +119,27 @@ function authOptions(options: AuthServiceOptions, database: DatabaseClient) {
+ 
+ type AuthOptions = ReturnType<typeof authOptions>;
+ type BetterAuth = Auth<AuthOptions>;
++type AuthContext = Awaited<BetterAuth["$context"]>;
++type GoogleAccountOwner = Awaited<
++  ReturnType<AuthContext["internalAdapter"]["findAccountOwnerByKey"]>
++>;
+ 
+ export class AuthService {
+   private readonly auth: BetterAuth;
+   private readonly nodeHandler: NodeHandler;
+   private readonly origin: string;
++  private readonly verifyGoogleAccessToken: GoogleAccessTokenVerifier;
+ 
+   private constructor(ctx: {
+     auth: BetterAuth;
+     nodeHandler: NodeHandler;
+     origin: string;
++    verifyGoogleAccessToken: GoogleAccessTokenVerifier;
+   }) {
+     this.auth = ctx.auth;
+     this.nodeHandler = ctx.nodeHandler;
+     this.origin = ctx.origin;
++    this.verifyGoogleAccessToken = ctx.verifyGoogleAccessToken;
+   }
+ 
+   static async start(options: AuthServiceOptions) {
+@@ -138,6 +162,10 @@ export class AuthService {
+       auth,
+       nodeHandler: toNodeHandler(auth),
+       origin: options.origin,
++      verifyGoogleAccessToken:
++        options.verifyGoogleAccessToken === undefined
++          ? inspectGoogleAccessToken
++          : options.verifyGoogleAccessToken,
+     });
+   }
+ 
+@@ -214,20 +242,54 @@ export class AuthService {
+       });
+     if (result instanceof Error) return result;
+ 
+-    return {
++    return serializeDesktopAuthSession({
+       token: result.session.token,
+-      session: {
+-        id: result.session.id,
+-        userId: result.session.userId,
+-        expiresAt: result.session.expiresAt,
+-      },
+-      user: {
+-        id: result.user.id,
+-        email: result.user.email,
+-        name: result.user.name,
+-        image: result.user.image === null ? undefined : result.user.image,
+-      },
+-    } satisfies DesktopAuthSession;
++      session: result.session,
++      user: result.user,
++    });
++  }
++
++  async signInWithGoogleAccessToken(accessToken: string) {
++    const identity = await this.verifyGoogleAccessToken(accessToken);
++    if (identity instanceof Error) return identity;
++
++    const context = await this.auth.$context.catch(
++      (cause) => new AuthServiceError({ detail: "load auth context", cause }),
++    );
++    if (context instanceof Error) return context;
++
++    const owner = await context.internalAdapter
++      .findAccountOwnerByKey({
++        providerId: "google",
++        accountId: identity.subject,
++      })
++      .catch(
++        (cause) =>
++          new AuthServiceError({ detail: "find Google account", cause }),
++      );
++    if (owner instanceof Error) return owner;
++
++    const user = await googleUserForIdentity({
++      context,
++      identity,
++      accessToken,
++      owner,
++    });
++    if (user instanceof Error) return user;
++
++    const session = await context.internalAdapter
++      .createSession(user.id)
++      .catch(
++        (cause) =>
++          new AuthServiceError({ detail: "create Google session", cause }),
++      );
++    if (session instanceof Error) return session;
++
++    return serializeDesktopAuthSession({
++      token: session.token,
++      session,
++      user,
++    });
+   }
+ 
+   async getSession(headers: Headers) {
+@@ -268,6 +330,78 @@ export class AuthService {
+   }
+ }
+ 
++function serializeDesktopAuthSession(input: {
++  token: string;
++  session: { id: string; userId: string; expiresAt: Date };
++  user: {
++    id: string;
++    email: string;
++    name: string;
++    image?: string | null;
++  };
++}) {
++  return {
++    token: input.token,
++    session: {
++      id: input.session.id,
++      userId: input.session.userId,
++      expiresAt: input.session.expiresAt,
++    },
++    user: {
++      id: input.user.id,
++      email: input.user.email,
++      name: input.user.name,
++      image: input.user.image === null ? undefined : input.user.image,
++    },
++  } satisfies DesktopAuthSession;
++}
++
++async function googleUserForIdentity(ctx: {
++  accessToken: string;
++  context: AuthContext;
++  identity: GoogleAccessTokenIdentity;
++  owner: GoogleAccountOwner;
++}) {
++  if (ctx.owner !== null && ctx.owner.kind === "owned") return ctx.owner.user;
++
++  const created = await ctx.context.internalAdapter
++    .createOAuthUser(
++      {
++        email: ctx.identity.email,
++        name: ctx.identity.name,
++        emailVerified: true,
++      },
++      {
++        providerId: "google",
++        accountId: ctx.identity.subject,
++        accessToken: ctx.accessToken,
++      },
++    )
++    .catch(
++      (cause) => new AuthServiceError({ detail: "create Google user", cause }),
++    );
++  if (created instanceof Error) return created;
++  return created.user;
++}
++
++async function inspectGoogleAccessToken(accessToken: string) {
++  const tokenInfo = await new OAuth2Client()
++    .getTokenInfo(accessToken)
++    .catch((cause) => new InvalidGoogleAccessTokenError({ cause }));
++  if (tokenInfo instanceof Error) return tokenInfo;
++
++  const email = tokenInfo.email;
++  if (email === undefined) return new InvalidGoogleAccessTokenError();
++  const subject = tokenInfo.sub;
++  if (subject === undefined) return new InvalidGoogleAccessTokenError();
++
++  return {
++    email,
++    name: email,
++    subject,
++  } satisfies GoogleAccessTokenIdentity;
++}
++
+ function parseDesktopSignInRequest(request: DesktopSignInRequest) {
+   if (!desktopAuthStatePattern.test(request.state)) {
+     return new InvalidDesktopSignInRequestError();
+```
+
+```source-diff:session-plane:apps/control-plane/src/server/ControlPlane.ts
+diff --git a/apps/control-plane/src/server/ControlPlane.ts b/apps/control-plane/src/server/ControlPlane.ts
+index 2239691..1279399 100644
+--- a/apps/control-plane/src/server/ControlPlane.ts
++++ b/apps/control-plane/src/server/ControlPlane.ts
+@@ -1,7 +1,10 @@
+ import { join } from "node:path";
+ import type { ControlPlaneConfig } from "@get-halo/config/controlPlane";
+ import * as errore from "errore";
+-import { AuthService } from "../auth/AuthService.js";
++import {
++  AuthService,
++  type GoogleAccessTokenVerifier,
++} from "../auth/AuthService.js";
+ import {
+   closeControlPlaneHttp,
+   type ListeningControlPlaneHttp,
+@@ -46,6 +49,7 @@ export class ControlPlane {
+     config: ControlPlaneConfig;
+     webRoot: string;
+     traceCloud?: TraceCloud;
++    verifyGoogleAccessToken?: GoogleAccessTokenVerifier;
+   }) {
+     const { config, webRoot } = ctx;
+     await using cleanup = new errore.AsyncDisposableStack();
+@@ -78,6 +82,7 @@ export class ControlPlane {
+       secret: config.auth.secret,
+       googleClientId: config.auth.googleClientId,
+       googleClientSecret: config.auth.googleClientSecret,
++      verifyGoogleAccessToken: ctx.verifyGoogleAccessToken,
+     });
+     if (auth instanceof Error) return auth;
+ 
+@@ -94,6 +99,7 @@ export class ControlPlane {
+       server: http.server,
+       auth,
+       corsOrigins: controlPlaneCorsOrigins(config),
++      googleAccessTokenSessions: config.deployment === "local",
+       publicOrigin,
+       workspace,
+       webRoot,
+```
+
+```source-diff:session-http:apps/control-plane/src/server/controlPlaneHttp.ts
+diff --git a/apps/control-plane/src/server/controlPlaneHttp.ts b/apps/control-plane/src/server/controlPlaneHttp.ts
+index 842eaad..f396106 100644
+--- a/apps/control-plane/src/server/controlPlaneHttp.ts
++++ b/apps/control-plane/src/server/controlPlaneHttp.ts
+@@ -13,11 +13,14 @@ import {
+   RequestHeadersHandlerPlugin,
+   ResponseHeadersHandlerPlugin,
+ } from "@orpc/server/plugins";
++import { Type } from "@sinclair/typebox";
++import { Value } from "@sinclair/typebox/value";
+ import * as errore from "errore";
+ import {
+   type AuthService,
+   DesktopAuthRequiredError,
+   InvalidDesktopSignInRequestError,
++  InvalidGoogleAccessTokenError,
+ } from "../auth/AuthService.js";
+ import {
+   controlPlaneRpcRouter,
+@@ -31,6 +34,9 @@ import {
+ } from "../workspace/proxy.js";
+ 
+ const requestUrlBase = "http://localhost";
++const googleAccessTokenSessionSchema = Type.Object({
++  accessToken: Type.String({ minLength: 1 }),
++});
+ const webContentSecurityPolicy = [
+   "base-uri 'none'",
+   "connect-src 'self'",
+@@ -88,6 +94,7 @@ export function serveControlPlaneHttp(ctx: {
+   server: HttpServer;
+   auth: AuthService;
+   corsOrigins: readonly string[];
++  googleAccessTokenSessions: boolean;
+   publicOrigin: string;
+   workspace: WorkspaceService;
+   webRoot: string;
+@@ -114,6 +121,7 @@ export function serveControlPlaneHttp(ctx: {
+       request,
+       response,
+       auth,
++      googleAccessTokenSessions: ctx.googleAccessTokenSessions,
+       workspace,
+       gateway,
+       traces,
+@@ -176,6 +184,7 @@ async function routeControlPlaneRequest(ctx: {
+   request: IncomingMessage;
+   response: ServerResponse;
+   auth: AuthService;
++  googleAccessTokenSessions: boolean;
+   gateway: WorkspaceGateway;
+   traces?: TraceIngestion;
+   workspace: WorkspaceService;
+@@ -220,6 +229,16 @@ async function routeControlPlaneRequest(ctx: {
+     return;
+   }
+ 
++  // Local deployment only. Production leaves the flag unset, so this path 404s.
++  if (
++    ctx.googleAccessTokenSessions &&
++    request.method === "POST" &&
++    url.pathname === "/api/dev/google-session"
++  ) {
++    await serveGoogleAccessTokenSession(request, response, auth);
++    return;
++  }
++
+   if (isBetterAuthRequest(url)) {
+     await serveBetterAuth(request, response, auth);
+     return;
+@@ -345,6 +364,59 @@ function serveDesktopAuthError(response: ServerResponse, url: URL) {
+     .end(detail);
+ }
+ 
++async function serveGoogleAccessTokenSession(
++  request: IncomingMessage,
++  response: ServerResponse,
++  auth: AuthService,
++) {
++  const body = await readGoogleAccessTokenBody(request);
++  if (body instanceof Error) {
++    response.writeHead(400).end("Invalid Google access token session request.");
++    return;
++  }
++
++  const session = await auth.signInWithGoogleAccessToken(body.accessToken);
++  if (session instanceof InvalidGoogleAccessTokenError) {
++    response.writeHead(401).end("Google access token is invalid.");
++    return;
++  }
++  if (session instanceof Error) {
++    console.error(session);
++    response.writeHead(500).end();
++    return;
++  }
++
++  const payload = Buffer.from(`${JSON.stringify(session)}\n`);
++  response
++    .writeHead(200, {
++      "cache-control": "no-store",
++      "content-length": payload.byteLength,
++      "content-type": "application/json; charset=utf-8",
++    })
++    .end(payload);
++}
++
++async function readGoogleAccessTokenBody(request: IncomingMessage) {
++  const chunks: Uint8Array[] = [];
++  for await (const chunk of request) {
++    chunks.push(Buffer.from(chunk));
++  }
++  const raw = Buffer.concat(chunks).toString("utf8");
++  const parsed = errore.try({
++    // SAFETY: JSON.parse is untyped; googleAccessTokenSessionSchema validates the body.
++    try: () => JSON.parse(raw) as unknown,
++    catch: (cause) =>
++      new ControlPlaneHttpError({ detail: "parse JSON body", cause }),
++  });
++  if (parsed instanceof Error) return parsed;
++  if (!Value.Check(googleAccessTokenSessionSchema, parsed)) {
++    return new ControlPlaneHttpError({
++      detail: "parse JSON body",
++    });
++  }
++  return parsed;
++}
++
+ function isBetterAuthRequest(url: URL) {
+   return url.pathname === "/api/auth" || url.pathname.startsWith("/api/auth/");
+ }
+```
+
+```source-diff:session-test:apps/control-plane/test/ControlPlane.test.ts
+diff --git a/apps/control-plane/test/ControlPlane.test.ts b/apps/control-plane/test/ControlPlane.test.ts
+index facc93d..7659af0 100644
+--- a/apps/control-plane/test/ControlPlane.test.ts
++++ b/apps/control-plane/test/ControlPlane.test.ts
+@@ -1,6 +1,8 @@
+ import { gzipSync } from "node:zlib";
+ import { TraceCloudDriver } from "./TraceCloudDriver.js";
+ import fs from "node:fs/promises";
++import { createServer, type Server as HttpServer } from "node:http";
++import type { AddressInfo } from "node:net";
+ import { join, resolve } from "node:path";
+ import { DatabaseSync } from "node:sqlite";
+ import { createORPCClient } from "@orpc/client";
+@@ -9,10 +11,14 @@ import {
+   controlPlaneProtocolVersion,
+   type ControlPlaneClient,
+ } from "@get-halo/shared/controlPlaneContract";
++import { writeWorkspaceServerConnection } from "@get-halo/shared/WorkspaceServerConnection";
++import { Type } from "@sinclair/typebox";
++import { Value } from "@sinclair/typebox/value";
+ import { betterAuth } from "better-auth";
+ import { testUtils } from "better-auth/plugins";
+ import * as errore from "errore";
+ import { expect, test } from "vitest";
++import { InvalidGoogleAccessTokenError } from "../src/auth/AuthService.js";
+ import { ControlPlane } from "../src/server/ControlPlane.js";
+ 
+ const testAuth = {
+@@ -23,6 +29,15 @@ const testAuth = {
+ 
+ const desktopAuthState = "desktop-auth-state-0123456789abcdef";
+ const viteOrigin = "http://localhost:1420";
++const googleSessionResponse = Type.Object(
++  {
++    token: Type.String({ minLength: 1 }),
++    user: Type.Object({
++      email: Type.String(),
++    }),
++  },
++  { additionalProperties: true },
++);
+ 
+ const controlPlaneTest = test.extend<{
+   traceCloud: TraceCloudDriver;
+@@ -219,6 +234,104 @@ controlPlaneTest(
+   },
+ );
+ 
++controlPlaneTest(
++  "exchanges a Google access token for a bearer workspace session",
++  async ({ appDataDir, webRoot }) => {
++    await using cleanup = new errore.AsyncDisposableStack();
++    const plane = await ControlPlane.start({
++      config: {
++        deployment: "local",
++        workspace: { deployment: "local" },
++        appDataDir,
++        port: 0,
++        auth: testAuth,
++      },
++      webRoot,
++      verifyGoogleAccessToken: async (accessToken) => {
++        if (accessToken !== "adc-access-token") {
++          return new InvalidGoogleAccessTokenError();
++        }
++        return {
++          email: "adc@example.com",
++          name: "ADC User",
++          subject: "adc-subject-1",
++        };
++      },
++    });
++    if (plane instanceof Error) throw plane;
++    cleanup.defer(async () => {
++      const closed = await plane.close();
++      if (closed instanceof Error) console.warn(closed);
++    });
++
++    const invalidBody = await fetch(`${plane.origin}/api/dev/google-session`, {
++      method: "POST",
++      headers: { "content-type": "application/json" },
++      body: JSON.stringify({}),
++    });
++    expect(invalidBody.status).toBe(400);
++
++    const invalidToken = await fetch(`${plane.origin}/api/dev/google-session`, {
++      method: "POST",
++      headers: { "content-type": "application/json" },
++      body: JSON.stringify({ accessToken: "nope" }),
++    });
++    expect(invalidToken.status).toBe(401);
++
++    const created = await fetch(`${plane.origin}/api/dev/google-session`, {
++      method: "POST",
++      headers: { "content-type": "application/json" },
++      body: JSON.stringify({ accessToken: "adc-access-token" }),
++    });
++    expect(created.status).toBe(200);
++    // SAFETY: Response.json is untyped; googleSessionResponse validates the session payload.
++    const session = (await created.json()) as unknown;
++    if (!Value.Check(googleSessionResponse, session)) {
++      throw new Error("Google access token session response was invalid");
++    }
++    expect(session.user.email).toBe("adc@example.com");
++
++    const authenticated = createControlPlaneRpcClient(
++      plane.origin,
++      session.token,
++    );
++    expect(await authenticated.auth.session()).toMatchObject({
++      status: "signed-in",
++      session: { user: { email: "adc@example.com" } },
++    });
++
++    const workspaceServer = createServer((_request, response) => {
++      response.writeHead(200).end("workspace healthy");
++    });
++    await listenOnLoopback(workspaceServer);
++    cleanup.defer(async () => {
++      await closeServer(workspaceServer);
++    });
++
++    // SAFETY: Node returns a TCP address after successfully listening with a numeric port.
++    const address = workspaceServer.address() as AddressInfo;
++    const published = await writeWorkspaceServerConnection({
++      appDataDir,
++      connection: {
++        workspaceRoot: "/test/workspace",
++        origin: `http://127.0.0.1:${address.port}`,
++        token: "local-workspace-token",
++      },
++    });
++    if (published instanceof Error) throw published;
++
++    const health = await fetch(`${plane.origin}/workspace/health`, {
++      headers: {
++        authorization: `Bearer ${session.token}`,
++        origin: viteOrigin,
++      },
++    });
++    expect(health.status).toBe(200);
++    expect(await health.text()).toBe("workspace healthy");
++    expect(health.headers.get("access-control-allow-origin")).toBe(viteOrigin);
++  },
++);
++
+ controlPlaneTest("serves Better Auth at /api/auth", async ({ plane }) => {
+   const ok = await fetch(`${plane.origin}/api/auth/ok`);
+   expect(ok.status).toBe(200);
+@@ -365,6 +478,22 @@ controlPlaneTest(
+   },
+ );
+ 
++async function listenOnLoopback(server: HttpServer) {
++  await new Promise<void>((resolveListen, rejectListen) => {
++    server.once("error", rejectListen);
++    server.listen(0, "127.0.0.1", () => {
++      server.off("error", rejectListen);
++      resolveListen();
++    });
++  });
++}
++
++async function closeServer(server: HttpServer) {
++  await new Promise<void>((resolveClose) => {
++    server.close(() => resolveClose());
++  });
++}
++
+ function createControlPlaneRpcClient(origin: string, token?: string | Headers) {
+   const link = new RPCLink({
+     origin,
+```
 
 ### Phase 3: Development Electron uses ControlPlaneAuth
 

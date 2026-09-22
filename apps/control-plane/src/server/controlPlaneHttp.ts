@@ -13,11 +13,14 @@ import {
   RequestHeadersHandlerPlugin,
   ResponseHeadersHandlerPlugin,
 } from "@orpc/server/plugins";
+import { Type } from "@sinclair/typebox";
+import { Value } from "@sinclair/typebox/value";
 import * as errore from "errore";
 import {
   type AuthService,
   DesktopAuthRequiredError,
   InvalidDesktopSignInRequestError,
+  InvalidGoogleAccessTokenError,
 } from "../auth/AuthService.js";
 import {
   controlPlaneRpcRouter,
@@ -31,6 +34,9 @@ import {
 } from "../workspace/proxy.js";
 
 const requestUrlBase = "http://localhost";
+const googleAccessTokenSessionSchema = Type.Object({
+  accessToken: Type.String({ minLength: 1 }),
+});
 const webContentSecurityPolicy = [
   "base-uri 'none'",
   "connect-src 'self'",
@@ -88,6 +94,7 @@ export function serveControlPlaneHttp(ctx: {
   server: HttpServer;
   auth: AuthService;
   corsOrigins: readonly string[];
+  googleAccessTokenSessions: boolean;
   publicOrigin: string;
   workspace: WorkspaceService;
   webRoot: string;
@@ -114,6 +121,7 @@ export function serveControlPlaneHttp(ctx: {
       request,
       response,
       auth,
+      googleAccessTokenSessions: ctx.googleAccessTokenSessions,
       workspace,
       gateway,
       traces,
@@ -176,6 +184,7 @@ async function routeControlPlaneRequest(ctx: {
   request: IncomingMessage;
   response: ServerResponse;
   auth: AuthService;
+  googleAccessTokenSessions: boolean;
   gateway: WorkspaceGateway;
   traces?: TraceIngestion;
   workspace: WorkspaceService;
@@ -217,6 +226,16 @@ async function routeControlPlaneRequest(ctx: {
 
   if (request.method === "GET" && url.pathname === "/api/desktop-auth/error") {
     serveDesktopAuthError(response, url);
+    return;
+  }
+
+  // Local deployment only. Production leaves the flag unset, so this path 404s.
+  if (
+    ctx.googleAccessTokenSessions &&
+    request.method === "POST" &&
+    url.pathname === "/api/dev/google-session"
+  ) {
+    await serveGoogleAccessTokenSession(request, response, auth);
     return;
   }
 
@@ -343,6 +362,59 @@ function serveDesktopAuthError(response: ServerResponse, url: URL) {
       "content-type": "text/plain; charset=utf-8",
     })
     .end(detail);
+}
+
+async function serveGoogleAccessTokenSession(
+  request: IncomingMessage,
+  response: ServerResponse,
+  auth: AuthService,
+) {
+  const body = await readGoogleAccessTokenBody(request);
+  if (body instanceof Error) {
+    response.writeHead(400).end("Invalid Google access token session request.");
+    return;
+  }
+
+  const session = await auth.signInWithGoogleAccessToken(body.accessToken);
+  if (session instanceof InvalidGoogleAccessTokenError) {
+    response.writeHead(401).end("Google access token is invalid.");
+    return;
+  }
+  if (session instanceof Error) {
+    console.error(session);
+    response.writeHead(500).end();
+    return;
+  }
+
+  const payload = Buffer.from(`${JSON.stringify(session)}\n`);
+  response
+    .writeHead(200, {
+      "cache-control": "no-store",
+      "content-length": payload.byteLength,
+      "content-type": "application/json; charset=utf-8",
+    })
+    .end(payload);
+}
+
+async function readGoogleAccessTokenBody(request: IncomingMessage) {
+  const chunks: Uint8Array[] = [];
+  for await (const chunk of request) {
+    chunks.push(Buffer.from(chunk));
+  }
+  const raw = Buffer.concat(chunks).toString("utf8");
+  const parsed = errore.try({
+    // SAFETY: JSON.parse is untyped; googleAccessTokenSessionSchema validates the body.
+    try: () => JSON.parse(raw) as unknown,
+    catch: (cause) =>
+      new ControlPlaneHttpError({ detail: "parse JSON body", cause }),
+  });
+  if (parsed instanceof Error) return parsed;
+  if (!Value.Check(googleAccessTokenSessionSchema, parsed)) {
+    return new ControlPlaneHttpError({
+      detail: "parse JSON body",
+    });
+  }
+  return parsed;
 }
 
 function isBetterAuthRequest(url: URL) {
