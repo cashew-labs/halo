@@ -119,8 +119,8 @@ Done. Production CORS stays `["null"]`. A local deployment also reflects `http:/
 - [x] Local allowlist: `http://localhost:${HALO_RENDERER_PORT || 1420}`, `http://127.0.0.1:${port}`, `"null"`. Production: `["null"]`.
 - [x] Pass that list into `WorkspaceGateway`. Reflect `Access-Control-Allow-Origin` only when the request origin is in the list. Proxied responses use the same check.
 - [x] Test Vite origin on 401 `/workspace/health`, OPTIONS `/workspace/rpc`, and no ACAO for a foreign origin.
-- [ ] `pnpm --filter @get-halo/control-plane test:e2e -- test/ControlPlane.test.ts`
-- [ ] `pnpm run check-affected`
+- [x] `pnpm --filter @get-halo/control-plane test:e2e -- test/ControlPlane.test.ts`
+- [x] `pnpm run check-affected`
 
 ```source-diff:plane:apps/control-plane/src/server/ControlPlane.ts
 diff --git a/apps/control-plane/src/server/ControlPlane.ts b/apps/control-plane/src/server/ControlPlane.ts
