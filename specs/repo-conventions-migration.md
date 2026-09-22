@@ -47,3 +47,8 @@ Release manifests carry a minimum supported frontend version forward. The valida
 The release E2E job installs Poppler for PDF attachment conversion. Electron pane tests use the existing pane data attributes instead of removed CSS classes; the split-pane persistence and two-pane hotkey scenarios pass through the packaged app. Markdown list and paste scenarios wait for the visible unsaved status to clear before teardown, avoiding the unsaved-file close guard after their assertions finish.
 
 Routine file autosaves retain dirty/restart protection without rendering an error or retry control during the debounce or write. The autosave owner marks failed or blocked saves as needing retry, and a workspace-scoped FileSaveErrors owner publishes them to the sidebar footer. Editors render no save banner; the footer lists file-specific details and retries, clearing resolved or unmounted entries. During connection recovery, the passive connection status remains the visible indicator.
+
+## Markdown reconciliation
+
+WorkspaceService owns note reconciliation and recovery records, borrowing the host-owned LLMApi. A pure merge helper isolates conflicting sections before inference. FilesystemService orders conditional saves with its normal asynchronous writes; inference runs outside that queue. The additive protocol supports existing protocol-18 clients while protocol 19 exposes reconciliation. Existing workspace-server consumer tests exercise the public RPC and real agent file tool, including stale results, inference failures, paragraph boundaries, and recovery history.
+
