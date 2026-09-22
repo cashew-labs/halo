@@ -1,5 +1,6 @@
+import { useFileSaveErrors } from "./FileSaveErrors.js";
 import { useRestartWarning } from "../confirmRestart.js";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useId } from "react";
 import * as errore from "errore";
 import { useQueryClient } from "@tanstack/react-query";
 import { SerialQueue } from "@get-halo/shared/SerialQueue";
@@ -90,7 +91,11 @@ class FileAutosave {
   }
   private failed(error: WorkspaceFileWriteError) {
     console.warn(error);
-    this.status(error.message, true);
+    const message =
+      error.cause instanceof Error
+        ? `${error.message} ${error.cause.message}`
+        : error.message;
+    this.status(message, true);
     return error;
   }
   private async save() {
@@ -131,8 +136,7 @@ class FileAutosave {
       .catch(
         (cause) =>
           new WorkspaceFileWriteError({
-            detail:
-              "Could not save this file. Your edits are still here; retry when connected.",
+            detail: "Could not save this file. Your edits are still here.",
             cause,
           }),
       );
@@ -152,6 +156,8 @@ class FileAutosave {
 
 export function useAutosaveFile(args: { path: string; loaded: string }) {
   const api = useApi();
+  const { service: errors } = useFileSaveErrors();
+  const errorId = useId();
   const { state } = useConnection();
   const connected = state.status === "connected";
   const queryClient = useQueryClient();
@@ -171,6 +177,19 @@ export function useAutosaveFile(args: { path: string; loaded: string }) {
           queryClient.setQueryData(["workspace-file", args.path], content),
       }),
   );
+  useEffect(() => {
+    if (progress.needsRetry && progress.message !== undefined)
+      errors.report({
+        id: errorId,
+        path: args.path,
+        message: progress.message,
+        retry: async () => {
+          await save.flush();
+        },
+      });
+    else if (progress.message === undefined) errors.clear(errorId);
+  }, [errors, errorId, args.path, progress, save]);
+  useEffect(() => () => errors.clear(errorId), [errors, errorId]);
   useEffect(() => {
     save.updateConnection(api, connected);
   }, [save, api, connected]);
