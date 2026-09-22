@@ -2715,7 +2715,20 @@ e2eTest(
         exact: true,
       }),
     ).toBeVisible();
+    await app.page.clock.install();
+    await app.page.clock.pauseAt(new Date());
     await editor.fill("My unsaved edit");
+    await app.page.clock.runFor(500);
+    await expect(
+      app.page.getByRole("main", { name: "offline.md" }).getByRole("status"),
+    ).toHaveCount(0);
+    await expect(
+      app.page.getByRole("button", { name: "Save error", exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      app.page.getByRole("button", { name: "Retry save", exact: true }),
+    ).toHaveCount(0);
+    await app.page.clock.resume();
     await app.server.rpc.workspace.writeFile({
       path: "offline.md",
       content: "Changed elsewhere",
@@ -2729,6 +2742,9 @@ e2eTest(
     ).toBeVisible();
     await expect(editor).toHaveText("My unsaved edit");
     await app.page
+      .getByRole("button", { name: "Save error", exact: true })
+      .click();
+    await app.page
       .getByRole("button", { name: "Retry save", exact: true })
       .click();
     await expect(
@@ -2737,13 +2753,17 @@ e2eTest(
     expect(
       await app.server.rpc.workspace.readFile({ path: "offline.md" }),
     ).toBe("Changed elsewhere");
+    await app.page
+      .getByRole("dialog", { name: "File save errors" })
+      .getByRole("button", { name: "Close", exact: true })
+      .click();
     const checked = app.page.waitForResponse((response) =>
       new URL(response.url()).pathname.endsWith("/rpc/workspace/readFile"),
     );
     await editor.fill("Changed elsewhere");
     await checked;
     await expect(
-      app.page.getByRole("button", { name: "Retry save", exact: true }),
+      app.page.getByRole("button", { name: "Save error", exact: true }),
     ).toHaveCount(0);
   },
 );
@@ -2792,7 +2812,9 @@ e2eTest(
           exact: true,
         }),
       ).toBeVisible();
-      await expect(app.page.getByRole("dialog")).toHaveCount(0);
+      await expect(
+        app.page.getByText("Connection details", { exact: true }),
+      ).toHaveCount(0);
     }
     expect(await app.server.rpc.sessions.list()).toHaveLength(0);
   },
@@ -2854,7 +2876,9 @@ e2eTest(
       exact: true,
     });
     await connected.click();
-    await expect(app.page.getByRole("dialog")).toHaveCount(0);
+    await expect(
+      app.page.getByText("Connection details", { exact: true }),
+    ).toHaveCount(0);
     await expect(connected).not.toHaveAttribute("tabindex", "0");
     await app.page
       .getByRole("button", { name: "New session", exact: true })
@@ -2877,7 +2901,9 @@ e2eTest(
         exact: true,
       })
       .click();
-    await expect(app.page.getByRole("dialog")).toHaveCount(0);
+    await expect(
+      app.page.getByText("Connection details", { exact: true }),
+    ).toHaveCount(0);
     await expect(draft).toHaveText("Keep this draft when the server stops");
     await expect(
       app.page.getByText("Extensions: Workspace updates stream disconnected.", {
@@ -2938,19 +2964,105 @@ e2eTest(
       await route.fulfill({ status: 500, body: "Write failed" });
     });
     await editor.fill("Keep this after failure");
-    await expect(retry).toBeVisible();
-    await expect(pane.getByRole("status")).toContainText(
-      "Could not save this file",
-    );
+    const indicator = app.page.getByRole("button", {
+      name: "Save error",
+      exact: true,
+    });
+    await expect(indicator).toBeVisible();
+    await expect(retry).toHaveCount(0);
+    await expect(pane.getByRole("status")).toHaveCount(0);
     await expect(editor).toHaveText("Keep this after failure");
+    await indicator.click();
+    const details = app.page.getByRole("dialog", { name: "File save errors" });
+    await expect(
+      details.getByRole("region", { name: "quiet.md" }),
+    ).toBeVisible();
+    await expect(details).toContainText(/Could not save|Unsaved changes/);
     await app.page.unroute("**/rpc/workspace/writeFile");
-    await retry.click();
+    await details
+      .getByRole("button", { name: "Retry save", exact: true })
+      .click();
     await expect
       .poll(
         async () =>
           await app.server.rpc.workspace.readFile({ path: "quiet.md" }),
       )
       .toContain("Keep this after failure");
-    await expect(retry).toHaveCount(0);
+    await expect(indicator).toHaveCount(0);
+    await expect(details).toHaveCount(0);
+  },
+);
+
+e2eTest(
+  "lists independent file save errors in the footer and clears each after retry",
+  async ({ app, harness }) => {
+    for (const name of ["one.md", "two.md"]) {
+      await app.server.rpc.workspace.writeFile({
+        path: name,
+        content: "Original",
+      });
+      await app.page
+        .getByRole("link", { name, exact: true })
+        .click({ modifiers: ["Meta"] });
+      const pane = app.page.getByRole("main", { name, exact: true });
+      const editor = pane.getByLabel(name, { exact: true });
+      await expect(editor).toHaveText("Original");
+      const path = nodePath.join(harness.paths.workspace, name);
+      await fs.unlink(path);
+      await fs.mkdir(path);
+      await editor.fill(`Preserve ${name}`);
+      await expect(
+        app.page.getByRole("button", {
+          name: name === "one.md" ? "Save error" : "2 save errors",
+          exact: true,
+        }),
+      ).toBeVisible();
+      await expect(pane.getByRole("status")).toHaveCount(0);
+      await expect(
+        pane.getByRole("button", { name: "Retry save", exact: true }),
+      ).toHaveCount(0);
+    }
+    await app.page
+      .getByRole("button", { name: "2 save errors", exact: true })
+      .click();
+    const details = app.page.getByRole("dialog", { name: "File save errors" });
+    for (const name of ["one.md", "two.md"])
+      await expect(
+        details.getByRole("region", { name, exact: true }),
+      ).toContainText("Workspace I/O failed");
+    await app.page.screenshot({
+      path: nodePath.resolve("../../tmp/footer-save-errors/details.png"),
+    });
+    for (const name of ["one.md", "two.md"]) {
+      await fs.rmdir(nodePath.join(harness.paths.workspace, name));
+      await app.server.rpc.workspace.writeFile({
+        path: name,
+        content: "Original",
+      });
+      await details
+        .getByRole("region", { name, exact: true })
+        .getByRole("button", { name: "Retry save", exact: true })
+        .click();
+      await expect
+        .poll(
+          async () => await app.server.rpc.workspace.readFile({ path: name }),
+        )
+        .toContain(`Preserve ${name}`);
+      await expect(
+        details.getByRole("region", { name, exact: true }),
+      ).toHaveCount(0);
+      if (name === "one.md") {
+        await expect(
+          details.getByRole("region", { name: "two.md", exact: true }),
+        ).toBeVisible();
+        await expect(
+          app.page.getByRole("button", { name: "Save error", exact: true }),
+        ).toBeVisible();
+      }
+    }
+    await expect(details).toHaveCount(0);
+    await expect(
+      app.page.getByRole("button", { name: /save error/i }),
+    ).toHaveCount(0);
   },
 );
