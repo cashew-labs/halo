@@ -3078,7 +3078,7 @@ e2eTest(
 
 e2eTest(
   "keeps pending Markdown autosaves quiet and offers retry only after failure",
-  async ({ app }) => {
+  async ({ app, harness }) => {
     await app.server.rpc.workspace.writeFile({
       path: "quiet.md",
       content: "Original",
@@ -3123,9 +3123,9 @@ e2eTest(
       )
       .toContain("Edited note");
     await app.page.unroute("**/rpc/workspace/writeFile");
-    await app.page.route("**/rpc/workspace/writeFile", async (route) => {
-      await route.fulfill({ status: 500, body: "Write failed" });
-    });
+    const file = nodePath.join(harness.paths.workspace, "quiet.md");
+    await fs.unlink(file);
+    await fs.mkdir(file);
     await editor.fill("Keep this after failure");
     const indicator = app.page.getByRole("button", {
       name: "Save error",
@@ -3141,7 +3141,11 @@ e2eTest(
       details.getByRole("region", { name: "quiet.md" }),
     ).toBeVisible();
     await expect(details).toContainText(/Could not save|Unsaved changes/);
-    await app.page.unroute("**/rpc/workspace/writeFile");
+    await fs.rmdir(file);
+    await app.server.rpc.workspace.writeFile({
+      path: "quiet.md",
+      content: "Edited note",
+    });
     await details
       .getByRole("button", { name: "Retry save", exact: true })
       .click();
