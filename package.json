@@ -1,6 +1,7 @@
 {
   "name": "@get-halo/root",
   "private": true,
+  "license": "Apache-2.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/cashew-labs/halo.git"

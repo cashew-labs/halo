@@ -38,7 +38,15 @@ HEIC and HEIF chat photos use a portable HEVC decoder because the prebuilt image
 
 ## Connection recovery
 
-The shared frontend now owns connection retries, probes, cancellation and accepted-client state in an instance-scoped `ConnectionService`, exposed through the repository Stream primitive. React subscribes to that owner and preserves mounted panes while replaceable RPC clients and subscriptions recover. Structured protocol/authentication failures survive desktop IPC; dirty-file writes remain serialized and check remote contents before an explicit retry. Existing Electron, workspace-server and control-plane consumer fixtures verify the changed behavior. Transport failures are reported through the shared connection indicator; a real-server shutdown regression verifies draft preservation and prevents duplicate extension errors.
+The shared frontend now owns connection retries, probes, cancellation and accepted-client state in an instance-scoped `ConnectionService`, exposed through the repository Stream primitive. React subscribes to that owner and preserves mounted panes while replaceable RPC clients and subscriptions recover. Structured protocol/authentication failures survive desktop IPC; dirty-file writes remain serialized and check remote contents before an explicit retry. Existing Electron, workspace-server and control-plane consumer fixtures verify the changed behavior. Transport failures are reported through the shared connection indicator; a real-server shutdown regression verifies draft preservation and prevents duplicate extension errors. Normal connection states are passive accessible status text; only authentication and protocol incompatibility offer action dialogs, whose state is discarded when recovery starts.
+
+## Frontend support window
+
+Release manifests carry a minimum supported frontend version forward. The validator checks both API client protocols for every release in that range; advancing the minimum deliberately retires older frontends. The initial transition retires 0.1.52, whose workspace protocol was 17. Release tests exercise manifest generation and the validator CLI with isolated local release histories.
+
+The release E2E job installs Poppler for PDF attachment conversion. Electron pane tests use the existing pane data attributes instead of removed CSS classes; the split-pane persistence and two-pane hotkey scenarios pass through the packaged app. Markdown list and paste scenarios wait for the visible unsaved status to clear before teardown, avoiding the unsaved-file close guard after their assertions finish.
+
+Routine file autosaves retain dirty/restart protection without rendering an error or retry control during the debounce or write. The autosave owner marks failed or blocked saves as needing retry, and a workspace-scoped FileSaveErrors owner publishes them to the sidebar footer. Editors render no save banner; the footer lists file-specific details and retries, clearing resolved or unmounted entries. During connection recovery, the passive connection status remains the visible indicator.
 
 ## Markdown reconciliation
 

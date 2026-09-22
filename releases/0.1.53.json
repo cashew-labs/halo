@@ -1,0 +1,19 @@
+{
+  "version": "0.1.53",
+  "previousVersion": "0.1.52",
+  "minimumFrontendVersion": "0.1.53",
+  "protocols": {
+    "workspace": {
+      "client": 18,
+      "supported": [
+        18
+      ]
+    },
+    "controlPlane": {
+      "client": 3,
+      "supported": [
+        3
+      ]
+    }
+  }
+}

@@ -1,6 +1,6 @@
 # Releasing Halo
 
-Run `pnpm prerelease <version>` from clean, current `main`. The release PR records the previous frontend version and the workspace/control-plane protocol requirements. The validator requires the new backend to retain every protocol advertised by the previous release. Additive API changes keep their protocol number; a breaking change needs an implemented, tested adapter before its protocol can be advertised. Protocol retirement requires a separate reviewed support-policy change.
+Run `pnpm prerelease <version>` from clean, current `main`. The release PR records `minimumFrontendVersion` and both API protocol requirements. The validator requires the backend to support every frontend from that minimum through the new release. The minimum carries forward; use `--minimum-frontend <version>` to deliberately retire older frontends. Additive API changes keep their protocol number; a breaking change needs an implemented, tested adapter before its protocol can be advertised.
 
 After merge, the release workflow:
 
@@ -18,4 +18,4 @@ Use **Re-run failed jobs** on the original workflow run. Its source SHA, image d
 
 A failed backend gate blocks all frontend promotion. A partial VM rollout is reported as a deployment failure; inspect that job before retrying it, since the deployment job recreates workspace VMs. Do not automatically roll back servers or data migrations. A publication-only retry does not repeat deployment. If the artifact digest, source SHA, protocol list or readiness check differs, stop and investigate.
 
-The first release under this policy bootstraps the preceding `0.1.52` manifest as workspace protocol 18 and control-plane protocol 3. Subsequent manifests carry the metadata explicitly. Keeping an old protocol in the advertised list is a claim that its behavior is still implemented, not a substitute for compatibility tests.
+The first release under this policy sets its own version as the minimum, retiring `0.1.52` (workspace protocol 17, control-plane protocol 3). A brief interruption is accepted until users update the desktop app or refresh the browser after publication. Keeping an old protocol in the advertised list is a claim that its behavior is still implemented, not a substitute for compatibility tests.

@@ -1,6 +1,7 @@
 import { fileKind } from "./fileKind.js";
+import { useFileSaveErrors } from "./FileSaveErrors.js";
 import { useRestartWarning } from "../confirmRestart.js";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useId } from "react";
 import * as errore from "errore";
 import { useQueryClient } from "@tanstack/react-query";
 import { SerialQueue } from "@get-halo/shared/SerialQueue";
@@ -36,14 +37,17 @@ class FileAutosave {
   private readonly path: string;
   private readonly cache: (content: string) => void;
   private readonly synced: (content: string) => void;
-  private readonly status: (message: string | undefined) => void;
+  private readonly status: (
+    message: string | undefined,
+    needsRetry?: boolean,
+  ) => void;
 
   constructor(ctx: {
     path: string;
     loaded: string;
     api: HaloClient;
     cache(content: string): void;
-    status(message: string | undefined): void;
+    status(message: string | undefined, needsRetry?: boolean): void;
     synced(content: string): void;
   }) {
     this.path = ctx.path;
@@ -71,6 +75,7 @@ class FileAutosave {
         connected
           ? "Unsaved changes. Review and retry saving."
           : "Unsaved changes. Waiting for connection.",
+        fileKind(this.path) !== "markdown",
       );
     if (
       connected &&
@@ -98,7 +103,11 @@ class FileAutosave {
   }
   private failed(error: WorkspaceFileWriteError) {
     console.warn(error);
-    this.status(error.message);
+    const message =
+      error.cause instanceof Error
+        ? `${error.message} ${error.cause.message}`
+        : error.message;
+    this.status(message, true);
     return error;
   }
   private async save() {
@@ -141,8 +150,7 @@ class FileAutosave {
       .catch(
         (cause) =>
           new WorkspaceFileWriteError({
-            detail:
-              "Could not save this file. Your edits are still here; retry when connected.",
+            detail: "Could not save this file. Your edits are still here.",
             cause,
           }),
       );
@@ -220,23 +228,42 @@ class FileAutosave {
 
 export function useAutosaveFile(args: { path: string; loaded: string }) {
   const api = useApi();
+  const { service: errors } = useFileSaveErrors();
+  const errorId = useId();
   const { state } = useConnection();
   const connected = state.status === "connected";
   const queryClient = useQueryClient();
-  const [message, setMessage] = useState<string>();
   const [loaded, setLoaded] = useState(args.loaded);
-  useRestartWarning(message !== undefined);
+  const [progress, setProgress] = useState<{
+    message: string | undefined;
+    needsRetry: boolean;
+  }>({ message: undefined, needsRetry: false });
+  useRestartWarning(progress.message !== undefined);
   const [save] = useState(
     () =>
       new FileAutosave({
         ...args,
         api,
-        status: setMessage,
+        status: (message, needsRetry = false) =>
+          setProgress({ message, needsRetry }),
         synced: setLoaded,
         cache: (content) =>
           queryClient.setQueryData(["workspace-file", args.path], content),
       }),
   );
+  useEffect(() => {
+    if (progress.needsRetry && progress.message !== undefined)
+      errors.report({
+        id: errorId,
+        path: args.path,
+        message: progress.message,
+        retry: async () => {
+          await save.flush();
+        },
+      });
+    else if (progress.message === undefined) errors.clear(errorId);
+  }, [errors, errorId, args.path, progress, save]);
+  useEffect(() => () => errors.clear(errorId), [errors, errorId]);
   useEffect(() => {
     save.updateConnection(api, connected);
   }, [save, api, connected]);
@@ -252,7 +279,8 @@ export function useAutosaveFile(args: { path: string; loaded: string }) {
   return {
     loaded,
     onChange: (content: string) => save.onChange(content),
-    message,
+    message: progress.message,
+    needsRetry: progress.needsRetry,
     retry: async () => {
       await save.flush();
     },
