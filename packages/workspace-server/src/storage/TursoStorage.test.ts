@@ -5,6 +5,7 @@ import { piBackendTest } from "./fixtures.test.js";
 const conformanceManifest = createStorageConformance(async () => {
   throw new Error("The Pi backend fixture has not been bound");
 });
+const largeListScenario = "clamps one read page without limiting list growth";
 
 for (const [index, identity] of conformanceManifest.entries()) {
   let fixture: PiBackendFixture | undefined;
@@ -26,5 +27,6 @@ for (const [index, identity] of conformanceManifest.entries()) {
         fixture = undefined;
       }
     },
+    identity.name === largeListScenario ? 60_000 : undefined,
   );
 }
