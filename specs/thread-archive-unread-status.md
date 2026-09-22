@@ -5,7 +5,8 @@
 ```mermaid
 flowchart LR
     Pi[Pi session repository] --> Registry[SessionRegistry]
-    Database[(DatabaseClient / halo_sessions)] --> Registry
+    Database[(DatabaseClient / halo_sessions)] --> Repo[SessionRepoApi / TursoSessionRepo]
+    Repo --> Registry
     Registry --> Summary[SessionSummary stream]
     Summary --> Sidebar[Active and done session rows]
     Summary --> Pane[Open session pane]
@@ -20,17 +21,21 @@ flowchart LR
 sequenceDiagram
     participant Pi
     participant Registry as SessionRegistry
+    participant Repo as SessionRepoApi
     participant Database as DatabaseClient
     participant Client as Workspace client
 
     Pi-->>Registry: run_end(resultId)
     Registry-->>Client: SessionSummary { isUnread: true }
     Client->>Registry: markRead(sessionId)
-    Registry->>Database: save current result as read
-    Database-->>Registry: persisted
+    Registry->>Repo: save current result as read
+    Repo->>Database: persist receipt
+    Database-->>Repo: persisted
+    Repo-->>Registry: saved
     Registry-->>Client: SessionSummary { isUnread: false }
     Client->>Registry: markUnread(sessionId)
-    Registry->>Database: set manual unread override
+    Registry->>Repo: clear saved read result
+    Repo->>Database: persist cleared receipt
     Registry-->>Client: SessionSummary { isUnread: true }
 ```
 
@@ -42,7 +47,7 @@ Pi's session repository should continue to own the agent transcript, tree, value
 
 ## Solution overview
 
-Pass the existing `DatabaseClient` to `SessionRegistry` and append a migration that extends `halo_sessions` with the inputs needed to derive product state:
+Extend Pi's `SessionRepo` with the workspace-owned `SessionRepoApi` contract. `TursoSessionRepo` implements that contract and remains the only session component that receives `DatabaseClient` or knows the `halo_sessions` schema. Append a migration that extends `halo_sessions` with the inputs needed to derive product state:
 
 ```sql
 ALTER TABLE halo_sessions
@@ -52,7 +57,7 @@ ALTER TABLE halo_sessions
   ADD COLUMN read_result_id TEXT;
 ```
 
-`SessionSummary` is a Halo transport type derived from Pi data, not a persisted Pi type. Add `markedDone` and `isUnread` directly to it. `SessionRegistry` reads the status columns while constructing summaries and publishes them through the existing ordered summary stream. A completed result is unread when it differs from `readResultId`. `markRead` records the server's current result ID; `markUnread` clears that receipt. This avoids trusting a potentially stale result ID from the client and removes the need for a second unread boolean.
+`SessionSummary` is a Halo transport type derived from Pi data, not a persisted Pi type. Add `markedDone` and `isUnread` directly to it. `SessionRegistry` reads status through `SessionRepoApi` while constructing summaries and publishes it through the existing ordered summary stream. A completed result is unread when it differs from `readResultId`. `markRead` records the server's current result ID; `markUnread` clears that receipt. This avoids trusting a potentially stale result ID from the client and removes the need for a second unread boolean.
 
 Marking done is organizational, not a session lifecycle operation. It does not close an open pane, stop a run, or alter the Pi transcript or session tree. Done sessions remain in the summary stream and move to a Done sidebar section, where they can still show running or unread activity and can be marked undone.
 
@@ -78,9 +83,14 @@ We do not store a done timestamp because the product currently needs a state, no
 ### Updated service contract
 
 ```ts
+interface SessionRepoApi extends PiSessionRepo {
+  listStatuses(): Promise<ReadonlyMap<string, SessionStatus> | DatabaseError>;
+  getStatus(sessionId: string): Promise<SessionStatus | undefined | DatabaseError>;
+  // Phase 2 adds the status-write methods used by SessionRegistry commands.
+}
+
 type SessionRegistryOptions = HaloAgentSessionOptions & {
-  repo: SessionRepo; // Pi's repository contract
-  database: DatabaseClient;
+  repo: SessionRepoApi;
 };
 
 class SessionRegistry {
@@ -119,6 +129,8 @@ class SessionRegistry {
 
 - [`packages/workspace-server/AGENTS.md`](../packages/workspace-server/AGENTS.md) — Requires database work in this package to check the installed Turso version, official compatibility documentation, and actual runtime behavior instead of assuming SQLite equivalence.
 - [`packages/workspace-server/src/storage/DatabaseClient.ts`](../packages/workspace-server/src/storage/DatabaseClient.ts) — Owns serialized access to the shared Turso database and applies migrations at startup.
+- [`packages/workspace-server/src/storage/SessionRepoApi.ts`](../packages/workspace-server/src/storage/SessionRepoApi.ts) — Extends Pi's repository contract with workspace-owned session status operations.
+- [`packages/workspace-server/src/storage/TursoSessionRepo.ts`](../packages/workspace-server/src/storage/TursoSessionRepo.ts) — Implements Pi session storage and Halo status persistence over the shared database.
 - [`packages/workspace-server/src/storage/migrations/workspaceMigrations.ts`](../packages/workspace-server/src/storage/migrations/workspaceMigrations.ts) — Holds the append-only migration registry.
 - [`packages/workspace-server/src/storage/migrations/20260921130000-initialWorkspace.ts`](../packages/workspace-server/src/storage/migrations/20260921130000-initialWorkspace.ts) — Defines the Pi adapter table that the new migration extends.
 - [`packages/workspace-server/src/sessions/SessionRegistry.ts`](../packages/workspace-server/src/sessions/SessionRegistry.ts) — Derives Pi summaries and owns ordered summary snapshots and updates.
@@ -142,12 +154,12 @@ The centralized database and startup migration path already exist, and Halo owns
  WorkspaceServer.start [[packages/workspace-server/src/server/WorkspaceServer.ts#WorkspaceServer.start]]
  ├── DatabaseClient.open({ directory, filesystem }) [[packages/workspace-server/src/storage/DatabaseClient.ts#DatabaseClient.open]]
  │   └── workspaceMigrations
-+│       └── append session-status migration
++│       └── sessionStatusMigration [[phase1-migration:new:3-12]]
 +│           └── add marked_done and read_result_id to halo_sessions
- ├── new TursoSessionRepo(database)
+ ├── new TursoSessionRepo(database) [[phase1-turso-repo:new:27-33]]
+ │   └── implements SessionRepoApi [[phase1-session-repo-api:new:9-14]]
  └── new SessionRegistry({
        repo: sessionRepo,
-+      database,
        ...agentOptions
      })
 ```
@@ -157,23 +169,220 @@ The centralized database and startup migration path already exist, and Halo owns
  └── summaryQueue.run
      └── listSessions
          ├── Pi SessionRepo.list
-+        ├── DatabaseClient.access [[packages/workspace-server/src/storage/DatabaseClient.ts#DatabaseClient.access]]
-+        │   └── SELECT id, marked_done, read_result_id FROM halo_sessions
++        ├── SessionRepoApi.listStatuses [[phase1-registry:new:164-168]]
++        │   └── TursoSessionRepo.listStatuses [[phase1-turso-repo:new:87-98]]
++        │       └── DatabaseClient.access
++        │           └── SELECT id, marked_done, read_result_id FROM halo_sessions
          ├── readSessionSummary(Pi session)
-+        ├── add markedDone directly to SessionSummary
-+        ├── derive isUnread directly on SessionSummary
++        ├── add markedDone directly to SessionSummary [[phase1-summary:new:15-16]]
++        ├── derive isUnread directly on SessionSummary [[phase1-registry:new:422-442]]
 +        │   └── latestResultId !== undefined && latestResultId !== readResultId
          └── sort by updatedAt
 ```
 
-- [ ] Append one timestamped TypeScript migration that adds checked `marked_done` and nullable `read_result_id` columns to `halo_sessions`.
-- [ ] Give every new or forked Pi session independent default status through the column defaults. Existing `TursoSessionRepo` projections and inserts remain valid because they name their columns explicitly.
-- [ ] Pass `DatabaseClient` directly to `SessionRegistry`; do not introduce another repository or service.
-- [ ] Add required `markedDone` and `isUnread` booleans to `SessionSummary`. The summary remains Halo's Pi-derived client view, while `read_result_id` stays private to the server.
-- [ ] Increment `haloProtocolVersion` for the required session-summary fields introduced in this independently landable phase.
-- [ ] Read all status columns in one database query during summary-list construction and merge them by session ID. Avoid a query per session.
-- [ ] Preserve the cached status fields when Pi events update title, timestamps, running state, or the latest result.
-- [ ] Update existing summary expectations and run the focused workspace-server tests plus `pnpm run check-affected`.
+- [x] Append one timestamped TypeScript migration that adds checked `marked_done` and nullable `read_result_id` columns to `halo_sessions`.
+- [x] Give every new or forked Pi session independent default status through the column defaults. Existing `TursoSessionRepo` projections and inserts remain valid because they name their columns explicitly.
+- [x] Extend Pi's `SessionRepo` with the workspace-owned `SessionRepoApi` contract. Keep `DatabaseClient` and status SQL inside the existing `TursoSessionRepo`; `SessionRegistry` receives only `SessionRepoApi`.
+- [x] Add required `markedDone` and `isUnread` booleans to `SessionSummary`. The summary remains Halo's Pi-derived client view, while `read_result_id` stays private to the server.
+- [x] Increment `haloProtocolVersion` for the required session-summary fields introduced in this independently landable phase.
+- [x] Read all status columns through `SessionRepoApi` in one database query during summary-list construction and merge them by session ID. Avoid a query per session.
+- [x] Preserve the cached status fields when Pi events update title, timestamps, running state, or the latest result. A new completed result becomes unread immediately, without a database write.
+- [x] Update existing summary expectations and run the focused workspace-server E2E plus `pnpm run check-affected`.
+
+#### Phase 1 source changes
+
+```source-diff:phase1-migration:packages/workspace-server/src/storage/migrations/20260921194000-sessionStatus.ts
+diff --git a/packages/workspace-server/src/storage/migrations/20260921194000-sessionStatus.ts b/packages/workspace-server/src/storage/migrations/20260921194000-sessionStatus.ts
+new file mode 100644
+index 0000000..fcae5f3
+--- /dev/null
++++ b/packages/workspace-server/src/storage/migrations/20260921194000-sessionStatus.ts
+@@ -0,0 +1,12 @@
++import type { Migration } from "../Migration.js";
++
++export const sessionStatusMigration: Migration = {
++  id: "20260921194000-session-status",
++  sql: `
++    ALTER TABLE halo_sessions
++      ADD COLUMN marked_done INTEGER NOT NULL DEFAULT 0
++      CHECK (marked_done IN (0, 1));
++    ALTER TABLE halo_sessions
++      ADD COLUMN read_result_id TEXT;
++  `,
++};
+```
+
+```source-diff:phase1-session-repo-api:packages/workspace-server/src/storage/SessionRepoApi.ts
+diff --git a/packages/workspace-server/src/storage/SessionRepoApi.ts b/packages/workspace-server/src/storage/SessionRepoApi.ts
+new file mode 100644
+index 0000000..09378e9
+--- /dev/null
++++ b/packages/workspace-server/src/storage/SessionRepoApi.ts
+@@ -0,0 +1,14 @@
++import type { SessionRepo as PiSessionRepo } from "@earendil-works/pi-agent-core";
++import type { DatabaseError } from "./DatabaseError.js";
++
++export type SessionStatus = Readonly<{
++  markedDone: boolean;
++  readResultId: string | undefined;
++}>;
++
++export interface SessionRepoApi extends PiSessionRepo {
++  listStatuses(): Promise<ReadonlyMap<string, SessionStatus> | DatabaseError>;
++  getStatus(
++    sessionId: string,
++  ): Promise<SessionStatus | undefined | DatabaseError>;
++}
+```
+
+```source-diff:phase1-turso-repo:packages/workspace-server/src/storage/TursoSessionRepo.ts
+diff --git a/packages/workspace-server/src/storage/TursoSessionRepo.ts b/packages/workspace-server/src/storage/TursoSessionRepo.ts
+index f7e7178..88b3212 100644
+--- a/packages/workspace-server/src/storage/TursoSessionRepo.ts
++++ b/packages/workspace-server/src/storage/TursoSessionRepo.ts
+@@ -27 +27,7 @@ import {
+-export class TursoSessionRepo implements SessionRepo {
++type SessionStatusRow = {
++  id: string;
++  marked_done: 0 | 1;
++  read_result_id: string | null;
++};
++
++export class TursoSessionRepo implements SessionRepoApi {
+@@ -80,0 +87,24 @@ export class TursoSessionRepo implements SessionRepo {
++  async listStatuses() {
++    return await this.database.access((connection) => {
++      // SAFETY: The projection matches the session-status migration.
++      const rows = connection
++        .prepare("SELECT id, marked_done, read_result_id FROM halo_sessions")
++        .all() as SessionStatusRow[];
++      return new Map(
++        rows.map((row) => [row.id, decodeSessionStatus(row)] as const),
++      );
++    });
++  }
++
++  async getStatus(sessionId: string) {
++    return await this.database.access((connection) => {
++      // SAFETY: The projection matches the session-status migration.
++      const row = connection
++        .prepare(
++          "SELECT id, marked_done, read_result_id FROM halo_sessions WHERE id = ?",
++        )
++        .get(sessionId) as SessionStatusRow | undefined;
++      return row === undefined ? undefined : decodeSessionStatus(row);
++    });
++  }
++
+```
+
+```source-diff:phase1-summary:packages/client/src/rpc.ts
+diff --git a/packages/client/src/rpc.ts b/packages/client/src/rpc.ts
+index 47852b1..febe9e2 100644
+--- a/packages/client/src/rpc.ts
++++ b/packages/client/src/rpc.ts
+@@ -14,0 +15,2 @@ export type SessionSummary = {
++  markedDone: boolean;
++  isUnread: boolean;
+```
+
+```source-diff:phase1-registry:packages/workspace-server/src/sessions/SessionRegistry.ts
+diff --git a/packages/workspace-server/src/sessions/SessionRegistry.ts b/packages/workspace-server/src/sessions/SessionRegistry.ts
+index bd751f5..fb1bdff 100644
+--- a/packages/workspace-server/src/sessions/SessionRegistry.ts
++++ b/packages/workspace-server/src/sessions/SessionRegistry.ts
+@@ -126 +160 @@ export class SessionRegistry {
+-    const metadata = await this.options.repo
++    const metadata = await this.repo
+@@ -129,0 +164,5 @@ export class SessionRegistry {
++    const statuses = await this.repo.listStatuses();
++    if (statuses instanceof Error) return statuses;
++    this.statusBySession.clear();
++    for (const [sessionId, status] of statuses)
++      this.statusBySession.set(sessionId, status);
+@@ -131,0 +171,3 @@ export class SessionRegistry {
++      const status = statuses.get(item.id);
++      if (status === undefined)
++        return new SessionNotFoundError({ sessionId: item.id });
+@@ -134 +176,3 @@ export class SessionRegistry {
+-        summaries.push(cached);
++        const current = applySessionStatus(cached, status);
++        this.summaries.set(item.id, current);
++        summaries.push(current);
+@@ -139,4 +183,3 @@ export class SessionRegistry {
+-      const summary = await readSessionSummary(
+-        stored,
+-        this.options.layout.root,
+-      ).catch((cause) => new ListAgentSessionsError({ cause }));
++      const summary = await readSessionSummary(stored, this.layout.root).catch(
++        (cause) => new ListAgentSessionsError({ cause }),
++      );
+@@ -145,4 +188,7 @@ export class SessionRegistry {
+-      const current = {
+-        ...summary,
+-        isRunning: this.sessions.has(item.id) && summary.isRunning,
+-      };
++      const current = applySessionStatus(
++        {
++          ...summary,
++          isRunning: this.sessions.has(item.id) && summary.isRunning,
++        },
++        status,
++      );
+@@ -289,0 +349,7 @@ export class SessionRegistry {
++          const status =
++            this.statusBySession.get(sessionId) ??
++            (await this.repo.getStatus(sessionId));
++          if (status instanceof Error) return status;
++          if (status === undefined)
++            return new SessionNotFoundError({ sessionId });
++          this.statusBySession.set(sessionId, status);
+@@ -295,4 +361,9 @@ export class SessionRegistry {
+-          this.publish({
+-            ...summary,
+-            isRunning: this.sessions.has(sessionId) && summary.isRunning,
+-          });
++          this.publish(
++            applySessionStatus(
++              {
++                ...summary,
++                isRunning: this.sessions.has(sessionId) && summary.isRunning,
++              },
++              status,
++            ),
++          );
+@@ -317 +388,6 @@ function applySummaryEvent(
+-      return { ...summary, isRunning: false, latestResultId: event.runId };
++      return {
++        ...summary,
++        isRunning: false,
++        latestResultId: event.runId,
++        isUnread: true,
++      };
+@@ -341 +422,21 @@ function applySummaryEvent(
+-async function readSessionSummary(session: Session, cwd: string) {
++function applySessionStatus(
++  summary: PiSessionSummary | SessionSummary,
++  status: SessionStatus,
++): SessionSummary {
++  return {
++    ...summary,
++    markedDone: status.markedDone,
++    isUnread:
++      summary.latestResultId !== undefined &&
++      summary.latestResultId !== status.readResultId,
++  };
++}
++
++function defaultSessionStatus(): SessionStatus {
++  return { markedDone: false, readResultId: undefined };
++}
++
++async function readSessionSummary(
++  session: Session,
++  cwd: string,
++): Promise<PiSessionSummary> {
+```
 
 ### Phase 2: Add status commands to the summary stream
 
@@ -186,17 +395,15 @@ With status present on every summary, add the commands to mutate it. `SessionReg
  └── SessionRegistry.publishSummary [[packages/workspace-server/src/sessions/SessionRegistry.ts#SessionRegistry.publishSummary]]
      └── summaryQueue.run
          ├── applySummaryEvent
--        │   └── run_end -> { isRunning: false, latestResultId }
-+        │   └── run_end -> { isRunning: false, latestResultId, isUnread: true }
+         │   └── run_end -> { isRunning: false, latestResultId, isUnread: true }
          └── publish { type: "updated", session }
 
 +sessions.markRead({ sessionId })
 +└── SessionRegistry.markRead(sessionId)
 +    └── summaryQueue.run
 +        ├── resolve current server summary
-+        ├── DatabaseClient.access
-+        │   └── UPDATE halo_sessions
-+        │       └── read_result_id = latestResultId
++        ├── SessionRepoApi.saveReadResult(latestResultId)
++        │   └── TursoSessionRepo uses DatabaseClient to UPDATE halo_sessions
 +        └── publish { ...summary, isUnread: false }
 
 +sessions.markUnread({ sessionId })
@@ -205,30 +412,29 @@ With status present on every summary, add the commands to mutate it. `SessionReg
 +        └── check for an existing result
 +            ├── none -> return without changing state
 +            └── present
-+                ├── DatabaseClient.access
-+                │   └── UPDATE halo_sessions SET read_result_id = NULL
++                ├── SessionRepoApi.saveReadResult(undefined)
++                │   └── TursoSessionRepo uses DatabaseClient to UPDATE halo_sessions
 +                └── publish { ...summary, isUnread: true }
 
 +sessions.markDone({ sessionId })
 +└── SessionRegistry.markDone(sessionId)
 +    └── summaryQueue.run
-+        ├── DatabaseClient.access
-+        │   └── UPDATE halo_sessions SET marked_done = 1
++        ├── SessionRepoApi.saveMarkedDone(true)
++        │   └── TursoSessionRepo uses DatabaseClient to UPDATE halo_sessions
 +        └── publish { ...summary, markedDone: true }
 
 +sessions.markUndone({ sessionId })
 +└── SessionRegistry.markUndone(sessionId)
 +    └── summaryQueue.run
-+        ├── DatabaseClient.access
-+        │   └── UPDATE halo_sessions SET marked_done = 0
++        ├── SessionRepoApi.saveMarkedDone(false)
++        │   └── TursoSessionRepo uses DatabaseClient to UPDATE halo_sessions
 +        └── publish { ...summary, markedDone: false }
 ```
 
 - [ ] Add `markRead`, `markUnread`, `markDone`, and `markUndone` to the session contract and router, and increment `haloProtocolVersion` again for the new command surface.
 - [ ] Serialize state commands with summary production in `summaryQueue`. Resolve the latest result on the server so `markRead` cannot save a stale client-provided result ID.
 - [ ] Treat `markUnread` with no completed result as a no-op. The UI will not offer the action in that state, but the server remains race-safe.
-- [ ] Keep the SQL private to `SessionRegistry` and execute it through `DatabaseClient.access()`. Return the existing typed database failures through the router's error boundary.
-- [ ] Mark a new completed result unread in the summary without writing a redundant database row; restart derives the same result by comparing the Pi result ID with the saved read receipt.
+- [ ] Keep policy and ordered publication in `SessionRegistry`. Keep SQL private to `TursoSessionRepo`, expose typed persistence operations through `SessionRepoApi`, and return database failures through the router's error boundary.
 - [ ] Publish status mutations through `SessionSummariesUpdate.updated`. Keep done sessions in `list()` and `watchSummaries()` so mark undone and background activity remain observable.
 - [ ] Extend the workspace-server package E2E through the public RPC API. Verify automatic unread status, manual read/unread, mark done/undone, stream updates, independent sessions, and restoration after a server restart.
 - [ ] Run the focused workspace-server E2E and `pnpm run check-affected`.

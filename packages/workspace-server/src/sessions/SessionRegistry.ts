@@ -3,7 +3,6 @@ import * as errore from "errore";
 import {
   BACKGROUND_CONTEXT,
   type Session,
-  type SessionRepo,
   type SessionMetadata,
   type HarnessEvent,
 } from "@earendil-works/pi-agent-core";
@@ -21,6 +20,10 @@ import {
   CreateAgentSessionError,
   type HaloAgentSessionOptions,
 } from "../agent/HaloAgentSession.js";
+import type {
+  SessionRepoApi,
+  SessionStatus,
+} from "../storage/SessionRepoApi.js";
 
 export class SessionNotFoundError extends errore.createTaggedError({
   name: "SessionNotFoundError",
@@ -48,8 +51,10 @@ class SessionRegistryClosedError extends errore.createTaggedError({
 }) {}
 
 type SessionRegistryOptions = HaloAgentSessionOptions & {
-  repo: SessionRepo;
+  repo: SessionRepoApi;
 };
+
+type PiSessionSummary = Omit<SessionSummary, "isUnread" | "markedDone">;
 
 export class SessionRegistry {
   private closing = false;
@@ -59,6 +64,7 @@ export class SessionRegistry {
   private readonly summaries = new Map<string, SessionSummary>();
   private readonly summaryChanges = new Stream<SessionSummariesUpdate>();
   private readonly summarySubscriptions = new Map<string, () => void>();
+  private readonly statusBySession = new Map<string, SessionStatus>();
   private readonly pending = new Set<Promise<unknown>>();
   private readonly sessions = new Map<string, HaloAgentSession>();
   private readonly stored = new Map<string, Promise<Session | Error>>();
@@ -66,7 +72,35 @@ export class SessionRegistry {
     string,
     Promise<Error | HaloAgentSession>
   >();
-  constructor(private readonly options: SessionRegistryOptions) {}
+  private readonly repo: SessionRepoApi;
+  private readonly environment: HaloAgentSessionOptions["environment"];
+  private readonly llmApi: HaloAgentSessionOptions["llmApi"];
+  private readonly traces: HaloAgentSessionOptions["traces"];
+  private readonly model: HaloAgentSessionOptions["model"];
+  private readonly filesystem: HaloAgentSessionOptions["filesystem"];
+  private readonly layout: HaloAgentSessionOptions["layout"];
+  private readonly toolRuntime: HaloAgentSessionOptions["toolRuntime"];
+
+  constructor(ctx: SessionRegistryOptions) {
+    const {
+      repo,
+      environment,
+      llmApi,
+      traces,
+      model,
+      filesystem,
+      layout,
+      toolRuntime,
+    } = ctx;
+    this.repo = repo;
+    this.environment = environment;
+    this.llmApi = llmApi;
+    this.traces = traces;
+    this.model = model;
+    this.filesystem = filesystem;
+    this.layout = layout;
+    this.toolRuntime = toolRuntime;
+  }
 
   async list() {
     return await this.track(
@@ -123,29 +157,41 @@ export class SessionRegistry {
   }
 
   private async listSessions() {
-    const metadata = await this.options.repo
+    const metadata = await this.repo
       .list(undefined, BACKGROUND_CONTEXT)
       .catch((cause) => new ListAgentSessionsError({ cause }));
     if (metadata instanceof Error) return metadata;
+    const statuses = await this.repo.listStatuses();
+    if (statuses instanceof Error) return statuses;
+    this.statusBySession.clear();
+    for (const [sessionId, status] of statuses)
+      this.statusBySession.set(sessionId, status);
     const summaries: SessionSummary[] = [];
     for (const item of metadata) {
+      const status = statuses.get(item.id);
+      if (status === undefined)
+        return new SessionNotFoundError({ sessionId: item.id });
       const cached = this.summaries.get(item.id);
       if (cached !== undefined) {
-        summaries.push(cached);
+        const current = applySessionStatus(cached, status);
+        this.summaries.set(item.id, current);
+        summaries.push(current);
         continue;
       }
       const stored = await this.openStored(item);
       if (stored instanceof Error) return stored;
-      const summary = await readSessionSummary(
-        stored,
-        this.options.layout.root,
-      ).catch((cause) => new ListAgentSessionsError({ cause }));
+      const summary = await readSessionSummary(stored, this.layout.root).catch(
+        (cause) => new ListAgentSessionsError({ cause }),
+      );
       if (summary instanceof Error) return summary;
       // Unfinished operations in storage are recovered only when a session opens.
-      const current = {
-        ...summary,
-        isRunning: this.sessions.has(item.id) && summary.isRunning,
-      };
+      const current = applySessionStatus(
+        {
+          ...summary,
+          isRunning: this.sessions.has(item.id) && summary.isRunning,
+        },
+        status,
+      );
       this.summaries.set(item.id, current);
       summaries.push(current);
     }
@@ -155,10 +201,11 @@ export class SessionRegistry {
   }
 
   private async createSession() {
-    const stored = await this.options.repo
+    const stored = await this.repo
       .create({}, BACKGROUND_CONTEXT)
       .catch((cause) => new CreateAgentSessionError({ cause }));
     if (stored instanceof Error) return stored;
+    this.statusBySession.set(stored.metadata.id, defaultSessionStatus());
     this.stored.set(stored.metadata.id, Promise.resolve(stored));
     return await this.openSession(stored.metadata.id);
   }
@@ -205,6 +252,7 @@ export class SessionRegistry {
     );
     const sessionError = closed.find((result) => result instanceof Error);
     this.stored.clear();
+    this.statusBySession.clear();
     if (sessionError instanceof Error) return sessionError;
   }
 
@@ -215,7 +263,18 @@ export class SessionRegistry {
         ? await this.findStored(sessionId)
         : await existing;
     if (stored instanceof Error) return stored;
-    const session = await HaloAgentSession.attach(this.options, stored);
+    const session = await HaloAgentSession.attach(
+      {
+        environment: this.environment,
+        llmApi: this.llmApi,
+        traces: this.traces,
+        model: this.model,
+        filesystem: this.filesystem,
+        layout: this.layout,
+        toolRuntime: this.toolRuntime,
+      },
+      stored,
+    );
     if (session instanceof Error) {
       this.stored.delete(sessionId);
       return session;
@@ -236,7 +295,7 @@ export class SessionRegistry {
   }
 
   private async findStored(sessionId: string) {
-    const metadata = await this.options.repo
+    const metadata = await this.repo
       .list(undefined, BACKGROUND_CONTEXT)
       .catch((cause) => new ListAgentSessionsError({ cause }));
     if (metadata instanceof Error) return metadata;
@@ -248,7 +307,7 @@ export class SessionRegistry {
   private async openStored(metadata: SessionMetadata) {
     const existing = this.stored.get(metadata.id);
     if (existing !== undefined) return await existing;
-    const opening = this.options.repo
+    const opening = this.repo
       .open(metadata, BACKGROUND_CONTEXT)
       .catch(
         (cause) => new OpenAgentSessionError({ sessionId: metadata.id, cause }),
@@ -287,15 +346,27 @@ export class SessionRegistry {
           const stored = await this.stored.get(sessionId);
           if (stored === undefined) return;
           if (stored instanceof Error) return stored;
+          const status =
+            this.statusBySession.get(sessionId) ??
+            (await this.repo.getStatus(sessionId));
+          if (status instanceof Error) return status;
+          if (status === undefined)
+            return new SessionNotFoundError({ sessionId });
+          this.statusBySession.set(sessionId, status);
           const summary = await readSessionSummary(
             stored,
-            this.options.layout.root,
+            this.layout.root,
           ).catch((cause) => new ListAgentSessionsError({ cause }));
           if (summary instanceof Error) return summary;
-          this.publish({
-            ...summary,
-            isRunning: this.sessions.has(sessionId) && summary.isRunning,
-          });
+          this.publish(
+            applySessionStatus(
+              {
+                ...summary,
+                isRunning: this.sessions.has(sessionId) && summary.isRunning,
+              },
+              status,
+            ),
+          );
         }),
     );
   }
@@ -314,7 +385,12 @@ function applySummaryEvent(
     case "run_start":
       return { ...summary, isRunning: true };
     case "run_end":
-      return { ...summary, isRunning: false, latestResultId: event.runId };
+      return {
+        ...summary,
+        isRunning: false,
+        latestResultId: event.runId,
+        isUnread: true,
+      };
     case "fault":
       return { ...summary, isRunning: false };
     case "entry_added": {
@@ -323,14 +399,19 @@ function applySummaryEvent(
       const title =
         summary.title ??
         (message?.role === "user" ? userTitle(message) : undefined);
+      const latestResultId =
+        !summary.isRunning && message?.role === "assistant"
+          ? entry.id
+          : summary.latestResultId;
       return {
         ...summary,
         title: title?.trim().length === 0 ? undefined : title,
         updatedAt: new Date(entry.timestamp).toISOString(),
-        latestResultId:
-          !summary.isRunning && message?.role === "assistant"
-            ? entry.id
-            : summary.latestResultId,
+        latestResultId,
+        isUnread:
+          latestResultId === summary.latestResultId
+            ? summary.isUnread
+            : latestResultId !== undefined,
       };
     }
     default:
@@ -338,7 +419,27 @@ function applySummaryEvent(
   }
 }
 
-async function readSessionSummary(session: Session, cwd: string) {
+function applySessionStatus(
+  summary: PiSessionSummary | SessionSummary,
+  status: SessionStatus,
+): SessionSummary {
+  return {
+    ...summary,
+    markedDone: status.markedDone,
+    isUnread:
+      summary.latestResultId !== undefined &&
+      summary.latestResultId !== status.readResultId,
+  };
+}
+
+function defaultSessionStatus(): SessionStatus {
+  return { markedDone: false, readResultId: undefined };
+}
+
+async function readSessionSummary(
+  session: Session,
+  cwd: string,
+): Promise<PiSessionSummary> {
   const name = await session.getName(BACKGROUND_CONTEXT);
   const entries = await session.findEntries(
     { order: "asc" },

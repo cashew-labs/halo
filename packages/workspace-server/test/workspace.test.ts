@@ -1573,7 +1573,12 @@ serverTest(
     const session = await server.rpc.sessions.create();
     expect((await updates.next()).value).toMatchObject({
       type: "updated",
-      session: { ...session, isRunning: false },
+      session: {
+        ...session,
+        isRunning: false,
+        markedDone: false,
+        isUnread: false,
+      },
     });
 
     const prompting = server.rpc.sessions.prompt({
@@ -1587,6 +1592,8 @@ serverTest(
     expect(running).toMatchObject({
       ...session,
       title: "Work without an open conversation",
+      markedDone: false,
+      isUnread: false,
     });
     await llm.respond(m.assistant("First result"));
     await prompting;
@@ -1595,6 +1602,7 @@ serverTest(
       (summary) => !summary.isRunning && summary.latestResultId !== undefined,
     );
     expect(completed.latestResultId).toBeDefined();
+    expect(completed).toMatchObject({ markedDone: false, isUnread: true });
     first.abort();
 
     // Finish another run while this client is disconnected.
@@ -1612,7 +1620,14 @@ serverTest(
     const current = await resumed.next();
     expect(current.value).toMatchObject({
       type: "snapshot",
-      sessions: [{ ...session, isRunning: false }],
+      sessions: [
+        {
+          ...session,
+          isRunning: false,
+          markedDone: false,
+          isUnread: true,
+        },
+      ],
     });
     if (current.done || current.value.type !== "snapshot")
       throw new Error("Expected summary snapshot");
@@ -1649,6 +1664,8 @@ serverTest(
           ...session,
           isRunning: false,
           latestResultId: stopped.latestResultId,
+          markedDone: false,
+          isUnread: true,
         },
       ],
     });

@@ -23,7 +23,7 @@ import type {
   WorkspaceTreeEvent,
 } from "./rpc.js";
 
-export const haloProtocolVersion = 18 as const;
+export const haloProtocolVersion = 19 as const;
 
 export const RequestRejectedError = error("BAD_REQUEST", {
   message: "Halo could not complete the request.",

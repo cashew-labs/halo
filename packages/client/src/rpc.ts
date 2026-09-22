@@ -12,6 +12,8 @@ export type SessionSummary = {
   updatedAt: string;
   isRunning: boolean;
   latestResultId?: string;
+  markedDone: boolean;
+  isUnread: boolean;
 };
 
 export type SessionSummariesUpdate =

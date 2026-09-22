@@ -4,7 +4,6 @@ import {
   value,
   type Session,
   type SessionMetadata,
-  type SessionRepo,
   type SessionCreateOptions,
   type ForkOptions,
   type Entry,
@@ -16,6 +15,7 @@ import { uuidv7 } from "@earendil-works/pi-ai";
 import type { Database } from "@tursodatabase/database/compat";
 import * as errore from "errore";
 import type { DatabaseClient } from "./DatabaseClient.js";
+import type { SessionRepoApi, SessionStatus } from "./SessionRepoApi.js";
 import { TursoStorage, applySessionWrites } from "./TursoStorage.js";
 import {
   decodeSessionJson,
@@ -24,7 +24,13 @@ import {
   SessionBackendError,
 } from "./sessionSchema.js";
 
-export class TursoSessionRepo implements SessionRepo {
+type SessionStatusRow = {
+  id: string;
+  marked_done: 0 | 1;
+  read_result_id: string | null;
+};
+
+export class TursoSessionRepo implements SessionRepoApi {
   private readonly reserved = new Set<string>();
   private readonly sessions = new Set<Session>();
   private closed = false;
@@ -76,6 +82,30 @@ export class TursoSessionRepo implements SessionRepo {
     });
     if (result instanceof Error) throw result;
     return result;
+  }
+
+  async listStatuses() {
+    return await this.database.access((connection) => {
+      // SAFETY: The projection matches the session-status migration.
+      const rows = connection
+        .prepare("SELECT id, marked_done, read_result_id FROM halo_sessions")
+        .all() as SessionStatusRow[];
+      return new Map(
+        rows.map((row) => [row.id, decodeSessionStatus(row)] as const),
+      );
+    });
+  }
+
+  async getStatus(sessionId: string) {
+    return await this.database.access((connection) => {
+      // SAFETY: The projection matches the session-status migration.
+      const row = connection
+        .prepare(
+          "SELECT id, marked_done, read_result_id FROM halo_sessions WHERE id = ?",
+        )
+        .get(sessionId) as SessionStatusRow | undefined;
+      return row === undefined ? undefined : decodeSessionStatus(row);
+    });
   }
 
   async delete(metadata: SessionMetadata) {
@@ -227,4 +257,11 @@ export class TursoSessionRepo implements SessionRepo {
     if (this.closed)
       throw new SessionBackendError({ detail: "Repository is closed" });
   }
+}
+
+function decodeSessionStatus(row: SessionStatusRow): SessionStatus {
+  return {
+    markedDone: row.marked_done === 1,
+    readResultId: row.read_result_id ?? undefined,
+  };
 }
