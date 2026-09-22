@@ -1564,7 +1564,7 @@ e2eTest(
         ),
     );
     await expect(
-      page.locator('.workspacePane[data-active="true"]').getByRole("tab"),
+      page.locator('[data-pane-id][data-active="true"]').getByRole("tab"),
     ).toHaveText("Right.md");
     await expect(page).toHaveURL(/#\/files\/Right.md$/);
     await page
@@ -2511,7 +2511,7 @@ e2eTest(
     await page
       .getByRole("link", { name: "Left conversation", exact: true })
       .click();
-    const area = page.locator(".paneWorkspace");
+    const area = page.getByTestId("pane-workspace");
     const box = (await area.boundingBox())!;
     await page
       .getByRole("link", { name: "Right conversation", exact: true })
