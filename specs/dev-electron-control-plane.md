@@ -134,9 +134,9 @@ Needed so `WorkspaceGateway` sees the same kind of bearer production uses, witho
 +        └── internalAdapter.createSession
 ```
 
-- [x] `AuthService.signInWithGoogleAccessToken`. Optional verifier injectable for tests.
-- [x] Route only when `config.deployment === "local"`. Production 404s `/api/dev/google-session`.
-- [x] Test: 400 / 401 / 200, then bearer `auth.session()` and `/workspace/health`.
+- [ ] `AuthService.signInWithGoogleAccessToken`. Optional verifier injectable for tests.
+- [ ] Route only when `config.deployment === "local"`. Production 404s `/api/dev/google-session`.
+- [ ] Test: 400 / 401 / 200, then bearer `auth.session()` and `/workspace/health`.
 - [ ] `pnpm --filter @get-halo/control-plane test:e2e -- test/ControlPlane.test.ts`
 - [ ] `pnpm run check-affected`
 
@@ -155,8 +155,8 @@ This is the user-visible switch. Development starts `ControlPlaneAuth` with an i
  └── production → ControlPlaneAuth.start({ origin, dataDir })  # unchanged
 ```
 
-- [x] `createGoogleAccessTokenSession({ origin })` in Electron main.
-- [x] `ControlPlaneAuth.start` union: disk `dataDir` or in-memory `createSession` (no `safeStorage`).
-- [x] Development uses that start mode. Remove `createAdcDesktopIdentity.ts`.
-- [x] README / AGENTS: development Electron uses `/workspace/*`; `server.json` is for the local gateway and Test Electron.
+- [ ] `createGoogleAccessTokenSession({ origin })` in Electron main.
+- [ ] `ControlPlaneAuth.start` union: disk `dataDir` or in-memory `createSession` (no `safeStorage`).
+- [ ] Development uses that start mode. Remove `createAdcDesktopIdentity.ts`.
+- [ ] README / AGENTS: development Electron uses `/workspace/*`; `server.json` is for the local gateway and Test Electron.
 - [ ] `pnpm run check-affected`. Smoke `pnpm dev`: renderer calls `{controlPlane}/workspace/rpc`, not workspace `/rpc`.
