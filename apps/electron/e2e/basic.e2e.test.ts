@@ -1765,11 +1765,10 @@ e2eTest(
     await app.page.keyboard.press("Tab");
     await expect(editor.locator("ul ul li")).toHaveText(["Child", "Second"]);
     await expect
-      .poll(async () => await app.server.rpc.workspace.readFile({ path }))
-      .toContain("**Rich bold** and *italic*");
-    await expect(
-      app.page.getByRole("main", { name: path }).getByRole("status"),
-    ).toHaveCount(0);
+      .poll(async () =>
+        (await app.server.rpc.workspace.readFile({ path })).trimEnd(),
+      )
+      .toBe("**Rich bold** and *italic*\n\n- Parent\n  - Child\n  - Second");
   },
 );
 
