@@ -33,14 +33,17 @@ class FileAutosave {
   private readonly actionQueue = new SerialQueue();
   private readonly path: string;
   private readonly cache: (content: string) => void;
-  private readonly status: (message: string | undefined) => void;
+  private readonly status: (
+    message: string | undefined,
+    needsRetry?: boolean,
+  ) => void;
 
   constructor(ctx: {
     path: string;
     loaded: string;
     api: HaloClient;
     cache(content: string): void;
-    status(message: string | undefined): void;
+    status(message: string | undefined, needsRetry?: boolean): void;
   }) {
     this.path = ctx.path;
     this.content = ctx.loaded;
@@ -66,6 +69,7 @@ class FileAutosave {
         connected
           ? "Unsaved changes. Review and retry saving."
           : "Unsaved changes. Waiting for connection.",
+        true,
       );
   }
   beforeUnload = (event: BeforeUnloadEvent) => {
@@ -86,7 +90,7 @@ class FileAutosave {
   }
   private failed(error: WorkspaceFileWriteError) {
     console.warn(error);
-    this.status(error.message);
+    this.status(error.message, true);
     return error;
   }
   private async save() {
@@ -151,14 +155,18 @@ export function useAutosaveFile(args: { path: string; loaded: string }) {
   const { state } = useConnection();
   const connected = state.status === "connected";
   const queryClient = useQueryClient();
-  const [message, setMessage] = useState<string>();
-  useRestartWarning(message !== undefined);
+  const [progress, setProgress] = useState<{
+    message: string | undefined;
+    needsRetry: boolean;
+  }>({ message: undefined, needsRetry: false });
+  useRestartWarning(progress.message !== undefined);
   const [save] = useState(
     () =>
       new FileAutosave({
         ...args,
         api,
-        status: setMessage,
+        status: (message, needsRetry = false) =>
+          setProgress({ message, needsRetry }),
         cache: (content) =>
           queryClient.setQueryData(["workspace-file", args.path], content),
       }),
@@ -177,7 +185,8 @@ export function useAutosaveFile(args: { path: string; loaded: string }) {
   }, [save]);
   return {
     onChange: (content: string) => save.onChange(content),
-    message,
+    message: progress.message,
+    needsRetry: progress.needsRetry,
     retry: async () => {
       await save.flush();
     },

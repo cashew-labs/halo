@@ -6,7 +6,7 @@ export function FileSaveStatus({
 }: {
   save: ReturnType<typeof useAutosaveFile>;
 }) {
-  if (save.message === undefined) return;
+  if (!save.needsRetry || save.message === undefined) return;
   return (
     <Flex row gap={3}>
       <div role="status">
