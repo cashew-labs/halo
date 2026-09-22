@@ -1,6 +1,7 @@
 import { gzipSync } from "node:zlib";
 import { TraceCloudDriver } from "./TraceCloudDriver.js";
-import { createServer, type AddressInfo } from "node:http";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import fs from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
