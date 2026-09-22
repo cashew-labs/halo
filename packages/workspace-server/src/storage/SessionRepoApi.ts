@@ -1,14 +1,24 @@
 import type { SessionRepo as PiSessionRepo } from "@earendil-works/pi-agent-core";
 import type { DatabaseError } from "./DatabaseError.js";
 
-export type SessionStatus = Readonly<{
+export type SessionProductFields = {
   markedDone: boolean;
-  readResultId: string | undefined;
-}>;
+  readReceiptCursorId?: string;
+};
 
 export interface SessionRepoApi extends PiSessionRepo {
-  listStatuses(): Promise<ReadonlyMap<string, SessionStatus> | DatabaseError>;
-  getStatus(
+  listProductFields(): Promise<
+    ReadonlyMap<string, SessionProductFields> | DatabaseError
+  >;
+  getProductFields(
     sessionId: string,
-  ): Promise<SessionStatus | undefined | DatabaseError>;
+  ): Promise<SessionProductFields | undefined | DatabaseError>;
+  setMarkedDone(input: {
+    sessionId: string;
+    markedDone: boolean;
+  }): Promise<void | DatabaseError>;
+  setReadReceipt(input: {
+    sessionId: string;
+    readReceiptCursorId?: string;
+  }): Promise<void | DatabaseError>;
 }

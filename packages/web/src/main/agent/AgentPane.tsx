@@ -1,5 +1,5 @@
 import { useIsActiveTab } from "../../panes/WorkspacePanesProvider.js";
-import { useMarkSessionRead } from "./useSessionReadState.js";
+import { useMarkSessionRead } from "./useMarkSessionRead.js";
 import { lastAssistantTurnWasAborted } from "./sessionView.js";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { skipToken, useQuery } from "@tanstack/react-query";
@@ -43,10 +43,10 @@ export function AgentPane({
   sessions: SessionSummary[];
 }) {
   const session = useAgentSession(sessionId);
-  useMarkSessionRead({ sessionId, state: session.state });
   const sessionMeta = sessions.find(
-    ({ sessionId: candidate }) => candidate === sessionId,
+    ({ sessionId: candidateSessionId }) => candidateSessionId === sessionId,
   );
+  useMarkSessionRead(sessionMeta);
   const { data: submittedTitle } = useQuery<string>({
     queryKey: sessionTitleQueryKey(sessionId),
     queryFn: skipToken,

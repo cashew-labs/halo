@@ -1,23 +1,33 @@
-import type { SessionSummary } from "@get-halo/client";
-import { colors } from "maui";
+import { isThreadUnread, type SessionSummary } from "@get-halo/client";
+import { Thinking, colors, motion } from "maui";
 import { style, useStyles } from "purse-styles";
-import { useSessionReadState } from "../main/agent/useSessionReadState.js";
-// purse-styles cannot express @keyframes; this file only registers sessionActivitySpin.
-import "./sessionActivity.css";
 
 export function SessionActivity({ session }: { session: SessionSummary }) {
-  const { seenResultId } = useSessionReadState(session.sessionId);
   const indicator = useStyles(indicatorStyle);
-  const spinner = useStyles(spinnerStyle);
+  const streamingStatus = useStyles(
+    statusLayerStyle,
+    ...(session.isRunning ? [visibleStatusStyle] : []),
+  );
+  const isUnread = !session.isRunning && isThreadUnread(session);
+  const unreadStatus = useStyles(
+    statusLayerStyle,
+    ...(isUnread ? [visibleStatusStyle] : []),
+  );
   const dot = useStyles(dotStyle);
-  const unread =
-    session.latestResultId !== undefined &&
-    session.latestResultId !== seenResultId;
-  if (!session.isRunning && !unread) return undefined;
-  const label = session.isRunning ? "Agent is working" : "Unread result";
   return (
-    <span className={indicator} role="img" aria-label={label} title={label}>
-      <span aria-hidden="true" className={session.isRunning ? spinner : dot} />
+    <span className={indicator}>
+      <span className={streamingStatus} aria-hidden={!session.isRunning}>
+        <Thinking size="0.7em" variant="muted" aria-label="Agent is working" />
+      </span>
+      <span
+        className={unreadStatus}
+        role="img"
+        aria-label="Unread result"
+        aria-hidden={!isUnread}
+        title="Unread result"
+      >
+        <span aria-hidden="true" className={dot} />
+      </span>
     </span>
   );
 }
@@ -25,24 +35,27 @@ export function SessionActivity({ session }: { session: SessionSummary }) {
 const indicatorStyle = style({
   display: "grid",
   placeItems: "center",
+  flexShrink: 0,
   width: "16px",
   height: "16px",
 });
 
-const spinnerStyle = style({
-  width: "12px",
-  height: "12px",
-  borderRadius: "50%",
-  border: `1.5px solid ${colors.gray[8]}`,
-  borderTopColor: colors.gray[11],
-  borderRightColor: colors.gray[11],
-  animation: "sessionActivitySpin 800ms linear infinite",
-  "@media (prefers-reduced-motion: reduce)": { animation: "none" },
+const statusLayerStyle = style(motion.standard("opacity"), {
+  gridArea: "1 / 1",
+  display: "grid",
+  placeItems: "center",
+  width: "16px",
+  height: "16px",
+  opacity: 0,
+  pointerEvents: "none",
 });
 
+const visibleStatusStyle = style({ opacity: 1 });
+
 const dotStyle = style({
-  width: "8px",
-  height: "8px",
+  display: "block",
+  width: "6px",
+  height: "6px",
   borderRadius: "50%",
-  backgroundColor: colors.blue[9],
+  backgroundColor: colors.accent[9],
 });

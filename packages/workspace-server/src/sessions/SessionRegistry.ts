@@ -11,6 +11,7 @@ import { Stream } from "@get-halo/shared/Stream";
 import { SerialQueue } from "@get-halo/shared/SerialQueue";
 import {
   chatPromptTitle,
+  isThreadUnread,
   type HaloMessage,
   type SessionSummary,
   type SessionSummariesUpdate,
@@ -21,8 +22,8 @@ import {
   type HaloAgentSessionOptions,
 } from "../agent/HaloAgentSession.js";
 import type {
+  SessionProductFields,
   SessionRepoApi,
-  SessionStatus,
 } from "../storage/SessionRepoApi.js";
 
 export class SessionNotFoundError extends errore.createTaggedError({
@@ -54,7 +55,10 @@ type SessionRegistryOptions = HaloAgentSessionOptions & {
   repo: SessionRepoApi;
 };
 
-type PiSessionSummary = Omit<SessionSummary, "isUnread" | "markedDone">;
+type PiSessionSummary = Omit<
+  SessionSummary,
+  "markedDone" | "readReceiptCursorId"
+>;
 
 export class SessionRegistry {
   private closing = false;
@@ -64,7 +68,10 @@ export class SessionRegistry {
   private readonly summaries = new Map<string, SessionSummary>();
   private readonly summaryChanges = new Stream<SessionSummariesUpdate>();
   private readonly summarySubscriptions = new Map<string, () => void>();
-  private readonly statusBySession = new Map<string, SessionStatus>();
+  private readonly productFieldsBySession = new Map<
+    string,
+    SessionProductFields
+  >();
   private readonly pending = new Set<Promise<unknown>>();
   private readonly sessions = new Map<string, HaloAgentSession>();
   private readonly stored = new Map<string, Promise<Session | Error>>();
@@ -147,6 +154,95 @@ export class SessionRegistry {
     return await this.track(async () => await this.closeSession(sessionId));
   }
 
+  async markRead(sessionId: string) {
+    return await this.track(
+      async () =>
+        await this.summaryQueue.run(async () => {
+          const summary = await this.getSummaryUnqueued(sessionId);
+          if (summary instanceof Error) return summary;
+          if (
+            summary.latestReadCursorId === undefined ||
+            !isThreadUnread(summary)
+          )
+            return;
+          const readReceiptCursorId = summary.latestReadCursorId;
+          const saved = await this.repo.setReadReceipt({
+            sessionId,
+            readReceiptCursorId,
+          });
+          if (saved instanceof Error) return saved;
+          this.productFieldsBySession.set(sessionId, {
+            markedDone: summary.markedDone,
+            readReceiptCursorId,
+          });
+          this.publish({ ...summary, readReceiptCursorId });
+        }),
+    );
+  }
+
+  async markUnread(sessionId: string) {
+    return await this.track(
+      async () =>
+        await this.summaryQueue.run(async () => {
+          const summary = await this.getSummaryUnqueued(sessionId);
+          if (summary instanceof Error) return summary;
+          if (
+            summary.latestReadCursorId === undefined ||
+            isThreadUnread(summary)
+          )
+            return;
+          const saved = await this.repo.setReadReceipt({
+            sessionId,
+          });
+          if (saved instanceof Error) return saved;
+          this.productFieldsBySession.set(sessionId, {
+            markedDone: summary.markedDone,
+          });
+          this.publish({ ...summary, readReceiptCursorId: undefined });
+        }),
+    );
+  }
+
+  async markDone(sessionId: string) {
+    return await this.track(
+      async () =>
+        await this.summaryQueue.run(async () => {
+          const summary = await this.getSummaryUnqueued(sessionId);
+          if (summary instanceof Error) return summary;
+          if (summary.markedDone) return;
+          const saved = await this.repo.setMarkedDone({
+            sessionId,
+            markedDone: true,
+          });
+          if (saved instanceof Error) return saved;
+          const fields: SessionProductFields = { markedDone: true };
+          fields.readReceiptCursorId = summary.readReceiptCursorId;
+          this.productFieldsBySession.set(sessionId, fields);
+          this.publish({ ...summary, markedDone: true });
+        }),
+    );
+  }
+
+  async markUndone(sessionId: string) {
+    return await this.track(
+      async () =>
+        await this.summaryQueue.run(async () => {
+          const summary = await this.getSummaryUnqueued(sessionId);
+          if (summary instanceof Error) return summary;
+          if (!summary.markedDone) return;
+          const saved = await this.repo.setMarkedDone({
+            sessionId,
+            markedDone: false,
+          });
+          if (saved instanceof Error) return saved;
+          const fields: SessionProductFields = { markedDone: false };
+          fields.readReceiptCursorId = summary.readReceiptCursorId;
+          this.productFieldsBySession.set(sessionId, fields);
+          this.publish({ ...summary, markedDone: false });
+        }),
+    );
+  }
+
   private async track<T>(operation: () => Promise<T>) {
     if (this.closing) return new SessionRegistryClosedError();
     const pending = operation();
@@ -161,19 +257,22 @@ export class SessionRegistry {
       .list(undefined, BACKGROUND_CONTEXT)
       .catch((cause) => new ListAgentSessionsError({ cause }));
     if (metadata instanceof Error) return metadata;
-    const statuses = await this.repo.listStatuses();
-    if (statuses instanceof Error) return statuses;
-    this.statusBySession.clear();
-    for (const [sessionId, status] of statuses)
-      this.statusBySession.set(sessionId, status);
+    const productFields = await this.repo.listProductFields();
+    if (productFields instanceof Error) return productFields;
+    this.productFieldsBySession.clear();
+    for (const [sessionId, fields] of productFields)
+      this.productFieldsBySession.set(sessionId, fields);
     const summaries: SessionSummary[] = [];
     for (const item of metadata) {
-      const status = statuses.get(item.id);
-      if (status === undefined)
+      const fields = productFields.get(item.id);
+      if (fields === undefined)
         return new SessionNotFoundError({ sessionId: item.id });
       const cached = this.summaries.get(item.id);
       if (cached !== undefined) {
-        const current = applySessionStatus(cached, status);
+        const current = applyProductFields({
+          summary: cached,
+          fields,
+        });
         this.summaries.set(item.id, current);
         summaries.push(current);
         continue;
@@ -185,13 +284,13 @@ export class SessionRegistry {
       );
       if (summary instanceof Error) return summary;
       // Unfinished operations in storage are recovered only when a session opens.
-      const current = applySessionStatus(
-        {
+      const current = applyProductFields({
+        summary: {
           ...summary,
           isRunning: this.sessions.has(item.id) && summary.isRunning,
         },
-        status,
-      );
+        fields,
+      });
       this.summaries.set(item.id, current);
       summaries.push(current);
     }
@@ -200,12 +299,33 @@ export class SessionRegistry {
     );
   }
 
+  private async getSummaryUnqueued(sessionId: string) {
+    const cached = this.summaries.get(sessionId);
+    if (cached !== undefined) return cached;
+    const summaries = await this.listSessions();
+    if (summaries instanceof Error) return summaries;
+    return (
+      summaries.find((summary) => summary.sessionId === sessionId) ??
+      new SessionNotFoundError({ sessionId })
+    );
+  }
+
+  private async getProductFieldsUnqueued(sessionId: string) {
+    const cached = this.productFieldsBySession.get(sessionId);
+    if (cached !== undefined) return cached;
+    const fields = await this.repo.getProductFields(sessionId);
+    if (fields instanceof Error) return fields;
+    if (fields === undefined) return new SessionNotFoundError({ sessionId });
+    this.productFieldsBySession.set(sessionId, fields);
+    return fields;
+  }
+
   private async createSession() {
     const stored = await this.repo
       .create({}, BACKGROUND_CONTEXT)
       .catch((cause) => new CreateAgentSessionError({ cause }));
     if (stored instanceof Error) return stored;
-    this.statusBySession.set(stored.metadata.id, defaultSessionStatus());
+    this.productFieldsBySession.set(stored.metadata.id, { markedDone: false });
     this.stored.set(stored.metadata.id, Promise.resolve(stored));
     return await this.openSession(stored.metadata.id);
   }
@@ -252,7 +372,7 @@ export class SessionRegistry {
     );
     const sessionError = closed.find((result) => result instanceof Error);
     this.stored.clear();
-    this.statusBySession.clear();
+    this.productFieldsBySession.clear();
     if (sessionError instanceof Error) return sessionError;
   }
 
@@ -346,26 +466,21 @@ export class SessionRegistry {
           const stored = await this.stored.get(sessionId);
           if (stored === undefined) return;
           if (stored instanceof Error) return stored;
-          const status =
-            this.statusBySession.get(sessionId) ??
-            (await this.repo.getStatus(sessionId));
-          if (status instanceof Error) return status;
-          if (status === undefined)
-            return new SessionNotFoundError({ sessionId });
-          this.statusBySession.set(sessionId, status);
+          const fields = await this.getProductFieldsUnqueued(sessionId);
+          if (fields instanceof Error) return fields;
           const summary = await readSessionSummary(
             stored,
             this.layout.root,
           ).catch((cause) => new ListAgentSessionsError({ cause }));
           if (summary instanceof Error) return summary;
           this.publish(
-            applySessionStatus(
-              {
+            applyProductFields({
+              summary: {
                 ...summary,
                 isRunning: this.sessions.has(sessionId) && summary.isRunning,
               },
-              status,
-            ),
+              fields,
+            }),
           );
         }),
     );
@@ -388,8 +503,7 @@ function applySummaryEvent(
       return {
         ...summary,
         isRunning: false,
-        latestResultId: event.runId,
-        isUnread: true,
+        latestReadCursorId: event.runId,
       };
     case "fault":
       return { ...summary, isRunning: false };
@@ -399,19 +513,15 @@ function applySummaryEvent(
       const title =
         summary.title ??
         (message?.role === "user" ? userTitle(message) : undefined);
-      const latestResultId =
+      const latestReadCursorId =
         !summary.isRunning && message?.role === "assistant"
           ? entry.id
-          : summary.latestResultId;
+          : summary.latestReadCursorId;
       return {
         ...summary,
         title: title?.trim().length === 0 ? undefined : title,
         updatedAt: new Date(entry.timestamp).toISOString(),
-        latestResultId,
-        isUnread:
-          latestResultId === summary.latestResultId
-            ? summary.isUnread
-            : latestResultId !== undefined,
+        latestReadCursorId,
       };
     }
     default:
@@ -419,21 +529,14 @@ function applySummaryEvent(
   }
 }
 
-function applySessionStatus(
-  summary: PiSessionSummary | SessionSummary,
-  status: SessionStatus,
-): SessionSummary {
-  return {
-    ...summary,
-    markedDone: status.markedDone,
-    isUnread:
-      summary.latestResultId !== undefined &&
-      summary.latestResultId !== status.readResultId,
-  };
-}
-
-function defaultSessionStatus(): SessionStatus {
-  return { markedDone: false, readResultId: undefined };
+function applyProductFields({
+  summary,
+  fields,
+}: {
+  summary: PiSessionSummary | SessionSummary;
+  fields: SessionProductFields;
+}): SessionSummary {
+  return { ...summary, ...fields };
 }
 
 async function readSessionSummary(
@@ -461,7 +564,7 @@ async function readSessionSummary(
   return {
     sessionId: session.metadata.id,
     isRunning: lane !== undefined && lane.value.currentOperationId !== null,
-    latestResultId: lane?.value.lastOperationId ?? lastAssistant?.id,
+    latestReadCursorId: lane?.value.lastOperationId ?? lastAssistant?.id,
     agent: "pi" as const,
     cwd,
     title: title.trim().length === 0 ? undefined : title,

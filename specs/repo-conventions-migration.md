@@ -1,5 +1,13 @@
 # Repository conventions progress
 
+## Identifier naming
+
+TypeScript variables and parameters that hold identifiers use an entity-specific `Id` suffix, such as `sessionId` or `readCursorId`. This keeps identifier values distinct from the entities or results they identify.
+
+## Consumer-facing validation
+
+Repository conventions now require validating changed behavior through its consumer-facing boundary before handoff. Focused automated checks remain necessary, and UI behavior should also be exercised in the running application when the app is the relevant boundary.
+
 ## Test value
 
 Repository testing conventions now favor a smaller suite of durable tests that protect meaningful consumer behavior or realistic non-obvious regressions. Tests that mainly mirror implementation details or intentional nearby changes do not merit permanent coverage. Temporary scaffolding tests may be used during implementation but should not be checked in.

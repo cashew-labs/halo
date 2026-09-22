@@ -15,7 +15,7 @@ import { uuidv7 } from "@earendil-works/pi-ai";
 import type { Database } from "@tursodatabase/database/compat";
 import * as errore from "errore";
 import type { DatabaseClient } from "./DatabaseClient.js";
-import type { SessionRepoApi, SessionStatus } from "./SessionRepoApi.js";
+import type { SessionProductFields, SessionRepoApi } from "./SessionRepoApi.js";
 import { TursoStorage, applySessionWrites } from "./TursoStorage.js";
 import {
   decodeSessionJson,
@@ -24,10 +24,10 @@ import {
   SessionBackendError,
 } from "./sessionSchema.js";
 
-type SessionStatusRow = {
+type SessionProductFieldsRow = {
   id: string;
-  marked_done: 0 | 1;
-  read_result_id: string | null;
+  marked_done: number;
+  read_receipt_cursor_id: string | null;
 };
 
 export class TursoSessionRepo implements SessionRepoApi {
@@ -84,27 +84,53 @@ export class TursoSessionRepo implements SessionRepoApi {
     return result;
   }
 
-  async listStatuses() {
+  async listProductFields() {
     return await this.database.access((connection) => {
-      // SAFETY: The projection matches the session-status migration.
+      // SAFETY: The projection matches the session table owned by workspace migrations.
       const rows = connection
-        .prepare("SELECT id, marked_done, read_result_id FROM halo_sessions")
-        .all() as SessionStatusRow[];
-      return new Map(
-        rows.map((row) => [row.id, decodeSessionStatus(row)] as const),
+        .prepare(
+          "SELECT id, marked_done, read_receipt_cursor_id FROM halo_sessions",
+        )
+        .all() as SessionProductFieldsRow[];
+      return new Map<string, SessionProductFields>(
+        rows.map((row) => [row.id, decodeSessionProductFields(row)]),
       );
     });
   }
 
-  async getStatus(sessionId: string) {
+  async getProductFields(sessionId: string) {
     return await this.database.access((connection) => {
-      // SAFETY: The projection matches the session-status migration.
+      // SAFETY: The projection matches the session table owned by workspace migrations.
       const row = connection
         .prepare(
-          "SELECT id, marked_done, read_result_id FROM halo_sessions WHERE id = ?",
+          "SELECT id, marked_done, read_receipt_cursor_id FROM halo_sessions WHERE id = ?",
         )
-        .get(sessionId) as SessionStatusRow | undefined;
-      return row === undefined ? undefined : decodeSessionStatus(row);
+        .get(sessionId) as SessionProductFieldsRow | undefined;
+      if (row === undefined) return;
+      return decodeSessionProductFields(row);
+    });
+  }
+
+  async setMarkedDone(input: { sessionId: string; markedDone: boolean }) {
+    return await this.database.access((connection) => {
+      connection
+        .prepare("UPDATE halo_sessions SET marked_done = ? WHERE id = ?")
+        .run(input.markedDone ? 1 : 0, input.sessionId);
+    });
+  }
+
+  async setReadReceipt(input: {
+    sessionId: string;
+    readReceiptCursorId?: string;
+  }) {
+    return await this.database.access((connection) => {
+      // oxlint-disable-next-line unicorn/no-null -- SQL uses NULL for a missing read receipt.
+      const readReceiptCursorId = input.readReceiptCursorId ?? null;
+      connection
+        .prepare(
+          "UPDATE halo_sessions SET read_receipt_cursor_id = ? WHERE id = ?",
+        )
+        .run(readReceiptCursorId, input.sessionId);
     });
   }
 
@@ -259,9 +285,13 @@ export class TursoSessionRepo implements SessionRepoApi {
   }
 }
 
-function decodeSessionStatus(row: SessionStatusRow): SessionStatus {
-  return {
+function decodeSessionProductFields(
+  row: SessionProductFieldsRow,
+): SessionProductFields {
+  const fields: SessionProductFields = {
     markedDone: row.marked_done === 1,
-    readResultId: row.read_result_id ?? undefined,
   };
+  if (row.read_receipt_cursor_id !== null)
+    fields.readReceiptCursorId = row.read_receipt_cursor_id;
+  return fields;
 }

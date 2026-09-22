@@ -32,6 +32,7 @@ integration marks. Download them from [SVGL](https://svgl.app/) into
 ## Working Style
 
 - Summarize changes with concise, source-checked call stacks and name the next small step. Manual summaries in chat are enough.
+- Validate completed changes through the actual consumer surface whenever reasonable, in addition to automated checks. For UI and interaction changes, start or reuse the development app, exercise the affected flow with `pnpm halo-dev app`, and inspect a screenshot when layout matters. If live validation is impractical, state why.
 - Store temporary files and workspaces in a named folder under this repo's `tmp/` directory.
 
 ## Cursor Cloud specific instructions

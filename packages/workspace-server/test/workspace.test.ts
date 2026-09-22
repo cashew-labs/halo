@@ -1,6 +1,7 @@
 import * as errore from "errore";
 import {
   emptySessionSnapshot,
+  isThreadUnread,
   reduceSessionUpdate,
   sessionMessages,
   sessionToolExecutions,
@@ -313,7 +314,7 @@ serverTest(
       expect.objectContaining({
         ...session,
         isRunning: false,
-        latestResultId: expect.any(String),
+        latestReadCursorId: expect.any(String),
       }),
     ]);
 
@@ -1577,7 +1578,6 @@ serverTest(
         ...session,
         isRunning: false,
         markedDone: false,
-        isUnread: false,
       },
     });
 
@@ -1593,16 +1593,18 @@ serverTest(
       ...session,
       title: "Work without an open conversation",
       markedDone: false,
-      isUnread: false,
     });
     await llm.respond(m.assistant("First result"));
     await prompting;
     const completed = await nextSummary(
       updates,
-      (summary) => !summary.isRunning && summary.latestResultId !== undefined,
+      (summary) =>
+        !summary.isRunning && summary.latestReadCursorId !== undefined,
     );
-    expect(completed.latestResultId).toBeDefined();
-    expect(completed).toMatchObject({ markedDone: false, isUnread: true });
+    expect(completed.latestReadCursorId).toBeDefined();
+    expect(completed).toMatchObject({ markedDone: false });
+    expect(completed.readReceiptCursorId).toBeUndefined();
+    expect(isThreadUnread(completed)).toBe(true);
     first.abort();
 
     // Finish another run while this client is disconnected.
@@ -1625,15 +1627,15 @@ serverTest(
           ...session,
           isRunning: false,
           markedDone: false,
-          isUnread: true,
         },
       ],
     });
     if (current.done || current.value.type !== "snapshot")
       throw new Error("Expected summary snapshot");
-    const resultId = current.value.sessions[0]!.latestResultId;
-    expect(resultId).toBeDefined();
-    expect(resultId).not.toBe(completed.latestResultId);
+    const readCursorId = current.value.sessions[0]!.latestReadCursorId;
+    expect(readCursorId).toBeDefined();
+    expect(readCursorId).not.toBe(completed.latestReadCursorId);
+    expect(isThreadUnread(current.value.sessions[0]!)).toBe(true);
 
     // Aborting an active run also pushes its settled status.
     const aborted = server.rpc.sessions.prompt({
@@ -1646,9 +1648,10 @@ serverTest(
     await aborted;
     const stopped = await nextSummary(
       resumed,
-      (summary) => !summary.isRunning && summary.latestResultId !== resultId,
+      (summary) =>
+        !summary.isRunning && summary.latestReadCursorId !== readCursorId,
     );
-    expect(stopped.latestResultId).toBeDefined();
+    expect(stopped.latestReadCursorId).toBeDefined();
     reconnect.abort();
     await server.stop();
     await server.start();
@@ -1663,13 +1666,169 @@ serverTest(
         {
           ...session,
           isRunning: false,
-          latestResultId: stopped.latestResultId,
+          latestReadCursorId: stopped.latestReadCursorId,
           markedDone: false,
-          isUnread: true,
         },
       ],
     });
     restart.abort();
+  },
+);
+
+serverTest(
+  "persists session status commands and streams their summaries",
+  async ({ server, llm }) => {
+    using cleanup = new errore.DisposableStack();
+    const firstConnection = new AbortController();
+    cleanup.defer(() => firstConnection.abort());
+    const updates = await server.rpc.sessions.watchSummaries(undefined, {
+      signal: firstConnection.signal,
+    });
+    await updates.next();
+
+    const first = await server.rpc.sessions.create();
+    await nextSummary(
+      updates,
+      (summary) => summary.sessionId === first.sessionId,
+    );
+    const second = await server.rpc.sessions.create();
+    await nextSummary(
+      updates,
+      (summary) => summary.sessionId === second.sessionId,
+    );
+    await server.rpc.sessions.markUnread(second);
+    const secondSummary = (await server.rpc.sessions.list()).find(
+      (summary) => summary.sessionId === second.sessionId,
+    );
+    expect(secondSummary).toMatchObject({
+      ...second,
+      markedDone: false,
+    });
+    expect(secondSummary?.readReceiptCursorId).toBeUndefined();
+
+    const prompted = server.rpc.sessions.prompt({
+      ...first,
+      text: "Produce a result for status commands",
+    });
+    await nextSummary(
+      updates,
+      (summary) => summary.sessionId === first.sessionId && summary.isRunning,
+    );
+    await llm.respond(m.assistant("Completed result"));
+    await prompted;
+    await nextSummary(
+      updates,
+      (summary) =>
+        summary.sessionId === first.sessionId && isThreadUnread(summary),
+    );
+
+    await server.rpc.sessions.markRead(first);
+    const read = await nextSummary(
+      updates,
+      (summary) =>
+        summary.sessionId === first.sessionId && !isThreadUnread(summary),
+    );
+    expect(read).toMatchObject({
+      ...first,
+      markedDone: false,
+      readReceiptCursorId: read.latestReadCursorId,
+    });
+
+    await server.rpc.sessions.markUnread(first);
+    const unread = await nextSummary(
+      updates,
+      (summary) =>
+        summary.sessionId === first.sessionId && isThreadUnread(summary),
+    );
+    expect(unread).toMatchObject({
+      ...first,
+      markedDone: false,
+    });
+    expect(unread.readReceiptCursorId).toBeUndefined();
+
+    await server.rpc.sessions.markDone(first);
+    const done = await nextSummary(
+      updates,
+      (summary) => summary.sessionId === first.sessionId && summary.markedDone,
+    );
+    expect(done).toMatchObject({
+      ...first,
+      markedDone: true,
+    });
+    expect(done.readReceiptCursorId).toBeUndefined();
+    expect(isThreadUnread(done)).toBe(true);
+
+    firstConnection.abort();
+    await server.stop();
+    await server.start();
+
+    const secondConnection = new AbortController();
+    cleanup.defer(() => secondConnection.abort());
+    const restored = await server.rpc.sessions.watchSummaries(undefined, {
+      signal: secondConnection.signal,
+    });
+    const snapshot = await restored.next();
+    if (snapshot.done || snapshot.value.type !== "snapshot")
+      throw new Error("Expected restored session summary snapshot");
+    const restoredFirst = snapshot.value.sessions.find(
+      (summary) => summary.sessionId === first.sessionId,
+    );
+    expect(restoredFirst).toMatchObject({
+      ...first,
+      markedDone: true,
+    });
+    assert(restoredFirst !== undefined);
+    expect(restoredFirst.readReceiptCursorId).toBeUndefined();
+    expect(isThreadUnread(restoredFirst)).toBe(true);
+    expect(
+      snapshot.value.sessions.find(
+        (summary) => summary.sessionId === second.sessionId,
+      ),
+    ).toMatchObject({
+      ...second,
+      markedDone: false,
+    });
+
+    await server.rpc.sessions.markRead(first);
+    const restoredRead = await nextSummary(
+      restored,
+      (summary) =>
+        summary.sessionId === first.sessionId && !isThreadUnread(summary),
+    );
+    expect(restoredRead).toMatchObject({
+      markedDone: true,
+      readReceiptCursorId: restoredRead.latestReadCursorId,
+    });
+
+    await server.rpc.sessions.markUndone(first);
+    const restoredUndone = await nextSummary(
+      restored,
+      (summary) => summary.sessionId === first.sessionId && !summary.markedDone,
+    );
+    expect(restoredUndone).toMatchObject({
+      markedDone: false,
+      readReceiptCursorId: restoredUndone.latestReadCursorId,
+    });
+
+    secondConnection.abort();
+    await server.stop();
+    await server.start();
+    const final = await server.rpc.sessions.list();
+    const finalFirst = final.find(
+      (summary) => summary.sessionId === first.sessionId,
+    );
+    assert(finalFirst !== undefined);
+    expect(finalFirst).toMatchObject({
+      markedDone: false,
+      readReceiptCursorId: finalFirst.latestReadCursorId,
+    });
+    expect(isThreadUnread(finalFirst)).toBe(false);
+    expect(
+      final.find((summary) => summary.sessionId === second.sessionId),
+    ).toMatchObject({
+      ...second,
+      markedDone: false,
+    });
   },
 );
 
@@ -1728,10 +1887,11 @@ serverTest(
     await prompted;
     const failed = await nextSummary(
       updates,
-      (summary) => !summary.isRunning && summary.latestResultId !== undefined,
+      (summary) =>
+        !summary.isRunning && summary.latestReadCursorId !== undefined,
     );
     expect(await server.rpc.sessions.snapshot(session)).toMatchObject({
-      lastRun: { id: failed.latestResultId, status: "failed" },
+      lastRun: { id: failed.latestReadCursorId, status: "failed" },
     });
   },
 );

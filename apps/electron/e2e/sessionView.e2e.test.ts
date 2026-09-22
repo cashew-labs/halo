@@ -242,7 +242,7 @@ e2eTest(
     });
     await expect(pane.getByRole("log")).toContainText("I can read both sheets");
     await expect(
-      app.page.getByRole("img", { name: "Agent is working", exact: true }),
+      app.page.getByRole("status", { name: "Agent is working", exact: true }),
     ).not.toBeVisible();
     await expect(pane.getByLabel("Message", { exact: true })).toHaveText(
       "Draft while the model answers",
@@ -1560,7 +1560,7 @@ e2eTest(
         exact: true,
       }),
     });
-    const working = row.getByRole("img", { name: "Agent is working" });
+    const working = row.getByRole("status", { name: "Agent is working" });
     const unread = row.getByRole("img", { name: "Unread result" });
     await expect(working).toBeVisible();
     await expect(unread).not.toBeVisible();
@@ -1580,6 +1580,11 @@ e2eTest(
     response.end();
     await expect(unread).toBeVisible();
     await expect(working).not.toBeVisible();
+    const unreadBounds = await unread.boundingBox();
+    const titleBounds = await row.getByRole("link").boundingBox();
+    expect(unreadBounds).not.toBeNull();
+    expect(titleBounds).not.toBeNull();
+    expect(unreadBounds!.x).toBeLessThan(titleBounds!.x);
 
     await app.page.reload();
     await expect(unread).toBeVisible();
@@ -1623,7 +1628,7 @@ e2eTest(
       .fill("Work while I am away");
     await app.page.getByRole("button", { name: "Send", exact: true }).click();
     await expect(
-      app.page.getByRole("img", { name: "Agent is working" }),
+      app.page.getByRole("status", { name: "Agent is working" }),
     ).toBeVisible();
     const otherWindow = await app.openWindow();
     await otherWindow.getByRole("main").waitFor();
@@ -1647,6 +1652,48 @@ e2eTest(
       otherWindow.getByRole("img", { name: "Unread result" }),
     ).not.toBeVisible();
     await otherWindow.close();
+  },
+);
+
+e2eTest(
+  "archives an open thread from its hover action",
+  async ({ app, llm }) => {
+    await app.page
+      .getByRole("button", { name: "New session", exact: true })
+      .click();
+    const pane = app.page.getByRole("main");
+    await pane
+      .getByLabel("Message", { exact: true })
+      .fill("Archive this thread");
+    await pane.getByRole("button", { name: "Send", exact: true }).click();
+    await llm.respond(m.assistant("This thread is ready to archive."));
+
+    const row = app.page.getByRole("row").filter({
+      has: app.page.getByRole("link", {
+        name: "Archive this thread",
+        exact: true,
+      }),
+    });
+    const markDone = row.getByRole("button", {
+      name: "Mark done",
+      exact: true,
+    });
+    await row.hover();
+    await expect(markDone).toBeVisible();
+    await markDone.click();
+
+    await expect(row).not.toBeVisible();
+    await expect(app.page.getByText("Done", { exact: true })).not.toBeVisible();
+    await expect(pane.getByRole("log")).toContainText(
+      "This thread is ready to archive.",
+    );
+
+    await app.page.reload();
+    await expect(row).not.toBeVisible();
+    await expect(app.page.getByText("Done", { exact: true })).not.toBeVisible();
+    await expect(pane.getByRole("log")).toContainText(
+      "This thread is ready to archive.",
+    );
   },
 );
 

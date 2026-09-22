@@ -7,6 +7,6 @@ export const sessionStatusMigration: Migration = {
       ADD COLUMN marked_done INTEGER NOT NULL DEFAULT 0
       CHECK (marked_done IN (0, 1));
     ALTER TABLE halo_sessions
-      ADD COLUMN read_result_id TEXT;
+      ADD COLUMN read_receipt_cursor_id TEXT;
   `,
 };
