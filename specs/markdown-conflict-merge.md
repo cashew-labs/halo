@@ -271,7 +271,7 @@ index 0000000..cbdd78d
 
 - LLM resolutions can still misunderstand intent. Inputs and outputs are retained; malformed output, provider failures, and the 30-second inference budget fall back to retaining both changed sections.
 - Automatic merging is restricted to `.md` and `.markdown`. Notes exceeding 256,000 characters or 5,000 lines retain the draft and report a save error when reconciliation is needed.
-- Conditional writes coordinate Halo's asynchronous file writes. Arbitrary shell/editor writes can bypass that queue; there is no cross-process filesystem compare-and-swap guarantee.
+- Conditional writes coordinate Halo's queued asynchronous file writes. Shell/editor writes and synchronous patch writes can bypass that queue; there is no filesystem-wide compare-and-swap guarantee. Agent read-modify-write tools still need conditional commits to protect against stale reads. These remain accepted follow-up work.
 - Unsaved drafts survive connection recovery in the mounted editor; this change does not add durable local draft storage across app termination.
 
 ## Implemented editor flow
@@ -388,3 +388,7 @@ index ca72b06..7aa8185 100644
 - [x] Verify a clean reconnect saves without reconciliation.
 - [x] Rerun conflict, concurrent-typing, note persistence, and formatting/undo E2Es.
 - [x] Run affected checks.
+
+## Footer integration
+
+The editor integration includes the passive connection status and workspace-scoped footer errors from #277/#278. Saving and reconciliation progress stay out of document panes. Failed writes or merges report file-specific details and retry actions in the footer; successful saves clear their entry. Offline Markdown drafts still resume automatically, and newer typing still supersedes an in-flight merge.
