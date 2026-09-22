@@ -1,3 +1,9 @@
+import { acceptsProtocol, protocolHeader } from "@get-halo/client";
+import {
+  controlPlaneProtocolVersion,
+  controlPlaneSupportedProtocols,
+} from "@get-halo/shared/controlPlaneContract";
+import { ORPCError } from "@orpc/server";
 import fs from "node:fs/promises";
 import http, {
   createServer,
@@ -89,12 +95,29 @@ export function serveControlPlaneHttp(ctx: {
   auth: AuthService;
   publicOrigin: string;
   workspace: WorkspaceService;
+  build?: { version: string; revision: string };
   webRoot: string;
   traces?: TraceIngestion;
 }) {
   const { server, auth, publicOrigin, workspace, webRoot, traces } = ctx;
   const upgradeSockets = new Set<Duplex>();
   const rpc = new RPCHandler<ControlPlaneContext>(controlPlaneRpcRouter, {
+    clientInterceptors: [
+      async ({ path: rpcPath, context, next }) => {
+        if (
+          rpcPath.join(".") !== "server.info" &&
+          !acceptsProtocol({
+            selected: context.reqHeaders?.get(protocolHeader) ?? undefined,
+            supported: controlPlaneSupportedProtocols,
+            legacy: controlPlaneProtocolVersion,
+          })
+        )
+          throw new ORPCError("UNSUPPORTED_PROTOCOL", {
+            data: { supportedProtocols: controlPlaneSupportedProtocols },
+          });
+        return await next();
+      },
+    ],
     plugins: [
       new RequestHeadersHandlerPlugin(),
       new ResponseHeadersHandlerPlugin(),
@@ -113,6 +136,7 @@ export function serveControlPlaneHttp(ctx: {
       traces,
       rpc,
       webRoot,
+      build: ctx.build,
     });
   });
   server.on("upgrade", async (request, socket, head) => {
@@ -173,6 +197,7 @@ async function routeControlPlaneRequest(ctx: {
   gateway: WorkspaceGateway;
   traces?: TraceIngestion;
   workspace: WorkspaceService;
+  build?: { version: string; revision: string };
   rpc: RPCHandler<ControlPlaneContext>;
   webRoot: string;
 }) {
@@ -225,7 +250,14 @@ async function routeControlPlaneRequest(ctx: {
   }
 
   if (isPathWithin(url.pathname, "/rpc")) {
-    await serveControlPlaneRpc({ request, response, auth, workspace, rpc });
+    await serveControlPlaneRpc({
+      request,
+      response,
+      auth,
+      workspace,
+      rpc,
+      build: ctx.build,
+    });
     return;
   }
 
@@ -361,12 +393,13 @@ async function serveControlPlaneRpc(ctx: {
   response: ServerResponse;
   auth: AuthService;
   workspace: WorkspaceService;
+  build?: { version: string; revision: string };
   rpc: RPCHandler<ControlPlaneContext>;
 }) {
   const { request, response, auth, workspace, rpc } = ctx;
   const handled = await rpc.handle(request, response, {
     prefix: "/rpc",
-    context: { auth, workspace },
+    context: { auth, workspace, build: ctx.build },
   });
 
   if (handled.matched) return;

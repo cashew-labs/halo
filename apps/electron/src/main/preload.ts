@@ -27,6 +27,7 @@ const desktopBridge: DesktopBridge = {
       await ipcRenderer.invoke(DESKTOP_CHANNEL, { type: "getConnection" });
     if (
       connection === undefined ||
+      "connectionFailure" in connection ||
       !process.argv.includes("--halo-e2e-rpc-localhost")
     )
       return connection;

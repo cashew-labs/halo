@@ -2,9 +2,16 @@ import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
+import { parseArgs } from "node:util";
+import { compareVersions, createReleaseManifest } from "./releaseManifest.mjs";
 
-const version = process.argv[2];
-if (version === undefined) fail("Usage: pnpm prerelease <major.minor.patch>");
+const { values, positionals } = parseArgs({
+  allowPositionals: true,
+  options: { "minimum-frontend": { type: "string" } },
+});
+const version = positionals[0];
+if (version === undefined || positionals.length !== 1)
+  fail("Usage: pnpm prerelease <version> [--minimum-frontend <version>]");
 if (!/^\d+\.\d+\.\d+$/.test(version))
   fail(`Release version must use major.minor.patch: ${version}`);
 
@@ -30,9 +37,30 @@ const desktopPackage = JSON.parse(fs.readFileSync(desktopPackagePath, "utf8"));
 if (compareVersions(version, desktopPackage.version) <= 0)
   fail(`${version} must be newer than ${desktopPackage.version}`);
 
+const previousVersion = desktopPackage.version;
+const previous = JSON.parse(
+  fs.readFileSync(`releases/${previousVersion}.json`, "utf8"),
+);
+const protocols = JSON.parse(
+  exec("pnpm", [
+    "--silent",
+    "--filter",
+    "@get-halo/control-plane",
+    "exec",
+    "tsx",
+    "../../releases/protocols.mjs",
+  ]),
+);
+const release = createReleaseManifest({
+  version,
+  previous,
+  protocols,
+  minimumFrontendVersion: values["minimum-frontend"],
+});
+if (release instanceof Error) fail(release.message);
+
 const releaseBranch = `release/${version}`;
 run("git", ["switch", "-c", releaseBranch]);
-
 desktopPackage.version = version;
 fs.writeFileSync(
   desktopPackagePath,
@@ -59,7 +87,7 @@ fs.writeFileSync(pulumiConfigPath, pulumiConfig);
 const releaseDirectory = path.join(root, "releases");
 const releasePath = path.join(releaseDirectory, `${version}.json`);
 fs.mkdirSync(releaseDirectory, { recursive: true });
-fs.writeFileSync(releasePath, `${JSON.stringify({ version }, undefined, 2)}\n`);
+fs.writeFileSync(releasePath, `${JSON.stringify(release, undefined, 2)}\n`);
 
 run("node", ["releases/validateRelease.mjs", releasePath]);
 run("git", ["add", desktopPackagePath, pulumiConfigPath, releasePath]);
@@ -86,16 +114,6 @@ function replaceImage(contents, key, image) {
   const pattern = new RegExp(`^(  halo-control-plane:${key}: ).+$`, "m");
   if (!pattern.test(contents)) fail(`Pulumi config has no ${key}`);
   return contents.replace(pattern, `$1${image}`);
-}
-
-function compareVersions(left, right) {
-  const leftParts = left.split(".").map(Number);
-  const rightParts = right.split(".").map(Number);
-  for (let index = 0; index < leftParts.length; index += 1) {
-    const difference = leftParts[index] - rightParts[index];
-    if (difference !== 0) return difference;
-  }
-  return 0;
 }
 
 function exec(command, args) {

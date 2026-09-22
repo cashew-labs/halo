@@ -68,6 +68,13 @@ async function run() {
       : applicationConfig.server.extensionRuntime;
   const server = await WorkspaceServer.start({
     config: {
+      build:
+        process.env.HALO_BUILD_REVISION === undefined
+          ? undefined
+          : {
+              version: process.env.HALO_BUILD_VERSION ?? "dev",
+              revision: process.env.HALO_BUILD_REVISION,
+            },
       environment: applicationConfig.server.environment,
       workspaceRoot: applicationConfig.server.workspaceRoot,
       appDataDir: applicationConfig.server.appDataDir,

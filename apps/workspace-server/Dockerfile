@@ -40,3 +40,8 @@ HEALTHCHECK --interval=30s --start-period=120s --timeout=15s \
     CMD node --import /opt/halo/node_modules/tsx/dist/loader.mjs /opt/halo/packages/halo-cli/src/cli.ts status --json
 ENTRYPOINT ["node", "--import", "/opt/halo/node_modules/tsx/dist/loader.mjs", "/opt/halo/apps/workspace-server/src/main.ts"]
 CMD ["/opt/halo/apps/workspace-server/container.json"]
+
+ARG VERSION=dev
+ARG REVISION=local
+ENV HALO_BUILD_VERSION=$VERSION HALO_BUILD_REVISION=$REVISION
+LABEL org.opencontainers.image.revision=$REVISION

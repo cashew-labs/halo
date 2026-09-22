@@ -1,3 +1,4 @@
+import type { ServerInfo } from "./protocol.js";
 import type { Hotkey, HotkeyInput } from "./hotkeys.js";
 import type { ChatPrompt } from "./chatAttachments.js";
 import type { WorkspaceFilePreview } from "./rpc.js";
@@ -24,6 +25,7 @@ import type {
 } from "./rpc.js";
 
 export const haloProtocolVersion = 20 as const;
+export const haloSupportedProtocols = [18, haloProtocolVersion];
 
 export const RequestRejectedError = error("BAD_REQUEST", {
   message: "Halo could not complete the request.",
@@ -77,7 +79,7 @@ export type WorkspaceUpdate =
 
 export const contract = publicProcedure.router({
   server: {
-    info: oc.output(type<{ protocolVersion: typeof haloProtocolVersion }>()),
+    info: oc.output(type<ServerInfo>()),
     watch: oc.output(asyncIteratorObject(type<WorkspaceUpdate>())),
   },
   browser: {

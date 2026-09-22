@@ -16,6 +16,13 @@ async function run() {
   });
   if (config instanceof Error) return config;
   const plane = await ControlPlane.start({
+    build:
+      process.env.HALO_BUILD_REVISION === undefined
+        ? undefined
+        : {
+            version: process.env.HALO_BUILD_VERSION ?? "dev",
+            revision: process.env.HALO_BUILD_REVISION,
+          },
     config: config.server,
     traceCloud:
       config.server.deployment === "local"

@@ -1,6 +1,7 @@
 import {
   controlPlaneContract,
   controlPlaneProtocolVersion,
+  controlPlaneSupportedProtocols,
   type ControlPlaneSession,
 } from "@get-halo/shared/controlPlaneContract";
 import { implement, ORPCError } from "@orpc/server";
@@ -18,6 +19,7 @@ import type { WorkspaceService } from "../workspace/WorkspaceService.js";
 
 export type ControlPlaneContext = RequestHeadersHandlerPluginContext &
   ResponseHeadersHandlerPluginContext & {
+    build?: { version: string; revision: string };
     auth: AuthService;
     workspace: WorkspaceService;
   };
@@ -41,8 +43,10 @@ const os = implementer.use(({ context, next }) => {
   return next();
 });
 
-const getServerInfo = os.server.info.handler(() => ({
+const getServerInfo = os.server.info.handler(({ context }) => ({
   protocolVersion: controlPlaneProtocolVersion,
+  supportedProtocols: controlPlaneSupportedProtocols,
+  build: context.build,
 }));
 
 const startDesktopSignIn = os.auth.start.handler(async ({ context, input }) => {

@@ -1,3 +1,4 @@
+import { FileSaveStatus } from "./FileSaveStatus.js";
 import { useMemo, useState } from "react";
 import {
   Editor,
@@ -65,6 +66,7 @@ export function CodeViewFileEditor({
 
   return (
     <div className={host}>
+      <FileSaveStatus save={autosave} />
       <EditProvider createEditor={createPierreEditor}>
         <CodeView
           items={items}

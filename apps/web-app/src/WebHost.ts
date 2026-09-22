@@ -1,7 +1,17 @@
 import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
-import type { ControlPlaneClient } from "@get-halo/shared/controlPlaneContract";
-import { connectHaloClient, type HaloClient } from "@get-halo/client";
+import {
+  checkControlPlaneCompatibility,
+  controlPlaneProtocolVersion,
+  type ControlPlaneClient,
+} from "@get-halo/shared/controlPlaneContract";
+import {
+  connectHaloClient,
+  AuthenticationRequiredError,
+  ConnectionHttpError,
+  protocolHeader,
+  type HaloClient,
+} from "@get-halo/client";
 import type { HostApi } from "@get-halo/web/HostApi";
 import { createAuthClient } from "better-auth/client";
 import * as errore from "errore";
@@ -17,12 +27,21 @@ export class WebHost implements HostApi {
 
   // Connects to the control plane served on the current origin.
   private readonly controlPlane = createORPCClient<ControlPlaneClient>(
-    new RPCLink({ origin: window.location.origin, url: "/rpc" }),
+    new RPCLink({
+      origin: window.location.origin,
+      url: "/rpc",
+      headers: { [protocolHeader]: String(controlPlaneProtocolVersion) },
+    }),
   );
   // Owns browser authentication for this host.
   private readonly authClient = createAuthClient();
 
   async getAuthSession() {
+    const compatible = await checkControlPlaneCompatibility(
+      this.controlPlane,
+      AbortSignal.timeout(10_000),
+    );
+    if (compatible instanceof Error) return compatible;
     const authentication = await this.controlPlane.auth
       .session()
       .catch(
@@ -52,27 +71,35 @@ export class WebHost implements HostApi {
 
   async connectHalo({
     onDisconnect,
-  }: {
-    onDisconnect: (error: Error) => void;
-  }) {
-    this.haloClient = undefined;
+    signal,
+    canRequest,
+  }: Parameters<HostApi["connectHalo"]>[0]) {
+    const compatible = await checkControlPlaneCompatibility(
+      this.controlPlane,
+      signal,
+    );
+    if (compatible instanceof Error) return compatible;
     const workspace = await this.controlPlane.workspace
-      .ensure()
+      .ensure(undefined, { signal })
       .catch(
         (cause) =>
           new WebHostError({ operation: "ensure the workspace", cause }),
       );
     if (workspace instanceof Error) return workspace;
 
-    const health = await fetch("/workspace/health").catch(
+    const health = await fetch("/workspace/health", { signal }).catch(
       (cause) =>
         new WebHostError({ operation: "reach the workspace server", cause }),
     );
     if (health instanceof Error) return health;
     if (health.status === 502 || health.status === 503) return undefined;
-    if (!health.ok) {
-      return new WebHostError({ operation: "reach the workspace server" });
-    }
+    if (health.status === 401) return new AuthenticationRequiredError();
+    if (!health.ok)
+      return new ConnectionHttpError({
+        service: "workspace",
+        stage: "health",
+        status: health.status,
+      });
 
     const connected = await connectHaloClient({
       transport: {
@@ -80,12 +107,12 @@ export class WebHost implements HostApi {
         path: "/workspace/rpc",
         headers: {},
       },
-      onDisconnect: (error) => {
-        this.haloClient = undefined;
-        onDisconnect(error);
-      },
+      onDisconnect,
+      signal,
+      canRequest,
     });
     if (connected instanceof Error) return connected;
+    if (signal.aborted) return undefined;
     this.haloClient = connected.client;
     return connected.client;
   }

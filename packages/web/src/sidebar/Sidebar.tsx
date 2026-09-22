@@ -1,3 +1,5 @@
+import { confirmRestart } from "../confirmRestart.js";
+import { ConnectionStatus } from "../ConnectionStatus.js";
 import { useSidebar } from "../WorkspaceLayout.js";
 import {
   Button,
@@ -57,12 +59,15 @@ export function Sidebar({ sessions, appInfo }: SidebarProps) {
         <FilesystemSection />
         <SessionsSection sessions={sessions} />
       </NavigationSidebar>
-      {appInfo !== undefined && (
-        <div className={footer} data-testid="app-update-status">
+      <div className={footer} data-testid="app-update-status">
+        {appInfo !== undefined && (
           <div className={versionLabel}>Halo {appInfo.version}</div>
+        )}
+        <ConnectionStatus />
+        {appInfo !== undefined && (
           <UpdateFooter appInfo={appInfo} labelClassName={updateLabel} />
-        </div>
-      )}
+        )}
+      </div>
     </nav>
   );
 }
@@ -78,6 +83,7 @@ function UpdateFooter({
   const install = useMutation({
     mutationFn: async () => {
       if (host.installAppUpdate === undefined) return;
+      if (!confirmRestart()) return;
       const result = await host.installAppUpdate();
       if (result instanceof Error) throw result;
     },

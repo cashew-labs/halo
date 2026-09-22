@@ -1,5 +1,8 @@
 import * as errore from "errore";
 import {
+  createHaloClient,
+  connectHaloClient,
+  haloProtocolVersion,
   emptySessionSnapshot,
   isThreadUnread,
   reduceSessionUpdate,
@@ -2264,5 +2267,38 @@ serverTest(
     }
     // Leaving a for-await loop must cancel every source, including idle ones.
     await server.stop();
+  },
+);
+
+serverTest(
+  "negotiates supported protocols and rejects unsupported writes",
+  async ({ server }) => {
+    const connected = await connectHaloClient({ transport: server.transport });
+    assert(!(connected instanceof Error));
+    expect(connected.serverInfo).toEqual({
+      protocolVersion: haloProtocolVersion,
+      supportedProtocols: [haloProtocolVersion],
+    });
+    const unsupported = createHaloClient({
+      transport: {
+        ...server.transport,
+        headers: {
+          ...server.transport.headers,
+          "x-halo-protocol-version": "999",
+        },
+      },
+    });
+    expect(await unsupported.server.info()).toMatchObject({
+      supportedProtocols: [haloProtocolVersion],
+    });
+    await expect(
+      unsupported.workspace.writeFile({
+        path: "unsupported.md",
+        content: "must not write",
+      }),
+    ).rejects.toMatchObject({ code: "UNSUPPORTED_PROTOCOL" });
+    expect(await server.rpc.workspace.listPaths()).not.toContain(
+      "unsupported.md",
+    );
   },
 );
