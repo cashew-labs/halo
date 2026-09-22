@@ -44,4 +44,4 @@ The shared frontend now owns connection retries, probes, cancellation and accept
 
 Release manifests carry a minimum supported frontend version forward. The validator checks both API client protocols for every release in that range; advancing the minimum deliberately retires older frontends. The initial transition retires 0.1.52, whose workspace protocol was 17. Release tests exercise manifest generation and the validator CLI with isolated local release histories.
 
-The release E2E job installs Poppler for PDF attachment conversion. Electron pane tests use the existing pane data attributes instead of removed CSS classes; the split-pane persistence and two-pane hotkey scenarios pass through the packaged app.
+The release E2E job installs Poppler for PDF attachment conversion. Electron pane tests use the existing pane data attributes instead of removed CSS classes; the split-pane persistence and two-pane hotkey scenarios pass through the packaged app. Markdown list and paste scenarios wait for the visible unsaved status to clear before teardown, avoiding the unsaved-file close guard after their assertions finish.
