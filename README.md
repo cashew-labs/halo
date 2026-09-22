@@ -38,11 +38,14 @@ development.
 
 In Electron development mode, Halo also derives its local UI identity from the
 active ADC principal. User ADC appears as that Google user; service-account ADC
-appears as the service account email. This skips browser Google sign-in only for
-the local Electron app. Packaged builds and the browser app continue to use
-Better Auth with Google sign-in.
+appears as the service account email. Development Electron exchanges that ADC
+access token with the local control plane and then uses the same
+`/workspace/health` and `/workspace/rpc` paths as production. This skips browser
+Google sign-in only for the local Electron app. Packaged builds and the browser
+app continue to use Better Auth with Google sign-in. Electron E2Es
+(`HALO_E2E=1`) still discover the workspace through `server.json`.
 
-`pnpm dev` starts the control plane, workspace server, web app, and Electron independently, using `<repo>/tmp/workspace` and `<repo>/tmp/workspace/.halo`. Electron discovers the server through `server.json` in that application-data directory; closing Electron leaves the server running. When launching services individually, use `HALO_WORKSPACE_ROOT` to select the workspace and `HALO_USER_DATA` to select the application-data directory. See [workspace-server configuration](apps/workspace-server/README.md).
+`pnpm dev` starts the control plane, workspace server, web app, and Electron independently, using `<repo>/tmp/workspace` and `<repo>/tmp/workspace/.halo`. The local control plane proxies `/workspace` using `server.json` in that application-data directory; closing Electron leaves the server running. When launching services individually, use `HALO_WORKSPACE_ROOT` to select the workspace and `HALO_USER_DATA` to select the application-data directory. See [workspace-server configuration](apps/workspace-server/README.md).
 
 Halo runs Pi's `AgentHarness` with one `main` lane per conversation. `HaloServer` owns a `DatabaseClient` that stores Pi conversations and Executor application data in one embedded Turso database. The file currently lives in the selected workspace:
 

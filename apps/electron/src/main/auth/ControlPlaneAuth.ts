@@ -10,7 +10,10 @@ import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
-import { type ControlPlaneClient } from "@get-halo/shared/controlPlaneContract";
+import {
+  type ControlPlaneClient,
+  type ControlPlaneSession,
+} from "@get-halo/shared/controlPlaneContract";
 import { SerialQueue } from "@get-halo/shared/SerialQueue";
 import { safeStorage } from "electron";
 import * as errore from "errore";
@@ -37,32 +40,55 @@ export class ControlPlaneAuth implements DesktopAuthentication {
   // Serializes session-token changes across windows.
   private readonly actionQueue = new SerialQueue();
 
+  private readonly createSession:
+    | (() => Promise<{ token: string } | Error>)
+    | undefined;
   private readonly origin: string;
-  private readonly sessionStore: ControlPlaneSessionStore;
+  private readonly sessionStore: ControlPlaneSessionStore | undefined;
   // Preserves a startup storage failure until the renderer can present it.
   private restoreError: Error | undefined;
   // Holds the bearer token in the main process after secure storage is loaded.
   private token: string | undefined;
 
   private constructor(ctx: {
+    createSession: (() => Promise<{ token: string } | Error>) | undefined;
     origin: string;
     restoreError: Error | undefined;
-    sessionStore: ControlPlaneSessionStore;
+    sessionStore: ControlPlaneSessionStore | undefined;
     token: string | undefined;
   }) {
+    this.createSession = ctx.createSession;
     this.origin = ctx.origin;
     this.restoreError = ctx.restoreError;
     this.sessionStore = ctx.sessionStore;
     this.token = ctx.token;
   }
 
-  static async start(ctx: { origin: string; dataDir: string }) {
+  static async start(
+    ctx:
+      | { origin: string; dataDir: string }
+      | {
+          origin: string;
+          createSession: () => Promise<{ token: string } | Error>;
+        },
+  ) {
+    if ("createSession" in ctx) {
+      return new ControlPlaneAuth({
+        createSession: ctx.createSession,
+        origin: ctx.origin,
+        restoreError: undefined,
+        sessionStore: undefined,
+        token: undefined,
+      });
+    }
+
     const sessionStore = new ControlPlaneSessionStore({
       path: join(ctx.dataDir, "control-plane-session"),
     });
     const token = await sessionStore.read();
 
     return new ControlPlaneAuth({
+      createSession: undefined,
       origin: ctx.origin,
       restoreError: token instanceof Error ? token : undefined,
       sessionStore,
@@ -119,39 +145,28 @@ export class ControlPlaneAuth implements DesktopAuthentication {
       return error;
     }
 
-    if (this.token === undefined) return undefined;
-
-    const client = this.createClient(this.token);
-
-    const authentication = await client.auth.session().catch(
-      (cause) =>
-        new ControlPlaneAuthError({
-          operation: "restore the session",
-          cause,
-        }),
-    );
-    if (authentication instanceof Error) return authentication;
-    if (authentication.status === "signed-in") {
-      const workspace = await client.workspace.ensure().catch(
-        (cause) =>
-          new ControlPlaneAuthError({
-            operation: "prepare your workspace",
-            cause,
-          }),
-      );
-      if (workspace instanceof Error) return workspace;
-
-      return authentication.session;
+    if (this.token === undefined) {
+      const created = await this.createSessionUnqueued();
+      if (created instanceof Error) return created;
     }
 
-    const removed = await this.sessionStore.remove();
-    if (removed instanceof Error) return removed;
-
-    this.token = undefined;
-    return undefined;
+    const token = this.token;
+    if (token === undefined) return undefined;
+    return await this.readSignedInSession(token, true);
   }
 
   private async signInUnqueued() {
+    if (this.createSession !== undefined) {
+      const session = await this.getSessionUnqueued();
+      if (session instanceof Error) return session;
+      if (session === undefined) {
+        return new ControlPlaneAuthError({
+          operation: "sign in with Application Default Credentials",
+        });
+      }
+      return session;
+    }
+
     const client = this.createClient();
 
     const state = randomBytes(32).toString("base64url");
@@ -206,7 +221,7 @@ export class ControlPlaneAuth implements DesktopAuthentication {
       );
     if (workspace instanceof Error) return workspace;
 
-    const saved = await this.sessionStore.write(exchanged.token);
+    const saved = await this.writeStoredSession(exchanged.token);
     if (saved instanceof Error) return saved;
 
     this.token = exchanged.token;
@@ -214,6 +229,67 @@ export class ControlPlaneAuth implements DesktopAuthentication {
 
     const { token: _token, ...session } = exchanged;
     return session;
+  }
+
+  private async createSessionUnqueued() {
+    if (this.createSession === undefined) return undefined;
+
+    const created = await this.createSession();
+    if (created instanceof Error) return created;
+
+    this.token = created.token;
+    this.restoreError = undefined;
+    return created;
+  }
+
+  private async readSignedInSession(
+    token: string,
+    allowCreate: boolean,
+  ): Promise<ControlPlaneSession | Error | undefined> {
+    const client = this.createClient(token);
+    const authentication = await client.auth.session().catch(
+      (cause) =>
+        new ControlPlaneAuthError({
+          operation: "restore the session",
+          cause,
+        }),
+    );
+    if (authentication instanceof Error) return authentication;
+    if (authentication.status === "signed-in") {
+      const workspace = await client.workspace.ensure().catch(
+        (cause) =>
+          new ControlPlaneAuthError({
+            operation: "prepare your workspace",
+            cause,
+          }),
+      );
+      if (workspace instanceof Error) return workspace;
+
+      return authentication.session;
+    }
+
+    const removed = await this.removeStoredSession();
+    if (removed instanceof Error) return removed;
+
+    this.token = undefined;
+    if (!allowCreate || this.createSession === undefined) return undefined;
+
+    const created = await this.createSessionUnqueued();
+    if (created instanceof Error) return created;
+    const refreshed = this.token;
+    if (refreshed === undefined) return undefined;
+
+    return await this.readSignedInSession(refreshed, false);
+  }
+
+  private async writeStoredSession(token: string) {
+    if (this.sessionStore === undefined) return;
+    return await this.sessionStore.write(token);
+  }
+
+  private async removeStoredSession() {
+    if (this.sessionStore === undefined) return;
+    return await this.sessionStore.remove();
   }
 
   private createClient(token?: string) {

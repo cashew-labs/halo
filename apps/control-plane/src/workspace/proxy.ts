@@ -11,6 +11,23 @@ import type {
 
 const workspacePathPrefix = "/workspace";
 const workspaceProxy = createProxyServer();
+const proxyRequestCorsOrigins = new WeakMap<
+  IncomingMessage,
+  readonly string[]
+>();
+
+workspaceProxy.on("proxyRes", (proxyResponse, request) => {
+  const corsOrigins = proxyRequestCorsOrigins.get(request);
+  if (corsOrigins === undefined) return;
+
+  const origin = allowedRequestOrigin(request, corsOrigins);
+  if (origin === undefined) {
+    delete proxyResponse.headers["access-control-allow-origin"];
+    return;
+  }
+
+  proxyResponse.headers["access-control-allow-origin"] = origin;
+});
 
 class WorkspaceGatewayError extends errore.createTaggedError({
   name: "WorkspaceGatewayError",
@@ -29,16 +46,19 @@ export class WorkspaceGateway {
   private readonly identityClients = new Map<string, IdTokenClient>();
 
   private readonly auth: AuthService;
+  private readonly corsOrigins: readonly string[];
   private readonly googleAuth: GoogleAuth;
   private readonly publicOrigin: URL;
   private readonly workspace: WorkspaceService;
 
   constructor(ctx: {
     auth: AuthService;
+    corsOrigins: readonly string[];
     publicOrigin: string;
     workspace: WorkspaceService;
   }) {
     this.auth = ctx.auth;
+    this.corsOrigins = ctx.corsOrigins;
     this.googleAuth = new GoogleAuth();
     this.publicOrigin = new URL(ctx.publicOrigin);
     this.workspace = ctx.workspace;
@@ -46,36 +66,36 @@ export class WorkspaceGateway {
 
   async serve(request: IncomingMessage, response: ServerResponse) {
     if (request.method === "OPTIONS") {
-      respondToPreflight(request, response);
+      respondToPreflight(request, response, this.corsOrigins);
       return;
     }
 
     const session = await this.auth.getSession(requestHeaders(request));
     if (session instanceof Error) {
       console.error(session);
-      respond(request, response, 500);
+      respond(request, response, 500, this.corsOrigins);
       return;
     }
     if (session === undefined) {
-      respond(request, response, 401);
+      respond(request, response, 401, this.corsOrigins);
       return;
     }
 
     const connection = await this.workspace.getConnection(session.user.id);
     if (connection instanceof Error) {
       console.error(connection);
-      respond(request, response, 503);
+      respond(request, response, 503, this.corsOrigins);
       return;
     }
     if (connection === undefined) {
-      respond(request, response, 503);
+      respond(request, response, 503, this.corsOrigins);
       return;
     }
 
     const authorization = await this.getAuthorization(connection);
     if (authorization instanceof Error) {
       console.error(authorization);
-      respond(request, response, 502);
+      respond(request, response, 502, this.corsOrigins);
       return;
     }
 
@@ -84,6 +104,7 @@ export class WorkspaceGateway {
       response,
       origin: connection.origin,
       authorization,
+      corsOrigins: this.corsOrigins,
       publicOrigin: this.publicOrigin,
     });
   }
@@ -173,6 +194,7 @@ export class WorkspaceGateway {
 
 async function forwardWorkspaceRequest(ctx: {
   authorization: string;
+  corsOrigins: readonly string[];
   origin: string;
   publicOrigin: URL;
   request: IncomingMessage;
@@ -185,6 +207,7 @@ async function forwardWorkspaceRequest(ctx: {
     ctx.authorization,
     ctx.publicOrigin,
   );
+  proxyRequestCorsOrigins.set(ctx.request, ctx.corsOrigins);
   const proxied = await workspaceProxy
     .web(ctx.request, ctx.response, {
       target: target.origin,
@@ -196,7 +219,8 @@ async function forwardWorkspaceRequest(ctx: {
   if (!(proxied instanceof Error)) return;
 
   console.error(proxied);
-  if (!ctx.response.headersSent) respond(ctx.request, ctx.response, 502);
+  if (!ctx.response.headersSent)
+    respond(ctx.request, ctx.response, 502, ctx.corsOrigins);
   if (!ctx.response.writableEnded) ctx.response.end();
 }
 
@@ -250,10 +274,11 @@ function requestHeaders(request: IncomingMessage) {
 function respondToPreflight(
   request: IncomingMessage,
   response: ServerResponse,
+  corsOrigins: readonly string[],
 ) {
   response
     .writeHead(204, {
-      ...corsHeaders(request),
+      ...corsHeaders(request, corsOrigins),
       "access-control-allow-headers": "authorization, content-type",
       "access-control-allow-methods": "GET, POST, OPTIONS",
       "access-control-max-age": "3600",
@@ -265,13 +290,25 @@ function respond(
   request: IncomingMessage,
   response: ServerResponse,
   statusCode: number,
+  corsOrigins: readonly string[],
 ) {
-  response.writeHead(statusCode, corsHeaders(request)).end();
+  response.writeHead(statusCode, corsHeaders(request, corsOrigins)).end();
 }
 
-function corsHeaders(request: IncomingMessage) {
-  if (request.headers.origin !== "null") return {};
-  return { "access-control-allow-origin": "null" };
+function corsHeaders(request: IncomingMessage, corsOrigins: readonly string[]) {
+  const origin = allowedRequestOrigin(request, corsOrigins);
+  if (origin === undefined) return {};
+  return { "access-control-allow-origin": origin };
+}
+
+function allowedRequestOrigin(
+  request: IncomingMessage,
+  corsOrigins: readonly string[],
+) {
+  const origin = request.headers.origin;
+  if (origin === undefined || Array.isArray(origin)) return undefined;
+  if (!corsOrigins.includes(origin)) return undefined;
+  return origin;
 }
 
 function respondToUpgrade(socket: Duplex, statusCode: number) {
