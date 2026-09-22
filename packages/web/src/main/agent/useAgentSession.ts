@@ -1,5 +1,5 @@
 import { sessionError } from "./sessionView.js";
-import { useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import * as errore from "errore";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -7,8 +7,11 @@ import {
   reduceSessionUpdate,
   type SessionSnapshot,
   type SessionWatchItem,
+  type ChatPrompt,
+  chatPromptTitle,
 } from "@get-halo/client";
 import { useApi } from "../../api/ApiProvider.tsx";
+import { TabVisibilityContext } from "../../panes/WorkspacePanesProvider.js";
 import { reconnectStream } from "../../api/reconnectStream.js";
 import { Stream } from "@get-halo/shared/Stream";
 import {
@@ -31,7 +34,7 @@ class AbortFailedError extends errore.createTaggedError({
 type UseAgentSessionResult = {
   state: SessionSnapshot;
   error: string | undefined;
-  prompt: (text: string) => Promise<void | PromptFailedError>;
+  prompt: (input: ChatPrompt) => Promise<void | PromptFailedError>;
   abort: () => Promise<void | AbortFailedError>;
 };
 
@@ -39,12 +42,18 @@ export function useAgentSession(
   sessionId: string | undefined,
 ): UseAgentSessionResult {
   const api = useApi();
+  const isTabVisible = useContext(TabVisibilityContext);
   const queryClient = useQueryClient();
   const queryClientRef = useRef(queryClient);
   const [readySessionId, setReadySessionId] = useState<string | undefined>(
     undefined,
   );
-  const [state, setState] = useState<SessionSnapshot>(emptySessionSnapshot);
+  const [state, setState] = useState<SessionSnapshot>(
+    () =>
+      queryClient.getQueryData<SessionSnapshot>(
+        draftSessionSnapshotQueryKey(sessionId),
+      ) ?? emptySessionSnapshot(),
+  );
   const [localError, setLocalError] = useState<string | undefined>(undefined);
   const [openedFor, setOpenedFor] = useState(sessionId);
 
@@ -56,7 +65,9 @@ export function useAgentSession(
   }
 
   useEffect(() => {
-    if (sessionId === undefined) return;
+    // Hidden tabs retain their UI state, but must release HTTP streams so new
+    // chats and prompts are not blocked by the browser's connection limit.
+    if (sessionId === undefined || !isTabVisible) return;
     const controller = new AbortController();
 
     const updates = new Stream<SessionWatchItem>();
@@ -69,6 +80,10 @@ export function useAgentSession(
         await api.sessions.watch({ sessionId }, { signal: controller.signal }),
       onItem: (item) => {
         if (item.type === "snapshot") {
+          queryClientRef.current.removeQueries({
+            queryKey: draftSessionSnapshotQueryKey(sessionId),
+            exact: true,
+          });
           setReadySessionId(sessionId);
           for (const connection of item.snapshot.connections) {
             queryClientRef.current.setQueryData<ConnectionState>(
@@ -92,9 +107,9 @@ export function useAgentSession(
       unsubscribe();
       controller.abort();
     };
-  }, [api, sessionId]);
+  }, [api, sessionId, isTabVisible]);
 
-  async function prompt(text: string) {
+  async function prompt(input: ChatPrompt) {
     if (readySessionId === undefined) {
       const error = new PromptFailedError({ reason: "Session is not ready." });
       setLocalError(error.message);
@@ -102,7 +117,7 @@ export function useAgentSession(
     }
     setLocalError(undefined);
     const result = await api.sessions
-      .prompt({ sessionId: readySessionId, text })
+      .prompt({ sessionId: readySessionId, ...input })
       .then(() => undefined)
       .catch(
         (e) =>
@@ -115,10 +130,6 @@ export function useAgentSession(
       setLocalError(result.message);
       return result;
     }
-    await queryClient.invalidateQueries({
-      queryKey: ["sessions"],
-      refetchType: "all",
-    });
   }
 
   async function abort() {
@@ -152,12 +163,16 @@ type UseDraftAgentSessionResult = {
   error: string | undefined;
   sessionId: string | undefined;
   title: string | undefined;
-  prompt: (text: string) => Promise<void | PromptFailedError>;
+  prompt: (input: ChatPrompt) => Promise<void | PromptFailedError>;
   abort: () => Promise<void | AbortFailedError>;
 };
 
 export function sessionTitleQueryKey(sessionId: string) {
   return ["session-title", sessionId] as const;
+}
+
+function draftSessionSnapshotQueryKey(sessionId: string | undefined) {
+  return ["draft-session-snapshot", sessionId] as const;
 }
 
 export function useDraftAgentSession(
@@ -179,12 +194,16 @@ export function useDraftAgentSession(
 
   useEffect(() => {
     if (sessionId === undefined || !hasMessages) return;
+    // Navigation remounts the session pane. Keep its confirmed transcript visible
+    // until the replacement subscription delivers a fresh snapshot.
+    queryClient.setQueryData(draftSessionSnapshotQueryKey(sessionId), state);
     onAcceptedRef.current(sessionId);
-  }, [sessionId, hasMessages]);
+  }, [sessionId, hasMessages, queryClient, state]);
 
-  async function prompt(text: string) {
+  async function prompt(input: ChatPrompt) {
     setLocalError(undefined);
-    setTitle(text);
+    const submittedTitle = chatPromptTitle(input);
+    setTitle(submittedTitle);
     if (sessionIdRef.current === undefined) {
       const created = await api.sessions.create().catch(
         (e) =>
@@ -202,9 +221,12 @@ export function useDraftAgentSession(
       setSessionId(created.sessionId);
     }
 
-    queryClient.setQueryData(sessionTitleQueryKey(sessionIdRef.current), text);
+    queryClient.setQueryData(
+      sessionTitleQueryKey(sessionIdRef.current),
+      submittedTitle,
+    );
     const result = await api.sessions
-      .prompt({ sessionId: sessionIdRef.current, text })
+      .prompt({ sessionId: sessionIdRef.current, ...input })
       .then(() => undefined)
       .catch(
         (e) =>
@@ -218,10 +240,6 @@ export function useDraftAgentSession(
       setTitle(undefined);
       return result;
     }
-    await queryClient.invalidateQueries({
-      queryKey: ["sessions"],
-      refetchType: "all",
-    });
   }
 
   return {

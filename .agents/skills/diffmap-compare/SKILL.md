@@ -1,22 +1,24 @@
 ---
 name: diffmap-compare
 description: >-
-  Compare two presentations of a requested code diff: untouched upstream Diffmap and the custom tabbed review. Use when the user requests this comparison or invokes $diffmap-compare, not for ordinary code-walkthrough requests.
+  Compare two presentations of a requested code diff: the first Diffmap variant and the custom tabbed review. Use when the user requests this comparison or invokes $diffmap-compare, not for ordinary code-walkthrough requests.
 ---
 
 # Compare two review experiences
 
 This is an opt-in orchestration of two code-walkthrough variants for the branch, PR, commit range or working-tree diff the user requests. Ordinary `$code-walkthrough` requests keep their existing single-review workflow.
 
-Create two separately authored documents from the same researched change. Keep the upstream viewer and its skill instructions unchanged. Customize only the experimental viewer and [custom authoring instructions](references/custom.md).
+Create two separately authored documents from the same researched change. Keep the viewer implementations and authoring rules separate. The 4178 reference version is the comparison baseline. The 4179 custom version follows [custom authoring instructions](references/custom.md): a code-free overview, a compact table of contents, contextual diagrams and expandable call stacks, and file tabs on the right without hiding the overview. Do not include a “Files in this change” section or other file inventory.
+
+For custom-only feedback, change only the custom viewer, custom document, and custom guidance. Leave the reference viewer, its document, its patch, and its process unchanged. Do not apply custom preferences to upstream unless the user explicitly asks to change both.
 
 ## Prepare
 
 From the Halo repo root, run `pnpm review:sync` (or `python3 .agents/skills/diffmap-compare/scripts/review.py sync`). It prints the two instruction paths and the exact revisions. Python 3, Node 22.19+ (Node 24 recommended), npm and git must be available on PATH. No personal skill installation is needed; all maintained inputs live in `.agents/skills/diffmap-compare/`.
 
-Use the code-walkthrough skill at the printed `upstreamSkill` path, with its referenced material, to research and author the standard document. For the second document, reuse that research and apply the custom authoring instructions below. This comparison skill owns launching both documents; do not run a separate single-viewer launch from the nested walkthrough instructions. Read [references/custom.md](references/custom.md) for the custom document. Research the code once; use the same base/head, source root, real patches and verification evidence in both documents. User instructions about task scope still apply: a request to explain landed code does not authorize new implementation or public sharing.
+Use the code-walkthrough skill at the printed `upstreamSkill` path for the reference document. Read [references/custom.md](references/custom.md) before authoring the custom document; its reading experience takes precedence over the upstream template only for that custom document. Reuse source research while keeping the presentations independent. This comparison skill owns launching both documents; do not launch an additional single viewer from the nested walkthrough instructions. Use the same base/head, source root, real patches, and verification evidence in both documents. A request to explain code does not authorize implementation or public sharing.
 
-The upstream checkout lives in `<project>/tmp/diffmap-compare/upstream` at the latest remote `main`. The custom checkout lives beside it in `custom`, reconstructed from the pinned base in `assets/versions.json` plus `assets/custom.patch` (upstream MIT notice in `assets/LICENSE`). Never apply the custom patch or custom authoring rules to upstream. Sync refuses to overwrite local edits.
+Both checkouts live under `<project>/tmp/diffmap-compare/`. Version 1 (`upstream`) is reconstructed from `upstreamBase` plus `assets/upstream.patch`; version 2 (`custom`) uses `customBase` plus `assets/custom.patch`. The name `upstream` is retained for CLI compatibility; this is now a customized first variant, not an untouched baseline. Keep both pinned bases and patches separate. Sync refuses to overwrite unsaved changes. The MIT notice is in `assets/LICENSE`.
 
 ## Author both versions
 
@@ -38,10 +40,12 @@ Check that each document renders, its source references work, and the two URLs s
 
 ## Improve the experiment
 
-Edit `references/custom.md` for authoring changes. Edit `<project>/tmp/diffmap-compare/custom` for viewer changes, run that checkout's checks and exercise the changed UI. Then run:
+Edit `references/custom.md` for custom authoring preferences and `<project>/tmp/diffmap-compare/custom` for custom viewer behavior. Run that checkout's checks and verify the UI, then save only the custom patch:
 
 ```sh
 python3 .agents/skills/diffmap-compare/scripts/review.py capture-custom
 ```
 
-This saves the custom changes into `assets/custom.patch` without touching upstream. Commit the updated patch with the skill; it recreates the customized viewer after temporary checkouts are removed. Keep the custom base pinned until deliberately porting it to another version. `sync` updates upstream independently, so a baseline update cannot silently replace the experiment.
+Keep the patch and authoring instructions together so future comparisons recreate the same experience. Keep the pinned custom base until deliberately updating it and revalidating. The launcher reuses an unchanged 4178 server when serving the revised custom document.
+
+`capture-upstream` is reserved for an explicit request to change the reference version. Do not run it or update `assets/upstream.patch` as part of a custom-only iteration.

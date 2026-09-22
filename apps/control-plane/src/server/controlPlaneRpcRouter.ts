@@ -46,13 +46,15 @@ const getServerInfo = os.server.info.handler(() => ({
 }));
 
 const startDesktopSignIn = os.auth.start.handler(async ({ context, input }) => {
-  const authorizationUrl = context.auth.desktopSignInUrl(input);
+  const started = await context.auth.startDesktopSignIn(input);
 
-  if (authorizationUrl instanceof InvalidDesktopSignInRequestError) {
-    throw badRequest(authorizationUrl);
+  if (started instanceof InvalidDesktopSignInRequestError) {
+    throw badRequest(started);
   }
 
-  return { authorizationUrl: authorizationUrl.toString() };
+  if (started instanceof Error) throw internalError(started);
+
+  return { authorizationUrl: started.authorizationUrl };
 });
 
 const exchangeDesktopAuthCode = os.auth.exchange.handler(

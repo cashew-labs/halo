@@ -1,8 +1,6 @@
 import { gzipSync } from "node:zlib";
 import { TraceCloudDriver } from "./TraceCloudDriver.js";
 import fs from "node:fs/promises";
-import { createServer } from "node:http";
-import type { AddressInfo } from "node:net";
 import { join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { createORPCClient } from "@orpc/client";
@@ -11,7 +9,6 @@ import {
   controlPlaneProtocolVersion,
   type ControlPlaneClient,
 } from "@get-halo/shared/controlPlaneContract";
-import { writeWorkspaceServerConnection } from "@get-halo/shared/WorkspaceServerConnection";
 import { betterAuth } from "better-auth";
 import { testUtils } from "better-auth/plugins";
 import * as errore from "errore";
@@ -25,11 +22,6 @@ const testAuth = {
 };
 
 const desktopAuthState = "desktop-auth-state-0123456789abcdef";
-
-type ReceivedWorkspaceHeaders = {
-  authorization?: string;
-  cookie?: string;
-};
 
 const controlPlaneTest = test.extend<{
   traceCloud: TraceCloudDriver;
@@ -193,51 +185,6 @@ controlPlaneTest(
   },
 );
 
-controlPlaneTest(
-  "proxies an authenticated browser request to the local workspace",
-  async ({ appDataDir, browserHeaders, plane }) => {
-    const received: ReceivedWorkspaceHeaders = {};
-    const workspaceServer = createServer((request, response) => {
-      received.authorization = request.headers.authorization;
-      received.cookie = request.headers.cookie;
-      response.writeHead(200).end("workspace healthy");
-    });
-    await new Promise<void>((resolveListen, rejectListen) => {
-      workspaceServer.once("error", rejectListen);
-      workspaceServer.listen(0, "127.0.0.1", resolveListen);
-    });
-    await using cleanup = new errore.AsyncDisposableStack();
-    cleanup.defer(
-      async () =>
-        await new Promise<void>((resolveClose) => {
-          workspaceServer.close(() => resolveClose());
-        }),
-    );
-
-    // SAFETY: Node returns a TCP address after successfully listening with a numeric port.
-    const address = workspaceServer.address() as AddressInfo;
-    const published = await writeWorkspaceServerConnection({
-      appDataDir,
-      connection: {
-        workspaceRoot: "/test/workspace",
-        origin: `http://127.0.0.1:${address.port}`,
-        token: "local-workspace-token",
-      },
-    });
-    if (published instanceof Error) throw published;
-
-    const response = await fetch(`${plane.origin}/workspace/health`, {
-      headers: browserHeaders,
-    });
-    expect(response.status).toBe(200);
-    expect(await response.text()).toBe("workspace healthy");
-    expect(received).toEqual({
-      authorization: "Bearer local-workspace-token",
-      cookie: undefined,
-    });
-  },
-);
-
 controlPlaneTest("serves Better Auth at /api/auth", async ({ plane }) => {
   const ok = await fetch(`${plane.origin}/api/auth/ok`);
   expect(ok.status).toBe(200);
@@ -261,24 +208,57 @@ controlPlaneTest(
 );
 
 controlPlaneTest(
-  "starts Google sign-in in the browser with its state cookie",
+  "starts Google sign-in in the browser without opening the website",
   async ({ plane, rpc }) => {
     const result = await rpc.auth.start({
       callback: "http://127.0.0.1:49152/auth/callback",
       state: desktopAuthState,
     });
 
-    const start = new URL(result.authorizationUrl);
-    expect(start.origin).toBe(plane.origin);
-    expect(start.pathname).toBe("/api/desktop-auth/start");
+    const google = new URL(result.authorizationUrl);
+    expect(google.origin).toBe("https://accounts.google.com");
+    expect(google.pathname).toBe("/o/oauth2/v2/auth");
+    expect(google.searchParams.get("client_id")).toBe(testAuth.googleClientId);
+    expect(google.searchParams.get("redirect_uri")).toBe(
+      `${plane.origin}/api/auth/callback/google`,
+    );
+  },
+);
+
+controlPlaneTest(
+  "keeps the desktop start page as a Google redirect",
+  async ({ plane }) => {
+    const start = new URL("/api/desktop-auth/start", plane.origin);
+    start.searchParams.set("callback", "http://127.0.0.1:49152/auth/callback");
+    start.searchParams.set("state", desktopAuthState);
 
     const response = await fetch(start, { redirect: "manual" });
     expect(response.status).toBe(302);
-    expect(response.headers.getSetCookie()).not.toHaveLength(0);
 
     const google = new URL(response.headers.get("location")!);
     expect(google.origin).toBe("https://accounts.google.com");
     expect(google.pathname).toBe("/o/oauth2/v2/auth");
+  },
+);
+
+controlPlaneTest(
+  "does not send OAuth errors to the website homepage",
+  async ({ plane }) => {
+    const response = await fetch(`${plane.origin}/api/auth/callback/google`, {
+      redirect: "manual",
+    });
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe(
+      `${plane.origin}/api/desktop-auth/error?error=state_not_found`,
+    );
+
+    const error = await fetch(
+      `${plane.origin}/api/desktop-auth/error?error=state_not_found`,
+    );
+    expect(error.status).toBe(200);
+    const body = await error.text();
+    expect(body).toContain("state_not_found");
+    expect(body).not.toContain("Halo web app");
   },
 );
 

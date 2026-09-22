@@ -1,0 +1,162 @@
+diff --git a/src/viewer/CallStackDiff.tsx b/src/viewer/CallStackDiff.tsx
+index e47ac3e..d3bee3b 100644
+--- a/src/viewer/CallStackDiff.tsx
++++ b/src/viewer/CallStackDiff.tsx
+@@ -10,7 +10,10 @@ export function CallStackDiff(
+   const shell = useStyles(pierreShell, styles.shell);
+   const row = useStyles(styles.row);
+   return (
+-    <div className={shell} data-diffmap-kind="callstack">
++    <details className={shell} data-diffmap-kind="callstack">
++      <summary style={{ cursor: "pointer", padding: "8px 12px" }}>
++        Implementation · {props.lines.length} steps
++      </summary>
+       {props.lines.map((line, index) => {
+         const sign = line.text.startsWith("+")
+           ? "+"
+@@ -36,7 +39,7 @@ export function CallStackDiff(
+                 {comment === -1 ? description : description.slice(0, comment)}
+                 {comment !== -1 && (
+                   <span className="stack-comment">
+-                    {description.slice(comment)}
++                    {description.slice(comment + 1).trim()}
+                   </span>
+                 )}
+               </span>
+@@ -76,7 +79,7 @@ export function CallStackDiff(
+           </button>
+         );
+       })}
+-    </div>
++    </details>
+   );
+ }
+ 
+@@ -128,10 +131,16 @@ const styles = {
+         minWidth: 0,
+         paddingBlock: "3px",
+         overflow: "hidden",
+-        textOverflow: "ellipsis",
+-        whiteSpace: "nowrap",
++        whiteSpace: "normal",
++        overflowWrap: "anywhere",
++      },
++      "& .stack-comment": {
++        display: "block",
++        color: colors.gray[11],
++        fontWeight: 400,
++        fontFamily: "inherit",
++        marginTop: "3px",
+       },
+-      "& .stack-comment": { color: colors.gray[11], fontWeight: 400 },
+       "& .tree-prefix": { display: "inline-flex", alignSelf: "stretch" },
+       "& [data-branch]": {
+         position: "relative",
+diff --git a/src/viewer/ComarkView.tsx b/src/viewer/ComarkView.tsx
+index 08fbfe0..157b904 100644
+--- a/src/viewer/ComarkView.tsx
++++ b/src/viewer/ComarkView.tsx
+@@ -88,6 +88,49 @@ function renderElement(
+       </TaskListItem>
+     );
+   }
++  if (node.tag === "a" && node.attrs.href !== undefined) {
++    const href = node.attrs.href;
++    if (href.startsWith("#")) {
++      return (
++        <a
++          key={key}
++          href={href}
++          onClick={(event) => {
++            event.preventDefault();
++            document
++              .getElementById(decodeURIComponent(href.slice(1)))
++              ?.scrollIntoView({ block: "start" });
++            window.history.replaceState(undefined, "", href);
++          }}
++        >
++          {children}
++        </a>
++      );
++    }
++    if (!/^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(href)) {
++      const [path, symbol] = href.replace(/^(?:\.\.\/|\.\/)+/, "").split("#");
++      const reference = {
++        kind: "file" as const,
++        path: path!,
++        ...(symbol ? { symbol } : {}),
++      };
++      return (
++        <a
++          key={key}
++          href={href}
++          onClick={(event) => {
++            event.preventDefault();
++            navigation.onSelectAnnotation({
++              text: nodeText(node),
++              references: [reference],
++            });
++          }}
++        >
++          {children}
++        </a>
++      );
++    }
++  }
+   if (node.tag === "code") {
+     return <InlineChip key={key}>{children}</InlineChip>;
+   }
+diff --git a/src/viewer/SourceDiffPanel.tsx b/src/viewer/SourceDiffPanel.tsx
+index 25c3b2a..81e5da6 100644
+--- a/src/viewer/SourceDiffPanel.tsx
++++ b/src/viewer/SourceDiffPanel.tsx
+@@ -262,6 +262,23 @@ export function SourceDiffPanel(props: {
+             {pin.label}
+           </span>
+         )}
++        {selection !== undefined && (
++          <section aria-label="Why this code matters">
++            <strong>
++              {selection.annotation.text
++                .replace(/^[+ \t│┃├└─-]+/u, "")
++                .split("#")[0]
++                ?.trim()}
++            </strong>
++            {selection.annotation.text.includes("#") && (
++              <p>
++                {selection.annotation.text
++                  .slice(selection.annotation.text.indexOf("#") + 1)
++                  .trim()}
++              </p>
++            )}
++          </section>
++        )}
+         {mode === "local" && (
+           <span>⌘-click or Ctrl-click a symbol to go to its definition.</span>
+         )}
+@@ -299,7 +316,9 @@ export function SourceDiffPanel(props: {
+         className={code}
+         items={
+           file === undefined
+-            ? props.items
++            ? selection === undefined
++              ? props.items
++              : props.items.filter((item) => item.id === selectedLines?.id)
+             : [
+                 {
+                   type: "file",
+diff --git a/src/viewer/ViewerApp.tsx b/src/viewer/ViewerApp.tsx
+index 6f79b68..4fd0b56 100644
+--- a/src/viewer/ViewerApp.tsx
++++ b/src/viewer/ViewerApp.tsx
+@@ -32,9 +32,7 @@ export function ViewerApp(props: {
+   const viewerDocument = props.document;
+   const meta = useViewerMeta(props.mode === "local");
+   const [selection, setSelection] = useState<SourceSelection>();
+-  const [showDiffPanel, setShowDiffPanel] = useState(
+-    viewerDocument.sourceDiffs.length > 0,
+-  );
++  const [showDiffPanel, setShowDiffPanel] = useState(false);
+   const hasSourceDiffs =
+     viewerDocument.sourceDiffs.length > 0 || viewerDocument.hasReferences;
+   const diffPanelOpen = hasSourceDiffs && showDiffPanel;

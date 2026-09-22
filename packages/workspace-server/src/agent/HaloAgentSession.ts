@@ -2,6 +2,7 @@ import type { Api, Model } from "@earendil-works/pi-ai";
 import {
   AgentHarness,
   type AgentLane,
+  type HarnessEvent,
   type AgentTool,
   type AgentMessage,
   type AgentHarnessTool,
@@ -21,7 +22,9 @@ import {
   type SessionWatchItem,
   type HaloConnectionEvent,
   type HaloConnectionState,
+  type ChatPrompt,
 } from "@get-halo/client";
+import { prepareChatAttachments } from "./chatAttachments.js";
 import type { WorkspaceLayout } from "../workspace/WorkspaceService.js";
 import type { FilesystemService } from "../filesystem/FilesystemService.js";
 import type { ToolRuntime } from "./runtime/ToolRuntime.js";
@@ -79,6 +82,10 @@ export class HaloAgentSession {
     readonly sessionId: string,
     private readonly harness: AgentHarness,
     private readonly lane: AgentLane,
+    private readonly attachmentContext: {
+      filesystem: FilesystemService;
+      workspaceRoot: string;
+    },
   ) {}
 
   static async attach(options: HaloAgentSessionOptions, stored: Session) {
@@ -158,10 +165,32 @@ export class HaloAgentSession {
       stored.metadata.id,
       created.harness,
       lane,
+      { filesystem: options.filesystem, workspaceRoot: layout.root },
     );
     trace.attach(created.harness);
     cleanup.move();
     return session;
+  }
+
+  onSummaryChange(listener: (event: HarnessEvent) => Promise<void>) {
+    const types = [
+      "run_start",
+      "run_end",
+      "fault",
+      "entry_added",
+      "value_update",
+    ] as const;
+    const subscriptions = types.map((type) =>
+      this.harness.events.on(type, async (event) => {
+        if (event.lane !== undefined && event.lane !== "main") return;
+        if (event.type === "value_update" && event.value !== "session_name")
+          return;
+        await listener(event);
+      }),
+    );
+    return () => {
+      for (const unsubscribe of subscriptions) unsubscribe();
+    };
   }
 
   async readSnapshot(connections: HaloConnectionState[]) {
@@ -237,13 +266,33 @@ export class HaloAgentSession {
     );
   }
 
-  async prompt(text: string) {
-    if (text.trim().length === 0) return new EmptyPromptError();
-    return await this.send({
+  async prompt(input: ChatPrompt) {
+    const text = input.text.trim();
+    const files = input.files ?? [];
+    if (text.length === 0 && files.length === 0) return new EmptyPromptError();
+    if (files.length > 0) {
+      const prepared = await prepareChatAttachments({
+        files,
+        ...this.attachmentContext,
+      });
+      if (prepared instanceof Error) return prepared;
+      const message: Extract<StoredMessage, { role: "user" }> = {
+        role: "user",
+        content: [{ type: "text", text }, ...prepared.content],
+        displayText: text,
+        attachments: prepared.attachments,
+        clientMessageId: input.clientMessageId,
+        timestamp: Date.now(),
+      };
+      return await this.send(message);
+    }
+    const message: Extract<StoredMessage, { role: "user" }> = {
       role: "user",
       content: text,
+      clientMessageId: input.clientMessageId,
       timestamp: Date.now(),
-    });
+    };
+    return await this.send(message);
   }
 
   private async send(message: AgentMessage) {

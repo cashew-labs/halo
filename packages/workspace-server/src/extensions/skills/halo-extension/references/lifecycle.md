@@ -52,7 +52,7 @@ Search the extension's installed Maui package for an icon name:
 rg -i 'calendar|clock' node_modules/maui/src/icons/index.ts
 ```
 
-A renderer reload picks up presentation metadata from a running extension. Rebuilding or restarting the extension server is not required for metadata alone.
+Run `halo extension reload` after editing presentation metadata. The sidebar and pane titles update automatically. Rebuilding or restarting the extension server is not required for metadata alone.
 
 ## Build
 
@@ -104,7 +104,7 @@ The sync router and tool transport are internal and have no public package subpa
 
 ## Hosting and reload behavior
 
-`halo extension reload` starts extensions that are not already running. It does not rebuild or restart a healthy running process. After a manual `npm run build`, run `halo extension restart <id>` when the user is ready to replace the hosted process. `halo extension update <id>` performs that restart itself. Reload the renderer or reopen the extension pane to load the restarted extension's browser bundle.
+`halo extension reload` starts extensions that are not already running and pushes the updated extension list to every connected Halo window. It does not rebuild or restart a healthy running process. After a manual `npm run build`, run `halo extension restart <id>` when the user is ready to replace the hosted process. `halo extension update <id>` performs that restart itself. Reload the renderer or reopen the extension pane to load the restarted extension's browser bundle.
 
 Closing Electron leaves the independently hosted workspace server and extensions running. Workspace-server shutdown or workspace replacement stops extension processes gracefully through IPC, with a forced stop after the shutdown timeout.
 
@@ -112,4 +112,4 @@ Hosted records live in `.halo/extension-data/<id>/tandem.json`. Standalone previ
 
 ## Remove an extension
 
-Delete `.halo/extensions/<id>/`, then run `halo extension reload` and reload the renderer. This stops the server and removes its sidebar entry. Stored records are separate under `.halo/extension-data/<id>/`; delete them only when the user explicitly wants that data removed.
+Delete `.halo/extensions/<id>/`, then run `halo extension reload`. The sidebar updates automatically. This stops the server and removes its sidebar entry. Stored records are separate under `.halo/extension-data/<id>/`; delete them only when the user explicitly wants that data removed.

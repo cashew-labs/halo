@@ -5,10 +5,13 @@ import Placeholder from "@tiptap/extension-placeholder";
 import Paragraph from "@tiptap/extension-paragraph";
 import { useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import { proseHtml, type ProseSize } from "maui";
-import { useStyles } from "purse-styles";
+import { colors, monoFontFamily, proseHtml, type ProseSize } from "maui";
+import { style, useStyles } from "purse-styles";
 import { useRefCurrent } from "./agent/useRefCurrent.js";
 import { ListEditing } from "./ListEditing.js";
+import { MarkdownSyntax } from "./MarkdownSyntax.js";
+import { serializeMarkdown } from "./serializeMarkdown.js";
+import { MarkdownFormatting } from "./MarkdownFormatting.js";
 
 const MarkdownParagraph = Paragraph.extend({
   parseMarkdown(token, helpers) {
@@ -52,7 +55,7 @@ export function useMarkdownEditor({
   inlineCodeClassName,
   extensions = [],
 }: MarkdownEditorOptions) {
-  const proseClassName = useStyles(proseHtml(size));
+  const proseClassName = useStyles(proseHtml(size), syntaxStyle);
   const onChangeRef = useRefCurrent(onChange);
   const onSubmitRef = useRefCurrent(onSubmit);
 
@@ -65,15 +68,15 @@ export function useMarkdownEditor({
           openOnClick: false,
         },
         code: {
-          HTMLAttributes: {
-            class: inlineCodeClassName,
-          },
+          HTMLAttributes: { class: inlineCodeClassName },
         },
       }),
       Markdown,
       MarkdownParagraph,
       ...extensions,
       ListEditing,
+      MarkdownFormatting,
+      MarkdownSyntax,
       Placeholder.configure({
         placeholder,
       }),
@@ -98,13 +101,13 @@ export function useMarkdownEditor({
       },
     },
     onUpdate: ({ editor: current }) => {
-      onChangeRef.current?.(current.getMarkdown());
+      onChangeRef.current?.(serializeMarkdown({ editor: current }));
     },
   });
 
   useEffect(() => {
     if (!editor) return;
-    editor.setEditable(editable);
+    editor.setEditable(editable, false);
   }, [editor, editable]);
 
   useEffect(() => {
@@ -123,10 +126,29 @@ export function useMarkdownEditor({
 
   useEffect(() => {
     if (!editor) return;
-    const current = editor.getMarkdown();
+    const current = serializeMarkdown({ editor });
     if (content === current) return;
-    editor.commands.setContent(content, { contentType: "markdown" });
+    editor.commands.setContent(content, {
+      contentType: "markdown",
+      emitUpdate: false,
+    });
   }, [editor, content]);
 
   return editor;
 }
+
+const syntaxStyle = style({
+  "& .markdown-source": {
+    outline: "none",
+    whiteSpace: "pre-wrap",
+  },
+  "& .markdown-marker": {
+    color: colors.gray[9],
+    fontWeight: "normal",
+    fontStyle: "normal",
+  },
+  "& .markdown-source-bold": { fontWeight: "bold" },
+  "& .markdown-source-italic": { fontStyle: "italic" },
+  "& .markdown-source-strike": { textDecoration: "line-through" },
+  "& .markdown-source-code": { fontFamily: monoFontFamily },
+});

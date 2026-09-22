@@ -1,54 +1,68 @@
-# Custom review authoring
+# Custom review authoring — port 4179
 
-This is the experimental counterpart to the untouched upstream skill. It captures the user's requested review experience, not rules to impose on upstream.
+These preferences apply only to the custom viewer and custom review document. Keep the 4178 reference viewer and its authoring instructions separate. Feedback on the custom version is not permission to change the reference version.
 
-## Reading experience
+## The reading experience
 
-- Start with a short overview and an ordered list of what to review. Give each step a concise explanation and a link to its details. Avoid repetitive goals/non-goals sections and repeated versions of the same flow.
-- Use plain language to explain where code runs and what services/classes do. A class is not automatically a deployed service. Explain unfamiliar names before relying on them.
-- The overview is the first, permanent tab on the **left**. Clicking a step, component or symbol opens an active detail tab in its place. Diagrams and examples stay inline with those details. No separate Diagram/Details pages, Back/Forward controls, Done button, or Components and next steps footer.
-- The **right** shows the selected file's code. An About this file card names its exact path, purpose and changes. Populate a file explanation for every included patch so this card stays accurate when switching sources. Files can be chosen from the overview's file list; do not add a redundant dropdown.
-- Detail pages should mix concise explanations with worked examples, realistic JSON/data, pseudocode or linked call stacks when they help. Use simple, selectable diagrams whose labels match the surrounding text. Avoid graphics with no explanation.
-- Explain important classes, services and functions, including inputs and outputs. Code symbols open a left-side inspector with compiler-derived contracts; authored descriptions complement those types. Do not duplicate giant type declarations in the overview.
-- Describe tests by actions and outcomes they actually checked. Distinguish simulated boundaries, live integrations and checks not run.
+Start with a useful high-level understanding: the user-visible problem, the resulting behavior, and a small table when several changes are being reviewed. Prefer columns such as **PR / What you do / What changes**. Use full, concrete descriptions rather than implementation labels. Put revision hashes and other review metadata at the end.
 
-## Document syntax
+The first screen shows the overview, not code. Keep substantial context on the main page: each change's behavior, a concrete example where useful, its diagram, expandable implementation steps, and concise verification evidence. Do not reduce the overview to a list of links that take the reader to other pages.
 
-Read the custom checkout's `README.md` and `src/explanations.ts` when authoring unfamiliar fields. The main markdown links to hidden explanations:
+Use a small table of contents generated from meaningful section headings. It scrolls within the overview and indicates the current section. Explicitly name the review order, such as “#229, then #230, then #231”; never say “bottom to top.” Omit boilerplate goals/non-goals. Explain a limitation only where it affects the behavior or the evidence.
 
-```md
-1. [Where the request runs](explain:request-flow) — Follow the request into the server and storage.
+Keep the overview visible on the left when opening code. Place file tabs, the selected step's explanation, and its code together on the right. Reuse a file tab when another step points to a different line in that file. Closing code returns to the overview; it does not reset the document. Never open a new explanation-only tab containing just a sentence.
 
-[RequestService](explain:request-service) handles accepted requests.
-```
+Do not add **Files in this change**, an automatic changed-file list, a standalone file inventory, or a redundant file-picker dropdown. Enter the code through relevant diagram nodes, call-stack steps, or a contextual source link beside the explanation. The table of contents is for review sections, not filenames.
 
-An explanation uses a JSON fence. Real sources can be whole files, qualified symbols or line ranges. Related destinations should be links in the explanation's diagram or call stack, not a separate footer.
+## Explain the intent beside the graphic
+
+Use familiar words and concrete actions. Prefer “remember which answer was opened” to “browser read receipt,” and “ask the desktop app to open the link” to “cross the host boundary.” Explain why a technical mechanism matters before naming it. “Handle the click before the text editor turns it into cursor placement” explains the intent of a capture listener; “document capture listener” does not.
+
+Put a short explanation immediately beside each graph. Labels should name actions or outcomes. Give each clickable node a human-readable title and purpose in its `%% ref` directive; otherwise clicking it can produce meaningless labels such as `node Seen`. Selecting it should show that intent with the relevant code.
+
+Call stacks belong inline with the section they explain. Their implementation steps expand in place. Every linked row should explain what the function does and why in its `#` comment. Comments must wrap and remain readable; do not depend on a clipped comment or hover tooltip. Avoid repeating the same flow as prose, a diagram, a call stack, and a separate detail page. Each should add useful information.
+
+Use diagrams small enough to remain legible beside the code pane. Prefer a vertical flow to a long horizontal row of tiny labels. Technical depth is welcome when it explains a decision; verbosity and repeated sections are not.
+
+## Sources and syntax
+
+Research the actual code once for both versions. Keep the same base/head, source checkout, exact Git patches, and verification facts. Do not invent symbols, line ranges, runtime traces, or test results. Preserve patches verbatim in `source-diff:<id>:<path>` fences.
+
+Use ordinary section headings for the table of contents. Local Markdown file links must open the source pane without navigating or reloading the review. Section links must scroll within the overview. Keep explanation text in the main document; do not make `explain:` links the primary review navigation.
+
+Illustrative syntax below; replace all example paths, symbols, and behavior with the reviewed code:
 
 ````md
-```explain:request-service
+## Open links without leaving the app
+
+The app checks a web-link click before the editor handles it as cursor placement.
+
+```mermaid
+flowchart TD
+  Click["Click a web link"] --> Browser["Open the default browser"]
+  %% ref node:Browser Open the default browser # Ask the operating system to open the web address outside the app. [[src/openExternal.ts#openExternal]]
+```
+
+```callstack
+ handleLinkClick() # Distinguish opening a link from editing its text. [[src/links.ts#handleLinkClick]]
+ └── openExternal() # Ask the operating system to open the web address while leaving the app's page in place. [[src/openExternal.ts#openExternal]]
+```
+
+```explain:external-browser
 {
-  "title": "RequestService · validates and stores requests",
-  "summary": "One instance in the server validates incoming requests before storing them.",
-  "file": "src/RequestService.ts",
-  "changes": "Checks the workspace owner before saving a request.",
-  "sources": ["src/RequestService.ts#RequestService"],
-  "symbols": ["src/RequestService.ts#RequestService"],
-  "inputs": "The configured store and authenticated workspace identity.",
-  "outputs": "A service instance; save() returns an ID or a storage error.",
-  "steps": ["Check the authenticated workspace.", "Store the accepted request."],
-  "callstack": "RequestService.save() [[src/RequestService.ts#RequestService.save]]\n└── Store.insert() [[src/Store.ts#Store.insert]]",
-  "flowCaption": "Source-checked execution sketch; not a recorded runtime trace.",
-  "codeExample": "{\"id\":\"request-123\",\"workspaceId\":\"workspace-A\"}",
-  "codeLanguage": "json",
-  "codeCaption": "Illustrative saved record, with unrelated fields omitted."
+  "title": "Opening web links",
+  "summary": "Checks the address before asking the operating system to open the default browser.",
+  "file": "src/openExternal.ts",
+  "sources": ["src/openExternal.ts#openExternal"],
+  "symbols": ["src/openExternal.ts#openExternal"]
 }
 ```
 ````
 
-Use real paths, symbols and behavior from the reviewed repo, not the illustrative names above. `file` maps the explanation to the right pane's file summary; only one explanation per file should own this mapping. More specific method explanations can use `symbols` and `sources` without `file`.
+Hidden `explain:` fences provide concise file context above the code. Map only one explanation to each `file`. Explain the file's role in plain language and avoid repeating the same paragraph as both its summary and “What changed.” Compiler-derived types and symbol details are secondary to the reason for inspecting the code. Read the custom checkout's `README.md` and `src/explanations.ts` when using additional fields; optional capabilities are not a checklist of sections to include.
 
-`symbols` keys are `path#Class` or `path#Class.method`. Append `:method` or another compiler kind only when names are ambiguous (for example a static method and instance field sharing a name).
+## Verify the experience
 
-Optional `diagram` is a Mermaid string with `%% ref node:<id> [[explain:<id>]]` or source references. `diagramCaption`, `callstack`/`flowCaption` and `codeExample`/`codeLanguage`/`codeCaption` render inline in the detail page.
+Before returning the comparison, check that the custom page starts without code, has a working section table of contents, and has no file inventory. Select a graph node and a call-stack step: each should show relevant code and its intent while the overview stays visible. Check wrapped comments in the split layout, file-tab reuse, and a local file link without a page reload. Confirm that the reference viewer was not changed during a custom-only iteration.
 
-Append real Git patches in `source-diff:<id>:<path>` fences. Use the same base/head as upstream. Preserve patch content and line numbers. The overview need not reproduce all these source details: linked steps and the automatic file list are the entry points.
+Report tests as actions and observed outcomes. Distinguish real UI/filesystem checks from scripted model responses, simulated browser launches, and production checks not run. Rewriting a review is not evidence that the product tests were rerun.

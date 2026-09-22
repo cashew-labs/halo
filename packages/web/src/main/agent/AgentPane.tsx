@@ -1,7 +1,9 @@
+import { useIsActiveTab } from "../../panes/WorkspacePanesProvider.js";
+import { useMarkSessionRead } from "./useSessionReadState.js";
 import { lastAssistantTurnWasAborted } from "./sessionView.js";
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { skipToken, useQuery } from "@tanstack/react-query";
-import { useLocation } from "wouter";
+import { Link, useLocation } from "wouter";
 import {
   Button,
   backgroundColor,
@@ -13,7 +15,7 @@ import {
   spacing,
   text,
 } from "maui";
-import { ArrowUp, Stop } from "maui/icons";
+import { ArrowUp, Stop, Paperclip, Close, FileText } from "maui/icons";
 import { style, useStyles } from "purse-styles";
 import {
   sessionTitleQueryKey,
@@ -25,12 +27,13 @@ import {
   sessionMessages,
   type SessionSnapshot,
   type SessionSummary,
+  type ChatPrompt,
+  validateChatFiles,
 } from "@get-halo/client";
 import { AssistantMessage } from "./AssistantMessage.tsx";
 import { Editor } from "./Editor.tsx";
 import { ExecutorConnectionCard } from "./ExecutorConnectionCard.tsx";
 import { ToolActivity } from "./ToolActivity.tsx";
-import { PaneHeader } from "../PaneHeader.tsx";
 
 export function AgentPane({
   sessionId,
@@ -39,10 +42,8 @@ export function AgentPane({
   sessionId: string;
   sessions: SessionSummary[];
 }) {
-  const pane = useStyles(styles.pane);
-  const body = useStyles(styles.body);
-  const column = useStyles(styles.column);
-  const { state, error, prompt, abort } = useAgentSession(sessionId);
+  const session = useAgentSession(sessionId);
+  useMarkSessionRead({ sessionId, state: session.state });
   const sessionMeta = sessions.find(
     ({ sessionId: candidate }) => candidate === sessionId,
   );
@@ -50,127 +51,283 @@ export function AgentPane({
     queryKey: sessionTitleQueryKey(sessionId),
     queryFn: skipToken,
   });
-  const title =
-    sessionMeta?.title === undefined ? submittedTitle : sessionMeta.title;
-
   return (
-    <main className={pane} aria-label={title}>
-      <PaneHeader title={title} />
-      <div className={body}>
-        <div className={column}>
-          <SessionView state={state} sessionId={sessionId} />
-          <Composer
-            key={sessionId}
-            autoFocus
-            error={error}
-            isWorking={state.activeRun !== undefined}
-            onSubmit={prompt}
-            onStop={abort}
-          />
-        </div>
-      </div>
-    </main>
+    <ChatPane
+      key={sessionId}
+      sessionId={sessionId}
+      title={sessionMeta?.title ?? submittedTitle}
+      {...session}
+    />
   );
 }
 
 export function DraftAgentPane({ draftId }: { draftId: string }) {
   const [, navigate] = useLocation();
-  const { state, error, sessionId, title, prompt, abort } =
-    useDraftAgentSession((createdSessionId) => {
-      navigate(`/sessions/${createdSessionId}`);
-    });
+  const session = useDraftAgentSession((createdSessionId) => {
+    navigate(`/sessions/${createdSessionId}`);
+  });
+  return (
+    <ChatPane
+      draftId={draftId}
+      {...session}
+      title={session.title ?? "New session"}
+    />
+  );
+}
+
+function ChatPane({
+  sessionId,
+  draftId,
+  title,
+  state,
+  error,
+  prompt,
+  abort,
+}: {
+  sessionId: string | undefined;
+  draftId?: string;
+  title: string | undefined;
+  state: SessionSnapshot;
+  error: string | undefined;
+  prompt: (input: ChatPrompt) => Promise<void | Error>;
+  abort: () => Promise<void | Error>;
+}) {
+  const isActiveTab = useIsActiveTab();
+  const [draft, setDraft] = useState("");
+  const [attachments, setAttachments] = useState<{ id: string; file: File }[]>(
+    [],
+  );
+  const [localError, setLocalError] = useState<string>();
+  const [sending, setSending] = useState(false);
+  const submitting = useRef<string | undefined>(undefined);
+  const [dragging, setDragging] = useState(false);
+  const dragDepth = useRef(0);
+  const picker = useRef<HTMLInputElement>(null);
   const pane = useStyles(styles.pane);
-  const body = useStyles(styles.body, styles.bodyTop);
+  const body = useStyles(
+    styles.body,
+    draftId === undefined ? undefined : styles.bodyTop,
+  );
   const column = useStyles(styles.column);
-  const hasMessages = sessionViewItems(state).length > 0;
+  const composer = useStyles(styles.composer);
+  const liveStatus = useStyles(styles.liveStatus);
+  const sendButton = useStyles(styles.sendButton);
+  const attachmentList = useStyles(styles.attachmentList);
+  const attachmentChip = useStyles(styles.attachmentChip);
+  const attachmentName = useStyles(styles.attachmentName);
+  const composerActions = useStyles(styles.composerActions);
+  const progress = useStyles(styles.progress);
+  const dropOverlay = useStyles(styles.dropOverlay);
+  const hasContent = draft.trim().length > 0 || attachments.length > 0;
+  const showStop = state.activeRun !== undefined && !hasContent && !sending;
+  const displayError = localError ?? error;
+
+  useEffect(() => {
+    // The prompt RPC stays open for the model's whole turn. Release the composer
+    // when our message is committed, so Stop and follow-up drafts remain usable.
+    const id = submitting.current;
+    if (
+      id === undefined ||
+      !state.entries.some(
+        (entry) =>
+          entry.type === "message" &&
+          entry.message.role === "user" &&
+          entry.message.clientMessageId === id,
+      )
+    )
+      return;
+    submitting.current = undefined;
+    setSending(false);
+    setDraft("");
+    setAttachments([]);
+  }, [state.entries]);
+
+  function addFiles(files: File[]) {
+    if (submitting.current) {
+      setLocalError(
+        "Wait for the current message to send before adding files.",
+      );
+      return;
+    }
+    const invalid = validateChatFiles([
+      ...attachments.map((item) => item.file),
+      ...files,
+    ]);
+    if (invalid !== undefined) {
+      setLocalError(invalid);
+      return;
+    }
+    setLocalError(undefined);
+    setAttachments((current) => [
+      ...current,
+      ...files.map((file) => ({ id: crypto.randomUUID(), file })),
+    ]);
+  }
+
+  async function submit() {
+    if (!hasContent || submitting.current) return;
+    const clientMessageId = crypto.randomUUID();
+    submitting.current = clientMessageId;
+    setSending(true);
+    setLocalError(undefined);
+    const result = await prompt({
+      text: draft.trim(),
+      files: attachments.map((item) => item.file),
+      clientMessageId,
+    });
+    if (submitting.current !== clientMessageId) return;
+    submitting.current = undefined;
+    setSending(false);
+    if (result instanceof Error) return;
+    setDraft("");
+    setAttachments([]);
+  }
 
   return (
     <main
       className={pane}
-      aria-label={title === undefined ? "New session" : title}
+      aria-label={title}
       data-draft-id={draftId}
+      onDragEnter={(event) => {
+        if (!event.dataTransfer.types.includes("Files")) return;
+        event.preventDefault();
+        dragDepth.current++;
+        setDragging(true);
+      }}
+      onDragOverCapture={(event) => {
+        if (!event.dataTransfer.types.includes("Files")) return;
+        event.preventDefault();
+        // File drops attach to the chat; do not show the editor's insertion cursor.
+        event.stopPropagation();
+        event.dataTransfer.dropEffect = "copy";
+      }}
+      onDragLeave={(event) => {
+        if (!event.dataTransfer.types.includes("Files")) return;
+        dragDepth.current = Math.max(0, dragDepth.current - 1);
+        if (dragDepth.current === 0) setDragging(false);
+      }}
+      onDropCapture={(event) => {
+        if (!event.dataTransfer.types.includes("Files")) return;
+        event.preventDefault();
+        event.stopPropagation();
+        dragDepth.current = 0;
+        setDragging(false);
+        if (
+          Array.from(event.dataTransfer.items).some(
+            (item) => item.webkitGetAsEntry()?.isDirectory,
+          )
+        ) {
+          setLocalError("Add individual files instead of a folder.");
+          return;
+        }
+        addFiles(Array.from(event.dataTransfer.files));
+      }}
+      onPasteCapture={(event) => {
+        const files = Array.from(event.clipboardData.files);
+        if (files.length === 0) return;
+        event.preventDefault();
+        event.stopPropagation();
+        addFiles(files);
+      }}
     >
-      <PaneHeader title={title} />
+      {dragging ? (
+        <div className={dropOverlay}>Drop files to attach</div>
+      ) : undefined}
       <div className={body}>
         <div className={column}>
-          {hasMessages ? (
+          {draftId === undefined || state.entries.length > 0 ? (
             <SessionView state={state} sessionId={sessionId} />
           ) : undefined}
-          <Composer
-            autoFocus
-            error={error}
-            isWorking={state.activeRun !== undefined}
-            onSubmit={prompt}
-            onStop={abort}
+          <Editor
+            autoFocus={isActiveTab}
+            content={draft}
+            onChange={setDraft}
+            onSubmit={submit}
+            editable={!sending}
+            placeholder="Message Halo"
+            aria-label="Message"
+            size="sm"
+            className={composer}
+            header={
+              attachments.length === 0 ? undefined : (
+                <ul className={attachmentList} aria-label="Attachments">
+                  {attachments.map(({ id, file }) => (
+                    <li className={attachmentChip} key={id}>
+                      <FileText size="sm" aria-hidden="true" />
+                      <span className={attachmentName} title={file.name}>
+                        {file.name}
+                      </span>
+                      <Button
+                        variant="quiet"
+                        aria-label={`Remove ${file.name}`}
+                        isDisabled={sending}
+                        onClick={() => {
+                          setAttachments((current) =>
+                            current.filter((item) => item.id !== id),
+                          );
+                          setLocalError(undefined);
+                        }}
+                      >
+                        <Close size="sm" aria-hidden="true" />
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              )
+            }
+            error={
+              displayError === undefined ? undefined : (
+                <div className={liveStatus} role="alert">
+                  {displayError}
+                </div>
+              )
+            }
+            actions={
+              <div className={composerActions}>
+                <input
+                  ref={picker}
+                  type="file"
+                  multiple
+                  hidden
+                  aria-label="Attach files"
+                  onChange={(event) => {
+                    addFiles(Array.from(event.currentTarget.files ?? []));
+                    event.currentTarget.value = "";
+                  }}
+                />
+                <Button
+                  variant="quiet"
+                  aria-label="Add attachments"
+                  isDisabled={sending}
+                  onClick={() => picker.current?.click()}
+                >
+                  <Paperclip size="sm" aria-hidden="true" />
+                </Button>
+                <span className={progress} role="status">
+                  {sending
+                    ? attachments.length > 0
+                      ? "Preparing attachments…"
+                      : "Sending…"
+                    : ""}
+                </span>
+                <Button
+                  aria-label={showStop ? "Stop" : "Send"}
+                  className={sendButton}
+                  isDisabled={sending || (!showStop && !hasContent)}
+                  onClick={showStop ? abort : submit}
+                >
+                  {showStop ? (
+                    <Stop size="sm" />
+                  ) : (
+                    <ArrowUp size="sm" aria-hidden="true" />
+                  )}
+                </Button>
+              </div>
+            }
           />
         </div>
       </div>
     </main>
-  );
-}
-
-function Composer({
-  autoFocus,
-  error,
-  isWorking,
-  onSubmit,
-  onStop,
-}: {
-  autoFocus: boolean;
-  error: string | undefined;
-  isWorking: boolean;
-  onSubmit: (prompt: string) => Promise<void | Error>;
-  onStop: () => Promise<void | Error>;
-}) {
-  const [draft, setDraft] = useState("");
-  const composer = useStyles(styles.composer);
-  const liveStatus = useStyles(styles.liveStatus);
-  const sendButton = useStyles(styles.sendButton);
-  const trimmedText = draft.trim();
-  const showStop = isWorking && trimmedText.length === 0;
-
-  async function submit() {
-    if (!trimmedText) return;
-
-    setDraft("");
-    const result = await onSubmit(trimmedText);
-    if (result instanceof Error) {
-      setDraft(trimmedText);
-    }
-  }
-
-  return (
-    <Editor
-      autoFocus={autoFocus}
-      content={draft}
-      onChange={setDraft}
-      onSubmit={submit}
-      placeholder="Message Halo"
-      aria-label="Message"
-      size="sm"
-      className={composer}
-      error={
-        error === undefined ? undefined : (
-          <div className={liveStatus} role="alert">
-            {error}
-          </div>
-        )
-      }
-      actions={
-        <Button
-          aria-label={showStop ? "Stop" : "Send"}
-          className={sendButton}
-          disabled={!showStop && trimmedText.length === 0}
-          onClick={showStop ? onStop : submit}
-        >
-          {showStop ? (
-            <Stop size="sm" />
-          ) : (
-            <ArrowUp size="sm" aria-hidden="true" />
-          )}
-        </Button>
-      }
-    />
   );
 }
 
@@ -246,12 +403,34 @@ function SessionViewRow({
   const body = useStyles(styles.messageBody);
   const assistantRow = useStyles(styles.assistantRow);
   const assistantMessage = useStyles(styles.assistantMessage);
+  const attachmentList = useStyles(styles.attachmentList);
+  const attachmentChip = useStyles(styles.attachmentChip);
+  const attachmentName = useStyles(styles.attachmentName);
 
   if (item.kind === "user") {
     return (
       <div className={userRow}>
         <article className={userMessage} aria-label="You message">
-          <div className={body}>{item.text}</div>
+          {item.text.length > 0 ? (
+            <div className={body}>{item.text}</div>
+          ) : undefined}
+          {item.attachments.length > 0 ? (
+            <ul className={attachmentList} aria-label="Attached files">
+              {item.attachments.map((attachment) => (
+                <li key={attachment.path}>
+                  <Link
+                    href={`/files/${attachment.path.split("/").map(encodeURIComponent).join("/")}`}
+                    className={attachmentChip}
+                  >
+                    <FileText size="sm" aria-hidden="true" />
+                    <span className={attachmentName} title={attachment.name}>
+                      {attachment.name}
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          ) : undefined}
         </article>
       </div>
     );
@@ -295,6 +474,7 @@ const styles = {
     minHeight: 0,
     overflow: "hidden",
     backgroundColor: backgroundColor.app,
+    position: "relative",
   }),
   body: style(
     flex({ direction: "column" }),
@@ -311,6 +491,51 @@ const styles = {
     },
   ),
   bodyTop: style(spacing.padding({ top: 12 })),
+  attachmentList: style(flex({ gap: 2 }), spacing.padding({ y: 2 }), {
+    flexWrap: "wrap",
+    listStyle: "none",
+    paddingInline: 0,
+    margin: 0,
+    minWidth: 0,
+  }),
+  attachmentChip: style(
+    flex({ alignItems: "center", gap: 2 }),
+    radius.md,
+    spacing.padding({ x: 3, y: 1 }),
+    text({ size: "xs", color: "highContrast" }),
+    {
+      backgroundColor: colors.grayAlpha[3],
+      maxWidth: "100%",
+      minWidth: 0,
+      textDecoration: "none",
+      "&:hover": { backgroundColor: colors.grayAlpha[4] },
+    },
+  ),
+  attachmentName: style({
+    maxWidth: "28ch",
+    minWidth: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  }),
+  composerActions: style(flex({ alignItems: "center", gap: 2 }), {
+    width: "100%",
+  }),
+  progress: style(text({ size: "xs", color: "lowContrast" }), { flex: 1 }),
+  dropOverlay: style(
+    radius.lg,
+    text({ size: "md", fontWeight: 500, color: "highContrast" }),
+    {
+      position: "absolute",
+      inset: spacing.value(4),
+      zIndex: 10,
+      display: "grid",
+      placeItems: "center",
+      pointerEvents: "none",
+      backgroundColor: `color-mix(in srgb, ${backgroundColor.element} 80%, transparent)`,
+      border: `2px dashed ${colors.gray[7]}`,
+    },
+  ),
   column: style(flex({ direction: "column" }), {
     flex: "1 1 auto",
     width: "100%",
@@ -373,7 +598,7 @@ const styles = {
       overflowWrap: "anywhere",
     },
   ),
-  userRow: style(flex({ justify: "end" }), spacing.padding({ top: 3 }), {
+  userRow: style(flex({ justifyContent: "end" }), spacing.padding({ top: 3 }), {
     // position: "sticky",
     // top: 0,
     // zIndex: 1,

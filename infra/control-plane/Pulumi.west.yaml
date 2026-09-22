@@ -5,5 +5,5 @@ config:
   gcp:region: us-west2
   gcp:zone: us-west2-a
   halo-control-plane:controlPlaneDomain: gethalo.dev
-  halo-control-plane:controlPlaneImage: us-west2-docker.pkg.dev/halo-relay/halo-west-workspaces/control-plane:0.1.49
-  halo-control-plane:workspaceImage: us-west2-docker.pkg.dev/halo-relay/halo-west-workspaces/workspace-server:0.1.49
+  halo-control-plane:controlPlaneImage: us-west2-docker.pkg.dev/halo-relay/halo-west-workspaces/control-plane:0.1.52
+  halo-control-plane:workspaceImage: us-west2-docker.pkg.dev/halo-relay/halo-west-workspaces/workspace-server:0.1.52

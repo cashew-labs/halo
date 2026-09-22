@@ -18,6 +18,9 @@ import {
 import { ChevronRight } from "maui/icons";
 import { style, useStyles } from "purse-styles";
 import { useRoute, useRouter } from "wouter";
+import { useWorkspacePanes } from "../../panes/WorkspacePanesProvider.js";
+import { useSidebar } from "../../WorkspaceLayout.js";
+import { paneRouteDragType } from "../../panes/paneDrag.js";
 import { sidebarPadding } from "./SidebarSection.js";
 
 type IconComponent = ComponentType<SVGProps<SVGSVGElement>>;
@@ -36,6 +39,8 @@ type SidebarItemProps = {
 };
 
 export function SidebarItem(props: SidebarItemProps) {
+  const workspace = useWorkspacePanes();
+  const sidebar = useSidebar();
   const route =
     props.href === undefined ? "/__sidebar-directory__" : props.href;
   const [isActive] = useRoute(route);
@@ -87,7 +92,30 @@ export function SidebarItem(props: SidebarItemProps) {
                 <Icon className={iconClassName} />
               </span>
             )}
-            <Link className={linkClassName}>{props.children}</Link>
+            <Link
+              className={linkClassName}
+              onClick={(event) => {
+                if (props.href === undefined) return;
+                event.preventDefault();
+                workspace.open({
+                  path: props.href,
+                  newTab: event.metaKey || event.ctrlKey,
+                });
+                sidebar.close();
+              }}
+            >
+              <span
+                draggable={props.href !== undefined}
+                onDragStart={(event) => {
+                  if (props.href === undefined) return;
+                  event.dataTransfer.setData(paneRouteDragType, props.href);
+                  event.dataTransfer.effectAllowed = "copyMove";
+                }}
+                style={{ display: "block", width: "100%" }}
+              >
+                {props.children}
+              </span>
+            </Link>
             {props.trailing === undefined ? undefined : (
               <span className={trailingClassName}>{props.trailing}</span>
             )}

@@ -41,7 +41,10 @@ export class ElectronTestApp {
     const launch = this.artifacts.createLaunch();
     const electronApp = await electron.launch({
       executablePath,
-      args: [`--user-data-dir=${this.artifacts.paths.userData}`],
+      args: [
+        `--user-data-dir=${this.artifacts.paths.userData}`,
+        "--force-device-scale-factor=1",
+      ],
       artifactsDir: this.artifacts.paths.playwright,
       env: {
         ...processEnvironment(),
@@ -112,6 +115,43 @@ export class ElectronTestApp {
       }),
     ]);
     killIfRunning(child);
+  }
+
+  async pressShortcut(keypress: {
+    key: string;
+    shift?: boolean;
+    alt?: boolean;
+  }) {
+    const handle = await this.running.electron.browserWindow(this.page);
+    await handle.evaluate((window, input) => {
+      // CDP keyboard events bypass Electron's native accelerators and before-input-event.
+      window.show();
+      window.focus();
+      const modifiers = [
+        process.platform === "darwin" ? "meta" : "control",
+        ...(input.shift ? ["shift"] : []),
+        ...(input.alt ? ["alt"] : []),
+      ];
+      window.webContents.sendInputEvent({
+        type: "keyDown",
+        keyCode: input.key,
+        modifiers,
+      });
+      window.webContents.sendInputEvent({
+        type: "keyUp",
+        keyCode: input.key,
+        modifiers,
+      });
+    }, keypress);
+  }
+
+  async observeExternalUrls() {
+    return await this.running.electron.evaluateHandle(({ app }) => {
+      const urls: string[] = [];
+      const events: NodeJS.EventEmitter = app;
+      events.on("halo:e2e:open-external", (url: string) => urls.push(url));
+      return urls;
+    });
   }
 
   async openWindow() {

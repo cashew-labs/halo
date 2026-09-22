@@ -1,3 +1,8 @@
+import { watchWorkspace } from "./watchWorkspace.js";
+import {
+  hotkeysRouter,
+  type HotkeysRouterContext,
+} from "../hotkeys/hotkeysRouter.js";
 import {
   browserRouter,
   type BrowserRouterContext,
@@ -25,21 +30,26 @@ import {
   type TestApiRouterContext,
 } from "../testing/testApiRouter.js";
 
-export type HaloContext = BrowserRouterContext &
+export type HaloContext = HotkeysRouterContext &
+  BrowserRouterContext &
   TracesRouterContext &
   WorkspaceRouterContext &
   ExtensionsRouterContext &
   SessionsRouterContext &
   TestApiRouterContext;
 
-const server = implement(contract.server);
+const server = implement(contract.server).$context<HaloContext>();
 
 const serverRouter = server.router({
   info: server.info.handler(() => ({ protocolVersion: haloProtocolVersion })),
+  watch: server.watch.handler(({ context, signal }) =>
+    watchWorkspace({ context, signal }),
+  ),
 });
 
 export const haloRpcRouter = {
   server: serverRouter,
+  hotkeys: hotkeysRouter,
   browser: browserRouter,
   workspace: workspaceRouter,
   sessions: sessionsRouter,

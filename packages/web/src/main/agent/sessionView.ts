@@ -10,10 +10,11 @@ import {
   type ToolIdentity,
   connectionRequestSchema,
   type ConnectionRequest,
+  type ChatAttachment,
 } from "@get-halo/client";
 
 export type SessionViewItem =
-  | { kind: "user"; id: string; text: string }
+  | { kind: "user"; id: string; text: string; attachments: ChatAttachment[] }
   | {
       kind: "assistantTurn";
       id: string;
@@ -190,6 +191,7 @@ export function sessionViewItems(state: SessionSnapshot): SessionViewItem[] {
         kind: "user",
         id: entry.id,
         text: userText(message),
+        attachments: message.attachments ?? [],
       });
       continue;
     }
@@ -678,6 +680,7 @@ function toolResultsByCallId(state: SessionSnapshot) {
 
 function userText(message: HaloMessage): string {
   if (message.role !== "user") return "";
+  if (message.displayText !== undefined) return message.displayText;
   if (Array.isArray(message.content)) {
     return message.content
       .flatMap((part) => {

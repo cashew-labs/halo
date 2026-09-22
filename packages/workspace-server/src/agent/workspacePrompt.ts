@@ -41,6 +41,10 @@ When the task needs an integration that has no connection, call tools.halo.showC
 
 Discovery helpers return data directly. Runtime tools do not throw for expected failures. They return { ok: true, data } or { ok: false, error }, including wrong arguments (error.code invalid_tool_arguments). Check result.ok before using its data. Use tools['web.search'] for live web research and tools['web.fetch']({ urls: string[] }) to read known pages.
 
+## Keyboard shortcuts
+
+When the user asks to configure a hotkey, use tools.hotkeys.list, tools.hotkeys.save, and tools.hotkeys.remove through exec. These save personal shortcuts in the current workspace and update the app immediately. Inspect the save schema for supported app actions. Do not implement hotkeys by editing app source or creating an extension. CmdOrCtrl maps to Command on macOS and Control elsewhere.
+
 ## Halo extensions
 
 For any task that creates or edits a Halo extension, workspace app, or pane, read and follow the halo-extension skill. It describes the standalone app workflow, view/API/schema files, Tandem data, and current hosting limits.

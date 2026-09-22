@@ -10,7 +10,7 @@ e2eTest(
       .getByRole("link", { name: "greeting", exact: true })
       .click({ timeout: 10_000 });
 
-    const frame = app.page.getByTitle("greeting", { exact: true });
+    const frame = app.page.locator('iframe[title="greeting"]');
     await expect(frame).toHaveAttribute(
       "src",
       /\/extensions\/greeting\/view\/$/,
@@ -24,6 +24,22 @@ e2eTest(
 );
 
 e2eTest(
+  "opens an extension WebSocket from the workspace sidebar",
+  async ({ app, harness }) => {
+    await harness.loadExtension("./fixtures/websocket-greeting");
+
+    await app.page
+      .getByRole("link", { name: "WebSocket Greeting", exact: true })
+      .click();
+
+    const frame = app.page
+      .locator('iframe[title="WebSocket Greeting"]')
+      .contentFrame();
+    await expect(frame.getByRole("status")).toHaveText("Hello from WebSocket");
+  },
+);
+
+e2eTest(
   "syncs tasks from a separate browser into an open Halo pane without losing its draft",
   async ({ app, harness }) => {
     e2eTest.setTimeout(240_000);
@@ -31,7 +47,7 @@ e2eTest(
       "../../../packages/extension-tools/test/fixtures/tasks",
     );
     await app.page.getByRole("link", { name: "tasks", exact: true }).click();
-    const pane = app.page.getByTitle("tasks", { exact: true }).contentFrame();
+    const pane = app.page.locator('iframe[title="tasks"]').contentFrame();
     await pane.getByRole("textbox", { name: "New task" }).fill("My draft");
 
     const extensions = await app.server.rpc.extensions.list();
@@ -68,11 +84,15 @@ e2eTest(
       command: "rm -rf .halo/extensions/greeting",
     });
     await app.server.rpc.extensions.reload();
-    await app.page.reload();
 
     await expect(
       app.page.getByRole("link", { name: "greeting", exact: true }),
     ).toHaveCount(0);
+    await expect(
+      app.page.getByText("Extension 'greeting' is not running.", {
+        exact: true,
+      }),
+    ).toBeVisible();
     await expect(
       request.get(extension.url, { timeout: 5_000 }),
     ).rejects.toThrow(/ECONNREFUSED/);
@@ -80,16 +100,27 @@ e2eTest(
 );
 
 e2eTest(
-  "updates an extension's name and icon on renderer reload without changing its URL",
+  "updates an extension's name and icon live without changing its URL",
   async ({ app, harness }) => {
     await harness.loadExtension("./fixtures/greeting");
     const [before] = await app.server.rpc.extensions.list();
+    await app.page.getByRole("link", { name: "greeting", exact: true }).click();
+    const frame = app.page.locator("iframe").contentFrame();
+    await frame
+      .getByRole("textbox", { name: "Your name" })
+      .fill("Keep my draft");
+    await app.page.evaluate(() =>
+      document.documentElement.setAttribute(
+        "data-extension-metadata",
+        "original",
+      ),
+    );
 
     await harness.tools.bash.run({
       command:
         'cd .halo/extensions/greeting && npm pkg set halo.displayName="Welcome" halo.icon="Calendar"',
     });
-    await app.page.reload();
+    await app.server.rpc.extensions.reload();
     const entry = app.page.getByRole("link", {
       name: "Welcome",
       exact: true,
@@ -103,5 +134,35 @@ e2eTest(
     ).toBeVisible();
     const [after] = await app.server.rpc.extensions.list();
     expect(after?.url).toBe(before?.url);
+    await expect(app.page.locator("html")).toHaveAttribute(
+      "data-extension-metadata",
+      "original",
+    );
+    await expect(frame.getByRole("textbox", { name: "Your name" })).toHaveValue(
+      "Keep my draft",
+    );
+
+    await harness.tools.files.write({
+      path: ".halo/extensions/greeting/package.json",
+      content: "{",
+    });
+    await app.server.rpc.extensions.reload();
+    await expect(app.page.getByRole("alert").first()).toBeVisible();
+    await expect(entry).toBeVisible();
+    await harness.tools.files.write({
+      path: ".halo/extensions/greeting/package.json",
+      content: JSON.stringify({
+        name: "greeting",
+        halo: { displayName: "Recovered" },
+      }),
+    });
+    await app.server.rpc.extensions.reload();
+    await expect(
+      app.page.getByRole("link", { name: "Recovered", exact: true }),
+    ).toBeVisible();
+    await expect(app.page.getByRole("alert")).toHaveCount(0);
+    await expect(frame.getByRole("textbox", { name: "Your name" })).toHaveValue(
+      "Keep my draft",
+    );
   },
 );

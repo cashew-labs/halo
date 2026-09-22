@@ -1,10 +1,10 @@
 {
   "name": "@get-halo/desktop",
-  "version": "0.1.49",
+  "version": "0.1.52",
   "private": true,
   "description": "Halo desktop app",
-  "license": "MIT",
-  "author": "Saffron Health",
+  "license": "Apache-2.0",
+  "author": "Saffron Health, Inc.",
   "repository": {
     "type": "git",
     "url": "https://github.com/cashew-labs/halo.git"
@@ -40,7 +40,7 @@
     "electron-squirrel-startup": "^1.0.1",
     "errore": "^0.14.1",
     "google-auth-library": "^11.0.2",
-    "maui": "npm:@tanishqkancharla/maui@0.0.19",
+    "maui": "npm:@tanishqkancharla/maui@0.0.30",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "typescript": "7.0.2",

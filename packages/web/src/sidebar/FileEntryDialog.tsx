@@ -140,13 +140,13 @@ export function FileEntryDialog({
               </div>
             )}
             <div className={buttons}>
-              <Button type="button" onClick={onClose} disabled={pending}>
+              <Button type="button" onClick={onClose} isDisabled={pending}>
                 Cancel
               </Button>
               <Button
                 type="submit"
                 variant="primary"
-                disabled={!validName || unchanged || pending}
+                isDisabled={!validName || unchanged || pending}
               >
                 {pending
                   ? action.kind === "delete"
@@ -187,7 +187,7 @@ const styles = {
     overflowWrap: "anywhere",
   }),
   label: style(text({ size: "sm" }), flex({ direction: "column", gap: 2 })),
-  buttons: style(flex({ justify: "end", gap: 3 }), {
+  buttons: style(flex({ justifyContent: "end", gap: 3 }), {
     marginTop: spacing.value(2),
     "& button": { transition: "none" },
   }),

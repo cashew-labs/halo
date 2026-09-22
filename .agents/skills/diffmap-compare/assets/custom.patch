@@ -463,6 +463,114 @@ index 6881275..c776805 100644
  function collectFences(nodes: ViewerNode[]): Fence[] {
    return nodes.flatMap((node) => {
      if (node.type === "view") return [node.fence];
+diff --git a/src/viewer/CallStackDiff.tsx b/src/viewer/CallStackDiff.tsx
+index efe2ac3..59a09a1 100644
+--- a/src/viewer/CallStackDiff.tsx
++++ b/src/viewer/CallStackDiff.tsx
+@@ -10,7 +10,10 @@ export function CallStackDiff(
+   const shell = useStyles(pierreShell, styles.shell);
+   const row = useStyles(styles.row);
+   return (
+-    <div className={shell} data-tkstack-kind="callstack">
++    <details className={shell} data-tkstack-kind="callstack">
++      <summary style={{ cursor: "pointer", padding: "8px 12px" }}>
++        Implementation · {props.lines.length} steps
++      </summary>
+       {props.lines.map((line, index) => {
+         const sign = line.text.startsWith("+")
+           ? "+"
+@@ -36,7 +39,7 @@ export function CallStackDiff(
+                 {comment === -1 ? description : description.slice(0, comment)}
+                 {comment !== -1 && (
+                   <span className="stack-comment">
+-                    {description.slice(comment)}
++                    {description.slice(comment + 1).trim()}
+                   </span>
+                 )}
+               </span>
+@@ -63,7 +66,7 @@ export function CallStackDiff(
+             className={row}
+             data-change={sign}
+             aria-pressed={props.selectedAnnotation === line}
+-            aria-controls="exploration-panel"
++            aria-controls="source-diff-panel"
+             title={
+               line.explanationId ? "Explore this step" : "Show source changes"
+             }
+@@ -74,7 +77,7 @@ export function CallStackDiff(
+           </button>
+         );
+       })}
+-    </div>
++    </details>
+   );
+ }
+ 
+@@ -84,20 +87,24 @@ const styles = {
+     spacing.padding({ y: 2 }),
+     {
+       backgroundColor: backgroundColor.app,
+-      overflowX: "auto",
++      overflowX: "hidden",
++      maxWidth: "100%",
+     },
+   ),
+   row: style(
+     spacing.padding({ x: 3 }),
+     {
+       display: "flex",
++      alignItems: "center",
+       gap: "12px",
++      boxSizing: "border-box",
+       width: "100%",
+-      minWidth: "max-content",
++      maxWidth: "100%",
++      minWidth: 0,
++      overflow: "hidden",
+       textAlign: "left",
+       font: "inherit",
+       lineHeight: "1.6",
+-      whiteSpace: "pre",
+       color: "inherit",
+       background: "transparent",
+       border: 0,
+@@ -112,10 +119,26 @@ const styles = {
+       "& .stack-content": {
+         display: "flex",
+         alignItems: "stretch",
++        flex: "1 1 auto",
++        minWidth: 0,
+         minHeight: "28px",
++        overflow: "hidden",
++      },
++      "& .stack-label": {
++        flex: "1 1 auto",
++        minWidth: 0,
++        paddingBlock: "3px",
++        overflow: "hidden",
++        whiteSpace: "normal",
++        overflowWrap: "anywhere",
++      },
++      "& .stack-comment": {
++        display: "block",
++        color: colors.gray[11],
++        fontWeight: 400,
++        fontFamily: "inherit",
++        marginTop: "3px",
+       },
+-      "& .stack-label": { paddingBlock: "3px" },
+-      "& .stack-comment": { color: colors.gray[11], fontWeight: 400 },
+       "& .tree-prefix": { display: "inline-flex", alignSelf: "stretch" },
+       "& [data-branch]": {
+         position: "relative",
+@@ -150,6 +173,7 @@ const styles = {
+       "& > .diff-sign": { alignSelf: "center" },
+       "& > .source-indicator": {
+         alignSelf: "center",
++        flexShrink: 0,
+         marginLeft: "auto",
+         color: colors.blue[11],
+       },
 diff --git a/src/viewer/Check.tsx b/src/viewer/Check.tsx
 deleted file mode 100644
 index 747a7f8..0000000
@@ -494,7 +602,7 @@ index 747a7f8..0000000
 -  );
 -}
 diff --git a/src/viewer/ComarkView.tsx b/src/viewer/ComarkView.tsx
-index 2d3441c..dd0e260 100644
+index 2d3441c..24ce102 100644
 --- a/src/viewer/ComarkView.tsx
 +++ b/src/viewer/ComarkView.tsx
 @@ -2,6 +2,7 @@ import { createElement, type ReactNode, useState } from "react";
@@ -505,7 +613,7 @@ index 2d3441c..dd0e260 100644
    monospace,
    radius,
    spacing,
-@@ -79,6 +80,17 @@ function renderElement(
+@@ -79,6 +80,60 @@ function renderElement(
        </TaskListItem>
      );
    }
@@ -520,10 +628,53 @@ index 2d3441c..dd0e260 100644
 +      </ExplanationLink>
 +    );
 +  }
++  if (node.tag === "a" && node.attrs.href !== undefined) {
++    const href = node.attrs.href;
++    if (href.startsWith("#")) {
++      return (
++        <a
++          key={key}
++          href={href}
++          onClick={(event) => {
++            event.preventDefault();
++            document
++              .getElementById(decodeURIComponent(href.slice(1)))
++              ?.scrollIntoView({ block: "start" });
++            window.history.replaceState(undefined, "", href);
++          }}
++        >
++          {children}
++        </a>
++      );
++    }
++    if (!/^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(href)) {
++      const [path, symbol] = href.replace(/^(?:\.\.\/|\.\/)+/, "").split("#");
++      const reference = {
++        kind: "file" as const,
++        path: path!,
++        ...(symbol ? { symbol } : {}),
++      };
++      return (
++        <a
++          key={key}
++          href={href}
++          onClick={(event) => {
++            event.preventDefault();
++            navigation.onSelectAnnotation({
++              text: nodeText(node),
++              references: [reference],
++            });
++          }}
++        >
++          {children}
++        </a>
++      );
++    }
++  }
    if (node.tag === "code") {
      return <InlineChip key={key}>{children}</InlineChip>;
    }
-@@ -197,3 +209,45 @@ const inlineCodeClass = style(
+@@ -197,3 +252,45 @@ const inlineCodeClass = style(
      backgroundColor: colors.gray[4],
    },
  );
@@ -1030,7 +1181,7 @@ index 884c06f..046d03a 100644
          <button
 diff --git a/src/viewer/ReviewTabs.tsx b/src/viewer/ReviewTabs.tsx
 new file mode 100644
-index 0000000..752cff7
+index 0000000..2a9d1a2
 --- /dev/null
 +++ b/src/viewer/ReviewTabs.tsx
 @@ -0,0 +1,86 @@
@@ -1072,7 +1223,7 @@ index 0000000..752cff7
 +            role="tab"
 +            id={`review-tab-${tab.id}`}
 +            aria-selected={tab.id === props.activeId}
-+            aria-controls={tab.id === 0 ? "review-home" : "review-page"}
++            aria-controls="source-diff-panel"
 +            tabIndex={tab.id === props.activeId ? 0 : -1}
 +            title={tab.label}
 +            onClick={() => props.onActivate(tab.id)}
@@ -1121,7 +1272,7 @@ index 0000000..752cff7
 +  );
 +}
 diff --git a/src/viewer/SourceDiffPanel.tsx b/src/viewer/SourceDiffPanel.tsx
-index e6942df..1e0e2bd 100644
+index e6942df..034cb50 100644
 --- a/src/viewer/SourceDiffPanel.tsx
 +++ b/src/viewer/SourceDiffPanel.tsx
 @@ -1,3 +1,4 @@
@@ -1316,7 +1467,7 @@ index e6942df..1e0e2bd 100644
          event.preventDefault();
          navigate(params);
        }}
-@@ -226,30 +233,9 @@ export function SourceDiffPanel(props: {
+@@ -226,30 +233,7 @@ export function SourceDiffPanel(props: {
                ? "Source file"
                : "Source changes"}
          </strong>
@@ -1344,13 +1495,36 @@ index e6942df..1e0e2bd 100644
 -            Open definition: {pendingSymbol.label}
 -          </Button>
 -        )}
-+        <span>
-+          Click a symbol to inspect its purpose, types and definition.
-+        </span>
++
          {status !== undefined && <span role="status">{status}</span>}
          {selection === undefined ? (
            <span>
-@@ -283,16 +269,38 @@ export function SourceDiffPanel(props: {
+@@ -257,9 +241,21 @@ export function SourceDiffPanel(props: {
+           </span>
+         ) : (
+           <>
+-            <span>
+-              {selection.annotation.text.replace(/^[+ -]/, "").trim()}
+-            </span>
++            <section aria-label="Why this code matters">
++              <strong>
++                {selection.annotation.text
++                  .replace(/^[+ \t│┃├└─-]+/u, "")
++                  .split("#")[0]
++                  ?.trim()}
++              </strong>
++              {selection.annotation.text.includes("#") && (
++                <p>
++                  {selection.annotation.text
++                    .slice(selection.annotation.text.indexOf("#") + 1)
++                    .trim()}
++                </p>
++              )}
++            </section>
+             {selection.annotation.references.length > 1 && (
+               <div className={links} aria-label="Linked changes">
+                 {selection.annotation.references.map((reference, index) => (
+@@ -283,16 +279,39 @@ export function SourceDiffPanel(props: {
              )}
            </>
          )}
@@ -1363,11 +1537,12 @@ index e6942df..1e0e2bd 100644
 +            <div className="source-file-context-label">About this file</div>
 +            <code className="source-file-context-path">{activePath}</code>
 +            <p>{fileExplanation.summary}</p>
-+            {fileExplanation.changes !== undefined && (
-+              <p className="source-file-change">
-+                <strong>This change:</strong> {fileExplanation.changes}
-+              </p>
-+            )}
++            {fileExplanation.changes !== undefined &&
++              fileExplanation.changes !== fileExplanation.summary && (
++                <p className="source-file-change">
++                  <strong>This change:</strong> {fileExplanation.changes}
++                </p>
++              )}
 +          </section>
 +        )}
        </div>
@@ -1390,7 +1565,15 @@ index e6942df..1e0e2bd 100644
              : [
                  {
                    type: "file",
-@@ -337,7 +345,7 @@ const styles = {
+@@ -320,6 +339,7 @@ export function SourceDiffPanel(props: {
+ 
+ const styles = {
+   panel: style(flex({ direction: "column" }), border(["left"], "border"), {
++    flex: "1 1 auto",
+     minWidth: 0,
+     minHeight: 0,
+     backgroundColor: backgroundColor.app,
+@@ -337,7 +357,7 @@ const styles = {
      {
        gap: "6px",
        overflowWrap: "anywhere",
@@ -1569,11 +1752,257 @@ index 0000000..afb2f5c
 +    </div>
 +  );
 +}
+diff --git a/src/viewer/TableOfContents.tsx b/src/viewer/TableOfContents.tsx
+new file mode 100644
+index 0000000..095adb7
+--- /dev/null
++++ b/src/viewer/TableOfContents.tsx
+@@ -0,0 +1,240 @@
++import { useEffect, useMemo, useState, type RefObject } from "react";
++import { colors, focusRing, radius, spacing, text } from "maui";
++import { style, useStyles } from "purse-styles";
++import type { ViewerNode } from "../parseViewer.js";
++
++type ViewerHeading = { id: string; text: string; level: number };
++function collectHeadings(nodes: ViewerNode[]): ViewerHeading[] {
++  return nodes.flatMap((node) => {
++    if (node.type !== "element") return [];
++    if (/^h[1-6]$/.test(node.tag) && node.attrs.id !== undefined)
++      return [
++        {
++          id: node.attrs.id,
++          text: headingText(node.children),
++          level: Number(node.tag.slice(1)),
++        },
++      ];
++    return collectHeadings(node.children);
++  });
++}
++function headingText(nodes: ViewerNode[]): string {
++  return nodes
++    .map((node) =>
++      node.type === "text"
++        ? node.value
++        : node.type === "element"
++          ? headingText(node.children)
++          : "",
++    )
++    .join("");
++}
++
++type TocItem = ViewerHeading & { children: TocItem[] };
++
++export function TableOfContents(props: {
++  nodes: ViewerNode[];
++  articleRef: RefObject<HTMLElement | null>;
++}) {
++  const headings = useMemo(() => collectHeadings(props.nodes), [props.nodes]);
++  const items = nestHeadings(tocHeadings(headings));
++  const { activeId, setActiveId } = useActiveHeading(
++    headings,
++    props.articleRef,
++  );
++  const navClass = useStyles(styles.nav);
++  const listClass = useStyles(styles.list);
++  if (items.length === 0) return undefined;
++
++  return (
++    <nav
++      className={navClass}
++      aria-label="Table of contents"
++      data-tkstack-kind="toc"
++    >
++      <TocList
++        items={items}
++        className={listClass}
++        activeId={activeId}
++        onSelect={setActiveId}
++      />
++    </nav>
++  );
++}
++
++function TocList(props: {
++  items: TocItem[];
++  className: string;
++  activeId: string | undefined;
++  onSelect: (id: string) => void;
++}) {
++  return (
++    <ol className={props.className}>
++      {props.items.map((item) => (
++        <TocEntry
++          key={item.id}
++          item={item}
++          listClass={props.className}
++          activeId={props.activeId}
++          onSelect={props.onSelect}
++        />
++      ))}
++    </ol>
++  );
++}
++
++function TocEntry(props: {
++  item: TocItem;
++  listClass: string;
++  activeId: string | undefined;
++  onSelect: (id: string) => void;
++}) {
++  const itemClass = useStyles(styles.item);
++  const linkClass = useStyles(styles.link);
++  const current = props.activeId === props.item.id;
++  return (
++    <li className={itemClass}>
++      <a
++        className={linkClass}
++        href={`#${props.item.id}`}
++        aria-current={current ? "location" : undefined}
++        onClick={(event) => {
++          const heading = document.getElementById(props.item.id);
++          if (!heading) return;
++          event.preventDefault();
++          props.onSelect(props.item.id);
++          heading.scrollIntoView({ behavior: "smooth", block: "start" });
++          history.pushState({}, "", `#${props.item.id}`);
++        }}
++      >
++        {props.item.text}
++      </a>
++      {props.item.children.length > 0 && (
++        <TocList
++          items={props.item.children}
++          className={props.listClass}
++          activeId={props.activeId}
++          onSelect={props.onSelect}
++        />
++      )}
++    </li>
++  );
++}
++
++function tocHeadings(headings: ViewerHeading[]) {
++  const first = headings[0];
++  if (first?.level === 1) return headings.slice(1);
++  return headings;
++}
++
++function nestHeadings(headings: ViewerHeading[]): TocItem[] {
++  const items: TocItem[] = [];
++  const stack: TocItem[] = [];
++  for (const heading of headings) {
++    const item: TocItem = { ...heading, children: [] };
++    while (stack.length > 0) {
++      const parent = stack[stack.length - 1];
++      if (parent === undefined || parent.level < heading.level) break;
++      stack.pop();
++    }
++    const parent = stack[stack.length - 1];
++    if (parent === undefined) items.push(item);
++    else parent.children.push(item);
++    stack.push(item);
++  }
++  return items;
++}
++
++function useActiveHeading(
++  headings: ViewerHeading[],
++  articleRef: RefObject<HTMLElement | null>,
++) {
++  const [activeId, setActiveId] = useState<string>();
++
++  useEffect(() => {
++    const ids = tocHeadings(headings).map((heading) => heading.id);
++    const nodes = ids.flatMap((id) => {
++      const node = document.getElementById(id);
++      return node ? [node] : [];
++    });
++    if (nodes.length === 0) return;
++    const root = articleRef.current ?? undefined;
++    const visible = new Set<string>();
++    const observer = new IntersectionObserver(
++      (entries) => {
++        for (const entry of entries) {
++          if (entry.isIntersecting) visible.add(entry.target.id);
++          else visible.delete(entry.target.id);
++        }
++        const next = ids.find((id) => visible.has(id));
++        if (next !== undefined) setActiveId(next);
++      },
++      { root, rootMargin: "0px 0px -70% 0px", threshold: 0 },
++    );
++    for (const node of nodes) observer.observe(node);
++    return () => observer.disconnect();
++  }, [articleRef, headings]);
++
++  return { activeId, setActiveId };
++}
++
++const styles = {
++  nav: style(spacing.padding({ left: 3, right: 3, top: 8, bottom: 8 }), {
++    boxSizing: "border-box",
++    gridColumn: "1",
++    alignSelf: "stretch",
++    minWidth: 0,
++    width: "200px",
++    maxWidth: "200px",
++    minHeight: 0,
++    height: "fit-content",
++    maxHeight: "100%",
++    marginTop: "auto",
++    marginBottom: "auto",
++    overflowY: "auto",
++    backgroundColor: "transparent",
++    "@media (max-width: 1200px)": {
++      display: "none",
++    },
++    "&[data-tkstack-kind='toc'] ol": {
++      listStyle: "none",
++      counterReset: "none",
++      margin: 0,
++      padding: 0,
++    },
++    "&[data-tkstack-kind='toc'] ol ol": {
++      paddingInlineStart: spacing.value(6),
++    },
++    "&[data-tkstack-kind='toc'] ol > li::before": {
++      content: "none",
++    },
++    "&[data-tkstack-kind='toc'] a": {
++      fontWeight: 400,
++      textDecoration: "none",
++    },
++  }),
++  list: style(text({ size: "sm", fontWeight: 400, color: "lowContrast" })),
++  item: style({
++    "&::before": {
++      content: "none",
++    },
++  }),
++  link: style(
++    radius.sm,
++    spacing.padding({ x: 4, y: 2 }),
++    text({ size: "sm", fontWeight: 400, color: "lowContrast" }),
++    focusRing(),
++    {
++      display: "block",
++      overflowWrap: "anywhere",
++      cursor: "pointer",
++      "&:hover": {
++        backgroundColor: colors.gray[3],
++      },
++      "&[aria-current='location']": {
++        color: colors.accent[9],
++        fontWeight: 500,
++      },
++    },
++  ),
++};
 diff --git a/src/viewer/ViewerApp.tsx b/src/viewer/ViewerApp.tsx
-index 6af3a81..8d6098e 100644
+index 6af3a81..64ef1d5 100644
 --- a/src/viewer/ViewerApp.tsx
 +++ b/src/viewer/ViewerApp.tsx
-@@ -1,21 +1,18 @@
+@@ -1,48 +1,82 @@
 -import { useEffect, useState } from "react";
 +import { useCallback, useEffect, useRef, useState } from "react";
  import {
@@ -1594,11 +2023,13 @@ index 6af3a81..8d6098e 100644
 -import { DoneButton } from "./DoneButton.tsx";
 +import { SourceDiffPanel, type SourceSelection } from "./SourceDiffPanel.js";
  
+-import { ExplorationPanel } from "./ExplorationPanel.js";
++import { TableOfContents } from "./TableOfContents.js";
 +import { ReviewTabs } from "./ReviewTabs.js";
- import { ExplorationPanel } from "./ExplorationPanel.js";
++import "./exploration.css";
  import type { SourceAnnotation } from "../annotations.js";
  
-@@ -23,26 +20,81 @@ type ViewerMeta = {
+ type ViewerMeta = {
    title: string;
  };
  
@@ -1623,29 +2054,20 @@ index 6af3a81..8d6098e 100644
 -        : undefined;
 -      return first
 -        ? {
-+  const [panels, setPanels] = useState<OpenPanels>(() => {
-+    const first =
-+      viewerDocument.initialExplanationId === undefined
-+        ? undefined
-+        : viewerDocument.explanations[viewerDocument.initialExplanationId];
-+    const selection =
-+      first === undefined
-+        ? undefined
-+        : {
-             annotation: {
-               text: first.title,
-               explanationId: first.id,
-               references: first.references,
-             },
-             reference: first.references[0],
+-            annotation: {
+-              text: first.title,
+-              explanationId: first.id,
+-              references: first.references,
+-            },
+-            reference: first.references[0],
 -          }
 -        : undefined;
 -    },
 -  );
 -  const [history, setHistory] = useState<SourceSelection[]>([]);
-+          };
++  const [panels, setPanels] = useState<OpenPanels>(() => {
 +    return {
-+      tabs: [{ id: 0, key: "home", label: "", selection }],
++      tabs: [{ id: 0, key: "home", label: "Overview", selection: undefined }],
 +      activeId: 0,
 +      nextId: 1,
 +    };
@@ -1661,11 +2083,7 @@ index 6af3a81..8d6098e 100644
 +          ...current,
 +          activeId: existing.id,
 +          tabs: current.tabs.map((tab) =>
-+            tab.id === existing.id &&
-+            JSON.stringify(tab.selection?.reference) !==
-+              JSON.stringify(nextSelection.reference)
-+              ? { ...tab, selection: nextSelection }
-+              : tab,
++            tab.id === existing.id ? { ...tab, selection: nextSelection } : tab,
 +          ),
 +        };
 +      return {
@@ -1692,7 +2110,7 @@ index 6af3a81..8d6098e 100644
    const selectAnnotation = (annotation: SourceAnnotation) => {
      const detail = annotation.explanationId
        ? viewerDocument.explanations[annotation.explanationId]
-@@ -50,8 +102,7 @@ export function ViewerApp() {
+@@ -50,8 +84,7 @@ export function ViewerApp() {
      const references = annotation.references.length
        ? annotation.references
        : (detail?.references ?? []);
@@ -1702,12 +2120,18 @@ index 6af3a81..8d6098e 100644
        annotation:
          references === annotation.references
            ? annotation
-@@ -64,61 +115,109 @@ export function ViewerApp() {
-     viewerDocument.hasReferences ||
-     Object.keys(viewerDocument.explanations).length > 0;
+@@ -59,73 +92,116 @@ export function ViewerApp() {
+       reference: references[0],
+     });
+   };
+-  const hasSourceDiffs =
+-    viewerDocument.sourceDiffs.length > 0 ||
+-    viewerDocument.hasReferences ||
+-    Object.keys(viewerDocument.explanations).length > 0;
++  const hasSourceDiffs = panels.activeId !== 0;
    const body = useStyles(styles.body);
 -  const [shutDown, setShutDown] = useState(false);
-   const title = meta === undefined ? document.title : meta.title;
+-  const title = meta === undefined ? document.title : meta.title;
    const shell = useStyles(styles.shell);
 -  const header = useStyles(styles.header);
 -  const heading = useStyles(styles.heading);
@@ -1719,6 +2143,7 @@ index 6af3a81..8d6098e 100644
 +    () => codeScrollPositions.current.get(codeScrollKey),
 +    [codeScrollKey],
 +  );
++  const articleRef = useRef<HTMLElement>(null);
    const article = useStyles(styles.article);
    const prose = useStyles(proseHtml("md"), styles.prose);
 -  const closed = useStyles(styles.closed);
@@ -1757,101 +2182,73 @@ index 6af3a81..8d6098e 100644
 -            />
 -          </div>
 -        </article>
--        {hasSourceDiffs && (
++        <TableOfContents nodes={viewerDocument.nodes} articleRef={articleRef} />
 +        <section className="review-left" aria-label="Review pages">
-+          <ReviewTabs
-+            tabs={panels.tabs.map((tab) =>
-+              tab.id === 0 ? { ...tab, label: title } : tab,
-+            )}
-+            activeId={panels.activeId}
-+            onActivate={(id) =>
-+              setPanels((current) => ({ ...current, activeId: id }))
-+            }
-+            onClose={closeTab}
-+          />
 +          <article
++            ref={articleRef}
 +            id="review-home"
-+            role="tabpanel"
-+            aria-labelledby="review-tab-0"
-+            hidden={panels.activeId !== 0}
++            aria-label="Review overview"
 +            className={article}
 +          >
 +            <div className={prose}>
++              <p className="review-version">
++                Version 2 · Overview with file tabs
++              </p>
 +              <ComarkView
 +                document={viewerDocument}
 +                selectedAnnotation={selection?.annotation}
 +                onSelectAnnotation={selectAnnotation}
 +              />
-+              <nav className="review-files" aria-label="Changed files">
-+                <h2>Files in this change</h2>
-+                {viewerDocument.sourceDiffs.map((item) => (
-+                  <button
-+                    key={item.id}
-+                    onClick={() => {
-+                      const explanation = Object.values(
-+                        viewerDocument.explanations,
-+                      ).find((entry) => entry.file === item.fileDiff.name);
-+                      const hunk = item.fileDiff.hunks[0]!;
-+                      const side: "new" | "old" =
-+                        hunk.additionCount > 0 ? "new" : "old";
-+                      const start =
-+                        side === "new"
-+                          ? hunk.additionStart
-+                          : hunk.deletionStart;
-+                      const reference = {
-+                        kind: "diff" as const,
-+                        id: item.id,
-+                        side,
-+                        start,
-+                        end: start,
-+                      };
-+                      visit({
-+                        annotation: {
-+                          text: item.fileDiff.name,
-+                          explanationId: explanation?.id,
-+                          references: [reference],
-+                        },
-+                        reference,
-+                      });
-+                    }}
-+                  >
-+                    {item.fileDiff.name}
-+                  </button>
-+                ))}
-+              </nav>
 +            </div>
 +          </article>
-           <ExplorationPanel
-             explanations={viewerDocument.explanations}
++        </section>
+         {hasSourceDiffs && (
+-          <ExplorationPanel
+-            explanations={viewerDocument.explanations}
 -            history={history}
 -            onBack={() => {
 -              setSelection(history.at(-1));
 -              setHistory(history.slice(0, -1));
 -            }}
 -            items={viewerDocument.sourceDiffs}
-+            locationId={panels.activeId}
-+            hidden={panels.activeId === 0}
-             selection={selection}
-             onSelect={selectAnnotation}
+-            selection={selection}
+-            onSelect={selectAnnotation}
 -            onSource={setSelection}
-+            onSource={visit}
-+          />
-+        </section>
-+        {hasSourceDiffs && (
-+          <SourceDiffPanel
-+            key={codeScrollKey}
-+            getScrollPosition={getCodeScrollPosition}
-+            onScroll={(position) =>
-+              codeScrollPositions.current.set(codeScrollKey, position)
-+            }
-+            items={viewerDocument.sourceDiffs}
-+            explanations={viewerDocument.explanations}
-+            selection={selection}
-+            onSelect={visit}
-           />
+-          />
++          <section className="review-right" aria-label="Code and explanation">
++            <div className="review-right-heading">
++              <strong>Code and explanation</strong>
++              <button
++                onClick={() =>
++                  setPanels((current) => ({ ...current, activeId: 0 }))
++                }
++              >
++                Close code
++              </button>
++            </div>
++            <ReviewTabs
++              tabs={panels.tabs.filter((tab) => tab.id !== 0)}
++              activeId={panels.activeId}
++              onActivate={(id) =>
++                setPanels((current) => ({ ...current, activeId: id }))
++              }
++              onClose={closeTab}
++            />
++            <SourceDiffPanel
++              key={codeScrollKey}
++              getScrollPosition={getCodeScrollPosition}
++              onScroll={(position) =>
++                codeScrollPositions.current.set(codeScrollKey, position)
++              }
++              items={viewerDocument.sourceDiffs}
++              explanations={viewerDocument.explanations}
++              selection={selection}
++              onSelect={visit}
++            />
++          </section>
          )}
        </div>
-@@ -126,6 +225,31 @@ export function ViewerApp() {
+     </div>
    );
  }
  
@@ -1863,12 +2260,17 @@ index 6af3a81..8d6098e 100644
 +      : viewerDocument.explanations[explanationId];
 +  const definition = selection.definition;
 +  const reference = selection.reference;
++  const path =
++    reference?.kind === "file"
++      ? reference.path
++      : viewerDocument.sourceDiffs.find((item) => item.id === reference?.id)
++          ?.fileDiff.name;
 +  const key =
 +    definition !== undefined
 +      ? `symbol:${definition.path}:${definition.start}:${definition.symbol?.kind}`
 +      : explanationId !== undefined
 +        ? `explanation:${explanationId}`
-+        : `source:${JSON.stringify(reference)}`;
++        : `source:${path ?? JSON.stringify(reference)}`;
 +  const title =
 +    explanation === undefined ? selection.annotation.text : explanation.title;
 +  const label =
@@ -1876,14 +2278,14 @@ index 6af3a81..8d6098e 100644
 +      ? definition.symbol.name
 +      : explanation?.file !== undefined
 +        ? explanation.file.split("/").at(-1)!
-+        : title;
++        : (path?.split("/").at(-1) ?? title);
 +  return { id, key, label, selection };
 +}
 +
  function useViewerMeta() {
    const [meta, setMeta] = useState<ViewerMeta>();
    useEffect(() => {
-@@ -140,10 +264,6 @@ function useViewerMeta() {
+@@ -140,10 +216,6 @@ function useViewerMeta() {
    return meta;
  }
  
@@ -1894,7 +2296,7 @@ index 6af3a81..8d6098e 100644
  const styles = {
    shell: style(flex({ direction: "column" }), {
      width: "100%",
-@@ -153,24 +273,14 @@ const styles = {
+@@ -153,34 +225,29 @@ const styles = {
      overflow: "hidden",
      backgroundColor: colors.gray[4],
    }),
@@ -1927,7 +2329,35 @@ index 6af3a81..8d6098e 100644
    }),
    body: style({
      display: "grid",
-@@ -232,12 +342,4 @@ const styles = {
+     gridTemplateColumns: "var(--tkstack-columns)",
+-    "--tkstack-columns": "minmax(0, 1fr)",
++    "--tkstack-columns": "200px minmax(0, 1fr)",
++    "--compact-columns": "minmax(0, 1fr)",
+     flex: "1 1 auto",
+     minHeight: 0,
+     minWidth: 0,
+     "&[data-has-source-diffs='true']": {
+-      "--tkstack-columns": "minmax(0, 1fr) minmax(0, 1fr)",
++      "--tkstack-columns": "200px minmax(0, 1fr) minmax(0, 1fr)",
++      "--compact-columns": "minmax(0, 1fr) minmax(0, 1fr)",
++    },
++    "@media (max-width: 1200px)": {
++      gridTemplateColumns: "var(--compact-columns)",
+     },
+     "@media (max-width: 900px)": {
+       gridTemplateColumns: "minmax(0, 1fr)",
+@@ -206,10 +273,6 @@ const styles = {
+       maxWidth: "none",
+       minWidth: 0,
+     },
+-    "& > [data-tkstack-kind='mermaid']": {
+-      gridColumn: "1 / -1",
+-      maxWidth: "none",
+-    },
+     "& ul > li[data-task]::before, & ol > li[data-task]::before": {
+       content: "none",
+     },
+@@ -232,12 +295,4 @@ const styles = {
        border: 0,
      },
    }),
@@ -1941,7 +2371,7 @@ index 6af3a81..8d6098e 100644
 -  ),
  };
 diff --git a/src/viewer/exploration.css b/src/viewer/exploration.css
-index 8ae7e1a..98c370b 100644
+index 8ae7e1a..48eac0c 100644
 --- a/src/viewer/exploration.css
 +++ b/src/viewer/exploration.css
 @@ -5,61 +5,24 @@
@@ -2041,7 +2471,7 @@ index 8ae7e1a..98c370b 100644
    }
    .exploration-header {
      padding: 12px 18px 0;
-@@ -143,3 +87,214 @@
+@@ -143,3 +87,219 @@
      padding: 18px;
    }
  }
@@ -2123,27 +2553,6 @@ index 8ae7e1a..98c370b 100644
 +}
 +.symbol-link:hover {
 +  background: var(--explore-surface);
-+}
-+
-+.review-files {
-+  margin-top: 32px;
-+}
-+.review-files button {
-+  display: block;
-+  width: 100%;
-+  border: 0;
-+  border-bottom: 1px solid var(--explore-border, #ddd);
-+  padding: 10px 0;
-+  background: transparent;
-+  color: inherit;
-+  text-align: left;
-+  font: inherit;
-+  font-size: 13px;
-+  overflow-wrap: anywhere;
-+  cursor: pointer;
-+}
-+.review-files button:hover {
-+  text-decoration: underline;
 +}
 +
 +.review-page {
@@ -2255,6 +2664,32 @@ index 8ae7e1a..98c370b 100644
 +}
 +.source-file-change {
 +  color: var(--explore-muted);
++}
++
++.review-right {
++  display: flex;
++  flex-direction: column;
++  min-height: 0;
++  min-width: 0;
++  overflow: hidden;
++}
++.review-right-heading {
++  display: flex;
++  justify-content: space-between;
++  align-items: center;
++  padding: 12px 16px;
++  border-bottom: 1px solid var(--explore-border);
++}
++.review-right-heading button {
++  color: var(--explore-accent);
++  background: transparent;
++  border: 0;
++  cursor: pointer;
++  padding: 4px 8px;
++}
++.review-version {
++  color: var(--explore-muted);
++  font-size: 13px;
 +}
 diff --git a/tests/explanations.test.ts b/tests/explanations.test.ts
 index 208f68f..c8dc21b 100644

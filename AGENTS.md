@@ -8,9 +8,15 @@ Use the [conventions skill](.agents/skills/conventions/SKILL.md) when writing, r
 
 When editing TypeScript that handles failures, also read the [errore skill](.agents/skills/errore/SKILL.md).
 
+When reviewing a pull request or branch diff, use the [code-review skill](.agents/skills/code-review/SKILL.md).
+
 ## Writing Rules
 
 Always adhere to ISO 24495-1 Technical Language Standard for responses, except the 80-column layout instruction.
+
+Use the [logos skill](.agents/skills/logos/SKILL.md) when adding product or
+integration marks. Download them from [SVGL](https://svgl.app/) into
+`apps/web-app/public/logos/` and reference `https://gethalo.dev/logos/`.
 
 ## Commands
 
@@ -32,7 +38,7 @@ Always adhere to ISO 24495-1 Technical Language Standard for responses, except t
 
 Development runs the independent control plane and workspace server Node services with the Halo Electron client. Start all three from the repo root with `pnpm dev`; they use `tmp/workspace` as the workspace and `tmp/workspace/.halo` for shared application data. `.cursor/environment.json` defines a `halo-dev` terminal that starts this stack with ADC and SwiftShader; start it if it is not already running. The control plane and workspace server publish their connection information under that application data directory, Electron serves the Vite renderer and opens its window, and dev builds expose Chrome DevTools Protocol on `127.0.0.1:4445`. Drive and inspect the renderer with `pnpm halo-dev app` (see the halo-app skill). Follow the incremental verification workflow in Commands.
 
-Cursor Cloud agents must record a short demo video when they add or change any UI, attach it to the PR, and show it in the walkthrough. Use screen recording against the running Halo app; do not skip this for “small” UI tweaks. This requirement does not apply to agents outside Cursor Cloud.
+Cursor Cloud agents record a short demo video for large UI changes: new screens, layout, or interaction. Attach it to the PR and show it in the walkthrough. Record against the running Halo app. Copy, color, spacing, and other small tweaks do not need a demo. This requirement does not apply to agents outside Cursor Cloud.
 
 Dev Agentation notes sync through the `agentation-mcp` terminal (`127.0.0.1:4747`). Query pending notes with `GET http://127.0.0.1:4747/pending`. Cursor loads the same server from `.cursor/mcp.json`.
 
@@ -46,4 +52,4 @@ Electron development mode also uses the active ADC principal as its local UI ide
 
 Configure the workspace when starting the workspace server with `HALO_WORKSPACE_ROOT`, or pass a JSON configuration to `pnpm server <config.json>`. Electron has no workspace picker and never starts or stops the server. In development all services use `<repo>/tmp/workspace/.halo`. The workspace server publishes `server.json` for Electron and `rpc.json` for the CLI. Closing Electron leaves active sessions and extensions running. See `apps/workspace-server/README.md`.
 
-`.halo/` holds dev userData and is gitignored. Starting the workspace server seeds `halo-extension` and `maui` under `{workspace}/.agents/skills/`. Halo loads skills only from that directory and root instructions only from the workspace's `AGENTS.md`; Pi session state and Executor data share `{workspace}/.halo/state.db`, owned by `WorkspaceServer` through `DatabaseClient`. Workspace extensions are trusted and can call every available tool through their server-issued token. Agents use the single workspace Maui skill. Build inside the extension with `npm run build`, then use `halo extension reload` to start newly discovered extensions and reload the renderer to refresh the sidebar. Existing extension servers keep their current build until the workspace server restarts.
+`.halo/` holds dev userData and is gitignored. Starting the workspace server seeds `halo-extension` and `maui` under `{workspace}/.agents/skills/`. Halo loads skills only from that directory and root instructions only from the workspace's `AGENTS.md`; Pi session state and Executor data share `{workspace}/.halo/state.db`, owned by `WorkspaceServer` through `DatabaseClient`. Workspace extensions are trusted and can call every available tool through their server-issued token. Agents use the single workspace Maui skill. Build inside the extension with `npm run build`, then use `halo extension reload` to start newly discovered extensions. The sidebar updates automatically. For an existing extension, use `halo extension restart <id>` after rebuilding, then reload or reopen its pane to load the new browser bundle.

@@ -199,7 +199,7 @@ export const e2eTest = baseTest.extend<E2EFixtures, E2EWorkerFixtures>({
         }
         await runHarnessCommand({
           tools,
-          command: `pnpm install --dir ${directoryArgument} --lockfile-dir ${directoryArgument} --ignore-workspace --ignore-scripts --config.manage-package-manager-versions=false`,
+          command: `pnpm install --dir ${directoryArgument} --lockfile-dir . --ignore-workspace --ignore-scripts --config.manage-package-manager-versions=false`,
         });
         await runHarnessCommand({
           tools,
@@ -210,7 +210,6 @@ export const e2eTest = baseTest.extend<E2EFixtures, E2EWorkerFixtures>({
           command: `npm --prefix ${directoryArgument} run build`,
         });
         await server.rpc.extensions.reload();
-        await app.page.reload();
         return { id, directory };
       },
     });
@@ -271,7 +270,7 @@ function extensionBaseFiles(input: {
             "@get-halo/extension-sdk": input.packages.sdk,
             react: "^19.2.8",
             "react-dom": "^19.2.8",
-            maui: "npm:@tanishqkancharla/maui@0.0.19",
+            maui: "npm:@tanishqkancharla/maui@0.0.30",
             errore: "^0.14.1",
           },
           devDependencies: {
@@ -313,7 +312,7 @@ function extensionBaseFiles(input: {
     {
       path: "schema.ts",
       content:
-        'import { defineSchema } from "@get-halo/extension-sdk/schema";\nexport default defineSchema({});\n',
+        'import { defineRelations, defineSchema } from "@get-halo/extension-sdk/schema";\nexport const schema = defineSchema({});\nexport const relations = defineRelations(schema, () => ({}));\n',
     },
   ];
 }

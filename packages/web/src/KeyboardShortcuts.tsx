@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
+import * as errore from "errore";
+import { useQueryClient } from "@tanstack/react-query";
 import { Dialog, Modal, ModalOverlay } from "react-aria-components";
 import {
   Kbd,
-  Menu,
-  MenuItem,
   backgroundColor,
   flex,
   radius,
@@ -12,37 +12,162 @@ import {
   text,
 } from "maui";
 import { style, useStyles } from "purse-styles";
-import { useLocation } from "wouter";
 import { useHost } from "./HostProvider.js";
+import { useWorkspacePanes } from "./panes/WorkspacePanesProvider.js";
 import { shortcuts } from "./shortcuts.js";
+import { matchesHotkey, type HotkeyAction } from "@get-halo/client";
+import { useHotkeys } from "./api/WorkspaceUpdatesProvider.js";
+import { useApi } from "./api/ApiProvider.js";
+import { sessionTitleQueryKey } from "./main/agent/useAgentSession.js";
+
+class HotkeyRunError extends errore.createTaggedError({
+  name: "HotkeyRunError",
+  message: "Could not run the hotkey: $reason",
+}) {}
 
 export function KeyboardShortcuts() {
   const host = useHost();
+  const api = useApi();
+  const queryClient = useQueryClient();
+  const workspace = useWorkspacePanes();
   const [open, setOpen] = useState(false);
-  const [, navigate] = useLocation();
+  const [error, setError] = useState<string>();
+  const hotkeys = useHotkeys();
   const overlay = useStyles(styles.overlay);
   const modal = useStyles(styles.modal);
   const heading = useStyles(styles.heading);
+  const list = useStyles(styles.list);
   const row = useStyles(styles.row);
   const hint = useStyles(styles.hint);
-  const modifier = navigator.platform.startsWith("Mac") ? "⌘" : "Ctrl+";
+  const isMac = navigator.platform.startsWith("Mac");
+  const modifier = isMac ? "⌘" : "Ctrl+";
 
-  const newChat = useCallback(() => {
-    setOpen(false);
-    navigate(`/draft/${crypto.randomUUID()}`);
-  }, [navigate]);
-
-  useEffect(
-    () =>
-      host.onShortcut?.((shortcut) => {
-        if (shortcut === "newChat") {
-          newChat();
+  const runAction = useCallback(
+    async (action: HotkeyAction) => {
+      if (action.type === "shortcutMenu") {
+        setOpen((value) => !value);
+        return;
+      }
+      setOpen(false);
+      setError(undefined);
+      if (action.type === "runAgent") {
+        const created = await api.sessions.create().catch(
+          (cause) =>
+            new HotkeyRunError({
+              reason: cause instanceof Error ? cause.message : String(cause),
+              cause,
+            }),
+        );
+        if (created instanceof Error) {
+          console.warn("Agent hotkey failed:", created);
+          setError(created.message);
+          setOpen(true);
           return;
         }
-        setOpen((value) => !value);
-      }),
-    [newChat, host],
+        queryClient.setQueryData(
+          sessionTitleQueryKey(created.sessionId),
+          action.prompt,
+        );
+        workspace.open({
+          path: `/sessions/${created.sessionId}`,
+          newTab: true,
+        });
+        const prompted = await api.sessions
+          .prompt({
+            sessionId: created.sessionId,
+            text: action.prompt,
+          })
+          .catch(
+            (cause) =>
+              new HotkeyRunError({
+                reason: cause instanceof Error ? cause.message : String(cause),
+                cause,
+              }),
+          );
+        if (prompted instanceof Error) {
+          console.warn("Agent hotkey failed:", prompted);
+          setError(prompted.message);
+          setOpen(true);
+        }
+        return;
+      }
+      if (action.type === "closeTab") {
+        workspace.close(workspace.activePane().activeTabId);
+        return;
+      }
+      if (action.type === "openFile") {
+        workspace.open({
+          path: `/files/${action.path.split("/").map(encodeURIComponent).join("/")}`,
+          newTab: true,
+        });
+        return;
+      }
+      if (action.type === "openExtension") {
+        workspace.open({
+          path: `/extensions/${encodeURIComponent(action.id)}`,
+          newTab: true,
+        });
+        return;
+      }
+      workspace.open({
+        path: `/draft/${crypto.randomUUID()}`,
+        newTab: action.type === "newTab",
+      });
+    },
+    [api, queryClient, workspace],
   );
+
+  const runShortcut = useCallback(
+    (id: string) => {
+      if (id === "newTab" || id === "newChat" || id === "shortcutMenu") {
+        void runAction({ type: id }).catch(console.error);
+        return;
+      }
+      const hotkey = hotkeys.find((item) => `custom:${item.id}` === id);
+      if (hotkey !== undefined)
+        void runAction(hotkey.action).catch(console.error);
+    },
+    [hotkeys, runAction],
+  );
+
+  useEffect(() => host.onShortcut?.(runShortcut), [host, runShortcut]);
+  useEffect(() => {
+    host.setHotkeys?.(hotkeys);
+    return () => host.setHotkeys?.([]);
+  }, [host, hotkeys]);
+  useEffect(() => {
+    // Electron handles keys before editors and extension frames. Browsers use DOM events.
+    if (host.onShortcut !== undefined) return;
+    const listener = (event: KeyboardEvent) => {
+      if (event.isComposing || event.getModifierState("AltGraph")) return;
+      const matches = (accelerator: string) =>
+        matchesHotkey({
+          accelerator,
+          key: event.key,
+          code: event.code,
+          meta: event.metaKey,
+          control: event.ctrlKey,
+          shift: event.shiftKey,
+          alt: event.altKey,
+          isMac: navigator.platform.startsWith("Mac"),
+        });
+      const builtin = Object.entries(shortcuts).find(([, shortcut]) =>
+        matches(shortcut.accelerator),
+      );
+      const custom = hotkeys.find((hotkey) => matches(hotkey.accelerator));
+      if (builtin === undefined && custom === undefined) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.repeat) return;
+      if (custom !== undefined) {
+        void runAction(custom.action).catch(console.error);
+        return;
+      }
+      runShortcut(builtin![0]);
+    };
+    window.addEventListener("keydown", listener, true);
+    return () => window.removeEventListener("keydown", listener, true);
+  }, [host, hotkeys, runAction, runShortcut]);
 
   return (
     <ModalOverlay
@@ -54,29 +179,35 @@ export function KeyboardShortcuts() {
       <Modal className={modal}>
         <Dialog aria-label="Keyboard shortcuts">
           <h2 className={heading}>Keyboard shortcuts</h2>
-          <Menu
-            aria-label="Shortcuts"
-            autoFocus="first"
-            onAction={(key) => {
-              if (key === "newChat") {
-                newChat();
-                return;
-              }
-              setOpen(false);
-            }}
-          >
+          {error === undefined ? undefined : (
+            <p role="alert" className={hint}>
+              {error}
+            </p>
+          )}
+          <ul aria-label="Shortcuts" role="list" className={list}>
             {Object.entries(shortcuts).map(([id, shortcut]) => (
-              <MenuItem id={id} key={id} textValue={shortcut.label}>
-                <span className={row}>
-                  <span>{shortcut.label}</span>
-                  <Kbd>{modifier + shortcut.key}</Kbd>
-                </span>
-              </MenuItem>
+              <li key={id} className={row}>
+                <span>{shortcut.label}</span>
+                <Kbd>{modifier + shortcut.key}</Kbd>
+              </li>
             ))}
-          </Menu>
+            {hotkeys.map((hotkey) => (
+              <li key={hotkey.id} className={row}>
+                <span>{hotkey.label}</span>
+                <Kbd>
+                  {hotkey.accelerator
+                    .replace("CmdOrCtrl+", modifier)
+                    .replace("Shift+", isMac ? "⇧" : "Shift+")
+                    .replace("Alt+", isMac ? "⌥" : "Alt+")}
+                </Kbd>
+              </li>
+            ))}
+          </ul>
           <p className={hint}>
-            ↑ ↓ to navigate · Enter to select · Esc to close
+            {hotkeys.length === 0 ? "No custom hotkeys yet. " : ""}
+            Ask in chat to add, change, or remove a hotkey.
           </p>
+          <p className={hint}>Click outside or press Esc to close</p>
         </Dialog>
       </Modal>
     </ModalOverlay>
@@ -96,19 +227,26 @@ const styles = {
   }),
   modal: style(shadow.strong, radius.lg, spacing.padding({ all: 4 }), {
     width: "min(440px, 100%)",
+    maxHeight: "70dvh",
+    overflowY: "auto",
     backgroundColor: backgroundColor.app,
-    "& [role='dialog'], & [role='menu']": { outline: "none" },
-    "& [role='menuitem']": { transition: "none" },
+    "& [role='dialog']": { outline: "none" },
   }),
   heading: style(
     text({ size: "sm", fontWeight: 600, color: "highContrast" }),
     spacing.padding({ all: 4 }),
     { margin: 0 },
   ),
-  row: style(flex({ align: "center", justify: "between", gap: 8 }), {
-    width: "100%",
-    minHeight: "28px",
-  }),
+  list: style({ margin: 0, padding: 0, listStyle: "none" }),
+  row: style(
+    flex({ alignItems: "center", justifyContent: "between", gap: 8 }),
+    text({ size: "sm", color: "highContrast" }),
+    spacing.padding({ all: 4 }),
+    {
+      width: "100%",
+      minHeight: "28px",
+    },
+  ),
   hint: style(
     text({ size: "xs", color: "lowContrast" }),
     spacing.padding({ all: 4 }),

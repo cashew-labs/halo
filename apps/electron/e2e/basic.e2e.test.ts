@@ -1,7 +1,9 @@
 import fs from "node:fs/promises";
 import nodePath from "node:path";
-import { expect } from "@playwright/test";
+import { expect, type Locator } from "@playwright/test";
+import { m } from "@get-halo/shared/testing";
 import { haloProtocolVersion } from "@get-halo/client";
+import { ORPCError } from "@orpc/client";
 import type { DesktopBridge } from "../src/shared/desktop.js";
 import { e2eTest } from "./e2eTest.js";
 
@@ -10,7 +12,7 @@ e2eTest("opens the server-configured workspace", async ({ harness, app }) => {
     app.page.getByRole("main", { name: "New session" }),
   ).toBeVisible();
   await expect(
-    app.page.getByRole("button", { name: "New session" }),
+    app.page.getByRole("button", { name: "New session", exact: true }),
   ).toBeVisible();
   await expect(app.page.getByText(/^Halo \d+\.\d+\.\d+$/)).toBeVisible();
 
@@ -107,6 +109,70 @@ e2eTest(
     expect(await harness.tools.files.read({ path: "notes.md" })).toMatchObject({
       text: expect.stringContaining("Edited in Halo"),
     });
+  },
+);
+
+e2eTest(
+  "opens Markdown attachment links in new tabs and preserves the source document",
+  async ({ app }) => {
+    const path = "Notes #1/Links.md";
+    const content =
+      "# References\n\n[Data](../data%20%231.csv)\n\n[Picture](/files/picture.svg)\n\n[Data again](#/files/data%20%231.csv)";
+    await app.server.rpc.workspace.writeFile({ path, content });
+    await app.server.rpc.workspace.writeFile({
+      path: "data #1.csv",
+      content: "name,value\nexample,42",
+    });
+    await app.server.rpc.workspace.writeFile({
+      path: "picture.svg",
+      content:
+        '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="60"><rect width="80" height="60" fill="blue"/></svg>',
+    });
+    await app.page
+      .getByRole("button", { name: "Expand Notes #1", exact: true })
+      .click();
+    await app.page.getByRole("link", { name: "Links.md", exact: true }).click();
+    const sourceTab = app.page.getByRole("tab", {
+      name: "Links.md",
+      exact: true,
+    });
+    const editor = app.page
+      .getByRole("main", { name: path, exact: true })
+      .getByLabel(path, { exact: true });
+    const initialTabCount = await app.page.getByRole("tab").count();
+    await editor.getByRole("link", { name: "Data", exact: true }).click();
+    await expect(app.page.getByRole("tab")).toHaveCount(initialTabCount + 1);
+    await expect(
+      app.page.getByRole("tab", {
+        name: "data #1.csv",
+        selected: true,
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(
+      app.page.getByRole("textbox", { name: "data #1.csv", exact: true }),
+    ).toHaveValue("name,value\nexample,42");
+    await sourceTab.click();
+    await editor
+      .getByRole("link", { name: "Picture", exact: true })
+      .click({ button: "middle" });
+    await expect(app.page.getByRole("tab")).toHaveCount(initialTabCount + 2);
+    await expect(
+      app.page.getByRole("img", { name: "picture.svg", exact: true }),
+    ).toBeVisible();
+    await sourceTab.click();
+    await editor.getByRole("link", { name: "Data again", exact: true }).click();
+    await expect(app.page.getByRole("tab")).toHaveCount(initialTabCount + 2);
+    await expect(
+      app.page.getByRole("tab", {
+        name: "data #1.csv",
+        selected: true,
+        exact: true,
+      }),
+    ).toBeVisible();
+    await sourceTab.click();
+    await expect(editor).toContainText("References");
+    expect(await app.server.rpc.workspace.readFile({ path })).toBe(content);
   },
 );
 
@@ -208,12 +274,20 @@ e2eTest(
     expect(markdown).not.toContain("blob:");
     await app.quit();
     await app.open();
-    await app.page
-      .getByRole("button", { name: "Expand Notes #1", exact: true })
-      .click();
-    await app.page
-      .getByRole("link", { name: "Images.md", exact: true })
-      .click();
+
+    const imagesLink = app.page.getByRole("link", {
+      name: "Images.md",
+      exact: true,
+    });
+    const expandNotes = app.page.getByRole("button", {
+      name: "Expand Notes #1",
+      exact: true,
+    });
+    await expect(imagesLink.or(expandNotes)).toBeVisible();
+    if (!(await imagesLink.isVisible())) {
+      await expandNotes.click();
+    }
+    await imagesLink.click();
     await expect(
       app.page
         .getByRole("main", { name: path, exact: true })
@@ -427,7 +501,28 @@ e2eTest(
     });
     await expect(editor.locator(":scope > ul")).toHaveCount(2);
     await expect(editor.locator("ul ul")).toHaveCount(1);
-    await editor.getByText("Second", { exact: true }).click({ delay: 50 });
+    const second = editor.getByText("Second", { exact: true });
+    await second.evaluate(async (paragraph) => {
+      const editorRoot = paragraph.closest<HTMLElement>(
+        '[contenteditable="true"]',
+      );
+      const text = paragraph.firstChild;
+      if (editorRoot === null || text === null) {
+        throw new Error("Pasted list item is not editable text");
+      }
+      editorRoot.focus();
+      const selectionChanged = new Promise<void>((resolve) => {
+        paragraph.ownerDocument.addEventListener(
+          "selectionchange",
+          () => resolve(),
+          { once: true },
+        );
+      });
+      paragraph.ownerDocument
+        .getSelection()!
+        .setBaseAndExtent(text, 0, text, 0);
+      await selectionChanged;
+    });
     await app.page.keyboard.press("Tab");
     await expect(editor.locator("ul ul > li > p")).toHaveText([
       "Second",
@@ -934,7 +1029,7 @@ e2eTest("uses a dismissible sidebar on small screens", async ({ app }) => {
   }
 
   const newSession = page
-    .locator("header")
+    .locator("[data-testid='pane-tab-bar']")
     .getByRole("button", { name: "New session", exact: true });
   await expect(newSession).toHaveText("");
   await newSession.click();
@@ -959,3 +1054,1479 @@ e2eTest("uses a dismissible sidebar on small screens", async ({ app }) => {
   await expect(open).toBeVisible();
   await expect(drawer).toHaveCount(0);
 });
+
+e2eTest(
+  "removes heading formatting with Backspace without deleting or joining text",
+  async ({ app }) => {
+    await app.server.rpc.workspace.writeFile({
+      path: "format.md",
+      content: "# First\n\nParagraph\n\n## Second",
+    });
+    await app.page
+      .getByRole("link", { name: "format.md", exact: true })
+      .click();
+    const editor = app.page
+      .getByRole("main", { name: "format.md" })
+      .getByLabel("format.md", { exact: true });
+
+    for (const name of ["First", "Second"]) {
+      await editor.getByRole("heading", { name }).click({ delay: 50 });
+      await editor.getByRole("heading", { name }).evaluate(async (heading) => {
+        const selectionChanged = new Promise<void>((resolve) => {
+          document.addEventListener("selectionchange", () => resolve(), {
+            once: true,
+          });
+        });
+        window.getSelection()!.collapse(heading.firstChild, 0);
+        await selectionChanged;
+      });
+      await app.page.keyboard.press("Backspace");
+      await expect(editor.locator("p", { hasText: name })).toHaveText(name);
+      await app.page.keyboard.press("ControlOrMeta+z");
+      await expect(editor.getByRole("heading", { name })).toBeVisible();
+      await app.page.keyboard.press("ControlOrMeta+Shift+z");
+      await expect(editor.locator("p", { hasText: name })).toHaveText(name);
+    }
+    await expect(
+      editor.locator(":scope > p").filter({ hasText: /\S/ }),
+    ).toHaveText(["First", "Paragraph", "Second"]);
+    await expect
+      .poll(async () =>
+        (
+          await app.server.rpc.workspace.readFile({ path: "format.md" })
+        ).trimEnd(),
+      )
+      .toBe("First\n\nParagraph\n\nSecond");
+    await app.page.reload();
+    await expect(editor.locator("h1, h2")).toHaveCount(0);
+    await expect(
+      editor.locator(":scope > p").filter({ hasText: /\S/ }),
+    ).toHaveText(["First", "Paragraph", "Second"]);
+  },
+);
+
+e2eTest(
+  "clears selected Markdown formatting and stops carrying it into new text",
+  async ({ app }) => {
+    await app.server.rpc.workspace.writeFile({
+      path: "format.md",
+      content: "# **Title**\n\n**Bold** and *italic*",
+    });
+    await app.page
+      .getByRole("link", { name: "format.md", exact: true })
+      .click();
+    const editor = app.page
+      .getByRole("main", { name: "format.md" })
+      .getByLabel("format.md", { exact: true });
+    await editor.click();
+    await app.page.keyboard.press("ControlOrMeta+a");
+    await app.page.keyboard.press("ControlOrMeta+\\");
+    await expect(editor.locator("h1, strong, em")).toHaveCount(0);
+    await expect(editor.locator("p")).toHaveText(["Title", "Bold and italic"]);
+    await app.page.keyboard.press("ControlOrMeta+z");
+    await expect(editor.locator("h1 strong")).toHaveText("Title");
+    await expect(editor.locator("p strong")).toHaveText("Bold");
+    await expect(editor.locator("em")).toHaveText("italic");
+    await app.page.keyboard.press("ControlOrMeta+Shift+z");
+    await expect(editor.locator("h1, strong, em")).toHaveCount(0);
+    await expect
+      .poll(
+        async () =>
+          await app.server.rpc.workspace.readFile({ path: "format.md" }),
+      )
+      .toBe("Title\n\nBold and italic");
+    await app.page.reload();
+    await expect(editor.locator("p")).toHaveText(["Title", "Bold and italic"]);
+    await expect(editor.locator("h1, strong, em")).toHaveCount(0);
+
+    await app.page
+      .getByRole("button", { name: "New session", exact: true })
+      .click();
+    const message = app.page
+      .getByRole("main", { name: "New session" })
+      .getByLabel("Message", { exact: true });
+    await message.fill("");
+    await app.page.keyboard.press("ControlOrMeta+b");
+    await app.page.keyboard.type("Bold");
+    await expect(message.locator("strong")).toHaveText("Bold");
+    await app.page.keyboard.press("ControlOrMeta+\\");
+    await app.page.keyboard.type(" plain");
+    await expect(message).toHaveText("Bold plain");
+    await expect(message.locator("strong")).toHaveText("Bold");
+    await app.page.keyboard.press("ControlOrMeta+a");
+    await app.page.keyboard.press("ControlOrMeta+\\");
+    await expect(message.locator("strong")).toHaveCount(0);
+    await expect(message).toHaveText("Bold plain");
+
+    await message.fill("");
+    await app.page.keyboard.type("# ");
+    await expect(message.locator("h1")).toHaveCount(1);
+    await app.page.keyboard.press("Backspace");
+    await expect(message.locator("h1")).toHaveCount(0);
+    await app.page.keyboard.type("Plain");
+    await expect(message.locator("h1")).toHaveCount(0);
+    await expect(message).toContainText("Plain");
+  },
+);
+
+e2eTest(
+  "opens Command-clicked Markdown and assistant links in the system browser",
+  async ({ app, harness }) => {
+    const opened = await app.observeExternalUrls();
+    const url = "https://example.com/guide?q=halo%20app#start";
+    await app.server.rpc.workspace.writeFile({
+      path: "Links.md",
+      content: `Read [project docs](${url}).`,
+    });
+    await app.page.getByRole("link", { name: "Links.md", exact: true }).click();
+    const editor = app.page.getByRole("main", { name: "Links.md" });
+    const docs = editor.getByRole("link", { name: "project docs" });
+    await docs.click();
+    await expect(editor.locator(".markdown-source")).toHaveText(
+      `[project docs](${url})`,
+    );
+    expect(await opened.evaluate((urls) => urls)).toEqual([]);
+    await docs.click({ modifiers: ["Meta"] });
+    await expect
+      .poll(async () => await opened.evaluate((urls) => urls))
+      .toEqual([url]);
+    await expect(editor).toBeVisible();
+    await harness.loadSession({
+      title: "Helpful links",
+      messages: [
+        m.user("Show a link"),
+        m.assistant(`Open [**project docs**](${url}).`),
+      ],
+    });
+    await app.page
+      .getByRole("log")
+      .getByRole("link", { name: "project docs" })
+      .click({ modifiers: ["Meta"] });
+    await expect
+      .poll(async () => await opened.evaluate((urls) => urls))
+      .toEqual([url, url]);
+    await expect(
+      app.page.getByRole("main", { name: "Helpful links" }),
+    ).toBeVisible();
+    await opened.dispose();
+  },
+);
+
+e2eTest(
+  "uploads dropped local files, images and nested folders to the workspace",
+  async ({ app, harness }) => {
+    const local = nodePath.join(harness.paths.root, "local-files");
+    const folder = nodePath.join(local, "Research");
+    await fs.mkdir(nodePath.join(folder, "empty"), { recursive: true });
+    await fs.mkdir(nodePath.join(folder, "batch"));
+    await fs.writeFile(nodePath.join(folder, ".DS_Store"), "Finder metadata");
+    await fs.mkdir(nodePath.join(folder, ".git"));
+    await fs.mkdir(nodePath.join(folder, "node_modules"));
+    await fs.writeFile(
+      nodePath.join(local, "notes.txt"),
+      "Notes from this computer",
+    );
+    const image =
+      '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10" fill="blue"/></svg>';
+    await fs.writeFile(nodePath.join(local, "picture.svg"), image);
+    await Promise.all(
+      Array.from({ length: 105 }, async (_, index) => {
+        await fs.writeFile(
+          nodePath.join(folder, "batch", `note-${index}.txt`),
+          `Local note ${index}`,
+        );
+      }),
+    );
+    const header = app.page.getByRole("row").filter({
+      has: app.page.getByRole("button", { name: "New file", exact: true }),
+    });
+    await dropLocalPaths({
+      target: header,
+      paths: [
+        nodePath.join(local, "notes.txt"),
+        nodePath.join(local, "picture.svg"),
+        folder,
+      ],
+    });
+    await expect(app.page.getByRole("status")).toHaveText(
+      "Uploaded 110 items. Skipped 3 hidden or dependency items.",
+      { timeout: 20_000 },
+    );
+    expect(await app.server.rpc.workspace.readFile({ path: "notes.txt" })).toBe(
+      "Notes from this computer",
+    );
+    expect(
+      await app.server.rpc.workspace.readFile({
+        path: "Research/batch/note-104.txt",
+      }),
+    ).toBe("Local note 104");
+    expect(await app.server.rpc.workspace.listPaths()).toContain(
+      "Research/empty/",
+    );
+    await app.page
+      .getByRole("link", { name: "picture.svg", exact: true })
+      .click();
+    await expect(app.page.getByRole("main").getByRole("img")).toBeVisible();
+    expect(
+      await fs.readFile(
+        nodePath.join(harness.paths.workspace, "picture.svg"),
+        "utf8",
+      ),
+    ).toBe(image);
+
+    await app.server.rpc.workspace.createEntry({
+      path: "Archive",
+      kind: "directory",
+    });
+    await dropLocalPaths({
+      target: app.page.locator('[data-file-path="Archive"]'),
+      paths: [nodePath.join(local, "notes.txt")],
+    });
+    await expect(app.page.getByRole("status")).toHaveText("Uploaded 1 item.");
+    expect(
+      await app.server.rpc.workspace.readFile({ path: "Archive/notes.txt" }),
+    ).toBe("Notes from this computer");
+    await fs.writeFile(
+      nodePath.join(local, "notes.txt"),
+      "Do not overwrite the VM file",
+    );
+    await dropLocalPaths({
+      target: app.page.locator('[data-file-path="Archive"]'),
+      paths: [nodePath.join(local, "notes.txt")],
+    });
+    await expect(app.page.getByRole("alert")).toContainText("already exists");
+    expect(
+      await app.server.rpc.workspace.readFile({ path: "Archive/notes.txt" }),
+    ).toBe("Notes from this computer");
+  },
+);
+
+async function dropLocalPaths({
+  target,
+  paths,
+}: {
+  target: Locator;
+  paths: string[];
+}) {
+  await expect(target).toBeVisible();
+  const bounds = await target.boundingBox();
+  if (bounds === null) throw new Error("The file drop target is not visible");
+  const client = await target.page().context().newCDPSession(target.page());
+  const data = { items: [], files: paths, dragOperationsMask: 1 };
+  const position = {
+    x: bounds.x + bounds.width / 2,
+    y: bounds.y + bounds.height / 2,
+  };
+  await client.send("Input.dispatchDragEvent", {
+    type: "dragEnter",
+    ...position,
+    data,
+  });
+  await client.send("Input.dispatchDragEvent", {
+    type: "dragOver",
+    ...position,
+    data,
+  });
+  await client.send("Input.dispatchDragEvent", {
+    type: "drop",
+    ...position,
+    data,
+  });
+  await client.detach();
+}
+
+e2eTest(
+  "opens sidebar items in replaceable tabs and preserves inactive drafts",
+  async ({ app }) => {
+    const page = app.page;
+    await app.server.rpc.workspace.writeFile({
+      path: "One.md",
+      content: "# One",
+    });
+    await app.server.rpc.workspace.writeFile({
+      path: "Two.md",
+      content: "# Two",
+    });
+    await page.getByLabel("Message", { exact: true }).fill("Keep my draft");
+    await page
+      .getByRole("link", { name: "One.md", exact: true })
+      .click({ modifiers: ["Meta"] });
+    await expect(page.getByRole("tab")).toHaveCount(2);
+    await expect(
+      page.getByRole("tab", { name: "One.md", exact: true }),
+    ).toHaveAttribute("aria-selected", "true");
+    await page.getByRole("link", { name: "Two.md", exact: true }).click();
+    await expect(page.getByRole("tab")).toHaveCount(2);
+    await expect(
+      page.getByRole("main", { name: "Two.md", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("tab", { name: "One.md", exact: true }),
+    ).toHaveCount(0);
+    await page.getByRole("tab", { name: "New session", exact: true }).click();
+    await expect(page.getByLabel("Message", { exact: true })).toHaveText(
+      "Keep my draft",
+    );
+    await page
+      .getByRole("tab", { name: "New session", exact: true })
+      .press("ArrowRight");
+    await expect(
+      page.getByRole("tab", { name: "Two.md", exact: true }),
+    ).toBeFocused();
+    await page
+      .getByRole("button", { name: "Close Two.md", exact: true })
+      .click();
+    await expect(page.getByRole("tab")).toHaveCount(1);
+    await expect(page.getByLabel("Message", { exact: true })).toHaveText(
+      "Keep my draft",
+    );
+  },
+);
+
+e2eTest(
+  "restores open tabs, selection, and closed tabs after refresh and restart",
+  async ({ app }) => {
+    const page = app.page;
+    for (const name of ["One", "Two", "Three"]) {
+      await app.server.rpc.workspace.writeFile({
+        path: `${name}.md`,
+        content: `# ${name}`,
+      });
+      await page
+        .getByRole("link", { name: `${name}.md`, exact: true })
+        .click({ modifiers: ["Meta"] });
+    }
+    await page.getByRole("tab", { name: "Two.md", exact: true }).click();
+    await page.reload();
+    await expect(page.getByRole("tab")).toHaveText([
+      "New session",
+      "One.md",
+      "Two.md",
+      "Three.md",
+    ]);
+    await expect(
+      page.getByRole("tab", { name: "Two.md", exact: true }),
+    ).toHaveAttribute("aria-selected", "true");
+    await expect(
+      page.getByRole("main", { name: "Two.md", exact: true }),
+    ).toBeVisible();
+    await page
+      .getByRole("button", { name: "Close Two.md", exact: true })
+      .click();
+    await page.reload();
+    await expect(page.getByRole("tab")).toHaveText([
+      "New session",
+      "One.md",
+      "Three.md",
+    ]);
+    await expect(
+      page.getByRole("tab", { name: "Three.md", exact: true }),
+    ).toHaveAttribute("aria-selected", "true");
+    await app.quit();
+    await app.open();
+    await expect(app.page.getByRole("tab")).toHaveText([
+      "New session",
+      "One.md",
+      "Three.md",
+    ]);
+    await expect(
+      app.page.getByRole("tab", { name: "Three.md", exact: true }),
+    ).toHaveAttribute("aria-selected", "true");
+    // A full navigation loads the URL before the pane manager starts.
+    await app.page.evaluate(() =>
+      window.history.replaceState(undefined, "", "#/files/Two.md"),
+    );
+    await app.page.reload();
+    await expect(app.page.getByRole("tab")).toHaveText([
+      "New session",
+      "One.md",
+      "Three.md",
+      "Two.md",
+    ]);
+    await expect(
+      app.page.getByRole("tab", { name: "Two.md", exact: true }),
+    ).toHaveAttribute("aria-selected", "true");
+    await app.page.evaluate(() =>
+      window.history.replaceState(undefined, "", "#/files/One.md"),
+    );
+    await app.page.reload();
+    await expect(app.page.getByRole("tab")).toHaveCount(4);
+    await expect(
+      app.page.getByRole("tab", { name: "One.md", exact: true }),
+    ).toHaveAttribute("aria-selected", "true");
+  },
+);
+
+e2eTest(
+  "splits panes with tabs and sidebar items, then moves and closes them",
+  async ({ app, harness }) => {
+    await harness.loadSession({ title: "Pane conversation", messages: [] });
+    const page = app.page;
+    await app.server.rpc.workspace.writeFile({
+      path: "Left.md",
+      content: "# Left",
+    });
+    await app.server.rpc.workspace.writeFile({
+      path: "Right.md",
+      content: "# Right",
+    });
+    await page.getByRole("link", { name: "Left.md", exact: true }).click();
+    await page
+      .getByRole("link", { name: "Right.md", exact: true })
+      .click({ modifiers: ["Meta"] });
+    const area = page.locator("[data-testid='pane-workspace']");
+    const box = (await area.boundingBox())!;
+    await page
+      .getByRole("tab", { name: "Right.md", exact: true })
+      .dragTo(area, {
+        targetPosition: { x: box.width - 10, y: box.height / 2 },
+      });
+    await expect(page.getByRole("tablist")).toHaveCount(2);
+    await expect(
+      page.getByRole("main", { name: "Left.md", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("main", { name: "Right.md", exact: true }),
+    ).toBeVisible();
+    const right = (await page
+      .getByRole("main", { name: "Right.md", exact: true })
+      .boundingBox())!;
+    const left = (await page
+      .getByRole("main", { name: "Left.md", exact: true })
+      .boundingBox())!;
+    expect(right.x).toBeGreaterThan(left.x);
+    await page
+      .getByRole("link", { name: "Pane conversation", exact: true })
+      .locator("span")
+      .dragTo(area, {
+        targetPosition: { x: box.width * 0.75, y: box.height - 10 },
+      });
+    await expect(page.getByRole("tablist")).toHaveCount(3);
+    await page
+      .getByRole("main", { name: "Pane conversation", exact: true })
+      .getByLabel("Message", { exact: true })
+      .fill("Unsent draft survives moving");
+    await page
+      .getByRole("tab", { name: "Pane conversation", exact: true })
+      .dragTo(area, {
+        targetPosition: { x: box.width * 0.25, y: box.height / 2 },
+      });
+    await expect(page.getByRole("tablist")).toHaveCount(2);
+    await expect(page.getByLabel("Message", { exact: true })).toHaveText(
+      "Unsent draft survives moving",
+    );
+    const divider = page.getByRole("separator", { name: "Resize panes" });
+    await divider.focus();
+    await divider.press("ArrowRight");
+    await expect(divider).toHaveAttribute("aria-valuenow", "55");
+    await page.getByRole("tab", { name: "Right.md", exact: true }).click();
+    await page.reload();
+    await expect(page.getByRole("tablist")).toHaveCount(2);
+    await expect(page.getByRole("tablist").first().getByRole("tab")).toHaveText(
+      ["Left.md", "Pane conversation"],
+    );
+    await expect(
+      page.getByRole("tab", { name: "Pane conversation", exact: true }),
+    ).toHaveAttribute("aria-selected", "true");
+    await expect(
+      page.getByRole("tab", { name: "Right.md", exact: true }),
+    ).toHaveAttribute("aria-selected", "true");
+    await expect(divider).toHaveAttribute("aria-valuenow", "55");
+    await expect(page.getByLabel("Message", { exact: true })).toBeEditable();
+    // Allow editor mount autofocus and its animation frame to finish.
+    await page.evaluate(
+      async () =>
+        await new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    );
+    await expect(
+      page.locator('.workspacePane[data-active="true"]').getByRole("tab"),
+    ).toHaveText("Right.md");
+    await expect(page).toHaveURL(/#\/files\/Right.md$/);
+    await page
+      .getByLabel("Message", { exact: true })
+      .fill("Unsent draft survives moving");
+    await page
+      .getByRole("button", { name: "Close Right.md", exact: true })
+      .click();
+    await expect(page.getByRole("tablist")).toHaveCount(1);
+    await expect(page.getByLabel("Message", { exact: true })).toHaveText(
+      "Unsent draft survives moving",
+    );
+  },
+);
+
+for (const edge of ["left", "top", "bottom"] as const) {
+  e2eTest(
+    `opens a sidebar file at the ${edge} edge without moving it on disk`,
+    async ({ app }) => {
+      const page = app.page;
+      await app.server.rpc.workspace.writeFile({
+        path: "Keep.md",
+        content: "# Keep",
+      });
+      await app.server.rpc.workspace.writeFile({
+        path: "Drop.md",
+        content: "# Drop",
+      });
+      await page.getByRole("link", { name: "Keep.md", exact: true }).click();
+      const area = page.locator("[data-testid='pane-workspace']");
+      const box = (await area.boundingBox())!;
+      await page.locator('[data-file-path="Drop.md"]').dragTo(area, {
+        targetPosition: {
+          x: edge === "left" ? 10 : box.width / 2,
+          y:
+            edge === "top"
+              ? 45
+              : edge === "bottom"
+                ? box.height - 10
+                : box.height / 2,
+        },
+      });
+      await expect(page.getByRole("tablist")).toHaveCount(2);
+      const keep = (await page
+        .getByRole("main", { name: "Keep.md", exact: true })
+        .boundingBox())!;
+      const drop = (await page
+        .getByRole("main", { name: "Drop.md", exact: true })
+        .boundingBox())!;
+      if (edge === "left") expect(drop.x).toBeLessThan(keep.x);
+      else if (edge === "top") expect(drop.y).toBeLessThan(keep.y);
+      else expect(drop.y).toBeGreaterThan(keep.y);
+      expect(await app.server.rpc.workspace.listPaths()).toEqual([
+        "Drop.md",
+        "Keep.md",
+      ]);
+      await page
+        .getByRole("main", { name: "Keep.md", exact: true })
+        .getByLabel("Keep.md", { exact: true })
+        .click();
+      await page.getByRole("link", { name: "Drop.md", exact: true }).click();
+      await expect(
+        page.getByRole("main", { name: "Drop.md", exact: true }),
+      ).toHaveCount(2);
+    },
+  );
+}
+
+e2eTest(
+  "Tiptap reveals an editable fragment after the pointer settles without saving",
+  async ({ app }) => {
+    const path = "tiptap.md";
+    const original =
+      "## Heading\n\nBefore **bold text** between *italic text* after.\n\nPlain paragraph.";
+    await app.server.rpc.workspace.writeFile({ path, content: original });
+    await app.page.getByRole("link", { name: path, exact: true }).click();
+    const editor = app.page.getByTestId("file-page-content").locator(".tiptap");
+    const bold = editor.locator("strong");
+    const bounds = (await bold.boundingBox())!;
+    await app.page.mouse.move(
+      bounds.x + bounds.width / 2,
+      bounds.y + bounds.height / 2,
+    );
+    await app.page.mouse.down();
+    await app.page.mouse.move(
+      bounds.x + bounds.width / 2 + 1,
+      bounds.y + bounds.height / 2,
+    );
+    await expect(editor.locator(".markdown-source")).toHaveCount(0);
+    await app.page.mouse.up();
+    const source = editor.getByRole("textbox", {
+      name: "Markdown syntax",
+      exact: true,
+    });
+    await expect(source).toHaveText("**bold text**");
+    await expect(source.locator(".markdown-marker")).toHaveText(["**", "**"]);
+    expect(
+      await source.evaluate(() => window.getSelection()!.isCollapsed),
+    ).toBe(true);
+    await app.page.keyboard.type("X");
+    await app.page.keyboard.press("ControlOrMeta+z");
+    await expect(source).toHaveText("**bold text**");
+    await editor.locator("em").click();
+    await expect(source).toHaveText("*italic text*");
+    await editor.getByText("Plain paragraph.", { exact: true }).click();
+    await expect(source).toHaveCount(0);
+    await expect
+      .poll(async () => await app.server.rpc.workspace.readFile({ path }))
+      .toBe(original);
+    await app.page.keyboard.press("ControlOrMeta+z");
+    await expect
+      .poll(async () => await app.server.rpc.workspace.readFile({ path }))
+      .toBe(original);
+  },
+);
+
+e2eTest(
+  "Tiptap edits Markdown delimiters with undo and persists rich formatting",
+  async ({ app }) => {
+    const path = "tiptap.md";
+    await app.server.rpc.workspace.writeFile({
+      path,
+      content: "## Heading\n\nBefore **bold** after.\n\nPlain paragraph.",
+    });
+    await app.page.getByRole("link", { name: path, exact: true }).click();
+    const editor = app.page.getByTestId("file-page-content").locator(".tiptap");
+    await editor.locator("strong").click();
+    const source = editor.getByRole("textbox", {
+      name: "Markdown syntax",
+      exact: true,
+    });
+    await expect(source).toHaveText("**bold**");
+    await source.fill("*bold*");
+    await expect
+      .poll(async () => await app.server.rpc.workspace.readFile({ path }))
+      .toContain("Before *bold* after.");
+    await source.press("ControlOrMeta+z");
+    await expect(source).toHaveText("**bold**");
+    await source.press("ControlOrMeta+Shift+z");
+    await expect(source).toHaveText("*bold*");
+    await source.fill("bold");
+    await editor.getByText("Plain paragraph.", { exact: true }).click();
+    await expect(editor.locator("strong, em")).toHaveCount(0);
+    await editor.getByRole("heading").click();
+    await expect(source).toHaveText("## Heading");
+    await source.fill("Heading");
+    await editor.getByText("Plain paragraph.", { exact: true }).click();
+    await expect(editor.getByRole("heading")).toHaveCount(0);
+    await expect
+      .poll(async () => await app.server.rpc.workspace.readFile({ path }))
+      .toBe("Heading\n\nBefore bold after.\n\nPlain paragraph.");
+    await app.page.reload();
+    await expect(editor).toContainText("Heading");
+    await expect(editor.locator("strong, em, h1, h2")).toHaveCount(0);
+  },
+);
+
+e2eTest(
+  "Tiptap retains rich HTML paste and nested lists with Markdown reveal",
+  async ({ app }) => {
+    const path = "paste.md";
+    await app.server.rpc.workspace.writeFile({ path, content: "Start here" });
+    await app.page.getByRole("link", { name: path, exact: true }).click();
+    const editor = app.page.getByTestId("file-page-content").locator(".tiptap");
+    await editor.fill("");
+    await editor.evaluate((element) => {
+      const data = new DataTransfer();
+      data.setData(
+        "text/html",
+        "<p><strong>Rich bold</strong> and <em>italic</em></p><ul><li>Parent<ul><li>Child</li></ul></li><li>Second</li></ul>",
+      );
+      element.dispatchEvent(
+        new ClipboardEvent("paste", {
+          clipboardData: data,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    await expect(editor.locator("strong")).toHaveText("Rich bold");
+    await expect(editor.locator("ul ul li")).toHaveText("Child");
+    await editor.locator("strong").click();
+    await expect(
+      editor.getByRole("textbox", { name: "Markdown syntax" }),
+    ).toHaveText("**Rich bold**");
+    await editor.getByText("Second", { exact: true }).click();
+    await expect(editor.locator(".markdown-source")).toHaveCount(0);
+    await app.page.keyboard.press("Tab");
+    await expect(editor.locator("ul ul li")).toHaveText(["Child", "Second"]);
+    await expect
+      .poll(async () => await app.server.rpc.workspace.readFile({ path }))
+      .toContain("**Rich bold** and *italic*");
+  },
+);
+
+e2eTest(
+  "Tiptap keeps the caret during source typing and delimiter deletion",
+  async ({ app }) => {
+    const path = "caret.md";
+    await app.server.rpc.workspace.writeFile({
+      path,
+      content: "Before **bold** after.\n\nPlain paragraph.",
+    });
+    await app.page.getByRole("link", { name: path, exact: true }).click();
+    const editor = app.page.getByTestId("file-page-content").locator(".tiptap");
+    await editor.locator("strong").click();
+    const source = editor.getByRole("textbox", { name: "Markdown syntax" });
+    await expect(source).toHaveText("**bold**");
+    await source
+      .locator(".markdown-source-bold")
+      .evaluate((element) =>
+        window.getSelection()!.collapse(element.firstChild, 2),
+      );
+    await app.page.keyboard.type("XYZ");
+    await expect(source).toHaveText("**boXYZld**");
+    await source
+      .locator(".markdown-marker")
+      .first()
+      .evaluate((element) =>
+        window.getSelection()!.collapse(element.firstChild, 1),
+      );
+    await app.page.keyboard.press("Backspace");
+    await expect(source).toHaveText("*boXYZld**");
+    await app.page.keyboard.press("ControlOrMeta+z");
+    await expect(source).toHaveText("**bold**");
+    await source.press("ControlOrMeta+a");
+    await app.page.keyboard.press("ControlOrMeta+\\");
+    await expect(editor.locator("strong, em, .markdown-source")).toHaveCount(0);
+    await expect
+      .poll(async () => await app.server.rpc.workspace.readFile({ path }))
+      .toBe("Before bold after.\n\nPlain paragraph.");
+  },
+);
+
+e2eTest(
+  "Tiptap keeps intentional drag selections and reveals nested marks, code, and links",
+  async ({ app }) => {
+    const path = "elements.md";
+    const original =
+      "Before **bold and *italic*** between `code` and [a link](https://example.com).\n\nPlain paragraph.";
+    await app.server.rpc.workspace.writeFile({ path, content: original });
+    await app.page.getByRole("link", { name: path, exact: true }).click();
+    const editor = app.page.getByTestId("file-page-content").locator(".tiptap");
+    const bold = (await editor.locator("strong").boundingBox())!;
+    await app.page.mouse.move(bold.x + 2, bold.y + bold.height / 2);
+    await app.page.mouse.down();
+    await app.page.mouse.move(
+      bold.x + bold.width - 2,
+      bold.y + bold.height / 2,
+      { steps: 12 },
+    );
+    await app.page.mouse.up();
+    await expect(editor.locator(".markdown-source")).toHaveCount(0);
+    expect(
+      await editor.evaluate(() => window.getSelection()!.toString()),
+    ).toContain("bold and italic");
+    await editor.locator("em").click();
+    const source = editor.getByRole("textbox", { name: "Markdown syntax" });
+    await expect(source).toHaveText("**bold and *italic***");
+    await editor.locator("code").click();
+    await expect(source).toHaveText("`code`");
+    await editor.getByRole("link").click();
+    await expect(source).toHaveText("[a link](https://example.com)");
+    await editor.getByText("Plain paragraph.", { exact: true }).click();
+    await expect(source).toHaveCount(0);
+    expect(await app.server.rpc.workspace.readFile({ path })).toBe(original);
+  },
+);
+
+e2eTest(
+  "Tiptap preserves multiline and rich paste inside a revealed fragment",
+  async ({ app }) => {
+    const path = "source-paste.md";
+    await app.server.rpc.workspace.writeFile({
+      path,
+      content: "Before **bold** after.",
+    });
+    await app.page.getByRole("link", { name: path, exact: true }).click();
+    const editor = app.page.getByTestId("file-page-content").locator(".tiptap");
+    await editor.locator("strong").click();
+    const source = editor.getByRole("textbox", { name: "Markdown syntax" });
+    await expect(source).toHaveText("**bold**");
+    await source
+      .locator(".markdown-source-bold")
+      .evaluate((element) =>
+        window.getSelection()!.collapse(element.firstChild, 2),
+      );
+    await source.evaluate((element) => {
+      const data = new DataTransfer();
+      data.setData("text/plain", "ONE\n\nTWO");
+      element.dispatchEvent(
+        new ClipboardEvent("paste", {
+          clipboardData: data,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    await expect(editor).toContainText("ONE");
+    await expect(editor).toContainText("TWO");
+    await expect
+      .poll(async () => await app.server.rpc.workspace.readFile({ path }))
+      .toContain("TWO");
+    await editor.locator("strong").first().click();
+    await expect(source).toHaveCount(1);
+    await source.evaluate((element) => {
+      const data = new DataTransfer();
+      data.setData("text/html", "<em>Rich italic</em>");
+      element.dispatchEvent(
+        new ClipboardEvent("paste", {
+          clipboardData: data,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    await expect(editor.locator("em")).toHaveText("Rich italic");
+    await expect
+      .poll(async () => await app.server.rpc.workspace.readFile({ path }))
+      .toContain("*Rich italic*");
+  },
+);
+
+e2eTest(
+  "Tiptap hands keyboard movement and Enter back to the rich editor",
+  async ({ app }) => {
+    const path = "keyboard.md";
+    await app.server.rpc.workspace.writeFile({
+      path,
+      content: "Before **bold** after.\n\nPlain paragraph.",
+    });
+    await app.page.getByRole("link", { name: path, exact: true }).click();
+    const editor = app.page.getByTestId("file-page-content").locator(".tiptap");
+    await editor.locator("strong").click();
+    const source = editor.getByRole("textbox", { name: "Markdown syntax" });
+    await expect(source).toHaveText("**bold**");
+    await source
+      .locator(".markdown-marker")
+      .last()
+      .evaluate((element) =>
+        window.getSelection()!.collapse(element.firstChild, 2),
+      );
+    await app.page.keyboard.press("ArrowRight");
+    await expect(source).toHaveCount(0);
+    await app.page.keyboard.type("NEXT");
+    await expect(editor).toHaveText("Before bold NEXTafter.Plain paragraph.");
+    await editor.locator("strong").click();
+    await expect(source).toHaveText("**bold**");
+    await source
+      .locator(".markdown-source-bold")
+      .evaluate((element) =>
+        window.getSelection()!.collapse(element.firstChild, 2),
+      );
+    await app.page.keyboard.press("Enter");
+    await expect(source).toHaveCount(0);
+    await expect(editor.locator(":scope > p")).toHaveText([
+      "Before bo",
+      "ld NEXTafter.",
+      "Plain paragraph.",
+    ]);
+    await app.page.keyboard.press("ArrowDown");
+    await expect(source).toHaveCount(0);
+    await expect
+      .poll(async () => await app.server.rpc.workspace.readFile({ path }))
+      .toContain("Before **bo**\n\n**ld** NEXTafter.");
+  },
+);
+
+e2eTest(
+  "Tiptap reveals one-character formatting without revealing adjacent text",
+  async ({ app }) => {
+    const path = "short.md";
+    await app.server.rpc.workspace.writeFile({
+      path,
+      content: "Before **A** and *B* after.",
+    });
+    await app.page.getByRole("link", { name: path, exact: true }).click();
+    const editor = app.page.getByTestId("file-page-content").locator(".tiptap");
+    const source = editor.getByRole("textbox", { name: "Markdown syntax" });
+    await editor.locator("strong").click();
+    await expect(source).toHaveText("**A**");
+    await editor.locator("em").click();
+    await expect(source).toHaveText("*B*");
+    await source.press("Escape");
+    await expect(source).toHaveCount(0);
+    await app.page.keyboard.press("ControlOrMeta+ArrowRight");
+    await app.page.keyboard.type(" Plain.");
+    await expect(source).toHaveCount(0);
+    await expect
+      .poll(async () => await app.server.rpc.workspace.readFile({ path }))
+      .toBe("Before **A** and *B* after. Plain.");
+  },
+);
+
+e2eTest(
+  "Tiptap leaves IME candidate keys inside the source fragment until composition commits",
+  async ({ app }) => {
+    const path = "composition.md";
+    await app.server.rpc.workspace.writeFile({
+      path,
+      content: "Before **bold** after.",
+    });
+    await app.page.getByRole("link", { name: path, exact: true }).click();
+    const editor = app.page.getByTestId("file-page-content").locator(".tiptap");
+    await editor.locator("strong").click();
+    const source = editor.getByRole("textbox", { name: "Markdown syntax" });
+    await expect(source).toHaveText("**bold**");
+    const retained = await source.evaluate((element) => {
+      element.dispatchEvent(
+        new CompositionEvent("compositionstart", { bubbles: true }),
+      );
+      element.textContent = "**日本語**";
+      element.dispatchEvent(
+        new InputEvent("input", {
+          bubbles: true,
+          inputType: "insertCompositionText",
+          data: "日本語",
+          isComposing: true,
+        }),
+      );
+      const keys = ["ArrowDown", "ArrowUp", "Enter"].map((key) => {
+        const event = new KeyboardEvent("keydown", {
+          key,
+          bubbles: true,
+          cancelable: true,
+          isComposing: true,
+        });
+        element.dispatchEvent(event);
+        return {
+          connected: element.isConnected,
+          prevented: event.defaultPrevented,
+        };
+      });
+      element.dispatchEvent(
+        new CompositionEvent("compositionend", {
+          bubbles: true,
+          data: "日本語",
+        }),
+      );
+      return keys;
+    });
+    expect(retained).toEqual(
+      Array.from({ length: 3 }, () => ({ connected: true, prevented: false })),
+    );
+    await expect(source).toHaveText("**日本語**");
+    await expect
+      .poll(async () => await app.server.rpc.workspace.readFile({ path }))
+      .toBe("Before **日本語** after.");
+    await source.press("Escape");
+    await expect(editor.locator("strong")).toHaveText("日本語");
+  },
+);
+
+e2eTest(
+  "Tiptap preserves block-like punctuation inside inline source edits",
+  async ({ app }) => {
+    const path = "inline-prefix.md";
+    await app.server.rpc.workspace.writeFile({
+      path,
+      content: "Before **bold** after.\n\nPlain paragraph.",
+    });
+    await app.page.getByRole("link", { name: path, exact: true }).click();
+    const editor = app.page.getByTestId("file-page-content").locator(".tiptap");
+    const source = editor.getByRole("textbox", { name: "Markdown syntax" });
+    await editor.locator("strong").click();
+    await expect(source).toHaveText("**bold**");
+    await source.fill("# **title**");
+    await editor.getByText("Plain paragraph.", { exact: true }).click();
+    await expect(source).toHaveCount(0);
+    await expect(editor.locator("p").first()).toHaveText(
+      "Before # title after.",
+    );
+    await expect(editor.locator("strong")).toHaveText("title");
+    await expect
+      .poll(async () => await app.server.rpc.workspace.readFile({ path }))
+      .toContain("Before # **title** after.");
+    await app.page.reload();
+    await expect(editor.locator("p").first()).toHaveText(
+      "Before # title after.",
+    );
+  },
+);
+
+e2eTest(
+  "Tiptap keeps the caret beside escaped characters in both source and rich text",
+  async ({ app }) => {
+    const path = "entities.md";
+    await app.server.rpc.workspace.writeFile({
+      path,
+      content: "Before **a & b** after.",
+    });
+    await app.page.getByRole("link", { name: path, exact: true }).click();
+    const editor = app.page.getByTestId("file-page-content").locator(".tiptap");
+    await editor.locator("strong").evaluate((element) => {
+      element.closest<HTMLElement>(".tiptap")!.focus();
+      window.getSelection()!.collapse(element.firstChild, 4);
+    });
+    const source = editor.getByRole("textbox", { name: "Markdown syntax" });
+    await expect(source).toHaveText("**a &amp; b**");
+    expect(
+      await source.evaluate((element) => {
+        const selection = window.getSelection()!;
+        const range = document.createRange();
+        range.selectNodeContents(element);
+        range.setEnd(selection.anchorNode!, selection.anchorOffset);
+        return range.toString();
+      }),
+    ).toBe("**a &amp; ");
+    await app.page.keyboard.type("X");
+    await expect(source).toHaveText("**a &amp; Xb**");
+    await source.press("Escape");
+    await app.page.keyboard.type("Y");
+    await expect
+      .poll(async () => await app.server.rpc.workspace.readFile({ path }))
+      .toBe("Before **a &amp; XYb** after.");
+    await app.page.reload();
+    await expect(editor.locator("strong")).toHaveText("a & XYb");
+  },
+);
+
+e2eTest(
+  "Tiptap preserves literal backticks and code padding when editing and reopening",
+  async ({ app }) => {
+    const path = "backticks.md";
+    await app.server.rpc.workspace.writeFile({
+      path,
+      content: "Before `` `code` `` after.\n\nPlain paragraph.",
+    });
+    await app.page.getByRole("link", { name: path, exact: true }).click();
+    const editor = app.page.getByTestId("file-page-content").locator(".tiptap");
+    await expect(editor.locator("code")).toHaveText("`code`");
+    await editor.locator("code").evaluate((element) => {
+      element.closest<HTMLElement>(".tiptap")!.focus();
+      window.getSelection()!.collapse(element.firstChild, 3);
+    });
+    const source = editor.getByRole("textbox", { name: "Markdown syntax" });
+    await expect(source).toHaveText("`` `code` ``");
+    await app.page.keyboard.type("X");
+    await expect(source).toHaveText("`` `coXde` ``");
+    await source.press("Escape");
+    await app.page.keyboard.type("Y");
+    await expect
+      .poll(async () => await app.server.rpc.workspace.readFile({ path }))
+      .toContain("Before `` `coXYde` `` after.");
+    await app.page.reload();
+    await expect(editor.locator("code")).toHaveText("`coXYde`");
+  },
+);
+
+e2eTest(
+  "Tiptap leaves original line endings unchanged when only revealing formatting",
+  async ({ app }) => {
+    const path = "line-endings.md";
+    const original =
+      "## Heading\r\n\r\nBefore **bold** and _italic_ after.\r\n\r\nPlain paragraph.\r\n";
+    await app.server.rpc.workspace.writeFile({ path, content: original });
+    await app.page.getByRole("link", { name: path, exact: true }).click();
+    const editor = app.page.getByTestId("file-page-content").locator(".tiptap");
+    const source = editor.getByRole("textbox", { name: "Markdown syntax" });
+    await editor.locator("em").click();
+    await expect(source).toHaveText("*italic*");
+    await editor.getByText("Plain paragraph.", { exact: true }).click();
+    await expect(source).toHaveCount(0);
+    // Wait through the autosave debounce to detect reveal/blur being treated as edits.
+    await app.page.waitForTimeout(750);
+    expect(await app.server.rpc.workspace.readFile({ path })).toBe(original);
+  },
+);
+
+e2eTest(
+  "opens fresh chat tabs with the keyboard and preserves drafts",
+  async ({ app }) => {
+    const page = app.page;
+    await page
+      .getByRole("tabpanel")
+      .getByLabel("Message", { exact: true })
+      .fill("Keep my draft");
+    await app.pressShortcut({ key: "T" });
+    await expect(page.getByRole("tab")).toHaveCount(2);
+    await expect(
+      page.getByRole("tabpanel").getByLabel("Message", { exact: true }),
+    ).toHaveText("");
+    await app.pressShortcut({ key: "T" });
+    await expect(page.getByRole("tab")).toHaveCount(3);
+    await page.getByRole("tab").first().click();
+    await expect(
+      page.getByRole("tabpanel").getByLabel("Message", { exact: true }),
+    ).toHaveText("Keep my draft");
+  },
+);
+
+e2eTest(
+  "creates hotkeys through chat and applies updates without restarting",
+  async ({ app, llm }) => {
+    const page = app.page;
+    await page
+      .getByRole("tabpanel")
+      .getByLabel("Message", { exact: true })
+      .fill("Make Cmd+Shift+K open a new chat tab");
+    await page.getByRole("button", { name: "Send", exact: true }).click();
+    await llm.respond(
+      m.tool.start("exec", {
+        id: "create-hotkey",
+        arguments: {
+          js: 'return await tools.hotkeys.save({ label: "Quick chat", accelerator: "CmdOrCtrl+Shift+K", action: { type: "newTab" } });',
+        },
+      }),
+    );
+    await llm.respond(m.assistant("Your Quick chat hotkey is ready."));
+    await expect(
+      page.getByText("Your Quick chat hotkey is ready.", { exact: true }),
+    ).toBeVisible();
+    await app.pressShortcut({ key: "P" });
+    await expect(
+      page
+        .getByRole("list", { name: "Shortcuts" })
+        .getByText("Quick chat", { exact: true }),
+    ).toBeVisible();
+    const popup = page.getByRole("dialog", { name: "Keyboard shortcuts" });
+    const tabCount = await page
+      .getByRole("tab", { includeHidden: true })
+      .count();
+    await popup.getByText("New chat tab", { exact: true }).click();
+    await popup.getByText("Quick chat", { exact: true }).click();
+    await popup
+      .getByRole("listitem")
+      .filter({ hasText: "Quick chat" })
+      .locator("kbd")
+      .click();
+    await popup.getByRole("heading", { name: "Keyboard shortcuts" }).click();
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("Enter");
+    await expect(popup).toBeVisible();
+    await expect(page.getByRole("tab", { includeHidden: true })).toHaveCount(
+      tabCount,
+    );
+    await page.mouse.click(10, 10);
+    await expect(popup).toHaveCount(0);
+    await app.pressShortcut({ key: "P" });
+    await expect(popup).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(popup).toHaveCount(0);
+    await app.pressShortcut({ key: "K", shift: true });
+    await expect(page.getByRole("tab")).toHaveCount(2);
+    await page
+      .getByRole("tabpanel")
+      .getByLabel("Message", { exact: true })
+      .fill("Keep this draft too");
+    await app.pressShortcut({ key: "K", shift: true });
+    await expect(page.getByRole("tab")).toHaveCount(3);
+    await expect(
+      page.getByRole("tabpanel").getByLabel("Message", { exact: true }),
+    ).toHaveText("");
+    const [hotkey] = await app.server.rpc.hotkeys.list();
+    await app.server.rpc.workspace.writeFile({
+      path: "Hotkey notes.md",
+      content: "# Opened by hotkey",
+    });
+    await app.server.rpc.hotkeys.save({
+      ...hotkey!,
+      label: "Open notes",
+      accelerator: "CmdOrCtrl+Shift+L",
+      action: { type: "openFile", path: "Hotkey notes.md" },
+    });
+    await app.pressShortcut({ key: "P" });
+    await expect(
+      page
+        .getByRole("list", { name: "Shortcuts" })
+        .getByText("Open notes", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page
+        .getByRole("list", { name: "Shortcuts" })
+        .getByText("Quick chat", { exact: true }),
+    ).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    await app.pressShortcut({ key: "K", shift: true });
+    await expect(page.getByRole("tab")).toHaveCount(3);
+    await app.pressShortcut({ key: "L", shift: true });
+    await expect(
+      page.getByRole("tab", { name: "Hotkey notes.md", exact: true }),
+    ).toHaveAttribute("aria-selected", "true");
+    await app.quit();
+    await app.open();
+    await expect(app.page.getByRole("tabpanel")).toBeVisible();
+    await app.pressShortcut({ key: "P" });
+    await expect(
+      app.page
+        .getByRole("list", { name: "Shortcuts" })
+        .getByText("Open notes", { exact: true }),
+    ).toBeVisible();
+    await app.page.keyboard.press("Escape");
+    await app.pressShortcut({ key: "L", shift: true });
+    await expect(
+      app.page.getByRole("tab", { name: "Hotkey notes.md", exact: true }),
+    ).toHaveAttribute("aria-selected", "true");
+    await app.server.rpc.hotkeys.remove({ id: hotkey!.id });
+    await app.pressShortcut({ key: "P" });
+    await expect(
+      app.page
+        .getByRole("list", { name: "Shortcuts" })
+        .getByText("Open notes", { exact: true }),
+    ).toHaveCount(0);
+    await app.server.rpc.hotkeys.save({
+      label: "My shortcuts",
+      accelerator: "CmdOrCtrl+Shift+Alt+7",
+      action: { type: "shortcutMenu" },
+    });
+    await expect(
+      app.page
+        .getByRole("list", { name: "Shortcuts" })
+        .getByText("My shortcuts", { exact: true }),
+    ).toBeVisible();
+    await app.page.keyboard.press("Escape");
+    await app.pressShortcut({ key: "7", shift: true, alt: true });
+    await expect(
+      app.page.getByRole("dialog", { name: "Keyboard shortcuts" }),
+    ).toBeVisible();
+  },
+);
+
+e2eTest(
+  "runs a saved agent hotkey in a fresh chat and generates a Markdown file",
+  async ({ app, llm }) => {
+    const instruction =
+      "Create daily.md with an original summary of the workspace notes.";
+    await app.page
+      .getByRole("tabpanel")
+      .getByLabel("Message", { exact: true })
+      .fill("Make Cmd+Shift+J create daily.md with an agent-generated summary");
+    await app.page.getByRole("button", { name: "Send", exact: true }).click();
+    await llm.respond(
+      m.tool.start("exec", {
+        id: "save-agent-hotkey",
+        arguments: {
+          js: `return await tools.hotkeys.save(${JSON.stringify({
+            label: "Daily summary",
+            accelerator: "CmdOrCtrl+Shift+J",
+            action: { type: "runAgent", prompt: instruction },
+          })});`,
+        },
+      }),
+    );
+    await llm.respond(m.assistant("Your daily summary shortcut is ready."));
+    await expect(
+      app.page.getByText("Your daily summary shortcut is ready.", {
+        exact: true,
+      }),
+    ).toBeVisible();
+    expect(await app.server.rpc.sessions.list()).toHaveLength(1);
+    const [hotkey] = await app.server.rpc.hotkeys.list();
+    expect(hotkey?.action).toEqual({ type: "runAgent", prompt: instruction });
+    await app.quit();
+    await app.open();
+    await expect(app.page.getByRole("tabpanel")).toBeVisible();
+    await app.pressShortcut({ key: "T" });
+    await app.page
+      .getByRole("tabpanel")
+      .getByLabel("Message", { exact: true })
+      .fill("Keep my draft");
+    const count = await app.page.getByRole("tab").count();
+    // Opening the list synchronizes with the restored bindings, without invoking them.
+    await app.pressShortcut({ key: "P" });
+    await expect(
+      app.page
+        .getByRole("list", { name: "Shortcuts" })
+        .getByText("Daily summary", { exact: true }),
+    ).toBeVisible();
+    await app.page.keyboard.press("Escape");
+    await app.pressShortcut({ key: "J", shift: true });
+    await expect(app.page.getByRole("tab")).toHaveCount(count + 1);
+    await expect(
+      app.page.getByRole("tabpanel").getByText(instruction, { exact: true }),
+    ).toBeVisible();
+    await llm.respond((request) => {
+      expect(
+        request.messages.filter((message) => message.role === "user"),
+      ).toEqual([
+        expect.objectContaining({
+          content: expect.stringContaining(instruction),
+        }),
+      ]);
+      return m.tool.start("exec", {
+        id: "write-daily-summary",
+        arguments: {
+          js: 'return await tools.files.write({ path: "daily.md", content: "# Daily summary\\n\\nThe agent generated this summary from the workspace notes.\\n" });',
+        },
+      });
+    });
+    await llm.respond(m.assistant("Created daily.md with your summary."));
+    await expect(
+      app.page.getByText("Created daily.md with your summary.", {
+        exact: true,
+      }),
+    ).toBeVisible();
+    expect(await app.server.rpc.workspace.readFile({ path: "daily.md" })).toBe(
+      "# Daily summary\n\nThe agent generated this summary from the workspace notes.\n",
+    );
+    const firstRun = app.page.url();
+    const updated = "Create weekly.md with an original weekly summary.";
+    await app.page
+      .getByRole("tabpanel")
+      .getByLabel("Message", { exact: true })
+      .fill("Change the shortcut to make a weekly summary instead");
+    await app.page.getByRole("button", { name: "Send", exact: true }).click();
+    await llm.respond(
+      m.tool.start("exec", {
+        id: "update-agent-hotkey",
+        arguments: {
+          js: `return await tools.hotkeys.save(${JSON.stringify({
+            ...hotkey!,
+            label: "Weekly summary",
+            action: { type: "runAgent", prompt: updated },
+          })});`,
+        },
+      }),
+    );
+    await llm.respond(m.assistant("The shortcut now creates weekly.md."));
+    await expect(
+      app.page.getByText("The shortcut now creates weekly.md.", {
+        exact: true,
+      }),
+    ).toBeVisible();
+    await app.pressShortcut({ key: "P" });
+    await expect(
+      app.page
+        .getByRole("list", { name: "Shortcuts" })
+        .getByText("Weekly summary", { exact: true }),
+    ).toBeVisible();
+    await app.page.keyboard.press("Escape");
+    await app.pressShortcut({ key: "J", shift: true });
+    await expect(app.page.getByRole("tab")).toHaveCount(count + 2);
+    await expect(
+      app.page.getByRole("tabpanel").getByText(updated, { exact: true }),
+    ).toBeVisible();
+    expect(app.page.url()).not.toBe(firstRun);
+    await app.page
+      .getByRole("tab", { name: "New session", exact: true })
+      .click();
+    await expect(
+      app.page.getByRole("tabpanel").getByLabel("Message", { exact: true }),
+    ).toHaveText("Keep my draft");
+    await llm.respond(
+      m.tool.start("exec", {
+        id: "write-weekly-summary",
+        arguments: {
+          js: 'return await tools.files.write({ path: "weekly.md", content: "# Weekly summary\\n\\nA newly generated summary.\\n" });',
+        },
+      }),
+    );
+    await llm.respond(m.assistant("Created weekly.md."));
+    await app.page.getByRole("tab", { name: updated, exact: true }).click();
+    await expect(
+      app.page.getByText("Created weekly.md.", { exact: true }),
+    ).toBeVisible();
+    expect(
+      await app.server.rpc.workspace.readFile({ path: "weekly.md" }),
+    ).toContain("# Weekly summary");
+    await app.page
+      .getByRole("tab", { name: "New session", exact: true })
+      .click();
+    await expect(
+      app.page.getByRole("tabpanel").getByLabel("Message", { exact: true }),
+    ).toHaveText("Keep my draft");
+  },
+);
+
+e2eTest(
+  "reports agent hotkey failures and lets the user retry",
+  async ({ app, llm }) => {
+    await expect(
+      app.page.getByRole("main", { name: "New session" }),
+    ).toBeVisible();
+    await app.server.rpc.hotkeys.save({
+      label: "Generate notes",
+      accelerator: "CmdOrCtrl+Shift+J",
+      action: { type: "runAgent", prompt: "Draft a note." },
+    });
+    await app.pressShortcut({ key: "P" });
+    await expect(
+      app.page
+        .getByRole("list", { name: "Shortcuts" })
+        .getByText("Generate notes", { exact: true }),
+    ).toBeVisible();
+    await app.page.keyboard.press("Escape");
+    await app.page.route("**/rpc/sessions/create", async (route) => {
+      await route.fulfill({
+        status: 400,
+        contentType: "application/json",
+        body: JSON.stringify({
+          json: new ORPCError("BAD_REQUEST", {
+            message: "Session creation failed",
+          }).toJSON(),
+        }),
+      });
+    });
+    await app.pressShortcut({ key: "J", shift: true });
+    await expect(app.page.getByRole("alert")).toContainText(
+      "Could not run the hotkey",
+    );
+    await expect(
+      app.page.getByRole("tab", { includeHidden: true }),
+    ).toHaveCount(1);
+    await app.page.keyboard.press("Escape");
+    await app.page.unroute("**/rpc/sessions/create");
+    await app.page.route("**/rpc/sessions/prompt", async (route) => {
+      await route.fulfill({
+        status: 400,
+        contentType: "application/json",
+        body: JSON.stringify({
+          json: new ORPCError("BAD_REQUEST", {
+            message: "Prompt failed",
+          }).toJSON(),
+        }),
+      });
+    });
+    await app.pressShortcut({ key: "J", shift: true });
+    await expect(app.page.getByRole("alert")).toContainText(
+      "Could not run the hotkey",
+    );
+    await app.page.keyboard.press("Escape");
+    await app.page.unroute("**/rpc/sessions/prompt");
+    await app.pressShortcut({ key: "J", shift: true });
+    await llm.respond(m.assistant("Your generated note."));
+    await expect(
+      app.page.getByText("Your generated note.", { exact: true }),
+    ).toBeVisible();
+    await expect(app.page.getByRole("alert")).toHaveCount(0);
+  },
+);
+
+e2eTest(
+  "runs and stops an agent hotkey with two visible chat panes",
+  async ({ app, harness, llm }) => {
+    await harness.loadSession({
+      title: "Left conversation",
+      messages: [m.user("Left question"), m.assistant("Left answer")],
+    });
+    await harness.loadSession({
+      title: "Right conversation",
+      messages: [m.user("Right question"), m.assistant("Right answer")],
+    });
+    const page = app.page;
+    await page
+      .getByRole("link", { name: "Left conversation", exact: true })
+      .click();
+    const area = page.locator(".paneWorkspace");
+    const box = (await area.boundingBox())!;
+    await page
+      .getByRole("link", { name: "Right conversation", exact: true })
+      .locator("span")
+      .dragTo(area, {
+        targetPosition: { x: box.width - 10, y: box.height / 2 },
+      });
+    await expect(page.getByRole("tablist")).toHaveCount(2);
+    await expect(page.getByText("Left answer", { exact: true })).toBeVisible();
+    await expect(page.getByText("Right answer", { exact: true })).toBeVisible();
+    await app.server.rpc.hotkeys.save({
+      label: "Generate report",
+      accelerator: "CmdOrCtrl+Shift+J",
+      action: { type: "runAgent", prompt: "Generate a long report." },
+    });
+    await app.pressShortcut({ key: "P" });
+    await expect(
+      page
+        .getByRole("list", { name: "Shortcuts" })
+        .getByText("Generate report", { exact: true }),
+    ).toBeVisible();
+    await page.keyboard.press("Escape");
+    await app.pressShortcut({ key: "J", shift: true });
+    await page.getByRole("button", { name: "Stop", exact: true }).click();
+    await expect(
+      page.getByRole("button", { name: "Stop", exact: true }),
+    ).toHaveCount(0);
+    const left = page.getByRole("main", {
+      name: "Left conversation",
+      exact: true,
+    });
+    await left
+      .getByLabel("Message", { exact: true })
+      .fill("Continue in this pane");
+    await left.getByRole("button", { name: "Send", exact: true }).click();
+    await llm.respond(m.assistant("Both panes remain responsive."));
+    await expect(
+      left.getByText("Both panes remain responsive.", { exact: true }),
+    ).toBeVisible();
+  },
+);

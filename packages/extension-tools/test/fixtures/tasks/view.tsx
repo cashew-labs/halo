@@ -5,7 +5,6 @@ import {
   Flex,
   H1,
   MauiProvider,
-  Padding,
   Table,
   TableBody,
   TableCell,
@@ -65,68 +64,62 @@ export default function Tasks({
   }
   return (
     <MauiProvider>
-      <Padding xy={8}>
-        <Flex column gap={4}>
-          <H1>{title}</H1>
-          <Flex row gap={2}>
-            <TextField
-              aria-label="New task"
-              value={label}
-              onChange={setLabel}
-            />
-            <Button
-              disabled={label.trim().length === 0}
-              onClick={async () => {
-                await save({
-                  id: crypto.randomUUID(),
-                  projectId: project.id,
-                  label: label.trim(),
-                  done: false,
-                });
-                setLabel("");
-              }}
-            >
-              Add task
-            </Button>
-          </Flex>
-          <Table aria-label="Tasks">
-            <TableHeader>
-              <TableHead isRowHeader>Task</TableHead>
-              <TableHead>Project</TableHead>
-              <TableHead>Status</TableHead>
-            </TableHeader>
-            <TableBody
-              renderEmptyState={() => (
-                <Text color="lowContrast">No tasks yet.</Text>
-              )}
-            >
-              {tasks.map((task) => (
-                <TableRow key={task.id} id={task.id}>
-                  <TableCell>
-                    <Checkbox
-                      label={task.label}
-                      checked={task.done}
-                      setChecked={async (done) => {
-                        await save({
-                          id: task.id,
-                          projectId: task.projectId,
-                          label: task.label,
-                          done,
-                        });
-                      }}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    {task.project === null ? "No project" : task.project.name}
-                  </TableCell>
-                  <TableCell>{task.done ? "Done" : "Open"}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-          {error === undefined ? undefined : <Text role="alert">{error}</Text>}
+      <Flex column gap={4} p={8}>
+        <H1>{title}</H1>
+        <Flex row gap={2}>
+          <TextField aria-label="New task" value={label} onChange={setLabel} />
+          <Button
+            isDisabled={label.trim().length === 0}
+            onClick={async () => {
+              await save({
+                id: crypto.randomUUID(),
+                projectId: project.id,
+                label: label.trim(),
+                done: false,
+              });
+              setLabel("");
+            }}
+          >
+            Add task
+          </Button>
         </Flex>
-      </Padding>
+        <Table aria-label="Tasks">
+          <TableHeader>
+            <TableHead isRowHeader>Task</TableHead>
+            <TableHead>Project</TableHead>
+            <TableHead>Status</TableHead>
+          </TableHeader>
+          <TableBody
+            renderEmptyState={() => (
+              <Text color="lowContrast">No tasks yet.</Text>
+            )}
+          >
+            {tasks.map((task) => (
+              <TableRow key={task.id} id={task.id}>
+                <TableCell>
+                  <Checkbox
+                    label={task.label}
+                    checked={task.done}
+                    setChecked={async (done) => {
+                      await save({
+                        id: task.id,
+                        projectId: task.projectId,
+                        label: task.label,
+                        done,
+                      });
+                    }}
+                  />
+                </TableCell>
+                <TableCell>
+                  {task.project === null ? "No project" : task.project.name}
+                </TableCell>
+                <TableCell>{task.done ? "Done" : "Open"}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+        {error === undefined ? undefined : <Text role="alert">{error}</Text>}
+      </Flex>
     </MauiProvider>
   );
 }

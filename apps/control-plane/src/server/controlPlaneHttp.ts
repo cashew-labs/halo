@@ -1,11 +1,12 @@
 import fs from "node:fs/promises";
-import {
+import http, {
   createServer,
   type Server as HttpServer,
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
 import type { AddressInfo } from "node:net";
+import type { Duplex } from "node:stream";
 import path from "node:path";
 import { RPCHandler } from "@orpc/server/node";
 import {
@@ -38,7 +39,7 @@ const webContentSecurityPolicy = [
   "form-action 'self'",
   "frame-ancestors 'none'",
   "frame-src 'self'",
-  "img-src 'self' blob: data:",
+  "img-src 'self' blob: data: https://gethalo.dev",
   "object-src 'none'",
   "script-src 'self'",
   "style-src 'self' 'unsafe-inline'",
@@ -53,6 +54,10 @@ class ControlPlaneHttpError extends errore.createTaggedError({
 export type ListeningControlPlaneHttp = {
   origin: string;
   server: HttpServer;
+};
+
+export type ServingControlPlaneHttp = {
+  close: () => void;
 };
 
 export async function listenControlPlaneHttp(host: string, port: number) {
@@ -82,18 +87,20 @@ export async function listenControlPlaneHttp(host: string, port: number) {
 export function serveControlPlaneHttp(ctx: {
   server: HttpServer;
   auth: AuthService;
+  publicOrigin: string;
   workspace: WorkspaceService;
   webRoot: string;
   traces?: TraceIngestion;
 }) {
-  const { server, auth, workspace, webRoot, traces } = ctx;
+  const { server, auth, publicOrigin, workspace, webRoot, traces } = ctx;
+  const upgradeSockets = new Set<Duplex>();
   const rpc = new RPCHandler<ControlPlaneContext>(controlPlaneRpcRouter, {
     plugins: [
       new RequestHeadersHandlerPlugin(),
       new ResponseHeadersHandlerPlugin(),
     ],
   });
-  const gateway = new WorkspaceGateway({ auth, workspace });
+  const gateway = new WorkspaceGateway({ auth, publicOrigin, workspace });
 
   server.removeListener("request", respondStarting);
   server.on("request", async (request, response) => {
@@ -108,6 +115,24 @@ export function serveControlPlaneHttp(ctx: {
       webRoot,
     });
   });
+  server.on("upgrade", async (request, socket, head) => {
+    upgradeSockets.add(socket);
+    socket.once("close", () => upgradeSockets.delete(socket));
+    const url = new URL(
+      request.url === undefined ? "/" : request.url,
+      requestUrlBase,
+    );
+    if (!isWorkspaceProxyRequest(url)) {
+      respondToUpgrade(socket, 404);
+      return;
+    }
+    await gateway.upgrade(request, socket, head);
+  });
+  return {
+    close() {
+      for (const socket of upgradeSockets) socket.destroy();
+    },
+  } satisfies ServingControlPlaneHttp;
 }
 
 export async function closeControlPlaneHttp(server: HttpServer) {
@@ -130,6 +155,15 @@ export async function closeControlPlaneHttp(server: HttpServer) {
 
 function respondStarting(_request: IncomingMessage, response: ServerResponse) {
   response.writeHead(503).end("Control plane is starting.");
+}
+
+function respondToUpgrade(socket: Duplex, statusCode: number) {
+  socket.end(
+    `HTTP/1.1 ${statusCode} ${http.STATUS_CODES[statusCode]}\r\n` +
+      "Connection: close\r\n" +
+      "Content-Length: 0\r\n" +
+      "\r\n",
+  );
 }
 
 async function routeControlPlaneRequest(ctx: {
@@ -172,6 +206,11 @@ async function routeControlPlaneRequest(ctx: {
     url.pathname === "/api/desktop-auth/complete"
   ) {
     await serveDesktopAuthCompletion(request, response, auth, url);
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/desktop-auth/error") {
+    serveDesktopAuthError(response, url);
     return;
   }
 
@@ -283,6 +322,21 @@ async function serveDesktopAuthCompletion(
       "referrer-policy": "no-referrer",
     })
     .end();
+}
+
+function serveDesktopAuthError(response: ServerResponse, url: URL) {
+  const error = url.searchParams.get("error");
+  const detail =
+    error === null || error === ""
+      ? "Halo could not finish signing in. Return to the app and try again."
+      : `Halo could not finish signing in (${error}). Return to the app and try again.`;
+
+  response
+    .writeHead(200, {
+      "cache-control": "no-store",
+      "content-type": "text/plain; charset=utf-8",
+    })
+    .end(detail);
 }
 
 function isBetterAuthRequest(url: URL) {

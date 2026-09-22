@@ -1,3 +1,5 @@
+import { HotkeyService } from "../hotkeys/HotkeyService.js";
+import { createHotkeysPlugin } from "../hotkeys/createHotkeysPlugin.js";
 import path from "node:path";
 import { TursoSessionRepo } from "../storage/TursoSessionRepo.js";
 import { DatabaseClient } from "../storage/DatabaseClient.js";
@@ -197,6 +199,11 @@ export class WorkspaceServer {
           error: closed,
         });
     });
+    const hotkeys = await HotkeyService.open({
+      database,
+      userId: config.ownerUserId,
+    });
+    if (hotkeys instanceof Error) return hotkeys;
     const [initialized, toolRuntime] = await Promise.all([
       workspace.initialize(),
       ToolRuntime.create({
@@ -212,10 +219,12 @@ export class WorkspaceServer {
         oauthTestOrigin: config.oauthTestOrigin,
         toolPlugins: [
           createWorkspaceFilesPlugin(filesystem),
+          createHotkeysPlugin(hotkeys),
           workspaceBashPlugin,
           parallelSearchPlugin,
         ],
         authority: new StaticAgentAuthority([
+          "workspace.hotkeys",
           "workspace.files.read",
           "workspace.files.write",
           "workspace.shell.execute",
@@ -268,6 +277,7 @@ export class WorkspaceServer {
     const requests = serveHaloHttp({
       ...http,
       context: {
+        hotkeys,
         traces,
         browsers,
         extensions,

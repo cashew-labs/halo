@@ -1,4 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
+import { WorkspaceUpdatesProvider } from "./WorkspaceUpdatesProvider.js";
+import { useQuery, skipToken } from "@tanstack/react-query";
 import {
   createContext,
   useCallback,
@@ -9,6 +10,7 @@ import {
 import {
   type HaloClient,
   type WorkspaceInfo,
+  type SessionSummary,
   IncompatibleServerError,
 } from "@get-halo/client";
 import { useHost } from "../HostProvider.js";
@@ -51,7 +53,13 @@ export function ApiProvider({ children }: { children: ReactNode }) {
     return <ConnectionPage status="disconnected" />;
   }
 
-  return <ApiContext value={connected}>{children}</ApiContext>;
+  return (
+    <ApiContext value={connected}>
+      <WorkspaceUpdatesProvider api={connected}>
+        {children}
+      </WorkspaceUpdatesProvider>
+    </ApiContext>
+  );
 }
 
 export function useApi(): HaloClient {
@@ -67,13 +75,11 @@ export function useWorkspaceQuery() {
 }
 
 export function useSessionsQuery(workspace: WorkspaceInfo | undefined) {
-  const api = useApi();
   const workspaceRoot = workspace?.workspaceRoot;
 
-  return useQuery({
+  return useQuery<SessionSummary[]>({
     queryKey: ["sessions", workspaceRoot],
-    queryFn: async () => await api.sessions.list(),
-    enabled: workspaceRoot !== undefined,
+    queryFn: skipToken,
   });
 }
 
@@ -97,16 +103,5 @@ export function useWorkspaceFileQuery(path: string) {
   return useQuery({
     queryKey: ["workspace-file", path],
     queryFn: async () => await api.workspace.readFile({ path }),
-  });
-}
-
-export function useExtensionsQuery(workspace: WorkspaceInfo | undefined) {
-  const api = useApi();
-  const workspaceRoot = workspace?.workspaceRoot;
-
-  return useQuery({
-    queryKey: ["extensions", workspaceRoot],
-    queryFn: async () => await api.extensions.list(),
-    enabled: workspaceRoot !== undefined,
   });
 }

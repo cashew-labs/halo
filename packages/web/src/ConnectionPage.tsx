@@ -165,7 +165,7 @@ function DesktopUpdate({
         {update?.state === "downloaded" ? (
           <Button
             variant="primary"
-            disabled={install.isPending}
+            isDisabled={install.isPending}
             onClick={() => install.mutate()}
           >
             {install.isPending
@@ -173,7 +173,7 @@ function DesktopUpdate({
               : `Restart and install Halo ${update.version}`}
           </Button>
         ) : update?.state === "available" || checking ? (
-          <Button disabled>
+          <Button isDisabled>
             {update?.state === "available"
               ? "Downloading update…"
               : "Checking…"}
@@ -187,7 +187,7 @@ function DesktopUpdate({
           openExternalUrl !== undefined && (
             <Button
               variant="quiet"
-              disabled={openReleases.isPending}
+              isDisabled={openReleases.isPending}
               onClick={() => openReleases.mutate()}
             >
               View Halo downloads
