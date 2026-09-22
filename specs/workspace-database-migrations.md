@@ -21,6 +21,77 @@ flowchart TD
     %% ref node:serve [[packages/workspace-server/src/server/http.ts#serveHaloHttp]]
 ```
 
+## Phase 3 source changes
+
+```source-diff:phase3-registry:packages/workspace-server/src/storage/migrations/workspaceMigrations.ts
+diff --git a/packages/workspace-server/src/storage/migrations/workspaceMigrations.ts b/packages/workspace-server/src/storage/migrations/workspaceMigrations.ts
+index 2b752b6..6d7ddc9 100644
+--- a/packages/workspace-server/src/storage/migrations/workspaceMigrations.ts
++++ b/packages/workspace-server/src/storage/migrations/workspaceMigrations.ts
+@@ -1,0 +2 @@ import type { Migration } from "../Migration.js";
++import { initialExecutorMigration } from "./20260921133000-initialExecutorMigration.js";
+@@ -5,0 +7 @@ export const workspaceMigrations = [
++  initialExecutorMigration,
+```
+
+```source-diff:phase3-migration:packages/workspace-server/src/storage/migrations/20260921133000-initialExecutorMigration.ts
+diff --git a/packages/workspace-server/src/storage/migrations/20260921133000-initialExecutorMigration.ts b/packages/workspace-server/src/storage/migrations/20260921133000-initialExecutorMigration.ts
+new file mode 100644
+index 0000000..e43abce
+--- /dev/null
++++ b/packages/workspace-server/src/storage/migrations/20260921133000-initialExecutorMigration.ts
+@@ -0,0 +1,30 @@
++import type { Migration } from "../Migration.js";
++
++export const initialExecutorMigration: Migration = {
++  id: "20260921133000-initial-executor",
++  sql: `
++    CREATE TABLE IF NOT EXISTS "integration" ("slug" text NOT NULL, "plugin_id" text NOT NULL, "name" text, "description" text, "config" text, "health_check" text, "config_revised_at" blob, "can_remove" integer NOT NULL DEFAULT 1, "can_refresh" integer NOT NULL DEFAULT 0, "created_at" integer NOT NULL, "updated_at" integer NOT NULL, "row_id" text PRIMARY KEY NOT NULL, "tenant" text NOT NULL);
++    CREATE TABLE IF NOT EXISTS "subject" ("external_id" text NOT NULL, "created_at" integer NOT NULL, "last_seen_at" blob, "status" text, "row_id" text PRIMARY KEY NOT NULL, "tenant" text NOT NULL);
++    CREATE TABLE IF NOT EXISTS "connection" ("integration" text NOT NULL, "name" text NOT NULL, "template" text NOT NULL, "provider" text NOT NULL, "item_ids" text NOT NULL, "identity_label" text, "description" text, "last_health" text, "tools_synced_at" blob, "oauth_client" text, "oauth_client_owner" text, "refresh_item_id" text, "expires_at" blob, "oauth_scope" text, "oauth_token_url" text, "provider_state" text, "created_at" integer NOT NULL, "updated_at" integer NOT NULL, "row_id" text PRIMARY KEY NOT NULL, "tenant" text NOT NULL, "owner" text NOT NULL, "subject" text NOT NULL);
++    CREATE TABLE IF NOT EXISTS "oauth_client" ("slug" text NOT NULL, "authorization_url" text NOT NULL, "token_url" text NOT NULL, "grant" text NOT NULL, "client_id" text NOT NULL, "client_secret_item_id" text, "resource" text, "origin_kind" text, "origin_integration" text, "origin_issuer" text, "origin_redirect_uri" text, "created_at" integer NOT NULL, "row_id" text PRIMARY KEY NOT NULL, "tenant" text NOT NULL, "owner" text NOT NULL, "subject" text NOT NULL);
++    CREATE TABLE IF NOT EXISTS "oauth_session" ("state" text NOT NULL, "client_slug" text NOT NULL, "integration" text NOT NULL, "name" text NOT NULL, "template" text NOT NULL, "redirect_url" text NOT NULL, "pkce_verifier" text, "identity_label" text, "payload" text NOT NULL, "expires_at" blob NOT NULL, "created_at" integer NOT NULL, "row_id" text PRIMARY KEY NOT NULL, "tenant" text NOT NULL, "owner" text NOT NULL, "subject" text NOT NULL);
++    CREATE TABLE IF NOT EXISTS "tool" ("integration" text NOT NULL, "connection" text NOT NULL, "plugin_id" text NOT NULL, "name" text NOT NULL, "description" text NOT NULL, "input_schema" text, "output_schema" text, "annotations" text, "created_at" integer NOT NULL, "updated_at" integer NOT NULL, "row_id" text PRIMARY KEY NOT NULL, "tenant" text NOT NULL, "owner" text NOT NULL, "subject" text NOT NULL);
++    CREATE TABLE IF NOT EXISTS "definition" ("integration" text NOT NULL, "connection" text NOT NULL, "plugin_id" text NOT NULL, "name" text NOT NULL, "schema" text NOT NULL, "created_at" integer NOT NULL, "row_id" text PRIMARY KEY NOT NULL, "tenant" text NOT NULL, "owner" text NOT NULL, "subject" text NOT NULL);
++    CREATE TABLE IF NOT EXISTS "tool_policy" ("id" text NOT NULL, "pattern" text NOT NULL, "action" text NOT NULL, "position" text NOT NULL, "created_at" integer NOT NULL, "updated_at" integer NOT NULL, "row_id" text PRIMARY KEY NOT NULL, "tenant" text NOT NULL, "owner" text NOT NULL, "subject" text NOT NULL);
++    CREATE TABLE IF NOT EXISTS "artifact" ("id" text NOT NULL, "title" text NOT NULL, "description" text, "code" text NOT NULL, "bindings" text, "preview" text, "created_at" integer NOT NULL, "updated_at" integer NOT NULL, "row_id" text PRIMARY KEY NOT NULL, "tenant" text NOT NULL, "owner" text NOT NULL, "subject" text NOT NULL);
++    CREATE TABLE IF NOT EXISTS "plugin_storage" ("plugin_id" text NOT NULL, "collection" text NOT NULL, "key" text NOT NULL, "data" text NOT NULL, "created_at" integer NOT NULL, "updated_at" integer NOT NULL, "row_id" text PRIMARY KEY NOT NULL, "tenant" text NOT NULL, "owner" text NOT NULL, "subject" text NOT NULL);
++    CREATE TABLE IF NOT EXISTS "blob" ("namespace" text NOT NULL, "key" text NOT NULL, "value" text NOT NULL, "row_id" text PRIMARY KEY NOT NULL, "id" text NOT NULL);
++    CREATE UNIQUE INDEX IF NOT EXISTS "integration_uidx" ON "integration" ("tenant", "slug");
++    CREATE UNIQUE INDEX IF NOT EXISTS "subject_uidx" ON "subject" ("tenant", "external_id");
++    CREATE UNIQUE INDEX IF NOT EXISTS "connection_uidx" ON "connection" ("tenant", "owner", "subject", "integration", "name");
++    CREATE UNIQUE INDEX IF NOT EXISTS "oauth_client_uidx" ON "oauth_client" ("tenant", "owner", "subject", "slug");
++    CREATE UNIQUE INDEX IF NOT EXISTS "oauth_session_uidx" ON "oauth_session" ("tenant", "state");
++    CREATE UNIQUE INDEX IF NOT EXISTS "tool_uidx" ON "tool" ("tenant", "owner", "subject", "integration", "connection", "name");
++    CREATE UNIQUE INDEX IF NOT EXISTS "definition_uidx" ON "definition" ("tenant", "owner", "subject", "integration", "connection", "name");
++    CREATE UNIQUE INDEX IF NOT EXISTS "tool_policy_uidx" ON "tool_policy" ("tenant", "owner", "subject", "id");
++    CREATE UNIQUE INDEX IF NOT EXISTS "artifact_uidx" ON "artifact" ("tenant", "owner", "subject", "id");
++    CREATE UNIQUE INDEX IF NOT EXISTS "plugin_storage_uidx" ON "plugin_storage" ("tenant", "owner", "subject", "plugin_id", "collection", "key");
++    CREATE UNIQUE INDEX IF NOT EXISTS "blob_id_uidx" ON "blob" ("id");
++    CREATE TABLE IF NOT EXISTS "private_halo_executor_settings" ("id" text PRIMARY KEY NOT NULL, "version" text NOT NULL DEFAULT '1.0.0');
++  `,
++};
+```
+
+```source-diff:phase3-runtime:packages/workspace-server/src/agent/runtime/createExecutorDatabase.ts
+diff --git a/packages/workspace-server/src/agent/runtime/createExecutorDatabase.ts b/packages/workspace-server/src/agent/runtime/createExecutorDatabase.ts
+index 91072c3..72228c8 100644
+--- a/packages/workspace-server/src/agent/runtime/createExecutorDatabase.ts
++++ b/packages/workspace-server/src/agent/runtime/createExecutorDatabase.ts
+@@ -1,4 +1 @@
+-import {
+-  createDrizzleRuntimeSchemaFromTables,
+-  createDrizzleRuntimeSchemaSqlFromTables,
+-} from "@executor-js/fumadb/adapters/drizzle";
++import { createDrizzleRuntimeSchemaFromTables } from "@executor-js/fumadb/adapters/drizzle";
+@@ -27,5 +23,0 @@ export async function createExecutorDatabase<T extends FumaTables>(
+-    // Fuma's async schema initializer cannot use Turso's synchronous transaction callback.
+-    connection.transaction(() => {
+-      for (const sql of createDrizzleRuntimeSchemaSqlFromTables(options))
+-        connection.exec(sql);
+-    })();
+```
+
 ## Problem overview
 
 Before this work, the workspace server already had the centralized database client needed for one connection and one ordering boundary: `WorkspaceServer` owned `DatabaseClient`, and Pi sessions, hotkeys, and Executor borrowed it. Schema ownership was not centralized. `TursoSessionRepo.open()` created the Pi tables, `HotkeyService.open()` created its table while loading data, and `createExecutorDatabase()` executed generated DDL while constructing the Executor adapter.
@@ -31,7 +102,7 @@ These initializers are safe for the current create-if-missing schemas, but they 
 
 Keep `DatabaseClient` as a deliberately small Turso connection owner. Add a forward-only migration runner and a `halo_migrations` ledger to it. Each migration is a timestamped TypeScript value in `storage/migrations/` that contains SQL, and an explicit registry forms the single append-only ordered list. `DatabaseClient.open()` runs that list on every workspace-server startup before returning the client. The runner checks the ledger every time and applies only pending migrations, with each migration and its ledger record in one native transaction.
 
-Move the existing session, hotkey, and Executor DDL into one ordered workspace migration list. Their services retain their typed storage behavior but stop creating tables. Today, Executor exposes its generated table definitions only while `ToolRuntime.create()` is running. Before moving that DDL, make the stable Executor schema available when assembling `workspaceMigrations`, so the complete linear history still runs in `DatabaseClient.open()` before any storage consumer starts.
+Move the existing session, hotkey, and Executor DDL into one ordered workspace migration list. Their services retain their typed storage behavior but stop creating tables. Executor's current generated SQLite schema is captured as immutable migration SQL. This keeps startup independent of runtime table collection and makes a future Executor schema change require an explicit appended migration.
 
 ```ts
 type Migration = {
@@ -97,6 +168,7 @@ CREATE TABLE IF NOT EXISTS halo_migrations (
 - [`packages/workspace-server/src/storage/DatabaseError.ts`](../packages/workspace-server/src/storage/DatabaseError.ts) — Defines the shared typed failure returned by connection and migration operations.
 - [`packages/workspace-server/src/storage/migrations/workspaceMigrations.ts`](../packages/workspace-server/src/storage/migrations/workspaceMigrations.ts) — Explicit append-only registry for workspace-owned migration modules.
 - [`packages/workspace-server/src/storage/migrations/20260921130000-initialWorkspace.ts`](../packages/workspace-server/src/storage/migrations/20260921130000-initialWorkspace.ts) — Creates or adopts the current Pi session and hotkey tables.
+- [`packages/workspace-server/src/storage/migrations/20260921133000-initialExecutorMigration.ts`](../packages/workspace-server/src/storage/migrations/20260921133000-initialExecutorMigration.ts) — Creates or adopts the current Executor/Fuma tables and indexes.
 - [`packages/workspace-server/src/server/WorkspaceServer.ts`](../packages/workspace-server/src/server/WorkspaceServer.ts) — Owns database startup and does not serve product requests until its child services are ready.
 - [`packages/workspace-server/src/storage/sessionSchema.ts`](../packages/workspace-server/src/storage/sessionSchema.ts) — Contains typed Pi row helpers; migrations now own its former DDL.
 - [`packages/workspace-server/src/storage/TursoSessionRepo.ts`](../packages/workspace-server/src/storage/TursoSessionRepo.ts) — Assumes startup migrations established the Pi tables and implements the repository contract.
@@ -176,26 +248,25 @@ Phase 2 leaves one schema owner outside the migration registry: `createExecutorD
 ```callstack
  WorkspaceServer.start [[packages/workspace-server/src/server/WorkspaceServer.ts#WorkspaceServer.start]]
  ├── DatabaseClient.open({ directory, filesystem })
- │   └── apply initial Executor SQL migration
+ │   └── workspaceMigrations [[phase3-registry:new:2]]
+ │       └── initialExecutorMigration [[phase3-migration:new:3-30]]
+ │           └── create or adopt Executor tables, indexes, and schema settings
  ├── ToolRuntime.create({ database }) [[packages/workspace-server/src/agent/runtime/ToolRuntime.ts#ToolRuntime.create]]
  │   └── createExecutor({ db })
  │       └── createExecutorDatabase(database, tables) [[packages/workspace-server/src/agent/runtime/createExecutorDatabase.ts#createExecutorDatabase]]
--│           └── database.access
--│               └── transaction
--│                   ├── execute generated Fuma DDL
--│                   └── construct Drizzle/FumaDB adapter
-+│           └── database.access
-+│               └── construct typed Drizzle/FumaDB adapter
+ │           ├── runtime DDL removed [[phase3-runtime:old:27-31]]
+ │           └── database.access
+ │               └── construct typed Drizzle/FumaDB adapter
  └── serveHaloHttp [[packages/workspace-server/src/server/http.ts#serveHaloHttp]]
 ```
 
-- [ ] Capture the current generated Executor DDL in one timestamped migration and append it to `workspaceMigrations` after the initial Pi and hotkey migration.
-- [ ] Remove generated DDL execution from `createExecutorDatabase()` while retaining the runtime-generated typed Drizzle/Fuma schema used by the adapter.
-- [ ] Add a focused guard that fails when Fuma's current generated schema and the migrated Executor schema diverge, so a schema change requires appending a migration.
-- [ ] Continue using the shared `DatabaseClient` for coordinated Executor queries after its startup migration completes.
-- [ ] Preserve startup failure behavior: an Executor migration failure returns `DatabaseError` from `DatabaseClient.open()` and aborts `WorkspaceServer.start()` before any storage consumer or HTTP request handling starts.
-- [ ] Verify that a workspace can run Executor-backed tools, restart, and recover the same public session activity without reapplying the migration.
-- [ ] Run the focused Executor restart workflow in `test/workspace.test.ts`, then `pnpm run check-affected`.
+- [x] Capture the current generated Executor DDL in one timestamped migration and append it to `workspaceMigrations` after the initial Pi and hotkey migration.
+- [x] Remove generated DDL execution from `createExecutorDatabase()` while retaining the runtime-generated typed Drizzle/Fuma schema used by the adapter.
+- [x] Compare the captured SQL with Fuma's current generated schema while implementing the migration, then remove that temporary scaffolding before commit.
+- [x] Continue using the shared `DatabaseClient` for coordinated Executor queries after its startup migration completes.
+- [x] Preserve startup failure behavior: an Executor migration failure returns `DatabaseError` from `DatabaseClient.open()` and aborts `WorkspaceServer.start()` before any storage consumer or HTTP request handling starts.
+- [x] Verify that a workspace can run Executor-backed tools, restart, and recover the same public session activity without reapplying the migration.
+- [x] Run the focused Executor restart workflow in `test/workspace.test.ts`, then `pnpm run check-affected`.
 
 ## Resulting startup invariant
 

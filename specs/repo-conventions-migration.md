@@ -1,5 +1,9 @@
 # Repository conventions progress
 
+## Test value
+
+Repository testing conventions now favor a smaller suite of durable tests that protect meaningful consumer behavior or realistic non-obvious regressions. Tests that mainly mirror implementation details or intentional nearby changes do not merit permanent coverage. Temporary scaffolding tests may be used during implementation but should not be checked in.
+
 ## Native test fixtures
 
 Repository testing conventions now require Vitest or Playwright's native fixture API for test setup and teardown. File-local fixtures live near the top of their test file and use a fixture-specific extended test name. Fixtures shared by multiple E2Es are consolidated in `test/fixtures.ts`; source-local fixtures and other test helpers use a `*.test.ts` suffix and are explicitly excluded from test discovery.

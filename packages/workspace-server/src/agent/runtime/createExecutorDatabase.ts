@@ -1,7 +1,4 @@
-import {
-  createDrizzleRuntimeSchemaFromTables,
-  createDrizzleRuntimeSchemaSqlFromTables,
-} from "@executor-js/fumadb/adapters/drizzle";
+import { createDrizzleRuntimeSchemaFromTables } from "@executor-js/fumadb/adapters/drizzle";
 import type { AbstractQuery } from "@executor-js/fumadb/query";
 import type { AnySchema } from "@executor-js/fumadb/schema";
 import type { FumaTables } from "@executor-js/sdk/core";
@@ -24,11 +21,6 @@ export async function createExecutorDatabase<T extends FumaTables>(
       version: "1.0.0",
       provider: "sqlite" as const,
     };
-    // Fuma's async schema initializer cannot use Turso's synchronous transaction callback.
-    connection.transaction(() => {
-      for (const sql of createDrizzleRuntimeSchemaSqlFromTables(options))
-        connection.exec(sql);
-    })();
     // Turso compat implements the synchronous statement API expected by this Drizzle driver.
     const database = drizzle(connection, {
       schema: createDrizzleRuntimeSchemaFromTables(options),

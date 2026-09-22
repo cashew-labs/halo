@@ -4,6 +4,10 @@ Start with what a consumer can do, drive that behavior through the package's pub
 
 Do not write tests unless you are updating existing tests, adding coverage to an existing test file, or the user asks for them. When changing tests, extend the existing canonical test file and fixture where they fit.
 
+## Test value
+
+Prefer a smaller suite of durable tests over broad low-value coverage. Keep a test when it protects meaningful consumer behavior or a non-obvious invariant that could realistically regress. If a test mainly mirrors the implementation or would only fail when intentionally changing nearby code, it probably does not merit permanent coverage. Temporary tests are fine as implementation scaffolding, but should not be checked in.
+
 ## Choose the consumer boundary
 
 Package tests are E2Es through the main supported exports. Apps use their public UI or protocol. The consumer boundary defines E2E, not the number of processes: an exported reducer can be tested directly. Use Vitest for library/server APIs and Playwright for UI workflows.
