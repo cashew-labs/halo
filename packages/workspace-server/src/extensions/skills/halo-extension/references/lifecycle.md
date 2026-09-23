@@ -8,7 +8,7 @@ An extension is a normal private npm package in `.halo/extensions/<id>/`:
 <id>/
 ├── package.json
 ├── tsconfig.json
-├── api.ts
+├── extension.ts
 ├── schema.ts
 ├── view.tsx
 └── dist/             generated
@@ -59,14 +59,14 @@ Run `halo extension reload` after editing presentation metadata. The sidebar and
 Run from the extension directory:
 
 ```sh
-npm run typecheck
+npm run check
 npm run build
 ```
 
-The build bundles the browser view and Node API in parallel. Both must succeed before the new generation is selected. Successful output contains:
+The check validates the TypeScript source. The build bundles the browser view and Node extension definition in parallel. Both must succeed before the new generation is selected. Successful output contains:
 
 - `dist/<build-id>/public/`: the view HTML and bundled assets.
-- `dist/<build-id>/server.mjs`: the bundled API server.
+- `dist/<build-id>/server.mjs`: the bundled Hono API and extension lifecycle.
 - `dist/current.json`: the selected complete build ID.
 - `dist/start.mjs`: a stable launcher that loads the selected server.
 
@@ -86,19 +86,19 @@ The standalone server listens on loopback and owns:
 
 - `/view/` and nested `/view/...` paths for the React app.
 - `/view/assets/...` for generated assets.
-- `/api/` for the extension router.
+- `/api/` for the extension Hono app, including SDK WebSocket routes.
 - `/sync/` for Tandem synchronization.
 
-Halo starts `dist/start.mjs` with an ephemeral port, a data directory, and an IPC channel. It proxies the running extension through `/extensions/<id>/...` for the renderer while preserving the extension's own origin semantics.
+Halo starts `dist/start.mjs` with an ephemeral port, a data directory, explicit workspace information, and an IPC channel. It proxies the running extension through `/extensions/<id>/...` for the renderer while preserving the extension's own origin semantics. A `proxyView()` extension may return a private loopback origin from `serve()`; the SDK then forwards `/view/` HTTP and WebSocket traffic to that service.
 
 ## SDK modules owned by the build tools
 
 The SDK exports two lower-level modules because the generated build uses them:
 
-- `@get-halo/extension-sdk/client` exports `connectExtension({ schema, relations })`. It derives API and sync paths from the current `/view/` URL, connects Tandem, and returns `{ api, storage }` or an `ExtensionConnectionError`.
-- `@get-halo/extension-sdk/server` exports `serveExtension(args)` and `runExtension(args)`. `serveExtension` starts a loopback HTTP server and returns `{ url, close }` or an `ExtensionServerError`. `runExtension` parses `--port` and `--data-dir`, reports readiness over IPC, and handles process shutdown.
+- `@get-halo/extension-sdk/client` exports the generated Hono and Tandem connection helper. It derives API and sync paths from the current `/view/` URL.
+- `@get-halo/extension-sdk/server` exports the public `defineExtension`, view, lifecycle, and WebSocket types plus lower-level generated runtime functions.
 
-Normal extensions should not call these exports. The generated builder owns connection setup, rendering, server startup, IPC readiness, and shutdown. Inspect them only when changing the SDK/build system or diagnosing that boundary.
+Extension source uses `defineExtension`, `reactView` or `proxyView`, and optionally `upgradeWebSocket`. The generated builder owns connection setup, rendering, listener startup, IPC readiness, and shutdown. Do not call `runExtension` or `serveExtension` directly.
 
 The sync router and tool transport are internal and have no public package subpath.
 

@@ -203,7 +203,7 @@ export const e2eTest = baseTest.extend<E2EFixtures, E2EWorkerFixtures>({
         });
         await runHarnessCommand({
           tools,
-          command: `npm --prefix ${directoryArgument} run typecheck`,
+          command: `npm --prefix ${directoryArgument} run check`,
         });
         await runHarnessCommand({
           tools,

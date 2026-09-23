@@ -34,7 +34,7 @@ A hosted extension shares the user's extension records and connected services. O
 
 ## Standalone preview
 
-After `npm run typecheck` and `npm run build`, start the selected build in the background from the extension directory:
+After `npm run check` and `npm run build`, start the selected build in the background from the extension directory:
 
 ```sh
 node dist/start.mjs --port 0 --data-dir .extension-data > .extension-preview.log 2>&1 < /dev/null & echo $!
