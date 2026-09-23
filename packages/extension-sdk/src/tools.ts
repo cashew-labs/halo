@@ -34,8 +34,6 @@ export type ExtensionTools = {
   input: ExtensionToolInput,
 ) => Promise<ExtensionToolResult<Data>>);
 
-export type ExtensionContext = { tools: ExtensionTools };
-
 class ExtensionToolConnectionError extends errore.createTaggedError({
   name: "ExtensionToolConnectionError",
   message: "Could not call Halo tool '$path'",
