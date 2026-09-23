@@ -1,15 +1,21 @@
 import { parseArgs } from "node:util";
-import { createServer } from "node:http";
+import nodeHttp, { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
+import type { Duplex } from "node:stream";
 import { readFile, readdir } from "node:fs/promises";
 import { extname, join } from "node:path";
-import { getRequestListener } from "@hono/node-server";
+import {
+  createAdaptorServer,
+  getRequestListener,
+  upgradeWebSocket,
+} from "@hono/node-server";
 import { RPCHandler } from "@orpc/server/node";
 import type { AnyRelations, AnySchema } from "@tanishqkancharla/tandem-core";
 import {
   TandemServer,
   TandemServerJsonFileStorage,
 } from "@tanishqkancharla/tandem-server";
+import { WebSocketServer } from "ws";
 import * as errore from "errore";
 import { syncRouter } from "./sync.js";
 import { createExtensionTools } from "./tools.js";
@@ -21,6 +27,7 @@ export {
   type ExtensionEnvironment,
   type ReactExtensionView,
 } from "./definition.js";
+export { upgradeWebSocket };
 
 class ExtensionServerError extends errore.createTaggedError({
   name: "ExtensionServerError",
@@ -88,6 +95,17 @@ export async function serveExtension<
   const apiHandler = getRequestListener(
     async (request) => await args.extension.api.fetch(request, { tools }),
   );
+  const webSocketServer = new WebSocketServer({ noServer: true });
+  const apiWebSocketAdapter = createAdaptorServer({
+    fetch: async (request, environment) => {
+      // SAFETY: Hono's Node adapter supplies its private upgrade bindings; the extension environment adds tools to that same object.
+      const bindings = Object.assign(environment, { tools }) as {
+        tools: typeof tools;
+      };
+      return await args.extension.api.fetch(request, bindings);
+    },
+    websocket: { server: webSocketServer },
+  });
   const syncHandler = new RPCHandler(syncRouter(tandem));
   const server = createServer(async (request, response) => {
     const url = new URL(request.url!, "http://localhost");
@@ -113,6 +131,16 @@ export async function serveExtension<
     response.writeHead(200, { "content-type": asset.contentType });
     response.end(asset.body);
   });
+  server.on("upgrade", (request, socket, head) => {
+    const url = new URL(request.url!, "http://localhost");
+    if (url.pathname !== "/api" && !url.pathname.startsWith("/api/")) {
+      respondToUpgrade(socket, 404);
+      return;
+    }
+    const apiPath = url.pathname.slice("/api".length);
+    request.url = `${apiPath === "" ? "/" : apiPath}${url.search}`;
+    apiWebSocketAdapter.emit("upgrade", request, socket, head);
+  });
   const started = await new Promise<undefined | ExtensionServerError>(
     (resolve) => {
       server.once("error", (cause) =>
@@ -127,6 +155,8 @@ export async function serveExtension<
   return {
     url: `http://127.0.0.1:${address.port}/view/`,
     async close() {
+      for (const client of webSocketServer.clients) client.terminate();
+      apiWebSocketAdapter.emit("close");
       server.closeAllConnections();
       const closed = await new Promise<undefined | ExtensionServerError>(
         (resolve) => {
@@ -148,6 +178,15 @@ export async function serveExtension<
         );
     },
   };
+}
+
+function respondToUpgrade(socket: Duplex, statusCode: number) {
+  socket.end(
+    `HTTP/1.1 ${statusCode} ${nodeHttp.STATUS_CODES[statusCode]}\r\n` +
+      "Connection: close\r\n" +
+      "Content-Length: 0\r\n" +
+      "\r\n",
+  );
 }
 
 export async function runExtension<

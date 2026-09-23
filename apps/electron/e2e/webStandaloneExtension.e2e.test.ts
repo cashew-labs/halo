@@ -114,7 +114,7 @@ e2eTest(
   async ({ browser, harness, testArtifacts }) => {
     e2eTest.setTimeout(120_000);
     const extension = await harness.loadExtension(
-      "./fixtures/websocket-greeting",
+      "../../../packages/extension-tools/test/fixtures/websocket-greeting",
     );
     const plane = await ControlPlane.start({
       config: {

@@ -3,6 +3,11 @@ import { expect } from "@playwright/test";
 import { extensionTest } from "./extensionTest.js";
 
 const tasks = path.join(import.meta.dirname, "fixtures", "tasks");
+const websocketGreeting = path.join(
+  import.meta.dirname,
+  "fixtures",
+  "websocket-greeting",
+);
 
 extensionTest(
   "serves API-backed views at nested URLs without Halo",
@@ -60,5 +65,14 @@ extensionTest(
       reopened.getByRole("checkbox", { name: "Keep this task" }),
     ).toBeVisible();
     await fresh.close();
+  },
+);
+
+extensionTest(
+  "serves an SDK WebSocket from the extension API",
+  async ({ loadExtension, page }) => {
+    const extension = await loadExtension(websocketGreeting);
+    await page.goto(extension.url);
+    await expect(page.getByRole("status")).toHaveText("Hello from WebSocket");
   },
 );
