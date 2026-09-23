@@ -693,6 +693,58 @@ serverTest(
   },
 );
 
+serverTest(
+  "starts an extension built against the legacy strict launcher contract",
+  async ({ server }) => {
+    const directory = path.join(
+      server.workspaceRoot,
+      ".halo",
+      "extensions",
+      "legacy-runtime",
+    );
+    await fs.mkdir(path.join(directory, "dist"), { recursive: true });
+    await Promise.all([
+      fs.writeFile(
+        path.join(directory, "package.json"),
+        JSON.stringify({ name: "legacy-runtime" }),
+      ),
+      fs.writeFile(
+        path.join(directory, "dist", "start.mjs"),
+        `
+import http from "node:http";
+import { parseArgs } from "node:util";
+const { values } = parseArgs({
+  options: {
+    port: { type: "string", default: "3000" },
+    "data-dir": { type: "string", default: ".extension-data" },
+  },
+});
+const server = http.createServer((_request, response) => {
+  response.writeHead(200).end("Legacy extension ready");
+});
+server.listen(Number(values.port), "127.0.0.1", () => {
+  const address = server.address();
+  process.send("http://127.0.0.1:" + address.port + "/view/");
+});
+process.on("message", (message) => {
+  if (message === "shutdown") server.close(() => process.disconnect());
+});
+`,
+      ),
+    ]);
+
+    await server.rpc.extensions.reload();
+    const extension = (await server.rpc.extensions.list()).find(
+      ({ id }) => id === "legacy-runtime",
+    );
+    if (extension === undefined)
+      throw new Error("Legacy extension did not run");
+    const response = await fetch(extension.url);
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("Legacy extension ready");
+  },
+);
+
 serverTest("reads, writes, and lists workspace files", async ({ server }) => {
   expect(await server.rpc.workspace.get()).toMatchObject({
     workspaceRoot: server.workspaceRoot,
