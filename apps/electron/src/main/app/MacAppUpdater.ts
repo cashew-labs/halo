@@ -43,6 +43,7 @@ export class MacAppUpdater {
   private downloading = false;
   private downloadTimedOut = false;
   private installing = false;
+  private installTimeoutError: Error | undefined;
   private closed = false;
   private readonly abort = new AbortController();
   private pollTimer: ReturnType<typeof setInterval> | undefined;
@@ -253,6 +254,7 @@ export class MacAppUpdater {
   }
 
   async install() {
+    if (this.installTimeoutError !== undefined) return this.installTimeoutError;
     // The restart option remains available while a ready update is checked.
     // Finish that check before validating whichever download it leaves ready.
     if (this.pending !== undefined && this.checking !== undefined)
@@ -283,17 +285,18 @@ export class MacAppUpdater {
       installedVersion: this.version,
       version: pending.name,
     });
-    // A renderer can veto quitting, or the native installer can fail asynchronously.
-    // If this process is still alive, allow recovery instead of staying stuck installing.
-    this.installTimer = setTimeout(
-      () =>
-        this.installFailed(
-          new MacUpdateError({
-            operation: "finish restarting Halo; retry installation",
-          }),
-        ),
-      30_000,
-    );
+    // A timeout does not cancel Electron's pending quit. Keep installation locked
+    // so neither another download nor another install can race the native attempt.
+    this.installTimer = setTimeout(() => {
+      const error = new MacUpdateError({
+        operation:
+          "finish restarting; quit and reopen Halo to retry the update",
+      });
+      this.installTimeoutError = error;
+      this.onInstallCancelled();
+      this.logger.warn({ event: "update-install-timeout", error });
+      this.onStatus({ state: "error", message: error.message });
+    }, 30_000);
     this.installTimer.unref();
     const installed = errore.try({
       try: () => this.native.quitAndInstall(),
@@ -322,6 +325,7 @@ export class MacAppUpdater {
 
   private installFailed(error: Error) {
     clearTimeout(this.installTimer);
+    this.installTimeoutError = undefined;
     this.installing = false;
     this.pending = undefined;
     this.onInstallCancelled();
