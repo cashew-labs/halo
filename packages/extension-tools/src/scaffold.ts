@@ -62,6 +62,7 @@ export async function scaffoldExtension(args: {
           noUncheckedIndexedAccess: true,
           skipLibCheck: true,
           noEmit: true,
+          types: ["node"],
         },
         include: ["*.ts", "*.tsx"],
       },

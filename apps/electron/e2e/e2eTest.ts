@@ -300,6 +300,7 @@ function extensionBaseFiles(input: {
             noUncheckedIndexedAccess: true,
             skipLibCheck: true,
             noEmit: true,
+            types: ["node"],
           },
           include: ["*.ts", "*.tsx"],
         },
