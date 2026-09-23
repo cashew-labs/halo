@@ -55,3 +55,9 @@ WorkspaceService owns note reconciliation and recovery records, borrowing the ho
 The Markdown editor first attempts one conditional write and prepares a merge only if the server contents changed. It resumes dirty drafts on reconnect and rejects results for superseded drafts. A save acknowledged while the user keeps typing retains the submitted draft as the next merge base. Existing Electron tests cover one-request ordinary saves, clean and conflicting reconnection, typing during inference, and typing during the conditional write. No conflict-resolution screen is added.
 
 Markdown source-mode pointer handoff focuses the rich editor without scrolling before its normal mouse handler places the caret. The existing Electron fixture covers a long scrolled note, switching between two bold fragments, returning to plain text, and saving text at the clicked location.
+
+## Desktop update recovery
+
+Electron main owns `AppUpdates`; the desktop bridge and menu share that instance. On macOS, `MacAppUpdater` polls release metadata separately from native staging, validates the staged bundle before installation, and resets Squirrel's in-memory download cache before a fresh download. Feed failures preserve valid pending updates. Missing or corrupt staging, native download/install errors, and a vetoed quit recover without treating a download as an installed version. Starting the old version after an installer failure checks again using the running version. Recovery events use the persistent desktop logger.
+
+The macOS recovery tests exercise the isolated native-updater lifecycle contract with a controlled native boundary, a real HTTP feed, and real Squirrel-format state files. This is a narrow internal contract test; extract the service if another host needs it. The tests run in affected checks on macOS and before packaged release E2Es; other platforms retain their existing updater behavior.

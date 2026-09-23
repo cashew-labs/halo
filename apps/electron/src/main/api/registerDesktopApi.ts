@@ -13,11 +13,7 @@ import {
   type ConnectIntegrationRequest,
   type DesktopRequest,
 } from "../../shared/desktop.js";
-import {
-  checkForAppUpdate,
-  getAppInfo,
-  installAppUpdate,
-} from "../app/appUpdate.js";
+import type { AppUpdates } from "../app/AppUpdates.js";
 import type { DesktopAuthentication } from "../DesktopAuthentication.js";
 import type { HaloRpcConnection } from "../../shared/HaloRpcConnection.js";
 import {
@@ -38,6 +34,7 @@ class DesktopOperationError extends errore.createTaggedError({
 
 export function registerDesktopApi(args: {
   authentication: DesktopAuthentication;
+  appUpdates: AppUpdates;
   getConnection: () => Promise<HaloRpcConnection | Error | undefined>;
   ownsWindow: (window: BrowserWindow) => boolean;
 }): void {
@@ -48,6 +45,7 @@ export function registerDesktopApi(args: {
     const result = await handleDesktopRequest({
       request: validated,
       authentication: args.authentication,
+      appUpdates: args.appUpdates,
       getConnection: args.getConnection,
     });
     if (
@@ -70,6 +68,7 @@ function validateDesktopRequest(
 async function handleDesktopRequest(args: {
   request: DesktopRequest;
   authentication: DesktopAuthentication;
+  appUpdates: AppUpdates;
   getConnection: () => Promise<HaloRpcConnection | Error | undefined>;
 }) {
   switch (args.request.type) {
@@ -81,11 +80,11 @@ async function handleDesktopRequest(args: {
     case "signIn":
       return await args.authentication.signIn();
     case "getAppInfo":
-      return getAppInfo();
+      return args.appUpdates.getAppInfo();
     case "checkForAppUpdate":
-      return checkForAppUpdate();
+      return await args.appUpdates.checkForAppUpdate();
     case "installAppUpdate":
-      return installAppUpdate();
+      return await args.appUpdates.installAppUpdate();
     case "openExternal":
       return await openExternalUrl(args.request.url);
     case "connectIntegration":
