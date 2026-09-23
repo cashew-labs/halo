@@ -31,11 +31,11 @@ e2eTest(
     );
 
     await app.page
-      .getByRole("link", { name: "WebSocket Greeting", exact: true })
+      .getByRole("link", { name: "websocket-greeting", exact: true })
       .click();
 
     const frame = app.page
-      .locator('iframe[title="WebSocket Greeting"]')
+      .locator('iframe[title="websocket-greeting"]')
       .contentFrame();
     await expect(frame.getByRole("status")).toHaveText("Hello from WebSocket");
   },

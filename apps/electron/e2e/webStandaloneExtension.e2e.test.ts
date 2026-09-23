@@ -149,7 +149,7 @@ e2eTest(
       ).toString(),
     );
 
-    const frame = page.getByTitle("WebSocket Greeting", { exact: true });
+    const frame = page.getByTitle("websocket-greeting", { exact: true });
     await expect(frame).toHaveAttribute(
       "src",
       /\/workspace\/extensions\/websocket-greeting\/view\/$/,
