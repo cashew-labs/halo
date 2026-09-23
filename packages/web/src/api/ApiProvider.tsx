@@ -1,64 +1,85 @@
+import { FileSaveErrorsProvider } from "../main/FileSaveErrors.js";
+import { useAuthenticatedUserId } from "../Authentication.js";
 import { WorkspaceUpdatesProvider } from "./WorkspaceUpdatesProvider.js";
-import { useQuery, skipToken } from "@tanstack/react-query";
+import { useQuery, skipToken, useQueryClient } from "@tanstack/react-query";
 import {
   createContext,
-  useCallback,
   useContext,
+  useEffect,
   useState,
+  useSyncExternalStore,
   type ReactNode,
 } from "react";
 import {
   type HaloClient,
   type WorkspaceInfo,
   type SessionSummary,
-  IncompatibleServerError,
 } from "@get-halo/client";
 import { useHost } from "../HostProvider.js";
-import { LoadingPage } from "../LoadingPage.tsx";
-import { ConnectionPage } from "../ConnectionPage.tsx";
+import { ConnectionService } from "./ConnectionService.js";
+import { ConnectionContext, useConnection } from "./ConnectionContext.js";
+import { ConnectionStatus } from "../ConnectionStatus.js";
 
 const ApiContext = createContext<HaloClient>(undefined!);
-const haloApiQueryKey = ["halo-api"] as const;
 const workspaceQueryKey = ["workspace"] as const;
 
 export function ApiProvider({ children }: { children: ReactNode }) {
   const host = useHost();
-  const [disconnected, setDisconnected] = useState(false);
-  const disconnect = useCallback((error: Error) => {
-    console.warn("Halo disconnected from its server:", error);
-    setDisconnected(true);
-  }, []);
-  const apiQuery = useQuery({
-    queryKey: haloApiQueryKey,
-    // Development starts clients and the workspace server independently; discovery may arrive later.
-    refetchInterval: (query) =>
-      query.state.data === undefined ? 1_000 : false,
-    queryFn: async () => {
-      return await host.connectHalo({ onDisconnect: disconnect });
-    },
-  });
-
-  if (apiQuery.isPending) return <LoadingPage />;
-  if (apiQuery.isError) {
-    console.warn("Halo API initialization failed:", apiQuery.error);
-    return <ConnectionPage status="disconnected" />;
-  }
-  if (disconnected) return <ConnectionPage status="disconnected" />;
-  const connected = apiQuery.data;
-  if (connected === undefined) return <ConnectionPage status="waiting" />;
-  if (connected instanceof IncompatibleServerError) {
-    return <ConnectionPage status="incompatible" error={connected} />;
-  }
-  if (connected instanceof Error) {
-    return <ConnectionPage status="disconnected" />;
-  }
-
+  const queryClient = useQueryClient();
+  const userId = useAuthenticatedUserId();
+  const [service] = useState(() => new ConnectionService({ host }));
+  const state = useSyncExternalStore(service.subscribe, service.getSnapshot);
+  useEffect(() => {
+    const previousUser = queryClient.getQueryData<string>(["connection-user"]);
+    if (previousUser !== undefined && previousUser !== userId)
+      queryClient.clear();
+    queryClient.setQueryData(["connection-user"], userId);
+    const unsubscribe = service.changes.subscribe((next) => {
+      if (next.status !== "synchronizing" || next.workspace === undefined)
+        return;
+      const previous =
+        queryClient.getQueryData<WorkspaceInfo>(workspaceQueryKey);
+      if (
+        previous !== undefined &&
+        previous.workspaceRoot !== next.workspace.workspaceRoot
+      ) {
+        queryClient.clear();
+        queryClient.setQueryData(["connection-user"], userId);
+      }
+      queryClient.setQueryData(workspaceQueryKey, next.workspace);
+    });
+    service.start();
+    return () => {
+      unsubscribe();
+      service.dispose();
+    };
+  }, [service, queryClient, userId]);
   return (
-    <ApiContext value={connected}>
-      <WorkspaceUpdatesProvider api={connected}>
-        {children}
-      </WorkspaceUpdatesProvider>
-    </ApiContext>
+    <ConnectionContext value={service}>
+      {state.api === undefined ? (
+        <main
+          style={{
+            height: "100dvh",
+            display: "flex",
+            flexDirection: "column",
+            justifyContent: "space-between",
+            padding: 24,
+          }}
+        >
+          <p>Waiting for your server. Halo will connect automatically.</p>
+          <ConnectionStatus />
+        </main>
+      ) : (
+        <ApiContext value={state.api}>
+          <WorkspaceUpdatesProvider
+            key={state.workspace?.workspaceRoot}
+            api={state.api}
+          >
+            <FileSaveErrorsProvider>{children}</FileSaveErrorsProvider>
+          </WorkspaceUpdatesProvider>
+        </ApiContext>
+      )}
+    </ConnectionContext>
   );
 }
 
@@ -89,19 +110,22 @@ export function workspacePathsQueryKey(workspaceRoot: string | undefined) {
 
 export function useWorkspacePathsQuery(workspace: WorkspaceInfo | undefined) {
   const api = useApi();
+  const { state } = useConnection();
   const workspaceRoot = workspace?.workspaceRoot;
 
   return useQuery({
     queryKey: workspacePathsQueryKey(workspaceRoot),
     queryFn: async () => await api.workspace.listPaths(),
-    enabled: workspaceRoot !== undefined,
+    enabled: workspaceRoot !== undefined && state.status === "connected",
   });
 }
 
 export function useWorkspaceFileQuery(path: string) {
   const api = useApi();
+  const { state } = useConnection();
   return useQuery({
     queryKey: ["workspace-file", path],
+    enabled: state.status === "connected",
     queryFn: async () => await api.workspace.readFile({ path }),
   });
 }

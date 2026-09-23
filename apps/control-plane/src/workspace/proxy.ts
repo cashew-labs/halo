@@ -266,7 +266,8 @@ function respondToPreflight(
   response
     .writeHead(204, {
       ...corsHeaders(request, corsOrigins),
-      "access-control-allow-headers": "authorization, content-type",
+      "access-control-allow-headers":
+        "authorization, content-type, x-halo-protocol-version",
       "access-control-allow-methods": "GET, POST, OPTIONS",
       "access-control-max-age": "3600",
     })

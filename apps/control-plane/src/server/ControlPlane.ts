@@ -45,6 +45,7 @@ export class ControlPlane {
   static async start(ctx: {
     config: ControlPlaneConfig;
     webRoot: string;
+    build?: { version: string; revision: string };
     traceCloud?: TraceCloud;
   }) {
     const { config, webRoot } = ctx;
@@ -97,6 +98,7 @@ export class ControlPlane {
       publicOrigin,
       workspace,
       webRoot,
+      build: ctx.build,
       traces:
         ctx.traceCloud === undefined
           ? undefined

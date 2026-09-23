@@ -13,7 +13,6 @@ import type { AppInfo } from "./HostApi.js";
 import { useHost } from "./HostProvider.js";
 import { LoadingPage } from "./LoadingPage.tsx";
 import { WorkspaceLayout } from "./WorkspaceLayout.js";
-import { ConnectionPage } from "./ConnectionPage.tsx";
 import { useSessionsQuery, useWorkspaceQuery } from "./api/ApiProvider.tsx";
 
 export function HaloApp() {
@@ -22,8 +21,6 @@ export function HaloApp() {
   const sessionsQuery = useSessionsQuery(workspace);
   const appInfoQuery = useAppInfoQuery();
   const sessions = sessionsQuery.data === undefined ? [] : sessionsQuery.data;
-
-  if (workspaceQuery.isError) return <ConnectionPage status="disconnected" />;
 
   if (workspaceQuery.isPending || workspace === undefined) {
     return <LoadingPage />;

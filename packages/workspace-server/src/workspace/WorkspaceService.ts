@@ -1,3 +1,5 @@
+import type { LLMApi } from "../llm/LLMApi.js";
+import { mergeMarkdown } from "./mergeMarkdown.js";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { randomUUID } from "node:crypto";
 import * as errore from "errore";
@@ -25,6 +27,11 @@ export type WorkspaceLayout = {
 export class WorkspaceNotDirectoryError extends errore.createTaggedError({
   name: "WorkspaceNotDirectoryError",
   message: "The selected workspace must be a directory.",
+}) {}
+
+export class WorkspaceNoteMergeError extends errore.createTaggedError({
+  name: "WorkspaceNoteMergeError",
+  message: "$detail",
 }) {}
 
 export class WorkspaceIoError extends errore.createTaggedError({
@@ -142,6 +149,7 @@ type WorkspaceServiceOptions = {
   appDataDir: string;
   filesystem: FilesystemService;
   appVersion: string;
+  llmApi: LLMApi;
   cliEntry?: string;
   cliNodeExecutable?: string;
   cliElectronRunAsNode?: boolean;
@@ -233,7 +241,7 @@ export class WorkspaceService {
     return contents;
   }
 
-  async writeFile(path: string, content: string) {
+  async writeFile(path: string, content: string, expectedContent?: string) {
     const layout = this.layout;
 
     const absolutePath = resolve(layout.root, path);
@@ -250,6 +258,16 @@ export class WorkspaceService {
       return new WorkspaceIoError({ cause: directoryCreated });
     }
 
+    if (expectedContent !== undefined) {
+      const written = await this.options.filesystem.writeFileIfUnchanged({
+        path: absolutePath,
+        content,
+        expected: expectedContent,
+      });
+      if (written instanceof Error)
+        return new WorkspaceIoError({ cause: written });
+      return { path, conflict: written.conflict };
+    }
     const written = await this.options.filesystem.writeFile(
       absolutePath,
       content,
@@ -258,6 +276,62 @@ export class WorkspaceService {
     if (written instanceof Error)
       return new WorkspaceIoError({ cause: written });
     return { path };
+  }
+
+  async reconcileNote(
+    input: { path: string; base: string; content: string },
+    signal?: AbortSignal,
+  ) {
+    if (!/\.(?:md|markdown)$/i.test(input.path))
+      return new WorkspaceInvalidPathError({ path: input.path });
+    const remote = await this.readFile(input.path);
+    if (remote instanceof Error) return remote;
+    if (remote === input.base || remote === input.content)
+      return { content: input.content, expectedContent: remote };
+    if (input.content === input.base)
+      return { content: remote, expectedContent: remote };
+    // Bound deterministic diff work as well as model input on unusually large files.
+    if (
+      [input.base, input.content, remote].some(
+        (text) => text.length > 256_000 || text.split("\n").length > 5000,
+      )
+    )
+      return new WorkspaceNoteMergeError({
+        detail:
+          "This note is too large to merge automatically. Your draft is still here.",
+      });
+    const merged = await mergeMarkdown({
+      path: input.path,
+      base: input.base,
+      local: input.content,
+      remote,
+      llm: this.options.llmApi,
+      signal,
+    });
+    if (merged instanceof Error) return merged;
+    const directory = join(this.layout.root, ".halo", "note-history");
+    const created = await this.options.filesystem.makeDirectory(directory, {
+      recursive: true,
+    });
+    if (created instanceof Error)
+      return new WorkspaceIoError({ cause: created });
+    const historyPath = join(directory, `${Date.now()}-${randomUUID()}.json`);
+    const archived = await this.options.filesystem.writeFile(
+      historyPath,
+      JSON.stringify({
+        path: input.path,
+        createdAt: new Date().toISOString(),
+        original: input.base,
+        local: input.content,
+        remote,
+        resolved: merged.content,
+        usedFallback: merged.usedFallback,
+      }),
+      { flag: "wx", mode: 0o600 },
+    );
+    if (archived instanceof Error)
+      return new WorkspaceIoError({ cause: archived });
+    return { content: merged.content, expectedContent: remote };
   }
 
   async saveImage(input: { documentPath: string; file: File; id?: string }) {

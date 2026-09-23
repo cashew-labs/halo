@@ -1,3 +1,4 @@
+import { useConnection } from "../../api/ConnectionContext.js";
 import { sessionError } from "./sessionView.js";
 import { useContext, useEffect, useRef, useState } from "react";
 import * as errore from "errore";
@@ -42,9 +43,12 @@ export function useAgentSession(
   sessionId: string | undefined,
 ): UseAgentSessionResult {
   const api = useApi();
+  const { service, state: connection } = useConnection();
+  const enabled = connection.status === "connected";
   const isTabVisible = useContext(TabVisibilityContext);
   const queryClient = useQueryClient();
   const queryClientRef = useRef(queryClient);
+  const [readyApi, setReadyApi] = useState<typeof api>();
   const [readySessionId, setReadySessionId] = useState<string | undefined>(
     undefined,
   );
@@ -67,7 +71,7 @@ export function useAgentSession(
   useEffect(() => {
     // Hidden tabs retain their UI state, but must release HTTP streams so new
     // chats and prompts are not blocked by the browser's connection limit.
-    if (sessionId === undefined || !isTabVisible) return;
+    if (sessionId === undefined || !isTabVisible || !enabled) return;
     const controller = new AbortController();
 
     const updates = new Stream<SessionWatchItem>();
@@ -75,6 +79,7 @@ export function useAgentSession(
     const unsubscribe = states.subscribe(setState);
     reconnectStream({
       name: "Session event",
+      onError: (error) => service.fail(api, error),
       signal: controller.signal,
       open: async () =>
         await api.sessions.watch({ sessionId }, { signal: controller.signal }),
@@ -85,10 +90,11 @@ export function useAgentSession(
             exact: true,
           });
           setReadySessionId(sessionId);
-          for (const connection of item.snapshot.connections) {
+          setReadyApi(() => api);
+          for (const sessionConnection of item.snapshot.connections) {
             queryClientRef.current.setQueryData<ConnectionState>(
-              connectionStateQueryKey(sessionId, connection.request),
-              connectionStateFromServer(connection),
+              connectionStateQueryKey(sessionId, sessionConnection.request),
+              connectionStateFromServer(sessionConnection),
             );
           }
         }
@@ -107,10 +113,10 @@ export function useAgentSession(
       unsubscribe();
       controller.abort();
     };
-  }, [api, sessionId, isTabVisible]);
+  }, [api, sessionId, isTabVisible, service, enabled]);
 
   async function prompt(input: ChatPrompt) {
-    if (readySessionId === undefined) {
+    if (readySessionId === undefined || !enabled || readyApi !== api) {
       const error = new PromptFailedError({ reason: "Session is not ready." });
       setLocalError(error.message);
       return error;

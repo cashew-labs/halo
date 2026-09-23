@@ -1,12 +1,6 @@
 name: Release Halo
 
 on:
-  workflow_dispatch:
-    inputs:
-      version:
-        description: Existing deployed release version to publish
-        required: true
-        type: string
   pull_request:
   push:
     branches:
@@ -35,26 +29,16 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
+      - name: Test release validation
+        run: node --test releases/release.test.mjs
+
       - name: Find release manifest
         id: release
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-          REQUESTED_VERSION: ${{ inputs.version }}
         shell: bash
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            manifest="releases/$REQUESTED_VERSION.json"
-            version="$(node releases/validateRelease.mjs "$manifest")"
-            if [ "$version" != "$REQUESTED_VERSION" ]; then
-              echo "Release manifest version $version does not match requested version $REQUESTED_VERSION"
-              exit 1
-            fi
-            echo "is_release=true" >> "$GITHUB_OUTPUT"
-            echo "version=$version" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
           mapfile -t manifests < <(git diff --diff-filter=A --name-only "$BASE_SHA" "$HEAD_SHA" -- "releases/*.json")
           if [ "${#manifests[@]}" -eq 0 ] && [ "${{ github.event_name }}" = "pull_request" ]; then
             echo "is_release=false" >> "$GITHUB_OUTPUT"
@@ -182,8 +166,11 @@ jobs:
   deploy:
     name: Deploy production
     if: github.event_name == 'push'
-    needs: prepare
+    needs: [prepare, build-desktop]
     runs-on: blacksmith-4vcpu-ubuntu-2404
+    outputs:
+      frontend_image: ${{ steps.images.outputs.frontend_image }}
+      workspace_image: ${{ steps.images.outputs.workspace_image }}
     permissions:
       contents: read
       id-token: write
@@ -228,17 +215,33 @@ jobs:
       - name: Select Pulumi backend
         run: pnpm --filter @get-halo/infra exec pulumi login gs://halo-relay-pulumi-state
 
+      - name: Verify source protocol manifest
+        run: |
+          pnpm --silent --filter @get-halo/control-plane exec tsx ../../releases/protocols.mjs > "$RUNNER_TEMP/protocols.json"
+          jq -e --slurpfile actual "$RUNNER_TEMP/protocols.json" '.protocols == $actual[0]' "releases/$VERSION.json"
+
       - name: Build release images
+        id: images
         shell: bash
         run: |
           bucket="$(pnpm --silent --filter @get-halo/infra exec pulumi -C control-plane stack output buildSourceBucket --stack west)"
           builder="$(pnpm --silent --filter @get-halo/infra exec pulumi -C control-plane stack output buildServiceAccount --stack west)"
-          control_plane_image="$REGION-docker.pkg.dev/$PROJECT/halo-west-workspaces/control-plane:$VERSION"
-          workspace_image="$REGION-docker.pkg.dev/$PROJECT/halo-west-workspaces/workspace-server:$VERSION"
+          image_root="$REGION-docker.pkg.dev/$PROJECT/halo-west-workspaces"
+          control_plane_image="$image_root/control-plane:$VERSION-$GITHUB_SHA"
+          transition_image="$control_plane_image-backend"
+          previous_version="$(jq -r .previousVersion "releases/$VERSION.json")"
+          previous_image="$image_root/control-plane:$previous_version"
+          previous_digest="$(gcloud artifacts docker images describe "$previous_image" --project="$PROJECT" --format='value(image_summary.digest)')"
+          previous_image="$image_root/control-plane@$previous_digest"
+          workspace_image="$REGION-docker.pkg.dev/$PROJECT/halo-west-workspaces/workspace-server:$VERSION-$GITHUB_SHA"
 
           build_image() {
             local image="$1"
             local config="$2"
+            local substitutions="_IMAGE=$image,_VERSION=$VERSION,_REVISION=$GITHUB_SHA"
+            if [ "$config" = "infra/controlplane.cloudbuild.yaml" ]; then
+              substitutions="$substitutions,_TARGET=$3,_PREVIOUS_IMAGE=$previous_image"
+            fi
             # A workflow retry reuses the image already built for this immutable release version.
             if gcloud artifacts docker images describe "$image" --project="$PROJECT" >/dev/null 2>&1; then
               echo "Reusing $image"
@@ -251,22 +254,41 @@ jobs:
               --ignore-file=infra/buildignore \
               --gcs-source-staging-dir="gs://$bucket/source" \
               --service-account="$builder" \
-              --substitutions="_IMAGE=$image"
+              --substitutions="$substitutions"
           }
 
-          build_image "$control_plane_image" infra/controlplane.cloudbuild.yaml
+          build_image "$transition_image" infra/controlplane.cloudbuild.yaml transition
+          build_image "$control_plane_image" infra/controlplane.cloudbuild.yaml frontend
           build_image "$workspace_image" infra/cloudbuild.yaml
+          pin_image() {
+            local digest
+            digest="$(gcloud artifacts docker images describe "$1" --project="$PROJECT" --format='value(image_summary.digest)')"
+            test -n "$digest"
+            echo "${1%:*}@$digest"
+          }
+          echo "transition_image=$(pin_image "$transition_image")" >> "$GITHUB_OUTPUT"
+          echo "frontend_image=$(pin_image "$control_plane_image")" >> "$GITHUB_OUTPUT"
+          echo "workspace_image=$(pin_image "$workspace_image")" >> "$GITHUB_OUTPUT"
 
-      - name: Apply Pulumi changes
-        run: pnpm --filter @get-halo/infra exec pulumi -C control-plane up --stack west --yes --non-interactive
+      - name: Deploy backends with the previous browser bundle
+        env:
+          TRANSITION_IMAGE: ${{ steps.images.outputs.transition_image }}
+          WORKSPACE_IMAGE: ${{ steps.images.outputs.workspace_image }}
+        run: |
+          pnpm --filter @get-halo/infra exec pulumi -C control-plane up --stack west --yes --non-interactive \
+            --config "halo-control-plane:controlPlaneImage=$TRANSITION_IMAGE" \
+            --config "halo-control-plane:workspaceImage=$WORKSPACE_IMAGE"
 
       - name: Check control plane
         shell: bash
         run: |
           origin="$(pnpm --silent --filter @get-halo/infra exec pulumi -C control-plane stack output controlPlaneUrl --stack west)"
           curl --fail --show-error --silent --retry 12 --retry-all-errors --retry-delay 5 "$origin/health"
+          node apps/control-plane/scripts/verifyRelease.mjs "$origin" "releases/$VERSION.json" "$GITHUB_SHA"
 
       - name: Recreate workspace VMs
+        env:
+          WORKSPACE_IMAGE: ${{ steps.images.outputs.workspace_image }}
         shell: bash
         run: |
           template="$(pnpm --silent --filter @get-halo/infra exec pulumi -C control-plane stack output workspaceInstanceTemplate --stack west)"
@@ -329,8 +351,9 @@ jobs:
               --metadata-from-file="startup-script=$startup_script" \
               --disk="name=$disk,device-name=halo-workspace,mode=rw,boot=no,auto-delete=no"
 
-            expected_image="$REGION-docker.pkg.dev/$PROJECT/halo-west-workspaces/workspace-server:$VERSION"
-            ready_marker="HALO_WORKSPACE_READY image=$expected_image"
+            expected_image="$WORKSPACE_IMAGE"
+            protocols="$(jq -c .protocols.workspace.supported "releases/$VERSION.json")"
+            ready_marker="HALO_WORKSPACE_READY image=$expected_image protocols=$protocols revision=$GITHUB_SHA"
             ready=false
             for attempt in $(seq 1 120); do
               if gcloud compute instances get-serial-port-output "$instance" \
@@ -375,8 +398,16 @@ jobs:
       - name: Install Playwright Chromium
         run: pnpm --filter @get-halo/extension-tools exec playwright install chromium
 
+      - name: Install PDF conversion tools
+        run: brew install poppler
+
       - name: Run all package E2Es, including packaged Electron
-        run: pnpm run test:e2e:release
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          pnpm --silent --filter @get-halo/control-plane exec tsx ../../releases/protocols.mjs > "$RUNNER_TEMP/protocols.json"
+          jq -e --slurpfile actual "$RUNNER_TEMP/protocols.json" '.protocols == $actual[0]' "releases/$VERSION.json"
+          pnpm run test:e2e:release
 
       - name: Upload failed test artifacts
         if: failure()
@@ -392,8 +423,8 @@ jobs:
 
   release:
     name: Create GitHub Release
-    if: always() && needs.prepare.result == 'success' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && needs.deploy.result == 'success'))
-    needs: [prepare, deploy]
+    if: github.event_name == 'push'
+    needs: [prepare, deploy, promote-browser]
     runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
       contents: write
@@ -413,20 +444,35 @@ jobs:
               --target "$SHA" \
               --title "$VERSION" \
               --generate-notes \
-              --latest
+              --draft
           fi
 
-  publish:
-    name: Publish macOS
-    if: always() && needs.prepare.result == 'success' && needs.release.result == 'success' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-    needs: [prepare, release]
+  build-desktop:
+    name: Prepare signed macOS artifacts
+    if: github.event_name == 'push'
+    needs: prepare
     environment: Release
     runs-on: blacksmith-6vcpu-macos-15
     permissions:
-      contents: write
+      contents: read
+      actions: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Reuse verified artifacts from this run
+        id: prepared
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          count="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" --paginate \
+            --jq '[.artifacts[] | select(.name == "desktop-'"$GITHUB_SHA"'" and .expired == false)] | length' | awk '{total += $1} END {print total}')"
+          if [ "$count" -gt 0 ]; then
+            gh run download "$GITHUB_RUN_ID" --name "desktop-$GITHUB_SHA" --dir "$RUNNER_TEMP/prepared"
+            node releases/preparedArtifact.mjs verify "$RUNNER_TEMP/prepared" "$VERSION" "$GITHUB_SHA"
+            echo 'exists=true' >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Setup pnpm
         uses: pnpm/setup@703c52620218391530e48b9e8870d5c0082e1b9b # v2.1.0
@@ -436,12 +482,14 @@ jobs:
           install: false
 
       - name: Import Apple signing certificate
+        if: steps.prepared.outputs.exists != 'true'
         uses: apple-actions/import-codesign-certs@v3
         with:
           p12-file-base64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
           p12-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
 
       - name: Write Apple notarization key
+        if: steps.prepared.outputs.exists != 'true'
         env:
           APPLE_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY_BASE64 }}
         run: |
@@ -457,6 +505,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build signed release
+        if: steps.prepared.outputs.exists != 'true'
         working-directory: apps/electron
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -466,6 +515,7 @@ jobs:
         run: pnpm exec electron-forge publish --dry-run
 
       - name: Verify signed release
+        if: steps.prepared.outputs.exists != 'true'
         working-directory: apps/electron
         run: |
           app="out/Halo-darwin-arm64/Halo.app"
@@ -473,8 +523,96 @@ jobs:
           spctl --assess --type execute --verbose=2 "$app"
           xcrun stapler validate "$app"
 
-      - name: Publish to GitHub Releases
+      - name: Archive verified artifacts
+        if: steps.prepared.outputs.exists != 'true'
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/prepared"
+          tar -czf "$RUNNER_TEMP/prepared/desktop.tgz" -C apps/electron out/make out/publish-dry-run
+          node releases/preparedArtifact.mjs record "$RUNNER_TEMP/prepared" "$VERSION" "$GITHUB_SHA"
+
+      - name: Retain prepared release
+        if: steps.prepared.outputs.exists != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ github.sha }}
+          path: ${{ runner.temp }}/prepared
+          retention-days: 30
+          if-no-files-found: error
+
+  promote-browser:
+    name: Promote browser after backend readiness
+    if: github.event_name == 'push'
+    needs: [prepare, deploy]
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      FRONTEND_IMAGE: ${{ needs.deploy.outputs.frontend_image }}
+      WORKSPACE_IMAGE: ${{ needs.deploy.outputs.workspace_image }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v3
+      - uses: pnpm/setup@703c52620218391530e48b9e8870d5c0082e1b9b
+        with:
+          runtime: node@22
+          cache: true
+          install: false
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @get-halo/infra exec pulumi login gs://halo-relay-pulumi-state
+      - name: Promote prepared browser image
+        run: |
+          pnpm --filter @get-halo/infra exec pulumi -C control-plane up --stack west --yes --non-interactive \
+            --config "halo-control-plane:controlPlaneImage=$FRONTEND_IMAGE" \
+            --config "halo-control-plane:workspaceImage=$WORKSPACE_IMAGE"
+          origin="$(pnpm --silent --filter @get-halo/infra exec pulumi -C control-plane stack output controlPlaneUrl --stack west)"
+          node apps/control-plane/scripts/verifyRelease.mjs "$origin" "releases/$VERSION.json" "$GITHUB_SHA"
+          # The next transition uses the actual last published browser image.
+          gcloud artifacts docker tags add "$FRONTEND_IMAGE" \
+            "us-west2-docker.pkg.dev/halo-relay/halo-west-workspaces/control-plane:$VERSION" --project=halo-relay --quiet
+          gcloud artifacts docker tags add "$WORKSPACE_IMAGE" \
+            "us-west2-docker.pkg.dev/halo-relay/halo-west-workspaces/workspace-server:$VERSION" --project=halo-relay --quiet
+
+  publish:
+    name: Publish prepared macOS artifacts
+    if: github.event_name == 'push'
+    needs: [prepare, release]
+    environment: Release
+    runs-on: blacksmith-6vcpu-macos-15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/setup@703c52620218391530e48b9e8870d5c0082e1b9b
+        with:
+          runtime: node@22
+          cache: true
+          install: false
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          name: desktop-${{ github.sha }}
+          path: ${{ runner.temp }}/prepared
+      - name: Verify and restore prepared artifacts
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          node releases/preparedArtifact.mjs verify "$RUNNER_TEMP/prepared" "$VERSION" "$GITHUB_SHA"
+          tar -xzf "$RUNNER_TEMP/prepared/desktop.tgz" -C apps/electron
+      - name: Publish to GitHub Releases without rebuilding
         working-directory: apps/electron
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: pnpm exec electron-forge publish --from-dry-run
+      - name: Make completed release available to the updater
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: gh release edit "$VERSION" --draft=false --latest

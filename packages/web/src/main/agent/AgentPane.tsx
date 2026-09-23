@@ -1,3 +1,4 @@
+import { useRestartWarning } from "../../confirmRestart.js";
 import { useIsActiveTab } from "../../panes/WorkspacePanesProvider.js";
 import { useMarkSessionRead } from "./useSessionReadState.js";
 import { lastAssistantTurnWasAborted } from "./sessionView.js";
@@ -119,6 +120,7 @@ function ChatPane({
   const progress = useStyles(styles.progress);
   const dropOverlay = useStyles(styles.dropOverlay);
   const hasContent = draft.trim().length > 0 || attachments.length > 0;
+  useRestartWarning(hasContent);
   const showStop = state.activeRun !== undefined && !hasContent && !sending;
   const displayError = localError ?? error;
 

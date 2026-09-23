@@ -27,6 +27,8 @@ export interface HostApi {
   signIn(): Promise<ControlPlaneSession | Error | undefined>;
   connectHalo(options: {
     onDisconnect: (error: Error) => void;
+    signal: AbortSignal;
+    canRequest: (path: string[]) => boolean;
   }): Promise<HaloClient | Error | undefined>;
   getExtensionFrameUrl(extensionId: string): string;
   getAppInfo?(): Promise<AppInfo | Error>;

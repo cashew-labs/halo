@@ -15,6 +15,7 @@
 !apps/workspace-server/**
 !infra/
 !infra/cloudbuild.yaml
+!infra/controlplane.cloudbuild.yaml
 **/node_modules/
 **/dist/
 **/out/
