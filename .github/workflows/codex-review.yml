@@ -1,0 +1,64 @@
+name: Codex review
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+
+concurrency:
+  group: codex-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  review:
+    name: review
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Wait for native Codex review
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          short_sha="${HEAD_SHA:0:7}"
+          expected_commit="\`$short_sha\`"
+
+          for _ in {1..120}; do
+            summary="$(
+              gh api --paginate "repos/$REPOSITORY/issues/$PR_NUMBER/comments?per_page=100" |
+                jq -sr '
+                  add
+                  | map(select(
+                      .user.login == "chatgpt-codex-connector[bot]"
+                      and (.body | startswith("<!-- codex-pull-request-review-summary -->"))
+                    ))
+                  | sort_by(.updated_at)
+                  | last
+                  | .body // ""
+                '
+            )"
+
+            review_row="$(printf '%s\n' "$summary" | awk -v commit="$expected_commit" 'index($0, commit) { print; exit }')"
+            if [[ "$review_row" == *"✅ **Completed**"* ]]; then
+              echo "Codex completed its review of $short_sha."
+              exit 0
+            fi
+
+            if [[ "$review_row" == *"❌"* || "$review_row" == *"Failed"* || "$review_row" == *"Cancelled"* ]]; then
+              echo "Codex did not complete its review of $short_sha: $review_row"
+              exit 1
+            fi
+
+            sleep 15
+          done
+
+          echo "Timed out waiting for Codex to review $short_sha."
+          exit 1

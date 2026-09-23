@@ -1,15 +1,18 @@
+import { useAuthenticatedUserId } from "./Authentication.js";
 import { KeyboardShortcuts } from "./KeyboardShortcuts.js";
 import { spacing, text } from "maui";
 import { style, useStyles } from "purse-styles";
 import { skipToken, useQuery } from "@tanstack/react-query";
-import { Redirect, Route, Router } from "wouter";
-import { useHashLocation } from "wouter/use-hash-location";
+import { Router } from "wouter";
+import {
+  WorkspacePanesProvider,
+  usePaneLocation,
+} from "./panes/WorkspacePanesProvider.js";
 import type { SessionSummary } from "@get-halo/client";
 import type { AppInfo } from "./HostApi.js";
 import { useHost } from "./HostProvider.js";
 import { LoadingPage } from "./LoadingPage.tsx";
 import { WorkspaceLayout } from "./WorkspaceLayout.js";
-import { ConnectionPage } from "./ConnectionPage.tsx";
 import { useSessionsQuery, useWorkspaceQuery } from "./api/ApiProvider.tsx";
 
 export function HaloApp() {
@@ -18,8 +21,6 @@ export function HaloApp() {
   const sessionsQuery = useSessionsQuery(workspace);
   const appInfoQuery = useAppInfoQuery();
   const sessions = sessionsQuery.data === undefined ? [] : sessionsQuery.data;
-
-  if (workspaceQuery.isError) return <ConnectionPage status="disconnected" />;
 
   if (workspaceQuery.isPending || workspace === undefined) {
     return <LoadingPage />;
@@ -31,6 +32,7 @@ export function HaloApp() {
 
   return (
     <WorkspaceShell
+      workspaceRoot={workspace.workspaceRoot}
       sessions={sessions}
       alertMessage={
         sessionsQuery.error ? String(sessionsQuery.error) : undefined
@@ -58,14 +60,17 @@ function useAppInfoQuery() {
 }
 
 function WorkspaceShell({
+  workspaceRoot,
   sessions,
   alertMessage,
   appInfo,
 }: {
+  workspaceRoot: string;
   sessions: SessionSummary[];
   alertMessage?: string;
   appInfo?: AppInfo;
 }) {
+  const userId = useAuthenticatedUserId();
   const readyApp = useStyles(styles.readyApp);
   const errorClassName = useStyles(styles.error);
 
@@ -76,14 +81,18 @@ function WorkspaceShell({
           {alertMessage}
         </div>
       )}
-      {/* oxlint-disable-next-line react/hooks -- Wouter calls the location hook supplied to Router. */}
-      <Router hook={useHashLocation}>
-        <KeyboardShortcuts />
-        <Route path="/">
-          <Redirect to={initialHostPath(sessions)} replace />
-        </Route>
-        <WorkspaceLayout sessions={sessions} appInfo={appInfo} />
-      </Router>
+      <WorkspacePanesProvider
+        key={JSON.stringify([userId, workspaceRoot])}
+        userId={userId}
+        workspaceRoot={workspaceRoot}
+        initialPath={initialHostPath(sessions)}
+      >
+        {/* oxlint-disable-next-line react/hooks -- Wouter calls the location hook supplied to Router. */}
+        <Router hook={usePaneLocation}>
+          <KeyboardShortcuts />
+          <WorkspaceLayout sessions={sessions} appInfo={appInfo} />
+        </Router>
+      </WorkspacePanesProvider>
     </div>
   );
 }

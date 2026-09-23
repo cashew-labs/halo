@@ -1,6 +1,6 @@
 {
   "name": "@get-halo/extension-sdk",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "files": [
     "dist"
   ],
@@ -41,8 +41,8 @@
     "@orpc/client": "2.0.0-beta.29",
     "@orpc/server": "2.0.0-beta.29",
     "@sinclair/typebox": "^0.34.52",
-    "@tanishqkancharla/tandem-core": "0.2.0",
-    "@tanishqkancharla/tandem-server": "0.2.0",
+    "@tanishqkancharla/tandem-core": "0.3.0",
+    "@tanishqkancharla/tandem-server": "0.3.0",
     "errore": "^0.14.1"
   },
   "devDependencies": {

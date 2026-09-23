@@ -1,6 +1,11 @@
 {
   "name": "@get-halo/root",
   "private": true,
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cashew-labs/halo.git"
+  },
   "scripts": {
     "build": "turbo run build",
     "dev": "HALO_WORKSPACE_ROOT=$INIT_CWD/tmp/workspace HALO_USER_DATA=$INIT_CWD/tmp/workspace/.halo turbo run dev --filter=@get-halo/desktop --filter=@get-halo/control-plane --filter=@get-halo/web-app --filter=@get-halo/workspace-server-app --env-mode=loose",
@@ -24,15 +29,17 @@
     "check-affected": "pnpm run check",
     "test:e2e": "turbo run test:e2e --affected --concurrency=1",
     "test:e2e:release": "turbo run test:e2e --concurrency=1 --force",
-    "server": "pnpm --filter @get-halo/workspace-server-app start"
+    "server": "pnpm --filter @get-halo/workspace-server-app start",
+    "review:sync": "python3 .agents/skills/diffmap-compare/scripts/review.py sync",
+    "review:compare": "python3 .agents/skills/diffmap-compare/scripts/review.py serve"
   },
   "devDependencies": {
     "@oxlint/plugins": "^1.80.0",
+    "@tanishqkancharla/diffmap": "github:tanishqkancharla/diffmap#main",
     "oxc-parser": "^0.150.0",
     "oxfmt": "^0.65.0",
     "oxlint": "^1.80.0",
     "oxlint-tsgolint": "7.0.2001",
-    "@tanishqkancharla/diffmap": "github:tanishqkancharla/diffmap#main",
     "turbo": "^2.10.12",
     "typescript": "7.0.2",
     "vitest": "^5.0.1"

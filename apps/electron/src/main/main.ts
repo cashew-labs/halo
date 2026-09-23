@@ -1,3 +1,4 @@
+import { WindowHotkeys } from "./WindowHotkeys.js";
 import {
   app,
   autoUpdater,
@@ -131,8 +132,10 @@ app.whenReady().then(async () => {
   if (applicationConfig.testWindowEvents) {
     const testEvents: NodeJS.EventEmitter = app;
     testEvents.on("halo:e2e:open-window", () => {
+      // Give the test-created window a separate HTTP/1.1 connection pool while
+      // retaining the default Electron session used for cross-window storage.
       // oxlint-disable-next-line typescript/no-floating-promises -- The harness waits for Electron's window event.
-      void createWindow();
+      void createWindow(["--halo-e2e-rpc-localhost"]);
     });
   }
   logger.info({ event: "app-ready" });
@@ -245,7 +248,9 @@ async function openMainWindow(): Promise<void> {
   });
 }
 
-async function createWindow(): Promise<BrowserWindow> {
+async function createWindow(
+  additionalArguments: string[] = [],
+): Promise<BrowserWindow> {
   const window = new BrowserWindow({
     show: applicationConfig.showMainWindow,
     title: "Halo",
@@ -261,7 +266,32 @@ async function createWindow(): Promise<BrowserWindow> {
       contextIsolation: true,
       sandbox: true,
       nodeIntegration: false,
+      additionalArguments,
     },
+  });
+  const hotkeys = new WindowHotkeys();
+  hotkeys.attach(window);
+  // Route app shortcuts through the originating window, including embedded frames.
+  window.webContents.on("before-input-event", (event, input) => {
+    if (
+      input.type !== "keyDown" ||
+      input.isComposing ||
+      input.shift ||
+      input.alt
+    )
+      return;
+    const primaryModifier =
+      process.platform === "darwin"
+        ? input.meta && !input.control
+        : input.control && !input.meta;
+    if (!primaryModifier) return;
+    const shortcut = Object.entries(shortcuts).find(
+      ([, item]) => item.key === input.key.toUpperCase(),
+    );
+    if (shortcut === undefined) return;
+    event.preventDefault();
+    if (!input.isAutoRepeat)
+      window.webContents.send(SHORTCUT_CHANNEL, shortcut[0]);
   });
   windows.add(window);
   window.once("closed", () => windows.delete(window));
@@ -338,6 +368,15 @@ function installMenu(): void {
   const fileMenu: MenuItemConstructorOptions = {
     label: "File",
     submenu: [
+      {
+        label: shortcuts.newTab.label,
+        accelerator: shortcuts.newTab.accelerator,
+        click: () =>
+          BrowserWindow.getFocusedWindow()?.webContents.send(
+            SHORTCUT_CHANNEL,
+            "newTab",
+          ),
+      },
       {
         label: shortcuts.newChat.label,
         accelerator: shortcuts.newChat.accelerator,

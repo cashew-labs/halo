@@ -56,6 +56,7 @@ const controlPlaneTest = test.extend<{
   },
   plane: async ({ appDataDir, webRoot, traceCloud }, use) => {
     const plane = await ControlPlane.start({
+      build: { version: "test-release", revision: "test-revision" },
       config: {
         deployment: "local",
         workspace: { deployment: "local" },
@@ -194,6 +195,8 @@ controlPlaneTest("serves Better Auth at /api/auth", async ({ plane }) => {
 controlPlaneTest("serves the typed control-plane RPC", async ({ rpc }) => {
   expect(await rpc.server.info()).toEqual({
     protocolVersion: controlPlaneProtocolVersion,
+    supportedProtocols: [controlPlaneProtocolVersion],
+    build: { version: "test-release", revision: "test-revision" },
   });
   expect(await rpc.auth.session()).toEqual({ status: "signed-out" });
 });
@@ -208,24 +211,57 @@ controlPlaneTest(
 );
 
 controlPlaneTest(
-  "starts Google sign-in in the browser with its state cookie",
+  "starts Google sign-in in the browser without opening the website",
   async ({ plane, rpc }) => {
     const result = await rpc.auth.start({
       callback: "http://127.0.0.1:49152/auth/callback",
       state: desktopAuthState,
     });
 
-    const start = new URL(result.authorizationUrl);
-    expect(start.origin).toBe(plane.origin);
-    expect(start.pathname).toBe("/api/desktop-auth/start");
+    const google = new URL(result.authorizationUrl);
+    expect(google.origin).toBe("https://accounts.google.com");
+    expect(google.pathname).toBe("/o/oauth2/v2/auth");
+    expect(google.searchParams.get("client_id")).toBe(testAuth.googleClientId);
+    expect(google.searchParams.get("redirect_uri")).toBe(
+      `${plane.origin}/api/auth/callback/google`,
+    );
+  },
+);
+
+controlPlaneTest(
+  "keeps the desktop start page as a Google redirect",
+  async ({ plane }) => {
+    const start = new URL("/api/desktop-auth/start", plane.origin);
+    start.searchParams.set("callback", "http://127.0.0.1:49152/auth/callback");
+    start.searchParams.set("state", desktopAuthState);
 
     const response = await fetch(start, { redirect: "manual" });
     expect(response.status).toBe(302);
-    expect(response.headers.getSetCookie()).not.toHaveLength(0);
 
     const google = new URL(response.headers.get("location")!);
     expect(google.origin).toBe("https://accounts.google.com");
     expect(google.pathname).toBe("/o/oauth2/v2/auth");
+  },
+);
+
+controlPlaneTest(
+  "does not send OAuth errors to the website homepage",
+  async ({ plane }) => {
+    const response = await fetch(`${plane.origin}/api/auth/callback/google`, {
+      redirect: "manual",
+    });
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe(
+      `${plane.origin}/api/desktop-auth/error?error=state_not_found`,
+    );
+
+    const error = await fetch(
+      `${plane.origin}/api/desktop-auth/error?error=state_not_found`,
+    );
+    expect(error.status).toBe(200);
+    const body = await error.text();
+    expect(body).toContain("state_not_found");
+    expect(body).not.toContain("Halo web app");
   },
 );
 
@@ -557,3 +593,24 @@ function traceArchive(
       .join("\n") + "\n",
   );
 }
+
+controlPlaneTest(
+  "rejects unsupported protocols before provisioning",
+  async ({ plane, browserHeaders }) => {
+    const headers = new Headers(browserHeaders);
+    headers.set("x-halo-protocol-version", "999");
+    const rpc = createORPCClient<ControlPlaneClient>(
+      new RPCLink({
+        origin: plane.origin,
+        url: "/rpc",
+        headers: Object.fromEntries(headers),
+      }),
+    );
+    expect(await rpc.server.info()).toMatchObject({
+      supportedProtocols: [controlPlaneProtocolVersion],
+    });
+    await expect(rpc.workspace.ensure()).rejects.toMatchObject({
+      code: "UNSUPPORTED_PROTOCOL",
+    });
+  },
+);

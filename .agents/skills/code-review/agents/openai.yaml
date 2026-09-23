@@ -1,0 +1,4 @@
+interface:
+  display_name: "Code Review"
+  short_description: "Short summary plus inline high-priority comments"
+  default_prompt: "Use $code-review to review this diff. Write a short summary and leave inline comments only for high-priority issues."

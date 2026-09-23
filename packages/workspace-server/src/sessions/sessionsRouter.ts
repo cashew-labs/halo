@@ -23,6 +23,9 @@ export type SessionsRouterContext = {
 const os = implement(contract.sessions).$context<SessionsRouterContext>();
 
 export const sessionsRouter = os.router({
+  watchSummaries: os.watchSummaries.handler(({ context, signal }) =>
+    context.sessions.watchSummaries(signal),
+  ),
   list: os.list.handler(async ({ context }) => {
     context.logger.info({ event: "listSessions" });
     const sessions = await context.sessions.list();
@@ -63,7 +66,7 @@ export const sessionsRouter = os.router({
     if (session instanceof Error) return orpcErrors.badRequest(session);
     const prompted = await runWithSignal(
       signal,
-      async () => await session.prompt(input.text),
+      async () => await session.prompt(input),
     );
     if (prompted instanceof Error) return orpcErrors.badRequest(prompted);
   }),

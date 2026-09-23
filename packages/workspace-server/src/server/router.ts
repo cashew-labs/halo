@@ -1,8 +1,18 @@
+import { watchWorkspace } from "./watchWorkspace.js";
+import {
+  hotkeysRouter,
+  type HotkeysRouterContext,
+} from "../hotkeys/hotkeysRouter.js";
 import {
   browserRouter,
   type BrowserRouterContext,
 } from "../browser/browserRouter.js";
-import { contract, haloProtocolVersion } from "@get-halo/client";
+import {
+  contract,
+  haloProtocolVersion,
+  haloSupportedProtocols,
+} from "@get-halo/client";
+import type { RequestHeadersHandlerPluginContext } from "@orpc/server/plugins";
 import { implement } from "@orpc/server";
 import {
   tracesRouter,
@@ -25,21 +35,31 @@ import {
   type TestApiRouterContext,
 } from "../testing/testApiRouter.js";
 
-export type HaloContext = BrowserRouterContext &
+export type HaloContext = RequestHeadersHandlerPluginContext &
+  HotkeysRouterContext &
+  BrowserRouterContext &
   TracesRouterContext &
   WorkspaceRouterContext &
   ExtensionsRouterContext &
   SessionsRouterContext &
-  TestApiRouterContext;
+  TestApiRouterContext & { build?: { version: string; revision: string } };
 
-const server = implement(contract.server);
+const server = implement(contract.server).$context<HaloContext>();
 
 const serverRouter = server.router({
-  info: server.info.handler(() => ({ protocolVersion: haloProtocolVersion })),
+  info: server.info.handler(({ context }) => ({
+    protocolVersion: haloProtocolVersion,
+    supportedProtocols: haloSupportedProtocols,
+    build: context.build,
+  })),
+  watch: server.watch.handler(({ context, signal }) =>
+    watchWorkspace({ context, signal }),
+  ),
 });
 
 export const haloRpcRouter = {
   server: serverRouter,
+  hotkeys: hotkeysRouter,
   browser: browserRouter,
   workspace: workspaceRouter,
   sessions: sessionsRouter,

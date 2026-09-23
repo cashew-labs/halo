@@ -14,7 +14,7 @@ export async function scaffoldExtension(args: {
 }) {
   const packages =
     args.packages === undefined
-      ? { sdk: "0.1.0", tools: "0.1.0" }
+      ? { sdk: "0.2.0", tools: "0.2.0" }
       : args.packages;
   const created = await mkdir(args.directory).catch(
     (cause) => new ExtensionScaffoldError({ directory: args.directory, cause }),
@@ -35,7 +35,7 @@ export async function scaffoldExtension(args: {
           "@get-halo/extension-sdk": packages.sdk,
           react: "^19.2.8",
           "react-dom": "^19.2.8",
-          maui: "npm:@tanishqkancharla/maui@0.0.19",
+          maui: "npm:@tanishqkancharla/maui@0.0.30",
           errore: "^0.14.1",
         },
         devDependencies: {
@@ -69,9 +69,9 @@ export async function scaffoldExtension(args: {
     "api.ts":
       'import { os } from "@get-halo/extension-sdk/api";\nexport default { hello: os.handler(() => "Hello from your extension") };\n',
     "schema.ts":
-      'import { defineSchema } from "@get-halo/extension-sdk/schema";\nexport default defineSchema({});\n',
+      'import { defineRelations, defineSchema } from "@get-halo/extension-sdk/schema";\nexport const schema = defineSchema({});\nexport const relations = defineRelations(schema, () => ({}));\n',
     "view.tsx":
-      'import { H1, MauiProvider, Padding } from "maui";\nexport default function View() { return <MauiProvider><Padding xy={8}><H1>Hello, extension</H1></Padding></MauiProvider>; }\n',
+      'import { Flex, H1, MauiProvider } from "maui";\nexport default function View() { return <MauiProvider><Flex column p={8}><H1>Hello, extension</H1></Flex></MauiProvider>; }\n',
   };
   for (const [file, source] of Object.entries(files)) {
     const written = await writeFile(join(args.directory, file), source).catch(

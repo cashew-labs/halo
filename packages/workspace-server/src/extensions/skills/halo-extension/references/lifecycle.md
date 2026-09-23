@@ -52,7 +52,7 @@ Search the extension's installed Maui package for an icon name:
 rg -i 'calendar|clock' node_modules/maui/src/icons/index.ts
 ```
 
-A renderer reload picks up presentation metadata from a running extension. Rebuilding or restarting the extension server is not required for metadata alone.
+Run `halo extension reload` after editing presentation metadata. The sidebar and pane titles update automatically. Rebuilding or restarting the extension server is not required for metadata alone.
 
 ## Build
 
@@ -95,7 +95,7 @@ Halo starts `dist/start.mjs` with an ephemeral port, a data directory, and an IP
 
 The SDK exports two lower-level modules because the generated build uses them:
 
-- `@get-halo/extension-sdk/client` exports `connectExtension(schema)`. It derives API and sync paths from the current `/view/` URL, connects Tandem, and returns `{ api, storage }` or an `ExtensionConnectionError`.
+- `@get-halo/extension-sdk/client` exports `connectExtension({ schema, relations })`. It derives API and sync paths from the current `/view/` URL, connects Tandem, and returns `{ api, storage }` or an `ExtensionConnectionError`.
 - `@get-halo/extension-sdk/server` exports `serveExtension(args)` and `runExtension(args)`. `serveExtension` starts a loopback HTTP server and returns `{ url, close }` or an `ExtensionServerError`. `runExtension` parses `--port` and `--data-dir`, reports readiness over IPC, and handles process shutdown.
 
 Normal extensions should not call these exports. The generated builder owns connection setup, rendering, server startup, IPC readiness, and shutdown. Inspect them only when changing the SDK/build system or diagnosing that boundary.
@@ -104,12 +104,12 @@ The sync router and tool transport are internal and have no public package subpa
 
 ## Hosting and reload behavior
 
-`halo extension reload` starts extensions that are not already running. It does not rebuild or restart a healthy running process. After a manual `npm run build`, run `halo extension restart <id>` when the user is ready to replace the hosted process. `halo extension update <id>` performs that restart itself. Reload the renderer or reopen the extension pane to load the restarted extension's browser bundle.
+`halo extension reload` starts extensions that are not already running and pushes the updated extension list to every connected Halo window. It does not rebuild or restart a healthy running process. After a manual `npm run build`, run `halo extension restart <id>` when the user is ready to replace the hosted process. `halo extension update <id>` performs that restart itself. Reload the renderer or reopen the extension pane to load the restarted extension's browser bundle.
 
 Closing Electron leaves the independently hosted workspace server and extensions running. Workspace-server shutdown or workspace replacement stops extension processes gracefully through IPC, with a forced stop after the shutdown timeout.
 
-Hosted records live in `.halo/extension-data/<id>/store.json`. Standalone preview records live in the directory passed with `--data-dir`; use `.extension-data` inside the extension for isolated preview state.
+Hosted records live in `.halo/extension-data/<id>/tandem.json`. Standalone preview records live in the directory passed with `--data-dir`; use `.extension-data` inside the extension for isolated preview state. These tuple files are SDK-owned implementation details. Rebuilding an extension from the earlier runtime leaves its legacy `store.json` untouched and starts a fresh `tandem.json`.
 
 ## Remove an extension
 
-Delete `.halo/extensions/<id>/`, then run `halo extension reload` and reload the renderer. This stops the server and removes its sidebar entry. Stored records are separate under `.halo/extension-data/<id>/`; delete them only when the user explicitly wants that data removed.
+Delete `.halo/extensions/<id>/`, then run `halo extension reload`. The sidebar updates automatically. This stops the server and removes its sidebar entry. Stored records are separate under `.halo/extension-data/<id>/`; delete them only when the user explicitly wants that data removed.

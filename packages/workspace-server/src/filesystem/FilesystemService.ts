@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { SerialQueue } from "@get-halo/shared/SerialQueue";
 import fsPromises from "node:fs/promises";
 import * as watcher from "@parcel/watcher";
 import * as errore from "errore";
@@ -50,6 +51,8 @@ const parcelWatcherIgnore = [
 ] as const;
 
 export class FilesystemService {
+  // Orders conditional saves with UI and agent writes, never with inference.
+  private readonly actionQueue = new SerialQueue();
   private readonly watchEventStream = new Stream<
     FilesystemWatchBatch | FilesystemWatchError
   >();
@@ -88,9 +91,33 @@ export class FilesystemService {
     data: string | Uint8Array,
     options?: BufferEncoding | { mode?: number; flag?: string },
   ) {
-    return await fsPromises
-      .writeFile(path, data, options)
-      .catch((cause) => filesystemError({ operation: "write", path, cause }));
+    return await this.actionQueue.run(
+      async () =>
+        await fsPromises
+          .writeFile(path, data, options)
+          .catch((cause) =>
+            filesystemError({ operation: "write", path, cause }),
+          ),
+    );
+  }
+
+  async writeFileIfUnchanged(ctx: {
+    path: string;
+    content: string;
+    expected: string;
+  }) {
+    return await this.actionQueue.run(async () => {
+      const current = await this.readFile(ctx.path, "utf8");
+      if (current instanceof Error) return current;
+      if (current !== ctx.expected) return { conflict: true as const };
+      const written = await fsPromises
+        .writeFile(ctx.path, ctx.content, "utf8")
+        .catch((cause) =>
+          filesystemError({ operation: "write", path: ctx.path, cause }),
+        );
+      if (written instanceof Error) return written;
+      return { conflict: false as const };
+    });
   }
 
   async appendFile(

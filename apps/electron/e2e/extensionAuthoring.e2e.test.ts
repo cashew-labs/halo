@@ -6,6 +6,13 @@ e2eTest(
   async ({ harness, app }) => {
     e2eTest.setTimeout(120_000);
     const harnessBashTimeoutMs = 120_000;
+    await app.page.getByRole("main").waitFor();
+    await app.page.evaluate(() =>
+      document.documentElement.setAttribute(
+        "data-extension-authoring",
+        "original",
+      ),
+    );
     const created = await harness.tools.bash.run({
       command: "halo extension new greeting",
       timeoutMs: harnessBashTimeoutMs,
@@ -15,12 +22,12 @@ e2eTest(
     await harness.tools.files.write({
       path: ".halo/extensions/greeting/view.tsx",
       content: `
-        import { H1, MauiProvider, Padding } from "maui";
+        import { Flex, H1, MauiProvider } from "maui";
 
         export default function View() {
           return (
             <MauiProvider>
-              <Padding xy={8}><H1>Authored through Halo tools</H1></Padding>
+              <Flex column p={8}><H1>Authored through Halo tools</H1></Flex>
             </MauiProvider>
           );
         }
@@ -47,11 +54,12 @@ e2eTest(
     expect(listed.stdout).toContain("greeting");
     expect(listed.stdout).toContain("http://127.0.0.1:");
 
-    await app.page.reload();
+    await expect(app.page.locator("html")).toHaveAttribute(
+      "data-extension-authoring",
+      "original",
+    );
     await app.page.getByRole("link", { name: "greeting", exact: true }).click();
-    const pane = app.page
-      .getByTitle("greeting", { exact: true })
-      .contentFrame();
+    const pane = app.page.locator('iframe[title="greeting"]').contentFrame();
     await expect(
       pane.getByRole("heading", { name: "Authored through Halo tools" }),
     ).toBeVisible();
@@ -59,12 +67,12 @@ e2eTest(
     await harness.tools.files.write({
       path: ".halo/extensions/greeting/view.tsx",
       content: `
-        import { H1, MauiProvider, Padding } from "maui";
+        import { Flex, H1, MauiProvider } from "maui";
 
         export default function View() {
           return (
             <MauiProvider>
-              <Padding xy={8}><H1>Updated through Halo tools</H1></Padding>
+              <Flex column p={8}><H1>Updated through Halo tools</H1></Flex>
             </MauiProvider>
           );
         }
@@ -80,7 +88,7 @@ e2eTest(
     await app.page.getByRole("link", { name: "greeting", exact: true }).click();
     await expect(
       app.page
-        .getByTitle("greeting", { exact: true })
+        .locator('iframe[title="greeting"]')
         .contentFrame()
         .getByRole("heading", { name: "Updated through Halo tools" }),
     ).toBeVisible();

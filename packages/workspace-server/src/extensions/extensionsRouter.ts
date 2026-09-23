@@ -15,6 +15,12 @@ export const extensionsRouter = os.router({
     if (extensions instanceof Error) return orpcErrors.badRequest(extensions);
     return extensions;
   }),
+  watch: os.watch.handler(async function* ({ context, signal }) {
+    for await (const snapshot of context.extensions.watch(signal)) {
+      if (snapshot instanceof Error) throw orpcErrors.badRequest(snapshot);
+      yield snapshot;
+    }
+  }),
   reload: os.reload.handler(
     async ({ context }) => await context.extensions.reload(),
   ),

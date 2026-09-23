@@ -6,9 +6,16 @@ steps:
       - apps/workspace-server/Dockerfile
       - --tag
       - ${_IMAGE}
+      - --build-arg
+      - VERSION=${_VERSION}
+      - --build-arg
+      - REVISION=${_REVISION}
       - .
 images:
   - ${_IMAGE}
 options:
   logging: CLOUD_LOGGING_ONLY
 timeout: 1800s
+substitutions:
+  _VERSION: dev
+  _REVISION: local

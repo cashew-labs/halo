@@ -45,8 +45,8 @@ Not every field needs to be a stream. Internal queues, caches, and in-flight ope
 
 ## Order changes without blocking control
 
-Use `SerialQueue` for operations that need ordering, with a queue per state owner rather than hand-written Promise chains or a global server queue. Name a class's single queue `actionQueue`; name multiple queues by purpose, such as `writeQueue` or `reloadQueue`.
+Use `SerialQueue` from `@get-halo/shared/SerialQueue` for operations that need ordering, with a queue per state owner rather than hand-written Promise chains or a global server queue. Name a class's single queue `actionQueue`; name multiple queues by purpose, such as `writeQueue` or `reloadQueue`.
 
 Keep public methods semantic, such as `reload()` or `close()`, and put their ordered work inside `actionQueue.run(...)`. Inline the operation unless its implementation is shared; name shared private implementations `*Unqueued`. Already-queued work calls those helpers directly, never a method that enqueues on the same queue: awaiting that nested operation would deadlock.
 
-`SerialQueue.run()` preserves the operation's result or rejection and lets later operations run after a failure. Queue only work that needs ordering. Long-running model calls, tools, and subscriptions must not block the queue needed to cancel or control them.
+`SerialQueue.run()` preserves the operation's result or rejection and lets later operations run after a failure. Convert external-library failures at the owning service boundary. Queue only work that needs ordering. Long-running model calls, tools, and subscriptions must not block the queue needed to cancel or control them.

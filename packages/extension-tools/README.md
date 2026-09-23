@@ -10,7 +10,8 @@ An extension contains three source files:
 - `view.tsx`: the default-exported React app, served under `/view/`. Nested URLs
   load the same app, which owns its frontend routing.
 - `api.ts`: the default-exported oRPC router, mounted directly under `/api/`.
-- `schema.ts`: the default-exported Tandem schema. The SDK owns `/sync/`.
+- `schema.ts`: the named Tandem `schema` and `relations` exports. The SDK owns
+  `/sync/`.
 
 ```ts
 import { scaffoldExtension } from "@get-halo/extension-tools/scaffold";
@@ -22,7 +23,7 @@ const result = await scaffoldExtension({
 if (result instanceof Error) throw result;
 ```
 
-The equivalent CLI is `npx @get-halo/extension-tools@0.1.0 scaffold my-extension`. Scaffolding
+The equivalent CLI is `npx @get-halo/extension-tools@0.2.0 scaffold my-extension`. Scaffolding
 creates a new directory and writes the source, package scripts, dependencies,
 TypeScript configuration, and gitignore. Installation is explicit:
 
@@ -47,7 +48,11 @@ loading the development tools. Existing processes continue using their original
 build. Successful build generations are retained; pruning is not implemented.
 
 The server listens on loopback and serves `/view/`, `/api/`, and `/sync/`.
-Data is persisted to `<data-dir>/store.json` using Tandem's `JsonFileRemote`.
+It owns one `TandemServer` backed by `TandemServerJsonFileStorage`, which
+persists data to `<data-dir>/tandem.json`. The tuple file is an SDK-owned
+implementation detail and extension code must not read or write it directly.
+Rebuilding an extension from the earlier runtime starts a fresh `tandem.json`;
+any legacy `store.json` remains untouched and recoverable.
 Halo discovers built apps in `<workspace>/.halo/extensions/<id>/` when opening
 the workspace. It starts each app with the bundled Node runtime and stores data
 in `<workspace>/.halo/extension-data/<id>/`. `extensions.list()` exposes their
@@ -60,8 +65,8 @@ Workspace switching and app shutdown stop the hosted processes.
 Halo lists running extensions in its sidebar. Opening an entry displays its
 `/view/` app in a sandboxed iframe at `/extensions/<id>`, with a Halo-owned pane
 header. The iframe retains its extension origin for API calls and storage.
-After adding an extension, call `extensions.reload()` and reload the renderer
-to refresh the sidebar.
+After adding an extension, call `extensions.reload()`. The sidebar receives the
+updated list automatically through `extensions.watch()`.
 
 Named sub-panes, dynamic sidebar contributions, authentication, and workspace
 tool access are not connected yet.

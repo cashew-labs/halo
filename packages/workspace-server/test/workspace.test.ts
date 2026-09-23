@@ -1,21 +1,212 @@
+import * as errore from "errore";
 import {
+  createHaloClient,
+  connectHaloClient,
+  haloProtocolVersion,
+  haloSupportedProtocols,
   emptySessionSnapshot,
   reduceSessionUpdate,
   sessionMessages,
   sessionToolExecutions,
   type HaloClient,
   type TraceRecord,
+  type SessionSummary,
+  type SessionSummariesUpdate,
 } from "@get-halo/client";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { gunzipSync } from "node:zlib";
 import { IdTokenClient } from "google-auth-library";
 import { ControlPlaneTraceUploader } from "@get-halo/workspace-server";
-import { expect } from "vitest";
+import { assert, expect } from "vitest";
 import { contentText } from "@earendil-works/pi-ai";
 import { m } from "@get-halo/shared/testing";
 import { messageText } from "@get-halo/workspace-server/testing";
 import { serverTest } from "./serverTest.js";
+
+const attachmentFixtures = [
+  { name: "picture.png", images: 1 },
+  { name: "picture.jpg", images: 1 },
+  { name: "picture.webp", images: 1 },
+  { name: "picture.gif", images: 1 },
+  { name: "picture.avif", images: 1 },
+  { name: "picture.svg", images: 1 },
+  { name: "picture.tiff", images: 1 },
+  { name: "picture.bmp", images: 1 },
+  { name: "picture.ico", images: 1 },
+  { name: "picture.heic", images: 1 },
+  { name: "picture.heif", images: 1 },
+  { name: "document.pdf", text: "orange heron", images: 2 },
+  { name: "scan.pdf", images: 1 },
+  { name: "document.docx", text: "scarlet robin", images: 1 },
+  { name: "workbook.xlsx", text: "indigo jay", images: 0 },
+  { name: "slides.pptx", text: "turquoise crane", images: 1 },
+  { name: "document.odt", text: "bronze eagle", images: 0 },
+  { name: "workbook.ods", text: "ruby duck", images: 0 },
+  { name: "slides.odp", text: "sapphire swan", images: 0 },
+  { name: "drawing.odg", text: "copper falcon", images: 0 },
+  { name: "book.epub", text: "teal swallow", images: 0 },
+  { name: "document.rtf", text: "amber lynx", images: 0 },
+  { name: "notes.txt", text: "cedar fox", images: 0 },
+  { name: "windows.txt", text: "violet hare", images: 0 },
+  { name: "notes.md", text: "silver otter", images: 0 },
+  { name: "data.csv", text: "golden finch", images: 0 },
+  { name: "data.tsv", text: "river owl", images: 0 },
+  { name: "data.json", text: "blue whale", images: 0 },
+  { name: "source.ts", text: "green turtle", images: 0 },
+  { name: "document.html", text: "red kite", images: 0 },
+];
+
+for (const fixture of attachmentFixtures) {
+  serverTest(
+    `sends ${fixture.name} attachment contents to the model`,
+    async ({ server, llm }) => {
+      const session = await server.rpc.sessions.create();
+      const bytes = await fs.readFile(
+        path.join(import.meta.dirname, "fixtures", "attachments", fixture.name),
+      );
+      // Browsers may omit MIME types. Conversion must still use the file's contents.
+      const file = new File([bytes], fixture.name);
+      const prompt = server.rpc.sessions.prompt({
+        ...session,
+        text: "Explain the attachment",
+        files: [file],
+      });
+      const response = llm.respond(({ messages }) => {
+        const message = messages.findLast((item) => item.role === "user");
+        assert(message !== undefined && Array.isArray(message.content));
+        if (fixture.text !== undefined)
+          expect(messageText(message)).toContain(fixture.text);
+        expect(messageText(message)).toContain(fixture.name);
+        const images = message.content.filter(
+          (part) => part.type === "image_url",
+        );
+        expect(images).toHaveLength(fixture.images);
+        for (const image of images) {
+          expect(image.image_url.url).toMatch(/^data:image\/jpeg;base64,/);
+          const data = Buffer.from(
+            image.image_url.url.split(",")[1]!,
+            "base64",
+          );
+          expect([...data.subarray(0, 3)]).toEqual([0xff, 0xd8, 0xff]);
+          expect(data.length).toBeGreaterThan(100);
+        }
+        return m.assistant("I received the attachment contents.");
+      });
+      await Promise.all([prompt, response]);
+      const snapshot = await server.rpc.sessions.snapshot(session);
+      const user = sessionMessages(snapshot).find(
+        (message) => message.role === "user",
+      );
+      assert(user?.role === "user");
+      expect(user.displayText).toBe("Explain the attachment");
+      expect(user.attachments).toHaveLength(1);
+      expect(user.attachments![0]!.name).toBe(fixture.name);
+      expect(
+        await fs.readFile(
+          path.join(server.workspaceRoot, user.attachments![0]!.path),
+        ),
+      ).toEqual(bytes);
+      expect((await server.rpc.sessions.list())[0]!.title).toBe(
+        "Explain the attachment",
+      );
+    },
+  );
+}
+
+serverTest(
+  "retains attachment-only messages, duplicate filenames, and model context after restart",
+  async ({ server, llm }) => {
+    const session = await server.rpc.sessions.create();
+    const files = [
+      new File(["First note: crimson fox"], "notes.txt"),
+      new File(["Second note: cobalt owl"], "notes.txt"),
+    ];
+    const prompt = server.rpc.sessions.prompt({ ...session, text: "", files });
+    await llm.respond(m.assistant("I have both files."));
+    await prompt;
+    await server.stop();
+    await server.start();
+    const snapshot = await server.rpc.sessions.snapshot(session);
+    const user = sessionMessages(snapshot).find(
+      (message) => message.role === "user",
+    );
+    assert(user?.role === "user");
+    expect(user.attachments).toHaveLength(2);
+    expect(user.attachments![0]!.path).not.toBe(user.attachments![1]!.path);
+    expect((await server.rpc.sessions.list())[0]!.title).toBe(
+      "notes.txt, notes.txt",
+    );
+    const next = server.rpc.sessions.prompt({
+      ...session,
+      text: "Recall both notes",
+    });
+    await llm.respond(({ messages }) => {
+      const context = messages.map(messageText).join("\n");
+      expect(context).toContain("crimson fox");
+      expect(context).toContain("cobalt owl");
+      return m.assistant("The notes mention a crimson fox and cobalt owl.");
+    });
+    await next;
+  },
+);
+
+serverTest(
+  "rejects unreadable and oversized attachments without sending an empty user message",
+  async ({ server, llm }) => {
+    const session = await server.rpc.sessions.create();
+    const cases = [
+      {
+        files: [new File([new Uint8Array([0, 1, 2, 3])], "archive.bin")],
+        reason: "file format cannot be read",
+      },
+      {
+        files: [new File(["invalid PDF"], "corrupt.pdf")],
+        reason: "PDF could not be read",
+      },
+      {
+        files: [new File(["invalid image"], "corrupt.png")],
+        reason: "image could not be decoded",
+      },
+      { files: [new File([], "empty.txt")], reason: "empty" },
+      {
+        files: [new File([new Uint8Array(20 * 1024 * 1024 + 1)], "large.txt")],
+        reason: "too large",
+      },
+      {
+        files: Array.from({ length: 11 }, () => new File(["note"], "note.txt")),
+        reason: "up to 10 files",
+      },
+      {
+        files: [new File(["x".repeat(200_001)], "long.txt")],
+        reason: "200,000 characters",
+      },
+      {
+        files: [new File(["note"], "../note.txt")],
+        reason: "invalid filename",
+      },
+    ];
+    for (const input of cases) {
+      await expect(
+        server.rpc.sessions.prompt({
+          ...session,
+          text: "Read these",
+          files: input.files,
+        }),
+      ).rejects.toThrow(input.reason);
+      expect(
+        sessionMessages(await server.rpc.sessions.snapshot(session)),
+      ).toHaveLength(0);
+    }
+    const prompt = server.rpc.sessions.prompt({
+      ...session,
+      text: "Try a readable file",
+      files: [new File(["Valid note"], "valid.txt")],
+    });
+    await llm.respond(m.assistant("The valid file works."));
+    await prompt;
+  },
+);
 
 serverTest(
   "uploads archives through the control plane and retries rejected requests after restart",
@@ -108,6 +299,10 @@ serverTest(
       ...session,
       text: "Read notes",
     });
+    await llm.waitForRequest();
+    expect(await server.rpc.sessions.list()).toEqual([
+      expect.objectContaining({ ...session, isRunning: true }),
+    ]);
     await llm.respond(
       m.tool.start("exec", {
         id: "read-notes",
@@ -118,6 +313,13 @@ serverTest(
     );
     await llm.respond(m.assistant("Your notes say Trace me."));
     await prompt;
+    expect(await server.rpc.sessions.list()).toEqual([
+      expect.objectContaining({
+        ...session,
+        isRunning: false,
+        latestResultId: expect.any(String),
+      }),
+    ]);
 
     const [trace] = await readTraces(server.workspaceRoot);
     expect(trace).toBeDefined();
@@ -1356,5 +1558,849 @@ serverTest(
       .toMatch(/timed out after 10000 ms/i);
     await llm.respond(m.assistant("Done."));
     await prompt;
+  },
+);
+
+serverTest(
+  "pushes session summaries and catches up after reconnect and restart",
+  async ({ server, llm }) => {
+    using cleanup = new errore.DisposableStack();
+    const first = new AbortController();
+    cleanup.defer(() => first.abort());
+    const updates = await server.rpc.sessions.watchSummaries(undefined, {
+      signal: first.signal,
+    });
+    expect((await updates.next()).value).toEqual({
+      type: "snapshot",
+      sessions: [],
+    });
+    const session = await server.rpc.sessions.create();
+    expect((await updates.next()).value).toMatchObject({
+      type: "updated",
+      session: { ...session, isRunning: false },
+    });
+
+    const prompting = server.rpc.sessions.prompt({
+      ...session,
+      text: "Work without an open conversation",
+    });
+    const running = await nextSummary(
+      updates,
+      (summary) => summary.isRunning && summary.title !== undefined,
+    );
+    expect(running).toMatchObject({
+      ...session,
+      title: "Work without an open conversation",
+    });
+    await llm.respond(m.assistant("First result"));
+    await prompting;
+    const completed = await nextSummary(
+      updates,
+      (summary) => !summary.isRunning && summary.latestResultId !== undefined,
+    );
+    expect(completed.latestResultId).toBeDefined();
+    first.abort();
+
+    // Finish another run while this client is disconnected.
+    const again = server.rpc.sessions.prompt({
+      ...session,
+      text: "Finish while I am disconnected",
+    });
+    await llm.respond(m.assistant("Second result"));
+    await again;
+    const reconnect = new AbortController();
+    cleanup.defer(() => reconnect.abort());
+    const resumed = await server.rpc.sessions.watchSummaries(undefined, {
+      signal: reconnect.signal,
+    });
+    const current = await resumed.next();
+    expect(current.value).toMatchObject({
+      type: "snapshot",
+      sessions: [{ ...session, isRunning: false }],
+    });
+    if (current.done || current.value.type !== "snapshot")
+      throw new Error("Expected summary snapshot");
+    const resultId = current.value.sessions[0]!.latestResultId;
+    expect(resultId).toBeDefined();
+    expect(resultId).not.toBe(completed.latestResultId);
+
+    // Aborting an active run also pushes its settled status.
+    const aborted = server.rpc.sessions.prompt({
+      ...session,
+      text: "Stop this run",
+    });
+    await nextSummary(resumed, (summary) => summary.isRunning);
+    await llm.waitForRequest();
+    await server.rpc.sessions.abort(session);
+    await aborted;
+    const stopped = await nextSummary(
+      resumed,
+      (summary) => !summary.isRunning && summary.latestResultId !== resultId,
+    );
+    expect(stopped.latestResultId).toBeDefined();
+    reconnect.abort();
+    await server.stop();
+    await server.start();
+    const restart = new AbortController();
+    cleanup.defer(() => restart.abort());
+    const restored = await server.rpc.sessions.watchSummaries(undefined, {
+      signal: restart.signal,
+    });
+    expect((await restored.next()).value).toMatchObject({
+      type: "snapshot",
+      sessions: [
+        {
+          ...session,
+          isRunning: false,
+          latestResultId: stopped.latestResultId,
+        },
+      ],
+    });
+    restart.abort();
+  },
+);
+
+serverTest(
+  "pushes named seeded sessions to every summary subscriber",
+  async ({ server }) => {
+    using cleanup = new errore.DisposableStack();
+    const controller = new AbortController();
+    cleanup.defer(() => controller.abort());
+    const first = await server.rpc.sessions.watchSummaries(undefined, {
+      signal: controller.signal,
+    });
+    const second = await server.rpc.sessions.watchSummaries(undefined, {
+      signal: controller.signal,
+    });
+    await first.next();
+    await second.next();
+    const session = await server.rpc.testApi.seedSession({
+      title: "Saved title",
+      messages: [
+        { role: "user", content: "Initial question", timestamp: Date.now() },
+      ],
+    });
+    for (const stream of [first, second]) {
+      const summary = await nextSummary(
+        stream,
+        (item) => item.title === "Saved title",
+      );
+      expect(summary).toMatchObject({
+        ...session,
+        title: "Saved title",
+        isRunning: false,
+      });
+    }
+    controller.abort();
+  },
+);
+
+serverTest(
+  "pushes failed run completion without an open conversation",
+  async ({ server, llm }) => {
+    using cleanup = new errore.DisposableStack();
+    const controller = new AbortController();
+    cleanup.defer(() => controller.abort());
+    const updates = await server.rpc.sessions.watchSummaries(undefined, {
+      signal: controller.signal,
+    });
+    await updates.next();
+    const session = await server.rpc.sessions.create();
+    const prompted = server.rpc.sessions.prompt({
+      ...session,
+      text: "Denied model",
+    });
+    await nextSummary(updates, (summary) => summary.isRunning);
+    await llm.respond(m.error("Model access denied"));
+    await prompted;
+    const failed = await nextSummary(
+      updates,
+      (summary) => !summary.isRunning && summary.latestResultId !== undefined,
+    );
+    expect(await server.rpc.sessions.snapshot(session)).toMatchObject({
+      lastRun: { id: failed.latestResultId, status: "failed" },
+    });
+  },
+);
+
+async function nextSummary(
+  updates: AsyncIterable<SessionSummariesUpdate>,
+  matches: (summary: SessionSummary) => boolean,
+) {
+  // Consume without returning the iterator so the same connection remains usable.
+  const iterator = updates[Symbol.asyncIterator]();
+  while (true) {
+    const next = await iterator.next();
+    if (next.done)
+      throw new Error(
+        "Session summary stream ended before the expected update",
+      );
+    if (next.value.type === "updated" && matches(next.value.session))
+      return next.value.session;
+  }
+}
+
+serverTest(
+  "uploads original file bytes into the workspace without overwriting files",
+  async ({ server }) => {
+    await server.rpc.workspace.createEntry({
+      path: "Uploads",
+      kind: "directory",
+    });
+    const bytes = new Uint8Array([0, 255, 13, 10, 128, 42]);
+    const file = new File([bytes], "local.bin", {
+      type: "application/octet-stream",
+    });
+    expect(
+      await server.rpc.workspace.uploadFile({ path: "Uploads/data.bin", file }),
+    ).toEqual({ path: "Uploads/data.bin" });
+    expect(
+      await fs.readFile(path.join(server.workspaceRoot, "Uploads/data.bin")),
+    ).toEqual(Buffer.from(bytes));
+    expect(await server.rpc.workspace.listPaths()).toContain(
+      "Uploads/data.bin",
+    );
+    await expect(
+      server.rpc.workspace.uploadFile({
+        path: "Uploads/data.bin",
+        file: new File(["replacement"], "local.bin"),
+      }),
+    ).rejects.toThrow("already exists");
+    expect(
+      await fs.readFile(path.join(server.workspaceRoot, "Uploads/data.bin")),
+    ).toEqual(Buffer.from(bytes));
+  },
+);
+
+serverTest(
+  "rejects file uploads outside the workspace and through symlinks",
+  async ({ server }) => {
+    const outside = path.join(server.harness.paths.root, "outside-upload");
+    await fs.mkdir(outside);
+    await fs.symlink(
+      outside,
+      path.join(server.workspaceRoot, "Shortcut"),
+      "junction",
+    );
+    const file = new File(["local data"], "notes.txt");
+    for (const invalid of [
+      "../outside.txt",
+      ".halo/state.db",
+      "Shortcut/notes.txt",
+      "",
+    ]) {
+      await expect(
+        server.rpc.workspace.uploadFile({ path: invalid, file }),
+      ).rejects.toThrow("not a workspace file");
+    }
+    expect(await fs.readdir(outside)).toEqual([]);
+  },
+);
+
+serverTest(
+  "saves client-named images without overwriting or accepting path traversal",
+  async ({ createServer }) => {
+    const server = createServer();
+    await server.start();
+    const id = "11111111-1111-4111-8111-111111111111";
+    const file = new File([new Uint8Array([1, 2, 3])], "clipboard.png", {
+      type: "image/png",
+    });
+    const input = { documentPath: "notes.md", file, id };
+    const src = `image-${id}.png`;
+    expect(await server.rpc.workspace.saveImage(input)).toEqual({ src });
+    await expect(server.rpc.workspace.saveImage(input)).rejects.toThrow();
+    await expect(
+      server.rpc.workspace.saveImage({ ...input, id: "../../outside" }),
+    ).rejects.toThrow();
+    expect(await fs.readFile(path.join(server.workspaceRoot, src))).toEqual(
+      Buffer.from([1, 2, 3]),
+    );
+    expect(
+      await server.rpc.workspace.saveImage({ documentPath: "notes.md", file }),
+    ).toMatchObject({ src: expect.stringMatching(/^image-[0-9a-f-]+\.png$/) });
+  },
+);
+
+serverTest(
+  "configures persistent hotkeys through chat and streams changes to clients",
+  async ({ server, llm }) => {
+    const controller = new AbortController();
+    using cleanup = new errore.DisposableStack();
+    cleanup.defer(() => controller.abort());
+    const updates = await server.rendererRpc.hotkeys.watch(undefined, {
+      signal: controller.signal,
+    });
+    expect((await updates.next()).value).toEqual([]);
+    const session = await server.rpc.sessions.create();
+    const prompt = server.rpc.sessions.prompt({
+      ...session,
+      text: "Make Cmd+Shift+K open a new chat tab",
+    });
+    await llm.respond(
+      m.tool.start("exec", {
+        id: "save-hotkey",
+        arguments: {
+          js: 'return await tools.hotkeys.save({ label: "Quick chat", accelerator: "Cmd+Shift+K", action: { type: "newTab" } });',
+        },
+      }),
+    );
+    await llm.respond(m.assistant("Your hotkey is ready."));
+    await prompt;
+    const [hotkey] = await server.rpc.hotkeys.list();
+    expect(hotkey).toMatchObject({
+      label: "Quick chat",
+      accelerator: "CmdOrCtrl+Shift+K",
+      action: { type: "newTab" },
+    });
+    expect((await updates.next()).value).toEqual([hotkey]);
+    const id = hotkey!.id;
+    await expect(
+      server.rpc.hotkeys.save({
+        label: "Conflict",
+        accelerator: "Shift+Control+K",
+        action: { type: "closeTab" },
+      }),
+    ).rejects.toThrow("already assigned");
+    await expect(
+      server.rpc.hotkeys.save({
+        label: "Reserved",
+        accelerator: "Cmd+T",
+        action: { type: "closeTab" },
+      }),
+    ).rejects.toThrow("reserved");
+    await expect(
+      server.rpc.hotkeys.save({
+        label: "Typing",
+        accelerator: "K",
+        action: { type: "newTab" },
+      }),
+    ).rejects.toThrow("CmdOrCtrl");
+    await expect(
+      server.rpc.hotkeys.save({
+        label: "Escape workspace",
+        accelerator: "Cmd+Shift+L",
+        action: { type: "openFile", path: "../secret.md" },
+      }),
+    ).rejects.toThrow("workspace-relative");
+    await expect(
+      server.rpc.hotkeys.save({
+        label: "Empty task",
+        accelerator: "CmdOrCtrl+Shift+L",
+        action: { type: "runAgent", prompt: "   " },
+      }),
+    ).rejects.toThrow("needs an instruction");
+    const changed = await server.rpc.hotkeys.save({
+      ...hotkey!,
+      label: "Draft daily notes",
+      accelerator: "CmdOrCtrl+Shift+L",
+      action: {
+        type: "runAgent",
+        prompt: "Create daily.md with a summary of the workspace notes.",
+      },
+    });
+    expect((await updates.next()).value).toEqual([changed]);
+    controller.abort();
+    await server.stop();
+    await server.start();
+    expect(await server.rpc.hotkeys.list()).toEqual([changed]);
+    const listed = await server.rpc.testApi.invokeTool({
+      path: "hotkeys.list",
+      input: {},
+    });
+    expect(listed).toEqual([changed]);
+    await server.rpc.testApi.invokeTool({
+      path: "hotkeys.remove",
+      input: { id },
+    });
+    expect(await server.rendererRpc.hotkeys.list()).toEqual([]);
+    await server.stop();
+    await server.start();
+    expect(await server.rpc.hotkeys.list()).toEqual([]);
+  },
+);
+
+serverTest(
+  "streams extension snapshots across reload, reconnect, and restart failure",
+  async ({ server }) => {
+    using cleanup = new errore.DisposableStack();
+    const controller = new AbortController();
+    cleanup.defer(() => controller.abort());
+    const first = await server.rpc.extensions.watch(undefined, {
+      signal: controller.signal,
+    });
+    const second = await server.rendererRpc.extensions.watch(undefined, {
+      signal: controller.signal,
+    });
+    expect((await first.next()).value).toEqual([]);
+    expect((await second.next()).value).toEqual([]);
+
+    const directory = path.join(
+      server.workspaceRoot,
+      ".halo/extensions/snapshot-test",
+    );
+    const manifest = path.join(directory, "package.json");
+    const launcher = path.join(directory, "dist/start.mjs");
+    await fs.mkdir(path.dirname(launcher), { recursive: true });
+    await fs.writeFile(manifest, JSON.stringify({ name: "snapshot-test" }));
+    // A real process implements the extension host's readiness and shutdown protocol.
+    await fs.writeFile(
+      launcher,
+      `
+    import http from "node:http";
+    const server = http.createServer((_, response) => response.end("Ready"));
+    server.listen(0, "127.0.0.1", () => {
+      process.send("http://127.0.0.1:" + server.address().port + "/view/");
+    });
+    process.on("message", (message) => {
+      if (message === "shutdown") server.close(() => process.exit(0));
+    });
+  `,
+    );
+    // Opening another watch concurrently must include this reload, either in its
+    // first snapshot or in the next buffered update.
+    const opening = server.rpc.extensions.watch(undefined, {
+      signal: controller.signal,
+    });
+    await Promise.all([
+      server.rpc.extensions.reload(),
+      server.rpc.extensions.reload(),
+    ]);
+    const started = await server.rpc.extensions.list();
+    expect(started).toMatchObject([
+      { id: "snapshot-test", displayName: "snapshot-test" },
+    ]);
+    for (const stream of [first, second]) {
+      expect((await stream.next()).value).toEqual(started);
+      expect((await stream.next()).value).toEqual(started);
+    }
+    const racing = await opening;
+    const initial = await racing.next();
+    if (initial.done) throw new Error("Expected initial extension snapshot");
+    if (initial.value.length === 0)
+      expect((await racing.next()).value).toEqual(started);
+    else expect(initial.value).toEqual(started);
+    await racing.return();
+
+    await fs.writeFile(
+      manifest,
+      JSON.stringify({
+        name: "snapshot-test",
+        halo: { displayName: "Renamed", icon: "Calendar" },
+      }),
+    );
+    await server.rpc.extensions.reload();
+    const renamed = [
+      { ...started[0], displayName: "Renamed", icon: "Calendar" },
+    ];
+    expect((await first.next()).value).toEqual(renamed);
+    expect((await second.next()).value).toEqual(renamed);
+    const reconnect = await server.rpc.extensions.watch(undefined, {
+      signal: controller.signal,
+    });
+    expect((await reconnect.next()).value).toEqual(renamed);
+    await reconnect.return();
+
+    await fs.writeFile(manifest, "{");
+    const failedFirst = expect(first.next()).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+    });
+    const failedSecond = expect(second.next()).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+    });
+    await server.rpc.extensions.reload();
+    await Promise.all([failedFirst, failedSecond]);
+    await fs.writeFile(manifest, JSON.stringify({ name: "snapshot-test" }));
+    const recovered = await server.rpc.extensions.watch(undefined, {
+      signal: controller.signal,
+    });
+    expect((await recovered.next()).value).toEqual(started);
+
+    await server.rpc.extensions.restart({ id: "snapshot-test" });
+    const restartUpdate = await recovered.next();
+    if (restartUpdate.done)
+      throw new Error("Expected restarted extension snapshot");
+    const restarted = restartUpdate.value;
+    expect(restarted).toMatchObject([
+      { id: "snapshot-test", displayName: "snapshot-test" },
+    ]);
+    expect(restarted?.[0]?.url).not.toBe(started[0]?.url);
+    await fs.rename(launcher, launcher + ".saved");
+    await expect(
+      server.rpc.extensions.restart({ id: "snapshot-test" }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect((await recovered.next()).value).toEqual([]);
+    await fs.rename(launcher + ".saved", launcher);
+    await server.rpc.extensions.reload();
+    expect((await recovered.next()).value).toMatchObject([
+      { id: "snapshot-test" },
+    ]);
+    await fs.rm(directory, { recursive: true });
+    await server.rpc.extensions.reload();
+    expect((await recovered.next()).value).toEqual([]);
+
+    const cancelled = new AbortController();
+    const abortable = await server.rpc.extensions.watch(undefined, {
+      signal: cancelled.signal,
+    });
+    await abortable.next();
+    const pending = expect(abortable.next()).rejects.toSatisfy(
+      errore.isAbortError,
+    );
+    cancelled.abort();
+    await pending;
+    // An idle subscription must not hold server shutdown open.
+    await server.stop();
+  },
+);
+
+serverTest(
+  "shares live workspace updates over one cancellable subscription",
+  async ({ server }) => {
+    using cleanup = new errore.DisposableStack();
+    const controller = new AbortController();
+    cleanup.defer(() => controller.abort());
+    const updates = await server.rendererRpc.server.watch(undefined, {
+      signal: controller.signal,
+    });
+    const initial = new Set<string>();
+    while (initial.size < 3) {
+      const next = await updates.next();
+      assert(!next.done, "Workspace stream ended before initial snapshots");
+      if (next.value.type === "files") continue;
+      initial.add(next.value.type);
+    }
+    expect(initial).toEqual(new Set(["hotkeys", "extensions", "sessions"]));
+    const hotkey = await server.rpc.hotkeys.save({
+      label: "Quick task",
+      accelerator: "CmdOrCtrl+Shift+J",
+      action: { type: "runAgent", prompt: "Write a summary." },
+    });
+    for await (const item of updates) {
+      if (item.type !== "hotkeys") continue;
+      expect(item.hotkeys).toEqual([hotkey]);
+      break;
+    }
+    const reconnected = await server.rendererRpc.server.watch(undefined, {
+      signal: controller.signal,
+    });
+    for await (const item of reconnected) {
+      if (item.type !== "hotkeys") continue;
+      expect(item.hotkeys).toEqual([hotkey]);
+      break;
+    }
+    // Leaving a for-await loop must cancel every source, including idle ones.
+    await server.stop();
+  },
+);
+
+serverTest(
+  "negotiates supported protocols and rejects unsupported writes",
+  async ({ server }) => {
+    const connected = await connectHaloClient({ transport: server.transport });
+    assert(!(connected instanceof Error));
+    expect(connected.serverInfo).toEqual({
+      protocolVersion: haloProtocolVersion,
+      supportedProtocols: haloSupportedProtocols,
+    });
+    const previousProtocol = createHaloClient({
+      transport: {
+        ...server.transport,
+        headers: {
+          ...server.transport.headers,
+          "x-halo-protocol-version": "18",
+        },
+      },
+    });
+    expect(
+      await previousProtocol.workspace.writeFile({
+        path: "legacy.md",
+        content: "Legacy client",
+      }),
+    ).toEqual({ path: "legacy.md" });
+    const unsupported = createHaloClient({
+      transport: {
+        ...server.transport,
+        headers: {
+          ...server.transport.headers,
+          "x-halo-protocol-version": "999",
+        },
+      },
+    });
+    expect(await unsupported.server.info()).toMatchObject({
+      supportedProtocols: haloSupportedProtocols,
+    });
+    await expect(
+      unsupported.workspace.writeFile({
+        path: "unsupported.md",
+        content: "must not write",
+      }),
+    ).rejects.toMatchObject({ code: "UNSUPPORTED_PROTOCOL" });
+    expect(await server.rpc.workspace.listPaths()).not.toContain(
+      "unsupported.md",
+    );
+  },
+);
+
+serverTest(
+  "merges independent note edits and uncontested deletions without inference",
+  async ({ server }) => {
+    const base =
+      "# Plan\n\nMeet Tuesday at 2pm.\n\nRemove this paragraph.\n\nKeep this footer.\n";
+    const local = base
+      .replace("Tuesday", "Wednesday")
+      .replace("Remove this paragraph.\n\n", "");
+    const remote = base.replace("2pm", "3pm");
+    await server.rpc.workspace.writeFile({ path: "plan.md", content: remote });
+    const prepared = await server.rpc.workspace.reconcileNote({
+      path: "plan.md",
+      base,
+      content: local,
+    });
+    expect(prepared.content).toBe(
+      "# Plan\n\nMeet Wednesday at 3pm.\n\nKeep this footer.\n",
+    );
+    expect(
+      await server.rpc.workspace.writeFile({ path: "plan.md", ...prepared }),
+    ).toMatchObject({ conflict: false });
+    expect(await server.rpc.workspace.readFile({ path: "plan.md" })).toBe(
+      prepared.content,
+    );
+    const historyDirectory = path.join(
+      server.workspaceRoot,
+      ".halo",
+      "note-history",
+    );
+    const records = await fs.readdir(historyDirectory);
+    expect(records).toHaveLength(1);
+    expect(
+      JSON.parse(
+        await fs.readFile(path.join(historyDirectory, records[0]!), "utf8"),
+      ),
+    ).toMatchObject({
+      original: base,
+      local,
+      remote,
+      resolved: prepared.content,
+    });
+    await server.stop();
+    await server.start();
+    expect(await server.rpc.workspace.readFile({ path: "plan.md" })).toBe(
+      prepared.content,
+    );
+    expect(await fs.readdir(historyDirectory)).toEqual(records);
+  },
+);
+
+serverTest(
+  "resolves only overlapping note sections with document context",
+  async ({ server, llm }) => {
+    const prefix = "# Travel\n\nWe are arranging the team trip.\n\n";
+    const suffix =
+      "\nBudget is unchanged.\n\n" + "Unrelated private appendix.\n".repeat(10);
+    const base = prefix + "Depart Tuesday.\n" + suffix;
+    await server.rpc.workspace.writeFile({
+      path: "trip.md",
+      content: base.replace("Tuesday", "Thursday"),
+    });
+    const preparing = server.rpc.workspace.reconcileNote({
+      path: "trip.md",
+      base,
+      content: base.replace("Tuesday", "Wednesday"),
+    });
+    await llm.respond(({ messages, tools }) => {
+      const system = messages
+        .filter(
+          (message) =>
+            message.role === "system" || message.role === "developer",
+        )
+        .map(messageText)
+        .join("\n");
+      expect(system).toContain("Halo's Markdown reconciliation assistant");
+      expect(system).toContain("untrusted data");
+      expect(system).toContain(
+        "retain content so the person can delete it later",
+      );
+      expect(tools ?? []).toHaveLength(0);
+      const user = messages.findLast((message) => message.role === "user")!;
+      const request = JSON.parse(messageText(user));
+      expect(request).toMatchObject({
+        heading: "# Travel\n",
+        original: "Depart Tuesday.\n",
+        local: "Depart Wednesday.\n",
+        remote: "Depart Thursday.\n",
+      });
+      expect(request.contextBefore).toContain("arranging the team trip");
+      expect(request.contextAfter).toContain("Budget is unchanged");
+      expect(messageText(user)).not.toContain(
+        "Unrelated private appendix.\n".repeat(10),
+      );
+      return m.assistant(
+        JSON.stringify({
+          markdown: "Departure options: Wednesday or Thursday.",
+        }),
+      );
+    });
+    const prepared = await preparing;
+    expect(prepared.content).toBe(
+      prefix + "Departure options: Wednesday or Thursday.\n" + suffix,
+    );
+    await server.rpc.workspace.writeFile({ path: "trip.md", ...prepared });
+    expect(await server.rpc.workspace.readFile({ path: "trip.md" })).toBe(
+      prepared.content,
+    );
+  },
+);
+
+for (const response of [
+  m.error("Provider unavailable"),
+  m.assistant("not JSON"),
+  m.assistant('{"markdown":""}'),
+  m.assistant('{"markdown":"<<<<<<< local"}'),
+]) {
+  serverTest(
+    `preserves both note alternatives when inference returns ${JSON.stringify(response)}`,
+    async ({ server, llm }) => {
+      await server.rpc.workspace.writeFile({
+        path: "fallback.md",
+        content: "# Heading\n\nServer detail.\n\nFooter.\n",
+      });
+      const preparing = server.rpc.workspace.reconcileNote({
+        path: "fallback.md",
+        base: "# Heading\n\nOriginal.\n\nFooter.\n",
+        content: "# Heading\n\nLocal detail.\n\nFooter.\n",
+      });
+      await llm.respond(response);
+      const prepared = await preparing;
+      expect(prepared.content).toBe(
+        "# Heading\n\nLocal detail.\n\nServer detail.\n\nFooter.\n",
+      );
+      await server.rpc.workspace.writeFile({
+        path: "fallback.md",
+        ...prepared,
+      });
+      expect(await server.rpc.workspace.readFile({ path: "fallback.md" })).toBe(
+        prepared.content,
+      );
+    },
+  );
+}
+
+serverTest(
+  "rejects a stale note merge when the server changes during inference",
+  async ({ server, llm }) => {
+    await server.rpc.workspace.writeFile({
+      path: "race.md",
+      content: "Server version",
+    });
+    const preparing = server.rpc.workspace.reconcileNote({
+      path: "race.md",
+      base: "Original",
+      content: "Local version",
+    });
+    await llm.waitForRequest();
+    await server.rpc.testApi.invokeTool({
+      path: "files.write",
+      input: { path: "race.md", content: "Newer server version" },
+    });
+    await llm.respond(
+      m.assistant(JSON.stringify({ markdown: "Local and server versions" })),
+    );
+    const prepared = await preparing;
+    expect(
+      await server.rpc.workspace.writeFile({ path: "race.md", ...prepared }),
+    ).toMatchObject({ conflict: true });
+    expect(await server.rpc.workspace.readFile({ path: "race.md" })).toBe(
+      "Newer server version",
+    );
+  },
+);
+
+serverTest(
+  "serializes competing conditional file saves and refuses deleted files",
+  async ({ server }) => {
+    await server.rpc.workspace.writeFile({
+      path: "race.md",
+      content: "Original",
+    });
+    const results = await Promise.all(
+      ["One", "Two"].map(
+        async (content) =>
+          await server.rpc.workspace.writeFile({
+            path: "race.md",
+            content,
+            expectedContent: "Original",
+          }),
+      ),
+    );
+    expect(results.filter((result) => result.conflict)).toHaveLength(1);
+    const winner = results[0]!.conflict ? "Two" : "One";
+    expect(await server.rpc.workspace.readFile({ path: "race.md" })).toBe(
+      winner,
+    );
+    await server.rpc.workspace.deleteEntry({ path: "race.md" });
+    await expect(
+      server.rpc.workspace.writeFile({
+        path: "race.md",
+        content: "Stale",
+        expectedContent: winner,
+      }),
+    ).rejects.toThrow();
+    expect(await server.rpc.workspace.listPaths()).not.toContain("race.md");
+  },
+);
+
+serverTest(
+  "limits automatic reconciliation to Markdown and preserves identical edits",
+  async ({ server }) => {
+    await server.rpc.workspace.writeFile({
+      path: "same.MD",
+      content: "Same edit",
+    });
+    expect(
+      await server.rpc.workspace.reconcileNote({
+        path: "same.MD",
+        base: "Original",
+        content: "Same edit",
+      }),
+    ).toEqual({ content: "Same edit", expectedContent: "Same edit" });
+    await server.rpc.workspace.writeFile({
+      path: "code.ts",
+      content: "remote",
+    });
+    await expect(
+      server.rpc.workspace.reconcileNote({
+        path: "code.ts",
+        base: "base",
+        content: "local",
+      }),
+    ).rejects.toThrow();
+    expect(await server.rpc.workspace.readFile({ path: "code.ts" })).toBe(
+      "remote",
+    );
+  },
+);
+
+serverTest(
+  "preserves note paragraph boundaries when deletion conflicts with a revision and inference fails",
+  async ({ server, llm }) => {
+    const base = "# Notes\r\n\r\nBudget is $100.\r\n\r\nKeep this footer.\r\n";
+    const remote = base.replace("$100", "$150 including delivery");
+    await server.rpc.workspace.writeFile({
+      path: "deletion.md",
+      content: remote,
+    });
+    const preparing = server.rpc.workspace.reconcileNote({
+      path: "deletion.md",
+      base,
+      content: "# Notes\r\n\r\nKeep this footer.\r\n",
+    });
+    await llm.respond(m.error("Rate limited"));
+    const prepared = await preparing;
+    expect(prepared.content).toBe(remote);
+    await server.rpc.workspace.writeFile({ path: "deletion.md", ...prepared });
+    expect(await server.rpc.workspace.readFile({ path: "deletion.md" })).toBe(
+      remote,
+    );
   },
 );

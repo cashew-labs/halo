@@ -1,7 +1,13 @@
+import type { LLMApi } from "../llm/LLMApi.js";
+import { mergeMarkdown } from "./mergeMarkdown.js";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { randomUUID } from "node:crypto";
 import * as errore from "errore";
-import type { WorkspaceInfo, WorkspaceTreeEvent } from "@get-halo/client";
+import {
+  imageFilename,
+  type WorkspaceInfo,
+  type WorkspaceTreeEvent,
+} from "@get-halo/client";
 import { type ReadonlyStream, Stream } from "@get-halo/shared/Stream";
 import {
   type FilesystemWatchBatch,
@@ -9,10 +15,7 @@ import {
   FilesystemService,
   FilesystemPathNotFoundError,
 } from "../filesystem/FilesystemService.js";
-import {
-  workspaceFilePreview,
-  workspaceImageExtension,
-} from "./workspaceFilePreview.js";
+import { workspaceFilePreview } from "./workspaceFilePreview.js";
 import { installHaloCli } from "./installHaloCli.js";
 import { seedExtensionWorkspace } from "../extensions/seedExtensionWorkspace.js";
 
@@ -24,6 +27,11 @@ export type WorkspaceLayout = {
 export class WorkspaceNotDirectoryError extends errore.createTaggedError({
   name: "WorkspaceNotDirectoryError",
   message: "The selected workspace must be a directory.",
+}) {}
+
+export class WorkspaceNoteMergeError extends errore.createTaggedError({
+  name: "WorkspaceNoteMergeError",
+  message: "$detail",
 }) {}
 
 export class WorkspaceIoError extends errore.createTaggedError({
@@ -141,6 +149,7 @@ type WorkspaceServiceOptions = {
   appDataDir: string;
   filesystem: FilesystemService;
   appVersion: string;
+  llmApi: LLMApi;
   cliEntry?: string;
   cliNodeExecutable?: string;
   cliElectronRunAsNode?: boolean;
@@ -232,7 +241,7 @@ export class WorkspaceService {
     return contents;
   }
 
-  async writeFile(path: string, content: string) {
+  async writeFile(path: string, content: string, expectedContent?: string) {
     const layout = this.layout;
 
     const absolutePath = resolve(layout.root, path);
@@ -249,6 +258,16 @@ export class WorkspaceService {
       return new WorkspaceIoError({ cause: directoryCreated });
     }
 
+    if (expectedContent !== undefined) {
+      const written = await this.options.filesystem.writeFileIfUnchanged({
+        path: absolutePath,
+        content,
+        expected: expectedContent,
+      });
+      if (written instanceof Error)
+        return new WorkspaceIoError({ cause: written });
+      return { path, conflict: written.conflict };
+    }
     const written = await this.options.filesystem.writeFile(
       absolutePath,
       content,
@@ -259,16 +278,74 @@ export class WorkspaceService {
     return { path };
   }
 
-  async saveImage(input: { documentPath: string; file: File }) {
+  async reconcileNote(
+    input: { path: string; base: string; content: string },
+    signal?: AbortSignal,
+  ) {
+    if (!/\.(?:md|markdown)$/i.test(input.path))
+      return new WorkspaceInvalidPathError({ path: input.path });
+    const remote = await this.readFile(input.path);
+    if (remote instanceof Error) return remote;
+    if (remote === input.base || remote === input.content)
+      return { content: input.content, expectedContent: remote };
+    if (input.content === input.base)
+      return { content: remote, expectedContent: remote };
+    // Bound deterministic diff work as well as model input on unusually large files.
+    if (
+      [input.base, input.content, remote].some(
+        (text) => text.length > 256_000 || text.split("\n").length > 5000,
+      )
+    )
+      return new WorkspaceNoteMergeError({
+        detail:
+          "This note is too large to merge automatically. Your draft is still here.",
+      });
+    const merged = await mergeMarkdown({
+      path: input.path,
+      base: input.base,
+      local: input.content,
+      remote,
+      llm: this.options.llmApi,
+      signal,
+    });
+    if (merged instanceof Error) return merged;
+    const directory = join(this.layout.root, ".halo", "note-history");
+    const created = await this.options.filesystem.makeDirectory(directory, {
+      recursive: true,
+    });
+    if (created instanceof Error)
+      return new WorkspaceIoError({ cause: created });
+    const historyPath = join(directory, `${Date.now()}-${randomUUID()}.json`);
+    const archived = await this.options.filesystem.writeFile(
+      historyPath,
+      JSON.stringify({
+        path: input.path,
+        createdAt: new Date().toISOString(),
+        original: input.base,
+        local: input.content,
+        remote,
+        resolved: merged.content,
+        usedFallback: merged.usedFallback,
+      }),
+      { flag: "wx", mode: 0o600 },
+    );
+    if (archived instanceof Error)
+      return new WorkspaceIoError({ cause: archived });
+    return { content: merged.content, expectedContent: remote };
+  }
+
+  async saveImage(input: { documentPath: string; file: File; id?: string }) {
     const documentPath = await this.resolveEntryPath(input.documentPath);
     if (documentPath instanceof Error) return documentPath;
-    const extension = workspaceImageExtension(input.file.type);
-    if (extension === undefined) return new WorkspaceInvalidImageError();
+    const src = imageFilename({
+      id: input.id ?? randomUUID(),
+      mime: input.file.type,
+    });
+    if (src === undefined) return new WorkspaceInvalidImageError();
     const contents = await input.file
       .arrayBuffer()
       .catch((cause) => new WorkspaceIoError({ cause }));
     if (contents instanceof Error) return contents;
-    const src = `image-${randomUUID()}.${extension}`;
     const written = await this.options.filesystem.writeFile(
       join(dirname(documentPath), src),
       new Uint8Array(contents),
@@ -277,6 +354,25 @@ export class WorkspaceService {
     if (written instanceof Error)
       return new WorkspaceIoError({ cause: written });
     return { src };
+  }
+
+  async uploadFile(input: { path: string; file: File }) {
+    const path = await this.resolveEntryPath(input.path);
+    if (path instanceof Error) return path;
+    const available = await this.checkAvailable(path);
+    if (available instanceof Error) return available;
+    const contents = await input.file
+      .arrayBuffer()
+      .catch((cause) => new WorkspaceIoError({ cause }));
+    if (contents instanceof Error) return contents;
+    const written = await this.options.filesystem.writeFile(
+      path,
+      new Uint8Array(contents),
+      { flag: "wx" },
+    );
+    if (written instanceof Error)
+      return new WorkspaceIoError({ cause: written });
+    return { path: input.path };
   }
 
   async createEntry(input: { path: string; kind: "file" | "directory" }) {

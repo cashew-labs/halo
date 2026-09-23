@@ -44,22 +44,18 @@ export async function seedExtensionWorkspace(
   });
   if (pdf instanceof Error) return new ExtensionSeedError({ cause: pdf });
 
-  const maui = await copySkillFile({
+  const maui = await copySkillDirectory({
     filesystem,
-    source: mauiSkillPath(),
+    source: mauiSkillDirectory(),
     destination: join(skillsDirectory, "maui"),
   });
   if (maui instanceof Error) return new ExtensionSeedError({ cause: maui });
 }
 
-function mauiSkillPath() {
+// The Maui skill ships SKILL.md plus a references/ tree that it links to.
+function mauiSkillDirectory() {
   const require = createRequire(import.meta.url);
-  return join(
-    dirname(require.resolve("maui/package.json")),
-    "skills",
-    "maui",
-    "SKILL.md",
-  );
+  return join(dirname(require.resolve("maui/package.json")), "skills", "maui");
 }
 
 async function copySkillDirectory(args: {
@@ -104,24 +100,4 @@ async function copyDirectory(args: {
     const written = await args.filesystem.writeFile(destination, contents);
     if (written instanceof Error) return written;
   }
-}
-
-async function copySkillFile(args: {
-  filesystem: FilesystemService;
-  source: string;
-  destination: string;
-}) {
-  const contents = await args.filesystem.readFile(args.source);
-  if (contents instanceof Error) return contents;
-  const destination = join(args.destination, "SKILL.md");
-  if (args.filesystem.exists(destination)) {
-    const existing = await args.filesystem.readFile(destination);
-    if (existing instanceof Error) return existing;
-    if (existing.equals(contents)) return;
-  }
-  const created = await args.filesystem.makeDirectory(args.destination, {
-    recursive: true,
-  });
-  if (created instanceof Error) return created;
-  return await args.filesystem.writeFile(destination, contents);
 }

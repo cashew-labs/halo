@@ -11,6 +11,7 @@ import { Authentication } from "./Authentication.tsx";
 import { StandaloneExtension } from "./StandaloneExtension.js";
 import { ApiProvider } from "./api/ApiProvider.tsx";
 import "./css.js";
+// Document shell (html/body/#root) must apply before React; purse-styles injects in layout effect.
 import "./styles.css";
 
 const queryClient = new QueryClient({
@@ -30,16 +31,16 @@ export function mountHaloApp(root: HTMLElement, host: HostApi) {
     <StrictMode>
       <HostProvider host={host}>
         <MauiProvider>
-          <Authentication>
-            <QueryClientProvider client={queryClient}>
+          <QueryClientProvider client={queryClient}>
+            <Authentication>
               <ApiProvider>
                 <HaloRoutes />
                 {import.meta.env.DEV && (
                   <Agentation endpoint="http://127.0.0.1:4747" />
                 )}
               </ApiProvider>
-            </QueryClientProvider>
-          </Authentication>
+            </Authentication>
+          </QueryClientProvider>
         </MauiProvider>
       </HostProvider>
     </StrictMode>,

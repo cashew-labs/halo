@@ -86,7 +86,7 @@ e2eTest(
     await signedInPage.goto(new URL(route, plane.origin).toString());
 
     await signedInPage.setViewportSize({ width: 390, height: 844 });
-    const frame = signedInPage.getByTitle("greeting", { exact: true });
+    const frame = signedInPage.locator('iframe[title="greeting"]');
     await expect(frame).toHaveCSS("height", "844px");
     await expect(frame).toHaveAttribute(
       "src",

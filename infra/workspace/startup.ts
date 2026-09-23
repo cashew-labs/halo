@@ -93,7 +93,10 @@ systemctl restart halo
 for attempt in $(seq 1 120); do
   if health=$(docker inspect --format '{{.State.Health.Status}}' halo-workspace 2>/dev/null); then
     if [ "$health" = "healthy" ]; then
-      echo "HALO_WORKSPACE_READY image=${ctx.image}"
+      status=$(docker exec halo-workspace node --import /opt/halo/node_modules/tsx/dist/loader.mjs /opt/halo/packages/halo-cli/src/cli.ts status --json)
+      protocols=$(jq -cer '.supportedProtocols // [.protocolVersion]' <<< "$status")
+      revision=$(jq -er '.build.revision // "unknown"' <<< "$status")
+      echo "HALO_WORKSPACE_READY image=${ctx.image} protocols=$protocols revision=$revision"
       exit 0
     fi
   fi

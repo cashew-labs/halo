@@ -1,40 +1,12 @@
 /* oxlint-disable react/iframe-missing-sandbox -- Extension views need their origin identity for API and storage access. */
-import * as errore from "errore";
-import { backgroundColor, Button, flex, Padding, Text, Tooltip } from "maui";
-import { Link } from "maui/icons";
+import { backgroundColor, Flex, flex, Text } from "maui";
 import { style, useStyles } from "purse-styles";
 import { useHost } from "../HostProvider.js";
-import { useExtensionsQuery, useWorkspaceQuery } from "../api/ApiProvider.tsx";
-import { PaneHeader } from "./PaneHeader.js";
+import { useExtensions } from "../api/WorkspaceUpdatesProvider.js";
 
-const publicExtensionOrigin =
-  "https://halo-west-control-plane-912701444316.us-west2.run.app";
-
-class CopyExtensionLinkError extends errore.createTaggedError({
-  name: "CopyExtensionLinkError",
-  message: "Could not copy the extension link.",
-}) {}
-
-async function copyExtensionLink(extensionId: string) {
-  const result = await navigator.clipboard
-    .writeText(
-      `${publicExtensionOrigin}/extensions/${encodeURIComponent(extensionId)}`,
-    )
-    .catch((cause) => new CopyExtensionLinkError({ cause }));
-
-  if (result instanceof Error) console.warn(result);
-}
-
-export function ExtensionView({
-  extensionId,
-  chrome,
-}: {
-  extensionId: string;
-  chrome: "pane" | "standalone";
-}) {
+export function ExtensionView({ extensionId }: { extensionId: string }) {
   const host = useHost();
-  const workspace = useWorkspaceQuery().data;
-  const extensions = useExtensionsQuery(workspace);
+  const extensions = useExtensions();
   const extension = extensions.data?.find((entry) => entry.id === extensionId);
   const extensionUrl =
     extension === undefined
@@ -47,39 +19,20 @@ export function ExtensionView({
 
   return (
     <main className={view} aria-label={displayName}>
-      {chrome === "pane" && (
-        <PaneHeader
-          section="Extensions"
-          title={displayName}
-          action={
-            extension === undefined ? undefined : (
-              <Tooltip content="Copy link" placement="bottom" delay={400}>
-                <Button
-                  variant="quiet"
-                  aria-label="Copy link"
-                  onClick={() => void copyExtensionLink(extension.id)}
-                >
-                  <Link size="sm" />
-                </Button>
-              </Tooltip>
-            )
-          }
-        />
-      )}
-      {extensions.isPending && (
-        <Padding xy={8}>
+      {extensions.data === undefined && extensions.error === undefined && (
+        <Flex column p={8}>
           <Text role="status">Loading extension…</Text>
-        </Padding>
+        </Flex>
       )}
-      {extensions.isError && (
-        <Padding xy={8}>
+      {extensions.error !== undefined && (
+        <Flex column p={8}>
           <Text role="alert">{extensions.error.message}</Text>
-        </Padding>
+        </Flex>
       )}
-      {extensions.isSuccess && extension === undefined && (
-        <Padding xy={8}>
+      {extensions.data !== undefined && extension === undefined && (
+        <Flex column p={8}>
           <Text>Extension '{extensionId}' is not running.</Text>
-        </Padding>
+        </Flex>
       )}
       {extension !== undefined && extensionUrl !== undefined && (
         <iframe

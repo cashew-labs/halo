@@ -1,3 +1,4 @@
+import { confirmRestart } from "./confirmRestart.js";
 import {
   Button,
   Flex,
@@ -44,7 +45,11 @@ export function ConnectionPage(props: ConnectionPageProps) {
                   : "Reload Halo to reconnect."}
               </P>
             </div>
-            <Button onClick={() => window.location.reload()}>
+            <Button
+              onClick={() => {
+                if (confirmRestart()) window.location.reload();
+              }}
+            >
               Reload Halo
             </Button>
           </Flex>
@@ -54,8 +59,28 @@ export function ConnectionPage(props: ConnectionPageProps) {
   );
 }
 
-function IncompatibleConnection({ error }: { error: IncompatibleServerError }) {
+export function IncompatibleConnection({
+  error,
+}: {
+  error: IncompatibleServerError;
+}) {
   const host = useHost();
+  if (
+    !error.supportedProtocols.every(
+      (protocol) => protocol > Number(error.clientProtocolVersion),
+    )
+  ) {
+    return (
+      <Flex column gap={4}>
+        <P>{protocolMismatchMessage(error)}</P>
+        <P>
+          Your server does not support this app yet. Halo will check again
+          automatically. In local development, restart the server from the same
+          checkout as the app.
+        </P>
+      </Flex>
+    );
+  }
   if (
     host.getAppInfo === undefined ||
     host.checkForAppUpdate === undefined ||
@@ -68,7 +93,13 @@ function IncompatibleConnection({ error }: { error: IncompatibleServerError }) {
           <P>{protocolMismatchMessage(error)}</P>
           <P>The website may have updated while this page was open.</P>
         </div>
-        <Button onClick={() => window.location.reload()}>Reload Halo</Button>
+        <Button
+          onClick={() => {
+            if (confirmRestart()) window.location.reload();
+          }}
+        >
+          Reload Halo
+        </Button>
       </Flex>
     );
   }
@@ -103,7 +134,7 @@ function DesktopUpdate({
     queryKey: [
       "incompatible-app-update-check",
       error.clientProtocolVersion,
-      error.serverProtocolVersion,
+      error.supportedProtocols,
     ],
     queryFn: async () => {
       const result = await checkForAppUpdate();
@@ -125,6 +156,7 @@ function DesktopUpdate({
   });
   const install = useMutation({
     mutationFn: async () => {
+      if (!confirmRestart()) return;
       const result = await installAppUpdate();
       if (result instanceof Error) throw result;
     },
@@ -165,7 +197,7 @@ function DesktopUpdate({
         {update?.state === "downloaded" ? (
           <Button
             variant="primary"
-            disabled={install.isPending}
+            isDisabled={install.isPending}
             onClick={() => install.mutate()}
           >
             {install.isPending
@@ -173,7 +205,7 @@ function DesktopUpdate({
               : `Restart and install Halo ${update.version}`}
           </Button>
         ) : update?.state === "available" || checking ? (
-          <Button disabled>
+          <Button isDisabled>
             {update?.state === "available"
               ? "Downloading update…"
               : "Checking…"}
@@ -187,7 +219,7 @@ function DesktopUpdate({
           openExternalUrl !== undefined && (
             <Button
               variant="quiet"
-              disabled={openReleases.isPending}
+              isDisabled={openReleases.isPending}
               onClick={() => openReleases.mutate()}
             >
               View Halo downloads
@@ -199,7 +231,7 @@ function DesktopUpdate({
 }
 
 function protocolMismatchMessage(error: IncompatibleServerError) {
-  return `This app uses protocol ${error.clientProtocolVersion}, while your server uses protocol ${error.serverProtocolVersion}.`;
+  return `This app uses protocol ${error.clientProtocolVersion}, while the ${error.service} API supports protocols ${error.supportedProtocols.join(", ")}.`;
 }
 
 function updateStatusMessage({
@@ -215,7 +247,7 @@ function updateStatusMessage({
     return "Halo could not check for updates. Check your internet connection, then try again.";
   }
   if (checking || appInfo === undefined) {
-    return "Checking for a compatible Halo update…";
+    return "Checking for a Halo update…";
   }
 
   switch (appInfo.update.state) {
@@ -224,9 +256,9 @@ function updateStatusMessage({
     case "idle":
       return `Halo ${appInfo.version} is the newest published version, but it cannot use this server yet. A compatible update is not available yet; check again shortly.`;
     case "checking":
-      return "Checking for a compatible Halo update…";
+      return "Checking for a Halo update…";
     case "available":
-      return "A compatible update is downloading automatically. Keep Halo open; installation will be available when the download finishes.";
+      return "An update is downloading automatically. Keep Halo open; installation will be available when the download finishes.";
     case "downloaded":
       return `Halo ${appInfo.update.version} is ready. Restart now to install it and reconnect.`;
     case "error":

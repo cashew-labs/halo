@@ -190,7 +190,7 @@ function AnimatedToolCalls({ calls }: { calls: ToolPart[] }) {
 
 const summaryRow = style(
   text({ size: "md", fontWeight: 400, color: "lowContrast" }),
-  flex({ align: "center", gap: 4 }),
+  flex({ alignItems: "center", gap: 4 }),
   {
     overflow: "visible",
     color: colors.gray[11],
