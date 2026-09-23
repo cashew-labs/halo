@@ -42,9 +42,7 @@ Development Electron bypasses the control plane. Production does not. That is th
 
 ## Solution overview
 
-Point development Electron at the local control plane the same way production points at `https://gethalo.dev`: Better Auth bearer, then `/workspace/health` and `/workspace/rpc`. Keep ADC as the way to get that bearer so development still skips browser Google sign-in. Test Electron (`HALO_E2E=1`) stays on `server.json`.
-
-Working backwards from that goal, only three things are missing. Logger work is not one of them.
+Point development Electron at the local control plane the same way production points at `https://gethalo.dev`: a real Better Auth bearer, then `/workspace/health` and `/workspace/rpc`. ADC still supplies that bearer, so local runs skip the Google popup. Test Electron (`HALO_E2E=1`) stays on `server.json`.
 
 ## Goals
 
@@ -59,53 +57,27 @@ Working backwards from that goal, only three things are missing. Logger work is 
 - No change to production Google sign-in or the packaged app.
 - Electron still does not start or stop the workspace server.
 
-## Why these pieces (backwards from the goal)
-
-The production path is already:
-
-```callstack
- ControlPlaneAuth.getWorkspaceConnection [[apps/electron/src/main/auth/ControlPlaneAuth.ts#ControlPlaneAuth.getWorkspaceConnection]]
- └── fetch GET {controlPlane}/workspace/health  # Bearer Better Auth token
- └── renderer → {controlPlane}/workspace/rpc
-     └── WorkspaceGateway.serve [[apps/control-plane/src/workspace/proxy.ts#WorkspaceGateway.serve]]
-         ├── AuthService.getSession [[apps/control-plane/src/auth/AuthService.ts#AuthService.getSession]]  # 401 without a real session
-         └── WorkspaceService.getConnection [[apps/control-plane/src/workspace/WorkspaceService.ts#WorkspaceService.getConnection]]
-             └── local: read server.json and forward
-```
-
-Development today is a different path:
-
-```callstack
- createDesktopAuthentication [[apps/electron/src/main/main.ts#createDesktopAuthentication]]
- └── createLocalDesktopAuthentication [[apps/electron/src/main/DesktopAuthentication.ts#createLocalDesktopAuthentication]]
-     ├── createAdcDesktopIdentity [[apps/electron/src/main/auth/createAdcDesktopIdentity.ts#createAdcDesktopIdentity]]  # fake session, never Better Auth
-     └── readWorkspaceServerConnection  # renderer → workspace /rpc, skips the gateway
-```
-
-To reuse the production path, Electron must use `ControlPlaneAuth.getWorkspaceConnection`. That method only works if two control-plane facts are true:
-
-1. `WorkspaceGateway.serve` accepts the request. It calls `AuthService.getSession`. A fabricated ADC session is not a Better Auth bearer, so the gateway returns 401. Development cannot open browser Google, so the local control plane must mint a real session from the ADC access token (`POST /api/dev/google-session`, local deployment only).
-2. The Vite renderer origin is `http://localhost:1420`, not `null`. Gateway CORS used to reflect only `Origin: null`. Phase 1 allows the Vite origin; without that, the browser blocks `/workspace/rpc` even with a valid session.
-
-`server.json` stays where it is: the local gateway already reads it. Electron just stops reading it in development.
-
-## Important files, docs, and websites
-
-- [`apps/electron/src/main/main.ts`](../apps/electron/src/main/main.ts) — Development vs production auth choice.
-- [`apps/electron/src/main/DesktopAuthentication.ts`](../apps/electron/src/main/DesktopAuthentication.ts) — Direct `server.json` connection used by development and tests.
-- [`apps/electron/src/main/auth/createAdcDesktopIdentity.ts`](../apps/electron/src/main/auth/createAdcDesktopIdentity.ts) — Fabricated session. Delete once development uses a real bearer.
-- [`apps/electron/src/main/auth/ControlPlaneAuth.ts`](../apps/electron/src/main/auth/ControlPlaneAuth.ts) — Production connection shape to reuse.
-- [`apps/control-plane/src/workspace/proxy.ts`](../apps/control-plane/src/workspace/proxy.ts) — Gateway; CORS and session check.
-- [`apps/control-plane/src/workspace/WorkspaceService.ts`](../apps/control-plane/src/workspace/WorkspaceService.ts) — Local proxy already uses `server.json`.
-- [`apps/control-plane/src/auth/AuthService.ts`](../apps/control-plane/src/auth/AuthService.ts) — Must mint a session from an ADC access token.
-- [`apps/control-plane/src/server/controlPlaneHttp.ts`](../apps/control-plane/src/server/controlPlaneHttp.ts) — HTTP routes.
-- [`apps/control-plane/test/ControlPlane.test.ts`](../apps/control-plane/test/ControlPlane.test.ts) — CORS and session tests.
-
 ## Implementation
 
 ### Phase 1: Local gateway CORS for the Vite renderer
 
-The renderer cannot call `/workspace/rpc` cross-origin until this lands. Production CORS stays `["null"]`.
+The dev UI is a normal page at `http://localhost:1420`. The gateway used to answer CORS only for `Origin: null`, which is what the packaged app sends. The browser blocks the dev page before `/workspace/rpc` ever runs. This lets the local control plane allow that Vite origin, and `127.0.0.1` on the same port. Production still allows only `null`.
+
+#### Browser preflight
+
+```mermaid
+sequenceDiagram
+  participant Renderer
+  participant Gateway
+  Renderer->>Gateway: OPTIONS /workspace/rpc
+  Gateway-->>Renderer: 204 and allow this origin
+  Renderer->>Gateway: POST /workspace/rpc
+  Gateway-->>Renderer: same allow-origin on the response
+  %% ref node:Renderer [[apps/electron/src/renderer/ElectronHost.ts#ElectronHost.connectHalo]]
+  %% ref node:Gateway [[apps/control-plane/src/workspace/proxy.ts#corsHeaders]]
+  %% ref edge:1 [[proxy:new:286-290]]
+  %% ref edge:3 [[proxy:new:49]]
+```
 
 ```callstack
  WorkspaceGateway.serve [[apps/control-plane/src/workspace/proxy.ts#WorkspaceGateway.serve]]
@@ -123,7 +95,31 @@ The renderer cannot call `/workspace/rpc` cross-origin until this lands. Product
 
 ### Phase 2: Mint a Better Auth session from ADC (local only)
 
-Needed so `WorkspaceGateway` sees the same kind of bearer production uses, without browser Google.
+CORS only gets the browser to send the request. The gateway still wants a real Better Auth session, and the fake ADC user in dev is not one. We also don't want a Google popup every time Electron starts. Locally, hand the control plane the ADC access token and it mints the same kind of bearer production gets from Google sign-in. Other deployments don't have this route.
+
+#### Mint a session, then reach the workspace
+
+```mermaid
+sequenceDiagram
+  participant Dev
+  participant ControlPlane
+  participant Google
+  participant Workspace
+  Dev->>ControlPlane: POST /api/dev/google-session
+  ControlPlane->>Google: check the access token
+  Google-->>ControlPlane: email and subject
+  ControlPlane-->>Dev: Better Auth bearer
+  Dev->>ControlPlane: GET /workspace/health
+  ControlPlane->>Workspace: forward using server.json
+  Workspace-->>ControlPlane: 200
+  ControlPlane-->>Dev: 200
+  %% ref node:ControlPlane [[apps/control-plane/src/auth/AuthService.ts#AuthService.signInWithGoogleAccessToken]]
+  %% ref node:Google [[apps/control-plane/src/auth/AuthService.ts#inspectGoogleAccessToken]]
+  %% ref node:Workspace [[apps/control-plane/src/workspace/WorkspaceService.ts#WorkspaceService.getConnection]]
+  %% ref edge:0 [[http:new:253-260]]
+  %% ref edge:1 [[auth:new:382-398]]
+  %% ref edge:3 [[auth:new:302]]
+```
 
 ```callstack
  routeControlPlaneRequest [[apps/control-plane/src/server/controlPlaneHttp.ts#routeControlPlaneRequest]]
@@ -743,7 +739,37 @@ index 3ac4d74..0d5d7f5 100644
 
 ### Phase 3: Development Electron uses ControlPlaneAuth
 
-This is the user-visible switch. Development starts `ControlPlaneAuth` with an in-memory `createSession` that POSTs the ADC token. `getWorkspaceConnection` is already `/workspace/rpc`. Delete `createAdcDesktopIdentity`. Leave Test on `createLocalDesktopAuthentication`.
+Dev Electron still skips the control plane. It invents a session and talks straight to the workspace server. This points dev at the local control plane the same way production points at `https://gethalo.dev`, using the bearer from phase 2. The renderer then calls `/workspace/rpc` on the control plane. Tests keep reading `server.json`, so they don't need Google or this session route.
+
+#### Development
+
+```mermaid
+sequenceDiagram
+  participant Electron
+  participant ControlPlane
+  participant Workspace
+  Electron->>ControlPlane: ADC access token
+  ControlPlane-->>Electron: bearer
+  Electron->>ControlPlane: /workspace/health and /workspace/rpc
+  ControlPlane->>Workspace: proxy
+  Workspace-->>ControlPlane: workspace response
+  ControlPlane-->>Electron: proxied response
+  %% ref node:Electron [[apps/electron/src/main/main.ts#createDesktopAuthentication]]
+  %% ref node:ControlPlane [[apps/electron/src/main/auth/ControlPlaneAuth.ts#ControlPlaneAuth.getWorkspaceConnection]]
+  %% ref node:Workspace [[apps/control-plane/src/workspace/WorkspaceService.ts#WorkspaceService.getConnection]]
+```
+
+#### Test
+
+```mermaid
+sequenceDiagram
+  participant TestElectron
+  participant Workspace
+  TestElectron->>Workspace: read server.json, then /rpc
+  %% ref node:TestElectron [[apps/electron/src/main/DesktopAuthentication.ts#createLocalDesktopAuthentication]]
+  %% ref node:Workspace [[packages/shared/src/WorkspaceServerConnection.ts#readWorkspaceServerConnection]]
+  %% ref edge:0 [[apps/electron/src/main/DesktopAuthentication.ts#createLocalDesktopAuthentication]]
+```
 
 ```callstack
  createDesktopAuthentication [[apps/electron/src/main/main.ts#createDesktopAuthentication]]
@@ -761,3 +787,15 @@ This is the user-visible switch. Development starts `ControlPlaneAuth` with an i
 - [ ] Development uses that start mode. Remove `createAdcDesktopIdentity.ts`.
 - [ ] README / AGENTS: development Electron uses `/workspace/*`; `server.json` is for the local gateway and Test Electron.
 - [ ] `pnpm run check-affected`. Smoke `pnpm dev`: renderer calls `{controlPlane}/workspace/rpc`, not workspace `/rpc`.
+
+## Important files, docs, and websites
+
+- [`apps/electron/src/main/main.ts`](../apps/electron/src/main/main.ts) — Development vs production auth choice.
+- [`apps/electron/src/main/DesktopAuthentication.ts`](../apps/electron/src/main/DesktopAuthentication.ts) — Direct `server.json` connection used by development and tests.
+- [`apps/electron/src/main/auth/createAdcDesktopIdentity.ts`](../apps/electron/src/main/auth/createAdcDesktopIdentity.ts) — Fabricated session. Delete once development uses a real bearer.
+- [`apps/electron/src/main/auth/ControlPlaneAuth.ts`](../apps/electron/src/main/auth/ControlPlaneAuth.ts) — Production connection shape to reuse.
+- [`apps/control-plane/src/workspace/proxy.ts`](../apps/control-plane/src/workspace/proxy.ts) — Gateway; CORS and session check.
+- [`apps/control-plane/src/workspace/WorkspaceService.ts`](../apps/control-plane/src/workspace/WorkspaceService.ts) — Local proxy already uses `server.json`.
+- [`apps/control-plane/src/auth/AuthService.ts`](../apps/control-plane/src/auth/AuthService.ts) — Mints a session from an ADC access token.
+- [`apps/control-plane/src/server/controlPlaneHttp.ts`](../apps/control-plane/src/server/controlPlaneHttp.ts) — HTTP routes.
+- [`apps/control-plane/test/ControlPlane.test.ts`](../apps/control-plane/test/ControlPlane.test.ts) — CORS and session tests.
