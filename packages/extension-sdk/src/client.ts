@@ -26,7 +26,25 @@ type SyncClient<Schema extends AnySchema> = {
   connect: RouterClient<ReturnType<typeof syncRouter>>["connect"];
 };
 
-export function connectExtension<Definition extends ExtensionWithApi>() {
+export type ExtensionApiClient<Definition extends ExtensionWithApi> =
+  ReturnType<typeof hc<InferExtensionApi<Definition>>>;
+
+export type ConnectedExtension<
+  Definition extends ExtensionWithApi,
+  Schema extends AnySchema,
+  Relations extends AnyRelations<Schema>,
+> = {
+  api: ExtensionApiClient<Definition>;
+  storage: TandemClient<Schema, Relations>;
+};
+
+export function connectExtension<Definition extends ExtensionWithApi>(): <
+  Schema extends AnySchema,
+  Relations extends AnyRelations<Schema>,
+>(args: {
+  schema: RuntimeSchemaDefinition<Schema>;
+  relations: Relations;
+}) => Promise<ConnectedExtension<Definition, Schema, Relations> | Error> {
   return async function connect<
     Schema extends AnySchema,
     Relations extends AnyRelations<Schema>,
