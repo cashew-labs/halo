@@ -133,15 +133,7 @@ async function command(executable: string, args: string[], cwd: string) {
 async function start(directory: string, dataDirectory: string) {
   const child = spawn(
     process.execPath,
-    [
-      "dist/start.mjs",
-      "--port",
-      "0",
-      "--data-dir",
-      dataDirectory,
-      "--workspace-root",
-      directory,
-    ],
+    ["dist/start.mjs", "--port", "0", "--data-dir", dataDirectory],
     { cwd: directory, stdio: ["ignore", "pipe", "pipe"] },
   );
   let output = "";

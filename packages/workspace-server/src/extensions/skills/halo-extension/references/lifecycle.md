@@ -89,7 +89,7 @@ The standalone server listens on loopback and owns:
 - `/api/` for the extension Hono app, including SDK WebSocket routes.
 - `/sync/` for Tandem synchronization.
 
-Halo starts `dist/start.mjs` with an ephemeral port, a data directory, explicit workspace information, and an IPC channel. It proxies the running extension through `/extensions/<id>/...` for the renderer while preserving the extension's own origin semantics. A `proxyView()` extension may return a private loopback origin from `serve()`; the SDK then forwards `/view/` HTTP and WebSocket traffic to that service.
+Halo starts `dist/start.mjs` with an ephemeral port, a data directory, and an IPC channel. It proxies the running extension through `/extensions/<id>/...` for the renderer while preserving the extension's own origin semantics. A `proxyView()` extension may return a private loopback origin from `serve()`; the SDK then forwards `/view/` HTTP and WebSocket traffic to that service. Workspace operations remain behind `tools`; shell commands run with the workspace as their working directory.
 
 ## SDK modules owned by the build tools
 

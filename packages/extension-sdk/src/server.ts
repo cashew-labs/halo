@@ -68,7 +68,6 @@ export async function serveExtension<
   publicDirectory: string;
   dataDirectory: string;
   port: number;
-  workspaceRoot: string;
 }) {
   const files = await readdir(args.publicDirectory).catch(
     (cause) => new ExtensionServerError({ operation: "read assets", cause }),
@@ -107,7 +106,6 @@ export async function serveExtension<
   const environment = {
     dataDirectory: { path: args.dataDirectory },
     tools,
-    workspace: { path: args.workspaceRoot },
   };
   const service =
     args.extension.serve === undefined
@@ -316,22 +314,12 @@ export async function runExtension<
     options: {
       port: { type: "string", default: "3000" },
       "data-dir": { type: "string", default: ".extension-data" },
-      "workspace-root": { type: "string" },
     },
   });
-  const workspaceRoot = values["workspace-root"];
-  if (workspaceRoot === undefined) {
-    console.error(
-      new ExtensionServerError({ operation: "read workspace root argument" }),
-    );
-    process.exitCode = 1;
-    return;
-  }
   const running = await serveExtension({
     ...args,
     port: Number(values.port),
     dataDirectory: values["data-dir"],
-    workspaceRoot,
   });
   if (running instanceof Error) {
     console.error(running);

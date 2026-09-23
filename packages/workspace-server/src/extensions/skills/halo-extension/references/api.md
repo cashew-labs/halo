@@ -104,9 +104,9 @@ export default defineExtension({
   relations,
   view: proxyView(),
 
-  async serve({ tools, workspace, dataDirectory }) {
+  async serve({ tools, dataDirectory }) {
     const started = await tools.bash.run<{ value: { stdout: string } }>({
-      command: `scripts/start-service ${workspace.path} ${dataDirectory.path}`,
+      command: `code-server-manager start --data-dir ${dataDirectory.path}`,
     });
     if (!started.ok) return new Error(started.error.message);
 

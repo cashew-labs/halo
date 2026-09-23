@@ -11,7 +11,6 @@ export type ExtensionEnvironment = {
   Bindings: {
     dataDirectory: { path: string };
     tools: ExtensionTools;
-    workspace: { path: string };
   };
 };
 

@@ -37,15 +37,7 @@ export async function startExtension(args: {
     try: () =>
       spawn(
         args.runtime.executable,
-        [
-          "dist/start.mjs",
-          "--port",
-          "0",
-          "--data-dir",
-          args.dataDirectory,
-          "--workspace-root",
-          args.workspaceRoot,
-        ],
+        ["dist/start.mjs", "--port", "0", "--data-dir", args.dataDirectory],
         {
           cwd: args.directory,
           env: {
