@@ -57,6 +57,17 @@ Write clear setup → action → assertion workflows. Prefer successful behavior
 
 Assert end-user state, not calls between internal services or private database rows. Avoid historical assertions about removed APIs or failures caused by incomplete setup.
 
+For UI tests, assert visible content, accessible roles and names, and meaningful containment. Check that a session link belongs to the Workspace sidebar and appears or disappears as the user acts:
+
+```ts
+const sidebar = page.getByRole("navigation", { name: "Workspace" });
+await expect(
+  sidebar.getByRole("link", { name: "Prepare my report" }),
+).toBeVisible();
+```
+
+Do not assert bounding boxes, element coordinates, computed styles, or the geometry of text and icons; those couple tests to incidental layout. For scrolling behavior, check whether meaningful content is in the viewport rather than asserting pixel offsets. When an interaction requires a position, coordinates may be used to perform the action, but the result should still be checked through the UI the user experiences. Review visual layout in the running app when layout matters.
+
 ### A file can be a consumer-visible result
 
 For a screenshot command, the saved image is part of the consumer's experience. Given an open browser and the package fixture:

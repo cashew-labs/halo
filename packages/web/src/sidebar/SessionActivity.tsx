@@ -1,14 +1,17 @@
 import { isThreadUnread, type SessionSummary } from "@get-halo/client";
-import { Thinking, colors, motion } from "maui";
+import { Thinking, colors, motion, spacing } from "maui";
 import { style, useStyles } from "purse-styles";
 
 export function SessionActivity({ session }: { session: SessionSummary }) {
-  const indicator = useStyles(indicatorStyle);
+  const isUnread = !session.isRunning && isThreadUnread(session);
+  const indicator = useStyles(
+    indicatorStyle,
+    ...(!session.isRunning && !isUnread ? [collapsedIndicatorStyle] : []),
+  );
   const streamingStatus = useStyles(
     statusLayerStyle,
     ...(session.isRunning ? [visibleStatusStyle] : []),
   );
-  const isUnread = !session.isRunning && isThreadUnread(session);
   const unreadStatus = useStyles(
     statusLayerStyle,
     ...(isUnread ? [visibleStatusStyle] : []),
@@ -32,12 +35,19 @@ export function SessionActivity({ session }: { session: SessionSummary }) {
   );
 }
 
-const indicatorStyle = style({
+const indicatorStyle = style(motion.standard("width", "margin-right"), {
   display: "grid",
   placeItems: "center",
   flexShrink: 0,
   width: "16px",
   height: "16px",
+  overflow: "hidden",
+  "@media (prefers-reduced-motion: reduce)": { transition: "none" },
+});
+
+const collapsedIndicatorStyle = style({
+  width: 0,
+  marginRight: `calc(-1 * ${spacing.value(2)})`,
 });
 
 const statusLayerStyle = style(motion.standard("opacity"), {
@@ -48,6 +58,7 @@ const statusLayerStyle = style(motion.standard("opacity"), {
   height: "16px",
   opacity: 0,
   pointerEvents: "none",
+  "@media (prefers-reduced-motion: reduce)": { transition: "none" },
 });
 
 const visibleStatusStyle = style({ opacity: 1 });

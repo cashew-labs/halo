@@ -11,15 +11,15 @@ Keep behavior reusable across clients and environments. Give state, dependencies
 
 Read the pages relevant to the change before editing:
 
-| When changing                                                 | Read                                       |
-| ------------------------------------------------------------- | ------------------------------------------ |
-| Package boundaries, exports, or file organization             | [Packages](references/packages.md)         |
-| Services, host interfaces, startup, cleanup, or client access | [Services](references/services.md)         |
-| Mutable state, streams, derived views, or operation ordering  | [State](references/state.md)               |
-| TypeScript implementation or error handling                   | [TypeScript](references/typescript.md)     |
-| Tests, fixtures, or test review                               | [Testing](references/testing.md)           |
-| Development hosts, environment setup, CI, or deployment       | [Environments](references/environments.md) |
-| External dependencies or surprising integration ceremony      | [Research](references/research.md)         |
+| When changing                                                         | Read                                                         |
+| --------------------------------------------------------------------- | ------------------------------------------------------------ |
+| Workspace topology, package boundaries, exports, or file organization | [Monorepo](references/monorepo.md)                           |
+| Services, host interfaces, startup, cleanup, or client access         | [Services](references/services.md)                           |
+| Mutable state, streams, derived views, or operation ordering          | [State](references/state.md)                                 |
+| TypeScript implementation or error handling                           | [TypeScript](references/typescript.md)                       |
+| Tests, fixtures, or test review                                       | [Testing](references/testing.md)                             |
+| Development hosts, environment setup, CI, or deployment               | [Environments](references/environments.md)                   |
+| Adding, integrating, or upgrading external dependencies               | [Dependency management](references/dependency-management.md) |
 
 Read multiple pages when the change crosses boundaries, not the entire handbook for every task. Testing guidance applies to Vitest and Playwright alike.
 

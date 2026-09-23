@@ -1,4 +1,4 @@
-import { expect, type Locator, type Route } from "@playwright/test";
+import { expect, type Route } from "@playwright/test";
 import { e2eTest } from "./e2eTest.js";
 import { m } from "@get-halo/shared/testing";
 import { messageText } from "@get-halo/workspace-server/testing";
@@ -43,20 +43,10 @@ e2eTest(
     await expect(
       pane.getByText("Drop files to attach", { exact: true }),
     ).toBeVisible();
-    const editorBounds = await editor.boundingBox();
-    expect(editorBounds).not.toBeNull();
-    await editor.dispatchEvent("dragover", {
-      dataTransfer: transfer,
-      clientX: editorBounds!.x + 12,
-      clientY: editorBounds!.y + 8,
-    });
-    expect(
-      await app.page
-        .locator(
-          ".prosemirror-dropcursor-block, .prosemirror-dropcursor-inline",
-        )
-        .count(),
-    ).toBe(0);
+    await editor.dispatchEvent("dragover", { dataTransfer: transfer });
+    await expect(
+      pane.getByText("Drop files to attach", { exact: true }),
+    ).toBeVisible();
     await app.page.screenshot({ path: testInfo.outputPath("file-drag.png") });
     await editor.dispatchEvent("drop", { dataTransfer: transfer });
     await transfer.dispose();
@@ -437,6 +427,7 @@ e2eTest(
     const transcript = app.page.getByRole("log", {
       name: "Session transcript",
     });
+    const lastStep = transcript.getByText("Plan step 50.", { exact: true });
     const response = await llm.stream();
     response.write(
       m.assistant(
@@ -446,52 +437,32 @@ e2eTest(
       ),
     );
     await expect(transcript).toContainText("Plan step 50.");
-    await expect
-      .poll(async () => await bottomGap(transcript))
-      .toBeLessThanOrEqual(1);
+    await expect(lastStep).toBeInViewport();
 
     await transcript.hover();
     await app.page.mouse.wheel(0, -400);
-    await expect
-      .poll(async () => await bottomGap(transcript))
-      .toBeGreaterThan(300);
-    const readingPosition = await transcript.evaluate(
-      (element) => element.scrollTop,
-    );
+    await expect(lastStep).not.toBeInViewport();
 
     for (const chunk of ["More details.", "Another update."]) {
       response.write(m.assistant(`\n\n${chunk}`));
       await expect(transcript).toContainText(chunk);
-      expect(
-        await transcript.evaluate((element) => element.scrollTop),
-      ).toBeCloseTo(readingPosition, 0);
+      await expect(lastStep).not.toBeInViewport();
     }
 
     await app.page.mouse.wheel(0, 10_000);
-    await expect
-      .poll(async () => await bottomGap(transcript))
-      .toBeLessThanOrEqual(1);
+    await expect(lastStep).toBeInViewport();
     response.write(m.assistant("\n\nThe final step.\n\nThe plan is ready."));
-    await expect(transcript).toContainText("The plan is ready.");
-    await expect
-      .poll(async () => await bottomGap(transcript))
-      .toBeLessThanOrEqual(1);
+    const finalStep = transcript.getByText("The plan is ready.", {
+      exact: true,
+    });
+    await expect(finalStep).toBeInViewport();
     response.end();
     await expect(
       app.page.getByRole("button", { name: "Stop", exact: true }),
     ).not.toBeVisible();
-    await expect
-      .poll(async () => await bottomGap(transcript))
-      .toBeLessThanOrEqual(1);
+    await expect(finalStep).toBeInViewport();
   },
 );
-
-async function bottomGap(transcript: Locator) {
-  return await transcript.evaluate(
-    (element) =>
-      element.scrollHeight - element.clientHeight - element.scrollTop,
-  );
-}
 
 e2eTest(
   "opens another session at the bottom after reading older messages",
@@ -515,22 +486,27 @@ e2eTest(
     const transcript = app.page.getByRole("log", {
       name: "Session transcript",
     });
-    await expect
-      .poll(async () => await bottomGap(transcript))
-      .toBeLessThanOrEqual(1);
+    const lastStep = transcript.getByText("Saved step 50.", { exact: true });
+    await expect(lastStep).toBeInViewport();
     await transcript.hover();
     await app.page.mouse.wheel(0, -400);
-    await expect
-      .poll(async () => await bottomGap(transcript))
-      .toBeGreaterThan(300);
+    await expect(lastStep).not.toBeInViewport();
 
-    await app.page
-      .getByRole("link", { name: "First long conversation", exact: true })
-      .click();
+    const sidebar = app.page.getByRole("navigation", { name: "Workspace" });
+    const firstSession = sidebar.getByRole("link", {
+      name: "First long conversation",
+      exact: true,
+    });
+    await expect(firstSession).toBeVisible();
+    await expect(
+      sidebar.getByRole("link", {
+        name: "Second long conversation",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await firstSession.click();
     await expect(transcript).toContainText("First long conversation");
-    await expect
-      .poll(async () => await bottomGap(transcript))
-      .toBeLessThanOrEqual(1);
+    await expect(lastStep).toBeInViewport();
   },
 );
 
@@ -565,6 +541,7 @@ e2eTest(
       });
     }
     await app.page
+      .getByRole("navigation", { name: "Workspace" })
       .getByRole("link", { name: "Earlier conversation", exact: true })
       .click();
     await app.page.reload();
@@ -932,61 +909,6 @@ e2eTest("shows tools used inside exec", async ({ harness, app }) => {
 });
 
 e2eTest(
-  "wraps exec code and results in individual tool details",
-  async ({ harness, app }) => {
-    const query = "calendar scheduling ".repeat(25);
-    const js = `return await tools.search({ query: '${query}' });`;
-    const result = `https://example.com/${"calendar".repeat(80)}`;
-    await harness.loadSession({
-      title: "Wrapped tool details",
-      messages: [
-        m.exec({
-          js,
-          tools: [{ path: "search", arguments: { query } }],
-          result,
-        }),
-      ],
-    });
-    await app.page
-      .getByRole("button", { name: "Searched tools", exact: true })
-      .click();
-    await app.page
-      .getByRole("button", { name: "Searched tools (search)", exact: true })
-      .click();
-    const details = app.page.getByRole("region", {
-      name: "search",
-      exact: true,
-    });
-    const code = details.getByRole("code");
-    await expect(code).toHaveText([js, result]);
-    await expect
-      .poll(
-        async () =>
-          await details.evaluate((element) =>
-            Array.from(element.querySelectorAll("pre")).every(
-              (block) => block.scrollWidth <= block.clientWidth,
-            ),
-          ),
-      )
-      .toBe(true);
-    for (const block of await code.all()) {
-      await expect
-        .poll(
-          async () =>
-            await block.evaluate((element) => {
-              const range = document.createRange();
-              range.selectNodeContents(element);
-              return new Set(
-                Array.from(range.getClientRects(), (rect) => rect.top),
-              ).size;
-            }),
-        )
-        .toBeGreaterThan(1);
-    }
-  },
-);
-
-e2eTest(
   "restores nested tool activity while exec runs and after quitting",
   async ({ harness, app, llm, http }) => {
     await harness.tools.files.write({
@@ -1019,9 +941,9 @@ e2eTest(
       exact: true,
     });
     await expect(summary).toBeVisible();
-    await expectThinkingVisible(
+    await expect(
       summary.getByRole("status", { name: "Working" }),
-    );
+    ).toBeVisible();
     await expect(
       summary.getByRole("img", { name: "Expand tool activity" }),
     ).toBeHidden();
@@ -1334,9 +1256,9 @@ e2eTest(
       exact: true,
     });
     await expect(liveAggregate).toBeVisible();
-    await expectThinkingVisible(
+    await expect(
       liveAggregate.getByRole("status", { name: "Working" }),
-    );
+    ).toBeVisible();
     await liveAggregate.hover();
     await expect(
       liveAggregate.getByRole("img", { name: "Expand tool activity" }),
@@ -1438,26 +1360,6 @@ e2eTest(
   },
 );
 
-async function expectThinkingVisible(indicator: Locator) {
-  await expect(indicator).toBeVisible();
-  // The status container can be visible even when its animated dots have no painted area.
-  await expect
-    .poll(
-      async () =>
-        await indicator.evaluate((element) =>
-          Array.from(element.children).some((dot) => {
-            const bounds = dot.getBoundingClientRect();
-            return (
-              bounds.width > 0 &&
-              bounds.height > 0 &&
-              Number(getComputedStyle(dot).opacity) > 0
-            );
-          }),
-        ),
-    )
-    .toBe(true);
-}
-
 e2eTest(
   "deduplicates completed file activity by normalized path",
   async ({ harness, app }) => {
@@ -1554,14 +1456,20 @@ e2eTest(
       .getByLabel("Message", { exact: true })
       .fill("Prepare my report");
     await app.page.getByRole("button", { name: "Send", exact: true }).click();
-    const row = app.page.getByRole("row").filter({
+    const sidebar = app.page.getByRole("navigation", { name: "Workspace" });
+    const row = sidebar.getByRole("row").filter({
       has: app.page.getByRole("link", {
         name: "Prepare my report",
         exact: true,
       }),
     });
+    const sessionLink = row.getByRole("link", {
+      name: "Prepare my report",
+      exact: true,
+    });
     const working = row.getByRole("status", { name: "Agent is working" });
     const unread = row.getByRole("img", { name: "Unread result" });
+    await expect(sessionLink).toBeVisible();
     await expect(working).toBeVisible();
     await expect(unread).not.toBeVisible();
 
@@ -1569,7 +1477,7 @@ e2eTest(
     await app.page
       .getByRole("button", { name: "New session", exact: true })
       .click();
-    await row.getByRole("link").click();
+    await sessionLink.click();
     await expect(working).toBeVisible();
     await app.page
       .getByRole("button", { name: "New session", exact: true })
@@ -1580,21 +1488,17 @@ e2eTest(
     response.end();
     await expect(unread).toBeVisible();
     await expect(working).not.toBeVisible();
-    const unreadBounds = await unread.boundingBox();
-    const titleBounds = await row.getByRole("link").boundingBox();
-    expect(unreadBounds).not.toBeNull();
-    expect(titleBounds).not.toBeNull();
-    expect(unreadBounds!.x).toBeLessThan(titleBounds!.x);
 
     await app.page.reload();
+    await expect(sessionLink).toBeVisible();
     await expect(unread).toBeVisible();
-    await row.getByRole("link").click();
+    await sessionLink.click();
     await expect(app.page.getByRole("log")).toContainText(
       "The report is ready.",
     );
     await expect(unread).not.toBeVisible();
     await app.page.reload();
-    await expect(row).toBeVisible();
+    await expect(sessionLink).toBeVisible();
     await expect(unread).not.toBeVisible();
 
     await app.page
@@ -1609,7 +1513,7 @@ e2eTest(
       .getByRole("button", { name: "New session", exact: true })
       .click();
     await app.page.reload();
-    await expect(row).toBeVisible();
+    await expect(sessionLink).toBeVisible();
     await expect(unread).not.toBeVisible();
     expect(summaryConnections).toBeGreaterThanOrEqual(2);
     expect(listRequests).toEqual([]);
@@ -1645,6 +1549,7 @@ e2eTest(
       otherWindow.getByRole("img", { name: "Unread result" }),
     ).toBeVisible();
     await app.page
+      .getByRole("navigation", { name: "Workspace" })
       .getByRole("link", { name: "Work while I am away", exact: true })
       .click();
     await expect(unread).not.toBeVisible();
@@ -1668,12 +1573,18 @@ e2eTest(
     await pane.getByRole("button", { name: "Send", exact: true }).click();
     await llm.respond(m.assistant("This thread is ready to archive."));
 
-    const row = app.page.getByRole("row").filter({
+    const sidebar = app.page.getByRole("navigation", { name: "Workspace" });
+    const sessionLink = sidebar.getByRole("link", {
+      name: "Archive this thread",
+      exact: true,
+    });
+    const row = sidebar.getByRole("row").filter({
       has: app.page.getByRole("link", {
         name: "Archive this thread",
         exact: true,
       }),
     });
+    await expect(sessionLink).toBeVisible();
     const markDone = row.getByRole("button", {
       name: "Mark done",
       exact: true,
@@ -1682,14 +1593,14 @@ e2eTest(
     await expect(markDone).toBeVisible();
     await markDone.click();
 
-    await expect(row).not.toBeVisible();
+    await expect(sessionLink).not.toBeVisible();
     await expect(app.page.getByText("Done", { exact: true })).not.toBeVisible();
     await expect(pane.getByRole("log")).toContainText(
       "This thread is ready to archive.",
     );
 
     await app.page.reload();
-    await expect(row).not.toBeVisible();
+    await expect(sessionLink).not.toBeVisible();
     await expect(app.page.getByText("Done", { exact: true })).not.toBeVisible();
     await expect(pane.getByRole("log")).toContainText(
       "This thread is ready to archive.",

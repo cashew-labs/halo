@@ -4,7 +4,7 @@ Halo is an open-source self-modifiable desktop app built with Electron and Pi. I
 
 ## Skills
 
-Use the [conventions skill](.agents/skills/conventions/SKILL.md) when writing, refactoring, or reviewing code or tests. Read its relevant pages, not the whole handbook for every task. Track repo-specific progress in `specs/repo-conventions-migration.md` and update it as changes land; do not expand a task into the full migration.
+Use the [conventions skill](.agents/skills/conventions/SKILL.md) when writing, refactoring, or reviewing code or tests. Read its relevant pages, not the whole handbook for every task. Do not expand a task into the full migration.
 
 When editing TypeScript that handles failures, also read the [errore skill](.agents/skills/errore/SKILL.md).
 

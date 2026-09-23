@@ -40,7 +40,7 @@
     "electron-squirrel-startup": "^1.0.1",
     "errore": "^0.14.1",
     "google-auth-library": "^11.0.2",
-    "maui": "npm:@tanishqkancharla/maui@0.0.30",
+    "maui": "npm:@tanishqkancharla/maui@0.0.33",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "typescript": "7.0.2",
