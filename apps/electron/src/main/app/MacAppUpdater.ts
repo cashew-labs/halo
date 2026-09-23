@@ -253,6 +253,10 @@ export class MacAppUpdater {
   }
 
   async install() {
+    // The restart option remains available while a ready update is checked.
+    // Finish that check before validating whichever download it leaves ready.
+    if (this.pending !== undefined && this.checking !== undefined)
+      await this.checking;
     if (this.closed || this.installing || this.checking !== undefined)
       return new MacUpdateError({
         operation: "install while another update operation is in progress",

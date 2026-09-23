@@ -41,6 +41,23 @@ describe.runIf(process.platform === "darwin")("macOS update recovery", () => {
   });
 
   test.each([
+    { status: 200, latest: "0.1.54", installed: "0.1.54" },
+    { status: 200, latest: "0.1.55", installed: "0.1.55" },
+    { status: 500, latest: "0.1.54", installed: "0.1.54" },
+  ])(
+    "installs a ready update while a check returns $status / $latest",
+    async ({ status, latest, installed }) => {
+      await fixture.updater.check();
+      fixture.responseStatus = status;
+      fixture.latest = latest;
+      const check = fixture.updater.check();
+      expect(await fixture.updater.install()).toBeUndefined();
+      await check;
+      expect(fixture.native.liveVersion).toBe(installed);
+    },
+  );
+
+  test.each([
     "directory",
     "state",
     "corrupt state",
