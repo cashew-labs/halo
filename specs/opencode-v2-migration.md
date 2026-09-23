@@ -1,6 +1,20 @@
 # Migrating Halo from Pi and Executor to the OpenCode v2 SDK
 
-Briefing for a possible agent-runtime swap. It describes the current split, what the OpenCode v2 embedded SDK would take over, and the gaps that block a straight replacement.
+Briefing for a possible agent-runtime swap. OpenCode is a stronger coding-agent kernel than Pi. It is a weaker fit for Halo as a product than Pi plus Executor, because the part that makes Halo different lives in Executor, and OpenCode does not replace it.
+
+## Fit
+
+Halo is a desktop app with one agent, one Vertex model, a chat UI it already owns, and a tool runtime that connects the user's accounts. Pi is the library under the chat. Executor is the product under the tools.
+
+**You gain a maintained coding loop, if you replace Pi and keep Executor.** OpenCode already assembles what Halo currently builds around Pi: a session runner, streaming events, compaction, file and shell tools, skill loading, code mode, and a Vertex provider that speaks Application Default Credentials. Halo would stop wrapping `AgentHarness`, `ModelRuntime`, the Pi skill loader, and `TursoSessionRepo`. Permission rules become real policy. Today, staying inside the workspace is a sentence in the system prompt, and the file tools read any path the process can read.
+
+**You lose the integration product if you also drop Executor.** The connection card, the searchable Google and OpenAPI catalog, the credential vault, QuickJS `exec`, hotkeys, Parallel web search, and extension calls to `toolRuntime.invokePath` have no counterpart in OpenCode. MCP can host one server at a time. It is not that catalog. People would reconnect accounts, and extension panes would need a new way to call tools.
+
+**You also take on a second product's opinions.** OpenCode ships plan mode, subagents, worktrees, a question tool, session sharing, and a command that rewrites `AGENTS.md`. Halo would install a plugin whose job is to turn those off, keep one agent, and preserve the cloud rules (only the workspace home persists, stay in the selected folder). Skills would load when the model asks, so the halo-extension skill is no longer sitting in the prompt on every turn. Old chats in `state.db` would not continue. The v2 API is still moving, and the embedded SDK still has to prove it runs in this repo's Node process.
+
+**Net.** Replacing both is a rewrite toward a generic coding agent, and Halo would come out behind on the features it is actually building. Replacing only Pi is a reasonable engineering trade if owning the harness is the pain: you get a better loop and you pay for an event adapter, a second database, and a permanent plugin that keeps OpenCode looking like Halo. If the pain is integrations, permissions, or the chat, this migration does not address it. Stay on Pi plus Executor in that case.
+
+The rest of this note is the supporting split, the blockers, and what people would notice.
 
 Sources checked against this tree: workspace-server agent runtime (`HaloAgentSession`, `ToolRuntime`, `SessionRegistry`, `WorkspaceResourceLoader`) on Pi `0.85.1` and Executor `1.6.0`, and the OpenCode v2 docs for the embedded SDK, plugins, permissions, skills, providers, and code mode (September 2026).
 
@@ -87,7 +101,7 @@ Deleting `@earendil-works/pi-*` drops the harness, `TursoSessionRepo`'s Pi `Sess
 
 **Keep failures on Halo's boundary.** The public SDK returns promises. Internally OpenCode is Effect. Convert failures at the workspace-server edge into the existing tagged errors (`PromptFailedError`, `CreateAgentSessionError`, and the session-not-found family). The client API should keep returning ordinary values and throwing, and should not gain OpenCode error tags.
 
-## End-user experience
+## What people would notice
 
 If the first cut keeps Executor and the current client snapshot, daily chat looks the same: one workspace, streamed replies, the same file and shell behavior, `exec` for integrations, and the connection card when an account is missing. Abort still works.
 
