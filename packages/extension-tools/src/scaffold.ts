@@ -42,6 +42,7 @@ export async function scaffoldExtension(args: {
         },
         devDependencies: {
           "@get-halo/extension-tools": packages.tools,
+          "@types/node": "^22.20.1",
           "@types/react": "19.2.18",
           typescript: "7.0.2",
         },
