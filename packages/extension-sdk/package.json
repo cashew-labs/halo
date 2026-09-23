@@ -38,16 +38,20 @@
     "format:check": "oxfmt --check ."
   },
   "dependencies": {
+    "@hono/node-server": "^2.1.1",
     "@orpc/client": "2.0.0-beta.29",
     "@orpc/server": "2.0.0-beta.29",
     "@sinclair/typebox": "^0.34.52",
     "@tanishqkancharla/tandem-core": "0.3.0",
     "@tanishqkancharla/tandem-server": "0.3.0",
-    "errore": "^0.14.1"
+    "errore": "^0.14.1",
+    "hono": "^4.13.8",
+    "ws": "^8.21.3"
   },
   "devDependencies": {
     "@types/node": "^22.20.1",
     "@types/react": "19.2.18",
+    "@types/ws": "^8.18.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "typescript": "7.0.2"

@@ -30,7 +30,9 @@ type ExtensionToolInput = { [key: string]: ExtensionToolValue };
 
 export type ExtensionTools = {
   readonly [segment: string]: ExtensionTools;
-} & ((input: ExtensionToolInput) => Promise<ExtensionToolResult>);
+} & (<Data = unknown>(
+  input: ExtensionToolInput,
+) => Promise<ExtensionToolResult<Data>>);
 
 export type ExtensionContext = { tools: ExtensionTools };
 

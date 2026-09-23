@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { RouterClient, AnyRouter } from "@orpc/server";
+import type { hc } from "hono/client";
 import type {
   AnyRelations,
   AnySchema,
@@ -7,16 +7,17 @@ import type {
   RuntimeSchemaDefinition,
   TandemClient,
 } from "@tanishqkancharla/tandem-core";
+import type { ExtensionWithApi, InferExtensionApi } from "./definition.js";
 
 type InferSchema<Definition> =
   Definition extends RuntimeSchemaDefinition<infer Schema> ? Schema : never;
 export type ExtensionViewProps<
-  Router extends AnyRouter,
-  Definition extends RuntimeSchemaDefinition,
-  Relations extends AnyRelations<InferSchema<Definition>>,
+  Definition extends ExtensionWithApi,
+  SchemaDefinition extends RuntimeSchemaDefinition,
+  Relations extends AnyRelations<InferSchema<SchemaDefinition>>,
 > = {
-  api: RouterClient<Router>;
-  storage: TandemClient<InferSchema<Definition>, Relations>;
+  api: ReturnType<typeof hc<InferExtensionApi<Definition>>>;
+  storage: TandemClient<InferSchema<SchemaDefinition>, Relations>;
 };
 
 export function useQuery<

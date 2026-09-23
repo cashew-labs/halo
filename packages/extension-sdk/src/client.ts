@@ -1,6 +1,7 @@
 import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
-import type { AnyRouter, RouterClient } from "@orpc/server";
+import type { RouterClient } from "@orpc/server";
+import { hc } from "hono/client";
 import {
   TandemClient,
   type AnyRelations,
@@ -10,11 +11,15 @@ import {
 } from "@tanishqkancharla/tandem-core";
 import * as errore from "errore";
 import type { syncRouter } from "./sync.js";
+import type { ExtensionWithApi, InferExtensionApi } from "./definition.js";
 
 class ExtensionConnectionError extends errore.createTaggedError({
   name: "ExtensionConnectionError",
   message: "Extension connection failed",
 }) {}
+
+type InferSchema<Definition> =
+  Definition extends RuntimeSchemaDefinition<infer Schema> ? Schema : never;
 
 type SyncClient<Schema extends AnySchema> = {
   push(input: Parameters<RemoteApi<Schema>["push"]>[0]): Promise<void>;
@@ -25,9 +30,11 @@ type SyncClient<Schema extends AnySchema> = {
 };
 
 export async function connectExtension<
-  Schema extends AnySchema,
-  Relations extends AnyRelations<Schema>,
->(args: { schema: RuntimeSchemaDefinition<Schema>; relations: Relations }) {
+  Definition extends ExtensionWithApi,
+  SchemaDefinition extends RuntimeSchemaDefinition,
+  Relations extends AnyRelations<InferSchema<SchemaDefinition>>,
+>(args: { schema: SchemaDefinition; relations: Relations }) {
+  type Schema = InferSchema<SchemaDefinition>;
   const viewPath = "/view/";
   const extensionPath = location.pathname.slice(
     1,
@@ -35,8 +42,8 @@ export async function connectExtension<
   );
   const apiPath = `/${extensionPath}api/` as const;
   const syncPath = `/${extensionPath}sync/` as const;
-  const api = createORPCClient<RouterClient<AnyRouter>>(
-    new RPCLink({ url: apiPath, origin: location.origin }),
+  const api = hc<InferExtensionApi<Definition>>(
+    new URL(apiPath, location.origin).toString(),
   );
   const sync = createORPCClient<SyncClient<Schema>>(
     new RPCLink({ url: syncPath, origin: location.origin }),

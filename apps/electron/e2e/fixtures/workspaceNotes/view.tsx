@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Button, Flex, MauiProvider, Text } from "maui";
 import type { ExtensionViewProps } from "@get-halo/extension-sdk/view";
 import * as errore from "errore";
-import type router from "./api.js";
+import type extension from "./extension.js";
 import type { relations, schema } from "./schema.js";
 
 class NotesError extends errore.createTaggedError({
@@ -13,7 +13,7 @@ class NotesError extends errore.createTaggedError({
 // oxlint-disable-next-line anti-slop/no-unused-exports -- The extension builder imports this entry from the scaffolded test package.
 export default function WorkspaceNotes({
   api,
-}: ExtensionViewProps<typeof router, typeof schema, typeof relations>) {
+}: ExtensionViewProps<typeof extension, typeof schema, typeof relations>) {
   const [notes, setNotes] = useState("");
   const [error, setError] = useState<string>();
 
@@ -22,15 +22,26 @@ export default function WorkspaceNotes({
       <Flex column gap={4} p={8}>
         <Button
           onClick={async () => {
-            const result = await api
-              .notes()
+            const response = await api.notes
+              .$get()
+              .catch((cause) => new NotesError({ cause }));
+            if (response instanceof Error) {
+              setError(response.message);
+              return;
+            }
+            const result = await response
+              .json()
               .catch((cause) => new NotesError({ cause }));
             if (result instanceof Error) {
               setError(result.message);
               return;
             }
+            if ("error" in result) {
+              setError(result.error);
+              return;
+            }
             setError(undefined);
-            setNotes(result);
+            setNotes(result.text);
           }}
         >
           Refresh notes

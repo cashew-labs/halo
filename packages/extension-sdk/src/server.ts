@@ -3,8 +3,8 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { readFile, readdir } from "node:fs/promises";
 import { extname, join } from "node:path";
+import { getRequestListener } from "@hono/node-server";
 import { RPCHandler } from "@orpc/server/node";
-import type { AnyRouter } from "@orpc/server";
 import type {
   AnyRelations,
   AnySchema,
@@ -17,6 +17,14 @@ import {
 import * as errore from "errore";
 import { syncRouter } from "./sync.js";
 import { createExtensionTools } from "./tools.js";
+import type { AnyExtensionApi, ExtensionDefinition } from "./definition.js";
+export {
+  defineExtension,
+  reactView,
+  type ExtensionDefinition,
+  type ExtensionEnvironment,
+  type ReactExtensionView,
+} from "./definition.js";
 
 class ExtensionServerError extends errore.createTaggedError({
   name: "ExtensionServerError",
@@ -38,12 +46,11 @@ const contentTypes = new Map(
 );
 
 export async function serveExtension<
+  Api extends AnyExtensionApi,
   Schema extends AnySchema,
   Relations extends AnyRelations<Schema>,
 >(args: {
-  router: AnyRouter;
-  schema: RuntimeSchemaDefinition<Schema>;
-  relations: Relations;
+  extension: ExtensionDefinition<Api, Schema, Relations>;
   publicDirectory: string;
   dataDirectory: string;
   port: number;
@@ -77,25 +84,29 @@ export async function serveExtension<
     filePath: join(args.dataDirectory, "tandem.json"),
   });
   const tandem = new TandemServer({
-    schema: args.schema,
-    relations: args.relations,
+    schema: args.extension.schema,
+    relations: args.extension.relations,
     storage,
   });
-  const apiHandler = new RPCHandler(args.router);
   const tools = createExtensionTools();
+  const apiHandler = getRequestListener((request) =>
+    args.extension.api.fetch(request, { tools }),
+  );
   const syncHandler = new RPCHandler(syncRouter(tandem));
   const server = createServer(async (request, response) => {
-    const handled = await apiHandler.handle(request, response, {
-      prefix: "/api",
-      context: { tools },
-    });
-    if (handled.matched) return;
+    const url = new URL(request.url!, "http://localhost");
+    if (url.pathname === "/api" || url.pathname.startsWith("/api/")) {
+      const apiPath = url.pathname.slice("/api".length);
+      request.url = `${apiPath === "" ? "/" : apiPath}${url.search}`;
+      await apiHandler(request, response);
+      return;
+    }
     const synced = await syncHandler.handle(request, response, {
       prefix: "/sync",
       context: {},
     });
     if (synced.matched) return;
-    const pathname = new URL(request.url!, "http://localhost").pathname;
+    const pathname = url.pathname;
     const isView =
       pathname.startsWith("/view/") && !pathname.startsWith("/view/assets/");
     const asset = assets.get(isView ? "/view/" : pathname);
@@ -144,12 +155,11 @@ export async function serveExtension<
 }
 
 export async function runExtension<
+  Api extends AnyExtensionApi,
   Schema extends AnySchema,
   Relations extends AnyRelations<Schema>,
 >(args: {
-  router: AnyRouter;
-  schema: RuntimeSchemaDefinition<Schema>;
-  relations: Relations;
+  extension: ExtensionDefinition<Api, Schema, Relations>;
   publicDirectory: string;
 }) {
   const { values } = parseArgs({
