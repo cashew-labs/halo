@@ -37,10 +37,7 @@ export {
   type ProxyExtensionView,
   type ReactExtensionView,
 } from "./definition.js";
-export type {
-  ExtensionToolResult,
-  ExtensionTools,
-} from "./tools.js";
+export type { ExtensionToolResult, ExtensionTools } from "./tools.js";
 export { upgradeWebSocket };
 
 class ExtensionServerError extends errore.createTaggedError({
