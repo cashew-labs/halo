@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Button, Dialog, Flex, H3, P, colors, text } from "maui";
 import { style, useStyles } from "purse-styles";
 import { IncompatibleServerError } from "@get-halo/client";
@@ -7,11 +7,7 @@ import { IncompatibleConnection } from "./ConnectionPage.js";
 import { useReauthenticate } from "./Authentication.js";
 
 export function ConnectionStatus() {
-  const { service, state } = useConnection();
-  const reauthenticate = useReauthenticate();
-  const [open, setOpen] = useState(false);
-  const [actionError, setActionError] = useState<string>();
-  const [signingIn, setSigningIn] = useState(false);
+  const { state } = useConnection();
   const statusClass = useStyles(statusStyle);
   const mismatch =
     state.error instanceof IncompatibleServerError ? state.error : undefined;
@@ -35,26 +31,63 @@ export function ConnectionStatus() {
             : state.api === undefined && state.status !== "reconnecting"
               ? "Connecting…"
               : "Reconnecting…";
+  const indicator = (
+    <>
+      <span
+        aria-hidden="true"
+        style={{
+          color:
+            state.status === "connected" ? colors.green[9] : colors.amber[9],
+        }}
+      >
+        ●
+      </span>
+      <span>{label}</span>
+    </>
+  );
+  if (state.status !== "authentication" && mismatch === undefined)
+    return (
+      <span
+        className={statusClass}
+        role="status"
+        aria-live="polite"
+        aria-label={`Connection: ${label}`}
+      >
+        {indicator}
+      </span>
+    );
+  return (
+    <ConnectionAction label={label} mismatch={mismatch} className={statusClass}>
+      {indicator}
+    </ConnectionAction>
+  );
+}
+
+function ConnectionAction({
+  label,
+  mismatch,
+  className,
+  children,
+}: {
+  label: string;
+  mismatch: IncompatibleServerError | undefined;
+  className: string;
+  children: ReactNode;
+}) {
+  const { service, state } = useConnection();
+  const reauthenticate = useReauthenticate();
+  const [open, setOpen] = useState(false);
+  const [actionError, setActionError] = useState<string>();
+  const [signingIn, setSigningIn] = useState(false);
   return (
     <>
       <Button
         variant="quiet"
-        className={statusClass}
+        className={className}
         onClick={() => setOpen(true)}
         aria-label={`Connection: ${label}`}
       >
-        <span
-          aria-hidden="true"
-          style={{
-            color:
-              state.status === "connected" ? colors.green[9] : colors.amber[9],
-          }}
-        >
-          ●
-        </span>
-        <span role="status" aria-live="polite">
-          {label}
-        </span>
+        {children}
       </Button>
       {open && (
         <Dialog onClickOutside={() => setOpen(false)}>
@@ -64,10 +97,7 @@ export function ConnectionStatus() {
               <IncompatibleConnection error={mismatch} />
             ) : (
               <P>
-                {state.error?.message ??
-                  (state.status === "connected"
-                    ? "Your workspace is connected."
-                    : "Halo reconnects automatically when your server is reachable. Your open work stays here.")}
+                {state.error?.message ?? "Sign in to reconnect your workspace."}
               </P>
             )}
             {actionError !== undefined && (
@@ -126,5 +156,12 @@ export function ConnectionStatus() {
 }
 const statusStyle = style(
   text({ size: "xs", fontWeight: 400, color: "lowContrast" }),
-  { justifyContent: "flex-start", gap: 6, padding: 0, minHeight: 24 },
+  {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "flex-start",
+    gap: 6,
+    padding: 0,
+    minHeight: 24,
+  },
 );

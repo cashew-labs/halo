@@ -48,6 +48,7 @@
     "icojs": "1.0.1",
     "libretto-browser-tools": "^0.1.2",
     "maui": "npm:@tanishqkancharla/maui@0.0.30",
+    "node-diff3": "3.2.1",
     "officeparser": "8.0.0",
     "playwright": "1.62.1",
     "quickjs-emscripten": "0.31.0",

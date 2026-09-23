@@ -1,4 +1,3 @@
-import { FileSaveStatus } from "./FileSaveStatus.js";
 import { EditorContent } from "@tiptap/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { colors, flex } from "maui";
@@ -36,7 +35,7 @@ export function MarkdownFileEditor({
   /* oxlint-enable react/refs */
   const className = useStyles(editorClass);
   const editor = useMarkdownEditor({
-    content: loaded,
+    content: autosave.loaded,
     onChange: autosave.onChange,
     "aria-label": path,
     size: "sm",
@@ -44,7 +43,6 @@ export function MarkdownFileEditor({
   });
   return (
     <>
-      <FileSaveStatus save={autosave} />
       {error !== undefined && <p role="alert">{error}</p>}
       <EditorContent editor={editor} className={className} />
     </>

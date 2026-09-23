@@ -156,6 +156,7 @@ export class WorkspaceServer {
     });
 
     const workspace = await WorkspaceService.create({
+      llmApi: host.llmApi,
       workspaceRoot: config.workspaceRoot,
       appDataDir: config.appDataDir,
       filesystem,

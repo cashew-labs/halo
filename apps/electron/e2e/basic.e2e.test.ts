@@ -1,9 +1,11 @@
+import events from "node:events";
 import fs from "node:fs/promises";
 import nodePath from "node:path";
 import { expect, type Locator } from "@playwright/test";
 import { m } from "@get-halo/shared/testing";
 import { haloProtocolVersion } from "@get-halo/client";
 import { ORPCError } from "@orpc/client";
+import * as errore from "errore";
 import type { DesktopBridge } from "../src/shared/desktop.js";
 import { e2eTest } from "./e2eTest.js";
 
@@ -225,14 +227,14 @@ e2eTest(
     await editor.press("End");
     await app.page.context().setOffline(true);
     await expect(
-      app.page.getByRole("button", {
+      app.page.getByRole("status", {
         name: "Connection: Disconnected",
         exact: true,
       }),
     ).toBeVisible();
     await app.page.context().setOffline(false);
     await expect(
-      app.page.getByRole("button", {
+      app.page.getByRole("status", {
         name: "Connection: Connected",
         exact: true,
       }),
@@ -488,9 +490,12 @@ e2eTest(
     await app.page.keyboard.press("Tab");
     await expect(editor.locator("ul ul > li > p")).toHaveText(["Third"]);
     await expect(editor).toBeFocused();
-    await expect(
-      app.page.getByRole("main", { name: "markers.md" }).getByRole("status"),
-    ).toHaveCount(0);
+    await expect
+      .poll(
+        async () =>
+          await app.server.rpc.workspace.readFile({ path: "markers.md" }),
+      )
+      .toContain("- Parent\n- Second\n  - Third");
   },
 );
 
@@ -563,9 +568,14 @@ e2eTest(
     ]);
     await expect(editor.locator("ol")).toHaveAttribute("start", "3");
     await expect(editor).toBeFocused();
-    await expect(
-      app.page.getByRole("main", { name: "paste.md" }).getByRole("status"),
-    ).toHaveCount(0);
+    await expect
+      .poll(
+        async () =>
+          await app.server.rpc.workspace.readFile({ path: "paste.md" }),
+      )
+      .toContain(
+        "- Parent\n  - Second\n    - Child\n    - Another child\n- Third",
+      );
   },
 );
 
@@ -1097,15 +1107,9 @@ e2eTest(
 
     for (const name of ["First", "Second"]) {
       await editor.getByRole("heading", { name }).click({ delay: 50 });
-      await editor.getByRole("heading", { name }).evaluate(async (heading) => {
-        const selectionChanged = new Promise<void>((resolve) => {
-          document.addEventListener("selectionchange", () => resolve(), {
-            once: true,
-          });
-        });
-        window.getSelection()!.collapse(heading.firstChild, 0);
-        await selectionChanged;
-      });
+      const syntax = editor.getByRole("textbox", { name: "Markdown syntax" });
+      await expect(syntax).toBeFocused();
+      await syntax.press("ControlOrMeta+ArrowLeft");
       await app.page.keyboard.press("Backspace");
       await expect(editor.locator("p", { hasText: name })).toHaveText(name);
       await app.page.keyboard.press("ControlOrMeta+z");
@@ -1761,11 +1765,10 @@ e2eTest(
     await app.page.keyboard.press("Tab");
     await expect(editor.locator("ul ul li")).toHaveText(["Child", "Second"]);
     await expect
-      .poll(async () => await app.server.rpc.workspace.readFile({ path }))
-      .toContain("**Rich bold** and *italic*");
-    await expect(
-      app.page.getByRole("main", { name: path }).getByRole("status"),
-    ).toHaveCount(0);
+      .poll(async () =>
+        (await app.server.rpc.workspace.readFile({ path })).trimEnd(),
+      )
+      .toBe("**Rich bold** and *italic*\n\n- Parent\n  - Child\n  - Second");
   },
 );
 
@@ -2567,7 +2570,7 @@ e2eTest(
   "recovers after returning online without losing the draft",
   async ({ app }) => {
     await expect(
-      app.page.getByRole("button", {
+      app.page.getByRole("status", {
         name: "Connection: Connected",
         exact: true,
       }),
@@ -2579,7 +2582,7 @@ e2eTest(
     await app.page.clock.install();
     await app.page.context().setOffline(true);
     await expect(
-      app.page.getByRole("button", {
+      app.page.getByRole("status", {
         name: "Connection: Disconnected",
         exact: true,
       }),
@@ -2588,7 +2591,7 @@ e2eTest(
     await expect(input).toHaveText("Keep this while I leave the office");
     await app.page.context().setOffline(false);
     await expect(
-      app.page.getByRole("button", {
+      app.page.getByRole("status", {
         name: "Connection: Connected",
         exact: true,
       }),
@@ -2605,7 +2608,7 @@ e2eTest(
   "retries an initial transport failure without reloading",
   async ({ app }) => {
     await expect(
-      app.page.getByRole("button", {
+      app.page.getByRole("status", {
         name: "Connection: Connected",
         exact: true,
       }),
@@ -2621,7 +2624,7 @@ e2eTest(
     });
     await app.page.reload();
     await expect(
-      app.page.getByRole("button", {
+      app.page.getByRole("status", {
         name: "Connection: Connected",
         exact: true,
       }),
@@ -2647,7 +2650,7 @@ e2eTest(
     });
     await app.page.reload();
     await expect(
-      app.page.getByRole("button", {
+      app.page.getByRole("status", {
         name: "Connection: Connected",
         exact: true,
       }),
@@ -2684,9 +2687,8 @@ e2eTest(
     await app.page
       .getByRole("button", { name: "Retry now", exact: true })
       .click();
-    await app.page.getByRole("button", { name: "Close", exact: true }).click();
     await expect(
-      app.page.getByRole("button", {
+      app.page.getByRole("status", {
         name: "Connection: Connected",
         exact: true,
       }),
@@ -2695,8 +2697,71 @@ e2eTest(
 );
 
 e2eTest(
-  "keeps dirty file edits and checks for conflicts after reconnecting",
+  "saves normal Markdown edits with one write request and skips reconciliation after a clean reconnect",
   async ({ app }) => {
+    await app.server.rpc.workspace.writeFile({
+      path: "normal.md",
+      content: "Original",
+    });
+    await app.page
+      .getByRole("link", { name: "normal.md", exact: true })
+      .click();
+    const editor = app.page
+      .getByRole("main", { name: "normal.md" })
+      .getByLabel("normal.md", { exact: true });
+    await expect(editor).toHaveText("Original");
+    const fileRequests: string[] = [];
+    app.page.on("request", (request) => {
+      const pathname = new URL(request.url()).pathname;
+      if (pathname.startsWith("/rpc/workspace/")) fileRequests.push(pathname);
+    });
+    for (const content of ["First edit", "Second edit"]) {
+      await editor.fill(content);
+      await expect
+        .poll(
+          async () =>
+            await app.server.rpc.workspace.readFile({ path: "normal.md" }),
+        )
+        .toBe(content);
+      await expect(
+        app.page.getByRole("button", { name: "Retry save", exact: true }),
+      ).toHaveCount(0);
+    }
+    expect(fileRequests).toEqual([
+      "/rpc/workspace/writeFile",
+      "/rpc/workspace/writeFile",
+    ]);
+    await app.page.context().setOffline(true);
+    await expect(
+      app.page.getByRole("status", {
+        name: "Connection: Disconnected",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await editor.fill("Offline edit without a competing server change");
+    await app.page.context().setOffline(false);
+    await expect
+      .poll(
+        async () =>
+          await app.server.rpc.workspace.readFile({ path: "normal.md" }),
+      )
+      .toBe("Offline edit without a competing server change");
+    await expect(
+      app.page.getByRole("button", { name: "Retry save", exact: true }),
+    ).toHaveCount(0);
+    // Reconnection can refresh read queries independently of autosave.
+    expect(
+      fileRequests.filter((pathname) => pathname.endsWith("/writeFile")),
+    ).toHaveLength(3);
+    expect(
+      fileRequests.filter((pathname) => pathname.endsWith("/reconcileNote")),
+    ).toHaveLength(0);
+  },
+);
+
+e2eTest(
+  "automatically merges an offline note after reconnecting without a conflict dialog",
+  async ({ app, llm }) => {
     await app.server.rpc.workspace.writeFile({
       path: "offline.md",
       content: "Original",
@@ -2710,40 +2775,160 @@ e2eTest(
     await expect(editor).toHaveText("Original");
     await app.page.context().setOffline(true);
     await expect(
-      app.page.getByRole("button", {
+      app.page.getByRole("status", {
         name: "Connection: Disconnected",
         exact: true,
       }),
     ).toBeVisible();
+    await app.page.clock.install();
+    await app.page.clock.pauseAt(new Date());
     await editor.fill("My unsaved edit");
+    await app.page.clock.runFor(500);
+    await expect(
+      app.page.getByRole("main", { name: "offline.md" }).getByRole("status"),
+    ).toHaveCount(0);
+    await expect(
+      app.page.getByRole("button", { name: "Save error", exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      app.page.getByRole("button", { name: "Retry save", exact: true }),
+    ).toHaveCount(0);
+    await app.page.clock.resume();
     await app.server.rpc.workspace.writeFile({
       path: "offline.md",
       content: "Changed elsewhere",
     });
     await app.page.context().setOffline(false);
-    await expect(
-      app.page.getByRole("button", {
-        name: "Connection: Connected",
-        exact: true,
-      }),
-    ).toBeVisible();
-    await expect(editor).toHaveText("My unsaved edit");
-    await app.page
-      .getByRole("button", { name: "Retry save", exact: true })
-      .click();
+    await llm.respond(
+      m.assistant(
+        JSON.stringify({
+          markdown: "My unsaved edit and the detail changed elsewhere.",
+        }),
+      ),
+    );
+    await expect(editor).toHaveText(
+      "My unsaved edit and the detail changed elsewhere.",
+    );
+    await expect
+      .poll(
+        async () =>
+          await app.server.rpc.workspace.readFile({ path: "offline.md" }),
+      )
+      .toBe("My unsaved edit and the detail changed elsewhere.");
     await expect(
       app.page.getByText(/This file changed on the server/),
-    ).toBeVisible();
-    expect(
-      await app.server.rpc.workspace.readFile({ path: "offline.md" }),
-    ).toBe("Changed elsewhere");
-    await editor.fill("Changed elsewhere");
-    await app.page
-      .getByRole("button", { name: "Retry save", exact: true })
-      .click();
-    await expect(
-      app.page.getByRole("button", { name: "Retry save", exact: true }),
     ).toHaveCount(0);
+    await expect(
+      app.page.getByRole("button", { name: "Save error", exact: true }),
+    ).toHaveCount(0);
+  },
+);
+
+e2eTest(
+  "keeps typing during a note merge and discards the stale model result",
+  async ({ app, llm }) => {
+    await app.server.rpc.workspace.writeFile({
+      path: "typing.md",
+      content: "Original",
+    });
+    await app.page
+      .getByRole("link", { name: "typing.md", exact: true })
+      .click();
+    const editor = app.page
+      .getByRole("main", { name: "typing.md" })
+      .getByLabel("typing.md", { exact: true });
+    await expect(editor).toHaveText("Original");
+    await app.server.rpc.workspace.writeFile({
+      path: "typing.md",
+      content: "Server version",
+    });
+    await editor.fill("Local version");
+    await llm.waitForRequest();
+    await editor.fill("Newer local version");
+    await llm.respond(
+      m.assistant(JSON.stringify({ markdown: "Stale merged text" })),
+    );
+    await llm.waitForRequest();
+    expect(await app.server.rpc.workspace.readFile({ path: "typing.md" })).toBe(
+      "Server version",
+    );
+    await expect(editor).toHaveText("Newer local version");
+    await llm.respond(
+      m.assistant(
+        JSON.stringify({ markdown: "Newer local version with server detail" }),
+      ),
+    );
+    await expect(editor).toHaveText("Newer local version with server detail");
+    await expect
+      .poll(
+        async () =>
+          await app.server.rpc.workspace.readFile({ path: "typing.md" }),
+      )
+      .toBe("Newer local version with server detail");
+  },
+);
+
+e2eTest(
+  "preserves typing while a merged note is being committed",
+  async ({ app, llm }) => {
+    await app.server.rpc.workspace.writeFile({
+      path: "committing.md",
+      content: "Original",
+    });
+    await app.page
+      .getByRole("link", { name: "committing.md", exact: true })
+      .click();
+    const editor = app.page
+      .getByRole("main", { name: "committing.md" })
+      .getByLabel("committing.md", { exact: true });
+    await expect(editor).toHaveText("Original");
+    await app.server.rpc.workspace.writeFile({
+      path: "committing.md",
+      content: "Server version",
+    });
+    const gate = new events.EventEmitter();
+    const reached = events.once(gate, "reached");
+    const release = events.once(gate, "release");
+    await editor.fill("Local version");
+    await llm.waitForRequest();
+    await app.page.route(
+      "**/rpc/workspace/writeFile",
+      async (route) => {
+        gate.emit("reached");
+        await release;
+        await route.continue();
+      },
+      { times: 1 },
+    );
+    await llm.respond(
+      m.assistant(
+        JSON.stringify({ markdown: "Local version and server detail" }),
+      ),
+    );
+    await reached;
+    await editor.fill("Local version with extra typing");
+    gate.emit("release");
+    await llm.waitForRequest();
+    await expect(editor).toHaveText("Local version with extra typing");
+    expect(
+      await app.server.rpc.workspace.readFile({ path: "committing.md" }),
+    ).toBe("Local version and server detail");
+    await llm.respond(
+      m.assistant(
+        JSON.stringify({
+          markdown: "Local version with extra typing and server detail",
+        }),
+      ),
+    );
+    await expect(editor).toHaveText(
+      "Local version with extra typing and server detail",
+    );
+    await expect
+      .poll(
+        async () =>
+          await app.server.rpc.workspace.readFile({ path: "committing.md" }),
+      )
+      .toBe("Local version with extra typing and server detail");
   },
 );
 
@@ -2767,31 +2952,33 @@ e2eTest(
       await app.page.evaluate(() =>
         document.dispatchEvent(new Event("visibilitychange")),
       );
-      const indicator = app.page.getByRole("button", {
-        name: `Connection: ${label}`,
-        exact: true,
-      });
+      const indicator = app.page.getByRole(
+        status === 401 ? "button" : "status",
+        {
+          name: `Connection: ${label}`,
+          exact: true,
+        },
+      );
       await expect(indicator).toBeVisible();
       await expect(draft).toHaveText(
         "Keep this draft through authentication recovery",
       );
       await app.page.unroute("**/rpc/server/info");
-      await indicator.click();
-      await app.page
-        .getByRole("button", {
-          name: status === 401 ? "Sign in" : "Retry now",
-          exact: true,
-        })
-        .click();
+      if (status === 401) {
+        await indicator.click();
+        await app.page
+          .getByRole("button", { name: "Sign in", exact: true })
+          .click();
+      }
       await expect(
-        app.page.getByRole("button", {
+        app.page.getByRole("status", {
           name: "Connection: Connected",
           exact: true,
         }),
       ).toBeVisible();
-      await app.page
-        .getByRole("button", { name: "Close", exact: true })
-        .click();
+      await expect(
+        app.page.getByText("Connection details", { exact: true }),
+      ).toHaveCount(0);
     }
     expect(await app.server.rpc.sessions.list()).toHaveLength(0);
   },
@@ -2801,7 +2988,7 @@ e2eTest(
   "validates bootstrap protocol lists and accepts the legacy singleton response",
   async ({ app }) => {
     await expect(
-      app.page.getByRole("button", {
+      app.page.getByRole("status", {
         name: "Connection: Connected",
         exact: true,
       }),
@@ -2821,7 +3008,7 @@ e2eTest(
     await app.page.evaluate(() =>
       document.dispatchEvent(new Event("visibilitychange")),
     );
-    const indicator = app.page.getByRole("button", {
+    const indicator = app.page.getByRole("status", {
       name: "Connection: Reconnecting…",
       exact: true,
     });
@@ -2836,12 +3023,8 @@ e2eTest(
         }),
       });
     });
-    await indicator.click();
-    await app.page
-      .getByRole("button", { name: "Retry now", exact: true })
-      .click();
     await expect(
-      app.page.getByRole("button", {
+      app.page.getByRole("status", {
         name: "Connection: Connected",
         exact: true,
       }),
@@ -2852,6 +3035,15 @@ e2eTest(
 e2eTest(
   "reports a stopped server only through the connection indicator",
   async ({ app, server }) => {
+    const connected = app.page.getByRole("status", {
+      name: "Connection: Connected",
+      exact: true,
+    });
+    await connected.click();
+    await expect(
+      app.page.getByText("Connection details", { exact: true }),
+    ).toHaveCount(0);
+    await expect(connected).not.toHaveAttribute("tabindex", "0");
     await app.page
       .getByRole("button", { name: "New session", exact: true })
       .click();
@@ -2862,16 +3054,246 @@ e2eTest(
     const stopped = await server.close();
     if (stopped instanceof Error) throw stopped;
     await expect(
-      app.page.getByRole("button", {
+      app.page.getByRole("status", {
         name: "Connection: Reconnecting…",
         exact: true,
       }),
     ).toBeVisible();
+    await app.page
+      .getByRole("status", {
+        name: "Connection: Reconnecting…",
+        exact: true,
+      })
+      .click();
+    await expect(
+      app.page.getByText("Connection details", { exact: true }),
+    ).toHaveCount(0);
     await expect(draft).toHaveText("Keep this draft when the server stops");
     await expect(
       app.page.getByText("Extensions: Workspace updates stream disconnected.", {
         exact: true,
       }),
     ).toHaveCount(0);
+  },
+);
+
+e2eTest(
+  "keeps pending Markdown autosaves quiet and offers retry only after failure",
+  async ({ app, harness }) => {
+    await app.server.rpc.workspace.writeFile({
+      path: "quiet.md",
+      content: "Original",
+    });
+    await app.page.getByRole("link", { name: "quiet.md", exact: true }).click();
+    const pane = app.page.getByRole("main", { name: "quiet.md", exact: true });
+    const editor = pane.getByLabel("quiet.md", { exact: true });
+    await expect(editor).toHaveText("Original");
+    const retry = pane.getByRole("button", { name: "Retry save", exact: true });
+    const writing = app.page.waitForRequest("**/rpc/workspace/writeFile");
+    let releaseWrite: (() => void) | undefined;
+    const release = new Promise<void>((resolve) => {
+      releaseWrite = resolve;
+    });
+    using cleanup = new errore.DisposableStack();
+    cleanup.defer(() => releaseWrite?.());
+    await app.page.route("**/rpc/workspace/writeFile", async (route) => {
+      await release;
+      await route.continue();
+    });
+    await app.page.clock.install();
+    await app.page.clock.pauseAt(new Date());
+    await editor.fill("Edited");
+    for (const character of " note") {
+      await editor.pressSequentially(character);
+      await expect(retry).toHaveCount(0);
+      await expect(pane.getByRole("status")).toHaveCount(0);
+    }
+    expect(await app.server.rpc.workspace.readFile({ path: "quiet.md" })).toBe(
+      "Original",
+    );
+    await app.page.clock.runFor(400);
+    await writing;
+    await expect(retry).toHaveCount(0);
+    await expect(pane.getByRole("status")).toHaveCount(0);
+    releaseWrite?.();
+    await app.page.clock.resume();
+    await expect
+      .poll(
+        async () =>
+          await app.server.rpc.workspace.readFile({ path: "quiet.md" }),
+      )
+      .toContain("Edited note");
+    await app.page.unroute("**/rpc/workspace/writeFile");
+    const file = nodePath.join(harness.paths.workspace, "quiet.md");
+    await fs.unlink(file);
+    await fs.mkdir(file);
+    await editor.fill("Keep this after failure");
+    const indicator = app.page.getByRole("button", {
+      name: "Save error",
+      exact: true,
+    });
+    await expect(indicator).toBeVisible();
+    await expect(retry).toHaveCount(0);
+    await expect(pane.getByRole("status")).toHaveCount(0);
+    await expect(editor).toHaveText("Keep this after failure");
+    await indicator.click();
+    const details = app.page.getByRole("dialog", { name: "File save errors" });
+    await expect(
+      details.getByRole("region", { name: "quiet.md" }),
+    ).toBeVisible();
+    await expect(details).toContainText(/Could not save|Unsaved changes/);
+    await fs.rmdir(file);
+    await app.server.rpc.workspace.writeFile({
+      path: "quiet.md",
+      content: "Edited note",
+    });
+    await details
+      .getByRole("button", { name: "Retry save", exact: true })
+      .click();
+    await expect
+      .poll(
+        async () =>
+          await app.server.rpc.workspace.readFile({ path: "quiet.md" }),
+      )
+      .toContain("Keep this after failure");
+    await expect(indicator).toHaveCount(0);
+    await expect(details).toHaveCount(0);
+  },
+);
+
+e2eTest(
+  "lists independent file save errors in the footer and clears each after retry",
+  async ({ app, harness }) => {
+    for (const name of ["one.md", "two.md"]) {
+      await app.server.rpc.workspace.writeFile({
+        path: name,
+        content: "Original",
+      });
+      await app.page
+        .getByRole("link", { name, exact: true })
+        .click({ modifiers: ["Meta"] });
+      const pane = app.page.getByRole("main", { name, exact: true });
+      const editor = pane.getByLabel(name, { exact: true });
+      await expect(editor).toHaveText("Original");
+      const path = nodePath.join(harness.paths.workspace, name);
+      await fs.unlink(path);
+      await fs.mkdir(path);
+      await editor.fill(`Preserve ${name}`);
+      await expect(
+        app.page.getByRole("button", {
+          name: name === "one.md" ? "Save error" : "2 save errors",
+          exact: true,
+        }),
+      ).toBeVisible();
+      await expect(pane.getByRole("status")).toHaveCount(0);
+      await expect(
+        pane.getByRole("button", { name: "Retry save", exact: true }),
+      ).toHaveCount(0);
+    }
+    await app.page
+      .getByRole("button", { name: "2 save errors", exact: true })
+      .click();
+    const details = app.page.getByRole("dialog", { name: "File save errors" });
+    for (const name of ["one.md", "two.md"])
+      await expect(
+        details.getByRole("region", { name, exact: true }),
+      ).toContainText("Workspace I/O failed");
+    await app.page.screenshot({
+      path: nodePath.resolve("../../tmp/footer-save-errors/details.png"),
+    });
+    for (const name of ["one.md", "two.md"]) {
+      await fs.rmdir(nodePath.join(harness.paths.workspace, name));
+      await app.server.rpc.workspace.writeFile({
+        path: name,
+        content: "Original",
+      });
+      await details
+        .getByRole("region", { name, exact: true })
+        .getByRole("button", { name: "Retry save", exact: true })
+        .click();
+      await expect
+        .poll(
+          async () => await app.server.rpc.workspace.readFile({ path: name }),
+        )
+        .toContain(`Preserve ${name}`);
+      await expect(
+        details.getByRole("region", { name, exact: true }),
+      ).toHaveCount(0);
+      if (name === "one.md") {
+        await expect(
+          details.getByRole("region", { name: "two.md", exact: true }),
+        ).toBeVisible();
+        await expect(
+          app.page.getByRole("button", { name: "Save error", exact: true }),
+        ).toBeVisible();
+      }
+    }
+    await expect(details).toHaveCount(0);
+    await expect(
+      app.page.getByRole("button", { name: /save error/i }),
+    ).toHaveCount(0);
+  },
+);
+
+e2eTest(
+  "keeps a long note scrolled when clicking out of active Markdown syntax",
+  async ({ app }) => {
+    const path = "scroll.md";
+    const filler = Array.from(
+      { length: 60 },
+      (_, index) => `Paragraph ${index}.`,
+    ).join("\n\n");
+    const original = `${filler}\n\n**Bold target**\n\nPlain click target.\n\n**Second bold target**\n\n${filler}`;
+    await app.server.rpc.workspace.writeFile({ path, content: original });
+    await app.page.getByRole("link", { name: path, exact: true }).click();
+    const pane = app.page.getByRole("main", { name: path, exact: true });
+    const editor = pane.getByLabel(path, { exact: true });
+    const scroll = pane.getByTestId("file-page-content").locator("..");
+    const bold = editor
+      .locator("strong")
+      .getByText("Bold target", { exact: true });
+    await bold.evaluate((element) =>
+      element.scrollIntoView({ block: "center" }),
+    );
+    const before = await scroll.evaluate((element) => element.scrollTop);
+    expect(before).toBeGreaterThan(1000);
+    await bold.click();
+    const syntax = editor.getByRole("textbox", { name: "Markdown syntax" });
+    await expect(syntax).toBeFocused();
+    await expect(syntax).toHaveText("**Bold target**");
+    const second = editor.getByText("Second bold target", { exact: true });
+    const secondBox = await second.boundingBox();
+    expect(secondBox).not.toBeNull();
+    await app.page.mouse.click(
+      secondBox!.x + secondBox!.width / 2,
+      secondBox!.y + secondBox!.height / 2,
+    );
+    await expect(syntax).toBeFocused();
+    await expect(syntax).toHaveText("**Second bold target**");
+    expect(
+      Math.abs(
+        (await scroll.evaluate((element) => element.scrollTop)) - before,
+      ),
+    ).toBeLessThan(2);
+    const target = editor.getByText("Plain click target.", { exact: true });
+    const box = await target.boundingBox();
+    expect(box).not.toBeNull();
+    // Real pointer coordinates preserve the viewport; locator.click can scroll a target back into view.
+    await app.page.mouse.click(
+      box!.x + box!.width / 2,
+      box!.y + box!.height / 2,
+    );
+    await expect(syntax).toHaveCount(0);
+    expect(
+      Math.abs(
+        (await scroll.evaluate((element) => element.scrollTop)) - before,
+      ),
+    ).toBeLessThan(2);
+    await expect(target).toBeInViewport();
+    await app.page.keyboard.type(" Edited");
+    await expect(target).toHaveCount(0);
+    await expect
+      .poll(async () => await app.server.rpc.workspace.readFile({ path }))
+      .toContain("Plain click target. Edited");
   },
 );
