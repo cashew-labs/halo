@@ -1,5 +1,7 @@
 import { gzipSync } from "node:zlib";
 import { TraceCloudDriver } from "./TraceCloudDriver.js";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import fs from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -9,10 +11,14 @@ import {
   controlPlaneProtocolVersion,
   type ControlPlaneClient,
 } from "@get-halo/shared/controlPlaneContract";
+import { writeWorkspaceServerConnection } from "@get-halo/shared/WorkspaceServerConnection";
+import { Type } from "@sinclair/typebox";
+import { Value } from "@sinclair/typebox/value";
 import { betterAuth } from "better-auth";
 import { testUtils } from "better-auth/plugins";
 import * as errore from "errore";
 import { expect, test } from "vitest";
+import { InvalidGoogleAccessTokenError } from "../src/auth/AuthService.js";
 import { ControlPlane } from "../src/server/ControlPlane.js";
 
 const testAuth = {
@@ -22,6 +28,13 @@ const testAuth = {
 };
 
 const desktopAuthState = "desktop-auth-state-0123456789abcdef";
+
+const googleAccessTokenSessionResponseSchema = Type.Object({
+  token: Type.String({ minLength: 1 }),
+  user: Type.Object({
+    email: Type.String(),
+  }),
+});
 
 const controlPlaneTest = test.extend<{
   traceCloud: TraceCloudDriver;
@@ -218,6 +231,113 @@ controlPlaneTest(
     });
     expect(rejected.status).toBe(401);
     expect(rejected.headers.get("access-control-allow-origin")).toBeNull();
+  },
+);
+
+controlPlaneTest(
+  "exchanges a Google access token for a bearer workspace session",
+  async ({ appDataDir, webRoot }) => {
+    await using cleanup = new errore.AsyncDisposableStack();
+    const plane = await ControlPlane.start({
+      build: { version: "test-release", revision: "test-revision" },
+      config: {
+        deployment: "local",
+        workspace: { deployment: "local" },
+        appDataDir,
+        port: 0,
+        auth: testAuth,
+      },
+      webRoot,
+      verifyGoogleAccessToken: async (accessToken) => {
+        if (accessToken !== "adc-access-token") {
+          return new InvalidGoogleAccessTokenError();
+        }
+        return {
+          email: "adc@example.com",
+          name: "ADC User",
+          subject: "adc-subject-1",
+        };
+      },
+    });
+    if (plane instanceof Error) throw plane;
+    cleanup.defer(async () => {
+      const closed = await plane.close();
+      if (closed instanceof Error) console.warn(closed);
+    });
+
+    const invalidBody = await fetch(`${plane.origin}/api/dev/google-session`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    expect(invalidBody.status).toBe(400);
+
+    const invalidToken = await fetch(`${plane.origin}/api/dev/google-session`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ accessToken: "nope" }),
+    });
+    expect(invalidToken.status).toBe(401);
+
+    const created = await fetch(`${plane.origin}/api/dev/google-session`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ accessToken: "adc-access-token" }),
+    });
+    expect(created.status).toBe(200);
+    // SAFETY: Response.json is untyped; googleAccessTokenSessionResponseSchema validates below.
+    const session = (await created.json()) as unknown;
+    if (!Value.Check(googleAccessTokenSessionResponseSchema, session)) {
+      throw new Error("Google access token session response was invalid");
+    }
+    expect(session.user.email).toBe("adc@example.com");
+
+    const authenticated = createControlPlaneRpcClient(
+      plane.origin,
+      session.token,
+    );
+    expect(await authenticated.auth.session()).toMatchObject({
+      status: "signed-in",
+      session: { user: { email: "adc@example.com" } },
+    });
+
+    const workspaceServer = createServer((_request, response) => {
+      response.writeHead(200).end("workspace healthy");
+    });
+    await new Promise<void>((resolveListen, rejectListen) => {
+      workspaceServer.once("error", rejectListen);
+      workspaceServer.listen(0, "127.0.0.1", resolveListen);
+    });
+    cleanup.defer(
+      async () =>
+        await new Promise<void>((resolveClose) => {
+          workspaceServer.close(() => resolveClose());
+        }),
+    );
+
+    // SAFETY: Node returns a TCP address after successfully listening with a numeric port.
+    const address = workspaceServer.address() as AddressInfo;
+    const published = await writeWorkspaceServerConnection({
+      appDataDir,
+      connection: {
+        workspaceRoot: "/test/workspace",
+        origin: `http://127.0.0.1:${address.port}`,
+        token: "local-workspace-token",
+      },
+    });
+    if (published instanceof Error) throw published;
+
+    const health = await fetch(`${plane.origin}/workspace/health`, {
+      headers: {
+        authorization: `Bearer ${session.token}`,
+        origin: "http://localhost:1420",
+      },
+    });
+    expect(health.status).toBe(200);
+    expect(await health.text()).toBe("workspace healthy");
+    expect(health.headers.get("access-control-allow-origin")).toBe(
+      "http://localhost:1420",
+    );
   },
 );
 

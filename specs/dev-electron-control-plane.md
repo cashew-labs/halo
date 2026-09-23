@@ -134,11 +134,11 @@ Needed so `WorkspaceGateway` sees the same kind of bearer production uses, witho
 +        └── internalAdapter.createSession
 ```
 
-- [ ] `AuthService.signInWithGoogleAccessToken`. Optional verifier injectable for tests.
-- [ ] Route only when `config.deployment === "local"`. Production 404s `/api/dev/google-session`.
-- [ ] Test: 400 / 401 / 200, then bearer `auth.session()` and `/workspace/health`.
-- [ ] `pnpm --filter @get-halo/control-plane test:e2e -- test/ControlPlane.test.ts`
-- [ ] `pnpm run check-affected`
+- [x] `AuthService.signInWithGoogleAccessToken`. Optional verifier injectable for tests.
+- [x] Route only when `config.deployment === "local"`. Production 404s `/api/dev/google-session`.
+- [x] Test: 400 / 401 / 200, then bearer `auth.session()` and `/workspace/health`.
+- [x] `pnpm --filter @get-halo/control-plane test:e2e -- test/ControlPlane.test.ts`
+- [x] `pnpm run check-affected`
 
 ### Phase 3: Development Electron uses ControlPlaneAuth
 
