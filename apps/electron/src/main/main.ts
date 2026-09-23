@@ -27,7 +27,7 @@ import { PrettyConsoleLoggerSink } from "@get-halo/logger/PrettyConsoleLoggerSin
 import started from "electron-squirrel-startup";
 import { LOG_CHANNELS } from "../shared/channels.js";
 import { SHORTCUT_CHANNEL, shortcuts } from "../shared/shortcuts.js";
-import { checkForUpdates, startAppUpdates } from "./app/appUpdate.js";
+import { AppUpdates } from "./app/AppUpdates.js";
 import {
   createLocalDesktopAuthentication,
   type DesktopAuthentication,
@@ -85,6 +85,14 @@ let mainWindow: BrowserWindow | undefined;
 const windows = new Set<BrowserWindow>();
 // True after Quit / quitAndInstall so Close and Cmd+W destroy windows instead of hiding them.
 let isQuitting = false;
+const appUpdates = new AppUpdates({
+  config: applicationConfig.updates,
+  getWindow: () => mainWindow,
+  logger: logger.scope("updates"),
+  onInstallCancelled: () => {
+    isQuitting = false;
+  },
+});
 
 // oxlint-disable-next-line typescript/no-floating-promises -- Electron owns the app-ready lifecycle and keeps the process alive for this work.
 app.whenReady().then(async () => {
@@ -93,14 +101,12 @@ app.whenReady().then(async () => {
   registerLogBridge();
   registerDesktopApi({
     authentication,
+    appUpdates,
     getConnection: async () => await getWorkspaceConnection(authentication),
     ownsWindow: (window) => windows.has(window),
   });
   installMenu();
-  startAppUpdates({
-    config: applicationConfig.updates,
-    getWindow: () => mainWindow,
-  });
+  appUpdates.start();
   await openMainWindow();
   // Forge replaces the URL with undefined in packaged builds, excluding app control.
   if (
@@ -234,6 +240,7 @@ app.on("window-all-closed", () => {
 });
 
 app.on("will-quit", () => {
+  appUpdates.close();
   void closePendingOAuthCallbacks().catch((cause) => {
     console.warn("OAuth callback close failed:", cause);
   });
@@ -356,7 +363,7 @@ function installMenu(): void {
   const isMac = process.platform === "darwin";
   const checkForUpdatesItem: MenuItemConstructorOptions = {
     label: "Check for Updates…",
-    click: () => checkForUpdates(),
+    click: () => appUpdates.checkForUpdates(),
   };
   const openLogsItem: MenuItemConstructorOptions = {
     label: "Open Logs",
