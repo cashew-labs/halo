@@ -68,6 +68,9 @@ createRoot(document.getElementById("root")).render(<View {...client} />);`,
       platform: "node",
       target: "node22",
       logLevel: "silent",
+      banner: {
+        js: 'import { createRequire as __haloCreateRequire } from "node:module"; const require = __haloCreateRequire(import.meta.url);',
+      },
       stdin: {
         resolveDir: directory,
         contents: `
