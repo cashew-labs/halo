@@ -86,7 +86,7 @@ extensionTest(
     await expect(page.getByRole("status")).toHaveText("Hello from proxy view");
 
     await extension.restart();
-    await page.reload();
+    await page.goto(extension.url);
     await expect(page.getByRole("status")).toHaveText("Hello from proxy view");
   },
 );
