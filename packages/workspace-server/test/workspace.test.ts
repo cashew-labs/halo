@@ -318,7 +318,7 @@ serverTest(
       expect.objectContaining({
         ...session,
         isRunning: false,
-        latestReadCursorId: expect.any(String),
+        latestResultId: expect.any(String),
       }),
     ]);
 
@@ -1602,10 +1602,9 @@ serverTest(
     await prompting;
     const completed = await nextSummary(
       updates,
-      (summary) =>
-        !summary.isRunning && summary.latestReadCursorId !== undefined,
+      (summary) => !summary.isRunning && summary.latestResultId !== undefined,
     );
-    expect(completed.latestReadCursorId).toBeDefined();
+    expect(completed.latestResultId).toBeDefined();
     expect(completed).toMatchObject({ markedDone: false });
     expect(completed.readReceiptCursorId).toBeUndefined();
     expect(isThreadUnread(completed)).toBe(true);
@@ -1636,9 +1635,9 @@ serverTest(
     });
     if (current.done || current.value.type !== "snapshot")
       throw new Error("Expected summary snapshot");
-    const readCursorId = current.value.sessions[0]!.latestReadCursorId;
+    const readCursorId = current.value.sessions[0]!.latestResultId;
     expect(readCursorId).toBeDefined();
-    expect(readCursorId).not.toBe(completed.latestReadCursorId);
+    expect(readCursorId).not.toBe(completed.latestResultId);
     expect(isThreadUnread(current.value.sessions[0]!)).toBe(true);
 
     // Aborting an active run also pushes its settled status.
@@ -1653,9 +1652,9 @@ serverTest(
     const stopped = await nextSummary(
       resumed,
       (summary) =>
-        !summary.isRunning && summary.latestReadCursorId !== readCursorId,
+        !summary.isRunning && summary.latestResultId !== readCursorId,
     );
-    expect(stopped.latestReadCursorId).toBeDefined();
+    expect(stopped.latestResultId).toBeDefined();
     reconnect.abort();
     await server.stop();
     await server.start();
@@ -1670,7 +1669,7 @@ serverTest(
         {
           ...session,
           isRunning: false,
-          latestReadCursorId: stopped.latestReadCursorId,
+          latestResultId: stopped.latestResultId,
           markedDone: false,
         },
       ],
@@ -1735,7 +1734,7 @@ serverTest(
     expect(read).toMatchObject({
       ...first,
       markedDone: false,
-      readReceiptCursorId: read.latestReadCursorId,
+      readReceiptCursorId: read.latestResultId,
     });
 
     await server.rpc.sessions.markUnread(first);
@@ -1801,7 +1800,7 @@ serverTest(
     );
     expect(restoredRead).toMatchObject({
       markedDone: true,
-      readReceiptCursorId: restoredRead.latestReadCursorId,
+      readReceiptCursorId: restoredRead.latestResultId,
     });
 
     await server.rpc.sessions.markUndone(first);
@@ -1811,7 +1810,7 @@ serverTest(
     );
     expect(restoredUndone).toMatchObject({
       markedDone: false,
-      readReceiptCursorId: restoredUndone.latestReadCursorId,
+      readReceiptCursorId: restoredUndone.latestResultId,
     });
 
     secondConnection.abort();
@@ -1824,7 +1823,7 @@ serverTest(
     assert(finalFirst !== undefined);
     expect(finalFirst).toMatchObject({
       markedDone: false,
-      readReceiptCursorId: finalFirst.latestReadCursorId,
+      readReceiptCursorId: finalFirst.latestResultId,
     });
     expect(isThreadUnread(finalFirst)).toBe(false);
     expect(
@@ -1891,11 +1890,10 @@ serverTest(
     await prompted;
     const failed = await nextSummary(
       updates,
-      (summary) =>
-        !summary.isRunning && summary.latestReadCursorId !== undefined,
+      (summary) => !summary.isRunning && summary.latestResultId !== undefined,
     );
     expect(await server.rpc.sessions.snapshot(session)).toMatchObject({
-      lastRun: { id: failed.latestReadCursorId, status: "failed" },
+      lastRun: { id: failed.latestResultId, status: "failed" },
     });
   },
 );
@@ -2272,14 +2270,21 @@ serverTest(
 );
 
 serverTest(
-  "negotiates supported protocols and rejects unsupported writes",
-  async ({ server }) => {
+  "keeps previous protocol summaries readable and rejects unsupported writes",
+  async ({ server, llm }) => {
     const connected = await connectHaloClient({ transport: server.transport });
     assert(!(connected instanceof Error));
     expect(connected.serverInfo).toEqual({
       protocolVersion: haloProtocolVersion,
       supportedProtocols: haloSupportedProtocols,
     });
+    const session = await server.rpc.sessions.create();
+    const prompting = server.rpc.sessions.prompt({
+      ...session,
+      text: "Complete a result for an older client",
+    });
+    await llm.respond(m.assistant("The result is ready."));
+    await prompting;
     for (const version of [18, 19]) {
       const previousProtocol = createHaloClient({
         transport: {
@@ -2296,6 +2301,12 @@ serverTest(
           content: "Legacy client",
         }),
       ).toEqual({ path: `legacy-${version}.md` });
+      expect(await previousProtocol.sessions.list()).toEqual([
+        expect.objectContaining({
+          sessionId: session.sessionId,
+          latestResultId: expect.any(String),
+        }),
+      ]);
     }
     const unsupported = createHaloClient({
       transport: {

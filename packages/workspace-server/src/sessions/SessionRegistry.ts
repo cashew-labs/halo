@@ -160,12 +160,9 @@ export class SessionRegistry {
         await this.summaryQueue.run(async () => {
           const summary = await this.getSummaryUnqueued(sessionId);
           if (summary instanceof Error) return summary;
-          if (
-            summary.latestReadCursorId === undefined ||
-            !isThreadUnread(summary)
-          )
+          if (summary.latestResultId === undefined || !isThreadUnread(summary))
             return;
-          const readReceiptCursorId = summary.latestReadCursorId;
+          const readReceiptCursorId = summary.latestResultId;
           const saved = await this.repo.setReadReceipt({
             sessionId,
             readReceiptCursorId,
@@ -186,10 +183,7 @@ export class SessionRegistry {
         await this.summaryQueue.run(async () => {
           const summary = await this.getSummaryUnqueued(sessionId);
           if (summary instanceof Error) return summary;
-          if (
-            summary.latestReadCursorId === undefined ||
-            isThreadUnread(summary)
-          )
+          if (summary.latestResultId === undefined || isThreadUnread(summary))
             return;
           const saved = await this.repo.setReadReceipt({
             sessionId,
@@ -503,7 +497,7 @@ function applySummaryEvent(
       return {
         ...summary,
         isRunning: false,
-        latestReadCursorId: event.runId,
+        latestResultId: event.runId,
       };
     case "fault":
       return { ...summary, isRunning: false };
@@ -513,15 +507,15 @@ function applySummaryEvent(
       const title =
         summary.title ??
         (message?.role === "user" ? userTitle(message) : undefined);
-      const latestReadCursorId =
+      const latestResultId =
         !summary.isRunning && message?.role === "assistant"
           ? entry.id
-          : summary.latestReadCursorId;
+          : summary.latestResultId;
       return {
         ...summary,
         title: title?.trim().length === 0 ? undefined : title,
         updatedAt: new Date(entry.timestamp).toISOString(),
-        latestReadCursorId,
+        latestResultId,
       };
     }
     default:
@@ -564,7 +558,7 @@ async function readSessionSummary(
   return {
     sessionId: session.metadata.id,
     isRunning: lane !== undefined && lane.value.currentOperationId !== null,
-    latestReadCursorId: lane?.value.lastOperationId ?? lastAssistant?.id,
+    latestResultId: lane?.value.lastOperationId ?? lastAssistant?.id,
     agent: "pi" as const,
     cwd,
     title: title.trim().length === 0 ? undefined : title,

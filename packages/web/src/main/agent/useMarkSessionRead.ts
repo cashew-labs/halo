@@ -44,14 +44,14 @@ export function useMarkSessionRead(session: SessionSummary | undefined) {
     if (
       session === undefined ||
       session.isRunning ||
-      session.latestReadCursorId === undefined ||
+      session.latestResultId === undefined ||
       (observed.current?.sessionId === session.sessionId &&
-        observed.current.readCursorId === session.latestReadCursorId)
+        observed.current.readCursorId === session.latestResultId)
     )
       return;
     observed.current = {
       sessionId: session.sessionId,
-      readCursorId: session.latestReadCursorId,
+      readCursorId: session.latestResultId,
     };
     if (!isThreadUnread(session)) return;
     void api.sessions

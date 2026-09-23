@@ -33,14 +33,16 @@ Store the two independent product fields directly on each `halo_sessions` row:
 ```ts
 type SessionSummary = {
   sessionId: string;
-  latestReadCursorId?: string;
+  latestResultId?: string;
   markedDone: boolean;
   readReceiptCursorId?: string;
   // Existing Pi-derived fields remain.
 };
 ```
 
-A thread is unread when it has a latest read cursor and `readReceiptCursorId` does not match it. A newly completed Pi run changes `latestReadCursorId` without changing the receipt, so an older receipt automatically becomes stale. `markRead` records the server's current cursor; `markUnread` clears the receipt. This avoids trusting a potentially stale cursor sent by a client and avoids storing a redundant unread boolean.
+A thread is unread when it has a latest read cursor and `readReceiptCursorId` does not match it. A newly completed Pi run changes `latestResultId` without changing the receipt, so an older receipt automatically becomes stale. `markRead` records the server's current cursor; `markUnread` clears the receipt. This avoids trusting a potentially stale cursor sent by a client and avoids storing a redundant unread boolean.
+
+Keep the existing `latestResultId` summary field for the Pi cursor. Protocol-18 clients read that field to display completed sessions as unread, so renaming it would silently break them during the server-first release window.
 
 `markedDone` is independent of the read receipt. Marking a thread done does not mark it read, close an open pane, stop a run, or alter the Pi transcript or tree. The web sidebar hides done threads, while the server continues to list and stream them so other consumers and a future restore surface can observe them.
 
@@ -148,12 +150,12 @@ The centralized database and startup migration path already exist. Add the indep
 +        ├── SessionRepoApi.listProductFields [[phase1-repo-api:new:10-13]]
 +        │   └── TursoSessionRepo.listProductFields [[packages/workspace-server/src/storage/TursoSessionRepo.ts#TursoSessionRepo.listProductFields]]
          ├── readSessionSummary(Pi session)
-+        │   └── latestReadCursorId [[phase1-summary:new:14]]
+         │   └── latestResultId (existing Pi-derived field)
 +        └── merge markedDone and readReceiptCursorId into SessionSummary
 ```
 
 - [x] Add `marked_done` and `read_receipt_cursor_id` to `halo_sessions` with Turso-compatible constraints.
-- [x] Add `latestReadCursorId`, `markedDone`, and `readReceiptCursorId` to the shared client model.
+- [x] Keep `latestResultId` and add `markedDone` and `readReceiptCursorId` to the shared client model.
 - [x] Extend Pi's repository with `SessionRepoApi`, keeping product-field SQL and `DatabaseClient` private to `TursoSessionRepo`.
 - [x] Load all product fields in one query while listing sessions and merge them by session ID.
 - [x] Preserve product fields when Pi events update title, timestamps, running state, or the latest cursor.
@@ -161,21 +163,25 @@ The centralized database and startup migration path already exist. Add the indep
 
 ```source-diff:phase1-summary:packages/client/src/rpc.ts
 diff --git a/packages/client/src/rpc.ts b/packages/client/src/rpc.ts
-index febe9e2..499ce20 100644
+index 47852b1..9c9dfd5 100644
 --- a/packages/client/src/rpc.ts
 +++ b/packages/client/src/rpc.ts
-@@ -14 +14 @@ export type SessionSummary = {
--  latestResultId?: string;
-+  latestReadCursorId?: string;
-@@ -16 +16 @@ export type SessionSummary = {
--  isUnread: boolean;
+@@ -12,8 +12,15 @@ export type SessionSummary = {
+   updatedAt: string;
+   isRunning: boolean;
+   latestResultId?: string;
++  markedDone: boolean;
 +  readReceiptCursorId?: string;
-@@ -18,0 +19,5 @@ export type SessionSummary = {
+ };
+
 +export function isThreadUnread(summary: SessionSummary) {
-+  if (summary.latestReadCursorId === undefined) return false;
-+  return summary.readReceiptCursorId !== summary.latestReadCursorId;
++  if (summary.latestResultId === undefined) return false;
++  return summary.readReceiptCursorId !== summary.latestResultId;
 +}
 +
+ export type SessionSummariesUpdate =
+   | { type: "snapshot"; sessions: SessionSummary[] }
+   | { type: "updated"; session: SessionSummary };
 ```
 
 ```source-diff:phase1-migration:packages/workspace-server/src/storage/migrations/20260921194000-sessionStatus.ts
@@ -231,7 +237,7 @@ With durable fields present on every summary, add idempotent mutations through `
      └── SessionRegistry.markRead(sessionId) [[packages/workspace-server/src/sessions/SessionRegistry.ts#SessionRegistry.markRead]]
          └── summaryQueue.run
              ├── resolve current SessionSummary
-             ├── SessionRepoApi.setReadReceipt({ sessionId, readReceiptCursorId: latestReadCursorId })
+             ├── SessionRepoApi.setReadReceipt({ sessionId, readReceiptCursorId: latestResultId })
              └── publish SessionSummary with the new receipt
 
  sessions.markUnread({ sessionId }) [[phase2-contract:new:148]]
@@ -285,7 +291,7 @@ The server owns the durable receipt, so remove the duplicate browser state. The 
 ```
 
 - [x] Replace `useSessionReadState` with a focused server mutation hook while retaining active-tab, focused-window, visible-document, and completed-run gates.
-- [x] Derive unread from `readReceiptCursorId` and `latestReadCursorId` in one shared client helper.
+- [x] Derive unread from `readReceiptCursorId` and `latestResultId` in one shared client helper.
 - [x] Remove local-storage keys, storage listeners, custom browser events, and browser-local cursor comparison.
 - [x] Verify restart persistence through the workspace-server test and visible-open, reload, and cross-window synchronization through focused Electron E2Es.
 

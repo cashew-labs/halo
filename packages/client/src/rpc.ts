@@ -11,14 +11,14 @@ export type SessionSummary = {
   createdAt: string;
   updatedAt: string;
   isRunning: boolean;
-  latestReadCursorId?: string;
+  latestResultId?: string;
   markedDone: boolean;
   readReceiptCursorId?: string;
 };
 
 export function isThreadUnread(summary: SessionSummary) {
-  if (summary.latestReadCursorId === undefined) return false;
-  return summary.readReceiptCursorId !== summary.latestReadCursorId;
+  if (summary.latestResultId === undefined) return false;
+  return summary.readReceiptCursorId !== summary.latestResultId;
 }
 
 export type SessionSummariesUpdate =
