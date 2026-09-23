@@ -45,7 +45,7 @@ import { connectExtension } from "@get-halo/extension-sdk/client";
 import View from "./view.tsx";
 import type extension from "./extension.ts";
 import { relations, schema } from "./schema.ts";
-const client = await connectExtension<typeof extension, typeof schema, typeof relations>({ schema, relations });
+const client = await connectExtension<typeof extension>()({ schema, relations });
 if (client instanceof Error) throw client;
 createRoot(document.getElementById("root")).render(<View {...client} />);`,
       },
