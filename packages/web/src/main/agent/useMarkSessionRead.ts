@@ -1,6 +1,10 @@
 import { useContext, useEffect, useRef, useSyncExternalStore } from "react";
 import * as errore from "errore";
-import { isThreadUnread, type SessionSummary } from "@get-halo/client";
+import {
+  isThreadUnread,
+  type SessionSnapshot,
+  type SessionSummary,
+} from "@get-halo/client";
 import { useApi } from "../../api/ApiProvider.js";
 import { TabVisibilityContext } from "../../panes/WorkspacePanesProvider.js";
 
@@ -24,10 +28,24 @@ function isViewingWindow() {
   return document.visibilityState === "visible" && document.hasFocus();
 }
 
-export function useMarkSessionRead(session: SessionSummary | undefined) {
+export function useMarkSessionRead({
+  session,
+  state,
+}: {
+  session: SessionSummary | undefined;
+  state: SessionSnapshot;
+}) {
   const api = useApi();
   const isViewing = useSyncExternalStore(subscribeToFocus, isViewingWindow);
   const isTabVisible = useContext(TabVisibilityContext);
+  const transcriptResultId =
+    state.lastRun?.id ??
+    state.entries
+      .filter(
+        (entry) =>
+          entry.type === "message" && entry.message.role === "assistant",
+      )
+      .at(-1)?.id;
   const observed = useRef<
     | {
         sessionId: string;
@@ -44,7 +62,9 @@ export function useMarkSessionRead(session: SessionSummary | undefined) {
     if (
       session === undefined ||
       session.isRunning ||
+      state.activeRun !== undefined ||
       session.latestResultId === undefined ||
+      transcriptResultId !== session.latestResultId ||
       (observed.current?.sessionId === session.sessionId &&
         observed.current.readCursorId === session.latestResultId)
     )
@@ -60,5 +80,12 @@ export function useMarkSessionRead(session: SessionSummary | undefined) {
         observed.current = undefined;
         console.warn(new MarkSessionReadError({ cause }));
       });
-  }, [api, isTabVisible, isViewing, session]);
+  }, [
+    api,
+    isTabVisible,
+    isViewing,
+    session,
+    state.activeRun,
+    transcriptResultId,
+  ]);
 }

@@ -1492,7 +1492,17 @@ e2eTest(
     await app.page.reload();
     await expect(sessionLink).toBeVisible();
     await expect(unread).toBeVisible();
+    const pendingWatches: Route[] = [];
+    await app.page.route("**/rpc/sessions/watch", (route) => {
+      pendingWatches.push(route);
+    });
     await sessionLink.click();
+    await expect.poll(() => pendingWatches.length).toBe(1);
+    // Give a premature read receipt time to reach the sidebar before unblocking the transcript.
+    await app.page.waitForTimeout(300);
+    await expect(unread).toBeVisible();
+    await pendingWatches[0]!.continue();
+    await app.page.unroute("**/rpc/sessions/watch");
     await expect(app.page.getByRole("log")).toContainText(
       "The report is ready.",
     );

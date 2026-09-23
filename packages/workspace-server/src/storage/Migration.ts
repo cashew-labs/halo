@@ -23,62 +23,60 @@ const migrationLedgerSql = `
   )
 `;
 
-export namespace Migration {
-  export function apply(input: {
-    connection: Database;
-    migrations: readonly Migration[];
-  }) {
-    const valid = validate(input.migrations);
-    if (valid instanceof Error) return valid;
-    const ledger = errore.try({
-      try: () => input.connection.exec(migrationLedgerSql),
+export function applyMigrations(input: {
+  connection: Database;
+  migrations: readonly Migration[];
+}) {
+  const valid = validate(input.migrations);
+  if (valid instanceof Error) return valid;
+  const ledger = errore.try({
+    try: () => input.connection.exec(migrationLedgerSql),
+    catch: (cause) =>
+      new DatabaseError({
+        operation: "initialize migrations",
+        cause,
+      }),
+  });
+  if (ledger instanceof Error) return ledger;
+
+  const applied = errore.try({
+    try: () => {
+      // SAFETY: The projection matches the migration ledger created above.
+      return input.connection
+        .prepare("SELECT id, checksum FROM halo_migrations ORDER BY id")
+        .all() as AppliedMigration[];
+    },
+    catch: (cause) =>
+      new DatabaseError({
+        operation: "read migrations",
+        cause,
+      }),
+  });
+  if (applied instanceof Error) return applied;
+
+  const verified = verifyApplied(input.migrations, applied);
+  if (verified instanceof Error) return verified;
+
+  for (const migration of input.migrations.slice(verified)) {
+    const checksum = checksumFor(migration);
+    const result = errore.try({
+      try: () =>
+        input.connection.transaction(() => {
+          input.connection.exec(migration.sql);
+          input.connection
+            .prepare(
+              `INSERT INTO halo_migrations (id, checksum, applied_at)
+               VALUES (?, ?, ?)`,
+            )
+            .run(migration.id, checksum, Date.now());
+        })(),
       catch: (cause) =>
         new DatabaseError({
-          operation: "initialize migrations",
+          operation: `apply migration ${migration.id}`,
           cause,
         }),
     });
-    if (ledger instanceof Error) return ledger;
-
-    const applied = errore.try({
-      try: () => {
-        // SAFETY: The projection matches the migration ledger created above.
-        return input.connection
-          .prepare("SELECT id, checksum FROM halo_migrations ORDER BY id")
-          .all() as AppliedMigration[];
-      },
-      catch: (cause) =>
-        new DatabaseError({
-          operation: "read migrations",
-          cause,
-        }),
-    });
-    if (applied instanceof Error) return applied;
-
-    const verified = verifyApplied(input.migrations, applied);
-    if (verified instanceof Error) return verified;
-
-    for (const migration of input.migrations.slice(verified)) {
-      const checksum = checksumFor(migration);
-      const result = errore.try({
-        try: () =>
-          input.connection.transaction(() => {
-            input.connection.exec(migration.sql);
-            input.connection
-              .prepare(
-                `INSERT INTO halo_migrations (id, checksum, applied_at)
-                 VALUES (?, ?, ?)`,
-              )
-              .run(migration.id, checksum, Date.now());
-          })(),
-        catch: (cause) =>
-          new DatabaseError({
-            operation: `apply migration ${migration.id}`,
-            cause,
-          }),
-      });
-      if (result instanceof Error) return result;
-    }
+    if (result instanceof Error) return result;
   }
 }
 

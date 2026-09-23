@@ -47,7 +47,7 @@ export function AgentPane({
   const sessionMeta = sessions.find(
     ({ sessionId: candidateSessionId }) => candidateSessionId === sessionId,
   );
-  useMarkSessionRead(sessionMeta);
+  useMarkSessionRead({ session: sessionMeta, state: session.state });
   const { data: submittedTitle } = useQuery<string>({
     queryKey: sessionTitleQueryKey(sessionId),
     queryFn: skipToken,

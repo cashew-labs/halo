@@ -2,11 +2,11 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { Database } from "@tursodatabase/database/compat";
 import { expect, test as baseTest } from "vitest";
-import { Migration, type Migration as MigrationValue } from "./Migration.js";
+import { applyMigrations, type Migration } from "./Migration.js";
 
 type MigrationFixture = {
-  attemptOpen(migrations: readonly MigrationValue[]): Database | Error;
-  open(migrations: readonly MigrationValue[]): Database;
+  attemptOpen(migrations: readonly Migration[]): Database | Error;
+  open(migrations: readonly Migration[]): Database;
   close(database: Database): void;
 };
 
@@ -20,9 +20,9 @@ const migrationTest = baseTest.extend<{ migration: MigrationFixture }>({
     await fs.mkdir(parent, { recursive: true });
     const directory = await fs.mkdtemp(path.join(parent, "migration-"));
     const openConnections = new Set<Database>();
-    const attemptOpen = (migrations: readonly MigrationValue[]) => {
+    const attemptOpen = (migrations: readonly Migration[]) => {
       const connection = new Database(path.join(directory, "state.db"));
-      const migrated = Migration.apply({ connection, migrations });
+      const migrated = applyMigrations({ connection, migrations });
       if (migrated instanceof Error) {
         connection.close();
         return migrated;
@@ -55,12 +55,12 @@ const initialMigration = {
     );
     INSERT INTO migration_effects (name) VALUES ('initial');
   `,
-} satisfies MigrationValue;
+} satisfies Migration;
 
 const secondMigration = {
   id: "20260921090100-second",
   sql: "INSERT INTO migration_effects (name) VALUES ('second');",
-} satisfies MigrationValue;
+} satisfies Migration;
 
 const failingMigration = {
   id: "20260921090200-failing",
@@ -68,7 +68,7 @@ const failingMigration = {
     INSERT INTO migration_effects (name) VALUES ('before-failure');
     INSERT INTO missing_table (name) VALUES ('failure');
   `,
-} satisfies MigrationValue;
+} satisfies Migration;
 
 migrationTest(
   "applies each migration once across database restarts",

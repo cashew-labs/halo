@@ -4,7 +4,7 @@ import * as errore from "errore";
 import { SerialQueue } from "@get-halo/shared/SerialQueue";
 import type { FilesystemService } from "../filesystem/FilesystemService.js";
 import { DatabaseError } from "./DatabaseError.js";
-import { Migration } from "./Migration.js";
+import { applyMigrations } from "./Migration.js";
 import { workspaceMigrations } from "./migrations/workspaceMigrations.js";
 
 export class DatabaseClient {
@@ -44,7 +44,7 @@ export class DatabaseClient {
       catch: (cause) => new DatabaseError({ operation: "configure", cause }),
     });
     if (configured instanceof Error) return configured;
-    const migrated = Migration.apply({
+    const migrated = applyMigrations({
       connection,
       migrations: workspaceMigrations,
     });
