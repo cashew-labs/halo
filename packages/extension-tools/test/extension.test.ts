@@ -8,6 +8,7 @@ const websocketGreeting = path.join(
   "fixtures",
   "websocket-greeting",
 );
+const proxyView = path.join(import.meta.dirname, "fixtures", "proxy-view");
 
 extensionTest(
   "serves API-backed views at nested URLs without Halo",
@@ -74,5 +75,18 @@ extensionTest(
     const extension = await loadExtension(websocketGreeting);
     await page.goto(extension.url);
     await expect(page.getByRole("status")).toHaveText("Hello from WebSocket");
+  },
+);
+
+extensionTest(
+  "proxies a server-backed view across an extension restart",
+  async ({ loadExtension, page }) => {
+    const extension = await loadExtension(proxyView);
+    await page.goto(extension.url);
+    await expect(page.getByRole("status")).toHaveText("Hello from proxy view");
+
+    await extension.restart();
+    await page.reload();
+    await expect(page.getByRole("status")).toHaveText("Hello from proxy view");
   },
 );

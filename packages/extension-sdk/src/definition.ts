@@ -9,7 +9,9 @@ import type { ExtensionTools } from "./tools.js";
 
 export type ExtensionEnvironment = {
   Bindings: {
+    dataDirectory: { path: string };
     tools: ExtensionTools;
+    workspace: { path: string };
   };
 };
 
@@ -20,6 +22,22 @@ export type ReactExtensionView = {
   entry: string;
 };
 
+export type ProxyExtensionView = {
+  kind: "proxy";
+};
+
+export type ExtensionView = ReactExtensionView | ProxyExtensionView;
+
+export type ExtensionServeContext = ExtensionEnvironment["Bindings"];
+
+export type ExtensionService = {
+  view?: {
+    target: string;
+    stripPrefix: boolean;
+  };
+  close?(): Promise<Error | void> | Error | void;
+};
+
 export type ExtensionDefinition<
   Api extends AnyExtensionApi,
   DataSchema extends AnySchema,
@@ -28,7 +46,10 @@ export type ExtensionDefinition<
   api: Api;
   schema: RuntimeSchemaDefinition<DataSchema>;
   relations: Relations;
-  view: ReactExtensionView;
+  view: ExtensionView;
+  serve?(
+    context: ExtensionServeContext,
+  ): Promise<Error | ExtensionService> | Error | ExtensionService;
 };
 
 export type ExtensionWithApi = {
@@ -40,6 +61,10 @@ export type InferExtensionApi<Definition extends ExtensionWithApi> =
 
 export function reactView(entry: string): ReactExtensionView {
   return { kind: "react", entry };
+}
+
+export function proxyView(): ProxyExtensionView {
+  return { kind: "proxy" };
 }
 
 export function defineExtension<
