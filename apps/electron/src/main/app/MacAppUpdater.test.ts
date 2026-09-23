@@ -159,7 +159,44 @@ describe.runIf(process.platform === "darwin")("macOS update recovery", () => {
     },
   );
 
-  test("recovers when quitting is vetoed and the old process stays alive", async () => {
+  test.each([false, true])(
+    "requires reopening after a vetoed quit (download missing: %s)",
+    async (missing) => {
+      await fixture.updater.check();
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      fixture.native.installFailure = "veto";
+      await fixture.updater.install();
+      await vi.advanceTimersByTimeAsync(30_000);
+      vi.useRealTimers();
+      fixture.latest = "0.1.55";
+      if (missing) await fs.rm(fixture.native.staged, { recursive: true });
+      await fixture.updater.check();
+      expect(await fixture.updater.install()).toBeInstanceOf(Error);
+      expect(fixture.native.installCalls).toBe(1);
+      expect(fixture.status).toMatchObject({ state: "error" });
+      fixture.relaunch("0.1.53");
+      fixture.native.installFailure = undefined;
+      await fixture.updater.check();
+      expect(await fixture.updater.install()).toBeUndefined();
+      expect(fixture.native.liveVersion).toBe("0.1.55");
+    },
+  );
+
+  test("preserves the original download while a slow native quit completes after timeout", async () => {
+    await fixture.updater.check();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    fixture.native.installFailure = "delayed";
+    await fixture.updater.install();
+    fixture.latest = "0.1.55";
+    await vi.advanceTimersByTimeAsync(31_000);
+    await fixture.updater.check();
+    expect(await fixture.updater.install()).toBeInstanceOf(Error);
+    expect(fixture.native.installCalls).toBe(1);
+    await fixture.native.finishDelayedInstall();
+    expect(fixture.native.liveVersion).toBe("0.1.54");
+  });
+
+  test("recovers from a confirmed native failure after an installation timeout", async () => {
     await fixture.updater.check();
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     fixture.native.installFailure = "veto";
@@ -167,6 +204,10 @@ describe.runIf(process.platform === "darwin")("macOS update recovery", () => {
     await vi.advanceTimersByTimeAsync(30_000);
     vi.useRealTimers();
     fixture.native.installFailure = undefined;
+    fixture.native.emit(
+      "error",
+      new Error("Native installer confirmed failure"),
+    );
     await fixture.updater.check();
     expect(await fixture.updater.install()).toBeUndefined();
     expect(fixture.native.liveVersion).toBe("0.1.54");
@@ -343,7 +384,8 @@ class NativeDriver extends EventEmitter {
   liveVersion = "0.1.53";
   readonly staged: string;
   downloadFailure: "error" | "throw" | "not available" | undefined;
-  installFailure: "error" | "throw" | "veto" | undefined;
+  installFailure: "error" | "throw" | "veto" | "delayed" | undefined;
+  installCalls = 0;
   advanceDuringDownload: string | undefined;
   rejectAdditionalDownloads = false;
   hold = false;
@@ -427,6 +469,7 @@ class NativeDriver extends EventEmitter {
   }
 
   quitAndInstall() {
+    this.installCalls += 1;
     if (this.installFailure === "throw")
       throw new Error("Installer could not start");
     if (this.installFailure === "error") {
@@ -435,9 +478,18 @@ class NativeDriver extends EventEmitter {
       );
       return;
     }
-    if (this.installFailure === "veto") return;
+    if (this.installFailure === "veto" || this.installFailure === "delayed")
+      return;
     if (this.downloadedVersion === undefined)
       throw new Error("No native pending update");
     this.liveVersion = this.downloadedVersion;
+  }
+  async finishDelayedInstall() {
+    // SAFETY: NativeDriver.download writes this fixture plist with a string version.
+    const info = JSON.parse(
+      await fs.readFile(path.join(this.staged, "Contents/Info.plist"), "utf8"),
+    ) as { CFBundleShortVersionString: string };
+    await fs.stat(path.join(this.staged, "Contents/MacOS/Halo"));
+    this.liveVersion = info.CFBundleShortVersionString;
   }
 }
