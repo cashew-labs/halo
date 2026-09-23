@@ -1,8 +1,8 @@
 # Development Electron through the control plane
 
-## System flow
+## Problem overview
 
-### Today
+Development Electron bypasses the control plane. Production does not. That is the whole change.
 
 ```mermaid
 flowchart LR
@@ -22,7 +22,9 @@ flowchart LR
   %% ref node:CP2 [[apps/control-plane/src/workspace/proxy.ts#WorkspaceGateway.serve]]
 ```
 
-### Wanted: development uses the production path
+## Solution overview
+
+Point development Electron at the local control plane the same way production points at `https://gethalo.dev`: a real Better Auth bearer, then `/workspace/health` and `/workspace/rpc`. ADC still supplies that bearer, so local runs skip the Google popup. Test Electron (`HALO_E2E=1`) stays on `server.json`.
 
 ```mermaid
 flowchart LR
@@ -35,14 +37,6 @@ flowchart LR
 ```
 
 Local `WorkspaceService.getConnection` already reads `server.json` and forwards. Electron should stop reading that file in development. The control plane already does.
-
-## Problem overview
-
-Development Electron bypasses the control plane. Production does not. That is the whole change.
-
-## Solution overview
-
-Point development Electron at the local control plane the same way production points at `https://gethalo.dev`: a real Better Auth bearer, then `/workspace/health` and `/workspace/rpc`. ADC still supplies that bearer, so local runs skip the Google popup. Test Electron (`HALO_E2E=1`) stays on `server.json`.
 
 ## Goals
 
