@@ -5,11 +5,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { extname, join } from "node:path";
 import { getRequestListener } from "@hono/node-server";
 import { RPCHandler } from "@orpc/server/node";
-import type {
-  AnyRelations,
-  AnySchema,
-  RuntimeSchemaDefinition,
-} from "@tanishqkancharla/tandem-core";
+import type { AnyRelations, AnySchema } from "@tanishqkancharla/tandem-core";
 import {
   TandemServer,
   TandemServerJsonFileStorage,
@@ -89,8 +85,8 @@ export async function serveExtension<
     storage,
   });
   const tools = createExtensionTools();
-  const apiHandler = getRequestListener((request) =>
-    args.extension.api.fetch(request, { tools }),
+  const apiHandler = getRequestListener(
+    async (request) => await args.extension.api.fetch(request, { tools }),
   );
   const syncHandler = new RPCHandler(syncRouter(tandem));
   const server = createServer(async (request, response) => {
