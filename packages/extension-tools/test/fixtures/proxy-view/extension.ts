@@ -11,6 +11,7 @@ import { relations, schema } from "./schema.js";
 
 const api = new Hono<ExtensionEnvironment>();
 
+// oxlint-disable-next-line anti-slop/no-unused-exports -- The extension builder imports this fixture entry.
 export default defineExtension({
   api,
   schema,

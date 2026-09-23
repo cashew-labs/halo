@@ -46,7 +46,7 @@ export default function Tasks({
     void api.title
       .$get()
       .then(async (response) => await response.json())
-      .then(({ title }) => setTitle(title))
+      .then(({ title: responseTitle }) => setTitle(responseTitle))
       .catch((cause) => setError(new TasksError({ cause }).message));
   }, [api]);
   async function save(task: {

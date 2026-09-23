@@ -118,9 +118,11 @@ async function command(executable: string, args: string[], cwd: string) {
   }).catch(
     (cause) =>
       new ExtensionTestError({
-        detail: [`${executable} ${args.join(" ")}`, cause.stdout, cause.stderr]
-          .filter((value): value is string => typeof value === "string")
-          .join("\n"),
+        detail: [
+          `${executable} ${args.join(" ")}`,
+          cause.stdout,
+          cause.stderr,
+        ].join("\n"),
         cause,
       }),
   );

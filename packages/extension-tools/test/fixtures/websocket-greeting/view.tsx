@@ -4,6 +4,7 @@ import type { ExtensionViewProps } from "@get-halo/extension-sdk/view";
 import type extension from "./extension.js";
 import type { relations, schema } from "./schema.js";
 
+// oxlint-disable-next-line anti-slop/no-unused-exports -- The extension builder imports this fixture entry.
 export default function WebSocketGreeting({
   api,
 }: ExtensionViewProps<typeof extension, typeof schema, typeof relations>) {
