@@ -630,8 +630,8 @@ importers:
         specifier: workspace:*
         version: link:../client
       '@get-halo/extension-tools':
-        specifier: 0.2.0
-        version: 0.2.0
+        specifier: workspace:*
+        version: link:../extension-tools
       '@get-halo/shared':
         specifier: workspace:*
         version: link:../shared
@@ -1661,10 +1661,6 @@ packages:
 
   '@gar/promisify@1.1.3':
     resolution: {integrity: sha512-k2Ty1JcVojjJFwrg/ThKi2ujJ7XNLYaFGNB/bWT9wGR+oSMJHMa5w+CUq6p/pVrKeNNgA7pCqEcjSnHVoqJQFw==}
-
-  '@get-halo/extension-tools@0.2.0':
-    resolution: {integrity: sha512-6XDu0Qi/uFaYzKvOapA0HGW6VQAl8k2iA4QjqKMri/M6Blny18EfadK7dEGbi5waAyWy+5gCkZSIiLSaZD6CHQ==}
-    hasBin: true
 
   '@google/genai@1.52.0':
     resolution: {integrity: sha512-gwSvbpiN/17O9TbsqSsE/OzZcpv5Fo4RQjdngGgogtuB9RsyJ8ZHhX5KjHj1bp5N9snN2eK8LDGXSaWW2hof8Q==}
@@ -5878,10 +5874,6 @@ packages:
 
   highlight.js@10.7.3:
     resolution: {integrity: sha512-tzcUFauisWKNHaRkN4Wjl/ZA07gENAjFl3J/c480dprkGTg5EQstgaNFqBfUqCq54kZRIEcreTsAgF/m2quD7A==}
-
-  hono@4.11.4:
-    resolution: {integrity: sha512-U7tt8JsyrxSRKspfhtLET79pU8K+tInj5QZXs1jSugO1Vq5dFj3kmZsRldo29mTBfcjDRVRXrEZ6LS63Cog9ZA==}
-    engines: {node: '>=16.9.0'}
 
   hono@4.13.8:
     resolution: {integrity: sha512-/Gng7NfoykZl2pjukW5Z6+8Yxm3BPRf86GTbQnt0SbySkvax4fyL4H3HhY1cCpBGmiW9XDRFzRV+CXK2W8QudQ==}
@@ -10111,11 +10103,6 @@ snapshots:
   '@gar/promise-retry@1.0.3': {}
 
   '@gar/promisify@1.1.3': {}
-
-  '@get-halo/extension-tools@0.2.0':
-    dependencies:
-      errore: 0.14.1
-      esbuild: 0.28.2
 
   '@google/genai@1.52.0(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(supports-color@8.1.1)(zod@4.4.3))(supports-color@8.1.1)':
     dependencies:
@@ -14472,8 +14459,6 @@ snapshots:
       libheif-js: 1.23.2
 
   highlight.js@10.7.3: {}
-
-  hono@4.11.4: {}
 
   hono@4.13.8: {}
 
