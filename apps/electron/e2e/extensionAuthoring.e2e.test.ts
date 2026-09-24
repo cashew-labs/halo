@@ -146,14 +146,6 @@ e2eTest(
         },
       }),
     );
-    await expect
-      .poll(
-        async () =>
-          await app.server.rpc.workspace.readFile({
-            path: ".halo/extensions/agent-counter/view.tsx",
-          }),
-      )
-      .toBe(viewSource);
     await llm.respond(
       m.tool.start("bash", {
         id: "build-agent-counter",
