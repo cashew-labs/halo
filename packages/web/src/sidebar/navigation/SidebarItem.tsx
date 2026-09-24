@@ -33,7 +33,9 @@ type SidebarItemProps = {
   items?: ReactNode;
   hasChildItems?: boolean;
   icon?: IconComponent;
+  leading?: ReactNode;
   trailing?: ReactNode;
+  hoverTrailing?: ReactNode;
   className?: string;
   render?: NavigationTreeItemProps["render"];
 };
@@ -51,8 +53,8 @@ export function SidebarItem(props: SidebarItemProps) {
     iconWrap,
     ...(isActive ? [iconWrapActive] : []),
   );
-  const iconClassName = useStyles(icon);
   const trailingClassName = useStyles(trailing);
+  const hoverTrailingClassName = useStyles(hoverTrailing);
   const chevronClassName = useStyles(chevron);
   const chevronIconClassName = useStyles(chevronIcon);
   const chevronIconExpandedClassName = useStyles(
@@ -87,9 +89,11 @@ export function SidebarItem(props: SidebarItemProps) {
                   }
                 />
               </Button>
+            ) : props.leading !== undefined ? (
+              props.leading
             ) : Icon === undefined ? undefined : (
               <span className={iconWrapClassName} aria-hidden="true">
-                <Icon className={iconClassName} />
+                <Icon />
               </span>
             )}
             <Link
@@ -119,6 +123,14 @@ export function SidebarItem(props: SidebarItemProps) {
             {props.trailing === undefined ? undefined : (
               <span className={trailingClassName}>{props.trailing}</span>
             )}
+            {props.hoverTrailing === undefined ? undefined : (
+              <span
+                className={hoverTrailingClassName}
+                data-sidebar-hover-action
+              >
+                {props.hoverTrailing}
+              </span>
+            )}
           </>
         )}
       </NavigationTreeItemContent>
@@ -133,16 +145,16 @@ const sidebarItem = style(navigationItem, sidebarPadding, {
   gap: spacing.value(2),
   minWidth: 0,
   width: "100%",
+  height: "28px",
   borderRadius: 0,
-  paddingTop: spacing.value(2),
-  paddingBottom: spacing.value(2),
+  paddingBlock: 0,
   paddingLeft: `calc(${spacing.value(4)} + (var(--tree-item-level, 1) - 1) * ${spacing.value(4)})`,
   border: 0,
   textDecoration: "none",
   textAlign: "left",
   backgroundColor: "transparent",
   "@media (max-width: 700px)": {
-    minHeight: "44px",
+    height: "44px",
     fontSize: "16px",
     paddingLeft: "calc(16px + (var(--tree-item-level, 1) - 1) * 16px)",
   },
@@ -155,6 +167,13 @@ const sidebarItem = style(navigationItem, sidebarPadding, {
     color: colors.accent[11],
     fontWeight: 500,
   },
+  "&:has([data-sidebar-hover-action]):is(:hover, :focus-within)": {
+    paddingRight: 0,
+  },
+  "&:hover [data-sidebar-hover-action], &:focus-within [data-sidebar-hover-action]":
+    {
+      display: "grid",
+    },
 });
 
 const itemLink = style({
@@ -181,8 +200,14 @@ const iconWrap = style(radius.sm, {
 });
 
 const iconWrapActive = style({ color: colors.accent[11] });
-const icon = style({ width: "16px", height: "16px" });
 const trailing = style({ flexShrink: 0 });
+const hoverTrailing = style({
+  display: "none",
+  placeItems: "center",
+  flexShrink: 0,
+  "@media (max-width: 700px)": { display: "grid" },
+  "@media (hover: none)": { display: "grid" },
+});
 
 const chevron = style(focusRing(), radius.sm, {
   display: "grid",

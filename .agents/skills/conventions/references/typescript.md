@@ -14,6 +14,8 @@ Keep types with the implementation that owns them. Use strict types, including `
 
 Use PascalCase for classes, types, interfaces, enums, and React components. Use camelCase for functions and values. Name a file after its primary export with the same casing and no hyphens; tests mirror the implementation file's name. When a module has no single primary export, name it after the shared concept in camelCase, or use one lowercase word when the folder provides enough context. Use one lowercase word for folders when practical, organize services with their domain helpers, and retain framework-required names. TypeScript ESM imports use `.js` extensions.
 
+Name variables and parameters that hold identifiers with an entity-specific `Id` suffix, such as `sessionId` or `readCursorId`. Avoid ambiguous identifier names such as `session`, `cursor`, `result`, or bare `id` when the value is specifically an identifier and a clearer entity name is available.
+
 Within a class, declare and briefly explain owned state first, then explicit `private readonly` dependencies. Prefer TypeScript `private` and `private readonly` fields over `#` fields. Constructors take one `ctx` object, destructure it, and explicitly assign fields rather than retaining the whole context or using constructor parameter properties. Other comments should explain external quirks or decisions, not repeat the code.
 
 ## Return expected failures with `errore`

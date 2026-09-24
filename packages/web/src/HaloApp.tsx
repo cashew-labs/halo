@@ -98,7 +98,7 @@ function WorkspaceShell({
 }
 
 function initialHostPath(sessions: SessionSummary[]) {
-  const first = sessions[0];
+  const first = sessions.find((session) => !session.markedDone);
   if (first !== undefined) return `/sessions/${first.sessionId}`;
   return `/draft/${crypto.randomUUID()}`;
 }

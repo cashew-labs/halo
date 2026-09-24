@@ -34,7 +34,7 @@
     "agentation": "^3.0.2",
     "errore": "^0.14.1",
     "marked": "17.0.6",
-    "maui": "npm:@tanishqkancharla/maui@0.0.30",
+    "maui": "npm:@tanishqkancharla/maui@0.0.33",
     "purse-styles": "^0.2.3",
     "react-aria-components": "1.21.0",
     "streamdown": "^2.5.0",

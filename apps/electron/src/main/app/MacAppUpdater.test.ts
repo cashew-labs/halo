@@ -314,7 +314,7 @@ class UpdateFixture {
   static async start() {
     const base = path.resolve(
       import.meta.dirname,
-      "../../../../../../tmp/updater-tests",
+      "../../../../../tmp/updater-tests",
     );
     await fs.mkdir(base, { recursive: true });
     const root = await fs.mkdtemp(path.join(base, "case-"));

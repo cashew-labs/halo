@@ -26,6 +26,22 @@ export const sessionsRouter = os.router({
   watchSummaries: os.watchSummaries.handler(({ context, signal }) =>
     context.sessions.watchSummaries(signal),
   ),
+  markRead: os.markRead.handler(async ({ input, context }) => {
+    const marked = await context.sessions.markRead(input);
+    if (marked instanceof Error) return orpcErrors.badRequest(marked);
+  }),
+  markUnread: os.markUnread.handler(async ({ input, context }) => {
+    const marked = await context.sessions.markUnread(input.sessionId);
+    if (marked instanceof Error) return orpcErrors.badRequest(marked);
+  }),
+  markDone: os.markDone.handler(async ({ input, context }) => {
+    const marked = await context.sessions.markDone(input.sessionId);
+    if (marked instanceof Error) return orpcErrors.badRequest(marked);
+  }),
+  markUndone: os.markUndone.handler(async ({ input, context }) => {
+    const marked = await context.sessions.markUndone(input.sessionId);
+    if (marked instanceof Error) return orpcErrors.badRequest(marked);
+  }),
   list: os.list.handler(async ({ context }) => {
     context.logger.info({ event: "listSessions" });
     const sessions = await context.sessions.list();

@@ -4,7 +4,6 @@ import {
   value,
   type Session,
   type SessionMetadata,
-  type SessionRepo,
   type SessionCreateOptions,
   type ForkOptions,
   type Entry,
@@ -16,29 +15,27 @@ import { uuidv7 } from "@earendil-works/pi-ai";
 import type { Database } from "@tursodatabase/database/compat";
 import * as errore from "errore";
 import type { DatabaseClient } from "./DatabaseClient.js";
+import type { SessionProductFields, SessionRepoApi } from "./SessionRepoApi.js";
 import { TursoStorage, applySessionWrites } from "./TursoStorage.js";
 import {
   decodeSessionJson,
-  sessionSchema,
   emptySessionStats,
   readSessionRow,
   SessionBackendError,
 } from "./sessionSchema.js";
 
-export class TursoSessionRepo implements SessionRepo {
+type SessionProductFieldsRow = {
+  id: string;
+  marked_done: number;
+  read_receipt_cursor_id: string | null;
+};
+
+export class TursoSessionRepo implements SessionRepoApi {
   private readonly reserved = new Set<string>();
   private readonly sessions = new Set<Session>();
   private closed = false;
 
-  private constructor(private readonly database: DatabaseClient) {}
-
-  static async open(database: DatabaseClient) {
-    const initialized = await database.access((connection) =>
-      connection.transaction(() => connection.exec(sessionSchema))(),
-    );
-    if (initialized instanceof Error) return initialized;
-    return new TursoSessionRepo(database);
-  }
+  constructor(private readonly database: DatabaseClient) {}
 
   async create(options: SessionCreateOptions | undefined) {
     const createdAt = Date.now();
@@ -75,7 +72,7 @@ export class TursoSessionRepo implements SessionRepo {
   async list() {
     this.assertOpen();
     const result = await this.database.access((connection) => {
-      // SAFETY: The projection matches the session schema initialized by this repository.
+      // SAFETY: The projection matches the session schema owned by workspace migrations.
       const rows = connection
         .prepare("SELECT metadata FROM halo_sessions")
         .all() as { metadata: string }[];
@@ -85,6 +82,56 @@ export class TursoSessionRepo implements SessionRepo {
     });
     if (result instanceof Error) throw result;
     return result;
+  }
+
+  async listProductFields() {
+    return await this.database.access((connection) => {
+      // SAFETY: The projection matches the session table owned by workspace migrations.
+      const rows = connection
+        .prepare(
+          "SELECT id, marked_done, read_receipt_cursor_id FROM halo_sessions",
+        )
+        .all() as SessionProductFieldsRow[];
+      return new Map<string, SessionProductFields>(
+        rows.map((row) => [row.id, decodeSessionProductFields(row)]),
+      );
+    });
+  }
+
+  async getProductFields(sessionId: string) {
+    return await this.database.access((connection) => {
+      // SAFETY: The projection matches the session table owned by workspace migrations.
+      const row = connection
+        .prepare(
+          "SELECT id, marked_done, read_receipt_cursor_id FROM halo_sessions WHERE id = ?",
+        )
+        .get(sessionId) as SessionProductFieldsRow | undefined;
+      if (row === undefined) return;
+      return decodeSessionProductFields(row);
+    });
+  }
+
+  async setMarkedDone(input: { sessionId: string; markedDone: boolean }) {
+    return await this.database.access((connection) => {
+      connection
+        .prepare("UPDATE halo_sessions SET marked_done = ? WHERE id = ?")
+        .run(input.markedDone ? 1 : 0, input.sessionId);
+    });
+  }
+
+  async setReadReceipt(input: {
+    sessionId: string;
+    readReceiptCursorId?: string;
+  }) {
+    return await this.database.access((connection) => {
+      // oxlint-disable-next-line unicorn/no-null -- SQL uses NULL for a missing read receipt.
+      const readReceiptCursorId = input.readReceiptCursorId ?? null;
+      connection
+        .prepare(
+          "UPDATE halo_sessions SET read_receipt_cursor_id = ? WHERE id = ?",
+        )
+        .run(readReceiptCursorId, input.sessionId);
+    });
   }
 
   async delete(metadata: SessionMetadata) {
@@ -107,13 +154,13 @@ export class TursoSessionRepo implements SessionRepo {
     const id = options.id === undefined ? uuidv7(createdAt) : options.id;
     return await this.openSession(id, (connection) => {
       readSessionRow(connection, source.id);
-      // SAFETY: The projection matches the session schema initialized by this repository.
+      // SAFETY: The projection matches the session schema owned by workspace migrations.
       const entryRows = connection
         .prepare(
           "SELECT payload FROM halo_session_entries WHERE session_id = ? ORDER BY seq",
         )
         .all(source.id) as { payload: string }[];
-      // SAFETY: The projection matches the session schema initialized by this repository.
+      // SAFETY: The projection matches the session schema owned by workspace migrations.
       const valueRows = connection
         .prepare(
           "SELECT namespace, key, seq, payload FROM halo_session_values WHERE session_id = ? ORDER BY seq",
@@ -236,4 +283,15 @@ export class TursoSessionRepo implements SessionRepo {
     if (this.closed)
       throw new SessionBackendError({ detail: "Repository is closed" });
   }
+}
+
+function decodeSessionProductFields(
+  row: SessionProductFieldsRow,
+): SessionProductFields {
+  const fields: SessionProductFields = {
+    markedDone: row.marked_done === 1,
+  };
+  if (row.read_receipt_cursor_id !== null)
+    fields.readReceiptCursorId = row.read_receipt_cursor_id;
+  return fields;
 }
