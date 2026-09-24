@@ -154,13 +154,17 @@ export class SessionRegistry {
     return await this.track(async () => await this.closeSession(sessionId));
   }
 
-  async markRead(sessionId: string) {
+  async markRead(input: { sessionId: string; observedResultId: string }) {
+    const { sessionId, observedResultId } = input;
     return await this.track(
       async () =>
         await this.summaryQueue.run(async () => {
           const summary = await this.getSummaryUnqueued(sessionId);
           if (summary instanceof Error) return summary;
-          if (summary.latestResultId === undefined || !isThreadUnread(summary))
+          if (
+            summary.latestResultId !== observedResultId ||
+            !isThreadUnread(summary)
+          )
             return;
           const readReceiptCursorId = summary.latestResultId;
           const saved = await this.repo.setReadReceipt({

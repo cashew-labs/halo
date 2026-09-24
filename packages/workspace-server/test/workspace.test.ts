@@ -1719,13 +1719,17 @@ serverTest(
     );
     await llm.respond(m.assistant("Completed result"));
     await prompted;
-    await nextSummary(
+    const completed = await nextSummary(
       updates,
       (summary) =>
         summary.sessionId === first.sessionId && isThreadUnread(summary),
     );
+    assert(completed.latestResultId !== undefined);
 
-    await server.rpc.sessions.markRead(first);
+    await server.rpc.sessions.markRead({
+      ...first,
+      observedResultId: completed.latestResultId,
+    });
     const read = await nextSummary(
       updates,
       (summary) =>
@@ -1748,6 +1752,35 @@ serverTest(
       markedDone: false,
     });
     expect(unread.readReceiptCursorId).toBeUndefined();
+
+    const nextPrompt = server.rpc.sessions.prompt({
+      ...first,
+      text: "Produce another result for status commands",
+    });
+    await nextSummary(
+      updates,
+      (summary) => summary.sessionId === first.sessionId && summary.isRunning,
+    );
+    await llm.respond(m.assistant("New completed result"));
+    await nextPrompt;
+    const nextCompleted = await nextSummary(
+      updates,
+      (summary) =>
+        summary.sessionId === first.sessionId &&
+        summary.latestResultId !== completed.latestResultId &&
+        isThreadUnread(summary),
+    );
+    await server.rpc.sessions.markRead({
+      ...first,
+      observedResultId: completed.latestResultId,
+    });
+    const afterStaleRead = (await server.rpc.sessions.list()).find(
+      (summary) => summary.sessionId === first.sessionId,
+    );
+    expect(afterStaleRead?.latestResultId).toBe(nextCompleted.latestResultId);
+    expect(afterStaleRead?.readReceiptCursorId).toBeUndefined();
+    assert(afterStaleRead !== undefined);
+    expect(isThreadUnread(afterStaleRead)).toBe(true);
 
     await server.rpc.sessions.markDone(first);
     const done = await nextSummary(
@@ -1792,7 +1825,11 @@ serverTest(
       markedDone: false,
     });
 
-    await server.rpc.sessions.markRead(first);
+    assert(restoredFirst.latestResultId !== undefined);
+    await server.rpc.sessions.markRead({
+      ...first,
+      observedResultId: restoredFirst.latestResultId,
+    });
     const restoredRead = await nextSummary(
       restored,
       (summary) =>
@@ -2308,6 +2345,18 @@ serverTest(
         }),
       ]);
     }
+    const previousStatusProtocol = createHaloClient({
+      transport: {
+        ...server.transport,
+        headers: {
+          ...server.transport.headers,
+          "x-halo-protocol-version": "20",
+        },
+      },
+    });
+    await expect(previousStatusProtocol.sessions.list()).rejects.toMatchObject({
+      code: "UNSUPPORTED_PROTOCOL",
+    });
     const unsupported = createHaloClient({
       transport: {
         ...server.transport,

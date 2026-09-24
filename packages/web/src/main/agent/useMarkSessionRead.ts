@@ -61,22 +61,23 @@ export function useMarkSessionRead({
       (lastRunId !== latestResultId && lastAssistantEntryId !== latestResultId)
     )
       return;
+    const readInput = { sessionId, observedResultId: latestResultId };
     let cancelled = false;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
 
-    async function markRead(readSessionId: string) {
+    async function markRead() {
       const result = await api.sessions
-        .markRead({ sessionId: readSessionId })
+        .markRead(readInput)
         .catch((cause) => new MarkSessionReadError({ cause }));
       if (!(result instanceof Error)) return;
       console.warn(result);
       if (cancelled) return;
       retryTimer = setTimeout(() => {
-        markRead(readSessionId).catch(console.warn);
+        markRead().catch(console.warn);
       }, 2_000);
     }
 
-    markRead(sessionId).catch(console.warn);
+    markRead().catch(console.warn);
     return () => {
       cancelled = true;
       clearTimeout(retryTimer);

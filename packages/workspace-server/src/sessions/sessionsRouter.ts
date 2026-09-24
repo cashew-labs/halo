@@ -27,7 +27,7 @@ export const sessionsRouter = os.router({
     context.sessions.watchSummaries(signal),
   ),
   markRead: os.markRead.handler(async ({ input, context }) => {
-    const marked = await context.sessions.markRead(input.sessionId);
+    const marked = await context.sessions.markRead(input);
     if (marked instanceof Error) return orpcErrors.badRequest(marked);
   }),
   markUnread: os.markUnread.handler(async ({ input, context }) => {

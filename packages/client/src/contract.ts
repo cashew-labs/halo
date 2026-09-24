@@ -24,7 +24,7 @@ import type {
   WorkspaceTreeEvent,
 } from "./rpc.js";
 
-export const haloProtocolVersion = 20 as const;
+export const haloProtocolVersion = 21 as const;
 export const haloSupportedProtocols = [18, 19, haloProtocolVersion];
 
 export const RequestRejectedError = error("BAD_REQUEST", {
@@ -151,7 +151,9 @@ export const contract = publicProcedure.router({
     watchSummaries: oc.output(
       asyncIteratorObject(type<SessionSummariesUpdate>()),
     ),
-    markRead: oc.input(type<{ sessionId: string }>()).output(type<void>()),
+    markRead: oc
+      .input(type<{ sessionId: string; observedResultId: string }>())
+      .output(type<void>()),
     markUnread: oc.input(type<{ sessionId: string }>()).output(type<void>()),
     markDone: oc.input(type<{ sessionId: string }>()).output(type<void>()),
     markUndone: oc.input(type<{ sessionId: string }>()).output(type<void>()),
