@@ -1,4 +1,3 @@
-import type { Env, Schema } from "hono";
 import { Hono } from "hono";
 import type {
   AnyRelations,
@@ -14,7 +13,8 @@ export type ExtensionEnvironment<Tools = ExtensionTools> = {
   };
 };
 
-export type AnyExtensionApi = Hono<Env, Schema, string>;
+// oxlint-disable-next-line typescript/no-explicit-any -- Hono apps are invariant in environment, route schema, and base path; this boundary preserves each concrete app type.
+export type AnyExtensionApi = Hono<any, any, any>;
 
 export type ReactExtensionView = {
   kind: "react";
