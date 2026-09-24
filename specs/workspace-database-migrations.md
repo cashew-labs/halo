@@ -105,17 +105,15 @@ Keep `DatabaseClient` as a deliberately small Turso connection owner. Add a forw
 Move the existing session, hotkey, and Executor DDL into one ordered workspace migration list. Their services retain their typed storage behavior but stop creating tables. Executor's current generated SQLite schema is captured as immutable migration SQL. This keeps startup independent of runtime table collection and makes a future Executor schema change require an explicit appended migration.
 
 ```ts
-type Migration = {
+type Migration = Readonly<{
   id: string;
   sql: string;
-};
+}>;
 
-namespace Migration {
-  function apply(input: {
-    connection: Database;
-    migrations: readonly Migration[];
-  }): void | DatabaseError;
-}
+function applyMigrations(input: {
+  connection: Database;
+  migrations: readonly Migration[];
+}): void | DatabaseError;
 
 class DatabaseClient {
   static open(input: {
@@ -176,7 +174,7 @@ CREATE TABLE IF NOT EXISTS halo_migrations (
 - [`packages/workspace-server/src/agent/runtime/createExecutorDatabase.ts`](../packages/workspace-server/src/agent/runtime/createExecutorDatabase.ts) — Receives generated Fuma tables during tool-runtime startup and constructs the coordinated Drizzle adapter.
 - [`packages/workspace-server/src/storage/TursoSessionRepo.test.ts`](../packages/workspace-server/src/storage/TursoSessionRepo.test.ts) and [`TursoStorage.test.ts`](../packages/workspace-server/src/storage/TursoStorage.test.ts) — Protect the consumer APIs of the Pi repository and storage implementations against Pi's conformance suites.
 - [`packages/workspace-server/test/workspace.test.ts`](../packages/workspace-server/test/workspace.test.ts) — Exercises persistence and restart behavior through the workspace server's public APIs.
-- [`packages/workspace-server/src/storage/Migration.test.ts`](../packages/workspace-server/src/storage/Migration.test.ts) — Treats the `Migration` namespace as a file-level consumer API and uses a native Vitest fixture to exercise application, restart, append-only validation, and rollback against real Turso files.
+- [`packages/workspace-server/src/storage/Migration.test.ts`](../packages/workspace-server/src/storage/Migration.test.ts) — Calls `applyMigrations` directly through a native Vitest fixture to exercise application, restart, append-only validation, and rollback against real Turso files.
 
 ## Implementation
 
@@ -189,7 +187,7 @@ The centralized connection already exists, but it cannot distinguish schema init
  ├── create .halo directory
  ├── open state.db
  ├── enable foreign keys and WAL
- ├── Migration.apply({ connection, migrations: workspaceMigrations }) [[packages/workspace-server/src/storage/Migration.ts#Migration.apply]]
+ ├── applyMigrations({ connection, migrations: workspaceMigrations }) [[packages/workspace-server/src/storage/Migration.ts#applyMigrations]]
  │   ├── create halo_migrations ledger
  │   ├── validate strictly increasing timestamped IDs
  │   ├── verify the applied history and SQL checksums
@@ -200,17 +198,17 @@ The centralized connection already exists, but it cannot distinguish schema init
 ```
 
 ```callstack
- Migration.apply({ connection, migrations }) [[packages/workspace-server/src/storage/Migration.ts#Migration.apply]]
+ applyMigrations({ connection, migrations }) [[packages/workspace-server/src/storage/Migration.ts#applyMigrations]]
  └── native Turso transaction
      ├── connection.exec(migration.sql)
      └── INSERT halo_migrations(id, checksum, applied_at)
 ```
 
-- [x] Add the `Migration` type and namespace as the linear migration boundary used internally by `DatabaseClient`.
+- [x] Add the `Migration` type and exported `applyMigrations` function as the linear migration boundary used internally by `DatabaseClient`.
 - [x] Make `DatabaseClient.open()` import and apply the static `workspaceMigrations` registry after SQLite configuration but before returning the client. Callers cannot select or bypass migrations.
 - [x] Create the migration ledger, validate timestamped IDs, and reject any applied history that is no longer an unchanged prefix of the registry.
 - [x] Apply each pending SQL migration and its ledger insert in the same transaction. A failed migration is not recorded.
-- [x] Add `src/storage/Migration.test.ts` as a file-level pseudo-E2E with a native Vitest fixture backed by real temporary Turso files. Verify the `Migration.apply()` contract: first application, restart without rerunning, ordered upgrade, append-only enforcement, and rollback after a failed migration. The tests do not inspect private fields or the migration ledger.
+- [x] Add `src/storage/Migration.test.ts` as a file-level pseudo-E2E with a native Vitest fixture backed by real temporary Turso files. Verify the `applyMigrations()` contract: first application, restart without rerunning, ordered upgrade, append-only enforcement, and rollback after a failed migration. The tests do not inspect private fields or the migration ledger.
 - [x] Run the focused migration test, Pi backend conformance suite, package checks, and `pnpm run check-affected`.
 
 ### Phase 2: Move workspace-owned schemas into the startup plan
@@ -295,11 +293,11 @@ index 7929f36..d069750 100644
 -  message: "Application database failed during $operation",
 -}) {}
 +import { DatabaseError } from "./DatabaseError.js";
-+import { Migration } from "./Migration.js";
++import { applyMigrations } from "./Migration.js";
 +import { workspaceMigrations } from "./migrations/workspaceMigrations.js";
 @@ -49 +47,5 @@ export class DatabaseClient {
 -    const client = new DatabaseClient({ connection });
-+    const migrated = Migration.apply({
++    const migrated = applyMigrations({
 +      connection,
 +      migrations: workspaceMigrations,
 +    });
