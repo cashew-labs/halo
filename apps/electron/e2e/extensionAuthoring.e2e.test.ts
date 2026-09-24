@@ -138,10 +138,14 @@ e2eTest(
     await app.page
       .getByRole("button", { name: "New session", exact: true })
       .click();
-    await app.page
+    const session = app.page.getByRole("main", {
+      name: "New session",
+      exact: true,
+    });
+    await session
       .getByLabel("Message", { exact: true })
       .fill("Build me a simple counter extension called Agent Counter.");
-    await app.page.getByRole("button", { name: "Send", exact: true }).click();
+    await session.getByRole("button", { name: "Send", exact: true }).click();
     await llm.respond(
       m.tool.start("exec", {
         id: "build-agent-counter",
