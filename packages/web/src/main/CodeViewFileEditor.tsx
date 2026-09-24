@@ -34,6 +34,7 @@ export function CodeViewFileEditor({
   const autosave = useAutosaveFile({ path, loaded });
   const [initial] = useState(loaded);
   const host = useStyles(hostClass);
+  const view = useStyles(viewClass);
 
   const items = useMemo(
     (): CodeViewItem<undefined>[] => [
@@ -73,7 +74,7 @@ export function CodeViewFileEditor({
           onItemEditChange={(event) => {
             autosave.onChange(event.file.contents);
           }}
-          style={{ height: "100%", width: "100%" }}
+          className={view}
         />
       </EditProvider>
     </div>
@@ -85,4 +86,12 @@ const hostClass = style({
   minWidth: 0,
   minHeight: 0,
   height: "100%",
+});
+
+// CodeView virtualizes against its root element, so the root must be the scroll container.
+const viewClass = style({
+  width: "100%",
+  height: "100%",
+  overflow: "auto",
+  overscrollBehavior: "contain",
 });
