@@ -1,4 +1,5 @@
 import { expect } from "@playwright/test";
+import { m } from "@get-halo/shared/testing";
 import { e2eTest } from "./e2eTest.js";
 
 e2eTest(
@@ -92,5 +93,77 @@ e2eTest(
         .contentFrame()
         .getByRole("heading", { name: "Updated through Halo tools" }),
     ).toBeVisible();
+  },
+);
+
+e2eTest(
+  "builds a working extension through the agent loop from a simple prompt",
+  async ({ app, llm }) => {
+    e2eTest.setTimeout(180_000);
+    const viewSource = `
+      import { useState } from "react";
+      import { Button, Flex, H1, MauiProvider } from "maui";
+
+      export default function View() {
+        const [count, setCount] = useState(0);
+        return (
+          <MauiProvider>
+            <Flex column gap={4} p={8}>
+              <H1>Agent Counter</H1>
+              <Button onClick={() => setCount((value) => value + 1)}>
+                Count: {count}
+              </Button>
+            </Flex>
+          </MauiProvider>
+        );
+      }
+    `;
+    const authoringJs = `
+      const created = await tools.bash.run({
+        command: "halo extension new agent-counter",
+        timeoutMs: 120000,
+      });
+      if (!created.ok) return created;
+      const written = await tools.files.write({
+        path: ".halo/extensions/agent-counter/view.tsx",
+        content: ${JSON.stringify(viewSource)},
+      });
+      if (!written.ok) return written;
+      return await tools.bash.run({
+        command: "cd .halo/extensions/agent-counter && npm run check && npm run build && halo extension reload",
+        timeoutMs: 120000,
+      });
+    `;
+
+    await app.page.getByRole("button", { name: "New session" }).click();
+    await app.page
+      .getByLabel("Message", { exact: true })
+      .fill("Build me a simple counter extension called Agent Counter.");
+    await app.page.getByRole("button", { name: "Send", exact: true }).click();
+    await llm.respond(
+      m.tool.start("exec", {
+        id: "build-agent-counter",
+        arguments: { js: authoringJs },
+      }),
+    );
+    await llm.respond(
+      m.assistant("Built and loaded the Agent Counter extension."),
+    );
+    await expect(
+      app.page.getByText("Built and loaded the Agent Counter extension."),
+    ).toBeVisible();
+
+    await app.page
+      .getByRole("link", { name: "agent-counter", exact: true })
+      .click();
+    const pane = app.page
+      .locator('iframe[title="agent-counter"]')
+      .contentFrame();
+    await expect(
+      pane.getByRole("heading", { name: "Agent Counter" }),
+    ).toBeVisible();
+    const counter = pane.getByRole("button", { name: "Count: 0" });
+    await counter.click();
+    await expect(pane.getByRole("button", { name: "Count: 1" })).toBeVisible();
   },
 );
