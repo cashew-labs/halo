@@ -1496,6 +1496,15 @@ e2eTest(
     await app.page.route("**/rpc/sessions/watch", (route) => {
       pendingWatches.push(route);
     });
+    let readAttempts = 0;
+    await app.page.route("**/rpc/sessions/markRead", async (route) => {
+      readAttempts++;
+      if (readAttempts === 1) {
+        await route.abort();
+        return;
+      }
+      await route.continue();
+    });
     await sessionLink.click();
     await expect.poll(() => pendingWatches.length).toBe(1);
     // Give a premature read receipt time to reach the sidebar before unblocking the transcript.
@@ -1507,6 +1516,8 @@ e2eTest(
       "The report is ready.",
     );
     await expect(unread).not.toBeVisible();
+    expect(readAttempts).toBe(2);
+    await app.page.unroute("**/rpc/sessions/markRead");
     await app.page.reload();
     await expect(sessionLink).toBeVisible();
     await expect(unread).not.toBeVisible();
@@ -1615,6 +1626,19 @@ e2eTest(
     await expect(pane.getByRole("log")).toContainText(
       "This thread is ready to archive.",
     );
+
+    await app.page.evaluate(() => {
+      for (const key of Object.keys(localStorage)) {
+        if (key.startsWith('["halo:workspace-panes",'))
+          localStorage.removeItem(key);
+      }
+      history.replaceState(undefined, "", location.pathname + location.search);
+    });
+    await app.page.reload();
+    await expect(
+      app.page.getByRole("main", { name: "New session" }),
+    ).toBeVisible();
+    await expect(sessionLink).not.toBeVisible();
   },
 );
 

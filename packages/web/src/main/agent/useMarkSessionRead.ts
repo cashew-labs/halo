@@ -1,4 +1,4 @@
-import { useContext, useEffect, useRef, useSyncExternalStore } from "react";
+import { useContext, useEffect, useSyncExternalStore } from "react";
 import * as errore from "errore";
 import {
   isThreadUnread,
@@ -38,54 +38,59 @@ export function useMarkSessionRead({
   const api = useApi();
   const isViewing = useSyncExternalStore(subscribeToFocus, isViewingWindow);
   const isTabVisible = useContext(TabVisibilityContext);
-  const transcriptResultId =
-    state.lastRun?.id ??
-    state.entries
-      .filter(
-        (entry) =>
-          entry.type === "message" && entry.message.role === "assistant",
-      )
-      .at(-1)?.id;
-  const observed = useRef<
-    | {
-        sessionId: string;
-        readCursorId: string;
-      }
-    | undefined
-  >(undefined);
+  const sessionId = session?.sessionId;
+  const latestResultId = session?.latestResultId;
+  const isRunning = session?.isRunning;
+  const isUnread = session !== undefined && isThreadUnread(session);
+  const lastRunId = state.lastRun?.id;
+  const lastAssistantEntryId = state.entries
+    .filter(
+      (entry) => entry.type === "message" && entry.message.role === "assistant",
+    )
+    .at(-1)?.id;
 
   useEffect(() => {
-    if (!isViewing || !isTabVisible) {
-      observed.current = undefined;
-      return;
-    }
     if (
-      session === undefined ||
-      session.isRunning ||
+      !isViewing ||
+      !isTabVisible ||
+      sessionId === undefined ||
+      isRunning ||
       state.activeRun !== undefined ||
-      session.latestResultId === undefined ||
-      transcriptResultId !== session.latestResultId ||
-      (observed.current?.sessionId === session.sessionId &&
-        observed.current.readCursorId === session.latestResultId)
+      latestResultId === undefined ||
+      !isUnread ||
+      (lastRunId !== latestResultId && lastAssistantEntryId !== latestResultId)
     )
       return;
-    observed.current = {
-      sessionId: session.sessionId,
-      readCursorId: session.latestResultId,
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+
+    async function markRead(readSessionId: string) {
+      const result = await api.sessions
+        .markRead({ sessionId: readSessionId })
+        .catch((cause) => new MarkSessionReadError({ cause }));
+      if (!(result instanceof Error)) return;
+      console.warn(result);
+      if (cancelled) return;
+      retryTimer = setTimeout(() => {
+        markRead(readSessionId).catch(console.warn);
+      }, 2_000);
+    }
+
+    markRead(sessionId).catch(console.warn);
+    return () => {
+      cancelled = true;
+      clearTimeout(retryTimer);
     };
-    if (!isThreadUnread(session)) return;
-    void api.sessions
-      .markRead({ sessionId: session.sessionId })
-      .catch((cause) => {
-        observed.current = undefined;
-        console.warn(new MarkSessionReadError({ cause }));
-      });
   }, [
     api,
     isTabVisible,
     isViewing,
-    session,
+    sessionId,
+    isRunning,
+    isUnread,
+    latestResultId,
     state.activeRun,
-    transcriptResultId,
+    lastRunId,
+    lastAssistantEntryId,
   ]);
 }
