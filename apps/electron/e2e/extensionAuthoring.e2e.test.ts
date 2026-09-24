@@ -4,9 +4,10 @@ import { e2eTest } from "./e2eTest.js";
 
 e2eTest(
   "authors and loads an extension through the agent's shell and file tools",
-  async ({ harness, app }) => {
+  async ({ harness, app, getExtensionPackages }) => {
     e2eTest.setTimeout(120_000);
     const harnessBashTimeoutMs = 120_000;
+    await getExtensionPackages();
     await app.page.getByRole("main").waitFor();
     await app.page.evaluate(() =>
       document.documentElement.setAttribute(
@@ -98,8 +99,9 @@ e2eTest(
 
 e2eTest(
   "builds a working extension through the agent loop from a simple prompt",
-  async ({ app, llm }) => {
+  async ({ app, llm, getExtensionPackages }) => {
     e2eTest.setTimeout(180_000);
+    await getExtensionPackages();
     const viewSource = `
       import { useState } from "react";
       import { Button, Flex, H1, MauiProvider } from "maui";
