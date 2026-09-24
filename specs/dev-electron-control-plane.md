@@ -2,41 +2,159 @@
 
 ## Problem overview
 
-Development Electron bypasses the control plane. Production does not. That is the whole change.
+The browser app already follows the flow below. Production Electron follows it after sign-in. Development Electron skips the control plane on both steps.
+
+#### Shared shape
+
+```text
+signIn()
+  Google → control plane session → back to the app
+
+app
+  control plane checks that session
+  control plane proxies /workspace/* → workspace server
+```
 
 ```mermaid
-flowchart LR
-  subgraph dev [Development]
-    E1[Electron]
-    E1 -->|"fabricated ADC session"| UI1[Renderer identity]
-    E1 -->|"read server.json"| W1["workspace /rpc"]
-  end
-  subgraph prod [Production]
-    E2[Electron]
-    E2 -->|"browser Google → Better Auth bearer"| CP2[Control plane]
-    CP2 -->|"WorkspaceGateway"| W2[workspace server]
-  end
-  %% ref node:E1 [[apps/electron/src/main/main.ts#createDesktopAuthentication]]
-  %% ref node:W1 [[apps/electron/src/main/DesktopAuthentication.ts#createLocalDesktopAuthentication]]
-  %% ref node:E2 [[apps/electron/src/main/auth/ControlPlaneAuth.ts#ControlPlaneAuth.getWorkspaceConnection]]
-  %% ref node:CP2 [[apps/control-plane/src/workspace/proxy.ts#WorkspaceGateway.serve]]
+sequenceDiagram
+  participant App
+  participant Google
+  participant ControlPlane
+  participant Workspace
+  App->>Google: sign in
+  Google->>ControlPlane: finish sign-in
+  ControlPlane-->>App: session
+  App->>ControlPlane: /workspace/rpc
+  ControlPlane->>Workspace: proxy
+```
+
+#### Browser
+
+The page is the control plane. Google returns to that same page. Workspace calls stay on that origin.
+
+```mermaid
+sequenceDiagram
+  participant Browser
+  participant Google
+  participant ControlPlane
+  participant Workspace
+  Browser->>Google: sign in
+  Google->>ControlPlane: Better Auth callback
+  ControlPlane-->>Browser: same page, cookie set
+  Browser->>ControlPlane: /workspace/rpc
+  ControlPlane->>Workspace: proxy
+  %% ref node:Browser [[apps/web-app/src/WebHost.ts#WebHost.signIn]]
+  %% ref node:ControlPlane [[apps/control-plane/src/workspace/proxy.ts#WorkspaceGateway.serve]]
+  %% ref node:Workspace [[apps/control-plane/src/workspace/WorkspaceService.ts#WorkspaceService.getConnection]]
+  %% ref edge:0 [[apps/web-app/src/WebHost.ts#WebHost.signIn]]
+  %% ref edge:3 [[apps/web-app/src/WebHost.ts#WebHost.connectHalo]]
+  %% ref edge:4 [[apps/control-plane/src/workspace/proxy.ts#WorkspaceGateway.serve]]
+```
+
+```callstack
+ WebHost.signIn [[apps/web-app/src/WebHost.ts#WebHost.signIn]]
+ └── Google, then back to this page  # Better Auth cookie on the control plane
+ WebHost.connectHalo [[apps/web-app/src/WebHost.ts#WebHost.connectHalo]]
+ └── /workspace/rpc [[apps/control-plane/src/workspace/proxy.ts#WorkspaceGateway.serve]]
+     └── getConnection  # VM address from the workspace row [[apps/control-plane/src/workspace/WorkspaceService.ts#WorkspaceService.getConnection]]
+```
+
+#### Production Electron
+
+The window is the app, not a control-plane page. Google finishes in the system browser and hands Electron a bearer. Workspace calls then match the browser: `https://gethalo.dev/workspace/rpc`.
+
+```mermaid
+sequenceDiagram
+  participant Electron
+  participant Google
+  participant ControlPlane
+  participant Workspace
+  Electron->>Google: open sign-in
+  Google->>ControlPlane: finish sign-in
+  ControlPlane-->>Electron: bearer, return to Halo
+  Electron->>ControlPlane: /workspace/rpc
+  ControlPlane->>Workspace: proxy
+  %% ref node:Electron [[apps/electron/src/main/auth/ControlPlaneAuth.ts#ControlPlaneAuth.signIn]]
+  %% ref node:ControlPlane [[apps/control-plane/src/auth/AuthService.ts#AuthService.startDesktopSignIn]]
+  %% ref node:Workspace [[apps/control-plane/src/workspace/WorkspaceService.ts#WorkspaceService.getConnection]]
+  %% ref edge:2 [[apps/control-plane/src/auth/AuthService.ts#AuthService.exchangeDesktopAuthCode]]
+  %% ref edge:3 [[apps/electron/src/main/auth/ControlPlaneAuth.ts#ControlPlaneAuth.getWorkspaceConnection]]
+  %% ref edge:4 [[apps/control-plane/src/workspace/proxy.ts#WorkspaceGateway.serve]]
+```
+
+```callstack
+ ControlPlaneAuth.signIn [[apps/electron/src/main/auth/ControlPlaneAuth.ts#ControlPlaneAuth.signIn]]
+ ├── startDesktopSignIn  # open Google [[apps/control-plane/src/auth/AuthService.ts#AuthService.startDesktopSignIn]]
+ └── exchangeDesktopAuthCode  # loopback code, then back to the open window [[apps/control-plane/src/auth/AuthService.ts#AuthService.exchangeDesktopAuthCode]]
+ ElectronHost.connectHalo [[apps/electron/src/renderer/ElectronHost.ts#ElectronHost.connectHalo]]
+ └── getWorkspaceConnection  # https://gethalo.dev/workspace/rpc [[apps/electron/src/main/auth/ControlPlaneAuth.ts#ControlPlaneAuth.getWorkspaceConnection]]
+     └── WorkspaceGateway.serve [[apps/control-plane/src/workspace/proxy.ts#WorkspaceGateway.serve]]
+```
+
+#### Development Electron
+
+No Google redirect, and the control plane is not on the path. ADC becomes a made-up session. The window calls workspace `/rpc` using `server.json`.
+
+```mermaid
+sequenceDiagram
+  participant Electron
+  participant Workspace
+  Electron->>Workspace: read server.json, then /rpc
+  %% ref node:Electron [[apps/electron/src/main/main.ts#createDesktopAuthentication]]
+  %% ref node:Workspace [[packages/shared/src/WorkspaceServerConnection.ts#readWorkspaceServerConnection]]
+  %% ref edge:0 [[apps/electron/src/main/DesktopAuthentication.ts#createLocalDesktopAuthentication]]
+```
+
+```callstack
+ createDesktopAuthentication [[apps/electron/src/main/main.ts#createDesktopAuthentication]]
+ └── createLocalDesktopAuthentication [[apps/electron/src/main/DesktopAuthentication.ts#createLocalDesktopAuthentication]]
+     ├── createAdcDesktopIdentity  # not a Better Auth session [[apps/electron/src/main/auth/createAdcDesktopIdentity.ts#createAdcDesktopIdentity]]
+     └── read server.json  # workspace /rpc [[packages/shared/src/WorkspaceServerConnection.ts#readWorkspaceServerConnection]]
 ```
 
 ## Solution overview
 
-Point development Electron at the local control plane the same way production points at `https://gethalo.dev`: a real Better Auth bearer, then `/workspace/health` and `/workspace/rpc`. ADC still supplies that bearer, so local runs skip the Google popup. Test Electron (`HALO_E2E=1`) stays on `server.json`.
+Development joins where production Electron already is: a real control-plane session, then `/workspace/*`. ADC still supplies the identity, so there is no Google popup. The local gateway still finds the workspace through `server.json`. Test Electron (`HALO_E2E=1`) stays on that file.
 
-```mermaid
-flowchart LR
-  E[Development Electron]
-  E -->|"ADC → Better Auth bearer"| CP[Local control plane]
-  CP -->|"same /workspace/* proxy"| W[workspace server]
-  %% ref node:E [[apps/electron/src/main/main.ts#createDesktopAuthentication]]
-  %% ref node:CP [[apps/control-plane/src/workspace/proxy.ts#WorkspaceGateway.serve]]
-  %% ref node:W [[apps/control-plane/src/workspace/WorkspaceService.ts#WorkspaceService.getConnection]]
+```text
+signIn()
+  ADC access token → POST /api/dev/google-session → Better Auth bearer
+
+app
+  local control plane checks that bearer
+  local control plane proxies /workspace/*
+    using the address in server.json
 ```
 
-Local `WorkspaceService.getConnection` already reads `server.json` and forwards. Electron should stop reading that file in development. The control plane already does.
+```mermaid
+sequenceDiagram
+  participant Electron
+  participant ControlPlane
+  participant Workspace
+  Electron->>ControlPlane: ADC access token
+  ControlPlane-->>Electron: Better Auth bearer
+  Electron->>ControlPlane: /workspace/rpc
+  ControlPlane->>Workspace: proxy using server.json
+  %% ref node:Electron [[apps/electron/src/main/main.ts#createDesktopAuthentication]]
+  %% ref node:ControlPlane [[apps/control-plane/src/auth/AuthService.ts#AuthService.signInWithGoogleAccessToken]]
+  %% ref node:Workspace [[apps/control-plane/src/workspace/WorkspaceService.ts#WorkspaceService.getConnection]]
+  %% ref edge:0 [[apps/control-plane/src/server/controlPlaneHttp.ts#serveGoogleAccessTokenSession]]
+  %% ref edge:1 [[apps/control-plane/src/auth/AuthService.ts#AuthService.signInWithGoogleAccessToken]]
+  %% ref edge:2 [[apps/electron/src/main/auth/ControlPlaneAuth.ts#ControlPlaneAuth.getWorkspaceConnection]]
+  %% ref edge:3 [[apps/control-plane/src/workspace/proxy.ts#WorkspaceGateway.serve]]
+```
+
+```callstack
+ createDesktopAuthentication [[apps/electron/src/main/main.ts#createDesktopAuthentication]]
+ ├── Test → createLocalDesktopAuthentication  # unchanged, server.json [[apps/electron/src/main/DesktopAuthentication.ts#createLocalDesktopAuthentication]]
+ ├── Development
+-│   └── createAdcDesktopIdentity  # invented session, then workspace /rpc [[apps/electron/src/main/auth/createAdcDesktopIdentity.ts#createAdcDesktopIdentity]]
++│   └── ControlPlaneAuth  # local origin [[apps/electron/src/main/auth/ControlPlaneAuth.ts#ControlPlaneAuth.getWorkspaceConnection]]
++│       ├── POST /api/dev/google-session  # ADC token, no Google popup [[apps/control-plane/src/server/controlPlaneHttp.ts#serveGoogleAccessTokenSession]]
++│       └── /workspace/rpc [[apps/control-plane/src/workspace/proxy.ts#WorkspaceGateway.serve]]
++│           └── getConnection  # still reads server.json [[apps/control-plane/src/workspace/WorkspaceService.ts#WorkspaceService.getConnection]]
+ └── production → ControlPlaneAuth.signIn  # Google in the browser, unchanged [[apps/electron/src/main/auth/ControlPlaneAuth.ts#ControlPlaneAuth.signIn]]
+```
 
 ## Goals
 
