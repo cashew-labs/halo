@@ -135,7 +135,9 @@ e2eTest(
       });
     `;
 
-    await app.page.getByRole("button", { name: "New session" }).click();
+    await app.page
+      .getByRole("button", { name: "New session", exact: true })
+      .click();
     await app.page
       .getByLabel("Message", { exact: true })
       .fill("Build me a simple counter extension called Agent Counter.");
