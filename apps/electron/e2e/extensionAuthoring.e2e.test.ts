@@ -99,9 +99,14 @@ e2eTest(
 
 e2eTest(
   "builds a working extension through the agent loop from a simple prompt",
-  async ({ app, llm, getExtensionPackages }) => {
-    e2eTest.setTimeout(360_000);
+  async ({ app, harness, llm, getExtensionPackages }) => {
+    e2eTest.setTimeout(180_000);
     await getExtensionPackages();
+    const created = await harness.tools.bash.run({
+      command: "halo extension new agent-counter",
+      timeoutMs: 120_000,
+    });
+    expect(created.code, `${created.stdout}\n${created.stderr}`).toBe(0);
     const viewSource = `
       import { useState } from "react";
       import { Button, Flex, H1, MauiProvider } from "maui";
@@ -133,26 +138,6 @@ e2eTest(
       .fill("Build me a simple counter extension called Agent Counter.");
     await session.getByRole("button", { name: "Send", exact: true }).click();
     await llm.respond(
-      m.tool.start("bash", {
-        id: "scaffold-agent-counter",
-        arguments: {
-          command: "halo extension new agent-counter",
-          timeoutMs: 300_000,
-        },
-      }),
-    );
-    await expect
-      .poll(
-        async () =>
-          await app.server.rpc.workspace
-            .readFile({
-              path: ".halo/extensions/agent-counter/package.json",
-            })
-            .catch(() => undefined),
-        { timeout: 300_000 },
-      )
-      .not.toBeUndefined();
-    await llm.respond(
       m.tool.start("write", {
         id: "write-agent-counter",
         arguments: {
@@ -175,13 +160,13 @@ e2eTest(
         arguments: {
           command:
             "cd .halo/extensions/agent-counter && npm run check && npm run build && halo extension reload",
-          timeoutMs: 300_000,
+          timeoutMs: 120_000,
         },
       }),
     );
     await expect(
       app.page.getByRole("link", { name: "agent-counter", exact: true }),
-    ).toBeVisible({ timeout: 300_000 });
+    ).toBeVisible({ timeout: 120_000 });
     await llm.respond(
       m.assistant("Built and loaded the Agent Counter extension."),
     );
