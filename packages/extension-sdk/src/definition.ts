@@ -1,4 +1,4 @@
-import type { Schema } from "hono";
+import type { Env, Schema } from "hono";
 import { Hono } from "hono";
 import type {
   AnyRelations,
@@ -7,14 +7,14 @@ import type {
 } from "@tanishqkancharla/tandem-core";
 import type { ExtensionTools } from "./tools.js";
 
-export type ExtensionEnvironment = {
+export type ExtensionEnvironment<Tools = ExtensionTools> = {
   Bindings: {
     dataDirectory: { path: string };
-    tools: ExtensionTools;
+    tools: Tools;
   };
 };
 
-export type AnyExtensionApi = Hono<ExtensionEnvironment, Schema, string>;
+export type AnyExtensionApi = Hono<Env, Schema, string>;
 
 export type ReactExtensionView = {
   kind: "react";

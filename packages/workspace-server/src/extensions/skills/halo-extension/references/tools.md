@@ -37,19 +37,29 @@ Tool paths and inputs match Halo's live tool catalog. Before coding, use the age
 
 ```ts
 import { Hono } from "hono";
-import type { ExtensionEnvironment } from "@get-halo/extension-sdk/server";
+import type {
+  ExtensionEnvironment,
+  ExtensionToolResult,
+} from "@get-halo/extension-sdk/server";
 
-const api = new Hono<ExtensionEnvironment>().get("/notes", async (context) => {
-  const result = await context.env.tools.files.read<{
-    path: string;
-    text: string;
-  }>({ path: "notes.txt" });
+type NotesTools = {
+  files: {
+    read(input: {
+      path: string;
+    }): Promise<ExtensionToolResult<{ path: string; text: string }>>;
+  };
+};
 
-  if (!result.ok) {
-    return context.json({ error: result.error.message }, 500);
-  }
-  return context.json({ text: result.data.text });
-});
+const api = new Hono<ExtensionEnvironment<NotesTools>>().get(
+  "/notes",
+  async (context) => {
+    const result = await context.env.tools.files.read({ path: "notes.txt" });
+    if (!result.ok) {
+      return context.json({ error: result.error.message }, 500);
+    }
+    return context.json({ text: result.data.text });
+  },
+);
 ```
 
 The type argument describes the existing output contract; it does not create a tool or grant access. Keep it aligned with the live schema.
