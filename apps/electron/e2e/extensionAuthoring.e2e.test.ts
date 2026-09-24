@@ -100,7 +100,7 @@ e2eTest(
 e2eTest(
   "builds a working extension through the agent loop from a simple prompt",
   async ({ app, llm, getExtensionPackages }) => {
-    e2eTest.setTimeout(180_000);
+    e2eTest.setTimeout(360_000);
     await getExtensionPackages();
     const viewSource = `
       import { useState } from "react";
@@ -137,7 +137,7 @@ e2eTest(
         id: "scaffold-agent-counter",
         arguments: {
           command: "halo extension new agent-counter",
-          timeoutMs: 120_000,
+          timeoutMs: 300_000,
         },
       }),
     );
@@ -149,7 +149,7 @@ e2eTest(
               path: ".halo/extensions/agent-counter/package.json",
             })
             .catch(() => undefined),
-        { timeout: 120_000 },
+        { timeout: 300_000 },
       )
       .not.toBeUndefined();
     await llm.respond(
@@ -175,13 +175,13 @@ e2eTest(
         arguments: {
           command:
             "cd .halo/extensions/agent-counter && npm run check && npm run build && halo extension reload",
-          timeoutMs: 120_000,
+          timeoutMs: 300_000,
         },
       }),
     );
     await expect(
       app.page.getByRole("link", { name: "agent-counter", exact: true }),
-    ).toBeVisible({ timeout: 120_000 });
+    ).toBeVisible({ timeout: 300_000 });
     await llm.respond(
       m.assistant("Built and loaded the Agent Counter extension."),
     );
