@@ -120,22 +120,6 @@ e2eTest(
         );
       }
     `;
-    const authoringJs = `
-      const created = await tools.bash.run({
-        command: "halo extension new agent-counter",
-        timeoutMs: 120000,
-      });
-      if (!created.ok) return created;
-      const written = await tools.files.write({
-        path: ".halo/extensions/agent-counter/view.tsx",
-        content: ${JSON.stringify(viewSource)},
-      });
-      if (!written.ok) return written;
-      return await tools.bash.run({
-        command: "cd .halo/extensions/agent-counter && npm run check && npm run build && halo extension reload",
-        timeoutMs: 120000,
-      });
-    `;
 
     await app.page
       .getByRole("button", { name: "New session", exact: true })
@@ -149,9 +133,50 @@ e2eTest(
       .fill("Build me a simple counter extension called Agent Counter.");
     await session.getByRole("button", { name: "Send", exact: true }).click();
     await llm.respond(
-      m.tool.start("exec", {
+      m.tool.start("bash", {
+        id: "scaffold-agent-counter",
+        arguments: {
+          command: "halo extension new agent-counter",
+          timeoutMs: 120_000,
+        },
+      }),
+    );
+    await expect
+      .poll(
+        async () =>
+          await app.server.rpc.workspace
+            .readFile({
+              path: ".halo/extensions/agent-counter/package.json",
+            })
+            .catch(() => undefined),
+        { timeout: 120_000 },
+      )
+      .not.toBeUndefined();
+    await llm.respond(
+      m.tool.start("write", {
+        id: "write-agent-counter",
+        arguments: {
+          path: ".halo/extensions/agent-counter/view.tsx",
+          content: viewSource,
+        },
+      }),
+    );
+    await expect
+      .poll(
+        async () =>
+          await app.server.rpc.workspace.readFile({
+            path: ".halo/extensions/agent-counter/view.tsx",
+          }),
+      )
+      .toBe(viewSource);
+    await llm.respond(
+      m.tool.start("bash", {
         id: "build-agent-counter",
-        arguments: { js: authoringJs },
+        arguments: {
+          command:
+            "cd .halo/extensions/agent-counter && npm run check && npm run build && halo extension reload",
+          timeoutMs: 120_000,
+        },
       }),
     );
     await expect(
