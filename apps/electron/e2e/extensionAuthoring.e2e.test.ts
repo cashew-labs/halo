@@ -152,6 +152,9 @@ e2eTest(
         arguments: { js: authoringJs },
       }),
     );
+    await expect(
+      app.page.getByRole("link", { name: "agent-counter", exact: true }),
+    ).toBeVisible({ timeout: 120_000 });
     await llm.respond(
       m.assistant("Built and loaded the Agent Counter extension."),
     );
