@@ -1612,7 +1612,12 @@ e2eTest(
     });
     await row.hover();
     await expect(markDone).toBeVisible();
+    await app.page.mouse.move(900, 500);
+    await app.page.setViewportSize({ width: 390, height: 844 });
+    await app.page.getByRole("button", { name: "Open sidebar" }).click();
+    await expect(markDone).toBeVisible();
     await markDone.click();
+    await app.page.setViewportSize({ width: 1200, height: 800 });
 
     await expect(sessionLink).not.toBeVisible();
     await expect(app.page.getByText("Done", { exact: true })).not.toBeVisible();

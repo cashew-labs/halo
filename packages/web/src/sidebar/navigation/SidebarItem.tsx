@@ -205,6 +205,8 @@ const hoverTrailing = style({
   display: "none",
   placeItems: "center",
   flexShrink: 0,
+  "@media (max-width: 700px)": { display: "grid" },
+  "@media (hover: none)": { display: "grid" },
 });
 
 const chevron = style(focusRing(), radius.sm, {
