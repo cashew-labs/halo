@@ -607,7 +607,7 @@ const styles = {
     minWidth: 0,
     backgroundColor: backgroundColor.app,
   }),
-  userMessage: style(radius.lg, spacing.padding({ x: 6, y: 3 }), {
+  userMessage: style(radius.xl, spacing.padding({ x: 6, y: 3 }), {
     width: "fit-content",
     maxWidth: "80%",
     minWidth: 0,
