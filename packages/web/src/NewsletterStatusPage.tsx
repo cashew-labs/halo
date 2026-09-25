@@ -1,4 +1,12 @@
-import { backgroundColor, P, radius, shadow, spacing, text } from "maui";
+import {
+  backgroundColor,
+  Button,
+  P,
+  radius,
+  shadow,
+  spacing,
+  text,
+} from "maui";
 import { style, useStyles } from "purse-styles";
 import { DevLogs } from "./DevLogs.js";
 
@@ -13,7 +21,7 @@ export function NewsletterStatusPage({
   const logoLink = useStyles(styles.logoLink);
   const message = useStyles(styles.message);
   const heading = useStyles(styles.heading);
-  const gmailLink = useStyles(styles.gmailLink);
+  const gmailButton = useStyles(styles.gmailButton);
 
   return (
     <main className={shell} aria-label="Halo updates">
@@ -34,14 +42,19 @@ export function NewsletterStatusPage({
             <P>Here are some videos to help you learn more about Halo.</P>
           )}
           {status === "check-email" && (
-            <a
-              className={gmailLink}
-              href="https://mail.google.com/"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Open Gmail
-            </a>
+            <div className={gmailButton}>
+              <Button
+                onClick={() =>
+                  window.open(
+                    "https://mail.google.com/",
+                    "_blank",
+                    "noopener,noreferrer",
+                  )
+                }
+              >
+                Open Gmail
+              </Button>
+            </div>
           )}
         </div>
 
@@ -90,7 +103,5 @@ const styles = {
     margin: 0,
     textWrap: "pretty",
   }),
-  gmailLink: style(text({ size: "md", color: "highContrast" }), {
-    alignSelf: "flex-start",
-  }),
+  gmailButton: style({ alignSelf: "flex-start" }),
 };
