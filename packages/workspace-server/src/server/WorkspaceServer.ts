@@ -307,6 +307,8 @@ export class WorkspaceServer {
       context: {
         build: config.build,
         hotkeys,
+        routines,
+        routineRunner,
         traces,
         browsers,
         extensions,
