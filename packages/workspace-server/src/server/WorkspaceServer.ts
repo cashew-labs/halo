@@ -1,4 +1,7 @@
 import { HotkeyService } from "../hotkeys/HotkeyService.js";
+import { RoutineService } from "../routines/RoutineService.js";
+import { RoutineRunner } from "../routines/RoutineRunner.js";
+import { RoutineScheduler } from "../routines/RoutineScheduler.js";
 import { createHotkeysPlugin } from "../hotkeys/createHotkeysPlugin.js";
 import path from "node:path";
 import { TursoSessionRepo } from "../storage/TursoSessionRepo.js";
@@ -80,6 +83,8 @@ export class WorkspaceServer {
   private readonly sessionRepo: TursoSessionRepo;
   private readonly workspace: WorkspaceService;
   private readonly sessions: SessionRegistry;
+  private readonly routineRunner: RoutineRunner;
+  private readonly routineScheduler: RoutineScheduler;
   private readonly toolRuntime: ToolRuntime;
   private readonly connectionService: ConnectionService;
   private readonly browsers: BrowserService;
@@ -94,6 +99,8 @@ export class WorkspaceServer {
     sessionRepo: TursoSessionRepo;
     workspace: WorkspaceService;
     sessions: SessionRegistry;
+    routineRunner: RoutineRunner;
+    routineScheduler: RoutineScheduler;
     toolRuntime: ToolRuntime;
     connectionService: ConnectionService;
     browsers: BrowserService;
@@ -108,6 +115,8 @@ export class WorkspaceServer {
       sessionRepo,
       workspace,
       sessions,
+      routineRunner,
+      routineScheduler,
       toolRuntime,
       connectionService,
       browsers,
@@ -121,6 +130,8 @@ export class WorkspaceServer {
     this.sessionRepo = sessionRepo;
     this.workspace = workspace;
     this.sessions = sessions;
+    this.routineRunner = routineRunner;
+    this.routineScheduler = routineScheduler;
     this.toolRuntime = toolRuntime;
     this.connectionService = connectionService;
     this.browsers = browsers;
@@ -205,6 +216,8 @@ export class WorkspaceServer {
       userId: config.ownerUserId,
     });
     if (hotkeys instanceof Error) return hotkeys;
+    const routines = await RoutineService.open({ database });
+    if (routines instanceof Error) return routines;
     const [initialized, toolRuntime] = await Promise.all([
       workspace.initialize(),
       ToolRuntime.create({
@@ -273,6 +286,20 @@ export class WorkspaceServer {
           error: closed,
         });
     });
+    const routineRunner = new RoutineRunner({
+      routines,
+      sessions,
+      filesystem,
+      workspaceRoot,
+      logger: host.logger,
+    });
+    cleanup.defer(async () => await routineRunner.stop());
+    const routineScheduler = new RoutineScheduler({
+      routines,
+      runner: routineRunner,
+      logger: host.logger,
+    });
+    cleanup.defer(async () => await routineScheduler.stop());
     const connectionService = new ConnectionService(toolRuntime);
     cleanup.defer(() => connectionService.close());
     const requests = serveHaloHttp({
@@ -296,6 +323,8 @@ export class WorkspaceServer {
     });
     cleanup.defer(async () => await requests.close());
     await extensions.reload();
+    const scheduled = await routineScheduler.start();
+    if (scheduled instanceof Error) return scheduled;
     cleanup.move();
     return new WorkspaceServer({
       filesystem,
@@ -303,6 +332,8 @@ export class WorkspaceServer {
       sessionRepo,
       workspace,
       sessions,
+      routineRunner,
+      routineScheduler,
       toolRuntime,
       connectionService,
       browsers,
@@ -323,6 +354,9 @@ export class WorkspaceServer {
   async close() {
     await this.requests.close();
     this.connectionService.close();
+    // Routine runs record their interruption before their sessions close.
+    await this.routineScheduler.stop();
+    await this.routineRunner.stop();
     const sessionsClosed = await this.sessions.shutdown();
     await this.traces.close();
     await this.browsers.shutdown();
