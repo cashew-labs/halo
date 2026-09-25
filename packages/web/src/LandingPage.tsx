@@ -8,7 +8,7 @@ import {
   TextField,
 } from "maui";
 import { style, useStyles } from "purse-styles";
-import { DevLogs } from "./DevLogs";
+import { DevLogs } from "./DevLogs.js";
 
 export function LandingPage() {
   const page = useStyles(styles.page);

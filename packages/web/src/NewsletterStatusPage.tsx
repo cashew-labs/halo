@@ -1,6 +1,6 @@
-import { P, radius, shadow, spacing, text } from "maui";
+import { backgroundColor, P, radius, shadow, spacing, text } from "maui";
 import { style, useStyles } from "purse-styles";
-import { DevLogs } from "./DevLogs";
+import { DevLogs } from "./DevLogs.js";
 
 export function NewsletterStatusPage({
   status,
@@ -45,12 +45,12 @@ const styles = {
     display: "grid",
     placeItems: "center",
     minHeight: "100dvh",
-    backgroundColor: "#111111",
+    backgroundColor: backgroundColor.app,
   }),
   card: style(shadow.subtle, radius.lg, spacing.padding({ all: 12 }), {
     width: "min(100%, 520px)",
     minWidth: 0,
-    backgroundColor: "#191919",
+    backgroundColor: backgroundColor.element,
     display: "flex",
     flexDirection: "column",
     gap: 32,
