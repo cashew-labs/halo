@@ -3,6 +3,7 @@
 import { Cli, z } from "incur";
 import { browser } from "./browser.js";
 import { extension } from "./extension.js";
+import { routine } from "./routine.js";
 import { cliVersion, connectHalo } from "./connectHalo.js";
 import { HaloRpcFileError } from "@get-halo/shared/HaloRpcFile";
 
@@ -69,6 +70,7 @@ async function main() {
       },
     })
     .command(extension)
+    .command(routine)
     .command(browser)
     .serve();
 }
