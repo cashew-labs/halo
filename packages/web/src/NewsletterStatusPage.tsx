@@ -1,4 +1,4 @@
-import { Flex, H1, Link, P, Text, radius, shadow, spacing } from "maui";
+import { Link, P, Prose, radius, shadow, spacing } from "maui";
 import { style, useStyles } from "purse-styles";
 
 export function NewsletterStatusPage({
@@ -9,36 +9,22 @@ export function NewsletterStatusPage({
   const shell = useStyles(styles.shell);
   const card = useStyles(styles.card);
   const logo = useStyles(styles.logo);
+  const statement = useStyles(styles.statement);
 
   return (
     <main className={shell} aria-label="Halo newsletter">
       <section className={card}>
-        <Flex column gap={12}>
-          <Flex row gap={4} alignItems="center">
-            <img className={logo} src="/halo-donut-transparent.png" alt="" />
-            <Text fontWeight={500} style={{ color: "#eeeeee" }}>
-              Halo Newsletter
-            </Text>
-          </Flex>
+        <img className={logo} src="/halo-donut-transparent.png" alt="Halo" />
 
-          <Flex column gap={4}>
-            <Text size="sm" fontWeight={500} style={{ color: "#a8a8a8" }}>
-              {status === "check-email" ? "Step 2 of 2" : "Complete"}
-            </Text>
-            <H1>
-              {status === "check-email"
-                ? "Check your email"
-                : "You're on the list"}
-            </H1>
-            <P>
-              {status === "check-email"
-                ? "Click the link we sent you to confirm your subscription."
-                : "You'll get the next Halo Dev Log in your inbox."}
-            </P>
-          </Flex>
+        <Prose size="md" className={statement}>
+          <P>
+            {status === "check-email"
+              ? "Check your email to confirm your subscription."
+              : "You're on the list."}
+          </P>
+        </Prose>
 
-          <Link href="/">Back to Halo</Link>
-        </Flex>
+        <Link href="/">Back to Halo</Link>
       </section>
     </main>
   );
@@ -52,16 +38,24 @@ const styles = {
     backgroundColor: "#111111",
   }),
   card: style(shadow.subtle, radius.lg, spacing.padding({ all: 12 }), {
-    width: "min(100%, 440px)",
+    width: "min(100%, 520px)",
     minWidth: 0,
     backgroundColor: "#191919",
-    "& h1": { color: "#eeeeee" },
-    "& p": { color: "#b4b4b4" },
-    "& a": { color: "#b8a9ff" },
+    display: "flex",
+    flexDirection: "column",
+    gap: 80,
   }),
   logo: style({
     width: 30,
     height: 30,
+    marginTop: -5,
+    marginBottom: -1,
     objectFit: "contain",
+  }),
+  statement: style({
+    "& p": {
+      fontWeight: 500,
+      textWrap: "pretty",
+    },
   }),
 };
