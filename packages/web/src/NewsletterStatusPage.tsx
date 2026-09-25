@@ -43,7 +43,8 @@ const styles = {
     backgroundColor: "#191919",
     display: "flex",
     flexDirection: "column",
-    gap: 80,
+    gap: 16,
+    "& a": { marginTop: 64 },
   }),
   logo: style({
     width: 30,
