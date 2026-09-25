@@ -26,14 +26,16 @@ e2eTest(
 e2eTest(
   "opens an extension WebSocket from the workspace sidebar",
   async ({ app, harness }) => {
-    await harness.loadExtension("./fixtures/websocket-greeting");
+    await harness.loadExtension(
+      "../../../packages/extension-tools/test/fixtures/websocket-greeting",
+    );
 
     await app.page
-      .getByRole("link", { name: "WebSocket Greeting", exact: true })
+      .getByRole("link", { name: "websocket-greeting", exact: true })
       .click();
 
     const frame = app.page
-      .locator('iframe[title="WebSocket Greeting"]')
+      .locator('iframe[title="websocket-greeting"]')
       .contentFrame();
     await expect(frame.getByRole("status")).toHaveText("Hello from WebSocket");
   },

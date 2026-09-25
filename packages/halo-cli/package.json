@@ -20,7 +20,7 @@
   },
   "dependencies": {
     "@get-halo/client": "workspace:*",
-    "@get-halo/extension-tools": "0.2.0",
+    "@get-halo/extension-tools": "workspace:*",
     "@get-halo/shared": "workspace:*",
     "@sinclair/typebox": "^0.34.52",
     "errore": "^0.14.1",

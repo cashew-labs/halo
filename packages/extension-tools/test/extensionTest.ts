@@ -93,7 +93,7 @@ export const extensionTest = base.extend<
         ],
         directory,
       );
-      await command("npm", ["run", "typecheck"], directory);
+      await command("npm", ["run", "check"], directory);
       await command("npm", ["run", "build"], directory);
       const dataDirectory = path.join(root, "data");
       let running: RunningExtension = await start(directory, dataDirectory);
@@ -118,7 +118,11 @@ async function command(executable: string, args: string[], cwd: string) {
   }).catch(
     (cause) =>
       new ExtensionTestError({
-        detail: `${executable} ${args.join(" ")}`,
+        detail: [
+          `${executable} ${args.join(" ")}`,
+          cause.stdout,
+          cause.stderr,
+        ].join("\n"),
         cause,
       }),
   );

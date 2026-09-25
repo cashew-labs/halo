@@ -1,6 +1,6 @@
 ---
 name: halo-extension
-description: Access, inspect, interact with, create, edit, run, and verify Halo workspace extensions using the bundled browser, React, oRPC, Tandem, and connected-tool SDK.
+description: Access, inspect, interact with, create, edit, run, and verify Halo workspace extensions using the bundled browser, React, Hono, Tandem, and connected-tool SDK.
 ---
 
 # Halo extensions
@@ -14,13 +14,14 @@ Work inside the extension directory. Do not recreate the SDK transport, edit gen
 Read each reference that applies to the task:
 
 - For React views, view props, `useQuery`, routing, assets, or iframe behavior, read [references/view.md](references/view.md).
-- For oRPC handlers and the typed browser API, read [references/api.md](references/api.md).
+- For Hono handlers, WebSockets, and the typed browser API, read [references/api.md](references/api.md).
 - For schemas, queries, shared data, or transactions, read [references/storage.md](references/storage.md).
 - For workspace tools or connected services, read [references/tools.md](references/tools.md).
 - For scaffolding, package metadata, builds, hosting, reloads, updates, or removal, read [references/lifecycle.md](references/lifecycle.md).
+- For an extension pinned to SDK 0.2, read [references/migration-0.3.md](references/migration-0.3.md) before applying current examples.
 - Whenever a task requires opening, observing, interacting with, debugging, or verifying an extension, read [references/access.md](references/access.md).
 
-The references document the SDK bundled with this Halo workspace. For an existing extension, inspect its installed declarations under `node_modules/@get-halo/extension-sdk/` when its dependency version differs. In a development build, run `halo extension update <id>` after Halo's source changes. It installs the current local SDK and build tools, typechecks, builds, and restarts the extension.
+The references document SDK 0.3, which is used for newly scaffolded extensions. Before editing an existing extension, read its exact `@get-halo/extension-sdk` version from `package.json`. Existing 0.2 source uses the prior `api.ts`/oRPC format; inspect its installed declarations and migrate it explicitly before applying 0.3 examples. In a development build, run `halo extension update <id>` after Halo's source changes. It installs the current local SDK and build tools, typechecks, builds, and restarts the extension.
 
 ## Create and build
 
@@ -36,7 +37,7 @@ The command creates the package and installs its dependencies. The host must hav
 Adapt the generated package:
 
 - `view.tsx` default-exports the React view.
-- `api.ts` default-exports an oRPC router.
+- `extension.ts` default-exports the Hono API and extension definition.
 - `schema.ts` named-exports its Tandem `schema` and `relations` definitions.
 - `package.json` owns dependencies, scripts, and optional Halo presentation metadata.
 
@@ -45,7 +46,7 @@ Read `.agents/skills/maui/SKILL.md` before designing or editing the view. Keep `
 After editing, run from the extension directory:
 
 ```sh
-npm run typecheck
+npm run check
 npm run build
 ```
 

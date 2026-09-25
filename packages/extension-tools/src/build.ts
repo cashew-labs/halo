@@ -43,8 +43,9 @@ export async function buildExtension(directory: string) {
 import { createRoot } from "react-dom/client";
 import { connectExtension } from "@get-halo/extension-sdk/client";
 import View from "./view.tsx";
+import type extension from "./extension.ts";
 import { relations, schema } from "./schema.ts";
-const client = await connectExtension({ schema, relations });
+const client = await connectExtension<typeof extension>()({ schema, relations });
 if (client instanceof Error) throw client;
 createRoot(document.getElementById("root")).render(<View {...client} />);`,
       },
@@ -67,18 +68,20 @@ createRoot(document.getElementById("root")).render(<View {...client} />);`,
       platform: "node",
       target: "node22",
       logLevel: "silent",
+      banner: {
+        js: 'import { createRequire as __haloCreateRequire } from "node:module"; const require = __haloCreateRequire(import.meta.url);',
+      },
       stdin: {
         resolveDir: directory,
         contents: `
 import { fileURLToPath } from "node:url";
 import { runExtension } from "@get-halo/extension-sdk/server";
-import router from "./api.ts";
-import { relations, schema } from "./schema.ts";
-await runExtension({ router, schema, relations, publicDirectory: fileURLToPath(new URL("./public/", import.meta.url)) });`,
+import extension from "./extension.ts";
+await runExtension({ extension, publicDirectory: fileURLToPath(new URL("./public/", import.meta.url)) });`,
       },
       outfile: join(output, "server.mjs"),
     }).catch(
-      (cause) => new ExtensionBuildError({ step: "compile api", cause }),
+      (cause) => new ExtensionBuildError({ step: "compile server", cause }),
     ),
   ]);
   if (view instanceof Error) return view;

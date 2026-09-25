@@ -95,7 +95,7 @@ export const extension = Cli.create("extension", {
           "--save-dev",
           `@get-halo/extension-tools@${packages.tools}`,
         ],
-        ["run", "typecheck"],
+        ["run", "check"],
         ["run", "build"],
       ]) {
         const result = await runNpm(directory, args);

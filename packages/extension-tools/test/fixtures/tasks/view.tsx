@@ -19,7 +19,7 @@ import {
   type ExtensionViewProps,
 } from "@get-halo/extension-sdk/view";
 import * as errore from "errore";
-import type router from "./api.js";
+import type extension from "./extension.js";
 import type { relations, schema } from "./schema.js";
 
 class TasksError extends errore.createTaggedError({
@@ -37,15 +37,16 @@ const tasksQuery = {
 export default function Tasks({
   api,
   storage,
-}: ExtensionViewProps<typeof router, typeof schema, typeof relations>) {
+}: ExtensionViewProps<typeof extension, typeof schema, typeof relations>) {
   const [title, setTitle] = useState("Tasks");
   const [label, setLabel] = useState("");
   const [error, setError] = useState<string>();
   const tasks = useQuery(storage, tasksQuery);
   useEffect(() => {
-    void api
-      .title()
-      .then(setTitle)
+    void api.title
+      .$get()
+      .then(async (response) => await response.json())
+      .then(({ title: responseTitle }) => setTitle(responseTitle))
       .catch((cause) => setError(new TasksError({ cause }).message));
   }, [api]);
   async function save(task: {

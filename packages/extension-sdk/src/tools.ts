@@ -30,9 +30,9 @@ type ExtensionToolInput = { [key: string]: ExtensionToolValue };
 
 export type ExtensionTools = {
   readonly [segment: string]: ExtensionTools;
-} & ((input: ExtensionToolInput) => Promise<ExtensionToolResult>);
-
-export type ExtensionContext = { tools: ExtensionTools };
+} & (<Data = unknown>(
+  input: ExtensionToolInput,
+) => Promise<ExtensionToolResult<Data>>);
 
 class ExtensionToolConnectionError extends errore.createTaggedError({
   name: "ExtensionToolConnectionError",

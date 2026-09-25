@@ -1,22 +1,44 @@
 import { parseArgs } from "node:util";
-import { createServer } from "node:http";
+import nodeHttp, { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
+import type { Duplex } from "node:stream";
 import { readFile, readdir } from "node:fs/promises";
 import { extname, join } from "node:path";
+import {
+  createAdaptorServer,
+  getRequestListener,
+  upgradeWebSocket,
+} from "@hono/node-server";
 import { RPCHandler } from "@orpc/server/node";
-import type { AnyRouter } from "@orpc/server";
-import type {
-  AnyRelations,
-  AnySchema,
-  RuntimeSchemaDefinition,
-} from "@tanishqkancharla/tandem-core";
+import type { AnyRelations, AnySchema } from "@tanishqkancharla/tandem-core";
 import {
   TandemServer,
   TandemServerJsonFileStorage,
 } from "@tanishqkancharla/tandem-server";
+import { WebSocketServer } from "ws";
+import { createProxyServer, proxyUpgrade } from "httpxy";
 import * as errore from "errore";
 import { syncRouter } from "./sync.js";
 import { createExtensionTools } from "./tools.js";
+import type {
+  AnyExtensionApi,
+  ExtensionDefinition,
+  ExtensionService,
+} from "./definition.js";
+export {
+  defineExtension,
+  proxyView,
+  reactView,
+  type ExtensionDefinition,
+  type ExtensionEnvironment,
+  type ExtensionService,
+  type ExtensionServeContext,
+  type ExtensionView,
+  type ProxyExtensionView,
+  type ReactExtensionView,
+} from "./definition.js";
+export type { ExtensionToolResult, ExtensionTools } from "./tools.js";
+export { upgradeWebSocket };
 
 class ExtensionServerError extends errore.createTaggedError({
   name: "ExtensionServerError",
@@ -38,12 +60,11 @@ const contentTypes = new Map(
 );
 
 export async function serveExtension<
+  Api extends AnyExtensionApi,
   Schema extends AnySchema,
   Relations extends AnyRelations<Schema>,
 >(args: {
-  router: AnyRouter;
-  schema: RuntimeSchemaDefinition<Schema>;
-  relations: Relations;
+  extension: ExtensionDefinition<Api, Schema, Relations>;
   publicDirectory: string;
   dataDirectory: string;
   port: number;
@@ -77,25 +98,73 @@ export async function serveExtension<
     filePath: join(args.dataDirectory, "tandem.json"),
   });
   const tandem = new TandemServer({
-    schema: args.schema,
-    relations: args.relations,
+    schema: args.extension.schema,
+    relations: args.extension.relations,
     storage,
   });
-  const apiHandler = new RPCHandler(args.router);
   const tools = createExtensionTools();
+  const environment = {
+    dataDirectory: { path: args.dataDirectory },
+    tools,
+  };
+  const service =
+    args.extension.serve === undefined
+      ? undefined
+      : await args.extension.serve(environment);
+  if (service instanceof Error) return service;
+  const proxyTarget =
+    args.extension.view.kind === "proxy"
+      ? readProxyTarget(service?.view)
+      : undefined;
+  if (proxyTarget instanceof Error) return proxyTarget;
+  const viewProxy = createProxyServer();
+  const apiHandler = getRequestListener(
+    async (request) => await args.extension.api.fetch(request, environment),
+  );
+  const webSocketServer = new WebSocketServer({ noServer: true });
+  const apiWebSocketAdapter = createAdaptorServer({
+    fetch: async (request, adapterBindings) => {
+      // SAFETY: Hono's Node adapter supplies its private upgrade bindings; the extension environment adds tools to that same object.
+      const bindings = Object.assign(adapterBindings, environment);
+      return await args.extension.api.fetch(request, bindings);
+    },
+    websocket: { server: webSocketServer },
+  });
   const syncHandler = new RPCHandler(syncRouter(tandem));
   const server = createServer(async (request, response) => {
-    const handled = await apiHandler.handle(request, response, {
-      prefix: "/api",
-      context: { tools },
-    });
-    if (handled.matched) return;
+    const url = new URL(request.url!, "http://localhost");
+    if (url.pathname === "/api" || url.pathname.startsWith("/api/")) {
+      const apiPath = url.pathname.slice("/api".length);
+      request.url = `${apiPath === "" ? "/" : apiPath}${url.search}`;
+      await apiHandler(request, response);
+      return;
+    }
     const synced = await syncHandler.handle(request, response, {
       prefix: "/sync",
       context: {},
     });
     if (synced.matched) return;
-    const pathname = new URL(request.url!, "http://localhost").pathname;
+    const pathname = url.pathname;
+    if (
+      proxyTarget !== undefined &&
+      (pathname === "/view" || pathname.startsWith("/view/"))
+    ) {
+      request.url = proxyPath(request.url, proxyTarget.stripPrefix);
+      const proxied = await viewProxy
+        .web(request, response, {
+          target: proxyTarget.origin,
+          xfwd: false,
+        })
+        .catch(
+          (cause) =>
+            new ExtensionServerError({ operation: "proxy view", cause }),
+        );
+      if (!(proxied instanceof Error)) return;
+      console.error(proxied);
+      if (!response.headersSent) response.writeHead(502);
+      if (!response.writableEnded) response.end();
+      return;
+    }
     const isView =
       pathname.startsWith("/view/") && !pathname.startsWith("/view/assets/");
     const asset = assets.get(isView ? "/view/" : pathname);
@@ -105,6 +174,40 @@ export async function serveExtension<
     }
     response.writeHead(200, { "content-type": asset.contentType });
     response.end(asset.body);
+  });
+  const upgradeSockets = new Set<Duplex>();
+  server.on("upgrade", async (request, socket, head) => {
+    upgradeSockets.add(socket);
+    socket.once("close", () => upgradeSockets.delete(socket));
+    const url = new URL(request.url!, "http://localhost");
+    if (
+      proxyTarget !== undefined &&
+      (url.pathname === "/view" || url.pathname.startsWith("/view/"))
+    ) {
+      request.url = proxyPath(request.url, proxyTarget.stripPrefix);
+      const proxied = await proxyUpgrade(
+        proxyTarget.origin,
+        request,
+        socket,
+        head,
+        { xfwd: false },
+      ).catch(
+        (cause) =>
+          new ExtensionServerError({
+            operation: "proxy view WebSocket",
+            cause,
+          }),
+      );
+      if (proxied instanceof Error) console.error(proxied);
+      return;
+    }
+    if (url.pathname !== "/api" && !url.pathname.startsWith("/api/")) {
+      respondToUpgrade(socket, 404);
+      return;
+    }
+    const apiPath = url.pathname.slice("/api".length);
+    request.url = `${apiPath === "" ? "/" : apiPath}${url.search}`;
+    apiWebSocketAdapter.emit("upgrade", request, socket, head);
   });
   const started = await new Promise<undefined | ExtensionServerError>(
     (resolve) => {
@@ -120,6 +223,9 @@ export async function serveExtension<
   return {
     url: `http://127.0.0.1:${address.port}/view/`,
     async close() {
+      for (const client of webSocketServer.clients) client.terminate();
+      apiWebSocketAdapter.emit("close");
+      for (const socket of upgradeSockets) socket.destroy();
       server.closeAllConnections();
       const closed = await new Promise<undefined | ExtensionServerError>(
         (resolve) => {
@@ -132,24 +238,76 @@ export async function serveExtension<
           );
         },
       );
-      if (closed instanceof Error) return closed;
-      return await tandem
+      const serviceClosed = await service?.close?.();
+      const tandemClosed = await tandem
         .close()
         .catch(
           (cause) =>
             new ExtensionServerError({ operation: "close Tandem", cause }),
         );
+      if (closed instanceof Error) return closed;
+      if (serviceClosed instanceof Error) return serviceClosed;
+      return tandemClosed;
     },
   };
 }
 
+function respondToUpgrade(socket: Duplex, statusCode: number) {
+  socket.end(
+    `HTTP/1.1 ${statusCode} ${nodeHttp.STATUS_CODES[statusCode]}\r\n` +
+      "Connection: close\r\n" +
+      "Content-Length: 0\r\n" +
+      "\r\n",
+  );
+}
+
+function readProxyTarget(
+  view: ExtensionService["view"] | undefined,
+): { origin: string; stripPrefix: boolean } | ExtensionServerError {
+  if (view === undefined) {
+    return new ExtensionServerError({
+      operation: "configure proxy view without a target",
+    });
+  }
+  const target = errore.try({
+    try: () => new URL(view.target),
+    catch: (cause) =>
+      new ExtensionServerError({
+        operation: "parse proxy view target",
+        cause,
+      }),
+  });
+  if (target instanceof Error) return target;
+  if (target.protocol !== "http:") {
+    return new ExtensionServerError({
+      operation: "configure non-HTTP proxy view",
+    });
+  }
+  if (
+    target.hostname !== "127.0.0.1" &&
+    target.hostname !== "localhost" &&
+    target.hostname !== "[::1]"
+  ) {
+    return new ExtensionServerError({
+      operation: "configure non-loopback proxy view",
+    });
+  }
+  return { origin: target.origin, stripPrefix: view.stripPrefix };
+}
+
+function proxyPath(url: string | undefined, stripPrefix: boolean) {
+  const pathAndQuery = url === undefined ? "/" : url;
+  if (!stripPrefix) return pathAndQuery;
+  const stripped = pathAndQuery.slice("/view".length);
+  return stripped === "" ? "/" : stripped;
+}
+
 export async function runExtension<
+  Api extends AnyExtensionApi,
   Schema extends AnySchema,
   Relations extends AnyRelations<Schema>,
 >(args: {
-  router: AnyRouter;
-  schema: RuntimeSchemaDefinition<Schema>;
-  relations: Relations;
+  extension: ExtensionDefinition<Api, Schema, Relations>;
   publicDirectory: string;
 }) {
   const { values } = parseArgs({

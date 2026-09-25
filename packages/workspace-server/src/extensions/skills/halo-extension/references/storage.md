@@ -141,6 +141,6 @@ Create a new transaction for a later edit. Do not reuse a transaction after comm
 
 ## State ownership
 
-Use Tandem for extension-owned records that should persist or synchronize between views. Use React state for unfinished input and browser-local UI. Use Halo tools, through `api.ts`, when the source of truth is a workspace file or connected service. Do not mirror connected-service records into Tandem unless the product explicitly needs an extension-owned cache or annotation layer.
+Use Tandem for extension-owned records that should persist or synchronize between views. Use React state for unfinished input and browser-local UI. Use Halo tools, through Hono handlers in `extension.ts`, when the source of truth is a workspace file or connected service. Do not mirror connected-service records into Tandem unless the product explicitly needs an extension-owned cache or annotation layer.
 
 The SDK owns connection, disconnection, remote pulling, persistence flushing, and client clearing. Although those methods are present on the underlying `TandemClient` type, extension views should not call them.

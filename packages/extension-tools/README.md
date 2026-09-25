@@ -9,7 +9,8 @@ An extension contains three source files:
 
 - `view.tsx`: the default-exported React app, served under `/view/`. Nested URLs
   load the same app, which owns its frontend routing.
-- `api.ts`: the default-exported oRPC router, mounted directly under `/api/`.
+- `extension.ts`: the default-exported Hono API, schema binding, view kind, and
+  optional `serve()` lifecycle.
 - `schema.ts`: the named Tandem `schema` and `relations` exports. The SDK owns
   `/sync/`.
 
@@ -23,14 +24,14 @@ const result = await scaffoldExtension({
 if (result instanceof Error) throw result;
 ```
 
-The equivalent CLI is `npx @get-halo/extension-tools@0.2.0 scaffold my-extension`. Scaffolding
+The equivalent CLI is `npx @get-halo/extension-tools@0.3.0 scaffold my-extension`. Scaffolding
 creates a new directory and writes the source, package scripts, dependencies,
 TypeScript configuration, and gitignore. Installation is explicit:
 
 ```sh
 cd my-extension
 npm install
-npm run typecheck
+npm run check
 npm run build
 npm start -- --port 3000 --data-dir .extension-data
 ```
@@ -48,6 +49,8 @@ loading the development tools. Existing processes continue using their original
 build. Successful build generations are retained; pruning is not implemented.
 
 The server listens on loopback and serves `/view/`, `/api/`, and `/sync/`.
+The API is a typed Hono app and may expose SDK-managed WebSockets. A proxy view
+may forward `/view/` HTTP and WebSocket traffic to a private loopback service.
 It owns one `TandemServer` backed by `TandemServerJsonFileStorage`, which
 persists data to `<data-dir>/tandem.json`. The tuple file is an SDK-owned
 implementation detail and extension code must not read or write it directly.
@@ -68,8 +71,7 @@ header. The iframe retains its extension origin for API calls and storage.
 After adding an extension, call `extensions.reload()`. The sidebar receives the
 updated list automatically through `extensions.watch()`.
 
-Named sub-panes, dynamic sidebar contributions, authentication, and workspace
-tool access are not connected yet.
+Named sub-panes and dynamic sidebar contributions are not connected yet.
 JSON persistence is a prototype default, not the final database design.
 
 ## Verification
@@ -80,6 +82,6 @@ pnpm --filter @get-halo/extension-tools test
 
 `test/fixtures/tasks/` holds the reusable Tasks source as ordinary TypeScript and TSX files. `await loadExtension(sourceDirectory)` is supplied by the fixture. It scaffolds a
 package through the public API, writes that source, installs the packed packages,
-typechecks, builds, and runs an actual Node server. Playwright tests cover the
-starter, nested view URLs and API calls, collaboration between independent
-browser contexts, and persistence after restart. No Electron or Halo server runs.
+checks, builds, and runs an actual Node server. Playwright tests cover the
+starter, nested Hono API calls, collaboration, persistence after restart, Hono
+WebSockets, and proxy-view lifecycle. No Electron or Halo server runs.

@@ -1,11 +1,13 @@
 import { expect } from "@playwright/test";
+import { m } from "@get-halo/shared/testing";
 import { e2eTest } from "./e2eTest.js";
 
 e2eTest(
   "authors and loads an extension through the agent's shell and file tools",
-  async ({ harness, app }) => {
+  async ({ harness, app, getExtensionPackages }) => {
     e2eTest.setTimeout(120_000);
     const harnessBashTimeoutMs = 120_000;
+    await getExtensionPackages();
     await app.page.getByRole("main").waitFor();
     await app.page.evaluate(() =>
       document.documentElement.setAttribute(
@@ -92,5 +94,89 @@ e2eTest(
         .contentFrame()
         .getByRole("heading", { name: "Updated through Halo tools" }),
     ).toBeVisible();
+  },
+);
+
+e2eTest(
+  "builds a working extension through the agent loop from a simple prompt",
+  async ({ app, harness, llm, getExtensionPackages }) => {
+    e2eTest.setTimeout(180_000);
+    await getExtensionPackages();
+    const created = await harness.tools.bash.run({
+      command: "halo extension new agent-counter",
+      timeoutMs: 120_000,
+    });
+    expect(created.code, `${created.stdout}\n${created.stderr}`).toBe(0);
+    const viewSource = `
+      import { useState } from "react";
+      import { Button, Flex, H1, MauiProvider } from "maui";
+
+      export default function View() {
+        const [count, setCount] = useState(0);
+        return (
+          <MauiProvider>
+            <Flex column gap={4} p={8}>
+              <H1>Agent Counter</H1>
+              <Button onClick={() => setCount((value) => value + 1)}>
+                Count: {count}
+              </Button>
+            </Flex>
+          </MauiProvider>
+        );
+      }
+    `;
+
+    await app.page
+      .getByRole("button", { name: "New session", exact: true })
+      .click();
+    const session = app.page.getByRole("main", {
+      name: "New session",
+      exact: true,
+    });
+    await session
+      .getByLabel("Message", { exact: true })
+      .fill("Build me a simple counter extension called Agent Counter.");
+    await session.getByRole("button", { name: "Send", exact: true }).click();
+    await llm.respond(
+      m.tool.start("write", {
+        id: "write-agent-counter",
+        arguments: {
+          path: ".halo/extensions/agent-counter/view.tsx",
+          content: viewSource,
+        },
+      }),
+    );
+    await llm.respond(
+      m.tool.start("bash", {
+        id: "build-agent-counter",
+        arguments: {
+          command:
+            "cd .halo/extensions/agent-counter && npm run check && npm run build && halo extension reload",
+          timeoutMs: 120_000,
+        },
+      }),
+    );
+    await expect(
+      app.page.getByRole("link", { name: "agent-counter", exact: true }),
+    ).toBeVisible({ timeout: 120_000 });
+    await llm.respond(
+      m.assistant("Built and loaded the Agent Counter extension."),
+    );
+    await expect(
+      app.page.getByText("Built and loaded the Agent Counter extension."),
+    ).toBeVisible();
+
+    await app.page
+      .getByRole("link", { name: "agent-counter", exact: true })
+      .click();
+    const pane = app.page
+      .locator('iframe[title="agent-counter"]')
+      .contentFrame();
+    await expect(
+      pane.getByRole("heading", { name: "Agent Counter" }),
+    ).toBeVisible();
+    const counter = pane.getByRole("button", { name: "Count: 0" });
+    await counter.click();
+    await expect(pane.getByRole("button", { name: "Count: 1" })).toBeVisible();
   },
 );

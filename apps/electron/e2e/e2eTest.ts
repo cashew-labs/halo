@@ -203,7 +203,7 @@ export const e2eTest = baseTest.extend<E2EFixtures, E2EWorkerFixtures>({
         });
         await runHarnessCommand({
           tools,
-          command: `npm --prefix ${directoryArgument} run typecheck`,
+          command: `npm --prefix ${directoryArgument} run check`,
         });
         await runHarnessCommand({
           tools,
@@ -263,6 +263,7 @@ function extensionBaseFiles(input: {
           type: "module",
           scripts: {
             build: "halo-extension build",
+            check: "npm run typecheck",
             start: "node dist/start.mjs",
             typecheck: "tsc --noEmit",
           },
@@ -272,9 +273,11 @@ function extensionBaseFiles(input: {
             "react-dom": "^19.2.8",
             maui: "npm:@tanishqkancharla/maui@0.0.33",
             errore: "^0.14.1",
+            hono: "^4.13.8",
           },
           devDependencies: {
             "@get-halo/extension-tools": input.packages.tools,
+            "@types/node": "^22.20.1",
             "@types/react": "19.2.18",
             typescript: "7.0.2",
           },
@@ -297,6 +300,7 @@ function extensionBaseFiles(input: {
             noUncheckedIndexedAccess: true,
             skipLibCheck: true,
             noEmit: true,
+            types: ["node"],
           },
           include: ["*.ts", "*.tsx"],
         },
@@ -305,9 +309,9 @@ function extensionBaseFiles(input: {
       )}\n`,
     },
     {
-      path: "api.ts",
+      path: "extension.ts",
       content:
-        'import { os } from "@get-halo/extension-sdk/api";\nexport default { hello: os.handler(() => "Hello from your extension") };\n',
+        'import { Hono } from "hono";\nimport { defineExtension, reactView, type ExtensionEnvironment } from "@get-halo/extension-sdk/server";\nimport { relations, schema } from "./schema.js";\nconst api = new Hono<ExtensionEnvironment>().get("/hello", (context) => context.json({ message: "Hello from your extension" }));\nexport default defineExtension({ api, schema, relations, view: reactView("./view.tsx") });\n',
     },
     {
       path: "schema.ts",

@@ -16,7 +16,7 @@ import {
   useQuery,
   type ExtensionViewProps,
 } from "@get-halo/extension-sdk/view";
-import type router from "./api.js";
+import type extension from "./extension.js";
 import type { relations, schema } from "./schema.js";
 
 const tasksQuery = {
@@ -28,13 +28,13 @@ const tasksQuery = {
 export default function View({
   api,
   storage,
-}: ExtensionViewProps<typeof router, typeof schema, typeof relations>) {
+}: ExtensionViewProps<typeof extension, typeof schema, typeof relations>) {
   const tasks = useQuery(storage, tasksQuery);
   // ...
 }
 ```
 
-Import the router, schema, and relations with `import type`. The build already includes their runtime entrypoints where needed. Passing the concrete relations type lets `useQuery` validate `with` clauses and infer their nested result fields.
+Import the extension definition, schema, and relations with `import type`. The build already includes their runtime entrypoints where needed. Passing the concrete relations type lets `useQuery` validate `with` clauses and infer their nested result fields.
 
 ## `useQuery`
 
