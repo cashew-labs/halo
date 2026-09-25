@@ -13,6 +13,7 @@ export function NewsletterStatusPage({
   const logoLink = useStyles(styles.logoLink);
   const message = useStyles(styles.message);
   const heading = useStyles(styles.heading);
+  const gmailLink = useStyles(styles.gmailLink);
 
   return (
     <main className={shell} aria-label="Halo updates">
@@ -31,6 +32,16 @@ export function NewsletterStatusPage({
           </h1>
           {status === "joined" && (
             <P>Here are some videos to help you learn more about Halo.</P>
+          )}
+          {status === "check-email" && (
+            <a
+              className={gmailLink}
+              href="https://mail.google.com/"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Open Gmail
+            </a>
           )}
         </div>
 
@@ -78,5 +89,8 @@ const styles = {
   heading: style(text({ size: "md", fontWeight: 500, color: "highContrast" }), {
     margin: 0,
     textWrap: "pretty",
+  }),
+  gmailLink: style(text({ size: "md", color: "highContrast" }), {
+    alignSelf: "flex-start",
   }),
 };
