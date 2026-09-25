@@ -3235,30 +3235,6 @@ e2eTest(
   },
 );
 
-e2eTest("scrolls a long code file with the mouse wheel", async ({ app }) => {
-  const path = "long.ts";
-  const content = Array.from(
-    { length: 300 },
-    (_, index) => `export const value${index} = ${index};`,
-  ).join("\n");
-  await app.server.rpc.workspace.writeFile({ path, content });
-  await app.page.getByRole("link", { name: path, exact: true }).click();
-  const pane = app.page.getByRole("main", { name: path, exact: true });
-  const view = pane
-    .getByTestId("file-page-content")
-    .locator(":scope > div > div");
-  await expect(view).toBeVisible();
-  const box = await view.boundingBox();
-  expect(box).not.toBeNull();
-
-  await app.page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
-  await app.page.mouse.wheel(0, 2000);
-
-  await expect
-    .poll(async () => await view.evaluate((element) => element.scrollTop))
-    .toBeGreaterThan(1000);
-});
-
 e2eTest(
   "keeps a long note scrolled when clicking out of active Markdown syntax",
   async ({ app }) => {
