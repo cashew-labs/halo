@@ -42,7 +42,7 @@ const webContentSecurityPolicy = [
   "connect-src 'self'",
   "default-src 'self'",
   "font-src 'self' data:",
-  "form-action 'self'",
+  "form-action 'self' https://buttondown.com",
   "frame-ancestors 'none'",
   "frame-src 'self'",
   "img-src 'self' blob: data: https://gethalo.dev",
