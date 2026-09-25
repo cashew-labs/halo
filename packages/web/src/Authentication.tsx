@@ -11,6 +11,7 @@ import {
 } from "react";
 import { useHost } from "./HostProvider.js";
 import { LoadingPage } from "./LoadingPage.tsx";
+import { LandingPage } from "./LandingPage.js";
 import { SignInPage } from "./SignInPage.tsx";
 
 type AuthenticationState =
@@ -95,6 +96,13 @@ export function Authentication({ children }: { children: ReactElement }) {
         </ReauthenticateContext>
       </AuthenticatedUserContext>
     );
+
+  if (
+    state.status === "signedOut" &&
+    host.showLandingPage === true &&
+    window.location.pathname === "/"
+  )
+    return <LandingPage />;
 
   const signIn = async () => {
     setState({ status: "signingIn" });

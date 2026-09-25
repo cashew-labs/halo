@@ -21,6 +21,7 @@ export type AppInfo = {
 };
 
 export interface HostApi {
+  showLandingPage?: boolean;
   setHotkeys?(hotkeys: Hotkey[]): void;
   onShortcut?(listener: (shortcut: ShortcutId) => void): () => void;
   getAuthSession(): Promise<ControlPlaneSession | Error | undefined>;
