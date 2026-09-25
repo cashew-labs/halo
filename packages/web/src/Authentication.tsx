@@ -11,6 +11,8 @@ import {
 } from "react";
 import { useHost } from "./HostProvider.js";
 import { LoadingPage } from "./LoadingPage.tsx";
+import { LandingPage } from "./LandingPage.js";
+import { NewsletterStatusPage } from "./NewsletterStatusPage.js";
 import { SignInPage } from "./SignInPage.tsx";
 
 type AuthenticationState =
@@ -73,6 +75,12 @@ export function Authentication({ children }: { children: ReactElement }) {
     if (session !== undefined)
       setState({ status: "signedIn", userId: session.user.id });
   };
+  if (host.showLandingPage === true) {
+    if (window.location.pathname === "/newsletter/check-email")
+      return <NewsletterStatusPage status="check-email" />;
+    if (window.location.pathname === "/newsletter/joined")
+      return <NewsletterStatusPage status="joined" />;
+  }
   if (state.status === "checking") return <LoadingPage />;
   if (state.status === "unavailable")
     return (
@@ -95,6 +103,13 @@ export function Authentication({ children }: { children: ReactElement }) {
         </ReauthenticateContext>
       </AuthenticatedUserContext>
     );
+
+  if (
+    state.status === "signedOut" &&
+    host.showLandingPage === true &&
+    window.location.pathname === "/"
+  )
+    return <LandingPage />;
 
   const signIn = async () => {
     setState({ status: "signingIn" });

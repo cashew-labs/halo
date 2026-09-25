@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { Agentation } from "agentation";
 import { MauiProvider } from "maui";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Route, Switch } from "wouter";
+import { Redirect, Route, Switch } from "wouter";
 import type { HostApi } from "./HostApi.js";
 import { HostProvider } from "./HostProvider.js";
 import { HaloApp } from "./HaloApp.tsx";
@@ -50,6 +50,9 @@ export function mountHaloApp(root: HTMLElement, host: HostApi) {
 function HaloRoutes() {
   return (
     <Switch>
+      <Route path="/login">
+        <Redirect to="/" replace />
+      </Route>
       <Route path="/extensions/:extensionId">
         {(params) => (
           <StandaloneExtension

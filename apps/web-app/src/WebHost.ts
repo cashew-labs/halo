@@ -22,6 +22,8 @@ class WebHostError extends errore.createTaggedError({
 }) {}
 
 export class WebHost implements HostApi {
+  readonly showLandingPage = true;
+
   // Tracks the active workspace client for integration connections.
   private haloClient: HaloClient | undefined;
 
@@ -57,7 +59,10 @@ export class WebHost implements HostApi {
     const result = await this.authClient.signIn
       .social({
         provider: "google",
-        callbackURL: window.location.href,
+        callbackURL:
+          window.location.pathname === "/login"
+            ? window.location.origin
+            : window.location.href,
       })
       .catch(
         (cause) => new WebHostError({ operation: "start sign in", cause }),
