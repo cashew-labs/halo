@@ -30,7 +30,7 @@ export function LandingPage() {
         </Prose>
 
         <form
-          aria-label="Newsletter signup"
+          aria-label="Halo updates signup"
           action="https://buttondown.com/api/emails/embed-subscribe/halo"
           method="post"
         >
@@ -46,7 +46,7 @@ export function LandingPage() {
               />
             </div>
             <Button type="submit" variant="primary">
-              Join newsletter
+              Get updates
             </Button>
           </Flex>
         </form>
