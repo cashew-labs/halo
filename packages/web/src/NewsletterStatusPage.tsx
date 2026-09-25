@@ -1,5 +1,6 @@
-import { Link, P, Prose, radius, shadow, spacing } from "maui";
+import { P, radius, shadow, spacing, text } from "maui";
 import { style, useStyles } from "purse-styles";
+import { DevLogs } from "./DevLogs";
 
 export function NewsletterStatusPage({
   status,
@@ -9,22 +10,31 @@ export function NewsletterStatusPage({
   const shell = useStyles(styles.shell);
   const card = useStyles(styles.card);
   const logo = useStyles(styles.logo);
-  const statement = useStyles(styles.statement);
+  const logoLink = useStyles(styles.logoLink);
+  const message = useStyles(styles.message);
+  const heading = useStyles(styles.heading);
 
   return (
-    <main className={shell} aria-label="Halo newsletter">
+    <main className={shell} aria-label="Halo updates">
       <section className={card}>
-        <img className={logo} src="/halo-donut-transparent.png" alt="Halo" />
+        <div className={logoLink}>
+          <a href="/" aria-label="Halo home">
+            <img className={logo} src="/halo-donut-transparent.png" alt="" />
+          </a>
+        </div>
 
-        <Prose size="md" className={statement}>
-          <P>
+        <div className={message}>
+          <h1 className={heading}>
             {status === "check-email"
               ? "Check your email to confirm your subscription."
               : "You're on the list."}
-          </P>
-        </Prose>
+          </h1>
+          {status === "joined" && (
+            <P>Here are some videos to help you learn more about Halo.</P>
+          )}
+        </div>
 
-        <Link href="/">Back to Halo</Link>
+        {status === "joined" && <DevLogs showHeading={false} />}
       </section>
     </main>
   );
@@ -43,8 +53,7 @@ const styles = {
     backgroundColor: "#191919",
     display: "flex",
     flexDirection: "column",
-    gap: 16,
-    "& a": { marginTop: 64 },
+    gap: 32,
   }),
   logo: style({
     width: 30,
@@ -53,10 +62,21 @@ const styles = {
     marginBottom: -1,
     objectFit: "contain",
   }),
-  statement: style({
+  logoLink: style({ width: "fit-content" }),
+  message: style(text({ size: "md", fontWeight: 400, color: "lowContrast" }), {
+    display: "flex",
+    flexDirection: "column",
+    gap: 12,
     "& p": {
-      fontWeight: 500,
+      color: "inherit",
+      fontSize: "inherit",
+      fontWeight: 400,
+      margin: 0,
       textWrap: "pretty",
     },
+  }),
+  heading: style(text({ size: "md", fontWeight: 500, color: "highContrast" }), {
+    margin: 0,
+    textWrap: "pretty",
   }),
 };

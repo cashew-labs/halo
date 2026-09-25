@@ -2,15 +2,13 @@ import {
   backgroundColor,
   Button,
   Flex,
-  Link,
   P,
   Prose,
   proseMaxWidth,
-  Text,
   TextField,
-  text,
 } from "maui";
 import { style, useStyles } from "purse-styles";
+import { DevLogs } from "./DevLogs";
 
 export function LandingPage() {
   const page = useStyles(styles.page);
@@ -18,7 +16,6 @@ export function LandingPage() {
   const logo = useStyles(styles.logo);
   const statement = useStyles(styles.statement);
   const field = useStyles(styles.field);
-  const devLogsHeading = useStyles(styles.devLogsHeading);
 
   return (
     <main className={page} aria-label="Halo home">
@@ -51,19 +48,7 @@ export function LandingPage() {
           </Flex>
         </form>
 
-        <section aria-labelledby="dev-logs-heading">
-          <Flex column gap={6}>
-            <h2 id="dev-logs-heading" className={devLogsHeading}>
-              Dev Logs
-            </h2>
-            <P>
-              <Text tabular>0001</Text> -{" "}
-              <Link href="https://youtu.be/bTsJFEPTkYQ">
-                The Personal Computing Revolution Hasn&apos;t Happened Yet.
-              </Link>
-            </P>
-          </Flex>
-        </section>
+        <DevLogs />
       </div>
     </main>
   );
@@ -103,8 +88,4 @@ const styles = {
     maxWidth: 240,
     minWidth: 0,
   }),
-  devLogsHeading: style(
-    text({ size: "md", fontWeight: 500, color: "lowContrast" }),
-    { margin: 0 },
-  ),
 };
