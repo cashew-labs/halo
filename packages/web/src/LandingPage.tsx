@@ -1,4 +1,3 @@
-import { useState } from "react";
 import {
   backgroundColor,
   Button,
@@ -14,14 +13,11 @@ import {
 import { style, useStyles } from "purse-styles";
 
 export function LandingPage() {
-  const [email, setEmail] = useState("");
-  const [message, setMessage] = useState<string>();
   const page = useStyles(styles.page);
   const content = useStyles(styles.content);
   const logo = useStyles(styles.logo);
   const statement = useStyles(styles.statement);
   const field = useStyles(styles.field);
-  const feedback = useStyles(styles.feedback);
   const devLogsHeading = useStyles(styles.devLogsHeading);
 
   return (
@@ -35,22 +31,17 @@ export function LandingPage() {
 
         <form
           aria-label="Newsletter signup"
-          onSubmit={(event) => {
-            event.preventDefault();
-            setMessage("Newsletter signup is not connected yet.");
-          }}
+          action="https://buttondown.com/api/emails/embed-subscribe/halo"
+          method="post"
         >
           <Flex row gap={4} alignItems="center" style={{ flexWrap: "wrap" }}>
             <div className={field}>
               <TextField
                 aria-label="Email address"
                 type="email"
+                name="email"
                 placeholder="Email address"
-                value={email}
-                onChange={(value) => {
-                  setEmail(value);
-                  setMessage(undefined);
-                }}
+                validationBehavior="native"
                 isRequired
               />
             </div>
@@ -58,11 +49,6 @@ export function LandingPage() {
               Join newsletter
             </Button>
           </Flex>
-          {message && (
-            <p className={feedback} role="status">
-              {message}
-            </p>
-          )}
         </form>
 
         <section aria-labelledby="dev-logs-heading">
@@ -99,10 +85,10 @@ const styles = {
     gap: 80,
   }),
   logo: style({
-    // The PNG has transparent padding; these dimensions make the visible donut 28px tall.
-    width: 35,
-    height: 35,
-    marginTop: -6,
+    // The PNG has transparent padding; these dimensions make the visible donut 24px tall.
+    width: 30,
+    height: 30,
+    marginTop: -5,
     marginBottom: -1,
     objectFit: "contain",
   }),
@@ -116,9 +102,6 @@ const styles = {
     width: "100%",
     maxWidth: 240,
     minWidth: 0,
-  }),
-  feedback: style(text({ size: "xs", color: "lowContrast" }), {
-    marginTop: 12,
   }),
   devLogsHeading: style(
     text({ size: "md", fontWeight: 500, color: "lowContrast" }),
