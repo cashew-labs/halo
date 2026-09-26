@@ -42,13 +42,16 @@ export const maxBashTimeoutMs = 10 * 60 * 1_000;
 type BashProcessError = BashRunError | BashTimeoutError;
 
 export async function runBash(
-  cwd: string,
+  workspaceRoot: string,
   {
     command,
+    cwd,
     timeoutMs,
     signal,
   }: {
     command: string;
+    // Defaults to the workspace root.
+    cwd?: string;
     timeoutMs?: number;
     signal?: AbortSignal;
   },
@@ -66,10 +69,10 @@ export async function runBash(
     { stdout: string; stderr: string; code: number | null } | BashProcessError
   >((resolve) => {
     const child = spawn("bash", ["-c", command], {
-      cwd,
+      cwd: cwd ?? workspaceRoot,
       env: {
         ...process.env,
-        PATH: workspaceExecutablePath(cwd),
+        PATH: workspaceExecutablePath(workspaceRoot),
         PAGER: "cat",
       },
       detached: true,

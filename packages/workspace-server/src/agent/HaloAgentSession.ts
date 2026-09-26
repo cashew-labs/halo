@@ -302,25 +302,25 @@ export class HaloAgentSession {
         (cause) => new PromptFailedError({ reason: "Prompt failed", cause }),
       );
     if (prompted instanceof Error) return prompted;
-    if (!prompted.ok) {
-      if (!(prompted.error instanceof LaneBusy))
-        return new PromptFailedError({
-          reason: prompted.error.message,
-          cause: prompted.error,
-        });
-      const queued = await this.lane
-        .steer(message, undefined, BACKGROUND_CONTEXT)
-        .catch(
-          (cause) =>
-            new PromptFailedError({ reason: "Could not queue message", cause }),
-        );
-      if (queued instanceof Error) return queued;
-      if (!queued.ok)
-        return new PromptFailedError({
-          reason: queued.error.message,
-          cause: queued.error,
-        });
-    }
+    // Pi settles a started run before returning its outcome.
+    if (prompted.ok) return prompted.value;
+    if (!(prompted.error instanceof LaneBusy))
+      return new PromptFailedError({
+        reason: prompted.error.message,
+        cause: prompted.error,
+      });
+    const queued = await this.lane
+      .steer(message, undefined, BACKGROUND_CONTEXT)
+      .catch(
+        (cause) =>
+          new PromptFailedError({ reason: "Could not queue message", cause }),
+      );
+    if (queued instanceof Error) return queued;
+    if (!queued.ok)
+      return new PromptFailedError({
+        reason: queued.error.message,
+        cause: queued.error,
+      });
   }
 
   async abort() {
