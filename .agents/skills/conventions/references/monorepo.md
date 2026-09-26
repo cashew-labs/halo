@@ -1,6 +1,6 @@
-# Packages
+# Monorepo
 
-A package gives consumers a cohesive API. Its boundary should explain what they can use without making them understand how the code is organized inside.
+The monorepo gives each consumer a cohesive public API without requiring it to understand how code is organized internally.
 
 ## Decide whether a new package earns its place
 
@@ -20,7 +20,7 @@ const toolkit = createBrowserToolsForPage(page);
 
 The service still owns page lifetime, permissions, error conversion, and where screenshots are saved. Using the library directly does not remove that ownership.
 
-## Put it in the right layer
+## Put packages in the right layer
 
 Use pnpm workspaces and Turborepo. Name workspace packages with the `@get-halo/*` scope. Keep deployable hosts in `apps/`, reusable services and UI in `packages/`, and deployment configuration in `infra/`. Apps compose packages; reusable packages do not import app internals. Keep dependencies acyclic.
 

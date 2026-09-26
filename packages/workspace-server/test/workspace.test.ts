@@ -5,6 +5,7 @@ import {
   haloProtocolVersion,
   haloSupportedProtocols,
   emptySessionSnapshot,
+  isThreadUnread,
   reduceSessionUpdate,
   sessionMessages,
   sessionToolExecutions,
@@ -1577,7 +1578,11 @@ serverTest(
     const session = await server.rpc.sessions.create();
     expect((await updates.next()).value).toMatchObject({
       type: "updated",
-      session: { ...session, isRunning: false },
+      session: {
+        ...session,
+        isRunning: false,
+        markedDone: false,
+      },
     });
 
     const prompting = server.rpc.sessions.prompt({
@@ -1591,6 +1596,7 @@ serverTest(
     expect(running).toMatchObject({
       ...session,
       title: "Work without an open conversation",
+      markedDone: false,
     });
     await llm.respond(m.assistant("First result"));
     await prompting;
@@ -1599,6 +1605,9 @@ serverTest(
       (summary) => !summary.isRunning && summary.latestResultId !== undefined,
     );
     expect(completed.latestResultId).toBeDefined();
+    expect(completed).toMatchObject({ markedDone: false });
+    expect(completed.readReceiptCursorId).toBeUndefined();
+    expect(isThreadUnread(completed)).toBe(true);
     first.abort();
 
     // Finish another run while this client is disconnected.
@@ -1616,13 +1625,20 @@ serverTest(
     const current = await resumed.next();
     expect(current.value).toMatchObject({
       type: "snapshot",
-      sessions: [{ ...session, isRunning: false }],
+      sessions: [
+        {
+          ...session,
+          isRunning: false,
+          markedDone: false,
+        },
+      ],
     });
     if (current.done || current.value.type !== "snapshot")
       throw new Error("Expected summary snapshot");
-    const resultId = current.value.sessions[0]!.latestResultId;
-    expect(resultId).toBeDefined();
-    expect(resultId).not.toBe(completed.latestResultId);
+    const readCursorId = current.value.sessions[0]!.latestResultId;
+    expect(readCursorId).toBeDefined();
+    expect(readCursorId).not.toBe(completed.latestResultId);
+    expect(isThreadUnread(current.value.sessions[0]!)).toBe(true);
 
     // Aborting an active run also pushes its settled status.
     const aborted = server.rpc.sessions.prompt({
@@ -1635,7 +1651,8 @@ serverTest(
     await aborted;
     const stopped = await nextSummary(
       resumed,
-      (summary) => !summary.isRunning && summary.latestResultId !== resultId,
+      (summary) =>
+        !summary.isRunning && summary.latestResultId !== readCursorId,
     );
     expect(stopped.latestResultId).toBeDefined();
     reconnect.abort();
@@ -1653,10 +1670,205 @@ serverTest(
           ...session,
           isRunning: false,
           latestResultId: stopped.latestResultId,
+          markedDone: false,
         },
       ],
     });
     restart.abort();
+  },
+);
+
+serverTest(
+  "persists session status commands and streams their summaries",
+  async ({ server, llm }) => {
+    using cleanup = new errore.DisposableStack();
+    const firstConnection = new AbortController();
+    cleanup.defer(() => firstConnection.abort());
+    const updates = await server.rpc.sessions.watchSummaries(undefined, {
+      signal: firstConnection.signal,
+    });
+    await updates.next();
+
+    const first = await server.rpc.sessions.create();
+    await nextSummary(
+      updates,
+      (summary) => summary.sessionId === first.sessionId,
+    );
+    const second = await server.rpc.sessions.create();
+    await nextSummary(
+      updates,
+      (summary) => summary.sessionId === second.sessionId,
+    );
+    await server.rpc.sessions.markUnread(second);
+    const secondSummary = (await server.rpc.sessions.list()).find(
+      (summary) => summary.sessionId === second.sessionId,
+    );
+    expect(secondSummary).toMatchObject({
+      ...second,
+      markedDone: false,
+    });
+    expect(secondSummary?.readReceiptCursorId).toBeUndefined();
+
+    const prompted = server.rpc.sessions.prompt({
+      ...first,
+      text: "Produce a result for status commands",
+    });
+    await nextSummary(
+      updates,
+      (summary) => summary.sessionId === first.sessionId && summary.isRunning,
+    );
+    await llm.respond(m.assistant("Completed result"));
+    await prompted;
+    const completed = await nextSummary(
+      updates,
+      (summary) =>
+        summary.sessionId === first.sessionId && isThreadUnread(summary),
+    );
+    assert(completed.latestResultId !== undefined);
+
+    await server.rpc.sessions.markRead({
+      ...first,
+      observedResultId: completed.latestResultId,
+    });
+    const read = await nextSummary(
+      updates,
+      (summary) =>
+        summary.sessionId === first.sessionId && !isThreadUnread(summary),
+    );
+    expect(read).toMatchObject({
+      ...first,
+      markedDone: false,
+      readReceiptCursorId: read.latestResultId,
+    });
+
+    await server.rpc.sessions.markUnread(first);
+    const unread = await nextSummary(
+      updates,
+      (summary) =>
+        summary.sessionId === first.sessionId && isThreadUnread(summary),
+    );
+    expect(unread).toMatchObject({
+      ...first,
+      markedDone: false,
+    });
+    expect(unread.readReceiptCursorId).toBeUndefined();
+
+    const nextPrompt = server.rpc.sessions.prompt({
+      ...first,
+      text: "Produce another result for status commands",
+    });
+    await nextSummary(
+      updates,
+      (summary) => summary.sessionId === first.sessionId && summary.isRunning,
+    );
+    await llm.respond(m.assistant("New completed result"));
+    await nextPrompt;
+    const nextCompleted = await nextSummary(
+      updates,
+      (summary) =>
+        summary.sessionId === first.sessionId &&
+        summary.latestResultId !== completed.latestResultId &&
+        isThreadUnread(summary),
+    );
+    await server.rpc.sessions.markRead({
+      ...first,
+      observedResultId: completed.latestResultId,
+    });
+    const afterStaleRead = (await server.rpc.sessions.list()).find(
+      (summary) => summary.sessionId === first.sessionId,
+    );
+    expect(afterStaleRead?.latestResultId).toBe(nextCompleted.latestResultId);
+    expect(afterStaleRead?.readReceiptCursorId).toBeUndefined();
+    assert(afterStaleRead !== undefined);
+    expect(isThreadUnread(afterStaleRead)).toBe(true);
+
+    await server.rpc.sessions.markDone(first);
+    const done = await nextSummary(
+      updates,
+      (summary) => summary.sessionId === first.sessionId && summary.markedDone,
+    );
+    expect(done).toMatchObject({
+      ...first,
+      markedDone: true,
+    });
+    expect(done.readReceiptCursorId).toBeUndefined();
+    expect(isThreadUnread(done)).toBe(true);
+
+    firstConnection.abort();
+    await server.stop();
+    await server.start();
+
+    const secondConnection = new AbortController();
+    cleanup.defer(() => secondConnection.abort());
+    const restored = await server.rpc.sessions.watchSummaries(undefined, {
+      signal: secondConnection.signal,
+    });
+    const snapshot = await restored.next();
+    if (snapshot.done || snapshot.value.type !== "snapshot")
+      throw new Error("Expected restored session summary snapshot");
+    const restoredFirst = snapshot.value.sessions.find(
+      (summary) => summary.sessionId === first.sessionId,
+    );
+    expect(restoredFirst).toMatchObject({
+      ...first,
+      markedDone: true,
+    });
+    assert(restoredFirst !== undefined);
+    expect(restoredFirst.readReceiptCursorId).toBeUndefined();
+    expect(isThreadUnread(restoredFirst)).toBe(true);
+    expect(
+      snapshot.value.sessions.find(
+        (summary) => summary.sessionId === second.sessionId,
+      ),
+    ).toMatchObject({
+      ...second,
+      markedDone: false,
+    });
+
+    assert(restoredFirst.latestResultId !== undefined);
+    await server.rpc.sessions.markRead({
+      ...first,
+      observedResultId: restoredFirst.latestResultId,
+    });
+    const restoredRead = await nextSummary(
+      restored,
+      (summary) =>
+        summary.sessionId === first.sessionId && !isThreadUnread(summary),
+    );
+    expect(restoredRead).toMatchObject({
+      markedDone: true,
+      readReceiptCursorId: restoredRead.latestResultId,
+    });
+
+    await server.rpc.sessions.markUndone(first);
+    const restoredUndone = await nextSummary(
+      restored,
+      (summary) => summary.sessionId === first.sessionId && !summary.markedDone,
+    );
+    expect(restoredUndone).toMatchObject({
+      markedDone: false,
+      readReceiptCursorId: restoredUndone.latestResultId,
+    });
+
+    secondConnection.abort();
+    await server.stop();
+    await server.start();
+    const final = await server.rpc.sessions.list();
+    const finalFirst = final.find(
+      (summary) => summary.sessionId === first.sessionId,
+    );
+    assert(finalFirst !== undefined);
+    expect(finalFirst).toMatchObject({
+      markedDone: false,
+      readReceiptCursorId: finalFirst.latestResultId,
+    });
+    expect(isThreadUnread(finalFirst)).toBe(false);
+    expect(
+      final.find((summary) => summary.sessionId === second.sessionId),
+    ).toMatchObject({
+      ...second,
+      markedDone: false,
+    });
   },
 );
 
@@ -2095,29 +2307,56 @@ serverTest(
 );
 
 serverTest(
-  "negotiates supported protocols and rejects unsupported writes",
-  async ({ server }) => {
+  "keeps previous protocol summaries readable and rejects unsupported writes",
+  async ({ server, llm }) => {
     const connected = await connectHaloClient({ transport: server.transport });
     assert(!(connected instanceof Error));
     expect(connected.serverInfo).toEqual({
       protocolVersion: haloProtocolVersion,
       supportedProtocols: haloSupportedProtocols,
     });
-    const previousProtocol = createHaloClient({
+    const session = await server.rpc.sessions.create();
+    const prompting = server.rpc.sessions.prompt({
+      ...session,
+      text: "Complete a result for an older client",
+    });
+    await llm.respond(m.assistant("The result is ready."));
+    await prompting;
+    for (const version of [18, 19]) {
+      const previousProtocol = createHaloClient({
+        transport: {
+          ...server.transport,
+          headers: {
+            ...server.transport.headers,
+            "x-halo-protocol-version": String(version),
+          },
+        },
+      });
+      expect(
+        await previousProtocol.workspace.writeFile({
+          path: `legacy-${version}.md`,
+          content: "Legacy client",
+        }),
+      ).toEqual({ path: `legacy-${version}.md` });
+      expect(await previousProtocol.sessions.list()).toEqual([
+        expect.objectContaining({
+          sessionId: session.sessionId,
+          latestResultId: expect.any(String),
+        }),
+      ]);
+    }
+    const previousStatusProtocol = createHaloClient({
       transport: {
         ...server.transport,
         headers: {
           ...server.transport.headers,
-          "x-halo-protocol-version": "18",
+          "x-halo-protocol-version": "20",
         },
       },
     });
-    expect(
-      await previousProtocol.workspace.writeFile({
-        path: "legacy.md",
-        content: "Legacy client",
-      }),
-    ).toEqual({ path: "legacy.md" });
+    await expect(previousStatusProtocol.sessions.list()).rejects.toMatchObject({
+      code: "UNSUPPORTED_PROTOCOL",
+    });
     const unsupported = createHaloClient({
       transport: {
         ...server.transport,

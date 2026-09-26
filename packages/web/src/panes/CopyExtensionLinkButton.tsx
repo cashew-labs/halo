@@ -1,10 +1,11 @@
+import { useEffect, useRef, useState } from "react";
 import * as errore from "errore";
-import { Link } from "maui/icons";
-import { useStyles } from "purse-styles";
+import { Tooltip, motion } from "maui";
+import { Check, Link } from "maui/icons";
+import { style, useStyles } from "purse-styles";
 import { paneStyles } from "./paneStyles.js";
 
-const publicExtensionOrigin =
-  "https://halo-west-control-plane-912701444316.us-west2.run.app";
+const publicExtensionOrigin = "https://gethalo.dev";
 
 class CopyExtensionLinkError extends errore.createTaggedError({
   name: "CopyExtensionLinkError",
@@ -18,7 +19,7 @@ async function copyExtensionLink(extensionId: string) {
     )
     .catch((cause) => new CopyExtensionLinkError({ cause }));
 
-  if (result instanceof Error) console.warn(result);
+  if (result instanceof Error) return result;
 }
 
 export function CopyExtensionLinkButton({
@@ -27,16 +28,62 @@ export function CopyExtensionLinkButton({
   extensionId: string;
 }) {
   const className = useStyles(paneStyles.add);
+  const icon = useStyles(iconStyle);
+  const copiedIcon = useStyles(visibleIconStyle);
+  const hiddenIcon = useStyles(hiddenIconStyle);
+  const [copied, setCopied] = useState(false);
+  const resetTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
+
+  useEffect(() => () => clearTimeout(resetTimer.current), []);
+
+  async function handleCopy() {
+    const result = await copyExtensionLink(extensionId);
+    if (result instanceof Error) {
+      console.warn(result);
+      return;
+    }
+
+    setCopied(true);
+    clearTimeout(resetTimer.current);
+    resetTimer.current = setTimeout(() => setCopied(false), 2_000);
+  }
+
   return (
-    <button
-      type="button"
-      className={className}
-      data-pane-add=""
-      aria-label="Copy link"
-      title="Copy link"
-      onClick={() => void copyExtensionLink(extensionId)}
-    >
-      <Link size="sm" />
-    </button>
+    <Tooltip content={copied ? "Copied!" : "Copy link"} placement="bottom">
+      <button
+        type="button"
+        className={className}
+        data-pane-add=""
+        aria-label={copied ? "Copied link" : "Copy link"}
+        onClick={() => void handleCopy()}
+      >
+        <span className={icon} aria-hidden="true">
+          <Link size="sm" className={copied ? hiddenIcon : copiedIcon} />
+          <Check size="sm" className={copied ? copiedIcon : hiddenIcon} />
+        </span>
+      </button>
+    </Tooltip>
   );
 }
+
+const iconStyle = style({
+  display: "grid",
+  placeItems: "center",
+  "& svg": {
+    gridArea: "1 / 1",
+  },
+});
+
+const visibleIconStyle = style(motion.standard("opacity", "transform"), {
+  opacity: 1,
+  transform: "scale(1)",
+  "@media (prefers-reduced-motion: reduce)": { transition: "none" },
+});
+
+const hiddenIconStyle = style(motion.standard("opacity", "transform"), {
+  opacity: 0,
+  transform: "scale(0.7)",
+  "@media (prefers-reduced-motion: reduce)": { transition: "none" },
+});

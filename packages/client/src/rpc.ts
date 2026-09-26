@@ -12,7 +12,14 @@ export type SessionSummary = {
   updatedAt: string;
   isRunning: boolean;
   latestResultId?: string;
+  markedDone: boolean;
+  readReceiptCursorId?: string;
 };
+
+export function isThreadUnread(summary: SessionSummary) {
+  if (summary.latestResultId === undefined) return false;
+  return summary.readReceiptCursorId !== summary.latestResultId;
+}
 
 export type SessionSummariesUpdate =
   | { type: "snapshot"; sessions: SessionSummary[] }

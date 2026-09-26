@@ -56,9 +56,9 @@ export function Sidebar({ sessions, appInfo }: SidebarProps) {
         <div className={titleBar} aria-hidden="true" />
       )}
       <NavigationSidebar aria-label="Workspace" className={navigation}>
+        <ExtensionsSection />
         <FilesystemSection />
         <SessionsSection sessions={sessions} />
-        <ExtensionsSection />
       </NavigationSidebar>
       <div className={footer} data-testid="app-update-status">
         {appInfo !== undefined && (

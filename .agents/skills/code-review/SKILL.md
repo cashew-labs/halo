@@ -7,7 +7,7 @@ description: Review pull request and branch diffs for Halo convention violations
 
 Write one or two short paragraphs as the review body. Say what the change does and whether it is ready. Use plain sentences. Do not write a checklist, scored rubric, or long report.
 
-Leave inline comments only for high-priority issues, on the exact lines that need to change. Skip the comment if the summary already covers it and no line needs an edit. Flag only issues the change introduces. Do not flag pre-existing mismatches that the change does not expand; those are tracked in `specs/repo-conventions-migration.md`. Leave formatting, lint, and typecheck to CI.
+Leave inline comments only for high-priority issues, on the exact lines that need to change. Skip the comment if the summary already covers it and no line needs an edit. Flag only issues the change introduces. Do not flag pre-existing mismatches that the change does not expand. Leave formatting, lint, and typecheck to CI.
 
 Treat a new handbook violation as P1. Treat a new package, authority, or persistent-state boundary that contradicts the handbook as P0. Treat a correctness failure as P1, and as P0 when the change does not fulfill a requirement or will fail in an expected scenario. Treat a simplicity finding as P1 only when the diff adds an abstraction, file, duplicate path, or barrel that can be removed without changing behavior.
 

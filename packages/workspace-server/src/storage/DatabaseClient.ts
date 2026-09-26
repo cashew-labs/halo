@@ -3,11 +3,9 @@ import { Database } from "@tursodatabase/database/compat";
 import * as errore from "errore";
 import { SerialQueue } from "@get-halo/shared/SerialQueue";
 import type { FilesystemService } from "../filesystem/FilesystemService.js";
-
-export class DatabaseError extends errore.createTaggedError({
-  name: "DatabaseError",
-  message: "Application database failed during $operation",
-}) {}
+import { DatabaseError } from "./DatabaseError.js";
+import { applyMigrations } from "./Migration.js";
+import { workspaceMigrations } from "./migrations/workspaceMigrations.js";
 
 export class DatabaseClient {
   // Orders database access and closes the connection after earlier work.
@@ -46,9 +44,13 @@ export class DatabaseClient {
       catch: (cause) => new DatabaseError({ operation: "configure", cause }),
     });
     if (configured instanceof Error) return configured;
-    const client = new DatabaseClient({ connection });
+    const migrated = applyMigrations({
+      connection,
+      migrations: workspaceMigrations,
+    });
+    if (migrated instanceof Error) return migrated;
     cleanup.move();
-    return client;
+    return new DatabaseClient({ connection });
   }
 
   async access<T>(
