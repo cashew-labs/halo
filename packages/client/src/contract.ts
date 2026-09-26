@@ -73,6 +73,7 @@ export type BrowserExecution = {
 
 export type WorkspaceUpdate =
   | { type: "hotkeys"; hotkeys: Hotkey[] }
+  | { type: "routines"; routines: Routine[] }
   | { type: "extensions"; extensions: ExtensionSummary[] }
   | { type: "extensionsError"; message: string }
   | { type: "sessions"; update: SessionSummariesUpdate }

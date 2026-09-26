@@ -32,6 +32,7 @@ import {
   validateChatFiles,
 } from "@get-halo/client";
 import { AssistantMessage } from "./AssistantMessage.tsx";
+import { BashExecution } from "./BashExecution.tsx";
 import { Editor } from "./Editor.tsx";
 import { ExecutorConnectionCard } from "./ExecutorConnectionCard.tsx";
 import { ToolActivity } from "./ToolActivity.tsx";
@@ -408,6 +409,9 @@ function SessionViewRow({
   const attachmentList = useStyles(styles.attachmentList);
   const attachmentChip = useStyles(styles.attachmentChip);
   const attachmentName = useStyles(styles.attachmentName);
+
+  if (item.kind === "bashExecution")
+    return <BashExecution message={item.message} />;
 
   if (item.kind === "user") {
     return (
