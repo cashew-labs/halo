@@ -191,3 +191,19 @@ serverTest(
     ]);
   },
 );
+
+serverTest("workspace updates include routines", async ({ server }) => {
+  const routine = await server.rpc.routines.save(bookHaircut);
+  const controller = new AbortController();
+  const updates = await server.rpc.server.watch(undefined, {
+    signal: controller.signal,
+  });
+  for await (const update of updates) {
+    if (update.type !== "routines") continue;
+    expect(update.routines).toMatchObject([
+      { id: routine.id, name: "Book haircut" },
+    ]);
+    break;
+  }
+  controller.abort();
+});
