@@ -16,6 +16,11 @@ import {
 export type SessionViewItem =
   | { kind: "user"; id: string; text: string; attachments: ChatAttachment[] }
   | {
+      kind: "bashExecution";
+      id: string;
+      message: Extract<HaloMessage, { role: "bashExecution" }>;
+    }
+  | {
       kind: "assistantTurn";
       id: string;
       parts: SessionViewPart[];
@@ -193,6 +198,11 @@ export function sessionViewItems(state: SessionSnapshot): SessionViewItem[] {
         text: userText(message),
         attachments: message.attachments ?? [],
       });
+      continue;
+    }
+    if (message.role === "bashExecution") {
+      flush(false);
+      items.push({ kind: "bashExecution", id: entry.id, message });
       continue;
     }
     if (message.role === "assistant") {
