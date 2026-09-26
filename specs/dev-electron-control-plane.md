@@ -953,8 +953,8 @@ sequenceDiagram
   participant Launcher
   participant Workspace
   participant ControlPlane
-  Launcher->>Workspace: HALO_WORKSPACE_PORT and HALO_WORKSPACE_TOKEN
-  Launcher->>ControlPlane: the same two values
+  Launcher->>Workspace: port 8788 and token
+  Launcher->>ControlPlane: origin and token
   ControlPlane->>Workspace: proxy with Bearer token
   %% ref node:Launcher [[package.json]]
   %% ref node:Workspace [[packages/config/src/workspaceServer.ts#readDevelopmentConfig]]
@@ -999,7 +999,7 @@ sequenceDiagram
   participant TestElectron
   Fixture->>Workspace: start on port 0
   Workspace-->>Fixture: ready with port and token
-  Fixture->>TestElectron: HALO_WORKSPACE_ORIGIN and HALO_WORKSPACE_TOKEN
+  Fixture->>TestElectron: origin and token in env
   TestElectron->>Workspace: /rpc with that token
   %% ref node:Fixture [[apps/electron/e2e/startWorkspaceServerProcess.ts#startWorkspaceServerProcess]]
   %% ref node:Workspace [[packages/workspace-server/src/server/WorkspaceServer.ts#WorkspaceServer.ready]]
