@@ -30,7 +30,7 @@ sequenceDiagram
 
 #### Browser
 
-The page is the control plane. Google returns to that same page. Workspace calls stay on that origin.
+The page is the control plane. Google returns to the control plane, which sends you to the home page if you started at `/login`, or back to the page you were on. Workspace calls stay on that origin.
 
 ```mermaid
 sequenceDiagram
@@ -40,7 +40,7 @@ sequenceDiagram
   participant Workspace
   Browser->>Google: sign in
   Google->>ControlPlane: Better Auth callback
-  ControlPlane-->>Browser: same page, cookie set
+  ControlPlane-->>Browser: home page, cookie set
   Browser->>ControlPlane: /workspace/rpc
   ControlPlane->>Workspace: proxy
   %% ref node:Browser [[apps/web-app/src/WebHost.ts#WebHost.signIn]]
@@ -53,7 +53,7 @@ sequenceDiagram
 
 ```callstack
  WebHost.signIn [[apps/web-app/src/WebHost.ts#WebHost.signIn]]
- └── Google, then back to this page  # Better Auth cookie on the control plane
+ └── Google, then home  # Better Auth cookie on the control plane
  WebHost.connectHalo [[apps/web-app/src/WebHost.ts#WebHost.connectHalo]]
  └── /workspace/rpc [[apps/control-plane/src/workspace/proxy.ts#WorkspaceGateway.serve]]
      └── getConnection  # VM address from the workspace row [[apps/control-plane/src/workspace/WorkspaceService.ts#WorkspaceService.getConnection]]
@@ -114,59 +114,101 @@ sequenceDiagram
 
 ## Solution overview
 
-Development joins where production Electron already is: a real control-plane session, then `/workspace/*`. ADC still supplies the identity, so there is no Google popup. The local gateway still finds the workspace through `server.json`. Test Electron (`HALO_E2E=1`) stays on that file.
+Development joins where production Electron already is: a real control-plane session, then `/workspace/*`. ADC still supplies the identity, so there is no Google popup.
+
+`server.json` goes too. It only exists because the local workspace server picks a random port and a random bearer after it starts, and the control plane is a separate process that needs both. So flip it: whoever starts the processes decides those values first and hands them to everyone. Production doesn't need this, because the control plane already works out each user's VM address and mints a Google identity token for it.
 
 ```text
-signIn()
-  ADC access token → POST /api/dev/google-session → Better Auth bearer
+pnpm dev
+  launcher mints a workspace token
+  workspace server   listens on 8788, accepts Bearer <token>
+  control plane      workspace = { origin: http://127.0.0.1:8788, token }
+  Electron           ADC → POST /api/dev/google-session → Better Auth bearer
+                     then /workspace/rpc on http://127.0.0.1:8787
 
-app
-  local control plane checks that bearer
-  local control plane proxies /workspace/*
-    using the address in server.json
+tests
+  fixture starts the workspace server on port 0
+  ready message → { port, token }
+  control plane and Test Electron get that origin and token
+
+production
+  control plane      https://gethalo.dev
+  workspace origin   http://halo-{id}.{zone}.c.{project}.internal:8788, per user
+  no shared bearer   the gateway mints a Google identity token
 ```
+
+#### Development
 
 ```mermaid
 sequenceDiagram
-  participant Electron
-  participant ControlPlane
+  participant Launcher
   participant Workspace
+  participant ControlPlane
+  participant Electron
+  Launcher->>Workspace: port 8788 and token
+  Launcher->>ControlPlane: workspace origin and token
   Electron->>ControlPlane: ADC access token
   ControlPlane-->>Electron: Better Auth bearer
   Electron->>ControlPlane: /workspace/rpc
-  ControlPlane->>Workspace: proxy using server.json
+  ControlPlane->>Workspace: proxy with that token
+  %% ref node:Launcher [[package.json]]
+  %% ref node:Workspace [[packages/config/src/workspaceServer.ts#readDevelopmentConfig]]
+  %% ref node:ControlPlane [[packages/config/src/controlPlane.ts#readDevelopmentConfig]]
   %% ref node:Electron [[apps/electron/src/main/main.ts#createDesktopAuthentication]]
-  %% ref node:ControlPlane [[apps/control-plane/src/auth/AuthService.ts#AuthService.signInWithGoogleAccessToken]]
-  %% ref node:Workspace [[apps/control-plane/src/workspace/WorkspaceService.ts#WorkspaceService.getConnection]]
-  %% ref edge:0 [[apps/control-plane/src/server/controlPlaneHttp.ts#serveGoogleAccessTokenSession]]
-  %% ref edge:1 [[apps/control-plane/src/auth/AuthService.ts#AuthService.signInWithGoogleAccessToken]]
-  %% ref edge:2 [[apps/electron/src/main/auth/ControlPlaneAuth.ts#ControlPlaneAuth.getWorkspaceConnection]]
-  %% ref edge:3 [[apps/control-plane/src/workspace/proxy.ts#WorkspaceGateway.serve]]
+  %% ref edge:2 [[apps/control-plane/src/server/controlPlaneHttp.ts#serveGoogleAccessTokenSession]]
+  %% ref edge:3 [[apps/control-plane/src/auth/AuthService.ts#AuthService.signInWithGoogleAccessToken]]
+  %% ref edge:4 [[apps/electron/src/main/auth/ControlPlaneAuth.ts#ControlPlaneAuth.getWorkspaceConnection]]
+  %% ref edge:5 [[apps/control-plane/src/workspace/WorkspaceService.ts#WorkspaceService.getConnection]]
+```
+
+#### Test
+
+```mermaid
+sequenceDiagram
+  participant Fixture
+  participant Workspace
+  participant TestElectron
+  Fixture->>Workspace: start on port 0
+  Workspace-->>Fixture: ready with port and token
+  Fixture->>TestElectron: workspace origin and token
+  TestElectron->>Workspace: /rpc with that token
+  %% ref node:Fixture [[apps/electron/e2e/startWorkspaceServerProcess.ts#startWorkspaceServerProcess]]
+  %% ref node:Workspace [[packages/workspace-server/src/server/WorkspaceServer.ts#WorkspaceServer.ready]]
+  %% ref node:TestElectron [[apps/electron/e2e/ElectronTestApp.ts#ElectronTestApp.open]]
+  %% ref edge:3 [[apps/electron/src/main/DesktopAuthentication.ts#createLocalDesktopAuthentication]]
 ```
 
 ```callstack
  createDesktopAuthentication [[apps/electron/src/main/main.ts#createDesktopAuthentication]]
- ├── Test → createLocalDesktopAuthentication  # unchanged, server.json [[apps/electron/src/main/DesktopAuthentication.ts#createLocalDesktopAuthentication]]
+ ├── Test
+-│   └── createLocalDesktopAuthentication({ dataDir })  # reads server.json [[apps/electron/src/main/DesktopAuthentication.ts#createLocalDesktopAuthentication]]
++│   └── createLocalDesktopAuthentication({ origin, token })  # from the fixture's ready message
  ├── Development
 -│   └── createAdcDesktopIdentity  # invented session, then workspace /rpc [[apps/electron/src/main/auth/createAdcDesktopIdentity.ts#createAdcDesktopIdentity]]
 +│   └── ControlPlaneAuth  # local origin [[apps/electron/src/main/auth/ControlPlaneAuth.ts#ControlPlaneAuth.getWorkspaceConnection]]
 +│       ├── POST /api/dev/google-session  # ADC token, no Google popup [[apps/control-plane/src/server/controlPlaneHttp.ts#serveGoogleAccessTokenSession]]
 +│       └── /workspace/rpc [[apps/control-plane/src/workspace/proxy.ts#WorkspaceGateway.serve]]
-+│           └── getConnection  # still reads server.json [[apps/control-plane/src/workspace/WorkspaceService.ts#WorkspaceService.getConnection]]
  └── production → ControlPlaneAuth.signIn  # Google in the browser, unchanged [[apps/electron/src/main/auth/ControlPlaneAuth.ts#ControlPlaneAuth.signIn]]
+ WorkspaceService.getConnection [[apps/control-plane/src/workspace/WorkspaceService.ts#WorkspaceService.getConnection]]
+ ├── local
+-│   └── readWorkspaceServerConnection  # server.json, written after listen [[packages/shared/src/WorkspaceServerConnection.ts#readWorkspaceServerConnection]]
++│   └── config.workspace  # origin and token given at startup
+ └── gcp → halo-{id}…:8788 with a Google identity token  # unchanged
 ```
 
 ## Goals
 
 - In development, workspace traffic goes through the locally running control plane `/workspace/*`, not workspace `/rpc`.
 - Development identity stays the active ADC principal. No browser Google sign-in.
-- Test Electron still discovers the workspace through `server.json`.
+- No `server.json`. Development and tests hand the workspace origin and bearer to each process when it starts.
 
 ## Non-goals
 
 - No logger, JSONL flush, renderer `LoggerProvider`, or `POST /api/logs`.
 - No GCP Cloud Logging.
 - No change to production Google sign-in or the packaged app.
+- No change to how production finds or authenticates to workspace VMs.
+- The CLI keeps `rpc.json` and its own token.
 - Electron still does not start or stop the workspace server.
 
 ## Implementation
@@ -851,7 +893,7 @@ index 3ac4d74..0d5d7f5 100644
 
 ### Phase 3: Development Electron uses ControlPlaneAuth
 
-Dev Electron still skips the control plane. It invents a session and talks straight to the workspace server. This points dev at the local control plane the same way production points at `https://gethalo.dev`, using the bearer from phase 2. The renderer then calls `/workspace/rpc` on the control plane. Tests keep reading `server.json`, so they don't need Google or this session route.
+Dev Electron still skips the control plane. It invents a session and talks straight to the workspace server. This points dev at the local control plane the same way production points at `https://gethalo.dev`, using the bearer from phase 2. The renderer then calls `/workspace/rpc` on the control plane. Tests keep their direct connection to the workspace server, so they don't need Google or this session route. Phase 5 changes where that connection comes from.
 
 #### Development
 
@@ -897,17 +939,112 @@ sequenceDiagram
 - [ ] `createGoogleAccessTokenSession({ origin })` in Electron main.
 - [ ] `ControlPlaneAuth.start` union: disk `dataDir` or in-memory `createSession` (no `safeStorage`).
 - [ ] Development uses that start mode. Remove `createAdcDesktopIdentity.ts`.
-- [ ] README / AGENTS: development Electron uses `/workspace/*`; `server.json` is for the local gateway and Test Electron.
+- [ ] README / AGENTS: development Electron uses `/workspace/*` on the local control plane.
 - [ ] `pnpm run check-affected`. Smoke `pnpm dev`: renderer calls `{controlPlane}/workspace/rpc`, not workspace `/rpc`.
+
+### Phase 4: The launcher picks the local workspace port and token
+
+The control plane reads `server.json` for two values the workspace server only has after it starts: a port the OS picked and a bearer it generated. `pnpm dev` starts every process on its own, so a file is the only way to pass them along. Flip it around. A small launcher mints the token, pins the workspace port to `8788` like the VM, and hands both to the workspace server and the control plane through the environment. The control plane stops reading the file. The workspace server keeps writing it until phase 5, because Test Electron and the dev readiness check still read it.
+
+#### Start `pnpm dev`
+
+```mermaid
+sequenceDiagram
+  participant Launcher
+  participant Workspace
+  participant ControlPlane
+  Launcher->>Workspace: HALO_WORKSPACE_PORT and HALO_WORKSPACE_TOKEN
+  Launcher->>ControlPlane: the same two values
+  ControlPlane->>Workspace: proxy with Bearer token
+  %% ref node:Launcher [[package.json]]
+  %% ref node:Workspace [[packages/config/src/workspaceServer.ts#readDevelopmentConfig]]
+  %% ref node:ControlPlane [[packages/config/src/controlPlane.ts#readDevelopmentConfig]]
+  %% ref edge:2 [[apps/control-plane/src/workspace/WorkspaceService.ts#WorkspaceService.getConnection]]
+```
+
+```callstack
+ pnpm dev [[package.json]]
++└── scripts/dev.ts  # mint the token, set port 8788, then the same turbo run dev
+ workspace server config [[packages/config/src/workspaceServer.ts#readDevelopmentConfig]]
+-├── port: 0  # OS picks after listen
++├── port: HALO_WORKSPACE_PORT
++└── rendererToken: HALO_WORKSPACE_TOKEN
+ listenHaloHttp [[packages/workspace-server/src/server/http.ts#listenHaloHttp]]
+-└── renderer token = random  # only known after start
++└── renderer token = config.rendererToken, or random  # tests and VMs stay random
+ control plane config [[packages/config/src/controlPlane.ts#readDevelopmentConfig]]
+-└── workspace: { deployment: "local" }
++└── workspace: { deployment: "local", origin, token }
+ WorkspaceService.getConnection [[apps/control-plane/src/workspace/WorkspaceService.ts#WorkspaceService.getConnection]]
+-└── readWorkspaceServerConnection(appDataDir)  # server.json [[packages/shared/src/WorkspaceServerConnection.ts#readWorkspaceServerConnection]]
++└── config.workspace  # origin, Bearer token
+```
+
+- [ ] Root `pnpm dev` runs `scripts/dev.ts`. It mints `HALO_WORKSPACE_TOKEN`, sets `HALO_WORKSPACE_PORT=8788`, then runs the existing `turbo run dev` filters.
+- [ ] Workspace server config: optional `rendererToken`. `readDevelopmentConfig` reads the port and token from the environment. `listenHaloHttp` uses the token when given.
+- [ ] Control plane local config: `workspace: { deployment: "local", origin, token }`. `WorkspaceService.getConnection` returns it. The local branch no longer needs `appDataDir`.
+- [ ] Control-plane tests pass their fake workspace origin and token in config instead of writing `server.json`. The standalone web E2E passes the server fixture's renderer port and token.
+- [ ] `pnpm run check-affected`. Smoke `pnpm dev`: `/workspace/health` through `127.0.0.1:8787` returns 200.
+
+### Phase 5: Test Electron and the dev wait stop reading `server.json`
+
+Two readers are left. Test Electron reads `server.json` to reach the workspace, and the dev Electron build waits for that file before it opens a window. The test fixture already gets the port and token in the workspace server's ready message, so it passes them to Electron as environment variables. The dev wait polls `127.0.0.1:8788/health` with the launcher's token. Nothing reads the file after that, so the workspace server stops writing it.
+
+#### Open Test Electron
+
+```mermaid
+sequenceDiagram
+  participant Fixture
+  participant Workspace
+  participant TestElectron
+  Fixture->>Workspace: start on port 0
+  Workspace-->>Fixture: ready with port and token
+  Fixture->>TestElectron: HALO_WORKSPACE_ORIGIN and HALO_WORKSPACE_TOKEN
+  TestElectron->>Workspace: /rpc with that token
+  %% ref node:Fixture [[apps/electron/e2e/startWorkspaceServerProcess.ts#startWorkspaceServerProcess]]
+  %% ref node:Workspace [[packages/workspace-server/src/server/WorkspaceServer.ts#WorkspaceServer.ready]]
+  %% ref node:TestElectron [[apps/electron/e2e/ElectronTestApp.ts#ElectronTestApp.open]]
+  %% ref edge:3 [[apps/electron/src/main/DesktopAuthentication.ts#createLocalDesktopAuthentication]]
+```
+
+```callstack
+ ElectronTestApp.open [[apps/electron/e2e/ElectronTestApp.ts#ElectronTestApp.open]]
++└── HALO_WORKSPACE_ORIGIN, HALO_WORKSPACE_TOKEN  # from the server fixture's ready message
+ createDesktopAuthentication [[apps/electron/src/main/main.ts#createDesktopAuthentication]]
+ └── Test → createLocalDesktopAuthentication [[apps/electron/src/main/DesktopAuthentication.ts#createLocalDesktopAuthentication]]
+-    └── readWorkspaceServerConnection(dataDir)  # server.json [[packages/shared/src/WorkspaceServerConnection.ts#readWorkspaceServerConnection]]
++    └── config.workspace  # origin and token from the environment
+ waitForDevelopmentServices [[apps/electron/forge/waitForDevelopmentServices.ts#waitForDevelopmentServices]]
+-└── wait for server.json, then its /health [[packages/shared/src/WorkspaceServerConnection.ts#readWorkspaceServerConnection]]
++└── poll 127.0.0.1:8788/health with HALO_WORKSPACE_TOKEN
+ workspace server startup [[apps/workspace-server/src/main.ts]]
+-└── writeWorkspaceServerConnection  # server.json [[packages/shared/src/WorkspaceServerConnection.ts#writeWorkspaceServerConnection]]
+```
+
+- [ ] Electron config reads `HALO_WORKSPACE_ORIGIN` and `HALO_WORKSPACE_TOKEN` in Test mode. `createLocalDesktopAuthentication` takes `{ origin, token }` instead of `dataDir`.
+- [ ] `ElectronTestApp.open` passes the server fixture's renderer port and token.
+- [ ] `waitForDevelopmentServices` polls the fixed workspace port with the launcher's token.
+- [ ] The workspace server stops writing `server.json`. Delete `packages/shared/src/WorkspaceServerConnection.ts`.
+- [ ] README, AGENTS, and the workspace-server README: no `server.json`; `pnpm dev` mints the workspace token; the CLI still uses `rpc.json`.
+- [ ] `pnpm run check-affected`. Run one Electron E2E. Smoke `pnpm dev`.
 
 ## Important files, docs, and websites
 
 - [`apps/electron/src/main/main.ts`](../apps/electron/src/main/main.ts) — Development vs production auth choice.
-- [`apps/electron/src/main/DesktopAuthentication.ts`](../apps/electron/src/main/DesktopAuthentication.ts) — Direct `server.json` connection used by development and tests.
+- [`apps/electron/src/main/DesktopAuthentication.ts`](../apps/electron/src/main/DesktopAuthentication.ts) — Direct workspace connection. Development uses it until phase 3; tests read `server.json` through it until phase 5.
 - [`apps/electron/src/main/auth/createAdcDesktopIdentity.ts`](../apps/electron/src/main/auth/createAdcDesktopIdentity.ts) — Fabricated session. Delete once development uses a real bearer.
 - [`apps/electron/src/main/auth/ControlPlaneAuth.ts`](../apps/electron/src/main/auth/ControlPlaneAuth.ts) — Production connection shape to reuse.
 - [`apps/control-plane/src/workspace/proxy.ts`](../apps/control-plane/src/workspace/proxy.ts) — Gateway; CORS and session check.
-- [`apps/control-plane/src/workspace/WorkspaceService.ts`](../apps/control-plane/src/workspace/WorkspaceService.ts) — Local proxy already uses `server.json`.
+- [`apps/control-plane/src/workspace/WorkspaceService.ts`](../apps/control-plane/src/workspace/WorkspaceService.ts) — Finds the workspace. Local reads `server.json` until phase 4; GCP builds the VM address.
 - [`apps/control-plane/src/auth/AuthService.ts`](../apps/control-plane/src/auth/AuthService.ts) — Mints a session from an ADC access token.
 - [`apps/control-plane/src/server/controlPlaneHttp.ts`](../apps/control-plane/src/server/controlPlaneHttp.ts) — HTTP routes.
-- [`apps/control-plane/test/ControlPlane.test.ts`](../apps/control-plane/test/ControlPlane.test.ts) — CORS and session tests.
+- [`apps/control-plane/test/ControlPlane.test.ts`](../apps/control-plane/test/ControlPlane.test.ts) — CORS and session tests; writes `server.json` for its fake workspace until phase 4.
+- [`package.json`](../package.json) — `pnpm dev`; the launcher starts here.
+- [`packages/config/src/workspaceServer.ts`](../packages/config/src/workspaceServer.ts) — Development workspace server port and token.
+- [`packages/config/src/controlPlane.ts`](../packages/config/src/controlPlane.ts) — Local control plane config; gets the workspace origin and token.
+- [`packages/config/src/electron.ts`](../packages/config/src/electron.ts) — Electron config; Test mode gets the workspace origin and token.
+- [`packages/workspace-server/src/server/http.ts`](../packages/workspace-server/src/server/http.ts) — Where the renderer bearer is generated today.
+- [`packages/shared/src/WorkspaceServerConnection.ts`](../packages/shared/src/WorkspaceServerConnection.ts) — Reads and writes `server.json`. Delete in phase 5.
+- [`apps/electron/forge/waitForDevelopmentServices.ts`](../apps/electron/forge/waitForDevelopmentServices.ts) — Dev Electron waits for services before opening.
+- [`apps/electron/e2e/ElectronTestApp.ts`](../apps/electron/e2e/ElectronTestApp.ts) — Launches Test Electron.
+- [`apps/electron/e2e/startWorkspaceServerProcess.ts`](../apps/electron/e2e/startWorkspaceServerProcess.ts) — Starts the test workspace server and reads its ready message.
