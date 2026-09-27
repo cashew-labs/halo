@@ -15,6 +15,79 @@ const auth = {
 };
 
 e2eTest(
+  "lets mobile visitors sign in from the landing page",
+  async ({ browser, testArtifacts }) => {
+    e2eTest.setTimeout(120_000);
+    const plane = await ControlPlane.start({
+      config: {
+        deployment: "local",
+        workspace: { deployment: "local" },
+        appDataDir: testArtifacts.paths.userData,
+        port: 0,
+        auth,
+      },
+      webRoot: path.resolve(import.meta.dirname, "../../web-app/dist"),
+    });
+    if (plane instanceof Error) throw plane;
+    await using cleanup = new errore.AsyncDisposableStack();
+    cleanup.defer(async () => {
+      const closed = await plane.close();
+      if (closed instanceof Error) throw closed;
+    });
+
+    const context = await browser.newContext({
+      viewport: { width: 390, height: 844 },
+      isMobile: true,
+      hasTouch: true,
+    });
+    cleanup.defer(async () => await context.close());
+    const page = await context.newPage();
+    await page.goto(plane.origin);
+    await expect(page.getByRole("main", { name: "Halo home" })).toBeVisible();
+    await page.getByRole("link", { name: "Sign in" }).click();
+    await expect(
+      page.getByRole("main", { name: "Sign in to Halo" }),
+    ).toBeVisible();
+
+    await page.route("https://accounts.google.com/**", async (route) => {
+      await route.abort();
+    });
+    const signInRequest = page.waitForRequest(
+      (request) =>
+        new URL(request.url()).pathname === "/api/auth/sign-in/social",
+    );
+    const googleRequest = page.waitForRequest(
+      (request) =>
+        new URL(request.url()).origin === "https://accounts.google.com",
+    );
+    await page
+      .getByRole("button", { name: "Continue with Google" })
+      .click({ noWaitAfter: true });
+    expect((await signInRequest).postDataJSON()).toMatchObject({
+      callbackURL: plane.origin,
+      provider: "google",
+    });
+    await googleRequest;
+
+    const cookie = await createAuthenticatedCookie({
+      appDataDir: testArtifacts.paths.userData,
+      origin: plane.origin,
+    });
+    const signedInContext = await browser.newContext({
+      viewport: { width: 390, height: 844 },
+      isMobile: true,
+      hasTouch: true,
+      extraHTTPHeaders: { cookie },
+    });
+    cleanup.defer(async () => await signedInContext.close());
+    const signedInPage = await signedInContext.newPage();
+    await signedInPage.goto(new URL("/login", plane.origin).toString());
+    await signedInPage.waitForURL(plane.origin + "/");
+    await expect(signedInPage.getByTestId("sessions-shell")).toBeVisible();
+  },
+);
+
+e2eTest(
   "opens an owner-authenticated extension at its standalone web URL",
   async ({ browser, harness, testArtifacts }) => {
     e2eTest.setTimeout(120_000);

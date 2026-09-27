@@ -2,10 +2,12 @@ import {
   backgroundColor,
   Button,
   Flex,
+  focusRing,
   P,
   Prose,
   proseMaxWidth,
   TextField,
+  text,
 } from "maui";
 import { style, useStyles } from "purse-styles";
 import { DevLogs } from "./DevLogs.js";
@@ -14,13 +16,24 @@ export function LandingPage() {
   const page = useStyles(styles.page);
   const content = useStyles(styles.content);
   const logo = useStyles(styles.logo);
+  const header = useStyles(styles.header);
+  const signIn = useStyles(
+    text({ size: "md", fontWeight: 500, color: "highContrast" }),
+    focusRing(),
+    styles.signIn,
+  );
   const statement = useStyles(styles.statement);
   const field = useStyles(styles.field);
 
   return (
     <main className={page} aria-label="Halo home">
       <div className={content}>
-        <img className={logo} src="/halo-donut-transparent.png" alt="Halo" />
+        <header className={header}>
+          <img className={logo} src="/halo-donut-transparent.png" alt="Halo" />
+          <a className={signIn} href="/login">
+            Sign in
+          </a>
+        </header>
 
         <Prose size="md" className={statement}>
           <P>An open-source, self-modifiable, agentic operating system.</P>
@@ -76,6 +89,19 @@ const styles = {
     marginTop: -5,
     marginBottom: -1,
     objectFit: "contain",
+  }),
+  header: style({
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+  }),
+  signIn: style({
+    display: "inline-flex",
+    alignItems: "center",
+    minHeight: 44,
+    paddingInline: 12,
+    borderRadius: 4,
+    textDecoration: "none",
   }),
   statement: style({
     "& p": {
