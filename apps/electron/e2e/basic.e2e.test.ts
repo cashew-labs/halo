@@ -580,7 +580,7 @@ e2eTest(
 );
 
 e2eTest(
-  "creates and organizes notes through the Files sidebar",
+  "creates and organizes notes through the Documents sidebar",
   async ({ app }) => {
     const page = app.page;
     await page.getByRole("button", { name: "New folder", exact: true }).click();
@@ -951,7 +951,7 @@ e2eTest(
     expect(await app.server.rpc.workspace.listPaths()).toEqual([]);
     await page.getByRole("button", { name: "New file", exact: true }).click();
     await name.fill("notes.txt");
-    await page.getByText("Files", { exact: true }).click();
+    await page.getByText("Documents", { exact: true }).click();
     await expect(
       page.getByRole("main", { name: "notes.txt", exact: true }),
     ).toBeVisible();

@@ -32,10 +32,11 @@ ENV HOME=/home/node \
     GOPATH=/home/node/.local/share/go \
     GOBIN=/home/node/.local/bin \
     HALO_USER_DATA=/home/node/.halo/runtime \
-    PATH=/home/node/.halo/bin:/home/node/.local/bin:/opt/halo/.venv/bin:$PATH
+    PATH=/home/node/documents/.halo/bin:/home/node/.local/bin:/opt/halo/.venv/bin:$PATH
 
+RUN mkdir -p /home/node/documents && chown node:node /home/node/documents
 USER node
-WORKDIR /home/node
+WORKDIR /home/node/documents
 HEALTHCHECK --interval=30s --start-period=120s --timeout=15s \
     CMD node --import /opt/halo/node_modules/tsx/dist/loader.mjs /opt/halo/packages/halo-cli/src/cli.ts status --json
 ENTRYPOINT ["node", "--import", "/opt/halo/node_modules/tsx/dist/loader.mjs", "/opt/halo/apps/workspace-server/src/main.ts"]

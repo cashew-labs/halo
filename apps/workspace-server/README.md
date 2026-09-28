@@ -51,21 +51,26 @@ app-control commands.
 ## Production workspace container
 
 The durable workspace disk directory `/mnt/halo/workspace` is mounted directly
-at `/home/node`. The container runs as the `node` user, whose Unix home and Halo
-workspace root are both `/home/node`. User files, application data, agent state,
-configuration, user-installed packages, and user binaries therefore share one
-persistent filesystem tree. `/tmp`, `/run`, running processes, and image system
-paths remain ephemeral.
+at `/home/node`. The container runs as the `node` user. Its Unix home is
+`/home/node`, while its Halo workspace root is `/home/node/documents`. The VM
+creates this directory before starting the container, and the UI lists files
+from this workspace root. User-installed packages and binaries remain in the
+home directory. Workspace files and agent state live under `documents`;
+application data lives under `/home/node/.halo/runtime`. `/tmp`, `/run`, running
+processes, and image system paths remain ephemeral.
 
 The image configures npm, Python, and Go user installations beneath
-`/home/node`. `/home/node/.local/bin` and `/home/node/.halo/bin` are on `PATH` for
-the server, agents, and extensions. System dependencies must be added to the
-image instead of installed in a running workspace.
+`/home/node`. `/home/node/.local/bin` and `/home/node/documents/.halo/bin` are
+on `PATH` for the server, agents, and extensions. System dependencies must be
+added to the image instead of installed in a running workspace.
 
 Before the first rollout of this layout, copy the existing production
 container's `/home/node` contents—especially `.local` and `.config`—into
 `/mnt/halo/workspace`. Do this before replacing the container. The startup script
 does not perform this one-time migration.
+
+Files already stored directly in `/home/node` on an existing VM remain there;
+move any user documents into `/home/node/documents` to show them in the UI.
 
 ## Explicit launch configuration
 

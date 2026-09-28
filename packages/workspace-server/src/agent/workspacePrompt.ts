@@ -1,19 +1,17 @@
+import * as os from "node:os";
+
 export type HaloEnvironment = "local" | "cloud";
 
-export function haloSystemPrompt(ctx: {
-  environment: HaloEnvironment;
-  workspaceRoot: string;
-}) {
-  const path = ctx.workspaceRoot.replaceAll("\\", "/");
+export function haloSystemPrompt(ctx: { environment: HaloEnvironment }) {
   const environmentInstructions =
     ctx.environment === "cloud"
       ? `
 
 ## Halo Cloud
 
-You run in a Linux VM. Your working directory is also your Unix home. Files beneath it persist across workspace restarts and VM replacement.
+You run in a Linux VM. Your workspace root and Unix home persist across workspace restarts and VM replacement. Keep user documents and project files in the workspace root so they appear in Halo's Documents sidebar.
 
-The rest of the container is replaceable. Running processes and files in system paths, including \`/tmp\` and \`/run\`, do not persist. Install user tools and configuration in your home. System dependencies belong in the workspace image.
+The rest of the container is replaceable. Running processes and files in system paths, including \`/tmp\` and \`/run\`, do not persist. Install user tools and configuration in your Unix home, outside the workspace root. System dependencies belong in the workspace image.
 
 A service bound to \`127.0.0.1\` is reachable only inside the workspace. Use Halo's authenticated proxy when the desktop needs to reach it.`
       : "";
@@ -57,11 +55,23 @@ For any task that creates or edits a Halo extension, workspace app, or pane, rea
 
 ## Workspace
 
-<working_directory>${path}</working_directory>
-
 <working_directory_context>
-The user explicitly selected this as the working directory for this session.
-Stay in this folder. Do not list, read, search, or edit files outside it unless the user asks, or a skill they invoked names a specific file.
+The active workspace directory is listed in <env>.
+Stay in this folder. Do not list, read, search, or edit files outside it unless the user asks, a skill they invoked names a specific file${ctx.environment === "cloud" ? ", or the task requires installing user tools or configuration in your Unix home" : ""}.
 Do not browse parent directories or other projects for extra context.
 </working_directory_context>${environmentInstructions}`;
+}
+
+export function haloEnvironmentPrompt(ctx: {
+  environment: HaloEnvironment;
+  workspaceRoot: string;
+}) {
+  const path = ctx.workspaceRoot.replaceAll("\\", "/");
+  const homePath = os.homedir().replaceAll("\\", "/");
+  const system = `${os.type()} ${os.release()} (${process.platform}, ${os.arch()})`;
+  return `<env>
+ Working directory and workspace root: ${path}
+${ctx.environment === "cloud" ? ` Unix home: ${homePath}\n` : ""} System: ${system}
+ Today's date: ${new Date().toDateString()}
+</env>`;
 }

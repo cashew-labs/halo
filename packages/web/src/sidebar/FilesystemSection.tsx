@@ -283,7 +283,7 @@ export function FilesystemSection() {
       )}
       label={
         <span>
-          Files
+          Documents
           {uploadStatus !== undefined && (
             <span role="status" className={feedback}>
               {uploadStatus}

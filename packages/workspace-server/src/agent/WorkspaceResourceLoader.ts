@@ -7,7 +7,11 @@ import {
   type Skill,
 } from "@earendil-works/pi-agent-core";
 import * as errore from "errore";
-import { haloSystemPrompt, type HaloEnvironment } from "./workspacePrompt.js";
+import {
+  haloEnvironmentPrompt,
+  haloSystemPrompt,
+  type HaloEnvironment,
+} from "./workspacePrompt.js";
 
 class WorkspaceInstructionsError extends errore.createTaggedError({
   name: "WorkspaceInstructionsError",
@@ -52,14 +56,16 @@ export class WorkspaceResourceLoader {
   }
   getSystemPrompt() {
     return [
-      haloSystemPrompt({
+      haloSystemPrompt({ environment: this.environment }),
+      this.instructions,
+      formatSkillsForSystemPrompt(this.skills),
+      haloEnvironmentPrompt({
         environment: this.environment,
         workspaceRoot: this.workspaceRoot,
       }),
-      this.instructions,
-      formatSkillsForSystemPrompt(this.skills),
-      `Current working directory: ${this.workspaceRoot}`,
-    ].join("\n\n");
+    ]
+      .filter((section) => section !== "")
+      .join("\n\n");
   }
 }
 

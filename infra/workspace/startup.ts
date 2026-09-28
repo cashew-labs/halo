@@ -44,6 +44,8 @@ systemctl daemon-reload
 systemctl enable --now mnt-halo.mount
 mkdir -p /mnt/halo/workspace
 chown 1000:1000 /mnt/halo/workspace
+mkdir -p /mnt/halo/workspace/documents
+chown 1000:1000 /mnt/halo/workspace/documents
 
 cat > /usr/local/bin/halo-workspace-pull <<'PULL'
 #!/usr/bin/env bash

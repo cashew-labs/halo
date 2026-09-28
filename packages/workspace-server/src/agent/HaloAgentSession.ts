@@ -138,7 +138,7 @@ export class HaloAgentSession {
         models: modelRuntime,
         model: options.model,
         tools: customTools,
-        systemPrompt: resourceLoader.getSystemPrompt(),
+        systemPrompt: () => resourceLoader.getSystemPrompt(),
         resources: resourceLoader.getResources(),
       },
       BACKGROUND_CONTEXT,
