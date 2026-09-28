@@ -21,7 +21,7 @@ const describe = {
   timezone: "IANA time zone for the schedule, such as America/New_York",
   prompt: "Run the agent with this prompt",
   command: "Run this shell command instead of the agent; no model call",
-  cwd: "Workspace-relative working directory for --command; defaults to the extension directory",
+  cwd: "Workspace-relative working directory for --command; defaults to the workspace or extension directory",
 };
 const actionOptions = {
   prompt: z.string().optional().describe(describe.prompt),
@@ -64,7 +64,7 @@ function readAction(options: {
 
 export const routine = Cli.create("routine", {
   description:
-    "Schedule extension routines that run an agent prompt or a shell command; each run opens a new session",
+    "Schedule personal or extension routines that run an agent prompt or a shell command; each run opens a new session",
 })
   .command("list", {
     description: "List routines with their schedules, next run, and last run",
@@ -93,10 +93,11 @@ export const routine = Cli.create("routine", {
   })
   .command("add", {
     description:
-      "Add a routine to an extension. Pass --prompt for an agent run or --command for a script",
+      "Add a personal routine, or pass an extension ID to add one to an extension",
     args: z.object({
       extensionId: z
         .string()
+        .optional()
         .describe("Extension that owns the routine, such as appointments"),
     }),
     options: z.object({

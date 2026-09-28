@@ -20,7 +20,9 @@ export function ExtensionsSection() {
   const extensionIds = [
     ...new Set([
       ...(extensions.data ?? []).map((extension) => extension.id),
-      ...(routines ?? []).map((routine) => routine.extensionId),
+      ...(routines ?? []).flatMap((routine) =>
+        routine.extensionId === undefined ? [] : [routine.extensionId],
+      ),
     ]),
   ];
   const openExtensionId = routines?.find(

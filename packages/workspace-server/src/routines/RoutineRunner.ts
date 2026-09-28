@@ -65,7 +65,10 @@ export class RoutineRunner {
     if (this.stopping) return new RoutineRunnerStoppedError();
     const routine = this.routines.get(input.routineId);
     if (routine instanceof Error) return routine;
-    const skipReason = await this.checkExtension(routine.extensionId);
+    const skipReason =
+      routine.extensionId === undefined
+        ? undefined
+        : await this.checkExtension(routine.extensionId);
     const run = await this.routines.beginRun({ ...input, skipReason });
     if (run instanceof Error || run === undefined) return run;
     if (run.status === "skipped") return run;
@@ -146,14 +149,17 @@ export class RoutineRunner {
 
   private async runScript(input: {
     session: HaloAgentSession;
-    extensionId: string;
+    extensionId?: string;
     action: Extract<RoutineAction, { type: "runScript" }>;
     signal: AbortSignal;
   }): Promise<RunOutcome> {
     const { session, extensionId, action, signal } = input;
     const cwd = path.join(
       this.workspaceRoot,
-      action.cwd ?? path.join(".halo", "extensions", extensionId),
+      action.cwd ??
+        (extensionId === undefined
+          ? "."
+          : path.join(".halo", "extensions", extensionId)),
     );
     const result = await runBash(this.workspaceRoot, {
       command: action.command,

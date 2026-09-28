@@ -76,6 +76,35 @@ serverTest(
 );
 
 serverTest(
+  "a personal script runs from the workspace without an extension",
+  async ({ server }) => {
+    const routine = await server.rpc.routines.save({
+      name: "Workspace check",
+      cron: "0 9 * * *",
+      timezone: "UTC",
+      action: { type: "runScript", command: "pwd" },
+    });
+
+    await server.rpc.routines.runNow({ routineId: routine.id });
+    const run = await waitForRun(server.rpc, routine.id, "completed");
+    const snapshot = await server.rpc.sessions.snapshot({
+      sessionId: run.sessionId!,
+    });
+    expect(sessionMessages(snapshot)).toMatchObject([
+      { role: "bashExecution", output: `${server.workspaceRoot}\n` },
+    ]);
+    expect((await server.rpc.routines.list())[0]?.extensionId).toBeUndefined();
+
+    await server.stop();
+    await server.start();
+    expect((await server.rpc.routines.list())[0]).toMatchObject({
+      id: routine.id,
+      lastRun: { id: run.id, status: "completed" },
+    });
+  },
+);
+
+serverTest(
   "an agent routine prompts the model in its session",
   async ({ server, llm }) => {
     await installExtension(server, "briefing");

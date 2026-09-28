@@ -17,7 +17,7 @@ export type RoutineAction = Static<typeof routineActionSchema>;
 
 export const routineInputSchema = Type.Object({
   id: Type.Optional(Type.String({ minLength: 1 })),
-  extensionId: Type.String({ minLength: 1 }),
+  extensionId: Type.Optional(Type.String({ minLength: 1 })),
   name: Type.String({ minLength: 1, maxLength: 80 }),
   cron: Type.String({ minLength: 1 }),
   timezone: Type.String({ minLength: 1 }),
@@ -48,7 +48,7 @@ export type RoutineRun = {
 
 export type Routine = {
   id: string;
-  extensionId: string;
+  extensionId?: string;
   name: string;
   cron: string;
   timezone: string;

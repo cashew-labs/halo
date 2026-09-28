@@ -3,10 +3,12 @@ import { initialExecutorMigration } from "./20260921133000-initialExecutorMigrat
 import { sessionStatusMigration } from "./20260921194000-sessionStatus.js";
 import { initialWorkspaceMigration } from "./20260921130000-initialWorkspace.js";
 import { routinesMigration } from "./20260925090000-routines.js";
+import { personalRoutinesMigration } from "./20260928090000-personalRoutines.js";
 
 export const workspaceMigrations = [
   initialWorkspaceMigration,
   initialExecutorMigration,
   sessionStatusMigration,
   routinesMigration,
+  personalRoutinesMigration,
 ] satisfies readonly Migration[];

@@ -25,7 +25,7 @@ export class RoutineNotFoundError extends errore.createTaggedError({
 
 type RoutineRow = {
   id: string;
-  extension_id: string;
+  extension_id: string | null;
   name: string;
   cron: string;
   timezone: string;
@@ -160,7 +160,7 @@ export class RoutineService {
           )
           .run(
             routine.id,
-            routine.extensionId,
+            routine.extensionId ?? null,
             routine.name,
             routine.cron,
             routine.timezone,
@@ -458,7 +458,10 @@ function nextOccurrence(input: {
 function validateInput(input: RoutineInput) {
   if (!Value.Check(routineInputSchema, input))
     return new InvalidRoutineError({ reason: "Invalid routine input" });
-  if (!extensionIdPattern.test(input.extensionId))
+  if (
+    input.extensionId !== undefined &&
+    !extensionIdPattern.test(input.extensionId)
+  )
     return new InvalidRoutineError({
       reason:
         "Use an extension ID with lowercase letters, digits, and hyphens, such as appointments.",
@@ -544,7 +547,7 @@ function routineFromRow(row: RoutineRow, lastRun: RoutineRun | undefined) {
     });
   const routine: Routine = {
     id: row.id,
-    extensionId: row.extension_id,
+    extensionId: row.extension_id ?? undefined,
     name: row.name,
     cron: row.cron,
     timezone: row.timezone,
