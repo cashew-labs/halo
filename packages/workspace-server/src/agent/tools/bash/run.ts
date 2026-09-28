@@ -26,7 +26,7 @@ export class BashTimeoutError
 export class BashTimeoutLimitError
   extends errore.createTaggedError({
     name: "BashTimeoutLimitError",
-    message: "Timeout $timeoutMs ms is longer than 10 minutes",
+    message: "Timeout $timeoutMs ms is longer than 15 minutes",
   })
   implements UserActionableError
 {
@@ -37,7 +37,8 @@ export class BashTimeoutLimitError
   }
 }
 
-export const maxBashTimeoutMs = 10 * 60 * 1_000;
+export const maxBashToolTimeoutMs = 10 * 60 * 1_000;
+export const maxBashTimeoutMs = 15 * 60 * 1_000;
 
 type BashProcessError = BashRunError | BashTimeoutError;
 
