@@ -62,7 +62,31 @@ set -euo pipefail
 
 owner_user_id=$(curl -fsS -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/halo-owner-user-id)
 ${gatewayMetadata}
-mkdir -p /mnt/halo/workspace/.halo
+workspace=/mnt/halo/workspace
+documents="$workspace/documents"
+mkdir -p "$workspace/.halo" "$documents/.halo"
+chown 1000:1000 "$documents/.halo"
+
+# Keep VM runtime data in the home directory; move workspace-owned state before
+# the server starts with its new workspace root. This can resume after a restart.
+shopt -s dotglob nullglob
+for source in "$workspace/.agents" "$workspace/.pi" "$workspace/AGENTS.md" "$workspace/.halo/"*; do
+  [ -e "$source" ] || [ -L "$source" ] || continue
+  case "$source" in
+    "$workspace/.halo/runtime"|"$workspace/.halo/workspace-server.json") continue ;;
+  esac
+  name=$(basename -- "$source")
+  case "$source" in
+    "$workspace/.halo/"*) destination="$documents/.halo/$name" ;;
+    *) destination="$documents/$name" ;;
+  esac
+  if [ -e "$destination" ] || [ -L "$destination" ]; then
+    echo "Cannot migrate $source: $destination already exists" >&2
+    exit 1
+  fi
+  mv -- "$source" "$destination"
+done
+
 docker run --rm --entrypoint cat ${ctx.image} /opt/halo/apps/workspace-server/container.json > /run/halo-workspace-server.json
 ${writeConfig}
 chown -R 1000:1000 /mnt/halo/workspace/.halo
