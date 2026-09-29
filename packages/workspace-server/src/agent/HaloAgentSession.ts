@@ -31,6 +31,7 @@ import type { FilesystemService } from "../filesystem/FilesystemService.js";
 import type { ToolRuntime } from "./runtime/ToolRuntime.js";
 import { createAuthorizedCodingTools } from "./tools/codingTools.js";
 import { createExecTool } from "./tools/execTool.js";
+import { limitToolOutput } from "./tools/limitToolOutput.js";
 import { WorkspaceResourceLoader } from "./WorkspaceResourceLoader.js";
 import type { HaloEnvironment } from "./workspacePrompt.js";
 import { adaptPiEvent, sessionSnapshot } from "./sessionEvents.js";
@@ -132,7 +133,12 @@ export class HaloAgentSession {
         modelId: options.model.id,
         onToolEvent: (event) => trace.integration(event),
       }),
-    ];
+    ].map((tool) =>
+      limitToolOutput(tool, {
+        workspaceRoot: layout.root,
+        sessionId: stored.metadata.id,
+      }),
+    );
     const created = await AgentHarness.create(
       {
         session: stored,

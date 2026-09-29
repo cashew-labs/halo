@@ -123,13 +123,18 @@ function createBashTool(
     name: "bash",
     label: "Bash",
     description:
-      "Run a bash command in the active workspace. Timeout defaults to 10 seconds. Maximum 10 minutes.",
+      "Run a bash command in the active workspace. Timeout defaults to 10 seconds. Maximum 10 minutes. Long output shows its beginning and end; the full text is saved to a searchable file.",
     parameters: bashParameters,
     async execute(_id, params, signal) {
       const result = await runBash(cwd, { ...params, signal });
       if (result instanceof Error) throw result;
       return {
-        content: [{ type: "text", text: JSON.stringify(result, undefined, 2) }],
+        content: [
+          {
+            type: "text",
+            text: `Exit code: ${result.code ?? "unknown"}\nstdout:\n${result.stdout || "(empty)"}\nstderr:\n${result.stderr || "(empty)"}`,
+          },
+        ],
         details: result,
       };
     },
@@ -166,7 +171,8 @@ function createReadTool(
   return {
     name: "read",
     label: "Read",
-    description: "Read a UTF-8 file in the active workspace.",
+    description:
+      "Read a UTF-8 file in the active workspace. Use offset and limit for narrow reads. Long results show their beginning and end and save the full text to a searchable file.",
     parameters: readParameters,
     async execute(_id, params) {
       const result = await readFile({ filesystem, cwd, input: params });

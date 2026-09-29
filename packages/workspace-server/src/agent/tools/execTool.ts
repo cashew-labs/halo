@@ -1,6 +1,8 @@
 import type { ExecToolCall } from "@get-halo/client";
 import type { AgentHarnessTool } from "@earendil-works/pi-agent-core";
 import { formatExecuteResult } from "@executor-js/execution/core";
+import { Type as SchemaType } from "@sinclair/typebox";
+import { Value } from "@sinclair/typebox/value";
 import { Type } from "typebox";
 import {
   ConnectionRequiredError,
@@ -77,8 +79,24 @@ export function createExecTool(input: {
         };
       }
       const formatted = formatExecuteResult(result);
+      const value = result.result ?? undefined;
+      const resultText =
+        value === undefined
+          ? undefined
+          : Value.Check(SchemaType.String(), value)
+            ? value
+            : JSON.stringify(value, undefined, 2);
+      const logs =
+        result.logs && result.logs.length > 0
+          ? `\nLogs:\n${result.logs.join("\n")}`
+          : "";
+      const fullText = result.error
+        ? `Error: ${result.error}${logs}`
+        : resultText === undefined
+          ? formatted.text
+          : `${resultText}${logs}`;
       return {
-        content: [{ type: "text" as const, text: formatted.text }],
+        content: [{ type: "text" as const, text: fullText }],
         details: {
           ...formatted.structured,
           toolCalls: [...toolCalls.values()],

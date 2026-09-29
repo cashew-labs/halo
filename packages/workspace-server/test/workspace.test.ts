@@ -1389,6 +1389,103 @@ serverTest(
 );
 
 serverTest(
+  "keeps large tool results searchable without sending them into model context",
+  async ({ server, llm }) => {
+    const fullText = `${"A".repeat(9_000)}\nneedle in the middle\n${"M".repeat(50_000)}\n${"Z".repeat(33_000)}`;
+    await server.rpc.workspace.writeFile({
+      path: "large.txt",
+      content: fullText,
+    });
+    const session = await server.rpc.sessions.create();
+    const prompt = server.rpc.sessions.prompt({
+      ...session,
+      text: "Find the needle",
+    });
+    await llm.respond(
+      m.tool.start("read", {
+        id: "read-large",
+        arguments: { path: "large.txt" },
+      }),
+    );
+
+    let outputFile = "";
+    await llm.respond(({ messages }) => {
+      const output = messageText(
+        messages.findLast((item) => item.role === "tool")!,
+      );
+      expect(output).toContain("A".repeat(8_000));
+      expect(output).toContain("Z".repeat(32_000));
+      expect(output).not.toContain("needle in the middle");
+      expect(output.length).toBeLessThan(41_000);
+      const match = output.match(/Full output: (.*?)\. Search that file/);
+      assert(match !== null);
+      outputFile = match[1]!;
+      return m.tool.start("bash", {
+        id: "search-large",
+        arguments: { command: `rg -n 'needle' '${outputFile}'` },
+      });
+    });
+    expect(await fs.readFile(outputFile, "utf8")).toBe(fullText);
+
+    await llm.respond(({ messages }) => {
+      const output = messageText(
+        messages.findLast((item) => item.role === "tool")!,
+      );
+      expect(output).toContain("needle in the middle");
+      return m.tool.start("bash", {
+        id: "reread-large",
+        arguments: { command: `cat '${outputFile}'` },
+      });
+    });
+    await llm.respond(({ messages }) => {
+      const output = messageText(
+        messages.findLast((item) => item.role === "tool")!,
+      );
+      expect(output).toContain("characters omitted from the middle");
+      expect(output).not.toContain("needle in the middle");
+      expect(output.length).toBeLessThan(41_000);
+      return m.assistant("Found the needle.");
+    });
+    await prompt;
+  },
+);
+
+serverTest(
+  "preserves the full result when exec returns a large value",
+  async ({ server, llm }) => {
+    const session = await server.rpc.sessions.create();
+    const prompt = server.rpc.sessions.prompt({
+      ...session,
+      text: "Return a large value",
+    });
+    await llm.respond(
+      m.tool.start("exec", {
+        id: "exec-large",
+        arguments: {
+          js: 'return "A".repeat(9_000) + "needle in the middle" + "Z".repeat(33_000)',
+        },
+      }),
+    );
+    await llm.respond(async ({ messages }) => {
+      const output = messageText(
+        messages.findLast((item) => item.role === "tool")!,
+      );
+      expect(output).toContain("A".repeat(8_000));
+      expect(output).toContain("Z".repeat(32_000));
+      expect(output).not.toContain("needle in the middle");
+      expect(output.length).toBeLessThan(41_000);
+      const match = output.match(/Full output: (.*?)\. Search that file/);
+      assert(match !== null);
+      expect(await fs.readFile(match[1]!, "utf8")).toBe(
+        `${"A".repeat(9_000)}needle in the middle${"Z".repeat(33_000)}`,
+      );
+      return m.assistant("Done.");
+    });
+    await prompt;
+  },
+);
+
+serverTest(
   "exposes the same exec activity through live updates, snapshots, and server restart",
   async ({ server, llm, http }) => {
     await server.rpc.workspace.writeFile({
