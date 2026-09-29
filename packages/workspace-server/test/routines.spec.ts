@@ -94,12 +94,53 @@ serverTest(
       { role: "bashExecution", output: `${server.workspaceRoot}\n` },
     ]);
     expect((await server.rpc.routines.list())[0]?.extensionId).toBeUndefined();
+    expect(
+      (await server.rpc.sessions.list()).find(
+        (session) => session.sessionId === run.sessionId,
+      )?.markedDone,
+    ).toBe(false);
 
     await server.stop();
     await server.start();
     expect((await server.rpc.routines.list())[0]).toMatchObject({
       id: routine.id,
       lastRun: { id: run.id, status: "completed" },
+    });
+  },
+);
+
+serverTest(
+  "auto archives a finished run while keeping its session accessible",
+  async ({ server }) => {
+    const routine = await server.rpc.routines.save({
+      name: "Daily check",
+      cron: "0 9 * * *",
+      timezone: "UTC",
+      action: { type: "runScript", command: "echo checked" },
+      autoArchiveSession: true,
+    });
+
+    await server.rpc.routines.runNow({ routineId: routine.id });
+    const run = await waitForRun(server.rpc, routine.id, "completed");
+    await expect
+      .poll(
+        async () =>
+          (await server.rpc.sessions.list()).find(
+            (session) => session.sessionId === run.sessionId,
+          )?.markedDone,
+      )
+      .toBe(true);
+    const snapshot = await server.rpc.sessions.snapshot({
+      sessionId: run.sessionId!,
+    });
+    expect(sessionMessages(snapshot)).toMatchObject([
+      { role: "bashExecution", output: "checked\n" },
+    ]);
+
+    await server.stop();
+    await server.start();
+    expect((await server.rpc.routines.list())[0]).toMatchObject({
+      autoArchiveSession: true,
     });
   },
 );

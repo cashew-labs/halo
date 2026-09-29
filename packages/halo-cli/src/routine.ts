@@ -109,6 +109,10 @@ export const routine = Cli.create("routine", {
         .describe(`${describe.timezone}; defaults to this machine's time zone`),
       ...actionOptions,
       paused: z.boolean().optional().describe("Create the routine paused"),
+      autoArchiveSession: z
+        .boolean()
+        .optional()
+        .describe("Archive each run's session after it finishes"),
     }),
     env,
     async run(c) {
@@ -132,6 +136,7 @@ export const routine = Cli.create("routine", {
               Intl.DateTimeFormat().resolvedOptions().timeZone,
             action,
             enabled: c.options.paused !== true,
+            autoArchiveSession: c.options.autoArchiveSession === true,
           }),
       );
       if (saved instanceof Error)
@@ -148,12 +153,25 @@ export const routine = Cli.create("routine", {
       cron: z.string().optional().describe(describe.cron),
       timezone: z.string().optional().describe(describe.timezone),
       ...actionOptions,
+      autoArchiveSession: z
+        .boolean()
+        .optional()
+        .describe("Archive sessions after runs finish"),
+      showSession: z
+        .boolean()
+        .optional()
+        .describe("Keep run sessions visible in the Sessions sidebar"),
     }),
     env,
     async run(c) {
       const action = readAction(c.options);
       if (action instanceof Error)
         return c.error({ code: "ROUTINE", message: action.message });
+      if (c.options.autoArchiveSession && c.options.showSession)
+        return c.error({
+          code: "ROUTINE",
+          message: "Choose either --auto-archive-session or --show-session.",
+        });
       const saved = await request(c.env, async (client) => {
         const existing = (await client.routines.list()).find(
           (item) => item.id === c.args.routineId,
@@ -169,6 +187,9 @@ export const routine = Cli.create("routine", {
           cron: c.options.cron ?? existing.cron,
           timezone: c.options.timezone ?? existing.timezone,
           action: action ?? existing.action,
+          autoArchiveSession: c.options.showSession
+            ? false
+            : (c.options.autoArchiveSession ?? existing.autoArchiveSession),
         });
       });
       if (saved instanceof Error)

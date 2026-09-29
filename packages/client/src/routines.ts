@@ -9,7 +9,7 @@ export const routineActionSchema = Type.Union([
   Type.Object({
     type: Type.Literal("runScript"),
     command: Type.String({ minLength: 1 }),
-    // Workspace-relative; defaults to the extension's directory.
+    // Workspace-relative; defaults to the workspace or extension directory.
     cwd: Type.Optional(Type.String({ minLength: 1 })),
   }),
 ]);
@@ -23,6 +23,7 @@ export const routineInputSchema = Type.Object({
   timezone: Type.String({ minLength: 1 }),
   action: routineActionSchema,
   enabled: Type.Optional(Type.Boolean()),
+  autoArchiveSession: Type.Optional(Type.Boolean()),
 });
 export type RoutineInput = Static<typeof routineInputSchema>;
 
@@ -54,6 +55,7 @@ export type Routine = {
   timezone: string;
   action: RoutineAction;
   enabled: boolean;
+  autoArchiveSession: boolean;
   // Absent while the routine is paused.
   nextRunAt?: string;
   createdAt: string;

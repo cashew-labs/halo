@@ -31,6 +31,7 @@ type RoutineRow = {
   timezone: string;
   action: string;
   enabled: number;
+  auto_archive_session: number;
   next_run_at: number | null;
   created_at: number;
   updated_at: number;
@@ -129,6 +130,8 @@ export class RoutineService {
         return new RoutineNotFoundError({ routineId: input.id });
       const now = Date.now();
       const enabled = input.enabled ?? existing?.enabled ?? true;
+      const autoArchiveSession =
+        input.autoArchiveSession ?? existing?.autoArchiveSession ?? false;
       const nextRunAt = enabled
         ? nextOccurrence({ ...valid, after: now })
         : undefined;
@@ -137,6 +140,7 @@ export class RoutineService {
         id: existing?.id ?? randomUUID(),
         ...valid,
         enabled,
+        autoArchiveSession,
         nextRunAt: isoTime(nextRunAt),
         createdAt: existing?.createdAt ?? new Date(now).toISOString(),
         updatedAt: new Date(now).toISOString(),
@@ -146,8 +150,8 @@ export class RoutineService {
         connection
           .prepare(
             `INSERT INTO halo_routines
-               (id, extension_id, name, cron, timezone, action, enabled, next_run_at, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               (id, extension_id, name, cron, timezone, action, enabled, auto_archive_session, next_run_at, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(id) DO UPDATE SET
                extension_id = excluded.extension_id,
                name = excluded.name,
@@ -155,6 +159,7 @@ export class RoutineService {
                timezone = excluded.timezone,
                action = excluded.action,
                enabled = excluded.enabled,
+               auto_archive_session = excluded.auto_archive_session,
                next_run_at = excluded.next_run_at,
                updated_at = excluded.updated_at`,
           )
@@ -166,6 +171,7 @@ export class RoutineService {
             routine.timezone,
             JSON.stringify(routine.action),
             routine.enabled ? 1 : 0,
+            routine.autoArchiveSession ? 1 : 0,
             nullableTime(nextRunAt),
             Date.parse(routine.createdAt),
             now,
@@ -553,6 +559,7 @@ function routineFromRow(row: RoutineRow, lastRun: RoutineRun | undefined) {
     timezone: row.timezone,
     action,
     enabled: row.enabled === 1,
+    autoArchiveSession: row.auto_archive_session === 1,
     nextRunAt:
       row.next_run_at === null
         ? undefined

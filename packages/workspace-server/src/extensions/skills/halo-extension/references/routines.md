@@ -34,6 +34,8 @@ halo routine add appointments --name "Weekly summary" --cron "0 17 * * 5" \
   --timezone America/New_York --prompt "Summarize this week's bookings in appointments.md"
 halo routine add --name "Daily weather" --cron "0 8 * * *" \
   --timezone America/New_York --prompt "Check today's weather and give me a brief forecast."
+halo routine update <routineId> --auto-archive-session
+halo routine update <routineId> --show-session
 halo routine list [--extension appointments]
 halo routine run <routineId>        # start now in a new session
 halo routine history <routineId>    # newest first: status, error, sessionId
@@ -44,6 +46,7 @@ halo routine remove <routineId>
 ```
 
 `add` also accepts `--paused`. `update` changes only the options you pass; past runs keep their sessions.
+`add` accepts `--auto-archive-session` too. By default, a run's session stays visible in Sessions. Auto archive marks it done after the run finishes, removing it from the Sessions sidebar while leaving it accessible from the routine's run list. `--show-session` restores that default for future runs.
 
 ## Behavior
 

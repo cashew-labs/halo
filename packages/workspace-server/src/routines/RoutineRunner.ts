@@ -25,6 +25,7 @@ class RoutineRunnerStoppedError extends errore.createTaggedError({
 type RunOutcome = {
   status: "completed" | "failed" | "interrupted";
   error?: string;
+  sessionId?: string;
 };
 
 const interruptedMessage = "Halo stopped before the run finished.";
@@ -73,16 +74,17 @@ export class RoutineRunner {
     if (run instanceof Error || run === undefined) return run;
     if (run.status === "skipped") return run;
     if (this.stopping) {
-      await this.finish(run, {
-        status: "interrupted",
-        error: interruptedMessage,
-      });
+      await this.finish(
+        run,
+        { status: "interrupted", error: interruptedMessage },
+        routine.autoArchiveSession,
+      );
       return run;
     }
     const controller = new AbortController();
     const done = this.execute({ routine, run, signal: controller.signal }).then(
       async (outcome) => {
-        await this.finish(run, outcome);
+        await this.finish(run, outcome, routine.autoArchiveSession);
         this.active.delete(run.id);
       },
     );
@@ -133,18 +135,20 @@ export class RoutineRunner {
       this.logger.warn({ event: "routine-session-name-failed", error: named });
     if (signal.aborted)
       return { status: "interrupted", error: interruptedMessage };
-    if (routine.action.type === "runAgent")
-      return await this.runAgent({
-        session,
-        prompt: routine.action.prompt,
-        signal,
-      });
-    return await this.runScript({
-      session,
-      extensionId: routine.extensionId,
-      action: routine.action,
-      signal,
-    });
+    const outcome =
+      routine.action.type === "runAgent"
+        ? await this.runAgent({
+            session,
+            prompt: routine.action.prompt,
+            signal,
+          })
+        : await this.runScript({
+            session,
+            extensionId: routine.extensionId,
+            action: routine.action,
+            signal,
+          });
+    return { ...outcome, sessionId: session.sessionId };
   }
 
   private async runScript(input: {
@@ -237,13 +241,27 @@ export class RoutineRunner {
     };
   }
 
-  private async finish(run: RoutineRun, outcome: RunOutcome) {
+  private async finish(
+    run: RoutineRun,
+    outcome: RunOutcome,
+    autoArchiveSession: boolean,
+  ) {
     const finished = await this.routines.finishRun({
       runId: run.id,
-      ...outcome,
+      status: outcome.status,
+      error: outcome.error,
     });
-    if (finished instanceof Error)
+    if (finished instanceof Error) {
       this.logger.warn({ event: "routine-finish-failed", error: finished });
+      return;
+    }
+    if (!autoArchiveSession || outcome.sessionId === undefined) return;
+    const archived = await this.sessions.markDone(outcome.sessionId);
+    if (archived instanceof Error)
+      this.logger.warn({
+        event: "routine-session-archive-failed",
+        error: archived,
+      });
   }
 }
 

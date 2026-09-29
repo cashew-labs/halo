@@ -2,7 +2,7 @@ import { expect } from "@playwright/test";
 import { e2eTest } from "./e2eTest.js";
 
 e2eTest(
-  "lists personal routines and opens their run sessions",
+  "edits personal routines and controls their run sessions",
   async ({ app, harness }) => {
     await harness.tools.bash.run({
       command: "mkdir -p .halo/extensions/appointments",
@@ -39,12 +39,21 @@ e2eTest(
       name: "Routine Morning briefing",
     });
     await expect(agentRoutine).toContainText("Original briefing prompt");
-    await agentRoutine.getByRole("button", { name: "Edit" }).click();
-    await agentRoutine
+    await agentRoutine.getByRole("button", { name: "Edit routine" }).click();
+    const agentEditor = app.page.getByRole("dialog", {
+      name: "Edit Morning briefing",
+    });
+    await expect(
+      agentEditor.getByRole("button", { name: /Workflow status/ }),
+    ).toContainText("Schedule paused");
+    await agentEditor.getByRole("button", { name: /Workflow status/ }).click();
+    await app.page.getByRole("option", { name: "Schedule active" }).click();
+    await agentEditor
       .getByRole("textbox", { name: "Agent prompt" })
       .fill("Updated briefing prompt");
-    await agentRoutine.getByRole("button", { name: "Save" }).click();
+    await agentEditor.getByRole("button", { name: "Save" }).click();
     await expect(agentRoutine).toContainText("Updated briefing prompt");
+    await expect(agentRoutine).not.toContainText(/Next run\s*Paused/);
 
     await sidebar.getByRole("link", { name: "Daily workspace check" }).click();
     const routine = app.page.getByRole("region", {
@@ -53,13 +62,31 @@ e2eTest(
     await expect(routine).toContainText("At 09:00 AM");
     await expect(routine).toContainText("No run sessions yet");
     await expect(routine).toContainText("echo original check");
+    await expect(routine).toContainText(/After run\s*Show session/);
+    await expect(
+      routine.getByRole("button", { name: "Edit routine" }),
+    ).toBeVisible();
 
-    await routine.getByRole("button", { name: "Edit" }).click();
-    await routine
+    await routine.getByRole("button", { name: "Edit routine" }).click();
+    const editor = app.page.getByRole("dialog", {
+      name: "Edit Daily workspace check",
+    });
+    await editor
+      .getByRole("textbox", { name: "Schedule (cron)" })
+      .fill("invalid");
+    await editor.getByRole("button", { name: "Save" }).click();
+    await expect(editor.getByRole("alert")).toContainText("five-field cron");
+    await editor
+      .getByRole("textbox", { name: "Schedule (cron)" })
+      .fill("30 10 * * *");
+    await editor.getByRole("textbox", { name: "Time zone" }).fill("UTC");
+    await editor
       .getByRole("textbox", { name: "Script" })
       .fill("echo updated check");
-    await routine.getByRole("button", { name: "Save" }).click();
+    await editor.getByRole("button", { name: "Save" }).click();
+    await expect(editor).not.toBeVisible();
     await expect(routine).toContainText("echo updated check");
+    await expect(routine).toContainText("At 10:30 AM (UTC)");
 
     await routine.getByRole("button", { name: "Run now" }).click();
     const session = routine.getByRole("link", {
@@ -75,5 +102,26 @@ e2eTest(
     await expect(
       sidebar.getByRole("link", { name: /^Daily workspace check · / }),
     ).toBeVisible();
+
+    await sidebar
+      .getByRole("link", { name: "Daily workspace check", exact: true })
+      .click();
+    await routine.getByRole("button", { name: "Edit routine" }).click();
+    await editor.getByRole("button", { name: /Workflow status/ }).click();
+    await app.page.getByRole("option", { name: "Schedule paused" }).click();
+    await editor.getByRole("button", { name: /After run/ }).click();
+    await app.page
+      .getByRole("option", { name: "Auto archive session" })
+      .click();
+    await editor.getByRole("button", { name: "Save" }).click();
+    await expect(routine).toContainText(/Next run\s*Paused/);
+    await expect(routine).toContainText(/After run\s*Auto archive session/);
+    await routine.getByRole("button", { name: "Run now" }).click();
+    await expect(
+      routine.getByRole("link", { name: /Daily workspace check/ }),
+    ).toHaveCount(2);
+    await expect(
+      sidebar.getByRole("link", { name: /^Daily workspace check · / }),
+    ).toHaveCount(1);
   },
 );
