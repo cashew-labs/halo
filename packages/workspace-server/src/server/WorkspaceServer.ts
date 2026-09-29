@@ -7,7 +7,7 @@ import { RoutineScheduler } from "../routines/RoutineScheduler.js";
 import { createHotkeysPlugin } from "../hotkeys/createHotkeysPlugin.js";
 import path from "node:path";
 import { TursoThreadRepo } from "../storage/TursoThreadRepo.js";
-import { DatabaseClient } from "../storage/DatabaseClient.js";
+import { DatabaseService } from "../storage/DatabaseService.js";
 import { BrowserService } from "../browser/BrowserService.js";
 import type { Logger } from "@get-halo/logger";
 import * as errore from "errore";
@@ -98,7 +98,7 @@ export class WorkspaceServer {
     return this.idleReporter.idle;
   }
   private readonly filesystem: FilesystemService;
-  private readonly database: DatabaseClient;
+  private readonly database: DatabaseService;
   private readonly sessionRepo: TursoThreadRepo;
   private readonly workspace: WorkspaceService;
   private readonly sessions: ThreadManager;
@@ -115,7 +115,7 @@ export class WorkspaceServer {
   private constructor(ctx: {
     idleReporter: WorkspaceIdleReporter;
     filesystem: FilesystemService;
-    database: DatabaseClient;
+    database: DatabaseService;
     sessionRepo: TursoThreadRepo;
     workspace: WorkspaceService;
     sessions: ThreadManager;
@@ -210,7 +210,7 @@ export class WorkspaceServer {
     });
     if (traces instanceof Error) return traces;
     cleanup.defer(async () => await traces.close());
-    const database = await DatabaseClient.open({
+    const database = await DatabaseService.open({
       directory: path.join(workspaceRoot, ".halo"),
       filesystem,
       executorTenantMigration:
@@ -230,7 +230,7 @@ export class WorkspaceServer {
           error: closed,
         });
     });
-    const sessionRepo = new TursoThreadRepo(database);
+    const sessionRepo = new TursoThreadRepo(database.createNativeConnection());
     const search = new WorkspaceSearch({ workspace, repo: sessionRepo });
     cleanup.defer(async () => {
       const closed = await sessionRepo.close();
@@ -241,16 +241,16 @@ export class WorkspaceServer {
         });
     });
     const hotkeys = await HotkeyService.open({
-      database,
+      database: database.createNativeConnection(),
       userId: config.ownerUserId,
     });
     if (hotkeys instanceof Error) return hotkeys;
-    const routines = await RoutineService.open({ database });
+    const routines = await RoutineService.open({ database: database.createNativeConnection() });
     if (routines instanceof Error) return routines;
     const [initialized, toolRuntime] = await Promise.all([
       workspace.initialize(),
       ToolRuntime.create({
-        database,
+        database: database.createNativeConnection(),
         workspaceRoot,
         userId: config.ownerUserId,
         integrationsEnabled: config.integrationsEnabled,
@@ -263,7 +263,7 @@ export class WorkspaceServer {
         oauthTestOrigin: config.oauthTestOrigin,
         toolPlugins: [
           createWorkspaceFilesPlugin(filesystem),
-          createDatabaseQueryPlugin(database),
+          createDatabaseQueryPlugin(database.createNativeConnection()),
           createHotkeysPlugin(hotkeys),
           createThreadPlugin(() => ({
             threads: sessions,

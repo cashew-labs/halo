@@ -874,6 +874,12 @@ importers:
       '@sinclair/typebox':
         specifier: ^0.34.52
         version: 0.34.52
+      '@tanishqkancharla/tandem-core':
+        specifier: 0.3.0
+        version: 0.3.0(react@19.2.8)
+      '@tanishqkancharla/tandem-server':
+        specifier: 0.3.0
+        version: 0.3.0(react@19.2.8)
       '@tursodatabase/database':
         specifier: 0.7.2
         version: 0.7.2
@@ -925,6 +931,9 @@ importers:
       sharp:
         specifier: 0.34.5
         version: 0.34.5
+      tuple-database:
+        specifier: 2.2.4
+        version: 2.2.4(react@19.2.8)
       typebox:
         specifier: 1.3.7
         version: 1.3.7

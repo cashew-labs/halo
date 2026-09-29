@@ -2,7 +2,7 @@
 // oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- Queries project repository-owned tables into matching row types.
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { uuidv7 } from "@earendil-works/pi-ai";
-import type { DatabaseClient } from "./DatabaseClient.js";
+import type { NativeConnection } from "./DatabaseService.js";
 import type {
   ThreadHandle,
   ThreadData,
@@ -25,7 +25,7 @@ export class TursoThreadRepo implements ThreadRepoApi {
   private readonly storages = new Set<TursoStorage>();
   private closed = false;
 
-  constructor(private readonly database: DatabaseClient) {}
+  constructor(private readonly database: NativeConnection) {}
 
   async create(options?: { id?: string }) {
     const createdAt = Date.now();

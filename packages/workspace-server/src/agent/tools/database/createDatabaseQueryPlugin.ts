@@ -1,6 +1,6 @@
 import { Type } from "@sinclair/typebox";
 import * as errore from "errore";
-import type { DatabaseClient } from "../../../storage/DatabaseClient.js";
+import type { NativeConnection } from "../../../storage/DatabaseService.js";
 import { defineHaloTool, type HaloToolPlugin } from "../HaloToolPlugin.js";
 
 const maxRows = 50;
@@ -40,7 +40,7 @@ function displayValue(value: DatabaseCell) {
 }
 
 export function createDatabaseQueryPlugin(
-  database: DatabaseClient,
+  database: NativeConnection,
 ): HaloToolPlugin {
   return {
     id: "database",

@@ -37,7 +37,7 @@ import type {
   TaskRecord,
 } from "@earendil-works/pi-durable";
 import { type ReadonlyStream, Stream } from "@get-halo/shared/Stream";
-import type { DatabaseClient } from "./DatabaseClient.js";
+import type { NativeConnection } from "./DatabaseService.js";
 import type { ThreadData } from "./ThreadRepoApi.js";
 import { ThreadBackendError } from "./threadSchema.js";
 
@@ -202,7 +202,7 @@ export class TursoStorage implements Storage {
 
   /** Initialize storage over an owned SQLite database facade. */
   static async open(input: {
-    database: DatabaseClient;
+    database: NativeConnection;
     threadId: string;
     onClose?: () => void;
   }): Promise<TursoStorage> {
@@ -236,7 +236,7 @@ export class TursoStorage implements Storage {
 
   /** Read the canonical root thread view without opening a runtime storage handle. */
   static async readThread(input: {
-    database: DatabaseClient;
+    database: NativeConnection;
     threadId: string;
   }): Promise<ThreadData> {
     const db = threadDatabase(input.database, input.threadId);
@@ -1302,13 +1302,13 @@ export class TursoStorage implements Storage {
 }
 
 function threadDatabase(
-  database: DatabaseClient,
+  database: NativeConnection,
   threadId: string,
 ): TursoStorage["db"] {
   if (threadId.length === 0) throw new TypeError("Thread ID is required");
   const access = async <T>(
     operation: (
-      connection: Parameters<Parameters<DatabaseClient["access"]>[0]>[0],
+      connection: Parameters<Parameters<NativeConnection["access"]>[0]>[0],
     ) => T,
   ) => {
     const value = await database.access(operation);
@@ -1316,7 +1316,7 @@ function threadDatabase(
     return value;
   };
   const executor = (
-    connection: Parameters<Parameters<DatabaseClient["access"]>[0]>[0],
+    connection: Parameters<Parameters<NativeConnection["access"]>[0]>[0],
   ): SqliteExecutor => ({
     async run(sql, ...params) {
       connection.prepare(sql).run(...params);
