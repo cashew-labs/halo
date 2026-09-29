@@ -114,6 +114,7 @@ export class HaloAgentSession {
     const customTools: AgentHarnessTool<object | undefined>[] = [
       ...createAuthorizedCodingTools({
         cwd: layout.root,
+        sessionId: stored.metadata.id,
         filesystem: options.filesystem,
         authority: runtime,
       }).map((tool: AgentTool): AgentHarnessTool<object | undefined> => ({

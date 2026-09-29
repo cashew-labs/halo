@@ -1531,6 +1531,87 @@ serverTest(
 );
 
 serverTest(
+  "streams large nested Bash output to a searchable file",
+  async ({ server, llm }) => {
+    const session = await server.rpc.sessions.create();
+    const prompt = server.rpc.sessions.prompt({
+      ...session,
+      text: "Run a noisy command",
+    });
+    const command =
+      "printf '%050000d' 0; printf '\\nneedle from stderr\\n' >&2";
+    await llm.respond(
+      m.tool.start("exec", {
+        id: "nested-bash-large",
+        arguments: {
+          js: `return await tools.bash.run({ command: ${JSON.stringify(command)} });`,
+        },
+      }),
+    );
+    await llm.respond(async ({ messages }) => {
+      const output = messageText(
+        messages.findLast((item) => item.role === "tool")!,
+      );
+      expect(output.length).toBeLessThan(30_000);
+      const match = output.match(/"fullOutputPath": "([^"]+)"/);
+      assert(match !== null);
+      const saved = await fs.readFile(match[1]!, "utf8");
+      expect(saved.match(/0/g)).toHaveLength(50_000);
+      expect(saved).toContain("needle from stderr");
+      return m.assistant("Done.");
+    });
+    await prompt;
+  },
+);
+
+serverTest(
+  "writes Bash output to disk before the command exits",
+  { timeout: 40_000 },
+  async ({ server, llm }) => {
+    const session = await server.rpc.sessions.create();
+    const prompt = server.rpc.sessions.prompt({
+      ...session,
+      text: "Run a long command",
+    });
+    await llm.respond(
+      m.tool.start("bash", {
+        id: "stream-bash",
+        arguments: {
+          command:
+            "printf '%050000d' 0; while [ ! -f bash-release ]; do sleep 0.05; done",
+          timeoutMs: 30_000,
+        },
+      }),
+    );
+
+    const outputDirectory = path.join(
+      server.workspaceRoot,
+      ".halo",
+      "tool-outputs",
+      session.sessionId,
+    );
+    await expect
+      .poll(async () => {
+        const files = await fs.readdir(outputDirectory).catch(() => []);
+        if (files.length === 0) return 0;
+        return (await fs.stat(path.join(outputDirectory, files[0]!))).size;
+      })
+      .toBe(50_000);
+    await server.rpc.workspace.writeFile({ path: "bash-release", content: "" });
+
+    await llm.respond(({ messages }) => {
+      const output = messageText(
+        messages.findLast((item) => item.role === "tool")!,
+      );
+      expect(output).toContain("characters omitted from the middle");
+      expect(output.length).toBeLessThan(41_000);
+      return m.assistant("Done.");
+    });
+    await prompt;
+  },
+);
+
+serverTest(
   "exposes the same exec activity through live updates, snapshots, and server restart",
   async ({ server, llm, http }) => {
     await server.rpc.workspace.writeFile({

@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import type { UserActionableError } from "@executor-js/sdk/core";
 import { workspaceExecutablePath } from "../../../workspace/installHaloCli.js";
 import * as errore from "errore";
+import { BashOutput, type BashOutputResult } from "./BashOutput.js";
 
 export class BashRunError extends errore.createTaggedError({
   name: "BashRunError",
@@ -49,12 +50,14 @@ export async function runBash(
     cwd,
     timeoutMs,
     signal,
+    output,
   }: {
     command: string;
     // Defaults to the workspace root.
     cwd?: string;
     timeoutMs?: number;
     signal?: AbortSignal;
+    output: { directory: string; headChars: number; tailChars: number };
   },
 ) {
   if (signal?.aborted) {
@@ -66,10 +69,31 @@ export async function runBash(
     return new BashTimeoutLimitError({ timeoutMs: limitMs });
   }
 
+  let child: ReturnType<typeof spawn> | undefined;
+  let outputFailure: Error | undefined;
+  let terminateForOutput: (() => void) | undefined;
+  const capture = await BashOutput.create({
+    ...output,
+    onDrain: () => {
+      child?.stdout?.resume();
+      child?.stderr?.resume();
+    },
+    onError: (error) => {
+      outputFailure = error;
+      terminateForOutput?.();
+    },
+  });
+  if (capture instanceof Error) return new BashRunError({ cause: capture });
+  if (signal?.aborted) {
+    await capture.finish();
+    await capture.discard();
+    return new BashRunError({ cause: signal.reason });
+  }
+
   return await new Promise<
-    { stdout: string; stderr: string; code: number | null } | BashProcessError
+    (BashOutputResult & { code: number | null }) | BashProcessError
   >((resolve) => {
-    const child = spawn("bash", ["-c", command], {
+    const running = spawn("bash", ["-c", command], {
       cwd: cwd ?? workspaceRoot,
       env: {
         ...process.env,
@@ -79,18 +103,15 @@ export async function runBash(
       detached: true,
       stdio: ["ignore", "pipe", "pipe"],
     });
+    child = running;
 
-    let stdout = "";
-    let stderr = "";
     let settled = false;
     let timeout: NodeJS.Timeout | undefined;
     let forceKill: NodeJS.Timeout | undefined;
     let terminationError: BashProcessError | undefined;
 
     const finish = (
-      result:
-        | { stdout: string; stderr: string; code: number | null }
-        | BashProcessError,
+      result: (BashOutputResult & { code: number | null }) | BashProcessError,
     ) => {
       if (settled) return;
       settled = true;
@@ -101,15 +122,15 @@ export async function runBash(
     };
 
     const killProcessGroup = (killSignal: NodeJS.Signals) => {
-      const pid = child.pid;
+      const pid = running.pid;
       if (pid === undefined) return;
       const killed = errore.try({
         try: () => process.kill(-pid, killSignal),
         catch: (e) => new BashRunError({ cause: e }),
       });
       // The process group can disappear between the close check and kill.
-      if (killed instanceof Error && child.exitCode === null) {
-        child.kill(killSignal);
+      if (killed instanceof Error && running.exitCode === null) {
+        running.kill(killSignal);
       }
     };
 
@@ -119,6 +140,9 @@ export async function runBash(
       killProcessGroup("SIGTERM");
       forceKill = setTimeout(() => killProcessGroup("SIGKILL"), 250);
     };
+    terminateForOutput = () =>
+      terminate(new BashRunError({ cause: outputFailure }));
+    if (outputFailure !== undefined) terminateForOutput();
 
     const onAbort = () => {
       terminate(new BashRunError({ cause: signal?.reason }));
@@ -130,23 +154,36 @@ export async function runBash(
       terminate(new BashTimeoutError({ timeoutMs: limitMs }));
     }, limitMs);
 
-    child.stdout.on("data", (chunk: Buffer) => {
-      stdout += chunk.toString("utf8");
-    });
-    child.stderr.on("data", (chunk: Buffer) => {
-      stderr += chunk.toString("utf8");
+    const append = (source: "stdout" | "stderr", chunk: Buffer) => {
+      const written = capture.append(source, chunk);
+      if (written instanceof Error) {
+        terminate(new BashRunError({ cause: written }));
+        return;
+      }
+      if (written) return;
+      running.stdout.pause();
+      running.stderr.pause();
+    };
+    running.stdout.on("data", (chunk: Buffer) => append("stdout", chunk));
+    running.stderr.on("data", (chunk: Buffer) => append("stderr", chunk));
+
+    running.on("error", (error) => {
+      terminationError = new BashRunError({ cause: error });
     });
 
-    child.on("error", (error) => {
-      finish(new BashRunError({ cause: error }));
-    });
-
-    child.on("close", (code) => {
+    running.on("close", async (code) => {
+      const captured = await capture.finish();
       if (terminationError !== undefined) {
+        await capture.discard();
         finish(terminationError);
         return;
       }
-      finish({ stdout, stderr, code });
+      if (captured instanceof Error) {
+        await capture.discard();
+        finish(new BashRunError({ cause: captured }));
+        return;
+      }
+      finish({ ...captured, code });
     });
   });
 }

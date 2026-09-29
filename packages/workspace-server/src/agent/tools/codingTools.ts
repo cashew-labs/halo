@@ -1,7 +1,9 @@
+import path from "node:path";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { type TSchema, Type } from "typebox";
 import type { FilesystemService } from "../../filesystem/FilesystemService.js";
 import type { AgentAuthority } from "../runtime/AgentAuthority.js";
+import type { BashOutputResult } from "./bash/BashOutput.js";
 import { maxBashToolTimeoutMs, runBash } from "./bash/run.js";
 import { editFile } from "./files/edit.js";
 import { patchFiles } from "./files/patch.js";
@@ -54,6 +56,7 @@ type Authorization = {
 
 export function createAuthorizedCodingTools(input: {
   cwd: string;
+  sessionId: string;
   filesystem: FilesystemService;
   authority: AgentAuthority;
 }) {
@@ -84,7 +87,7 @@ export function createAuthorizedCodingTools(input: {
       authorization("files", "patch", "workspace.files.write"),
     ),
     withAuthority(
-      createBashTool(input.cwd),
+      createBashTool(input.cwd, input.sessionId),
       input.authority,
       authorization("bash", "run", "workspace.shell.execute"),
     ),
@@ -115,9 +118,10 @@ function withAuthority<TParameters extends TSchema, TDetails>(
 
 function createBashTool(
   cwd: string,
+  sessionId: string,
 ): AgentTool<
   typeof bashParameters,
-  { stdout: string; stderr: string; code: number | null }
+  BashOutputResult & { code: number | null }
 > {
   return {
     name: "bash",
@@ -126,15 +130,21 @@ function createBashTool(
       "Run a bash command in the active workspace. Timeout defaults to 10 seconds. Maximum 10 minutes. Long output shows its beginning and end; the full text is saved to a searchable file.",
     parameters: bashParameters,
     async execute(_id, params, signal) {
-      const result = await runBash(cwd, { ...params, signal });
+      const result = await runBash(cwd, {
+        ...params,
+        signal,
+        output: {
+          directory: path.join(cwd, ".halo", "tool-outputs", sessionId),
+          headChars: 8_000,
+          tailChars: 32_000,
+        },
+      });
       if (result instanceof Error) throw result;
+      const text = result.truncated
+        ? `Exit code: ${result.code ?? "unknown"}\nOutput (stdout and stderr as received):\n${result.head}\n\n[${(result.outputChars - 40_000).toLocaleString()} characters omitted from the middle. Full output: ${result.fullOutputPath}. Search that file or read a narrow range to inspect the omitted content. Results from those tools are also capped.]\n\n${result.tail}`
+        : `Exit code: ${result.code ?? "unknown"}\nstdout:\n${result.stdout || "(empty)"}\nstderr:\n${result.stderr || "(empty)"}`;
       return {
-        content: [
-          {
-            type: "text",
-            text: `Exit code: ${result.code ?? "unknown"}\nstdout:\n${result.stdout || "(empty)"}\nstderr:\n${result.stderr || "(empty)"}`,
-          },
-        ],
+        content: [{ type: "text", text }],
         details: result,
       };
     },

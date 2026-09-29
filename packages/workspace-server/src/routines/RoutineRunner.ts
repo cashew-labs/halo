@@ -170,14 +170,26 @@ export class RoutineRunner {
       cwd,
       timeoutMs: maxBashTimeoutMs,
       signal,
+      output: {
+        directory: path.join(
+          this.workspaceRoot,
+          ".halo",
+          "tool-outputs",
+          session.sessionId,
+        ),
+        headChars: 0,
+        tailChars: maxScriptOutputLength,
+      },
     });
-    // runBash keeps no partial output; a cancelled command shows only its status.
+    // A cancelled command shows only its status; runBash discards partial output.
     const output =
       result instanceof Error
         ? signal.aborted
           ? ""
           : result.message
-        : result.stdout + result.stderr;
+        : result.truncated
+          ? `${result.tail}\n[Full output: ${result.fullOutputPath}]`
+          : result.stdout + result.stderr;
     const appended = await session.appendMessages([
       {
         role: "bashExecution",
@@ -188,7 +200,9 @@ export class RoutineRunner {
             ? undefined
             : result.code,
         cancelled: result instanceof Error,
-        truncated: output.length > maxScriptOutputLength,
+        truncated:
+          output.length > maxScriptOutputLength ||
+          (!(result instanceof Error) && result.truncated),
         timestamp: Date.now(),
       },
     ]);

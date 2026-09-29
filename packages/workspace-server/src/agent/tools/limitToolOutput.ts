@@ -16,6 +16,10 @@ const tailChars = 32_000;
 const execDetailsSchema = Type.Object({
   toolCalls: Type.Array(execToolCallSchema),
 });
+const streamedBashDetailsSchema = Type.Object({
+  truncated: Type.Literal(true),
+  fullOutputPath: Type.String(),
+});
 
 class SaveToolOutputError extends errore.createTaggedError({
   name: "SaveToolOutputError",
@@ -82,6 +86,11 @@ export function limitToolOutput(
         invocation,
         context,
       );
+      if (
+        tool.name === "bash" &&
+        Value.Check(streamedBashDetailsSchema, result.details)
+      )
+        return result;
       const fullText = textContent(result);
       if (fullText.length <= maxPreviewChars) return result;
 
