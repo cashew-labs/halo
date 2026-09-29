@@ -20,6 +20,7 @@ import { useHost } from "../HostProvider.js";
 import { FilesystemSection } from "./FilesystemSection.tsx";
 import { SessionsSection } from "./SessionsSection.tsx";
 import { ExtensionsSection } from "./ExtensionsSection.js";
+import { ScheduledSection } from "./ScheduledSection.js";
 import { NavigationSidebar } from "./navigation/NavigationSidebar.js";
 import { sidebarPadding } from "./navigation/SidebarSection.js";
 
@@ -56,6 +57,7 @@ export function Sidebar({ sessions, appInfo }: SidebarProps) {
         <div className={titleBar} aria-hidden="true" />
       )}
       <NavigationSidebar aria-label="Workspace" className={navigation}>
+        <ScheduledSection />
         <ExtensionsSection />
         <FilesystemSection />
         <SessionsSection sessions={sessions} />

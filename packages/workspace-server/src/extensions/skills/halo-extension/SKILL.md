@@ -60,7 +60,7 @@ Never put provider credentials in extension source, browser code, or shared reco
 
 ## Current product boundaries
 
-Halo provides one sidebar entry and one view per extension, with the extension's routines listed beneath it. The extension owns routing within its view. Declarative sidebar contributions, app-header actions, and named panes are not implemented. Routines are managed with `halo routine`, not declared in `package.json`.
+Halo provides one sidebar entry and one view per extension, with the extension's routines listed beneath it. Personal routines appear in the Scheduled sidebar section. The extension owns routing within its view. Declarative sidebar contributions, app-header actions, and named panes are not implemented. Routines are managed with `halo routine`, not declared in `package.json`.
 
 Workspace extensions are trusted. A hosted API can call any tool available to Halo without a manifest permission declaration. Tool availability and account connectivity remain runtime concerns.
 
