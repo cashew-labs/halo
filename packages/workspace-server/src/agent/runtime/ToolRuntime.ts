@@ -64,7 +64,7 @@ import type {
   ToolIdentity,
 } from "@get-halo/client";
 import { createExecutorDatabase } from "./createExecutorDatabase.js";
-import type { DatabaseClient } from "../../storage/DatabaseClient.js";
+import type { NativeConnection } from "../../storage/DatabaseService.js";
 import type {
   HaloTool,
   HaloToolContext,
@@ -369,7 +369,7 @@ function toExecutorSchema(schema: TObject) {
 }
 
 type ToolRuntimeOptions = {
-  database: DatabaseClient;
+  database: NativeConnection;
   workspaceRoot: string;
   userId: string;
   credentialVault: CredentialVault;

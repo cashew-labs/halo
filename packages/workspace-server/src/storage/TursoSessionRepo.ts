@@ -14,7 +14,7 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/pi-agent-core";
 import { uuidv7 } from "@earendil-works/pi-ai";
 import type { Database } from "@tursodatabase/database/compat";
 import * as errore from "errore";
-import type { DatabaseClient } from "./DatabaseClient.js";
+import type { NativeConnection } from "./DatabaseService.js";
 import type { SessionProductFields, SessionRepoApi } from "./SessionRepoApi.js";
 import { TursoStorage, applySessionWrites } from "./TursoStorage.js";
 import {
@@ -35,7 +35,7 @@ export class TursoSessionRepo implements SessionRepoApi {
   private readonly sessions = new Set<Session>();
   private closed = false;
 
-  constructor(private readonly database: DatabaseClient) {}
+  constructor(private readonly database: NativeConnection) {}
 
   async create(options: SessionCreateOptions | undefined) {
     const createdAt = Date.now();

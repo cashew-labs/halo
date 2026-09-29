@@ -16,7 +16,7 @@ import {
 } from "@get-halo/client";
 import { SerialQueue } from "@get-halo/shared/SerialQueue";
 import { Stream } from "@get-halo/shared/Stream";
-import type { DatabaseClient } from "../storage/DatabaseClient.js";
+import type { NativeConnection } from "../storage/DatabaseService.js";
 
 export class RoutineNotFoundError extends errore.createTaggedError({
   name: "RoutineNotFoundError",
@@ -56,14 +56,17 @@ export class RoutineService {
   private routines: Routine[];
   private readonly changes = new Stream<Routine[]>();
   private readonly actionQueue = new SerialQueue();
-  private readonly database: DatabaseClient;
+  private readonly database: NativeConnection;
 
-  private constructor(ctx: { database: DatabaseClient; routines: Routine[] }) {
+  private constructor(ctx: {
+    database: NativeConnection;
+    routines: Routine[];
+  }) {
     this.database = ctx.database;
     this.routines = ctx.routines;
   }
 
-  static async open(ctx: { database: DatabaseClient }) {
+  static async open(ctx: { database: NativeConnection }) {
     const stored = await ctx.database.access((connection) => {
       // SAFETY: The projection matches the halo_routines table.
       const routines = connection

@@ -20,7 +20,7 @@ import {
   type SessionStats,
 } from "@earendil-works/pi-agent-core/harness/session";
 import type { Database } from "@tursodatabase/database/compat";
-import type { DatabaseClient } from "./DatabaseClient.js";
+import type { NativeConnection } from "./DatabaseService.js";
 import {
   decodeSessionJson,
   readSessionRow,
@@ -42,7 +42,7 @@ export class TursoStorage implements Storage {
   private closed = false;
 
   constructor(
-    private readonly database: DatabaseClient,
+    private readonly database: NativeConnection,
     private readonly sessionId: string,
   ) {}
 

@@ -6,7 +6,7 @@ import type {
   WorkspaceSearchHit,
   WorkspaceSearchResponse,
 } from "@get-halo/client";
-import type { DatabaseClient } from "../storage/DatabaseClient.js";
+import type { NativeConnection } from "../storage/DatabaseService.js";
 import { decodeSessionJson } from "../storage/sessionSchema.js";
 import type { WorkspaceService } from "./WorkspaceService.js";
 
@@ -167,9 +167,12 @@ function messageSegments(entry: HaloEntry) {
 
 export class WorkspaceSearch {
   private readonly workspace: WorkspaceService;
-  private readonly database: DatabaseClient;
+  private readonly database: NativeConnection;
 
-  constructor(ctx: { workspace: WorkspaceService; database: DatabaseClient }) {
+  constructor(ctx: {
+    workspace: WorkspaceService;
+    database: NativeConnection;
+  }) {
     this.workspace = ctx.workspace;
     this.database = ctx.database;
   }

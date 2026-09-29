@@ -12,18 +12,18 @@ import {
 } from "@get-halo/client";
 import { SerialQueue } from "@get-halo/shared/SerialQueue";
 import { Stream } from "@get-halo/shared/Stream";
-import type { DatabaseClient } from "../storage/DatabaseClient.js";
+import type { NativeConnection } from "../storage/DatabaseService.js";
 
 export class HotkeyService {
   // Publishes committed snapshots; one queue orders writes and initial subscriptions.
   private hotkeys: Hotkey[];
   private readonly changes = new Stream<Hotkey[]>();
   private readonly actionQueue = new SerialQueue();
-  private readonly database: DatabaseClient;
+  private readonly database: NativeConnection;
   private readonly userId: string;
 
   private constructor(ctx: {
-    database: DatabaseClient;
+    database: NativeConnection;
     userId: string;
     hotkeys: Hotkey[];
   }) {
@@ -32,7 +32,7 @@ export class HotkeyService {
     this.hotkeys = ctx.hotkeys;
   }
 
-  static async open(ctx: { database: DatabaseClient; userId: string }) {
+  static async open(ctx: { database: NativeConnection; userId: string }) {
     const stored = await ctx.database.access((connection) => {
       // SAFETY: user_hotkeys stores a non-null TEXT hotkeys column.
       return connection
