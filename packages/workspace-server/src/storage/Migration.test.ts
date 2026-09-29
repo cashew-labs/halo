@@ -3,6 +3,10 @@ import path from "node:path";
 import { Database } from "@tursodatabase/database/compat";
 import { expect, test as baseTest } from "vitest";
 import { applyMigrations, type Migration } from "./Migration.js";
+import { initialWorkspaceMigration } from "./migrations/20260921130000-initialWorkspace.js";
+import { initialExecutorMigration } from "./migrations/20260921133000-initialExecutorMigration.js";
+import { sessionStatusMigration } from "./migrations/20260921194000-sessionStatus.js";
+import { workspaceMigrations } from "./migrations/workspaceMigrations.js";
 
 type MigrationFixture = {
   attemptOpen(migrations: readonly Migration[]): Database | Error;
@@ -91,6 +95,55 @@ migrationTest("applies newly appended migrations in order", ({ migration }) => {
   const upgraded = migration.open([initialMigration, secondMigration]);
   expect(effectNames(upgraded)).toEqual(["initial", "second"]);
 });
+
+migrationTest(
+  "keeps cloud Executor records when Documents becomes the workspace root",
+  ({ migration }) => {
+    const legacy = migration.open([
+      initialWorkspaceMigration,
+      initialExecutorMigration,
+      sessionStatusMigration,
+    ]);
+    legacy.exec(`
+    INSERT INTO integration (slug, plugin_id, created_at, updated_at, row_id, tenant)
+      VALUES ('google', 'google', 0, 0, 'integration-old', '/home/node');
+    INSERT INTO connection (integration, name, template, provider, item_ids, created_at, updated_at, row_id, tenant, owner, subject)
+      VALUES ('google', 'work', 'oauth', 'provider', '[]', 0, 0, 'connection-old', '/home/node', 'owner', 'subject');
+    INSERT INTO tool_policy (id, pattern, action, position, created_at, updated_at, row_id, tenant, owner, subject)
+      VALUES ('policy', '*', 'allow', 'before', 0, 0, 'policy-old', '/home/node', 'owner', 'subject');
+    INSERT INTO artifact (id, title, code, created_at, updated_at, row_id, tenant, owner, subject)
+      VALUES ('artifact', 'Saved artifact', '', 0, 0, 'artifact-old', '/home/node', 'owner', 'subject');
+    INSERT INTO integration (slug, plugin_id, created_at, updated_at, row_id, tenant)
+      VALUES ('local', 'local', 0, 0, 'integration-local', '/tmp/local');
+  `);
+    migration.close(legacy);
+
+    const upgraded = migration.open(workspaceMigrations);
+    // SAFETY: Every selected Executor table has a non-null tenant column.
+    const tenants = upgraded
+      .prepare(`
+      SELECT tenant FROM integration WHERE row_id = 'integration-old'
+      UNION ALL SELECT tenant FROM connection WHERE row_id = 'connection-old'
+      UNION ALL SELECT tenant FROM tool_policy WHERE row_id = 'policy-old'
+      UNION ALL SELECT tenant FROM artifact WHERE row_id = 'artifact-old'
+      UNION ALL SELECT tenant FROM integration WHERE row_id = 'integration-local'
+    `)
+      .all() as { tenant: string }[];
+    expect(tenants.map(({ tenant }) => tenant)).toEqual([
+      "/home/node/documents",
+      "/home/node/documents",
+      "/home/node/documents",
+      "/home/node/documents",
+      "/tmp/local",
+    ]);
+    migration.close(upgraded);
+
+    const restarted = migration.open(workspaceMigrations);
+    expect(
+      restarted.prepare("SELECT COUNT(*) AS count FROM integration").get(),
+    ).toEqual({ count: 2 });
+  },
+);
 
 migrationTest("rejects changes to an applied migration", ({ migration }) => {
   const initial = migration.open([initialMigration]);

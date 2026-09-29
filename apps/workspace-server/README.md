@@ -72,8 +72,10 @@ does not perform this one-time migration.
 On first startup with this layout, the VM moves existing workspace state from
 `/home/node/.halo` into `/home/node/documents/.halo`, along with `.agents`,
 `.pi`, and `AGENTS.md`. It leaves `.halo/runtime` and the VM launch config in
-the home directory. The migration resumes safely after a restart and stops if
-the destination already contains a conflicting entry. Other files stored
+the home directory. On opening the moved database, a database migration updates
+Executor tenant keys to the new workspace path. The file migration resumes
+safely after a restart and stops if the destination already contains a
+conflicting entry. Other files stored
 directly in `/home/node` remain there; move user documents into
 `/home/node/documents` to show them in the UI.
 
