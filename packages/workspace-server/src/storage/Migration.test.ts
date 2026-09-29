@@ -3,6 +3,7 @@ import path from "node:path";
 import { Database } from "@tursodatabase/database/compat";
 import { expect, test as baseTest } from "vitest";
 import { applyMigrations, type Migration } from "./Migration.js";
+import { migrateExecutorTenant } from "./migrateExecutorTenant.js";
 import { initialWorkspaceMigration } from "./migrations/20260921130000-initialWorkspace.js";
 import { initialExecutorMigration } from "./migrations/20260921133000-initialExecutorMigration.js";
 import { sessionStatusMigration } from "./migrations/20260921194000-sessionStatus.js";
@@ -97,7 +98,7 @@ migrationTest("applies newly appended migrations in order", ({ migration }) => {
 });
 
 migrationTest(
-  "keeps cloud Executor records when Documents becomes the workspace root",
+  "rewrites Executor tenants only for the cloud Documents rollout",
   ({ migration }) => {
     const legacy = migration.open([
       initialWorkspaceMigration,
@@ -119,6 +120,19 @@ migrationTest(
     migration.close(legacy);
 
     const upgraded = migration.open(workspaceMigrations);
+    expect(
+      upgraded
+        .prepare(
+          "SELECT tenant FROM integration WHERE row_id = 'integration-old'",
+        )
+        .get(),
+    ).toEqual({ tenant: "/home/node" });
+    const migrated = migrateExecutorTenant({
+      connection: upgraded,
+      fromTenant: "/home/node",
+      toTenant: "/home/node/documents",
+    });
+    if (migrated instanceof Error) throw migrated;
     // SAFETY: Every selected Executor table has a non-null tenant column.
     const tenants = upgraded
       .prepare(`
@@ -139,6 +153,12 @@ migrationTest(
     migration.close(upgraded);
 
     const restarted = migration.open(workspaceMigrations);
+    const migratedAgain = migrateExecutorTenant({
+      connection: restarted,
+      fromTenant: "/home/node",
+      toTenant: "/home/node/documents",
+    });
+    if (migratedAgain instanceof Error) throw migratedAgain;
     expect(
       restarted.prepare("SELECT COUNT(*) AS count FROM integration").get(),
     ).toEqual({ count: 2 });

@@ -77,6 +77,7 @@ async function run() {
             },
       environment: applicationConfig.server.environment,
       workspaceRoot: applicationConfig.server.workspaceRoot,
+      legacyExecutorTenant: applicationConfig.server.legacyExecutorTenant,
       appDataDir: applicationConfig.server.appDataDir,
       appVersion: applicationConfig.server.appVersion,
       ownerUserId: applicationConfig.server.ownerUserId,

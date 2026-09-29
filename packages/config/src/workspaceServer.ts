@@ -22,6 +22,7 @@ const developmentUserSchema = Type.Object({
 export const workspaceServerConfigSchema = Type.Object({
   environment: Type.Union([Type.Literal("local"), Type.Literal("cloud")]),
   workspaceRoot: Type.String(),
+  legacyExecutorTenant: Type.Optional(Type.String({ minLength: 1 })),
   appDataDir: Type.String(),
   appVersion: Type.String(),
   ownerUserId: Type.String(),

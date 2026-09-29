@@ -41,6 +41,7 @@ import type { WorkspaceServerReady } from "./WorkspaceServerReady.js";
 export type WorkspaceServerConfig = {
   environment: HaloEnvironment;
   workspaceRoot: string;
+  legacyExecutorTenant?: string;
   appDataDir: string;
   appVersion: string;
   build?: { version: string; revision: string };
@@ -193,6 +194,13 @@ export class WorkspaceServer {
     const database = await DatabaseClient.open({
       directory: path.join(workspaceRoot, ".halo"),
       filesystem,
+      executorTenantMigration:
+        config.legacyExecutorTenant === undefined
+          ? undefined
+          : {
+              fromTenant: config.legacyExecutorTenant,
+              toTenant: workspaceRoot,
+            },
     });
     if (database instanceof Error) return database;
     cleanup.defer(async () => {

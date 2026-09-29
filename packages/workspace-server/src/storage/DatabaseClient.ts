@@ -5,6 +5,7 @@ import { SerialQueue } from "@get-halo/shared/SerialQueue";
 import type { FilesystemService } from "../filesystem/FilesystemService.js";
 import { DatabaseError } from "./DatabaseError.js";
 import { applyMigrations } from "./Migration.js";
+import { migrateExecutorTenant } from "./migrateExecutorTenant.js";
 import { workspaceMigrations } from "./migrations/workspaceMigrations.js";
 
 export class DatabaseClient {
@@ -21,6 +22,7 @@ export class DatabaseClient {
   static async open(input: {
     directory: string;
     filesystem: FilesystemService;
+    executorTenantMigration?: { fromTenant: string; toTenant: string };
   }) {
     const created = await input.filesystem.makeDirectory(input.directory, {
       recursive: true,
@@ -49,6 +51,13 @@ export class DatabaseClient {
       migrations: workspaceMigrations,
     });
     if (migrated instanceof Error) return migrated;
+    if (input.executorTenantMigration !== undefined) {
+      const migratedTenant = migrateExecutorTenant({
+        connection,
+        ...input.executorTenantMigration,
+      });
+      if (migratedTenant instanceof Error) return migratedTenant;
+    }
     cleanup.move();
     return new DatabaseClient({ connection });
   }
