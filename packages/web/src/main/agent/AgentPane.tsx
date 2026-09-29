@@ -2,7 +2,7 @@ import { useRestartWarning } from "../../confirmRestart.js";
 import { useIsActiveTab } from "../../panes/WorkspacePanesProvider.js";
 import { useMarkSessionRead } from "./useMarkSessionRead.js";
 import { lastAssistantTurnWasAborted } from "./sessionView.js";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { skipToken, useQuery } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import {
@@ -32,9 +32,11 @@ import {
   validateChatFiles,
 } from "@get-halo/client";
 import { AssistantMessage } from "./AssistantMessage.tsx";
+import { BashExecution } from "./BashExecution.tsx";
 import { Editor } from "./Editor.tsx";
 import { ExecutorConnectionCard } from "./ExecutorConnectionCard.tsx";
 import { ToolActivity } from "./ToolActivity.tsx";
+import { useTabFindSource } from "../../panes/TabFind.js";
 
 export function AgentPane({
   sessionId,
@@ -341,11 +343,90 @@ function SessionView({
   sessionId: string | undefined;
 }) {
   const viewRef = useRef<HTMLDivElement>(null);
+  const activeFindRange = useRef<Range | undefined>(undefined);
+  const [findSource, setFindSource] = useState<{
+    segments: { id: string; text: string }[];
+    select: (segmentId: string, start: number, end: number) => void;
+    highlight: (
+      match: { segmentId: string; start: number; end: number } | undefined,
+    ) => void;
+  }>();
+  useTabFindSource(findSource);
   const followLatest = useRef(true);
   const viewedSessionId = useRef(sessionId);
   const view = useStyles(styles.view);
   const stopped = useStyles(styles.stopped);
-  const items = sessionViewItems(state);
+  const items = useMemo(() => sessionViewItems(state), [state]);
+  useLayoutEffect(() => {
+    const root = viewRef.current;
+    if (root === null) return;
+    const elements =
+      state.entries.length > 0 || state.activeRun !== undefined
+        ? Array.from(root.querySelectorAll<HTMLElement>("[data-find-segment]"))
+        : [];
+    const clearHighlight = () => {
+      if (activeFindRange.current === undefined) return;
+      CSS.highlights
+        .get("halo-find-session-match")
+        ?.delete(activeFindRange.current);
+      activeFindRange.current = undefined;
+    };
+    const rangeFor = (segmentId: string, start: number, end: number) => {
+      const element = elements.find(
+        (item) => item.dataset.findSegment === segmentId,
+      );
+      if (element === undefined) return undefined;
+      const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+      const nodes: Text[] = [];
+      while (walker.nextNode()) {
+        // SAFETY: SHOW_TEXT restricts currentNode to Text nodes.
+        nodes.push(walker.currentNode as Text);
+      }
+      const point = (offset: number) => {
+        let remaining = offset;
+        for (const node of nodes) {
+          if (remaining <= node.length) return { node, offset: remaining };
+          remaining -= node.length;
+        }
+        return { node: nodes.at(-1), offset: nodes.at(-1)?.length ?? 0 };
+      };
+      const from = point(start);
+      const to = point(end);
+      if (from.node === undefined || to.node === undefined) return undefined;
+      const range = document.createRange();
+      range.setStart(from.node, from.offset);
+      range.setEnd(to.node, to.offset);
+      return range;
+    };
+    setFindSource({
+      segments: elements.map((element) => ({
+        id: element.dataset.findSegment!,
+        text: element.textContent ?? "",
+      })),
+      select: (segmentId, start, end) => {
+        const range = rangeFor(segmentId, start, end);
+        if (range === undefined) return;
+        followLatest.current = false;
+        const viewport = root.getBoundingClientRect();
+        const match = range.getBoundingClientRect();
+        if (match.top < viewport.top || match.bottom > viewport.bottom)
+          root.scrollTop +=
+            match.top - viewport.top - (viewport.height - match.height) / 2;
+      },
+      highlight: (match) => {
+        clearHighlight();
+        if (match === undefined) return;
+        const range = rangeFor(match.segmentId, match.start, match.end);
+        if (range === undefined) return;
+        const highlight =
+          CSS.highlights.get("halo-find-session-match") ?? new Highlight();
+        highlight.add(range);
+        CSS.highlights.set("halo-find-session-match", highlight);
+        activeFindRange.current = range;
+      },
+    });
+    return clearHighlight;
+  }, [state]);
   const showStopped =
     state.activeRun === undefined &&
     lastAssistantTurnWasAborted(sessionMessages(state));
@@ -409,12 +490,17 @@ function SessionViewRow({
   const attachmentChip = useStyles(styles.attachmentChip);
   const attachmentName = useStyles(styles.attachmentName);
 
+  if (item.kind === "bashExecution")
+    return <BashExecution message={item.message} />;
+
   if (item.kind === "user") {
     return (
       <div className={userRow}>
         <article className={userMessage} aria-label="You message">
           {item.text.length > 0 ? (
-            <div className={body}>{item.text}</div>
+            <div className={body} data-find-segment={item.id}>
+              {item.text}
+            </div>
           ) : undefined}
           {item.attachments.length > 0 ? (
             <ul className={attachmentList} aria-label="Attached files">
@@ -454,14 +540,15 @@ function SessionViewRow({
           );
         }
         return (
-          <AssistantMessage
-            key={part.id}
-            size="sm"
-            className={assistantMessage}
-            isAnimating={part.streaming}
-          >
-            {part.text}
-          </AssistantMessage>
+          <div key={part.id} data-find-segment={part.id}>
+            <AssistantMessage
+              size="sm"
+              className={assistantMessage}
+              isAnimating={part.streaming}
+            >
+              {part.text}
+            </AssistantMessage>
+          </div>
         );
       })}
     </div>
@@ -562,6 +649,9 @@ const styles = {
       paddingTop: spacing.value(12),
       paddingBottom: spacing.value(6),
       "&::-webkit-scrollbar": { display: "none" },
+      "& ::highlight(halo-find-session-match)": {
+        backgroundColor: colors.amber[5],
+      },
     },
   ),
   composer: style(flexItem({ size: "hug" }), {

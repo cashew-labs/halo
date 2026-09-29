@@ -1,7 +1,9 @@
 import type { ServerInfo } from "./protocol.js";
 import type { Hotkey, HotkeyInput } from "./hotkeys.js";
+import type { Routine, RoutineInput, RoutineRun } from "./routines.js";
 import type { ChatPrompt } from "./chatAttachments.js";
 import type { WorkspaceFilePreview } from "./rpc.js";
+import type { WorkspaceSearchResponse } from "./search.js";
 import {
   asyncIteratorObject,
   error,
@@ -24,8 +26,8 @@ import type {
   WorkspaceTreeEvent,
 } from "./rpc.js";
 
-export const haloProtocolVersion = 21 as const;
-export const haloSupportedProtocols = [18, 19, haloProtocolVersion];
+export const haloProtocolVersion = 23 as const;
+export const haloSupportedProtocols = [18, 19, 21, 22, haloProtocolVersion];
 
 export const RequestRejectedError = error("BAD_REQUEST", {
   message: "Halo could not complete the request.",
@@ -72,6 +74,7 @@ export type BrowserExecution = {
 
 export type WorkspaceUpdate =
   | { type: "hotkeys"; hotkeys: Hotkey[] }
+  | { type: "routines"; routines: Routine[] }
   | { type: "extensions"; extensions: ExtensionSummary[] }
   | { type: "extensionsError"; message: string }
   | { type: "sessions"; update: SessionSummariesUpdate }
@@ -111,6 +114,9 @@ export const contract = publicProcedure.router({
   workspace: {
     get: oc.output(type<WorkspaceInfo>()),
     listPaths: oc.output(type<string[]>()),
+    search: oc
+      .input(type<{ query: string }>())
+      .output(type<WorkspaceSearchResponse>()),
     createEntry: oc
       .input(type<{ path: string; kind: "file" | "directory" }>())
       .output(type<{ path: string }>()),
@@ -145,6 +151,19 @@ export const contract = publicProcedure.router({
     watch: oc.output(asyncIteratorObject(type<Hotkey[]>())),
     save: oc.input(type<HotkeyInput>()).output(type<Hotkey>()),
     remove: oc.input(type<{ id: string }>()).output(type<void>()),
+  },
+  routines: {
+    list: oc.output(type<Routine[]>()),
+    watch: oc.output(asyncIteratorObject(type<Routine[]>())),
+    save: oc.input(type<RoutineInput>()).output(type<Routine>()),
+    remove: oc.input(type<{ routineId: string }>()).output(type<void>()),
+    setEnabled: oc
+      .input(type<{ routineId: string; enabled: boolean }>())
+      .output(type<Routine>()),
+    runNow: oc.input(type<{ routineId: string }>()).output(type<RoutineRun>()),
+    listRuns: oc
+      .input(type<{ routineId: string; limit?: number }>())
+      .output(type<RoutineRun[]>()),
   },
   sessions: {
     list: oc.output(type<SessionSummary[]>()),

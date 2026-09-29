@@ -3,9 +3,11 @@ import type { Logger } from "@get-halo/logger";
 import { contract } from "@get-halo/client";
 import { orpcErrors } from "../orpcErrors.js";
 import type { WorkspaceService } from "./WorkspaceService.js";
+import type { WorkspaceSearch } from "./WorkspaceSearch.js";
 
 export type WorkspaceRouterContext = {
   workspace: WorkspaceService;
+  search: WorkspaceSearch;
   logger: Logger;
 };
 
@@ -21,6 +23,11 @@ export const workspaceRouter = os.router({
     const paths = await context.workspace.listPaths();
     if (paths instanceof Error) return orpcErrors.badRequest(paths);
     return paths;
+  }),
+  search: os.search.handler(async ({ context, input, signal }) => {
+    const found = await context.search.search(input.query, signal);
+    if (found instanceof Error) return orpcErrors.badRequest(found);
+    return found;
   }),
   previewFile: os.previewFile.handler(async ({ context, input }) => {
     const preview = await context.workspace.previewFile(input.path);

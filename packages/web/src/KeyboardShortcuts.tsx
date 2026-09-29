@@ -119,6 +119,14 @@ export function KeyboardShortcuts() {
 
   const runShortcut = useCallback(
     (id: string) => {
+      if (id === "findInTab" || id === "findInWorkspace") {
+        window.dispatchEvent(
+          new CustomEvent("halo:find", {
+            detail: { kind: id === "findInTab" ? "tab" : "global" },
+          }),
+        );
+        return;
+      }
       if (id === "newTab" || id === "newChat" || id === "shortcutMenu") {
         void runAction({ type: id }).catch(console.error);
         return;
@@ -137,7 +145,6 @@ export function KeyboardShortcuts() {
   }, [host, hotkeys]);
   useEffect(() => {
     // Electron handles keys before editors and extension frames. Browsers use DOM events.
-    if (host.onShortcut !== undefined) return;
     const listener = (event: KeyboardEvent) => {
       if (event.isComposing || event.getModifierState("AltGraph")) return;
       const matches = (accelerator: string) =>
@@ -155,6 +162,12 @@ export function KeyboardShortcuts() {
         matches(shortcut.accelerator),
       );
       const custom = hotkeys.find((hotkey) => matches(hotkey.accelerator));
+      if (
+        host.onShortcut !== undefined &&
+        builtin?.[0] !== "findInTab" &&
+        builtin?.[0] !== "findInWorkspace"
+      )
+        return;
       if (builtin === undefined && custom === undefined) return;
       event.preventDefault();
       event.stopPropagation();

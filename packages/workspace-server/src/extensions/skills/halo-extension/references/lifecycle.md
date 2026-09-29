@@ -112,4 +112,4 @@ Hosted records live in `.halo/extension-data/<id>/tandem.json`. Standalone previ
 
 ## Remove an extension
 
-Delete `.halo/extensions/<id>/`, then run `halo extension reload`. The sidebar updates automatically. This stops the server and removes its sidebar entry. Stored records are separate under `.halo/extension-data/<id>/`; delete them only when the user explicitly wants that data removed.
+Remove the extension's routines first with `halo routine list --extension <id>` and `halo routine remove <routineId>`; a routine without its extension stays listed and every run is skipped. Delete `.halo/extensions/<id>/`, then run `halo extension reload`. The sidebar updates automatically. This stops the server and removes its sidebar entry. Stored records are separate under `.halo/extension-data/<id>/`; delete them only when the user explicitly wants that data removed.

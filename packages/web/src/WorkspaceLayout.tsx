@@ -11,6 +11,7 @@ import type { SessionSummary } from "@get-halo/client";
 import type { AppInfo } from "./HostApi.js";
 import { PaneWorkspace } from "./panes/PaneWorkspace.js";
 import { Sidebar } from "./sidebar/Sidebar.js";
+import { GlobalSearch } from "./GlobalSearch.js";
 
 const SidebarContext = createContext<{
   isMobile: boolean;
@@ -77,6 +78,7 @@ export function WorkspaceLayout({
       >
         <Sidebar sessions={sessions} appInfo={appInfo} />
       </Drawer>
+      <GlobalSearch />
     </SidebarContext>
   );
 }

@@ -1,13 +1,19 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   Editor,
   type EditorOptions,
   type EditorType,
 } from "@pierre/diffs/edit";
-import { CodeView, EditProvider, type CodeViewItem } from "@pierre/diffs/react";
+import {
+  CodeView,
+  EditProvider,
+  type CodeViewHandle,
+  type CodeViewItem,
+} from "@pierre/diffs/react";
 import { monoFontFamily, useTheme } from "maui";
 import { style, useStyles } from "purse-styles";
 import { useAutosaveFile } from "./useAutosaveFile.ts";
+import { useTabFindSource } from "../panes/TabFind.js";
 
 const diffsTheme = {
   dark: "pierre-dark",
@@ -33,6 +39,50 @@ export function CodeViewFileEditor({
   const { resolvedTheme } = useTheme();
   const autosave = useAutosaveFile({ path, loaded });
   const [initial] = useState(loaded);
+  const [content, setContent] = useState(loaded);
+  const codeView = useRef<CodeViewHandle<undefined, undefined>>(null);
+  const findSource = useMemo(
+    () => ({
+      segments: [{ id: path, text: content }],
+      select: (_segmentId: string, start: number, end: number) => {
+        const before = content.slice(0, start).split("\n");
+        const endBefore = content.slice(0, end).split("\n");
+        const editor = codeView.current?.getEditor(path);
+        codeView.current?.setSelectedLines({
+          id: path,
+          range: { start: before.length, end: endBefore.length },
+        });
+        if (editor?.getEditState() !== undefined) {
+          const view = editor.getViewState().view;
+          if (view !== undefined)
+            editor.setViewState({
+              selections: [
+                {
+                  start: {
+                    line: before.length - 1,
+                    character: before.at(-1)?.length ?? 0,
+                  },
+                  end: {
+                    line: endBefore.length - 1,
+                    character: endBefore.at(-1)?.length ?? 0,
+                  },
+                  direction: 1,
+                },
+              ],
+              view,
+            });
+        }
+        codeView.current?.scrollTo({
+          type: "line",
+          id: path,
+          lineNumber: before.length,
+          align: "center",
+        });
+      },
+    }),
+    [path, content],
+  );
+  useTabFindSource(findSource);
   const host = useStyles(hostClass);
   const view = useStyles(viewClass);
 
@@ -68,10 +118,12 @@ export function CodeViewFileEditor({
     <div className={host}>
       <EditProvider createEditor={createPierreEditor}>
         <CodeView
+          ref={codeView}
           items={items}
           options={options}
           disableWorkerPool
           onItemEditChange={(event) => {
+            setContent(event.file.contents);
             autosave.onChange(event.file.contents);
           }}
           className={view}

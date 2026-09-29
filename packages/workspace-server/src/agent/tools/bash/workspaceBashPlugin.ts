@@ -1,14 +1,14 @@
 import { Type } from "@sinclair/typebox";
 import { defineHaloTool, type HaloToolPlugin } from "../HaloToolPlugin.js";
-import { maxBashTimeoutMs, runBash } from "./run.js";
+import { maxBashToolTimeoutMs, runBash } from "./run.js";
 
 const runInput = Type.Object({
   command: Type.String(),
   timeoutMs: Type.Optional(
     Type.Integer({
       minimum: 1,
-      maximum: maxBashTimeoutMs,
-      description: `Timeout in milliseconds. Defaults to 10000. Maximum ${maxBashTimeoutMs} (10 minutes).`,
+      maximum: maxBashToolTimeoutMs,
+      description: `Timeout in milliseconds. Defaults to 10000. Maximum ${maxBashToolTimeoutMs} (10 minutes).`,
     }),
   ),
 });

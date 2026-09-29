@@ -2276,13 +2276,15 @@ serverTest(
       signal: controller.signal,
     });
     const initial = new Set<string>();
-    while (initial.size < 3) {
+    while (initial.size < 4) {
       const next = await updates.next();
       assert(!next.done, "Workspace stream ended before initial snapshots");
       if (next.value.type === "files") continue;
       initial.add(next.value.type);
     }
-    expect(initial).toEqual(new Set(["hotkeys", "extensions", "sessions"]));
+    expect(initial).toEqual(
+      new Set(["hotkeys", "extensions", "sessions", "routines"]),
+    );
     const hotkey = await server.rpc.hotkeys.save({
       label: "Quick task",
       accelerator: "CmdOrCtrl+Shift+J",

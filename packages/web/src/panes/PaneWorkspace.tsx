@@ -26,10 +26,11 @@ import {
 import { isPaneDrag, paneRouteDragType, paneTabDragType } from "./paneDrag.js";
 import { queryOptions, skipToken, useQueries } from "@tanstack/react-query";
 import { useSidebar } from "../WorkspaceLayout.js";
-import { useExtensions } from "../api/WorkspaceUpdatesProvider.js";
+import { useExtensions, useRoutines } from "../api/WorkspaceUpdatesProvider.js";
 import { sessionTitleQueryKey } from "../main/agent/useAgentSession.js";
 import { CopyExtensionLinkButton } from "./CopyExtensionLinkButton.js";
 import { tabBarHeight, usePaneStyles } from "./paneStyles.js";
+import { TabFind } from "./TabFind.js";
 
 function bounds(rect: Rect): CSSProperties {
   return {
@@ -43,6 +44,7 @@ export function PaneWorkspace({ sessions }: { sessions: SessionSummary[] }) {
   const workspace = useWorkspacePanes();
   const sidebar = useSidebar();
   const extensions = useExtensions().data;
+  const routines = useRoutines();
   const state = usePaneState();
   const { leaves, dividers } = paneLayout(state.root);
   const sessionTabs = leaves
@@ -68,6 +70,10 @@ export function PaneWorkspace({ sessions }: { sessions: SessionSummary[] }) {
         submitted ??
         "Session"
       );
+    }
+    if (tab.path.startsWith("/routines/")) {
+      const id = decodeURIComponent(tab.path.slice(10));
+      return routines?.find((routine) => routine.id === id)?.name ?? "Routine";
     }
     if (tab.path.startsWith("/extensions/")) {
       const id = decodeURIComponent(tab.path.slice(12));
@@ -355,10 +361,18 @@ export function PaneWorkspace({ sessions }: { sessions: SessionSummary[] }) {
           >
             <TabVisibilityContext value={pane.activeTabId === tab.id}>
               <TabRouteContext value={tab.id}>
-                {/* oxlint-disable-next-line react/hooks -- Wouter calls the location hook supplied to Router. */}
-                <Router hook={usePaneLocation}>
-                  <MainPane sessions={sessions} />
-                </Router>
+                <TabFind
+                  active={
+                    pane.id === state.activePaneId &&
+                    pane.activeTabId === tab.id
+                  }
+                  path={tab.path}
+                >
+                  {/* oxlint-disable-next-line react/hooks -- Wouter calls the location hook supplied to Router. */}
+                  <Router hook={usePaneLocation}>
+                    <MainPane sessions={sessions} />
+                  </Router>
+                </TabFind>
               </TabRouteContext>
             </TabVisibilityContext>
           </div>

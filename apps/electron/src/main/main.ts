@@ -280,20 +280,15 @@ async function createWindow(
   hotkeys.attach(window);
   // Route app shortcuts through the originating window, including embedded frames.
   window.webContents.on("before-input-event", (event, input) => {
-    if (
-      input.type !== "keyDown" ||
-      input.isComposing ||
-      input.shift ||
-      input.alt
-    )
-      return;
+    if (input.type !== "keyDown" || input.isComposing || input.alt) return;
     const primaryModifier =
       process.platform === "darwin"
         ? input.meta && !input.control
         : input.control && !input.meta;
     if (!primaryModifier) return;
     const shortcut = Object.entries(shortcuts).find(
-      ([, item]) => item.key === input.key.toUpperCase(),
+      ([, item]) =>
+        item.key === `${input.shift ? "Shift+" : ""}${input.key.toUpperCase()}`,
     );
     if (shortcut === undefined) return;
     event.preventDefault();

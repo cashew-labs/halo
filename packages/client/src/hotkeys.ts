@@ -62,6 +62,7 @@ const reservedAccelerators = new Set([
   "CmdOrCtrl+Alt+J",
   "CmdOrCtrl+Alt+C",
   "CmdOrCtrl+F",
+  "CmdOrCtrl+Shift+F",
   "CmdOrCtrl+B",
   "CmdOrCtrl+I",
   "CmdOrCtrl+U",

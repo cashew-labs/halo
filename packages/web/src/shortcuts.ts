@@ -6,6 +6,12 @@ export const shortcuts = {
     key: "P",
     accelerator: "CmdOrCtrl+P",
   },
+  findInTab: { label: "Find in tab", key: "F", accelerator: "CmdOrCtrl+F" },
+  findInWorkspace: {
+    label: "Find in workspace",
+    key: "Shift+F",
+    accelerator: "CmdOrCtrl+Shift+F",
+  },
 } as const;
 
 export type ShortcutId = keyof typeof shortcuts | `custom:${string}`;

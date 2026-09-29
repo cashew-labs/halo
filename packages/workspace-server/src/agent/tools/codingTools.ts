@@ -2,7 +2,7 @@ import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { type TSchema, Type } from "typebox";
 import type { FilesystemService } from "../../filesystem/FilesystemService.js";
 import type { AgentAuthority } from "../runtime/AgentAuthority.js";
-import { maxBashTimeoutMs, runBash } from "./bash/run.js";
+import { maxBashToolTimeoutMs, runBash } from "./bash/run.js";
 import { editFile } from "./files/edit.js";
 import { patchFiles } from "./files/patch.js";
 import { readFile } from "./files/read.js";
@@ -40,8 +40,8 @@ const bashParameters = Type.Object({
   timeoutMs: Type.Optional(
     Type.Integer({
       minimum: 1,
-      maximum: maxBashTimeoutMs,
-      description: `Timeout in milliseconds. Defaults to 10000. Maximum ${maxBashTimeoutMs} (10 minutes).`,
+      maximum: maxBashToolTimeoutMs,
+      description: `Timeout in milliseconds. Defaults to 10000. Maximum ${maxBashToolTimeoutMs} (10 minutes).`,
     }),
   ),
 });

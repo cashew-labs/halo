@@ -2,6 +2,7 @@ import type { LLMApi } from "../llm/LLMApi.js";
 import { mergeMarkdown } from "./mergeMarkdown.js";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { randomUUID } from "node:crypto";
+import { isUtf8 } from "node:buffer";
 import * as errore from "errore";
 import {
   imageFilename,
@@ -221,6 +222,32 @@ export class WorkspaceService {
     if (contents instanceof Error)
       return new WorkspaceIoError({ cause: contents });
     return workspaceFilePreview(path, contents);
+  }
+
+  async readSearchText(path: string, maxBytes: number) {
+    const absolutePath = await this.resolveEntryPath(path);
+    if (
+      absolutePath instanceof WorkspaceIoError &&
+      absolutePath.cause instanceof FilesystemPathNotFoundError
+    )
+      return { kind: "missing" as const };
+    if (absolutePath instanceof Error) return absolutePath;
+    const metadata = await this.options.filesystem.lstat(absolutePath);
+    if (metadata instanceof FilesystemPathNotFoundError)
+      return { kind: "missing" as const };
+    if (metadata instanceof Error)
+      return new WorkspaceIoError({ cause: metadata });
+    if (!metadata.isFile()) return new WorkspaceInvalidPathError({ path });
+    if (metadata.size > maxBytes) return { kind: "oversized" as const };
+
+    const bytes = await this.options.filesystem.readFile(absolutePath);
+    if (bytes instanceof FilesystemPathNotFoundError)
+      return { kind: "missing" as const };
+    if (bytes instanceof Error) return new WorkspaceIoError({ cause: bytes });
+    if (bytes.length > maxBytes) return { kind: "oversized" as const };
+    if (!isUtf8(bytes) || bytes.includes(0))
+      return { kind: "unsupported" as const };
+    return { kind: "text" as const, content: bytes.toString("utf8") };
   }
 
   async readFile(path: string) {
