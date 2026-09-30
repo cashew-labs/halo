@@ -26,6 +26,7 @@ Move this section into the PR description when creating the PR, then remove it h
     - [x] Rename storage/ to database/
     - [x] Encapsulate each table's Tandem fields and Turso record translation
     - [x] Build the Tandem schema and tuple storage from those definitions
+    - [x] Separate haloSchema definitions from Tandem and Turso consumer conversions
   - [ ] Move extension storage into the main database
   - [ ] Move Pi onto Tandem
     - [ ] Adapt session storage and repository operations

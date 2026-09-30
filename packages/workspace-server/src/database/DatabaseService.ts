@@ -2,8 +2,12 @@ import { TandemServer } from "@tanishqkancharla/tandem-server";
 import * as errore from "errore";
 import { DatabaseClient } from "./DatabaseClient.js";
 import { TursoTupleStorage } from "./TursoTupleStorage.js";
-import { schema, relations, type WorkspaceSchema } from "./tables/index.js";
-export type { WorkspaceSchema } from "./tables/index.js";
+import {
+  workspaceSchema,
+  type WorkspaceSchema,
+} from "./tables/workspaceSchema.js";
+import { haloSchemaToTandemSchema } from "./schema/haloSchemaToTandemSchema.js";
+export type { WorkspaceSchema } from "./tables/workspaceSchema.js";
 
 class DatabaseServiceError extends errore.createTaggedError({
   name: "DatabaseServiceError",
@@ -14,12 +18,18 @@ export type NativeConnection = Pick<DatabaseClient, "access">;
 
 export class DatabaseService {
   // Owns both lifetimes; native handles share the client's connection and queue.
-  readonly tandem: TandemServer<WorkspaceSchema, typeof relations>;
+  readonly tandem: TandemServer<
+    WorkspaceSchema,
+    ReturnType<
+      typeof haloSchemaToTandemSchema<typeof workspaceSchema>
+    >["relations"]
+  >;
   private readonly client: DatabaseClient;
 
   private constructor(ctx: { client: DatabaseClient }) {
     const { client } = ctx;
     this.client = client;
+    const { schema, relations } = haloSchemaToTandemSchema(workspaceSchema);
     this.tandem = new TandemServer({
       schema,
       relations,
