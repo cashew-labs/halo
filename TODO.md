@@ -15,10 +15,12 @@ Move this section into the PR description when creating the PR, then remove it h
     - [x] Own database lifetime, schema, and relations in DatabaseService
     - [x] Add a Turso tuple-storage adapter
     - [x] Expose native access for remaining SQL consumers
+    - [x] Expose Tandem operations and disposable transactions through DatabaseService
   - [ ] Move services to Tandem
     - [x] Move hotkeys to Tandem and a domain-shaped Turso table
     - [x] Move routines and run history to Tandem
-    - [ ] Move session summaries and read/done state to Tandem
+    - [x] Move session read/done state to Tandem
+    - [ ] Move Pi-derived session summaries to Tandem
     - [ ] Update session search alongside session storage
     - [ ] Decide Executor storage: direct Tandem adapter or native SQL with synchronized public records
       - [ ] Resolve change-feed ownership if retaining native SQL
@@ -35,4 +37,5 @@ Move this section into the PR description when creating the PR, then remove it h
   - [ ] Add workspace-scoped TandemClient initialization, reconnect, and disposal
   - [ ] Replace manual state subscriptions with Tandem queries
     - [ ] Remove HotkeyService.watch, its watch RPC, and hotkey forwarding in watchWorkspace
+    - [ ] Remove SessionRegistry's Tandem-to-summary bridge after migrating session summary consumers
 - [ ] Squash migrations introduced by this work into one before creating the PR

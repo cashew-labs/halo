@@ -21,7 +21,7 @@ export const routineTest = baseTest.extend<{
     const database = await DatabaseService.open({ directory, filesystem });
     if (database instanceof Error) throw database;
     await use(async () => {
-      return new RoutineService({ tandem: database.tandem });
+      return new RoutineService({ database });
     });
     const databaseClosed = await database.close();
     const filesystemClosed = await filesystem.close();

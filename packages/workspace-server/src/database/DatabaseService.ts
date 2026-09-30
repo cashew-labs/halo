@@ -17,14 +17,18 @@ class DatabaseServiceError extends errore.createTaggedError({
 export type NativeConnection = Pick<DatabaseClient, "access">;
 
 export class DatabaseService {
+  // Weak references let disposal track active transactions without retaining them.
+  private readonly activeTransactions = new WeakSet<object>();
   // Owns both lifetimes; native handles share the client's connection and queue.
-  readonly tandem: TandemServer<
+  private readonly tandem: TandemServer<
     WorkspaceSchema,
     ReturnType<
       typeof haloSchemaToTandemSchema<typeof workspaceSchema>
     >["relations"]
   >;
   private readonly client: DatabaseClient;
+  readonly query: DatabaseService["tandem"]["query"];
+  readonly subscribe: DatabaseService["tandem"]["subscribe"];
 
   private constructor(ctx: { client: DatabaseClient }) {
     const { client } = ctx;
@@ -37,6 +41,8 @@ export class DatabaseService {
         database: this.createNativeConnection(),
       }),
     });
+    this.query = this.tandem.query.bind(this.tandem);
+    this.subscribe = this.tandem.subscribe.bind(this.tandem);
   }
 
   static async open(input: Parameters<typeof DatabaseClient.open>[0]) {
@@ -47,6 +53,39 @@ export class DatabaseService {
 
   createNativeConnection(): NativeConnection {
     return { access: async (operation) => await this.client.access(operation) };
+  }
+
+  transact() {
+    return this.tandem.transact();
+  }
+
+  useTransaction() {
+    const tx = this.transact();
+    const cancel = tx.cancel.bind(tx);
+    this.activeTransactions.add(tx);
+    return Object.assign(tx, {
+      cancel: async () => {
+        this.activeTransactions.delete(tx);
+        return await cancel();
+      },
+      [Symbol.asyncDispose]: async () => {
+        if (!this.activeTransactions.delete(tx)) return;
+        await cancel().catch((cause) =>
+          console.warn(
+            new DatabaseServiceError({
+              operation: "cancel transaction",
+              cause,
+            }),
+          ),
+        );
+      },
+    });
+  }
+
+  async commit(tx: ReturnType<DatabaseService["transact"]>) {
+    // A commit attempt consumes the transaction, even when it rejects.
+    this.activeTransactions.delete(tx);
+    return await this.tandem.commit(tx);
   }
 
   async close() {

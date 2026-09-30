@@ -5,6 +5,7 @@ import {
   type Session,
   type SessionMetadata,
   type HarnessEvent,
+  type SessionRepo,
 } from "@earendil-works/pi-agent-core";
 import { laneState } from "@earendil-works/pi-agent-core/harness/session";
 import { Stream } from "@get-halo/shared/Stream";
@@ -22,9 +23,16 @@ import {
   type HaloAgentSessionOptions,
 } from "../agent/HaloAgentSession.js";
 import type {
-  SessionProductFields,
-  SessionRepoApi,
-} from "../database/SessionRepoApi.js";
+  DatabaseService,
+  WorkspaceSchema,
+} from "../database/DatabaseService.js";
+
+type SessionProductFields = Omit<WorkspaceSchema["sessionState"], "id">;
+
+class SessionStateError extends errore.createTaggedError({
+  name: "SessionStateError",
+  message: "Session state failed during $operation",
+}) {}
 
 export class SessionNotFoundError extends errore.createTaggedError({
   name: "SessionNotFoundError",
@@ -52,7 +60,8 @@ class SessionRegistryClosedError extends errore.createTaggedError({
 }) {}
 
 type SessionRegistryOptions = HaloAgentSessionOptions & {
-  repo: SessionRepoApi;
+  repo: SessionRepo;
+  database: DatabaseService;
 };
 
 type PiSessionSummary = Omit<
@@ -66,12 +75,11 @@ export class SessionRegistry {
   // Serializes snapshots and updates so reconnect cannot miss a transition.
   private readonly summaryQueue = new SerialQueue();
   private readonly summaries = new Map<string, SessionSummary>();
-  private readonly summaryChanges = new Stream<SessionSummariesUpdate>();
-  private readonly summarySubscriptions = new Map<string, () => void>();
-  private readonly productFieldsBySession = new Map<
-    string,
-    SessionProductFields
+  private readonly summaryChanges = new Stream<
+    SessionSummariesUpdate | SessionStateError
   >();
+  private readonly summarySubscriptions = new Map<string, () => void>();
+  private stateSubscription: { destroy(): void } | undefined;
   private readonly pending = new Set<Promise<unknown>>();
   private readonly sessions = new Map<string, HaloAgentSession>();
   private readonly stored = new Map<string, Promise<Session | Error>>();
@@ -79,7 +87,8 @@ export class SessionRegistry {
     string,
     Promise<Error | HaloAgentSession>
   >();
-  private readonly repo: SessionRepoApi;
+  private readonly repo: SessionRepo;
+  private readonly database: DatabaseService;
   private readonly environment: HaloAgentSessionOptions["environment"];
   private readonly llmApi: HaloAgentSessionOptions["llmApi"];
   private readonly traces: HaloAgentSessionOptions["traces"];
@@ -100,6 +109,7 @@ export class SessionRegistry {
       toolRuntime,
     } = ctx;
     this.repo = repo;
+    this.database = ctx.database;
     this.environment = environment;
     this.llmApi = llmApi;
     this.traces = traces;
@@ -107,6 +117,56 @@ export class SessionRegistry {
     this.filesystem = filesystem;
     this.layout = layout;
     this.toolRuntime = toolRuntime;
+  }
+
+  async start() {
+    const subscription = await this.database
+      .subscribe(
+        { collection: "sessionState" },
+        () => {
+          if (this.closing) return;
+          // Do not await this queue from a commit: the committing command owns it.
+          void this.track(async () => {
+            const refreshed = await this.summaryQueue.run(async () => {
+              // Read current state here, rather than applying a potentially stale
+              // callback snapshot after a newer list or Pi event.
+              const fields = await this.listProductFields();
+              if (fields instanceof Error) return fields;
+              for (const summary of this.summaries.values()) {
+                const current = applyProductFields({
+                  summary,
+                  fields: fields.get(summary.sessionId),
+                });
+                if (
+                  current.markedDone !== summary.markedDone ||
+                  current.readReceiptCursorId !== summary.readReceiptCursorId
+                )
+                  this.publish(current);
+              }
+            });
+            if (refreshed instanceof Error)
+              this.summaryChanges.append(refreshed);
+          }).catch((cause) => {
+            const error = new SessionStateError({
+              operation: "publish",
+              cause,
+            });
+            console.warn(error);
+            this.summaryChanges.append(error);
+          });
+        },
+        {
+          onError: (cause) =>
+            this.summaryChanges.append(
+              new SessionStateError({ operation: "watch", cause }),
+            ),
+        },
+      )
+      .catch(
+        (cause) => new SessionStateError({ operation: "subscribe", cause }),
+      );
+    if (subscription instanceof Error) return subscription;
+    this.stateSubscription = subscription;
   }
 
   async list() {
@@ -139,7 +199,10 @@ export class SessionRegistry {
     using updates = initial.updates;
     if (abortSignal.aborted) return;
     yield { type: "snapshot", sessions: initial.sessions };
-    yield* updates;
+    for await (const update of updates) {
+      if (update instanceof Error) throw update;
+      yield update;
+    }
   }
 
   async create() {
@@ -166,17 +229,10 @@ export class SessionRegistry {
             !isThreadUnread(summary)
           )
             return;
-          const readReceiptCursorId = summary.latestResultId;
-          const saved = await this.repo.setReadReceipt({
+          return await this.updateProductFields({
             sessionId,
-            readReceiptCursorId,
+            fields: { readReceiptCursorId: summary.latestResultId },
           });
-          if (saved instanceof Error) return saved;
-          this.productFieldsBySession.set(sessionId, {
-            markedDone: summary.markedDone,
-            readReceiptCursorId,
-          });
-          this.publish({ ...summary, readReceiptCursorId });
         }),
     );
   }
@@ -189,14 +245,10 @@ export class SessionRegistry {
           if (summary instanceof Error) return summary;
           if (summary.latestResultId === undefined || isThreadUnread(summary))
             return;
-          const saved = await this.repo.setReadReceipt({
+          return await this.updateProductFields({
             sessionId,
+            fields: { readReceiptCursorId: undefined },
           });
-          if (saved instanceof Error) return saved;
-          this.productFieldsBySession.set(sessionId, {
-            markedDone: summary.markedDone,
-          });
-          this.publish({ ...summary, readReceiptCursorId: undefined });
         }),
     );
   }
@@ -208,15 +260,10 @@ export class SessionRegistry {
           const summary = await this.getSummaryUnqueued(sessionId);
           if (summary instanceof Error) return summary;
           if (summary.markedDone) return;
-          const saved = await this.repo.setMarkedDone({
+          return await this.updateProductFields({
             sessionId,
-            markedDone: true,
+            fields: { markedDone: true },
           });
-          if (saved instanceof Error) return saved;
-          const fields: SessionProductFields = { markedDone: true };
-          fields.readReceiptCursorId = summary.readReceiptCursorId;
-          this.productFieldsBySession.set(sessionId, fields);
-          this.publish({ ...summary, markedDone: true });
         }),
     );
   }
@@ -228,15 +275,10 @@ export class SessionRegistry {
           const summary = await this.getSummaryUnqueued(sessionId);
           if (summary instanceof Error) return summary;
           if (!summary.markedDone) return;
-          const saved = await this.repo.setMarkedDone({
+          return await this.updateProductFields({
             sessionId,
-            markedDone: false,
+            fields: { markedDone: false },
           });
-          if (saved instanceof Error) return saved;
-          const fields: SessionProductFields = { markedDone: false };
-          fields.readReceiptCursorId = summary.readReceiptCursorId;
-          this.productFieldsBySession.set(sessionId, fields);
-          this.publish({ ...summary, markedDone: false });
         }),
     );
   }
@@ -255,23 +297,18 @@ export class SessionRegistry {
       .list(undefined, BACKGROUND_CONTEXT)
       .catch((cause) => new ListAgentSessionsError({ cause }));
     if (metadata instanceof Error) return metadata;
-    const productFields = await this.repo.listProductFields();
+    const productFields = await this.listProductFields();
     if (productFields instanceof Error) return productFields;
-    this.productFieldsBySession.clear();
-    for (const [sessionId, fields] of productFields)
-      this.productFieldsBySession.set(sessionId, fields);
     const summaries: SessionSummary[] = [];
     for (const item of metadata) {
       const fields = productFields.get(item.id);
-      if (fields === undefined)
-        return new SessionNotFoundError({ sessionId: item.id });
       const cached = this.summaries.get(item.id);
       if (cached !== undefined) {
         const current = applyProductFields({
           summary: cached,
           fields,
         });
-        this.summaries.set(item.id, current);
+        // A list must not consume a change before the subscription publishes it.
         summaries.push(current);
         continue;
       }
@@ -299,7 +336,11 @@ export class SessionRegistry {
 
   private async getSummaryUnqueued(sessionId: string) {
     const cached = this.summaries.get(sessionId);
-    if (cached !== undefined) return cached;
+    if (cached !== undefined) {
+      const fields = await this.getProductFields(sessionId);
+      if (fields instanceof Error) return fields;
+      return applyProductFields({ summary: cached, fields });
+    }
     const summaries = await this.listSessions();
     if (summaries instanceof Error) return summaries;
     return (
@@ -308,14 +349,47 @@ export class SessionRegistry {
     );
   }
 
-  private async getProductFieldsUnqueued(sessionId: string) {
-    const cached = this.productFieldsBySession.get(sessionId);
-    if (cached !== undefined) return cached;
-    const fields = await this.repo.getProductFields(sessionId);
-    if (fields instanceof Error) return fields;
-    if (fields === undefined) return new SessionNotFoundError({ sessionId });
-    this.productFieldsBySession.set(sessionId, fields);
-    return fields;
+  private async listProductFields() {
+    const records = await this.database
+      .query({ collection: "sessionState" })
+      .catch((cause) => new SessionStateError({ operation: "list", cause }));
+    if (records instanceof Error) return records;
+    return new Map(records.map((record) => [record.id, record]));
+  }
+
+  private async getProductFields(sessionId: string) {
+    const records = await this.database
+      .query({
+        collection: "sessionState",
+        where: { id: sessionId },
+      })
+      .catch((cause) => new SessionStateError({ operation: "get", cause }));
+    if (records instanceof Error) return records;
+    return records[0];
+  }
+
+  private async updateProductFields(input: {
+    sessionId: string;
+    fields: Partial<SessionProductFields>;
+  }) {
+    await using tx = this.database.useTransaction();
+    const current = await tx
+      .get("sessionState", input.sessionId)
+      .catch(
+        (cause) =>
+          new SessionStateError({ operation: "read before update", cause }),
+      );
+    if (current instanceof Error) return current;
+    // update skips missing rows; first-use state needs an upsert.
+    tx.set("sessionState", {
+      id: input.sessionId,
+      markedDone: false,
+      ...current,
+      ...input.fields,
+    });
+    return await this.database
+      .commit(tx)
+      .catch((cause) => new SessionStateError({ operation: "update", cause }));
   }
 
   private async createSession() {
@@ -323,7 +397,6 @@ export class SessionRegistry {
       .create({}, BACKGROUND_CONTEXT)
       .catch((cause) => new CreateAgentSessionError({ cause }));
     if (stored instanceof Error) return stored;
-    this.productFieldsBySession.set(stored.metadata.id, { markedDone: false });
     this.stored.set(stored.metadata.id, Promise.resolve(stored));
     return await this.openSession(stored.metadata.id);
   }
@@ -359,6 +432,7 @@ export class SessionRegistry {
   async shutdown() {
     this.closing = true;
     this.closed.abort();
+    this.stateSubscription?.destroy();
     for (const unsubscribe of this.summarySubscriptions.values()) unsubscribe();
     this.summarySubscriptions.clear();
     await Promise.all(this.pending);
@@ -370,7 +444,6 @@ export class SessionRegistry {
     );
     const sessionError = closed.find((result) => result instanceof Error);
     this.stored.clear();
-    this.productFieldsBySession.clear();
     if (sessionError instanceof Error) return sessionError;
   }
 
@@ -453,19 +526,24 @@ export class SessionRegistry {
       async () =>
         await this.summaryQueue.run(async () => {
           const cached = this.summaries.get(sessionId);
+          const fields = await this.getProductFields(sessionId);
+          if (fields instanceof Error) return fields;
           if (
             cached !== undefined &&
             event !== undefined &&
             event.type !== "value_update"
           ) {
-            this.publish(applySummaryEvent(cached, event));
+            this.publish(
+              applyProductFields({
+                summary: applySummaryEvent(cached, event),
+                fields,
+              }),
+            );
             return;
           }
           const stored = await this.stored.get(sessionId);
           if (stored === undefined) return;
           if (stored instanceof Error) return stored;
-          const fields = await this.getProductFieldsUnqueued(sessionId);
-          if (fields instanceof Error) return fields;
           const summary = await readSessionSummary(
             stored,
             this.layout.root,
@@ -532,9 +610,13 @@ function applyProductFields({
   fields,
 }: {
   summary: PiSessionSummary | SessionSummary;
-  fields: SessionProductFields;
+  fields: SessionProductFields | undefined;
 }): SessionSummary {
-  return { ...summary, ...fields };
+  return {
+    ...summary,
+    markedDone: fields?.markedDone ?? false,
+    readReceiptCursorId: fields?.readReceiptCursorId,
+  };
 }
 
 async function readSessionSummary(

@@ -20,12 +20,12 @@ class HotkeyStorageError extends errore.createTaggedError({
 export class HotkeyService {
   // Serializes validation and writes; Tandem owns records and subscriptions.
   private readonly actionQueue = new SerialQueue();
-  private readonly tandem: DatabaseService["tandem"];
+  private readonly database: DatabaseService;
   private readonly userId: string;
   private readonly query;
 
-  constructor(ctx: { tandem: DatabaseService["tandem"]; userId: string }) {
-    this.tandem = ctx.tandem;
+  constructor(ctx: { database: DatabaseService; userId: string }) {
+    this.database = ctx.database;
     this.userId = ctx.userId;
     this.query = {
       collection: "hotkeys" as const,
@@ -35,7 +35,7 @@ export class HotkeyService {
   }
 
   async list() {
-    const records = await this.tandem
+    const records = await this.database
       .query(this.query)
       .catch((cause) => new HotkeyStorageError({ operation: "list", cause }));
     if (records instanceof Error) return records;
@@ -47,7 +47,7 @@ export class HotkeyService {
     using updates = changes.consume({ abortSignal: signal });
     using cleanup = new errore.DisposableStack();
     if (signal?.aborted) return;
-    const subscription = await this.tandem
+    const subscription = await this.database
       .subscribe(
         this.query,
         (records) => changes.append(records.map(toHotkey)),
@@ -94,18 +94,8 @@ export class HotkeyService {
       });
     }
     return await this.actionQueue.run(async () => {
-      const transaction = this.tandem.transact();
-      await using cleanup = new errore.AsyncDisposableStack();
-      cleanup.defer(async () => {
-        await transaction
-          .cancel()
-          .catch((cause) =>
-            console.warn(
-              new HotkeyStorageError({ operation: "cancel", cause }),
-            ),
-          );
-      });
-      const hotkeys = await transaction
+      await using tx = this.database.useTransaction();
+      const hotkeys = await tx
         .query(this.query)
         .catch(
           (cause) =>
@@ -137,15 +127,13 @@ export class HotkeyService {
         label: input.label.trim(),
         accelerator,
       };
-      transaction.set("hotkeys", {
+      tx.set("hotkeys", {
         ...hotkey,
         userId: this.userId,
         position: (hotkeys.at(-1)?.position ?? 0) + 1,
       });
-      // Commit consumes the transaction, including when it rejects.
-      cleanup.move();
-      const saved = await this.tandem
-        .commit(transaction)
+      const saved = await this.database
+        .commit(tx)
         .catch((cause) => new HotkeyStorageError({ operation: "save", cause }));
       if (saved instanceof Error) return saved;
       return hotkey;
@@ -154,18 +142,8 @@ export class HotkeyService {
 
   async remove(id: string) {
     return await this.actionQueue.run(async () => {
-      const transaction = this.tandem.transact();
-      await using cleanup = new errore.AsyncDisposableStack();
-      cleanup.defer(async () => {
-        await transaction
-          .cancel()
-          .catch((cause) =>
-            console.warn(
-              new HotkeyStorageError({ operation: "cancel", cause }),
-            ),
-          );
-      });
-      const hotkey = await transaction
+      await using tx = this.database.useTransaction();
+      const hotkey = await tx
         .get("hotkeys", id)
         .catch(
           (cause) =>
@@ -174,10 +152,9 @@ export class HotkeyService {
       if (hotkey instanceof Error) return hotkey;
       if (hotkey === undefined || hotkey.userId !== this.userId)
         return new InvalidHotkeyError({ reason: "That hotkey does not exist" });
-      transaction.remove("hotkeys", id);
-      cleanup.move();
-      return await this.tandem
-        .commit(transaction)
+      tx.remove("hotkeys", id);
+      return await this.database
+        .commit(tx)
         .catch(
           (cause) => new HotkeyStorageError({ operation: "remove", cause }),
         );

@@ -10,12 +10,14 @@ import {
   type StoredValue,
   type CommittedWrite,
 } from "@earendil-works/pi-agent-core/harness/session";
-import { BACKGROUND_CONTEXT } from "@earendil-works/pi-agent-core";
+import {
+  BACKGROUND_CONTEXT,
+  type SessionRepo,
+} from "@earendil-works/pi-agent-core";
 import { uuidv7 } from "@earendil-works/pi-ai";
 import type { Database } from "@tursodatabase/database/compat";
 import * as errore from "errore";
 import type { NativeConnection } from "./DatabaseService.js";
-import type { SessionProductFields, SessionRepoApi } from "./SessionRepoApi.js";
 import { TursoStorage, applySessionWrites } from "./TursoStorage.js";
 import {
   decodeSessionJson,
@@ -24,13 +26,7 @@ import {
   SessionBackendError,
 } from "./sessionSchema.js";
 
-type SessionProductFieldsRow = {
-  id: string;
-  marked_done: number;
-  read_receipt_cursor_id: string | null;
-};
-
-export class TursoSessionRepo implements SessionRepoApi {
+export class TursoSessionRepo implements SessionRepo {
   private readonly reserved = new Set<string>();
   private readonly sessions = new Set<Session>();
   private closed = false;
@@ -82,56 +78,6 @@ export class TursoSessionRepo implements SessionRepoApi {
     });
     if (result instanceof Error) throw result;
     return result;
-  }
-
-  async listProductFields() {
-    return await this.database.access((connection) => {
-      // SAFETY: The projection matches the session table owned by workspace migrations.
-      const rows = connection
-        .prepare(
-          "SELECT id, marked_done, read_receipt_cursor_id FROM halo_sessions",
-        )
-        .all() as SessionProductFieldsRow[];
-      return new Map<string, SessionProductFields>(
-        rows.map((row) => [row.id, decodeSessionProductFields(row)]),
-      );
-    });
-  }
-
-  async getProductFields(sessionId: string) {
-    return await this.database.access((connection) => {
-      // SAFETY: The projection matches the session table owned by workspace migrations.
-      const row = connection
-        .prepare(
-          "SELECT id, marked_done, read_receipt_cursor_id FROM halo_sessions WHERE id = ?",
-        )
-        .get(sessionId) as SessionProductFieldsRow | undefined;
-      if (row === undefined) return;
-      return decodeSessionProductFields(row);
-    });
-  }
-
-  async setMarkedDone(input: { sessionId: string; markedDone: boolean }) {
-    return await this.database.access((connection) => {
-      connection
-        .prepare("UPDATE halo_sessions SET marked_done = ? WHERE id = ?")
-        .run(input.markedDone ? 1 : 0, input.sessionId);
-    });
-  }
-
-  async setReadReceipt(input: {
-    sessionId: string;
-    readReceiptCursorId?: string;
-  }) {
-    return await this.database.access((connection) => {
-      // oxlint-disable-next-line unicorn/no-null -- SQL uses NULL for a missing read receipt.
-      const readReceiptCursorId = input.readReceiptCursorId ?? null;
-      connection
-        .prepare(
-          "UPDATE halo_sessions SET read_receipt_cursor_id = ? WHERE id = ?",
-        )
-        .run(readReceiptCursorId, input.sessionId);
-    });
   }
 
   async delete(metadata: SessionMetadata) {
@@ -283,15 +229,4 @@ export class TursoSessionRepo implements SessionRepoApi {
     if (this.closed)
       throw new SessionBackendError({ detail: "Repository is closed" });
   }
-}
-
-function decodeSessionProductFields(
-  row: SessionProductFieldsRow,
-): SessionProductFields {
-  const fields: SessionProductFields = {
-    markedDone: row.marked_done === 1,
-  };
-  if (row.read_receipt_cursor_id !== null)
-    fields.readReceiptCursorId = row.read_receipt_cursor_id;
-  return fields;
 }
