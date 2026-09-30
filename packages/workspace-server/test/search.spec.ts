@@ -49,6 +49,17 @@ serverTest(
     await expect(
       server.rpc.testApi.invokeTool({
         path: "database.query",
+        input: { sql: "SELECT * FROM missing_table" },
+      }),
+    ).rejects.toThrow("Tool runtime failed during tool invocation");
+    await server.rpc.testApi.seedSession({
+      title: "After failed query",
+      messages: [],
+    });
+
+    await expect(
+      server.rpc.testApi.invokeTool({
+        path: "database.query",
         input: { sql: "DELETE FROM halo_sessions" },
       }),
     ).rejects.toThrow("Tool runtime failed during tool invocation");
@@ -71,7 +82,7 @@ serverTest(
         path: "database.query",
         input: { sql: "SELECT count(*) AS count FROM halo_sessions" },
       }),
-    ).toEqual({ rows: [{ count: 2 }], truncated: false });
+    ).toEqual({ rows: [{ count: 3 }], truncated: false });
 
     const many = await server.rpc.testApi.invokeTool({
       path: "database.query",

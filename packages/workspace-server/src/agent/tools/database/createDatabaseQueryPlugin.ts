@@ -71,38 +71,36 @@ export function createDatabaseQueryPlugin(
             // DatabaseClient serializes this block with all other access to its
             // connection. Restore query_only before releasing the queue.
             connection.exec("PRAGMA query_only=1");
-            try {
-              const prepared = connection.prepare(statement);
-              const rows: Record<string, DisplayCell>[] = [];
-              let chars = 0;
-              let truncated = false;
-              // SAFETY: Turso returns named columns containing SQLite scalar values.
-              for (const raw of prepared.iterate(parameters ?? [], {
-                queryTimeout: queryTimeoutMs,
-              }) as Iterable<Record<string, DatabaseCell>>) {
-                if (rows.length === maxRows) {
-                  truncated = true;
-                  break;
-                }
-                const row = Object.fromEntries(
-                  Object.entries(raw).map(([key, value]) => {
-                    const displayed = displayValue(value);
-                    if (displayed.truncated) truncated = true;
-                    return [key, displayed.value];
-                  }),
-                );
-                const rowChars = JSON.stringify(row).length;
-                if (chars + rowChars > maxOutputChars) {
-                  truncated = true;
-                  break;
-                }
-                rows.push(row);
-                chars += rowChars;
+            using cleanup = new errore.DisposableStack();
+            cleanup.defer(() => connection.exec("PRAGMA query_only=0"));
+            const prepared = connection.prepare(statement);
+            const rows: Record<string, DisplayCell>[] = [];
+            let chars = 0;
+            let truncated = false;
+            // SAFETY: Turso returns named columns containing SQLite scalar values.
+            for (const raw of prepared.iterate(parameters ?? [], {
+              queryTimeout: queryTimeoutMs,
+            }) as Iterable<Record<string, DatabaseCell>>) {
+              if (rows.length === maxRows) {
+                truncated = true;
+                break;
               }
-              return { rows, truncated };
-            } finally {
-              connection.exec("PRAGMA query_only=0");
+              const row = Object.fromEntries(
+                Object.entries(raw).map(([key, value]) => {
+                  const displayed = displayValue(value);
+                  if (displayed.truncated) truncated = true;
+                  return [key, displayed.value];
+                }),
+              );
+              const rowChars = JSON.stringify(row).length;
+              if (chars + rowChars > maxOutputChars) {
+                truncated = true;
+                break;
+              }
+              rows.push(row);
+              chars += rowChars;
             }
+            return { rows, truncated };
           });
           if (result instanceof Error)
             return new DatabaseQueryError({ cause: result });
