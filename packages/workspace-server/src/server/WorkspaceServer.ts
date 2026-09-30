@@ -240,12 +240,13 @@ export class WorkspaceServer {
           error: closed,
         });
     });
-    const hotkeys = await HotkeyService.open({
-      database: database.createNativeConnection(),
+    const hotkeys = new HotkeyService({
+      tandem: database.tandem,
       userId: config.ownerUserId,
     });
-    if (hotkeys instanceof Error) return hotkeys;
-    const routines = await RoutineService.open({ database: database.createNativeConnection() });
+    const routines = await RoutineService.open({
+      database: database.createNativeConnection(),
+    });
     if (routines instanceof Error) return routines;
     const [initialized, toolRuntime] = await Promise.all([
       workspace.initialize(),

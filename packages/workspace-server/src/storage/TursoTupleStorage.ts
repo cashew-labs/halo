@@ -1,4 +1,3 @@
-import type { AnySchema } from "@tanishqkancharla/tandem-core";
 import type {
   TandemServerStorageApi,
   TandemTuple,
@@ -6,32 +5,39 @@ import type {
 import type { Database } from "@tursodatabase/database/compat";
 import * as errore from "errore";
 import type { ScanStorageArgs, Tuple, WriteOps } from "tuple-database";
-import { decodeTuple, encodeTuple } from "tuple-database/helpers/codec.js";
-import type { NativeConnection } from "./DatabaseService.js";
+import { encodeTuple } from "tuple-database/helpers/codec.js";
+import type { NativeConnection, WorkspaceSchema } from "./DatabaseService.js";
+
+type HotkeyRow = {
+  id: string;
+  user_id: string;
+  label: string;
+  accelerator: string;
+  action: string;
+  position: number;
+};
 
 class TupleStorageClosedError extends errore.createTaggedError({
   name: "TupleStorageClosedError",
   message: "Tandem tuple storage is closed",
 }) {}
 
-export class TursoTupleStorage<
-  Schema extends AnySchema,
-> implements TandemServerStorageApi<Schema> {
+export class TursoTupleStorage implements TandemServerStorageApi<WorkspaceSchema> {
   // Closing this borrower rejects new operations, then drains queued database work.
   private closed = false;
   private readonly database: NativeConnection;
-  private readonly namespace: string;
 
-  constructor(ctx: { database: NativeConnection; namespace: string }) {
-    const { database, namespace } = ctx;
+  constructor(ctx: { database: NativeConnection }) {
+    const { database } = ctx;
     this.database = database;
-    this.namespace = namespace;
   }
 
-  async scan(args: ScanStorageArgs = {}): Promise<TandemTuple<Schema>[]> {
+  async scan(
+    args: ScanStorageArgs = {},
+  ): Promise<TandemTuple<WorkspaceSchema>[]> {
     return await this.access((connection) => {
-      const predicates = ["namespace = ?"];
-      const bindings: (string | Buffer | number)[] = [this.namespace];
+      const predicates: string[] = [];
+      const bindings: (Buffer | number)[] = [];
       for (const [bound, operator] of [
         ["gt", ">"],
         ["gte", ">="],
@@ -40,41 +46,63 @@ export class TursoTupleStorage<
       ] as const) {
         const tuple = args[bound];
         if (tuple === undefined) continue;
-        predicates.push(`key ${operator} ?`);
+        predicates.push(`tuple_key ${operator} ?`);
         bindings.push(encodeKey(tuple));
       }
       const direction = args.reverse === true ? "DESC" : "ASC";
       const limit = args.limit === undefined ? "" : " LIMIT ?";
       if (args.limit !== undefined) bindings.push(args.limit);
-      // SAFETY: The projection is owned by the Tandem tuple migration.
+      const where =
+        predicates.length === 0 ? "" : ` WHERE ${predicates.join(" AND ")}`;
+      // SAFETY: The projection matches halo_hotkeys. The key index preserves
+      // arbitrary tuple bounds; domain fields live in columns, not opaque tuples.
       const rows = connection
         .prepare(
-          `SELECT key, value FROM halo_tandem_tuples WHERE ${predicates.join(" AND ")} ORDER BY key ${direction}${limit}`,
+          `SELECT id, user_id, label, accelerator, action, position FROM halo_hotkeys${where} ORDER BY tuple_key ${direction}${limit}`,
         )
-        .all(...bindings) as { key: Uint8Array; value: string }[];
-      // SAFETY: This namespace contains only tuples written through the typed storage API.
+        .all(...bindings) as HotkeyRow[];
       return rows.map((row) => ({
-        key: decodeTuple(Buffer.from(row.key).swap16().toString("utf16le")),
-        value: JSON.parse(row.value),
-      })) as TandemTuple<Schema>[];
+        key: ["record", "hotkeys", row.id],
+        value: {
+          id: row.id,
+          userId: row.user_id,
+          label: row.label,
+          accelerator: row.accelerator,
+          // SAFETY: Actions are written from the typed workspace schema below.
+          action: JSON.parse(
+            row.action,
+          ) as WorkspaceSchema["hotkeys"]["action"],
+          position: row.position,
+        },
+      }));
     });
   }
 
-  async commit(writes: WriteOps<TandemTuple<Schema>>): Promise<void> {
+  async commit(writes: WriteOps<TandemTuple<WorkspaceSchema>>): Promise<void> {
     await this.access((connection) =>
       connection.transaction(() => {
         const set = connection.prepare(
-          `INSERT INTO halo_tandem_tuples (namespace, key, value) VALUES (?, ?, ?)
-           ON CONFLICT(namespace, key) DO UPDATE SET value = excluded.value`,
+          `INSERT INTO halo_hotkeys (tuple_key, id, user_id, label, accelerator, action, position)
+           VALUES (?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(tuple_key) DO UPDATE SET
+             id = excluded.id, user_id = excluded.user_id, label = excluded.label,
+             accelerator = excluded.accelerator, action = excluded.action, position = excluded.position`,
         );
         const remove = connection.prepare(
-          "DELETE FROM halo_tandem_tuples WHERE namespace = ? AND key = ?",
+          "DELETE FROM halo_hotkeys WHERE tuple_key = ?",
         );
         // Match Tandem's in-memory/JSON storage: sets win if a batch also removes a key.
-        for (const key of writes.remove ?? [])
-          remove.run(this.namespace, encodeKey(key));
+        for (const key of writes.remove ?? []) remove.run(encodeKey(key));
         for (const { key, value } of writes.set ?? [])
-          set.run(this.namespace, encodeKey(key), JSON.stringify(value));
+          set.run(
+            encodeKey(key),
+            value.id,
+            value.userId,
+            value.label,
+            value.accelerator,
+            JSON.stringify(value.action),
+            value.position,
+          );
       })(),
     );
   }
