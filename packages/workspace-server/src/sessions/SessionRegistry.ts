@@ -24,7 +24,7 @@ import {
 import type {
   SessionProductFields,
   SessionRepoApi,
-} from "../storage/SessionRepoApi.js";
+} from "../database/SessionRepoApi.js";
 
 export class SessionNotFoundError extends errore.createTaggedError({
   name: "SessionNotFoundError",

@@ -18,7 +18,7 @@ import { Stream } from "@get-halo/shared/Stream";
 import type {
   DatabaseService,
   WorkspaceSchema,
-} from "../storage/DatabaseService.js";
+} from "../database/DatabaseService.js";
 
 export class RoutineNotFoundError extends errore.createTaggedError({
   name: "RoutineNotFoundError",

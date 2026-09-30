@@ -6,8 +6,8 @@ import type {
   WorkspaceSearchHit,
   WorkspaceSearchResponse,
 } from "@get-halo/client";
-import type { NativeConnection } from "../storage/DatabaseService.js";
-import { decodeSessionJson } from "../storage/sessionSchema.js";
+import type { NativeConnection } from "../database/DatabaseService.js";
+import { decodeSessionJson } from "../database/sessionSchema.js";
 import type { WorkspaceService } from "./WorkspaceService.js";
 
 const maxFileBytes = 5 * 1024 * 1024;

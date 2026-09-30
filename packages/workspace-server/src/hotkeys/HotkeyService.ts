@@ -10,7 +10,7 @@ import {
 } from "@get-halo/client";
 import { SerialQueue } from "@get-halo/shared/SerialQueue";
 import { Stream } from "@get-halo/shared/Stream";
-import type { DatabaseService } from "../storage/DatabaseService.js";
+import type { DatabaseService } from "../database/DatabaseService.js";
 
 class HotkeyStorageError extends errore.createTaggedError({
   name: "HotkeyStorageError",

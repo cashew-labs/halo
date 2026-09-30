@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { test as baseTest } from "vitest";
 import { FilesystemService } from "../filesystem/FilesystemService.js";
-import { DatabaseService } from "../storage/DatabaseService.js";
+import { DatabaseService } from "../database/DatabaseService.js";
 import { RoutineService } from "./RoutineService.js";
 
 export const routineTest = baseTest.extend<{

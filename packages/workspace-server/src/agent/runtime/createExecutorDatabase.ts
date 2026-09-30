@@ -7,8 +7,8 @@ import {
   type ExecutorFumaDb,
 } from "@executor-js/sdk/host-internal";
 import { drizzle } from "drizzle-orm/better-sqlite3";
-import type { NativeConnection } from "../../storage/DatabaseService.js";
-import type { DatabaseError } from "../../storage/DatabaseError.js";
+import type { NativeConnection } from "../../database/DatabaseService.js";
+import type { DatabaseError } from "../../database/DatabaseError.js";
 
 export async function createExecutorDatabase<T extends FumaTables>(
   client: NativeConnection,
