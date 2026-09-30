@@ -1,3 +1,9 @@
+export { haloSchemaToTandemSchema } from "./haloSchemaToTandemSchema.js";
+export {
+  haloSchemaToTursoTables,
+  type SqlValue,
+} from "./haloSchemaToTursoTables.js";
+
 declare const fieldValue: unique symbol;
 
 export type Field<Value> = {

@@ -3,7 +3,7 @@ import type {
   RoutineRunStatus,
   RoutineRunTrigger,
 } from "@get-halo/client";
-import { haloSchema } from "../schema/schema.js";
+import { haloSchema } from "@get-halo/schema";
 
 export const routines = haloSchema.table({
   table: "halo_routine_definitions",

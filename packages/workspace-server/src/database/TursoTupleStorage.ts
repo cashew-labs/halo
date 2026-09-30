@@ -8,33 +8,36 @@ import type { ScanStorageArgs, Tuple, WriteOps } from "tuple-database";
 import { encodeTuple } from "tuple-database/helpers/codec.js";
 import type { NativeConnection } from "./DatabaseService.js";
 import {
-  workspaceSchema,
-  type WorkspaceSchema,
-} from "./tables/workspaceSchema.js";
-import {
   haloSchemaToTursoTables,
+  type Schema,
+  type SchemaRecords,
   type SqlValue,
-} from "./schema/haloSchemaToTursoTables.js";
+} from "@get-halo/schema";
 
 class TupleStorageClosedError extends errore.createTaggedError({
   name: "TupleStorageClosedError",
   message: "Tandem tuple storage is closed",
 }) {}
 
-export class TursoTupleStorage implements TandemServerStorageApi<WorkspaceSchema> {
+export class TursoTupleStorage<
+  Definition extends Schema,
+> implements TandemServerStorageApi<SchemaRecords<Definition>> {
   // Closing this borrower rejects new operations, then drains queued database work.
   private closed = false;
-  private readonly tables = haloSchemaToTursoTables(workspaceSchema);
+  private readonly tables: ReturnType<
+    typeof haloSchemaToTursoTables<Definition>
+  >;
   private readonly database: NativeConnection;
 
-  constructor(ctx: { database: NativeConnection }) {
-    const { database } = ctx;
+  constructor(ctx: { database: NativeConnection; schema: Definition }) {
+    const { database, schema } = ctx;
     this.database = database;
+    this.tables = haloSchemaToTursoTables(schema);
   }
 
   async scan(
     args: ScanStorageArgs = {},
-  ): Promise<TandemTuple<WorkspaceSchema>[]> {
+  ): Promise<TandemTuple<SchemaRecords<Definition>>[]> {
     return await this.access((connection) => {
       const predicates: string[] = [];
       const bindings: (Buffer | number)[] = [];
@@ -55,7 +58,7 @@ export class TursoTupleStorage implements TandemServerStorageApi<WorkspaceSchema
       const where =
         predicates.length === 0 ? "" : ` WHERE ${predicates.join(" AND ")}`;
       const suffix = `${where} ORDER BY tuple_key ${direction}${limit}`;
-      const rows: TandemTuple<WorkspaceSchema>[] = [];
+      const rows: TandemTuple<SchemaRecords<Definition>>[] = [];
       for (const [collection, table] of Object.entries(this.tables)) {
         // SAFETY: The generated projection selects the SQL values expected by its field decoders.
         const records = connection
@@ -67,7 +70,7 @@ export class TursoTupleStorage implements TandemServerStorageApi<WorkspaceSchema
           rows.push({
             key: ["record", collection, value.id],
             value,
-          } as TandemTuple<WorkspaceSchema>);
+          } as TandemTuple<SchemaRecords<Definition>>);
         }
       }
       // Each table contributes at most the global limit; merge by tuple key before limiting.
@@ -82,7 +85,9 @@ export class TursoTupleStorage implements TandemServerStorageApi<WorkspaceSchema
     });
   }
 
-  async commit(writes: WriteOps<TandemTuple<WorkspaceSchema>>): Promise<void> {
+  async commit(
+    writes: WriteOps<TandemTuple<SchemaRecords<Definition>>>,
+  ): Promise<void> {
     await this.access((connection) =>
       connection.transaction(() => {
         // Match Tandem's in-memory/JSON storage: sets win if a batch also removes a key.

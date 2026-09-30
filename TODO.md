@@ -30,6 +30,25 @@ Move this section into the PR description when creating the PR, then remove it h
     - [x] Build the Tandem schema and tuple storage from those definitions
     - [x] Separate haloSchema definitions from Tandem and Turso consumer conversions
   - [ ] Move extension storage into the main database
+    - [x] Share schema and storage primitives
+      - [x] Extract haloSchema and its converters into a shared package
+      - [x] Make TursoTupleStorage accept schema definitions
+      - [x] Validate hotkey, routine, and session flows
+    - [ ] Register extension schemas and create native tables
+      - [ ] Authenticate schema registration during extension startup
+      - [ ] Assign extension-specific table names and generate table-creation SQL
+      - [ ] Persist schemas and reject unsupported changes
+      - [ ] Validate registration across restarts and table isolation
+    - [ ] Connect extension Tandem storage to the workspace
+      - [ ] Add authenticated scan and atomic commit endpoints
+      - [ ] Add the SDK storage adapter
+      - [ ] Drain in-flight storage work and reject stale tokens during restart
+      - [ ] Validate storage conformance, rollback, isolation, and persistence
+    - [ ] Switch extensions to workspace-backed storage
+      - [ ] Include shared schema APIs in the distributed extension SDK
+      - [ ] Update serveExtension, templates, skills, and fixtures to use haloSchema
+      - [ ] Define standalone development behavior
+      - [ ] Validate live extension edits, browser sync, and restart persistence
   - [ ] Move Pi onto Tandem
     - [ ] Adapt session storage and repository operations
 - [ ] Migrate the Halo web app to TandemClient

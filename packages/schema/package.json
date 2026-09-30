@@ -1,0 +1,22 @@
+{
+  "name": "@get-halo/schema",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/schema.ts"
+  },
+  "scripts": {
+    "format": "oxfmt .",
+    "format:check": "oxfmt --check .",
+    "lint": "NODE_OPTIONS=--experimental-strip-types oxlint --deny-warnings src",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@tanishqkancharla/tandem-core": "0.3.0"
+  },
+  "devDependencies": {
+    "@get-halo/typescript-config": "workspace:*",
+    "typescript": "7.0.2"
+  }
+}

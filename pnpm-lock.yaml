@@ -676,6 +676,19 @@ importers:
         specifier: 7.0.2
         version: 7.0.2
 
+  packages/schema:
+    dependencies:
+      '@tanishqkancharla/tandem-core':
+        specifier: 0.3.0
+        version: 0.3.0(react@19.2.8)
+    devDependencies:
+      '@get-halo/typescript-config':
+        specifier: workspace:*
+        version: link:../typescript-config
+      typescript:
+        specifier: 7.0.2
+        version: 7.0.2
+
   packages/shared:
     dependencies:
       '@get-halo/client':
@@ -844,6 +857,9 @@ importers:
       '@get-halo/logger':
         specifier: workspace:*
         version: link:../logger
+      '@get-halo/schema':
+        specifier: workspace:*
+        version: link:../schema
       '@get-halo/shared':
         specifier: workspace:*
         version: link:../shared
