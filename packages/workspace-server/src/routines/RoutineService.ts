@@ -44,14 +44,14 @@ const extensionIdPattern = /^[a-z][a-z0-9-]*$/;
 export class RoutineService {
   // Orders commands; records and related run snapshots belong to Tandem.
   private readonly actionQueue = new SerialQueue();
-  private readonly database: DatabaseService;
+  private readonly db: DatabaseService;
 
-  constructor(ctx: { database: DatabaseService }) {
-    this.database = ctx.database;
+  constructor(ctx: { db: DatabaseService }) {
+    this.db = ctx.db;
   }
 
   async list() {
-    const records = await this.database
+    const records = await this.db
       .query(routineQuery)
       .catch((cause) => new RoutineStorageError({ operation: "list", cause }));
     if (records instanceof Error) return records;
@@ -59,14 +59,14 @@ export class RoutineService {
   }
 
   async get(routineId: string) {
-    return await readRoutine(this.database, routineId);
+    return await readRoutine(this.db, routineId);
   }
 
   async subscribe(
     listener: (routines: Routine[]) => void,
     onError: (error: Error) => void,
   ) {
-    const subscription = await this.database
+    const subscription = await this.db
       .subscribe(routineQuery, (records) => listener(records.map(toRoutine)), {
         onError,
       })
@@ -173,7 +173,7 @@ export class RoutineService {
   async listRuns(input: { routineId: string; limit?: number }) {
     const routine = await this.get(input.routineId);
     if (routine instanceof Error) return routine;
-    const runs = await this.database
+    const runs = await this.db
       .query({
         collection: "routineRuns",
         where: { routineId: input.routineId },
@@ -337,10 +337,10 @@ export class RoutineService {
 
   private async change<T>(apply: (tx: RoutineTransaction) => Promise<T>) {
     return await this.actionQueue.run(async () => {
-      await using tx = this.database.useTransaction();
+      await using tx = this.db.useTransaction();
       const result = await apply(tx);
       if (result instanceof Error) return result;
-      const committed = await this.database
+      const committed = await this.db
         .commit(tx)
         .catch(
           (cause) => new RoutineStorageError({ operation: "commit", cause }),
@@ -361,10 +361,10 @@ async function readRecord(tx: RoutineTransaction, routineId: string) {
 }
 
 async function readRoutine(
-  database: Pick<DatabaseService, "query">,
+  db: Pick<DatabaseService, "query">,
   routineId: string,
 ) {
-  const records = await database
+  const records = await db
     .query({ ...routineQuery, where: { id: routineId } })
     .catch((cause) => new RoutineStorageError({ operation: "get", cause }));
   if (records instanceof Error) return records;

@@ -61,7 +61,7 @@ class SessionRegistryClosedError extends errore.createTaggedError({
 
 type SessionRegistryOptions = HaloAgentSessionOptions & {
   repo: SessionRepo;
-  database: DatabaseService;
+  db: DatabaseService;
 };
 
 type PiSessionSummary = Omit<
@@ -88,7 +88,7 @@ export class SessionRegistry {
     Promise<Error | HaloAgentSession>
   >();
   private readonly repo: SessionRepo;
-  private readonly database: DatabaseService;
+  private readonly db: DatabaseService;
   private readonly environment: HaloAgentSessionOptions["environment"];
   private readonly llmApi: HaloAgentSessionOptions["llmApi"];
   private readonly traces: HaloAgentSessionOptions["traces"];
@@ -109,7 +109,7 @@ export class SessionRegistry {
       toolRuntime,
     } = ctx;
     this.repo = repo;
-    this.database = ctx.database;
+    this.db = ctx.db;
     this.environment = environment;
     this.llmApi = llmApi;
     this.traces = traces;
@@ -120,7 +120,7 @@ export class SessionRegistry {
   }
 
   async start() {
-    const subscription = await this.database
+    const subscription = await this.db
       .subscribe(
         { collection: "sessionState" },
         () => {
@@ -350,7 +350,7 @@ export class SessionRegistry {
   }
 
   private async listProductFields() {
-    const records = await this.database
+    const records = await this.db
       .query({ collection: "sessionState" })
       .catch((cause) => new SessionStateError({ operation: "list", cause }));
     if (records instanceof Error) return records;
@@ -358,7 +358,7 @@ export class SessionRegistry {
   }
 
   private async getProductFields(sessionId: string) {
-    const records = await this.database
+    const records = await this.db
       .query({
         collection: "sessionState",
         where: { id: sessionId },
@@ -372,7 +372,7 @@ export class SessionRegistry {
     sessionId: string;
     fields: Partial<SessionProductFields>;
   }) {
-    await using tx = this.database.useTransaction();
+    await using tx = this.db.useTransaction();
     const current = await tx
       .get("sessionState", input.sessionId)
       .catch(
@@ -387,7 +387,7 @@ export class SessionRegistry {
       ...current,
       ...input.fields,
     });
-    return await this.database
+    return await this.db
       .commit(tx)
       .catch((cause) => new SessionStateError({ operation: "update", cause }));
   }

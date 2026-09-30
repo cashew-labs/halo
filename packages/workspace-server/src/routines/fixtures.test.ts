@@ -18,12 +18,12 @@ export const routineTest = baseTest.extend<{
     await fs.mkdir(parent, { recursive: true });
     const directory = await fs.mkdtemp(path.join(parent, "service-"));
     const filesystem = new FilesystemService();
-    const database = await DatabaseService.open({ directory, filesystem });
-    if (database instanceof Error) throw database;
+    const db = await DatabaseService.open({ directory, filesystem });
+    if (db instanceof Error) throw db;
     await use(async () => {
-      return new RoutineService({ database });
+      return new RoutineService({ db });
     });
-    const databaseClosed = await database.close();
+    const databaseClosed = await db.close();
     const filesystemClosed = await filesystem.close();
     await fs.rm(directory, { recursive: true, force: true });
     if (databaseClosed instanceof Error) throw databaseClosed;

@@ -20,12 +20,12 @@ class HotkeyStorageError extends errore.createTaggedError({
 export class HotkeyService {
   // Serializes validation and writes; Tandem owns records and subscriptions.
   private readonly actionQueue = new SerialQueue();
-  private readonly database: DatabaseService;
+  private readonly db: DatabaseService;
   private readonly userId: string;
   private readonly query;
 
-  constructor(ctx: { database: DatabaseService; userId: string }) {
-    this.database = ctx.database;
+  constructor(ctx: { db: DatabaseService; userId: string }) {
+    this.db = ctx.db;
     this.userId = ctx.userId;
     this.query = {
       collection: "hotkeys" as const,
@@ -35,7 +35,7 @@ export class HotkeyService {
   }
 
   async list() {
-    const records = await this.database
+    const records = await this.db
       .query(this.query)
       .catch((cause) => new HotkeyStorageError({ operation: "list", cause }));
     if (records instanceof Error) return records;
@@ -47,7 +47,7 @@ export class HotkeyService {
     using updates = changes.consume({ abortSignal: signal });
     using cleanup = new errore.DisposableStack();
     if (signal?.aborted) return;
-    const subscription = await this.database
+    const subscription = await this.db
       .subscribe(
         this.query,
         (records) => changes.append(records.map(toHotkey)),
@@ -94,7 +94,7 @@ export class HotkeyService {
       });
     }
     return await this.actionQueue.run(async () => {
-      await using tx = this.database.useTransaction();
+      await using tx = this.db.useTransaction();
       const hotkeys = await tx
         .query(this.query)
         .catch(
@@ -132,7 +132,7 @@ export class HotkeyService {
         userId: this.userId,
         position: (hotkeys.at(-1)?.position ?? 0) + 1,
       });
-      const saved = await this.database
+      const saved = await this.db
         .commit(tx)
         .catch((cause) => new HotkeyStorageError({ operation: "save", cause }));
       if (saved instanceof Error) return saved;
@@ -142,7 +142,7 @@ export class HotkeyService {
 
   async remove(id: string) {
     return await this.actionQueue.run(async () => {
-      await using tx = this.database.useTransaction();
+      await using tx = this.db.useTransaction();
       const hotkey = await tx
         .get("hotkeys", id)
         .catch(
@@ -153,7 +153,7 @@ export class HotkeyService {
       if (hotkey === undefined || hotkey.userId !== this.userId)
         return new InvalidHotkeyError({ reason: "That hotkey does not exist" });
       tx.remove("hotkeys", id);
-      return await this.database
+      return await this.db
         .commit(tx)
         .catch(
           (cause) => new HotkeyStorageError({ operation: "remove", cause }),
