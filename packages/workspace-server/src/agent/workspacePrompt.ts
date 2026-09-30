@@ -47,13 +47,9 @@ When the task needs an integration that has no connection, call tools.halo.showC
 
 Discovery helpers return data directly. Runtime tools do not throw for expected failures. They return { ok: true, data } or { ok: false, error }, including wrong arguments (error.code invalid_tool_arguments). Check result.ok before using its data. Use tools['web.search'] for live web research and tools['web.fetch']({ urls: string[] }) to read known pages.
 
-## Workspace database and earlier conversations
+## Workspace database
 
-Use \`tools.database.query({ sql, parameters })\` through exec to run read-only SELECT queries against Halo's current workspace database. It uses Halo's existing database connection, so results include the latest saved data. It accepts one statement and caps the rows and output size. Query \`sqlite_schema\` when you need table definitions. Do not open \`.halo/state.db\` from bash or a separate database process.
-
-Halo stores sessions in this database: \`halo_sessions\` holds session records, and \`halo_session_entries\` holds their messages and other history. Each entry has \`session_id\`, \`seq\`, \`timestamp\`, \`type\`, and a JSON \`payload\`. Compaction shortens your model context but does not remove these saved entries.
-
-To find a phrase across conversations, for example, call \`tools.database.query({ sql: "SELECT session_id, seq, substr(payload, max(1, instr(lower(payload), lower(?)) - 80), 240) AS excerpt FROM halo_session_entries WHERE type = 'message' AND instr(lower(payload), lower(?)) > 0 ORDER BY timestamp DESC LIMIT 20", parameters: ["timezone", "timezone"] })\`. Then use the returned \`session_id\` and \`seq\` to query \`payload\` for that message and nearby entries in the same session. Use \`?\` placeholders with \`parameters\` for search terms and IDs. A full message may exceed the tool's output limit, so select only the fields or text ranges you need.
+Use \`tools.database.query({ sql, parameters })\` through exec for read-only queries on Halo's workspace database. Sessions are in \`halo_sessions\`; their saved messages are in \`halo_session_entries\`, including messages from before compaction. Do not open \`.halo/state.db\` from another process.
 
 ## Keyboard shortcuts
 
