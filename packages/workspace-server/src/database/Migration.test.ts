@@ -614,36 +614,36 @@ migrationTest(
       const closed = await filesystem.close();
       if (closed instanceof Error) throw closed;
     });
-    const database = await DatabaseService.open({
+    const db = await DatabaseService.open({
       directory: migration.directory,
       filesystem,
     });
-    if (database instanceof Error) throw database;
+    if (db instanceof Error) throw db;
     cleanup.defer(async () => {
-      const closed = await database.close();
+      const closed = await db.close();
       if (closed instanceof Error) throw closed;
     });
     using warnings = vi.spyOn(console, "warn");
     const abandoned = await (async () => {
-      await using tx = database.useTransaction();
+      await using tx = db.useTransaction();
       await tx.get("sessionState", "session");
       tx.set("sessionState", { id: "session", markedDone: true });
       return tx;
     })();
     await expect(abandoned.get("sessionState", "session")).rejects.toThrow();
-    expect(await database.query({ collection: "sessionState" })).toEqual([]);
+    expect(await db.query({ collection: "sessionState" })).toEqual([]);
 
     const updates: WorkspaceSchema["sessionState"][][] = [];
-    const subscription = await database.subscribe(
+    const subscription = await db.subscribe(
       { collection: "sessionState" },
       (records) => updates.push(records),
     );
     cleanup.defer(() => subscription.destroy());
     expect(subscription.result).toEqual([]);
     {
-      await using tx = database.useTransaction();
+      await using tx = db.useTransaction();
       tx.set("sessionState", { id: "session", markedDone: false });
-      await database.commit(tx);
+      await db.commit(tx);
     }
     await expect
       .poll(() => updates.at(-1))
@@ -651,19 +651,19 @@ migrationTest(
 
     // A competing write makes commit reject after consuming the transaction.
     {
-      await using tx = database.useTransaction();
+      await using tx = db.useTransaction();
       await tx.get("sessionState", "session");
-      const writer = database.transact();
+      const writer = db.transact();
       writer.set("sessionState", { id: "session", markedDone: true });
-      await database.commit(writer);
+      await db.commit(writer);
       tx.set("sessionState", { id: "session", markedDone: false });
-      await expect(database.commit(tx)).rejects.toThrow();
+      await expect(db.commit(tx)).rejects.toThrow();
     }
-    expect(await database.query({ collection: "sessionState" })).toEqual([
+    expect(await db.query({ collection: "sessionState" })).toEqual([
       { id: "session", markedDone: true },
     ]);
     {
-      await using tx = database.useTransaction();
+      await using tx = db.useTransaction();
       await tx.get("sessionState", "session");
       await tx.cancel();
     }

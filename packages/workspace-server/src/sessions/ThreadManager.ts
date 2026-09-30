@@ -62,7 +62,7 @@ class ThreadManagerClosedError extends errore.createTaggedError({
 
 type ThreadManagerOptions = ThreadOptions & {
   repo: ThreadRepoApi;
-  database: DatabaseService;
+  db: DatabaseService;
 };
 
 type PiSessionSummary = Omit<
@@ -94,7 +94,7 @@ export class ThreadManager {
   private readonly sessions = new Map<string, Thread>();
   private readonly stored = new Map<string, Promise<ThreadHandle | Error>>();
   private readonly repo: ThreadRepoApi;
-  private readonly database: DatabaseService;
+  private readonly db: DatabaseService;
   private readonly environment: ThreadOptions["environment"];
   private readonly llmApi: ThreadOptions["llmApi"];
   private readonly filesystem: ThreadOptions["filesystem"];
@@ -104,7 +104,7 @@ export class ThreadManager {
   constructor(ctx: ThreadManagerOptions) {
     const { repo, environment, llmApi, filesystem, layout, toolRuntime } = ctx;
     this.repo = repo;
-    this.database = ctx.database;
+    this.db = ctx.db;
     this.environment = environment;
     this.llmApi = llmApi;
     this.filesystem = filesystem;
@@ -120,7 +120,7 @@ export class ThreadManager {
   }
 
   async start() {
-    const subscription = await this.database
+    const subscription = await this.db
       .subscribe(
         { collection: "sessionState" },
         () => {
@@ -507,7 +507,7 @@ export class ThreadManager {
   }
 
   private async listProductFields() {
-    const records = await this.database
+    const records = await this.db
       .query({ collection: "sessionState" })
       .catch((cause) => new SessionStateError({ operation: "list", cause }));
     if (records instanceof Error) return records;
@@ -515,7 +515,7 @@ export class ThreadManager {
   }
 
   private async getProductFields(sessionId: string) {
-    const records = await this.database
+    const records = await this.db
       .query({ collection: "sessionState", where: { id: sessionId } })
       .catch((cause) => new SessionStateError({ operation: "get", cause }));
     if (records instanceof Error) return records;
@@ -526,7 +526,7 @@ export class ThreadManager {
     sessionId: string;
     fields: Partial<SessionProductFields>;
   }) {
-    await using tx = this.database.useTransaction();
+    await using tx = this.db.useTransaction();
     const current = await tx
       .get("sessionState", input.sessionId)
       .catch(
@@ -540,7 +540,7 @@ export class ThreadManager {
       ...current,
       ...input.fields,
     });
-    return await this.database
+    return await this.db
       .commit(tx)
       .catch((cause) => new SessionStateError({ operation: "update", cause }));
   }

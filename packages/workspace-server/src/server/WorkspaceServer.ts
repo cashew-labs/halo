@@ -98,7 +98,7 @@ export class WorkspaceServer {
     return this.idleReporter.idle;
   }
   private readonly filesystem: FilesystemService;
-  private readonly database: DatabaseService;
+  private readonly db: DatabaseService;
   private readonly sessionRepo: TursoThreadRepo;
   private readonly workspace: WorkspaceService;
   private readonly sessions: ThreadManager;
@@ -115,7 +115,7 @@ export class WorkspaceServer {
   private constructor(ctx: {
     idleReporter: WorkspaceIdleReporter;
     filesystem: FilesystemService;
-    database: DatabaseService;
+    db: DatabaseService;
     sessionRepo: TursoThreadRepo;
     workspace: WorkspaceService;
     sessions: ThreadManager;
@@ -131,7 +131,7 @@ export class WorkspaceServer {
   }) {
     const {
       filesystem,
-      database,
+      db,
       sessionRepo,
       workspace,
       sessions,
@@ -147,7 +147,7 @@ export class WorkspaceServer {
     } = ctx;
     this.idleReporter = ctx.idleReporter;
     this.filesystem = filesystem;
-    this.database = database;
+    this.db = db;
     this.sessionRepo = sessionRepo;
     this.workspace = workspace;
     this.sessions = sessions;
@@ -210,7 +210,7 @@ export class WorkspaceServer {
     });
     if (traces instanceof Error) return traces;
     cleanup.defer(async () => await traces.close());
-    const database = await DatabaseService.open({
+    const db = await DatabaseService.open({
       directory: path.join(workspaceRoot, ".halo"),
       filesystem,
       executorTenantMigration:
@@ -221,16 +221,16 @@ export class WorkspaceServer {
               toTenant: workspaceRoot,
             },
     });
-    if (database instanceof Error) return database;
+    if (db instanceof Error) return db;
     cleanup.defer(async () => {
-      const closed = await database.close();
+      const closed = await db.close();
       if (closed instanceof Error)
         host.logger.warn({
           event: "database-cleanup-failed",
           error: closed,
         });
     });
-    const sessionRepo = new TursoThreadRepo(database.createNativeConnection());
+    const sessionRepo = new TursoThreadRepo(db.createNativeConnection());
     const search = new WorkspaceSearch({ workspace, repo: sessionRepo });
     cleanup.defer(async () => {
       const closed = await sessionRepo.close();
@@ -241,16 +241,16 @@ export class WorkspaceServer {
         });
     });
     const hotkeys = new HotkeyService({
-      database,
+      db,
       userId: config.ownerUserId,
     });
     const routines = new RoutineService({
-      database,
+      db,
     });
     const [initialized, toolRuntime] = await Promise.all([
       workspace.initialize(),
       ToolRuntime.create({
-        database: database.createNativeConnection(),
+        database: db.createNativeConnection(),
         workspaceRoot,
         userId: config.ownerUserId,
         integrationsEnabled: config.integrationsEnabled,
@@ -263,7 +263,7 @@ export class WorkspaceServer {
         oauthTestOrigin: config.oauthTestOrigin,
         toolPlugins: [
           createWorkspaceFilesPlugin(filesystem),
-          createDatabaseQueryPlugin(database.createNativeConnection()),
+          createDatabaseQueryPlugin(db.createNativeConnection()),
           createHotkeysPlugin(hotkeys),
           createThreadPlugin(() => ({
             threads: sessions,
@@ -312,7 +312,7 @@ export class WorkspaceServer {
     const sessions = new ThreadManager({
       environment: config.environment,
       repo: sessionRepo,
-      database,
+      db,
       llmApi: host.llmApi,
       filesystem,
       layout: workspace.layout,
@@ -384,7 +384,7 @@ export class WorkspaceServer {
     return new WorkspaceServer({
       idleReporter,
       filesystem,
-      database,
+      db,
       sessionRepo,
       workspace,
       sessions,
@@ -420,7 +420,7 @@ export class WorkspaceServer {
     await this.extensions.stop();
     const toolsClosed = await this.toolRuntime.close();
     const repoClosed = await this.sessionRepo.close();
-    const databaseClosed = await this.database.close();
+    const databaseClosed = await this.db.close();
     const httpClosed = await closeHaloHttp(this.http);
     this.workspace.close();
     const filesystemClosed = await this.filesystem.close();
