@@ -23,7 +23,7 @@ import type {
   ThreadRepoApi,
   ThreadHandle,
   ThreadMetadata,
-} from "../storage/ThreadRepoApi.js";
+} from "../database/ThreadRepoApi.js";
 
 export class SessionNotFoundError extends errore.createTaggedError({
   name: "SessionNotFoundError",

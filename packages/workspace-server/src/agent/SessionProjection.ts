@@ -12,7 +12,7 @@ import {
   type SessionSnapshot,
   type SessionSummary,
 } from "@get-halo/client";
-import type { ThreadData, ThreadMetadata } from "../storage/ThreadRepoApi.js";
+import type { ThreadData, ThreadMetadata } from "../database/ThreadRepoApi.js";
 import { sessionEntry, sessionSnapshot } from "./sessionEvents.js";
 
 export type MessagePresentation =

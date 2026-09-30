@@ -1,6 +1,6 @@
 import { Type } from "@sinclair/typebox";
 import * as errore from "errore";
-import type { NativeConnection } from "../../../storage/DatabaseService.js";
+import type { NativeConnection } from "../../../database/DatabaseService.js";
 import { defineHaloTool, type HaloToolPlugin } from "../HaloToolPlugin.js";
 
 const maxRows = 50;
