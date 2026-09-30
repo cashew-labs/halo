@@ -1,6 +1,8 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { Database } from "@tursodatabase/database/compat";
+import { haloSchema, haloSchemaToTandemSchema } from "@get-halo/schema";
+import { TandemServer } from "@tanishqkancharla/tandem-server";
 import { expect, test as baseTest, vi } from "vitest";
 import * as errore from "errore";
 import { DatabaseService } from "./DatabaseService.js";
@@ -17,7 +19,10 @@ import {
   workspaceMigrations,
 } from "./migrations/workspaceMigrations.js";
 import { TursoTupleStorage } from "./TursoTupleStorage.js";
-import type { WorkspaceSchema } from "./tables/workspaceSchema.js";
+import {
+  workspaceSchema,
+  type WorkspaceSchema,
+} from "./tables/workspaceSchema.js";
 
 type MigrationFixture = {
   directory: string;
@@ -499,6 +504,7 @@ migrationTest(
   async ({ migration }) => {
     const connection = migration.open(workspaceMigrations);
     const storage = new TursoTupleStorage({
+      schema: workspaceSchema,
       database: { access: async (operation) => await operation(connection) },
     });
     const hotkey: WorkspaceSchema["hotkeys"] = {
@@ -602,6 +608,57 @@ migrationTest(
       updated,
     ]);
     await storage.close();
+  },
+);
+
+migrationTest(
+  "uses supplied collection and field mappings instead of the workspace schema",
+  async ({ migration }) => {
+    await using cleanup = new errore.AsyncDisposableStack();
+    const connection = migration.open(workspaceMigrations);
+    // Reuse an existing SQL layout with unrelated logical collection/field names.
+    const definition = haloSchema.schema({
+      receipts: haloSchema.table({
+        table: "halo_session_state",
+        fields: {
+          id: haloSchema.id(),
+          complete: haloSchema.boolean("marked_done"),
+          cursor: haloSchema.optional(
+            haloSchema.text("read_receipt_cursor_id"),
+          ),
+        },
+        relations: {},
+      }),
+    });
+    const storage = new TursoTupleStorage({
+      schema: definition,
+      database: { access: async (operation) => await operation(connection) },
+    });
+    const tandem = new TandemServer({
+      ...haloSchemaToTandemSchema(definition),
+      storage,
+    });
+    cleanup.defer(async () => await tandem.close());
+    const tx = tandem.transact();
+    tx.set("receipts", { id: "a", complete: false });
+    tx.set("receipts", { id: "z", complete: true, cursor: "entry-7" });
+    await tandem.commit(tx);
+    expect(await tandem.query({ collection: "receipts" })).toEqual([
+      { id: "a", complete: false },
+      { id: "z", complete: true, cursor: "entry-7" },
+    ]);
+    expect(await storage.scan({ gt: ["record", "receipts", "a"] })).toEqual([
+      {
+        key: ["record", "receipts", "z"],
+        value: { id: "z", complete: true, cursor: "entry-7" },
+      },
+    ]);
+    const removal = tandem.transact();
+    removal.remove("receipts", "z");
+    await tandem.commit(removal);
+    expect(await tandem.query({ collection: "receipts" })).toEqual([
+      { id: "a", complete: false },
+    ]);
   },
 );
 

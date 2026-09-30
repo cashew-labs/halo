@@ -6,7 +6,7 @@ import {
   workspaceSchema,
   type WorkspaceSchema,
 } from "./tables/workspaceSchema.js";
-import { haloSchemaToTandemSchema } from "./schema/haloSchemaToTandemSchema.js";
+import { haloSchemaToTandemSchema } from "@get-halo/schema";
 export type { WorkspaceSchema } from "./tables/workspaceSchema.js";
 
 class DatabaseServiceError extends errore.createTaggedError({
@@ -38,6 +38,7 @@ export class DatabaseService {
       schema,
       relations,
       storage: new TursoTupleStorage({
+        schema: workspaceSchema,
         database: this.createNativeConnection(),
       }),
     });

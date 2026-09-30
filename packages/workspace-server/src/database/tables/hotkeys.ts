@@ -1,5 +1,5 @@
 import type { Hotkey } from "@get-halo/client";
-import { haloSchema } from "../schema/schema.js";
+import { haloSchema } from "@get-halo/schema";
 
 export const hotkeys = haloSchema.table({
   table: "halo_hotkeys",
