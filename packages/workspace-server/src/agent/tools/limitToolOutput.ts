@@ -28,9 +28,9 @@ function textContent(result: AgentToolResult<unknown>) {
     .join("\n");
 }
 
-function preview(content: string, outputFile: string) {
+function preview(content: string, notice: string) {
   const omittedChars = content.length - headChars - tailChars;
-  return `${content.slice(0, headChars)}\n\n[${omittedChars.toLocaleString()} characters omitted from the middle. Full output: ${outputFile}. Search that file or read a narrow range to inspect the omitted content. Results from those tools are also capped.]\n\n${content.slice(-tailChars)}`;
+  return `${content.slice(0, headChars)}\n\n[${omittedChars.toLocaleString()} characters omitted from the middle. ${notice}]\n\n${content.slice(-tailChars)}`;
 }
 
 async function saveOutput(input: {
@@ -91,25 +91,30 @@ export function limitToolOutput(
         content: fullText,
       });
       if (outputFile instanceof Error)
-        return {
-          content: [{ type: "text", text: outputFile.message }],
-          details: undefined,
-          isError: true,
-        };
+        console.warn("Failed to save full tool output:", outputFile);
+
+      const notice =
+        outputFile instanceof Error
+          ? "Full output could not be saved. Run a narrower query to inspect the omitted content."
+          : `Full output: ${outputFile}. Search that file or read a narrow range to inspect the omitted content. Results from those tools are also capped.`;
 
       return {
         ...result,
         content: [
-          { type: "text", text: preview(fullText, outputFile) },
+          { type: "text", text: preview(fullText, notice) },
           ...result.content.filter((part) => part.type !== "text"),
         ],
         details:
           tool.name === "exec" && Value.Check(execDetailsSchema, result.details)
-            ? {
-                toolCalls: result.details.toolCalls,
-                fullOutputPath: outputFile,
-              }
-            : { fullOutputPath: outputFile },
+            ? outputFile instanceof Error
+              ? { toolCalls: result.details.toolCalls }
+              : {
+                  toolCalls: result.details.toolCalls,
+                  fullOutputPath: outputFile,
+                }
+            : outputFile instanceof Error
+              ? undefined
+              : { fullOutputPath: outputFile },
       };
     },
   };

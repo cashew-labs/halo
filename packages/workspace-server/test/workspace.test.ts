@@ -1486,6 +1486,51 @@ serverTest(
 );
 
 serverTest(
+  "keeps a bounded preview when saving a large tool result fails",
+  async ({ server, llm }) => {
+    const fullText = `${"A".repeat(9_000)}needle in the middle${"Z".repeat(33_000)}`;
+    await server.rpc.workspace.writeFile({
+      path: "large.txt",
+      content: fullText,
+    });
+    const session = await server.rpc.sessions.create();
+    const outputDirectory = path.join(
+      server.workspaceRoot,
+      ".halo",
+      "tool-outputs",
+    );
+    await fs.mkdir(outputDirectory, { recursive: true });
+    await fs.writeFile(
+      path.join(outputDirectory, session.sessionId),
+      "blocked",
+    );
+
+    const prompt = server.rpc.sessions.prompt({
+      ...session,
+      text: "Read large.txt",
+    });
+    await llm.respond(
+      m.tool.start("read", {
+        id: "read-large-save-failure",
+        arguments: { path: "large.txt" },
+      }),
+    );
+    await llm.respond(({ messages }) => {
+      const output = messageText(
+        messages.findLast((item) => item.role === "tool")!,
+      );
+      expect(output).toContain("A".repeat(8_000));
+      expect(output).toContain("Z".repeat(32_000));
+      expect(output).not.toContain("needle in the middle");
+      expect(output).toContain("Full output could not be saved");
+      expect(output.length).toBeLessThan(41_000);
+      return m.assistant("Done.");
+    });
+    await prompt;
+  },
+);
+
+serverTest(
   "exposes the same exec activity through live updates, snapshots, and server restart",
   async ({ server, llm, http }) => {
     await server.rpc.workspace.writeFile({
