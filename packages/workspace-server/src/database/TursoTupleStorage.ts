@@ -1,4 +1,3 @@
-// oxlint-disable unicorn/no-null -- SQL rows and bindings use null for NULL.
 import type {
   TandemServerStorageApi,
   TandemTuple,
@@ -7,51 +6,9 @@ import type { Database } from "@tursodatabase/database/compat";
 import * as errore from "errore";
 import type { ScanStorageArgs, Tuple, WriteOps } from "tuple-database";
 import { encodeTuple } from "tuple-database/helpers/codec.js";
-import type { NativeConnection, WorkspaceSchema } from "./DatabaseService.js";
-
-type HotkeyRow = {
-  id: string;
-  user_id: string;
-  label: string;
-  accelerator: string;
-  action: string;
-  position: number;
-};
-
-type RoutineRow = {
-  id: string;
-  extension_id: string | null;
-  name: string;
-  cron: string;
-  timezone: string;
-  action: string;
-  enabled: number;
-  auto_archive_session: number;
-  next_run_at: string | null;
-  created_at: string;
-  updated_at: string;
-  last_run_id: string | null;
-  run_sequence: number;
-};
-
-type RoutineRunRow = {
-  id: string;
-  routine_id: string;
-  trigger: WorkspaceSchema["routineRuns"]["trigger"];
-  scheduled_for: string;
-  session_id: string | null;
-  status: WorkspaceSchema["routineRuns"]["status"];
-  started_at: string;
-  finished_at: string | null;
-  error: string | null;
-  sequence: number;
-};
-
-const tables = {
-  hotkeys: "halo_hotkeys",
-  routines: "halo_routine_definitions",
-  routineRuns: "halo_routine_history",
-} satisfies Record<keyof WorkspaceSchema, string>;
+import type { NativeConnection } from "./DatabaseService.js";
+import { tables, type WorkspaceSchema } from "./tables/index.js";
+import type { SqlValue } from "./tables/fields.js";
 
 class TupleStorageClosedError extends errore.createTaggedError({
   name: "TupleStorageClosedError",
@@ -90,76 +47,23 @@ export class TursoTupleStorage implements TandemServerStorageApi<WorkspaceSchema
       if (args.limit !== undefined) bindings.push(args.limit);
       const where =
         predicates.length === 0 ? "" : ` WHERE ${predicates.join(" AND ")}`;
-      // SAFETY: The projection matches halo_hotkeys. The key index preserves
-      // arbitrary tuple bounds; domain fields live in columns, not opaque tuples.
-      const hotkeys = connection
-        .prepare(
-          `SELECT id, user_id, label, accelerator, action, position FROM halo_hotkeys${where} ORDER BY tuple_key ${direction}${limit}`,
-        )
-        .all(...bindings) as HotkeyRow[];
-      const rows: TandemTuple<WorkspaceSchema>[] = hotkeys.map((row) => ({
-        key: ["record", "hotkeys", row.id],
-        value: {
-          id: row.id,
-          userId: row.user_id,
-          label: row.label,
-          accelerator: row.accelerator,
-          // SAFETY: Actions are written from the typed workspace schema below.
-          action: JSON.parse(
-            row.action,
-          ) as WorkspaceSchema["hotkeys"]["action"],
-          position: row.position,
-        },
-      }));
-      // Each table can contribute at most the global limit. Merge by tuple key,
-      // not table order, before applying that limit across collections.
       const suffix = `${where} ORDER BY tuple_key ${direction}${limit}`;
-      // SAFETY: These projections match the domain-table migration.
-      const routines = connection
-        .prepare(`SELECT * FROM halo_routine_definitions${suffix}`)
-        .all(...bindings) as RoutineRow[];
-      for (const row of routines)
-        rows.push({
-          key: ["record", "routines", row.id],
-          value: {
-            id: row.id,
-            extensionId: row.extension_id ?? undefined,
-            name: row.name,
-            cron: row.cron,
-            timezone: row.timezone,
-            // SAFETY: Written from the typed routine action below.
-            action: JSON.parse(
-              row.action,
-            ) as WorkspaceSchema["routines"]["action"],
-            enabled: row.enabled === 1,
-            autoArchiveSession: row.auto_archive_session === 1,
-            nextRunAt: row.next_run_at ?? undefined,
-            createdAt: row.created_at,
-            updatedAt: row.updated_at,
-            lastRunId: row.last_run_id ?? undefined,
-            runSequence: row.run_sequence,
-          },
-        });
-      // SAFETY: The projection matches halo_routine_history.
-      const runs = connection
-        .prepare(`SELECT * FROM halo_routine_history${suffix}`)
-        .all(...bindings) as RoutineRunRow[];
-      for (const row of runs)
-        rows.push({
-          key: ["record", "routineRuns", row.id],
-          value: {
-            id: row.id,
-            routineId: row.routine_id,
-            trigger: row.trigger,
-            scheduledFor: row.scheduled_for,
-            sessionId: row.session_id ?? undefined,
-            status: row.status,
-            startedAt: row.started_at,
-            finishedAt: row.finished_at ?? undefined,
-            error: row.error ?? undefined,
-            sequence: row.sequence,
-          },
-        });
+      const rows: TandemTuple<WorkspaceSchema>[] = [];
+      for (const [collection, table] of Object.entries(tables)) {
+        // SAFETY: The generated projection selects the SQL values expected by its field decoders.
+        const records = connection
+          .prepare(table.select + suffix)
+          .all(...bindings) as Record<string, SqlValue>[];
+        for (const row of records) {
+          const value = table.decode(row);
+          // SAFETY: The registry pairs each collection with its own record decoder.
+          rows.push({
+            key: ["record", collection, value.id],
+            value,
+          } as TandemTuple<WorkspaceSchema>);
+        }
+      }
+      // Each table contributes at most the global limit; merge by tuple key before limiting.
       rows.sort(
         (a, b) =>
           Buffer.compare(encodeKey(a.key), encodeKey(b.key)) *
@@ -174,90 +78,18 @@ export class TursoTupleStorage implements TandemServerStorageApi<WorkspaceSchema
   async commit(writes: WriteOps<TandemTuple<WorkspaceSchema>>): Promise<void> {
     await this.access((connection) =>
       connection.transaction(() => {
-        const setHotkey = connection.prepare(
-          `INSERT INTO halo_hotkeys (tuple_key, id, user_id, label, accelerator, action, position)
-           VALUES (?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT(tuple_key) DO UPDATE SET
-             id = excluded.id, user_id = excluded.user_id, label = excluded.label,
-             accelerator = excluded.accelerator, action = excluded.action, position = excluded.position`,
-        );
-        const setRoutine = connection.prepare(
-          `INSERT INTO halo_routine_definitions
-            (tuple_key, id, extension_id, name, cron, timezone, action, enabled, auto_archive_session,
-             next_run_at, created_at, updated_at, last_run_id, run_sequence)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT(tuple_key) DO UPDATE SET
-             extension_id = excluded.extension_id, name = excluded.name, cron = excluded.cron,
-             timezone = excluded.timezone, action = excluded.action, enabled = excluded.enabled,
-             auto_archive_session = excluded.auto_archive_session, next_run_at = excluded.next_run_at,
-             created_at = excluded.created_at, updated_at = excluded.updated_at,
-             last_run_id = excluded.last_run_id, run_sequence = excluded.run_sequence`,
-        );
-        const setRun = connection.prepare(
-          `INSERT INTO halo_routine_history
-            (tuple_key, id, routine_id, trigger, scheduled_for, session_id, status, started_at, finished_at, error, sequence)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT(tuple_key) DO UPDATE SET
-             routine_id = excluded.routine_id, trigger = excluded.trigger, scheduled_for = excluded.scheduled_for,
-             session_id = excluded.session_id, status = excluded.status, started_at = excluded.started_at,
-             finished_at = excluded.finished_at, error = excluded.error, sequence = excluded.sequence`,
-        );
         // Match Tandem's in-memory/JSON storage: sets win if a batch also removes a key.
         for (const key of writes.remove ?? [])
+          connection.prepare(tables[key[1]].remove).run(encodeKey(key));
+        for (const { key, value } of writes.set ?? []) {
+          // SAFETY: TandemTuple pairs the collection key with the matching record type.
+          const table = tables[key[1]] as {
+            upsert: string;
+            encode(record: typeof value): SqlValue[];
+          };
           connection
-            .prepare(`DELETE FROM ${tables[key[1]]} WHERE tuple_key = ?`)
-            .run(encodeKey(key));
-        for (const { key, value: record } of writes.set ?? []) {
-          if (key[1] === "routines") {
-            // SAFETY: TandemTuple pairs the checked collection key with its record type.
-            const value = record as WorkspaceSchema["routines"];
-            setRoutine.run(
-              encodeKey(key),
-              value.id,
-              value.extensionId ?? null,
-              value.name,
-              value.cron,
-              value.timezone,
-              JSON.stringify(value.action),
-              value.enabled ? 1 : 0,
-              value.autoArchiveSession ? 1 : 0,
-              value.nextRunAt ?? null,
-              value.createdAt,
-              value.updatedAt,
-              value.lastRunId ?? null,
-              value.runSequence,
-            );
-            continue;
-          }
-          if (key[1] === "routineRuns") {
-            // SAFETY: TandemTuple pairs the checked collection key with its record type.
-            const value = record as WorkspaceSchema["routineRuns"];
-            setRun.run(
-              encodeKey(key),
-              value.id,
-              value.routineId,
-              value.trigger,
-              value.scheduledFor,
-              value.sessionId ?? null,
-              value.status,
-              value.startedAt,
-              value.finishedAt ?? null,
-              value.error ?? null,
-              value.sequence,
-            );
-            continue;
-          }
-          // SAFETY: The remaining TandemTuple collection is hotkeys.
-          const value = record as WorkspaceSchema["hotkeys"];
-          setHotkey.run(
-            encodeKey(key),
-            value.id,
-            value.userId,
-            value.label,
-            value.accelerator,
-            JSON.stringify(value.action),
-            value.position,
-          );
+            .prepare(table.upsert)
+            .run(encodeKey(key), ...table.encode(value));
         }
       })(),
     );

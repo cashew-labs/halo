@@ -1,64 +1,14 @@
-import {
-  collection,
-  defineRelations,
-  defineSchema,
-  type SchemaFromCollections,
-} from "@tanishqkancharla/tandem-core";
 import { TandemServer } from "@tanishqkancharla/tandem-server";
 import * as errore from "errore";
-import type { Hotkey, Routine, RoutineRun } from "@get-halo/client";
 import { DatabaseClient } from "./DatabaseClient.js";
 import { TursoTupleStorage } from "./TursoTupleStorage.js";
+import { schema, relations, type WorkspaceSchema } from "./tables/index.js";
+export type { WorkspaceSchema } from "./tables/index.js";
 
 class DatabaseServiceError extends errore.createTaggedError({
   name: "DatabaseServiceError",
   message: "Database service failed during $operation",
 }) {}
-
-const schema = defineSchema({
-  hotkeys: collection<Hotkey & { userId: string; position: number }>(),
-  routines: collection<
-    Omit<Routine, "lastRun"> & { lastRunId?: string; runSequence: number }
-  >({
-    fields: [
-      "id",
-      "extensionId",
-      "name",
-      "cron",
-      "timezone",
-      "action",
-      "enabled",
-      "autoArchiveSession",
-      "nextRunAt",
-      "createdAt",
-      "updatedAt",
-      "lastRunId",
-      "runSequence",
-    ],
-  }),
-  routineRuns: collection<RoutineRun & { sequence: number }>({
-    fields: [
-      "id",
-      "routineId",
-      "trigger",
-      "scheduledFor",
-      "sessionId",
-      "status",
-      "startedAt",
-      "finishedAt",
-      "error",
-      "sequence",
-    ],
-  }),
-});
-const relations = defineRelations(schema, ({ one, many }) => ({
-  routines: {
-    lastRun: one("routineRuns", { from: "lastRunId", to: "id" }),
-    runs: many("routineRuns", { from: "id", to: "routineId" }),
-  },
-  routineRuns: { routine: one("routines", { from: "routineId", to: "id" }) },
-}));
-export type WorkspaceSchema = SchemaFromCollections<typeof schema.collections>;
 
 export type NativeConnection = Pick<DatabaseClient, "access">;
 
