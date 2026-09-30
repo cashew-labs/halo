@@ -14,7 +14,7 @@ import {
   workspaceMigrations,
 } from "./migrations/workspaceMigrations.js";
 import { TursoTupleStorage } from "./TursoTupleStorage.js";
-import type { WorkspaceSchema } from "./tables/index.js";
+import type { WorkspaceSchema } from "./tables/workspaceSchema.js";
 
 type MigrationFixture = {
   attemptOpen(migrations: readonly Migration[]): Database | Error;

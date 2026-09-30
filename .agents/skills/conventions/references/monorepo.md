@@ -28,4 +28,8 @@ Use pnpm workspaces and Turborepo. Name workspace packages with the `@get-halo/*
 
 Each package has one supported main entry, not necessarily one exported symbol. Consumers import that public API rather than internal files. Document runtime-separated export exceptions when combining browser and server code would load incompatible dependencies.
 
+Do not use `index.ts` files. Give entry modules a name that describes their responsibility, such as `schema.ts` or `workspaceSchema.ts`.
+
+Do not use wildcard exports, including `export *`, `export type *`, and `export * as`. Export names explicitly. For a grouped API, export a named object such as `haloSchema` from its owning module.
+
 Inside the package, organize files around service ownership. Keep a service, its helpers, and its types together, such as `auth/AuthService.ts` and `auth/callback.ts`. Put shared children at the lowest common owner that needs them. Split by responsibility, not file length.

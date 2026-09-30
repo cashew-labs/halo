@@ -7,8 +7,14 @@ import * as errore from "errore";
 import type { ScanStorageArgs, Tuple, WriteOps } from "tuple-database";
 import { encodeTuple } from "tuple-database/helpers/codec.js";
 import type { NativeConnection } from "./DatabaseService.js";
-import { tables, type WorkspaceSchema } from "./tables/index.js";
-import type { SqlValue } from "./tables/fields.js";
+import {
+  workspaceSchema,
+  type WorkspaceSchema,
+} from "./tables/workspaceSchema.js";
+import {
+  haloSchemaToTursoTables,
+  type SqlValue,
+} from "./schema/haloSchemaToTursoTables.js";
 
 class TupleStorageClosedError extends errore.createTaggedError({
   name: "TupleStorageClosedError",
@@ -18,6 +24,7 @@ class TupleStorageClosedError extends errore.createTaggedError({
 export class TursoTupleStorage implements TandemServerStorageApi<WorkspaceSchema> {
   // Closing this borrower rejects new operations, then drains queued database work.
   private closed = false;
+  private readonly tables = haloSchemaToTursoTables(workspaceSchema);
   private readonly database: NativeConnection;
 
   constructor(ctx: { database: NativeConnection }) {
@@ -49,7 +56,7 @@ export class TursoTupleStorage implements TandemServerStorageApi<WorkspaceSchema
         predicates.length === 0 ? "" : ` WHERE ${predicates.join(" AND ")}`;
       const suffix = `${where} ORDER BY tuple_key ${direction}${limit}`;
       const rows: TandemTuple<WorkspaceSchema>[] = [];
-      for (const [collection, table] of Object.entries(tables)) {
+      for (const [collection, table] of Object.entries(this.tables)) {
         // SAFETY: The generated projection selects the SQL values expected by its field decoders.
         const records = connection
           .prepare(table.select + suffix)
@@ -80,10 +87,10 @@ export class TursoTupleStorage implements TandemServerStorageApi<WorkspaceSchema
       connection.transaction(() => {
         // Match Tandem's in-memory/JSON storage: sets win if a batch also removes a key.
         for (const key of writes.remove ?? [])
-          connection.prepare(tables[key[1]].remove).run(encodeKey(key));
+          connection.prepare(this.tables[key[1]].remove).run(encodeKey(key));
         for (const { key, value } of writes.set ?? []) {
           // SAFETY: TandemTuple pairs the collection key with the matching record type.
-          const table = tables[key[1]] as {
+          const table = this.tables[key[1]] as {
             upsert: string;
             encode(record: typeof value): SqlValue[];
           };

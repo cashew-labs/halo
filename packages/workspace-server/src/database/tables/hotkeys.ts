@@ -1,16 +1,15 @@
 import type { Hotkey } from "@get-halo/client";
-import { defineTable } from "./defineTable.js";
-import * as field from "./fields.js";
+import { haloSchema } from "../schema/schema.js";
 
-export const hotkeys = defineTable({
+export const hotkeys = haloSchema.table({
   table: "halo_hotkeys",
   fields: {
-    id: field.id(),
-    userId: field.text("user_id"),
-    label: field.text(),
-    accelerator: field.text(),
-    action: field.json<Hotkey["action"]>(),
-    position: field.number(),
+    id: haloSchema.id(),
+    userId: haloSchema.text("user_id"),
+    label: haloSchema.text(),
+    accelerator: haloSchema.text(),
+    action: haloSchema.json<Hotkey["action"]>(),
+    position: haloSchema.number(),
   },
   relations: {},
 });
