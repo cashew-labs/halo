@@ -17,11 +17,14 @@ Move this section into the PR description when creating the PR, then remove it h
     - [x] Expose native access for remaining SQL consumers
   - [ ] Move services to Tandem
     - [x] Move hotkeys to Tandem and a domain-shaped Turso table
-    - [ ] Move routines and run history to Tandem
+    - [x] Move routines and run history to Tandem
     - [ ] Move session summaries and read/done state to Tandem
     - [ ] Update session search alongside session storage
     - [ ] Decide Executor storage: direct Tandem adapter or native SQL with synchronized public records
       - [ ] Resolve change-feed ownership if retaining native SQL
+  - [ ] Refactor storage schemas after this phase
+    - [ ] Encapsulate each table's Tandem fields and Turso record translation
+    - [ ] Build the Tandem schema and tuple storage from those definitions
   - [ ] Move extension storage into the main database
   - [ ] Move Pi onto Tandem
     - [ ] Adapt session storage and repository operations

@@ -1,5 +1,5 @@
 import * as errore from "errore";
-import type { WorkspaceUpdate } from "@get-halo/client";
+import { protocolHeader, type WorkspaceUpdate } from "@get-halo/client";
 import { Stream } from "@get-halo/shared/Stream";
 import { orpcErrors } from "../orpcErrors.js";
 import type { HaloContext } from "./router.js";
@@ -40,10 +40,16 @@ export async function* watchWorkspace({
       update,
     })),
     forward(files, (batch) => ({ type: "files", events: batch })),
-    forward(context.routines.watch(abortSignal), (routines) => ({
-      type: "routines",
-      routines,
-    })),
+    // Protocol 21 renderers report unknown updates as extension errors.
+    ...(Number(context.reqHeaders?.get(protocolHeader)) >= 22
+      ? [
+          forward(context.routines.watch(abortSignal), (routines) =>
+            routines instanceof Error
+              ? routines
+              : { type: "routines", routines },
+          ),
+        ]
+      : []),
   ];
   await using cleanup = new errore.AsyncDisposableStack();
   cleanup.defer(async () => {

@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { test as baseTest } from "vitest";
 import { FilesystemService } from "../filesystem/FilesystemService.js";
-import { DatabaseClient } from "../storage/DatabaseClient.js";
+import { DatabaseService } from "../storage/DatabaseService.js";
 import { RoutineService } from "./RoutineService.js";
 
 export const routineTest = baseTest.extend<{
@@ -18,12 +18,10 @@ export const routineTest = baseTest.extend<{
     await fs.mkdir(parent, { recursive: true });
     const directory = await fs.mkdtemp(path.join(parent, "service-"));
     const filesystem = new FilesystemService();
-    const database = await DatabaseClient.open({ directory, filesystem });
+    const database = await DatabaseService.open({ directory, filesystem });
     if (database instanceof Error) throw database;
     await use(async () => {
-      const routines = await RoutineService.open({ database });
-      if (routines instanceof Error) throw routines;
-      return routines;
+      return new RoutineService({ tandem: database.tandem });
     });
     const databaseClosed = await database.close();
     const filesystemClosed = await filesystem.close();

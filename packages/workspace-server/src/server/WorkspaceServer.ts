@@ -244,10 +244,9 @@ export class WorkspaceServer {
       tandem: database.tandem,
       userId: config.ownerUserId,
     });
-    const routines = await RoutineService.open({
-      database: database.createNativeConnection(),
+    const routines = new RoutineService({
+      tandem: database.tandem,
     });
-    if (routines instanceof Error) return routines;
     const [initialized, toolRuntime] = await Promise.all([
       workspace.initialize(),
       ToolRuntime.create({

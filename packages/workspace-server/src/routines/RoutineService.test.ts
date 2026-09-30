@@ -43,7 +43,7 @@ routineTest(
       // 8:00 AM EDT later that morning.
       nextRunAt: "2026-09-25T12:00:00.000Z",
     });
-    expect(routines.list()).toEqual([saved]);
+    expect(await routines.list()).toEqual([saved]);
   },
 );
 
@@ -66,7 +66,7 @@ routineTest("rejects routines that cannot run", async ({ openRoutines }) => {
   expect(await routines.save({ ...everyTwoMinutes, id: "missing" })).toEqual(
     new RoutineNotFoundError({ routineId: "missing" }),
   );
-  expect(routines.list()).toEqual([]);
+  expect(await routines.list()).toEqual([]);
 });
 
 routineTest(
@@ -129,11 +129,11 @@ routineTest(
       status: "skipped",
       error: "The previous run is still running.",
     });
-    expect(routines.get(saved.id)).toMatchObject({
+    expect(await routines.get(saved.id)).toMatchObject({
       nextRunAt: "2026-09-25T08:04:00.000Z",
       lastRun: { id: run.id, status: "running", sessionId: "session-1" },
     });
-    expect((await openRoutines()).get(saved.id)).toMatchObject({
+    expect(await (await openRoutines()).get(saved.id)).toMatchObject({
       lastRun: { id: run.id, status: "running" },
     });
 
@@ -143,7 +143,7 @@ routineTest(
       { status: "skipped", trigger: "manual" },
       { status: "completed", trigger: "schedule", sessionId: "session-1" },
     ]);
-    expect(routines.get(saved.id)).toMatchObject({
+    expect(await routines.get(saved.id)).toMatchObject({
       lastRun: { id: run.id, status: "completed" },
     });
   },
@@ -167,7 +167,7 @@ routineTest(
     await after.recover();
     await after.finishRun({ runId: run.id, status: "completed" });
 
-    expect(after.get(saved.id)).toMatchObject({
+    expect(await after.get(saved.id)).toMatchObject({
       nextRunAt: "2026-09-25T08:10:00.000Z",
       lastRun: { id: run.id, status: "interrupted" },
     });
@@ -269,5 +269,54 @@ routineTest(
       new RoutineNotFoundError({ routineId: saved.id }),
     );
     controller.abort();
+  },
+);
+
+routineTest(
+  "publishes related run changes and claims a due occurrence only once",
+  async ({ openRoutines }) => {
+    const routines = await openRoutines();
+    const saved = await routines.save(everyTwoMinutes);
+    if (saved instanceof Error) throw saved;
+    const controller = new AbortController();
+    const updates = routines.watch(controller.signal);
+    expect((await updates.next()).value).toEqual([saved]);
+    vi.setSystemTime(new Date("2026-09-25T08:02:00Z"));
+    const [run, duplicate] = await Promise.all([
+      routines.beginRun({ routineId: saved.id, trigger: "schedule" }),
+      routines.beginRun({ routineId: saved.id, trigger: "schedule" }),
+    ]);
+    if (run instanceof Error || run === undefined) throw new Error("No run");
+    expect(duplicate).toBeUndefined();
+    expect((await updates.next()).value).toMatchObject([
+      {
+        lastRun: { id: run.id, status: "running" },
+        nextRunAt: "2026-09-25T08:04:00.000Z",
+      },
+    ]);
+    expect(
+      await routines.attachSession({
+        runId: run.id,
+        sessionId: "related-session",
+      }),
+    ).toBeUndefined();
+    expect((await updates.next()).value).toMatchObject([
+      { lastRun: { sessionId: "related-session" } },
+    ]);
+    expect(
+      await routines.finishRun({
+        runId: run.id,
+        status: "failed",
+        error: "Script exited 1",
+      }),
+    ).toBeUndefined();
+    expect((await updates.next()).value).toMatchObject([
+      { lastRun: { status: "failed", error: "Script exited 1" } },
+    ]);
+    expect(await routines.listRuns({ routineId: saved.id })).toMatchObject([
+      { id: run.id, status: "failed" },
+    ]);
+    controller.abort();
+    await updates.return();
   },
 );

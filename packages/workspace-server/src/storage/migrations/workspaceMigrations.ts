@@ -10,6 +10,7 @@ import { routineSessionArchiveMigration } from "./20260928100000-routineSessionA
 import { durableStorageMigration } from "./20261003100000-durableStorage.js";
 import { tandemTuplesMigration } from "./20260929130000-tandemTuples.js";
 import { tandemHotkeysMigration } from "./20260930120000-tandemHotkeys.js";
+import { tandemRoutinesMigration } from "./20260930130000-tandemRoutines.js";
 
 import {
   legacyThreadsMigration,
@@ -25,6 +26,7 @@ export const workspaceMigrations = [
   routineSessionArchiveMigration,
   tandemTuplesMigration,
   tandemHotkeysMigration,
+  tandemRoutinesMigration,
   durableStorageMigration,
   legacyThreadsMigration,
 ] satisfies readonly Migration[];

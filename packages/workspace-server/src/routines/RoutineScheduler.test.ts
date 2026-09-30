@@ -124,7 +124,7 @@ routineTest(
     expect(await scheduledTimes(restarted, saved.id)).toEqual([
       "2026-09-25T08:02:00.000Z",
     ]);
-    expect(restarted.get(saved.id)).toMatchObject({
+    expect(await restarted.get(saved.id)).toMatchObject({
       nextRunAt: "2026-09-25T08:10:00.000Z",
     });
     await after.stop();

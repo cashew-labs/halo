@@ -1,4 +1,5 @@
 import type { Logger } from "@get-halo/logger";
+import type { Routine } from "@get-halo/client";
 import type { RoutineRunner } from "./RoutineRunner.js";
 import type { RoutineService } from "./RoutineService.js";
 
@@ -12,6 +13,8 @@ export class RoutineScheduler {
   // Due routines being claimed; re-arming waits so a due time is not fired twice.
   private firing: Promise<void> | undefined;
   private unsubscribe: (() => void) | undefined;
+  // Latest Tandem subscription result used to choose the next timer.
+  private scheduled: Routine[] = [];
   private stopped = false;
   private readonly routines: RoutineService;
   private readonly runner: Pick<RoutineRunner, "start">;
@@ -31,7 +34,21 @@ export class RoutineScheduler {
   // Arms the timer after startup recovery has completed.
   async start(): Promise<Error | undefined> {
     if (this.stopped) return;
-    this.unsubscribe = this.routines.subscribe(() => this.arm());
+    const subscription = await this.routines.subscribe(
+      (routines) => {
+        this.scheduled = routines;
+        this.arm();
+      },
+      (error) =>
+        this.logger.warn({ event: "routine-subscription-failed", error }),
+    );
+    if (subscription instanceof Error) return subscription;
+    if (this.stopped) {
+      subscription.destroy();
+      return;
+    }
+    this.unsubscribe = subscription.destroy;
+    this.scheduled = subscription.result;
     this.arm();
   }
 
@@ -50,13 +67,11 @@ export class RoutineScheduler {
     this.timer = undefined;
     if (this.stopped || this.firing !== undefined) return;
     const nextRunAt = Math.min(
-      ...this.routines
-        .list()
-        .flatMap((routine) =>
-          routine.enabled && routine.nextRunAt !== undefined
-            ? [Date.parse(routine.nextRunAt)]
-            : [],
-        ),
+      ...this.scheduled.flatMap((routine) =>
+        routine.enabled && routine.nextRunAt !== undefined
+          ? [Date.parse(routine.nextRunAt)]
+          : [],
+      ),
     );
     if (nextRunAt === Infinity) return;
     const delay =
@@ -74,14 +89,12 @@ export class RoutineScheduler {
   }
 
   private async fire(now: number) {
-    const due = this.routines
-      .list()
-      .filter(
-        (routine) =>
-          routine.enabled &&
-          routine.nextRunAt !== undefined &&
-          Date.parse(routine.nextRunAt) <= now,
-      );
+    const due = this.scheduled.filter(
+      (routine) =>
+        routine.enabled &&
+        routine.nextRunAt !== undefined &&
+        Date.parse(routine.nextRunAt) <= now,
+    );
     await Promise.all(
       due.map(async (routine) => {
         const started = await this.runner.start({

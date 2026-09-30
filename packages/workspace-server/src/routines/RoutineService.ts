@@ -1,10 +1,9 @@
-// oxlint-disable unicorn/no-null -- SQL rows and bindings use null for NULL.
+// oxlint-disable unicorn/no-null -- Cron and Tandem relations use null for absence.
 import { randomUUID } from "node:crypto";
 import { Value } from "@sinclair/typebox/value";
 import { Cron } from "croner";
 import * as errore from "errore";
 import {
-  routineActionSchema,
   routineInputSchema,
   InvalidRoutineError,
   type Routine,
@@ -16,260 +15,188 @@ import {
 } from "@get-halo/client";
 import { SerialQueue } from "@get-halo/shared/SerialQueue";
 import { Stream } from "@get-halo/shared/Stream";
-import type { NativeConnection } from "../storage/DatabaseService.js";
+import type {
+  DatabaseService,
+  WorkspaceSchema,
+} from "../storage/DatabaseService.js";
 
 export class RoutineNotFoundError extends errore.createTaggedError({
   name: "RoutineNotFoundError",
   message: "Routine '$routineId' does not exist. List routines to find its ID.",
 }) {}
 
-type RoutineRow = {
-  id: string;
-  extension_id: string | null;
-  name: string;
-  cron: string;
-  timezone: string;
-  action: string;
-  enabled: number;
-  auto_archive_thread: number;
-  next_run_at: number | null;
-  created_at: number;
-  updated_at: number;
-};
+class RoutineStorageError extends errore.createTaggedError({
+  name: "RoutineStorageError",
+  message: "Routine storage failed during $operation",
+}) {}
 
-type RoutineRunRow = {
-  id: string;
-  routine_id: string;
-  trigger: RoutineRunTrigger;
-  scheduled_for: number;
-  thread_id: string | null;
-  status: RoutineRunStatus;
-  started_at: number;
-  finished_at: number | null;
-  error: string | null;
+type RoutineTransaction = ReturnType<DatabaseService["tandem"]["transact"]>;
+type RoutineWithRun = WorkspaceSchema["routines"] & {
+  lastRun: WorkspaceSchema["routineRuns"] | null;
 };
-
+const routineQuery = {
+  collection: "routines",
+  orderBy: { createdAt: "asc", id: "asc" },
+  with: { lastRun: true },
+} as const;
 const extensionIdPattern = /^[a-z][a-z0-9-]*$/;
 
 export class RoutineService {
-  // Committed routines with their latest run; one queue orders writes and initial subscriptions.
-  private routines: Routine[];
-  private readonly changes = new Stream<Routine[]>();
+  // Orders commands; records and related run snapshots belong to Tandem.
   private readonly actionQueue = new SerialQueue();
-  private readonly database: NativeConnection;
+  private readonly tandem: DatabaseService["tandem"];
 
-  private constructor(ctx: {
-    database: NativeConnection;
-    routines: Routine[];
-  }) {
-    this.database = ctx.database;
-    this.routines = ctx.routines;
+  constructor(ctx: { tandem: DatabaseService["tandem"] }) {
+    this.tandem = ctx.tandem;
   }
 
-  static async open(ctx: { database: NativeConnection }) {
-    const stored = await ctx.database.access((connection) => {
-      // SAFETY: The projection matches the halo_routines table.
-      const routines = connection
-        .prepare("SELECT * FROM halo_routines ORDER BY created_at, id")
-        .all() as RoutineRow[];
-      // SAFETY: The projection matches the halo_routine_runs table.
-      const lastRuns = connection
-        .prepare(
-          `SELECT * FROM halo_routine_runs AS run
-           WHERE run.id = (
-             SELECT latest.id FROM halo_routine_runs AS latest
-             WHERE latest.routine_id = run.routine_id AND latest.status != 'skipped'
-             ORDER BY latest.started_at DESC, latest.rowid DESC LIMIT 1
-           )`,
-        )
-        .all() as RoutineRunRow[];
-      return { routines, lastRuns };
-    });
-    if (stored instanceof Error) return stored;
-    const lastRuns = new Map(
-      stored.lastRuns.map((row) => [row.routine_id, runFromRow(row)]),
-    );
-    const routines: Routine[] = [];
-    for (const row of stored.routines) {
-      const routine = routineFromRow(row, lastRuns.get(row.id));
-      if (routine instanceof Error) return routine;
-      routines.push(routine);
-    }
-    return new RoutineService({ database: ctx.database, routines });
+  async list() {
+    const records = await this.tandem
+      .query(routineQuery)
+      .catch((cause) => new RoutineStorageError({ operation: "list", cause }));
+    if (records instanceof Error) return records;
+    return records.map(toRoutine);
   }
 
-  list() {
-    return this.routines;
+  async get(routineId: string) {
+    return await readRoutine(this.tandem, routineId);
   }
 
-  get(routineId: string) {
-    return (
-      this.routines.find((routine) => routine.id === routineId) ??
-      new RoutineNotFoundError({ routineId })
-    );
-  }
-
-  subscribe(listener: (routines: Routine[]) => void) {
-    return this.changes.subscribe(listener);
+  async subscribe(
+    listener: (routines: Routine[]) => void,
+    onError: (error: Error) => void,
+  ) {
+    const subscription = await this.tandem
+      .subscribe(routineQuery, (records) => listener(records.map(toRoutine)), {
+        onError,
+      })
+      .catch(
+        (cause) => new RoutineStorageError({ operation: "subscribe", cause }),
+      );
+    if (subscription instanceof Error) return subscription;
+    return {
+      result: subscription.result.map(toRoutine),
+      destroy: subscription.destroy,
+    };
   }
 
   async *watch(signal: AbortSignal | undefined) {
-    const initial = await this.actionQueue.run(() => ({
-      routines: this.routines,
-      updates: this.changes.consume({ abortSignal: signal }),
-    }));
-    using updates = initial.updates;
+    const changes = new Stream<Routine[] | Error>();
+    using updates = changes.consume({ abortSignal: signal });
+    using cleanup = new errore.DisposableStack();
     if (signal?.aborted) return;
-    yield initial.routines;
+    const subscription = await this.subscribe(
+      (routines) => changes.append(routines),
+      (error) => changes.append(error),
+    );
+    if (subscription instanceof Error) {
+      yield subscription;
+      return;
+    }
+    cleanup.defer(() => subscription.destroy());
+    if (signal?.aborted) return;
+    yield subscription.result;
     yield* updates;
   }
 
   async save(input: RoutineInput) {
     const valid = validateInput(input);
     if (valid instanceof Error) return valid;
-    return await this.actionQueue.run(async () => {
-      const existing = this.routines.find((routine) => routine.id === input.id);
-      if (input.id !== undefined && existing === undefined)
-        return new RoutineNotFoundError({ routineId: input.id });
+    return await this.change(async (transaction) => {
+      const existing =
+        input.id === undefined
+          ? undefined
+          : await readRecord(transaction, input.id);
+      if (existing instanceof Error) return existing;
       const now = Date.now();
       const enabled = input.enabled ?? existing?.enabled ?? true;
-      const autoArchiveSession =
-        input.autoArchiveSession ?? existing?.autoArchiveSession ?? false;
       const nextRunAt = enabled
         ? nextOccurrence({ ...valid, after: now })
         : undefined;
       if (nextRunAt instanceof Error) return nextRunAt;
-      const routine: Routine = {
+      const routine: WorkspaceSchema["routines"] = {
         id: existing?.id ?? randomUUID(),
         ...valid,
         enabled,
-        autoArchiveSession,
+        autoArchiveSession:
+          input.autoArchiveSession ?? existing?.autoArchiveSession ?? false,
         nextRunAt: isoTime(nextRunAt),
         createdAt: existing?.createdAt ?? new Date(now).toISOString(),
         updatedAt: new Date(now).toISOString(),
-        lastRun: existing?.lastRun,
+        lastRunId: existing?.lastRunId,
+        runSequence: existing?.runSequence ?? 0,
       };
-      const saved = await this.database.access((connection) => {
-        connection
-          .prepare(
-            `INSERT INTO halo_routines
-               (id, extension_id, name, cron, timezone, action, enabled, auto_archive_thread, next_run_at, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-             ON CONFLICT(id) DO UPDATE SET
-               extension_id = excluded.extension_id,
-               name = excluded.name,
-               cron = excluded.cron,
-               timezone = excluded.timezone,
-               action = excluded.action,
-               enabled = excluded.enabled,
-               auto_archive_thread = excluded.auto_archive_thread,
-               next_run_at = excluded.next_run_at,
-               updated_at = excluded.updated_at`,
-          )
-          .run(
-            routine.id,
-            routine.extensionId ?? null,
-            routine.name,
-            routine.cron,
-            routine.timezone,
-            JSON.stringify(routine.action),
-            routine.enabled ? 1 : 0,
-            routine.autoArchiveSession ? 1 : 0,
-            nullableTime(nextRunAt),
-            Date.parse(routine.createdAt),
-            now,
-          );
-      });
-      if (saved instanceof Error) return saved;
-      this.replace(routine);
-      return routine;
+      transaction.set("routines", routine);
+      return await readRoutine(transaction, routine.id);
     });
   }
 
   async setEnabled(input: { routineId: string; enabled: boolean }) {
-    return await this.actionQueue.run(async () => {
-      const routine = this.get(input.routineId);
+    return await this.change(async (transaction) => {
+      const routine = await readRecord(transaction, input.routineId);
       if (routine instanceof Error) return routine;
-      if (routine.enabled === input.enabled) return routine;
+      if (routine.enabled === input.enabled)
+        return await readRoutine(transaction, routine.id);
       const now = Date.now();
       const nextRunAt = input.enabled
         ? nextOccurrence({ ...routine, after: now })
         : undefined;
       if (nextRunAt instanceof Error) return nextRunAt;
-      const saved = await this.database.access((connection) => {
-        connection
-          .prepare(
-            "UPDATE halo_routines SET enabled = ?, next_run_at = ?, updated_at = ? WHERE id = ?",
-          )
-          .run(input.enabled ? 1 : 0, nullableTime(nextRunAt), now, routine.id);
-      });
-      if (saved instanceof Error) return saved;
-      const updated: Routine = {
+      transaction.set("routines", {
         ...routine,
         enabled: input.enabled,
         nextRunAt: isoTime(nextRunAt),
         updatedAt: new Date(now).toISOString(),
-      };
-      this.replace(updated);
-      return updated;
+      });
+      return await readRoutine(transaction, routine.id);
     });
   }
 
-  // Past run sessions stay in the workspace; only the schedule and run index are removed.
+  // Explicitly delete run records so Tandem invalidates both collections. Sessions stay.
   async remove(routineId: string) {
-    return await this.actionQueue.run(async () => {
-      const routine = this.get(routineId);
+    return await this.change(async (transaction) => {
+      const routine = await readRecord(transaction, routineId);
       if (routine instanceof Error) return routine;
-      const removed = await this.database.access((connection) => {
-        connection
-          .prepare("DELETE FROM halo_routines WHERE id = ?")
-          .run(routineId);
-      });
-      if (removed instanceof Error) return removed;
-      this.publish(this.routines.filter((item) => item.id !== routineId));
+      const runs = await transaction
+        .query({ collection: "routineRuns", where: { routineId } })
+        .catch(
+          (cause) =>
+            new RoutineStorageError({
+              operation: "read runs before remove",
+              cause,
+            }),
+        );
+      if (runs instanceof Error) return runs;
+      for (const run of runs) transaction.remove("routineRuns", run.id);
+      transaction.remove("routines", routineId);
     });
   }
 
   async listRuns(input: { routineId: string; limit?: number }) {
-    const routine = this.get(input.routineId);
+    const routine = await this.get(input.routineId);
     if (routine instanceof Error) return routine;
-    const rows = await this.database.access((connection) => {
-      // SAFETY: The projection matches the halo_routine_runs table.
-      return connection
-        .prepare(
-          `SELECT * FROM halo_routine_runs WHERE routine_id = ?
-           ORDER BY started_at DESC, rowid DESC LIMIT ?`,
-        )
-        .all(input.routineId, input.limit ?? 50) as RoutineRunRow[];
-    });
-    if (rows instanceof Error) return rows;
-    return rows.map(runFromRow);
+    const runs = await this.tandem
+      .query({
+        collection: "routineRuns",
+        where: { routineId: input.routineId },
+        orderBy: { startedAt: "desc", sequence: "desc" },
+        limit: input.limit ?? 50,
+      })
+      .catch(
+        (cause) => new RoutineStorageError({ operation: "list runs", cause }),
+      );
+    if (runs instanceof Error) return runs;
+    return runs.map(toRun);
   }
 
-  async runningSessionIds() {
-    const rows = await this.database.access((connection) => {
-      // SAFETY: The projection matches the halo_routine_runs table.
-      return connection
-        .prepare(
-          `SELECT thread_id FROM halo_routine_runs
-           WHERE status = 'running' AND thread_id IS NOT NULL`,
-        )
-        .all() as { thread_id: string }[];
-    });
-    if (rows instanceof Error) return rows;
-    return rows.map((row) => row.thread_id);
-  }
-
-  // Starts one run record. A scheduled run claims the due occurrence and advances the schedule
-  // in the same step; it returns undefined when nothing is due, such as after a pause.
+  // Claim the due occurrence and advance the schedule in the same transaction.
   async beginRun(input: {
     routineId: string;
     trigger: RoutineRunTrigger;
-    // Records the run as skipped with this reason instead of starting it.
     skipReason?: string;
   }) {
-    return await this.actionQueue.run(async () => {
-      const routine = this.get(input.routineId);
+    return await this.change(async (transaction) => {
+      const routine = await readRecord(transaction, input.routineId);
       if (routine instanceof Error) return routine;
       const now = Date.now();
       const scheduledFor =
@@ -284,12 +211,23 @@ export class RoutineService {
             ? undefined
             : Date.parse(routine.nextRunAt);
       if (nextRunAt instanceof Error) return nextRunAt;
+      const lastRun =
+        routine.lastRunId === undefined
+          ? undefined
+          : await transaction.get("routineRuns", routine.lastRunId).catch(
+              (cause) =>
+                new RoutineStorageError({
+                  operation: "read last run",
+                  cause,
+                }),
+            );
+      if (lastRun instanceof Error) return lastRun;
       const skipReason =
         input.skipReason ??
-        (routine.lastRun?.status === "running"
+        (lastRun?.status === "running"
           ? "The previous run is still running."
           : undefined);
-      const run: RoutineRun = {
+      const run: WorkspaceSchema["routineRuns"] = {
         id: randomUUID(),
         routineId: routine.id,
         trigger: input.trigger,
@@ -299,157 +237,188 @@ export class RoutineService {
         finishedAt:
           skipReason === undefined ? undefined : new Date(now).toISOString(),
         error: skipReason,
+        sequence: routine.runSequence + 1,
       };
-      const saved = await this.database.access((connection) =>
-        connection.transaction(() => {
-          connection
-            .prepare(
-              `INSERT INTO halo_routine_runs
-                 (id, routine_id, trigger, scheduled_for, status, started_at, finished_at, error)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-            )
-            .run(
-              run.id,
-              run.routineId,
-              run.trigger,
-              scheduledFor,
-              run.status,
-              now,
-              skipReason === undefined ? null : now,
-              skipReason ?? null,
-            );
-          connection
-            .prepare("UPDATE halo_routines SET next_run_at = ? WHERE id = ?")
-            .run(nullableTime(nextRunAt), routine.id);
-        })(),
-      );
-      if (saved instanceof Error) return saved;
-      this.replace({
+      transaction.set("routineRuns", run);
+      transaction.set("routines", {
         ...routine,
         nextRunAt: isoTime(nextRunAt),
-        lastRun: skipReason === undefined ? run : routine.lastRun,
+        runSequence: run.sequence,
+        lastRunId: skipReason === undefined ? run.id : routine.lastRunId,
       });
-      return run;
+      return toRun(run);
     });
   }
 
   async attachSession(input: { runId: string; sessionId: string }) {
-    return await this.updateRun({
-      runId: input.runId,
-      sql: "UPDATE halo_routine_runs SET thread_id = ? WHERE id = ?",
-      params: [input.sessionId, input.runId],
-      apply: (run) => ({ ...run, sessionId: input.sessionId }),
-    });
+    return await this.updateRun(input.runId, (run) => ({
+      ...run,
+      sessionId: input.sessionId,
+    }));
   }
 
-  // Only a running run can finish, so a late outcome cannot replace an interruption.
+  // A late outcome must not overwrite an interruption or other terminal state.
   async finishRun(input: {
     runId: string;
     status: Exclude<RoutineRunStatus, "running" | "skipped">;
     error?: string;
   }) {
     const now = Date.now();
-    return await this.updateRun({
-      runId: input.runId,
-      sql: `UPDATE halo_routine_runs SET status = ?, finished_at = ?, error = ?
-            WHERE id = ? AND status = 'running'`,
-      params: [input.status, now, input.error ?? null, input.runId],
-      apply: (run) =>
-        run.status === "running"
-          ? {
-              ...run,
-              status: input.status,
-              finishedAt: new Date(now).toISOString(),
-              error: input.error,
-            }
-          : run,
-    });
-  }
-
-  // Marks runs left by a stopped process as interrupted and skips occurrences missed while
-  // it was stopped by scheduling each enabled routine from now.
-  async recover() {
-    return await this.actionQueue.run(async () => {
-      const now = Date.now();
-      const nextRuns = new Map<string, number | undefined>();
-      for (const routine of this.routines) {
-        if (!routine.enabled) continue;
-        const nextRunAt = nextOccurrence({ ...routine, after: now });
-        // A stored schedule that no longer resolves stays paused until edited.
-        nextRuns.set(
-          routine.id,
-          nextRunAt instanceof Error ? undefined : nextRunAt,
-        );
-      }
-      const saved = await this.database.access((connection) =>
-        connection.transaction(() => {
-          connection
-            .prepare(
-              `UPDATE halo_routine_runs SET status = 'interrupted', finished_at = ?,
-                 error = 'Halo stopped before the run finished.'
-               WHERE status = 'running'`,
-            )
-            .run(now);
-          const update = connection.prepare(
-            "UPDATE halo_routines SET next_run_at = ? WHERE id = ?",
-          );
-          for (const [routineId, nextRunAt] of nextRuns)
-            update.run(nullableTime(nextRunAt), routineId);
-        })(),
-      );
-      if (saved instanceof Error) return saved;
-      this.publish(
-        this.routines.map((routine) => ({
-          ...routine,
-          nextRunAt: nextRuns.has(routine.id)
-            ? isoTime(nextRuns.get(routine.id))
-            : routine.nextRunAt,
-          lastRun:
-            routine.lastRun?.status === "running"
-              ? {
-                  ...routine.lastRun,
-                  status: "interrupted",
-                  finishedAt: new Date(now).toISOString(),
-                  error: "Halo stopped before the run finished.",
-                }
-              : routine.lastRun,
-        })),
-      );
-    });
-  }
-
-  private async updateRun(input: {
-    runId: string;
-    sql: string;
-    params: (string | number | null)[];
-    apply: (run: RoutineRun) => RoutineRun;
-  }) {
-    return await this.actionQueue.run(async () => {
-      const saved = await this.database.access((connection) => {
-        connection.prepare(input.sql).run(...input.params);
-      });
-      if (saved instanceof Error) return saved;
-      const routine = this.routines.find(
-        (item) => item.lastRun?.id === input.runId,
-      );
-      if (routine?.lastRun === undefined) return;
-      this.replace({ ...routine, lastRun: input.apply(routine.lastRun) });
-    });
-  }
-
-  private replace(routine: Routine) {
-    const index = this.routines.findIndex((item) => item.id === routine.id);
-    this.publish(
-      index === -1
-        ? [...this.routines, routine]
-        : this.routines.with(index, routine),
+    return await this.updateRun(input.runId, (run) =>
+      run.status === "running"
+        ? {
+            ...run,
+            status: input.status,
+            finishedAt: new Date(now).toISOString(),
+            error: input.error,
+          }
+        : run,
     );
   }
 
-  private publish(routines: Routine[]) {
-    this.routines = routines;
-    this.changes.append(routines);
+  // Interrupt abandoned runs and skip occurrences missed while the process was stopped.
+  async recover() {
+    return await this.change(async (transaction) => {
+      const now = Date.now();
+      const routines = await transaction.list("routines").catch(
+        (cause) =>
+          new RoutineStorageError({
+            operation: "read routines for recovery",
+            cause,
+          }),
+      );
+      if (routines instanceof Error) return routines;
+      const runs = await transaction
+        .query({ collection: "routineRuns", where: { status: "running" } })
+        .catch(
+          (cause) =>
+            new RoutineStorageError({
+              operation: "read runs for recovery",
+              cause,
+            }),
+        );
+      if (runs instanceof Error) return runs;
+      for (const run of runs)
+        transaction.set("routineRuns", {
+          ...run,
+          status: "interrupted",
+          finishedAt: new Date(now).toISOString(),
+          error: "Halo stopped before the run finished.",
+        });
+      for (const routine of routines) {
+        if (!routine.enabled) continue;
+        const nextRunAt = nextOccurrence({ ...routine, after: now });
+        // A stored schedule that no longer resolves stays paused until edited.
+        transaction.set("routines", {
+          ...routine,
+          nextRunAt:
+            nextRunAt instanceof Error ? undefined : isoTime(nextRunAt),
+        });
+      }
+    });
   }
+
+  private async updateRun(
+    runId: string,
+    apply: (
+      run: WorkspaceSchema["routineRuns"],
+    ) => WorkspaceSchema["routineRuns"],
+  ) {
+    return await this.change(async (transaction) => {
+      const run = await transaction
+        .get("routineRuns", runId)
+        .catch(
+          (cause) => new RoutineStorageError({ operation: "read run", cause }),
+        );
+      if (run instanceof Error) return run;
+      if (run === undefined) return;
+      const updated = apply(run);
+      if (updated !== run) transaction.set("routineRuns", updated);
+    });
+  }
+
+  private async change<T>(
+    apply: (transaction: RoutineTransaction) => Promise<T>,
+  ) {
+    return await this.actionQueue.run(async () => {
+      const transaction = this.tandem.transact();
+      await using cleanup = new errore.AsyncDisposableStack();
+      cleanup.defer(async () => {
+        await transaction
+          .cancel()
+          .catch((cause) =>
+            console.warn(
+              new RoutineStorageError({ operation: "cancel", cause }),
+            ),
+          );
+      });
+      const result = await apply(transaction);
+      if (result instanceof Error) return result;
+      // Commit consumes the transaction, including when it rejects.
+      cleanup.move();
+      const committed = await this.tandem
+        .commit(transaction)
+        .catch(
+          (cause) => new RoutineStorageError({ operation: "commit", cause }),
+        );
+      if (committed instanceof Error) return committed;
+      return result;
+    });
+  }
+}
+
+async function readRecord(transaction: RoutineTransaction, routineId: string) {
+  const record = await transaction
+    .get("routines", routineId)
+    .catch(
+      (cause) => new RoutineStorageError({ operation: "read routine", cause }),
+    );
+  return record ?? new RoutineNotFoundError({ routineId });
+}
+
+async function readRoutine(
+  database: Pick<DatabaseService["tandem"], "query">,
+  routineId: string,
+) {
+  const records = await database
+    .query({ ...routineQuery, where: { id: routineId } })
+    .catch((cause) => new RoutineStorageError({ operation: "get", cause }));
+  if (records instanceof Error) return records;
+  const record = records[0];
+  return record === undefined
+    ? new RoutineNotFoundError({ routineId })
+    : toRoutine(record);
+}
+
+function toRoutine(record: RoutineWithRun): Routine {
+  return {
+    id: record.id,
+    extensionId: record.extensionId,
+    name: record.name,
+    cron: record.cron,
+    timezone: record.timezone,
+    action: record.action,
+    enabled: record.enabled,
+    autoArchiveSession: record.autoArchiveSession,
+    nextRunAt: record.nextRunAt,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+    lastRun: record.lastRun === null ? undefined : toRun(record.lastRun),
+  };
+}
+
+function toRun(record: RoutineRun): RoutineRun {
+  return {
+    id: record.id,
+    routineId: record.routineId,
+    trigger: record.trigger,
+    scheduledFor: record.scheduledFor,
+    sessionId: record.sessionId,
+    status: record.status,
+    startedAt: record.startedAt,
+    finishedAt: record.finishedAt,
+    error: record.error,
+  };
 }
 
 // Returns the first occurrence strictly after `after`, in epoch milliseconds.
@@ -460,10 +429,9 @@ function nextOccurrence(input: {
 }) {
   const next = errore.try({
     try: () =>
-      new Cron(input.cron, {
-        timezone: input.timezone,
-        paused: true,
-      }).nextRun(new Date(input.after)),
+      new Cron(input.cron, { timezone: input.timezone, paused: true }).nextRun(
+        new Date(input.after),
+      ),
     catch: (cause) =>
       new InvalidRoutineError({
         reason: `Invalid schedule: ${cause instanceof Error ? cause.message : String(cause)}`,
@@ -545,70 +513,16 @@ function isTimeZone(timezone: string) {
   return !(format instanceof Error);
 }
 
-// The due occurrence a timer is firing for, if the routine is still enabled and due.
-function scheduledOccurrence(input: { routine: Routine; now: number }) {
+function scheduledOccurrence(input: {
+  routine: Pick<Routine, "enabled" | "nextRunAt">;
+  now: number;
+}) {
   if (!input.routine.enabled || input.routine.nextRunAt === undefined) return;
   const nextRunAt = Date.parse(input.routine.nextRunAt);
   if (nextRunAt > input.now) return;
   return nextRunAt;
 }
 
-function routineFromRow(row: RoutineRow, lastRun: RoutineRun | undefined) {
-  const action = errore.try({
-    // SAFETY: Parsed JSON stays unknown until the schema check below.
-    try: () => JSON.parse(row.action) as unknown,
-    catch: (cause) =>
-      new InvalidRoutineError({
-        reason: `Could not read routine '${row.id}'`,
-        cause,
-      }),
-  });
-  if (action instanceof Error) return action;
-  if (!Value.Check(routineActionSchema, action))
-    return new InvalidRoutineError({
-      reason: `Routine '${row.id}' has an invalid action`,
-    });
-  const routine: Routine = {
-    id: row.id,
-    extensionId: row.extension_id ?? undefined,
-    name: row.name,
-    cron: row.cron,
-    timezone: row.timezone,
-    action,
-    enabled: row.enabled === 1,
-    autoArchiveSession: row.auto_archive_thread === 1,
-    nextRunAt:
-      row.next_run_at === null
-        ? undefined
-        : new Date(row.next_run_at).toISOString(),
-    createdAt: new Date(row.created_at).toISOString(),
-    updatedAt: new Date(row.updated_at).toISOString(),
-    lastRun,
-  };
-  return routine;
-}
-
-function runFromRow(row: RoutineRunRow): RoutineRun {
-  return {
-    id: row.id,
-    routineId: row.routine_id,
-    trigger: row.trigger,
-    scheduledFor: new Date(row.scheduled_for).toISOString(),
-    sessionId: row.thread_id === null ? undefined : row.thread_id,
-    status: row.status,
-    startedAt: new Date(row.started_at).toISOString(),
-    finishedAt:
-      row.finished_at === null
-        ? undefined
-        : new Date(row.finished_at).toISOString(),
-    error: row.error === null ? undefined : row.error,
-  };
-}
-
 function isoTime(time: number | undefined) {
   return time === undefined ? undefined : new Date(time).toISOString();
-}
-
-function nullableTime(time: number | undefined) {
-  return time ?? null;
 }
