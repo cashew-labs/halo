@@ -64,7 +64,7 @@ export class RoutineRunner {
   // undefined when a scheduled occurrence is no longer due.
   async start(input: { routineId: string; trigger: RoutineRunTrigger }) {
     if (this.stopping) return new RoutineRunnerStoppedError();
-    const routine = this.routines.get(input.routineId);
+    const routine = await this.routines.get(input.routineId);
     if (routine instanceof Error) return routine;
     const skipReason =
       routine.extensionId === undefined

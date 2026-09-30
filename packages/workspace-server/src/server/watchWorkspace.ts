@@ -43,10 +43,11 @@ export async function* watchWorkspace({
     // Protocol 21 renderers report unknown updates as extension errors.
     ...(Number(context.reqHeaders?.get(protocolHeader)) >= 22
       ? [
-          forward(context.routines.watch(abortSignal), (routines) => ({
-            type: "routines",
-            routines,
-          })),
+          forward(context.routines.watch(abortSignal), (routines) =>
+            routines instanceof Error
+              ? routines
+              : { type: "routines", routines },
+          ),
         ]
       : []),
   ];
