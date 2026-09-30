@@ -6,6 +6,98 @@ import { WorkspaceService } from "../src/workspace/WorkspaceService.js";
 import { serverTest } from "./serverTest.js";
 
 serverTest(
+  "queries current conversation data through the shared read-only database tool",
+  async ({ server }) => {
+    const saved = await server.rpc.testApi.seedSession({
+      title: "Timezone choice",
+      messages: [
+        {
+          role: "user",
+          content: "Use America/Los_Angeles for routine reminders.",
+          timestamp: Date.now(),
+        },
+      ],
+    });
+    const found = await server.rpc.testApi.invokeTool({
+      path: "database.query",
+      input: {
+        sql: "SELECT session_id AS sessionId, seq, json_extract(payload, '$.message.content') AS content FROM halo_session_entries WHERE type = 'message' AND instr(payload, ?) > 0",
+        parameters: ["America/Los_Angeles"],
+      },
+    });
+    expect(found).toEqual({
+      rows: [
+        {
+          sessionId: saved.sessionId,
+          seq: expect.any(Number),
+          content: "Use America/Los_Angeles for routine reminders.",
+        },
+      ],
+      truncated: false,
+    });
+
+    await server.rpc.testApi.seedSession({
+      title: "New session",
+      messages: [{ role: "user", content: "Later", timestamp: Date.now() }],
+    });
+    const latest = await server.rpc.testApi.invokeTool({
+      path: "database.query",
+      input: { sql: "SELECT count(*) AS count FROM halo_sessions" },
+    });
+    expect(latest).toEqual({ rows: [{ count: 2 }], truncated: false });
+
+    await expect(
+      server.rpc.testApi.invokeTool({
+        path: "database.query",
+        input: { sql: "DELETE FROM halo_sessions" },
+      }),
+    ).rejects.toThrow("Tool runtime failed during tool invocation");
+    await expect(
+      server.rpc.testApi.invokeTool({
+        path: "database.query",
+        input: {
+          sql: "WITH doomed AS (SELECT id FROM halo_sessions) DELETE FROM halo_sessions",
+        },
+      }),
+    ).rejects.toThrow("Tool runtime failed during tool invocation");
+    await expect(
+      server.rpc.testApi.invokeTool({
+        path: "database.query",
+        input: { sql: "SELECT 1; DELETE FROM halo_sessions" },
+      }),
+    ).rejects.toThrow("Tool runtime failed during tool invocation");
+    expect(
+      await server.rpc.testApi.invokeTool({
+        path: "database.query",
+        input: { sql: "SELECT count(*) AS count FROM halo_sessions" },
+      }),
+    ).toEqual({ rows: [{ count: 2 }], truncated: false });
+
+    const many = await server.rpc.testApi.invokeTool({
+      path: "database.query",
+      input: {
+        sql: "WITH nums(x) AS (VALUES(1),(2),(3),(4),(5),(6),(7),(8),(9),(10)) SELECT a.x, b.x AS y FROM nums a CROSS JOIN nums b",
+      },
+    });
+    expect(many).toEqual({ rows: expect.any(Array), truncated: true });
+    expect(many).toHaveProperty("rows.length", 50);
+
+    expect(
+      await server.rpc.testApi.invokeTool({
+        path: "database.query",
+        input: {
+          sql: "SELECT ? AS content",
+          parameters: ["x".repeat(10_000)],
+        },
+      }),
+    ).toEqual({
+      rows: [{ content: `${"x".repeat(2_000)}… [cell truncated]` }],
+      truncated: true,
+    });
+  },
+);
+
+serverTest(
   "searches saved text and conversation messages without document content",
   async ({ server, llm }) => {
     await server.rpc.workspace.writeFile({

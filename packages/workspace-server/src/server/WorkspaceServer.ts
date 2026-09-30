@@ -24,6 +24,7 @@ import {
 } from "../agent/runtime/ToolRuntime.js";
 import { workspaceBashPlugin } from "../agent/tools/bash/workspaceBashPlugin.js";
 import { createWorkspaceFilesPlugin } from "../agent/tools/files/createWorkspaceFilesPlugin.js";
+import { createDatabaseQueryPlugin } from "../agent/tools/database/createDatabaseQueryPlugin.js";
 import { parallelSearchPlugin } from "../agent/tools/web/parallelSearchPlugin.js";
 import type { LLMApi } from "../llm/LLMApi.js";
 import { TraceService, type TraceUploader } from "../traces/TraceService.js";
@@ -243,6 +244,7 @@ export class WorkspaceServer {
         oauthTestOrigin: config.oauthTestOrigin,
         toolPlugins: [
           createWorkspaceFilesPlugin(filesystem),
+          createDatabaseQueryPlugin(database),
           createHotkeysPlugin(hotkeys),
           workspaceBashPlugin,
           parallelSearchPlugin,
