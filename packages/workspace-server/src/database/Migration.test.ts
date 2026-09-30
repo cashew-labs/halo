@@ -1,7 +1,10 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { Database } from "@tursodatabase/database/compat";
-import { expect, test as baseTest } from "vitest";
+import { expect, test as baseTest, vi } from "vitest";
+import * as errore from "errore";
+import { DatabaseService } from "./DatabaseService.js";
+import { FilesystemService } from "../filesystem/FilesystemService.js";
 import { applyMigrations, type Migration } from "./Migration.js";
 import { migrateExecutorTenant } from "./migrateExecutorTenant.js";
 import { initialWorkspaceMigration } from "./migrations/20260921130000-initialWorkspace.js";
@@ -17,6 +20,7 @@ import { TursoTupleStorage } from "./TursoTupleStorage.js";
 import type { WorkspaceSchema } from "./tables/workspaceSchema.js";
 
 type MigrationFixture = {
+  directory: string;
   attemptOpen(migrations: readonly Migration[]): Database | Error;
   open(migrations: readonly Migration[]): Database;
   close(database: Database): void;
@@ -46,6 +50,7 @@ const migrationTest = baseTest.extend<{ migration: MigrationFixture }>({
       return connection;
     };
     await use({
+      directory,
       attemptOpen,
       open(migrations) {
         const connection = attemptOpen(migrations);
@@ -597,6 +602,72 @@ migrationTest(
       updated,
     ]);
     await storage.close();
+  },
+);
+
+migrationTest(
+  "disposes abandoned transactions without canceling committed attempts",
+  async ({ migration }) => {
+    await using cleanup = new errore.AsyncDisposableStack();
+    const filesystem = new FilesystemService();
+    cleanup.defer(async () => {
+      const closed = await filesystem.close();
+      if (closed instanceof Error) throw closed;
+    });
+    const database = await DatabaseService.open({
+      directory: migration.directory,
+      filesystem,
+    });
+    if (database instanceof Error) throw database;
+    cleanup.defer(async () => {
+      const closed = await database.close();
+      if (closed instanceof Error) throw closed;
+    });
+    using warnings = vi.spyOn(console, "warn");
+    const abandoned = await (async () => {
+      await using tx = database.useTransaction();
+      await tx.get("sessionState", "session");
+      tx.set("sessionState", { id: "session", markedDone: true });
+      return tx;
+    })();
+    await expect(abandoned.get("sessionState", "session")).rejects.toThrow();
+    expect(await database.query({ collection: "sessionState" })).toEqual([]);
+
+    const updates: WorkspaceSchema["sessionState"][][] = [];
+    const subscription = await database.subscribe(
+      { collection: "sessionState" },
+      (records) => updates.push(records),
+    );
+    cleanup.defer(() => subscription.destroy());
+    expect(subscription.result).toEqual([]);
+    {
+      await using tx = database.useTransaction();
+      tx.set("sessionState", { id: "session", markedDone: false });
+      await database.commit(tx);
+    }
+    await expect
+      .poll(() => updates.at(-1))
+      .toEqual([{ id: "session", markedDone: false }]);
+
+    // A competing write makes commit reject after consuming the transaction.
+    {
+      await using tx = database.useTransaction();
+      await tx.get("sessionState", "session");
+      const writer = database.transact();
+      writer.set("sessionState", { id: "session", markedDone: true });
+      await database.commit(writer);
+      tx.set("sessionState", { id: "session", markedDone: false });
+      await expect(database.commit(tx)).rejects.toThrow();
+    }
+    expect(await database.query({ collection: "sessionState" })).toEqual([
+      { id: "session", markedDone: true },
+    ]);
+    {
+      await using tx = database.useTransaction();
+      await tx.get("sessionState", "session");
+      await tx.cancel();
+    }
+    expect(warnings).not.toHaveBeenCalled();
   },
 );
 

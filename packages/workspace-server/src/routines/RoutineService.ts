@@ -30,7 +30,7 @@ class RoutineStorageError extends errore.createTaggedError({
   message: "Routine storage failed during $operation",
 }) {}
 
-type RoutineTransaction = ReturnType<DatabaseService["tandem"]["transact"]>;
+type RoutineTransaction = ReturnType<DatabaseService["transact"]>;
 type RoutineWithRun = WorkspaceSchema["routines"] & {
   lastRun: WorkspaceSchema["routineRuns"] | null;
 };
@@ -44,14 +44,14 @@ const extensionIdPattern = /^[a-z][a-z0-9-]*$/;
 export class RoutineService {
   // Orders commands; records and related run snapshots belong to Tandem.
   private readonly actionQueue = new SerialQueue();
-  private readonly tandem: DatabaseService["tandem"];
+  private readonly database: DatabaseService;
 
-  constructor(ctx: { tandem: DatabaseService["tandem"] }) {
-    this.tandem = ctx.tandem;
+  constructor(ctx: { database: DatabaseService }) {
+    this.database = ctx.database;
   }
 
   async list() {
-    const records = await this.tandem
+    const records = await this.database
       .query(routineQuery)
       .catch((cause) => new RoutineStorageError({ operation: "list", cause }));
     if (records instanceof Error) return records;
@@ -59,14 +59,14 @@ export class RoutineService {
   }
 
   async get(routineId: string) {
-    return await readRoutine(this.tandem, routineId);
+    return await readRoutine(this.database, routineId);
   }
 
   async subscribe(
     listener: (routines: Routine[]) => void,
     onError: (error: Error) => void,
   ) {
-    const subscription = await this.tandem
+    const subscription = await this.database
       .subscribe(routineQuery, (records) => listener(records.map(toRoutine)), {
         onError,
       })
@@ -102,11 +102,9 @@ export class RoutineService {
   async save(input: RoutineInput) {
     const valid = validateInput(input);
     if (valid instanceof Error) return valid;
-    return await this.change(async (transaction) => {
+    return await this.change(async (tx) => {
       const existing =
-        input.id === undefined
-          ? undefined
-          : await readRecord(transaction, input.id);
+        input.id === undefined ? undefined : await readRecord(tx, input.id);
       if (existing instanceof Error) return existing;
       const now = Date.now();
       const enabled = input.enabled ?? existing?.enabled ?? true;
@@ -126,38 +124,38 @@ export class RoutineService {
         lastRunId: existing?.lastRunId,
         runSequence: existing?.runSequence ?? 0,
       };
-      transaction.set("routines", routine);
-      return await readRoutine(transaction, routine.id);
+      tx.set("routines", routine);
+      return await readRoutine(tx, routine.id);
     });
   }
 
   async setEnabled(input: { routineId: string; enabled: boolean }) {
-    return await this.change(async (transaction) => {
-      const routine = await readRecord(transaction, input.routineId);
+    return await this.change(async (tx) => {
+      const routine = await readRecord(tx, input.routineId);
       if (routine instanceof Error) return routine;
       if (routine.enabled === input.enabled)
-        return await readRoutine(transaction, routine.id);
+        return await readRoutine(tx, routine.id);
       const now = Date.now();
       const nextRunAt = input.enabled
         ? nextOccurrence({ ...routine, after: now })
         : undefined;
       if (nextRunAt instanceof Error) return nextRunAt;
-      transaction.set("routines", {
+      tx.set("routines", {
         ...routine,
         enabled: input.enabled,
         nextRunAt: isoTime(nextRunAt),
         updatedAt: new Date(now).toISOString(),
       });
-      return await readRoutine(transaction, routine.id);
+      return await readRoutine(tx, routine.id);
     });
   }
 
   // Explicitly delete run records so Tandem invalidates both collections. Sessions stay.
   async remove(routineId: string) {
-    return await this.change(async (transaction) => {
-      const routine = await readRecord(transaction, routineId);
+    return await this.change(async (tx) => {
+      const routine = await readRecord(tx, routineId);
       if (routine instanceof Error) return routine;
-      const runs = await transaction
+      const runs = await tx
         .query({ collection: "routineRuns", where: { routineId } })
         .catch(
           (cause) =>
@@ -167,15 +165,15 @@ export class RoutineService {
             }),
         );
       if (runs instanceof Error) return runs;
-      for (const run of runs) transaction.remove("routineRuns", run.id);
-      transaction.remove("routines", routineId);
+      for (const run of runs) tx.remove("routineRuns", run.id);
+      tx.remove("routines", routineId);
     });
   }
 
   async listRuns(input: { routineId: string; limit?: number }) {
     const routine = await this.get(input.routineId);
     if (routine instanceof Error) return routine;
-    const runs = await this.tandem
+    const runs = await this.database
       .query({
         collection: "routineRuns",
         where: { routineId: input.routineId },
@@ -195,8 +193,8 @@ export class RoutineService {
     trigger: RoutineRunTrigger;
     skipReason?: string;
   }) {
-    return await this.change(async (transaction) => {
-      const routine = await readRecord(transaction, input.routineId);
+    return await this.change(async (tx) => {
+      const routine = await readRecord(tx, input.routineId);
       if (routine instanceof Error) return routine;
       const now = Date.now();
       const scheduledFor =
@@ -214,7 +212,7 @@ export class RoutineService {
       const lastRun =
         routine.lastRunId === undefined
           ? undefined
-          : await transaction.get("routineRuns", routine.lastRunId).catch(
+          : await tx.get("routineRuns", routine.lastRunId).catch(
               (cause) =>
                 new RoutineStorageError({
                   operation: "read last run",
@@ -239,8 +237,8 @@ export class RoutineService {
         error: skipReason,
         sequence: routine.runSequence + 1,
       };
-      transaction.set("routineRuns", run);
-      transaction.set("routines", {
+      tx.set("routineRuns", run);
+      tx.set("routines", {
         ...routine,
         nextRunAt: isoTime(nextRunAt),
         runSequence: run.sequence,
@@ -278,9 +276,9 @@ export class RoutineService {
 
   // Interrupt abandoned runs and skip occurrences missed while the process was stopped.
   async recover() {
-    return await this.change(async (transaction) => {
+    return await this.change(async (tx) => {
       const now = Date.now();
-      const routines = await transaction.list("routines").catch(
+      const routines = await tx.list("routines").catch(
         (cause) =>
           new RoutineStorageError({
             operation: "read routines for recovery",
@@ -288,7 +286,7 @@ export class RoutineService {
           }),
       );
       if (routines instanceof Error) return routines;
-      const runs = await transaction
+      const runs = await tx
         .query({ collection: "routineRuns", where: { status: "running" } })
         .catch(
           (cause) =>
@@ -299,7 +297,7 @@ export class RoutineService {
         );
       if (runs instanceof Error) return runs;
       for (const run of runs)
-        transaction.set("routineRuns", {
+        tx.set("routineRuns", {
           ...run,
           status: "interrupted",
           finishedAt: new Date(now).toISOString(),
@@ -309,7 +307,7 @@ export class RoutineService {
         if (!routine.enabled) continue;
         const nextRunAt = nextOccurrence({ ...routine, after: now });
         // A stored schedule that no longer resolves stays paused until edited.
-        transaction.set("routines", {
+        tx.set("routines", {
           ...routine,
           nextRunAt:
             nextRunAt instanceof Error ? undefined : isoTime(nextRunAt),
@@ -324,8 +322,8 @@ export class RoutineService {
       run: WorkspaceSchema["routineRuns"],
     ) => WorkspaceSchema["routineRuns"],
   ) {
-    return await this.change(async (transaction) => {
-      const run = await transaction
+    return await this.change(async (tx) => {
+      const run = await tx
         .get("routineRuns", runId)
         .catch(
           (cause) => new RoutineStorageError({ operation: "read run", cause }),
@@ -333,31 +331,17 @@ export class RoutineService {
       if (run instanceof Error) return run;
       if (run === undefined) return;
       const updated = apply(run);
-      if (updated !== run) transaction.set("routineRuns", updated);
+      if (updated !== run) tx.set("routineRuns", updated);
     });
   }
 
-  private async change<T>(
-    apply: (transaction: RoutineTransaction) => Promise<T>,
-  ) {
+  private async change<T>(apply: (tx: RoutineTransaction) => Promise<T>) {
     return await this.actionQueue.run(async () => {
-      const transaction = this.tandem.transact();
-      await using cleanup = new errore.AsyncDisposableStack();
-      cleanup.defer(async () => {
-        await transaction
-          .cancel()
-          .catch((cause) =>
-            console.warn(
-              new RoutineStorageError({ operation: "cancel", cause }),
-            ),
-          );
-      });
-      const result = await apply(transaction);
+      await using tx = this.database.useTransaction();
+      const result = await apply(tx);
       if (result instanceof Error) return result;
-      // Commit consumes the transaction, including when it rejects.
-      cleanup.move();
-      const committed = await this.tandem
-        .commit(transaction)
+      const committed = await this.database
+        .commit(tx)
         .catch(
           (cause) => new RoutineStorageError({ operation: "commit", cause }),
         );
@@ -367,8 +351,8 @@ export class RoutineService {
   }
 }
 
-async function readRecord(transaction: RoutineTransaction, routineId: string) {
-  const record = await transaction
+async function readRecord(tx: RoutineTransaction, routineId: string) {
+  const record = await tx
     .get("routines", routineId)
     .catch(
       (cause) => new RoutineStorageError({ operation: "read routine", cause }),
@@ -377,7 +361,7 @@ async function readRecord(transaction: RoutineTransaction, routineId: string) {
 }
 
 async function readRoutine(
-  database: Pick<DatabaseService["tandem"], "query">,
+  database: Pick<DatabaseService, "query">,
   routineId: string,
 ) {
   const records = await database

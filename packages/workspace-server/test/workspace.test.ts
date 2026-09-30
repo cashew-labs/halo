@@ -2813,6 +2813,15 @@ serverTest(
       signal: firstConnection.signal,
     });
     await updates.next();
+    const otherWindow = await server.rpc.thread.watchSummaries(undefined, {
+      signal: firstConnection.signal,
+    });
+    await otherWindow.next();
+
+    await expect(
+      server.rpc.thread.markDone({ sessionId: "missing" }),
+    ).rejects.toThrow();
+    expect(await server.rpc.thread.list()).toEqual([]);
 
     const first = await server.rpc.thread.new();
     await nextSummary(
@@ -2833,6 +2842,22 @@ serverTest(
       markedDone: false,
     });
     expect(secondSummary?.readReceiptCursorId).toBeUndefined();
+
+    // A session without any transcript or product-state row can be marked done.
+    await server.rpc.thread.markDone(second);
+    expect(
+      await nextSummary(
+        updates,
+        (summary) =>
+          summary.sessionId === second.sessionId && summary.markedDone,
+      ),
+    ).toMatchObject({ ...second, markedDone: true });
+    await server.rpc.thread.markUndone(second);
+    await nextSummary(
+      updates,
+      (summary) =>
+        summary.sessionId === second.sessionId && !summary.markedDone,
+    );
 
     const prompted = server.promptAndWait({
       ...first,
@@ -2866,6 +2891,24 @@ serverTest(
       readReceiptCursorId: read.latestResultId,
     });
 
+    // Listing/reconnecting must not consume the update owed to existing watchers.
+    await Promise.all([
+      server.rpc.thread.markDone(first),
+      server.rpc.thread.list(),
+    ]);
+    for (const stream of [updates, otherWindow]) {
+      expect(
+        await nextSummary(
+          stream,
+          (summary) =>
+            summary.sessionId === first.sessionId && summary.markedDone,
+        ),
+      ).toMatchObject({
+        markedDone: true,
+        readReceiptCursorId: completed.latestResultId,
+      });
+    }
+
     await server.rpc.thread.markUnread(first);
     const unread = await nextSummary(
       updates,
@@ -2874,9 +2917,15 @@ serverTest(
     );
     expect(unread).toMatchObject({
       ...first,
-      markedDone: false,
+      markedDone: true,
     });
     expect(unread.readReceiptCursorId).toBeUndefined();
+
+    await server.rpc.thread.markUndone(first);
+    await nextSummary(
+      updates,
+      (summary) => summary.sessionId === first.sessionId && !summary.markedDone,
+    );
 
     const nextPrompt = server.promptAndWait({
       ...first,

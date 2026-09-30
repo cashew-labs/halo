@@ -241,11 +241,11 @@ export class WorkspaceServer {
         });
     });
     const hotkeys = new HotkeyService({
-      tandem: database.tandem,
+      database,
       userId: config.ownerUserId,
     });
     const routines = new RoutineService({
-      tandem: database.tandem,
+      database,
     });
     const [initialized, toolRuntime] = await Promise.all([
       workspace.initialize(),
@@ -312,6 +312,7 @@ export class WorkspaceServer {
     const sessions = new ThreadManager({
       environment: config.environment,
       repo: sessionRepo,
+      database,
       llmApi: host.llmApi,
       filesystem,
       layout: workspace.layout,
@@ -325,6 +326,8 @@ export class WorkspaceServer {
           error: closed,
         });
     });
+    const sessionsStarted = await sessions.start();
+    if (sessionsStarted instanceof Error) return sessionsStarted;
     const routineRunner = new RoutineRunner({
       routines,
       sessions,
