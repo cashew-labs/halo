@@ -22,9 +22,10 @@ Move this section into the PR description when creating the PR, then remove it h
     - [ ] Update session search alongside session storage
     - [ ] Decide Executor storage: direct Tandem adapter or native SQL with synchronized public records
       - [ ] Resolve change-feed ownership if retaining native SQL
-  - [ ] Refactor storage schemas after this phase
-    - [ ] Encapsulate each table's Tandem fields and Turso record translation
-    - [ ] Build the Tandem schema and tuple storage from those definitions
+  - [x] Refactor database schemas
+    - [x] Rename storage/ to database/
+    - [x] Encapsulate each table's Tandem fields and Turso record translation
+    - [x] Build the Tandem schema and tuple storage from those definitions
   - [ ] Move extension storage into the main database
   - [ ] Move Pi onto Tandem
     - [ ] Adapt session storage and repository operations

@@ -13,6 +13,8 @@ import {
   migrateWorkspace,
   workspaceMigrations,
 } from "./migrations/workspaceMigrations.js";
+import { TursoTupleStorage } from "./TursoTupleStorage.js";
+import type { WorkspaceSchema } from "./tables/index.js";
 
 type MigrationFixture = {
   attemptOpen(migrations: readonly Migration[]): Database | Error;
@@ -486,6 +488,117 @@ migrationTest("rolls back SQL when a migration fails", ({ migration }) => {
   const recovered = migration.open([initialMigration]);
   expect(effectNames(recovered)).toEqual(["initial"]);
 });
+
+migrationTest(
+  "domain table definitions round-trip migrated data and roll back mixed writes",
+  async ({ migration }) => {
+    const connection = migration.open(workspaceMigrations);
+    const storage = new TursoTupleStorage({
+      database: { access: async (operation) => await operation(connection) },
+    });
+    const hotkey: WorkspaceSchema["hotkeys"] = {
+      id: "key",
+      userId: "owner",
+      label: "Launch",
+      accelerator: "Ctrl+L",
+      action: { type: "runAgent", prompt: "Say 'hello'" },
+      position: 7,
+    };
+    const routine: WorkspaceSchema["routines"] = {
+      id: "routine",
+      name: "Morning",
+      cron: "0 8 * * *",
+      timezone: "UTC",
+      action: { type: "runAgent", prompt: "Read inbox" },
+      enabled: false,
+      autoArchiveSession: true,
+      createdAt: "2026-09-30T00:00:00.000Z",
+      updatedAt: "2026-09-30T01:00:00.000Z",
+      runSequence: 3,
+      lastRunId: "run",
+      extensionId: "mail",
+    };
+    const run: WorkspaceSchema["routineRuns"] = {
+      id: "run",
+      routineId: routine.id,
+      trigger: "manual",
+      status: "failed",
+      scheduledFor: routine.createdAt,
+      startedAt: routine.updatedAt,
+      sequence: 3,
+      sessionId: "session",
+      finishedAt: "2026-09-30T01:01:00.000Z",
+      error: "Exit 1",
+    };
+    await storage.commit({
+      set: [
+        { key: ["record", "routines", routine.id], value: routine },
+        { key: ["record", "hotkeys", hotkey.id], value: hotkey },
+        { key: ["record", "routineRuns", run.id], value: run },
+      ],
+    });
+    expect((await storage.scan()).map(({ value }) => value)).toEqual([
+      hotkey,
+      run,
+      routine,
+    ]);
+    // Check the existing SQL layout independently of the generated decoder.
+    expect(
+      connection
+        .prepare(`SELECT extension_id, action, enabled, auto_archive_session,
+      created_at, updated_at, last_run_id, run_sequence FROM halo_routine_definitions`)
+        .get(),
+    ).toEqual({
+      extension_id: "mail",
+      action: '{"type":"runAgent","prompt":"Read inbox"}',
+      enabled: 0,
+      auto_archive_session: 1,
+      created_at: "2026-09-30T00:00:00.000Z",
+      updated_at: "2026-09-30T01:00:00.000Z",
+      last_run_id: "run",
+      run_sequence: 3,
+    });
+    expect(
+      (await storage.scan({ reverse: true, limit: 2 })).map(
+        ({ value }) => value,
+      ),
+    ).toEqual([routine, run]);
+    expect(
+      (
+        await storage.scan({
+          gt: ["record", "hotkeys", hotkey.id],
+          lte: ["record", "routineRuns", run.id],
+        })
+      ).map(({ value }) => value),
+    ).toEqual([run]);
+    const updated = {
+      ...routine,
+      enabled: true,
+      autoArchiveSession: false,
+      extensionId: undefined,
+      lastRunId: undefined,
+    };
+    await storage.commit({
+      remove: [["record", "routines", routine.id]],
+      set: [{ key: ["record", "routines", routine.id], value: updated }],
+    });
+    expect(
+      (await storage.scan({ gte: ["record", "routines"], limit: 1 }))[0]?.value,
+    ).toEqual(updated);
+    await expect(
+      storage.commit({
+        remove: [["record", "hotkeys", hotkey.id]],
+        set: [{ key: ["record", "routines", "duplicate-id"], value: routine }],
+      }),
+    ).rejects.toThrow();
+    expect((await storage.scan()).map(({ value }) => value)).toEqual([
+      hotkey,
+      run,
+      updated,
+    ]);
+    await storage.close();
+  },
+);
 
 function effectNames(database: Database) {
   // SAFETY: The projection matches the table created by initialMigration.
