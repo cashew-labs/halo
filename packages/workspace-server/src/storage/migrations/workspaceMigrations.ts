@@ -6,6 +6,7 @@ import { routinesMigration } from "./20260925090000-routines.js";
 import { personalRoutinesMigration } from "./20260928090000-personalRoutines.js";
 import { routineSessionArchiveMigration } from "./20260928100000-routineSessionArchive.js";
 import { tandemTuplesMigration } from "./20260929130000-tandemTuples.js";
+import { tandemHotkeysMigration } from "./20260930120000-tandemHotkeys.js";
 
 export const workspaceMigrations = [
   initialWorkspaceMigration,
@@ -15,4 +16,5 @@ export const workspaceMigrations = [
   personalRoutinesMigration,
   routineSessionArchiveMigration,
   tandemTuplesMigration,
+  tandemHotkeysMigration,
 ] satisfies readonly Migration[];

@@ -27,10 +27,9 @@ export async function* watchWorkspace({
   using updates = events.consume({ abortSignal });
   using files = context.workspace.treeEvents.consume({ abortSignal });
   const tasks = [
-    forward(context.hotkeys.watch(abortSignal), (hotkeys) => ({
-      type: "hotkeys",
-      hotkeys,
-    })),
+    forward(context.hotkeys.watch(abortSignal), (hotkeys) =>
+      hotkeys instanceof Error ? hotkeys : { type: "hotkeys", hotkeys },
+    ),
     forward(context.extensions.watch(abortSignal), (extensions) =>
       extensions instanceof Error
         ? { type: "extensionsError", message: extensions.message }
@@ -65,7 +64,7 @@ export async function* watchWorkspace({
   // while the other sources initialize. Rejections terminate this RPC stream.
   async function forward<T>(
     source: AsyncIterable<T>,
-    map: (value: T) => WorkspaceUpdate,
+    map: (value: T) => WorkspaceUpdate | Error,
   ) {
     await (async () => {
       for await (const item of source) events.append(map(item));

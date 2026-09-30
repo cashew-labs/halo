@@ -1,10 +1,12 @@
 import {
+  collection,
   defineRelations,
   defineSchema,
   type SchemaFromCollections,
 } from "@tanishqkancharla/tandem-core";
 import { TandemServer } from "@tanishqkancharla/tandem-server";
 import * as errore from "errore";
+import type { Hotkey } from "@get-halo/client";
 import { DatabaseClient } from "./DatabaseClient.js";
 import { TursoTupleStorage } from "./TursoTupleStorage.js";
 
@@ -13,10 +15,11 @@ class DatabaseServiceError extends errore.createTaggedError({
   message: "Database service failed during $operation",
 }) {}
 
-// Product collections and relations will be added as their consumers move to Tandem.
-const schema = defineSchema({});
+const schema = defineSchema({
+  hotkeys: collection<Hotkey & { userId: string; position: number }>(),
+});
 const relations = defineRelations(schema, () => ({}));
-type WorkspaceSchema = SchemaFromCollections<typeof schema.collections>;
+export type WorkspaceSchema = SchemaFromCollections<typeof schema.collections>;
 
 export type NativeConnection = Pick<DatabaseClient, "access">;
 
@@ -31,9 +34,8 @@ export class DatabaseService {
     this.tandem = new TandemServer({
       schema,
       relations,
-      storage: new TursoTupleStorage<WorkspaceSchema>({
+      storage: new TursoTupleStorage({
         database: this.createNativeConnection(),
-        namespace: "workspace",
       }),
     });
   }

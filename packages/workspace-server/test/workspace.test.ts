@@ -2133,6 +2133,49 @@ serverTest(
 );
 
 serverTest(
+  "serializes hotkey conflicts and preserves save order across restart",
+  async ({ server }) => {
+    const outcomes = await Promise.allSettled([
+      server.rpc.hotkeys.save({
+        label: "First contender",
+        accelerator: "Cmd+Shift+K",
+        action: { type: "newTab" },
+      }),
+      server.rpc.hotkeys.save({
+        label: "Second contender",
+        accelerator: "Control+Shift+K",
+        action: { type: "closeTab" },
+      }),
+    ]);
+    expect(outcomes.filter((item) => item.status === "fulfilled")).toHaveLength(
+      1,
+    );
+    expect(outcomes.filter((item) => item.status === "rejected")).toMatchObject(
+      [{ reason: { message: expect.stringContaining("already assigned") } }],
+    );
+    const initial = await server.rpc.hotkeys.list();
+    expect(initial).toHaveLength(1);
+    const first = initial[0]!;
+    const second = await server.rpc.hotkeys.save({
+      label: "Open notes",
+      accelerator: "Cmd+Shift+L",
+      action: { type: "openFile", path: "notes.md" },
+    });
+    expect(await server.rpc.hotkeys.list()).toEqual([first, second]);
+    const updated = await server.rpc.hotkeys.save({
+      ...first,
+      label: "Updated first",
+    });
+    expect(await server.rpc.hotkeys.list()).toEqual([second, updated]);
+    await server.stop();
+    await server.start();
+    expect(await server.rpc.hotkeys.list()).toEqual([second, updated]);
+    await server.rpc.hotkeys.remove({ id: second.id });
+    expect(await server.rpc.hotkeys.list()).toEqual([updated]);
+  },
+);
+
+serverTest(
   "streams extension snapshots across reload, reconnect, and restart failure",
   async ({ server }) => {
     using cleanup = new errore.DisposableStack();

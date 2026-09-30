@@ -1,10 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { Value } from "@sinclair/typebox/value";
-import { Type } from "@sinclair/typebox";
 import * as errore from "errore";
 import {
   hotkeyInputSchema,
-  hotkeySchema,
   normalizeHotkey,
   InvalidHotkeyError,
   type Hotkey,
@@ -12,62 +10,62 @@ import {
 } from "@get-halo/client";
 import { SerialQueue } from "@get-halo/shared/SerialQueue";
 import { Stream } from "@get-halo/shared/Stream";
-import type { NativeConnection } from "../storage/DatabaseService.js";
+import type { DatabaseService } from "../storage/DatabaseService.js";
+
+class HotkeyStorageError extends errore.createTaggedError({
+  name: "HotkeyStorageError",
+  message: "Hotkey storage failed during $operation",
+}) {}
 
 export class HotkeyService {
-  // Publishes committed snapshots; one queue orders writes and initial subscriptions.
-  private hotkeys: Hotkey[];
-  private readonly changes = new Stream<Hotkey[]>();
+  // Serializes validation and writes; Tandem owns records and subscriptions.
   private readonly actionQueue = new SerialQueue();
-  private readonly database: NativeConnection;
+  private readonly tandem: DatabaseService["tandem"];
   private readonly userId: string;
+  private readonly query;
 
-  private constructor(ctx: {
-    database: NativeConnection;
-    userId: string;
-    hotkeys: Hotkey[];
-  }) {
-    this.database = ctx.database;
+  constructor(ctx: { tandem: DatabaseService["tandem"]; userId: string }) {
+    this.tandem = ctx.tandem;
     this.userId = ctx.userId;
-    this.hotkeys = ctx.hotkeys;
+    this.query = {
+      collection: "hotkeys" as const,
+      where: { userId: ctx.userId },
+      orderBy: { position: "asc" as const },
+    };
   }
 
-  static async open(ctx: { database: NativeConnection; userId: string }) {
-    const stored = await ctx.database.access((connection) => {
-      // SAFETY: user_hotkeys stores a non-null TEXT hotkeys column.
-      return connection
-        .prepare("SELECT hotkeys FROM user_hotkeys WHERE user_id = ?")
-        .get(ctx.userId) as { hotkeys: string } | undefined;
-    });
-    if (stored instanceof Error) return stored;
-    const hotkeys = errore.try({
-      // SAFETY: Parsed JSON stays unknown until the schema check below.
-      try: () =>
-        stored === undefined ? [] : (JSON.parse(stored.hotkeys) as unknown),
-      catch: (cause) =>
-        new InvalidHotkeyError({
-          reason: "Could not read saved hotkeys",
-          cause,
-        }),
-    });
-    if (hotkeys instanceof Error) return hotkeys;
-    if (!Value.Check(Type.Array(hotkeySchema), hotkeys))
-      return new InvalidHotkeyError({ reason: "Saved hotkeys are invalid" });
-    return new HotkeyService({ ...ctx, hotkeys });
-  }
-
-  list() {
-    return this.hotkeys;
+  async list() {
+    const records = await this.tandem
+      .query(this.query)
+      .catch((cause) => new HotkeyStorageError({ operation: "list", cause }));
+    if (records instanceof Error) return records;
+    return records.map(toHotkey);
   }
 
   async *watch(signal: AbortSignal | undefined) {
-    const initial = await this.actionQueue.run(() => ({
-      hotkeys: this.hotkeys,
-      updates: this.changes.consume({ abortSignal: signal }),
-    }));
-    using updates = initial.updates;
+    const changes = new Stream<Hotkey[] | HotkeyStorageError>();
+    using updates = changes.consume({ abortSignal: signal });
+    using cleanup = new errore.DisposableStack();
     if (signal?.aborted) return;
-    yield initial.hotkeys;
+    const subscription = await this.tandem
+      .subscribe(
+        this.query,
+        (records) => changes.append(records.map(toHotkey)),
+        {
+          onError: (cause) =>
+            changes.append(
+              new HotkeyStorageError({ operation: "watch", cause }),
+            ),
+        },
+      )
+      .catch((cause) => new HotkeyStorageError({ operation: "watch", cause }));
+    if (subscription instanceof Error) {
+      yield subscription;
+      return;
+    }
+    cleanup.defer(() => subscription.destroy());
+    if (signal?.aborted) return;
+    yield subscription.result.map(toHotkey);
     yield* updates;
   }
 
@@ -96,22 +94,40 @@ export class HotkeyService {
       });
     }
     return await this.actionQueue.run(async () => {
+      const transaction = this.tandem.transact();
+      await using cleanup = new errore.AsyncDisposableStack();
+      cleanup.defer(async () => {
+        await transaction
+          .cancel()
+          .catch((cause) =>
+            console.warn(
+              new HotkeyStorageError({ operation: "cancel", cause }),
+            ),
+          );
+      });
+      const hotkeys = await transaction
+        .query(this.query)
+        .catch(
+          (cause) =>
+            new HotkeyStorageError({ operation: "read before save", cause }),
+        );
+      if (hotkeys instanceof Error) return hotkeys;
       if (
         input.id !== undefined &&
-        !this.hotkeys.some((item) => item.id === input.id)
+        !hotkeys.some((item) => item.id === input.id)
       )
         return new InvalidHotkeyError({
           reason: "That hotkey does not exist. List hotkeys to find its ID.",
         });
       if (
-        this.hotkeys.some(
+        hotkeys.some(
           (item) => item.id !== input.id && item.accelerator === accelerator,
         )
       )
         return new InvalidHotkeyError({
           reason: `${accelerator} is already assigned. Update or remove the existing hotkey first.`,
         });
-      if (input.id === undefined && this.hotkeys.length >= 50)
+      if (input.id === undefined && hotkeys.length >= 50)
         return new InvalidHotkeyError({
           reason: "Remove a hotkey before adding more than 50.",
         });
@@ -121,10 +137,16 @@ export class HotkeyService {
         label: input.label.trim(),
         accelerator,
       };
-      const saved = await this.persist([
-        ...this.hotkeys.filter((item) => item.id !== hotkey.id),
-        hotkey,
-      ]);
+      transaction.set("hotkeys", {
+        ...hotkey,
+        userId: this.userId,
+        position: (hotkeys.at(-1)?.position ?? 0) + 1,
+      });
+      // Commit consumes the transaction, including when it rejects.
+      cleanup.move();
+      const saved = await this.tandem
+        .commit(transaction)
+        .catch((cause) => new HotkeyStorageError({ operation: "save", cause }));
       if (saved instanceof Error) return saved;
       return hotkey;
     });
@@ -132,22 +154,37 @@ export class HotkeyService {
 
   async remove(id: string) {
     return await this.actionQueue.run(async () => {
-      if (!this.hotkeys.some((item) => item.id === id))
+      const transaction = this.tandem.transact();
+      await using cleanup = new errore.AsyncDisposableStack();
+      cleanup.defer(async () => {
+        await transaction
+          .cancel()
+          .catch((cause) =>
+            console.warn(
+              new HotkeyStorageError({ operation: "cancel", cause }),
+            ),
+          );
+      });
+      const hotkey = await transaction
+        .get("hotkeys", id)
+        .catch(
+          (cause) =>
+            new HotkeyStorageError({ operation: "read before remove", cause }),
+        );
+      if (hotkey instanceof Error) return hotkey;
+      if (hotkey === undefined || hotkey.userId !== this.userId)
         return new InvalidHotkeyError({ reason: "That hotkey does not exist" });
-      return await this.persist(this.hotkeys.filter((item) => item.id !== id));
+      transaction.remove("hotkeys", id);
+      cleanup.move();
+      return await this.tandem
+        .commit(transaction)
+        .catch(
+          (cause) => new HotkeyStorageError({ operation: "remove", cause }),
+        );
     });
   }
+}
 
-  private async persist(hotkeys: Hotkey[]) {
-    const saved = await this.database.access((connection) => {
-      connection
-        .prepare(
-          "INSERT INTO user_hotkeys (user_id, hotkeys) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET hotkeys = excluded.hotkeys",
-        )
-        .run(this.userId, JSON.stringify(hotkeys));
-    });
-    if (saved instanceof Error) return saved;
-    this.hotkeys = hotkeys;
-    this.changes.append(hotkeys);
-  }
+function toHotkey({ id, label, accelerator, action }: Hotkey): Hotkey {
+  return { id, label, accelerator, action };
 }
