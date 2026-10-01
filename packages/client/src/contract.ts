@@ -1,4 +1,6 @@
 import type { ServerInfo } from "./protocol.js";
+import type { ClientId, RemoteApi } from "@tanishqkancharla/tandem-core";
+import type { WorkspaceSchema } from "./database/schema/workspaceSchema.js";
 import type { Hotkey, HotkeyInput } from "./hotkeys.js";
 import type { Routine, RoutineInput, RoutineRun } from "./routines.js";
 import type { ChatPrompt } from "./chatAttachments.js";
@@ -74,7 +76,6 @@ export type BrowserExecution = {
 };
 
 export type WorkspaceUpdate =
-  | { type: "hotkeys"; hotkeys: Hotkey[] }
   | { type: "routines"; routines: Routine[] }
   | { type: "extensions"; extensions: ExtensionSummary[] }
   | { type: "extensionsError"; message: string }
@@ -82,6 +83,18 @@ export type WorkspaceUpdate =
   | { type: "files"; events: WorkspaceTreeEvent[] };
 
 export const contract = publicProcedure.router({
+  sync: {
+    connect: oc
+      .input(type<{ clientId: ClientId }>())
+      .output(
+        asyncIteratorObject(
+          type<{ type: "ready"; clientId: ClientId } | { type: "poke" }>(),
+        ),
+      ),
+    pull: oc
+      .input(type<Parameters<RemoteApi<WorkspaceSchema>["pull"]>[0]>())
+      .output(type<Awaited<ReturnType<RemoteApi<WorkspaceSchema>["pull"]>>>()),
+  },
   server: {
     info: oc.output(type<ServerInfo>()),
     watch: oc.output(asyncIteratorObject(type<WorkspaceUpdate>())),
@@ -149,7 +162,6 @@ export const contract = publicProcedure.router({
   },
   hotkeys: {
     list: oc.output(type<Hotkey[]>()),
-    watch: oc.output(asyncIteratorObject(type<Hotkey[]>())),
     save: oc.input(type<HotkeyInput>()).output(type<Hotkey>()),
     remove: oc.input(type<{ id: string }>()).output(type<void>()),
   },

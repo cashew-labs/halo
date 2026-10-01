@@ -19,6 +19,7 @@
     "@orpc/client": "2.0.0-beta.29",
     "@orpc/contract": "2.0.0-beta.29",
     "@sinclair/typebox": "^0.34.52",
+    "@tanishqkancharla/tandem-core": "0.3.0",
     "errore": "^0.14.1"
   },
   "devDependencies": {

@@ -12,7 +12,7 @@ import {
   type Schema,
   type SchemaRecords,
   type SqlValue,
-} from "@get-halo/schema";
+} from "@get-halo/client";
 
 class TupleStorageClosedError extends errore.createTaggedError({
   name: "TupleStorageClosedError",

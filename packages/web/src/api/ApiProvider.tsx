@@ -1,6 +1,7 @@
 import { FileSaveErrorsProvider } from "../main/FileSaveErrors.js";
 import { useAuthenticatedUserId } from "../Authentication.js";
 import { WorkspaceUpdatesProvider } from "./WorkspaceUpdatesProvider.js";
+import { WorkspaceDataProvider } from "../database/WorkspaceDataProvider.js";
 import { useQuery, skipToken, useQueryClient } from "@tanstack/react-query";
 import {
   createContext,
@@ -75,7 +76,9 @@ export function ApiProvider({ children }: { children: ReactNode }) {
             key={state.workspace?.workspaceRoot}
             api={state.api}
           >
-            <FileSaveErrorsProvider>{children}</FileSaveErrorsProvider>
+            <WorkspaceDataProvider api={state.api}>
+              <FileSaveErrorsProvider>{children}</FileSaveErrorsProvider>
+            </WorkspaceDataProvider>
           </WorkspaceUpdatesProvider>
         </ApiContext>
       )}

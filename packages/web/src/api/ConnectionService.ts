@@ -212,6 +212,8 @@ export class ConnectionService {
               [
                 "server.info",
                 "server.watch",
+                "sync.connect",
+                "sync.pull",
                 "workspace.get",
                 "thread.events",
               ].includes(path.join("."))),
