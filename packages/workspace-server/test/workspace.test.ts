@@ -1081,6 +1081,75 @@ serverTest(
   },
 );
 
+serverTest(
+  "streams only requested directory listings and refreshes after deletion",
+  async ({ server }) => {
+    const setupEvents = await server.rpc.workspace.events();
+    await server.harness.files.write({
+      path: path.join(server.workspaceRoot, "open", "nested", "hidden.txt"),
+      content: "deep",
+    });
+    await server.harness.files.write({
+      path: path.join(server.workspaceRoot, "closed", "other.txt"),
+      content: "other",
+    });
+    for await (const events of setupEvents) {
+      if (events.some((event) => event.path === "closed/other.txt")) break;
+    }
+    const controller = new AbortController();
+    using cleanup = new errore.DisposableStack();
+    cleanup.defer(() => controller.abort());
+    const listings = await server.rendererRpc.workspace.watchDirectories(
+      { paths: ["", "open", "open"] },
+      { signal: controller.signal },
+    );
+    expect((await listings.next()).value).toEqual({
+      path: "",
+      entries: ["closed/", "open/"],
+    });
+    expect((await listings.next()).value).toEqual({
+      path: "open",
+      entries: ["open/nested/"],
+    });
+    await server.harness.files.write({
+      path: path.join(server.workspaceRoot, "closed", "ignored.txt"),
+      content: "ignored",
+    });
+    await server.harness.files.write({
+      path: path.join(server.workspaceRoot, "open", "nested", "ignored.txt"),
+      content: "ignored",
+    });
+    await server.harness.files.write({
+      path: path.join(server.workspaceRoot, "open", "visible.txt"),
+      content: "visible",
+    });
+    expect((await listings.next()).value).toEqual({
+      path: "open",
+      entries: ["open/nested/", "open/visible.txt"],
+    });
+    await server.rpc.workspace.deleteEntry({ path: "open/nested" });
+    expect((await listings.next()).value).toEqual({
+      path: "open",
+      entries: ["open/visible.txt"],
+    });
+    const invalid = await server.rendererRpc.workspace.watchDirectories(
+      { paths: ["../", ".halo", "open/visible.txt", "open"] },
+      { signal: controller.signal },
+    );
+    for (const invalidPath of ["../", ".halo", "open/visible.txt"]) {
+      expect((await invalid.next()).value).toEqual({
+        path: invalidPath,
+        entries: [],
+        error: expect.stringContaining("not a workspace file"),
+      });
+    }
+    expect((await invalid.next()).value).toEqual({
+      path: "open",
+      entries: ["open/visible.txt"],
+    });
+  },
+);
+
 serverTest("rejects files outside the public workspace", async ({ server }) => {
   await expect(
     server.rpc.workspace.writeFile({
@@ -3694,7 +3763,6 @@ serverTest(
     while (initial.size < 2) {
       const next = await updates.next();
       assert(!next.done, "Workspace stream ended before initial snapshots");
-      if (next.value.type === "files") continue;
       initial.add(next.value.type);
     }
     expect(initial).toEqual(new Set(["extensions", "sessions"]));

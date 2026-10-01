@@ -13,7 +13,7 @@ import type {
   HaloClient,
   SessionSummary,
 } from "@get-halo/client";
-import { useWorkspaceQuery, workspacePathsQueryKey } from "./ApiProvider.js";
+import { useWorkspaceQuery } from "./ApiProvider.js";
 import { reconnectStream } from "./reconnectStream.js";
 
 class WorkspaceUpdatesError extends errore.createTaggedError({
@@ -58,24 +58,11 @@ export function WorkspaceUpdatesProvider({
       signal: controller.signal,
       open: async () =>
         await api.server.watch(undefined, { signal: controller.signal }),
-      // Filesystem events do not have a snapshot; refetch after every reconnect.
-
-      onItem: async (item) => {
-        if (item.type === "files") {
-          await queryClient.invalidateQueries({
-            queryKey: workspacePathsQueryKey(workspaceRoot),
-          });
-          return;
-        }
+      onItem: (item) => {
         if (item.type === "sessions") {
           const update = item.update;
           if (update.type === "snapshot") {
             service.ready(api);
-            void queryClient
-              .invalidateQueries({
-                queryKey: workspacePathsQueryKey(workspaceRoot),
-              })
-              .catch(console.error);
           }
           queryClient.setQueryData<SessionSummary[]>(
             ["sessions", workspaceRoot],

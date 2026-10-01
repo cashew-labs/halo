@@ -24,6 +24,9 @@ export const workspaceRouter = os.router({
     if (paths instanceof Error) return orpcErrors.badRequest(paths);
     return paths;
   }),
+  watchDirectories: os.watchDirectories.handler(({ context, input, signal }) =>
+    context.workspace.watchDirectories(input.paths, signal),
+  ),
   search: os.search.handler(async ({ context, input, signal }) => {
     const found = await context.search.search(input.query, signal);
     if (found instanceof Error) return orpcErrors.badRequest(found);

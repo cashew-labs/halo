@@ -25,6 +25,108 @@ e2eTest("opens the server-configured workspace", async ({ harness, app }) => {
   });
 });
 
+e2eTest(
+  "loads only expanded folders and refreshes them after reconnect",
+  async ({ app }) => {
+    const scopes: string[][] = [];
+    const fullTreeReads: string[] = [];
+    app.page.on("request", (request) => {
+      if (request.url().includes("/workspace/listPaths"))
+        fullTreeReads.push(request.url());
+      if (!request.url().includes("/workspace/watchDirectories")) return;
+      // SAFETY: the workspace watch request encodes the contract's paths input.
+      const body = request.postDataJSON() as { json: { paths: string[] } };
+      scopes.push(body.json.paths);
+    });
+    await app.server.rpc.workspace.writeFile({
+      path: "Open/Nested/deep.md",
+      content: "Deep note",
+    });
+    await app.server.rpc.workspace.writeFile({
+      path: "Closed/Other/hidden.md",
+      content: "Unopened",
+    });
+    await app.page.reload();
+    await expect(
+      app.page.getByRole("button", { name: "Expand Open", exact: true }),
+    ).toBeVisible();
+    await expect.poll(() => scopes.at(-1)).toEqual([""]);
+    await app.page
+      .getByRole("button", { name: "Expand Open", exact: true })
+      .click();
+    await expect(
+      app.page.getByRole("button", { name: "Expand Nested", exact: true }),
+    ).toBeVisible();
+    await expect.poll(() => scopes.at(-1)).toEqual(["", "Open"]);
+    await app.page
+      .getByRole("button", { name: "Expand Nested", exact: true })
+      .click();
+    await expect(
+      app.page.getByRole("link", { name: "deep.md", exact: true }),
+    ).toBeVisible();
+    await expect.poll(() => scopes.at(-1)).toEqual(["", "Open", "Open/Nested"]);
+    const subscriptions = scopes.length;
+    await app.server.rpc.workspace.writeFile({
+      path: "Open/added.md",
+      content: "A listing update without a scope change",
+    });
+    await expect(
+      app.page.getByRole("link", { name: "added.md", exact: true }),
+    ).toBeVisible();
+    await app.server.rpc.workspace.deleteEntry({ path: "Open/added.md" });
+    await expect(
+      app.page.getByRole("link", { name: "added.md", exact: true }),
+    ).toHaveCount(0);
+    expect(scopes).toHaveLength(subscriptions);
+    await app.page.getByRole("link", { name: "deep.md", exact: true }).click();
+    await app.page
+      .getByRole("button", { name: "Collapse Open", exact: true })
+      .click();
+    await expect.poll(() => scopes.at(-1)).toEqual([""]);
+    await expect(
+      app.page.getByRole("main", { name: "Open/Nested/deep.md", exact: true }),
+    ).toContainText("Deep note");
+    await app.server.rpc.workspace.writeFile({
+      path: "Open/new.md",
+      content: "Added while collapsed",
+    });
+    await app.page
+      .getByRole("button", { name: "Expand Open", exact: true })
+      .click();
+    await expect(
+      app.page.getByRole("link", { name: "new.md", exact: true }),
+    ).toBeVisible();
+    await app.page.context().setOffline(true);
+    await app.server.rpc.workspace.writeFile({
+      path: "Open/offline.md",
+      content: "Added while offline",
+    });
+    await app.page.context().setOffline(false);
+    await app.page.evaluate(() => window.dispatchEvent(new Event("online")));
+    await expect(
+      app.page.getByRole("link", { name: "offline.md", exact: true }),
+    ).toBeVisible();
+    expect(fullTreeReads).toEqual([]);
+    expect(scopes.flat().some((path) => path.startsWith("Closed"))).toBe(false);
+    await app.page
+      .getByRole("button", { name: "Actions for deep.md", exact: true })
+      .click();
+    await app.page
+      .getByRole("menuitem", { name: "Move to…", exact: true })
+      .click();
+    await app.page.getByRole("button", { name: /Move to$/ }).click();
+    await app.page.getByRole("option", { name: "Closed", exact: true }).click();
+    await app.page.getByRole("button", { name: /Move to$/ }).click();
+    await app.page
+      .getByRole("option", { name: "Closed/Other", exact: true })
+      .click();
+    await app.page.getByRole("button", { name: "Move", exact: true }).click();
+    await expect(
+      app.page.getByRole("main", { name: "Closed/Other/deep.md", exact: true }),
+    ).toContainText("Deep note");
+  },
+);
+
 e2eTest("rejects a non-web external URL", async ({ app }) => {
   await expect(
     app.page.evaluate(async () => {

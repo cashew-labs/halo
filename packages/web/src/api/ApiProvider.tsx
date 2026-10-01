@@ -107,22 +107,6 @@ export function useSessionsQuery(workspace: WorkspaceInfo | undefined) {
   });
 }
 
-export function workspacePathsQueryKey(workspaceRoot: string | undefined) {
-  return ["workspace-paths", workspaceRoot] as const;
-}
-
-export function useWorkspacePathsQuery(workspace: WorkspaceInfo | undefined) {
-  const api = useApi();
-  const { state } = useConnection();
-  const workspaceRoot = workspace?.workspaceRoot;
-
-  return useQuery({
-    queryKey: workspacePathsQueryKey(workspaceRoot),
-    queryFn: async () => await api.workspace.listPaths(),
-    enabled: workspaceRoot !== undefined && state.status === "connected",
-  });
-}
-
 export function useWorkspaceFileQuery(path: string) {
   const api = useApi();
   const { state } = useConnection();

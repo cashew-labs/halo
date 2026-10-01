@@ -39,16 +39,14 @@ Move this section into the PR description when creating the PR, then remove it h
   - [x] Consolidate shared schema code and converters into client/database/schema
   - [x] Read routines and run history from TandemClient
     - [x] Remove routine watch forwarding and validate live edits and runs
-  - [ ] Remove TanStack Query from the frontend
-    - [x] Phase 1: replace host queries and polling
-      - [x] Add an async-read hook with stale-request cleanup and delayed loading state
-      - [x] Move app-info polling and update actions to host state
-      - [x] Validate polling cleanup, update errors, and compatibility checks
-    - [ ] Phase 2: replace filesystem queries
-      - [ ] Move path listings, file contents, and previews to shared filesystem state
-      - [ ] Preserve autosave synchronization, file-event invalidation, and reconnect refresh
-      - [ ] Replace shared file-operation pending state
-      - [ ] Validate multi-pane edits, file moves/deletions, and stale responses after navigation
+  - [x] Replace host queries and polling
+    - [x] Add an async-read hook with stale-request cleanup and delayed loading state
+    - [x] Move app-info polling and update actions to host state
+    - [x] Validate polling cleanup, update errors, and compatibility checks
+  - [x] Optimize directory APIs while retaining TanStack Query for filesystem state
+    - [x] Replace full-tree reads with scoped listings for expanded folders
+    - [x] Coalesce folder updates, release collapsed descendants, and refresh on reconnect
+    - [x] Store scoped listings in TanStack Query
   - [ ] Decide Executor storage: direct Tandem adapter or native SQL with synchronized public records
     - [ ] Resolve change-feed ownership if retaining native SQL
   - [ ] Squash migrations introduced by this work into one before creating the PR
@@ -60,16 +58,15 @@ Move this section into the PR description when creating the PR, then remove it h
   - [ ] Move Pi-derived session summaries to Tandem
   - [ ] Update session search alongside session storage
   - [ ] Remove SessionRegistry's Tandem-to-summary bridge after migrating session summary consumers
-- [ ] Finish TanStack removal after the Pi migration
-  - [ ] Phase 3: replace session queries and temporary UI state
+- [ ] Move non-filesystem state off TanStack after the Pi migration
+  - [ ] Replace session queries and temporary UI state
     - [ ] Read persisted session data through Tandem queries
     - [ ] Read workspace metadata from ConnectionService
     - [ ] Move remaining draft handoff, title, and connection UI state out of QueryClient
     - [ ] Preserve user/workspace resets and reconnect behavior
     - [ ] Validate draft submission, tab titles, and integration connection flows
-  - [ ] Phase 4: remove remaining mutations and the dependency
-    - [ ] Replace remaining mutation pending and error state
-    - [ ] Remove QueryClientProvider, cache keys, and the dependency
+  - [ ] Replace remaining non-filesystem mutations
+    - [ ] Replace mutation pending and error state
     - [ ] Run affected checks and Electron session, routine, file, and host flows
 - [ ] Move extension storage into the main database
   - [ ] Register extension schemas and create native tables

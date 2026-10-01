@@ -25,7 +25,6 @@ export async function* watchWorkspace({
       : AbortSignal.any([signal, closed.signal]);
   const events = new Stream<WorkspaceUpdate | Error>();
   using updates = events.consume({ abortSignal });
-  using files = context.workspace.treeEvents.consume({ abortSignal });
   const tasks = [
     forward(context.extensions.watch(abortSignal), (extensions) =>
       extensions instanceof Error
@@ -36,7 +35,6 @@ export async function* watchWorkspace({
       type: "sessions",
       update,
     })),
-    forward(files, (batch) => ({ type: "files", events: batch })),
   ];
   await using cleanup = new errore.AsyncDisposableStack();
   cleanup.defer(async () => {

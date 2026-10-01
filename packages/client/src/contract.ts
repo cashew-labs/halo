@@ -29,7 +29,7 @@ import type {
   WorkspaceTreeEvent,
 } from "./rpc.js";
 
-export const haloProtocolVersion = 24 as const;
+export const haloProtocolVersion = 25 as const;
 export const haloSupportedProtocols = [haloProtocolVersion];
 
 export const RequestRejectedError = error("BAD_REQUEST", {
@@ -78,8 +78,7 @@ export type BrowserExecution = {
 export type WorkspaceUpdate =
   | { type: "extensions"; extensions: ExtensionSummary[] }
   | { type: "extensionsError"; message: string }
-  | { type: "sessions"; update: SessionSummariesUpdate }
-  | { type: "files"; events: WorkspaceTreeEvent[] };
+  | { type: "sessions"; update: SessionSummariesUpdate };
 
 export const contract = publicProcedure.router({
   sync: {
@@ -127,6 +126,13 @@ export const contract = publicProcedure.router({
   workspace: {
     get: oc.output(type<WorkspaceInfo>()),
     listPaths: oc.output(type<string[]>()),
+    watchDirectories: oc
+      .input(type<{ paths: string[] }>())
+      .output(
+        asyncIteratorObject(
+          type<{ path: string; entries: string[]; error?: string }>(),
+        ),
+      ),
     search: oc
       .input(type<{ query: string }>())
       .output(type<WorkspaceSearchResponse>()),
