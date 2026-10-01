@@ -4,7 +4,7 @@ set -euo pipefail
 desktop_dir=/opt/halo/apps/workspace-server/desktop
 export XDG_RUNTIME_DIR=/tmp/halo-desktop-runtime
 mkdir -p "$XDG_RUNTIME_DIR" "$HOME/.config/xfce4/xfconf/xfce-perchannel-xml" \
-  "$HOME/.config/xfce4/panel" "$HOME/.config/halo-chromium/Default"
+  "$HOME/.config/xfce4/panel" "$HOME/.config/halo-chrome/Default"
 chmod 700 "$XDG_RUNTIME_DIR"
 if [[ ! -f "$HOME/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml" ]]; then
   cp "$desktop_dir/panel.xml" "$HOME/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml"
@@ -13,9 +13,9 @@ for launcher in 1 2 3; do
   mkdir -p "$HOME/.config/xfce4/panel/launcher-$launcher"
   cp "$desktop_dir/launcher-$launcher.desktop" "$HOME/.config/xfce4/panel/launcher-$launcher/"
 done
-if [[ ! -f "$HOME/.config/halo-chromium/Default/Preferences" ]]; then
+if [[ ! -f "$HOME/.config/halo-chrome/Default/Preferences" ]]; then
   printf '%s\n' '{"download":{"default_directory":"/home/node/documents"}}' \
-    > "$HOME/.config/halo-chromium/Default/Preferences"
+    > "$HOME/.config/halo-chrome/Default/Preferences"
 fi
 
 desktop_pids=()

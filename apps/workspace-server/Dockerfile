@@ -5,10 +5,18 @@ ENV ELECTRON_SKIP_BINARY_DOWNLOAD=1
 WORKDIR /opt/halo
 
 RUN apt-get update \
-    && apt-get install --yes --no-install-recommends poppler-utils python3 python3-pip python3-venv \
+    && apt-get install --yes --no-install-recommends ca-certificates curl poppler-utils python3 python3-pip python3-venv \
        tigervnc-standalone-server novnc websockify dbus-x11 xfwm4 xfce4-panel \
        xfce4-settings thunar xfce4-terminal x11-utils x11-xserver-utils \
        adwaita-icon-theme fonts-dejavu xdg-utils \
+    && rm -rf /var/lib/apt/lists/*
+# The desktop uses Google Chrome; BrowserService keeps Playwright's Chromium.
+RUN curl --fail --location --silent --show-error \
+      "https://dl.google.com/linux/direct/google-chrome-stable_current_$(dpkg --print-architecture).deb" \
+      --output /tmp/google-chrome-stable.deb \
+    && apt-get update \
+    && apt-get install --yes --no-install-recommends /tmp/google-chrome-stable.deb \
+    && rm -f /tmp/google-chrome-stable.deb \
     && rm -rf /var/lib/apt/lists/*
 RUN npm install --global pnpm@12.1.0
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
@@ -37,8 +45,8 @@ RUN pnpm exec playwright install --with-deps chromium --no-shell
 COPY packages ./packages
 COPY apps/workspace-server ./apps/workspace-server
 RUN cp apps/workspace-server/desktop/index.html /usr/share/novnc/index.html \
-    && cp apps/workspace-server/desktop/chromium.sh /usr/local/bin/halo-chromium \
-    && chmod +x /usr/local/bin/halo-chromium
+    && cp apps/workspace-server/desktop/chrome.sh /usr/local/bin/halo-chrome \
+    && chmod +x /usr/local/bin/halo-chrome
 RUN pnpm --filter @get-halo/extension-sdk run build \
     && pnpm --filter @get-halo/extension-tools run build
 # The workspace CLI builds and packs the local SDK when authoring extensions.
