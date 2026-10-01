@@ -76,7 +76,6 @@ export type BrowserExecution = {
 };
 
 export type WorkspaceUpdate =
-  | { type: "routines"; routines: Routine[] }
   | { type: "extensions"; extensions: ExtensionSummary[] }
   | { type: "extensionsError"; message: string }
   | { type: "sessions"; update: SessionSummariesUpdate }
@@ -167,7 +166,6 @@ export const contract = publicProcedure.router({
   },
   routines: {
     list: oc.output(type<Routine[]>()),
-    watch: oc.output(asyncIteratorObject(type<Routine[]>())),
     save: oc.input(type<RoutineInput>()).output(type<Routine>()),
     remove: oc.input(type<{ routineId: string }>()).output(type<void>()),
     setEnabled: oc

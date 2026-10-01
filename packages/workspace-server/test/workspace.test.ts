@@ -3691,13 +3691,13 @@ serverTest(
       signal: controller.signal,
     });
     const initial = new Set<string>();
-    while (initial.size < 3) {
+    while (initial.size < 2) {
       const next = await updates.next();
       assert(!next.done, "Workspace stream ended before initial snapshots");
       if (next.value.type === "files") continue;
       initial.add(next.value.type);
     }
-    expect(initial).toEqual(new Set(["extensions", "sessions", "routines"]));
+    expect(initial).toEqual(new Set(["extensions", "sessions"]));
     const session = await server.rpc.thread.new();
     for await (const item of updates) {
       if (item.type !== "sessions") continue;

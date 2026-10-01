@@ -14,7 +14,6 @@ import {
   type RoutineRunTrigger,
 } from "@get-halo/client";
 import { SerialQueue } from "@get-halo/shared/SerialQueue";
-import { Stream } from "@get-halo/shared/Stream";
 import type {
   DatabaseService,
   WorkspaceSchema,
@@ -78,25 +77,6 @@ export class RoutineService {
       result: subscription.result.map(toRoutine),
       destroy: subscription.destroy,
     };
-  }
-
-  async *watch(signal: AbortSignal | undefined) {
-    const changes = new Stream<Routine[] | Error>();
-    using updates = changes.consume({ abortSignal: signal });
-    using cleanup = new errore.DisposableStack();
-    if (signal?.aborted) return;
-    const subscription = await this.subscribe(
-      (routines) => changes.append(routines),
-      (error) => changes.append(error),
-    );
-    if (subscription instanceof Error) {
-      yield subscription;
-      return;
-    }
-    cleanup.defer(() => subscription.destroy());
-    if (signal?.aborted) return;
-    yield subscription.result;
-    yield* updates;
   }
 
   async save(input: RoutineInput) {

@@ -15,12 +15,6 @@ export const routinesRouter = os.router({
     if (routines instanceof Error) return orpcErrors.badRequest(routines);
     return routines;
   }),
-  watch: os.watch.handler(async function* ({ context, signal }) {
-    for await (const routines of context.routines.watch(signal)) {
-      if (routines instanceof Error) throw orpcErrors.badRequest(routines);
-      yield routines;
-    }
-  }),
   save: os.save.handler(async ({ context, input }) => {
     const saved = await context.routines.save(input);
     if (saved instanceof Error) return orpcErrors.badRequest(saved);

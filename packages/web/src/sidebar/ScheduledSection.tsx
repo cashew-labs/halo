@@ -1,13 +1,14 @@
 import { Text } from "maui";
 import { CalendarTimer } from "maui/icons";
-import { useRoutines } from "../api/WorkspaceUpdatesProvider.js";
+import { useDatabaseQuery } from "../database/useDatabaseQuery.js";
 import { SidebarItem } from "./navigation/SidebarItem.js";
 import { SidebarSection } from "./navigation/SidebarSection.js";
 
 export function ScheduledSection() {
-  const routines = useRoutines()?.filter(
-    (routine) => routine.extensionId === undefined,
-  );
+  const routines = useDatabaseQuery({
+    collection: "routines",
+    orderBy: { createdAt: "asc", id: "asc" },
+  })?.filter((routine) => routine.extensionId === undefined);
   if (routines === undefined || routines.length === 0) return undefined;
 
   return (

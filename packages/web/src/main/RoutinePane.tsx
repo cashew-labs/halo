@@ -1,11 +1,6 @@
 import { useState } from "react";
 import { Dialog, Modal, ModalOverlay } from "react-aria-components";
-import {
-  keepPreviousData,
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import cronstrue from "cronstrue";
 import * as errore from "errore";
 import type {
@@ -29,7 +24,7 @@ import {
 import { Pause, Pencil, Play } from "maui/icons";
 import { style, useStyles } from "purse-styles";
 import { useApi } from "../api/ApiProvider.js";
-import { useRoutines } from "../api/WorkspaceUpdatesProvider.js";
+import { useDatabaseQuery } from "../database/useDatabaseQuery.js";
 import { useWorkspacePanes } from "../panes/WorkspacePanesProvider.js";
 
 class ScheduleDescriptionError extends errore.createTaggedError({
@@ -52,9 +47,13 @@ export function RoutinePane({
   routineId: string;
   sessions: SessionSummary[];
 }) {
-  const routines = useRoutines();
+  const routines = useDatabaseQuery({
+    collection: "routines",
+    where: { id: routineId },
+    with: { lastRun: true },
+  });
   const empty = useStyles(styles.empty);
-  const routine = routines?.find((item) => item.id === routineId);
+  const routine = routines?.[0];
   if (routines === undefined)
     return <div className={empty}>Loading routine…</div>;
   if (routine === undefined)
@@ -64,7 +63,13 @@ export function RoutinePane({
         sidebar.
       </div>
     );
-  return <RoutineView key={routine.id} routine={routine} sessions={sessions} />;
+  return (
+    <RoutineView
+      key={routine.id}
+      routine={{ ...routine, lastRun: routine.lastRun ?? undefined }}
+      sessions={sessions}
+    />
+  );
 }
 
 function RoutineView({
@@ -76,28 +81,16 @@ function RoutineView({
 }) {
   const api = useApi();
   const workspace = useWorkspacePanes();
-  const queryClient = useQueryClient();
   const [editing, setEditing] = useState(false);
-  const runsQueryKey = ["routineRuns", routine.id];
-  // The routine snapshot changes when a run starts or finishes, or a scheduled skip advances it.
-  const runs = useQuery({
-    queryKey: [
-      ...runsQueryKey,
-      routine.lastRun?.id,
-      routine.lastRun?.status,
-      routine.lastRun?.sessionId,
-      routine.nextRunAt,
-    ],
-    queryFn: async () =>
-      await api.routines.listRuns({ routineId: routine.id, limit: 50 }),
-    placeholderData: keepPreviousData,
+  const runs = useDatabaseQuery({
+    collection: "routineRuns",
+    where: { routineId: routine.id },
+    orderBy: { startedAt: "desc", sequence: "desc" },
+    limit: 50,
   });
   const runNow = useMutation({
     mutationFn: async () =>
       await api.routines.runNow({ routineId: routine.id }),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: runsQueryKey });
-    },
   });
   const pane = useStyles(styles.pane);
   const content = useStyles(styles.content);
@@ -119,8 +112,8 @@ function RoutineView({
       : routine.action.command;
   const actionLabel =
     routine.action.type === "runAgent" ? "Agent prompt" : "Script";
-  const actionError = runNow.error ?? runs.error;
-  const sessionRuns = runs.data?.filter((run) => run.sessionId !== undefined);
+  const actionError = runNow.error;
+  const sessionRuns = runs?.filter((run) => run.sessionId !== undefined);
 
   return (
     <div className={pane} role="region" aria-label={`Routine ${routine.name}`}>
