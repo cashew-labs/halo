@@ -11,7 +11,9 @@ import {
   spacing,
 } from "maui";
 import { style, useStyles } from "purse-styles";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useCallback } from "react";
+import { useAsyncData } from "./useAsyncData.js";
+import { useAsyncAction } from "./useAsyncAction.js";
 import type { IncompatibleServerError } from "@get-halo/client";
 import type { AppInfo } from "./HostApi.js";
 import { useHost } from "./HostProvider.js";
@@ -106,72 +108,44 @@ export function IncompatibleConnection({
 
   return (
     <DesktopUpdate
+      key={JSON.stringify([
+        error.clientProtocolVersion,
+        error.supportedProtocols,
+      ])}
       error={error}
-      getAppInfo={host.getAppInfo.bind(host)}
-      checkForAppUpdate={host.checkForAppUpdate.bind(host)}
-      installAppUpdate={host.installAppUpdate.bind(host)}
-      openExternalUrl={host.openExternalUrl?.bind(host)}
     />
   );
 }
 
-function DesktopUpdate({
-  error,
-  getAppInfo,
-  checkForAppUpdate,
-  installAppUpdate,
-  openExternalUrl,
-}: {
-  error: IncompatibleServerError;
-  getAppInfo: () => Promise<AppInfo | Error>;
-  checkForAppUpdate: () => Promise<void | Error>;
-  installAppUpdate: () => Promise<void | Error>;
-  openExternalUrl?: (url: string) => Promise<void | Error>;
-}) {
+function DesktopUpdate({ error }: { error: IncompatibleServerError }) {
+  const host = useHost();
   const status = useStyles(styles.status);
   const actions = useStyles(styles.actions);
-  const check = useQuery({
-    queryKey: [
-      "incompatible-app-update-check",
-      error.clientProtocolVersion,
-      error.supportedProtocols,
-    ],
-    queryFn: async () => {
-      const result = await checkForAppUpdate();
-      if (result instanceof Error) throw result;
-      return true;
-    },
-    retry: false,
+  const checkUpdate = useCallback(async () => {
+    const result = await host.checkForAppUpdate?.();
+    if (result instanceof Error) return result;
+    return true;
+  }, [host]);
+  const check = useAsyncData(checkUpdate);
+  const readAppInfo = useCallback(
+    async () => await host.getAppInfo?.(),
+    [host],
+  );
+  const appInfo = useAsyncData(readAppInfo, {
+    enabled: check.data === true,
+    refreshMs: 1_000,
   });
-  const appInfo = useQuery({
-    queryKey: ["app-info"],
-    queryFn: async () => {
-      const result = await getAppInfo();
-      if (result instanceof Error) throw result;
-      return result;
-    },
-    enabled: check.isSuccess,
-    refetchInterval: 1_000,
-    retry: false,
+  const install = useAsyncAction(async () => {
+    if (!confirmRestart()) return;
+    return await host.installAppUpdate?.();
   });
-  const install = useMutation({
-    mutationFn: async () => {
-      if (!confirmRestart()) return;
-      const result = await installAppUpdate();
-      if (result instanceof Error) throw result;
-    },
-  });
-  const openReleases = useMutation({
-    mutationFn: async () => {
-      if (openExternalUrl === undefined) return;
-      const result = await openExternalUrl(releasesUrl);
-      if (result instanceof Error) throw result;
-    },
-  });
+  const openReleases = useAsyncAction(
+    async () => await host.openExternalUrl?.(releasesUrl),
+  );
   const update = appInfo.data?.update;
   const queryError = check.error ?? appInfo.error;
   const actionError = install.error ?? openReleases.error;
-  const checking = check.isFetching || update?.state === "checking";
+  const checking = check.fetching || update?.state === "checking";
 
   return (
     <Flex column gap={8}>
@@ -197,10 +171,10 @@ function DesktopUpdate({
         {update?.state === "downloaded" ? (
           <Button
             variant="primary"
-            isDisabled={install.isPending}
-            onClick={() => install.mutate()}
+            isDisabled={install.pending}
+            onClick={() => void install.run()}
           >
-            {install.isPending
+            {install.pending
               ? "Restarting…"
               : `Restart and install Halo ${update.version}`}
           </Button>
@@ -211,16 +185,16 @@ function DesktopUpdate({
               : "Checking…"}
           </Button>
         ) : update?.state !== "disabled" ? (
-          <Button onClick={() => void check.refetch()}>Check again</Button>
+          <Button onClick={check.refresh}>Check again</Button>
         ) : undefined}
         {(update?.state === "disabled" ||
           update?.state === "error" ||
-          queryError !== null) &&
-          openExternalUrl !== undefined && (
+          queryError !== undefined) &&
+          host.openExternalUrl !== undefined && (
             <Button
               variant="quiet"
-              isDisabled={openReleases.isPending}
-              onClick={() => openReleases.mutate()}
+              isDisabled={openReleases.pending}
+              onClick={() => void openReleases.run()}
             >
               View Halo downloads
             </Button>
@@ -241,9 +215,9 @@ function updateStatusMessage({
 }: {
   appInfo: AppInfo | undefined;
   checking: boolean;
-  queryError: Error | null;
+  queryError: Error | undefined;
 }) {
-  if (queryError !== null) {
+  if (queryError !== undefined) {
     return "Halo could not check for updates. Check your internet connection, then try again.";
   }
   if (checking || appInfo === undefined) {

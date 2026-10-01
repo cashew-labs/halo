@@ -13,7 +13,7 @@ import {
 } from "maui";
 import { Close } from "maui/icons";
 import { style, useStyles } from "purse-styles";
-import { useMutation } from "@tanstack/react-query";
+import { useAsyncAction } from "../useAsyncAction.js";
 import type { SessionSummary } from "@get-halo/client";
 import type { AppInfo } from "../HostApi.js";
 import { useHost } from "../HostProvider.js";
@@ -84,13 +84,10 @@ function UpdateFooter({
   labelClassName: string;
 }) {
   const host = useHost();
-  const install = useMutation({
-    mutationFn: async () => {
-      if (host.installAppUpdate === undefined) return;
-      if (!confirmRestart()) return;
-      const result = await host.installAppUpdate();
-      if (result instanceof Error) throw result;
-    },
+  const install = useAsyncAction(async () => {
+    if (host.installAppUpdate === undefined) return;
+    if (!confirmRestart()) return;
+    return await host.installAppUpdate();
   });
   const restartButton = useStyles(styles.restartButton);
   if (
@@ -101,7 +98,8 @@ function UpdateFooter({
       <Button
         className={restartButton}
         data-testid="app-update-restart"
-        onClick={() => install.mutate()}
+        isDisabled={install.pending}
+        onClick={() => void install.run()}
       >
         Restart to update
       </Button>
