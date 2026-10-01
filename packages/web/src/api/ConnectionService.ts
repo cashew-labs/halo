@@ -171,6 +171,8 @@ export class ConnectionService {
               [
                 "server.info",
                 "server.watch",
+                "sync.connect",
+                "sync.pull",
                 "workspace.get",
                 "sessions.watch",
               ].includes(path.join("."))),

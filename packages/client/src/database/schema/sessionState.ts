@@ -1,4 +1,4 @@
-import { haloSchema } from "@get-halo/schema";
+import { haloSchema } from "./schema.js";
 
 export const sessionState = haloSchema.table({
   table: "halo_session_state",

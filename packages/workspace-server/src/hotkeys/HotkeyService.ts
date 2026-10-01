@@ -9,7 +9,6 @@ import {
   type HotkeyInput,
 } from "@get-halo/client";
 import { SerialQueue } from "@get-halo/shared/SerialQueue";
-import { Stream } from "@get-halo/shared/Stream";
 import type { DatabaseService } from "../database/DatabaseService.js";
 
 class HotkeyStorageError extends errore.createTaggedError({
@@ -40,33 +39,6 @@ export class HotkeyService {
       .catch((cause) => new HotkeyStorageError({ operation: "list", cause }));
     if (records instanceof Error) return records;
     return records.map(toHotkey);
-  }
-
-  async *watch(signal: AbortSignal | undefined) {
-    const changes = new Stream<Hotkey[] | HotkeyStorageError>();
-    using updates = changes.consume({ abortSignal: signal });
-    using cleanup = new errore.DisposableStack();
-    if (signal?.aborted) return;
-    const subscription = await this.db
-      .subscribe(
-        this.query,
-        (records) => changes.append(records.map(toHotkey)),
-        {
-          onError: (cause) =>
-            changes.append(
-              new HotkeyStorageError({ operation: "watch", cause }),
-            ),
-        },
-      )
-      .catch((cause) => new HotkeyStorageError({ operation: "watch", cause }));
-    if (subscription instanceof Error) {
-      yield subscription;
-      return;
-    }
-    cleanup.defer(() => subscription.destroy());
-    if (signal?.aborted) return;
-    yield subscription.result.map(toHotkey);
-    yield* updates;
   }
 
   async save(input: HotkeyInput) {

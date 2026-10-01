@@ -16,7 +16,7 @@ import { useHost } from "./HostProvider.js";
 import { useWorkspacePanes } from "./panes/WorkspacePanesProvider.js";
 import { shortcuts } from "./shortcuts.js";
 import { matchesHotkey, type HotkeyAction } from "@get-halo/client";
-import { useHotkeys } from "./api/WorkspaceUpdatesProvider.js";
+import { useDatabaseQuery } from "./database/useDatabaseQuery.js";
 import { useApi } from "./api/ApiProvider.js";
 import { sessionTitleQueryKey } from "./main/agent/useAgentSession.js";
 
@@ -32,7 +32,10 @@ export function KeyboardShortcuts() {
   const workspace = useWorkspacePanes();
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string>();
-  const hotkeys = useHotkeys();
+  const hotkeys = useDatabaseQuery({
+    collection: "hotkeys",
+    orderBy: { position: "asc" },
+  })!;
   const overlay = useStyles(styles.overlay);
   const modal = useStyles(styles.modal);
   const heading = useStyles(styles.heading);

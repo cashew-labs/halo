@@ -1,4 +1,4 @@
-import { haloSchema, type SchemaRecords } from "@get-halo/schema";
+import { haloSchema, type SchemaRecords } from "./schema.js";
 import { hotkeys } from "./hotkeys.js";
 import { routines, routineRuns } from "./routines.js";
 import { sessionState } from "./sessionState.js";

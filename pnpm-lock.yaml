@@ -499,6 +499,9 @@ importers:
       '@sinclair/typebox':
         specifier: ^0.34.52
         version: 0.34.52
+      '@tanishqkancharla/tandem-core':
+        specifier: 0.3.0
+        version: 0.3.0(react@19.2.8)
       errore:
         specifier: ^0.14.1
         version: 0.14.1
@@ -676,19 +679,6 @@ importers:
         specifier: 7.0.2
         version: 7.0.2
 
-  packages/schema:
-    dependencies:
-      '@tanishqkancharla/tandem-core':
-        specifier: 0.3.0
-        version: 0.3.0(react@19.2.8)
-    devDependencies:
-      '@get-halo/typescript-config':
-        specifier: workspace:*
-        version: link:../typescript-config
-      typescript:
-        specifier: 7.0.2
-        version: 7.0.2
-
   packages/shared:
     dependencies:
       '@get-halo/client':
@@ -736,6 +726,12 @@ importers:
       '@streamdown/code':
         specifier: ^1.1.1
         version: 1.1.1(react@19.2.8)
+      '@tanishqkancharla/tandem-core':
+        specifier: 0.3.0
+        version: 0.3.0(react@19.2.8)
+      '@tanishqkancharla/tandem-react':
+        specifier: 0.3.0
+        version: 0.3.0(react@19.2.8)
       '@tanstack/react-query':
         specifier: ^5.101.4
         version: 5.101.4(react@19.2.8)
@@ -857,9 +853,6 @@ importers:
       '@get-halo/logger':
         specifier: workspace:*
         version: link:../logger
-      '@get-halo/schema':
-        specifier: workspace:*
-        version: link:../schema
       '@get-halo/shared':
         specifier: workspace:*
         version: link:../shared
@@ -3620,6 +3613,11 @@ packages:
 
   '@tanishqkancharla/tandem-core@0.3.0':
     resolution: {integrity: sha512-lM7L3eiAhTSXE47ex071Og0nkuXKUJ9cP99NQvd2M+A4ypA8laUFTQT3YZIHPaGmhnlFcj5N/+lHXSgvuE9nzw==}
+
+  '@tanishqkancharla/tandem-react@0.3.0':
+    resolution: {integrity: sha512-wam845Z73VozWlG8sILC4uvApU+iI+g7c5fCBcPSQ5qKbzHqhNuFMZ3qPGxiGxJpk0hJeU9z7ghaIvU7NGqeLw==}
+    peerDependencies:
+      react: '>=18'
 
   '@tanishqkancharla/tandem-server@0.3.0':
     resolution: {integrity: sha512-d20B8iZoU8HSRd3W5SX9YkJXmSVmntRds1p4NMuBqd3WIMLLRmogRtC/tFWEFqQUDS3ykKkWCU9WPYStowKB8g==}
@@ -12216,6 +12214,11 @@ snapshots:
       tuple-database: 2.2.4(react@19.2.8)
     transitivePeerDependencies:
       - react
+
+  '@tanishqkancharla/tandem-react@0.3.0(react@19.2.8)':
+    dependencies:
+      '@tanishqkancharla/tandem-core': 0.3.0(react@19.2.8)
+      react: 19.2.8
 
   '@tanishqkancharla/tandem-server@0.3.0(react@19.2.8)':
     dependencies:

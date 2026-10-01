@@ -321,6 +321,7 @@ export class WorkspaceServer {
     const requests = serveHaloHttp({
       ...http,
       context: {
+        db,
         build: config.build,
         hotkeys,
         routines,

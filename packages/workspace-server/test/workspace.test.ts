@@ -1,6 +1,8 @@
 import * as errore from "errore";
 import {
   createHaloClient,
+  createWorkspaceRemote,
+  workspaceSchema,
   connectHaloClient,
   haloProtocolVersion,
   haloSupportedProtocols,
@@ -10,6 +12,7 @@ import {
   sessionMessages,
   sessionToolExecutions,
   type HaloClient,
+  type Hotkey,
   type TraceRecord,
   type SessionSummary,
   type SessionSummariesUpdate,
@@ -24,6 +27,8 @@ import { contentText } from "@earendil-works/pi-ai";
 import { m } from "@get-halo/shared/testing";
 import { messageText } from "@get-halo/workspace-server/testing";
 import { serverTest } from "./serverTest.js";
+import { TandemClient } from "@tanishqkancharla/tandem-core";
+import { haloSchemaToTandemSchema } from "@get-halo/client";
 
 const attachmentFixtures = [
   { name: "picture.png", images: 1 },
@@ -2087,12 +2092,26 @@ serverTest(
   "configures persistent hotkeys through chat and streams changes to clients",
   async ({ server, llm }) => {
     const controller = new AbortController();
-    using cleanup = new errore.DisposableStack();
-    cleanup.defer(() => controller.abort());
-    const updates = await server.rendererRpc.hotkeys.watch(undefined, {
-      signal: controller.signal,
+    await using cleanup = new errore.AsyncDisposableStack();
+    const db = new TandemClient({
+      ...haloSchemaToTandemSchema(workspaceSchema),
+      remote: createWorkspaceRemote({
+        api: server.rendererRpc,
+        signal: controller.signal,
+        onDisconnect: console.warn,
+      }),
+      autoConnect: false,
     });
-    expect((await updates.next()).value).toEqual([]);
+    cleanup.defer(async () => await db.disconnect());
+    cleanup.defer(() => controller.abort());
+    const updates: Hotkey[][] = [];
+    const subscription = db.subscribe({ collection: "hotkeys" }, (records) =>
+      updates.push(records),
+    );
+    cleanup.defer(subscription.destroy);
+    await db.ready;
+    await db.connect();
+    expect(db.query({ collection: "hotkeys" })).toEqual([]);
     const session = await server.rpc.sessions.create();
     const prompt = server.rpc.sessions.prompt({
       ...session,
@@ -2114,7 +2133,9 @@ serverTest(
       accelerator: "CmdOrCtrl+Shift+K",
       action: { type: "newTab" },
     });
-    expect((await updates.next()).value).toEqual([hotkey]);
+    await expect
+      .poll(() => db.query({ collection: "hotkeys" }))
+      .toMatchObject([hotkey]);
     const id = hotkey!.id;
     await expect(
       server.rpc.hotkeys.save({
@@ -2160,11 +2181,37 @@ serverTest(
         prompt: "Create daily.md with a summary of the workspace notes.",
       },
     });
-    expect((await updates.next()).value).toEqual([changed]);
+    await expect
+      .poll(() => db.query({ collection: "hotkeys" }))
+      .toMatchObject([changed]);
+    await expect.poll(() => updates.at(-1)).toMatchObject([changed]);
     controller.abort();
+    await db.disconnect();
     await server.stop();
     await server.start();
     expect(await server.rpc.hotkeys.list()).toEqual([changed]);
+    const reconnectedController = new AbortController();
+    const reconnected = new TandemClient({
+      ...haloSchemaToTandemSchema(workspaceSchema),
+      remote: createWorkspaceRemote({
+        api: server.rendererRpc,
+        signal: reconnectedController.signal,
+        onDisconnect: console.warn,
+      }),
+      autoConnect: false,
+    });
+    cleanup.defer(async () => await reconnected.disconnect());
+    cleanup.defer(() => reconnectedController.abort());
+    const reconnectedSubscription = reconnected.subscribe(
+      { collection: "hotkeys" },
+      (records) => updates.push(records),
+    );
+    cleanup.defer(() => reconnectedSubscription.destroy());
+    await reconnected.ready;
+    await reconnected.connect();
+    expect(reconnected.query({ collection: "hotkeys" })).toMatchObject([
+      changed,
+    ]);
     const listed = await server.rpc.testApi.invokeTool({
       path: "hotkeys.list",
       input: {},
@@ -2175,6 +2222,11 @@ serverTest(
       input: { id },
     });
     expect(await server.rendererRpc.hotkeys.list()).toEqual([]);
+    await expect
+      .poll(() => reconnected.query({ collection: "hotkeys" }))
+      .toEqual([]);
+    reconnectedController.abort();
+    await reconnected.disconnect();
     await server.stop();
     await server.start();
     expect(await server.rpc.hotkeys.list()).toEqual([]);
@@ -2368,31 +2420,31 @@ serverTest(
       signal: controller.signal,
     });
     const initial = new Set<string>();
-    while (initial.size < 4) {
+    while (initial.size < 3) {
       const next = await updates.next();
       assert(!next.done, "Workspace stream ended before initial snapshots");
       if (next.value.type === "files") continue;
       initial.add(next.value.type);
     }
-    expect(initial).toEqual(
-      new Set(["hotkeys", "extensions", "sessions", "routines"]),
-    );
-    const hotkey = await server.rpc.hotkeys.save({
-      label: "Quick task",
-      accelerator: "CmdOrCtrl+Shift+J",
-      action: { type: "runAgent", prompt: "Write a summary." },
-    });
+    expect(initial).toEqual(new Set(["extensions", "sessions", "routines"]));
+    const session = await server.rpc.sessions.create();
     for await (const item of updates) {
-      if (item.type !== "hotkeys") continue;
-      expect(item.hotkeys).toEqual([hotkey]);
+      if (item.type !== "sessions") continue;
+      expect(item.update).toMatchObject({
+        type: "updated",
+        session: { sessionId: session.sessionId },
+      });
       break;
     }
     const reconnected = await server.rendererRpc.server.watch(undefined, {
       signal: controller.signal,
     });
     for await (const item of reconnected) {
-      if (item.type !== "hotkeys") continue;
-      expect(item.hotkeys).toEqual([hotkey]);
+      if (item.type !== "sessions") continue;
+      expect(item.update).toMatchObject({
+        type: "snapshot",
+        sessions: [expect.objectContaining({ sessionId: session.sessionId })],
+      });
       break;
     }
     // Leaving a for-await loop must cancel every source, including idle ones.
@@ -2401,22 +2453,15 @@ serverTest(
 );
 
 serverTest(
-  "keeps previous protocol summaries readable and rejects unsupported writes",
-  async ({ server, llm }) => {
+  "rejects pre-Tandem protocols and unsupported writes",
+  async ({ server }) => {
     const connected = await connectHaloClient({ transport: server.transport });
     assert(!(connected instanceof Error));
     expect(connected.serverInfo).toEqual({
       protocolVersion: haloProtocolVersion,
       supportedProtocols: haloSupportedProtocols,
     });
-    const session = await server.rpc.sessions.create();
-    const prompting = server.rpc.sessions.prompt({
-      ...session,
-      text: "Complete a result for an older client",
-    });
-    await llm.respond(m.assistant("The result is ready."));
-    await prompting;
-    for (const version of [18, 19]) {
+    for (const version of [18, 19, 21, 22, 23]) {
       const previousProtocol = createHaloClient({
         transport: {
           ...server.transport,
@@ -2426,18 +2471,12 @@ serverTest(
           },
         },
       });
-      expect(
-        await previousProtocol.workspace.writeFile({
+      await expect(
+        previousProtocol.workspace.writeFile({
           path: `legacy-${version}.md`,
           content: "Legacy client",
         }),
-      ).toEqual({ path: `legacy-${version}.md` });
-      expect(await previousProtocol.sessions.list()).toEqual([
-        expect.objectContaining({
-          sessionId: session.sessionId,
-          latestResultId: expect.any(String),
-        }),
-      ]);
+      ).rejects.toMatchObject({ code: "UNSUPPORTED_PROTOCOL" });
     }
     const previousStatusProtocol = createHaloClient({
       transport: {

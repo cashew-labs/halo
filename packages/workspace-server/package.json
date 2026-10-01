@@ -31,7 +31,6 @@
     "@executor-js/sdk": "1.6.0",
     "@get-halo/client": "workspace:*",
     "@get-halo/logger": "workspace:*",
-    "@get-halo/schema": "workspace:*",
     "@get-halo/shared": "workspace:*",
     "@jitl/quickjs-singlefile-cjs-release-sync": "0.31.0",
     "@modelcontextprotocol/sdk": "^1.30.0",

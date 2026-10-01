@@ -1,11 +1,14 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { Database } from "@tursodatabase/database/compat";
-import { haloSchema, haloSchemaToTandemSchema } from "@get-halo/schema";
+import { haloSchema, haloSchemaToTandemSchema } from "@get-halo/client";
 import { TandemServer } from "@tanishqkancharla/tandem-server";
 import { expect, test as baseTest, vi } from "vitest";
 import * as errore from "errore";
 import { DatabaseService } from "./DatabaseService.js";
+import { syncRouter } from "./syncRouter.js";
+import { createRouterClient } from "@orpc/server";
+import type { ClientId } from "@tanishqkancharla/tandem-core";
 import { FilesystemService } from "../filesystem/FilesystemService.js";
 import { applyMigrations, type Migration } from "./Migration.js";
 import { migrateExecutorTenant } from "./migrateExecutorTenant.js";
@@ -14,10 +17,7 @@ import { initialExecutorMigration } from "./migrations/20260921133000-initialExe
 import { sessionStatusMigration } from "./migrations/20260921194000-sessionStatus.js";
 import { workspaceMigrations } from "./migrations/workspaceMigrations.js";
 import { TursoTupleStorage } from "./TursoTupleStorage.js";
-import {
-  workspaceSchema,
-  type WorkspaceSchema,
-} from "./tables/workspaceSchema.js";
+import { workspaceSchema, type WorkspaceSchema } from "@get-halo/client";
 
 type MigrationFixture = {
   directory: string;
@@ -427,6 +427,126 @@ migrationTest(
       await tx.cancel();
     }
     expect(warnings).not.toHaveBeenCalled();
+  },
+);
+
+migrationTest(
+  "forwards workspace collections and query scan windows through sync",
+  async ({ migration }) => {
+    await using cleanup = new errore.AsyncDisposableStack();
+    const filesystem = new FilesystemService();
+    cleanup.defer(async () => {
+      const closed = await filesystem.close();
+      if (closed instanceof Error) throw closed;
+    });
+    const db = await DatabaseService.open({
+      directory: migration.directory,
+      filesystem,
+    });
+    if (db instanceof Error) throw db;
+    cleanup.defer(async () => {
+      const closed = await db.close();
+      if (closed instanceof Error) throw closed;
+    });
+    const ownerHotkey: WorkspaceSchema["hotkeys"] = {
+      id: "owner-key",
+      userId: "owner",
+      label: "Owner shortcut",
+      accelerator: "CmdOrCtrl+Shift+K",
+      action: { type: "newTab" },
+      position: 0,
+    };
+    await using tx = db.useTransaction();
+    tx.set("hotkeys", ownerHotkey);
+    tx.set("hotkeys", { ...ownerHotkey, id: "other-key", userId: "other" });
+    tx.set("sessionState", { id: "private-session", markedDone: true });
+    await db.commit(tx);
+    const sync = createRouterClient(syncRouter, {
+      context: { db },
+    });
+    const controller = new AbortController();
+    // SAFETY: This fixture supplies a unique identifier with Tandem's client-ID brand.
+    const clientId = "sync-test" as ClientId;
+    const events = await sync.connect(
+      { clientId },
+      { signal: controller.signal },
+    );
+    cleanup.defer(async () => {
+      controller.abort();
+      await events.return();
+    });
+    const first = await events.next();
+    if (first.done || first.value.type !== "ready")
+      throw new Error("Expected ready");
+    const result = await sync.pull({
+      clientId,
+      scanWindow: [
+        { collection: "hotkeys", where: [["id", "=", ownerHotkey.id]] },
+      ],
+    });
+    if (result instanceof Error) throw result;
+    expect(result.patch.set).toEqual([
+      { collection: "hotkeys", value: ownerHotkey },
+    ]);
+    const narrowed = await sync.pull({
+      clientId,
+      cookie: result.cookie,
+      scanWindow: [
+        { collection: "hotkeys", where: [["id", "=", "other-key"]] },
+      ],
+    });
+    expect(narrowed.patch.remove).toEqual([
+      { collection: "hotkeys", id: ownerHotkey.id },
+    ]);
+    expect(narrowed.patch.set).toEqual([
+      {
+        collection: "hotkeys",
+        value: { ...ownerHotkey, id: "other-key", userId: "other" },
+      },
+    ]);
+    const restored = await sync.pull({
+      clientId,
+      cookie: narrowed.cookie,
+      scanWindow: [
+        { collection: "hotkeys", where: [["id", "=", ownerHotkey.id]] },
+      ],
+    });
+    expect(restored.patch.set).toEqual([
+      { collection: "hotkeys", value: ownerHotkey },
+    ]);
+    const sessions = await sync.pull({
+      clientId,
+      cookie: restored.cookie,
+      scanWindow: [
+        { collection: "sessionState" },
+        { collection: "hotkeys", where: [["id", "=", ownerHotkey.id]] },
+      ],
+    });
+    expect(sessions.patch.set).toEqual([
+      {
+        collection: "sessionState",
+        value: { id: "private-session", markedDone: true },
+      },
+      { collection: "hotkeys", value: ownerHotkey },
+    ]);
+    await using removal = db.useTransaction();
+    removal.remove("hotkeys", ownerHotkey.id);
+    await db.commit(removal);
+    expect((await events.next()).value).toEqual({ type: "poke" });
+    const updated = await sync.pull({
+      clientId,
+      cookie: sessions.cookie,
+      scanWindow: [
+        { collection: "sessionState" },
+        { collection: "hotkeys", where: [["id", "=", ownerHotkey.id]] },
+      ],
+    });
+    if (updated instanceof Error) throw updated;
+    expect(updated.patch.remove).toEqual([
+      { collection: "hotkeys", id: ownerHotkey.id },
+    ]);
+    controller.abort();
+    await events.return();
   },
 );
 

@@ -3,11 +3,11 @@ import * as errore from "errore";
 import { DatabaseClient } from "./DatabaseClient.js";
 import { TursoTupleStorage } from "./TursoTupleStorage.js";
 import {
+  haloSchemaToTandemSchema,
   workspaceSchema,
   type WorkspaceSchema,
-} from "./tables/workspaceSchema.js";
-import { haloSchemaToTandemSchema } from "@get-halo/schema";
-export type { WorkspaceSchema } from "./tables/workspaceSchema.js";
+} from "@get-halo/client";
+export type { WorkspaceSchema } from "@get-halo/client";
 
 class DatabaseServiceError extends errore.createTaggedError({
   name: "DatabaseServiceError",
@@ -29,6 +29,8 @@ export class DatabaseService {
   private readonly client: DatabaseClient;
   readonly query: DatabaseService["tandem"]["query"];
   readonly subscribe: DatabaseService["tandem"]["subscribe"];
+  readonly connect: DatabaseService["tandem"]["connect"];
+  readonly pull: DatabaseService["tandem"]["pull"];
 
   private constructor(ctx: { client: DatabaseClient }) {
     const { client } = ctx;
@@ -44,6 +46,8 @@ export class DatabaseService {
     });
     this.query = this.tandem.query.bind(this.tandem);
     this.subscribe = this.tandem.subscribe.bind(this.tandem);
+    this.connect = this.tandem.connect.bind(this.tandem);
+    this.pull = this.tandem.pull.bind(this.tandem);
   }
 
   static async open(input: Parameters<typeof DatabaseClient.open>[0]) {
