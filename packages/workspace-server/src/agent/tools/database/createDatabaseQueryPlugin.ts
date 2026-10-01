@@ -70,9 +70,9 @@ export function createDatabaseQueryPlugin(
           const result = await database.access((connection) => {
             // DatabaseClient serializes this block with all other access to its
             // connection. Restore query_only before releasing the queue.
-            connection.exec("PRAGMA query_only=1");
             using cleanup = new errore.DisposableStack();
             cleanup.defer(() => connection.exec("PRAGMA query_only=0"));
+            connection.exec("PRAGMA query_only=1");
             const prepared = connection.prepare(statement);
             const rows: Record<string, DisplayCell>[] = [];
             let chars = 0;
