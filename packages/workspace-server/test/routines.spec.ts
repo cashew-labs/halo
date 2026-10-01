@@ -1,6 +1,9 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import {
+  createWorkspaceRemote,
+  haloSchemaToTandemSchema,
+  workspaceSchema,
   sessionMessages,
   type HaloClient,
   type RoutineInput,
@@ -9,6 +12,8 @@ import {
 import { m } from "@get-halo/shared/testing";
 import { messageText } from "@get-halo/workspace-server/testing";
 import { expect } from "vitest";
+import * as errore from "errore";
+import { TandemClient } from "@tanishqkancharla/tandem-core";
 import { serverTest } from "./serverTest.js";
 import type { TestServer } from "./TestServer.js";
 
@@ -262,18 +267,69 @@ serverTest(
   },
 );
 
-serverTest("workspace updates include routines", async ({ server }) => {
-  const routine = await server.rpc.routines.save(bookHaircut);
-  const controller = new AbortController();
-  const updates = await server.rpc.server.watch(undefined, {
-    signal: controller.signal,
-  });
-  for await (const update of updates) {
-    if (update.type !== "routines") continue;
-    expect(update.routines).toMatchObject([
-      { id: routine.id, name: "Book haircut" },
-    ]);
-    break;
-  }
-  controller.abort();
-});
+serverTest(
+  "syncs routines and related runs through Tandem",
+  async ({ server }) => {
+    await using cleanup = new errore.AsyncDisposableStack();
+    await installExtension(server, "appointments");
+    const routine = await server.rpc.routines.save(bookHaircut);
+    const controller = new AbortController();
+    const db = new TandemClient({
+      ...haloSchemaToTandemSchema(workspaceSchema),
+      remote: createWorkspaceRemote({
+        api: server.rendererRpc,
+        signal: controller.signal,
+        onDisconnect: console.warn,
+      }),
+      autoConnect: false,
+    });
+    cleanup.defer(async () => await db.disconnect());
+    cleanup.defer(() => controller.abort());
+    const query = {
+      collection: "routines",
+      orderBy: { createdAt: "asc", id: "asc" },
+      with: { lastRun: true },
+    } as const;
+    const subscription = db.subscribe(query, () => {});
+    cleanup.defer(subscription.destroy);
+    await db.ready;
+    await db.connect();
+    await expect
+      .poll(() => db.query(query))
+      .toMatchObject([{ id: routine.id, name: "Book haircut" }]);
+    const runsQuery = {
+      collection: "routineRuns",
+      where: { routineId: routine.id },
+      orderBy: { startedAt: "desc", sequence: "desc" },
+      limit: 50,
+    } as const;
+    const runs = db.subscribe(runsQuery, () => {});
+    cleanup.defer(runs.destroy);
+    const run = await server.rpc.routines.runNow({ routineId: routine.id });
+    await expect
+      .poll(() => db.query(runsQuery))
+      .toMatchObject([{ id: run.id, status: "completed" }]);
+    await expect
+      .poll(() => db.query(query))
+      .toMatchObject([
+        { id: routine.id, lastRun: { id: run.id, status: "completed" } },
+      ]);
+    const unrelated = await server.rpc.routines.save({
+      ...bookHaircut,
+      name: "Unrelated routine",
+    });
+    await server.rpc.routines.runNow({ routineId: unrelated.id });
+    const latest = await server.rpc.routines.runNow({ routineId: routine.id });
+    await expect
+      .poll(() => db.query(runsQuery))
+      .toMatchObject([
+        { id: latest.id, status: "completed" },
+        { id: run.id, status: "completed" },
+      ]);
+    await server.rpc.routines.remove({ routineId: routine.id });
+    await expect
+      .poll(() => db.query(query))
+      .toMatchObject([{ id: unrelated.id }]);
+    await expect.poll(() => db.query(runsQuery)).toEqual([]);
+  },
+);

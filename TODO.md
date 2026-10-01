@@ -37,7 +37,27 @@ Move this section into the PR description when creating the PR, then remove it h
     - [x] Remove HotkeyService.watch, its watch RPC, and hotkey forwarding in watchWorkspace
     - [x] Validate hotkey sync across windows, offline deletion, and restarts
   - [x] Consolidate shared schema code and converters into client/database/schema
-  - [ ] Read routines and run history from TandemClient
+  - [x] Read routines and run history from TandemClient
+    - [x] Remove routine watch forwarding and validate live edits and runs
+  - [ ] Remove TanStack Query from the frontend
+    - [ ] Phase 1: move stream and UI state out of QueryClient
+      - [ ] Move workspace metadata and session summaries to workspace-owned state
+      - [ ] Move draft snapshots, submitted titles, and integration connection state to their owners
+      - [ ] Preserve state reset on user and workspace changes
+      - [ ] Validate reconnect, draft submission, tab titles, and integration connection flows
+    - [ ] Phase 2: replace host queries and polling
+      - [ ] Add an async-read hook with stale-request cleanup and delayed loading state
+      - [ ] Move app-info polling and update actions to host state
+      - [ ] Validate polling cleanup, update errors, and compatibility checks
+    - [ ] Phase 3: replace filesystem queries
+      - [ ] Move path listings, file contents, and previews to shared filesystem state
+      - [ ] Preserve autosave synchronization, file-event invalidation, and reconnect refresh
+      - [ ] Replace shared file-operation pending state
+      - [ ] Validate multi-pane edits, file moves/deletions, and stale responses after navigation
+    - [ ] Phase 4: remove remaining mutations and the dependency
+      - [ ] Replace remaining mutation pending and error state
+      - [ ] Remove QueryClientProvider, cache keys, and the dependency
+      - [ ] Run affected checks and Electron session, routine, file, and host flows
   - [ ] Decide Executor storage: direct Tandem adapter or native SQL with synchronized public records
     - [ ] Resolve change-feed ownership if retaining native SQL
   - [ ] Squash migrations introduced by this work into one before creating the PR

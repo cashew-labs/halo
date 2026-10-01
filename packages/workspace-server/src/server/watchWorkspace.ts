@@ -37,9 +37,6 @@ export async function* watchWorkspace({
       update,
     })),
     forward(files, (batch) => ({ type: "files", events: batch })),
-    forward(context.routines.watch(abortSignal), (routines) =>
-      routines instanceof Error ? routines : { type: "routines", routines },
-    ),
   ];
   await using cleanup = new errore.AsyncDisposableStack();
   cleanup.defer(async () => {

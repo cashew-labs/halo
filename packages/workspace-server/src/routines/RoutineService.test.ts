@@ -1,4 +1,5 @@
 import { InvalidRoutineError, type RoutineInput } from "@get-halo/client";
+import * as errore from "errore";
 import { afterEach, beforeEach, expect, vi } from "vitest";
 import { routineTest } from "./fixtures.test.js";
 import { RoutineNotFoundError } from "./RoutineService.js";
@@ -180,23 +181,25 @@ routineTest(
     const routines = await openRoutines();
     const saved = await routines.save(everyTwoMinutes);
     if (saved instanceof Error) throw saved;
-    const controller = new AbortController();
-    const updates = routines.watch(controller.signal);
-    expect((await updates.next()).value).toEqual([saved]);
+    using cleanup = new errore.DisposableStack();
+    const changed = vi.fn();
+    const subscription = await routines.subscribe(changed, console.error);
+    if (subscription instanceof Error) throw subscription;
+    cleanup.defer(subscription.destroy);
+    expect(subscription.result).toEqual([saved]);
 
     const edited = await routines.save({
       ...everyTwoMinutes,
       id: saved.id,
       name: "Book tennis lesson",
     });
-    expect((await updates.next()).value).toEqual([edited]);
+    await vi.waitFor(() => expect(changed).toHaveBeenLastCalledWith([edited]));
 
     await routines.remove(saved.id);
-    expect((await updates.next()).value).toEqual([]);
+    await vi.waitFor(() => expect(changed).toHaveBeenLastCalledWith([]));
     expect(await routines.listRuns({ routineId: saved.id })).toEqual(
       new RoutineNotFoundError({ routineId: saved.id }),
     );
-    controller.abort();
   },
 );
 
@@ -206,9 +209,12 @@ routineTest(
     const routines = await openRoutines();
     const saved = await routines.save(everyTwoMinutes);
     if (saved instanceof Error) throw saved;
-    const controller = new AbortController();
-    const updates = routines.watch(controller.signal);
-    expect((await updates.next()).value).toEqual([saved]);
+    using cleanup = new errore.DisposableStack();
+    const changed = vi.fn();
+    const subscription = await routines.subscribe(changed, console.error);
+    if (subscription instanceof Error) throw subscription;
+    cleanup.defer(subscription.destroy);
+    expect(subscription.result).toEqual([saved]);
     vi.setSystemTime(new Date("2026-09-25T08:02:00Z"));
     const [run, duplicate] = await Promise.all([
       routines.beginRun({ routineId: saved.id, trigger: "schedule" }),
@@ -216,21 +222,25 @@ routineTest(
     ]);
     if (run instanceof Error || run === undefined) throw new Error("No run");
     expect(duplicate).toBeUndefined();
-    expect((await updates.next()).value).toMatchObject([
-      {
-        lastRun: { id: run.id, status: "running" },
-        nextRunAt: "2026-09-25T08:04:00.000Z",
-      },
-    ]);
+    await vi.waitFor(() =>
+      expect(changed.mock.lastCall?.[0]).toMatchObject([
+        {
+          lastRun: { id: run.id, status: "running" },
+          nextRunAt: "2026-09-25T08:04:00.000Z",
+        },
+      ]),
+    );
     expect(
       await routines.attachSession({
         runId: run.id,
         sessionId: "related-session",
       }),
     ).toBeUndefined();
-    expect((await updates.next()).value).toMatchObject([
-      { lastRun: { sessionId: "related-session" } },
-    ]);
+    await vi.waitFor(() =>
+      expect(changed.mock.lastCall?.[0]).toMatchObject([
+        { lastRun: { sessionId: "related-session" } },
+      ]),
+    );
     expect(
       await routines.finishRun({
         runId: run.id,
@@ -238,13 +248,13 @@ routineTest(
         error: "Script exited 1",
       }),
     ).toBeUndefined();
-    expect((await updates.next()).value).toMatchObject([
-      { lastRun: { status: "failed", error: "Script exited 1" } },
-    ]);
+    await vi.waitFor(() =>
+      expect(changed.mock.lastCall?.[0]).toMatchObject([
+        { lastRun: { status: "failed", error: "Script exited 1" } },
+      ]),
+    );
     expect(await routines.listRuns({ routineId: saved.id })).toMatchObject([
       { id: run.id, status: "failed" },
     ]);
-    controller.abort();
-    await updates.return();
   },
 );

@@ -11,7 +11,6 @@ import * as errore from "errore";
 import type {
   ExtensionSummary,
   HaloClient,
-  Routine,
   SessionSummary,
 } from "@get-halo/client";
 import { useWorkspaceQuery, workspacePathsQueryKey } from "./ApiProvider.js";
@@ -27,12 +26,9 @@ type WorkspaceState = {
     data: ExtensionSummary[] | undefined;
     error: Error | undefined;
   };
-  // Undefined until the server sends its first snapshot.
-  routines: Routine[] | undefined;
 };
 const empty: WorkspaceState = {
   extensions: { data: undefined, error: undefined },
-  routines: undefined,
 };
 const WorkspaceUpdatesContext = createContext<WorkspaceState>(empty);
 
@@ -102,8 +98,6 @@ export function WorkspaceUpdatesProvider({
         setState((current) => {
           const previous =
             current.workspaceRoot === workspaceRoot ? current : empty;
-          if (item.type === "routines")
-            return { ...previous, workspaceRoot, routines: item.routines };
           if (item.type === "extensions")
             return {
               ...previous,
@@ -137,8 +131,4 @@ export function WorkspaceUpdatesProvider({
 
 export function useExtensions() {
   return useContext(WorkspaceUpdatesContext).extensions;
-}
-
-export function useRoutines() {
-  return useContext(WorkspaceUpdatesContext).routines;
 }
