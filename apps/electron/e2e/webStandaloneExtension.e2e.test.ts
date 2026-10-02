@@ -277,11 +277,18 @@ e2eTest(
   },
 );
 
-for (const verificationFailure of [false, true]) {
+for (const { action, verificationFailure } of [
+  { action: "add", verificationFailure: false },
+  { action: "add", verificationFailure: true },
+  { action: "reauthorize", verificationFailure: false },
+  { action: "switch-default", verificationFailure: false },
+] as const) {
   e2eTest(
     verificationFailure
       ? "keeps saved Gmail authorization truthful after a profile outage"
-      : "adds Gmail accounts through same-tab web OAuth and preserves the default",
+      : action === "add"
+        ? "adds Gmail accounts through same-tab web OAuth and preserves the default"
+        : `updates Gmail card identity after ${action}`,
     async ({ browser, harness, http, llm, testArtifacts }, testInfo) => {
       e2eTest.setTimeout(60_000);
       const session = await harness.loadSession({
@@ -295,6 +302,7 @@ for (const verificationFailure of [false, true]) {
             clientOwner: "org",
             owner: "user",
             connectionName: "default",
+            identityLabel: "requested@example.com",
             integration: "google_gmail",
             template: "googleOAuth2",
           }),
@@ -328,9 +336,7 @@ for (const verificationFailure of [false, true]) {
       const page = await context.newPage();
       await page.goto(`${plane.origin}/#/sessions/${session.sessionId}`);
 
-      const card = page.getByRole("region", {
-        name: "Gmail connection",
-      });
+      const card = page.getByTestId("executor-connection-card");
       await page.route("https://accounts.google.com/**", async (route) => {
         const authorizationUrl = new URL(route.request().url());
         const callbackValue = authorizationUrl.searchParams.get("redirect_uri");
@@ -347,6 +353,34 @@ for (const verificationFailure of [false, true]) {
         });
       });
       for (const email of ["first@example.com", "second@example.com"]) {
+        const separateCard = email === "second@example.com" && action !== "add";
+        const activeSession = separateCard
+          ? await harness.loadSession({
+              title: `Gmail ${action}`,
+              messages: [
+                m.user(
+                  action === "reauthorize"
+                    ? "Reauthorize the saved Gmail account"
+                    : "Add a Gmail account and make it default",
+                ),
+                m.connectionRequest({
+                  client: "first-party:google",
+                  clientOwner: "org",
+                  owner: "user",
+                  connectionName: "default",
+                  integration: "google_gmail",
+                  template: "googleOAuth2",
+                  action,
+                  identityLabel:
+                    action === "reauthorize" ? "first@example.com" : undefined,
+                }),
+              ],
+            })
+          : session;
+        if (separateCard)
+          await page.goto(
+            `${plane.origin}/#/sessions/${activeSession.sessionId}`,
+          );
         const authorizationRequest = page.waitForRequest((request) => {
           const url = new URL(request.url());
           return (
@@ -354,12 +388,21 @@ for (const verificationFailure of [false, true]) {
             url.pathname === "/o/oauth2/v2/auth"
           );
         });
-        if (email === "first@example.com") {
+        if (email === "first@example.com" || separateCard) {
           await card
-            .getByRole("button", { name: "Add account" })
+            .getByRole("button", {
+              name: separateCard
+                ? action === "reauthorize"
+                  ? "Reauthorize"
+                  : "Add and use as default"
+                : "Add account",
+              exact: true,
+            })
             .click({ noWaitAfter: true });
         } else {
-          await card.getByRole("button", { name: "Gmail actions" }).click();
+          await card
+            .getByRole("button", { name: "first@example.com actions" })
+            .click();
           await page
             .getByRole("menuitem", { name: "Add another account" })
             .click({ noWaitAfter: true });
@@ -393,9 +436,17 @@ for (const verificationFailure of [false, true]) {
 
         const unverified =
           verificationFailure && email === "second@example.com";
+        const changesDefaultIdentity =
+          email === "second@example.com" && action !== "add";
+        const defaultIdentity = changesDefaultIdentity
+          ? email
+          : "first@example.com";
+        const verb =
+          separateCard && action === "reauthorize" ? "Reauthorized" : "Added";
+        const mismatch = !(separateCard && action === "switch-default");
         const completionMessage = unverified
           ? "Authorization saved. Gmail identity or default selection could not be confirmed. The saved account is unverified; reauthorize this saved account to retry."
-          : `Added ${email}. Default: first@example.com.`;
+          : `${verb} ${email}. Default: ${defaultIdentity}.${mismatch ? " The authorized account differs from the requested account; no default switch was applied." : ""}`;
         const profile = await http.request("/gmail/v1/users/me/profile");
         profile.respond(JSON.stringify({ emailAddress: email }), {
           contentType: "application/json",
@@ -403,15 +454,29 @@ for (const verificationFailure of [false, true]) {
         });
 
         await page.waitForURL(
-          `${plane.origin}/#/sessions/${session.sessionId}`,
+          `${plane.origin}/#/sessions/${activeSession.sessionId}`,
         );
         await page.waitForLoadState("domcontentloaded");
         await expect(page.getByTestId("sessions-shell")).toBeVisible({
           timeout: 10_000,
         });
+        const actualIdentity = unverified ? "Unverified account" : email;
         const returnedCard = page.getByRole("region", {
-          name: "Gmail connection",
+          name: `${actualIdentity} connection`,
+          exact: true,
         });
+        await expect(
+          returnedCard.getByText(actualIdentity, { exact: true }),
+        ).toBeVisible();
+        await expect(
+          returnedCard.getByRole("button", {
+            name: `${actualIdentity} actions`,
+            exact: true,
+          }),
+        ).toBeVisible();
+        await expect(
+          returnedCard.getByText("requested@example.com", { exact: true }),
+        ).toHaveCount(0);
         await expect(
           returnedCard.getByText(
             unverified ? "Saved · unverified" : "Connected",
@@ -430,7 +495,7 @@ for (const verificationFailure of [false, true]) {
                 arguments: {
                   js: `const accounts = await tools.halo.listGmailAccounts({});
 if (!accounts.ok) return accounts;
-if (${verificationFailure}) return accounts.data.map(account => ({ name: account.name, address: account.address, email: account.identityLabel, isDefault: account.isDefault }));
+if (${verificationFailure || action !== "add"}) return accounts.data.map(account => ({ name: account.name, address: account.address, email: account.identityLabel, isDefault: account.isDefault }));
 const second = accounts.data.find(account => account.identityLabel === "second@example.com");
 const selected = await tools.halo.setDefaultGmailAccount({ accountName: second.name });
 if (!selected.ok) return selected;
@@ -450,27 +515,31 @@ return after.data.map(account => ({ name: account.name, address: account.address
             expect(messageText(result!)).toContain(
               "tools.google_gmail.user.default",
             );
-            expect(messageText(result!)).toMatch(
-              /"name":\s*"account[a-f0-9]+"/,
-            );
-            expect(messageText(result!)).toContain("first@example.com");
+            if (action !== "reauthorize") {
+              expect(messageText(result!)).toMatch(
+                /"name":\s*"account[a-f0-9]+"/,
+              );
+              expect(messageText(result!)).toContain("first@example.com");
+              expect(messageText(result!)).toMatch(/"isDefault":\s*false/);
+            } else {
+              expect(messageText(result!)).not.toContain("first@example.com");
+            }
             expect(messageText(result!)).toContain(
               verificationFailure ? "Unverified account" : "second@example.com",
             );
             expect(messageText(result!)).toMatch(/"isDefault":\s*true/);
-            expect(messageText(result!)).toMatch(/"isDefault":\s*false/);
             return m.assistant("The connection is ready.");
           });
           if (unverified) {
             await page.reload();
             await expect(
               page
-                .getByRole("region", { name: "Gmail connection" })
+                .getByRole("region", { name: "Unverified account connection" })
                 .getByText("Saved · unverified", { exact: true }),
             ).toBeVisible();
             await expect(
               page
-                .getByRole("region", { name: "Gmail connection" })
+                .getByRole("region", { name: "Unverified account connection" })
                 .getByRole("status"),
             ).toHaveText(completionMessage);
           }

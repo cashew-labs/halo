@@ -133,7 +133,11 @@ export function ExecutorConnectionCard({
 
   const status = connection.status;
   const display = googleIntegrationDisplay(part.request.integration);
-  const label = connectionRequestLabel(part.request);
+  const outcome = "outcome" in connection ? connection.outcome : undefined;
+  const label =
+    connection.status === "connected" && outcome !== undefined
+      ? outcome.identityLabel
+      : connectionRequestLabel(part.request);
   const brand = brands.google;
   const menuLabel = `${label} actions`;
   const canConnect = sessionId !== undefined;
@@ -153,7 +157,6 @@ export function ExecutorConnectionCard({
       : action === "switch-default"
         ? `Add ${part.request.identityLabel ?? "an account"} and make it the default. Existing accounts stay connected.`
         : `Add ${part.request.identityLabel ?? "a Gmail account"}. Your existing default stays selected.`;
-  const outcome = "outcome" in connection ? connection.outcome : undefined;
   const errorMessage =
     "errorMessage" in connection ? connection.errorMessage : undefined;
 
