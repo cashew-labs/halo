@@ -26,7 +26,7 @@ import type {
   WorkspaceTreeEvent,
 } from "./rpc.js";
 
-export const haloProtocolVersion = 23 as const;
+export const haloProtocolVersion = 24 as const;
 export const haloSupportedProtocols = [18, 19, 21, 22, haloProtocolVersion];
 
 export const RequestRejectedError = error("BAD_REQUEST", {
@@ -161,6 +161,9 @@ export const contract = publicProcedure.router({
       .input(type<{ routineId: string; enabled: boolean }>())
       .output(type<Routine>()),
     runNow: oc.input(type<{ routineId: string }>()).output(type<RoutineRun>()),
+    runScheduled: oc
+      .input(type<{ routineId: string }>())
+      .output(type<RoutineRun | undefined>()),
     listRuns: oc
       .input(type<{ routineId: string; limit?: number }>())
       .output(type<RoutineRun[]>()),

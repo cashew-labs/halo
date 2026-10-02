@@ -7,6 +7,7 @@ import type { DatabaseService } from "../DatabaseService.js";
 import {
   getGcpWorkspaceStatus,
   provisionGcpWorkspace,
+  stopGcpWorkspace,
 } from "./gcpProvisioning.js";
 
 class WorkspaceServiceError extends errore.createTaggedError({
@@ -23,6 +24,8 @@ type PostgresWorkspaceRow = {
   id: string;
   created_at: Date;
 };
+
+type WorkspaceOwnerRow = { user_id: string };
 
 type Workspace = {
   id: string;
@@ -47,8 +50,9 @@ export type WorkspaceConnection =
 
 export class WorkspaceService {
   // Tracks transitions initiated by this process until Compute Engine finishes them.
-  private readonly transitions = new Map<string, Promise<void>>();
+  private readonly transitions = new Map<string, "starting" | "stopping">();
   private readonly transitionErrors = new Map<string, Error>();
+  private readonly activeRequests = new Map<string, number>();
   private readonly db: DatabaseService;
   private readonly config: WorkspaceServiceConfig;
 
@@ -83,29 +87,130 @@ export class WorkspaceService {
       this.transitionErrors.delete(workspace.id);
       return transitionError;
     }
-    if (this.transitions.has(workspace.id))
-      return { ...workspace, status: "starting" as const };
+    const transition = this.transitions.get(workspace.id);
+    if (transition !== undefined) return { ...workspace, status: transition };
 
     const status = await getGcpWorkspaceStatus({
       config: this.config,
       workspaceId: workspace.id,
     });
     if (status instanceof Error) return status;
+    const pending = this.transitions.get(workspace.id);
+    if (pending !== undefined) return { ...workspace, status: pending };
     if (status !== "stopped") return { ...workspace, status };
 
-    const transition = provisionGcpWorkspace({
+    this.transitions.set(workspace.id, "starting");
+    void provisionGcpWorkspace({
       config: this.config,
       ownerUserId: userId,
       workspaceId: workspace.id,
-    }).then((result) => {
-      if (result instanceof Error) {
-        console.error(result);
-        this.transitionErrors.set(workspace.id, result);
-      }
-      this.transitions.delete(workspace.id);
-    });
-    this.transitions.set(workspace.id, transition);
+    }).then(
+      (result) => {
+        if (result instanceof Error) {
+          console.error(result);
+          this.transitionErrors.set(workspace.id, result);
+        }
+        this.transitions.delete(workspace.id);
+      },
+      (cause) => {
+        const error = new WorkspaceServiceError({
+          detail: "start workspace VM",
+          cause,
+        });
+        console.error(error);
+        this.transitionErrors.set(workspace.id, error);
+        this.transitions.delete(workspace.id);
+      },
+    );
     return { ...workspace, status: "starting" as const };
+  }
+
+  async wake(workspaceId: string) {
+    const client = this.db.client;
+    if (client instanceof DatabaseSync)
+      return new WorkspaceServiceError({ detail: "wake local workspace VM" });
+    const owner = await client
+      .query<WorkspaceOwnerRow>("SELECT user_id FROM workspace WHERE id = $1", [
+        workspaceId,
+      ])
+      .catch(
+        (cause) =>
+          new WorkspaceServiceError({ detail: "load workspace owner", cause }),
+      );
+    if (owner instanceof Error) return owner;
+    const userId = owner.rows[0]?.user_id;
+    if (userId === undefined)
+      return new WorkspaceServiceError({ detail: "find workspace owner" });
+    return await this.ensure(userId);
+  }
+
+  sleep(workspaceId: string) {
+    if (this.config.deployment === "local") return;
+    if (this.transitions.has(workspaceId)) return;
+    this.transitions.set(workspaceId, "stopping");
+    void stopGcpWorkspace({
+      config: this.config,
+      workspaceId,
+    }).then(
+      (result) => {
+        if (result instanceof Error) {
+          console.error(result);
+          this.transitionErrors.set(workspaceId, result);
+        }
+        this.transitions.delete(workspaceId);
+      },
+      (cause) => {
+        const error = new WorkspaceServiceError({
+          detail: "stop workspace VM",
+          cause,
+        });
+        console.error(error);
+        this.transitionErrors.set(workspaceId, error);
+        this.transitions.delete(workspaceId);
+      },
+    );
+  }
+
+  hasActiveRequests(workspaceId: string) {
+    return (this.activeRequests.get(workspaceId) ?? 0) > 0;
+  }
+
+  async openRequest(userId: string) {
+    if (this.config.deployment === "local") return () => undefined;
+    const client = this.db.client;
+    if (client instanceof DatabaseSync)
+      return new WorkspaceServiceError({ detail: "open production database" });
+    const touched = await client
+      .query<{ id: string }>(
+        `UPDATE workspace SET last_activity_at = NOW()
+         WHERE user_id = $1 RETURNING id`,
+        [userId],
+      )
+      .catch(
+        (cause) =>
+          new WorkspaceServiceError({
+            detail: "record workspace activity",
+            cause,
+          }),
+      );
+    if (touched instanceof Error) return touched;
+    const workspaceId = touched.rows[0]?.id;
+    if (workspaceId === undefined)
+      return new WorkspaceServiceError({ detail: "find active workspace" });
+    this.activeRequests.set(
+      workspaceId,
+      (this.activeRequests.get(workspaceId) ?? 0) + 1,
+    );
+    return () => {
+      const remaining = (this.activeRequests.get(workspaceId) ?? 1) - 1;
+      if (remaining === 0) this.activeRequests.delete(workspaceId);
+      else this.activeRequests.set(workspaceId, remaining);
+    };
+  }
+
+  connectionForId(workspaceId: string) {
+    if (this.config.deployment === "local") return;
+    return `http://halo-${workspaceId}.${this.config.zone}.c.${this.config.projectId}.internal:8788`;
   }
 
   async getConnection(userId: string) {
@@ -129,9 +234,11 @@ export class WorkspaceService {
       return new WorkspaceServiceError({ detail: "find workspace" });
     }
 
-    const instanceName = `halo-${workspace.id}`;
+    const origin = this.connectionForId(workspace.id);
+    if (origin === undefined)
+      return new WorkspaceServiceError({ detail: "find workspace origin" });
     return {
-      origin: `http://${instanceName}.${this.config.zone}.c.${this.config.projectId}.internal:8788`,
+      origin,
       authorization: { type: "googleIdentity" },
     } satisfies WorkspaceConnection;
   }
@@ -275,9 +382,14 @@ export class WorkspaceService {
       .query(`CREATE TABLE IF NOT EXISTS workspace (
         id UUID PRIMARY KEY,
         user_id TEXT NOT NULL UNIQUE REFERENCES "user"(id) ON DELETE CASCADE,
-        created_at TIMESTAMPTZ NOT NULL
+        created_at TIMESTAMPTZ NOT NULL,
+        last_activity_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )`)
-      .then(() => undefined)
+      .then(async () => {
+        await client.query(
+          "ALTER TABLE workspace ADD COLUMN IF NOT EXISTS last_activity_at TIMESTAMPTZ NOT NULL DEFAULT NOW()",
+        );
+      })
       .catch(
         (cause) =>
           new WorkspaceServiceError({

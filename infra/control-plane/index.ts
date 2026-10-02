@@ -419,7 +419,7 @@ const controlPlane = new gcp.cloudrunv2.Service(
           ports: { name: "http1", containerPort: 8080 },
           resources: {
             limits: { cpu: "1", memory: "512Mi" },
-            cpuIdle: true,
+            cpuIdle: false,
             startupCpuBoost: true,
           },
           startupProbe: {

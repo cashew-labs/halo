@@ -61,6 +61,14 @@ export class WorkspaceGateway {
       return;
     }
 
+    const release = await this.workspace.openRequest(session.user.id);
+    if (release instanceof Error) {
+      console.error(release);
+      respond(request, response, 503);
+      return;
+    }
+    response.once("close", release);
+
     const connection = await this.workspace.getConnection(session.user.id);
     if (connection instanceof Error) {
       console.error(connection);
@@ -99,6 +107,14 @@ export class WorkspaceGateway {
       respondToUpgrade(socket, 401);
       return;
     }
+
+    const release = await this.workspace.openRequest(session.user.id);
+    if (release instanceof Error) {
+      console.error(release);
+      respondToUpgrade(socket, 503);
+      return;
+    }
+    socket.once("close", release);
 
     const connection = await this.workspace.getConnection(session.user.id);
     if (connection instanceof Error) {

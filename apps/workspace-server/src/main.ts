@@ -14,6 +14,7 @@ import {
 } from "@get-halo/shared/HaloRpcFile";
 import {
   ControlPlaneTraceUploader,
+  ControlPlaneRoutineReporter,
   FileCredentialVault,
   WorkspaceServer,
 } from "@get-halo/workspace-server";
@@ -103,6 +104,13 @@ async function run() {
         applicationConfig.server.traceUpload === undefined
           ? undefined
           : new ControlPlaneTraceUploader({
+              origin: applicationConfig.server.traceUpload.origin,
+              auth: new GoogleAuth(),
+            }),
+      routineReporter:
+        applicationConfig.server.traceUpload === undefined
+          ? undefined
+          : new ControlPlaneRoutineReporter({
               origin: applicationConfig.server.traceUpload.origin,
               auth: new GoogleAuth(),
             }),

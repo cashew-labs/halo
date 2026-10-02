@@ -129,7 +129,8 @@ export class ControlPlaneAuth implements DesktopAuthentication {
           }),
       );
       if (health instanceof Error) return health;
-      if (health.status === 502 || health.status === 503) return undefined;
+      if (health.status === 502 || health.status === 503)
+        return new WorkspaceTransitionError({ status: "starting" });
       if (health.status === 401) return new AuthenticationRequiredError();
       if (!health.ok)
         return new ConnectionHttpError({
