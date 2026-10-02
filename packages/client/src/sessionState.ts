@@ -195,7 +195,10 @@ const connectionOutcomeSchema = Type.Object({
   accountName: Type.String(),
   identityLabel: Type.String(),
   defaultIdentityLabel: Type.Optional(Type.String()),
-  isDefault: Type.Boolean(),
+  isDefault: Type.Optional(Type.Boolean()),
+  verificationStatus: Type.Optional(
+    Type.Union([Type.Literal("verified"), Type.Literal("unverified")]),
+  ),
   message: Type.String(),
 });
 

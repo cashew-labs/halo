@@ -4,6 +4,7 @@ import { once } from "node:events";
 import { Logger } from "@get-halo/logger";
 import type {
   ConnectionRequest,
+  ConnectionOutcome,
   OAuthCompletion,
   HaloConnectionEvent,
 } from "@get-halo/client";
@@ -24,6 +25,7 @@ class FakeOAuthRuntime {
   readonly state = "test-oauth-state";
   completionKind: OAuthCompletion["kind"] | undefined;
   completionError: Error | undefined;
+  completionOutcome: ConnectionOutcome | undefined;
   redirectUri: string | undefined;
 
   async startOAuth(input: ConnectionRequest & { completion: OAuthCompletion }) {
@@ -37,7 +39,7 @@ class FakeOAuthRuntime {
   }
 
   async completeOAuth(_input: { state: string; code: string }) {
-    return this.completionError;
+    return this.completionError ?? this.completionOutcome;
   }
 
   async cancelOAuth(_state: string) {
@@ -189,5 +191,25 @@ test("OAuth failure reports an actionable card error", async () => {
       status: "cancelled",
       errorMessage: "Authorization could not be completed. Try again.",
     },
+  ]);
+});
+
+test("saved authorization with an unverified identity completes without cancellation", async () => {
+  await using setup = await createOAuthTest();
+  const started = await setup.start("server-redirect");
+  if (started instanceof Error) throw started;
+  setup.runtime.completionOutcome = {
+    accountName: "default",
+    identityLabel: "Unverified account",
+    verificationStatus: "unverified",
+    message: "Authorization saved. Gmail identity could not be confirmed.",
+  };
+  const response = await fetch(
+    `${setup.origin}/oauth/callback?state=${setup.runtime.state}&code=accepted`,
+    { redirect: "manual" },
+  );
+  expect(response.status).toBe(302);
+  expect(setup.connections.statesForSession("session/one")).toMatchObject([
+    { status: "connected", outcome: setup.runtime.completionOutcome },
   ]);
 });

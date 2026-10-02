@@ -187,7 +187,10 @@ export function ExecutorConnectionCard({
             </Button>
           ) : (
             <Flex row gap={2} alignItems="center" style={{ flexShrink: 0 }}>
-              <ConnectionStatusLabel status={status} />
+              <ConnectionStatusLabel
+                status={status}
+                unverified={outcome?.verificationStatus === "unverified"}
+              />
               {status === "starting" ? undefined : (
                 <ConnectionOverflowMenu
                   label={menuLabel}
@@ -246,9 +249,18 @@ export function ExecutorConnectionCard({
 
 function ConnectionStatusLabel({
   status,
+  unverified,
 }: {
   status: Exclude<ConnectionState["status"], "idle">;
+  unverified: boolean;
 }) {
+  if (status === "connected" && unverified) {
+    return (
+      <Text size="sm" fontWeight={500} style={{ color: colors.orange[11] }}>
+        Saved · unverified
+      </Text>
+    );
+  }
   const color = connectionStatusColor[status];
   if (status === "connected") {
     return (
