@@ -59,6 +59,7 @@ export {
   type HaloMessage,
   type ToolIdentity,
   type ExecToolCall,
+  type ConnectionOutcome,
   type HaloConnectionEvent,
   type HaloConnectionState,
   type ToolResult,

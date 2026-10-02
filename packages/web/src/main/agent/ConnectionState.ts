@@ -1,12 +1,17 @@
 import {
   connectionRequestKey,
   type ConnectionRequest,
+  type ConnectionOutcome,
   type HaloConnectionEvent,
   type HaloConnectionState,
 } from "@get-halo/client";
 
 export type ConnectionState =
-  | { status: "idle" | "connected" | "cancelled" | "expired" }
+  | {
+      status: "idle" | "connected" | "cancelled" | "expired";
+      outcome?: ConnectionOutcome;
+      errorMessage?: string;
+    }
   | { status: "starting"; wasConnected: boolean }
   | {
       status: "connecting";
@@ -39,7 +44,11 @@ export function connectionStateFromServer(
       wasConnected: state.wasConnected,
     };
   }
-  return { status: state.status };
+  return {
+    status: state.status,
+    outcome: state.outcome,
+    errorMessage: state.errorMessage,
+  };
 }
 
 export function applyConnectionEvent(
@@ -51,8 +60,16 @@ export function applyConnectionEvent(
     return state === undefined ? idleConnectionState : state;
   }
   if (state.connectionId !== event.connectionId) return state;
-  if (event.status !== "connected" && state.wasConnected) {
-    return { status: "connected" };
+  if (
+    event.status !== "connected" &&
+    state.wasConnected &&
+    event.errorMessage === undefined
+  ) {
+    return { status: "connected", errorMessage: event.errorMessage };
   }
-  return { status: event.status };
+  return {
+    status: event.status,
+    outcome: event.outcome,
+    errorMessage: event.errorMessage,
+  };
 }

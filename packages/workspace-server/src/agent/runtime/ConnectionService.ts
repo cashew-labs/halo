@@ -4,6 +4,7 @@ import * as errore from "errore";
 import {
   connectionRequestKey,
   type ConnectionRequest,
+  type ConnectionOutcome,
   type ConnectionStarted,
   type OAuthCompletion,
   applyConnectionEvent,
@@ -49,7 +50,7 @@ type OAuthRuntime = {
   completeOAuth(input: {
     state: string;
     code: string;
-  }): Promise<Error | undefined>;
+  }): Promise<Error | ConnectionOutcome | undefined>;
   cancelOAuth(state: string): Promise<Error | undefined>;
 };
 
@@ -157,19 +158,25 @@ export class ConnectionService {
     if (pending === undefined) return new OAuthStateNotFoundError();
     const completed = await this.runtime.completeOAuth(input);
     if (completed instanceof Error) {
-      const notified = await this.publishEvent(
-        pending,
-        this.connectionEvent(pending, "cancelled"),
-      );
+      const notified = await this.publishEvent(pending, {
+        type: "halo.connection",
+        connectionId: pending.connectionId,
+        request: pending.request,
+        status: "cancelled",
+        errorMessage: "Authorization could not be completed. Try again.",
+      });
       if (notified instanceof Error) {
         console.warn("OAuth failure notification failed:", notified);
       }
       return completed;
     }
-    return await this.publishEvent(
-      pending,
-      this.connectionEvent(pending, "connected"),
-    );
+    return await this.publishEvent(pending, {
+      type: "halo.connection",
+      connectionId: pending.connectionId,
+      request: pending.request,
+      status: "connected",
+      outcome: completed,
+    });
   }
 
   async cancelOAuth(state: string) {

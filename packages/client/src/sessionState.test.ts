@@ -257,7 +257,7 @@ test("restores connection progress from session state", () => {
     clientOwner: "org" as const,
     owner: "user" as const,
     connectionName: "default",
-    integration: "google_drive",
+    integration: "google_gmail",
     template: "googleOAuth2",
   };
   let snapshot = applySessionEvent(emptySessionSnapshot(), {
@@ -283,9 +283,21 @@ test("restores connection progress from session state", () => {
     connectionId: "connection-1",
     request,
     status: "connected",
+    outcome: {
+      accountName: "account1",
+      identityLabel: "actual@example.com",
+      defaultIdentityLabel: "actual@example.com",
+      isDefault: true,
+      message: "Added actual@example.com. Default: actual@example.com.",
+    },
   });
   expect(snapshot.connections).toMatchObject([
-    { connectionId: "connection-1", request, status: "connected" },
+    {
+      connectionId: "connection-1",
+      request,
+      status: "connected",
+      outcome: { identityLabel: "actual@example.com", isDefault: true },
+    },
   ]);
 });
 
@@ -314,5 +326,26 @@ test("keeps an existing connection when reconnect authorization is cancelled", (
   });
   expect(snapshot.connections).toMatchObject([
     { connectionId: "connection-1", request, status: "connected" },
+  ]);
+  snapshot = applySessionEvent(snapshot, {
+    type: "halo.connection",
+    connectionId: "connection-2",
+    request,
+    status: "connecting",
+    expiresAt: 20_000,
+    wasConnected: true,
+  });
+  snapshot = applySessionEvent(snapshot, {
+    type: "halo.connection",
+    connectionId: "connection-2",
+    request,
+    status: "cancelled",
+    errorMessage: "Authorization could not be completed. Try again.",
+  });
+  expect(snapshot.connections).toMatchObject([
+    {
+      status: "cancelled",
+      errorMessage: "Authorization could not be completed. Try again.",
+    },
   ]);
 });

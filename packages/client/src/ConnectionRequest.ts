@@ -10,6 +10,13 @@ export const connectionRequestSchema = Type.Object({
   template: Type.String(),
   identityLabel: Type.Optional(Type.String()),
   newConnection: Type.Optional(Type.Boolean()),
+  action: Type.Optional(
+    Type.Union([
+      Type.Literal("add"),
+      Type.Literal("switch-default"),
+      Type.Literal("reauthorize"),
+    ]),
+  ),
 });
 
 export type ConnectionRequest = Static<typeof connectionRequestSchema>;
@@ -24,6 +31,7 @@ export function connectionRequestKey(request: ConnectionRequest) {
     request.template,
     request.identityLabel,
     request.newConnection,
+    request.action,
   ]);
 }
 

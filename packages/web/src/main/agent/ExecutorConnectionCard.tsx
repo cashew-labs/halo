@@ -133,10 +133,32 @@ export function ExecutorConnectionCard({
 
   const status = connection.status;
   const display = googleIntegrationDisplay(part.request.integration);
-  const label = connectionRequestLabel(part.request);
+  const outcome = "outcome" in connection ? connection.outcome : undefined;
+  const label =
+    connection.status === "connected" && outcome !== undefined
+      ? outcome.identityLabel
+      : connectionRequestLabel(part.request);
   const brand = brands.google;
   const menuLabel = `${label} actions`;
   const canConnect = sessionId !== undefined;
+  const isGmail = part.request.integration === "google_gmail";
+  const action = part.request.action ?? "add";
+  const actionLabel = isGmail
+    ? action === "reauthorize"
+      ? "Reauthorize"
+      : action === "switch-default"
+        ? "Add and use as default"
+        : "Add account"
+    : "Connect";
+  const actionDescription = !isGmail
+    ? undefined
+    : action === "reauthorize"
+      ? `Replace authorization for ${part.request.identityLabel ?? part.request.connectionName}. The saved label will reflect the account you authorize.`
+      : action === "switch-default"
+        ? `Add ${part.request.identityLabel ?? "an account"} and make it the default. Existing accounts stay connected.`
+        : `Add ${part.request.identityLabel ?? "a Gmail account"}. Your existing default stays selected.`;
+  const errorMessage =
+    "errorMessage" in connection ? connection.errorMessage : undefined;
 
   return (
     <section
@@ -164,14 +186,24 @@ export function ExecutorConnectionCard({
               isDisabled={!canConnect}
               onClick={() => connect.mutate()}
             >
-              Connect
+              {actionLabel}
             </Button>
           ) : (
             <Flex row gap={2} alignItems="center" style={{ flexShrink: 0 }}>
-              <ConnectionStatusLabel status={status} />
+              <ConnectionStatusLabel
+                status={status}
+                unverified={outcome?.verificationStatus === "unverified"}
+              />
               {status === "starting" ? undefined : (
                 <ConnectionOverflowMenu
                   label={menuLabel}
+                  connectLabel={
+                    isGmail
+                      ? action === "add"
+                        ? "Add another account"
+                        : "Authorize again"
+                      : "Connect different account"
+                  }
                   status={status}
                   canConnect={canConnect}
                   cancelPending={cancel.isPending}
@@ -182,6 +214,26 @@ export function ExecutorConnectionCard({
             </Flex>
           )}
         </Flex>
+        {actionDescription === undefined ? undefined : (
+          <Text size="sm" color="lowContrast">
+            {actionDescription}
+          </Text>
+        )}
+        {outcome === undefined ? undefined : (
+          <Text size="sm" role="status">
+            {outcome.message}
+          </Text>
+        )}
+        {errorMessage === undefined ? undefined : (
+          <Text size="sm" role="alert">
+            {errorMessage}
+          </Text>
+        )}
+        {connect.error === null ? undefined : (
+          <Text size="sm" role="alert">
+            Authorization could not be completed. Try again.
+          </Text>
+        )}
         {display === undefined ? undefined : (
           <Flex row gap={4} alignItems="start">
             <span
@@ -200,9 +252,18 @@ export function ExecutorConnectionCard({
 
 function ConnectionStatusLabel({
   status,
+  unverified,
 }: {
   status: Exclude<ConnectionState["status"], "idle">;
+  unverified: boolean;
 }) {
+  if (status === "connected" && unverified) {
+    return (
+      <Text size="sm" fontWeight={500} style={{ color: colors.orange[11] }}>
+        Saved · unverified
+      </Text>
+    );
+  }
   const color = connectionStatusColor[status];
   if (status === "connected") {
     return (
@@ -238,6 +299,7 @@ const connectionStatusCopy = {
 
 function ConnectionOverflowMenu({
   label,
+  connectLabel,
   status,
   canConnect,
   cancelPending,
@@ -245,6 +307,7 @@ function ConnectionOverflowMenu({
   onConnect,
 }: {
   label: string;
+  connectLabel: string;
   status: Exclude<ConnectionState["status"], "idle" | "starting">;
   canConnect: boolean;
   cancelPending: boolean;
@@ -265,7 +328,7 @@ function ConnectionOverflowMenu({
           </MenuItem>
         ) : (
           <MenuItem onAction={onConnect} isDisabled={!canConnect}>
-            {status === "connected" ? "Connect different account" : "Connect"}
+            {status === "connected" ? connectLabel : "Connect"}
           </MenuItem>
         )}
       </Menu>
