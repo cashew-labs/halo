@@ -66,7 +66,13 @@ export function ApiProvider({ children }: { children: ReactNode }) {
             padding: 24,
           }}
         >
-          <p>Waiting for your server. Halo will connect automatically.</p>
+          <p>
+            {state.status === "starting"
+              ? "Starting your workspace. Halo will connect when it is ready."
+              : state.status === "stopping"
+                ? "Your workspace is stopping. Halo will wake it when it is ready."
+                : "Waiting for your server. Halo will connect automatically."}
+          </p>
           <ConnectionStatus />
         </main>
       ) : (

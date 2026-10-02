@@ -99,6 +99,7 @@ const ensureWorkspace = os.workspace.ensure
     return {
       id: workspace.id,
       createdAt: workspace.createdAt.toISOString(),
+      status: workspace.status,
     };
   });
 

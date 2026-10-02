@@ -5,6 +5,7 @@ import {
   checkServerCompatibility,
   haloProtocolVersion,
   IncompatibleServerError,
+  WorkspaceTransitionError,
   type HaloClient,
   type WorkspaceInfo,
 } from "@get-halo/client";
@@ -19,7 +20,9 @@ type ConnectionState = {
     | "synchronizing"
     | "connected"
     | "incompatible"
-    | "authentication";
+    | "authentication"
+    | "starting"
+    | "stopping";
   api?: HaloClient;
   workspace?: WorkspaceInfo;
   error?: Error;
@@ -232,26 +235,36 @@ export class ConnectionService {
           (rpcError?.code === "UNAUTHORIZED"
             ? new AuthenticationRequiredError({ cause: error })
             : undefined));
+    const transition =
+      error === undefined
+        ? undefined
+        : errore.findCause(error, WorkspaceTransitionError);
     const status =
       incompatible !== undefined
         ? "incompatible"
         : authentication !== undefined
           ? "authentication"
-          : navigator.onLine
-            ? "reconnecting"
-            : "offline";
+          : transition?.status === "starting"
+            ? "starting"
+            : transition?.status === "stopping"
+              ? "stopping"
+              : navigator.onLine
+                ? "reconnecting"
+                : "offline";
     this.publish({
       ...this.state,
       status,
-      error: incompatible ?? authentication ?? error,
+      error: incompatible ?? authentication ?? transition ?? error,
     });
     clearTimeout(this.timer);
     if (!this.active || status === "offline" || status === "authentication")
       return;
     const delay =
-      status === "incompatible"
-        ? 30_000
-        : Math.min(15_000, 1_000 * 2 ** Math.min(this.failures++, 4));
+      status === "starting" || status === "stopping"
+        ? 2_000
+        : status === "incompatible"
+          ? 30_000
+          : Math.min(15_000, 1_000 * 2 ** Math.min(this.failures++, 4));
     this.timer = setTimeout(
       this.retry,
       Math.min(15_000, delay * (0.8 + Math.random() * 0.4)) +

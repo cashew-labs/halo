@@ -4,6 +4,7 @@ export {
   ConnectionHttpError,
   serializeConnectionFailure,
   restoreConnectionFailure,
+  WorkspaceTransitionError,
   type ConnectionFailureData,
 } from "./connectionErrors.js";
 export {

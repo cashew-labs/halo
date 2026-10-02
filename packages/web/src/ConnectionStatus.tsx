@@ -24,13 +24,17 @@ export function ConnectionStatus() {
           : "Unsupported API protocol"
       : state.status === "connected"
         ? "Connected"
-        : state.status === "offline"
-          ? "Disconnected"
-          : state.status === "authentication"
-            ? "Sign in required"
-            : state.api === undefined && state.status !== "reconnecting"
-              ? "Connecting…"
-              : "Reconnecting…";
+        : state.status === "starting"
+          ? "Starting workspace…"
+          : state.status === "stopping"
+            ? "Stopping workspace…"
+            : state.status === "offline"
+              ? "Disconnected"
+              : state.status === "authentication"
+                ? "Sign in required"
+                : state.api === undefined && state.status !== "reconnecting"
+                  ? "Connecting…"
+                  : "Reconnecting…";
   const indicator = (
     <>
       <span

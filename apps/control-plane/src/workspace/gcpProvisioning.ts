@@ -53,6 +53,8 @@ type ComputeInstance = {
   status?: string;
 };
 
+type GcpInstanceStatus = "stopped" | "starting" | "running" | "stopping";
+
 type ComputeOperation = {
   error?: {
     errors?: Array<{ code?: string; message?: string }>;
@@ -113,6 +115,41 @@ export async function provisionGcpWorkspace(input: {
   }
 
   return await ensureInstanceRunning({ ...workspace, instanceName });
+}
+
+export async function getGcpWorkspaceStatus(input: {
+  config: GcpWorkspaceConfig;
+  workspaceId: string;
+}): Promise<GcpInstanceStatus | Error> {
+  const ctx = { ...input.config, workspaceId: input.workspaceId };
+  const response = await send({
+    workspaceId: ctx.workspaceId,
+    detail: "load workspace VM",
+    method: "GET",
+    url: zoneUrl({
+      ...ctx,
+      path: `instances/${encodeURIComponent(`halo-${ctx.workspaceId}`)}`,
+    }),
+  });
+  if (response instanceof Error) return response;
+  if (response.status === 404) return "stopped";
+  const instance = await readJson<ComputeInstance>({
+    workspaceId: ctx.workspaceId,
+    detail: "load workspace VM",
+    response,
+  });
+  if (instance instanceof Error) return instance;
+  if (instance.status === "RUNNING") return "running";
+  if (instance.status === "TERMINATED" || instance.status === "SUSPENDED")
+    return "stopped";
+  if (instance.status === "STOPPING" || instance.status === "SUSPENDING")
+    return "stopping";
+  if (instance.status === "PROVISIONING" || instance.status === "STAGING")
+    return "starting";
+  return new GcpWorkspaceProvisioningError({
+    workspaceId: ctx.workspaceId,
+    detail: `unknown VM status ${instance.status ?? "(missing)"}`,
+  });
 }
 
 async function insertDisk(ctx: GcpWorkspaceContext & { diskName: string }) {

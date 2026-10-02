@@ -2,7 +2,7 @@ import * as errore from "errore";
 import { checkServerCompatibility, type ServerInfo } from "@get-halo/client";
 import { error, oc, type, type RouterContractClient } from "@orpc/contract";
 
-export const controlPlaneProtocolVersion = 3 as const;
+export const controlPlaneProtocolVersion = 4 as const;
 export const controlPlaneSupportedProtocols = [controlPlaneProtocolVersion];
 
 export type ControlPlaneSession = {
@@ -30,6 +30,7 @@ export type ControlPlaneAuthentication =
 export type ControlPlaneWorkspace = {
   id: string;
   createdAt: string;
+  status: "starting" | "running" | "stopping" | "stopped";
 };
 
 export const ControlPlaneRequestError = error("BAD_REQUEST", {

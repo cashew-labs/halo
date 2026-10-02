@@ -4,7 +4,10 @@ import type { WorkspaceConfig } from "@get-halo/config/controlPlane";
 import { readWorkspaceServerConnection } from "@get-halo/shared/WorkspaceServerConnection";
 import * as errore from "errore";
 import type { DatabaseService } from "../DatabaseService.js";
-import { provisionGcpWorkspace } from "./gcpProvisioning.js";
+import {
+  getGcpWorkspaceStatus,
+  provisionGcpWorkspace,
+} from "./gcpProvisioning.js";
 
 class WorkspaceServiceError extends errore.createTaggedError({
   name: "WorkspaceServiceError",
@@ -43,6 +46,9 @@ export type WorkspaceConnection =
     };
 
 export class WorkspaceService {
+  // Tracks transitions initiated by this process until Compute Engine finishes them.
+  private readonly transitions = new Map<string, Promise<void>>();
+  private readonly transitionErrors = new Map<string, Error>();
   private readonly db: DatabaseService;
   private readonly config: WorkspaceServiceConfig;
 
@@ -69,16 +75,37 @@ export class WorkspaceService {
     const workspace = await this.ensureRecord(userId);
     if (workspace instanceof Error) return workspace;
 
-    if (this.config.deployment === "local") return workspace;
+    if (this.config.deployment === "local")
+      return { ...workspace, status: "running" as const };
 
-    const provisioned = await provisionGcpWorkspace({
+    const transitionError = this.transitionErrors.get(workspace.id);
+    if (transitionError !== undefined) {
+      this.transitionErrors.delete(workspace.id);
+      return transitionError;
+    }
+    if (this.transitions.has(workspace.id))
+      return { ...workspace, status: "starting" as const };
+
+    const status = await getGcpWorkspaceStatus({
+      config: this.config,
+      workspaceId: workspace.id,
+    });
+    if (status instanceof Error) return status;
+    if (status !== "stopped") return { ...workspace, status };
+
+    const transition = provisionGcpWorkspace({
       config: this.config,
       ownerUserId: userId,
       workspaceId: workspace.id,
+    }).then((result) => {
+      if (result instanceof Error) {
+        console.error(result);
+        this.transitionErrors.set(workspace.id, result);
+      }
+      this.transitions.delete(workspace.id);
     });
-    if (provisioned instanceof Error) return provisioned;
-
-    return workspace;
+    this.transitions.set(workspace.id, transition);
+    return { ...workspace, status: "starting" as const };
   }
 
   async getConnection(userId: string) {

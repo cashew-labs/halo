@@ -2,6 +2,7 @@ import {
   protocolHeader,
   AuthenticationRequiredError,
   ConnectionHttpError,
+  WorkspaceTransitionError,
 } from "@get-halo/client";
 import fs from "node:fs/promises";
 import { randomBytes } from "node:crypto";
@@ -98,6 +99,18 @@ export class ControlPlaneAuth implements DesktopAuthentication {
         AbortSignal.timeout(10_000),
       );
       if (compatible instanceof Error) return compatible;
+      const workspace = await this.createClient(this.token)
+        .workspace.ensure()
+        .catch(
+          (cause) =>
+            new ControlPlaneAuthError({
+              operation: "wake your workspace",
+              cause,
+            }),
+        );
+      if (workspace instanceof Error) return workspace;
+      if (workspace.status === "starting" || workspace.status === "stopping")
+        return new WorkspaceTransitionError({ status: workspace.status });
       const connection = {
         origin: this.origin,
         path: "/workspace/rpc",
