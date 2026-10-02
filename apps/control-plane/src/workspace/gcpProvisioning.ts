@@ -144,11 +144,30 @@ export async function getGcpWorkspaceStatus(input: {
     return "stopped";
   if (instance.status === "STOPPING" || instance.status === "SUSPENDING")
     return "stopping";
-  if (instance.status === "PROVISIONING" || instance.status === "STAGING")
+  if (
+    instance.status === "PROVISIONING" ||
+    instance.status === "STAGING" ||
+    instance.status === "REPAIRING"
+  )
     return "starting";
   return new GcpWorkspaceProvisioningError({
     workspaceId: ctx.workspaceId,
     detail: `unknown VM status ${instance.status ?? "(missing)"}`,
+  });
+}
+
+export async function stopGcpWorkspace(input: {
+  config: GcpWorkspaceConfig;
+  workspaceId: string;
+}) {
+  const status = await getGcpWorkspaceStatus(input);
+  if (status instanceof Error) return status;
+  if (status === "stopped" || status === "stopping") return;
+  return await changeInstanceState({
+    ...input.config,
+    workspaceId: input.workspaceId,
+    instanceName: `halo-${input.workspaceId}`,
+    action: "stop",
   });
 }
 
@@ -329,7 +348,7 @@ async function ensureInstanceRunning(
 
 async function changeInstanceState(
   ctx: GcpWorkspaceContext & {
-    action: "resume" | "start";
+    action: "resume" | "start" | "stop";
     instanceName: string;
   },
 ) {

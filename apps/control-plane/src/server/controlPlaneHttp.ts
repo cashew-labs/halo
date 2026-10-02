@@ -30,6 +30,7 @@ import {
   type ControlPlaneContext,
 } from "./controlPlaneRpcRouter.js";
 import type { TraceIngestion } from "../traces/TraceIngestion.js";
+import type { RoutineIngestion } from "../workspace/RoutineIngestion.js";
 import type { WorkspaceService } from "../workspace/WorkspaceService.js";
 import {
   isWorkspaceProxyRequest,
@@ -98,6 +99,7 @@ export function serveControlPlaneHttp(ctx: {
   build?: { version: string; revision: string };
   webRoot: string;
   traces?: TraceIngestion;
+  routines?: RoutineIngestion;
 }) {
   const { server, auth, publicOrigin, workspace, webRoot, traces } = ctx;
   const upgradeSockets = new Set<Duplex>();
@@ -134,6 +136,7 @@ export function serveControlPlaneHttp(ctx: {
       workspace,
       gateway,
       traces,
+      routines: ctx.routines,
       rpc,
       webRoot,
       build: ctx.build,
@@ -196,6 +199,7 @@ async function routeControlPlaneRequest(ctx: {
   auth: AuthService;
   gateway: WorkspaceGateway;
   traces?: TraceIngestion;
+  routines?: RoutineIngestion;
   workspace: WorkspaceService;
   build?: { version: string; revision: string };
   rpc: RPCHandler<ControlPlaneContext>;
@@ -213,6 +217,15 @@ async function routeControlPlaneRequest(ctx: {
       return;
     }
     await ctx.traces.serve(request, response, url);
+    return;
+  }
+
+  if (url.pathname === "/api/routines/snapshot") {
+    if (ctx.routines === undefined) {
+      response.writeHead(503).end();
+      return;
+    }
+    await ctx.routines.serve(request, response);
     return;
   }
 

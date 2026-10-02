@@ -33,6 +33,12 @@ for previously released desktop clients.
 - The control plane creates one workspace VM and durable workspace disk per
   user from that template. Production user workspaces are not managed by the
   standalone `workspace/` Pulumi program.
+- Managed workspace servers publish routine schedules and active-run state to
+  the control plane. Its always-allocated Cloud Run instance dispatches due
+  routines, wakes stopped VMs, and stops VMs after 30 minutes without a client
+  request or active run. The schedule index remains in Cloud SQL across control
+  plane restarts. Local development continues to schedule routines in the
+  workspace server.
 - `workspace/` remains available for an explicitly configured standalone
   development workspace. There is no active production stack in that program.
 

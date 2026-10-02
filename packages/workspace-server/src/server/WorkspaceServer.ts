@@ -2,6 +2,7 @@ import { HotkeyService } from "../hotkeys/HotkeyService.js";
 import { RoutineService } from "../routines/RoutineService.js";
 import { RoutineRunner } from "../routines/RoutineRunner.js";
 import { RoutineScheduler } from "../routines/RoutineScheduler.js";
+import { RoutineSync, type RoutineReporter } from "../routines/RoutineSync.js";
 import { createHotkeysPlugin } from "../hotkeys/createHotkeysPlugin.js";
 import path from "node:path";
 import { TursoSessionRepo } from "../storage/TursoSessionRepo.js";
@@ -67,6 +68,8 @@ export type WorkspaceServerHost = {
   llmApi: LLMApi;
   // Optional upload transport the host owns; the server submits completed traces through it.
   traceUploader?: TraceUploader;
+  // Managed VMs publish schedules to the control plane, which owns their timer.
+  routineReporter?: RoutineReporter;
   // Logger the host owns; the server writes through it and does not close the sinks.
   logger: Logger;
   // Host-owned vault. The server passes its FilesystemService; the host must not close it.
@@ -88,7 +91,7 @@ export class WorkspaceServer {
   private readonly workspace: WorkspaceService;
   private readonly sessions: SessionRegistry;
   private readonly routineRunner: RoutineRunner;
-  private readonly routineScheduler: RoutineScheduler;
+  private readonly routineScheduler: RoutineScheduler | RoutineSync;
   private readonly toolRuntime: ToolRuntime;
   private readonly connectionService: ConnectionService;
   private readonly browsers: BrowserService;
@@ -104,7 +107,7 @@ export class WorkspaceServer {
     workspace: WorkspaceService;
     sessions: SessionRegistry;
     routineRunner: RoutineRunner;
-    routineScheduler: RoutineScheduler;
+    routineScheduler: RoutineScheduler | RoutineSync;
     toolRuntime: ToolRuntime;
     connectionService: ConnectionService;
     browsers: BrowserService;
@@ -307,11 +310,19 @@ export class WorkspaceServer {
       logger: host.logger,
     });
     cleanup.defer(async () => await routineRunner.stop());
-    const routineScheduler = new RoutineScheduler({
-      routines,
-      runner: routineRunner,
-      logger: host.logger,
-    });
+    const routineScheduler =
+      host.routineReporter === undefined
+        ? new RoutineScheduler({
+            routines,
+            runner: routineRunner,
+            logger: host.logger,
+          })
+        : new RoutineSync({
+            routines,
+            sessions,
+            reporter: host.routineReporter,
+            logger: host.logger,
+          });
     cleanup.defer(async () => await routineScheduler.stop());
     const connectionService = new ConnectionService(toolRuntime);
     cleanup.defer(() => connectionService.close());

@@ -11,6 +11,8 @@ import {
 } from "./controlPlaneHttp.js";
 import { DatabaseService, type DatabaseConfig } from "../DatabaseService.js";
 import { WorkspaceService } from "../workspace/WorkspaceService.js";
+import { RoutineCoordinator } from "../workspace/RoutineCoordinator.js";
+import { RoutineIngestion } from "../workspace/RoutineIngestion.js";
 
 import { TraceIngestion } from "../traces/TraceIngestion.js";
 import type { TraceCloud } from "../traces/TraceCloud.js";
@@ -90,6 +92,14 @@ export class ControlPlane {
     });
     if (workspace instanceof Error) return workspace;
 
+    const routineCoordinator =
+      config.deployment === "local" || ctx.traceCloud === undefined
+        ? undefined
+        : await RoutineCoordinator.start({ db, workspace });
+    if (routineCoordinator instanceof Error) return routineCoordinator;
+    if (routineCoordinator !== undefined)
+      cleanup.defer(async () => await routineCoordinator.close());
+
     const requests = serveControlPlaneHttp({
       server: http.server,
       auth,
@@ -103,6 +113,17 @@ export class ControlPlane {
           : new TraceIngestion({
               cloud: ctx.traceCloud,
               workspace,
+              origin: publicOrigin,
+            }),
+      routines:
+        config.deployment === "local" ||
+        ctx.traceCloud === undefined ||
+        routineCoordinator === undefined
+          ? undefined
+          : new RoutineIngestion({
+              cloud: ctx.traceCloud,
+              workspace,
+              coordinator: routineCoordinator,
               origin: publicOrigin,
             }),
     });

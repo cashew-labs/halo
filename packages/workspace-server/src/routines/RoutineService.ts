@@ -349,14 +349,15 @@ export class RoutineService {
     });
   }
 
-  // Marks runs left by a stopped process as interrupted and skips occurrences missed while
-  // it was stopped by scheduling each enabled routine from now.
-  async recover() {
+  // Managed workspaces retain due occurrences for the control-plane scheduler to dispatch
+  // after waking. Local scheduling skips missed occurrences on restart.
+  async recover(options: { preserveDue?: boolean } = {}) {
     return await this.actionQueue.run(async () => {
       const now = Date.now();
       const nextRuns = new Map<string, number | undefined>();
       for (const routine of this.routines) {
         if (!routine.enabled) continue;
+        if (options.preserveDue && routine.nextRunAt !== undefined) continue;
         const nextRunAt = nextOccurrence({ ...routine, after: now });
         // A stored schedule that no longer resolves stays paused until edited.
         nextRuns.set(

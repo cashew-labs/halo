@@ -64,6 +64,11 @@ export type Routine = {
   lastRun?: RoutineRun;
 };
 
+export type RoutineScheduleSnapshot = {
+  routines: Array<{ id: string; nextRunAt?: string }>;
+  busy: boolean;
+};
+
 export class InvalidRoutineError extends errore.createTaggedError({
   name: "InvalidRoutineError",
   message: "$reason",

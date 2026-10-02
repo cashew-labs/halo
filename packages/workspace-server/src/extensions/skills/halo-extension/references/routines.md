@@ -1,6 +1,6 @@
 # Routines
 
-A routine runs work on a schedule. Personal routines need no extension; extension routines appear beneath their extension. The workspace server schedules them while Halo runs. Each run opens a new session named after the routine and its time, such as `Book haircut · Sep 25, 8:00 AM`. The user reads the result there and can ask follow-up questions in that session.
+A routine runs work on a schedule. Personal routines need no extension; extension routines appear beneath their extension. In managed workspaces, the control plane keeps the schedule and wakes the VM when work is due. Local development schedules in the workspace server. Each run opens a new session named after the routine and its time, such as `Book haircut · Sep 25, 8:00 AM`. The user reads the result there and can ask follow-up questions in that session.
 
 Manage routines with the `halo routine` CLI. Add `--format json` when another command parses the output.
 
