@@ -6,6 +6,8 @@ import { routinesMigration } from "./20260925090000-routines.js";
 import { personalRoutinesMigration } from "./20260928090000-personalRoutines.js";
 import { routineSessionArchiveMigration } from "./20260928100000-routineSessionArchive.js";
 
+import { gmailDefaultsMigration } from "./20261002230000-gmailDefaults.js";
+
 export const workspaceMigrations = [
   initialWorkspaceMigration,
   initialExecutorMigration,
@@ -13,4 +15,5 @@ export const workspaceMigrations = [
   routinesMigration,
   personalRoutinesMigration,
   routineSessionArchiveMigration,
+  gmailDefaultsMigration,
 ] satisfies readonly Migration[];
