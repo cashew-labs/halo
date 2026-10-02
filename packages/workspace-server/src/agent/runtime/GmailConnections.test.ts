@@ -45,6 +45,7 @@ async function createGmailFixture() {
   const filesystem = new FilesystemService();
   const database = await DatabaseClient.open({ directory, filesystem });
   if (database instanceof Error) throw database;
+  const profileOutages = new Set(["outage"]);
   const provider = http.createServer(async (request, response) => {
     response.setHeader("Content-Type", "application/json");
     if (request.url === "/token") {
@@ -66,6 +67,14 @@ async function createGmailFixture() {
           scope: "gmail",
         }),
       );
+      return;
+    }
+    if (
+      request.headers.authorization === "Bearer outage" &&
+      profileOutages.delete("outage")
+    ) {
+      response.writeHead(503);
+      response.end(JSON.stringify({ error: "unavailable" }));
       return;
     }
     if (request.headers.authorization === "Bearer unhealthy") {
@@ -389,7 +398,11 @@ gmailTest(
     await fixture.authorize({ email: "first" });
     expect(
       await fixture.authorize({ email: "unhealthy", action: "switch-default" }),
-    ).toBeInstanceOf(Error);
+    ).toMatchObject({
+      verificationStatus: "unverified",
+      identityLabel: "Unverified account",
+      message: expect.stringContaining("Authorization saved"),
+    });
     expect(await fixture.gmail.list()).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -418,6 +431,50 @@ gmailTest(
     expect(await fixture.authorize({ email: "first" })).toMatchObject({
       accountName: "default",
       isDefault: true,
+    });
+  },
+);
+
+gmailTest(
+  "profile outage reports a saved first account with usable credentials",
+  async ({ gmail: fixture }) => {
+    const result = await fixture.authorize({ email: "outage" });
+    expect(result).toMatchObject({
+      accountName: "default",
+      verificationStatus: "unverified",
+      identityLabel: "Unverified account",
+    });
+    expect(await fixture.gmail.list()).toMatchObject([
+      { name: "default", identityLabel: "Unverified account" },
+    ]);
+    expect(await fixture.profile("default")).toMatchObject({
+      ok: true,
+      data: { emailAddress: "outage@example.com" },
+    });
+  },
+);
+
+gmailTest(
+  "profile outage after reauthorization preserves new credentials and removes the old identity",
+  async ({ gmail: fixture }) => {
+    await fixture.authorize({ email: "first" });
+    const result = await fixture.authorize({
+      email: "outage",
+      action: "reauthorize",
+      accountName: "default",
+      expectedIdentity: "first@example.com",
+    });
+    expect(result).toMatchObject({
+      accountName: "default",
+      verificationStatus: "unverified",
+      message: expect.stringContaining("Reauthorization saved"),
+    });
+    expect(await fixture.freshService().list()).toMatchObject([
+      { name: "default", identityLabel: "Unverified account", isDefault: true },
+    ]);
+    expect(await fixture.profile("default")).toMatchObject({
+      ok: true,
+      data: { emailAddress: "outage@example.com" },
     });
   },
 );

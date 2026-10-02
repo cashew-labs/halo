@@ -19,7 +19,8 @@ type GmailConnectionResult = {
   accountName: string;
   identityLabel: string;
   defaultIdentityLabel?: string;
-  isDefault: boolean;
+  isDefault?: boolean;
+  verificationStatus: "verified" | "unverified";
   message: string;
 };
 
@@ -123,7 +124,7 @@ export class GmailConnections {
     action?: "add" | "switch-default" | "reauthorize";
     expectedIdentity?: string;
   }) {
-    return await this.actionQueue.run(async () => {
+    const result = await this.actionQueue.run(async () => {
       const ref = {
         owner: input.connection.owner,
         integration: input.connection.integration,
@@ -184,6 +185,7 @@ export class GmailConnections {
         (input.action === "switch-default" && !mismatch);
       const verb = input.action === "reauthorize" ? "Reauthorized" : "Added";
       return {
+        verificationStatus: "verified" as const,
         accountName: String(updated.name),
         identityLabel: health.identity,
         defaultIdentityLabel,
@@ -191,6 +193,16 @@ export class GmailConnections {
         message: `${verb} ${health.identity}. Default: ${defaultIdentityLabel}.${mismatch ? " The authorized account differs from the requested account; no default switch was applied." : ""}`,
       } satisfies GmailConnectionResult;
     });
+    if (result instanceof Error) {
+      // OAuth has already committed credentials. A follow-up failure cannot mean cancellation.
+      return {
+        accountName: String(input.connection.name),
+        identityLabel: "Unverified account",
+        verificationStatus: "unverified" as const,
+        message: `${input.action === "reauthorize" ? "Reauthorization" : "Authorization"} saved. Gmail identity or default selection could not be confirmed. The saved account is unverified; reauthorize this saved account to retry.`,
+      } satisfies GmailConnectionResult;
+    }
+    return result;
   }
 
   private async saveDefault(accountName: string) {
