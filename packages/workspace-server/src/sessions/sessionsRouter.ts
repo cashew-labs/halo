@@ -4,6 +4,7 @@ import type { Logger } from "@get-halo/logger";
 import {
   contract,
   connectionRequestLabel,
+  type ConnectionOutcome,
   type ConnectionRequest,
 } from "@get-halo/client";
 import {
@@ -105,6 +106,7 @@ export const sessionsRouter = os.router({
             notifyConnectedSession({
               session,
               request: event.request,
+              outcome: event.outcome,
               signal: undefined,
             })
               .then((notified) => {
@@ -180,13 +182,14 @@ async function notifyConnectedSession(args: {
   session: HaloAgentSession;
   request: ConnectionRequest;
   signal: AbortSignal | undefined;
+  outcome?: ConnectionOutcome;
 }) {
   return await runWithSignal(
     args.signal,
     async () =>
       await args.session.notify({
         customType: "halo.integration.connected",
-        content: `[System] The user connected ${connectionRequestLabel(args.request)}. You can now retry the operation that required this connection. Continue the user's last request.`,
+        content: `[System] ${args.outcome?.message ?? `The user connected ${connectionRequestLabel(args.request)}.`} You can now retry the operation that required this connection. Continue the user's last request.`,
       }),
   ).catch(
     (cause) =>

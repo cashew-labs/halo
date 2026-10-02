@@ -58,11 +58,13 @@ import {
   type QuickJSWASMModule,
 } from "quickjs-emscripten";
 import * as errore from "errore";
+import { SerialQueue } from "@get-halo/shared/SerialQueue";
 import type {
   ConnectionRequest,
   OAuthCompletion,
   ToolIdentity,
 } from "@get-halo/client";
+import { GmailConnections } from "./GmailConnections.js";
 import { createExecutorDatabase } from "./createExecutorDatabase.js";
 import type { DatabaseClient } from "../../storage/DatabaseClient.js";
 import type {
@@ -112,10 +114,33 @@ type HaloToolsPluginOptions = {
   context: Pick<HaloToolContext, "workspaceRoot" | "userId">;
 };
 
+const setDefaultGmailAccountInputSchema = Type.Object({
+  accountName: Type.String(),
+});
+
 const showConnectionCardInputSchema = Type.Object({
   integration: Type.String({
     description: "The integration id returned by executor.integrations.list",
   }),
+  action: Type.Optional(
+    Type.Union([
+      Type.Literal("add"),
+      Type.Literal("switch-default"),
+      Type.Literal("reauthorize"),
+    ]),
+  ),
+  accountName: Type.Optional(
+    Type.String({
+      description:
+        "Saved account name from halo.listGmailAccounts; required for reauthorize",
+    }),
+  ),
+  identityLabel: Type.Optional(
+    Type.String({
+      description:
+        "Expected account email; completion always reports the actual authorized email",
+    }),
+  ),
 });
 
 export type ExecActivityUpdate =
@@ -157,9 +182,57 @@ const haloToolsPlugin = definePlugin((options?: HaloToolsPluginOptions) => {
         name: "Halo",
         tools: [
           tool({
+            name: "listGmailAccounts",
+            description:
+              "List the current user's saved Gmail accounts, actual identity labels, callable addresses, and selected default. Use the selected account address for Gmail operations; a saved row named default may no longer be selected.",
+            inputSchema: toExecutorSchema(Type.Object({})),
+            execute: () =>
+              Effect.promise(async () => {
+                const context = options.executionContext.getStore();
+                if (context === undefined)
+                  return new ToolRuntimeError({
+                    operation: "account listing outside execution",
+                  });
+                return await context.runtime.listGmailAccounts();
+              }).pipe(
+                Effect.flatMap((result) =>
+                  result instanceof Error
+                    ? Effect.fail(result)
+                    : Effect.succeed(result),
+                ),
+              ),
+          }),
+          tool({
+            name: "setDefaultGmailAccount",
+            description:
+              "Switch the default to a saved Gmail account without deleting any credentials. Use only when the user explicitly asks to switch the default. accountName comes from halo.listGmailAccounts.",
+            inputSchema: toExecutorSchema(setDefaultGmailAccountInputSchema),
+            execute: (args) =>
+              Effect.promise(async () => {
+                if (!Value.Check(setDefaultGmailAccountInputSchema, args))
+                  return new ToolRuntimeError({
+                    operation: "invalid default account selection",
+                  });
+                const context = options.executionContext.getStore();
+                if (context === undefined)
+                  return new ToolRuntimeError({
+                    operation: "default selection outside execution",
+                  });
+                return await context.runtime.setDefaultGmailAccount(
+                  args.accountName,
+                );
+              }).pipe(
+                Effect.flatMap((result) =>
+                  result instanceof Error
+                    ? Effect.fail(result)
+                    : Effect.succeed(result),
+                ),
+              ),
+          }),
+          tool({
             name: "showConnectionCard",
             description:
-              "Show the user a card where they can choose whether to connect an integration. This does not connect an account or grant access by itself. Use it proactively when the task needs an integration that has no connection; do not ask for confirmation first.",
+              "Show the user a card where they can choose whether to connect an integration. For Gmail, ambiguous requests add an account and preserve the default. Use switch-default only for an explicit request to change the default. Reauthorize replaces the selected saved account credentials and requires explicit intent and accountName. This does not connect an account or grant access by itself. Use it proactively when the task needs an integration that has no connection; do not ask for confirmation first.",
             inputSchema: toExecutorSchema(showConnectionCardInputSchema),
             annotations: {
               requiresApproval: true,
@@ -272,6 +345,7 @@ const oauthStartInputSchema = Type.Object({
   template: Type.String(),
   identityLabel: Type.Optional(Type.Union([Type.String(), Type.Null()])),
   newConnection: Type.Optional(Type.Boolean()),
+  action: showConnectionCardInputSchema.properties.action,
 });
 
 type HaloRuntimePlugins = readonly [
@@ -385,6 +459,11 @@ export class ToolRuntime {
     return await createToolRuntime(input);
   }
 
+  // Carries Gmail intent from OAuth start to its callback; no credentials are stored here.
+  // Orders credential minting with identity verification, including concurrent reauthorization callbacks.
+  private readonly oauthCompletionQueue = new SerialQueue();
+  private readonly pendingGmailRequests = new Map<string, ConnectionRequest>();
+  private readonly gmail: GmailConnections;
   private readonly executor: Executor<HaloRuntimePlugins>;
   private readonly engine: ExecutionEngine<Cause.YieldableError>;
   private readonly toolInvoker: SandboxToolInvoker;
@@ -396,6 +475,7 @@ export class ToolRuntime {
   private readonly googleWebOAuthClientSlug: OAuthClientSlug | undefined;
 
   constructor(input: {
+    gmail: GmailConnections;
     executor: Executor<HaloRuntimePlugins>;
     engine: ExecutionEngine<Cause.YieldableError>;
     toolInvoker: SandboxToolInvoker;
@@ -406,6 +486,7 @@ export class ToolRuntime {
     integrationNames: ReadonlyMap<string, string>;
     googleWebOAuthClientSlug: OAuthClientSlug | undefined;
   }) {
+    this.gmail = input.gmail;
     this.executor = input.executor;
     this.engine = input.engine;
     this.toolInvoker = input.toolInvoker;
@@ -440,6 +521,7 @@ export class ToolRuntime {
 
     const prefix = [
       "Execute JavaScript. tools and console are in scope.",
+      "For Gmail, call tools.halo.listGmailAccounts({}) to find each account address and the current default. Use that address for operations; do not assume a saved connection named default is selected. New connection requests add by default. Only switch the default, replace credentials, or disconnect an account on explicit user intent. After authorization, say which actual account was added or reauthorized and which is default; report any unexpected account warning.",
       'Return the value you need next, for example `return await tools.search({ query: "send email" })`, `return await tools.files.read({ path: "notes.md" })`, or `return await tools[path](args)`. Without return, exec reports (no result), even when a tool failed.',
       "Runtime tools do not throw for expected failures. They return { ok: true, data } or { ok: false, error }. Check result.ok.",
     ].join("\n");
@@ -583,16 +665,35 @@ export class ToolRuntime {
     };
   }
 
+  async listGmailAccounts() {
+    return await this.gmail.list();
+  }
+
+  async setDefaultGmailAccount(accountName: string) {
+    return await this.gmail.setDefault(accountName);
+  }
+
   async completeOAuth(input: { state: string; code: string }) {
-    const completed = await Effect.runPromise(
-      this.executor.oauth.complete({
-        state: OAuthState.make(input.state),
-        code: input.code,
-      }),
-    ).catch(
-      (cause) => new ToolRuntimeError({ operation: "OAuth completion", cause }),
-    );
-    if (completed instanceof Error) return completed;
+    return await this.oauthCompletionQueue.run(async () => {
+      const completed = await Effect.runPromise(
+        this.executor.oauth.complete({
+          state: OAuthState.make(input.state),
+          code: input.code,
+        }),
+      ).catch(
+        (cause) =>
+          new ToolRuntimeError({ operation: "OAuth completion", cause }),
+      );
+      const request = this.pendingGmailRequests.get(input.state);
+      this.pendingGmailRequests.delete(input.state);
+      if (completed instanceof Error) return completed;
+      if (request === undefined) return;
+      return await this.gmail.complete({
+        connection: completed,
+        action: request.action,
+        expectedIdentity: request.identityLabel,
+      });
+    });
   }
 
   async startOAuth(input: ConnectionRequest & { completion: OAuthCompletion }) {
@@ -605,16 +706,36 @@ export class ToolRuntime {
         operation: "start server OAuth without a web client",
       });
     }
+    const isGmail = input.integration === "google_gmail";
+    if (isGmail && input.owner !== "user")
+      return new ToolRuntimeError({
+        operation: "Gmail connections must be user owned",
+      });
+    const accountName = isGmail
+      ? await this.gmail.prepare({
+          action: input.action,
+          accountName: input.connectionName,
+        })
+      : input.connectionName;
+    if (accountName instanceof Error) return accountName;
+    const accounts =
+      isGmail && input.action === "reauthorize"
+        ? await this.gmail.list()
+        : undefined;
+    if (accounts instanceof Error) return accounts;
+    const expectedIdentity =
+      input.identityLabel ??
+      accounts?.find((account) => account.name === accountName)?.identityLabel;
     const started = await Effect.runPromise(
       this.executor.oauth.start({
         client,
         clientOwner: Owner.make(input.clientOwner),
         owner: Owner.make(input.owner),
-        name: ConnectionName.make(input.connectionName),
+        name: ConnectionName.make(accountName),
         integration: IntegrationSlug.make(input.integration),
         template: AuthTemplateSlug.make(input.template),
-        identityLabel: input.identityLabel,
-        newConnection: input.newConnection,
+        identityLabel: isGmail ? undefined : input.identityLabel,
+        newConnection: isGmail ? false : input.newConnection,
         redirectUri: input.completion.redirectUri,
       }),
     ).catch(
@@ -622,6 +743,11 @@ export class ToolRuntime {
     );
     if (started instanceof Error) return started;
     if (started.status === "connected") return { status: "connected" as const };
+    if (isGmail)
+      this.pendingGmailRequests.set(started.state, {
+        ...input,
+        identityLabel: expectedIdentity,
+      });
     return {
       status: "redirect" as const,
       authorizationUrl: started.authorizationUrl,
@@ -630,6 +756,7 @@ export class ToolRuntime {
   }
 
   async cancelOAuth(state: string) {
+    this.pendingGmailRequests.delete(state);
     const cancelled = await Effect.runPromise(
       this.executor.oauth.cancel(OAuthState.make(state)),
     ).catch(
@@ -733,7 +860,7 @@ async function createToolRuntime(
       console.warn("Failed to close Executor after startup failure:", closed);
   });
 
-  const installed = await installGooglePresets(executor);
+  const installed = await installGooglePresets(executor, input.oauthTestOrigin);
   if (installed instanceof Error) return installed;
 
   const integrations = await Effect.runPromise(
@@ -763,6 +890,11 @@ async function createToolRuntime(
     }),
   });
   const runtime = new ToolRuntime({
+    gmail: new GmailConnections({
+      executor,
+      database: input.database,
+      userId: input.userId,
+    }),
     executor,
     engine,
     toolInvoker: makeExecutorToolInvoker(executor, { invokeOptions: {} }),
@@ -875,7 +1007,14 @@ function connectionInput(
     if (!Value.Check(showConnectionCardInputSchema, context.args)) {
       return undefined;
     }
-    return connectionRequests.get(context.args.integration);
+    const request = connectionRequests.get(context.args.integration);
+    if (request === undefined) return undefined;
+    return {
+      ...request,
+      action: context.args.action,
+      connectionName: context.args.accountName ?? request.connectionName,
+      identityLabel: context.args.identityLabel,
+    };
   }
   if (context.address !== oauthStartAddress) return undefined;
   if (!Value.Check(oauthStartInputSchema, context.args)) return undefined;
@@ -889,10 +1028,14 @@ function connectionInput(
     template: args.template,
     identityLabel: args.identityLabel === null ? undefined : args.identityLabel,
     newConnection: args.newConnection,
+    action: args.action,
   };
 }
 
-async function installGooglePresets(executor: Executor<HaloRuntimePlugins>) {
+async function installGooglePresets(
+  executor: Executor<HaloRuntimePlugins>,
+  oauthTestOrigin: string | undefined,
+) {
   if (installableGooglePresets.length !== googlePresets.length) {
     return new ToolRuntimeError({
       operation: "Google integration catalog",
@@ -911,7 +1054,32 @@ async function installGooglePresets(executor: Executor<HaloRuntimePlugins>) {
         }),
     );
     if (existing instanceof Error) return existing;
-    if (existing !== null) continue;
+    const healthCheck =
+      preset.id === "google-gmail"
+        ? {
+            operation: "gmail.users.getProfile",
+            args: { userId: "me" },
+            identityField: "emailAddress",
+          }
+        : preset.healthCheck;
+    if (existing !== null) {
+      if (preset.id === "google-gmail") {
+        const configured = await Effect.runPromise(
+          executor.integrations.healthCheck.set(
+            IntegrationSlug.make(preset.defaultSlug),
+            healthCheck!,
+          ),
+        ).catch(
+          (cause) =>
+            new ToolRuntimeError({
+              operation: "Gmail identity check setup",
+              cause,
+            }),
+        );
+        if (configured instanceof Error) return configured;
+      }
+      continue;
+    }
 
     const authenticationTemplate = preset.authTemplate?.flatMap((method) =>
       method.kind === "oauth2" ? [method] : [],
@@ -925,7 +1093,8 @@ async function installGooglePresets(executor: Executor<HaloRuntimePlugins>) {
         specFormat: preset.specFormat,
         family: preset.family,
         authenticationTemplate,
-        healthCheck: preset.healthCheck,
+        healthCheck,
+        baseUrl: preset.id === "google-gmail" ? oauthTestOrigin : undefined,
       }),
     ).catch(
       (cause) =>

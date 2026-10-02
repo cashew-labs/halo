@@ -191,6 +191,16 @@ export function directToolIdentity(name: string): ToolIdentity {
   return { path: name, displayName: label === undefined ? name : label };
 }
 
+const connectionOutcomeSchema = Type.Object({
+  accountName: Type.String(),
+  identityLabel: Type.String(),
+  defaultIdentityLabel: Type.Optional(Type.String()),
+  isDefault: Type.Boolean(),
+  message: Type.String(),
+});
+
+export type ConnectionOutcome = Static<typeof connectionOutcomeSchema>;
+
 const haloConnectionEventSchema = Type.Union([
   Type.Object({
     type: Type.Literal("halo.connection"),
@@ -204,6 +214,8 @@ const haloConnectionEventSchema = Type.Union([
     type: Type.Literal("halo.connection"),
     connectionId: Type.String(),
     request: connectionRequestSchema,
+    outcome: Type.Optional(connectionOutcomeSchema),
+    errorMessage: Type.Optional(Type.String()),
     status: Type.Union([
       Type.Literal("connected"),
       Type.Literal("cancelled"),
@@ -412,12 +424,14 @@ function connectionStateFromEvent(
     event.status !== "connected" &&
     current?.status === "connecting" &&
     current.connectionId === event.connectionId &&
-    current.wasConnected
+    current.wasConnected &&
+    event.errorMessage === undefined
   ) {
     return {
       connectionId: event.connectionId,
       request: event.request,
       status: "connected",
+      errorMessage: event.errorMessage,
     };
   }
   return next;
