@@ -423,7 +423,7 @@ const selected = await tools.halo.setDefaultGmailAccount({ accountName: second.n
 if (!selected.ok) return selected;
 const after = await tools.halo.listGmailAccounts({});
 if (!after.ok) return after;
-return after.data.map(account => ({ email: account.identityLabel, isDefault: account.isDefault }));`,
+return after.data.map(account => ({ name: account.name, address: account.address, email: account.identityLabel, isDefault: account.isDefault }));`,
               },
             });
       });
@@ -433,6 +433,11 @@ return after.data.map(account => ({ email: account.identityLabel, isDefault: acc
             (message) => message.role === "tool",
           );
           expect(result).toBeDefined();
+          expect(messageText(result!)).toMatch(/"name":\s*"default"/);
+          expect(messageText(result!)).toContain(
+            "tools.google_gmail.user.default",
+          );
+          expect(messageText(result!)).toMatch(/"name":\s*"account[a-f0-9]+"/);
           expect(messageText(result!)).toContain("first@example.com");
           expect(messageText(result!)).toContain("second@example.com");
           expect(messageText(result!)).toMatch(/"isDefault":\s*true/);

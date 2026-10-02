@@ -686,13 +686,18 @@ export class ToolRuntime {
       );
       const request = this.pendingGmailRequests.get(input.state);
       this.pendingGmailRequests.delete(input.state);
-      if (completed instanceof Error) return completed;
+      if (completed instanceof Error) {
+        if (request !== undefined) this.gmail.release(request.connectionName);
+        return completed;
+      }
       if (request === undefined) return;
-      return await this.gmail.complete({
+      const outcome = await this.gmail.complete({
         connection: completed,
         action: request.action,
         expectedIdentity: request.identityLabel,
       });
+      this.gmail.release(request.connectionName);
+      return outcome;
     });
   }
 
@@ -741,11 +746,18 @@ export class ToolRuntime {
     ).catch(
       (cause) => new ToolRuntimeError({ operation: "OAuth start", cause }),
     );
-    if (started instanceof Error) return started;
-    if (started.status === "connected") return { status: "connected" as const };
+    if (started instanceof Error) {
+      if (isGmail) this.gmail.release(accountName);
+      return started;
+    }
+    if (started.status === "connected") {
+      if (isGmail) this.gmail.release(accountName);
+      return { status: "connected" as const };
+    }
     if (isGmail)
       this.pendingGmailRequests.set(started.state, {
         ...input,
+        connectionName: accountName,
         identityLabel: expectedIdentity,
       });
     return {
@@ -756,6 +768,7 @@ export class ToolRuntime {
   }
 
   async cancelOAuth(state: string) {
+    const request = this.pendingGmailRequests.get(state);
     this.pendingGmailRequests.delete(state);
     const cancelled = await Effect.runPromise(
       this.executor.oauth.cancel(OAuthState.make(state)),
@@ -763,6 +776,7 @@ export class ToolRuntime {
       (cause) =>
         new ToolRuntimeError({ operation: "OAuth cancellation", cause }),
     );
+    if (request !== undefined) this.gmail.release(request.connectionName);
     if (cancelled instanceof Error) return cancelled;
   }
 
