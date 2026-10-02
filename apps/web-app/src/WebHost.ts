@@ -9,6 +9,7 @@ import {
   connectHaloClient,
   AuthenticationRequiredError,
   ConnectionHttpError,
+  WorkspaceTransitionError,
   protocolHeader,
   type HaloClient,
 } from "@get-halo/client";
@@ -91,6 +92,8 @@ export class WebHost implements HostApi {
           new WebHostError({ operation: "ensure the workspace", cause }),
       );
     if (workspace instanceof Error) return workspace;
+    if (workspace.status === "starting" || workspace.status === "stopping")
+      return new WorkspaceTransitionError({ status: workspace.status });
 
     const health = await fetch("/workspace/health", { signal }).catch(
       (cause) =>
