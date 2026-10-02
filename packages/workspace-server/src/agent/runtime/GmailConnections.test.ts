@@ -14,6 +14,7 @@ import {
   IntegrationSlug,
   AuthTemplateSlug,
   OAuthState,
+  ToolAddress,
   firstPartyOAuthClientSlug,
 } from "@executor-js/sdk/core";
 import { openApiPlugin } from "@executor-js/plugin-openapi/core";
@@ -167,6 +168,16 @@ async function createGmailFixture() {
     gmail,
     freshService: () =>
       new GmailConnections({ executor, database, userId: "alice" }),
+    async profile(accountName: string) {
+      return await Effect.runPromise(
+        executor.execute(
+          ToolAddress.make(
+            `tools.google_gmail.user.${accountName}.profile.getOperation`,
+          ),
+          {},
+        ),
+      );
+    },
     async authorize(input: {
       email: string;
       action?: "add" | "switch-default" | "reauthorize";
@@ -193,6 +204,7 @@ async function createGmailFixture() {
         throw new Error("Expected authorization");
       if (input.cancel) {
         await Effect.runPromise(executor.oauth.cancel(started.state));
+        gmail.release(name);
         return undefined;
       }
       const connection = await Effect.runPromise(
@@ -201,12 +213,17 @@ async function createGmailFixture() {
           code: input.email,
         }),
       ).catch((cause) => new Error("Authorization failed", { cause }));
-      if (connection instanceof Error) return connection;
-      return await gmail.complete({
+      if (connection instanceof Error) {
+        gmail.release(name);
+        return connection;
+      }
+      const result = await gmail.complete({
         connection,
         action: input.action,
         expectedIdentity: input.expectedIdentity,
       });
+      gmail.release(name);
+      return result;
     },
     async legacy() {
       const connection = await Effect.runPromise(
@@ -238,8 +255,13 @@ gmailTest(
   async ({ gmail: fixture }) => {
     const first = await fixture.authorize({ email: "first" });
     expect(first).toMatchObject({
+      accountName: "default",
       identityLabel: "first@example.com",
       isDefault: true,
+    });
+    expect(await fixture.profile("default")).toMatchObject({
+      ok: true,
+      data: { emailAddress: "first@example.com" },
     });
     const second = await fixture.authorize({ email: "second" });
     expect(second).toMatchObject({
@@ -249,12 +271,19 @@ gmailTest(
     });
     if (second === undefined || second instanceof Error)
       throw new Error("Expected second account");
+    expect(second.accountName).not.toBe("default");
+    expect(await fixture.profile(second.accountName)).toMatchObject({
+      ok: true,
+      data: { emailAddress: "second@example.com" },
+    });
     expect(await fixture.gmail.setDefault(second.accountName)).toMatchObject({
       isDefault: true,
     });
     expect(await fixture.freshService().list()).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
+          name: "default",
+          address: "tools.google_gmail.user.default",
           identityLabel: "first@example.com",
           isDefault: false,
         }),
@@ -264,6 +293,10 @@ gmailTest(
         }),
       ]),
     );
+    expect(await fixture.profile("default")).toMatchObject({
+      ok: true,
+      data: { emailAddress: "first@example.com" },
+    });
   },
 );
 
@@ -369,5 +402,22 @@ gmailTest(
         }),
       ]),
     );
+  },
+);
+
+gmailTest(
+  "reserves the first name and releases it after cancellation or failure",
+  async ({ gmail: fixture }) => {
+    const first = await fixture.gmail.prepare({ accountName: "default" });
+    expect(first).toBe("default");
+    const overlapping = await fixture.gmail.prepare({ accountName: "default" });
+    expect(overlapping).not.toBe("default");
+    fixture.gmail.release("default");
+    await fixture.authorize({ email: "cancelled", cancel: true });
+    expect(await fixture.authorize({ email: "failed" })).toBeInstanceOf(Error);
+    expect(await fixture.authorize({ email: "first" })).toMatchObject({
+      accountName: "default",
+      isDefault: true,
+    });
   },
 );

@@ -26,6 +26,7 @@ type GmailConnectionResult = {
 export class GmailConnections {
   // Orders default changes and successful OAuth completions, not browser authorization.
   private readonly actionQueue = new SerialQueue();
+  private defaultNameReserved = false;
   private readonly executor: Pick<Executor, "connections">;
   private readonly database: DatabaseClient;
   private readonly userId: string;
@@ -93,16 +94,28 @@ export class GmailConnections {
     action?: "add" | "switch-default" | "reauthorize";
     accountName: string;
   }) {
-    if (input.action !== "reauthorize")
+    return await this.actionQueue.run(async () => {
+      const accounts = await this.list();
+      if (accounts instanceof Error) return accounts;
+      if (input.action === "reauthorize") {
+        if (!accounts.some((account) => account.name === input.accountName)) {
+          return new GmailConnectionError({
+            operation: "reauthorize an unknown account",
+          });
+        }
+        return input.accountName;
+      }
+      // Preserve the original tool address without letting pending additions share a slot.
+      if (accounts.length === 0 && !this.defaultNameReserved) {
+        this.defaultNameReserved = true;
+        return "default";
+      }
       return `account${randomUUID().replaceAll("-", "")}`;
-    const accounts = await this.list();
-    if (accounts instanceof Error) return accounts;
-    if (!accounts.some((account) => account.name === input.accountName)) {
-      return new GmailConnectionError({
-        operation: "reauthorize an unknown account",
-      });
-    }
-    return input.accountName;
+    });
+  }
+
+  release(accountName: string) {
+    if (accountName === "default") this.defaultNameReserved = false;
   }
 
   async complete(input: {
