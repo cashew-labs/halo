@@ -557,6 +557,66 @@ e2eTest(
 );
 
 e2eTest(
+  "keeps rendering a long session while a response streams faster than it renders",
+  async ({ app, harness, llm }) => {
+    e2eTest.setTimeout(120_000);
+    const pageErrors: string[] = [];
+    app.page.on("pageerror", (error) =>
+      pageErrors.push(error.stack ?? error.message),
+    );
+    await harness.loadSession({
+      title: "Long conversation",
+      messages: Array.from({ length: 200 }, (_, index) => [
+        m.user(`Question ${index}: Please explain step ${index} in detail.`),
+        m.assistant(
+          [
+            `## Answer ${index}`,
+            "",
+            `Step ${index} has a detailed explanation with \`code\` and a list:`,
+            "",
+            "- first point",
+            "- second point",
+            "",
+            "| Column | Value |",
+            "| --- | --- |",
+            `| step | ${index} |`,
+            "",
+            "```ts",
+            `const step = ${index};`,
+            "```",
+          ].join("\n"),
+        ),
+      ]).flat(),
+    });
+    const session = app.page.getByRole("main", { name: "Long conversation" });
+    const transcript = session.getByRole("log", { name: "Session transcript" });
+    await expect(transcript).toContainText("Answer 199");
+
+    await session.getByLabel("Message", { exact: true }).fill("Keep going");
+    await session.getByRole("button", { name: "Send", exact: true }).click();
+    const response = await llm.stream();
+    // Each delta re-renders the whole transcript. Deltas that arrive faster
+    // than that render once made React count the Find updates as nested and
+    // unmount the window with "Maximum update depth exceeded".
+    for (let index = 0; index < 400; index++) {
+      response.write(m.assistant(`token-${index} `));
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    response.end();
+    await expect
+      .poll(
+        async () =>
+          pageErrors[0] ??
+          (await transcript.textContent())?.includes("token-399"),
+        { timeout: 60_000 },
+      )
+      .toBe(true);
+    expect(pageErrors).toEqual([]);
+    await expect(transcript).toContainText("Answer 199");
+  },
+);
+
+e2eTest(
   "opens another session at the bottom after reading older messages",
   async ({ app, harness }) => {
     for (const title of [
