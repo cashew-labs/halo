@@ -30,10 +30,6 @@ const gcpWorkspaceSchema = Type.Object({
   zone: Type.String({ minLength: 1 }),
 });
 
-const workspaceSchema = Type.Union([localWorkspaceSchema, gcpWorkspaceSchema]);
-
-export type WorkspaceConfig = Static<typeof workspaceSchema>;
-
 export const controlPlaneConfigSchema = Type.Union([
   Type.Object({
     deployment: Type.Literal("local"),

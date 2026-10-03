@@ -1,10 +1,14 @@
 import { gzipSync } from "node:zlib";
 import { TraceCloudDriver } from "./TraceCloudDriver.js";
 import fs from "node:fs/promises";
+import http from "node:http";
+import events from "node:events";
+import type { AddressInfo } from "node:net";
 import { join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
+import { writeWorkspaceServerConnection } from "@get-halo/shared/WorkspaceServerConnection";
 import {
   controlPlaneProtocolVersion,
   type ControlPlaneClient,
@@ -14,6 +18,58 @@ import { testUtils } from "better-auth/plugins";
 import * as errore from "errore";
 import { expect, test } from "vitest";
 import { ControlPlane } from "../src/server/ControlPlane.js";
+import { LocalWorkspaceProvider } from "../src/workspace/provider/local/LocalWorkspaceProvider.js";
+import type { WorkspaceProviderApi } from "../src/workspace/provider/WorkspaceProviderApi.js";
+
+/** External workspace HTTP hosts, discovered through the real local provider. */
+class WorkspaceHostDriver {
+  readonly provider: LocalWorkspaceProvider;
+  private readonly server: http.Server;
+
+  private constructor(ctx: { appDataDir: string }) {
+    this.provider = new LocalWorkspaceProvider(ctx);
+    this.server = http.createServer((request, response) => {
+      if (request.headers.authorization !== "Bearer test-workspace-token") {
+        response.writeHead(401).end();
+        return;
+      }
+      response
+        .writeHead(200, { "content-type": "application/json" })
+        .end(JSON.stringify({ workspace: "test-workspace" }));
+    });
+  }
+
+  static async start(ctx: { appDataDir: string }) {
+    await using cleanup = new errore.AsyncDisposableStack();
+    const host = new WorkspaceHostDriver(ctx);
+    host.server.listen(0, "127.0.0.1");
+    await events.once(host.server, "listening");
+    cleanup.defer(async () => await host.close());
+    // SAFETY: The TCP listener is ready before the address is read.
+    const address = host.server.address() as AddressInfo;
+    await fs.mkdir(ctx.appDataDir, { recursive: true });
+    const published = await writeWorkspaceServerConnection({
+      appDataDir: ctx.appDataDir,
+      connection: {
+        workspaceRoot: ctx.appDataDir,
+        origin: `http://127.0.0.1:${address.port}`,
+        token: "test-workspace-token",
+      },
+    });
+    if (published instanceof Error) throw published;
+    cleanup.move();
+    return host;
+  }
+
+  async close() {
+    this.server.closeAllConnections();
+    await new Promise<void>((complete, reject) => {
+      this.server.close((error) =>
+        error === undefined ? complete() : reject(error),
+      );
+    });
+  }
+}
 
 const testAuth = {
   secret: "test-control-plane-auth-secret-key!",
@@ -31,7 +87,20 @@ const controlPlaneTest = test.extend<{
   plane: ControlPlane;
   rpc: ControlPlaneClient;
   webRoot: string;
+  workspaceProvider: WorkspaceProviderApi;
+  workspaceHost: WorkspaceHostDriver;
 }>({
+  workspaceProvider: async ({ appDataDir }, use) => {
+    await use(new LocalWorkspaceProvider({ appDataDir }));
+  },
+  workspaceHost: async ({ appDataDir }, use) => {
+    const host = await WorkspaceHostDriver.start({
+      appDataDir: join(appDataDir, "upstream"),
+    });
+    await using cleanup = new errore.AsyncDisposableStack();
+    cleanup.defer(async () => await host.close());
+    await use(host);
+  },
   // oxlint-disable-next-line eslint/no-empty-pattern -- Vitest requires destructured fixture parameters.
   traceCloud: async ({}, use) => {
     const cloud = await TraceCloudDriver.start();
@@ -54,7 +123,10 @@ const controlPlaneTest = test.extend<{
     ]);
     await use(webRoot);
   },
-  plane: async ({ appDataDir, webRoot, traceCloud }, use) => {
+  plane: async (
+    { appDataDir, webRoot, traceCloud, workspaceProvider },
+    use,
+  ) => {
     const plane = await ControlPlane.start({
       build: { version: "test-release", revision: "test-revision" },
       config: {
@@ -65,6 +137,7 @@ const controlPlaneTest = test.extend<{
         auth: testAuth,
       },
       webRoot,
+      workspaceProvider,
       traceCloud: traceCloud.cloud(),
     });
     if (plane instanceof Error) throw plane;
@@ -102,7 +175,7 @@ const controlPlaneTest = test.extend<{
 
 controlPlaneTest(
   "stays reachable on loopback until closed",
-  async ({ appDataDir, webRoot }) => {
+  async ({ appDataDir, webRoot, workspaceProvider }) => {
     await using cleanup = new errore.AsyncDisposableStack();
     const plane = await ControlPlane.start({
       config: {
@@ -113,6 +186,7 @@ controlPlaneTest(
         auth: testAuth,
       },
       webRoot,
+      workspaceProvider,
     });
     if (plane instanceof Error) throw plane;
     const lifetime = { open: true };
@@ -331,6 +405,37 @@ controlPlaneTest(
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u,
     );
     expect(new Date(first.createdAt).toISOString()).toBe(first.createdAt);
+  },
+);
+
+const providerControlPlaneTest = controlPlaneTest.extend<{
+  workspaceProvider: WorkspaceProviderApi;
+}>({
+  workspaceProvider: async ({ workspaceHost }, use) => {
+    await use(workspaceHost.provider);
+  },
+});
+
+providerControlPlaneTest(
+  "uses the supplied provider for authenticated gateway traffic before and after ensure",
+  async ({ plane, browserHeaders }) => {
+    const beforeEnsure = await fetch(`${plane.origin}/workspace/health`, {
+      headers: browserHeaders,
+    });
+    expect(beforeEnsure.status).toBe(200);
+    expect(await beforeEnsure.json()).toEqual({ workspace: "test-workspace" });
+
+    const rpc = createControlPlaneRpcClient(plane.origin, browserHeaders);
+    const [first, concurrent] = await Promise.all([
+      rpc.workspace.ensure(),
+      rpc.workspace.ensure(),
+    ]);
+    expect(concurrent).toEqual(first);
+    const afterEnsure = await fetch(`${plane.origin}/workspace/health`, {
+      headers: browserHeaders,
+    });
+    expect(afterEnsure.status).toBe(200);
+    expect(await afterEnsure.json()).toEqual({ workspace: "test-workspace" });
   },
 );
 

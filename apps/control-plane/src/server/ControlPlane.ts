@@ -11,6 +11,7 @@ import {
 } from "./controlPlaneHttp.js";
 import { DatabaseService, type DatabaseConfig } from "../DatabaseService.js";
 import { WorkspaceService } from "../workspace/WorkspaceService.js";
+import type { WorkspaceProviderApi } from "../workspace/provider/WorkspaceProviderApi.js";
 
 import { TraceIngestion } from "../traces/TraceIngestion.js";
 import type { TraceCloud } from "../traces/TraceCloud.js";
@@ -44,6 +45,7 @@ export class ControlPlane {
   static async start(ctx: {
     config: ControlPlaneConfig;
     webRoot: string;
+    workspaceProvider: WorkspaceProviderApi;
     build?: { version: string; revision: string };
     traceCloud?: TraceCloud;
   }) {
@@ -83,10 +85,7 @@ export class ControlPlane {
 
     const workspace = await WorkspaceService.start({
       db,
-      config:
-        config.deployment === "local"
-          ? { deployment: "local", appDataDir: config.appDataDir }
-          : config.workspace,
+      provider: ctx.workspaceProvider,
     });
     if (workspace instanceof Error) return workspace;
 

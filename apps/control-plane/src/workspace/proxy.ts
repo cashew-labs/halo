@@ -4,10 +4,8 @@ import { GoogleAuth, type IdTokenClient } from "google-auth-library";
 import { createProxyServer, proxyUpgrade } from "httpxy";
 import * as errore from "errore";
 import type { AuthService } from "../auth/AuthService.js";
-import type {
-  WorkspaceConnection,
-  WorkspaceService,
-} from "./WorkspaceService.js";
+import type { WorkspaceService } from "./WorkspaceService.js";
+import type { WorkspaceProviderConnection } from "./provider/WorkspaceProviderApi.js";
 
 const workspacePathPrefix = "/workspace";
 const workspaceProxy = createProxyServer();
@@ -132,7 +130,7 @@ export class WorkspaceGateway {
     if (proxied instanceof Error) console.error(proxied);
   }
 
-  private async getAuthorization(connection: WorkspaceConnection) {
+  private async getAuthorization(connection: WorkspaceProviderConnection) {
     if (connection.authorization.type === "bearer") {
       return connection.authorization.value;
     }

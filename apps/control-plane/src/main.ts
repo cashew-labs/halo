@@ -4,6 +4,8 @@ import path from "node:path";
 import { config } from "@get-halo/config/controlPlane";
 import * as errore from "errore";
 import { ControlPlane } from "./server/ControlPlane.js";
+import { GcpWorkspaceProvider } from "./workspace/provider/gcp/GcpWorkspaceProvider.js";
+import { LocalWorkspaceProvider } from "./workspace/provider/local/LocalWorkspaceProvider.js";
 
 async function run() {
   const stopping = new Promise<void>((stop) => {
@@ -15,6 +17,10 @@ async function run() {
     });
   });
   if (config instanceof Error) return config;
+  const workspaceProvider =
+    config.server.deployment === "local"
+      ? new LocalWorkspaceProvider({ appDataDir: config.server.appDataDir })
+      : new GcpWorkspaceProvider(config.server.workspace);
   const plane = await ControlPlane.start({
     build:
       process.env.HALO_BUILD_REVISION === undefined
@@ -24,6 +30,7 @@ async function run() {
             revision: process.env.HALO_BUILD_REVISION,
           },
     config: config.server,
+    workspaceProvider,
     traceCloud:
       config.server.deployment === "local"
         ? undefined

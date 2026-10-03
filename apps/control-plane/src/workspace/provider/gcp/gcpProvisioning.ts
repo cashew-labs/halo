@@ -62,7 +62,6 @@ type ComputeOperation = {
 };
 
 type GcpWorkspaceConfig = {
-  deployment: "gcp";
   instanceTemplate: string;
   projectId: string;
   zone: string;

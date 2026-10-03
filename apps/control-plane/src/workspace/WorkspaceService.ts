@@ -1,10 +1,8 @@
 import crypto from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
-import type { WorkspaceConfig } from "@get-halo/config/controlPlane";
-import { readWorkspaceServerConnection } from "@get-halo/shared/WorkspaceServerConnection";
 import * as errore from "errore";
 import type { DatabaseService } from "../DatabaseService.js";
-import { provisionGcpWorkspace } from "./gcpProvisioning.js";
+import type { WorkspaceProviderApi } from "./provider/WorkspaceProviderApi.js";
 
 class WorkspaceServiceError extends errore.createTaggedError({
   name: "WorkspaceServiceError",
@@ -26,36 +24,20 @@ type Workspace = {
   createdAt: Date;
 };
 
-type GcpWorkspaceConfig = Extract<WorkspaceConfig, { deployment: "gcp" }>;
-
-type WorkspaceServiceConfig =
-  | { deployment: "local"; appDataDir: string }
-  | GcpWorkspaceConfig;
-
-export type WorkspaceConnection =
-  | {
-      origin: string;
-      authorization: { type: "bearer"; value: string };
-    }
-  | {
-      origin: string;
-      authorization: { type: "googleIdentity" };
-    };
-
 export class WorkspaceService {
   private readonly db: DatabaseService;
-  private readonly config: WorkspaceServiceConfig;
+  private readonly provider: WorkspaceProviderApi;
 
   private constructor(ctx: {
-    config: WorkspaceServiceConfig;
+    provider: WorkspaceProviderApi;
     db: DatabaseService;
   }) {
     this.db = ctx.db;
-    this.config = ctx.config;
+    this.provider = ctx.provider;
   }
 
   static async start(ctx: {
-    config: WorkspaceServiceConfig;
+    provider: WorkspaceProviderApi;
     db: DatabaseService;
   }) {
     const service = new WorkspaceService(ctx);
@@ -69,10 +51,7 @@ export class WorkspaceService {
     const workspace = await this.ensureRecord(userId);
     if (workspace instanceof Error) return workspace;
 
-    if (this.config.deployment === "local") return workspace;
-
-    const provisioned = await provisionGcpWorkspace({
-      config: this.config,
+    const provisioned = await this.provider.ensure({
       ownerUserId: userId,
       workspaceId: workspace.id,
     });
@@ -82,31 +61,13 @@ export class WorkspaceService {
   }
 
   async getConnection(userId: string) {
-    if (this.config.deployment === "local") {
-      const server = await readWorkspaceServerConnection(
-        this.config.appDataDir,
-      );
-      if (server instanceof Error || server === undefined) return server;
-      return {
-        origin: server.origin,
-        authorization: {
-          type: "bearer",
-          value: `Bearer ${server.token}`,
-        },
-      } satisfies WorkspaceConnection;
-    }
-
-    const workspace = await this.findRecord(userId);
+    // Gateway traffic may arrive before an explicit ensure; only store identity here.
+    const workspace = await this.ensureRecord(userId);
     if (workspace instanceof Error) return workspace;
-    if (workspace === undefined) {
-      return new WorkspaceServiceError({ detail: "find workspace" });
-    }
-
-    const instanceName = `halo-${workspace.id}`;
-    return {
-      origin: `http://${instanceName}.${this.config.zone}.c.${this.config.projectId}.internal:8788`,
-      authorization: { type: "googleIdentity" },
-    } satisfies WorkspaceConnection;
+    return await this.provider.getConnection({
+      workspaceId: workspace.id,
+      ownerUserId: userId,
+    });
   }
 
   async hasWorkspace(workspaceId: string) {
@@ -182,6 +143,9 @@ export class WorkspaceService {
   }
 
   private async ensureRecord(userId: string) {
+    const existing = await this.findRecord(userId);
+    if (existing instanceof Error) return existing;
+    if (existing !== undefined) return existing;
     const client = this.db.client;
     const workspaceId = crypto.randomUUID();
     const createdAt = new Date();

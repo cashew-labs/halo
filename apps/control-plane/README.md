@@ -48,3 +48,25 @@ attached service account.
 
 Build `apps/control-plane/Dockerfile` from the repository root. The Google OAuth
 redirect URI is `${BETTER_AUTH_URL}/api/auth/callback/google`.
+
+## Workspace providers
+
+`workspace/provider/WorkspaceProviderApi.ts` defines provisioning and connection
+lookup. Implementations live in `workspace/provider/gcp/` and
+`workspace/provider/local/`. Providers own resource lookup and connection details;
+`WorkspaceService` owns workspace identity and database records.
+
+The process entry point chooses one `workspaceProvider` for the control-plane
+instance: GCP in production, or local in development. It passes that implementation
+through `ControlPlane.start` to `WorkspaceService`. Provider selection is fixed
+at startup and is not stored per workspace.
+
+`workspace.ensure` and gateway connection lookup delegate directly to that
+provider. Gateway traffic can create the user's database record before an explicit
+ensure, but connection lookup does not provision or wake a VM. The workspace
+database schema is unchanged.
+
+`pause` and `resume` are optional provider capabilities. GCP leaves both undefined;
+local workspaces are managed by the development host. Automatic idle handling and
+the Exe implementation are later work. All connection credentials stay inside
+the control plane.
