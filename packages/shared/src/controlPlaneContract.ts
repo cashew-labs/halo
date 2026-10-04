@@ -60,6 +60,8 @@ export const controlPlaneContract = publicProcedure.router({
   },
   workspace: {
     ensure: authenticatedProcedure.output(type<ControlPlaneWorkspace>()),
+    rotateRuntimeToken:
+      authenticatedProcedure.output(type<ControlPlaneWorkspace>()),
   },
 });
 

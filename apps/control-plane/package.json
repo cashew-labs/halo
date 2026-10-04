@@ -16,6 +16,7 @@
     "test:exe": "vitest run src/workspace/provider/exe/ExeWorkspaceProvider.test.ts"
   },
   "dependencies": {
+    "@better-auth/api-key": "1.7.4",
     "@get-halo/client": "workspace:*",
     "@get-halo/config": "workspace:*",
     "@get-halo/shared": "workspace:*",

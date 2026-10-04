@@ -1,8 +1,14 @@
 import * as errore from "errore";
 import { GoogleAuth } from "google-auth-library";
+import {
+  workspaceRuntimeConfigSchema,
+  type WorkspaceRuntimeConfig,
+} from "@get-halo/config/workspaceServer";
+import { Value } from "@sinclair/typebox/value";
 
 const computeApiOrigin = "https://compute.googleapis.com/compute/v1";
 const ownerUserIdMetadataKey = "halo-owner-user-id";
+const runtimeMetadataKey = "halo-workspace-runtime";
 const workspaceDiskDeviceName = "halo-workspace";
 const workspaceDiskSizeGb = "50";
 const auth = new GoogleAuth({
@@ -51,6 +57,10 @@ type WorkspaceInstanceTemplate = {
 
 type ComputeInstance = {
   status?: string;
+  metadata?: {
+    fingerprint?: string;
+    items?: Array<{ key: string; value?: string }>;
+  };
 };
 
 type ComputeOperation = {
@@ -75,8 +85,13 @@ export async function provisionGcpWorkspace(input: {
   config: GcpWorkspaceConfig;
   ownerUserId: string;
   workspaceId: string;
+  runtime: WorkspaceRuntimeConfig;
 }) {
-  const workspace = { ...input.config, workspaceId: input.workspaceId };
+  const workspace = {
+    ...input.config,
+    workspaceId: input.workspaceId,
+    runtime: input.runtime,
+  };
   const diskName = `halo-${input.workspaceId}-workspace`;
   const instanceName = `halo-${input.workspaceId}`;
 
@@ -99,6 +114,7 @@ export async function provisionGcpWorkspace(input: {
     diskName,
     instanceName,
     ownerUserId: input.ownerUserId,
+    runtime: input.runtime,
     template,
   });
   if (instanceOperation instanceof Error) return instanceOperation;
@@ -204,6 +220,7 @@ async function insertInstance(
     diskName: string;
     instanceName: string;
     ownerUserId: string;
+    runtime: WorkspaceRuntimeConfig;
     template: WorkspaceInstanceTemplate;
   },
 ) {
@@ -224,10 +241,13 @@ async function insertInstance(
       metadata: {
         items: [
           ...ctx.template.metadataItems.filter(
-            (item) => item.key !== ownerUserIdMetadataKey,
+            (item) =>
+              item.key !== ownerUserIdMetadataKey &&
+              item.key !== runtimeMetadataKey,
           ),
           { key: ownerUserIdMetadataKey, value: ctx.ownerUserId },
           { key: "halo-workspace-id", value: ctx.workspaceId },
+          { key: runtimeMetadataKey, value: JSON.stringify(ctx.runtime) },
         ],
       },
       disks: [
@@ -254,7 +274,11 @@ async function insertInstance(
 }
 
 async function ensureInstanceRunning(
-  ctx: GcpWorkspaceContext & { instanceName: string },
+  ctx: GcpWorkspaceContext & {
+    instanceName: string;
+    runtime: WorkspaceRuntimeConfig;
+    metadataAttemptsRemaining?: number;
+  },
 ) {
   const response = await send({
     workspaceId: ctx.workspaceId,
@@ -273,6 +297,87 @@ async function ensureInstanceRunning(
     response,
   });
   if (instance instanceof Error) return instance;
+  const runtimeValue = JSON.stringify(ctx.runtime);
+  const currentValue = instance.metadata?.items?.find(
+    (item) => item.key === runtimeMetadataKey,
+  )?.value;
+  const currentRuntime =
+    currentValue === undefined
+      ? undefined
+      : errore.try({
+          // SAFETY: The runtime schema validates the parsed metadata below.
+          try: () => JSON.parse(currentValue) as unknown,
+          catch: (cause) =>
+            new GcpWorkspaceProvisioningError({
+              workspaceId: ctx.workspaceId,
+              detail: "decode workspace service metadata",
+              cause,
+            }),
+        });
+  if (currentRuntime instanceof Error) return currentRuntime;
+  if (
+    currentRuntime !== undefined &&
+    !Value.Check(workspaceRuntimeConfigSchema, currentRuntime)
+  )
+    return new GcpWorkspaceProvisioningError({
+      workspaceId: ctx.workspaceId,
+      detail: "invalid workspace service metadata",
+    });
+  if (
+    currentValue !== runtimeValue &&
+    (currentRuntime === undefined ||
+      currentRuntime.generation <= ctx.runtime.generation)
+  ) {
+    const metadataResponse = await send({
+      workspaceId: ctx.workspaceId,
+      detail: "assign workspace service settings",
+      method: "POST",
+      url: zoneUrl({
+        ...ctx,
+        path: `instances/${encodeURIComponent(ctx.instanceName)}/setMetadata`,
+      }),
+      body: {
+        fingerprint: instance.metadata?.fingerprint,
+        items: [
+          ...(instance.metadata?.items ?? []).filter(
+            (item) => item.key !== runtimeMetadataKey,
+          ),
+          { key: runtimeMetadataKey, value: runtimeValue },
+        ],
+      },
+    });
+    if (metadataResponse instanceof Error) return metadataResponse;
+    // Compute's metadata fingerprint rejects a concurrent writer. Re-read before retrying.
+    if (
+      metadataResponse.status === 412 &&
+      (ctx.metadataAttemptsRemaining ?? 2) > 0
+    ) {
+      const consumed = await metadataResponse.arrayBuffer().catch(
+        (cause) =>
+          new GcpWorkspaceProvisioningError({
+            workspaceId: ctx.workspaceId,
+            detail: "read metadata conflict metadataResponse",
+            cause,
+          }),
+      );
+      if (consumed instanceof Error) return consumed;
+      return await ensureInstanceRunning({
+        ...ctx,
+        metadataAttemptsRemaining: (ctx.metadataAttemptsRemaining ?? 2) - 1,
+      });
+    }
+    const operation = await readOperation({
+      workspaceId: ctx.workspaceId,
+      detail: "assign workspace service settings",
+      response: metadataResponse,
+    });
+    if (operation instanceof Error) return operation;
+    const assigned = await waitForOperation({
+      ...ctx,
+      operationName: operation,
+    });
+    if (assigned instanceof Error) return assigned;
+  }
 
   if (instance.status === "TERMINATED")
     return await changeInstanceState({ ...ctx, action: "start" });

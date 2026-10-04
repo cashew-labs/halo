@@ -20,6 +20,11 @@ import { expect, test } from "vitest";
 import { ControlPlane } from "../src/server/ControlPlane.js";
 import { LocalWorkspaceProvider } from "../src/workspace/provider/local/LocalWorkspaceProvider.js";
 import type { WorkspaceProviderApi } from "../src/workspace/provider/WorkspaceProviderApi.js";
+import {
+  workspaceRuntimeConfigFileName,
+  workspaceRuntimeConfigSchema,
+} from "@get-halo/config/workspaceServer";
+import { Value } from "@sinclair/typebox/value";
 
 /** External workspace HTTP hosts, discovered through the real local provider. */
 class WorkspaceHostDriver {
@@ -411,6 +416,163 @@ controlPlaneTest(
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u,
     );
     expect(new Date(first.createdAt).toISOString()).toBe(first.createdAt);
+  },
+);
+
+async function readRuntimeSettings(appDataDir: string) {
+  const runtime: unknown = JSON.parse(
+    await fs.readFile(join(appDataDir, workspaceRuntimeConfigFileName), "utf8"),
+  );
+  if (!Value.Check(workspaceRuntimeConfigSchema, runtime))
+    throw new Error("Invalid assigned workspace service settings");
+  return runtime;
+}
+
+controlPlaneTest(
+  "assigns a stable workspace-only key and rejects user or gateway credentials",
+  async ({ plane, authenticatedRpc, browserHeaders, appDataDir }) => {
+    const workspace = await authenticatedRpc.workspace.ensure();
+    const runtime = await readRuntimeSettings(appDataDir);
+    expect(runtime).toMatchObject({
+      origin: plane.origin,
+      workspaceId: workspace.id,
+      generation: 1,
+    });
+    expect(Object.keys(workspace).toSorted()).toEqual(["createdAt", "id"]);
+    const endpoint = `${plane.origin}/api/workspace-runtime/identity`;
+    const accepted = await fetch(endpoint, {
+      headers: { authorization: `Bearer ${runtime.token}` },
+    });
+    expect(accepted.status).toBe(200);
+    expect(accepted.headers.get("cache-control")).toBe("no-store");
+    expect(await accepted.json()).toEqual({ workspaceId: workspace.id });
+    await authenticatedRpc.workspace.ensure();
+    expect(await readRuntimeSettings(appDataDir)).toEqual(runtime);
+    const rejectedHeaders = [
+      browserHeaders,
+      new Headers(),
+      new Headers({ authorization: "Bearer invalid" }),
+      new Headers({ authorization: "Bearer test-workspace-token" }),
+    ];
+    for (const headers of rejectedHeaders) {
+      const rejected = await fetch(endpoint, { headers });
+      expect(rejected.status).toBe(401);
+    }
+    const machineClient = createControlPlaneRpcClient(
+      plane.origin,
+      runtime.token,
+    );
+    expect(await machineClient.auth.session()).toEqual({
+      status: "signed-out",
+    });
+    await expect(machineClient.workspace.ensure()).rejects.toMatchObject({
+      code: "UNAUTHORIZED",
+    });
+    await expect(
+      machineClient.workspace.rotateRuntimeToken(),
+    ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    for (const action of ["create", "get", "list", "update", "delete"]) {
+      const rejected = await fetch(
+        `${plane.origin}/api/auth/api-key/${action}`,
+        {
+          method: action === "get" || action === "list" ? "GET" : "POST",
+          headers: browserHeaders,
+        },
+      );
+      expect(rejected.status).toBe(404);
+    }
+  },
+);
+
+controlPlaneTest(
+  "derives workspace identity from its key and revokes the old key on rotation",
+  async ({ plane, authenticatedRpc, appDataDir }) => {
+    const alice = await authenticatedRpc.workspace.ensure();
+    const aliceRuntime = await readRuntimeSettings(appDataDir);
+    const bobHeaders = await createAuthenticatedHeaders(
+      appDataDir,
+      plane.origin,
+      "runtime-bob@example.com",
+    );
+    const bobRpc = createControlPlaneRpcClient(plane.origin, bobHeaders);
+    const bob = await bobRpc.workspace.ensure();
+    const bobRuntime = await readRuntimeSettings(appDataDir);
+    expect(bobRuntime.token).not.toBe(aliceRuntime.token);
+    const identify = async (token: string) =>
+      await fetch(
+        `${plane.origin}/api/workspace-runtime/identity?workspaceId=${bob.id}`,
+        {
+          headers: {
+            authorization: `Bearer ${token}`,
+            "x-halo-workspace-id": bob.id,
+          },
+        },
+      );
+    expect(await (await identify(aliceRuntime.token)).json()).toEqual({
+      workspaceId: alice.id,
+    });
+    expect(await (await identify(bobRuntime.token)).json()).toEqual({
+      workspaceId: bob.id,
+    });
+    expect(await authenticatedRpc.workspace.rotateRuntimeToken()).toEqual(
+      alice,
+    );
+    const rotated = await readRuntimeSettings(appDataDir);
+    expect(rotated.token).not.toBe(aliceRuntime.token);
+    expect(rotated.generation).toBe(2);
+    expect((await identify(aliceRuntime.token)).status).toBe(401);
+    expect(await (await identify(rotated.token)).json()).toEqual({
+      workspaceId: alice.id,
+    });
+    expect(await (await identify(bobRuntime.token)).json()).toEqual({
+      workspaceId: bob.id,
+    });
+  },
+);
+
+controlPlaneTest(
+  "shares one persistent credential across concurrent control-plane instances",
+  async ({ plane, appDataDir, webRoot, workspaceProvider, browserHeaders }) => {
+    await using cleanup = new errore.AsyncDisposableStack();
+    const second = await ControlPlane.start({
+      config: {
+        deployment: "local",
+        workspace: { deployment: "local" },
+        appDataDir,
+        port: 0,
+        auth: testAuth,
+      },
+      workspaceProvider,
+      webRoot,
+    });
+    if (second instanceof Error) throw second;
+    cleanup.defer(async () => {
+      const closed = await second.close();
+      if (closed instanceof Error) console.warn(closed);
+    });
+    const firstRpc = createControlPlaneRpcClient(plane.origin, browserHeaders);
+    const secondRpc = createControlPlaneRpcClient(
+      second.origin,
+      browserHeaders,
+    );
+    const results = await Promise.all([
+      firstRpc.workspace.ensure(),
+      secondRpc.workspace.ensure(),
+      firstRpc.workspace.ensure(),
+    ]);
+    expect(results[1]).toEqual(results[0]);
+    expect(results[2]).toEqual(results[0]);
+    const before = await readRuntimeSettings(appDataDir);
+    await secondRpc.workspace.ensure();
+    const after = await readRuntimeSettings(appDataDir);
+    expect(after.token).toBe(before.token);
+    for (const origin of [plane.origin, second.origin]) {
+      const response = await fetch(`${origin}/api/workspace-runtime/identity`, {
+        headers: { authorization: `Bearer ${after.token}` },
+      });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ workspaceId: results[0]?.id });
+    }
   },
 );
 

@@ -17,7 +17,19 @@ const developmentUserSchema = Type.Object({
   id: Type.String({ minLength: 1 }),
 });
 
+export const workspaceRuntimeConfigSchema = Type.Object({
+  origin: Type.String({ pattern: "^https?://" }),
+  workspaceId: Type.String({ minLength: 1 }),
+  token: Type.String({ minLength: 32 }),
+  generation: Type.Integer({ minimum: 1 }),
+});
+export type WorkspaceRuntimeConfig = Static<
+  typeof workspaceRuntimeConfigSchema
+>;
+export const workspaceRuntimeConfigFileName = "workspace-runtime.json";
+
 export const workspaceServerConfigSchema = Type.Object({
+  runtime: Type.Optional(workspaceRuntimeConfigSchema),
   environment: Type.Union([Type.Literal("local"), Type.Literal("cloud")]),
   workspaceRoot: Type.String(),
   legacyExecutorTenant: Type.Optional(Type.String({ minLength: 1 })),
@@ -191,7 +203,13 @@ async function readDevelopmentConfig(): Promise<WorkspaceServerConfig | Error> {
   if (ownerUserId instanceof Error) return ownerUserId;
   const rendererPort = process.env.HALO_RENDERER_PORT;
   const rendererOrigin = `http://localhost:${rendererPort === undefined ? "1420" : rendererPort}`;
+  const runtimePath = path.join(appDataDir, workspaceRuntimeConfigFileName);
+  const runtime = fs.existsSync(runtimePath)
+    ? await readWorkspaceRuntimeConfig(runtimePath)
+    : undefined;
+  if (runtime instanceof Error) return runtime;
   return {
+    runtime,
     environment: "local",
     workspaceRoot: path.resolve(workspaceRoot),
     appDataDir,
@@ -213,6 +231,32 @@ async function readDevelopmentConfig(): Promise<WorkspaceServerConfig | Error> {
       electronRunAsNode: false,
     },
   };
+}
+
+async function readWorkspaceRuntimeConfig(configPath: string) {
+  const raw = await fsPromises.readFile(configPath, "utf8").catch(
+    (cause) =>
+      new WorkspaceServerConfigError({
+        detail: "read workspace service settings",
+        cause,
+      }),
+  );
+  if (raw instanceof Error) return raw;
+  const parsed = errore.try({
+    // SAFETY: The runtime schema validates the JSON below.
+    try: () => JSON.parse(raw) as unknown,
+    catch: (cause) =>
+      new WorkspaceServerConfigError({
+        detail: "parse workspace service settings",
+        cause,
+      }),
+  });
+  if (parsed instanceof Error) return parsed;
+  if (!Value.Check(workspaceRuntimeConfigSchema, parsed))
+    return new WorkspaceServerConfigError({
+      detail: "validate workspace service settings",
+    });
+  return parsed;
 }
 
 async function readDevelopmentUserId(appDataDir: string) {

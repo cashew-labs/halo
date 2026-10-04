@@ -24,6 +24,7 @@ import {
   type AuthService,
   DesktopAuthRequiredError,
   InvalidDesktopSignInRequestError,
+  WorkspaceAuthenticationRequiredError,
 } from "../auth/AuthService.js";
 import {
   controlPlaneRpcRouter,
@@ -218,6 +219,30 @@ async function routeControlPlaneRequest(ctx: {
 
   if (request.method === "GET" && url.pathname === "/health") {
     response.writeHead(200).end();
+    return;
+  }
+
+  if (
+    request.method === "GET" &&
+    url.pathname === "/api/workspace-runtime/identity"
+  ) {
+    response.setHeader("cache-control", "no-store");
+    const headers = new Headers();
+    if (request.headers.authorization !== undefined)
+      headers.set("authorization", request.headers.authorization);
+    const identity = await workspace.authenticateRuntime(headers);
+    if (identity instanceof WorkspaceAuthenticationRequiredError) {
+      response.writeHead(401).end();
+      return;
+    }
+    if (identity instanceof Error) {
+      console.error(identity);
+      response.writeHead(500).end();
+      return;
+    }
+    response
+      .writeHead(200, { "content-type": "application/json" })
+      .end(JSON.stringify(identity));
     return;
   }
 

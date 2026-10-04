@@ -86,6 +86,8 @@ export class ControlPlane {
     const workspace = await WorkspaceService.start({
       db,
       provider: ctx.workspaceProvider,
+      auth,
+      origin: publicOrigin,
     });
     if (workspace instanceof Error) return workspace;
 

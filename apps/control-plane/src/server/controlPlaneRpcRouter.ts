@@ -113,6 +113,20 @@ export const controlPlaneRpcRouter = os.router({
   }),
   workspace: os.workspace.router({
     ensure: ensureWorkspace,
+    rotateRuntimeToken: os.workspace.rotateRuntimeToken
+      .use(loadSession)
+      .handler(async ({ context }) => {
+        if (context.session === undefined)
+          throw new ORPCError("UNAUTHORIZED", { message: "Sign in required" });
+        const workspace = await context.workspace.rotateRuntimeToken(
+          context.session.user.id,
+        );
+        if (workspace instanceof Error) throw internalError(workspace);
+        return {
+          id: workspace.id,
+          createdAt: workspace.createdAt.toISOString(),
+        };
+      }),
   }),
 });
 
