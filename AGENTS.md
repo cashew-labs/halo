@@ -6,6 +6,8 @@ Halo is an open-source self-modifiable desktop app built with Electron and Pi. I
 
 Use the [conventions skill](.agents/skills/conventions/SKILL.md) when writing, refactoring, or reviewing code or tests. Read its relevant pages, not the whole handbook for every task. Do not expand a task into the full migration.
 
+Use the [change-coverage skill](.agents/skills/change-coverage/SKILL.md) when reviewing whether added or edited Vitest tests exercise changed source lines before a PR.
+
 When editing TypeScript that handles failures, also read the [errore skill](.agents/skills/errore/SKILL.md).
 
 When reviewing a pull request or branch diff, use the [code-review skill](.agents/skills/code-review/SKILL.md).
