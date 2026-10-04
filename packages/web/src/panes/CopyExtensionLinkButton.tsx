@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import * as errore from "errore";
-import { Tooltip, motion } from "maui";
+import { Button, Tooltip, motion } from "maui";
 import { Check, Link } from "maui/icons";
 import { style, useStyles } from "purse-styles";
 import { paneStyles } from "./paneStyles.js";
@@ -52,18 +52,17 @@ export function CopyExtensionLinkButton({
 
   return (
     <Tooltip content={copied ? "Copied!" : "Copy link"} placement="bottom">
-      <button
-        type="button"
+      <Button
+        variant="quiet"
         className={className}
-        data-pane-add=""
         aria-label={copied ? "Copied link" : "Copy link"}
-        onClick={() => void handleCopy()}
+        onPress={() => void handleCopy()}
       >
         <span className={icon} aria-hidden="true">
           <Link size="sm" className={copied ? hiddenIcon : copiedIcon} />
           <Check size="sm" className={copied ? copiedIcon : hiddenIcon} />
         </span>
-      </button>
+      </Button>
     </Tooltip>
   );
 }
