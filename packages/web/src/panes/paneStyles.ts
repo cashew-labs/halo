@@ -1,4 +1,12 @@
-import { backgroundColor, colors, flex, flexItem, focusRing, text } from "maui";
+import {
+  backgroundColor,
+  colors,
+  flex,
+  flexItem,
+  focusRing,
+  spacing,
+  text,
+} from "maui";
 import { style, useStyles } from "purse-styles";
 
 export const tabBarHeight = 42;
@@ -37,6 +45,11 @@ export const paneStyles = {
     height: "100%",
     paddingInline: 0,
     borderBottom: 0,
+    // Keep tab shadows inside the scroller without shifting the tab labels.
+    "& [role=toolbar]": {
+      paddingInline: spacing.value(3),
+      marginInline: `calc(${spacing.value(3)} * -1)`,
+    },
   }),
   add: style({
     width: 28,
