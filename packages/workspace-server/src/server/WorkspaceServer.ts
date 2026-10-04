@@ -59,6 +59,7 @@ export type WorkspaceServerConfig = {
   cliNodeExecutable?: string;
   cliElectronRunAsNode?: boolean;
   extensionRuntime: ExtensionRuntime;
+  integrationsEnabled?: boolean;
   googleWebOAuthClient?: GoogleWebOAuthClient;
   oauthTestOrigin?: string;
 };
@@ -239,10 +240,11 @@ export class WorkspaceServer {
         database,
         workspaceRoot,
         userId: config.ownerUserId,
-        credentialVault: host.createCredentialVault({
-          filesystem,
-          workspaceRoot,
-        }),
+        integrationsEnabled: config.integrationsEnabled,
+        credentialVault:
+          config.integrationsEnabled === false
+            ? undefined
+            : host.createCredentialVault({ filesystem, workspaceRoot }),
         oauthRedirectUri: `${http.origin}/oauth/callback`,
         googleWebOAuthClient: config.googleWebOAuthClient,
         oauthTestOrigin: config.oauthTestOrigin,

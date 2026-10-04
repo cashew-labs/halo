@@ -8,6 +8,7 @@ import { Value } from "@sinclair/typebox/value";
 import * as errore from "errore";
 import { ApplicationMode } from "./ApplicationMode.js";
 import { readGcpSecret } from "./readGcpSecret.js";
+import { togetherModel, workspaceInferencePath } from "./inference.js";
 
 const inferenceProjectId = "halo-relay";
 const togetherApiKeySecretId = "together-ai-api-key";
@@ -92,7 +93,8 @@ export type WorkspaceServerApplicationConfig = {
   mode: ApplicationMode;
   server: WorkspaceServerConfig;
   inference: OpenAIInferenceConfig;
-  googleWebOAuthClient: GoogleWebOAuthClient;
+  googleWebOAuthClient: GoogleWebOAuthClient | undefined;
+  integrationsEnabled: boolean;
   oauthTestOrigin: string | undefined;
 };
 
@@ -115,7 +117,7 @@ export async function readWorkspaceServerApplicationConfig(): Promise<
       ? await readDevelopmentConfig()
       : await readConfigFile(configPath);
   if (server instanceof Error) return server;
-  const inference = await readInferenceConfig();
+  const inference = await readInferenceConfig(server.runtime);
   if (inference instanceof Error) return inference;
   const mode =
     configPath === undefined
@@ -123,8 +125,11 @@ export async function readWorkspaceServerApplicationConfig(): Promise<
       : process.env.HALO_E2E === "1"
         ? ApplicationMode.Test
         : ApplicationMode.Production;
-  const googleWebOAuth =
-    mode === ApplicationMode.Test && server.oauthTest !== undefined
+  // Runtime-authenticated workspaces leave integrations to the control-plane migration.
+  const integrationsEnabled = server.runtime === undefined;
+  const googleWebOAuth = !integrationsEnabled
+    ? { client: undefined, testOrigin: undefined }
+    : mode === ApplicationMode.Test && server.oauthTest !== undefined
       ? {
           client: server.oauthTest.googleWebClient,
           testOrigin: server.oauthTest.tokenOrigin,
@@ -136,6 +141,7 @@ export async function readWorkspaceServerApplicationConfig(): Promise<
     server,
     inference,
     googleWebOAuthClient: googleWebOAuth.client,
+    integrationsEnabled,
     oauthTestOrigin: googleWebOAuth.testOrigin,
   };
 }
@@ -327,7 +333,21 @@ async function readExistingDevelopmentUserId(userPath: string) {
   return parsed.id;
 }
 
-async function readInferenceConfig(): Promise<OpenAIInferenceConfig | Error> {
+async function readInferenceConfig(
+  runtime: WorkspaceRuntimeConfig | undefined,
+): Promise<OpenAIInferenceConfig | Error> {
+  if (runtime !== undefined)
+    return {
+      backend: "openAI",
+      options: {
+        model: {
+          ...togetherModel,
+          baseUrl: new URL(workspaceInferencePath, runtime.origin).toString(),
+        },
+        apiKey: runtime.token,
+        reasoning: "low",
+      },
+    };
   const configured = process.env.HALO_LLM_CONFIG;
   if (configured !== undefined) {
     const options = errore.try({
@@ -352,28 +372,7 @@ async function readInferenceConfig(): Promise<OpenAIInferenceConfig | Error> {
   return {
     backend: "openAI",
     options: {
-      // The installed Pi catalog predates this model; supply its published metadata.
-      model: {
-        id: "deepseek-ai/DeepSeek-V4.1-Flash",
-        name: "DeepSeek V4.1 Flash",
-        provider: "together",
-        api: "openai-completions",
-        baseUrl: "https://api.together.ai/v1",
-        reasoning: true,
-        input: ["text", "image"],
-        contextWindow: 1_000_000,
-        maxTokens: 384_000,
-        cost: { input: 0.3, output: 1.2, cacheRead: 0.006, cacheWrite: 0 },
-        compat: {
-          supportsStore: false,
-          supportsDeveloperRole: false,
-          supportsReasoningEffort: false,
-          maxTokensField: "max_tokens",
-          thinkingFormat: "together",
-          supportsStrictMode: false,
-          supportsLongCacheRetention: false,
-        },
-      },
+      model: togetherModel,
       apiKey,
       reasoning: "low",
     },

@@ -48,6 +48,7 @@ export class ControlPlane {
     workspaceProvider: WorkspaceProviderApi;
     build?: { version: string; revision: string };
     traceCloud?: TraceCloud;
+    inferenceApiKey?: string;
   }) {
     const { config, webRoot } = ctx;
     await using cleanup = new errore.AsyncDisposableStack();
@@ -98,13 +99,13 @@ export class ControlPlane {
       workspace,
       webRoot,
       build: ctx.build,
+      inferenceApiKey: ctx.inferenceApiKey,
       traces:
         ctx.traceCloud === undefined
           ? undefined
           : new TraceIngestion({
               cloud: ctx.traceCloud,
               workspace,
-              origin: publicOrigin,
             }),
     });
     cleanup.move();

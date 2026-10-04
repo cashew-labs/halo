@@ -84,5 +84,7 @@ ExecStop=/usr/bin/docker stop --time 30 halo-workspace
 WantedBy=multi-user.target
 SERVICE
 systemctl daemon-reload
+# Clones boot from disk; flush preparation writes before pausing the template.
+sync
 # Assignment starts the clone; the template must never run a user workspace.
 printf 'HALO_EXE_TEMPLATE_READY\n'

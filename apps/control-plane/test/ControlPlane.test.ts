@@ -25,6 +25,10 @@ import {
   workspaceRuntimeConfigSchema,
 } from "@get-halo/config/workspaceServer";
 import { Value } from "@sinclair/typebox/value";
+import {
+  togetherModel,
+  workspaceInferencePath,
+} from "@get-halo/config/inference";
 
 /** External workspace HTTP hosts, discovered through the real local provider. */
 class WorkspaceHostDriver {
@@ -92,6 +96,7 @@ const desktopAuthState = "desktop-auth-state-0123456789abcdef";
 
 const controlPlaneTest = test.extend<{
   traceCloud: TraceCloudDriver;
+  inferenceApiKey: string | undefined;
   appDataDir: string;
   authenticatedRpc: ControlPlaneClient;
   browserHeaders: Headers;
@@ -101,6 +106,10 @@ const controlPlaneTest = test.extend<{
   workspaceProvider: WorkspaceProviderApi;
   workspaceHost: WorkspaceHostDriver;
 }>({
+  // oxlint-disable-next-line eslint/no-empty-pattern -- Native fixture signature.
+  inferenceApiKey: async ({}, use) => {
+    await use(process.env.HALO_TEST_TOGETHER_API_KEY);
+  },
   workspaceProvider: async ({ appDataDir }, use) => {
     await use(new LocalWorkspaceProvider({ appDataDir }));
   },
@@ -114,7 +123,7 @@ const controlPlaneTest = test.extend<{
   },
   // oxlint-disable-next-line eslint/no-empty-pattern -- Vitest requires destructured fixture parameters.
   traceCloud: async ({}, use) => {
-    const cloud = await TraceCloudDriver.start();
+    const cloud = new TraceCloudDriver();
     await use(cloud);
     await cloud.close();
   },
@@ -135,7 +144,7 @@ const controlPlaneTest = test.extend<{
     await use(webRoot);
   },
   plane: async (
-    { appDataDir, webRoot, traceCloud, workspaceProvider },
+    { appDataDir, webRoot, traceCloud, workspaceProvider, inferenceApiKey },
     use,
   ) => {
     const plane = await ControlPlane.start({
@@ -150,6 +159,7 @@ const controlPlaneTest = test.extend<{
       webRoot,
       workspaceProvider,
       traceCloud: traceCloud.cloud(),
+      inferenceApiKey,
     });
     if (plane instanceof Error) throw plane;
     await use(plane);
@@ -576,6 +586,126 @@ controlPlaneTest(
   },
 );
 
+controlPlaneTest(
+  "restricts inference to workspace keys, the configured model, and bounded streaming requests",
+  async ({ plane, authenticatedRpc, browserHeaders, appDataDir }) => {
+    await authenticatedRpc.workspace.ensure();
+    const runtime = await readRuntimeSettings(appDataDir);
+    const endpoint = `${plane.origin}${workspaceInferencePath}/chat/completions`;
+    const body = {
+      model: togetherModel.id,
+      stream: true,
+      messages: [{ role: "user", content: "Hello" }],
+    };
+    const headers = {
+      authorization: `Bearer ${runtime.token}`,
+      "content-type": "application/json",
+    };
+    for (const rejectedHeaders of [browserHeaders, new Headers()]) {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: rejectedHeaders,
+        body: JSON.stringify(body),
+      });
+      expect(response.status).toBe(401);
+    }
+    for (const invalid of [
+      { ...body, model: "some-other-model" },
+      { ...body, stream: false },
+      { ...body, messages: [] },
+      { ...body, max_tokens: togetherModel.maxTokens + 1 },
+    ]) {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(invalid),
+      });
+      expect(response.status).toBe(400);
+    }
+    const malformed = await fetch(endpoint, {
+      method: "POST",
+      headers,
+      body: "{",
+    });
+    expect(malformed.status).toBe(400);
+    const oversized = await fetch(endpoint, {
+      method: "POST",
+      headers,
+      body: "x".repeat(16 * 1024 * 1024 + 1),
+    });
+    expect(oversized.status).toBe(413);
+    const wrongType = await fetch(endpoint, {
+      method: "POST",
+      headers: { authorization: headers.authorization },
+      body: "text",
+    });
+    expect(wrongType.status).toBe(415);
+    expect((await fetch(endpoint, { headers })).status).toBe(405);
+  },
+);
+
+// This opt-in test calls the real billed Together service; there is no fake model host.
+controlPlaneTest.skipIf(process.env.HALO_TEST_TOGETHER_API_KEY === undefined)(
+  "streams a real Together completion using the assigned workspace key",
+  async ({ plane, authenticatedRpc, appDataDir }) => {
+    await authenticatedRpc.workspace.ensure();
+    const runtime = await readRuntimeSettings(appDataDir);
+    const response = await fetch(
+      `${plane.origin}${workspaceInferencePath}/chat/completions`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${runtime.token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          model: togetherModel.id,
+          stream: true,
+          max_tokens: 32,
+          reasoning: { enabled: false },
+          messages: [{ role: "user", content: "Reply with exactly: halo" }],
+        }),
+      },
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/event-stream");
+    const stream = await response.text();
+    expect(stream).toContain("data: [DONE]");
+    const text = stream
+      .split("\n")
+      .filter((line) => line.startsWith("data: ") && line !== "data: [DONE]")
+      .map((line) => {
+        // SAFETY: Together's documented SSE chunks contain OpenAI-compatible deltas.
+        const chunk = JSON.parse(line.slice(6)) as {
+          choices: Array<{ delta: { content?: string } }>;
+        };
+        return chunk.choices
+          .map((choice) => choice.delta.content ?? "")
+          .join("");
+      })
+      .join("");
+    expect(text.toLowerCase()).toContain("halo");
+    const invalidMessage = await fetch(
+      `${plane.origin}${workspaceInferencePath}/chat/completions`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${runtime.token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          model: togetherModel.id,
+          stream: true,
+          messages: [{ role: "invalid-role", content: "Invalid input" }],
+        }),
+      },
+    );
+    expect(invalidMessage.status).toBe(400);
+    expect(await invalidMessage.text()).toContain("error");
+  },
+  60_000,
+);
+
 const providerControlPlaneTest = controlPlaneTest.extend<{
   workspaceProvider: WorkspaceProviderApi;
 }>({
@@ -656,25 +786,25 @@ async function createAuthenticatedHeaders(
   return login.headers;
 }
 
-controlPlaneTest(
-  "isolates trace uploads by verified VM identity and preserves immutable retries",
+controlPlaneTest.skipIf(process.env.HALO_TEST_TRACE_BUCKET === undefined)(
+  "isolates real trace uploads by workspace key and preserves immutable retries",
   async ({ plane, traceCloud, authenticatedRpc, appDataDir }) => {
     const alice = await authenticatedRpc.workspace.ensure();
+    const aliceRuntime = await readRuntimeSettings(appDataDir);
     const bobHeaders = await createAuthenticatedHeaders(
       appDataDir,
       plane.origin,
-      "bob@example.com",
+      "trace-bob@example.com",
     );
     const bob = await createControlPlaneRpcClient(
       plane.origin,
       bobHeaders,
     ).workspace.ensure();
-    traceCloud.instances.set(alice.id, "101");
-    traceCloud.instances.set(bob.id, "202");
+    const bobRuntime = await readRuntimeSettings(appDataDir);
     const traceId = "a".repeat(32);
     const endpoint = `${plane.origin}/api/traces/conversation/${traceId}`;
     const send = async (
-      workspaceId: string,
+      token: string,
       body: Buffer,
       suffix = "",
       extraHeaders = {},
@@ -682,7 +812,7 @@ controlPlaneTest(
       await fetch(endpoint + suffix, {
         method: "POST",
         headers: {
-          authorization: `Bearer ${traceCloud.token({ origin: plane.origin, workspaceId })}`,
+          authorization: `Bearer ${token}`,
           "content-type": "application/gzip",
           ...extraHeaders,
         },
@@ -690,132 +820,82 @@ controlPlaneTest(
       });
     const aliceArchive = traceArchive(alice.id, traceId);
     const bobArchive = traceArchive(bob.id, traceId);
-    expect((await send(alice.id, bobArchive)).status).toBe(400);
+    expect((await send(aliceRuntime.token, bobArchive)).status).toBe(400);
     expect(
-      (await send(alice.id, aliceArchive, `?workspaceId=${bob.id}`)).status,
+      (await send(aliceRuntime.token, aliceArchive, `?workspaceId=${bob.id}`))
+        .status,
     ).toBe(400);
-    expect(traceCloud.uploads).toHaveLength(0);
+    const aliceKey = `v1/workspaces/${alice.id}/sessions/conversation/${traceId}.jsonl.gz`;
+    const bobKey = `v1/workspaces/${bob.id}/sessions/conversation/${traceId}.jsonl.gz`;
+    traceCloud.track(aliceKey);
+    traceCloud.track(bobKey);
     expect(
       (
-        await send(alice.id, aliceArchive, "", {
+        await send(aliceRuntime.token, aliceArchive, "", {
           "x-workspace-id": bob.id,
           "x-user-id": "bob",
         })
       ).status,
     ).toBe(204);
-    expect((await send(bob.id, bobArchive)).status).toBe(204);
-    const aliceKey = `v1/workspaces/${alice.id}/sessions/conversation/${traceId}.jsonl.gz`;
-    const bobKey = `v1/workspaces/${bob.id}/sessions/conversation/${traceId}.jsonl.gz`;
-    expect(traceCloud.objects.get(aliceKey)).toEqual(aliceArchive);
-    expect(traceCloud.objects.get(bobKey)).toEqual(bobArchive);
-    expect(
-      (await send(alice.id, traceArchive(alice.id, traceId, "modified")))
-        .status,
-    ).toBe(204);
-    expect(traceCloud.objects.get(aliceKey)).toEqual(aliceArchive);
-    traceCloud.nextUploadStatus = 503;
-    expect((await send(alice.id, aliceArchive)).status).toBe(503);
-    expect((await send(alice.id, aliceArchive)).status).toBe(204);
-    expect(traceCloud.objects.size).toBe(2);
-    expect(
-      traceCloud.uploads.every(
-        (upload) =>
-          upload.precondition === "0" &&
-          upload.authorization === "Bearer control-plane-storage-token",
-      ),
-    ).toBe(true);
-  },
-);
-
-controlPlaneTest(
-  "rejects invalid, shared-only, foreign, expired and replaced VM identities before storage",
-  async ({ plane, traceCloud, authenticatedRpc }) => {
-    const workspace = await authenticatedRpc.workspace.ensure();
-    traceCloud.instances.set(workspace.id, "101");
-    const traceId = "b".repeat(32);
-    const endpoint = `${plane.origin}/api/traces/conversation/${traceId}`;
-    const body = traceArchive(workspace.id, traceId);
-    const token = (
-      claims: Parameters<TraceCloudDriver["token"]>[0]["claims"] = {},
-    ) =>
-      traceCloud.token({
-        origin: plane.origin,
-        workspaceId: workspace.id,
-        claims,
-      });
-    const send = async (credential: string) =>
-      await fetch(endpoint, {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${credential}`,
-          "content-type": "application/gzip",
-        },
-        body,
-      });
-    expect((await fetch(endpoint, { method: "POST", body })).status).toBe(401);
-    for (const credential of [
-      "invalid",
-      token({ aud: "https://other.example/api/traces" }),
-      token({ iss: "https://other.example" }),
-      token({ iat: 1, exp: 2 }),
-      token({ google: undefined }),
-      token({ email_verified: false }),
-      token({ email: "another@trace-project.iam.gserviceaccount.com" }),
-      token({
-        google: {
-          compute_engine: {
-            project_id: "foreign-project",
-            zone: "us-west2-a",
-            instance_id: "101",
-            instance_name: `halo-${workspace.id}`,
-          },
-        },
-      }),
-      token({
-        google: {
-          compute_engine: {
-            project_id: "trace-project",
-            zone: "us-east1-a",
-            instance_id: "101",
-            instance_name: `halo-${workspace.id}`,
-          },
-        },
-      }),
-    ])
-      expect((await send(credential)).status).toBe(401);
-    const valid = token();
-    const pieces = valid.split(".");
-    const forgedPayload = Buffer.from(
-      `${Buffer.from(pieces[1]!, "base64url").toString("utf8")} `,
-    ).toString("base64url");
-    expect(
-      (await send(`${pieces[0]}.${forgedPayload}.${pieces[2]}`)).status,
-    ).toBe(401);
-    traceCloud.instances.set(workspace.id, "999");
-    expect((await send(valid)).status).toBe(401);
-    traceCloud.instances.delete(workspace.id);
-    expect((await send(valid)).status).toBe(401);
-    const unregistered = "11111111-1111-4111-8111-111111111111";
-    traceCloud.instances.set(unregistered, "303");
+    expect((await send(bobRuntime.token, bobArchive)).status).toBe(204);
+    expect(await traceCloud.read(aliceKey)).toEqual(aliceArchive);
+    expect(await traceCloud.read(bobKey)).toEqual(bobArchive);
     expect(
       (
         await send(
-          traceCloud.token({ origin: plane.origin, workspaceId: unregistered }),
+          aliceRuntime.token,
+          traceArchive(alice.id, traceId, "modified"),
         )
       ).status,
-    ).toBe(403);
-    expect(traceCloud.uploads).toHaveLength(0);
+    ).toBe(204);
+    expect(await traceCloud.read(aliceKey)).toEqual(aliceArchive);
+    await authenticatedRpc.workspace.rotateRuntimeToken();
+    expect((await send(aliceRuntime.token, aliceArchive)).status).toBe(401);
+    const rotated = await readRuntimeSettings(appDataDir);
+    expect((await send(rotated.token, aliceArchive)).status).toBe(204);
+  },
+  30_000,
+);
+
+controlPlaneTest(
+  "rejects missing, invalid, browser-session and rotated credentials for trace uploads",
+  async ({ plane, authenticatedRpc, appDataDir, browserHeaders }) => {
+    const workspace = await authenticatedRpc.workspace.ensure();
+    const runtime = await readRuntimeSettings(appDataDir);
+    const endpoint = `${plane.origin}/api/traces/conversation/${"b".repeat(32)}`;
+    const body = traceArchive(workspace.id, "b".repeat(32));
+    for (const headers of [
+      new Headers(),
+      new Headers({ authorization: "Bearer invalid" }),
+      browserHeaders,
+    ]) {
+      const response = await fetch(endpoint, { method: "POST", headers, body });
+      expect(response.status).toBe(401);
+    }
+    await authenticatedRpc.workspace.rotateRuntimeToken();
+    expect(
+      (
+        await fetch(endpoint, {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${runtime.token}`,
+            "content-type": "application/gzip",
+          },
+          body,
+        })
+      ).status,
+    ).toBe(401);
   },
 );
 
 controlPlaneTest(
   "rejects unsafe paths, oversized or malformed archives and mismatched record identities",
-  async ({ plane, traceCloud, authenticatedRpc }) => {
+  async ({ plane, authenticatedRpc, appDataDir }) => {
     const workspace = await authenticatedRpc.workspace.ensure();
-    traceCloud.instances.set(workspace.id, "101");
+    const runtime = await readRuntimeSettings(appDataDir);
     const traceId = "c".repeat(32);
     const headers = {
-      authorization: `Bearer ${traceCloud.token({ origin: plane.origin, workspaceId: workspace.id })}`,
+      authorization: `Bearer ${runtime.token}`,
       "content-type": "application/gzip",
     };
     for (const path of [
@@ -851,7 +931,6 @@ controlPlaneTest(
         ).status,
       ).toBe(400);
     }
-    expect(traceCloud.uploads).toHaveLength(0);
   },
 );
 

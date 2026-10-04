@@ -7,7 +7,8 @@ import { Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import * as errore from "errore";
 import type { WorkspaceService } from "../workspace/WorkspaceService.js";
-import { TraceCloud, TraceIdentityError } from "./TraceCloud.js";
+import { TraceCloud } from "./TraceCloud.js";
+import { WorkspaceAuthenticationRequiredError } from "../auth/AuthService.js";
 
 const decompress = promisify(gunzip);
 const maxCompressedBytes = 16 * 1024 * 1024;
@@ -31,43 +32,28 @@ class TraceArchiveError extends errore.createTaggedError({
 export class TraceIngestion {
   private readonly cloud: TraceCloud;
   private readonly workspace: WorkspaceService;
-  private readonly audience: string;
 
-  constructor(ctx: {
-    cloud: TraceCloud;
-    workspace: WorkspaceService;
-    origin: string;
-  }) {
-    const { cloud, workspace, origin } = ctx;
+  constructor(ctx: { cloud: TraceCloud; workspace: WorkspaceService }) {
+    const { cloud, workspace } = ctx;
     this.cloud = cloud;
     this.workspace = workspace;
-    this.audience = new URL("/api/traces", origin).toString();
   }
 
   async serve(request: IncomingMessage, response: ServerResponse, url: URL) {
-    const workspaceId = await this.cloud.authenticate(
-      request.headers.authorization,
-      this.audience,
-    );
-    if (workspaceId instanceof TraceIdentityError) {
+    const headers = new Headers();
+    if (request.headers.authorization !== undefined)
+      headers.set("authorization", request.headers.authorization);
+    const identity = await this.workspace.authenticateRuntime(headers);
+    if (identity instanceof WorkspaceAuthenticationRequiredError) {
       response.writeHead(401).end();
       return;
     }
-    if (workspaceId instanceof Error) {
-      console.error(workspaceId);
+    if (identity instanceof Error) {
+      console.error(identity);
       response.writeHead(503).end();
       return;
     }
-    const registered = await this.workspace.hasWorkspace(workspaceId);
-    if (registered instanceof Error) {
-      console.error(registered);
-      response.writeHead(503).end();
-      return;
-    }
-    if (!registered) {
-      response.writeHead(403).end();
-      return;
-    }
+    const workspaceId = identity.workspaceId;
     // The request can select a session/run, never a workspace prefix or bucket.
     const match =
       /^\/api\/traces\/([a-zA-Z0-9_-]{1,128})\/([0-9a-f]{32})$/.exec(

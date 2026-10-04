@@ -37,6 +37,9 @@ import {
   WorkspaceGateway,
 } from "../workspace/proxy.js";
 
+import { workspaceInferencePath } from "@get-halo/config/inference";
+import { serveWorkspaceInference } from "../inference/workspaceInference.js";
+
 const requestUrlBase = "http://localhost";
 const webContentSecurityPolicy = [
   "base-uri 'none'",
@@ -99,6 +102,7 @@ export function serveControlPlaneHttp(ctx: {
   build?: { version: string; revision: string };
   webRoot: string;
   traces?: TraceIngestion;
+  inferenceApiKey?: string;
 }) {
   const { server, auth, publicOrigin, workspace, webRoot, traces } = ctx;
   const upgradeSockets = new Set<Duplex>();
@@ -138,6 +142,7 @@ export function serveControlPlaneHttp(ctx: {
       rpc,
       webRoot,
       build: ctx.build,
+      inferenceApiKey: ctx.inferenceApiKey,
     });
   });
   server.on("upgrade", async (request, socket, head) => {
@@ -197,6 +202,7 @@ async function routeControlPlaneRequest(ctx: {
   auth: AuthService;
   gateway: WorkspaceGateway;
   traces?: TraceIngestion;
+  inferenceApiKey?: string;
   workspace: WorkspaceService;
   build?: { version: string; revision: string };
   rpc: RPCHandler<ControlPlaneContext>;
@@ -207,6 +213,16 @@ async function routeControlPlaneRequest(ctx: {
     request.url === undefined ? "/" : request.url,
     requestUrlBase,
   );
+
+  if (url.pathname === `${workspaceInferencePath}/chat/completions`) {
+    await serveWorkspaceInference({
+      request,
+      response,
+      workspace,
+      apiKey: ctx.inferenceApiKey,
+    });
+    return;
+  }
 
   if (isPathWithin(url.pathname, "/api/traces")) {
     if (ctx.traces === undefined) {
