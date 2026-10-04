@@ -8,7 +8,8 @@ import {
 } from "react";
 import { Router } from "wouter";
 import type { SessionSummary } from "@get-halo/client";
-import { Plus, Close, Menu } from "maui/icons";
+import { Button } from "maui";
+import { Menu } from "maui/icons";
 import { MainPane } from "../main/MainPane.js";
 import {
   paneLayout,
@@ -31,6 +32,7 @@ import { sessionTitleQueryKey } from "../main/agent/useAgentSession.js";
 import { CopyExtensionLinkButton } from "./CopyExtensionLinkButton.js";
 import { tabBarHeight, usePaneStyles } from "./paneStyles.js";
 import { TabFind } from "./TabFind.js";
+import { PaneTabBar } from "./PaneTabBar.js";
 
 function bounds(rect: Rect): CSSProperties {
   return {
@@ -234,99 +236,34 @@ export function PaneWorkspace({ sessions }: { sessions: SessionSummary[] }) {
         >
           <div className={chrome.tabBar} data-testid="pane-tab-bar">
             {sidebar.isMobile && (
-              <button
-                type="button"
+              <Button
+                variant="quiet"
                 className={chrome.add}
-                data-pane-add=""
                 aria-label="Open sidebar"
                 aria-haspopup="dialog"
-                onClick={sidebar.open}
+                onPress={sidebar.open}
               >
                 <Menu size="sm" />
-              </button>
+              </Button>
             )}
-            <div
-              role="tablist"
+            <PaneTabBar
+              items={pane.tabs.map((tab) => ({
+                id: tab.id,
+                label: tabTitle(tab),
+                isClosable: true,
+              }))}
+              selectedId={pane.activeTabId}
               aria-label={`Pane ${index + 1} tabs`}
-              className={chrome.tabs}
-            >
-              {pane.tabs.map((tab, tabIndex) => (
-                <div
-                  key={tab.id}
-                  className={chrome.tab}
-                  data-pane-tab=""
-                  draggable
-                  onDragStart={(event) => {
-                    event.dataTransfer.setData(paneTabDragType, tab.id);
-                    event.dataTransfer.effectAllowed = "move";
-                  }}
-                  data-selected={pane.activeTabId === tab.id}
-                >
-                  <div className={chrome.tabInner} data-pane-tab-inner="">
-                    <button
-                      type="button"
-                      role="tab"
-                      id={`tab-${tab.id}`}
-                      aria-controls={`panel-${tab.id}`}
-                      aria-selected={pane.activeTabId === tab.id}
-                      tabIndex={pane.activeTabId === tab.id ? 0 : -1}
-                      title={
-                        tab.path.startsWith("/files/")
-                          ? decodeURIComponent(tab.path.slice(7))
-                          : tabTitle(tab)
-                      }
-                      onClick={() => workspace.select(pane.id, tab.id)}
-                      onKeyDown={(event) => {
-                        const nextIndex =
-                          event.key === "ArrowRight"
-                            ? (tabIndex + 1) % pane.tabs.length
-                            : event.key === "ArrowLeft"
-                              ? (tabIndex + pane.tabs.length - 1) %
-                                pane.tabs.length
-                              : event.key === "Home"
-                                ? 0
-                                : event.key === "End"
-                                  ? pane.tabs.length - 1
-                                  : undefined;
-                        if (nextIndex === undefined) return;
-                        event.preventDefault();
-                        const next = pane.tabs[nextIndex]!;
-                        workspace.select(pane.id, next.id);
-                        document.getElementById(`tab-${next.id}`)?.focus();
-                      }}
-                    >
-                      {tabTitle(tab)}
-                    </button>
-                    <button
-                      type="button"
-                      className={chrome.close}
-                      data-pane-close=""
-                      aria-label={`Close ${tabTitle(tab)}`}
-                      title="Close tab"
-                      onClick={() => workspace.close(tab.id)}
-                    >
-                      <Close size="sm" />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <button
-              type="button"
-              className={chrome.add}
-              data-pane-add=""
-              aria-label="New session"
-              title="New tab"
-              onClick={() => {
+              onSelectionChange={(tabId) => workspace.select(pane.id, tabId)}
+              onClose={(tabId) => workspace.close(tabId)}
+              onAdd={() => {
                 workspace.select(pane.id);
                 workspace.open({
                   path: `/draft/${crypto.randomUUID()}`,
                   newTab: true,
                 });
               }}
-            >
-              <Plus size="sm" />
-            </button>
+            />
             <div className={chrome.windowDrag} aria-hidden="true" />
             {pane.tabs
               .filter(
@@ -349,8 +286,9 @@ export function PaneWorkspace({ sessions }: { sessions: SessionSummary[] }) {
           <div
             key={tab.id}
             id={`panel-${tab.id}`}
-            role="tabpanel"
-            aria-labelledby={`tab-${tab.id}`}
+            role="region"
+            aria-label={tabTitle(tab)}
+            data-testid="pane-tab-content"
             className={chrome.content}
             hidden={pane.activeTabId !== tab.id}
             data-pane-id={pane.id}
