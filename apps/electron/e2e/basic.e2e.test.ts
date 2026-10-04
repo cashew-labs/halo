@@ -148,7 +148,9 @@ e2eTest(
       .getByRole("main", { name: path, exact: true })
       .getByLabel(path, { exact: true });
     const initialTabCount = await app.page.getByRole("tab").count();
-    await editor.getByRole("link", { name: "Data", exact: true }).click();
+    await editor
+      .getByRole("link", { name: "Data", exact: true })
+      .click({ modifiers: ["ControlOrMeta"] });
     await expect(app.page.getByRole("tab")).toHaveCount(initialTabCount + 1);
     await expect(
       app.page.getByRole("tab", {
@@ -169,7 +171,9 @@ e2eTest(
       app.page.getByRole("img", { name: "picture.svg", exact: true }),
     ).toBeVisible();
     await sourceTab.click();
-    await editor.getByRole("link", { name: "Data again", exact: true }).click();
+    await editor
+      .getByRole("link", { name: "Data again", exact: true })
+      .click({ modifiers: ["ControlOrMeta"] });
     await expect(app.page.getByRole("tab")).toHaveCount(initialTabCount + 2);
     await expect(
       app.page.getByRole("tab", {
@@ -1888,13 +1892,14 @@ e2eTest(
     await expect(draft).not.toBeChecked();
     await expect(share).toBeChecked();
 
-    await draft.check();
+    await draft.locator("..").click();
     await expect
       .poll(async () => await app.server.rpc.workspace.readFile({ path }))
       .toContain("- [x] Draft plan");
     await app.page.reload();
     await expect(draft).toBeChecked();
-    await share.uncheck();
+    await share.focus();
+    await share.press("Space");
     await expect
       .poll(async () => await app.server.rpc.workspace.readFile({ path }))
       .toContain("- [ ] Share plan");
@@ -2285,6 +2290,266 @@ e2eTest(
     // Wait through the autosave debounce to detect reveal/blur being treated as edits.
     await app.page.waitForTimeout(750);
     expect(await app.server.rpc.workspace.readFile({ path })).toBe(original);
+  },
+);
+
+e2eTest(
+  "Whim block selection navigates, edits, deletes, and undoes",
+  async ({ app }) => {
+    const path = "blocks.md";
+    await app.server.rpc.workspace.writeFile({
+      path,
+      content: "One\n\nTwo\n\nThree",
+    });
+    await app.page.getByRole("link", { name: path, exact: true }).click();
+    const editor = app.page.getByLabel(path, { exact: true });
+    await editor.getByText("Two", { exact: true }).click();
+    await app.page.keyboard.press("Escape");
+    await expect(editor.locator(".halo-selected-block")).toHaveText("Two");
+    await app.page.keyboard.press("Shift+ArrowDown");
+    await expect(editor.locator(".halo-selected-block")).toHaveText([
+      "Two",
+      "Three",
+    ]);
+    await app.page.keyboard.press("Shift+ArrowUp");
+    await expect(editor.locator(".halo-selected-block")).toHaveText("Two");
+    await app.page.keyboard.press("Alt+ArrowUp");
+    await expect(editor.locator("p")).toHaveText(["Two", "One", "Three"]);
+    await expect(editor.locator(".halo-selected-block")).toHaveText("Two");
+    await app.page.keyboard.press("ControlOrMeta+z");
+    await expect(editor.locator("p")).toHaveText(["One", "Two", "Three"]);
+    await app.page.keyboard.press("Escape");
+    await expect(editor.locator(".halo-selected-block")).toHaveCount(0);
+    await app.page.keyboard.type("X");
+    await expect(editor.locator("p").nth(1)).toHaveText("XTwo");
+    await app.page.keyboard.press("Escape");
+    await app.page.keyboard.press("Shift+ArrowDown");
+    await app.page.keyboard.press("Backspace");
+    await expect(editor.locator("p")).toHaveText(["One"]);
+    await app.page.keyboard.press("ControlOrMeta+z");
+    await expect(editor.locator("p")).toHaveText(["One", "XTwo", "Three"]);
+    await expect
+      .poll(async () => await app.server.rpc.workspace.readFile({ path }))
+      .toContain("XTwo");
+  },
+);
+
+e2eTest(
+  "Whim list movement preserves nested content and task state",
+  async ({ app }) => {
+    const path = "moving-lists.md";
+    await app.server.rpc.workspace.writeFile({
+      path,
+      content:
+        "- Parent\n  - Child\n- Other\n\nAfter\n\n- [x] Done\n- [x] Next",
+    });
+    await app.page.getByRole("link", { name: path, exact: true }).click();
+    const editor = app.page.getByLabel(path, { exact: true });
+    await editor.getByText("Other", { exact: true }).click();
+    await app.page.keyboard.press("Alt+ArrowDown");
+    await expect(editor.locator(":scope > p").first()).toHaveText("Other");
+    await expect(editor.locator("ul:not([data-type])").first()).toContainText(
+      "Child",
+    );
+    await app.page.keyboard.press("ControlOrMeta+z");
+    await expect(editor.locator("ul:not([data-type])").first()).toContainText(
+      "Other",
+    );
+    await editor.getByText("Next", { exact: true }).click();
+    await expect
+      .poll(
+        async () =>
+          await editor
+            .getByText("Next", { exact: true })
+            .evaluate((element) =>
+              element.contains(window.getSelection()!.anchorNode),
+            ),
+      )
+      .toBe(true);
+    await app.page.keyboard.press("Tab");
+    await expect(
+      editor.locator('ul[data-type="taskList"] ul[data-type="taskList"]'),
+    ).toContainText("Next");
+    await app.page.keyboard.press("Shift+Tab");
+    await expect(
+      editor.locator('ul[data-type="taskList"] ul[data-type="taskList"]'),
+    ).toHaveCount(0);
+    await expect(
+      editor.getByRole("checkbox", { name: "Task item checkbox for Done" }),
+    ).toBeChecked();
+    await expect(
+      editor.getByRole("checkbox", { name: "Task item checkbox for Next" }),
+    ).toBeChecked();
+    await editor.getByText("Next", { exact: true }).evaluate((element) => {
+      element.closest<HTMLElement>(".tiptap")!.focus();
+      window.getSelection()!.collapse(element.firstChild, 4);
+    });
+    await app.page.keyboard.type(" edited");
+    await expect
+      .poll(async () => await app.server.rpc.workspace.readFile({ path }))
+      .toContain("- [x] Done\n- [x] Next edited");
+  },
+);
+
+e2eTest(
+  "Whim backspace joins rich content and exits code blocks",
+  async ({ app }) => {
+    const path = "backspace.md";
+    await app.server.rpc.workspace.writeFile({
+      path,
+      content: "- First\n\n**Bold** after\n\n```\ncode\n```",
+    });
+    await app.page.getByRole("link", { name: path, exact: true }).click();
+    const editor = app.page.getByLabel(path, { exact: true });
+    await editor.locator(":scope > p").evaluate((element) => {
+      element.closest<HTMLElement>(".tiptap")!.focus();
+      window.getSelection()!.collapse(element, 0);
+    });
+    await app.page.keyboard.press("Backspace");
+    await expect(editor.locator("li strong")).toHaveText("Bold");
+    await expect(editor.locator("li")).toHaveText("FirstBold after");
+    await expect
+      .poll(async () => await app.server.rpc.workspace.readFile({ path }))
+      .toContain("- First**Bold** after");
+    await editor.locator("pre code").evaluate((element) => {
+      element.closest<HTMLElement>(".tiptap")!.focus();
+      window.getSelection()!.collapse(element.firstChild, 0);
+    });
+    await app.page.keyboard.press("Backspace");
+    await expect(editor.locator("pre")).toHaveCount(0);
+    await expect(editor.locator(":scope > p").first()).toHaveText("code");
+    await expect
+      .poll(async () => await app.server.rpc.workspace.readFile({ path }))
+      .toContain("\n\ncode");
+  },
+);
+
+e2eTest(
+  "Whim image drops save assets at the preview and preserve surrounding text",
+  async ({ app, harness }) => {
+    const path = "drop.md";
+    await app.server.rpc.workspace.writeFile({
+      path,
+      content: "Before\n\nAfter",
+    });
+    await app.page.getByRole("link", { name: path, exact: true }).click();
+    const editor = app.page.getByLabel(path, { exact: true });
+    const png = await editor
+      .getByText("After", { exact: true })
+      .evaluate(async (element) => {
+        const canvas = document.createElement("canvas");
+        canvas.width = 2;
+        canvas.height = 2;
+        canvas.getContext("2d")!.fillRect(0, 0, 2, 2);
+        const blob = await new Promise<Blob>((resolve) =>
+          canvas.toBlob((value) => resolve(value!)),
+        );
+        const bytes = new Uint8Array(await blob.arrayBuffer());
+        const dataTransfer = new DataTransfer();
+        dataTransfer.items.add(
+          new File([bytes], "dropped.png", { type: "image/png" }),
+        );
+        const box = element.getBoundingClientRect();
+        const options = {
+          bubbles: true,
+          cancelable: true,
+          dataTransfer,
+          clientX: box.left + 1,
+          clientY: box.top + box.height / 2,
+        };
+        element.dispatchEvent(new DragEvent("dragover", options));
+        element.dispatchEvent(new DragEvent("drop", options));
+        return [...bytes];
+      });
+    await expect(
+      editor.getByRole("img", { name: "dropped.png" }),
+    ).toBeVisible();
+    await expect(editor.locator(".halo-image-drop-preview")).toHaveCount(0);
+    await expect
+      .poll(async () => await app.server.rpc.workspace.readFile({ path }))
+      .toContain("![dropped.png](image-");
+    const markdown = await app.server.rpc.workspace.readFile({ path });
+    expect(markdown).toContain("Before");
+    expect(markdown).toContain("After");
+    const asset = markdown.match(/\]\((image-[^)]+\.png)\)/)![1]!;
+    expect(
+      await fs.readFile(nodePath.join(harness.paths.workspace, asset)),
+    ).toEqual(Buffer.from(png));
+    await app.page.reload();
+    await expect(
+      editor.getByRole("img", { name: "dropped.png" }),
+    ).toBeVisible();
+  },
+);
+
+e2eTest(
+  "Whim cursors follow rich and source text while local links remain editable",
+  async ({ app }, testInfo) => {
+    const path = "cursor-links.md";
+    await app.server.rpc.workspace.writeFile({
+      path,
+      content: "Plain text\n\nBefore **bold** after\n\n[Target](target.md)",
+    });
+    await app.server.rpc.workspace.writeFile({
+      path: "target.md",
+      content: "Link target",
+    });
+    await app.page.getByRole("link", { name: path, exact: true }).click();
+    const editor = app.page.getByLabel(path, { exact: true });
+    await editor.getByText("Plain text", { exact: true }).click();
+    await expect(
+      app.page.locator(".halo-editor-caret").filter({ visible: true }),
+    ).toHaveCount(1);
+    const hover = await editor
+      .getByText("Plain text", { exact: true })
+      .evaluate((element) => {
+        const range = document.createRange();
+        range.setStart(element.firstChild!, 3);
+        range.collapse(true);
+        const rect = range.getClientRects()[0]!;
+        return { x: rect.left, y: rect.top + rect.height / 2 };
+      });
+    await app.page.mouse.move(hover.x, hover.y);
+    await expect(
+      app.page.locator(".halo-editor-hover-caret").filter({ visible: true }),
+    ).toHaveCount(1);
+    const screenshot = testInfo.outputPath("editor-cursors.png");
+    await app.page.screenshot({ path: screenshot });
+    await testInfo.attach("Editor cursors", {
+      path: screenshot,
+      contentType: "image/png",
+    });
+    await app.page.keyboard.press("ArrowLeft");
+    await expect(
+      app.page.locator(".halo-editor-caret").filter({ visible: true }),
+    ).toHaveCount(1);
+    await expect(
+      app.page.locator(".halo-editor-caret").filter({ visible: true }),
+    ).toHaveCSS("transition-property", "transform");
+    await editor.locator("strong").click();
+    const source = editor.getByRole("textbox", { name: "Markdown syntax" });
+    await expect(source).toHaveText("**bold**");
+    await expect(
+      app.page.locator(".halo-editor-caret").filter({ visible: true }),
+    ).toHaveCount(1);
+    await app.page.keyboard.type("X");
+    await expect
+      .poll(async () => await app.server.rpc.workspace.readFile({ path }))
+      .toContain("X");
+    await editor.getByRole("link", { name: "Target", exact: true }).click();
+    await expect(
+      app.page.getByRole("main", { name: path, exact: true }),
+    ).toBeVisible();
+    await source.press("Escape");
+    await editor
+      .getByRole("link", { name: "Target", exact: true })
+      .click({ modifiers: ["ControlOrMeta"] });
+    await expect(
+      app.page.getByRole("main", { name: "target.md", exact: true }),
+    ).toHaveText(/Link target/);
+    await expect(
+      app.page.locator(".halo-editor-caret").filter({ visible: true }),
+    ).toHaveCount(0);
   },
 );
 

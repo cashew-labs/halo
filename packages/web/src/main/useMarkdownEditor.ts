@@ -13,6 +13,8 @@ import { ListEditing } from "./ListEditing.js";
 import { MarkdownSyntax } from "./MarkdownSyntax.js";
 import { serializeMarkdown } from "./serializeMarkdown.js";
 import { MarkdownFormatting } from "./MarkdownFormatting.js";
+import { EditorCursor } from "./EditorCursor.js";
+import { EditorLinks } from "./EditorLinks.js";
 
 const MarkdownParagraph = Paragraph.extend({
   parseMarkdown(token, helpers) {
@@ -85,6 +87,8 @@ export function useMarkdownEditor({
       ListEditing,
       MarkdownFormatting,
       MarkdownSyntax,
+      EditorCursor,
+      EditorLinks,
       Placeholder.configure({
         placeholder,
       }),
@@ -101,7 +105,11 @@ export function useMarkdownEditor({
       },
       handleKeyDown: (_view, event) => {
         if (onKeyDownRef.current?.(event)) return true;
-        if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+        if (
+          onSubmitRef.current !== undefined &&
+          event.key === "Enter" &&
+          (event.metaKey || event.ctrlKey)
+        ) {
           event.preventDefault();
           onSubmitRef.current?.();
           return true;
@@ -150,6 +158,26 @@ export function useMarkdownEditor({
 }
 
 const syntaxStyle = style({
+  "&.halo-custom-caret, &.halo-custom-caret .markdown-source": {
+    caretColor: "transparent",
+  },
+  "&.halo-hover-caret, &.halo-hover-caret .markdown-source": { cursor: "none" },
+  "& a": { cursor: "text" },
+  "&.halo-link-modifier a": { cursor: "pointer", color: colors.accent[11] },
+  "& .halo-selected-block": {
+    position: "relative",
+    isolation: "isolate",
+  },
+  "& .halo-selected-block::after": {
+    content: '""',
+    position: "absolute",
+    insetBlock: 0,
+    insetInline: "-6px",
+    backgroundColor: colors.accentAlpha[4],
+    borderRadius: 2,
+    pointerEvents: "none",
+    zIndex: -1,
+  },
   "& .markdown-source": {
     outline: "none",
     whiteSpace: "pre-wrap",

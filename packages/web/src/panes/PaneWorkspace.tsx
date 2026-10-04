@@ -148,6 +148,13 @@ export function PaneWorkspace({ sessions }: { sessions: SessionSummary[] }) {
         ? event.target.closest("a[href]")
         : undefined;
     if (!(link instanceof HTMLAnchorElement)) return;
+    if (
+      link.isContentEditable &&
+      event.button === 0 &&
+      !event.metaKey &&
+      !event.ctrlKey
+    )
+      return;
     const href = link.getAttribute("href")?.trim();
     if (!href) return;
     let path: string;

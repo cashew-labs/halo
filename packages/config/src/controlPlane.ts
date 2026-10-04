@@ -153,7 +153,7 @@ async function readDevelopmentConfig(): Promise<ControlPlaneConfig | Error> {
       configuredDataDir === undefined
         ? path.join(repositoryRoot, ".halo")
         : path.resolve(configuredDataDir),
-    port: developmentPort,
+    port: Number(process.env.HALO_CONTROL_PLANE_PORT ?? developmentPort),
     auth,
     workspace: { deployment: "local" as const },
   };

@@ -5,7 +5,6 @@ import * as errore from "errore";
 import { ApplicationMode } from "./ApplicationMode.js";
 
 const productionControlPlaneOrigin = "https://gethalo.dev";
-const developmentControlPlaneOrigin = "http://127.0.0.1:8787";
 
 class ElectronConfigError extends errore.createTaggedError({
   name: "ElectronConfigError",
@@ -21,6 +20,7 @@ export type ElectronConfig = {
   prettyConsoleLogging: boolean;
   protectClosedStdio: boolean;
   remoteDebugging: boolean;
+  remoteDebuggingPort: number;
   useSwiftShader: boolean;
   showMainWindow: boolean;
   testWindowEvents: boolean;
@@ -65,12 +65,23 @@ function readConfig(): ElectronConfig | Error {
 
   const isDevelopment = mode === ApplicationMode.Development;
   const isTest = mode === ApplicationMode.Test;
+  const remoteDebuggingPort = Number(process.env.HALO_DEBUG_PORT ?? "4445");
+  const controlPlanePort = Number(
+    process.env.HALO_CONTROL_PLANE_PORT ?? "8787",
+  );
+  if (
+    isDevelopment &&
+    [remoteDebuggingPort, controlPlanePort].some(
+      (port) => !Number.isInteger(port) || port < 1 || port > 65_535,
+    )
+  )
+    return new ElectronConfigError({ detail: "validate development ports" });
   return {
     mode,
     controlPlaneOrigin:
       mode === ApplicationMode.Production
         ? productionControlPlaneOrigin
-        : developmentControlPlaneOrigin,
+        : `http://127.0.0.1:${controlPlanePort}`,
     dataDir,
     logsDir,
     logFilePath: path.join(
@@ -82,6 +93,7 @@ function readConfig(): ElectronConfig | Error {
     prettyConsoleLogging: mode !== ApplicationMode.Production,
     protectClosedStdio: isDevelopment,
     remoteDebugging: isDevelopment,
+    remoteDebuggingPort,
     useSwiftShader: process.env.HALO_USE_SWIFTSHADER === "1",
     showMainWindow:
       !isTest ||

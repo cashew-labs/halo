@@ -70,7 +70,10 @@ const rendererLogger = logger.scope("renderer");
 
 if (applicationConfig.remoteDebugging) {
   app.commandLine.appendSwitch("remote-debugging-address", "127.0.0.1");
-  app.commandLine.appendSwitch("remote-debugging-port", "4445");
+  app.commandLine.appendSwitch(
+    "remote-debugging-port",
+    String(applicationConfig.remoteDebuggingPort),
+  );
 }
 if (applicationConfig.useSwiftShader) {
   // Software WebGL for headless / Xvfb hosts where Mesa llvmpipe is blocklisted.
@@ -116,7 +119,7 @@ app.whenReady().then(async () => {
     const { AppControlServer } = await import("./app/AppControlServer.js");
     const appControl = await AppControlServer.start({
       target: {
-        cdpUrl: "http://127.0.0.1:4445",
+        cdpUrl: `http://127.0.0.1:${applicationConfig.remoteDebuggingPort}`,
         pageUrl: MAIN_WINDOW_VITE_DEV_SERVER_URL,
       },
       appDataDir: applicationConfig.dataDir,

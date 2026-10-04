@@ -1,5 +1,7 @@
 import Image from "@tiptap/extension-image";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
+import type { EditorView } from "@tiptap/pm/view";
+import { colors } from "maui";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import * as errore from "errore";
 import type { HaloClient } from "@get-halo/client";
@@ -20,6 +22,7 @@ export function markdownImage(options: {
 }) {
   const { client, documentPath, onError } = options;
   const placeholders = new PluginKey<DecorationSet>("imagePaste");
+  const dropPreview = new PluginKey<number | undefined>("imageDropPreview");
 
   return Image.extend({
     renderMarkdown(node, helpers, context) {
@@ -78,7 +81,149 @@ export function markdownImage(options: {
     },
 
     addProseMirrorPlugins() {
+      const editor = this.editor;
+      const insertImages = (
+        view: EditorView,
+        files: File[],
+        position?: number,
+      ) => {
+        onError(undefined);
+        const id = crypto.randomUUID();
+        const tr = view.state.tr;
+        if (position === undefined) tr.deleteSelection();
+        view.dispatch(
+          tr.setMeta(placeholders, {
+            add: { id, pos: position ?? tr.selection.from },
+          }),
+        );
+        const save = async () => {
+          const results = await Promise.all(
+            files.map(async (file) => {
+              const saved = await client.current.workspace
+                .saveImage({ documentPath, file })
+                .catch(
+                  (cause) =>
+                    new MarkdownImageError({ operation: "save", cause }),
+                );
+              if (saved instanceof Error) return saved;
+              return this.type.create({ src: saved.src, alt: file.name });
+            }),
+          );
+          if (this.editor.isDestroyed) return;
+          const placeholder = placeholders
+            .getState(view.state)
+            ?.find(undefined, undefined, (spec) => spec.id === id)[0];
+          const [images, errors] = errore.partition(results);
+          for (const error of errors) {
+            console.warn(error);
+            onError("Could not save image. Please try again.");
+          }
+          const transaction = view.state.tr.setMeta(placeholders, {
+            remove: id,
+          });
+          if (placeholder !== undefined)
+            transaction.insert(placeholder.from, images);
+          view.dispatch(transaction);
+        };
+        void save().catch(console.error);
+      };
+      const clearPreview = (view: EditorView) => {
+        if (dropPreview.getState(view.state) !== undefined) {
+          view.dispatch(
+            view.state.tr
+              .setMeta(dropPreview, { position: undefined })
+              .setMeta("addToHistory", false),
+          );
+        }
+      };
       return [
+        new Plugin<number | undefined>({
+          key: dropPreview,
+          state: {
+            init: () => undefined,
+            apply(tr, position) {
+              const action: { position: number | undefined } | undefined =
+                tr.getMeta(dropPreview);
+              if (action !== undefined) return action.position;
+              return position === undefined
+                ? undefined
+                : tr.mapping.map(position);
+            },
+          },
+          props: {
+            decorations(state) {
+              const position = dropPreview.getState(state);
+              if (position === undefined) return DecorationSet.empty;
+              const marker = document.createElement("span");
+              marker.setAttribute("aria-hidden", "true");
+              marker.className = "halo-image-drop-preview";
+              Object.assign(marker.style, {
+                display: "inline-block",
+                width: "3px",
+                height: "1em",
+                verticalAlign: "text-bottom",
+                backgroundColor: colors.accent[9],
+                pointerEvents: "none",
+              });
+              return DecorationSet.create(state.doc, [
+                Decoration.widget(position, marker),
+              ]);
+            },
+            handleDOMEvents: {
+              dragover(view, event) {
+                if (
+                  !editor.isEditable ||
+                  !event.dataTransfer?.types.includes("Files")
+                )
+                  return false;
+                const position = view.posAtCoords({
+                  left: event.clientX,
+                  top: event.clientY,
+                })?.pos;
+                if (position === undefined) return false;
+                event.preventDefault();
+                event.dataTransfer.dropEffect = "copy";
+                if (position !== dropPreview.getState(view.state)) {
+                  view.dispatch(
+                    view.state.tr
+                      .setMeta(dropPreview, { position })
+                      .setMeta("addToHistory", false),
+                  );
+                }
+                return true;
+              },
+              dragleave(view, event) {
+                if (
+                  !(event.relatedTarget instanceof Node) ||
+                  !view.dom.contains(event.relatedTarget)
+                )
+                  clearPreview(view);
+                return false;
+              },
+            },
+            handleDrop: (view, event, _slice, moved) => {
+              const position =
+                dropPreview.getState(view.state) ??
+                view.posAtCoords({ left: event.clientX, top: event.clientY })
+                  ?.pos;
+              clearPreview(view);
+              if (
+                moved ||
+                !this.editor.isEditable ||
+                event.dataTransfer === null ||
+                position === undefined
+              )
+                return false;
+              const files = [...event.dataTransfer.files].filter((file) =>
+                file.type.startsWith("image/"),
+              );
+              if (files.length === 0) return false;
+              event.preventDefault();
+              insertImages(view, files, position);
+              return true;
+            },
+          },
+        }),
         new Plugin<DecorationSet>({
           key: placeholders,
           state: {
@@ -116,44 +261,7 @@ export function markdownImage(options: {
                 file.type.startsWith("image/"),
               );
               if (files.length === 0) return false;
-              onError(undefined);
-              const id = crypto.randomUUID();
-              const tr = view.state.tr.deleteSelection();
-              view.dispatch(
-                tr.setMeta(placeholders, {
-                  add: { id, pos: tr.selection.from },
-                }),
-              );
-              const save = async () => {
-                const results = await Promise.all(
-                  files.map(async (file) => {
-                    const saved = await client.current.workspace
-                      .saveImage({ documentPath, file })
-                      .catch(
-                        (cause) =>
-                          new MarkdownImageError({ operation: "paste", cause }),
-                      );
-                    if (saved instanceof Error) return saved;
-                    return this.type.create({ src: saved.src, alt: file.name });
-                  }),
-                );
-                if (this.editor.isDestroyed) return;
-                const placeholder = placeholders
-                  .getState(view.state)
-                  ?.find(undefined, undefined, (spec) => spec.id === id)[0];
-                const [images, errors] = errore.partition(results);
-                for (const error of errors) {
-                  console.warn(error);
-                  onError("Could not paste image. Please try again.");
-                }
-                const transaction = view.state.tr.setMeta(placeholders, {
-                  remove: id,
-                });
-                if (placeholder !== undefined)
-                  transaction.insert(placeholder.from, images);
-                view.dispatch(transaction);
-              };
-              void save().catch(console.error);
+              insertImages(view, files);
               return true;
             },
           },
