@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Copy a stopped GCP workspace into an unassigned Exe clone. Do not switch providers.
 set -euo pipefail
-: "${PROJECT:?}" "${ZONE:?}" "${INSTANCE:?}" "${EXE_TEMPLATE_VM_NAME:?}" "${EXE_PRIVATE_KEY_PATH:?}" "${RUNNER_TEMP:?}"
+: "${PROJECT:?}" "${ZONE:?}" "${INSTANCE:?}" "${EXE_TEMPLATE_VM_NAME:?}" "${EXE_PRIVATE_KEY_PATH:?}" "${EXE_WORKSPACE_TAG:?}" "${RUNNER_TEMP:?}"
 if [[ ! "$INSTANCE" =~ ^halo-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
   echo 'Expected a Halo workspace VM name' >&2; exit 1
 fi
@@ -25,7 +25,7 @@ if [ "$disk" != "$INSTANCE-workspace" ]; then echo 'Unexpected source data disk'
 if [ "$(ssh "${ssh_args[@]}" exe.dev ls "$INSTANCE" --json | jq '.vms | length')" != 0 ]; then
   echo 'Destination already exists; inspect it before retrying' >&2; exit 1
 fi
-ssh "${ssh_args[@]}" exe.dev cp "$EXE_TEMPLATE_VM_NAME" "$INSTANCE" --json
+ssh "${ssh_args[@]}" exe.dev cp "$EXE_TEMPLATE_VM_NAME" "$INSTANCE" --copy-tags=false --json
 ssh "${ssh_args[@]}" "$INSTANCE.exe.xyz" 'sudo test ! -f /etc/halo/assignment.json && sudo test -z "$(sudo find /var/lib/halo/home -mindepth 1 ! -path /var/lib/halo/home/documents -print -quit)"'
 source_stopped=false
 completed=false
@@ -67,6 +67,7 @@ mv /var/lib/halo/migration/home /var/lib/halo/home
 sync
 RESTORE
 ssh "${ssh_args[@]}" exe.dev pause "$INSTANCE"
+ssh "${ssh_args[@]}" exe.dev tag "$INSTANCE" "$EXE_WORKSPACE_TAG"
 completed=true
 echo "HALO_WORKSPACE_COPIED vm=$INSTANCE snapshot=$snapshot sha256=$checksum"
 echo 'Source service remains stopped. Validate the destination, then switch the provider or restart the source before returning users.'
