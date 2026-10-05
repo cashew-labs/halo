@@ -149,18 +149,10 @@ e2eTest(
     const editor = app.page
       .getByRole("main", { name: path, exact: true })
       .getByLabel(path, { exact: true });
-<<<<<<< HEAD
-    const initialTabCount = await app.page.getByRole("tab").count();
-    await editor.getByRole("link", { name: "Data", exact: true }).click();
-    await expect(app.page.getByRole("tab")).toHaveCount(initialTabCount + 1);
-=======
     const initialTabCount = await app.page
       .locator("[role=toolbar] button[aria-pressed]")
       .count();
-    await editor
-      .getByRole("link", { name: "Data", exact: true })
-      .click({ modifiers: ["ControlOrMeta"] });
->>>>>>> 457b5b8f (Use Maui TabBar for workspace panes)
+    await editor.getByRole("link", { name: "Data", exact: true }).click();
     await expect(
       app.page.locator("[role=toolbar] button[aria-pressed]"),
     ).toHaveCount(initialTabCount + 1);
@@ -187,14 +179,7 @@ e2eTest(
       app.page.getByRole("img", { name: "picture.svg", exact: true }),
     ).toBeVisible();
     await sourceTab.click();
-<<<<<<< HEAD
     await editor.getByRole("link", { name: "Data again", exact: true }).click();
-    await expect(app.page.getByRole("tab")).toHaveCount(initialTabCount + 2);
-=======
-    await editor
-      .getByRole("link", { name: "Data again", exact: true })
-      .click({ modifiers: ["ControlOrMeta"] });
->>>>>>> 457b5b8f (Use Maui TabBar for workspace panes)
     await expect(
       app.page.locator("[role=toolbar] button[aria-pressed]"),
     ).toHaveCount(initialTabCount + 2);

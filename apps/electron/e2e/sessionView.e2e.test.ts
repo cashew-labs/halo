@@ -914,19 +914,12 @@ e2eTest(
       pane.getByRole("log", { name: "Session transcript" }),
     ).toContainText("Ready to continue.");
     await expect(pane.getByRole("alert")).not.toBeVisible();
-<<<<<<< HEAD
-    await expect(app.page.getByRole("tab", { selected: true })).toHaveText(
-      "Keep my original question",
-    );
-    const [session] = await app.server.rpc.thread.list();
-=======
     await expect(
       app.page
         .getByRole("toolbar", { name: /^Pane \d+ tabs$/ })
         .getByRole("button", { pressed: true }),
     ).toHaveText("Keep my original question");
-    const [session] = await app.server.rpc.sessions.list();
->>>>>>> 457b5b8f (Use Maui TabBar for workspace panes)
+    const [session] = await app.server.rpc.thread.list();
     expect(session).toBeDefined();
     const observedTitles = await observed.evaluate(({ titles, observer }) => {
       observer.disconnect();
