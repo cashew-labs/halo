@@ -1350,7 +1350,7 @@ e2eTest(
     await client.detach();
     await app.page
       .getByRole("toolbar", { name: /^Pane \d+ tabs$/ })
-      .getByRole("button", { name: path })
+      .getByRole("button", { name: path, exact: true })
       .click();
   },
 );

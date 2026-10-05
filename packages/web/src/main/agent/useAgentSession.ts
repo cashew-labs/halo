@@ -1,3 +1,4 @@
+import { ORPCError } from "@orpc/client";
 import { useConnection } from "../../api/ConnectionContext.js";
 import { sessionError } from "./sessionView.js";
 import { useContext, useEffect, useRef, useState } from "react";
@@ -136,7 +137,10 @@ export function useAgentSession(
       .catch(
         (e) =>
           new PromptFailedError({
-            reason: "Couldn't send your message. Please try again.",
+            reason:
+              e instanceof ORPCError && e.code === "BAD_REQUEST"
+                ? e.message
+                : "Couldn't send your message. Please try again.",
             cause: e,
           }),
       );
@@ -262,7 +266,10 @@ export function useDraftAgentSession(
       .catch(
         (e) =>
           new PromptFailedError({
-            reason: "Couldn't send your message. Please try again.",
+            reason:
+              e instanceof ORPCError && e.code === "BAD_REQUEST"
+                ? e.message
+                : "Couldn't send your message. Please try again.",
             cause: e,
           }),
       );
