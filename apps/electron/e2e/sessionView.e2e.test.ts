@@ -365,44 +365,59 @@ e2eTest("shows a connection request", async ({ harness, app }) => {
   await expect(card.getByRole("button", { name: "Connect" })).toBeVisible();
 });
 
-e2eTest("shows a Gmail draft approval request", async ({ harness, app }) => {
-  await harness.loadSession({
-    title: "Draft reply",
-    messages: [
-      m.user("Draft a reply"),
-      m.exec({
-        js: "return await tools.google_gmail.user.default.gmail.users.drafts.create({})",
-        approvals: [
-          {
-            id: "draft-approval",
-            toolPath: "google_gmail.user.default.gmail.users.drafts.create",
-            message: "POST /gmail/v1/users/{userId}/drafts",
-            arguments: {},
-            status: "pending",
-          },
-        ],
-      }),
-    ],
-  });
+e2eTest(
+  "shows a Gmail draft approval request",
+  async ({ harness, app, llm }) => {
+    await harness.loadSession({
+      title: "Draft reply",
+      messages: [
+        m.user("Draft a reply"),
+        m.exec({
+          js: "return await tools.google_gmail.user.default.gmail.users.drafts.create({})",
+          approvals: [
+            {
+              id: "draft-approval",
+              toolPath: "google_gmail.user.default.gmail.users.drafts.create",
+              message: "POST /gmail/v1/users/{userId}/drafts",
+              arguments: {},
+              status: "pending",
+            },
+          ],
+        }),
+      ],
+    });
 
-  const card = app.page.getByRole("region", {
-    name: "Create Gmail draft? approval",
-  });
-  await expect(card).toBeVisible();
-  await expect(card.locator('[data-approval-icon="mail"]')).toBeVisible();
-  await expect(card.locator('[data-approval-icon="generic"]')).toHaveCount(0);
-  await expect(
-    card.getByText(
-      "The agent wants to create a draft reply in your Gmail account.",
-    ),
-  ).toBeVisible();
-  await expect(card.getByRole("button", { name: "Deny" })).toBeVisible();
-  await expect(card.getByRole("button", { name: "Allow once" })).toBeVisible();
-});
+    const card = app.page.getByRole("region", {
+      name: "Create Gmail draft? approval",
+    });
+    await expect(card).toBeVisible();
+    await expect(card.locator('[data-approval-icon="mail"]')).toBeVisible();
+    await expect(card.locator('[data-approval-icon="generic"]')).toHaveCount(0);
+    await expect(
+      card.getByText(
+        "The agent wants to create a draft reply in your Gmail account.",
+      ),
+    ).toBeVisible();
+    await expect(card.getByRole("button", { name: "Deny" })).toBeVisible();
+    await expect(
+      card.getByRole("button", { name: "Allow once" }),
+    ).toBeVisible();
+    await card.getByRole("button", { name: "Allow once" }).click();
+    await llm.respond(m.assistant("Approval received."));
+    await expect(card.getByRole("status")).toHaveText("Allowed once");
+    await expect(card.locator('[data-approval-icon="allowed"]')).toBeVisible();
+    await expect(card.getByRole("button")).toHaveCount(0);
+    await expect(
+      card.getByText(
+        "The agent wants to create a draft reply in your Gmail account.",
+      ),
+    ).toBeVisible();
+  },
+);
 
 e2eTest(
   "shows a generic icon for other approvals",
-  async ({ harness, app }) => {
+  async ({ harness, app, llm }) => {
     await harness.loadSession({
       title: "Policy approval",
       messages: [
@@ -427,6 +442,16 @@ e2eTest(
     });
     await expect(card.locator('[data-approval-icon="generic"]')).toBeVisible();
     await expect(card.locator('[data-approval-icon="mail"]')).toHaveCount(0);
+    await card.getByRole("button", { name: "Deny", exact: true }).click();
+    await llm.respond(m.assistant("I will continue without that action."));
+    await expect(card.getByRole("status")).toHaveText("Denied");
+    await expect(card.locator('[data-approval-icon="denied"]')).toBeVisible();
+    await expect(card.getByRole("button")).toHaveCount(0);
+    await expect(
+      card.getByText("Approve executor.coreTools.policies.create?", {
+        exact: true,
+      }),
+    ).toBeVisible();
   },
 );
 

@@ -1,6 +1,6 @@
 import { useMutation } from "@tanstack/react-query";
 import { background, Button, Flex, radius, shadow, Text } from "maui";
-import { Mail, ShieldTick } from "maui/icons";
+import { Check, Close, Mail, ShieldTick } from "maui/icons";
 import { style, useStyles } from "purse-styles";
 import type { ToolApproval, ToolApprovalDecision } from "@get-halo/client";
 import { useApi } from "../../api/ApiProvider.tsx";
@@ -61,7 +61,7 @@ export function ExecutorApprovalCard({
                 {copy.title}
               </Text>
               <Text size="sm" color="lowContrast">
-                {pending ? copy.description : approvalStatusLabel(approval)}
+                {copy.description}
               </Text>
             </Flex>
           </Flex>
@@ -87,7 +87,20 @@ export function ExecutorApprovalCard({
                 Allow once
               </Button>
             </Flex>
-          ) : undefined}
+          ) : (
+            <Flex row style={{ width: "100%", justifyContent: "flex-end" }}>
+              <Text size="sm" color="lowContrast" role="status">
+                <Flex row gap={2} alignItems="center">
+                  {approval.status === "allowed" ? (
+                    <Check size="sm" data-approval-icon="allowed" />
+                  ) : approval.status === "denied" ? (
+                    <Close size="sm" data-approval-icon="denied" />
+                  ) : undefined}
+                  {approvalStatusLabel(approval)}
+                </Flex>
+              </Text>
+            </Flex>
+          )}
         </Flex>
       </Flex>
     </section>
