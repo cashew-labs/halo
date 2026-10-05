@@ -1,22 +1,34 @@
 #!/usr/bin/env bash
-# Prepare an EMPTY Exe VM for cloning. Run as root with a prebuilt workspace image.
+# Install the Exe host scripts. Template mode also prepares an empty clone source.
 set -euo pipefail
-image=${1:?Usage: exeTemplate.sh IMAGE}
-
-apt-get update
-apt-get install -y docker.io python3
-systemctl enable --now docker
-if ! docker image inspect "$image" >/dev/null 2>&1; then docker pull "$image"; fi
-mkdir -p /etc/halo /var/lib/halo/home/documents
-chown -R 1000:1000 /var/lib/halo/home
+image=${1:?Usage: exeTemplate.sh IMAGE [template|update-host]}
+mode=${2:-template}
+case "$mode" in
+  template)
+    test ! -f /etc/halo/assignment.json
+    apt-get update
+    apt-get install -y docker.io python3
+    systemctl enable --now docker
+    if ! docker image inspect "$image" >/dev/null 2>&1; then docker pull "$image"; fi
+    mkdir -p /etc/halo /var/lib/halo/home/documents
+    chown -R 1000:1000 /var/lib/halo/home
+    docker run --rm --entrypoint cat "$image" /opt/halo/apps/workspace-server/container.json \
+      > /etc/halo/workspace-server-base.json
+    printf '%s\n' "$image" > /etc/halo/image
+    ;;
+  update-host)
+    test -f /etc/halo/assignment.json
+    test -f /etc/halo/image
+    test -f /etc/halo/workspace-server-base.json
+    docker image inspect "$image" >/dev/null
+    ;;
+  *) echo 'Expected template or update-host mode' >&2; exit 1 ;;
+esac
 
 script_dir=$(cd -- "$(dirname -- "$0")" && pwd)
 cp "$script_dir/desktop-seccomp.json" /etc/halo/desktop-seccomp.json
-docker run --rm --entrypoint cat "$image" /opt/halo/apps/workspace-server/container.json \
-  > /etc/halo/workspace-server-base.json
-printf '%s\n' "$image" > /etc/halo/image
 
-cat > /usr/local/bin/halo-workspace-assign <<'ASSIGN'
+cat > /usr/local/bin/halo-workspace-assign.tmp <<'ASSIGN'
 #!/usr/bin/env python3
 import base64, fcntl, json, os, pathlib, subprocess, sys
 
@@ -55,9 +67,10 @@ with open('/run/halo-workspace-assign.lock', 'w') as lock:
     subprocess.run(['systemctl', 'restart' if changed and previous is not None else 'start', 'halo'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     print('HALO_WORKSPACE_ASSIGNED')
 ASSIGN
-chmod 0755 /usr/local/bin/halo-workspace-assign
+chmod 0755 /usr/local/bin/halo-workspace-assign.tmp
+mv /usr/local/bin/halo-workspace-assign.tmp /usr/local/bin/halo-workspace-assign
 
-cat > /usr/local/bin/halo-workspace-run <<'RUN'
+cat > /usr/local/bin/halo-workspace-run.tmp <<'RUN'
 #!/usr/bin/env bash
 set -euo pipefail
 image=$(cat /etc/halo/image)
@@ -68,8 +81,9 @@ exec docker run --rm --name halo-workspace --network host --init --shm-size=1g \
   --volume /etc/halo/workspace-server.json:/etc/halo/workspace-server.json:ro \
   "$image" /etc/halo/workspace-server.json
 RUN
-chmod 0755 /usr/local/bin/halo-workspace-run
-cat > /usr/local/bin/halo-workspace-upgrade <<'UPGRADE'
+chmod 0755 /usr/local/bin/halo-workspace-run.tmp
+mv /usr/local/bin/halo-workspace-run.tmp /usr/local/bin/halo-workspace-run
+cat > /usr/local/bin/halo-workspace-upgrade.tmp <<'UPGRADE'
 #!/usr/bin/env bash
 set -euo pipefail
 image=${1:?Usage: halo-workspace-upgrade IMAGE}
@@ -97,7 +111,8 @@ assignment=$(python3 -c "import base64,pathlib; print(base64.urlsafe_b64encode(p
 /usr/local/bin/halo-workspace-assign "$assignment" --configure-only
 systemctl restart halo
 UPGRADE
-chmod 0755 /usr/local/bin/halo-workspace-upgrade
+chmod 0755 /usr/local/bin/halo-workspace-upgrade.tmp
+mv /usr/local/bin/halo-workspace-upgrade.tmp /usr/local/bin/halo-workspace-upgrade
 
 touch /etc/halo/workspace.env
 chmod 0600 /etc/halo/workspace.env
@@ -121,4 +136,4 @@ systemctl daemon-reload
 # Clones boot from disk; flush preparation writes before pausing the template.
 sync
 # Assignment starts the clone; the template must never run a user workspace.
-printf 'HALO_EXE_TEMPLATE_READY\n'
+printf 'HALO_EXE_HOST_READY mode=%s\n' "$mode"
