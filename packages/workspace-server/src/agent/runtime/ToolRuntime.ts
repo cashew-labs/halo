@@ -92,31 +92,21 @@ export class ToolRuntimeToolNotFoundError extends errore.createTaggedError({
   message: 'Tool "$path" was not found',
 }) {}
 
-export class ConnectionRequiredError extends errore.createTaggedError({
-  name: "ConnectionRequiredError",
+export class ToolInputRequiredError extends errore.createTaggedError({
+  name: "ToolInputRequiredError",
   message:
-    "A connection is required before this code can run. A connection card has been shown to the user. Tell them to use it to connect their account. You will be notified once they've finished connecting.",
+    "Some operations need user input before they can run. Cards have been shown for all requested connections and approvals. Tell the user to respond to those cards. You will be notified after they respond.",
 }) {
   readonly connectionRequests: ConnectionRequest[];
+  readonly approvals: ToolApproval[];
 
   constructor(input: {
     connectionRequests: ConnectionRequest[];
+    approvals: ToolApproval[];
     cause: Error | undefined;
   }) {
     super({ cause: input.cause });
     this.connectionRequests = input.connectionRequests;
-  }
-}
-
-export class ToolApprovalRequiredError extends errore.createTaggedError({
-  name: "ToolApprovalRequiredError",
-  message:
-    "Approval is required before this code can run. An approval card has been shown to the user. Tell them to use it to approve or deny the action. You will be notified after they respond.",
-}) {
-  readonly approvals: ToolApproval[];
-
-  constructor(input: { approvals: ToolApproval[]; cause: Error | undefined }) {
-    super({ cause: input.cause });
     this.approvals = input.approvals;
   }
 }
@@ -570,11 +560,9 @@ export class ToolRuntime {
     if (execution instanceof Error) return execution;
     const cause =
       execution.error === undefined ? undefined : new Error(execution.error);
-    if (connectionRequests.length > 0) {
-      return new ConnectionRequiredError({ connectionRequests, cause });
-    }
-    if (approvalRequests.length > 0) {
-      return new ToolApprovalRequiredError({
+    if (connectionRequests.length > 0 || approvalRequests.length > 0) {
+      return new ToolInputRequiredError({
+        connectionRequests,
         approvals: approvalRequests,
         cause,
       });

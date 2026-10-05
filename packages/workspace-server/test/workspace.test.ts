@@ -2185,6 +2185,72 @@ serverTest(
 );
 
 serverTest(
+  "preserves every connection and approval requested by one exec",
+  async ({ server, llm }) => {
+    const session = await server.rpc.thread.new();
+    const prompting = server.promptAndWait({
+      ...session,
+      text: "Connect Drive and Gmail and create two policies",
+    });
+    await llm.respond(
+      m.tool.start("exec", {
+        id: "mixed-requests",
+        arguments: {
+          js: `return await Promise.allSettled([
+        tools.halo.showConnectionCard({ integration: "google_drive" }),
+        tools.executor.coreTools.policies.create({ owner: "user", pattern: "mixed-first.*", action: "block" }),
+        tools.halo.showConnectionCard({ integration: "google_gmail" }),
+        tools.executor.coreTools.policies.create({ owner: "user", pattern: "mixed-second.*", action: "block" })
+      ]);`,
+        },
+      }),
+    );
+    await llm.respond(
+      m.assistant("Please respond to the connection and approval cards."),
+    );
+    await prompting;
+    const snapshot = await server.rpc.thread.snapshot(session);
+    const executions = sessionToolExecutions(snapshot);
+    expect(executions).toHaveLength(1);
+    const execution = executions[0]!;
+    assert(execution.type === "exec");
+    expect(execution.approvals).toHaveLength(2);
+    expect(execution.approvals).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          toolPath: "executor.coreTools.policies.create",
+          status: "pending",
+          arguments: {
+            owner: "user",
+            pattern: "mixed-first.*",
+            action: "block",
+          },
+        }),
+        expect.objectContaining({
+          toolPath: "executor.coreTools.policies.create",
+          status: "pending",
+          arguments: {
+            owner: "user",
+            pattern: "mixed-second.*",
+            action: "block",
+          },
+        }),
+      ]),
+    );
+    expect(execution.result?.details).toMatchObject({
+      connectionRequests: [
+        expect.objectContaining({ integration: "google_drive" }),
+        expect.objectContaining({ integration: "google_gmail" }),
+      ],
+    });
+    await server.rpc.thread.close(session);
+    expect(
+      sessionToolExecutions(await server.rpc.thread.snapshot(session)),
+    ).toEqual(executions);
+  },
+);
+
+serverTest(
   "finishes approval requests and retries only after a thread response",
   async ({ server, llm }) => {
     for (const decision of ["allow", "deny"] as const) {

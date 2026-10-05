@@ -963,6 +963,53 @@ e2eTest("shows a connection request", async ({ harness, app }) => {
 });
 
 e2eTest(
+  "shows connection and approval cards from the same exec",
+  async ({ app, llm }, testInfo) => {
+    await app.page
+      .getByRole("button", { name: "New tab", exact: true })
+      .click();
+    const pane = app.page.getByRole("main", { name: "New session" });
+    await pane
+      .getByLabel("Message", { exact: true })
+      .fill("Connect Drive and create a policy");
+    await pane.getByRole("button", { name: "Send", exact: true }).click();
+    await llm.respond(
+      m.tool.start("exec", {
+        id: "mixed-requests",
+        arguments: {
+          js: `return await Promise.allSettled([
+        tools.halo.showConnectionCard({ integration: "google_drive" }),
+        tools.executor.coreTools.policies.create({ owner: "user", pattern: "mixed-demo.*", action: "block" })
+      ]);`,
+        },
+      }),
+    );
+    await llm.respond(m.assistant("Please respond to both cards."));
+    const connection = app.page.getByRole("region", {
+      name: "Google Drive connection",
+    });
+    const approval = app.page.getByRole("region", {
+      name: "Approve this tool action? approval",
+    });
+    await expect(
+      connection.getByRole("button", { name: "Connect", exact: true }),
+    ).toBeVisible();
+    await expect(
+      approval.getByRole("button", { name: "Allow once", exact: true }),
+    ).toBeVisible();
+    await expect(
+      app.page.getByRole("button", { name: "Stop", exact: true }),
+    ).not.toBeVisible();
+    await app.page.screenshot({
+      path: testInfo.outputPath("mixed-requests.png"),
+    });
+    await app.page.reload();
+    await expect(connection).toBeVisible();
+    await expect(approval).toBeVisible();
+  },
+);
+
+e2eTest(
   "shows a Gmail draft approval request",
   async ({ harness, app, llm }) => {
     await harness.loadSession({
