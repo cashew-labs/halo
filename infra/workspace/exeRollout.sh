@@ -13,10 +13,24 @@ mkdir -p "$DOCKER_CONFIG"
 gcloud auth print-access-token | docker login -u oauth2accesstoken --password-stdin "${WORKSPACE_IMAGE%%/*}"
 docker pull --platform linux/amd64 "$WORKSPACE_IMAGE"
 image=$(docker inspect --format '{{.Id}}' "$WORKSPACE_IMAGE")
+restore_paused=false
+restore_sleep_on_exit() {
+  result=$?
+  trap - EXIT
+  if [ "$restore_paused" = true ]; then
+    if ! ssh "${ssh_args[@]}" exe.dev pause "$vm"; then
+      echo "Failed to restore $vm to its paused state" >&2
+      result=1
+    fi
+  fi
+  exit "$result"
+}
+trap restore_sleep_on_exit EXIT
 case "$mode" in
   template)
     : "${EXE_TEMPLATE_VM_NAME:?}"
     vm="$EXE_TEMPLATE_VM_NAME"
+    restore_paused=true
     # Completed template names are immutable; incomplete bootstrap can be retried.
     details=$(ssh "${ssh_args[@]}" exe.dev ls "$vm" --json)
     if [ "$(jq '.vms | length' <<< "$details")" = 0 ]; then
@@ -38,13 +52,17 @@ case "$mode" in
     ssh "${ssh_args[@]}" "$vm.exe.xyz" 'sudo test ! -f /etc/halo/assignment.json && sudo test ! -f /etc/halo/workspace-server.json && sudo test -z "$(sudo find /var/lib/halo/home -type f -print -quit)" && sudo test ! -f /root/.docker/config.json && sudo test ! -f /home/exedev/.docker/config.json && sudo sync'
     ssh "${ssh_args[@]}" "$vm.exe.xyz" "printf '%s\\n' '$image' | sudo tee /etc/halo/template-ready >/dev/null; sudo sync"
     ssh "${ssh_args[@]}" exe.dev pause "$vm"
+    restore_paused=false
     echo "HALO_EXE_TEMPLATE_READY name=$vm image=$image"
     ;;
   update)
     : "${INSTANCE:?}"
     vm="$INSTANCE"
     status=$(ssh "${ssh_args[@]}" exe.dev ls "$vm" --json | jq -er '.vms[0].status')
-    if [ "$status" = paused ]; then ssh "${ssh_args[@]}" exe.dev resume "$vm"; fi
+    if [ "$status" = paused ]; then
+      restore_paused=true
+      ssh "${ssh_args[@]}" exe.dev resume "$vm"
+    fi
     docker save "$image" | gzip -1 | ssh "${ssh_args[@]}" "$vm.exe.xyz" 'gzip -d | sudo docker load'
     scp "${ssh_args[@]}" "$root/infra/workspace/exeTemplate.sh" "$root/infra/workspace/desktop-seccomp.json" "$vm.exe.xyz:/tmp/"
     ssh "${ssh_args[@]}" "$vm.exe.xyz" "sudo bash /tmp/exeTemplate.sh '$image' update-host && sudo /usr/local/bin/halo-workspace-upgrade '$image'"
@@ -57,6 +75,7 @@ case "$mode" in
     done
     if [ "$ready" != true ]; then cat "$RUNNER_TEMP/exe-status-error.log" >&2; echo "$vm did not become ready for $image" >&2; exit 1; fi
     if [ "$status" = paused ]; then ssh "${ssh_args[@]}" exe.dev pause "$vm"; fi
+    restore_paused=false
     echo "HALO_WORKSPACE_READY image=$image revision=$GITHUB_SHA"
     ;;
   *) echo "Mode must be template or update" >&2; exit 1 ;;

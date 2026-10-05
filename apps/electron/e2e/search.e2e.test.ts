@@ -19,7 +19,7 @@ e2eTest(
     });
 
     await app.page.getByRole("link", { name: "plain.txt" }).click();
-    await app.page.keyboard.press("ControlOrMeta+f");
+    await app.pressShortcut({ key: "f" });
     const find = app.page.getByRole("search", { name: "Find in tab" });
     await find
       .getByRole("textbox", { name: "Find in tab" })
