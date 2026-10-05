@@ -48,6 +48,9 @@ with open('/run/halo-workspace-assign.lock', 'w') as lock:
                 json.dump(value, output)
             os.chown(temporary, 1000 if destination.endswith('workspace-server.json') else 0, 0)
             os.replace(temporary, destination)
+    if len(sys.argv) > 2 and sys.argv[2] == '--configure-only':
+        print('HALO_WORKSPACE_ASSIGNED')
+        sys.exit(0)
     subprocess.run(['systemctl', 'enable', 'halo'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     subprocess.run(['systemctl', 'restart' if changed and previous is not None else 'start', 'halo'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     print('HALO_WORKSPACE_ASSIGNED')
@@ -80,11 +83,18 @@ if [ ! -f /etc/halo/assignment.json ]; then
 fi
 docker run --rm --entrypoint cat "$image" /opt/halo/apps/workspace-server/container.json \
   > /etc/halo/workspace-server-base.json.tmp
+if [ "$(cat /etc/halo/image)" = "$image" ] && \
+  cmp -s /etc/halo/workspace-server-base.json.tmp /etc/halo/workspace-server-base.json && \
+  systemctl is-active --quiet halo && \
+  [ "$(docker inspect --format '{{.Image}}' halo-workspace 2>/dev/null)" = "$image" ]; then
+  rm /etc/halo/workspace-server-base.json.tmp
+  exit 0
+fi
 mv /etc/halo/workspace-server-base.json.tmp /etc/halo/workspace-server-base.json
 printf '%s\n' "$image" > /etc/halo/image.tmp
 mv /etc/halo/image.tmp /etc/halo/image
 assignment=$(python3 -c "import base64,pathlib; print(base64.urlsafe_b64encode(pathlib.Path('/etc/halo/assignment.json').read_bytes()).decode())")
-/usr/local/bin/halo-workspace-assign "$assignment"
+/usr/local/bin/halo-workspace-assign "$assignment" --configure-only
 systemctl restart halo
 UPGRADE
 chmod 0755 /usr/local/bin/halo-workspace-upgrade

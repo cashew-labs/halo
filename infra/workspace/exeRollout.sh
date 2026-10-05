@@ -11,27 +11,32 @@ ssh_args=(-F /dev/null -i "$EXE_PRIVATE_KEY_PATH" -o IdentitiesOnly=yes -o Ident
 export DOCKER_CONFIG="$RUNNER_TEMP/exe-registry"
 mkdir -p "$DOCKER_CONFIG"
 gcloud auth print-access-token | docker login -u oauth2accesstoken --password-stdin "${WORKSPACE_IMAGE%%/*}"
-docker pull "$WORKSPACE_IMAGE"
+docker pull --platform linux/amd64 "$WORKSPACE_IMAGE"
 image=$(docker inspect --format '{{.Id}}' "$WORKSPACE_IMAGE")
 case "$mode" in
   template)
     : "${EXE_TEMPLATE_VM_NAME:?}"
     vm="$EXE_TEMPLATE_VM_NAME"
-    # A published template name is immutable; retries verify rather than overwrite it.
+    # Completed template names are immutable; incomplete bootstrap can be retried.
     details=$(ssh "${ssh_args[@]}" exe.dev ls "$vm" --json)
-    if [ "$(jq '.vms | length' <<< "$details")" != 0 ]; then
-      status=$(jq -er '.vms[0].status' <<< "$details")
-      if [ "$status" = paused ]; then ssh "${ssh_args[@]}" exe.dev resume "$vm"; fi
-      actual=$(ssh "${ssh_args[@]}" "$vm.exe.xyz" sudo cat /etc/halo/image)
-      if [ "$actual" != "$image" ]; then echo "Template already exists with another image" >&2; exit 1; fi
-    else
-      ssh "${ssh_args[@]}" exe.dev new --name="$vm" --disk=50GB --json
+    if [ "$(jq '.vms | length' <<< "$details")" = 0 ]; then
+      ssh "${ssh_args[@]}" exe.dev new --name="$vm" --image=ghcr.io/boldsoftware/exeuntu@sha256:d410ce9638ffe170e965b6ac4cfd90a868887faf6c3f256c038c7dd8c83af0d2 --disk=50GB --json
+    elif [ "$(jq -er '.vms[0].status' <<< "$details")" = paused ]; then
+      ssh "${ssh_args[@]}" exe.dev resume "$vm"
+    fi
+    published=$(ssh "${ssh_args[@]}" "$vm.exe.xyz" 'sudo cat /etc/halo/template-ready 2>/dev/null || true')
+    if [ -n "$published" ] && [ "$published" != "$image" ]; then
+      echo "Template already exists with another image" >&2; exit 1
+    fi
+    if [ -z "$published" ]; then
+      ssh "${ssh_args[@]}" "$vm.exe.xyz" 'sudo test ! -f /etc/halo/assignment.json && { sudo test ! -d /var/lib/halo/home || sudo test -z "$(sudo find /var/lib/halo/home -type f -print -quit)"; }'
       ssh "${ssh_args[@]}" "$vm.exe.xyz" "sudo date -s '@$(date +%s)' >/dev/null; sudo apt-get update >/dev/null && sudo apt-get install -y docker.io >/dev/null && sudo systemctl enable --now docker"
-      docker save "$image" | ssh "${ssh_args[@]}" "$vm.exe.xyz" sudo docker load
+      docker save "$image" | gzip -1 | ssh "${ssh_args[@]}" "$vm.exe.xyz" 'gzip -d | sudo docker load'
       scp "${ssh_args[@]}" "$root/infra/workspace/exeTemplate.sh" "$root/infra/workspace/desktop-seccomp.json" "$vm.exe.xyz:/tmp/"
       ssh "${ssh_args[@]}" "$vm.exe.xyz" "sudo bash /tmp/exeTemplate.sh '$image'"
     fi
     ssh "${ssh_args[@]}" "$vm.exe.xyz" 'sudo test ! -f /etc/halo/assignment.json && sudo test ! -f /etc/halo/workspace-server.json && sudo test -z "$(sudo find /var/lib/halo/home -type f -print -quit)" && sudo test ! -f /root/.docker/config.json && sudo test ! -f /home/exedev/.docker/config.json && sudo sync'
+    ssh "${ssh_args[@]}" "$vm.exe.xyz" "printf '%s\\n' '$image' | sudo tee /etc/halo/template-ready >/dev/null; sudo sync"
     ssh "${ssh_args[@]}" exe.dev pause "$vm"
     echo "HALO_EXE_TEMPLATE_READY name=$vm image=$image"
     ;;
@@ -40,7 +45,7 @@ case "$mode" in
     vm="$INSTANCE"
     status=$(ssh "${ssh_args[@]}" exe.dev ls "$vm" --json | jq -er '.vms[0].status')
     if [ "$status" = paused ]; then ssh "${ssh_args[@]}" exe.dev resume "$vm"; fi
-    docker save "$image" | ssh "${ssh_args[@]}" "$vm.exe.xyz" sudo docker load
+    docker save "$image" | gzip -1 | ssh "${ssh_args[@]}" "$vm.exe.xyz" 'gzip -d | sudo docker load'
     ssh "${ssh_args[@]}" "$vm.exe.xyz" "sudo /usr/local/bin/halo-workspace-upgrade '$image'"
     ready=false
     for attempt in $(seq 1 60); do

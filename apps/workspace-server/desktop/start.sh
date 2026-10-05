@@ -43,6 +43,11 @@ xfsettingsd --no-daemon &
 desktop_pids+=("$!")
 xfce4-panel --disable-wm-check &
 desktop_pids+=("$!")
+# Reopen the user's saved browser after container maintenance or a provider move.
+# Chrome is a user application: closing it must not stop the desktop service.
+if compgen -G "$HOME/.config/halo-chrome/Default/Sessions/Session_*" >/dev/null; then
+  "$desktop_dir/chrome.sh" &
+fi
 /usr/bin/websockify --web /usr/share/novnc 127.0.0.1:6080 127.0.0.1:5901 &
 desktop_pids+=("$!")
 node --import /opt/halo/node_modules/tsx/dist/loader.mjs \
