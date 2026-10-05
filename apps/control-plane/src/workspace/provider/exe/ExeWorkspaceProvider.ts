@@ -19,6 +19,7 @@ class ExeWorkspaceProviderError extends errore.createTaggedError({
 const vmSchema = Type.Object({
   vm_name: Type.String(),
   status: Type.String(),
+  tags: Type.Optional(Type.Array(Type.String())),
   // Verified on the real /exec ls response, including a newly cloned private VM.
   proxy_share: Type.String(),
 });
@@ -39,17 +40,20 @@ export class ExeWorkspaceProvider implements WorkspaceProviderApi {
   private readonly api: ExeApi;
   private readonly templateVmName: string;
   private readonly gatewaySecret: string;
+  private readonly workspaceTag: string | undefined;
 
   constructor(ctx: {
     privateKeyPath: string;
     templateVmName: string;
     gatewaySecret: string;
+    workspaceTag?: string;
   }) {
     this.api = new ExeApi({
       privateKeyPath: ctx.privateKeyPath,
     });
     this.templateVmName = ctx.templateVmName;
     this.gatewaySecret = ctx.gatewaySecret;
+    this.workspaceTag = ctx.workspaceTag;
   }
 
   async ensure(input: WorkspaceProviderAssignment): Promise<void | Error> {
@@ -157,6 +161,13 @@ export class ExeWorkspaceProvider implements WorkspaceProviderApi {
     if (existing?.status === "paused") {
       const resumed = await this.resume(input);
       if (resumed instanceof Error) return resumed;
+    }
+    if (
+      this.workspaceTag !== undefined &&
+      !existing?.tags?.includes(this.workspaceTag)
+    ) {
+      const tagged = await this.api.execute(["tag", vmName, this.workspaceTag]);
+      if (tagged instanceof Error) return tagged;
     }
     const assignment = Buffer.from(
       JSON.stringify({ ...input, gatewayToken: this.gatewayToken(input) }),

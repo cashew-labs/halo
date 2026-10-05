@@ -1,7 +1,7 @@
 import { GoogleAuth } from "google-auth-library";
 import { TraceCloud } from "./traces/TraceCloud.js";
 import path from "node:path";
-import { config } from "@get-halo/config/controlPlane";
+import { readControlPlaneConfig } from "@get-halo/config/controlPlane";
 import * as errore from "errore";
 import { ControlPlane } from "./server/ControlPlane.js";
 import { GcpWorkspaceProvider } from "./workspace/provider/gcp/GcpWorkspaceProvider.js";
@@ -17,6 +17,7 @@ async function run() {
       if (message === "shutdown") stop();
     });
   });
+  const config = await readControlPlaneConfig();
   if (config instanceof Error) return config;
   const workspaceProvider =
     config.server.workspace.deployment === "exe"

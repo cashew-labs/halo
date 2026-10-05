@@ -32,13 +32,14 @@ with open('/run/halo-workspace-assign.lock', 'w') as lock:
     if previous is not None and previous.get('runtime', {}).get('generation', 0) > assignment['runtime']['generation']:
         print('HALO_WORKSPACE_ASSIGNED')
         sys.exit(0)
-    changed = previous != assignment
+    config = json.loads(pathlib.Path('/etc/halo/workspace-server-base.json').read_text())
+    config['ownerUserId'] = assignment['ownerUserId']
+    config['gateway'] = {'token': assignment['gatewayToken']}
+    config['runtime'] = assignment['runtime']
+    config.pop('traceUpload', None)
+    config_path = pathlib.Path('/etc/halo/workspace-server.json')
+    changed = previous != assignment or not config_path.exists() or json.loads(config_path.read_text()) != config
     if changed:
-        config = json.loads(pathlib.Path('/etc/halo/workspace-server-base.json').read_text())
-        config['ownerUserId'] = assignment['ownerUserId']
-        config['gateway'] = {'token': assignment['gatewayToken']}
-        config['runtime'] = assignment['runtime']
-        config.pop('traceUpload', None)
         # Both files live outside the user-writable home and are committed atomically.
         for destination, value in [('/etc/halo/workspace-server.json', config), (str(path), assignment)]:
             temporary = destination + '.tmp'
@@ -65,6 +66,29 @@ exec docker run --rm --name halo-workspace --network host --init --shm-size=1g \
   "$image" /etc/halo/workspace-server.json
 RUN
 chmod 0755 /usr/local/bin/halo-workspace-run
+cat > /usr/local/bin/halo-workspace-upgrade <<'UPGRADE'
+#!/usr/bin/env bash
+set -euo pipefail
+image=${1:?Usage: halo-workspace-upgrade IMAGE}
+exec 9>/run/halo-workspace-upgrade.lock
+flock 9
+# The release runner transfers the image before interrupting the workspace.
+docker image inspect "$image" >/dev/null
+if [ ! -f /etc/halo/assignment.json ]; then
+  echo "Cannot upgrade an unassigned workspace" >&2
+  exit 1
+fi
+docker run --rm --entrypoint cat "$image" /opt/halo/apps/workspace-server/container.json \
+  > /etc/halo/workspace-server-base.json.tmp
+mv /etc/halo/workspace-server-base.json.tmp /etc/halo/workspace-server-base.json
+printf '%s\n' "$image" > /etc/halo/image.tmp
+mv /etc/halo/image.tmp /etc/halo/image
+assignment=$(python3 -c "import base64,pathlib; print(base64.urlsafe_b64encode(pathlib.Path('/etc/halo/assignment.json').read_bytes()).decode())")
+/usr/local/bin/halo-workspace-assign "$assignment"
+systemctl restart halo
+UPGRADE
+chmod 0755 /usr/local/bin/halo-workspace-upgrade
+
 touch /etc/halo/workspace.env
 chmod 0600 /etc/halo/workspace.env
 cat > /etc/systemd/system/halo.service <<'SERVICE'

@@ -303,6 +303,8 @@ jobs:
       workspace_image: ${{ needs.build-images.outputs.workspace_image }}
       instances: ${{ steps.workspaces.outputs.instances }}
       workspace_template: ${{ steps.workspaces.outputs.template }}
+      workspace_provider: ${{ steps.provider.outputs.provider }}
+      exe_key_secret: ${{ steps.provider.outputs.key_secret }}
     permissions:
       contents: read
       id-token: write
@@ -346,6 +348,32 @@ jobs:
       - name: Select Pulumi backend
         run: pnpm --filter @get-halo/infra exec pulumi login gs://halo-relay-pulumi-state
 
+      - name: Prepare selected workspace provider
+        id: provider
+        env:
+          WORKSPACE_IMAGE: ${{ needs.build-images.outputs.workspace_image }}
+        shell: bash
+        run: |
+          settings="$(pnpm --silent --filter @get-halo/infra exec pulumi -C control-plane config --stack west --json)"
+          provider="$(jq -r '."halo-control-plane:workspaceProvider".value // "gcp"' <<< "$settings")"
+          echo "provider=$provider" >> "$GITHUB_OUTPUT"
+          if [ "$provider" = exe ]; then
+            key_secret="$(jq -er '."halo-control-plane:exePrivateKeySecretId".value' <<< "$settings")"
+            key_path="$RUNNER_TEMP/exe-account-key"
+            gcloud secrets versions access 1 --secret="$key_secret" --project="$PROJECT" --out-file="$key_path"
+            chmod 600 "$key_path"
+            export EXE_PRIVATE_KEY_PATH="$key_path"
+            export EXE_TEMPLATE_VM_NAME="halo-exe-${VERSION//./-}"
+            bash infra/workspace/exeRollout.sh template
+            pnpm --filter @get-halo/infra exec pulumi -C control-plane config set exeTemplateVmName "$EXE_TEMPLATE_VM_NAME" --stack west
+            echo "template=$EXE_TEMPLATE_VM_NAME" >> "$GITHUB_OUTPUT"
+            echo "key_secret=$key_secret" >> "$GITHUB_OUTPUT"
+            echo "EXE_PRIVATE_KEY_PATH=$key_path" >> "$GITHUB_ENV"
+          elif [ "$provider" != gcp ]; then
+            echo "Unsupported workspace provider: $provider" >&2
+            exit 1
+          fi
+
       - name: Deploy backends with the previous browser bundle
         env:
           TRANSITION_IMAGE: ${{ needs.build-images.outputs.transition_image }}
@@ -366,14 +394,21 @@ jobs:
         id: workspaces
         shell: bash
         run: |
-          template="$(pnpm --silent --filter @get-halo/infra exec pulumi -C control-plane stack output workspaceInstanceTemplate --stack west)"
-          instances="$(gcloud compute instances list \
-            --project="$PROJECT" \
-            --zones="$ZONE" \
-            --filter='name~"^halo-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"' \
-            --format='json(name)' | jq -c 'map(.name)')"
+          if [ "${{ steps.provider.outputs.provider }}" = exe ]; then
+            template="${{ steps.provider.outputs.template }}"
+            ssh_args=(-F /dev/null -i "$EXE_PRIVATE_KEY_PATH" -o IdentitiesOnly=yes -o IdentityAgent=none -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=infra/workspace/exe-known-hosts)
+            tag="halo-west"
+            instances="$(ssh "${ssh_args[@]}" exe.dev ls --json | jq -c --arg tag "$tag" '[.vms[] | select((.tags // []) | index($tag)) | .vm_name | select(test("^halo-[0-9a-f-]{36}$"))]')"
+          else
+            template="$(pnpm --silent --filter @get-halo/infra exec pulumi -C control-plane stack output workspaceInstanceTemplate --stack west)"
+            instances="$(gcloud compute instances list \
+              --project="$PROJECT" \
+              --zones="$ZONE" \
+              --filter='name~"^halo-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"' \
+              --format='json(name)' | jq -c 'map(.name)')"
+          fi
           if [ "$instances" = "[]" ]; then
-            echo "No production workspace VMs found; refusing to publish the desktop"
+            echo "No selected-deployment workspace VMs found; refusing to publish the desktop"
             exit 1
           fi
           echo "template=$template" >> "$GITHUB_OUTPUT"
@@ -415,7 +450,15 @@ jobs:
           TEMPLATE: ${{ needs.deploy.outputs.workspace_template }}
           WORKSPACE_IMAGE: ${{ needs.deploy.outputs.workspace_image }}
         shell: bash
-        run: bash infra/workspace/rollout.sh
+        run: |
+          if [ "${{ needs.deploy.outputs.workspace_provider }}" = exe ]; then
+            export EXE_PRIVATE_KEY_PATH="$RUNNER_TEMP/exe-account-key"
+            gcloud secrets versions access 1 --secret="${{ needs.deploy.outputs.exe_key_secret }}" --project="$PROJECT" --out-file="$EXE_PRIVATE_KEY_PATH"
+            chmod 600 "$EXE_PRIVATE_KEY_PATH"
+            bash infra/workspace/exeRollout.sh update
+          else
+            bash infra/workspace/rollout.sh
+          fi
 
   test-e2e:
     name: Test release E2Es
@@ -613,6 +656,9 @@ jobs:
       - run: pnpm --filter @get-halo/infra exec pulumi login gs://halo-relay-pulumi-state
       - name: Promote prepared browser image
         run: |
+          if [ "${{ needs.deploy.outputs.workspace_provider }}" = exe ]; then
+            pnpm --filter @get-halo/infra exec pulumi -C control-plane config set exeTemplateVmName "${{ needs.deploy.outputs.workspace_template }}" --stack west
+          fi
           pnpm --filter @get-halo/infra exec pulumi -C control-plane up --stack west --yes --non-interactive \
             --config "halo-control-plane:controlPlaneImage=$FRONTEND_IMAGE" \
             --config "halo-control-plane:workspaceImage=$WORKSPACE_IMAGE"
