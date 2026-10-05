@@ -60,6 +60,9 @@ type PiSessionSummary = Omit<
 >;
 
 export class ThreadManager {
+  private readonly idleChanges = new Stream<boolean>();
+  readonly idle = this.idleChanges.project(false, (_previous, idle) => idle);
+  private readonly idleSubscriptions = new Map<string, () => void>();
   private closing = false;
   // Recovery opens sessions paused until interrupted routines have been aborted.
   private started = false;
@@ -114,6 +117,7 @@ export class ThreadManager {
     this.started = true;
     // Includes threads opened paused by routine recovery.
     for (const session of this.sessions.values()) session.resume();
+    this.publishIdle();
   }
 
   async *watchSummaries(
@@ -182,11 +186,11 @@ export class ThreadManager {
     });
   }
 
-  private async acquire(sessionId: string) {
+  private async acquire(sessionId: string, options?: { observer: true }) {
     return await this.lifecycleQueue(sessionId).run(async () => {
       const thread = await this.openSessionUnqueued(sessionId);
       if (thread instanceof Error) return thread;
-      return { thread, lease: thread.retain() };
+      return { thread, lease: thread.retain(options) };
     });
   }
 
@@ -229,7 +233,7 @@ export class ThreadManager {
     },
   ) {
     const acquired = await this.track(
-      async () => await this.acquire(sessionId),
+      async () => await this.acquire(sessionId, { observer: true }),
     );
     if (acquired instanceof Error) {
       yield acquired;
@@ -374,8 +378,12 @@ export class ThreadManager {
     if (this.closing) return new ThreadManagerClosedError();
     const pending = operation();
     this.pending.add(pending);
+    this.publishIdle();
     using cleanup = new errore.DisposableStack();
-    cleanup.defer(() => this.pending.delete(pending));
+    cleanup.defer(() => {
+      this.pending.delete(pending);
+      this.publishIdle();
+    });
     return await pending;
   }
 
@@ -497,7 +505,10 @@ export class ThreadManager {
       return closed;
     }
     this.sessions.delete(sessionId);
+    this.idleSubscriptions.get(sessionId)?.();
+    this.idleSubscriptions.delete(sessionId);
     this.closeFailures.delete(sessionId);
+    this.publishIdle();
     this.lifecycleSubscriptions.get(sessionId)?.();
     this.lifecycleSubscriptions.delete(sessionId);
     await this.summaryQueue.run(() => {
@@ -509,6 +520,7 @@ export class ThreadManager {
 
   async shutdown() {
     this.closing = true;
+    this.publishIdle();
     this.closed.abort();
     await Promise.all(this.pending);
     for (const unsubscribe of this.summarySubscriptions.values()) unsubscribe();
@@ -516,6 +528,8 @@ export class ThreadManager {
     for (const unsubscribe of this.lifecycleSubscriptions.values())
       unsubscribe();
     this.lifecycleSubscriptions.clear();
+    for (const unsubscribe of this.idleSubscriptions.values()) unsubscribe();
+    this.idleSubscriptions.clear();
 
     const sessions = [...this.sessions.values()];
     this.sessions.clear();
@@ -527,6 +541,7 @@ export class ThreadManager {
     this.lifecycleQueues.clear();
     this.closeFailures.clear();
     this.productFieldsBySession.clear();
+    this.idle[Symbol.dispose]();
     if (sessionError instanceof Error) return sessionError;
   }
 
@@ -565,6 +580,9 @@ export class ThreadManager {
         return published;
       }
       this.sessions.delete(sessionId);
+      this.idleSubscriptions.get(sessionId)?.();
+      this.idleSubscriptions.delete(sessionId);
+      this.publishIdle();
       this.stored.delete(sessionId);
       this.summaries.delete(sessionId);
       return published;
@@ -599,6 +617,10 @@ export class ThreadManager {
 
   private register(session: Thread) {
     this.sessions.set(session.sessionId, session);
+    this.idleSubscriptions.set(
+      session.sessionId,
+      session.workIdle.subscribe(() => this.publishIdle()),
+    );
     this.lifecycleSubscriptions.set(
       session.sessionId,
       session.lifecycle.subscribe(() => {
@@ -654,6 +676,18 @@ export class ThreadManager {
   private publish(session: SessionSummary) {
     this.summaries.set(session.sessionId, session);
     this.summaryChanges.append({ type: "updated", session });
+  }
+
+  private publishIdle() {
+    const idle =
+      this.started &&
+      !this.closing &&
+      this.pending.size === 0 &&
+      this.closeFailures.size === 0 &&
+      [...this.sessions.values()].every(
+        (session) => session.workIdle.latestValue,
+      );
+    if (idle !== this.idle.latestValue) this.idleChanges.append(idle);
   }
 }
 

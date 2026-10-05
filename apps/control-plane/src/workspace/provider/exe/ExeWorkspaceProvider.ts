@@ -95,6 +95,12 @@ export class ExeWorkspaceProvider implements WorkspaceProviderApi {
     } satisfies WorkspaceProviderConnection;
   }
 
+  async getStatus(input: WorkspaceProviderInput) {
+    const vm = await this.findVm(input);
+    if (vm instanceof Error) return vm;
+    return vm?.status === "paused" ? ("paused" as const) : ("running" as const);
+  }
+
   async pause(input: WorkspaceProviderInput) {
     const vmName = this.vmName(input);
     if (vmName instanceof Error) return vmName;

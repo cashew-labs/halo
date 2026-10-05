@@ -27,6 +27,11 @@ export type ControlPlaneAuthentication =
   | { status: "signed-out" }
   | { status: "signed-in"; session: ControlPlaneSession };
 
+/** VM lifecycle only; the app separately tracks its workspace connection. */
+export type ControlPlaneWorkspaceStatus = {
+  status: "running" | "sleeping" | "asleep" | "waking";
+};
+
 export type ControlPlaneWorkspace = {
   id: string;
   createdAt: string;
@@ -59,6 +64,7 @@ export const controlPlaneContract = publicProcedure.router({
     session: publicProcedure.output(type<ControlPlaneAuthentication>()),
   },
   workspace: {
+    status: authenticatedProcedure.output(type<ControlPlaneWorkspaceStatus>()),
     ensure: authenticatedProcedure.output(type<ControlPlaneWorkspace>()),
     rotateRuntimeToken:
       authenticatedProcedure.output(type<ControlPlaneWorkspace>()),

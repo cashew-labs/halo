@@ -92,6 +92,13 @@ type ThreadEvent =
   | HaloConnectionEvent;
 
 export class Thread {
+  private readonly workIdleChanges = new Stream<boolean>();
+  readonly workIdle = this.workIdleChanges.project(
+    false,
+    (_previous, idle) => idle,
+  );
+  private inspectingWork = false;
+  private operations = 0;
   private readonly lifecycleStream = new Stream<{ type: "idle" }>();
   readonly lifecycle: ReadonlyStream<{ type: "idle" }> = this.lifecycleStream;
   private idleTimer: ReturnType<typeof setTimeout> | undefined;
@@ -281,12 +288,14 @@ export class Thread {
     this.scheduleIdle();
   }
 
-  retain(): Disposable {
+  retain(options?: { observer: true }): Disposable {
     this.leases++;
+    if (options?.observer !== true) this.operations++;
     this.scheduleIdle();
     return {
       [Symbol.dispose]: () => {
         this.leases--;
+        if (options?.observer !== true) this.operations--;
         this.scheduleIdle();
       },
     };
@@ -319,6 +328,8 @@ export class Thread {
 
   private scheduleIdle() {
     this.activity++;
+    this.publishWorkIdle(false);
+    this.inspectWorkIdle();
     this.idleDelayElapsed = false;
     clearTimeout(this.idleTimer);
     if (this.closed.signal.aborted || this.leases > 0) return;
@@ -334,6 +345,44 @@ export class Thread {
       });
     }, 5 * 60_000);
     this.idleTimer.unref();
+  }
+
+  private publishWorkIdle(idle: boolean) {
+    if (idle !== this.workIdle.latestValue) this.workIdleChanges.append(idle);
+  }
+
+  private inspectWorkIdle() {
+    if (this.inspectingWork || this.closed.signal.aborted) return;
+    this.inspectingWork = true;
+    // oxlint-disable-next-line typescript/no-floating-promises -- Inspection errors are logged; stale inspections cannot declare the thread idle.
+    this.inspectWorkIdleUnqueued().then((activity) => {
+      this.inspectingWork = false;
+      if (activity !== this.activity) this.inspectWorkIdle();
+    });
+  }
+
+  private async inspectWorkIdleUnqueued() {
+    while (!this.closed.signal.aborted) {
+      const activity = this.activity;
+      const inspection = await this.harness
+        .inspect(BACKGROUND_CONTEXT)
+        .catch(
+          (cause) =>
+            new SessionStorageError({ sessionId: this.sessionId, cause }),
+        );
+      if (inspection instanceof Error) {
+        console.warn(inspection);
+        return this.activity;
+      }
+      if (this.closed.signal.aborted) return;
+      if (activity !== this.activity) continue;
+      this.publishWorkIdle(
+        this.operations === 0 &&
+          inspection.tasks.length === 0 &&
+          inspection.submissions.length === 0,
+      );
+      return activity;
+    }
   }
 
   onSummaryChange(listener: () => Promise<void>) {
@@ -547,6 +596,7 @@ export class Thread {
   }
 
   async close() {
+    this.publishWorkIdle(false);
     this.closed.abort();
     clearTimeout(this.idleTimer);
     const closed = await this.harness
@@ -558,6 +608,7 @@ export class Thread {
     this.detach();
     this.detachStorage();
     this.snapshot[Symbol.dispose]();
+    this.workIdle[Symbol.dispose]();
     if (closed instanceof Error) return closed;
   }
 

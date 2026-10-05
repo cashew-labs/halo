@@ -1,3 +1,5 @@
+import { Type } from "@sinclair/typebox";
+import { Value } from "@sinclair/typebox/value";
 import { Stream } from "@get-halo/shared/Stream";
 import { ORPCError } from "@orpc/client";
 import {
@@ -10,6 +12,7 @@ import {
 } from "@get-halo/client";
 import * as errore from "errore";
 import type { HostApi } from "../HostApi.js";
+import type { ControlPlaneWorkspaceStatus } from "@get-halo/shared/controlPlaneContract";
 
 type ConnectionState = {
   status:
@@ -23,7 +26,13 @@ type ConnectionState = {
   api?: HaloClient;
   workspace?: WorkspaceInfo;
   error?: Error;
+  power?: ControlPlaneWorkspaceStatus["status"];
 };
+
+const frameActivitySchema = Type.Object(
+  { type: Type.Literal("halo:user-activity") },
+  { additionalProperties: false },
+);
 
 class ConnectionAttemptError extends errore.createTaggedError({
   name: "ConnectionAttemptError",
@@ -53,6 +62,10 @@ export class ConnectionService {
   private timer: ReturnType<typeof setTimeout> | undefined;
   private controller: AbortController | undefined;
   private probe: AbortController | undefined;
+  private lastActivitySent = 0;
+  private reportingActivity = false;
+  private statusTimer: ReturnType<typeof setTimeout> | undefined;
+  private checkingStatus = false;
   private readonly host: HostApi;
 
   constructor(ctx: { host: HostApi }) {
@@ -66,7 +79,12 @@ export class ConnectionService {
     window.addEventListener("online", this.retry);
     window.addEventListener("offline", this.offline);
     document.addEventListener("visibilitychange", this.foreground);
-    this.retry();
+    window.addEventListener("focus", this.returned);
+    window.addEventListener("message", this.frameActivity);
+    for (const event of ["pointermove", "pointerdown", "keydown", "wheel"])
+      document.addEventListener(event, this.userActivity, { passive: true });
+    this.returned();
+    void this.checkStatus().catch(console.error);
   }
 
   dispose() {
@@ -74,15 +92,28 @@ export class ConnectionService {
     this.generation++;
     this.attempting = false;
     clearTimeout(this.timer);
+    clearTimeout(this.statusTimer);
     this.controller?.abort(new ConnectionInterruptedError());
     this.probe?.abort(new ConnectionInterruptedError());
     window.removeEventListener("online", this.retry);
     window.removeEventListener("offline", this.offline);
     document.removeEventListener("visibilitychange", this.foreground);
+    window.removeEventListener("focus", this.returned);
+    window.removeEventListener("message", this.frameActivity);
+    for (const event of ["pointermove", "pointerdown", "keydown", "wheel"])
+      document.removeEventListener(event, this.userActivity);
   }
 
   retry = () => {
-    if (!this.active || this.attempting) return;
+    if (
+      !this.active ||
+      this.attempting ||
+      this.reportingActivity ||
+      this.state.power === "asleep" ||
+      this.state.power === "sleeping" ||
+      document.visibilityState !== "visible"
+    )
+      return;
     if (this.state.status === "connected") {
       void this.check().catch(console.error);
       return;
@@ -101,11 +132,17 @@ export class ConnectionService {
     this.attempting = false;
     this.controller?.abort(new ConnectionInterruptedError());
     this.probe?.abort(new ConnectionInterruptedError());
-    this.publish({ ...this.state, status: "offline", error: undefined });
+    this.publish({
+      ...this.state,
+      status: "offline",
+      power: undefined,
+      error: undefined,
+    });
   };
 
   private foreground = () => {
     if (document.visibilityState !== "visible") return;
+    this.returned();
     if (this.state.status === "connected") {
       void this.check().catch(console.error);
       return;
@@ -214,7 +251,12 @@ export class ConnectionService {
       this.failed();
       return;
     }
-    this.publish({ status: "synchronizing", api: connected, workspace });
+    this.publish({
+      ...this.state,
+      status: "synchronizing",
+      api: connected,
+      workspace,
+    });
     this.timer = setTimeout(
       () => this.failed(new ConnectionTimeoutError()),
       10_000,
@@ -247,6 +289,10 @@ export class ConnectionService {
     this.publish({
       ...this.state,
       status,
+      power:
+        status === "authentication" || status === "offline"
+          ? undefined
+          : this.state.power,
       error: incompatible ?? authentication ?? error,
     });
     clearTimeout(this.timer);
@@ -267,6 +313,8 @@ export class ConnectionService {
     if (
       !this.active ||
       this.state.status !== "connected" ||
+      this.state.power === "asleep" ||
+      this.state.power === "sleeping" ||
       this.probe !== undefined
     )
       return;
@@ -310,9 +358,135 @@ export class ConnectionService {
     );
   }
 
+  private returned = () => this.reportActivity({ force: true });
+
+  private async checkStatus() {
+    if (
+      !this.active ||
+      this.checkingStatus ||
+      this.host.getWorkspaceStatus === undefined
+    )
+      return;
+    this.checkingStatus = true;
+    const activityAt = this.lastActivitySent;
+    const result = await this.host.getWorkspaceStatus();
+    this.checkingStatus = false;
+    if (!this.active) return;
+    if (result instanceof Error) console.warn(result);
+    // Ignore a lookup that started before a newer wake request.
+    if (
+      !(result instanceof Error) &&
+      result !== undefined &&
+      !this.reportingActivity &&
+      activityAt === this.lastActivitySent
+    ) {
+      const previous = this.state.power;
+      if (result.status === "asleep" && previous !== "asleep") {
+        clearTimeout(this.timer);
+        this.generation++;
+        this.attempting = false;
+        this.controller?.abort(new ConnectionInterruptedError());
+        this.probe?.abort(new ConnectionInterruptedError());
+        this.publish({
+          ...this.state,
+          status: ["authentication", "incompatible", "offline"].includes(
+            this.state.status,
+          )
+            ? this.state.status
+            : "reconnecting",
+          power: "asleep",
+          error:
+            this.state.status === "authentication" ||
+            this.state.status === "incompatible"
+              ? this.state.error
+              : undefined,
+        });
+      } else if (result.status !== previous) {
+        this.publish({ ...this.state, power: result.status });
+        if (result.status === "running" && previous === "asleep") this.retry();
+      }
+    }
+    this.statusTimer = setTimeout(
+      () => void this.checkStatus().catch(console.error),
+      document.visibilityState === "visible" && !(result instanceof Error)
+        ? 2_000
+        : 30_000,
+    );
+  }
+
+  private frameActivity = (event: MessageEvent<unknown>) => {
+    if (!Value.Check(frameActivitySchema, event.data)) return;
+    if (
+      [...document.querySelectorAll("iframe")].some(
+        (frame) => frame.contentWindow === event.source,
+      )
+    )
+      this.userActivity();
+  };
+
+  private userActivity = () => this.reportActivity();
+
+  private reportActivity(ctx?: { force: true }) {
+    if (
+      !this.active ||
+      document.visibilityState !== "visible" ||
+      this.reportingActivity ||
+      (ctx?.force !== true &&
+        this.state.power !== "asleep" &&
+        Date.now() - this.lastActivitySent < 10_000)
+    )
+      return;
+    const returning =
+      Date.now() - this.lastActivitySent >= 30 * 60_000 ||
+      this.state.power === "asleep" ||
+      this.state.power === "sleeping" ||
+      this.state.status !== "connected";
+    this.lastActivitySent = Date.now();
+    this.reportingActivity = true;
+    if (this.state.power === "asleep" || this.state.power === "sleeping")
+      this.publish({
+        ...this.state,
+        power: "waking",
+        status: "reconnecting",
+        error: undefined,
+      });
+    // oxlint-disable-next-line typescript/no-floating-promises -- The host reports errors; retries resume after the activity request finishes.
+    this.recordActivity(returning).then(() => {
+      this.reportingActivity = false;
+      this.retry();
+    });
+  }
+
+  private async recordActivity(returning: boolean) {
+    const result = await this.host.recordWorkspaceActivity?.();
+    if (result instanceof Error) {
+      console.warn(result);
+      if (this.active && this.state.power === "waking") {
+        this.publish({ ...this.state, power: undefined });
+        this.failed(result);
+      }
+      return;
+    }
+    if (!this.active) return;
+    if (this.state.power === "waking")
+      this.publish({ ...this.state, power: "running" });
+    if (returning) {
+      document
+        .querySelector<HTMLIFrameElement>('iframe[title="Desktop"]')
+        ?.contentWindow?.postMessage({ type: "halo:workspace-ready" }, "*");
+    }
+    this.failures = 0;
+    if (this.state.status !== "connected") {
+      this.generation++;
+      this.attempting = false;
+      this.controller?.abort(new ConnectionInterruptedError());
+    }
+  }
+
   diagnostics() {
     return {
       status: this.state.status,
+      power: this.state.power,
       attempts: this.attempts,
       outageSince: this.outageSince,
       workspaceProtocol: haloProtocolVersion,

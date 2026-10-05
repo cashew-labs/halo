@@ -59,6 +59,40 @@ export class Stream<T> implements ReadonlyStream<T> {
   }
 }
 
+/** Emits the latest values whenever any source changes, after every source is ready. */
+export function combineLatest<T>(
+  sources: readonly ReadonlyStream<T>[],
+): ReadonlyStream<readonly T[]> {
+  return new CombinedStream({ sources });
+}
+
+class CombinedStream<T> extends Stream<readonly T[]> {
+  private readonly sources: readonly ReadonlyStream<T>[];
+
+  constructor(ctx: { sources: readonly ReadonlyStream<T>[] }) {
+    super();
+    this.sources = ctx.sources;
+  }
+
+  override subscribe(subscriber: StreamSubscriber<readonly T[]>) {
+    const values: T[] = [];
+    const received = new Set<number>();
+    using cleanup = new errore.DisposableStack();
+    for (const [index, source] of this.sources.entries()) {
+      cleanup.defer(
+        source.subscribe((value) => {
+          values[index] = value;
+          received.add(index);
+          if (received.size === this.sources.length) subscriber([...values]);
+        }),
+      );
+    }
+    if (this.sources.length === 0) subscriber([]);
+    const owned = cleanup.move();
+    return () => owned.dispose();
+  }
+}
+
 class ProjectedStream<T, S> implements ReadonlyProjectedStream<S> {
   private readonly subscribers = new Set<StreamSubscriber<S>>();
   private readonly cleanup = new errore.DisposableStack();

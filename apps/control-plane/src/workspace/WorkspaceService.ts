@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import * as errore from "errore";
+import type { ControlPlaneWorkspaceStatus } from "@get-halo/shared/controlPlaneContract";
 import type { DatabaseService } from "../DatabaseService.js";
 import type { WorkspaceProviderApi } from "./provider/WorkspaceProviderApi.js";
 import {
@@ -19,6 +20,7 @@ type SqliteWorkspaceRow = {
   runtime_key_id: string | null;
   runtime_key: string | null;
   runtime_key_generation: number;
+  activity_at: number;
 };
 
 type PostgresWorkspaceRow = {
@@ -27,6 +29,7 @@ type PostgresWorkspaceRow = {
   runtime_key_id: string | null;
   runtime_key: string | null;
   runtime_key_generation: number;
+  activity_at: string;
 };
 
 type Workspace = {
@@ -34,24 +37,33 @@ type Workspace = {
   createdAt: Date;
   runtimeCredential: { keyId: string; encryptedKey: string } | undefined;
   runtimeKeyGeneration: number;
+  activityAt: number;
 };
 
 export class WorkspaceService {
+  // Transient operations owned by this instance; Exe is authoritative when finished.
+  private readonly pauses = new Set<{
+    workspaceId: string;
+    activityAt: number;
+  }>();
   private readonly db: DatabaseService;
   private readonly provider: WorkspaceProviderApi;
   private readonly auth: AuthService;
   private readonly origin: string;
+  private readonly idleTimeoutMs: number;
 
   private constructor(ctx: {
     provider: WorkspaceProviderApi;
     db: DatabaseService;
     auth: AuthService;
     origin: string;
+    idleTimeoutMs?: number;
   }) {
     this.db = ctx.db;
     this.provider = ctx.provider;
     this.auth = ctx.auth;
     this.origin = ctx.origin;
+    this.idleTimeoutMs = ctx.idleTimeoutMs ?? 30 * 60_000;
   }
 
   static async start(ctx: {
@@ -59,6 +71,7 @@ export class WorkspaceService {
     db: DatabaseService;
     auth: AuthService;
     origin: string;
+    idleTimeoutMs?: number;
   }) {
     const service = new WorkspaceService(ctx);
     const migrated = await service.migrate();
@@ -70,6 +83,8 @@ export class WorkspaceService {
   async ensure(userId: string) {
     const record = await this.ensureRecord(userId);
     if (record instanceof Error) return record;
+    const touched = await this.recordActivity(userId);
+    if (touched instanceof Error) return touched;
     const workspace = await this.ensureRuntimeCredential({
       userId,
       workspace: record,
@@ -99,7 +114,38 @@ export class WorkspaceService {
     return workspace;
   }
 
+  async getStatus(
+    userId: string,
+  ): Promise<ControlPlaneWorkspaceStatus | Error> {
+    const workspace = await this.findRecord(userId);
+    if (workspace instanceof Error) return workspace;
+    if (workspace === undefined) return { status: "running" };
+    const pausing = [...this.pauses].filter(
+      (pause) => pause.workspaceId === workspace.id,
+    );
+    if (pausing.length > 0)
+      return {
+        status: pausing.some(
+          (pause) => pause.activityAt === workspace.activityAt,
+        )
+          ? "sleeping"
+          : "waking",
+      };
+    const status = await this.provider.getStatus?.({
+      workspaceId: workspace.id,
+      ownerUserId: userId,
+    });
+    if (status instanceof Error) return status;
+    return { status: status === "paused" ? "asleep" : "running" };
+  }
+
   async authenticateRuntime(headers: Headers) {
+    const identity = await this.authenticateRuntimeOwner(headers);
+    if (identity instanceof Error) return identity;
+    return { workspaceId: identity.workspaceId };
+  }
+
+  private async authenticateRuntimeOwner(headers: Headers) {
     const identity = await this.auth.verifyWorkspaceToken(headers);
     if (identity instanceof Error) return identity;
     const workspace = await this.findRecord(identity.userId);
@@ -109,7 +155,74 @@ export class WorkspaceService {
       workspace.runtimeCredential?.keyId !== identity.keyId
     )
       return new WorkspaceAuthenticationRequiredError();
-    return { workspaceId: workspace.id };
+    return { workspaceId: workspace.id, ownerUserId: identity.userId };
+  }
+
+  // Only explicit activity/ensure wakes a VM; gateway lookups remain read-only.
+  async reportIdle(headers: Headers, idle: boolean) {
+    const identity = await this.authenticateRuntimeOwner(headers);
+    if (identity instanceof Error) return identity;
+    if (this.provider.pause === undefined || this.provider.resume === undefined)
+      return;
+    if (!idle) {
+      const touched = await this.recordActivity(identity.ownerUserId);
+      if (touched instanceof Error) return touched;
+      return await this.provider.resume(identity);
+    }
+    const before = await this.findRecord(identity.ownerUserId);
+    if (before instanceof Error) return before;
+    if (
+      before === undefined ||
+      Date.now() - before.activityAt < this.idleTimeoutMs
+    )
+      return;
+    const pause = {
+      workspaceId: identity.workspaceId,
+      activityAt: before.activityAt,
+    };
+    this.pauses.add(pause);
+    using cleanup = new errore.DisposableStack();
+    cleanup.defer(() => this.pauses.delete(pause));
+    const paused = await this.provider.pause(identity);
+    if (paused instanceof Error) {
+      const resumed = await this.provider.resume(identity);
+      if (resumed instanceof Error) console.error(resumed);
+      return paused;
+    }
+    const after = await this.findRecord(identity.ownerUserId);
+    if (after instanceof Error) {
+      const resumed = await this.provider.resume(identity);
+      if (resumed instanceof Error) console.error(resumed);
+      return after;
+    }
+    if (after === undefined || after.activityAt !== before.activityAt)
+      return await this.provider.resume(identity);
+  }
+
+  private async recordActivity(userId: string) {
+    const client = this.db.client;
+    const now = Date.now();
+    // Monotonic even for two events in the same millisecond; shared across instances.
+    const sql = `UPDATE workspace SET activity_at = CASE
+      WHEN activity_at >= $1 THEN activity_at + 1 ELSE $1 END WHERE user_id = $2`;
+    if (client instanceof DatabaseSync) {
+      return errore.try({
+        try: () =>
+          client.prepare(sql.replace(/\$\d+/gu, "?")).run(now, now, userId),
+        catch: (cause) =>
+          new WorkspaceServiceError({
+            detail: "record workspace activity",
+            cause,
+          }),
+      });
+    }
+    return await client.query(sql, [now, userId]).catch(
+      (cause) =>
+        new WorkspaceServiceError({
+          detail: "record workspace activity",
+          cause,
+        }),
+    );
   }
 
   async rotateRuntimeToken(userId: string) {
@@ -256,7 +369,7 @@ export class WorkspaceService {
           // SAFETY: The query selects the fields represented by SqliteWorkspaceRow.
           const row = client
             .prepare(
-              `SELECT id, created_at, runtime_key_id, runtime_key, runtime_key_generation
+              `SELECT id, created_at, runtime_key_id, runtime_key, runtime_key_generation, activity_at
                FROM workspace
                WHERE user_id = ?`,
             )
@@ -267,6 +380,7 @@ export class WorkspaceService {
             id: row.id,
             createdAt: new Date(row.created_at),
             runtimeKeyGeneration: row.runtime_key_generation,
+            activityAt: row.activity_at,
             runtimeCredential:
               row.runtime_key_id === null || row.runtime_key === null
                 ? undefined
@@ -280,7 +394,7 @@ export class WorkspaceService {
 
     const selected = await client
       .query<PostgresWorkspaceRow>(
-        `SELECT id, created_at, runtime_key_id, runtime_key, runtime_key_generation
+        `SELECT id, created_at, runtime_key_id, runtime_key, runtime_key_generation, activity_at
          FROM workspace
          WHERE user_id = $1`,
         [userId],
@@ -297,6 +411,7 @@ export class WorkspaceService {
       id: row.id,
       createdAt: row.created_at,
       runtimeKeyGeneration: row.runtime_key_generation,
+      activityAt: Number(row.activity_at),
       runtimeCredential:
         row.runtime_key_id === null || row.runtime_key === null
           ? undefined
@@ -362,6 +477,13 @@ export class WorkspaceService {
             user_id TEXT NOT NULL UNIQUE REFERENCES "user"(id) ON DELETE CASCADE,
             created_at TEXT NOT NULL
           )`);
+          const activityColumns = client
+            .prepare("PRAGMA table_info(workspace)")
+            .all();
+          if (!activityColumns.some((column) => column.name === "activity_at"))
+            client.exec(
+              "ALTER TABLE workspace ADD COLUMN activity_at BIGINT NOT NULL DEFAULT 0",
+            );
           // Existing workspace identities and files survive the new auth columns.
           const columns = client.prepare("PRAGMA table_info(workspace)").all();
           for (const name of ["runtime_key_id", "runtime_key"]) {
@@ -389,6 +511,7 @@ export class WorkspaceService {
         user_id TEXT NOT NULL UNIQUE REFERENCES "user"(id) ON DELETE CASCADE,
         created_at TIMESTAMPTZ NOT NULL
       );
+      ALTER TABLE workspace ADD COLUMN IF NOT EXISTS activity_at BIGINT NOT NULL DEFAULT 0;
       ALTER TABLE workspace ADD COLUMN IF NOT EXISTS runtime_key_id TEXT;
       ALTER TABLE workspace ADD COLUMN IF NOT EXISTS runtime_key TEXT;
       ALTER TABLE workspace ADD COLUMN IF NOT EXISTS runtime_key_generation INTEGER NOT NULL DEFAULT 1;`)

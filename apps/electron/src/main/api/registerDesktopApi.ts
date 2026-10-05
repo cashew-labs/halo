@@ -72,6 +72,10 @@ async function handleDesktopRequest(args: {
   getConnection: () => Promise<HaloRpcConnection | Error | undefined>;
 }) {
   switch (args.request.type) {
+    case "getWorkspaceStatus":
+      return await args.authentication.getWorkspaceStatus?.();
+    case "recordWorkspaceActivity":
+      return await args.authentication.recordWorkspaceActivity?.();
     case "getConnection": {
       return await args.getConnection();
     }

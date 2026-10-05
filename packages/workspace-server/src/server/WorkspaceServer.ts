@@ -1,4 +1,6 @@
 import { HotkeyService } from "../hotkeys/HotkeyService.js";
+import { WorkspaceIdleReporter } from "./WorkspaceIdleReporter.js";
+import { combineLatest } from "@get-halo/shared/Stream";
 import { RoutineService } from "../routines/RoutineService.js";
 import { RoutineRunner } from "../routines/RoutineRunner.js";
 import { RoutineScheduler } from "../routines/RoutineScheduler.js";
@@ -65,6 +67,10 @@ export type WorkspaceServerConfig = {
 };
 
 export type WorkspaceServerHost = {
+  reportWorkIdle?: (
+    idle: boolean,
+    signal: AbortSignal,
+  ) => Promise<void | Error>;
   // Inference client the host constructs and keeps for this process.
   llmApi: LLMApi;
   // Host-granted tool capabilities; omitted uses the standard workspace grants.
@@ -86,6 +92,11 @@ export type WorkspaceServerOptions = {
 };
 
 export class WorkspaceServer {
+  private readonly idleReporter: WorkspaceIdleReporter;
+
+  get idle() {
+    return this.idleReporter.idle;
+  }
   private readonly filesystem: FilesystemService;
   private readonly database: DatabaseClient;
   private readonly sessionRepo: TursoThreadRepo;
@@ -102,6 +113,7 @@ export class WorkspaceServer {
   private readonly traces: TraceService;
 
   private constructor(ctx: {
+    idleReporter: WorkspaceIdleReporter;
     filesystem: FilesystemService;
     database: DatabaseClient;
     sessionRepo: TursoThreadRepo;
@@ -133,6 +145,7 @@ export class WorkspaceServer {
       requests,
       traces,
     } = ctx;
+    this.idleReporter = ctx.idleReporter;
     this.filesystem = filesystem;
     this.database = database;
     this.sessionRepo = sessionRepo;
@@ -324,6 +337,13 @@ export class WorkspaceServer {
     if (recoveredRoutines instanceof Error) return recoveredRoutines;
     const recovered = await sessions.start();
     if (recovered instanceof Error) return recovered;
+    const idleReporter = new WorkspaceIdleReporter({
+      idle: combineLatest([sessions.idle, toolRuntime.idle]).map((states) =>
+        states.every(Boolean),
+      ),
+      report: host.reportWorkIdle,
+    });
+    cleanup.defer(async () => await idleReporter.close());
     const routineScheduler = new RoutineScheduler({
       routines,
       runner: routineRunner,
@@ -359,6 +379,7 @@ export class WorkspaceServer {
     if (scheduled instanceof Error) return scheduled;
     cleanup.move();
     return new WorkspaceServer({
+      idleReporter,
       filesystem,
       database,
       sessionRepo,
@@ -384,6 +405,7 @@ export class WorkspaceServer {
   }
 
   async close() {
+    await this.idleReporter.close();
     await this.requests.close();
     this.connectionService.close();
     // Routine runs record their interruption before their sessions close.

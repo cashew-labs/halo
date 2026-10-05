@@ -48,6 +48,11 @@ export interface WorkspaceProviderApi {
     input: WorkspaceProviderInput,
   ): Promise<WorkspaceProviderConnection | undefined | Error>;
 
+  /** Read VM power without provisioning or waking it; absent when unsupported. */
+  getStatus?: (
+    input: WorkspaceProviderInput,
+  ) => Promise<"running" | "paused" | Error>;
+
   /**
    * Suspend execution without deleting the workspace; absent when unsupported.
    * Enable automatic idle pause only when both pause and resume are available.

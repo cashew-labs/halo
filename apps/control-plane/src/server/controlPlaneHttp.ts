@@ -39,6 +39,7 @@ import {
 
 import { workspaceInferencePath } from "@get-halo/config/inference";
 import { serveWorkspaceInference } from "../inference/workspaceInference.js";
+import { serveWorkspaceIdleReport } from "../workspace/workspaceIdleHttp.js";
 
 const requestUrlBase = "http://localhost";
 const webContentSecurityPolicy = [
@@ -213,6 +214,11 @@ async function routeControlPlaneRequest(ctx: {
     request.url === undefined ? "/" : request.url,
     requestUrlBase,
   );
+
+  if (url.pathname === "/api/workspace-runtime/idle") {
+    await serveWorkspaceIdleReport(request, response, workspace);
+    return;
+  }
 
   if (url.pathname === `${workspaceInferencePath}/chat/completions`) {
     await serveWorkspaceInference({

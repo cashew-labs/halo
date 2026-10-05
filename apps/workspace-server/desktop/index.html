@@ -42,6 +42,23 @@
       let connection;
       let retry;
       let closed = false;
+      let lastActivity = 0;
+      function activity() {
+        if (Date.now() - lastActivity < 1000) return;
+        lastActivity = Date.now();
+        window.parent.postMessage({ type: "halo:user-activity" }, "*");
+      }
+      for (const event of ["pointermove", "pointerdown", "keydown", "wheel"]) {
+        document.addEventListener(event, activity, {
+          capture: true,
+          passive: true,
+        });
+      }
+      // Resume can invalidate the old proxy socket while its last frame remains.
+      window.addEventListener("message", (event) => {
+        if (event.source !== window.parent) return;
+        if (event.data?.type === "halo:workspace-ready") location.reload();
+      });
       function connect() {
         connection = new RFB(display, endpoint.href);
         connection.scaleViewport = true;

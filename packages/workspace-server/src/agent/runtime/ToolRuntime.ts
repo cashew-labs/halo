@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
+import { Stream } from "@get-halo/shared/Stream";
 import * as Cause from "effect/Cause";
 import * as Exit from "effect/Exit";
 import {
@@ -376,6 +377,18 @@ type ToolRuntimeOptions = {
 };
 
 export class ToolRuntime {
+  private readonly executionChanges = new Stream<number>();
+  private readonly executions = this.executionChanges.project(
+    0,
+    (count, delta) => count + delta,
+  );
+  readonly idle = this.executions.map((count) => count === 0);
+
+  private retainExecution(): Disposable {
+    this.executionChanges.append(1);
+    return { [Symbol.dispose]: () => this.executionChanges.append(-1) };
+  }
+
   static async create(input: ToolRuntimeOptions) {
     return await createToolRuntime(input);
   }
@@ -429,6 +442,8 @@ export class ToolRuntime {
     toolCallId?: string;
     bashOutput?: HaloToolContext["bashOutput"];
   }): Promise<HaloToolExecution<T> | Error> {
+    using cleanup = new errore.DisposableStack();
+    cleanup.use(this.retainExecution());
     const registered = this.toolPlugins
       .find((plugin) => plugin.id === input.pluginId)
       ?.tools.find((candidate) => candidate.name === input.toolName);
@@ -485,6 +500,8 @@ export class ToolRuntime {
     threadId?: string;
     onToolEvent?: (event: ExecActivityUpdate) => void;
   }) {
+    using cleanup = new errore.DisposableStack();
+    cleanup.use(this.retainExecution());
     const connectionRequests: ConnectionRequest[] = [];
     const execution = await this.executionContext.run(
       {
@@ -529,6 +546,8 @@ export class ToolRuntime {
     signal?: AbortSignal;
     modelId?: string;
   }) {
+    using cleanup = new errore.DisposableStack();
+    cleanup.use(this.retainExecution());
     const invocation = await this.executionContext.run(
       { signal: input.signal, modelId: input.modelId, runtime: this },
       async () =>
@@ -558,6 +577,8 @@ export class ToolRuntime {
     args: unknown;
     signal?: AbortSignal;
   }): Promise<ToolResult<unknown> | ToolRuntimeError> {
+    using cleanup = new errore.DisposableStack();
+    cleanup.use(this.retainExecution());
     const result = await this.executionContext.run(
       { signal: input.signal, modelId: undefined, runtime: this },
       async () =>

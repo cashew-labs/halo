@@ -49,6 +49,7 @@ export class ControlPlane {
     build?: { version: string; revision: string };
     traceCloud?: TraceCloud;
     inferenceApiKey?: string;
+    workspaceIdleTimeoutMs?: number;
   }) {
     const { config, webRoot } = ctx;
     await using cleanup = new errore.AsyncDisposableStack();
@@ -89,6 +90,7 @@ export class ControlPlane {
       provider: ctx.workspaceProvider,
       auth,
       origin: publicOrigin,
+      idleTimeoutMs: ctx.workspaceIdleTimeoutMs,
     });
     if (workspace instanceof Error) return workspace;
 

@@ -1,22 +1,11 @@
 import { FileSaveErrorIndicator } from "../FileSaveErrorIndicator.js";
-import { confirmRestart } from "../confirmRestart.js";
-import { ConnectionStatus } from "../ConnectionStatus.js";
+import { SidebarFooter } from "./SidebarFooter.js";
 import { useSidebar } from "../WorkspaceLayout.js";
-import {
-  Button,
-  backgroundColor,
-  flex,
-  flexItem,
-  shadow,
-  spacing,
-  text,
-} from "maui";
+import { Button, backgroundColor, flex, flexItem, shadow, spacing } from "maui";
 import { Close, Monitor } from "maui/icons";
 import { style, useStyles } from "purse-styles";
-import { useMutation } from "@tanstack/react-query";
 import type { SessionSummary } from "@get-halo/client";
 import type { AppInfo } from "../HostApi.js";
-import { useHost } from "../HostProvider.js";
 import { FilesystemSection } from "./FilesystemSection.tsx";
 import { SessionsSection } from "./SessionsSection.tsx";
 import { ExtensionsSection } from "./ExtensionsSection.js";
@@ -38,8 +27,6 @@ export function Sidebar({ sessions, appInfo }: SidebarProps) {
   const titleBar = useStyles(styles.titleBar);
   const navigation = useStyles(styles.navigation);
   const footer = useStyles(styles.footer);
-  const versionLabel = useStyles(styles.versionLabel);
-  const updateLabel = useStyles(styles.updateLabel);
 
   return (
     <nav className={sidebar} aria-label="Workspace">
@@ -72,70 +59,11 @@ export function Sidebar({ sessions, appInfo }: SidebarProps) {
         <SessionsSection sessions={sessions} />
       </NavigationSidebar>
       <div className={footer} data-testid="app-update-status">
-        {appInfo !== undefined && (
-          <div className={versionLabel}>Halo {appInfo.version}</div>
-        )}
-        <ConnectionStatus />
+        <SidebarFooter appInfo={appInfo} />
         <FileSaveErrorIndicator />
-        {appInfo !== undefined && (
-          <UpdateFooter appInfo={appInfo} labelClassName={updateLabel} />
-        )}
       </div>
     </nav>
   );
-}
-
-function UpdateFooter({
-  appInfo,
-  labelClassName,
-}: {
-  appInfo: AppInfo;
-  labelClassName: string;
-}) {
-  const host = useHost();
-  const install = useMutation({
-    mutationFn: async () => {
-      if (host.installAppUpdate === undefined) return;
-      if (!confirmRestart()) return;
-      const result = await host.installAppUpdate();
-      if (result instanceof Error) throw result;
-    },
-  });
-  const restartButton = useStyles(styles.restartButton);
-  if (
-    appInfo.update.state === "downloaded" &&
-    host.installAppUpdate !== undefined
-  ) {
-    return (
-      <Button
-        className={restartButton}
-        data-testid="app-update-restart"
-        onClick={() => install.mutate()}
-      >
-        Restart to update
-      </Button>
-    );
-  }
-  return (
-    <div className={labelClassName}>{formatUpdateStatus(appInfo.update)}</div>
-  );
-}
-
-function formatUpdateStatus(update: AppInfo["update"]): string {
-  switch (update.state) {
-    case "disabled":
-      return update.reason;
-    case "idle":
-      return "Up to date · GitHub Releases";
-    case "checking":
-      return "Checking for updates…";
-    case "available":
-      return "Update available — downloading…";
-    case "downloaded":
-      return `Update ${update.version} ready — restart to apply`;
-    case "error":
-      return `Update error: ${update.message}`;
-  }
 }
 
 const styles = {
@@ -170,10 +98,6 @@ const styles = {
     minHeight: 0,
     overflow: "auto",
   }),
-  restartButton: style({
-    alignSelf: "stretch",
-    width: "100%",
-  }),
   footer: style(
     flex({ direction: "column", gap: 1 }),
     sidebarPadding,
@@ -183,21 +107,6 @@ const styles = {
       minWidth: 0,
       paddingTop: spacing.value(4),
       paddingBottom: spacing.value(8),
-    },
-  ),
-  versionLabel: style(
-    text({ size: "xs", fontWeight: 500, color: "highContrast" }),
-    {
-      minWidth: 0,
-    },
-  ),
-  updateLabel: style(
-    text({ size: "xs", fontWeight: 400, color: "lowContrast" }),
-    {
-      minWidth: 0,
-      overflow: "hidden",
-      textOverflow: "ellipsis",
-      whiteSpace: "nowrap",
     },
   ),
 };

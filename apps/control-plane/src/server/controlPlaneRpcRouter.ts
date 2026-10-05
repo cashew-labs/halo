@@ -112,6 +112,17 @@ export const controlPlaneRpcRouter = os.router({
     session: getAuthSession,
   }),
   workspace: os.workspace.router({
+    status: os.workspace.status
+      .use(loadSession)
+      .handler(async ({ context }) => {
+        if (context.session === undefined)
+          throw new ORPCError("UNAUTHORIZED", { message: "Sign in required" });
+        const status = await context.workspace.getStatus(
+          context.session.user.id,
+        );
+        if (status instanceof Error) throw internalError(status);
+        return status;
+      }),
     ensure: ensureWorkspace,
     rotateRuntimeToken: os.workspace.rotateRuntimeToken
       .use(loadSession)

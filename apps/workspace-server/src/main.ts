@@ -14,6 +14,7 @@ import {
 } from "@get-halo/shared/HaloRpcFile";
 import {
   ControlPlaneTraceUploader,
+  ControlPlaneWorkReporter,
   FileCredentialVault,
   WorkspaceServer,
 } from "@get-halo/workspace-server";
@@ -93,6 +94,16 @@ async function run() {
     },
     host: {
       llmApi,
+      reportWorkIdle:
+        applicationConfig.server.runtime === undefined
+          ? undefined
+          : (() => {
+              const reporter = new ControlPlaneWorkReporter(
+                applicationConfig.server.runtime,
+              );
+              return async (idle: boolean, signal: AbortSignal) =>
+                await reporter.report(idle, signal);
+            })(),
       traceUploader:
         applicationConfig.server.runtime === undefined
           ? undefined
