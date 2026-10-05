@@ -68,6 +68,7 @@ sync
 RESTORE
 ssh "${ssh_args[@]}" exe.dev pause "$INSTANCE"
 ssh "${ssh_args[@]}" exe.dev tag "$INSTANCE" "$EXE_WORKSPACE_TAG"
+ssh "${ssh_args[@]}" exe.dev tag "$INSTANCE" "$EXE_WORKSPACE_TAG-migrated"
 completed=true
 echo "HALO_WORKSPACE_COPIED vm=$INSTANCE snapshot=$snapshot sha256=$checksum"
 echo 'Source service remains stopped. Validate the destination, then switch the provider or restart the source before returning users.'
