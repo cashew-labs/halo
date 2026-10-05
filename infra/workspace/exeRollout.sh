@@ -3,6 +3,7 @@ set -euo pipefail
 : "${EXE_PRIVATE_KEY_PATH:?}" "${WORKSPACE_IMAGE:?}" "${RUNNER_TEMP:?}" "${VERSION:?}" "${GITHUB_SHA:?}"
 mode=${1:?Usage: exeRollout.sh template|update}
 root=$(cd -- "$(dirname -- "$0")/../.." && pwd)
+release_manifest=${RELEASE_MANIFEST:-"$root/releases/$VERSION.json"}
 ssh_args=(-F /dev/null -i "$EXE_PRIVATE_KEY_PATH" -o IdentitiesOnly=yes -o IdentityAgent=none
   -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$root/infra/workspace/exe-known-hosts"
   -o ConnectTimeout=10 -o ServerAliveInterval=30 -o ServerAliveCountMax=10)
@@ -44,7 +45,7 @@ case "$mode" in
     ready=false
     for attempt in $(seq 1 60); do
       if info=$(ssh "${ssh_args[@]}" "$vm.exe.xyz" 'sudo docker exec halo-workspace node --import /opt/halo/node_modules/tsx/dist/loader.mjs /opt/halo/packages/halo-cli/src/cli.ts status --json' 2> "$RUNNER_TEMP/exe-status-error.log"); then
-        if jq -e --arg revision "$GITHUB_SHA" --argjson protocols "$(jq -c .protocols.workspace.supported "$root/releases/$VERSION.json")" '.build.revision == $revision and (.supportedProtocols // [.protocolVersion]) == $protocols' <<< "$info" >/dev/null; then ready=true; break; fi
+        if jq -e --arg revision "$GITHUB_SHA" --argjson protocols "$(jq -c .protocols.workspace.supported "$release_manifest")" '.build.revision == $revision and (.supportedProtocols // [.protocolVersion]) == $protocols' <<< "$info" >/dev/null; then ready=true; break; fi
       fi
       sleep 5
     done

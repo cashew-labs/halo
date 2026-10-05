@@ -9,6 +9,8 @@
 !apps/
 !apps/control-plane/
 !apps/control-plane/**
+!apps/electron/
+!apps/electron/package.json
 !apps/web-app/
 !apps/web-app/**
 !apps/workspace-server/
