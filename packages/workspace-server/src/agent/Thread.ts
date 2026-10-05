@@ -448,23 +448,44 @@ export class Thread {
       .find((candidate) => candidate.id === input.approvalId);
     if (approval === undefined || approval.status !== "pending")
       return new ToolApprovalNotFoundError({ approvalId: input.approvalId });
-    const decided = this.approvals.decide({
-      approval,
-      decision: input.decision,
-    });
-    if (decided instanceof Error) return decided;
+    const reserved = this.approvals.reserve(approval.id);
+    if (reserved instanceof Error) return reserved;
+    const content =
+      input.decision === "allow"
+        ? `[System] The user approved ${approval.toolPath} once. Retry that operation with the same arguments and continue their last request.`
+        : `[System] The user denied ${approval.toolPath}. Do not retry that operation. Continue their last request without it.`;
+    const saved = await this.conversation
+      .commit(async (tx) => {
+        await tx.appendEntry(this.conversation.id, {
+          kind: "halo.message",
+          // The separate continuation supplies model context; this entry records the decision even if that input is aborted.
+          model: [],
+          data: {
+            message: {
+              role: "custom",
+              customType: toolApprovalDecisionCustomType,
+              content,
+              details: { approvalId: approval.id, decision: input.decision },
+              display: false,
+              timestamp: Date.now(),
+            },
+          },
+        });
+      }, BACKGROUND_CONTEXT)
+      .catch(
+        (cause) =>
+          new SessionStorageError({ sessionId: this.sessionId, cause }),
+      );
+    if (saved instanceof Error) {
+      this.approvals.release(approval.id);
+      return saved;
+    }
+    if (input.decision === "allow") this.approvals.allow(approval);
     const response = await this.notify({
       customType: toolApprovalDecisionCustomType,
-      content:
-        input.decision === "allow"
-          ? `[System] The user approved ${approval.toolPath} once. Retry that operation with the same arguments and continue their last request.`
-          : `[System] The user denied ${approval.toolPath}. Do not retry that operation. Continue their last request without it.`,
-      details: { approvalId: approval.id, decision: input.decision },
+      content,
     });
-    if (response instanceof Error) {
-      this.approvals.release(approval.id);
-      return response;
-    }
+    if (response instanceof Error) return response;
   }
 
   async appendMessages(messages: readonly StoredMessage[]) {

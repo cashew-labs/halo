@@ -2349,6 +2349,69 @@ serverTest(
 );
 
 serverTest(
+  "keeps approval decisions when a busy continuation is aborted",
+  async ({ server, llm }) => {
+    for (const decision of ["allow", "deny"] as const) {
+      const session = await server.rpc.thread.new();
+      const prompting = server.promptAndWait({
+        ...session,
+        text: "Create a policy",
+      });
+      await llm.respond(
+        m.tool.start("exec", {
+          id: `pending-${decision}`,
+          arguments: {
+            js: `return await tools.executor.coreTools.policies.create({ owner: "user", pattern: "abort-${decision}.*", action: "block" });`,
+          },
+        }),
+      );
+      await llm.respond(m.assistant("Please respond to the approval card."));
+      await prompting;
+      const snapshot = await server.rpc.thread.snapshot(session);
+      const approval = sessionToolExecutions(snapshot).flatMap((execution) =>
+        execution.type === "exec" ? execution.approvals : [],
+      )[0]!;
+      const busy = await server.rpc.thread.prompt({
+        ...session,
+        text: "Work on something else",
+      });
+      await llm.waitForRequest();
+      await server.rpc.thread.respondToToolApproval({
+        ...session,
+        approvalId: approval.id,
+        decision,
+      });
+      await server.rpc.thread.abort(session);
+      await server.rpc.thread.wait({
+        ...session,
+        submissionId: busy.submissionId,
+      });
+      const stopped = await server.rpc.thread.snapshot(session);
+      expect(sessionToolExecutions(stopped)[0]).toMatchObject({
+        approvals: [
+          {
+            id: approval.id,
+            status: decision === "allow" ? "allowed" : "denied",
+          },
+        ],
+      });
+      await server.rpc.thread.close(session);
+      const restored = await server.rpc.thread.snapshot(session);
+      expect(sessionToolExecutions(restored)).toEqual(
+        sessionToolExecutions(stopped),
+      );
+      await expect(
+        server.rpc.thread.respondToToolApproval({
+          ...session,
+          approvalId: approval.id,
+          decision,
+        }),
+      ).rejects.toThrow("no longer pending");
+    }
+  },
+);
+
+serverTest(
   "requires another approval when retry arguments change",
   async ({ server, llm }) => {
     const session = await server.rpc.thread.new();

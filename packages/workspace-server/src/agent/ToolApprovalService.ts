@@ -1,6 +1,6 @@
 import util from "node:util";
 import * as errore from "errore";
-import type { ToolApproval, ToolApprovalDecision } from "@get-halo/client";
+import type { ToolApproval } from "@get-halo/client";
 
 export class ToolApprovalNotFoundError extends errore.createTaggedError({
   name: "ToolApprovalNotFoundError",
@@ -13,19 +13,17 @@ export class ToolApprovalService {
   // Holds approvals until one matching Executor invocation consumes each grant.
   private readonly grants = new Map<string, ToolApproval>();
 
-  decide(input: {
-    approval: ToolApproval;
-    decision: ToolApprovalDecision;
-  }): ToolApprovalNotFoundError | undefined {
-    if (this.decidedApprovalIds.has(input.approval.id)) {
+  reserve(approvalId: string): ToolApprovalNotFoundError | undefined {
+    if (this.decidedApprovalIds.has(approvalId)) {
       return new ToolApprovalNotFoundError({
-        approvalId: input.approval.id,
+        approvalId,
       });
     }
-    this.decidedApprovalIds.add(input.approval.id);
-    if (input.decision === "allow") {
-      this.grants.set(input.approval.id, input.approval);
-    }
+    this.decidedApprovalIds.add(approvalId);
+  }
+
+  allow(approval: ToolApproval) {
+    this.grants.set(approval.id, approval);
   }
 
   consume(input: { toolPath: string; arguments: unknown }) {

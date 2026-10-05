@@ -1046,8 +1046,12 @@ e2eTest(
     await expect(
       card.getByRole("button", { name: "Allow once" }),
     ).toBeVisible();
+    await app.page
+      .getByLabel("Message", { exact: true })
+      .fill("Work on something else");
+    await app.page.getByRole("button", { name: "Send", exact: true }).click();
+    await llm.waitForRequest();
     await card.getByRole("button", { name: "Allow once" }).click();
-    await llm.respond(m.assistant("Approval received."));
     await expect(card.getByRole("status")).toHaveText("Allowed once");
     await expect(card.locator('[data-approval-icon="allowed"]')).toBeVisible();
     await expect(card.getByRole("button")).toHaveCount(0);
@@ -1056,6 +1060,13 @@ e2eTest(
         "The agent wants to create a draft reply in your Gmail account.",
       ),
     ).toBeVisible();
+    await app.page.getByRole("button", { name: "Stop", exact: true }).click();
+    await expect(
+      app.page.getByRole("button", { name: "Stop", exact: true }),
+    ).not.toBeVisible();
+    await app.page.reload();
+    await expect(card.getByRole("status")).toHaveText("Allowed once");
+    await expect(card.getByRole("button")).toHaveCount(0);
   },
 );
 
