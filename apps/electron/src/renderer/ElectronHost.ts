@@ -46,6 +46,10 @@ export class ElectronHost implements HostApi {
     return this.desktopBridge.onShortcut(listener);
   }
 
+  closeWindow() {
+    window.close();
+  }
+
   async getAuthSession() {
     const result = await this.desktopBridge.getAuthSession().catch(
       (cause) =>

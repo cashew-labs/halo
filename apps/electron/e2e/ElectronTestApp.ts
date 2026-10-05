@@ -71,6 +71,7 @@ export class ElectronTestApp {
     const rendererCaptured = await this.artifacts.captureRenderer(page);
     if (rendererCaptured instanceof Error) throw rendererCaptured;
     resources.defer(async () => {
+      if (page.isClosed()) return;
       const screenshot = await this.artifacts.captureScreenshot(page, launch);
       if (screenshot instanceof Error) throw screenshot;
     });
@@ -115,6 +116,12 @@ export class ElectronTestApp {
       }),
     ]);
     killIfRunning(child);
+  }
+
+  async isWindowVisible() {
+    if (this.page.isClosed()) return false;
+    const handle = await this.running.electron.browserWindow(this.page);
+    return await handle.evaluate((window) => window.isVisible());
   }
 
   async pressShortcut(keypress: {

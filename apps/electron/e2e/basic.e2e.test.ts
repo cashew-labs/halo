@@ -2395,6 +2395,34 @@ e2eTest(
 );
 
 e2eTest(
+  "closes only the current tab with the keyboard and closes the window after the last tab",
+  async ({ app }) => {
+    const page = app.page;
+    const tabs = page.locator("[role=toolbar] button[aria-pressed]");
+    const message = page
+      .locator('[data-testid="pane-tab-content"]:visible')
+      .getByLabel("Message", { exact: true });
+    await message.fill("Keep this draft");
+    await app.pressShortcut({ key: "T" });
+    await expect(tabs).toHaveCount(2);
+    await message.fill("Close this draft");
+    await app.pressShortcut({ key: "W" });
+    await expect(tabs).toHaveCount(1);
+    await expect(message).toHaveText("Keep this draft");
+    expect(await app.isWindowVisible()).toBe(true);
+    const otherWindow = await app.openWindow();
+    await expect(
+      otherWindow.locator('[data-testid="pane-tab-content"]:visible'),
+    ).toBeVisible();
+    await app.pressShortcut({ key: "W" });
+    await expect.poll(async () => await app.isWindowVisible()).toBe(false);
+    await expect(
+      otherWindow.locator('[data-testid="pane-tab-content"]:visible'),
+    ).toBeVisible();
+  },
+);
+
+e2eTest(
   "creates hotkeys through chat and applies updates without restarting",
   async ({ app, llm }) => {
     const page = app.page;
