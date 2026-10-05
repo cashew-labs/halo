@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Message } from "@earendil-works/pi-ai";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
-import { copyJson } from "@earendil-works/chord";
+import { copyJson, type JsonRepresentation } from "@earendil-works/chord";
 import {
   BACKGROUND_CONTEXT,
   withAbortSignal,
@@ -36,7 +36,14 @@ import {
   type SessionSummary,
   chatPromptContent,
   applySessionEvent,
+  sessionToolExecutions,
+  toolApprovalDecisionCustomType,
+  type ToolApprovalDecision,
 } from "@get-halo/client";
+import {
+  ToolApprovalNotFoundError,
+  ToolApprovalService,
+} from "./ToolApprovalService.js";
 import { prepareChatAttachments } from "./chatAttachments.js";
 import type { WorkspaceLayout } from "../workspace/WorkspaceService.js";
 import type { FilesystemService } from "../filesystem/FilesystemService.js";
@@ -75,8 +82,11 @@ export class SessionStorageError extends errore.createTaggedError({
 }) {}
 
 type SessionNotification = {
-  customType: "halo.integration.connected";
+  customType:
+    | "halo.integration.connected"
+    | typeof toolApprovalDecisionCustomType;
   content: string;
+  details?: unknown;
 };
 export type ThreadOptions = {
   environment: HaloEnvironment;
@@ -120,6 +130,7 @@ export class Thread {
   private readonly stored: ThreadHandle;
   private readonly filesystem: FilesystemService;
   private readonly workspaceRoot: string;
+  private readonly approvals: ToolApprovalService;
 
   private constructor(ctx: {
     harness: Harness;
@@ -128,6 +139,7 @@ export class Thread {
     data: ThreadData;
     filesystem: FilesystemService;
     workspaceRoot: string;
+    approvals: ToolApprovalService;
   }) {
     const { harness, conversation, stored, data, filesystem, workspaceRoot } =
       ctx;
@@ -137,6 +149,7 @@ export class Thread {
     this.sessionId = stored.metadata.id;
     this.filesystem = filesystem;
     this.workspaceRoot = workspaceRoot;
+    this.approvals = ctx.approvals;
     this.projection = new SessionProjection(data);
     this.snapshot = this.events.project(
       this.projection.snapshot(),
@@ -188,6 +201,8 @@ export class Thread {
     });
     const reloaded = await resourceLoader.reload();
     if (reloaded instanceof Error) return reloaded;
+    const approvals = new ToolApprovalService();
+    cleanup.defer(() => approvals.close());
     const tools: ToolRegistration[] = [
       ...createCodingTools({
         cwd: layout.root,
@@ -219,6 +234,7 @@ export class Thread {
         runtimeDescription,
         modelId: llmApi.model.id,
         threadId: stored.metadata.id,
+        consumeApproval: (input) => approvals.consume(input),
       }),
     ].map((tool) =>
       limitToolOutput(tool, {
@@ -274,6 +290,7 @@ export class Thread {
             data: await stored.read(),
             filesystem: options.filesystem,
             workspaceRoot: layout.root,
+            approvals,
           }),
         BACKGROUND_CONTEXT,
       )
@@ -420,6 +437,57 @@ export class Thread {
     this.updates.append({ type: "event", event });
   }
 
+  async respondToToolApproval(input: {
+    approvalId: string;
+    decision: ToolApprovalDecision;
+  }) {
+    const approval = sessionToolExecutions(this.readSnapshot([]))
+      .flatMap((execution) =>
+        execution.type === "exec" ? execution.approvals : [],
+      )
+      .find((candidate) => candidate.id === input.approvalId);
+    if (approval === undefined || approval.status !== "pending")
+      return new ToolApprovalNotFoundError({ approvalId: input.approvalId });
+    const reserved = this.approvals.reserve(approval.id);
+    if (reserved instanceof Error) return reserved;
+    const content =
+      input.decision === "allow"
+        ? `[System] The user approved ${approval.toolPath} once. Retry that operation with the same arguments and continue their last request.`
+        : `[System] The user denied ${approval.toolPath}. Do not retry that operation. Continue their last request without it.`;
+    const saved = await this.conversation
+      .commit(async (tx) => {
+        await tx.appendEntry(this.conversation.id, {
+          kind: "halo.message",
+          // The separate continuation supplies model context; this entry records the decision even if that input is aborted.
+          model: [],
+          data: {
+            message: {
+              role: "custom",
+              customType: toolApprovalDecisionCustomType,
+              content,
+              details: { approvalId: approval.id, decision: input.decision },
+              display: false,
+              timestamp: Date.now(),
+            },
+          },
+        });
+      }, BACKGROUND_CONTEXT)
+      .catch(
+        (cause) =>
+          new SessionStorageError({ sessionId: this.sessionId, cause }),
+      );
+    if (saved instanceof Error) {
+      this.approvals.release(approval.id);
+      return saved;
+    }
+    if (input.decision === "allow") this.approvals.allow(approval);
+    const response = await this.notify({
+      customType: toolApprovalDecisionCustomType,
+      content,
+    });
+    if (response instanceof Error) return response;
+  }
+
   async appendMessages(messages: readonly StoredMessage[]) {
     return await this.conversation
       .commit(async (tx) => {
@@ -487,23 +555,11 @@ export class Thread {
     const saved = await this.conversation
       .commit(async (tx) => {
         const state = await tx.doc(HaloThreadDoc, this.conversation.id);
-        if (message.role === "user") {
-          const { content: _content, ...presentation } = message;
-          // SAFETY: Removing undefined optional fields preserves the presentation shape and makes it valid Chord JSON.
-          state.inputs[requestId] ??= copyJson(presentation, {
-            omitUndefinedProperties: true,
-          }) as MessagePresentation;
-        } else {
-          const {
-            content: _content,
-            details: _details,
-            ...presentation
-          } = message;
-          // SAFETY: Removing undefined optional fields preserves the presentation shape and makes it valid Chord JSON.
-          state.inputs[requestId] ??= copyJson(presentation, {
-            omitUndefinedProperties: true,
-          }) as MessagePresentation;
-        }
+        const { content: _content, ...presentation } = message;
+        // SAFETY: Removing undefined optional fields preserves the presentation shape and makes it valid Chord JSON.
+        state.inputs[requestId] ??= copyJson(presentation, {
+          omitUndefinedProperties: true,
+        }) as JsonRepresentation<MessagePresentation>;
       }, BACKGROUND_CONTEXT)
       .catch(
         (cause) =>
@@ -598,6 +654,7 @@ export class Thread {
   async close() {
     this.publishWorkIdle(false);
     this.closed.abort();
+    this.approvals.close();
     clearTimeout(this.idleTimer);
     const closed = await this.harness
       .close(BACKGROUND_CONTEXT)

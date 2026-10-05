@@ -1,4 +1,8 @@
-import type { ConnectionRequest, HaloMessage } from "@get-halo/client";
+import type {
+  ConnectionRequest,
+  HaloMessage,
+  ToolApproval,
+} from "@get-halo/client";
 
 type ToolArguments = Extract<
   Extract<HaloMessage, { role: "assistant" }>["content"][number],
@@ -20,6 +24,7 @@ type ExecDescription = {
   type: "exec";
   js: string;
   tools?: ToolDescription[];
+  approvals?: ToolApproval[];
   result?: string;
   isError?: boolean;
 };

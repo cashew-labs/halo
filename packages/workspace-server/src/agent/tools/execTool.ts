@@ -8,7 +8,7 @@ import { Value } from "@sinclair/typebox/value";
 import { Type } from "typebox";
 import * as errore from "errore";
 import {
-  ConnectionRequiredError,
+  ToolInputRequiredError,
   type ToolRuntime,
 } from "../runtime/ToolRuntime.js";
 
@@ -26,6 +26,7 @@ export function createExecTool(input: {
   runtimeDescription: string;
   modelId: string;
   threadId: string;
+  consumeApproval: Parameters<ToolRuntime["executeCode"]>[0]["consumeApproval"];
 }): ToolRegistration<typeof execParameters> {
   return defineTool({
     name: "exec",
@@ -43,6 +44,7 @@ export function createExecTool(input: {
         modelId: input.modelId,
         parentToolCallId: api.callId,
         threadId: input.threadId,
+        consumeApproval: input.consumeApproval,
         onToolEvent: (event) => {
           const update = progressQueue
             .run(async () => {
@@ -76,13 +78,14 @@ export function createExecTool(input: {
       );
       // Pi's tool boundary requires thrown failures.
       if (progressFailure instanceof Error) throw progressFailure;
-      if (result instanceof ConnectionRequiredError) {
+      if (result instanceof ToolInputRequiredError) {
         return {
           content: [{ type: "text" as const, text: result.message }],
           details: copyJson(
             {
               error: result.message,
               toolCalls: [...toolCalls.values()],
+              toolApprovals: result.approvals,
               connectionRequests: result.connectionRequests,
             },
             { omitUndefinedProperties: true },

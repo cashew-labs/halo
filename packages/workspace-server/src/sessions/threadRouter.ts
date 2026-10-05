@@ -162,6 +162,18 @@ export const threadRouter = os.router({
     const cancelled = await context.connections.cancelConnection(input);
     if (cancelled instanceof Error) return orpcErrors.badRequest(cancelled);
   }),
+  respondToToolApproval: os.respondToToolApproval.handler(
+    async ({ input, context }) => {
+      context.logger.info({
+        event: "agentSession.respondToToolApproval",
+        sessionId: input.sessionId,
+        approvalId: input.approvalId,
+        decision: input.decision,
+      });
+      const responded = await context.sessions.respondToToolApproval(input);
+      if (responded instanceof Error) return orpcErrors.badRequest(responded);
+    },
+  ),
   abort: os.abort.handler(async ({ input, context }) => {
     context.logger.info({
       event: "abort",

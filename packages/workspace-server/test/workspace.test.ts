@@ -2185,6 +2185,299 @@ serverTest(
 );
 
 serverTest(
+  "preserves every connection and approval requested by one exec",
+  async ({ server, llm }) => {
+    const session = await server.rpc.thread.new();
+    const prompting = server.promptAndWait({
+      ...session,
+      text: "Connect Drive and Gmail and create two policies",
+    });
+    await llm.respond(
+      m.tool.start("exec", {
+        id: "mixed-requests",
+        arguments: {
+          js: `return await Promise.allSettled([
+        tools.halo.showConnectionCard({ integration: "google_drive" }),
+        tools.executor.coreTools.policies.create({ owner: "user", pattern: "mixed-first.*", action: "block" }),
+        tools.halo.showConnectionCard({ integration: "google_gmail" }),
+        tools.executor.coreTools.policies.create({ owner: "user", pattern: "mixed-second.*", action: "block" })
+      ]);`,
+        },
+      }),
+    );
+    await llm.respond(
+      m.assistant("Please respond to the connection and approval cards."),
+    );
+    await prompting;
+    const snapshot = await server.rpc.thread.snapshot(session);
+    const executions = sessionToolExecutions(snapshot);
+    expect(executions).toHaveLength(1);
+    const execution = executions[0]!;
+    assert(execution.type === "exec");
+    expect(execution.approvals).toHaveLength(2);
+    expect(execution.approvals).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          toolPath: "executor.coreTools.policies.create",
+          status: "pending",
+          arguments: {
+            owner: "user",
+            pattern: "mixed-first.*",
+            action: "block",
+          },
+        }),
+        expect.objectContaining({
+          toolPath: "executor.coreTools.policies.create",
+          status: "pending",
+          arguments: {
+            owner: "user",
+            pattern: "mixed-second.*",
+            action: "block",
+          },
+        }),
+      ]),
+    );
+    expect(execution.result?.details).toMatchObject({
+      connectionRequests: [
+        expect.objectContaining({ integration: "google_drive" }),
+        expect.objectContaining({ integration: "google_gmail" }),
+      ],
+    });
+    await server.rpc.thread.close(session);
+    expect(
+      sessionToolExecutions(await server.rpc.thread.snapshot(session)),
+    ).toEqual(executions);
+  },
+);
+
+serverTest(
+  "finishes approval requests and retries only after a thread response",
+  async ({ server, llm }) => {
+    for (const decision of ["allow", "deny"] as const) {
+      const session = await server.rpc.thread.new();
+      const prompting = server.promptAndWait({
+        ...session,
+        text: `${decision} the policy`,
+      });
+      const js = `return await tools.executor.coreTools.policies.create({ owner: "user", pattern: "approval-test-${decision}.*", action: "block" });`;
+      await llm.respond(
+        m.tool.start("exec", {
+          id: `approval-request-${decision}`,
+          arguments: { js },
+        }),
+      );
+      await llm.respond(m.assistant(`Waiting for ${decision}`));
+      await prompting;
+      const pending = await server.rpc.thread.snapshot(session);
+      expect(pending.activeRun).toBeUndefined();
+      const approval = sessionToolExecutions(pending).flatMap((execution) =>
+        execution.type === "exec" ? execution.approvals : [],
+      )[0]!;
+      expect(approval.status).toBe("pending");
+
+      await server.rpc.thread.respondToToolApproval({
+        ...session,
+        approvalId: approval.id,
+        decision,
+      });
+      if (decision === "allow") {
+        await llm.respond(
+          m.tool.start("exec", {
+            id: "approval-retry-allow",
+            arguments: { js },
+          }),
+        );
+      }
+      await llm.respond(m.assistant(`${decision} finished`));
+
+      await expect
+        .poll(async () => {
+          const snapshot = await server.rpc.thread.snapshot(session);
+          return {
+            activeRun: snapshot.activeRun,
+            executions: sessionToolExecutions(snapshot),
+          };
+        })
+        .toMatchObject({
+          activeRun: undefined,
+          executions:
+            decision === "allow"
+              ? [
+                  {
+                    approvals: [{ id: approval.id, status: "allowed" }],
+                  },
+                  { id: "approval-retry-allow", status: "completed" },
+                ]
+              : [
+                  {
+                    approvals: [{ id: approval.id, status: "denied" }],
+                  },
+                ],
+        });
+      const completed = await server.rpc.thread.snapshot(session);
+      const executions = sessionToolExecutions(completed);
+      expect(executions[0]).toMatchObject({
+        type: "exec",
+        status: "completed",
+        approvals: [
+          {
+            id: approval.id,
+            status: decision === "allow" ? "allowed" : "denied",
+          },
+        ],
+      });
+      expect(executions).toHaveLength(decision === "allow" ? 2 : 1);
+      if (decision === "allow") {
+        expect(executions[1]).toMatchObject({
+          id: "approval-retry-allow",
+          status: "completed",
+          approvals: [],
+        });
+      }
+      await server.rpc.thread.close(session);
+      const restored = await server.rpc.thread.snapshot(session);
+      expect(sessionToolExecutions(restored)).toEqual(executions);
+      await expect(
+        server.rpc.thread.respondToToolApproval({
+          ...session,
+          approvalId: approval.id,
+          decision,
+        }),
+      ).rejects.toThrow("no longer pending");
+    }
+  },
+);
+
+serverTest(
+  "keeps approval decisions when a busy continuation is aborted",
+  async ({ server, llm }) => {
+    for (const decision of ["allow", "deny"] as const) {
+      const session = await server.rpc.thread.new();
+      const prompting = server.promptAndWait({
+        ...session,
+        text: "Create a policy",
+      });
+      await llm.respond(
+        m.tool.start("exec", {
+          id: `pending-${decision}`,
+          arguments: {
+            js: `return await tools.executor.coreTools.policies.create({ owner: "user", pattern: "abort-${decision}.*", action: "block" });`,
+          },
+        }),
+      );
+      await llm.respond(m.assistant("Please respond to the approval card."));
+      await prompting;
+      const snapshot = await server.rpc.thread.snapshot(session);
+      const approval = sessionToolExecutions(snapshot).flatMap((execution) =>
+        execution.type === "exec" ? execution.approvals : [],
+      )[0]!;
+      const busy = await server.rpc.thread.prompt({
+        ...session,
+        text: "Work on something else",
+      });
+      await llm.waitForRequest();
+      await server.rpc.thread.respondToToolApproval({
+        ...session,
+        approvalId: approval.id,
+        decision,
+      });
+      await server.rpc.thread.abort(session);
+      await server.rpc.thread.wait({
+        ...session,
+        submissionId: busy.submissionId,
+      });
+      const stopped = await server.rpc.thread.snapshot(session);
+      expect(sessionToolExecutions(stopped)[0]).toMatchObject({
+        approvals: [
+          {
+            id: approval.id,
+            status: decision === "allow" ? "allowed" : "denied",
+          },
+        ],
+      });
+      await server.rpc.thread.close(session);
+      const restored = await server.rpc.thread.snapshot(session);
+      expect(sessionToolExecutions(restored)).toEqual(
+        sessionToolExecutions(stopped),
+      );
+      await expect(
+        server.rpc.thread.respondToToolApproval({
+          ...session,
+          approvalId: approval.id,
+          decision,
+        }),
+      ).rejects.toThrow("no longer pending");
+    }
+  },
+);
+
+serverTest(
+  "requires another approval when retry arguments change",
+  async ({ server, llm }) => {
+    const session = await server.rpc.thread.new();
+    const originalJs =
+      'return await tools.executor.coreTools.policies.create({ owner: "user", pattern: "approval-original.*", action: "block" });';
+    const prompting = server.promptAndWait({
+      ...session,
+      text: "Create the policy",
+    });
+    await llm.respond(
+      m.tool.start("exec", {
+        id: "approval-original",
+        arguments: { js: originalJs },
+      }),
+    );
+    await llm.respond(m.assistant("Waiting for approval"));
+    await prompting;
+    const pending = await server.rpc.thread.snapshot(session);
+    const originalApproval = sessionToolExecutions(pending).flatMap(
+      (execution) => (execution.type === "exec" ? execution.approvals : []),
+    )[0]!;
+
+    await server.rpc.thread.respondToToolApproval({
+      ...session,
+      approvalId: originalApproval.id,
+      decision: "allow",
+    });
+    const changedJs =
+      'return await tools.executor.coreTools.policies.create({ owner: "user", pattern: "approval-changed.*", action: "block" });';
+    await llm.respond(
+      m.tool.start("exec", {
+        id: "approval-changed",
+        arguments: { js: changedJs },
+      }),
+    );
+    await llm.respond(m.assistant("The changed request needs approval"));
+
+    await expect
+      .poll(async () => {
+        const snapshot = await server.rpc.thread.snapshot(session);
+        return {
+          activeRun: snapshot.activeRun,
+          approvals: sessionToolExecutions(snapshot).flatMap((execution) =>
+            execution.type === "exec" ? execution.approvals : [],
+          ),
+        };
+      })
+      .toMatchObject({
+        activeRun: undefined,
+        approvals: [
+          { id: originalApproval.id, status: "allowed" },
+          { status: "pending", arguments: { pattern: "approval-changed.*" } },
+        ],
+      });
+    const completed = await server.rpc.thread.snapshot(session);
+    const approvals = sessionToolExecutions(completed).flatMap((execution) =>
+      execution.type === "exec" ? execution.approvals : [],
+    );
+    expect(approvals).toMatchObject([
+      { id: originalApproval.id, status: "allowed" },
+      { status: "pending", arguments: { pattern: "approval-changed.*" } },
+    ]);
+  },
+);
+
+serverTest(
   "exposes the same exec activity through live updates, snapshots, and server restart",
   async ({ server, llm, http }) => {
     await server.rpc.workspace.writeFile({

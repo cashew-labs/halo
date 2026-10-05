@@ -963,6 +963,154 @@ e2eTest("shows a connection request", async ({ harness, app }) => {
 });
 
 e2eTest(
+  "shows connection and approval cards from the same exec",
+  async ({ app, llm }, testInfo) => {
+    await app.page
+      .getByRole("button", { name: "New tab", exact: true })
+      .click();
+    const pane = app.page.getByRole("main", { name: "New session" });
+    await pane
+      .getByLabel("Message", { exact: true })
+      .fill("Connect Drive and create a policy");
+    await pane.getByRole("button", { name: "Send", exact: true }).click();
+    await llm.respond(
+      m.tool.start("exec", {
+        id: "mixed-requests",
+        arguments: {
+          js: `return await Promise.allSettled([
+        tools.halo.showConnectionCard({ integration: "google_drive" }),
+        tools.executor.coreTools.policies.create({ owner: "user", pattern: "mixed-demo.*", action: "block" })
+      ]);`,
+        },
+      }),
+    );
+    await llm.respond(m.assistant("Please respond to both cards."));
+    const connection = app.page.getByRole("region", {
+      name: "Google Drive connection",
+    });
+    const approval = app.page.getByRole("region", {
+      name: "Approve this tool action? approval",
+    });
+    await expect(
+      connection.getByRole("button", { name: "Connect", exact: true }),
+    ).toBeVisible();
+    await expect(
+      approval.getByRole("button", { name: "Allow once", exact: true }),
+    ).toBeVisible();
+    await expect(
+      app.page.getByRole("button", { name: "Stop", exact: true }),
+    ).not.toBeVisible();
+    await app.page.screenshot({
+      path: testInfo.outputPath("mixed-requests.png"),
+    });
+    await app.page.reload();
+    await expect(connection).toBeVisible();
+    await expect(approval).toBeVisible();
+  },
+);
+
+e2eTest(
+  "shows a Gmail draft approval request",
+  async ({ harness, app, llm }) => {
+    await harness.loadSession({
+      title: "Draft reply",
+      messages: [
+        m.user("Draft a reply"),
+        m.exec({
+          js: "return await tools.google_gmail.user.default.gmail.users.drafts.create({})",
+          approvals: [
+            {
+              id: "draft-approval",
+              toolPath: "google_gmail.user.default.gmail.users.drafts.create",
+              message: "POST /gmail/v1/users/{userId}/drafts",
+              arguments: {},
+              status: "pending",
+            },
+          ],
+        }),
+      ],
+    });
+
+    const card = app.page.getByRole("region", {
+      name: "Create Gmail draft? approval",
+    });
+    await expect(card).toBeVisible();
+    await expect(card.locator('[data-approval-icon="mail"]')).toBeVisible();
+    await expect(card.locator('[data-approval-icon="generic"]')).toHaveCount(0);
+    await expect(
+      card.getByText(
+        "The agent wants to create a draft reply in your Gmail account.",
+      ),
+    ).toBeVisible();
+    await expect(card.getByRole("button", { name: "Deny" })).toBeVisible();
+    await expect(
+      card.getByRole("button", { name: "Allow once" }),
+    ).toBeVisible();
+    await app.page
+      .getByLabel("Message", { exact: true })
+      .fill("Work on something else");
+    await app.page.getByRole("button", { name: "Send", exact: true }).click();
+    await llm.waitForRequest();
+    await card.getByRole("button", { name: "Allow once" }).click();
+    await expect(card.getByRole("status")).toHaveText("Allowed once");
+    await expect(card.locator('[data-approval-icon="allowed"]')).toBeVisible();
+    await expect(card.getByRole("button")).toHaveCount(0);
+    await expect(
+      card.getByText(
+        "The agent wants to create a draft reply in your Gmail account.",
+      ),
+    ).toBeVisible();
+    await app.page.getByRole("button", { name: "Stop", exact: true }).click();
+    await expect(
+      app.page.getByRole("button", { name: "Stop", exact: true }),
+    ).not.toBeVisible();
+    await app.page.reload();
+    await expect(card.getByRole("status")).toHaveText("Allowed once");
+    await expect(card.getByRole("button")).toHaveCount(0);
+  },
+);
+
+e2eTest(
+  "shows a generic icon for other approvals",
+  async ({ harness, app, llm }) => {
+    await harness.loadSession({
+      title: "Policy approval",
+      messages: [
+        m.user("Create a tool policy"),
+        m.exec({
+          js: "return await tools.executor.coreTools.policies.create({})",
+          approvals: [
+            {
+              id: "policy-approval",
+              toolPath: "executor.coreTools.policies.create",
+              message: "Approve executor.coreTools.policies.create?",
+              arguments: {},
+              status: "pending",
+            },
+          ],
+        }),
+      ],
+    });
+
+    const card = app.page.getByRole("region", {
+      name: "Approve this tool action? approval",
+    });
+    await expect(card.locator('[data-approval-icon="generic"]')).toBeVisible();
+    await expect(card.locator('[data-approval-icon="mail"]')).toHaveCount(0);
+    await card.getByRole("button", { name: "Deny", exact: true }).click();
+    await llm.respond(m.assistant("I will continue without that action."));
+    await expect(card.getByRole("status")).toHaveText("Denied");
+    await expect(card.locator('[data-approval-icon="denied"]')).toBeVisible();
+    await expect(card.getByRole("button")).toHaveCount(0);
+    await expect(
+      card.getByText("Approve executor.coreTools.policies.create?", {
+        exact: true,
+      }),
+    ).toBeVisible();
+  },
+);
+
+e2eTest(
   "starts connecting a tool from the connection card",
   async ({ harness, app }) => {
     await harness.loadSession({

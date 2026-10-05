@@ -17,7 +17,7 @@ import { sessionEntry, sessionSnapshot } from "./sessionEvents.js";
 
 export type MessagePresentation =
   | Omit<Extract<HaloMessage, { role: "user" }>, "content">
-  | Omit<Extract<HaloMessage, { role: "custom" }>, "content" | "details">;
+  | Omit<Extract<HaloMessage, { role: "custom" }>, "content">;
 
 export const HaloThreadDoc = defineDoc<{
   name?: string;

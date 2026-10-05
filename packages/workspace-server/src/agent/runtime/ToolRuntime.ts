@@ -62,6 +62,7 @@ import * as errore from "errore";
 import type {
   ConnectionRequest,
   OAuthCompletion,
+  ToolApproval,
   ToolIdentity,
 } from "@get-halo/client";
 import { createExecutorDatabase } from "./createExecutorDatabase.js";
@@ -91,19 +92,22 @@ export class ToolRuntimeToolNotFoundError extends errore.createTaggedError({
   message: 'Tool "$path" was not found',
 }) {}
 
-export class ConnectionRequiredError extends errore.createTaggedError({
-  name: "ConnectionRequiredError",
+export class ToolInputRequiredError extends errore.createTaggedError({
+  name: "ToolInputRequiredError",
   message:
-    "A connection is required before this code can run. A connection card has been shown to the user. Tell them to use it to connect their account. You will be notified once they've finished connecting.",
+    "Some operations need user input before they can run. Cards have been shown for all requested connections and approvals. Tell the user to respond to those cards. You will be notified after they respond.",
 }) {
   readonly connectionRequests: ConnectionRequest[];
+  readonly approvals: ToolApproval[];
 
   constructor(input: {
     connectionRequests: ConnectionRequest[];
+    approvals: ToolApproval[];
     cause: Error | undefined;
   }) {
     super({ cause: input.cause });
     this.connectionRequests = input.connectionRequests;
+    this.approvals = input.approvals;
   }
 }
 
@@ -499,10 +503,15 @@ export class ToolRuntime {
     parentToolCallId: string;
     threadId?: string;
     onToolEvent?: (event: ExecActivityUpdate) => void;
+    consumeApproval: (input: {
+      toolPath: string;
+      arguments: unknown;
+    }) => boolean;
   }) {
     using cleanup = new errore.DisposableStack();
     cleanup.use(this.retainExecution());
     const connectionRequests: ConnectionRequest[] = [];
+    const approvalRequests: ToolApproval[] = [];
     const execution = await this.executionContext.run(
       {
         signal: input.signal,
@@ -522,8 +531,25 @@ export class ToolRuntime {
               );
               if (connection !== undefined) {
                 connectionRequests.push(connection);
+                return Effect.succeed({ action: "decline" as const });
               }
-              return Effect.succeed({ action: "decline" });
+              const toolPath = sandboxPath(String(context.address));
+              if (
+                input.consumeApproval({
+                  toolPath,
+                  arguments: context.args,
+                })
+              ) {
+                return Effect.succeed({ action: "accept" as const });
+              }
+              approvalRequests.push({
+                id: randomUUID(),
+                toolPath,
+                message: context.request.message.split("\n", 1).join(),
+                arguments: context.args,
+                status: "pending",
+              });
+              return Effect.succeed({ action: "decline" as const });
             },
           }),
         ).catch(
@@ -534,8 +560,12 @@ export class ToolRuntime {
     if (execution instanceof Error) return execution;
     const cause =
       execution.error === undefined ? undefined : new Error(execution.error);
-    if (connectionRequests.length > 0) {
-      return new ConnectionRequiredError({ connectionRequests, cause });
+    if (connectionRequests.length > 0 || approvalRequests.length > 0) {
+      return new ToolInputRequiredError({
+        connectionRequests,
+        approvals: approvalRequests,
+        cause,
+      });
     }
     return execution;
   }

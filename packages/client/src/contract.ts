@@ -16,6 +16,7 @@ import type { TraceAgent, TraceEvent, TraceOutcome } from "./traces.js";
 import type {
   SessionWatchItem,
   SessionSnapshot,
+  ToolApprovalDecision,
   ToolIdentity,
   HaloMessage,
 } from "./sessionState.js";
@@ -206,6 +207,14 @@ export const contract = publicProcedure.router({
     completeOAuth: oc.input(type<{ state: string; code: string }>()),
     cancelConnection:
       oc.input(type<{ sessionId: string; connectionId: string }>()),
+    respondToToolApproval:
+      oc.input(
+        type<{
+          sessionId: string;
+          approvalId: string;
+          decision: ToolApprovalDecision;
+        }>(),
+      ),
     abort: oc.input(type<{ sessionId: string }>()),
     close: oc.input(type<{ sessionId: string }>()),
   },

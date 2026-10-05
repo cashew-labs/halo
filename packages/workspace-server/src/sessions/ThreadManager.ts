@@ -272,6 +272,17 @@ export class ThreadManager {
     );
   }
 
+  async respondToToolApproval(
+    input: Parameters<Thread["respondToToolApproval"]>[0] & {
+      sessionId: string;
+    },
+  ) {
+    return await this.withThread(
+      input.sessionId,
+      async (thread) => await thread.respondToToolApproval(input),
+    );
+  }
+
   async publishConnectionEvent(sessionId: string, event: HaloConnectionEvent) {
     return await this.withThread(sessionId, (thread) =>
       thread.publishConnectionEvent(event),
