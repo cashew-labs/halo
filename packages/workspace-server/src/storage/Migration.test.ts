@@ -7,8 +7,12 @@ import { migrateExecutorTenant } from "./migrateExecutorTenant.js";
 import { initialWorkspaceMigration } from "./migrations/20260921130000-initialWorkspace.js";
 import { initialExecutorMigration } from "./migrations/20260921133000-initialExecutorMigration.js";
 import { sessionStatusMigration } from "./migrations/20260921194000-sessionStatus.js";
+import { prepareLegacyThreads } from "./migrations/20261005100000-legacyThreads.js";
 import { durableStorageMigration } from "./migrations/20261003100000-durableStorage.js";
-import { workspaceMigrations } from "./migrations/workspaceMigrations.js";
+import {
+  migrateWorkspace,
+  workspaceMigrations,
+} from "./migrations/workspaceMigrations.js";
 
 type MigrationFixture = {
   attemptOpen(migrations: readonly Migration[]): Database | Error;
@@ -28,7 +32,10 @@ const migrationTest = baseTest.extend<{ migration: MigrationFixture }>({
     const openConnections = new Set<Database>();
     const attemptOpen = (migrations: readonly Migration[]) => {
       const connection = new Database(path.join(directory, "state.db"));
-      const migrated = applyMigrations({ connection, migrations });
+      const migrated =
+        migrations === workspaceMigrations
+          ? migrateWorkspace(connection)
+          : applyMigrations({ connection, migrations });
       if (migrated instanceof Error) {
         connection.close();
         return migrated;
@@ -167,7 +174,7 @@ migrationTest(
 );
 
 migrationTest(
-  "drops obsolete session data while preserving unrelated workspace data",
+  "migrates legacy conversations while preserving workspace data",
   ({ migration }) => {
     const durableMigrationIndex = workspaceMigrations.indexOf(
       durableStorageMigration,
@@ -179,9 +186,11 @@ migrationTest(
     const legacy = migration.open(legacyMigrations);
     legacy.exec(`
       INSERT INTO halo_sessions (id, metadata, next_seq, stats, marked_done, read_receipt_cursor_id)
-        VALUES ('old-session', '{"id":"old-session","createdAt":1}', 2, '{}', 1, 'cursor');
+        VALUES ('old-session', '{"id":"old-session","createdAt":1}', 3, '{}', 1, 'answer');
       INSERT INTO halo_session_entries (session_id, id, seq, timestamp, type, payload)
-        VALUES ('old-session', 'entry', 1, 1, 'message', '{}');
+        VALUES ('old-session', 'entry', 1, 1, 'message', '{"type":"message","message":{"role":"user","content":"Remember copper otter","timestamp":1}}');
+      INSERT INTO halo_session_entries (session_id, id, parent_id, seq, timestamp, type, payload)
+        VALUES ('old-session', 'answer', 'entry', 2, 2, 'message', '{"type":"message","message":{"role":"assistant","content":[{"type":"text","text":"Copper otter saved"}],"timestamp":2}}');
       INSERT INTO halo_session_values (session_id, namespace, key, seq, payload)
         VALUES ('old-session', 'namespace', 'value', 1, '{}');
       INSERT INTO halo_session_lists (session_id, namespace, key, seq, payload)
@@ -207,7 +216,25 @@ migrationTest(
         )
         .all(),
     ).toEqual([]);
-    expect(upgraded.prepare("SELECT * FROM halo_threads").all()).toEqual([]);
+    expect(
+      upgraded
+        .prepare(
+          "SELECT id, marked_done, read_receipt_cursor_id FROM halo_threads",
+        )
+        .all(),
+    ).toEqual([
+      { id: "old-session", marked_done: 1, read_receipt_cursor_id: "3" },
+    ]);
+    expect(
+      upgraded
+        .prepare(
+          "SELECT json_extract(record, '$.data.message.content') AS content FROM entries ORDER BY id",
+        )
+        .all(),
+    ).toEqual([
+      { content: "Remember copper otter" },
+      { content: '[{"type":"text","text":"Copper otter saved"}]' },
+    ]);
     expect(
       upgraded
         .prepare("PRAGMA table_info(halo_threads)")
@@ -221,17 +248,116 @@ migrationTest(
     expect(upgraded.prepare("SELECT * FROM user_hotkeys").all()).toEqual([
       { user_id: "user", hotkeys: '{"command":"Ctrl+K"}' },
     ]);
-    // Recovery can interrupt unfinished routines without opening discarded threads.
+    // Existing routine history keeps its link to the migrated thread.
     expect(
       upgraded
         .prepare(
-          "SELECT id, status, thread_id IS NULL AS detached FROM halo_routine_runs ORDER BY id",
+          "SELECT id, status, thread_id FROM halo_routine_runs ORDER BY id",
         )
         .all(),
     ).toEqual([
-      { id: "completed", status: "completed", detached: 1 },
-      { id: "running", status: "running", detached: 1 },
+      { id: "completed", status: "completed", thread_id: "old-session" },
+      { id: "running", status: "running", thread_id: "old-session" },
     ]);
+  },
+);
+
+migrationTest(
+  "preserves branches, compaction context, names, and read receipts after interrupted migration",
+  ({ migration }) => {
+    const durableIndex = workspaceMigrations.indexOf(durableStorageMigration);
+    const old = migration.open(workspaceMigrations.slice(0, durableIndex));
+    old.exec(`
+    INSERT INTO halo_sessions VALUES ('history','{"id":"history","createdAt":1}',6,'{}',0,'run-id');
+    INSERT INTO halo_session_entries (session_id,id,parent_id,seq,timestamp,type,payload) VALUES
+      ('history','user',NULL,1,1,'message','{"type":"message","message":{"role":"user","content":"Long ago","timestamp":1}}'),
+      ('history','assistant','user',2,2,'message','{"type":"message","message":{"role":"assistant","content":[{"type":"text","text":"Original response"}],"timestamp":2}}'),
+      ('history','compact','assistant',3,3,'compaction','{"summary":"Remember copper otter","retainedTail":[{"role":"user","content":"Keep this tail","timestamp":2}]}'),
+      ('history','latest','compact',4,4,'message','{"type":"message","message":{"role":"assistant","content":[{"type":"text","text":"After compacting"}],"timestamp":4}}'),
+      ('history','alternative','user',5,5,'message','{"type":"message","message":{"role":"assistant","content":[{"type":"text","text":"Alternate response"}],"timestamp":5}}');
+    INSERT INTO halo_session_values VALUES
+      ('history','pi.branch.tip','main',5,'"latest"'),
+      ('history','pi.branch.tip','other',5,'"alternative"'),
+      ('history','pi.session.name','',5,'"Named conversation"'),
+      ('history','pi.result','run-id',5,'{"tipId":"latest","status":"succeeded"}');
+  `);
+    expect(prepareLegacyThreads(old)).toBeUndefined();
+    // Simulate a process exiting after the published schema change, using real SQL.
+    expect(
+      applyMigrations({
+        connection: old,
+        migrations: workspaceMigrations.slice(0, durableIndex + 1),
+      }),
+    ).toBeUndefined();
+    migration.close(old);
+    const upgraded = migration.open(workspaceMigrations);
+    expect(
+      upgraded.prepare("SELECT read_receipt_cursor_id FROM halo_threads").get(),
+    ).toEqual({ read_receipt_cursor_id: "6" });
+    expect(
+      upgraded.prepare("SELECT count(*) AS count FROM conversations").get(),
+    ).toEqual({ count: 2 });
+    // SAFETY: The query projects the migrated JSON model and integer entry IDs.
+    const compact = upgraded
+      .prepare(
+        "SELECT json_extract(record,'$.model') AS model,head,id FROM entries WHERE head IS NOT NULL",
+      )
+      .get() as { model: string; head: number; id: number };
+    expect(compact.head).toBe(compact.id);
+    expect(JSON.parse(compact.model)).toEqual([
+      { role: "user", content: "Remember copper otter", timestamp: 3 },
+      { role: "user", content: "Keep this tail", timestamp: 2 },
+    ]);
+    expect(
+      upgraded
+        .prepare(
+          "SELECT json_extract(content,'$.name') AS name FROM document_revisions",
+        )
+        .get(),
+    ).toEqual({ name: "Named conversation" });
+    expect(
+      upgraded.prepare("SELECT count(*) AS count FROM entries").get(),
+    ).toEqual({ count: 6 });
+    migration.close(upgraded);
+    const reopened = migration.open(workspaceMigrations);
+    expect(
+      reopened.prepare("SELECT count(*) AS count FROM entries").get(),
+    ).toEqual({ count: 6 });
+  },
+);
+
+migrationTest(
+  "leaves already-durable thread state unchanged",
+  ({ migration }) => {
+    const old = migration.open(workspaceMigrations.slice(0, -1));
+    old.exec(
+      `INSERT INTO halo_threads (id,metadata,read_receipt_cursor_id) VALUES ('current','{"id":"current","createdAt":1}','123');`,
+    );
+    migration.close(old);
+    const upgraded = migration.open(workspaceMigrations);
+    expect(
+      upgraded.prepare("SELECT read_receipt_cursor_id FROM halo_threads").get(),
+    ).toEqual({ read_receipt_cursor_id: "123" });
+  },
+);
+
+migrationTest(
+  "rejects broken legacy history before dropping source rows",
+  ({ migration }) => {
+    const old = migration.open(
+      workspaceMigrations.slice(
+        0,
+        workspaceMigrations.indexOf(durableStorageMigration),
+      ),
+    );
+    old.exec(`
+    INSERT INTO halo_sessions VALUES ('broken','{"id":"broken","createdAt":1}',2,'{}',0,NULL);
+    INSERT INTO halo_session_entries (session_id,id,parent_id,seq,timestamp,type,payload) VALUES ('broken','entry','missing',1,1,'message','{}');
+  `);
+    expect(migrateWorkspace(old)).toBeInstanceOf(Error);
+    expect(
+      old.prepare("SELECT count(*) AS count FROM halo_session_entries").get(),
+    ).toEqual({ count: 1 });
   },
 );
 
