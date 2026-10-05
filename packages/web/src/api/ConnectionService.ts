@@ -436,11 +436,6 @@ export class ConnectionService {
         Date.now() - this.lastActivitySent < 10_000)
     )
       return;
-    const returning =
-      Date.now() - this.lastActivitySent >= 30 * 60_000 ||
-      this.state.power === "asleep" ||
-      this.state.power === "sleeping" ||
-      this.state.status !== "connected";
     this.lastActivitySent = Date.now();
     this.reportingActivity = true;
     if (this.state.power === "asleep" || this.state.power === "sleeping")
@@ -451,13 +446,13 @@ export class ConnectionService {
         error: undefined,
       });
     // oxlint-disable-next-line typescript/no-floating-promises -- The host reports errors; retries resume after the activity request finishes.
-    this.recordActivity(returning).then(() => {
+    this.recordActivity().then(() => {
       this.reportingActivity = false;
       this.retry();
     });
   }
 
-  private async recordActivity(returning: boolean) {
+  private async recordActivity() {
     const result = await this.host.recordWorkspaceActivity?.();
     if (result instanceof Error) {
       console.warn(result);
@@ -470,11 +465,6 @@ export class ConnectionService {
     if (!this.active) return;
     if (this.state.power === "waking")
       this.publish({ ...this.state, power: "running" });
-    if (returning) {
-      document
-        .querySelector<HTMLIFrameElement>('iframe[title="Desktop"]')
-        ?.contentWindow?.postMessage({ type: "halo:workspace-ready" }, "*");
-    }
     this.failures = 0;
     if (this.state.status !== "connected") {
       this.generation++;

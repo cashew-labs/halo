@@ -41,6 +41,9 @@
       endpoint.protocol = location.protocol === "https:" ? "wss:" : "ws:";
       let connection;
       let retry;
+      let mode;
+      let active = false;
+      let connected = false;
       let closed = false;
       let lastActivity = 0;
       function activity() {
@@ -54,31 +57,76 @@
           passive: true,
         });
       }
-      // Resume can invalidate the old proxy socket while its last frame remains.
+      function renderStatus() {
+        status.hidden = mode === "running" && connected;
+        if (mode === "asleep") status.textContent = "Asleep";
+        else if (mode === "waking") status.textContent = "Waking…";
+        else if (mode === "sleeping") status.textContent = "Sleeping…";
+        else
+          status.textContent = connection
+            ? "Connecting to desktop…"
+            : "Reconnecting to desktop…";
+      }
+      function disconnect() {
+        clearTimeout(retry);
+        retry = undefined;
+        const previous = connection;
+        connection = undefined;
+        connected = false;
+        // Ignore the old socket's disconnect event before it can queue a retry.
+        previous?.disconnect();
+      }
+      function setMode(nextMode) {
+        if (closed) return;
+        mode = nextMode;
+        const nextActive = mode === "running" || mode === "sleeping";
+        if (nextActive !== active) {
+          active = nextActive;
+          if (active) connect();
+          else disconnect();
+        }
+        renderStatus();
+      }
       window.addEventListener("message", (event) => {
         if (event.source !== window.parent) return;
-        if (event.data?.type === "halo:workspace-ready") location.reload();
+        if (event.data?.type !== "halo:desktop-state") return;
+        if (
+          !["running", "sleeping", "asleep", "waking"].includes(event.data.mode)
+        )
+          return;
+        setMode(event.data.mode);
       });
       function connect() {
-        connection = new RFB(display, endpoint.href);
-        connection.scaleViewport = true;
-        connection.resizeSession = true;
-        connection.addEventListener("connect", () => {
-          status.hidden = true;
+        if (closed || !active || connection !== undefined) return;
+        clearTimeout(retry);
+        retry = undefined;
+        const socket = new RFB(display, endpoint.href);
+        connection = socket;
+        socket.scaleViewport = true;
+        socket.resizeSession = true;
+        renderStatus();
+        socket.addEventListener("connect", () => {
+          if (socket !== connection) return;
+          connected = true;
+          renderStatus();
         });
-        connection.addEventListener("disconnect", () => {
-          if (closed) return;
-          status.hidden = false;
-          status.textContent = "Reconnecting to desktop…";
+        socket.addEventListener("disconnect", () => {
+          if (socket !== connection) return;
+          connection = undefined;
+          connected = false;
+          renderStatus();
+          if (closed || !active) return;
+          clearTimeout(retry);
           retry = setTimeout(connect, 1500);
         });
       }
       window.addEventListener("pagehide", () => {
         closed = true;
-        clearTimeout(retry);
-        connection.disconnect();
+        active = false;
+        disconnect();
       });
-      connect();
+      // Embedded panes wait for Halo's state; direct desktop URLs work alone.
+      if (window.parent === window) setMode("running");
     </script>
   </body>
 </html>
