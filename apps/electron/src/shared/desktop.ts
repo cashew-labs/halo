@@ -7,13 +7,24 @@ import {
   type ConnectionRequest,
   type ConnectionStarted,
 } from "@get-halo/client";
-import type { ControlPlaneSession } from "@get-halo/shared/controlPlaneContract";
+import type {
+  ControlPlaneWorkspaceStatus,
+  ControlPlaneSession,
+} from "@get-halo/shared/controlPlaneContract";
 import type { AppInfo } from "@get-halo/web/HostApi";
 import type { HaloRpcConnection } from "./HaloRpcConnection.js";
 
 export const DESKTOP_CHANNEL = "halo:desktop";
 
 export const desktopRequestSchema = Type.Union([
+  Type.Object(
+    { type: Type.Literal("getWorkspaceStatus") },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    { type: Type.Literal("recordWorkspaceActivity") },
+    { additionalProperties: false },
+  ),
   Type.Object(
     { type: Type.Literal("getConnection") },
     { additionalProperties: false },
@@ -74,6 +85,8 @@ export type CancelIntegrationRequest = Extract<
 >;
 
 export type DesktopBridge = {
+  getWorkspaceStatus: () => Promise<ControlPlaneWorkspaceStatus | undefined>;
+  recordWorkspaceActivity: () => Promise<void>;
   setHotkeys: (hotkeys: Hotkey[]) => void;
   onShortcut: (listener: (shortcut: ShortcutId) => void) => () => void;
   getConnection: () => Promise<

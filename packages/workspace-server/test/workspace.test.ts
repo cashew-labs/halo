@@ -18,7 +18,6 @@ import fs from "node:fs/promises";
 import nodeHttp from "node:http";
 import path from "node:path";
 import { gunzipSync } from "node:zlib";
-import { IdTokenClient } from "google-auth-library";
 import { ControlPlaneTraceUploader } from "@get-halo/workspace-server";
 import { assert, expect, vi } from "vitest";
 import { contentText } from "@earendil-works/pi-ai";
@@ -213,23 +212,10 @@ serverTest(
 serverTest(
   "uploads archives through the control plane and retries rejected requests after restart",
   async ({ createServer, http }) => {
-    const token = `header.${Buffer.from(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600 })).toString("base64url")}.signature`;
+    const token = "workspace-test-runtime-token";
     const uploader = new ControlPlaneTraceUploader({
       origin: http.url(""),
-      auth: {
-        async getIdTokenClient(audience) {
-          expect(audience).toBe(http.url("/api/traces"));
-          return new IdTokenClient({
-            targetAudience: audience,
-            idTokenProvider: {
-              async fetchIdToken(target) {
-                expect(target).toBe(audience);
-                return token;
-              },
-            },
-          });
-        },
-      },
+      token,
     });
     const workspaceId = "11111111-1111-4111-8111-111111111111";
     const server = createServer({

@@ -26,12 +26,18 @@ with open('/run/halo-workspace-assign.lock', 'w') as lock:
     encoded = sys.argv[1]
     assignment = json.loads(base64.urlsafe_b64decode(encoded + '=' * (-len(encoded) % 4)))
     path = pathlib.Path('/etc/halo/assignment.json')
-    if path.exists() and json.loads(path.read_text()) != assignment:
-        sys.exit('Workspace is already assigned to another identity or credential')
-    if not path.exists():
+    previous = json.loads(path.read_text()) if path.exists() else None
+    if previous is not None and any(previous.get(key) != assignment.get(key) for key in ['workspaceId', 'ownerUserId', 'gatewayToken']):
+        sys.exit('Workspace is already assigned to another identity or gateway credential')
+    if previous is not None and previous.get('runtime', {}).get('generation', 0) > assignment['runtime']['generation']:
+        print('HALO_WORKSPACE_ASSIGNED')
+        sys.exit(0)
+    changed = previous != assignment
+    if changed:
         config = json.loads(pathlib.Path('/etc/halo/workspace-server-base.json').read_text())
         config['ownerUserId'] = assignment['ownerUserId']
         config['gateway'] = {'token': assignment['gatewayToken']}
+        config['runtime'] = assignment['runtime']
         config.pop('traceUpload', None)
         # Both files live outside the user-writable home and are committed atomically.
         for destination, value in [('/etc/halo/workspace-server.json', config), (str(path), assignment)]:
@@ -42,7 +48,7 @@ with open('/run/halo-workspace-assign.lock', 'w') as lock:
             os.chown(temporary, 1000 if destination.endswith('workspace-server.json') else 0, 0)
             os.replace(temporary, destination)
     subprocess.run(['systemctl', 'enable', 'halo'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    subprocess.run(['systemctl', 'start', 'halo'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.run(['systemctl', 'restart' if changed and previous is not None else 'start', 'halo'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     print('HALO_WORKSPACE_ASSIGNED')
 ASSIGN
 chmod 0755 /usr/local/bin/halo-workspace-assign
@@ -78,5 +84,7 @@ ExecStop=/usr/bin/docker stop --time 30 halo-workspace
 WantedBy=multi-user.target
 SERVICE
 systemctl daemon-reload
+# Clones boot from disk; flush preparation writes before pausing the template.
+sync
 # Assignment starts the clone; the template must never run a user workspace.
 printf 'HALO_EXE_TEMPLATE_READY\n'

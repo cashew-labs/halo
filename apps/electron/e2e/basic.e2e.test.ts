@@ -16,7 +16,9 @@ e2eTest("opens the server-configured workspace", async ({ harness, app }) => {
   await expect(
     app.page.getByRole("button", { name: "New tab", exact: true }),
   ).toBeVisible();
-  await expect(app.page.getByText(/^Halo \d+\.\d+\.\d+$/)).toBeVisible();
+  await expect(
+    app.page.getByTestId("app-update-status").getByText(/^\d+\.\d+\.\d+$/),
+  ).toBeVisible();
 
   expect(await app.server.rpc.workspace.get()).toMatchObject({
     workspaceRoot: harness.paths.workspace,

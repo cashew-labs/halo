@@ -3,6 +3,7 @@ import type {
   WorkspaceProviderApi,
   WorkspaceProviderConnection,
   WorkspaceProviderInput,
+  WorkspaceProviderAssignment,
 } from "../WorkspaceProviderApi.js";
 
 export class GcpWorkspaceProvider implements WorkspaceProviderApi {
@@ -24,7 +25,7 @@ export class GcpWorkspaceProvider implements WorkspaceProviderApi {
     this.instanceTemplate = ctx.instanceTemplate;
   }
 
-  async ensure(input: WorkspaceProviderInput) {
+  async ensure(input: WorkspaceProviderAssignment) {
     return await provisionGcpWorkspace({
       ...input,
       config: {

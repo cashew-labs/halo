@@ -61,6 +61,7 @@ export type ControlPlaneConfig = Static<typeof controlPlaneConfigSchema>;
 export type ControlPlaneApplicationConfig = {
   mode: ApplicationMode;
   server: ControlPlaneConfig;
+  inferenceApiKey: string;
 };
 
 interface AuthSecretIds {
@@ -82,19 +83,26 @@ class ControlPlaneConfigError extends errore.createTaggedError({
 
 async function readConfig(): Promise<ControlPlaneApplicationConfig | Error> {
   const configPath = process.argv[2];
-  if (configPath !== undefined) {
-    const server = await readConfigFile(configPath);
-    if (server instanceof Error) return server;
-    return { mode: ApplicationMode.Production, server };
-  }
-  if (process.env.K_SERVICE === undefined) {
-    const server = await readDevelopmentConfig();
-    if (server instanceof Error) return server;
-    return { mode: ApplicationMode.Development, server };
-  }
-  const server = await readCloudRunConfig();
+  const server =
+    configPath !== undefined
+      ? await readConfigFile(configPath)
+      : process.env.K_SERVICE === undefined
+        ? await readDevelopmentConfig()
+        : await readCloudRunConfig();
   if (server instanceof Error) return server;
-  return { mode: ApplicationMode.Production, server };
+  const inferenceApiKey = await readGcpSecret({
+    projectId: secretProjectId,
+    secretId: "together-ai-api-key",
+  });
+  if (inferenceApiKey instanceof Error) return inferenceApiKey;
+  return {
+    mode:
+      configPath === undefined && process.env.K_SERVICE === undefined
+        ? ApplicationMode.Development
+        : ApplicationMode.Production,
+    server,
+    inferenceApiKey,
+  };
 }
 
 async function readConfigFile(configPath: string) {

@@ -8,6 +8,7 @@ import type {
   WorkspaceProviderApi,
   WorkspaceProviderConnection,
   WorkspaceProviderInput,
+  WorkspaceProviderAssignment,
 } from "../WorkspaceProviderApi.js";
 
 class ExeWorkspaceProviderError extends errore.createTaggedError({
@@ -29,7 +30,11 @@ export class ExeWorkspaceProvider implements WorkspaceProviderApi {
   // Coalesce same-workspace provisioning within this control-plane instance.
   private readonly pendingEnsures = new Map<
     string,
-    { ownerUserId: string; operation: Promise<void | Error> }
+    {
+      ownerUserId: string;
+      runtime: WorkspaceProviderAssignment["runtime"];
+      operation: Promise<void | Error>;
+    }
   >();
   private readonly api: ExeApi;
   private readonly templateVmName: string;
@@ -47,7 +52,7 @@ export class ExeWorkspaceProvider implements WorkspaceProviderApi {
     this.gatewaySecret = ctx.gatewaySecret;
   }
 
-  async ensure(input: WorkspaceProviderInput) {
+  async ensure(input: WorkspaceProviderAssignment): Promise<void | Error> {
     const pending = this.pendingEnsures.get(input.workspaceId);
     if (pending !== undefined) {
       if (pending.ownerUserId !== input.ownerUserId)
@@ -55,11 +60,17 @@ export class ExeWorkspaceProvider implements WorkspaceProviderApi {
           workspaceId: input.workspaceId,
           detail: "workspace is being assigned to another owner",
         });
+      if (JSON.stringify(pending.runtime) !== JSON.stringify(input.runtime)) {
+        const completed = await pending.operation;
+        if (completed instanceof Error) return completed;
+        return await this.ensure(input);
+      }
       return await pending.operation;
     }
     const operation = this.ensureWorkspace(input);
     this.pendingEnsures.set(input.workspaceId, {
       ownerUserId: input.ownerUserId,
+      runtime: input.runtime,
       operation,
     });
     const result = await operation;
@@ -84,6 +95,12 @@ export class ExeWorkspaceProvider implements WorkspaceProviderApi {
     } satisfies WorkspaceProviderConnection;
   }
 
+  async getStatus(input: WorkspaceProviderInput) {
+    const vm = await this.findVm(input);
+    if (vm instanceof Error) return vm;
+    return vm?.status === "paused" ? ("paused" as const) : ("running" as const);
+  }
+
   async pause(input: WorkspaceProviderInput) {
     const vmName = this.vmName(input);
     if (vmName instanceof Error) return vmName;
@@ -98,7 +115,7 @@ export class ExeWorkspaceProvider implements WorkspaceProviderApi {
     if (result instanceof Error) return result;
   }
 
-  private async ensureWorkspace(input: WorkspaceProviderInput) {
+  private async ensureWorkspace(input: WorkspaceProviderAssignment) {
     const vmName = this.vmName(input);
     if (vmName instanceof Error) return vmName;
     const existing = await this.findVm(input);

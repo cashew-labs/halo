@@ -23,6 +23,18 @@ class ExtensionServerError extends errore.createTaggedError({
   message: "Extension server failed: $operation",
 }) {}
 
+// Human events inside a separate-origin frame do not bubble to Halo's document.
+const activityScript = `<script>
+  let lastActivity = 0;
+  for (const event of ["pointermove", "pointerdown", "keydown", "wheel"]) {
+    document.addEventListener(event, () => {
+      if (Date.now() - lastActivity < 1000) return;
+      lastActivity = Date.now();
+      window.parent.postMessage({ type: "halo:user-activity" }, "*");
+    }, { passive: true, capture: true });
+  }
+</script>`;
+
 const contentTypes = new Map(
   Object.entries({
     ".html": "text/html; charset=utf-8",
@@ -68,7 +80,12 @@ export async function serveExtension<
         ? "/view/"
         : `/view/assets/${encodeURIComponent(file)}`,
       {
-        body,
+        body:
+          file === "index.html"
+            ? Buffer.from(
+                body.toString().replace("</head>", `${activityScript}</head>`),
+              )
+            : body,
         contentType,
       },
     );

@@ -14,11 +14,11 @@ import {
 } from "@get-halo/shared/HaloRpcFile";
 import {
   ControlPlaneTraceUploader,
+  ControlPlaneWorkReporter,
   FileCredentialVault,
   WorkspaceServer,
 } from "@get-halo/workspace-server";
 import { createOpenAILLMApi } from "@get-halo/workspace-server/llm";
-import { GoogleAuth } from "google-auth-library";
 import * as errore from "errore";
 
 class WorkspaceServerStartupError extends errore.createTaggedError({
@@ -81,24 +81,35 @@ async function run() {
       port: applicationConfig.server.port,
       corsOrigins: applicationConfig.server.corsOrigins,
       testApiEnabled: applicationConfig.mode === ApplicationMode.Test,
-      traceWorkspaceId: applicationConfig.server.traceUpload?.workspaceId,
+      traceWorkspaceId: applicationConfig.server.runtime?.workspaceId,
       gateway: applicationConfig.server.gateway,
       desktopOrigin: process.env.HALO_DESKTOP_ORIGIN,
       cliEntry: applicationConfig.server.cliEntry,
       cliNodeExecutable: applicationConfig.server.cliNodeExecutable,
       cliElectronRunAsNode: applicationConfig.server.cliElectronRunAsNode,
       extensionRuntime,
+      integrationsEnabled: applicationConfig.integrationsEnabled,
       googleWebOAuthClient: applicationConfig.googleWebOAuthClient,
       oauthTestOrigin: applicationConfig.oauthTestOrigin,
     },
     host: {
       llmApi,
+      reportWorkIdle:
+        applicationConfig.server.runtime === undefined
+          ? undefined
+          : (() => {
+              const reporter = new ControlPlaneWorkReporter(
+                applicationConfig.server.runtime,
+              );
+              return async (idle: boolean, signal: AbortSignal) =>
+                await reporter.report(idle, signal);
+            })(),
       traceUploader:
-        applicationConfig.server.traceUpload === undefined
+        applicationConfig.server.runtime === undefined
           ? undefined
           : new ControlPlaneTraceUploader({
-              origin: applicationConfig.server.traceUpload.origin,
-              auth: new GoogleAuth(),
+              origin: applicationConfig.server.runtime.origin,
+              token: applicationConfig.server.runtime.token,
             }),
       logger: logger.scope("rpc"),
       createCredentialVault: ({ filesystem, workspaceRoot }) =>

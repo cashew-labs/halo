@@ -415,6 +415,16 @@ const googleClientSecretAccess = new gcp.secretmanager.SecretIamMember(
   },
 );
 
+const controlPlaneTogetherApiKeyAccess = new gcp.secretmanager.SecretIamMember(
+  "control-plane-together-api-key",
+  {
+    project,
+    secretId: togetherApiKeySecretId,
+    role: "roles/secretmanager.secretAccessor",
+    member: pulumi.interpolate`serviceAccount:${runtime.email}`,
+  },
+);
+
 const controlPlane = new gcp.cloudrunv2.Service(
   "control-plane-service",
   {
@@ -510,6 +520,7 @@ const controlPlane = new gcp.cloudrunv2.Service(
     dependsOn: [
       authSecretAccess,
       controlPlaneComputeAccess,
+      controlPlaneTogetherApiKeyAccess,
       controlPlaneTraceAccess,
       databaseUrlAccess,
       googleClientIdAccess,

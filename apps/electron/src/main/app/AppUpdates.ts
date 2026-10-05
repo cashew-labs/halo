@@ -47,6 +47,7 @@ export class AppUpdates {
   getAppInfo(): AppInfo {
     return {
       version: app.getVersion(),
+      development: !app.isPackaged,
       update: this.updateStatus,
     };
   }

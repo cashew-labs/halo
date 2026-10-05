@@ -4,7 +4,10 @@ import type {
   HaloClient,
   Hotkey,
 } from "@get-halo/client";
-import type { ControlPlaneSession } from "@get-halo/shared/controlPlaneContract";
+import type {
+  ControlPlaneWorkspaceStatus,
+  ControlPlaneSession,
+} from "@get-halo/shared/controlPlaneContract";
 import type { ShortcutId } from "./shortcuts.js";
 
 export type AppUpdateStatus =
@@ -17,10 +20,15 @@ export type AppUpdateStatus =
 
 export type AppInfo = {
   version: string;
+  development?: boolean;
   update: AppUpdateStatus;
 };
 
 export interface HostApi {
+  getWorkspaceStatus?(): Promise<
+    ControlPlaneWorkspaceStatus | Error | undefined
+  >;
+  recordWorkspaceActivity?(): Promise<void | Error>;
   showLandingPage?: boolean;
   setHotkeys?(hotkeys: Hotkey[]): void;
   onShortcut?(listener: (shortcut: ShortcutId) => void): () => void;

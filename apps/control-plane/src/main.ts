@@ -1,4 +1,4 @@
-import { GoogleAuth, OAuth2Client } from "google-auth-library";
+import { GoogleAuth } from "google-auth-library";
 import { TraceCloud } from "./traces/TraceCloud.js";
 import path from "node:path";
 import { config } from "@get-halo/config/controlPlane";
@@ -33,21 +33,15 @@ async function run() {
             revision: process.env.HALO_BUILD_REVISION,
           },
     config: config.server,
+    inferenceApiKey: config.inferenceApiKey,
     workspaceProvider,
     traceCloud:
-      config.server.deployment === "cloudRun" &&
-      config.server.workspace.deployment === "gcp"
+      config.server.deployment === "cloudRun"
         ? new TraceCloud({
             bucket: config.server.traceBucket,
-            projectId: config.server.workspace.projectId,
-            zone: config.server.workspace.zone,
-            serviceAccount: config.server.workspaceServiceAccount,
             auth: new GoogleAuth({
               scopes: ["https://www.googleapis.com/auth/cloud-platform"],
             }),
-            verifier: new OAuth2Client(),
-            storageOrigin: "https://storage.googleapis.com",
-            computeOrigin: "https://compute.googleapis.com",
           })
         : undefined,
     webRoot: path.resolve(import.meta.dirname, "../../web-app/dist"),

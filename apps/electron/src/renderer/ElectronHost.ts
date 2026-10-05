@@ -13,6 +13,24 @@ class ElectronHostError extends errore.createTaggedError({
 }) {}
 
 export class ElectronHost implements HostApi {
+  async getWorkspaceStatus() {
+    return await this.desktopBridge
+      .getWorkspaceStatus()
+      .catch(
+        (cause) =>
+          new ElectronHostError({ operation: "read workspace status", cause }),
+      );
+  }
+
+  async recordWorkspaceActivity() {
+    return await this.desktopBridge
+      .recordWorkspaceActivity()
+      .catch(
+        (cause) =>
+          new ElectronHostError({ operation: "wake the workspace", cause }),
+      );
+  }
+
   // Tracks the extension endpoint for the connected workspace.
   private canRequest: ((path: string[]) => boolean) | undefined;
   private extensionBaseUrl: URL | undefined;

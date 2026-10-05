@@ -6,7 +6,21 @@ import { Type, type Static } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import { expect, test } from "vitest";
 import { ExeWorkspaceProvider } from "./ExeWorkspaceProvider.js";
-import type { WorkspaceProviderInput } from "../WorkspaceProviderApi.js";
+import type { WorkspaceProviderAssignment } from "../WorkspaceProviderApi.js";
+import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
+import { betterAuth } from "better-auth";
+import { testUtils } from "better-auth/plugins";
+import { createORPCClient } from "@orpc/client";
+import { RPCLink } from "@orpc/client/fetch";
+import type { ControlPlaneClient } from "@get-halo/shared/controlPlaneContract";
+import {
+  workspaceRuntimeConfigFileName,
+  workspaceRuntimeConfigSchema,
+} from "@get-halo/config/workspaceServer";
+import * as errore from "errore";
+import { ControlPlane } from "../../../server/ControlPlane.js";
+import { LocalWorkspaceProvider } from "../local/LocalWorkspaceProvider.js";
 
 const configSchema = Type.Object({
   privateKeyPath: Type.String(),
@@ -45,7 +59,7 @@ async function ssh(config: ExeTestConfig, target: string, args: string[]) {
 
 const exeTest = test.extend<{
   config: ExeTestConfig;
-  input: WorkspaceProviderInput;
+  input: WorkspaceProviderAssignment;
   provider: ExeWorkspaceProvider;
   secondProvider: ExeWorkspaceProvider;
 }>({
@@ -59,10 +73,70 @@ const exeTest = test.extend<{
     await use(parsed);
   },
   input: async ({ config }, use) => {
-    const workspaceId = crypto.randomUUID();
-    await use({ workspaceId, ownerUserId: `exe-test-${workspaceId}` });
+    await using cleanup = new errore.AsyncDisposableStack();
+    const appDataDir = path.resolve(
+      import.meta.dirname,
+      "../../../../../../tmp/exe-runtime-tests",
+      crypto.randomUUID(),
+    );
+    cleanup.defer(
+      async () => await fs.rm(appDataDir, { recursive: true, force: true }),
+    );
+    const authConfig = {
+      secret: "real-exe-workspace-auth-test-secret",
+      googleClientId: "exe-test.apps.googleusercontent.com",
+      googleClientSecret: "unused-google-test-secret",
+    };
+    const plane = await ControlPlane.start({
+      config: {
+        deployment: "local",
+        workspace: { deployment: "local" },
+        port: 0,
+        appDataDir,
+        auth: authConfig,
+      },
+      workspaceProvider: new LocalWorkspaceProvider({ appDataDir }),
+      webRoot: appDataDir,
+    });
+    if (plane instanceof Error) throw plane;
+    cleanup.defer(async () => {
+      const closed = await plane.close();
+      if (closed instanceof Error) console.warn(closed);
+    });
+    using database = new DatabaseSync(
+      path.join(appDataDir, "control-plane.db"),
+    );
+    const auth = betterAuth({
+      baseURL: plane.origin,
+      secret: authConfig.secret,
+      database,
+      plugins: [testUtils()],
+    });
+    const context = await auth.$context;
+    const owner = context.test.createUser();
+    await context.test.saveUser(owner);
+    const login = await context.test.login({ userId: owner.id });
+    // SAFETY: The real control plane implements this client contract at /rpc.
+    const rpc = createORPCClient(
+      new RPCLink({
+        origin: plane.origin,
+        url: "/rpc",
+        headers: login.headers,
+      }),
+    ) as ControlPlaneClient;
+    const workspace = await rpc.workspace.ensure();
+    const runtime: unknown = JSON.parse(
+      await fs.readFile(
+        path.join(appDataDir, workspaceRuntimeConfigFileName),
+        "utf8",
+      ),
+    );
+    if (!Value.Check(workspaceRuntimeConfigSchema, runtime))
+      throw new Error("Invalid runtime assignment");
+    const input = { workspaceId: workspace.id, ownerUserId: owner.id, runtime };
+    await use(input);
     // Delete exactly this fixture's clone, even if it is still paused.
-    const vmName = `halo-${workspaceId}`;
+    const vmName = `halo-${workspace.id}`;
     const raw = await ssh(config, "exe.dev", ["ls", vmName, "--json"]);
     const listed: unknown = JSON.parse(raw);
     if (
@@ -123,6 +197,27 @@ exeTest.skipIf(process.env.HALO_EXE_TEST_CONFIG === undefined)(
 
     const vmName = `halo-${input.workspaceId}`;
     const guest = `${vmName}.exe.xyz`;
+    const assigned: unknown = JSON.parse(
+      await ssh(config, guest, ["sudo cat /etc/halo/workspace-server.json"]),
+    );
+    const assignedSchema = Type.Object({
+      runtime: workspaceRuntimeConfigSchema,
+    });
+    if (!Value.Check(assignedSchema, assigned))
+      throw new Error("Missing guest runtime settings");
+    if (JSON.stringify(assigned.runtime) !== JSON.stringify(input.runtime))
+      throw new Error("Guest runtime assignment mismatch");
+    const identify = async () => {
+      const response = await fetch(
+        `${assigned.runtime.origin}/api/workspace-runtime/identity`,
+        {
+          headers: { authorization: `Bearer ${assigned.runtime.token}` },
+        },
+      );
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ workspaceId: input.workspaceId });
+    };
+    await identify();
     const bootId = await ssh(config, guest, [
       "cat /proc/sys/kernel/random/boot_id",
     ]);
@@ -139,6 +234,7 @@ exeTest.skipIf(process.env.HALO_EXE_TEST_CONFIG === undefined)(
     expect(
       await ssh(config, guest, ["cat /proc/sys/kernel/random/boot_id"]),
     ).toBe(bootId);
+    await identify();
   },
   180_000,
 );

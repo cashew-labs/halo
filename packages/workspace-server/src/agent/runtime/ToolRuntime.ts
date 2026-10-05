@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
+import { Stream } from "@get-halo/shared/Stream";
 import * as Cause from "effect/Cause";
 import * as Exit from "effect/Exit";
 import {
@@ -380,7 +381,8 @@ type ToolRuntimeOptions = {
   database: DatabaseClient;
   workspaceRoot: string;
   userId: string;
-  credentialVault: CredentialVault;
+  integrationsEnabled?: boolean;
+  credentialVault?: CredentialVault;
   toolPlugins: readonly HaloToolPlugin[];
   authority: AgentAuthority;
   oauthRedirectUri: string;
@@ -389,6 +391,18 @@ type ToolRuntimeOptions = {
 };
 
 export class ToolRuntime {
+  private readonly executionChanges = new Stream<number>();
+  private readonly executions = this.executionChanges.project(
+    0,
+    (count, delta) => count + delta,
+  );
+  readonly idle = this.executions.map((count) => count === 0);
+
+  private retainExecution(): Disposable {
+    this.executionChanges.append(1);
+    return { [Symbol.dispose]: () => this.executionChanges.append(-1) };
+  }
+
   static async create(input: ToolRuntimeOptions) {
     return await createToolRuntime(input);
   }
@@ -442,6 +456,8 @@ export class ToolRuntime {
     toolCallId?: string;
     bashOutput?: HaloToolContext["bashOutput"];
   }): Promise<HaloToolExecution<T> | Error> {
+    using cleanup = new errore.DisposableStack();
+    cleanup.use(this.retainExecution());
     const registered = this.toolPlugins
       .find((plugin) => plugin.id === input.pluginId)
       ?.tools.find((candidate) => candidate.name === input.toolName);
@@ -502,6 +518,8 @@ export class ToolRuntime {
       arguments: unknown;
     }) => boolean;
   }) {
+    using cleanup = new errore.DisposableStack();
+    cleanup.use(this.retainExecution());
     const connectionRequests: ConnectionRequest[] = [];
     const approvalRequests: ToolApproval[] = [];
     const execution = await this.executionContext.run(
@@ -570,6 +588,8 @@ export class ToolRuntime {
     signal?: AbortSignal;
     modelId?: string;
   }) {
+    using cleanup = new errore.DisposableStack();
+    cleanup.use(this.retainExecution());
     const invocation = await this.executionContext.run(
       { signal: input.signal, modelId: input.modelId, runtime: this },
       async () =>
@@ -599,6 +619,8 @@ export class ToolRuntime {
     args: unknown;
     signal?: AbortSignal;
   }): Promise<ToolResult<unknown> | ToolRuntimeError> {
+    using cleanup = new errore.DisposableStack();
+    cleanup.use(this.retainExecution());
     const result = await this.executionContext.run(
       { signal: input.signal, modelId: undefined, runtime: this },
       async () =>
@@ -734,12 +756,18 @@ export class ToolRuntime {
 async function createToolRuntime(
   input: ToolRuntimeOptions,
 ): Promise<ToolRuntime | ToolRuntimeError> {
+  const integrationsEnabled = input.integrationsEnabled !== false;
+  if (integrationsEnabled && input.credentialVault === undefined)
+    return new ToolRuntimeError({
+      operation: "missing integration credential vault",
+    });
   const oauthClients = configuredOAuthClients({
     googleWebOAuthClient: input.googleWebOAuthClient,
     oauthTestOrigin: input.oauthTestOrigin,
   });
-  const firstPartyOAuthClients =
-    oauthClients.web === undefined
+  const firstPartyOAuthClients = !integrationsEnabled
+    ? []
+    : oauthClients.web === undefined
       ? [oauthClients.desktop]
       : [oauthClients.desktop, oauthClients.web];
   if (quickJsModulePromise === undefined) {
@@ -762,10 +790,13 @@ async function createToolRuntime(
           plugins: input.toolPlugins,
           executionContext,
         }),
-        googleOpenApiPlugin,
+        ...(integrationsEnabled ? [googleOpenApiPlugin] : []),
       ] as const,
-      providers: [createExecutorCredentialProvider(input.credentialVault)],
-      coreTools: { includeProviders: true },
+      providers:
+        integrationsEnabled && input.credentialVault !== undefined
+          ? [createExecutorCredentialProvider(input.credentialVault)]
+          : [],
+      coreTools: integrationsEnabled ? { includeProviders: true } : undefined,
       redirectUri: input.oauthRedirectUri,
       firstPartyOAuthClients,
       db: ({ tables }) =>
@@ -798,7 +829,9 @@ async function createToolRuntime(
       console.warn("Failed to close Executor after startup failure:", closed);
   });
 
-  const installed = await installGooglePresets(executor);
+  const installed = integrationsEnabled
+    ? await installGooglePresets(executor)
+    : undefined;
   if (installed instanceof Error) return installed;
 
   const integrations = await Effect.runPromise(
@@ -835,10 +868,12 @@ async function createToolRuntime(
     toolPlugins: input.toolPlugins,
     authority: input.authority,
     context: { workspaceRoot: input.workspaceRoot, userId: input.userId },
-    connectionRequests: connectionRequestsForClient(
-      oauthClients.desktop,
-      installableGooglePresets,
-    ),
+    connectionRequests: integrationsEnabled
+      ? connectionRequestsForClient(
+          oauthClients.desktop,
+          installableGooglePresets,
+        )
+      : new Map(),
     integrationNames,
     googleWebOAuthClientSlug:
       oauthClients.web === undefined

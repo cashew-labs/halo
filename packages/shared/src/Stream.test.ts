@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { Stream } from "@get-halo/shared/Stream";
+import { combineLatest, Stream } from "@get-halo/shared/Stream";
 
 test("consume accepts optional options and stops when aborted", async () => {
   const stream = new Stream<number>();
@@ -261,4 +261,24 @@ test("an already-aborted consumer is closed before its first read", async () => 
     done: true,
     value: undefined,
   });
+});
+
+// Services replay their current state; changes from either source update the combined view.
+test("combines current projected values and removes subscriptions on disposal", () => {
+  const threads = new Stream<boolean>();
+  const tools = new Stream<boolean>();
+  using threadsIdle = threads.project(false, (_previous, idle) => idle);
+  using toolsIdle = tools.project(false, (_previous, idle) => idle);
+  threads.append(true);
+  const allIdle = combineLatest([threadsIdle, toolsIdle])
+    .map((values) => values.every(Boolean))
+    .project(false, (_previous, idle) => idle);
+  expect(allIdle.latestValue).toBe(false);
+  tools.append(true);
+  expect(allIdle.latestValue).toBe(true);
+  threads.append(false);
+  expect(allIdle.latestValue).toBe(false);
+  allIdle[Symbol.dispose]();
+  threads.append(true);
+  expect(allIdle.latestValue).toBe(false);
 });
