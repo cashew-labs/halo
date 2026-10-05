@@ -176,6 +176,12 @@ export class WorkspaceService {
       Date.now() - before.activityAt < this.idleTimeoutMs
     )
       return;
+    if (
+      [...this.pauses].some(
+        (pause) => pause.workspaceId === identity.workspaceId,
+      )
+    )
+      return;
     const pause = {
       workspaceId: identity.workspaceId,
       activityAt: before.activityAt,
@@ -185,8 +191,17 @@ export class WorkspaceService {
     cleanup.defer(() => this.pauses.delete(pause));
     const paused = await this.provider.pause(identity);
     if (paused instanceof Error) {
-      const resumed = await this.provider.resume(identity);
-      if (resumed instanceof Error) console.error(resumed);
+      // Another control-plane instance may have paused the same idle VM.
+      // Only new activity warrants waking it after a failed pause request.
+      const after = await this.findRecord(identity.ownerUserId);
+      if (after instanceof Error) {
+        console.error(after);
+        return paused;
+      }
+      if (after === undefined || after.activityAt !== before.activityAt) {
+        const resumed = await this.provider.resume(identity);
+        if (resumed instanceof Error) console.error(resumed);
+      }
       return paused;
     }
     const after = await this.findRecord(identity.ownerUserId);

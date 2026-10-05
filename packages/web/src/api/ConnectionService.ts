@@ -403,7 +403,7 @@ export class ConnectionService {
         });
       } else if (result.status !== previous) {
         this.publish({ ...this.state, power: result.status });
-        if (result.status === "running" && previous === "asleep") this.retry();
+        if (result.status === "running") this.retry();
       }
     }
     this.statusTimer = setTimeout(

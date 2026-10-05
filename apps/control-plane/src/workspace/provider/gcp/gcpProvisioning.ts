@@ -9,6 +9,7 @@ import { Value } from "@sinclair/typebox/value";
 const computeApiOrigin = "https://compute.googleapis.com/compute/v1";
 const ownerUserIdMetadataKey = "halo-owner-user-id";
 const runtimeMetadataKey = "halo-workspace-runtime";
+const runtimeRestartAfterMetadataKey = "halo-workspace-runtime-restart-after";
 const workspaceDiskDeviceName = "halo-workspace";
 const workspaceDiskSizeGb = "50";
 const auth = new GoogleAuth({
@@ -57,6 +58,7 @@ type WorkspaceInstanceTemplate = {
 
 type ComputeInstance = {
   status?: string;
+  lastStartTimestamp?: string;
   metadata?: {
     fingerprint?: string;
     items?: Array<{ key: string; value?: string }>;
@@ -340,9 +342,15 @@ async function ensureInstanceRunning(
         fingerprint: instance.metadata?.fingerprint,
         items: [
           ...(instance.metadata?.items ?? []).filter(
-            (item) => item.key !== runtimeMetadataKey,
+            (item) =>
+              item.key !== runtimeMetadataKey &&
+              item.key !== runtimeRestartAfterMetadataKey,
           ),
           { key: runtimeMetadataKey, value: runtimeValue },
+          {
+            key: runtimeRestartAfterMetadataKey,
+            value: new Date().toISOString(),
+          },
         ],
       },
     });
@@ -377,13 +385,50 @@ async function ensureInstanceRunning(
       operationName: operation,
     });
     if (assigned instanceof Error) return assigned;
+    // Re-read after assignment; the persisted timestamp also survives a failed restart.
+    return await ensureInstanceRunning(ctx);
   }
 
   if (instance.status === "TERMINATED")
     return await changeInstanceState({ ...ctx, action: "start" });
 
-  if (instance.status === "SUSPENDED")
-    return await changeInstanceState({ ...ctx, action: "resume" });
+  const restartAfter = instance.metadata?.items?.find(
+    (item) => item.key === runtimeRestartAfterMetadataKey,
+  )?.value;
+  const lastStartAt = Date.parse(instance.lastStartTimestamp ?? "");
+  if (
+    restartAfter !== undefined &&
+    (!Number.isFinite(Date.parse(restartAfter)) ||
+      !Number.isFinite(lastStartAt))
+  )
+    return new GcpWorkspaceProvisioningError({
+      workspaceId: ctx.workspaceId,
+      detail: "invalid workspace runtime restart timestamps",
+    });
+  const restartRequired =
+    restartAfter !== undefined && Date.parse(restartAfter) >= lastStartAt;
+
+  if (instance.status === "SUSPENDED") {
+    const resumed = await changeInstanceState({ ...ctx, action: "resume" });
+    if (resumed instanceof Error) return resumed;
+    if (!restartRequired) return undefined;
+  }
+
+  // Metadata changes do not update a running process's inference/trace credential.
+  if (
+    restartRequired &&
+    (instance.status === "RUNNING" || instance.status === "SUSPENDED")
+  ) {
+    const stopped = await changeInstanceState({ ...ctx, action: "stop" });
+    if (stopped instanceof Error) return stopped;
+    return await changeInstanceState({ ...ctx, action: "start" });
+  }
+
+  if (restartRequired)
+    return new GcpWorkspaceProvisioningError({
+      workspaceId: ctx.workspaceId,
+      detail: `workspace VM is transitioning: ${instance.status}`,
+    });
 
   if (instance.status === undefined)
     return new GcpWorkspaceProvisioningError({
@@ -396,7 +441,7 @@ async function ensureInstanceRunning(
 
 async function changeInstanceState(
   ctx: GcpWorkspaceContext & {
-    action: "resume" | "start";
+    action: "resume" | "start" | "stop";
     instanceName: string;
   },
 ) {
