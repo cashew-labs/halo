@@ -1,14 +1,34 @@
 steps:
-  - name: gcr.io/cloud-builders/docker
+  - name: docker:27.5.1-cli
+    entrypoint: sh
     args:
-      - build
-      - --file
-      - apps/control-plane/Dockerfile
-      - --tag
-      - ${_IMAGE}
-      - .
-images:
-  - ${_IMAGE}
+      - -ec
+      - |
+        image="${_IMAGE}"
+        cache_image="${_CACHE_IMAGE}"
+        if [ -z "$${cache_image}" ]; then
+          cache_image="$${image%:*}:build-cache-${_TARGET}"
+        fi
+        docker buildx create --driver docker-container --use
+        docker buildx build \
+          --push \
+          --progress plain \
+          --cache-from "type=registry,ref=$${cache_image}" \
+          --cache-to "type=registry,ref=$${cache_image},mode=max" \
+          --file apps/control-plane/Dockerfile \
+          --tag "$${image}" \
+          --build-arg "VERSION=${_VERSION}" \
+          --build-arg "REVISION=${_REVISION}" \
+          --target "${_TARGET}" \
+          --build-arg "PREVIOUS_WEB_IMAGE=${_PREVIOUS_IMAGE}" \
+          .
 options:
   logging: CLOUD_LOGGING_ONLY
 timeout: 900s
+substitutions:
+  # Override for isolated build tests; releases use a stable tag per repository/target.
+  _CACHE_IMAGE: ""
+  _TARGET: standalone
+  _PREVIOUS_IMAGE: node:22-bookworm-slim
+  _VERSION: dev
+  _REVISION: local

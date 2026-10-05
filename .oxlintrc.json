@@ -45,6 +45,7 @@
     "anti-slop/no-unused-exports": "error",
     "anti-slop/no-unsafe-dictionary-type": "error",
     "anti-slop/no-widen-then-assert": "error",
+    "anti-slop/no-css-imports": "error",
     "anti-slop/require-reason-for-floating-promise-disable": "error",
     "anti-slop/require-safety-comment-for-type-assertion": "error"
   },

@@ -1,11 +1,18 @@
-import fs from "node:fs/promises";
+import { acceptsProtocol, protocolHeader } from "@get-halo/client";
 import {
+  controlPlaneProtocolVersion,
+  controlPlaneSupportedProtocols,
+} from "@get-halo/shared/controlPlaneContract";
+import { ORPCError } from "@orpc/server";
+import fs from "node:fs/promises";
+import http, {
   createServer,
   type Server as HttpServer,
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
 import type { AddressInfo } from "node:net";
+import type { Duplex } from "node:stream";
 import path from "node:path";
 import { RPCHandler } from "@orpc/server/node";
 import {
@@ -35,10 +42,10 @@ const webContentSecurityPolicy = [
   "connect-src 'self'",
   "default-src 'self'",
   "font-src 'self' data:",
-  "form-action 'self'",
+  "form-action 'self' https://buttondown.com",
   "frame-ancestors 'none'",
   "frame-src 'self'",
-  "img-src 'self' blob: data:",
+  "img-src 'self' blob: data: https://gethalo.dev",
   "object-src 'none'",
   "script-src 'self'",
   "style-src 'self' 'unsafe-inline'",
@@ -53,6 +60,10 @@ class ControlPlaneHttpError extends errore.createTaggedError({
 export type ListeningControlPlaneHttp = {
   origin: string;
   server: HttpServer;
+};
+
+export type ServingControlPlaneHttp = {
+  close: () => void;
 };
 
 export async function listenControlPlaneHttp(host: string, port: number) {
@@ -82,18 +93,37 @@ export async function listenControlPlaneHttp(host: string, port: number) {
 export function serveControlPlaneHttp(ctx: {
   server: HttpServer;
   auth: AuthService;
+  publicOrigin: string;
   workspace: WorkspaceService;
+  build?: { version: string; revision: string };
   webRoot: string;
   traces?: TraceIngestion;
 }) {
-  const { server, auth, workspace, webRoot, traces } = ctx;
+  const { server, auth, publicOrigin, workspace, webRoot, traces } = ctx;
+  const upgradeSockets = new Set<Duplex>();
   const rpc = new RPCHandler<ControlPlaneContext>(controlPlaneRpcRouter, {
+    clientInterceptors: [
+      async ({ path: rpcPath, context, next }) => {
+        if (
+          rpcPath.join(".") !== "server.info" &&
+          !acceptsProtocol({
+            selected: context.reqHeaders?.get(protocolHeader) ?? undefined,
+            supported: controlPlaneSupportedProtocols,
+            legacy: controlPlaneProtocolVersion,
+          })
+        )
+          throw new ORPCError("UNSUPPORTED_PROTOCOL", {
+            data: { supportedProtocols: controlPlaneSupportedProtocols },
+          });
+        return await next();
+      },
+    ],
     plugins: [
       new RequestHeadersHandlerPlugin(),
       new ResponseHeadersHandlerPlugin(),
     ],
   });
-  const gateway = new WorkspaceGateway({ auth, workspace });
+  const gateway = new WorkspaceGateway({ auth, publicOrigin, workspace });
 
   server.removeListener("request", respondStarting);
   server.on("request", async (request, response) => {
@@ -106,8 +136,27 @@ export function serveControlPlaneHttp(ctx: {
       traces,
       rpc,
       webRoot,
+      build: ctx.build,
     });
   });
+  server.on("upgrade", async (request, socket, head) => {
+    upgradeSockets.add(socket);
+    socket.once("close", () => upgradeSockets.delete(socket));
+    const url = new URL(
+      request.url === undefined ? "/" : request.url,
+      requestUrlBase,
+    );
+    if (!isWorkspaceProxyRequest(url)) {
+      respondToUpgrade(socket, 404);
+      return;
+    }
+    await gateway.upgrade(request, socket, head);
+  });
+  return {
+    close() {
+      for (const socket of upgradeSockets) socket.destroy();
+    },
+  } satisfies ServingControlPlaneHttp;
 }
 
 export async function closeControlPlaneHttp(server: HttpServer) {
@@ -132,6 +181,15 @@ function respondStarting(_request: IncomingMessage, response: ServerResponse) {
   response.writeHead(503).end("Control plane is starting.");
 }
 
+function respondToUpgrade(socket: Duplex, statusCode: number) {
+  socket.end(
+    `HTTP/1.1 ${statusCode} ${http.STATUS_CODES[statusCode]}\r\n` +
+      "Connection: close\r\n" +
+      "Content-Length: 0\r\n" +
+      "\r\n",
+  );
+}
+
 async function routeControlPlaneRequest(ctx: {
   request: IncomingMessage;
   response: ServerResponse;
@@ -139,6 +197,7 @@ async function routeControlPlaneRequest(ctx: {
   gateway: WorkspaceGateway;
   traces?: TraceIngestion;
   workspace: WorkspaceService;
+  build?: { version: string; revision: string };
   rpc: RPCHandler<ControlPlaneContext>;
   webRoot: string;
 }) {
@@ -175,6 +234,11 @@ async function routeControlPlaneRequest(ctx: {
     return;
   }
 
+  if (request.method === "GET" && url.pathname === "/api/desktop-auth/error") {
+    serveDesktopAuthError(response, url);
+    return;
+  }
+
   if (isBetterAuthRequest(url)) {
     await serveBetterAuth(request, response, auth);
     return;
@@ -186,7 +250,14 @@ async function routeControlPlaneRequest(ctx: {
   }
 
   if (isPathWithin(url.pathname, "/rpc")) {
-    await serveControlPlaneRpc({ request, response, auth, workspace, rpc });
+    await serveControlPlaneRpc({
+      request,
+      response,
+      auth,
+      workspace,
+      rpc,
+      build: ctx.build,
+    });
     return;
   }
 
@@ -285,6 +356,21 @@ async function serveDesktopAuthCompletion(
     .end();
 }
 
+function serveDesktopAuthError(response: ServerResponse, url: URL) {
+  const error = url.searchParams.get("error");
+  const detail =
+    error === null || error === ""
+      ? "Halo could not finish signing in. Return to the app and try again."
+      : `Halo could not finish signing in (${error}). Return to the app and try again.`;
+
+  response
+    .writeHead(200, {
+      "cache-control": "no-store",
+      "content-type": "text/plain; charset=utf-8",
+    })
+    .end(detail);
+}
+
 function isBetterAuthRequest(url: URL) {
   return url.pathname === "/api/auth" || url.pathname.startsWith("/api/auth/");
 }
@@ -307,12 +393,13 @@ async function serveControlPlaneRpc(ctx: {
   response: ServerResponse;
   auth: AuthService;
   workspace: WorkspaceService;
+  build?: { version: string; revision: string };
   rpc: RPCHandler<ControlPlaneContext>;
 }) {
   const { request, response, auth, workspace, rpc } = ctx;
   const handled = await rpc.handle(request, response, {
     prefix: "/rpc",
-    context: { auth, workspace },
+    context: { auth, workspace, build: ctx.build },
   });
 
   if (handled.matched) return;

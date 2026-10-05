@@ -5,7 +5,15 @@ import { readFile, readdir } from "node:fs/promises";
 import { extname, join } from "node:path";
 import { RPCHandler } from "@orpc/server/node";
 import type { AnyRouter } from "@orpc/server";
-import { JsonFileRemote } from "@tanishqkancharla/tandem-server";
+import type {
+  AnyRelations,
+  AnySchema,
+  RuntimeSchemaDefinition,
+} from "@tanishqkancharla/tandem-core";
+import {
+  TandemServer,
+  TandemServerJsonFileStorage,
+} from "@tanishqkancharla/tandem-server";
 import * as errore from "errore";
 import { syncRouter } from "./sync.js";
 import { createExtensionTools } from "./tools.js";
@@ -29,8 +37,13 @@ const contentTypes = new Map(
   }),
 );
 
-export async function serveExtension(args: {
+export async function serveExtension<
+  Schema extends AnySchema,
+  Relations extends AnyRelations<Schema>,
+>(args: {
   router: AnyRouter;
+  schema: RuntimeSchemaDefinition<Schema>;
+  relations: Relations;
   publicDirectory: string;
   dataDirectory: string;
   port: number;
@@ -60,12 +73,17 @@ export async function serveExtension(args: {
       },
     );
   }
-  const remote = new JsonFileRemote({
-    filePath: join(args.dataDirectory, "store.json"),
+  const storage = new TandemServerJsonFileStorage<Schema>({
+    filePath: join(args.dataDirectory, "tandem.json"),
+  });
+  const tandem = new TandemServer({
+    schema: args.schema,
+    relations: args.relations,
+    storage,
   });
   const apiHandler = new RPCHandler(args.router);
   const tools = createExtensionTools();
-  const syncHandler = new RPCHandler(syncRouter(remote));
+  const syncHandler = new RPCHandler(syncRouter(tandem));
   const server = createServer(async (request, response) => {
     const handled = await apiHandler.handle(request, response, {
       prefix: "/api",
@@ -115,18 +133,23 @@ export async function serveExtension(args: {
         },
       );
       if (closed instanceof Error) return closed;
-      return await remote
-        .destroy()
+      return await tandem
+        .close()
         .catch(
           (cause) =>
-            new ExtensionServerError({ operation: "close sync", cause }),
+            new ExtensionServerError({ operation: "close Tandem", cause }),
         );
     },
   };
 }
 
-export async function runExtension(args: {
+export async function runExtension<
+  Schema extends AnySchema,
+  Relations extends AnyRelations<Schema>,
+>(args: {
   router: AnyRouter;
+  schema: RuntimeSchemaDefinition<Schema>;
+  relations: Relations;
   publicDirectory: string;
 }) {
   const { values } = parseArgs({

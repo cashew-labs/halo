@@ -27,6 +27,7 @@ extensionTest(
       .getByRole("textbox", { name: "New task" })
       .fill("Plan the launch");
     await page.getByRole("button", { name: "Add task" }).click();
+    await expect(other.getByText("Launch", { exact: true })).toBeVisible();
     await other.getByText("Plan the launch", { exact: true }).click();
     await expect(
       page.getByRole("checkbox", { name: "Plan the launch" }),

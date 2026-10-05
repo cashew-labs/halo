@@ -4,6 +4,9 @@ import path from "node:path";
 import { config } from "@get-halo/config/controlPlane";
 import * as errore from "errore";
 import { ControlPlane } from "./server/ControlPlane.js";
+import { GcpWorkspaceProvider } from "./workspace/provider/gcp/GcpWorkspaceProvider.js";
+import { LocalWorkspaceProvider } from "./workspace/provider/local/LocalWorkspaceProvider.js";
+import { ExeWorkspaceProvider } from "./workspace/provider/exe/ExeWorkspaceProvider.js";
 
 async function run() {
   const stopping = new Promise<void>((stop) => {
@@ -15,12 +18,26 @@ async function run() {
     });
   });
   if (config instanceof Error) return config;
+  const workspaceProvider =
+    config.server.workspace.deployment === "exe"
+      ? new ExeWorkspaceProvider(config.server.workspace)
+      : config.server.deployment === "local"
+        ? new LocalWorkspaceProvider({ appDataDir: config.server.appDataDir })
+        : new GcpWorkspaceProvider(config.server.workspace);
   const plane = await ControlPlane.start({
-    config: config.server,
-    traceCloud:
-      config.server.deployment === "local"
+    build:
+      process.env.HALO_BUILD_REVISION === undefined
         ? undefined
-        : new TraceCloud({
+        : {
+            version: process.env.HALO_BUILD_VERSION ?? "dev",
+            revision: process.env.HALO_BUILD_REVISION,
+          },
+    config: config.server,
+    workspaceProvider,
+    traceCloud:
+      config.server.deployment === "cloudRun" &&
+      config.server.workspace.deployment === "gcp"
+        ? new TraceCloud({
             bucket: config.server.traceBucket,
             projectId: config.server.workspace.projectId,
             zone: config.server.workspace.zone,
@@ -31,7 +48,8 @@ async function run() {
             verifier: new OAuth2Client(),
             storageOrigin: "https://storage.googleapis.com",
             computeOrigin: "https://compute.googleapis.com",
-          }),
+          })
+        : undefined,
     webRoot: path.resolve(import.meta.dirname, "../../web-app/dist"),
   });
   if (plane instanceof Error) return plane;

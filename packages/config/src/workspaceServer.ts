@@ -10,9 +10,9 @@ import { ApplicationMode } from "./ApplicationMode.js";
 import { readGcpSecret } from "./readGcpSecret.js";
 
 const inferenceProjectId = "halo-relay";
-const inferenceLocation = "global";
-// Pi reserves this credential value to select Vertex Application Default Credentials.
-const vertexAdcMarker = "gcp-vertex-credentials";
+const togetherApiKeySecretId = "together-ai-api-key";
+const googleWebClientIdSecretId = "halo-workspace-google-web-client-id";
+const googleWebClientSecretId = "halo-workspace-google-web-client-secret";
 const developmentUserSchema = Type.Object({
   id: Type.String({ minLength: 1 }),
 });
@@ -20,6 +20,7 @@ const developmentUserSchema = Type.Object({
 export const workspaceServerConfigSchema = Type.Object({
   environment: Type.Union([Type.Literal("local"), Type.Literal("cloud")]),
   workspaceRoot: Type.String(),
+  legacyExecutorTenant: Type.Optional(Type.String({ minLength: 1 })),
   appDataDir: Type.String(),
   appVersion: Type.String(),
   ownerUserId: Type.String(),
@@ -35,10 +36,13 @@ export const workspaceServerConfigSchema = Type.Object({
   ),
   corsOrigins: Type.Array(Type.String()),
   gateway: Type.Optional(
-    Type.Object({
-      audience: Type.String({ minLength: 1 }),
-      serviceAccountEmail: Type.String({ minLength: 1 }),
-    }),
+    Type.Union([
+      Type.Object({
+        audience: Type.String({ minLength: 1 }),
+        serviceAccountEmail: Type.String({ minLength: 1 }),
+      }),
+      Type.Object({ token: Type.String({ minLength: 32 }) }),
+    ]),
   ),
   port: Type.Integer({ minimum: 0, maximum: 65_535 }),
   cliEntry: Type.Optional(Type.String()),
@@ -50,6 +54,15 @@ export const workspaceServerConfigSchema = Type.Object({
       electronRunAsNode: Type.Boolean(),
     }),
   ),
+  oauthTest: Type.Optional(
+    Type.Object({
+      googleWebClient: Type.Object({
+        clientId: Type.String({ minLength: 1 }),
+        clientSecret: Type.String({ minLength: 1 }),
+      }),
+      tokenOrigin: Type.String({ minLength: 1 }),
+    }),
+  ),
 });
 
 export type WorkspaceServerConfig = Static<typeof workspaceServerConfigSchema>;
@@ -59,26 +72,16 @@ type OpenAIInferenceConfig = {
   options: {
     model: Model<"openai-completions">;
     apiKey: string;
-  };
-};
-
-type PiInferenceConfig = {
-  backend: "pi";
-  options: {
-    agentDir: string;
-    provider: string;
-    modelId: string;
-    apiKey: string;
-    environment: Record<string, string>;
-    reasoning: ThinkingLevel;
+    reasoning?: ThinkingLevel;
   };
 };
 
 export type WorkspaceServerApplicationConfig = {
   mode: ApplicationMode;
   server: WorkspaceServerConfig;
-  inference: OpenAIInferenceConfig | PiInferenceConfig;
-  googleWebOAuthClient: GoogleWebOAuthClient | undefined;
+  inference: OpenAIInferenceConfig;
+  googleWebOAuthClient: GoogleWebOAuthClient;
+  oauthTestOrigin: string | undefined;
 };
 
 export type GoogleWebOAuthClient = {
@@ -91,67 +94,57 @@ class WorkspaceServerConfigError extends errore.createTaggedError({
   message: "Workspace server configuration failed: $detail",
 }) {}
 
-async function readConfig(): Promise<WorkspaceServerApplicationConfig | Error> {
+export async function readWorkspaceServerApplicationConfig(): Promise<
+  WorkspaceServerApplicationConfig | Error
+> {
   const configPath = process.argv[2];
   const server =
     configPath === undefined
       ? await readDevelopmentConfig()
       : await readConfigFile(configPath);
   if (server instanceof Error) return server;
-  const inference = readInferenceConfig(server.workspaceRoot);
+  const inference = await readInferenceConfig();
   if (inference instanceof Error) return inference;
-  const googleWebOAuthClient = await readGoogleWebOAuthClient(
-    server.environment,
-  );
-  if (googleWebOAuthClient instanceof Error) return googleWebOAuthClient;
   const mode =
     configPath === undefined
       ? ApplicationMode.Development
       : process.env.HALO_E2E === "1"
         ? ApplicationMode.Test
         : ApplicationMode.Production;
-  return { mode, server, inference, googleWebOAuthClient };
+  const googleWebOAuth =
+    mode === ApplicationMode.Test && server.oauthTest !== undefined
+      ? {
+          client: server.oauthTest.googleWebClient,
+          testOrigin: server.oauthTest.tokenOrigin,
+        }
+      : await readGoogleWebOAuth();
+  if (googleWebOAuth instanceof Error) return googleWebOAuth;
+  return {
+    mode,
+    server,
+    inference,
+    googleWebOAuthClient: googleWebOAuth.client,
+    oauthTestOrigin: googleWebOAuth.testOrigin,
+  };
 }
 
-async function readGoogleWebOAuthClient(environment: "local" | "cloud") {
-  if (environment === "local") {
-    const clientId = process.env.HALO_GOOGLE_WEB_CLIENT_ID;
-    const clientSecret = process.env.HALO_GOOGLE_WEB_CLIENT_SECRET;
-    if (clientId === undefined && clientSecret === undefined) return undefined;
-    if (clientId === undefined)
-      return new WorkspaceServerConfigError({
-        detail: "set HALO_GOOGLE_WEB_CLIENT_ID",
-      });
-    if (clientSecret === undefined)
-      return new WorkspaceServerConfigError({
-        detail: "set HALO_GOOGLE_WEB_CLIENT_SECRET",
-      });
-    return { clientId, clientSecret };
-  }
-
-  const clientIdSecretId = process.env.GOOGLE_WEB_CLIENT_ID_SECRET_ID;
-  if (clientIdSecretId === undefined)
-    return new WorkspaceServerConfigError({
-      detail: "set GOOGLE_WEB_CLIENT_ID_SECRET_ID",
-    });
-  const clientSecretSecretId = process.env.GOOGLE_WEB_CLIENT_SECRET_ID;
-  if (clientSecretSecretId === undefined)
-    return new WorkspaceServerConfigError({
-      detail: "set GOOGLE_WEB_CLIENT_SECRET_ID",
-    });
+async function readGoogleWebOAuth() {
   const [clientId, clientSecret] = await Promise.all([
     readGcpSecret({
       projectId: inferenceProjectId,
-      secretId: clientIdSecretId,
+      secretId: googleWebClientIdSecretId,
     }),
     readGcpSecret({
       projectId: inferenceProjectId,
-      secretId: clientSecretSecretId,
+      secretId: googleWebClientSecretId,
     }),
   ]);
   if (clientId instanceof Error) return clientId;
   if (clientSecret instanceof Error) return clientSecret;
-  return { clientId, clientSecret };
+  return {
+    client: { clientId, clientSecret },
+    testOrigin: undefined,
+  };
 }
 
 async function readConfigFile(configPath: string) {
@@ -290,9 +283,7 @@ async function readExistingDevelopmentUserId(userPath: string) {
   return parsed.id;
 }
 
-function readInferenceConfig(
-  workspaceRoot: string,
-): OpenAIInferenceConfig | PiInferenceConfig | Error {
+async function readInferenceConfig(): Promise<OpenAIInferenceConfig | Error> {
   const configured = process.env.HALO_LLM_CONFIG;
   if (configured !== undefined) {
     const options = errore.try({
@@ -308,20 +299,39 @@ function readInferenceConfig(
     return { backend: "openAI", options };
   }
 
+  const apiKey = await readGcpSecret({
+    projectId: inferenceProjectId,
+    secretId: togetherApiKeySecretId,
+  });
+  if (apiKey instanceof Error) return apiKey;
+
   return {
-    backend: "pi",
+    backend: "openAI",
     options: {
-      agentDir: path.join(workspaceRoot, ".pi", "agent"),
-      provider: "google-vertex",
-      modelId: "gemini-3.8-flash",
-      apiKey: vertexAdcMarker,
-      environment: {
-        GOOGLE_CLOUD_PROJECT: inferenceProjectId,
-        GOOGLE_CLOUD_LOCATION: inferenceLocation,
+      // The installed Pi catalog predates this model; supply its published metadata.
+      model: {
+        id: "deepseek-ai/DeepSeek-V4.1-Flash",
+        name: "DeepSeek V4.1 Flash",
+        provider: "together",
+        api: "openai-completions",
+        baseUrl: "https://api.together.ai/v1",
+        reasoning: true,
+        input: ["text", "image"],
+        contextWindow: 1_000_000,
+        maxTokens: 384_000,
+        cost: { input: 0.3, output: 1.2, cacheRead: 0.006, cacheWrite: 0 },
+        compat: {
+          supportsStore: false,
+          supportsDeveloperRole: false,
+          supportsReasoningEffort: false,
+          maxTokensField: "max_tokens",
+          thinkingFormat: "together",
+          supportsStrictMode: false,
+          supportsLongCacheRetention: false,
+        },
       },
+      apiKey,
       reasoning: "low",
     },
   };
 }
-
-export const config = await readConfig();

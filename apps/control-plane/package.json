@@ -12,9 +12,11 @@
     "format": "oxfmt .",
     "format:check": "oxfmt --check .",
     "test": "pnpm run test:e2e",
-    "test:e2e": "vitest run"
+    "test:e2e": "vitest run",
+    "test:exe": "vitest run src/workspace/provider/exe/ExeWorkspaceProvider.test.ts"
   },
   "dependencies": {
+    "@get-halo/client": "workspace:*",
     "@get-halo/config": "workspace:*",
     "@get-halo/shared": "workspace:*",
     "@orpc/server": "2.0.0-beta.29",
@@ -22,6 +24,7 @@
     "better-auth": "1.7.4",
     "errore": "^0.14.1",
     "google-auth-library": "^11.0.2",
+    "httpxy": "^0.5.5",
     "pg": "^8.23.0",
     "tsx": "^4.23.13"
   },

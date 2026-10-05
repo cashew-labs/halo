@@ -9,6 +9,7 @@
     "./SerialQueue": "./src/SerialQueue.ts",
     "./Stream": "./src/Stream.ts",
     "./testing": "./src/testing.ts",
+    "./HaloRpcFile": "./src/HaloRpcFile.ts",
     "./WorkspaceServerConnection": "./src/WorkspaceServerConnection.ts"
   },
   "scripts": {
@@ -27,7 +28,7 @@
     "errore": "^0.14.1"
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "0.85.1",
+    "@earendil-works/pi-coding-agent": "1.0.0",
     "@get-halo/typescript-config": "workspace:*",
     "@types/node": "^22.20.1",
     "typescript": "7.0.2"

@@ -1,3 +1,4 @@
+import { useExternalLinks } from "./useExternalLinks.js";
 import { createContext, useContext, type ReactNode } from "react";
 import type { HostApi } from "./HostApi.js";
 
@@ -10,6 +11,7 @@ export function HostProvider({
   host: HostApi;
   children: ReactNode;
 }) {
+  useExternalLinks(host);
   return <HostContext value={host}>{children}</HostContext>;
 }
 

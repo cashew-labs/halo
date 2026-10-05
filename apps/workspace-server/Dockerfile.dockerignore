@@ -1,0 +1,10 @@
+.git
+tmp
+**/node_modules
+**/.halo
+**/dist
+**/out
+**/.vite
+**/.turbo
+**/test-results
+**/playwright-report

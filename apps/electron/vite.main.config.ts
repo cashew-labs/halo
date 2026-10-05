@@ -9,7 +9,6 @@ const nodeBuiltins = [
 
 export default defineConfig({
   build: {
-    // Forge Vite only packs `/.vite`. Bundle npm packages into main.
     minify: false,
     // Without platform:node, Rolldown replaces import.meta with {} for CJS
     // (EMPTY_IMPORT_META) and Pi/Halo crash on fileURLToPath({}.url).
@@ -22,7 +21,8 @@ export default defineConfig({
         ...nodeBuiltins,
       ],
       output: {
-        codeSplitting: false,
+        minify: false,
+        preserveModules: true,
       },
     },
     lib: {

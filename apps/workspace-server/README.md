@@ -1,8 +1,9 @@
 # Workspace server
 
-`apps/workspace-server` runs Halo's workspace, agent, integrations, and extensions in
-an independent Node process. Its workspace package name is `@get-halo/workspace-server`.
-Electron is an HTTP client: it neither starts nor stops this process.
+`apps/workspace-server` (`@get-halo/workspace-server-app`) is the Node process that
+runs Halo's workspace server. It reads launch settings, supplies host capabilities,
+starts `WorkspaceServer` from `@get-halo/workspace-server`, and publishes discovery
+files. Electron is an HTTP client: it neither starts nor stops this process.
 
 ## Development
 
@@ -50,21 +51,33 @@ app-control commands.
 ## Production workspace container
 
 The durable workspace disk directory `/mnt/halo/workspace` is mounted directly
-at `/home/node`. The container runs as the `node` user, whose Unix home and Halo
-workspace root are both `/home/node`. User files, application data, agent state,
-configuration, user-installed packages, and user binaries therefore share one
-persistent filesystem tree. `/tmp`, `/run`, running processes, and image system
-paths remain ephemeral.
+at `/home/node`. The container runs as the `node` user. Its Unix home is
+`/home/node`, while its Halo workspace root is `/home/node/documents`. The VM
+creates this directory before starting the container, and the UI lists files
+from this workspace root. User-installed packages and binaries remain in the
+home directory. Workspace files and agent state live under `documents`;
+application data lives under `/home/node/.halo/runtime`. `/tmp`, `/run`, running
+processes, and image system paths remain ephemeral.
 
 The image configures npm, Python, and Go user installations beneath
-`/home/node`. `/home/node/.local/bin` and `/home/node/.halo/bin` are on `PATH` for
-the server, agents, and extensions. System dependencies must be added to the
-image instead of installed in a running workspace.
+`/home/node`. `/home/node/.local/bin` and `/home/node/documents/.halo/bin` are
+on `PATH` for the server, agents, and extensions. System dependencies must be
+added to the image instead of installed in a running workspace.
 
 Before the first rollout of this layout, copy the existing production
 container's `/home/node` contents—especially `.local` and `.config`—into
 `/mnt/halo/workspace`. Do this before replacing the container. The startup script
 does not perform this one-time migration.
+
+On first startup with this layout, the VM moves existing workspace state from
+`/home/node/.halo` into `/home/node/documents/.halo`, along with `.agents`,
+`.pi`, and `AGENTS.md`. It leaves `.halo/runtime` and the VM launch config in
+the home directory. The cloud container config requests an Executor tenant
+rewrite when the moved database opens; local workspaces keep their keys. The
+file migration resumes safely after a restart and stops if the destination
+already contains a conflicting entry. Other files stored directly in
+`/home/node` remain there; move user documents into `/home/node/documents` to
+show them in the UI.
 
 ## Explicit launch configuration
 
@@ -95,8 +108,9 @@ Graceful server shutdown removes both files. Desktop reload reads the latest
 connection, including after a server restart.
 
 `HALO_LLM_CONFIG` selects the existing OpenAI-compatible inference transport.
-Otherwise the process uses the same local Pi provider/model configuration as
-before. See [the inference boundary](src/llm/README.md).
+Otherwise the process loads `together-ai-api-key` from GCP Secret Manager in
+`halo-relay` through ADC and uses Pi’s `together/deepseek-ai/DeepSeek-V4.1-Flash`
+model through the OpenAI-compatible Pi transport. See [the inference boundary](../../packages/workspace-server/src/llm/README.md).
 
 ## Credential storage
 
@@ -109,21 +123,21 @@ migrated.
 
 ## Test setup
 
-The existing workspace `serverTest` and Electron `e2eTest` fixtures start the same `WorkspaceServer` used by the app, with temporary data and controlled inference. The normal client exposes `testApi.seedSession`, `testApi.invokeTool`, and `testApi.getToolIdentity`. A shared server-side gate rejects these operations unless `WorkspaceServer.start` receives `testApiEnabled: true`. Omission disables them. Tests prepare state through these semantic operations, not internal database records, then observe it through ordinary product RPC or the UI.
+The existing workspace `serverTest` and Electron `e2eTest` fixtures start the same `WorkspaceServer` used by the app, with temporary data and controlled inference. The normal client exposes `testApi.seedSession`, `testApi.invokeTool`, and `testApi.getToolIdentity`. A shared server-side gate rejects these operations unless `WorkspaceServer.start` receives `config.testApiEnabled: true`. Omission disables them. Tests prepare state through these semantic operations, not internal database records, then observe it through ordinary product RPC or the UI.
 
 Electron's fixture launches the same `src/main.ts` as normal runs. The app enables `testApi` only in `ApplicationMode.Test`; development and production leave it disabled. The fixture receives the normal server readiness through child-process IPC and creates an ordinary client. There is no separate test host, entry point, listener, token, contract, or client implementation.
 
 ## Ownership
 
-`WorkspaceServer` is the package's single server class. It owns service construction, the shared database, product HTTP, and cleanup; there is no separate runtime object or public bag of child services. The app's `main.ts` supplies launch configuration, inference, credentials, and data locations, calls `WorkspaceServer.start(options)` directly, and owns discovery files and process shutdown. Tests supply their own environment through the same startup options. Moving the reusable code physically into `packages/workspace-server` remains a later migration step.
+`WorkspaceServer` lives in `@get-halo/workspace-server`. It owns service construction, the shared database, product HTTP, and cleanup; there is no separate runtime object or public bag of child services. The app's `main.ts` reads launch settings, supplies inference, credentials, bind address, and executable choices, calls `WorkspaceServer.start({ config, host })`, and owns discovery files and process shutdown. Tests construct the same class through the package root.
 
 ```text
 pnpm dev
 ├── control-plane: tsx watch src/main.ts
 │   └── publish local connection information
 ├── workspace-server: tsx watch src/main.ts
-│   ├── read launch configuration
-│   ├── WorkspaceServer.start()
+│   ├── readWorkspaceServerApplicationConfig()
+│   ├── WorkspaceServer.start({ config, host })
 │   └── publish product connection files
 └── Electron
     ├── read server.json → connect over HTTP RPC

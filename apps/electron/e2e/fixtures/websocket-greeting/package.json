@@ -1,0 +1,12 @@
+{
+  "name": "websocket-greeting",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "node --check build.mjs && node --check server.mjs"
+  },
+  "halo": {
+    "displayName": "WebSocket Greeting"
+  }
+}

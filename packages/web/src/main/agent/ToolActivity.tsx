@@ -190,7 +190,7 @@ function AnimatedToolCalls({ calls }: { calls: ToolPart[] }) {
 
 const summaryRow = style(
   text({ size: "md", fontWeight: 400, color: "lowContrast" }),
-  flex({ align: "center", gap: 4 }),
+  flex({ alignItems: "center", gap: 4 }),
   {
     overflow: "visible",
     color: colors.gray[11],
@@ -247,8 +247,10 @@ const styles = {
       display: "inline-flex",
     },
     "&[aria-expanded='true']": {
-      color: colors.gray[12],
       background: "transparent",
+    },
+    "&[aria-expanded='true'][data-active]": {
+      color: colors.gray[12],
     },
     "&[aria-expanded='true'] [aria-label='Expand tool activity'] svg": {
       transform: "rotate(90deg)",

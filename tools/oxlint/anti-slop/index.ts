@@ -16,6 +16,7 @@ import { noUnsafeDictionaryTypeRule } from "./rules/no-unsafe-dictionary-type.ts
 import { noWidenThenAssertRule } from "./rules/no-widen-then-assert.ts";
 import { requireSafetyCommentForTypeAssertionRule } from "./rules/require-safety-comment-for-type-assertion.ts";
 import { requireReasonForFloatingPromiseDisableRule } from "./rules/require-reason-for-floating-promise-disable.ts";
+import { noCssImportsRule } from "./rules/no-css-imports.ts";
 import { noUnusedExportsRule } from "../no-unused-exports/rule.ts";
 
 /** Generic Oxlint rules that reject low-evidence and low-signal implementation patterns. */
@@ -37,6 +38,7 @@ const antiSlopPlugin = eslintCompatPlugin({
 		"no-unknown-type-aliases": noUnknownTypeAliasesRule,
 		"no-unused-exports": noUnusedExportsRule,
 		"no-widen-then-assert": noWidenThenAssertRule,
+		"no-css-imports": noCssImportsRule,
 		"require-safety-comment-for-type-assertion": requireSafetyCommentForTypeAssertionRule,
 		"require-reason-for-floating-promise-disable": requireReasonForFloatingPromiseDisableRule,
 	},

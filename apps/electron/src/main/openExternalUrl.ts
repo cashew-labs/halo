@@ -1,4 +1,4 @@
-import { shell } from "electron";
+import { app, shell } from "electron";
 import * as errore from "errore";
 
 export class OpenExternalUrlError extends errore.createTaggedError({
@@ -21,7 +21,10 @@ export async function openExternalUrl(value: string) {
 
   // E2E cannot finish Google OAuth. Opening the system browser leaves a child
   // that GitHub Actions cannot detach, so Playwright teardown never exits.
-  if (process.env.HALO_E2E === "1") return;
+  if (process.env.HALO_E2E === "1") {
+    app.emit("halo:e2e:open-external", url.toString());
+    return;
+  }
 
   return await shell
     .openExternal(url.toString())

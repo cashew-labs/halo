@@ -1,4 +1,9 @@
+import type { ServerInfo } from "./protocol.js";
+import type { Hotkey, HotkeyInput } from "./hotkeys.js";
+import type { Routine, RoutineInput, RoutineRun } from "./routines.js";
+import type { ChatPrompt } from "./chatAttachments.js";
 import type { WorkspaceFilePreview } from "./rpc.js";
+import type { WorkspaceSearchResponse } from "./search.js";
 import {
   asyncIteratorObject,
   error,
@@ -17,11 +22,13 @@ import type {
 } from "./sessionState.js";
 import type {
   SessionSummary,
+  SessionSummariesUpdate,
   WorkspaceInfo,
   WorkspaceTreeEvent,
 } from "./rpc.js";
 
-export const haloProtocolVersion = 12 as const;
+export const haloProtocolVersion = 24 as const;
+export const haloSupportedProtocols = [haloProtocolVersion];
 
 export const RequestRejectedError = error("BAD_REQUEST", {
   message: "Halo could not complete the request.",
@@ -66,9 +73,18 @@ export type BrowserExecution = {
   errors: string[];
 };
 
+export type WorkspaceUpdate =
+  | { type: "hotkeys"; hotkeys: Hotkey[] }
+  | { type: "routines"; routines: Routine[] }
+  | { type: "extensions"; extensions: ExtensionSummary[] }
+  | { type: "extensionsError"; message: string }
+  | { type: "sessions"; update: SessionSummariesUpdate }
+  | { type: "files"; events: WorkspaceTreeEvent[] };
+
 export const contract = publicProcedure.router({
   server: {
-    info: oc.output(type<{ protocolVersion: typeof haloProtocolVersion }>()),
+    info: oc.output(type<ServerInfo>()),
+    watch: oc.output(asyncIteratorObject(type<WorkspaceUpdate>())),
   },
   browser: {
     open: oc.input(type<{ url: string }>()).output(
@@ -92,12 +108,16 @@ export const contract = publicProcedure.router({
   },
   extensions: {
     list: oc.output(type<ExtensionSummary[]>()),
+    watch: oc.output(asyncIteratorObject(type<ExtensionSummary[]>())),
     reload: oc.output(type<void>()),
     restart: oc.input(type<{ id: string }>()).output(type<void>()),
   },
   workspace: {
     get: oc.output(type<WorkspaceInfo>()),
     listPaths: oc.output(type<string[]>()),
+    search: oc
+      .input(type<{ query: string }>())
+      .output(type<WorkspaceSearchResponse>()),
     createEntry: oc
       .input(type<{ path: string; kind: "file" | "directory" }>())
       .output(type<{ path: string }>()),
@@ -112,23 +132,69 @@ export const contract = publicProcedure.router({
       .output(type<WorkspaceFilePreview>()),
     readFile: oc.input(type<{ path: string }>()).output(type<string>()),
     writeFile: oc
-      .input(type<{ path: string; content: string }>())
+      .input(
+        type<{ path: string; content: string; expectedContent?: string }>(),
+      )
+      .output(type<{ path: string; conflict?: boolean }>()),
+    reconcileNote: oc
+      .input(type<{ path: string; base: string; content: string }>())
+      .output(type<{ content: string; expectedContent: string }>()),
+    uploadFile: oc
+      .input(type<{ path: string; file: File }>())
       .output(type<{ path: string }>()),
     saveImage: oc
-      .input(type<{ documentPath: string; file: File }>())
+      .input(type<{ documentPath: string; file: File; id?: string }>())
       .output(type<{ src: string }>()),
     events: oc.output(asyncIteratorObject(type<WorkspaceTreeEvent[]>())),
   },
-  sessions: {
+  hotkeys: {
+    list: oc.output(type<Hotkey[]>()),
+    watch: oc.output(asyncIteratorObject(type<Hotkey[]>())),
+    save: oc.input(type<HotkeyInput>()).output(type<Hotkey>()),
+    remove: oc.input(type<{ id: string }>()).output(type<void>()),
+  },
+  routines: {
+    list: oc.output(type<Routine[]>()),
+    watch: oc.output(asyncIteratorObject(type<Routine[]>())),
+    save: oc.input(type<RoutineInput>()).output(type<Routine>()),
+    remove: oc.input(type<{ routineId: string }>()).output(type<void>()),
+    setEnabled: oc
+      .input(type<{ routineId: string; enabled: boolean }>())
+      .output(type<Routine>()),
+    runNow: oc.input(type<{ routineId: string }>()).output(type<RoutineRun>()),
+    listRuns: oc
+      .input(type<{ routineId: string; limit?: number }>())
+      .output(type<RoutineRun[]>()),
+  },
+  thread: {
     list: oc.output(type<SessionSummary[]>()),
-    create: oc.output(type<{ sessionId: string }>()),
+    watchSummaries: oc.output(
+      asyncIteratorObject(type<SessionSummariesUpdate>()),
+    ),
+    markRead: oc
+      .input(type<{ sessionId: string; observedResultId: string }>())
+      .output(type<void>()),
+    markUnread: oc.input(type<{ sessionId: string }>()).output(type<void>()),
+    markDone: oc.input(type<{ sessionId: string }>()).output(type<void>()),
+    markUndone: oc.input(type<{ sessionId: string }>()).output(type<void>()),
+    new: oc
+      .input(type<{ requestId?: string } | undefined>())
+      .output(type<{ sessionId: string }>()),
     snapshot: oc
       .input(type<{ sessionId: string }>())
       .output(type<SessionSnapshot>()),
-    watch: oc
+    events: oc
       .input(type<{ sessionId: string }>())
       .output(asyncIteratorObject(type<SessionWatchItem>())),
-    prompt: oc.input(type<{ sessionId: string; text: string }>()),
+    prompt: oc
+      .input(type<ChatPrompt & { sessionId: string }>())
+      .output(type<{ submissionId: number }>()),
+    wait: oc.input(type<{ sessionId: string; submissionId: number }>()).output(
+      type<{
+        status: "completed" | "aborted" | "failed";
+        error?: { message: string };
+      }>(),
+    ),
     startConnection: oc
       .input(
         type<{

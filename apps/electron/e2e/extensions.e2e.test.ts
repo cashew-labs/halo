@@ -1,12 +1,12 @@
 import { expect } from "@playwright/test";
-import { extensionE2eTest } from "./extensionE2eTest.js";
+import { e2eTest } from "./e2eTest.js";
 
-extensionE2eTest.setTimeout(90_000);
+e2eTest.setTimeout(90_000);
 
-extensionE2eTest(
+e2eTest(
   "keeps workspace extensions running after Electron quits",
-  async ({ loadExtension, app, request }) => {
-    const prepared = await loadExtension("./fixtures/greeting");
+  async ({ app, harness, request }) => {
+    const prepared = await harness.loadExtension("./fixtures/greeting");
     const extensions = await app.server.rpc.extensions.list();
     const extension = extensions.find((entry) => entry.id === prepared.id)!;
     const browser = await app.server.rpc.browser.open({ url: extension.url });
@@ -21,10 +21,10 @@ extensionE2eTest(
   },
 );
 
-extensionE2eTest(
+e2eTest(
   "keeps a newly loaded extension reachable across concurrent reloads",
-  async ({ loadExtension, app }) => {
-    const loaded = await loadExtension("./fixtures/greeting");
+  async ({ app, harness }) => {
+    const loaded = await harness.loadExtension("./fixtures/greeting");
     const extensions = await app.server.rpc.extensions.list();
     const extension = extensions.find((entry) => entry.id === loaded.id)!;
     const browser = await app.server.rpc.browser.open({ url: extension.url });

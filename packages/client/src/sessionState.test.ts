@@ -251,6 +251,59 @@ test("overlays persisted tool approval decisions", () => {
   });
 });
 
+test("keeps model-call order while parallel tools complete out of order", () => {
+  const calls = ["slow", "fast", "not-started"].map((id) => ({
+    type: "toolCall" as const,
+    id,
+    name: "read",
+    arguments: { path: `${id}.txt` },
+  }));
+  let snapshot: SessionSnapshot = {
+    ...emptySessionSnapshot(),
+    entries: [
+      {
+        type: "message",
+        id: "request",
+        message: assistantMessage({ stopReason: "toolUse", content: calls }),
+      },
+    ],
+    activeRun: {
+      id: "run",
+      tools: [
+        {
+          type: "tool",
+          id: "slow",
+          tool: { path: "read", displayName: "Read" },
+          arguments: { path: "slow.txt" },
+          status: "running",
+        },
+      ],
+    },
+  };
+  for (const id of ["fast", "slow"]) {
+    snapshot = applySessionEvent(snapshot, {
+      type: "entry.committed",
+      entry: {
+        type: "toolResult",
+        id: `result-${id}`,
+        toolCallId: id,
+        tool: { path: "read", displayName: "Read" },
+        timestamp: 1,
+        isError: false,
+        output: { type: "tool", result: { content: [] } },
+      },
+    });
+    expect(sessionToolExecutions(snapshot).map((tool) => tool.id)).toEqual([
+      "slow",
+      "fast",
+    ]);
+  }
+  expect(sessionToolExecutions(snapshot).map((tool) => tool.status)).toEqual([
+    "completed",
+    "completed",
+  ]);
+});
+
 test("replaces a previous session and continues the snapshot's active run", () => {
   const previous: SessionSnapshot = {
     ...emptySessionSnapshot(),

@@ -1,14 +1,18 @@
 import { useEffect } from "react";
-import type { Extensions } from "@tiptap/core";
+import type { Editor, Extensions } from "@tiptap/core";
+import Link from "@tiptap/extension-link";
 import { Markdown } from "@tiptap/markdown";
 import Placeholder from "@tiptap/extension-placeholder";
 import Paragraph from "@tiptap/extension-paragraph";
 import { useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import { proseHtml, type ProseSize } from "maui";
-import { useStyles } from "purse-styles";
+import { colors, monoFontFamily } from "maui";
+import { style, useStyles } from "purse-styles";
 import { useRefCurrent } from "./agent/useRefCurrent.js";
 import { ListEditing } from "./ListEditing.js";
+import { MarkdownSyntax } from "./MarkdownSyntax.js";
+import { serializeMarkdown } from "./serializeMarkdown.js";
+import { MarkdownFormatting } from "./MarkdownFormatting.js";
 
 const MarkdownParagraph = Paragraph.extend({
   parseMarkdown(token, helpers) {
@@ -32,10 +36,11 @@ type MarkdownEditorOptions = {
   autoFocus?: boolean;
   onChange?: (markdown: string) => void;
   placeholder?: string;
-  size?: ProseSize;
   editable?: boolean;
   "aria-label"?: string;
   onSubmit?: () => void;
+  onSelectionUpdate?: (editor: Editor) => void;
+  onKeyDown?: (event: KeyboardEvent) => boolean;
   inlineCodeClassName?: string;
   extensions?: Extensions;
 };
@@ -45,35 +50,41 @@ export function useMarkdownEditor({
   autoFocus = false,
   onChange,
   placeholder = "Write…",
-  size = "md",
   editable = true,
   "aria-label": ariaLabel = "Editor",
   onSubmit,
+  onSelectionUpdate,
+  onKeyDown,
   inlineCodeClassName,
   extensions = [],
 }: MarkdownEditorOptions) {
-  const proseClassName = useStyles(proseHtml(size));
+  const syntaxClassName = useStyles(syntaxStyle);
   const onChangeRef = useRefCurrent(onChange);
   const onSubmitRef = useRefCurrent(onSubmit);
+  const onSelectionUpdateRef = useRefCurrent(onSelectionUpdate);
+  const onKeyDownRef = useRefCurrent(onKeyDown);
 
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
         paragraph: false,
         heading: { levels: [1, 2, 3, 4] },
-        link: {
-          openOnClick: false,
-        },
+        link: false,
         code: {
-          HTMLAttributes: {
-            class: inlineCodeClassName,
-          },
+          HTMLAttributes: { class: inlineCodeClassName },
         },
       }),
+      Link.extend({
+        // Tiptap makes autolinks inclusive, which keeps typing at the end of a
+        // pasted URL inside the link.
+        inclusive: false,
+      }).configure({ openOnClick: false }),
       Markdown,
       MarkdownParagraph,
       ...extensions,
       ListEditing,
+      MarkdownFormatting,
+      MarkdownSyntax,
       Placeholder.configure({
         placeholder,
       }),
@@ -86,9 +97,10 @@ export function useMarkdownEditor({
     editorProps: {
       attributes: {
         "aria-label": ariaLabel,
-        class: `maui-editor-prose ${proseClassName}`,
+        class: syntaxClassName,
       },
       handleKeyDown: (_view, event) => {
+        if (onKeyDownRef.current?.(event)) return true;
         if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
           event.preventDefault();
           onSubmitRef.current?.();
@@ -98,13 +110,16 @@ export function useMarkdownEditor({
       },
     },
     onUpdate: ({ editor: current }) => {
-      onChangeRef.current?.(current.getMarkdown());
+      onChangeRef.current?.(serializeMarkdown({ editor: current }));
+      onSelectionUpdateRef.current?.(current);
     },
+    onSelectionUpdate: ({ editor: current }) =>
+      onSelectionUpdateRef.current?.(current),
   });
 
   useEffect(() => {
     if (!editor) return;
-    editor.setEditable(editable);
+    editor.setEditable(editable, false);
   }, [editor, editable]);
 
   useEffect(() => {
@@ -115,18 +130,37 @@ export function useMarkdownEditor({
         attributes: {
           ...editor.options.editorProps?.attributes,
           "aria-label": ariaLabel,
-          class: `maui-editor-prose ${proseClassName}`,
+          class: syntaxClassName,
         },
       },
     });
-  }, [editor, ariaLabel, proseClassName]);
+  }, [editor, ariaLabel, syntaxClassName]);
 
   useEffect(() => {
     if (!editor) return;
-    const current = editor.getMarkdown();
+    const current = serializeMarkdown({ editor });
     if (content === current) return;
-    editor.commands.setContent(content, { contentType: "markdown" });
+    editor.commands.setContent(content, {
+      contentType: "markdown",
+      emitUpdate: false,
+    });
   }, [editor, content]);
 
   return editor;
 }
+
+const syntaxStyle = style({
+  "& .markdown-source": {
+    outline: "none",
+    whiteSpace: "pre-wrap",
+  },
+  "& .markdown-marker": {
+    color: colors.gray[9],
+    fontWeight: "normal",
+    fontStyle: "normal",
+  },
+  "& .markdown-source-bold": { fontWeight: "bold" },
+  "& .markdown-source-italic": { fontStyle: "italic" },
+  "& .markdown-source-strike": { textDecoration: "line-through" },
+  "& .markdown-source-code": { fontFamily: monoFontFamily },
+});

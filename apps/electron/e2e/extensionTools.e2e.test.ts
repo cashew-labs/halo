@@ -1,15 +1,15 @@
 import { expect } from "@playwright/test";
-import { extensionE2eTest } from "./extensionE2eTest.js";
+import { e2eTest } from "./e2eTest.js";
 
-extensionE2eTest(
+e2eTest(
   "reads workspace notes through a trusted extension tool",
-  async ({ app, loadExtension, harness }) => {
-    await loadExtension("./fixtures/workspaceNotes");
+  async ({ app, harness }) => {
+    await harness.loadExtension("./fixtures/workspaceNotes");
     await app.page
       .getByRole("link", { name: "workspaceNotes", exact: true })
       .click();
     const pane = app.page
-      .getByTitle("workspaceNotes", { exact: true })
+      .locator('iframe[title="workspaceNotes"]')
       .contentFrame();
 
     await harness.tools.files.write({
@@ -24,10 +24,10 @@ extensionE2eTest(
   },
 );
 
-extensionE2eTest(
+e2eTest(
   "keeps extension tool access after restarting Halo",
-  async ({ loadExtension, app, harness }) => {
-    await loadExtension("./fixtures/workspaceNotes");
+  async ({ app, harness }) => {
+    await harness.loadExtension("./fixtures/workspaceNotes");
     await harness.tools.files.write({
       path: "notes.txt",
       content: "Available after restart",
@@ -38,12 +38,15 @@ extensionE2eTest(
       .getByRole("link", { name: "workspaceNotes", exact: true })
       .click();
     const pane = app.page
-      .getByTitle("workspaceNotes", { exact: true })
+      .locator('iframe[title="workspaceNotes"]')
       .contentFrame();
-    await pane.getByRole("button", { name: "Refresh notes" }).click();
-
-    await expect(pane.getByRole("status")).toHaveText(
-      "Available after restart",
-    );
+    const refresh = pane.getByRole("button", { name: "Refresh notes" });
+    const status = pane.getByRole("status");
+    await expect(async () => {
+      await refresh.click();
+      await expect(status).toHaveText("Available after restart", {
+        timeout: 1_000,
+      });
+    }).toPass({ timeout: 10_000 });
   },
 );

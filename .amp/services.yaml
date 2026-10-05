@@ -1,0 +1,3 @@
+services:
+  halo-dev:
+    command: HALO_USE_SWIFTSHADER=1 xvfb-run -a pnpm dev

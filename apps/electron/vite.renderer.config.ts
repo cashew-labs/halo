@@ -9,15 +9,12 @@ export default defineConfig({
   build: {
     minify: false,
     sourcemap: false,
-    // Vite 8 maps minify:false to Rolldown "dce-only". Keep that off too.
     rolldownOptions: {
       output: {
         minify: false,
+        preserveModules: true,
       },
     },
-  },
-  optimizeDeps: {
-    include: ["@pierre/diffs/react", "@pierre/diffs/edit"],
   },
   resolve: {
     alias: {

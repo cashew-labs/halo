@@ -29,7 +29,7 @@ for previously released desktop clients.
   endpoint; it verifies the signed VM identity and constructs the workspace
   path. Template/provisioning metadata supplies the control-plane origin and
   registered workspace ID for the server's `traceUpload` configuration. See the
-  [trace archive documentation](../apps/workspace-server/src/traces/README.md).
+  [trace archive documentation](../packages/workspace-server/src/traces/README.md).
 - The control plane creates one workspace VM and durable workspace disk per
   user from that template. Production user workspaces are not managed by the
   standalone `workspace/` Pulumi program.
@@ -72,9 +72,43 @@ The load balancer's static IP address is also protected in Pulumi.
 
 Normal production changes ship through a release PR created by
 `pnpm prerelease <version>`. CI previews this stack on the PR. Merging builds the
-versioned images, applies the stack, recreates workspace VMs with their durable
-data disks, and publishes the desktop release. The local commands above remain
+versioned images, applies the stack, updates containers on the existing workspace
+VMs, and publishes the desktop release. The local commands above remain
 available for recovery and infrastructure development.
+
+## Workspace image rollout
+
+The release matrix runs `infra/workspace/rollout.sh` for each workspace.
+It checks workspace identity, the durable disk, and the template's machine,
+network, tags, and service account. A mismatch stops publishing and requires
+explicit VM maintenance; image rollout does not change those host settings or
+the boot OS.
+
+The script updates VM metadata with the desired startup script, preserving owner
+and workspace identity, then reruns it over IAP SSH. The startup script pulls the
+new image before changing the service and restarting only the container. The VM,
+private IP, mounted disk, and Docker cache stay in place. Healthy retries report
+readiness without restarting. After the replacement is healthy, the previous
+image is removed to keep release images from filling the boot disk. If pulling
+fails, the existing container continues serving; the desired metadata remains
+available for a retry or reboot.
+
+The workflow requires a fresh readiness marker with the exact image, supported
+protocols, and revision before browser or desktop publishing. A container startup
+or health failure blocks publishing; automatic rollback and draining active agent
+runs are not implemented. The restart still briefly interrupts active work.
+
+The `deploymentServiceAccount` stack setting must match
+`GCP_DEPLOY_SERVICE_ACCOUNT` in GitHub. Pulumi manages OS Admin Login, IAP access
+restricted to SSH, and access to the workspace runtime service account. Existing
+IAP firewall rules keep SSH reachable through IAP while workspace ports stay
+private.
+
+Stopped and suspended workspaces receive the desired metadata before the rollout
+starts or resumes them. The rollout waits for SSH, then verifies readiness as
+usual. Startup uses a VM-local lock so automatic boot startup and the release's
+SSH invocation cannot change the service concurrently. Other transitional VM
+states require retrying after the transition completes.
 
 ## Bootstrap resources
 
@@ -130,7 +164,17 @@ gcloud builds submit . \
 pulumi -C infra/control-plane config set workspaceImage "$image" --stack west
 ```
 
-Use the immutable digest printed by Cloud Build when updating either stack
+Cloud Build uses Buildx to push images and export all build stages to an Artifact
+Registry cache. Workspace builds use `workspace-server:build-cache`; control-plane
+builds use `control-plane:build-cache-<target>` so the parallel transition and
+frontend builds do not overwrite each other. Missing caches are populated by the
+first successful build. Dependency manifests, Python requirements, and Chromium
+installation precede source copies, so source-only changes reuse those layers.
+The existing repository and builder permissions cover the caches; no separate
+infrastructure is required. To test without updating release caches, pass
+`_CACHE_IMAGE=<isolated-cache-image>` in the Cloud Build substitutions.
+
+Use the immutable digest printed by Buildx when updating either stack
 configuration value.
 
 ## OAuth and runtime secrets
@@ -139,12 +183,13 @@ Production Google OAuth credentials live in Secret Manager as:
 
 - `halo-west-control-plane-google-client-id`
 - `halo-west-control-plane-google-client-secret`
-- `halo-west-workspace-google-web-client-id`
-- `halo-west-workspace-google-web-client-secret`
+- `halo-workspace-google-web-client-id`
+- `halo-workspace-google-web-client-secret`
 
 The control plane loads its sign-in client through its runtime service account.
-Workspace VMs load the web integration client through their runtime service
-account. The control-plane Google OAuth client must authorize:
+Every workspace-server app loads the canonical web integration client through
+ADC; IAM grants each local or cloud runtime access to those two secrets. The
+control-plane Google OAuth client must authorize:
 
 ```text
 https://gethalo.dev/api/auth/callback/google
@@ -165,10 +210,14 @@ pulumi -C infra/control-plane stack output controlPlaneUrl --stack west
 Electron keeps using its separate installed-application client and loopback
 callback.
 
-Local development uses separate `halo-dev-local-*` secrets and the active
+Local development reads the canonical workspace secrets with the active
 Application Default Credentials identity. Production workspace VMs use their
-attached service account for `google-vertex/gemini-3.8-flash`; Pulumi grants it
-`roles/aiplatform.user`.
+attached service account to read those secrets and `together-ai-api-key`.
+The workspace server uses that key for `together/deepseek-ai/DeepSeek-V4.1-Flash`;
+Pulumi grants Secret Manager access to each workspace runtime.
+The first Together rollout retains the Vertex AI service and workspace IAM grants
+because IAM is applied before existing VMs are replaced. Remove those grants in a
+later release after every workspace VM runs the Together image.
 
 ## Recovery snapshots
 

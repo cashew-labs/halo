@@ -1,6 +1,30 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if ! command -v Xvfb >/dev/null || ! command -v pdftotext >/dev/null; then
+  echo "==> Installing system dependencies"
+  sudo apt-get update -qq
+  sudo apt-get install -y -qq poppler-utils xvfb
+fi
+
+NODE_VERSION="$(cat .node-version)"
+NODE_HOME="$HOME/.local/node-v${NODE_VERSION}"
+if [[ ! -x "$NODE_HOME/bin/node" ]]; then
+  echo "==> Installing Node ${NODE_VERSION}"
+  archive="$(mktemp)"
+  trap 'rm -f "$archive"' EXIT
+  curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" -o "$archive"
+  mkdir -p "$NODE_HOME"
+  tar -xJf "$archive" -C "$NODE_HOME" --strip-components=1
+fi
+mkdir -p "$HOME/.local/bin"
+for executable in node npm npx corepack; do
+  ln -sfn "$NODE_HOME/bin/$executable" "$HOME/.local/bin/$executable"
+done
+export PATH="$HOME/.local/bin:$PATH"
+hash -r
+node --version
+
 # Corepack wraps pnpm in a Node shim and does not install pnpm 12's native binary.
 PNPM_VERSION="$(node -p "require('./package.json').packageManager.slice('pnpm@'.length)")"
 export PNPM_HOME="${PNPM_HOME:-$HOME/.local/share/pnpm}"
@@ -13,3 +37,6 @@ pnpm --version
 
 echo "==> Installing workspace dependencies"
 time pnpm install --frozen-lockfile
+
+echo "==> Installing Playwright Chromium"
+pnpm exec playwright install --with-deps chromium

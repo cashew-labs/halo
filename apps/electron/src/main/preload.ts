@@ -1,5 +1,9 @@
 import type { LogLevel, LoggerData, LoggerScope } from "@get-halo/logger";
-import { SHORTCUT_CHANNEL, type ShortcutId } from "../shared/shortcuts.js";
+import {
+  CUSTOM_SHORTCUTS_CHANNEL,
+  SHORTCUT_CHANNEL,
+  type ShortcutId,
+} from "../shared/shortcuts.js";
 import { Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import { contextBridge, ipcRenderer } from "electron";
@@ -7,6 +11,7 @@ import { LOG_CHANNELS } from "../shared/channels.js";
 import { DESKTOP_CHANNEL, type DesktopBridge } from "../shared/desktop.js";
 
 const desktopBridge: DesktopBridge = {
+  setHotkeys: (hotkeys) => ipcRenderer.send(CUSTOM_SHORTCUTS_CHANNEL, hotkeys),
   onShortcut: (listener) => {
     const handleShortcut = (
       _event: Electron.IpcRendererEvent,
@@ -17,8 +22,19 @@ const desktopBridge: DesktopBridge = {
       ipcRenderer.removeListener(SHORTCUT_CHANNEL, handleShortcut);
     };
   },
-  getConnection: async () =>
-    await ipcRenderer.invoke(DESKTOP_CHANNEL, { type: "getConnection" }),
+  getConnection: async () => {
+    const connection: Awaited<ReturnType<DesktopBridge["getConnection"]>> =
+      await ipcRenderer.invoke(DESKTOP_CHANNEL, { type: "getConnection" });
+    if (
+      connection === undefined ||
+      "connectionFailure" in connection ||
+      !process.argv.includes("--halo-e2e-rpc-localhost")
+    )
+      return connection;
+    const origin = new URL(connection.origin);
+    origin.hostname = "localhost";
+    return { ...connection, origin: origin.origin };
+  },
   getAuthSession: async () =>
     await ipcRenderer.invoke(DESKTOP_CHANNEL, { type: "getAuthSession" }),
   signIn: async () =>

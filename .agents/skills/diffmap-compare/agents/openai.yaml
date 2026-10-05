@@ -1,0 +1,4 @@
+interface:
+  display_name: "Diffmap Comparison"
+  short_description: "Compare upstream and custom code-review experiences"
+  default_prompt: "Use $diffmap-compare to explain these changes and give me both the upstream and custom review URLs."

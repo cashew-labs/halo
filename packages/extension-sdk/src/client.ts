@@ -3,6 +3,7 @@ import { RPCLink } from "@orpc/client/fetch";
 import type { AnyRouter, RouterClient } from "@orpc/server";
 import {
   TandemClient,
+  type AnyRelations,
   type AnySchema,
   type RuntimeSchemaDefinition,
   type RemoteApi,
@@ -23,9 +24,10 @@ type SyncClient<Schema extends AnySchema> = {
   connect: RouterClient<ReturnType<typeof syncRouter>>["connect"];
 };
 
-export async function connectExtension<Schema extends AnySchema>(
-  schema: RuntimeSchemaDefinition<Schema>,
-) {
+export async function connectExtension<
+  Schema extends AnySchema,
+  Relations extends AnyRelations<Schema>,
+>(args: { schema: RuntimeSchemaDefinition<Schema>; relations: Relations }) {
   const viewPath = "/view/";
   const extensionPath = location.pathname.slice(
     1,
@@ -64,7 +66,12 @@ export async function connectExtension<Schema extends AnySchema>(
       };
     },
   };
-  const storage = new TandemClient({ schema, remote, autoConnect: false });
+  const storage = new TandemClient({
+    schema: args.schema,
+    relations: args.relations,
+    remote,
+    autoConnect: false,
+  });
   const ready = await storage.ready.catch(
     (cause) => new ExtensionConnectionError({ cause }),
   );

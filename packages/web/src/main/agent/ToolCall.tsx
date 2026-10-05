@@ -10,9 +10,9 @@ import {
   colors,
   flex,
   monospace,
-  prose,
   radius,
   spacing,
+  text,
 } from "maui";
 import { style, useStyles } from "purse-styles";
 import { execJsSource, toolPartLabel, type ToolPart } from "./sessionView.ts";
@@ -110,13 +110,15 @@ function ArgumentTable({
   );
 }
 
-const labelStyle = style(prose("sm").paragraph, {
-  color: colors.gray[11],
-  minWidth: 0,
-  overflow: "hidden",
-  textOverflow: "ellipsis",
-  whiteSpace: "nowrap",
-});
+const labelStyle = style(
+  text({ size: "md", fontWeight: 400, color: "lowContrast" }),
+  {
+    minWidth: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+);
 
 const styles = {
   root: style(flex({ direction: "column", gap: 2 }), radius.md, {
@@ -133,7 +135,6 @@ const styles = {
     margin: 0,
     cursor: "pointer",
     width: "100%",
-    font: "inherit",
   }),
   shell: style(monospace, { fontFeatureSettings: '"calt" 1' }),
   body: style(flex({ direction: "column", gap: 3 }), {

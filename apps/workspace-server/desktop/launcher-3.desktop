@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Chrome
+Icon=web-browser
+Exec=halo-chrome
+Terminal=false

@@ -2,7 +2,7 @@ import { homedir } from "node:os";
 import { connectHaloClient, IncompatibleServerError } from "@get-halo/client";
 import * as errore from "errore";
 import { findHaloRpcFile } from "./findHaloRpcFile.js";
-import { HaloRpcFileError } from "./HaloRpcFile.js";
+import { HaloRpcFileError } from "@get-halo/shared/HaloRpcFile";
 
 export type HaloRpcEnv = {
   HALO_RPC_FILE?: string;
@@ -12,7 +12,7 @@ export type HaloRpcEnv = {
 export class HaloProtocolVersionError extends errore.createTaggedError({
   name: "HaloProtocolVersionError",
   message:
-    "This Halo CLI uses protocol $clientProtocolVersion; the server uses protocol $serverProtocolVersion.",
+    "This Halo CLI uses protocol $clientProtocolVersion; the server supports protocols $supportedProtocols.",
 }) {}
 
 export function cliVersion() {
@@ -39,7 +39,7 @@ export async function connectHalo(env: HaloRpcEnv) {
   if (connected instanceof IncompatibleServerError) {
     return new HaloProtocolVersionError({
       clientProtocolVersion: connected.clientProtocolVersion,
-      serverProtocolVersion: connected.serverProtocolVersion,
+      supportedProtocols: connected.supportedProtocols.join(", "),
     });
   }
   if (connected instanceof Error) {

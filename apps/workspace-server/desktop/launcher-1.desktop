@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Files
+Icon=system-file-manager
+Exec=thunar /home/node/documents
+Terminal=false

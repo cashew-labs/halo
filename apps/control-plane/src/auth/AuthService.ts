@@ -74,6 +74,15 @@ function authOptions(options: AuthServiceOptions, database: DatabaseClient) {
     secret: options.secret,
     database,
     trustedOrigins: [options.origin],
+    // Desktop sign-in starts through RPC, so the Better Auth state cookie
+    // would be set on Electron's fetch, not the system browser that finishes
+    // Google OAuth. State still lives in the verification table.
+    account: {
+      skipStateCookieCheck: true,
+    },
+    onAPIError: {
+      errorURL: new URL("/api/desktop-auth/error", options.origin).toString(),
+    },
     socialProviders: {
       google: {
         clientId: options.googleClientId,
@@ -146,16 +155,6 @@ export class AuthService {
     );
   }
 
-  desktopSignInUrl(request: DesktopSignInRequest) {
-    const signIn = parseDesktopSignInRequest(request);
-    if (signIn instanceof Error) return signIn;
-
-    const start = new URL("/api/desktop-auth/start", this.origin);
-    start.searchParams.set("callback", signIn.callback.toString());
-    start.searchParams.set("state", signIn.state);
-    return start;
-  }
-
   async startDesktopSignIn(request: DesktopSignInRequest) {
     const signIn = parseDesktopSignInRequest(request);
     if (signIn instanceof Error) return signIn;
@@ -178,8 +177,13 @@ export class AuthService {
       );
     if (result instanceof Error) return result;
 
+    const authorizationUrl = result.response.url;
+    if (authorizationUrl === undefined || authorizationUrl === "") {
+      return new AuthServiceError({ detail: "start desktop sign-in" });
+    }
+
     return {
-      authorizationUrl: result.response.url,
+      authorizationUrl,
       headers: result.headers,
     };
   }

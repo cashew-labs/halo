@@ -3,6 +3,7 @@ import {
   NavigationTreeHeader,
   NavigationTreeSection,
   type NavigationTreeHeaderProps,
+  type NavigationTreeSectionProps,
 } from "react-aria-components/NavigationTree";
 import {
   borderColor,
@@ -46,6 +47,7 @@ type SidebarSectionProps = {
   className?: string;
   headerClassName?: string;
   renderHeader?: NavigationTreeHeaderProps["render"];
+  render?: NavigationTreeSectionProps<object>["render"];
 };
 
 export function SidebarSection(props: SidebarSectionProps) {
@@ -55,6 +57,7 @@ export function SidebarSection(props: SidebarSectionProps) {
   return (
     <NavigationTreeSection
       className={joinClassNames(sectionClassName, props.className)}
+      render={props.render}
     >
       <NavigationTreeHeader
         className={joinClassNames(labelClassName, props.headerClassName)}

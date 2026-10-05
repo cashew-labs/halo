@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Terminal
+Icon=utilities-terminal
+Exec=xfce4-terminal --working-directory=/home/node/documents
+Terminal=false

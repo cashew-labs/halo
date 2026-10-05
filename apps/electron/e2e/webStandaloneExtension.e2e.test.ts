@@ -5,9 +5,9 @@ import { betterAuth } from "better-auth";
 import { testUtils } from "better-auth/plugins";
 import * as errore from "errore";
 import { ControlPlane } from "../../control-plane/src/server/ControlPlane.js";
+import { LocalWorkspaceProvider } from "../../control-plane/src/workspace/provider/local/LocalWorkspaceProvider.js";
 import { m } from "@get-halo/shared/testing";
 import { e2eTest } from "./e2eTest.js";
-import { extensionE2eTest } from "./extensionE2eTest.js";
 
 const auth = {
   secret: "test-control-plane-auth-secret-key!",
@@ -15,11 +15,11 @@ const auth = {
   googleClientSecret: "test-google-client-secret",
 };
 
-extensionE2eTest(
+e2eTest(
   "opens an owner-authenticated extension at its standalone web URL",
-  async ({ browser, loadExtension, testArtifacts }) => {
-    extensionE2eTest.setTimeout(120_000);
-    const extension = await loadExtension("./fixtures/greeting");
+  async ({ browser, harness, testArtifacts }) => {
+    e2eTest.setTimeout(120_000);
+    const extension = await harness.loadExtension("./fixtures/greeting");
     const plane = await ControlPlane.start({
       config: {
         deployment: "local",
@@ -29,6 +29,9 @@ extensionE2eTest(
         auth,
       },
       webRoot: path.resolve(import.meta.dirname, "../../web-app/dist"),
+      workspaceProvider: new LocalWorkspaceProvider({
+        appDataDir: testArtifacts.paths.userData,
+      }),
     });
     if (plane instanceof Error) throw plane;
     await using cleanup = new errore.AsyncDisposableStack();
@@ -87,7 +90,7 @@ extensionE2eTest(
     await signedInPage.goto(new URL(route, plane.origin).toString());
 
     await signedInPage.setViewportSize({ width: 390, height: 844 });
-    const frame = signedInPage.getByTitle("greeting", { exact: true });
+    const frame = signedInPage.locator('iframe[title="greeting"]');
     await expect(frame).toHaveCSS("height", "844px");
     await expect(frame).toHaveAttribute(
       "src",
@@ -107,6 +110,60 @@ extensionE2eTest(
     await expect(
       signedInPage.getByText("Extension 'not-running' is not running."),
     ).toBeVisible();
+  },
+);
+
+e2eTest(
+  "opens a workspace extension WebSocket through the standalone web URL",
+  async ({ browser, harness, testArtifacts }) => {
+    e2eTest.setTimeout(120_000);
+    const extension = await harness.loadExtension(
+      "./fixtures/websocket-greeting",
+    );
+    const plane = await ControlPlane.start({
+      config: {
+        deployment: "local",
+        workspace: { deployment: "local" },
+        appDataDir: testArtifacts.paths.userData,
+        port: 0,
+        auth,
+      },
+      webRoot: path.resolve(import.meta.dirname, "../../web-app/dist"),
+      workspaceProvider: new LocalWorkspaceProvider({
+        appDataDir: testArtifacts.paths.userData,
+      }),
+    });
+    if (plane instanceof Error) throw plane;
+    await using cleanup = new errore.AsyncDisposableStack();
+    cleanup.defer(async () => {
+      const closed = await plane.close();
+      if (closed instanceof Error) throw closed;
+    });
+
+    const cookie = await createAuthenticatedCookie({
+      appDataDir: testArtifacts.paths.userData,
+      origin: plane.origin,
+    });
+    const context = await browser.newContext({
+      extraHTTPHeaders: { cookie },
+    });
+    cleanup.defer(async () => await context.close());
+    const page = await context.newPage();
+    await page.goto(
+      new URL(
+        `/extensions/${encodeURIComponent(extension.id)}`,
+        plane.origin,
+      ).toString(),
+    );
+
+    const frame = page.getByTitle("WebSocket Greeting", { exact: true });
+    await expect(frame).toHaveAttribute(
+      "src",
+      /\/workspace\/extensions\/websocket-greeting\/view\/$/,
+    );
+    await expect(frame.contentFrame().getByRole("status")).toHaveText(
+      "Hello from WebSocket",
+    );
   },
 );
 
@@ -137,6 +194,9 @@ e2eTest(
         auth,
       },
       webRoot: path.resolve(import.meta.dirname, "../../web-app/dist"),
+      workspaceProvider: new LocalWorkspaceProvider({
+        appDataDir: testArtifacts.paths.userData,
+      }),
     });
     if (plane instanceof Error) throw plane;
     await using cleanup = new errore.AsyncDisposableStack();

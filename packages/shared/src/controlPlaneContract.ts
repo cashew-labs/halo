@@ -1,6 +1,9 @@
+import * as errore from "errore";
+import { checkServerCompatibility, type ServerInfo } from "@get-halo/client";
 import { error, oc, type, type RouterContractClient } from "@orpc/contract";
 
 export const controlPlaneProtocolVersion = 3 as const;
+export const controlPlaneSupportedProtocols = [controlPlaneProtocolVersion];
 
 export type ControlPlaneSession = {
   session: {
@@ -44,9 +47,7 @@ const authenticatedProcedure = publicProcedure.errors({
 
 export const controlPlaneContract = publicProcedure.router({
   server: {
-    info: oc.output(
-      type<{ protocolVersion: typeof controlPlaneProtocolVersion }>(),
-    ),
+    info: oc.output(type<ServerInfo>()),
   },
   auth: {
     start: publicProcedure
@@ -65,3 +66,23 @@ export const controlPlaneContract = publicProcedure.router({
 export type ControlPlaneClient = RouterContractClient<
   typeof controlPlaneContract
 >;
+
+export async function checkControlPlaneCompatibility(
+  client: ControlPlaneClient,
+  signal?: AbortSignal,
+) {
+  const info = await client.server
+    .info(undefined, { signal })
+    .catch((cause) => new ControlPlaneConnectionError({ cause }));
+  if (info instanceof Error) return info;
+  return checkServerCompatibility({
+    info,
+    service: "control-plane",
+    clientProtocolVersion: controlPlaneProtocolVersion,
+  });
+}
+
+class ControlPlaneConnectionError extends errore.createTaggedError({
+  name: "ControlPlaneConnectionError",
+  message: "Could not check the control-plane API.",
+}) {}

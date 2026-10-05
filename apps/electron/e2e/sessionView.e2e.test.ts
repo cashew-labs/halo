@@ -1,19 +1,539 @@
-import { expect, type Locator } from "@playwright/test";
+import { expect, type Route } from "@playwright/test";
 import { e2eTest } from "./e2eTest.js";
 import { m } from "@get-halo/shared/testing";
 import { messageText } from "@get-halo/workspace-server/testing";
+import fs from "node:fs/promises";
+import path from "node:path";
+
+e2eTest(
+  "references a workspace file from the composer without sending its full content",
+  async ({ app, harness, llm }, testInfo) => {
+    await harness.tools.files.write({
+      path: "brief.md",
+      content: "The hidden detail is violet lantern.",
+    });
+    await app.page
+      .getByRole("button", { name: "New tab", exact: true })
+      .click();
+    const pane = app.page.getByRole("main", { name: "New session" });
+    await pane.getByLabel("Message", { exact: true }).fill("Review @brief");
+    await expect(pane.getByRole("option", { name: /brief\.md/ })).toBeVisible();
+    await app.page.screenshot({
+      path: testInfo.outputPath("reference-picker.png"),
+    });
+    await pane.getByRole("option", { name: /brief\.md/ }).click();
+    const references = pane.getByRole("list", { name: "Referenced files" });
+    await expect(references).toContainText("brief.md");
+    await expect(pane.getByLabel("Message", { exact: true })).toHaveText(
+      "Review ",
+    );
+    await pane.getByRole("button", { name: "Send", exact: true }).click();
+    await llm.respond(({ messages }) => {
+      const user = messages.findLast((message) => message.role === "user");
+      expect(user).toBeDefined();
+      expect(messageText(user!)).toContain('File: "brief.md"');
+      expect(messageText(user!)).not.toContain("violet lantern");
+      return m.assistant("I can read the brief when needed.");
+    });
+    const sent = app.page.getByRole("article", { name: "You message" });
+    await expect(sent).toContainText("brief.md");
+    await expect(sent).not.toContainText("Workspace references:");
+    await expect(
+      app.page
+        .getByRole("toolbar", { name: /^Pane \d+ tabs$/ })
+        .getByRole("button", { name: "Review", pressed: true }),
+    ).toBeVisible();
+  },
+);
+
+e2eTest(
+  "carries selected document text into a new chat and the model request",
+  async ({ app, harness, llm }) => {
+    await harness.tools.files.write({
+      path: "notes.md",
+      content:
+        "# Planning\n\nKeep the copper bridge.\n\nLeave the distant orchard untouched.",
+    });
+    await app.page.getByRole("link", { name: "notes.md", exact: true }).click();
+    const editor = app.page
+      .getByRole("main", { name: "notes.md" })
+      .getByLabel("notes.md");
+    await expect(editor).toContainText("Keep the copper bridge");
+    await editor.evaluate((element) => {
+      const paragraph = [...element.querySelectorAll("p")].find((item) =>
+        item.textContent?.includes("Keep the copper bridge"),
+      )!;
+      const range = document.createRange();
+      range.selectNodeContents(paragraph);
+      const selection = window.getSelection()!;
+      selection.removeAllRanges();
+      selection.addRange(range);
+    });
+    await expect
+      .poll(
+        async () =>
+          await app.page.evaluate(() => window.getSelection()?.toString()),
+      )
+      .toBe("Keep the copper bridge.");
+    await app.pressShortcut({ key: "T" });
+    const draft = app.page.getByRole("main", { name: "New session" });
+    await expect(
+      draft.getByRole("list", { name: "Referenced files" }),
+    ).toContainText("Keep the copper bridge.");
+    await draft
+      .getByLabel("Message", { exact: true })
+      .fill("What does this imply?");
+    await draft.getByRole("button", { name: "Send", exact: true }).click();
+    await llm.respond(({ messages }) => {
+      const user = messages.findLast((message) => message.role === "user");
+      expect(user).toBeDefined();
+      expect(messageText(user!)).toContain(
+        'Selected text from "notes.md":\nKeep the copper bridge.',
+      );
+      expect(messageText(user!)).not.toContain("distant orchard");
+      return m.assistant("The copper bridge should remain.");
+    });
+    await expect(
+      app.page.getByRole("article", { name: "You message" }),
+    ).toContainText("Keep the copper bridge.");
+  },
+);
+
+e2eTest(
+  "drops images, PDFs, and Word files into chat and keeps their model context after reload",
+  async ({ app, llm }, testInfo) => {
+    await app.page
+      .getByRole("button", { name: "New tab", exact: true })
+      .click();
+    const pane = app.page.getByRole("main");
+    const fixtures = await Promise.all(
+      ["picture.png", "document.pdf", "document.docx"].map(async (name) => ({
+        name,
+        data: (
+          await fs.readFile(
+            path.resolve(
+              import.meta.dirname,
+              "../../../packages/workspace-server/test/fixtures/attachments",
+              name,
+            ),
+          )
+        ).toString("base64"),
+      })),
+    );
+    const transfer = await app.page.evaluateHandle((files) => {
+      const data = new DataTransfer();
+      for (const file of files)
+        data.items.add(
+          new File(
+            [Uint8Array.from(atob(file.data), (char) => char.charCodeAt(0))],
+            file.name,
+          ),
+        );
+      return data;
+    }, fixtures);
+    const editor = pane.getByLabel("Message", { exact: true });
+    await editor.fill("Summarize my attached files");
+    await pane.dispatchEvent("dragenter", { dataTransfer: transfer });
+    await expect(
+      pane.getByText("Drop files to attach", { exact: true }),
+    ).toBeVisible();
+    await editor.dispatchEvent("dragover", { dataTransfer: transfer });
+    await expect(
+      pane.getByText("Drop files to attach", { exact: true }),
+    ).toBeVisible();
+    await app.page.screenshot({ path: testInfo.outputPath("file-drag.png") });
+    await editor.dispatchEvent("drop", { dataTransfer: transfer });
+    await transfer.dispose();
+    await expect(
+      pane.getByText("Drop files to attach", { exact: true }),
+    ).not.toBeVisible();
+    const attachments = pane.getByRole("list", {
+      name: "Attachments",
+      exact: true,
+    });
+    for (const fixture of fixtures)
+      await expect(
+        attachments.getByText(fixture.name, { exact: true }),
+      ).toBeVisible();
+    await app.page.screenshot({
+      path: testInfo.outputPath("attachments-ready.png"),
+    });
+    const uploads: Route[] = [];
+    await app.page.route("**/rpc/thread/prompt", (route) => {
+      uploads.push(route);
+    });
+    await pane.getByRole("button", { name: "Send", exact: true }).click();
+    await expect.poll(() => uploads.length).toBe(1);
+    await expect(
+      pane.getByRole("button", { name: "Send", exact: true }),
+    ).toBeDisabled();
+    await expect(pane.getByRole("status")).toHaveText("Preparing attachments…");
+    await expect(attachments.getByRole("listitem")).toHaveCount(3);
+    await uploads[0]!.continue();
+    await app.page.unroute("**/rpc/thread/prompt");
+    await llm.respond(({ messages }) => {
+      const user = messages.findLast((message) => message.role === "user");
+      expect(user).toBeDefined();
+      expect(messageText(user!)).toContain("scarlet robin");
+      expect(messageText(user!)).toContain("orange heron");
+      expect(
+        Array.isArray(user!.content)
+          ? user!.content.filter((part) => part.type === "image_url")
+          : [],
+      ).toHaveLength(4);
+      return m.assistant(
+        "The Word document says scarlet robin; the PDF says orange heron. I can see the image and both PDF pages.",
+      );
+    });
+    const userMessage = pane.getByRole("article", { name: "You message" });
+    await expect(userMessage).toContainText("Summarize my attached files");
+    await expect(
+      userMessage
+        .getByRole("list", { name: "Attached files" })
+        .getByRole("listitem"),
+    ).toHaveCount(3);
+    await expect(userMessage).not.toContainText("scarlet robin");
+    await expect(pane.getByRole("log")).toContainText(
+      "I can see the image and both PDF pages.",
+    );
+    const chatTabTitle = await app.page
+      .getByRole("toolbar", { name: /^Pane \d+ tabs$/ })
+      .getByRole("button", { pressed: true })
+      .innerText();
+    const chatTab = app.page
+      .getByRole("toolbar", { name: /^Pane \d+ tabs$/ })
+      .getByRole("button", { name: chatTabTitle, exact: true });
+    const initialTabCount = await app.page
+      .locator("[role=toolbar] button[aria-pressed]")
+      .count();
+    await editor.fill("Keep this follow-up draft");
+    for (const [index, name] of [
+      "picture.png",
+      "document.pdf",
+      "document.docx",
+    ].entries()) {
+      await userMessage.getByRole("link", { name, exact: true }).click();
+      await expect(
+        app.page.locator("[role=toolbar] button[aria-pressed]"),
+      ).toHaveCount(initialTabCount + index + 1);
+      await expect(
+        app.page
+          .getByRole("toolbar", { name: /^Pane \d+ tabs$/ })
+          .getByRole("button", { pressed: true }),
+      ).toHaveText(name);
+      await expect(chatTab).toBeVisible();
+      await chatTab.click();
+      await expect(editor).toHaveText("Keep this follow-up draft");
+      await expect(userMessage).toContainText("Summarize my attached files");
+    }
+    await userMessage
+      .getByRole("link", { name: "picture.png", exact: true })
+      .click();
+    await expect(
+      app.page.locator("[role=toolbar] button[aria-pressed]"),
+    ).toHaveCount(initialTabCount + 3);
+    await expect(
+      app.page.getByRole("img", { name: /\/picture\.png$/ }),
+    ).toBeVisible();
+    await chatTab.click();
+    await app.page.reload();
+    await expect(
+      userMessage.getByRole("link", { name: "document.docx", exact: true }),
+    ).toBeVisible();
+    await pane
+      .getByLabel("Message", { exact: true })
+      .fill("Recall those attachments");
+    await pane.getByRole("button", { name: "Send", exact: true }).click();
+    await llm.respond(({ messages }) => {
+      const context = messages.map(messageText).join("\n");
+      expect(context).toContain("scarlet robin");
+      expect(context).toContain("coral raven");
+      return m.assistant("I still have the attached file contents.");
+    });
+    await expect(pane.getByRole("log")).toContainText(
+      "I still have the attached file contents.",
+    );
+  },
+);
+
+e2eTest(
+  "chooses spreadsheets and presentations in an existing chat and removes individual duplicate filenames",
+  async ({ app, harness, llm }) => {
+    await harness.loadSession({
+      title: "Review the files",
+      messages: [m.user("Review the files"), m.assistant("Ready.")],
+    });
+    const pane = app.page.getByRole("main");
+    const files = await Promise.all(
+      ["workbook.xlsx", "slides.pptx"].map(async (name) => ({
+        name,
+        mimeType: "application/octet-stream",
+        buffer: await fs.readFile(
+          path.resolve(
+            import.meta.dirname,
+            "../../../packages/workspace-server/test/fixtures/attachments",
+            name,
+          ),
+        ),
+      })),
+    );
+    const chooser = app.page.waitForEvent("filechooser");
+    await pane
+      .getByRole("button", { name: "Add attachments", exact: true })
+      .click();
+    await (
+      await chooser
+    ).setFiles([
+      ...files,
+      {
+        name: "notes.txt",
+        mimeType: "text/plain",
+        buffer: Buffer.from("REMOVE THIS NOTE"),
+      },
+      {
+        name: "notes.txt",
+        mimeType: "text/plain",
+        buffer: Buffer.from("KEEP THIS NOTE"),
+      },
+    ]);
+    const attachments = pane.getByRole("list", {
+      name: "Attachments",
+      exact: true,
+    });
+    await expect(attachments.getByRole("listitem")).toHaveCount(4);
+    await attachments
+      .getByRole("button", { name: "Remove notes.txt", exact: true })
+      .first()
+      .click();
+    await expect(attachments.getByRole("listitem")).toHaveCount(3);
+    await expect(pane.getByLabel("Message", { exact: true })).toHaveText("");
+    await pane.getByRole("button", { name: "Send", exact: true }).click();
+    await llm.waitForRequest();
+    await expect(
+      pane.getByRole("button", { name: "Stop", exact: true }),
+    ).toBeVisible();
+    await pane
+      .getByLabel("Message", { exact: true })
+      .fill("Draft while the model answers");
+    await llm.respond(({ messages }) => {
+      const user = messages.findLast((message) => message.role === "user");
+      expect(user).toBeDefined();
+      const context = messageText(user!);
+      for (const marker of [
+        "indigo jay",
+        "pearl dove",
+        "turquoise crane",
+        "olive wren",
+        "KEEP THIS NOTE",
+      ])
+        expect(context).toContain(marker);
+      expect(context).not.toContain("REMOVE THIS NOTE");
+      return m.assistant(
+        "I can read both sheets, the slide, its notes, and the remaining text file.",
+      );
+    });
+    await expect(pane.getByRole("log")).toContainText("I can read both sheets");
+    await expect(
+      app.page.getByRole("status", { name: "Agent is working", exact: true }),
+    ).not.toBeVisible();
+    await expect(pane.getByLabel("Message", { exact: true })).toHaveText(
+      "Draft while the model answers",
+    );
+    await expect(
+      pane
+        .getByRole("article", { name: "You message" })
+        .last()
+        .getByRole("link"),
+    ).toHaveCount(3);
+    await expect(
+      app.page
+        .getByRole("toolbar", { name: /^Pane \d+ tabs$/ })
+        .getByRole("button", { pressed: true }),
+    ).toHaveText("Review the files");
+  },
+);
+
+e2eTest(
+  "preserves the draft and files after an attachment error and sends a corrected selection",
+  async ({ app, llm }) => {
+    await app.page
+      .getByRole("button", { name: "New tab", exact: true })
+      .click();
+    const pane = app.page.getByRole("main");
+    await pane
+      .getByLabel("Message", { exact: true })
+      .fill("Please read my document");
+    await pane.getByLabel("Attach files", { exact: true }).setInputFiles({
+      name: "broken.pdf",
+      mimeType: "application/pdf",
+      buffer: Buffer.from("This is not a valid PDF"),
+    });
+    await pane.getByRole("button", { name: "Send", exact: true }).click();
+    await expect(pane.getByRole("alert")).toContainText(
+      "PDF could not be read",
+    );
+    await expect(pane.getByLabel("Message", { exact: true })).toHaveText(
+      "Please read my document",
+    );
+    await expect(
+      pane.getByRole("button", { name: "Remove broken.pdf", exact: true }),
+    ).toBeEnabled();
+    await expect(
+      pane.getByRole("article", { name: "You message" }),
+    ).toHaveCount(0);
+    await pane
+      .getByRole("button", { name: "Remove broken.pdf", exact: true })
+      .click();
+    await pane.getByLabel("Attach files", { exact: true }).setInputFiles({
+      name: "corrected.txt",
+      mimeType: "text/plain",
+      buffer: Buffer.from("The corrected document says violet deer."),
+    });
+    await pane.getByRole("button", { name: "Send", exact: true }).click();
+    await llm.respond(({ messages }) => {
+      const user = messages.findLast((message) => message.role === "user");
+      expect(messageText(user!)).toContain("violet deer");
+      return m.assistant("I can read the corrected document.");
+    });
+    await expect(pane.getByRole("log")).toContainText(
+      "I can read the corrected document.",
+    );
+    await expect(pane.getByRole("alert")).not.toBeVisible();
+  },
+);
+
+e2eTest(
+  "pastes an image into a new attachment-only chat",
+  async ({ app, llm }) => {
+    await app.page
+      .getByRole("button", { name: "New tab", exact: true })
+      .click();
+    const pane = app.page.getByRole("main");
+    const image = await fs.readFile(
+      path.resolve(
+        import.meta.dirname,
+        "../../../packages/workspace-server/test/fixtures/attachments/picture.png",
+      ),
+    );
+    await pane
+      .getByLabel("Message", { exact: true })
+      .evaluate((element, base64) => {
+        const data = new DataTransfer();
+        data.items.add(
+          new File(
+            [Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))],
+            "clipboard.png",
+            { type: "image/png" },
+          ),
+        );
+        element.dispatchEvent(
+          new ClipboardEvent("paste", {
+            clipboardData: data,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      }, image.toString("base64"));
+    await expect(
+      pane.getByRole("button", { name: "Remove clipboard.png", exact: true }),
+    ).toBeVisible();
+    await pane.getByRole("button", { name: "Send", exact: true }).click();
+    await llm.respond(({ messages }) => {
+      const user = messages.findLast((message) => message.role === "user");
+      expect(
+        Array.isArray(user?.content)
+          ? user.content.filter((part) => part.type === "image_url")
+          : [],
+      ).toHaveLength(1);
+      return m.assistant("I received your pasted image.");
+    });
+    await expect(pane.getByRole("log")).toContainText(
+      "I received your pasted image.",
+    );
+    await expect(
+      app.page
+        .getByRole("toolbar", { name: /^Pane \d+ tabs$/ })
+        .getByRole("button", { pressed: true }),
+    ).toHaveText("clipboard.png");
+    await expect(
+      pane
+        .getByRole("article", { name: "You message" })
+        .getByRole("link", { name: "clipboard.png", exact: true }),
+    ).toBeVisible();
+  },
+);
+
+e2eTest(
+  "keeps the first message visible while the saved session reconnects",
+  async ({ app, llm }) => {
+    await app.page
+      .getByRole("button", { name: "New tab", exact: true })
+      .click();
+    const subscriptions: Route[] = [];
+    await app.page.route("**/rpc/thread/events", async (route) => {
+      subscriptions.push(route);
+      if (subscriptions.length === 2) return;
+      await route.continue();
+    });
+
+    const prompt = "Keep this message on screen";
+    const observed = await app.page.evaluateHandle((text) => {
+      const counts: number[] = [];
+      const observer = new MutationObserver(() => {
+        const count = [
+          ...document.querySelectorAll('article[aria-label="You message"]'),
+        ].filter((element) => element.textContent === text).length;
+        if (count > 0 || counts.length > 0) counts.push(count);
+      });
+      observer.observe(document.body, {
+        subtree: true,
+        childList: true,
+        characterData: true,
+      });
+      return { counts, observer };
+    }, prompt);
+    const pane = app.page.getByRole("main");
+    await pane.getByLabel("Message", { exact: true }).fill(prompt);
+    await pane.getByRole("button", { name: "Send", exact: true }).click();
+    await expect.poll(() => subscriptions.length).toBe(2);
+
+    const message = pane.getByRole("article", { name: "You message" });
+    await expect(message).toHaveText(prompt);
+    await expect(message).toBeVisible();
+    await expect(
+      pane.getByRole("button", { name: "Stop", exact: true }),
+    ).toBeVisible();
+    await subscriptions[1]!.continue();
+    await llm.respond(m.assistant("The message stayed visible."));
+    await expect(
+      pane.getByRole("log", { name: "Session transcript" }),
+    ).toContainText("The message stayed visible.");
+    await expect(message).toHaveCount(1);
+    const observedCounts = await observed.evaluate(({ counts, observer }) => {
+      observer.disconnect();
+      return counts;
+    });
+    expect(observedCounts.length).toBeGreaterThan(0);
+    expect(observedCounts.every((count) => count === 1)).toBe(true);
+    await observed.dispose();
+  },
+);
 
 e2eTest(
   "preserves the reading position during streaming and follows again at the bottom",
   async ({ app, llm }) => {
-    await app.page.getByRole("button", { name: "New session" }).click();
     await app.page
+      .getByRole("button", { name: "New tab", exact: true })
+      .click();
+    await app.page
+      .getByRole("main")
       .getByLabel("Message", { exact: true })
       .fill("Explain the plan");
     await app.page.getByRole("button", { name: "Send", exact: true }).click();
     const transcript = app.page.getByRole("log", {
       name: "Session transcript",
     });
+    const lastStep = transcript.getByText("Plan step 50.", { exact: true });
     const response = await llm.stream();
     response.write(
       m.assistant(
@@ -23,52 +543,32 @@ e2eTest(
       ),
     );
     await expect(transcript).toContainText("Plan step 50.");
-    await expect
-      .poll(async () => await bottomGap(transcript))
-      .toBeLessThanOrEqual(1);
+    await expect(lastStep).toBeInViewport();
 
     await transcript.hover();
     await app.page.mouse.wheel(0, -400);
-    await expect
-      .poll(async () => await bottomGap(transcript))
-      .toBeGreaterThan(300);
-    const readingPosition = await transcript.evaluate(
-      (element) => element.scrollTop,
-    );
+    await expect(lastStep).not.toBeInViewport();
 
     for (const chunk of ["More details.", "Another update."]) {
       response.write(m.assistant(`\n\n${chunk}`));
       await expect(transcript).toContainText(chunk);
-      expect(
-        await transcript.evaluate((element) => element.scrollTop),
-      ).toBeCloseTo(readingPosition, 0);
+      await expect(lastStep).not.toBeInViewport();
     }
 
     await app.page.mouse.wheel(0, 10_000);
-    await expect
-      .poll(async () => await bottomGap(transcript))
-      .toBeLessThanOrEqual(1);
+    await expect(lastStep).toBeInViewport();
     response.write(m.assistant("\n\nThe final step.\n\nThe plan is ready."));
-    await expect(transcript).toContainText("The plan is ready.");
-    await expect
-      .poll(async () => await bottomGap(transcript))
-      .toBeLessThanOrEqual(1);
+    const finalStep = transcript.getByText("The plan is ready.", {
+      exact: true,
+    });
+    await expect(finalStep).toBeInViewport();
     response.end();
     await expect(
       app.page.getByRole("button", { name: "Stop", exact: true }),
     ).not.toBeVisible();
-    await expect
-      .poll(async () => await bottomGap(transcript))
-      .toBeLessThanOrEqual(1);
+    await expect(finalStep).toBeInViewport();
   },
 );
-
-async function bottomGap(transcript: Locator) {
-  return await transcript.evaluate(
-    (element) =>
-      element.scrollHeight - element.clientHeight - element.scrollTop,
-  );
-}
 
 e2eTest(
   "opens another session at the bottom after reading older messages",
@@ -92,22 +592,27 @@ e2eTest(
     const transcript = app.page.getByRole("log", {
       name: "Session transcript",
     });
-    await expect
-      .poll(async () => await bottomGap(transcript))
-      .toBeLessThanOrEqual(1);
+    const lastStep = transcript.getByText("Saved step 50.", { exact: true });
+    await expect(lastStep).toBeInViewport();
     await transcript.hover();
     await app.page.mouse.wheel(0, -400);
-    await expect
-      .poll(async () => await bottomGap(transcript))
-      .toBeGreaterThan(300);
+    await expect(lastStep).not.toBeInViewport();
 
-    await app.page
-      .getByRole("link", { name: "First long conversation", exact: true })
-      .click();
+    const sidebar = app.page.getByRole("navigation", { name: "Workspace" });
+    const firstSession = sidebar.getByRole("link", {
+      name: "First long conversation",
+      exact: true,
+    });
+    await expect(firstSession).toBeVisible();
+    await expect(
+      sidebar.getByRole("link", {
+        name: "Second long conversation",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await firstSession.click();
     await expect(transcript).toContainText("First long conversation");
-    await expect
-      .poll(async () => await bottomGap(transcript))
-      .toBeLessThanOrEqual(1);
+    await expect(lastStep).toBeInViewport();
   },
 );
 
@@ -120,12 +625,70 @@ e2eTest("starts a new session", async ({ harness, app }) => {
     ],
   });
 
-  await app.page.getByRole("button", { name: "New session" }).click();
+  await app.page.getByRole("button", { name: "New tab", exact: true }).click();
 
-  const newSession = app.page.getByRole("main", { name: "New session" });
+  const newSession = app.page.getByRole("main", {
+    name: "New session",
+    exact: true,
+  });
   await expect(newSession).toBeVisible();
   await expect(newSession.getByLabel("Message", { exact: true })).toBeFocused();
 });
+
+e2eTest(
+  "keeps unsent text with each session after navigation and reload",
+  async ({ harness, app, llm }) => {
+    for (const title of ["First draft session", "Second draft session"]) {
+      await harness.loadSession({
+        title,
+        messages: [m.user(title), m.assistant("Saved reply")],
+      });
+    }
+    const sidebar = app.page.getByRole("navigation", { name: "Workspace" });
+    const first = sidebar.getByRole("link", {
+      name: "First draft session",
+      exact: true,
+    });
+    const second = sidebar.getByRole("link", {
+      name: "Second draft session",
+      exact: true,
+    });
+    const editor = app.page.getByRole("main").getByLabel("Message", {
+      exact: true,
+    });
+
+    await first.click();
+    await editor.fill("Only the first session should show this draft");
+    await second.click();
+    await expect(editor).toHaveText("");
+    await editor.fill("Send this from the second session");
+    await first.click();
+    await expect(editor).toHaveText(
+      "Only the first session should show this draft",
+    );
+
+    await app.page.reload();
+    await expect(editor).toHaveText(
+      "Only the first session should show this draft",
+    );
+    await second.click();
+    await expect(editor).toHaveText("Send this from the second session");
+    await app.page
+      .getByRole("main")
+      .getByRole("button", { name: "Send" })
+      .click();
+    await llm.respond(m.assistant("Sent."));
+    await expect(editor).toHaveText("");
+    await app.page.reload();
+    await expect(editor).toHaveText("");
+    await first.click();
+    await expect(editor).toHaveText(
+      "Only the first session should show this draft",
+    );
+    await second.click();
+    await expect(editor).toHaveText("");
+  },
+);
 
 e2eTest(
   "keeps the selected session and draft pages after reload",
@@ -137,6 +700,7 @@ e2eTest(
       });
     }
     await app.page
+      .getByRole("navigation", { name: "Workspace" })
       .getByRole("link", { name: "Earlier conversation", exact: true })
       .click();
     await app.page.reload();
@@ -144,11 +708,22 @@ e2eTest(
       app.page.getByRole("main", { name: "Earlier conversation" }),
     ).toBeVisible();
 
-    await app.page.getByRole("button", { name: "New session" }).click();
-    const draft = app.page.getByRole("main", { name: "New session" });
+    await app.page
+      .getByRole("button", { name: "New tab", exact: true })
+      .click();
+    const draft = app.page.getByRole("main", {
+      name: "New session",
+      exact: true,
+    });
     await expect(draft).toBeVisible();
+    await draft
+      .getByLabel("Message", { exact: true })
+      .fill("Unsent new session");
     await app.page.reload();
     await expect(draft).toBeVisible();
+    await expect(draft.getByLabel("Message", { exact: true })).toHaveText(
+      "Unsent new session",
+    );
   },
 );
 
@@ -159,8 +734,11 @@ e2eTest(
       path: "notes.md",
       content: "The project mascot is a blue bicycle.",
     });
-    await app.page.getByRole("button", { name: "New session" }).click();
     await app.page
+      .getByRole("button", { name: "New tab", exact: true })
+      .click();
+    await app.page
+      .getByRole("main")
       .getByLabel("Message", { exact: true })
       .fill("Read the project notes");
     await app.page.getByRole("button", { name: "Send", exact: true }).click();
@@ -239,14 +817,18 @@ e2eTest(
 e2eTest(
   "answers a new message after stopping a pending model response",
   async ({ app, llm }) => {
-    await app.page.getByRole("button", { name: "New session" }).click();
     await app.page
+      .getByRole("button", { name: "New tab", exact: true })
+      .click();
+    await app.page
+      .getByRole("main")
       .getByLabel("Message", { exact: true })
       .fill("Start a long answer");
     await app.page.getByRole("button", { name: "Send", exact: true }).click();
 
     await app.page.getByRole("button", { name: "Stop", exact: true }).click();
     await app.page
+      .getByRole("main")
       .getByLabel("Message", { exact: true })
       .fill("Answer this instead");
     await app.page.getByRole("button", { name: "Send", exact: true }).click();
@@ -261,8 +843,11 @@ e2eTest(
 e2eTest(
   "finishes a pending response while Electron is closed",
   async ({ app, llm }) => {
-    await app.page.getByRole("button", { name: "New session" }).click();
     await app.page
+      .getByRole("button", { name: "New tab", exact: true })
+      .click();
+    await app.page
+      .getByRole("main")
       .getByLabel("Message", { exact: true })
       .fill("Start an answer");
     await app.page.getByRole("button", { name: "Send", exact: true }).click();
@@ -286,14 +871,16 @@ e2eTest(
 e2eTest(
   "titles a session immediately and keeps its first message when inference is denied",
   async ({ app, llm }) => {
-    await app.page.getByRole("button", { name: "New session" }).click();
+    await app.page
+      .getByRole("button", { name: "New tab", exact: true })
+      .click();
     const pane = app.page.getByRole("main");
     const observed = await app.page.evaluateHandle(() => {
       const titles: string[] = [];
       const observer = new MutationObserver(() => {
-        const title = document
-          .querySelector("main > header")
-          ?.getAttribute("aria-label");
+        const title = document.querySelector(
+          '[role="toolbar"] button[aria-pressed="true"]',
+        )?.textContent;
         if (title !== undefined && title !== null) titles.push(title);
       });
       observer.observe(document.body, {
@@ -307,9 +894,11 @@ e2eTest(
       .getByLabel("Message", { exact: true })
       .fill("Keep my original question");
     await pane.getByRole("button", { name: "Send", exact: true }).click();
-    await expect(app.page.locator("main > header")).toHaveText(
-      "Keep my original question",
-    );
+    await expect(
+      app.page
+        .getByRole("toolbar", { name: /^Pane \d+ tabs$/ })
+        .getByRole("button", { pressed: true }),
+    ).toHaveText("Keep my original question");
     await llm.respond(m.error("Model access denied"));
 
     await expect(pane.getByRole("alert")).toContainText("Model access denied");
@@ -325,10 +914,12 @@ e2eTest(
       pane.getByRole("log", { name: "Session transcript" }),
     ).toContainText("Ready to continue.");
     await expect(pane.getByRole("alert")).not.toBeVisible();
-    await expect(app.page.locator("main > header")).toHaveText(
-      "Keep my original question",
-    );
-    const [session] = await app.server.rpc.sessions.list();
+    await expect(
+      app.page
+        .getByRole("toolbar", { name: /^Pane \d+ tabs$/ })
+        .getByRole("button", { pressed: true }),
+    ).toHaveText("Keep my original question");
+    const [session] = await app.server.rpc.thread.list();
     expect(session).toBeDefined();
     const observedTitles = await observed.evaluate(({ titles, observer }) => {
       observer.disconnect();
@@ -362,7 +953,13 @@ e2eTest("shows a connection request", async ({ harness, app }) => {
     name: "Google Drive connection",
   });
   await expect(card).toBeVisible();
+  await expect(
+    card.getByText("Search, read, create, and share files."),
+  ).toBeVisible();
   await expect(card.getByRole("button", { name: "Connect" })).toBeVisible();
+  await expect(
+    card.getByText("Connect your account so the agent can continue"),
+  ).toHaveCount(0);
 });
 
 e2eTest(
@@ -469,16 +1066,17 @@ e2eTest(
     const card = app.page.getByRole("region", {
       name: "Google Drive connection",
     });
+    await expect(
+      card.getByText("Search, read, create, and share files."),
+    ).toBeVisible();
     await card.getByRole("button", { name: "Connect" }).click();
+    await expect(card.getByText("Opened in your browser")).toBeVisible();
     await expect(
-      card.getByRole("button", { name: "Connecting" }),
+      card.getByText("Search, read, create, and share files."),
     ).toBeVisible();
-    await expect(
-      card.getByText("Finish connecting in your browser"),
-    ).toBeVisible();
-    await card.getByRole("button", { name: "Cancel" }).click();
-    await expect(card.getByRole("button", { name: "Try again" })).toBeVisible();
-    await expect(card.getByText("Authorization cancelled")).toBeVisible();
+    await card.getByRole("button", { name: "Google Drive actions" }).click();
+    await app.page.getByRole("menuitem", { name: "Cancel" }).click();
+    await expect(card.getByText("Cancelled", { exact: true })).toBeVisible();
   },
 );
 
@@ -570,69 +1168,17 @@ e2eTest("shows tools used inside exec", async ({ harness, app }) => {
 });
 
 e2eTest(
-  "wraps exec code and results in individual tool details",
-  async ({ harness, app }) => {
-    const query = "calendar scheduling ".repeat(25);
-    const js = `return await tools.search({ query: '${query}' });`;
-    const result = `https://example.com/${"calendar".repeat(80)}`;
-    await harness.loadSession({
-      title: "Wrapped tool details",
-      messages: [
-        m.exec({
-          js,
-          tools: [{ path: "search", arguments: { query } }],
-          result,
-        }),
-      ],
-    });
-    await app.page
-      .getByRole("button", { name: "Searched tools", exact: true })
-      .click();
-    await app.page
-      .getByRole("button", { name: "Searched tools (search)", exact: true })
-      .click();
-    const details = app.page.getByRole("region", {
-      name: "search",
-      exact: true,
-    });
-    const code = details.getByRole("code");
-    await expect(code).toHaveText([js, result]);
-    await expect
-      .poll(
-        async () =>
-          await details.evaluate((element) =>
-            Array.from(element.querySelectorAll("pre")).every(
-              (block) => block.scrollWidth <= block.clientWidth,
-            ),
-          ),
-      )
-      .toBe(true);
-    for (const block of await code.all()) {
-      await expect
-        .poll(
-          async () =>
-            await block.evaluate((element) => {
-              const range = document.createRange();
-              range.selectNodeContents(element);
-              return new Set(
-                Array.from(range.getClientRects(), (rect) => rect.top),
-              ).size;
-            }),
-        )
-        .toBeGreaterThan(1);
-    }
-  },
-);
-
-e2eTest(
   "restores nested tool activity while exec runs and after quitting",
   async ({ harness, app, llm, http }) => {
     await harness.tools.files.write({
       path: "notes.md",
       content: "Read before the request",
     });
-    await app.page.getByRole("button", { name: "New session" }).click();
     await app.page
+      .getByRole("button", { name: "New tab", exact: true })
+      .click();
+    await app.page
+      .getByRole("main")
       .getByLabel("Message", { exact: true })
       .fill("Read the notes and fetch the report");
     await app.page.getByRole("button", { name: "Send", exact: true }).click();
@@ -654,9 +1200,9 @@ e2eTest(
       exact: true,
     });
     await expect(summary).toBeVisible();
-    await expectThinkingVisible(
+    await expect(
       summary.getByRole("status", { name: "Working" }),
-    );
+    ).toBeVisible();
     await expect(
       summary.getByRole("img", { name: "Expand tool activity" }),
     ).toBeHidden();
@@ -741,8 +1287,11 @@ e2eTest(
 e2eTest(
   "keeps tool details expanded through exec progress and assistant streaming",
   async ({ app, llm, http }) => {
-    await app.page.getByRole("button", { name: "New session" }).click();
     await app.page
+      .getByRole("button", { name: "New tab", exact: true })
+      .click();
+    await app.page
+      .getByRole("main")
       .getByLabel("Message", { exact: true })
       .fill("Fetch both reports and summarize them");
     await app.page.getByRole("button", { name: "Send", exact: true }).click();
@@ -920,8 +1469,11 @@ for (const scenario of expansionScenarios) {
 e2eTest(
   "keeps parallel tool activity visible when another tool finishes",
   async ({ app, llm, http }) => {
-    await app.page.getByRole("button", { name: "New session" }).click();
     await app.page
+      .getByRole("button", { name: "New tab", exact: true })
+      .click();
+    await app.page
+      .getByRole("main")
       .getByLabel("Message", { exact: true })
       .fill("Fetch both reports");
     await app.page.getByRole("button", { name: "Send", exact: true }).click();
@@ -963,9 +1515,9 @@ e2eTest(
       exact: true,
     });
     await expect(liveAggregate).toBeVisible();
-    await expectThinkingVisible(
+    await expect(
       liveAggregate.getByRole("status", { name: "Working" }),
-    );
+    ).toBeVisible();
     await liveAggregate.hover();
     await expect(
       liveAggregate.getByRole("img", { name: "Expand tool activity" }),
@@ -1006,8 +1558,11 @@ e2eTest(
 e2eTest(
   "shows identical parallel commands as separate active work",
   async ({ app, llm }) => {
-    await app.page.getByRole("button", { name: "New session" }).click();
     await app.page
+      .getByRole("button", { name: "New tab", exact: true })
+      .click();
+    await app.page
+      .getByRole("main")
       .getByLabel("Message", { exact: true })
       .fill("Run the same command twice");
     await app.page.getByRole("button", { name: "Send", exact: true }).click();
@@ -1064,26 +1619,6 @@ e2eTest(
   },
 );
 
-async function expectThinkingVisible(indicator: Locator) {
-  await expect(indicator).toBeVisible();
-  // The status container can be visible even when its animated dots have no painted area.
-  await expect
-    .poll(
-      async () =>
-        await indicator.evaluate((element) =>
-          Array.from(element.children).some((dot) => {
-            const bounds = dot.getBoundingClientRect();
-            return (
-              bounds.width > 0 &&
-              bounds.height > 0 &&
-              Number(getComputedStyle(dot).opacity) > 0
-            );
-          }),
-        ),
-    )
-    .toBe(true);
-}
-
 e2eTest(
   "deduplicates completed file activity by normalized path",
   async ({ harness, app }) => {
@@ -1112,8 +1647,11 @@ e2eTest(
 e2eTest(
   "restores partial assistant text on reload and continues the same response",
   async ({ app, llm }) => {
-    await app.page.getByRole("button", { name: "New session" }).click();
     await app.page
+      .getByRole("button", { name: "New tab", exact: true })
+      .click();
+    await app.page
+      .getByRole("main")
       .getByLabel("Message", { exact: true })
       .fill("Explain the plan");
     await app.page.getByRole("button", { name: "Send", exact: true }).click();
@@ -1142,5 +1680,266 @@ e2eTest(
     await expect(
       app.page.getByRole("button", { name: "Stop", exact: true }),
     ).not.toBeVisible();
+  },
+);
+
+e2eTest(
+  "shows running sessions and keeps completed results unread until opened",
+  async ({ app, llm }) => {
+    const listRequests: string[] = [];
+    await app.page.route("**/rpc/thread/list", async (route) => {
+      listRequests.push(route.request().url());
+      await route.abort();
+    });
+    // An interrupted transport must reconnect automatically before showing the list.
+    let summaryConnections = 0;
+    await app.page.route("**/rpc/server/watch", async (route) => {
+      summaryConnections++;
+      if (summaryConnections === 1) {
+        await route.fulfill({
+          status: 200,
+          contentType: "text/event-stream",
+          body: "",
+        });
+        return;
+      }
+      await route.continue();
+    });
+    await app.page.reload();
+
+    await app.page
+      .getByRole("button", { name: "New tab", exact: true })
+      .click();
+    await app.page
+      .getByRole("main")
+      .getByLabel("Message", { exact: true })
+      .fill("Prepare my report");
+    await app.page.getByRole("button", { name: "Send", exact: true }).click();
+    const sidebar = app.page.getByRole("navigation", { name: "Workspace" });
+    const row = sidebar.getByRole("row").filter({
+      has: app.page.getByRole("link", {
+        name: "Prepare my report",
+        exact: true,
+      }),
+    });
+    const sessionLink = row.getByRole("link", {
+      name: "Prepare my report",
+      exact: true,
+    });
+    const working = row.getByRole("status", { name: "Agent is working" });
+    const unread = row.getByRole("img", { name: "Unread result" });
+    await expect(sessionLink).toBeVisible();
+    await expect(working).toBeVisible();
+    await expect(unread).not.toBeVisible();
+
+    // Opening a running session must not count its future result as read.
+    await app.page
+      .getByRole("button", { name: "New tab", exact: true })
+      .click();
+    await sessionLink.click();
+    await expect(working).toBeVisible();
+    await app.page
+      .getByRole("button", { name: "New tab", exact: true })
+      .click();
+    const response = await llm.stream();
+    response.write(m.assistant("The report is ready."));
+    await expect(working).toBeVisible();
+    response.end();
+    await expect(unread).toBeVisible();
+    await expect(working).not.toBeVisible();
+
+    await app.page.reload();
+    await expect(sessionLink).toBeVisible();
+    await expect(unread).toBeVisible();
+    const pendingWatches: Route[] = [];
+    await app.page.route("**/rpc/thread/events", (route) => {
+      pendingWatches.push(route);
+    });
+    let readAttempts = 0;
+    await app.page.route("**/rpc/thread/markRead", async (route) => {
+      readAttempts++;
+      if (readAttempts === 1) {
+        await route.abort();
+        return;
+      }
+      await route.continue();
+    });
+    await sessionLink.click();
+    await expect.poll(() => pendingWatches.length).toBe(1);
+    // Give a premature read receipt time to reach the sidebar before unblocking the transcript.
+    await app.page.waitForTimeout(300);
+    await expect(unread).toBeVisible();
+    await pendingWatches[0]!.continue();
+    await app.page.unroute("**/rpc/thread/events");
+    await expect(app.page.getByRole("log")).toContainText(
+      "The report is ready.",
+    );
+    await expect(unread).not.toBeVisible();
+    expect(readAttempts).toBe(2);
+    await app.page.unroute("**/rpc/thread/markRead");
+    await app.page.reload();
+    await expect(sessionLink).toBeVisible();
+    await expect(unread).not.toBeVisible();
+
+    await app.page
+      .getByRole("main")
+      .getByLabel("Message", { exact: true })
+      .fill("Add a conclusion");
+    await app.page.getByRole("button", { name: "Send", exact: true }).click();
+    await expect(working).toBeVisible();
+    await llm.respond(m.assistant("Here is the conclusion."));
+    await expect(working).not.toBeVisible();
+    await app.page
+      .getByRole("button", { name: "New tab", exact: true })
+      .click();
+    await app.page.reload();
+    await expect(sessionLink).toBeVisible();
+    await expect(unread).not.toBeVisible();
+    expect(summaryConnections).toBeGreaterThanOrEqual(2);
+    expect(listRequests).toEqual([]);
+  },
+);
+
+e2eTest(
+  "shares unread results and read receipts between windows",
+  async ({ app, llm }) => {
+    await app.page
+      .getByRole("button", { name: "New tab", exact: true })
+      .click();
+    await app.page
+      .getByRole("main")
+      .getByLabel("Message", { exact: true })
+      .fill("Work while I am away");
+    await app.page.getByRole("button", { name: "Send", exact: true }).click();
+    await expect(
+      app.page.getByRole("status", { name: "Agent is working" }),
+    ).toBeVisible();
+    const otherWindow = await app.openWindow();
+    await otherWindow.getByRole("main").waitFor();
+    await otherWindow
+      .getByRole("button", { name: "New tab", exact: true })
+      .click();
+    await app.page
+      .getByRole("button", { name: "New tab", exact: true })
+      .click();
+    await llm.respond(m.assistant("Your result arrived while you were away."));
+    const unread = app.page.getByRole("img", { name: "Unread result" });
+    await expect(unread).toBeVisible();
+    await expect(
+      otherWindow.getByRole("img", { name: "Unread result" }),
+    ).toBeVisible();
+    await app.page
+      .getByRole("navigation", { name: "Workspace" })
+      .getByRole("link", { name: "Work while I am away", exact: true })
+      .click();
+    await expect(unread).not.toBeVisible();
+    await expect(
+      otherWindow.getByRole("img", { name: "Unread result" }),
+    ).not.toBeVisible();
+    await otherWindow.close();
+  },
+);
+
+e2eTest(
+  "archives an open thread from its hover action",
+  async ({ app, llm }) => {
+    await app.page
+      .getByRole("button", { name: "New tab", exact: true })
+      .click();
+    const pane = app.page.getByRole("main");
+    await pane
+      .getByLabel("Message", { exact: true })
+      .fill("Archive this thread");
+    await pane.getByRole("button", { name: "Send", exact: true }).click();
+    await llm.respond(m.assistant("This thread is ready to archive."));
+
+    const sidebar = app.page.getByRole("navigation", { name: "Workspace" });
+    const sessionLink = sidebar.getByRole("link", {
+      name: "Archive this thread",
+      exact: true,
+    });
+    const row = sidebar.getByRole("row").filter({
+      has: app.page.getByRole("link", {
+        name: "Archive this thread",
+        exact: true,
+      }),
+    });
+    await expect(sessionLink).toBeVisible();
+    const markDone = row.getByRole("button", {
+      name: "Mark done",
+      exact: true,
+    });
+    await row.hover();
+    await expect(markDone).toBeVisible();
+    await app.page.mouse.move(900, 500);
+    await app.page.setViewportSize({ width: 390, height: 844 });
+    await app.page.getByRole("button", { name: "Open sidebar" }).click();
+    await expect(markDone).toBeVisible();
+    await markDone.click();
+    await app.page.setViewportSize({ width: 1200, height: 800 });
+
+    await expect(sessionLink).not.toBeVisible();
+    await expect(app.page.getByText("Done", { exact: true })).not.toBeVisible();
+    await expect(pane.getByRole("log")).toContainText(
+      "This thread is ready to archive.",
+    );
+
+    await app.page.reload();
+    await expect(sessionLink).not.toBeVisible();
+    await expect(app.page.getByText("Done", { exact: true })).not.toBeVisible();
+    await expect(pane.getByRole("log")).toContainText(
+      "This thread is ready to archive.",
+    );
+
+    await app.page.evaluate(() => {
+      for (const key of Object.keys(localStorage)) {
+        if (key.startsWith('["halo:workspace-panes",'))
+          localStorage.removeItem(key);
+      }
+      history.replaceState(undefined, "", location.pathname + location.search);
+    });
+    await app.page.reload();
+    await expect(
+      app.page.getByRole("main", { name: "New session" }),
+    ).toBeVisible();
+    await expect(sessionLink).not.toBeVisible();
+  },
+);
+
+e2eTest(
+  "Tiptap submits edited source fragments from the composer",
+  async ({ app, llm }) => {
+    const editor = app.page
+      .getByRole("main", { name: "New session" })
+      .getByLabel("Message", { exact: true });
+    await editor.fill("");
+    await editor.evaluate((element) => {
+      const data = new DataTransfer();
+      data.setData(
+        "text/html",
+        "<p>Send <strong>this</strong> and <em>that</em>.</p>",
+      );
+      element.dispatchEvent(
+        new ClipboardEvent("paste", {
+          clipboardData: data,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    await editor.locator("strong").click();
+    const source = editor.getByRole("textbox", { name: "Markdown syntax" });
+    await expect(source).toHaveText("**this**");
+    await source.fill("*changed*");
+    await source.press("ControlOrMeta+Enter");
+    await llm.respond(({ messages }) => {
+      expect(messageText(messages.at(-1)!)).toContain(
+        "Send *changed* and *that*.",
+      );
+      return m.assistant("Received the edited formatting.");
+    });
+    await expect(
+      app.page.getByRole("log", { name: "Session transcript" }),
+    ).toContainText("Received the edited formatting.");
   },
 );

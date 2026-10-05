@@ -1,6 +1,10 @@
 import { type Static, Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import {
+  chatAttachmentSchema,
+  chatReferenceSchema,
+} from "./chatAttachments.js";
+import {
   connectionRequestKey,
   connectionRequestSchema,
 } from "./ConnectionRequest.js";
@@ -62,6 +66,10 @@ const usageSchema = Type.Object({
 
 const userMessageSchema = Type.Object({
   role: Type.Literal("user"),
+  attachments: Type.Optional(Type.Array(chatAttachmentSchema)),
+  references: Type.Optional(Type.Array(chatReferenceSchema)),
+  displayText: Type.Optional(Type.String()),
+  clientMessageId: Type.Optional(Type.String()),
   content: Type.Union([
     Type.String(),
     Type.Array(Type.Union([textContentSchema, imageContentSchema])),
@@ -468,12 +476,15 @@ export function sessionToolExecutions(
   snapshot: SessionSnapshot,
 ): ToolExecution[] {
   const requests = new Map<string, ToolExecution["arguments"]>();
-  const executions = new Map<string, ToolExecution>();
+  const executions = new Map<string, ToolExecution | undefined>();
   for (const entry of snapshot.entries) {
     if (entry.type === "message") {
       if (entry.message.role !== "assistant") continue;
       for (const part of entry.message.content) {
-        if (part.type === "toolCall") requests.set(part.id, part.arguments);
+        if (part.type !== "toolCall") continue;
+        requests.set(part.id, part.arguments);
+        // Reserve model-call order even when parallel tools finish out of order.
+        executions.set(part.id, undefined);
       }
       continue;
     }
@@ -489,20 +500,22 @@ export function sessionToolExecutions(
   if (snapshot.activeRun !== undefined)
     for (const tool of snapshot.activeRun.tools) executions.set(tool.id, tool);
   const decisions = toolApprovalDecisions(snapshot);
-  return [...executions.values()].map((execution) => {
-    if (execution.type !== "exec") return execution;
-    return {
-      ...execution,
-      approvals: execution.approvals.map((approval) => {
-        const decision = decisions.get(approval.id);
-        if (decision === undefined) return approval;
-        return {
-          ...approval,
-          status: decision === "allow" ? "allowed" : "denied",
-        };
-      }),
-    };
-  });
+  return [...executions.values()]
+    .filter((tool) => tool !== undefined)
+    .map((execution) => {
+      if (execution.type !== "exec") return execution;
+      return {
+        ...execution,
+        approvals: execution.approvals.map((approval) => {
+          const decision = decisions.get(approval.id);
+          if (decision === undefined) return approval;
+          return {
+            ...approval,
+            status: decision === "allow" ? "allowed" : "denied",
+          };
+        }),
+      };
+    });
 }
 
 function toolApprovalDecisions(snapshot: SessionSnapshot) {

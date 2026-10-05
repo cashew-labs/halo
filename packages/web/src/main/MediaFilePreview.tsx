@@ -68,7 +68,7 @@ const styles = {
     "& iframe": { width: "100%", height: "100%", border: 0 },
   }),
   media: style(
-    flex({ align: "center", justify: "center" }),
+    flex({ alignItems: "center", justifyContent: "center" }),
     spacing.padding({ all: 8 }),
     {
       flex: "1 1 auto",

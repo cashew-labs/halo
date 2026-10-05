@@ -28,7 +28,7 @@ export function ExecutorApprovalCard({
     mutationFn: async (decision: ToolApprovalDecision) => {
       // SAFETY: both actions are disabled until sessionId is a string.
       const activeSessionId = sessionId as string;
-      await api.sessions.respondToToolApproval({
+      await api.thread.respondToToolApproval({
         sessionId: activeSessionId,
         approvalId: approval.id,
         decision,
@@ -73,7 +73,7 @@ export function ExecutorApprovalCard({
             >
               <Button
                 variant="quiet"
-                disabled={sessionId === undefined || respond.isPending}
+                isDisabled={sessionId === undefined || respond.isPending}
                 onClick={() => respond.mutate("deny")}
               >
                 Deny
@@ -81,7 +81,7 @@ export function ExecutorApprovalCard({
               <Button
                 variant="primary"
                 variantColor="#1A73E8"
-                disabled={sessionId === undefined || respond.isPending}
+                isDisabled={sessionId === undefined || respond.isPending}
                 onClick={() => respond.mutate("allow")}
               >
                 Allow once

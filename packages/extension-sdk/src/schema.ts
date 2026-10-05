@@ -1,1 +1,6 @@
-export { collection, defineSchema, t } from "@tanishqkancharla/tandem-core";
+export {
+  collection,
+  defineRelations,
+  defineSchema,
+  t,
+} from "@tanishqkancharla/tandem-core";

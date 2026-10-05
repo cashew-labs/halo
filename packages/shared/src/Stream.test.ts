@@ -47,36 +47,75 @@ test("consume buffers immediately and delivers buffered and pending reads in ord
   ]);
 });
 
-test("projects independent subscriptions and composes with other stream operators", async () => {
+test("plain streams remain event-only", () => {
+  const stream = new Stream<number>();
+  stream.append(1);
+  const values: number[] = [];
+  stream.subscribe((value) => values.push(value));
+
+  expect(values).toEqual([]);
+  stream.append(2);
+  expect(values).toEqual([2]);
+});
+
+test("projects eagerly and replays the current value to late subscribers", () => {
   const source = new Stream<number>();
-  const totals = source.project<number[]>([], (values, value) => [
-    ...values,
-    value,
-  ]);
-  const first: number[][] = [];
-  const stopFirst = totals.subscribe((value) => first.push(value));
+  using totals = source.project(0, (sum, value) => sum + value);
+
   source.append(1);
-  const second: number[] = [];
-  const stopSecond = totals
-    .map((values) => values.reduce((sum, value) => sum + value, 0))
-    .filter((sum) => sum > 1)
-    .subscribe((value) => second.push(value));
-
   source.append(2);
-  source.append(3);
-  stopFirst();
-  source.append(4);
-  stopSecond();
+  expect(totals.latestValue).toBe(3);
 
-  expect(first).toEqual([[1], [1, 2], [1, 2, 3]]);
-  expect(second).toEqual([2, 5, 9]);
+  const values: number[] = [];
+  totals.subscribe((value) => values.push(value));
+  expect(values).toEqual([3]);
+
+  source.append(4);
+  expect(values).toEqual([3, 7]);
+  expect(totals.latestValue).toBe(7);
+});
+
+test("reduces each source event once for all listeners", () => {
+  const source = new Stream<number>();
+  let reductions = 0;
+  using totals = source.project(0, (sum, value) => {
+    reductions += 1;
+    return sum + value;
+  });
+  const first: number[] = [];
+  const second: number[] = [];
+  totals.subscribe((value) => first.push(value));
+  totals.subscribe((value) => second.push(value));
+
+  source.append(3);
+  source.append(4);
+
+  expect(reductions).toBe(2);
+  expect(first).toEqual([0, 3, 7]);
+  expect(second).toEqual([0, 3, 7]);
+});
+
+test("disposal detaches a projection and releases its listeners", () => {
+  const source = new Stream<number>();
+  const totals = source.project(0, (sum, value) => sum + value);
+  const values: number[] = [];
+  totals.subscribe((value) => values.push(value));
+  source.append(1);
+
+  totals[Symbol.dispose]();
+  source.append(2);
+  totals.subscribe((value) => values.push(value));
+
+  expect(totals.latestValue).toBe(1);
+  expect(values).toEqual([0, 1]);
 });
 
 test("consumes projected states until the consumer is aborted", async () => {
   const source = new Stream<number>();
-  const totals = source.project(0, (sum, value) => sum + value);
+  using totals = source.project(0, (sum, value) => sum + value);
   const controller = new AbortController();
   using values = totals.consume({ abortSignal: controller.signal });
+  await expect(values.next()).resolves.toEqual({ done: false, value: 0 });
   source.append(3);
   const first = values.next();
   await expect(first).resolves.toEqual({ done: false, value: 3 });
@@ -91,6 +130,71 @@ test("consumes projected states until the consumer is aborted", async () => {
     done: true,
     value: undefined,
   });
+});
+
+test("projected streams compose with normal stream consumers", () => {
+  const source = new Stream<number>();
+  using totals = source.project(0, (sum, value) => sum + value);
+  const values: number[] = [];
+  const stop = totals
+    .map((value) => value * 2)
+    .filter((value) => value > 2)
+    .subscribe((value) => values.push(value));
+
+  source.append(1);
+  source.append(2);
+  stop();
+  source.append(3);
+
+  expect(values).toEqual([6]);
+});
+
+test("projection state is current during reentrant events", () => {
+  const source = new Stream<number>();
+  using totals = source.project(0, (sum, value) => sum + value);
+  const values: number[] = [];
+  totals.subscribe((value) => {
+    values.push(value);
+    if (value === 1) source.append(2);
+  });
+
+  source.append(1);
+
+  expect(totals.latestValue).toBe(3);
+  expect(values).toEqual([0, 1, 3]);
+});
+
+test("reducer and replay errors propagate without corrupting projection state", () => {
+  const source = new Stream<number>();
+  using totals = source.project(0, (sum, value) => {
+    if (value < 0) throw new Error("invalid value");
+    return sum + value;
+  });
+
+  expect(() => source.append(-1)).toThrow("invalid value");
+  expect(totals.latestValue).toBe(0);
+  expect(() =>
+    totals.subscribe(() => {
+      throw new Error("replay failed");
+    }),
+  ).toThrow("replay failed");
+
+  source.append(2);
+  expect(totals.latestValue).toBe(2);
+});
+
+test("listener errors propagate after the projected state advances", () => {
+  const source = new Stream<number>();
+  using totals = source.project(0, (sum, value) => sum + value);
+  const stop = totals.subscribe((value) => {
+    if (value === 1) throw new Error("listener failed");
+  });
+
+  expect(() => source.append(1)).toThrow("listener failed");
+  expect(totals.latestValue).toBe(1);
+  stop();
+  source.append(2);
+  expect(totals.latestValue).toBe(3);
 });
 
 test.each(["return", "dispose", "asyncDispose", "abort"] as const)(

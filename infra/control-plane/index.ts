@@ -15,10 +15,14 @@ const databaseUserName = "halo";
 const controlPlaneServiceName = `${name}-control-plane`;
 const controlPlaneImage = configuration.require("controlPlaneImage");
 const workspaceImage = configuration.require("workspaceImage");
+const deploymentServiceAccount = configuration.require(
+  "deploymentServiceAccount",
+);
 const googleClientIdSecretId = `${name}-control-plane-google-client-id`;
 const googleClientSecretId = `${name}-control-plane-google-client-secret`;
-const googleWebClientIdSecretId = `${name}-workspace-google-web-client-id`;
-const googleWebClientSecretId = `${name}-workspace-google-web-client-secret`;
+const googleWebClientIdSecretId = "halo-workspace-google-web-client-id";
+const googleWebClientSecretId = "halo-workspace-google-web-client-secret";
+const togetherApiKeySecretId = "together-ai-api-key";
 const controlPlaneDomain = configuration.require("controlPlaneDomain");
 const controlPlaneOrigin = `https://${controlPlaneDomain}`;
 
@@ -160,6 +164,7 @@ const workspaceLogAccess = new gcp.projects.IAMMember("workspace-logs", {
   role: "roles/logging.logWriter",
   member: pulumi.interpolate`serviceAccount:${workspaceRuntime.email}`,
 });
+// IAM is deployed before VMs are replaced; keep Vertex access until all run Together.
 const workspaceInferenceAccess = new gcp.projects.IAMMember(
   "workspace-inference",
   {
@@ -168,6 +173,15 @@ const workspaceInferenceAccess = new gcp.projects.IAMMember(
     member: pulumi.interpolate`serviceAccount:${workspaceRuntime.email}`,
   },
   { dependsOn: [vertexAi] },
+);
+const workspaceTogetherApiKeyAccess = new gcp.secretmanager.SecretIamMember(
+  "workspace-together-api-key",
+  {
+    project,
+    secretId: togetherApiKeySecretId,
+    role: "roles/secretmanager.secretAccessor",
+    member: pulumi.interpolate`serviceAccount:${workspaceRuntime.email}`,
+  },
 );
 const workspaceGoogleWebClientIdAccess = new gcp.secretmanager.SecretIamMember(
   "workspace-google-web-client-id",
@@ -203,6 +217,26 @@ const workspaceServiceAccountAccess = new gcp.serviceaccount.IAMMember(
   },
 );
 
+new gcp.projects.IAMMember("deployment-workspace-os-login", {
+  project,
+  role: "roles/compute.osAdminLogin",
+  member: `serviceAccount:${deploymentServiceAccount}`,
+});
+new gcp.projects.IAMMember("deployment-workspace-iap", {
+  project,
+  role: "roles/iap.tunnelResourceAccessor",
+  member: `serviceAccount:${deploymentServiceAccount}`,
+  condition: {
+    title: "workspace-ssh",
+    expression: "destination.port == 22",
+  },
+});
+new gcp.serviceaccount.IAMMember("deployment-workspace-service-account", {
+  serviceAccountId: workspaceRuntime.name,
+  role: "roles/iam.serviceAccountUser",
+  member: `serviceAccount:${deploymentServiceAccount}`,
+});
+
 const workspaceTemplate = new gcp.compute.InstanceTemplate(
   "workspace-template",
   {
@@ -235,10 +269,6 @@ const workspaceTemplate = new gcp.compute.InstanceTemplate(
     },
     metadataStartupScript: workspaceStartup({
       gateway: true,
-      googleWebOAuth: {
-        clientIdSecretId: googleWebClientIdSecretId,
-        clientSecretSecretId: googleWebClientSecretId,
-      },
       image: workspaceImage,
       registry: `${region}-docker.pkg.dev`,
     }),
@@ -247,6 +277,7 @@ const workspaceTemplate = new gcp.compute.InstanceTemplate(
     dependsOn: [
       workspaceImageAccess,
       workspaceInferenceAccess,
+      workspaceTogetherApiKeyAccess,
       workspaceLogAccess,
       workspaceGoogleWebClientIdAccess,
       workspaceGoogleWebClientSecretAccess,

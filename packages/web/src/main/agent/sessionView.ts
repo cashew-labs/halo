@@ -11,10 +11,26 @@ import {
   type ToolIdentity,
   connectionRequestSchema,
   type ConnectionRequest,
+  type ChatAttachment,
+  type ChatReference,
 } from "@get-halo/client";
 
 export type SessionViewItem =
-  | { kind: "user"; id: string; text: string }
+  | {
+      kind: "user";
+      id: string;
+      text: string;
+      attachments: Array<
+        Pick<ChatAttachment, "name"> & Partial<Pick<ChatAttachment, "path">>
+      >;
+      references: ChatReference[];
+      pending?: true;
+    }
+  | {
+      kind: "bashExecution";
+      id: string;
+      message: Extract<HaloMessage, { role: "bashExecution" }>;
+    }
   | {
       kind: "assistantTurn";
       id: string;
@@ -200,7 +216,14 @@ export function sessionViewItems(state: SessionSnapshot): SessionViewItem[] {
         kind: "user",
         id: entry.id,
         text: userText(message),
+        attachments: message.attachments ?? [],
+        references: message.references ?? [],
       });
+      continue;
+    }
+    if (message.role === "bashExecution") {
+      flush(false);
+      items.push({ kind: "bashExecution", id: entry.id, message });
       continue;
     }
     if (message.role === "assistant") {
@@ -704,6 +727,7 @@ function toolApprovalsByCallId(state: SessionSnapshot) {
 
 function userText(message: HaloMessage): string {
   if (message.role !== "user") return "";
+  if (message.displayText !== undefined) return message.displayText;
   if (Array.isArray(message.content)) {
     return message.content
       .flatMap((part) => {

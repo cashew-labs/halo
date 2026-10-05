@@ -1,6 +1,17 @@
+import { FileSaveErrorIndicator } from "../FileSaveErrorIndicator.js";
+import { confirmRestart } from "../confirmRestart.js";
+import { ConnectionStatus } from "../ConnectionStatus.js";
 import { useSidebar } from "../WorkspaceLayout.js";
-import { Button, colors, flex, flexItem, shadow, spacing, text } from "maui";
-import { Close } from "maui/icons";
+import {
+  Button,
+  backgroundColor,
+  flex,
+  flexItem,
+  shadow,
+  spacing,
+  text,
+} from "maui";
+import { Close, Monitor } from "maui/icons";
 import { style, useStyles } from "purse-styles";
 import { useMutation } from "@tanstack/react-query";
 import type { SessionSummary } from "@get-halo/client";
@@ -9,8 +20,10 @@ import { useHost } from "../HostProvider.js";
 import { FilesystemSection } from "./FilesystemSection.tsx";
 import { SessionsSection } from "./SessionsSection.tsx";
 import { ExtensionsSection } from "./ExtensionsSection.js";
+import { ScheduledSection } from "./ScheduledSection.js";
 import { NavigationSidebar } from "./navigation/NavigationSidebar.js";
 import { sidebarPadding } from "./navigation/SidebarSection.js";
+import { SidebarItem } from "./navigation/SidebarItem.js";
 
 type SidebarProps = {
   sessions: SessionSummary[];
@@ -45,16 +58,29 @@ export function Sidebar({ sessions, appInfo }: SidebarProps) {
         <div className={titleBar} aria-hidden="true" />
       )}
       <NavigationSidebar aria-label="Workspace" className={navigation}>
+        <SidebarItem
+          id="desktop"
+          href="/desktop"
+          pageTitle="Desktop"
+          icon={Monitor}
+        >
+          Desktop
+        </SidebarItem>
+        <ScheduledSection />
+        <ExtensionsSection />
         <FilesystemSection />
         <SessionsSection sessions={sessions} />
-        <ExtensionsSection />
       </NavigationSidebar>
-      {appInfo !== undefined && (
-        <div className={footer} data-testid="app-update-status">
+      <div className={footer} data-testid="app-update-status">
+        {appInfo !== undefined && (
           <div className={versionLabel}>Halo {appInfo.version}</div>
+        )}
+        <ConnectionStatus />
+        <FileSaveErrorIndicator />
+        {appInfo !== undefined && (
           <UpdateFooter appInfo={appInfo} labelClassName={updateLabel} />
-        </div>
-      )}
+        )}
+      </div>
     </nav>
   );
 }
@@ -70,6 +96,7 @@ function UpdateFooter({
   const install = useMutation({
     mutationFn: async () => {
       if (host.installAppUpdate === undefined) return;
+      if (!confirmRestart()) return;
       const result = await host.installAppUpdate();
       if (result instanceof Error) throw result;
     },
@@ -117,16 +144,17 @@ const styles = {
     minWidth: 0,
     height: "100%",
     minHeight: 0,
-    overflowY: "auto",
+    // Electron ignores -webkit-app-region: drag inside overflow:auto ancestors.
+    overflow: "hidden",
     position: "relative",
     zIndex: 1,
-    backgroundColor: `light-dark(${colors.gray[1]}, ${colors.gray[2]})`,
+    backgroundColor: backgroundColor.element,
     "@media (max-width: 700px)": {
       gap: 0,
       paddingBottom: "env(safe-area-inset-bottom)",
     },
   }),
-  mobileHeader: style(flex({ align: "center", gap: 3 }), {
+  mobileHeader: style(flex({ alignItems: "center", gap: 3 }), {
     minHeight: "56px",
     padding: "6px 2px",
     paddingTop: "max(6px, env(safe-area-inset-top))",

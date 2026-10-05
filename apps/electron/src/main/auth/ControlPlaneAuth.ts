@@ -1,3 +1,8 @@
+import {
+  protocolHeader,
+  AuthenticationRequiredError,
+  ConnectionHttpError,
+} from "@get-halo/client";
 import fs from "node:fs/promises";
 import { randomBytes } from "node:crypto";
 import {
@@ -10,7 +15,11 @@ import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
-import { type ControlPlaneClient } from "@get-halo/shared/controlPlaneContract";
+import {
+  controlPlaneProtocolVersion,
+  checkControlPlaneCompatibility,
+  type ControlPlaneClient,
+} from "@get-halo/shared/controlPlaneContract";
 import { SerialQueue } from "@get-halo/shared/SerialQueue";
 import { safeStorage } from "electron";
 import * as errore from "errore";
@@ -84,6 +93,11 @@ export class ControlPlaneAuth implements DesktopAuthentication {
     return await this.actionQueue.run(async () => {
       if (this.token === undefined) return undefined;
 
+      const compatible = await checkControlPlaneCompatibility(
+        this.createClient(this.token),
+        AbortSignal.timeout(10_000),
+      );
+      if (compatible instanceof Error) return compatible;
       const connection = {
         origin: this.origin,
         path: "/workspace/rpc",
@@ -93,6 +107,7 @@ export class ControlPlaneAuth implements DesktopAuthentication {
 
       const health = await fetch(`${this.origin}/workspace/health`, {
         headers: { authorization: `Bearer ${this.token}` },
+        signal: AbortSignal.timeout(10_000),
       }).catch(
         (cause) =>
           new ControlPlaneAuthError({
@@ -102,11 +117,13 @@ export class ControlPlaneAuth implements DesktopAuthentication {
       );
       if (health instanceof Error) return health;
       if (health.status === 502 || health.status === 503) return undefined;
-      if (!health.ok) {
-        return new ControlPlaneAuthError({
-          operation: "connect to your workspace",
+      if (health.status === 401) return new AuthenticationRequiredError();
+      if (!health.ok)
+        return new ConnectionHttpError({
+          service: "workspace",
+          stage: "health",
+          status: health.status,
         });
-      }
 
       return connection;
     });
@@ -122,6 +139,11 @@ export class ControlPlaneAuth implements DesktopAuthentication {
     if (this.token === undefined) return undefined;
 
     const client = this.createClient(this.token);
+    const compatible = await checkControlPlaneCompatibility(
+      client,
+      AbortSignal.timeout(10_000),
+    );
+    if (compatible instanceof Error) return compatible;
 
     const authentication = await client.auth.session().catch(
       (cause) =>
@@ -153,6 +175,11 @@ export class ControlPlaneAuth implements DesktopAuthentication {
 
   private async signInUnqueued() {
     const client = this.createClient();
+    const compatible = await checkControlPlaneCompatibility(
+      client,
+      AbortSignal.timeout(10_000),
+    );
+    if (compatible instanceof Error) return compatible;
 
     const state = randomBytes(32).toString("base64url");
     const callback = await listenForDesktopAuthCallback(state);
@@ -318,11 +345,22 @@ class ControlPlaneSessionStore {
 }
 
 function createControlPlaneClient(origin: string, token?: string) {
+  const headers = new Headers({
+    [protocolHeader]: String(controlPlaneProtocolVersion),
+  });
+  if (token !== undefined) headers.set("authorization", `Bearer ${token}`);
   const link = new RPCLink({
     origin,
     url: "/rpc",
-    headers:
-      token === undefined ? undefined : { authorization: `Bearer ${token}` },
+    fetch: async (request, init) =>
+      await fetch(request, {
+        ...init,
+        signal:
+          init?.signal === undefined || init.signal === null
+            ? AbortSignal.timeout(10_000)
+            : AbortSignal.any([init.signal, AbortSignal.timeout(10_000)]),
+      }),
+    headers,
   });
 
   // SAFETY: The configured origin serves controlPlaneContract at /rpc.

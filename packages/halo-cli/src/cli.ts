@@ -3,8 +3,9 @@
 import { Cli, z } from "incur";
 import { browser } from "./browser.js";
 import { extension } from "./extension.js";
+import { routine } from "./routine.js";
 import { cliVersion, connectHalo } from "./connectHalo.js";
-import { HaloRpcFileError } from "./HaloRpcFile.js";
+import { HaloRpcFileError } from "@get-halo/shared/HaloRpcFile";
 
 const haloRpcEnv = z.object({
   HALO_RPC_FILE: z.string().optional().describe("Path to Halo rpc.json"),
@@ -31,6 +32,10 @@ async function main() {
       env: haloRpcEnv,
       output: z.object({
         protocolVersion: z.number(),
+        supportedProtocols: z.array(z.number()),
+        build: z
+          .object({ version: z.string(), revision: z.string() })
+          .optional(),
         host: z.literal("127.0.0.1"),
         port: z.number(),
         workspace: workspaceInfo.optional(),
@@ -54,6 +59,10 @@ async function main() {
         }
         return c.ok({
           protocolVersion: connected.serverInfo.protocolVersion,
+          supportedProtocols: connected.serverInfo.supportedProtocols ?? [
+            connected.serverInfo.protocolVersion,
+          ],
+          build: connected.serverInfo.build,
           host: connected.file.host,
           port: connected.file.port,
           workspace,
@@ -61,6 +70,7 @@ async function main() {
       },
     })
     .command(extension)
+    .command(routine)
     .command(browser)
     .serve();
 }

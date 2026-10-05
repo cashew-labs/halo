@@ -1,7 +1,10 @@
+import { useRestartWarning } from "../../confirmRestart.js";
+import { useIsActiveTab } from "../../panes/WorkspacePanesProvider.js";
+import { useMarkSessionRead } from "./useMarkSessionRead.js";
 import { lastAssistantTurnWasAborted } from "./sessionView.js";
-import { useLayoutEffect, useRef, useState } from "react";
-import { skipToken, useQuery } from "@tanstack/react-query";
-import { useLocation } from "wouter";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { skipToken, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link, useLocation } from "wouter";
 import {
   Button,
   backgroundColor,
@@ -13,7 +16,7 @@ import {
   spacing,
   text,
 } from "maui";
-import { ArrowUp, Stop } from "maui/icons";
+import { ArrowUp, Stop, Paperclip, Close, FileText } from "maui/icons";
 import { style, useStyles } from "purse-styles";
 import {
   sessionTitleQueryKey,
@@ -25,13 +28,28 @@ import {
   sessionMessages,
   type SessionSnapshot,
   type SessionSummary,
+  type ChatPrompt,
+  type ChatReference,
+  validateChatFiles,
 } from "@get-halo/client";
 import { AssistantMessage } from "./AssistantMessage.tsx";
+import { BashExecution } from "./BashExecution.tsx";
 import { Editor } from "./Editor.tsx";
 import { ExecutorApprovalCard } from "./ExecutorApprovalCard.tsx";
 import { ExecutorConnectionCard } from "./ExecutorConnectionCard.tsx";
 import { ToolActivity } from "./ToolActivity.tsx";
-import { PaneHeader } from "../PaneHeader.tsx";
+import { useTabFindSource } from "../../panes/TabFind.js";
+import { useConnection } from "../../api/ConnectionContext.js";
+import {
+  useWorkspacePathsQuery,
+  useWorkspaceQuery,
+} from "../../api/ApiProvider.js";
+import { draftReferencesQueryKey } from "../chatReferences.js";
+import {
+  clearMessageDraft,
+  useMessageDraft,
+  useMessageDraftKey,
+} from "./useMessageDraft.js";
 
 export function AgentPane({
   sessionId,
@@ -40,154 +58,542 @@ export function AgentPane({
   sessionId: string;
   sessions: SessionSummary[];
 }) {
-  const pane = useStyles(styles.pane);
-  const body = useStyles(styles.body);
-  const column = useStyles(styles.column);
-  const { state, error, prompt, abort } = useAgentSession(sessionId);
+  const session = useAgentSession(sessionId);
+  const draftKey = useMessageDraftKey({
+    kind: "session",
+    messageId: sessionId,
+  });
   const sessionMeta = sessions.find(
-    ({ sessionId: candidate }) => candidate === sessionId,
+    ({ sessionId: candidateSessionId }) => candidateSessionId === sessionId,
   );
+  useMarkSessionRead({ session: sessionMeta, state: session.state });
   const { data: submittedTitle } = useQuery<string>({
     queryKey: sessionTitleQueryKey(sessionId),
     queryFn: skipToken,
   });
-  const title =
-    sessionMeta?.title === undefined ? submittedTitle : sessionMeta.title;
-
   return (
-    <main className={pane} aria-label={title}>
-      <PaneHeader title={title} />
-      <div className={body}>
-        <div className={column}>
-          <SessionView state={state} sessionId={sessionId} />
-          <Composer
-            key={sessionId}
-            autoFocus
-            error={error}
-            isWorking={state.activeRun !== undefined}
-            onSubmit={prompt}
-            onStop={abort}
-          />
-        </div>
-      </div>
-    </main>
+    <ChatPane
+      sessionId={sessionId}
+      draftKey={draftKey}
+      title={sessionMeta?.title ?? submittedTitle}
+      {...session}
+    />
   );
 }
 
 export function DraftAgentPane({ draftId }: { draftId: string }) {
   const [, navigate] = useLocation();
-  const { state, error, sessionId, title, prompt, abort } =
-    useDraftAgentSession((createdSessionId) => {
-      navigate(`/sessions/${createdSessionId}`);
-    });
+  const queryClient = useQueryClient();
+  const initialReferences = queryClient.getQueryData<ChatReference[]>(
+    draftReferencesQueryKey(draftId),
+  );
+  const draftKey = useMessageDraftKey({ kind: "draft", messageId: draftId });
+  const session = useDraftAgentSession((createdSessionId) => {
+    clearMessageDraft(draftKey);
+    navigate(`/sessions/${createdSessionId}`);
+  });
+  return (
+    <ChatPane
+      draftId={draftId}
+      initialReferences={initialReferences}
+      draftKey={draftKey}
+      {...session}
+      title={session.title ?? "New session"}
+    />
+  );
+}
+
+function ChatPane({
+  sessionId,
+  draftId,
+  initialReferences = [],
+  draftKey,
+  title,
+  state,
+  error,
+  prompt,
+  abort,
+}: {
+  sessionId: string | undefined;
+  draftId?: string;
+  initialReferences?: ChatReference[];
+  draftKey: string | undefined;
+  title: string | undefined;
+  state: SessionSnapshot;
+  error: string | undefined;
+  prompt: (input: ChatPrompt) => Promise<void | Error>;
+  abort: () => Promise<void | Error>;
+}) {
+  const isActiveTab = useIsActiveTab();
+  const { state: connection } = useConnection();
+  const [draft, setDraft] = useMessageDraft(draftKey);
+  const [references, setReferences] =
+    useState<ChatReference[]>(initialReferences);
+  const workspace = useWorkspaceQuery().data;
+  const paths = useWorkspacePathsQuery(workspace).data?.filter(
+    (path) => !path.endsWith("/"),
+  );
+  const [attachments, setAttachments] = useState<{ id: string; file: File }[]>(
+    [],
+  );
+  const [localError, setLocalError] = useState<string>();
+  const [sending, setSending] = useState(false);
+  const [optimisticMessage, setOptimisticMessage] = useState<
+    Extract<SessionViewItem, { kind: "user" }> | undefined
+  >();
+  const submitting = useRef<string | undefined>(undefined);
+  const mounted = useRef(true);
+  const [dragging, setDragging] = useState(false);
+  const dragDepth = useRef(0);
+  const picker = useRef<HTMLInputElement>(null);
   const pane = useStyles(styles.pane);
-  const body = useStyles(styles.body, styles.bodyTop);
+  const body = useStyles(
+    styles.body,
+    draftId === undefined ? undefined : styles.bodyTop,
+  );
   const column = useStyles(styles.column);
-  const hasMessages = sessionViewItems(state).length > 0;
+  const composer = useStyles(styles.composer);
+  const connectionMessage = {
+    connecting: "Connecting to your workspace…",
+    reconnecting: "Connection lost. Automatically reconnecting…",
+    offline: "You're offline. Halo will reconnect when you're back online.",
+    synchronizing: "Connection restored. Updating your chat…",
+    connected: undefined,
+    authentication: "Click “Sign in required” in the sidebar to reconnect.",
+    incompatible:
+      "An app or server update is needed. Click the connection status in the sidebar for details.",
+  }[connection.status];
+  const banner = useStyles(
+    styles.banner,
+    connectionMessage === undefined ? styles.errorBanner : undefined,
+  );
+  const sendButton = useStyles(styles.sendButton);
+  const attachmentList = useStyles(styles.attachmentList);
+  const attachmentChip = useStyles(styles.attachmentChip);
+  const attachmentName = useStyles(styles.attachmentName);
+  const referenceExcerpt = useStyles(styles.referenceExcerpt);
+  const composerActions = useStyles(styles.composerActions);
+  const progress = useStyles(styles.progress);
+  const dropOverlay = useStyles(styles.dropOverlay);
+  const hasContent =
+    draft.trim().length > 0 || attachments.length > 0 || references.length > 0;
+  useRestartWarning(attachments.length > 0 || references.length > 0);
+  const showStop = state.activeRun !== undefined && !hasContent && !sending;
+  const displayError = localError ?? error;
+  const bannerMessage = connectionMessage ?? displayError;
+  const visibleOptimisticMessage =
+    optimisticMessage !== undefined &&
+    state.entries.some(
+      (entry) =>
+        entry.type === "message" &&
+        entry.message.role === "user" &&
+        entry.message.clientMessageId === optimisticMessage.id,
+    )
+      ? undefined
+      : optimisticMessage;
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    // The prompt RPC stays open for the model's whole turn. Release the composer
+    // when our message is committed, so Stop and follow-up drafts remain usable.
+    const id = submitting.current;
+    if (
+      id === undefined ||
+      !state.entries.some(
+        (entry) =>
+          entry.type === "message" &&
+          entry.message.role === "user" &&
+          entry.message.clientMessageId === id,
+      )
+    )
+      return;
+    submitting.current = undefined;
+    setSending(false);
+    setOptimisticMessage(undefined);
+    setDraft("");
+    setAttachments([]);
+    setReferences([]);
+  }, [state.entries, setDraft]);
+
+  function addFiles(files: File[]) {
+    if (submitting.current) {
+      setLocalError(
+        "Wait for the current message to send before adding files.",
+      );
+      return;
+    }
+    const invalid = validateChatFiles([
+      ...attachments.map((item) => item.file),
+      ...files,
+    ]);
+    if (invalid !== undefined) {
+      setLocalError(invalid);
+      return;
+    }
+    setLocalError(undefined);
+    setAttachments((current) => [
+      ...current,
+      ...files.map((file) => ({ id: crypto.randomUUID(), file })),
+    ]);
+  }
+
+  async function submit() {
+    if (!hasContent || submitting.current) return;
+    const clientMessageId = crypto.randomUUID();
+    const submittedDraft = draft;
+    const submittedAttachments = attachments;
+    const submittedReferences = references;
+    submitting.current = clientMessageId;
+    clearMessageDraft(draftKey);
+    setSending(true);
+    setLocalError(undefined);
+    if (state.activeRun !== undefined) {
+      setOptimisticMessage({
+        kind: "user",
+        id: clientMessageId,
+        text: submittedDraft.trim(),
+        attachments: submittedAttachments.map(({ file }) => ({
+          name: file.name,
+        })),
+        references: submittedReferences,
+        pending: true,
+      });
+      setDraft("");
+      setAttachments([]);
+      setReferences([]);
+    }
+    const result = await prompt({
+      text: submittedDraft.trim(),
+      files: submittedAttachments.map((item) => item.file),
+      references: submittedReferences,
+      clientMessageId,
+    });
+    if (submitting.current !== clientMessageId) return;
+    submitting.current = undefined;
+    setSending(false);
+    if (result instanceof Error) {
+      if (mounted.current) {
+        setOptimisticMessage(undefined);
+        setDraft(submittedDraft);
+        setAttachments(submittedAttachments);
+        setReferences(submittedReferences);
+      }
+      return;
+    }
+    setDraft("");
+    setAttachments([]);
+    setReferences([]);
+  }
 
   return (
     <main
       className={pane}
-      aria-label={title === undefined ? "New session" : title}
+      aria-label={title}
       data-draft-id={draftId}
+      onDragEnter={(event) => {
+        if (!event.dataTransfer.types.includes("Files")) return;
+        event.preventDefault();
+        dragDepth.current++;
+        setDragging(true);
+      }}
+      onDragOverCapture={(event) => {
+        if (!event.dataTransfer.types.includes("Files")) return;
+        event.preventDefault();
+        // File drops attach to the chat; do not show the editor's insertion cursor.
+        event.stopPropagation();
+        event.dataTransfer.dropEffect = "copy";
+      }}
+      onDragLeave={(event) => {
+        if (!event.dataTransfer.types.includes("Files")) return;
+        dragDepth.current = Math.max(0, dragDepth.current - 1);
+        if (dragDepth.current === 0) setDragging(false);
+      }}
+      onDropCapture={(event) => {
+        if (!event.dataTransfer.types.includes("Files")) return;
+        event.preventDefault();
+        event.stopPropagation();
+        dragDepth.current = 0;
+        setDragging(false);
+        if (
+          Array.from(event.dataTransfer.items).some(
+            (item) => item.webkitGetAsEntry()?.isDirectory,
+          )
+        ) {
+          setLocalError("Add individual files instead of a folder.");
+          return;
+        }
+        addFiles(Array.from(event.dataTransfer.files));
+      }}
+      onPasteCapture={(event) => {
+        const files = Array.from(event.clipboardData.files);
+        if (files.length === 0) return;
+        event.preventDefault();
+        event.stopPropagation();
+        addFiles(files);
+      }}
     >
-      <PaneHeader title={title} />
+      {dragging ? (
+        <div className={dropOverlay}>Drop files to attach</div>
+      ) : undefined}
+      {bannerMessage === undefined ? undefined : (
+        <div
+          className={banner}
+          role={connectionMessage === undefined ? "alert" : "status"}
+        >
+          {bannerMessage}
+        </div>
+      )}
       <div className={body}>
         <div className={column}>
-          {hasMessages ? (
-            <SessionView state={state} sessionId={sessionId} />
+          {draftId === undefined || state.entries.length > 0 ? (
+            <SessionView
+              state={state}
+              sessionId={sessionId}
+              optimisticMessage={visibleOptimisticMessage}
+            />
           ) : undefined}
-          <Composer
-            autoFocus
-            error={error}
-            isWorking={state.activeRun !== undefined}
-            onSubmit={prompt}
-            onStop={abort}
+          <Editor
+            autoFocus={isActiveTab}
+            content={draft}
+            onChange={setDraft}
+            onSubmit={submit}
+            editable={!sending}
+            placeholder="Message Halo"
+            aria-label="Message"
+            size="sm"
+            className={composer}
+            referencePaths={paths}
+            referencePlacement={
+              draftId !== undefined && state.entries.length === 0
+                ? "below"
+                : "above"
+            }
+            onAddReference={(path) =>
+              setReferences((current) =>
+                current.some((reference) => reference.path === path)
+                  ? current
+                  : [...current, { path }],
+              )
+            }
+            header={
+              attachments.length === 0 &&
+              references.length === 0 ? undefined : (
+                <>
+                  {references.length > 0 ? (
+                    <ul
+                      className={attachmentList}
+                      aria-label="Referenced files"
+                    >
+                      {references.map((reference) => (
+                        <li className={attachmentChip} key={reference.path}>
+                          <FileText size="sm" aria-hidden="true" />
+                          <span
+                            className={attachmentName}
+                            title={reference.path}
+                          >
+                            {reference.path}
+                          </span>
+                          {reference.text === undefined ? undefined : (
+                            <span
+                              className={referenceExcerpt}
+                              title={reference.text}
+                            >
+                              “{reference.text}”
+                            </span>
+                          )}
+                          <Button
+                            variant="quiet"
+                            aria-label={`Remove reference ${reference.path}`}
+                            isDisabled={sending}
+                            onClick={() =>
+                              setReferences((current) =>
+                                current.filter((item) => item !== reference),
+                              )
+                            }
+                          >
+                            <Close size="sm" aria-hidden="true" />
+                          </Button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : undefined}
+                  {attachments.length > 0 ? (
+                    <ul className={attachmentList} aria-label="Attachments">
+                      {attachments.map(({ id, file }) => (
+                        <li className={attachmentChip} key={id}>
+                          <FileText size="sm" aria-hidden="true" />
+                          <span className={attachmentName} title={file.name}>
+                            {file.name}
+                          </span>
+                          <Button
+                            variant="quiet"
+                            aria-label={`Remove ${file.name}`}
+                            isDisabled={sending}
+                            onClick={() => {
+                              setAttachments((current) =>
+                                current.filter((item) => item.id !== id),
+                              );
+                              setLocalError(undefined);
+                            }}
+                          >
+                            <Close size="sm" aria-hidden="true" />
+                          </Button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : undefined}
+                </>
+              )
+            }
+            actions={
+              <div className={composerActions}>
+                <input
+                  ref={picker}
+                  type="file"
+                  multiple
+                  hidden
+                  aria-label="Attach files"
+                  onChange={(event) => {
+                    addFiles(Array.from(event.currentTarget.files ?? []));
+                    event.currentTarget.value = "";
+                  }}
+                />
+                <Button
+                  variant="quiet"
+                  aria-label="Add attachments"
+                  isDisabled={sending}
+                  onClick={() => picker.current?.click()}
+                >
+                  <Paperclip size="sm" aria-hidden="true" />
+                </Button>
+                <span className={progress} role="status">
+                  {sending
+                    ? attachments.length > 0
+                      ? "Preparing attachments…"
+                      : "Sending…"
+                    : ""}
+                </span>
+                <Button
+                  aria-label={showStop ? "Stop" : "Send"}
+                  className={sendButton}
+                  isDisabled={sending || (!showStop && !hasContent)}
+                  onClick={showStop ? abort : submit}
+                >
+                  {showStop ? (
+                    <Stop size="sm" />
+                  ) : (
+                    <ArrowUp size="sm" aria-hidden="true" />
+                  )}
+                </Button>
+              </div>
+            }
           />
         </div>
       </div>
     </main>
-  );
-}
-
-function Composer({
-  autoFocus,
-  error,
-  isWorking,
-  onSubmit,
-  onStop,
-}: {
-  autoFocus: boolean;
-  error: string | undefined;
-  isWorking: boolean;
-  onSubmit: (prompt: string) => Promise<void | Error>;
-  onStop: () => Promise<void | Error>;
-}) {
-  const [draft, setDraft] = useState("");
-  const composer = useStyles(styles.composer);
-  const liveStatus = useStyles(styles.liveStatus);
-  const sendButton = useStyles(styles.sendButton);
-  const trimmedText = draft.trim();
-  const showStop = isWorking && trimmedText.length === 0;
-
-  async function submit() {
-    if (!trimmedText) return;
-
-    setDraft("");
-    const result = await onSubmit(trimmedText);
-    if (result instanceof Error) {
-      setDraft(trimmedText);
-    }
-  }
-
-  return (
-    <Editor
-      autoFocus={autoFocus}
-      content={draft}
-      onChange={setDraft}
-      onSubmit={submit}
-      placeholder="Message Halo"
-      aria-label="Message"
-      size="sm"
-      className={composer}
-      error={
-        error === undefined ? undefined : (
-          <div className={liveStatus} role="alert">
-            {error}
-          </div>
-        )
-      }
-      actions={
-        <Button
-          aria-label={showStop ? "Stop" : "Send"}
-          className={sendButton}
-          disabled={!showStop && trimmedText.length === 0}
-          onClick={showStop ? onStop : submit}
-        >
-          {showStop ? (
-            <Stop size="sm" />
-          ) : (
-            <ArrowUp size="sm" aria-hidden="true" />
-          )}
-        </Button>
-      }
-    />
   );
 }
 
 function SessionView({
   state,
   sessionId,
+  optimisticMessage,
 }: {
   state: SessionSnapshot;
   sessionId: string | undefined;
+  optimisticMessage: Extract<SessionViewItem, { kind: "user" }> | undefined;
 }) {
   const viewRef = useRef<HTMLDivElement>(null);
+  const activeFindRange = useRef<Range | undefined>(undefined);
+  const [findSource, setFindSource] = useState<{
+    segments: { id: string; text: string }[];
+    select: (segmentId: string, start: number, end: number) => void;
+    highlight: (
+      match: { segmentId: string; start: number; end: number } | undefined,
+    ) => void;
+  }>();
+  useTabFindSource(findSource);
   const followLatest = useRef(true);
   const viewedSessionId = useRef(sessionId);
   const view = useStyles(styles.view);
   const stopped = useStyles(styles.stopped);
-  const items = sessionViewItems(state);
+  const items = useMemo(() => sessionViewItems(state), [state]);
+  useLayoutEffect(() => {
+    const root = viewRef.current;
+    if (root === null) return;
+    const elements =
+      state.entries.length > 0 || state.activeRun !== undefined
+        ? Array.from(root.querySelectorAll<HTMLElement>("[data-find-segment]"))
+        : [];
+    const clearHighlight = () => {
+      if (activeFindRange.current === undefined) return;
+      CSS.highlights
+        .get("halo-find-session-match")
+        ?.delete(activeFindRange.current);
+      activeFindRange.current = undefined;
+    };
+    const rangeFor = (segmentId: string, start: number, end: number) => {
+      const element = elements.find(
+        (item) => item.dataset.findSegment === segmentId,
+      );
+      if (element === undefined) return undefined;
+      const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+      const nodes: Text[] = [];
+      while (walker.nextNode()) {
+        // SAFETY: SHOW_TEXT restricts currentNode to Text nodes.
+        nodes.push(walker.currentNode as Text);
+      }
+      const point = (offset: number) => {
+        let remaining = offset;
+        for (const node of nodes) {
+          if (remaining <= node.length) return { node, offset: remaining };
+          remaining -= node.length;
+        }
+        return { node: nodes.at(-1), offset: nodes.at(-1)?.length ?? 0 };
+      };
+      const from = point(start);
+      const to = point(end);
+      if (from.node === undefined || to.node === undefined) return undefined;
+      const range = document.createRange();
+      range.setStart(from.node, from.offset);
+      range.setEnd(to.node, to.offset);
+      return range;
+    };
+    setFindSource({
+      segments: elements.map((element) => ({
+        id: element.dataset.findSegment!,
+        text: element.textContent ?? "",
+      })),
+      select: (segmentId, start, end) => {
+        const range = rangeFor(segmentId, start, end);
+        if (range === undefined) return;
+        followLatest.current = false;
+        const viewport = root.getBoundingClientRect();
+        const match = range.getBoundingClientRect();
+        if (match.top < viewport.top || match.bottom > viewport.bottom)
+          root.scrollTop +=
+            match.top - viewport.top - (viewport.height - match.height) / 2;
+      },
+      highlight: (match) => {
+        clearHighlight();
+        if (match === undefined) return;
+        const range = rangeFor(match.segmentId, match.start, match.end);
+        if (range === undefined) return;
+        const highlight =
+          CSS.highlights.get("halo-find-session-match") ?? new Highlight();
+        highlight.add(range);
+        CSS.highlights.set("halo-find-session-match", highlight);
+        activeFindRange.current = range;
+      },
+    });
+    return clearHighlight;
+  }, [state]);
   const showStopped =
     state.activeRun === undefined &&
     lastAssistantTurnWasAborted(sessionMessages(state));
@@ -226,6 +632,13 @@ function SessionView({
       {items.map((item) => (
         <SessionViewRow key={item.id} item={item} sessionId={sessionId} />
       ))}
+      {optimisticMessage === undefined ? undefined : (
+        <SessionViewRow
+          key={optimisticMessage.id}
+          item={optimisticMessage}
+          sessionId={sessionId}
+        />
+      )}
       {showStopped ? (
         <span className={stopped} role="status">
           Stopped
@@ -243,16 +656,84 @@ function SessionViewRow({
   sessionId: string | undefined;
 }) {
   const userRow = useStyles(styles.userRow);
-  const userMessage = useStyles(styles.userMessage);
+  const userMessage = useStyles(
+    styles.userMessage,
+    item.kind === "user" && item.pending
+      ? styles.pendingUserMessage
+      : undefined,
+  );
   const body = useStyles(styles.messageBody);
   const assistantRow = useStyles(styles.assistantRow);
   const assistantMessage = useStyles(styles.assistantMessage);
+  const attachmentList = useStyles(styles.attachmentList);
+  const attachmentChip = useStyles(styles.attachmentChip);
+  const attachmentName = useStyles(styles.attachmentName);
+  const referenceExcerpt = useStyles(styles.referenceExcerpt);
+
+  if (item.kind === "bashExecution")
+    return <BashExecution message={item.message} />;
 
   if (item.kind === "user") {
     return (
       <div className={userRow}>
-        <article className={userMessage} aria-label="You message">
-          <div className={body}>{item.text}</div>
+        <article
+          className={userMessage}
+          aria-label="You message"
+          aria-busy={item.pending}
+        >
+          {item.text.length > 0 ? (
+            <div className={body} data-find-segment={item.id}>
+              {item.text}
+            </div>
+          ) : undefined}
+          {item.attachments.length > 0 ? (
+            <ul className={attachmentList} aria-label="Attached files">
+              {item.attachments.map((attachment) => (
+                <li key={attachment.path ?? attachment.name}>
+                  {attachment.path === undefined ? (
+                    <span className={attachmentChip}>
+                      <FileText size="sm" aria-hidden="true" />
+                      <span className={attachmentName} title={attachment.name}>
+                        {attachment.name}
+                      </span>
+                    </span>
+                  ) : (
+                    <Link
+                      href={`/files/${attachment.path.split("/").map(encodeURIComponent).join("/")}`}
+                      className={attachmentChip}
+                    >
+                      <FileText size="sm" aria-hidden="true" />
+                      <span className={attachmentName} title={attachment.name}>
+                        {attachment.name}
+                      </span>
+                    </Link>
+                  )}
+                </li>
+              ))}
+            </ul>
+          ) : undefined}
+          {item.references.length > 0 ? (
+            <ul className={attachmentList} aria-label="Referenced files">
+              {item.references.map((reference, index) => (
+                <li key={`${reference.path}-${index}`}>
+                  <Link
+                    href={`/files/${reference.path.split("/").map(encodeURIComponent).join("/")}`}
+                    className={attachmentChip}
+                  >
+                    <FileText size="sm" aria-hidden="true" />
+                    <span className={attachmentName} title={reference.path}>
+                      {reference.path}
+                    </span>
+                    {reference.text === undefined ? undefined : (
+                      <span className={referenceExcerpt} title={reference.text}>
+                        “{reference.text}”
+                      </span>
+                    )}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          ) : undefined}
         </article>
       </div>
     );
@@ -283,14 +764,15 @@ function SessionViewRow({
           );
         }
         return (
-          <AssistantMessage
-            key={part.id}
-            size="sm"
-            className={assistantMessage}
-            isAnimating={part.streaming}
-          >
-            {part.text}
-          </AssistantMessage>
+          <div key={part.id} data-find-segment={part.id}>
+            <AssistantMessage
+              size="sm"
+              className={assistantMessage}
+              isAnimating={part.streaming}
+            >
+              {part.text}
+            </AssistantMessage>
+          </div>
         );
       })}
     </div>
@@ -305,6 +787,7 @@ const styles = {
     minHeight: 0,
     overflow: "hidden",
     backgroundColor: backgroundColor.app,
+    position: "relative",
   }),
   body: style(
     flex({ direction: "column" }),
@@ -321,6 +804,57 @@ const styles = {
     },
   ),
   bodyTop: style(spacing.padding({ top: 12 })),
+  attachmentList: style(flex({ gap: 2 }), spacing.padding({ y: 2 }), {
+    flexWrap: "wrap",
+    listStyle: "none",
+    paddingInline: 0,
+    margin: 0,
+    minWidth: 0,
+  }),
+  attachmentChip: style(
+    flex({ alignItems: "center", gap: 2 }),
+    radius.md,
+    spacing.padding({ x: 3, y: 1 }),
+    text({ size: "xs", color: "highContrast" }),
+    {
+      backgroundColor: colors.grayAlpha[3],
+      maxWidth: "100%",
+      minWidth: 0,
+      textDecoration: "none",
+      "&:hover": { backgroundColor: colors.grayAlpha[4] },
+    },
+  ),
+  attachmentName: style({
+    maxWidth: "28ch",
+    minWidth: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  }),
+  referenceExcerpt: style(text({ size: "xs", color: "lowContrast" }), {
+    maxWidth: "18ch",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  }),
+  composerActions: style(flex({ alignItems: "center", gap: 2 }), {
+    width: "100%",
+  }),
+  progress: style(text({ size: "xs", color: "lowContrast" }), { flex: 1 }),
+  dropOverlay: style(
+    radius.lg,
+    text({ size: "md", fontWeight: 500, color: "highContrast" }),
+    {
+      position: "absolute",
+      inset: spacing.value(4),
+      zIndex: 10,
+      display: "grid",
+      placeItems: "center",
+      pointerEvents: "none",
+      backgroundColor: `color-mix(in srgb, ${backgroundColor.element} 80%, transparent)`,
+      border: `2px dashed ${colors.gray[7]}`,
+    },
+  ),
   column: style(flex({ direction: "column" }), {
     flex: "1 1 auto",
     width: "100%",
@@ -345,6 +879,9 @@ const styles = {
       paddingTop: spacing.value(12),
       paddingBottom: spacing.value(6),
       "&::-webkit-scrollbar": { display: "none" },
+      "& ::highlight(halo-find-session-match)": {
+        backgroundColor: colors.amber[5],
+      },
     },
   ),
   composer: style(flexItem({ size: "hug" }), {
@@ -371,31 +908,35 @@ const styles = {
       background: `linear-gradient(to bottom, transparent, ${backgroundColor.app})`,
     },
   }),
-  liveStatus: style(
+  banner: style(
     flexItem({ size: "hug" }),
-    text({ size: "xs", fontWeight: 500, color: "highContrast" }),
-    spacing.padding({ x: 4, y: 2 }),
+    text({ size: "sm", fontWeight: 500, color: "highContrast" }),
+    spacing.padding({ x: 12, y: 4 }),
     {
-      color: "light-dark(#b42318, #ff9592)",
-      backgroundColor: "light-dark(#ffebe9, #3b1219)",
-      borderRadius: "8px",
+      color: colors.amber[11],
+      backgroundColor: colors.amber[3],
       whiteSpace: "pre-wrap",
       overflowWrap: "anywhere",
     },
   ),
-  userRow: style(flex({ justify: "end" }), spacing.padding({ top: 3 }), {
+  errorBanner: style({
+    color: colors.red[11],
+    backgroundColor: colors.red[3],
+  }),
+  userRow: style(flex({ justifyContent: "end" }), spacing.padding({ top: 3 }), {
     // position: "sticky",
     // top: 0,
     // zIndex: 1,
     minWidth: 0,
     backgroundColor: backgroundColor.app,
   }),
-  userMessage: style(radius.lg, spacing.padding({ x: 6, y: 3 }), {
+  userMessage: style(radius.xl, spacing.padding({ x: 6, y: 3 }), {
     width: "fit-content",
     maxWidth: "80%",
     minWidth: 0,
     backgroundColor: colors.gray[3],
   }),
+  pendingUserMessage: style({ opacity: 0.6 }),
   assistantRow: style(flex({ direction: "column", gap: 6 }), {
     minWidth: 0,
     width: "100%",

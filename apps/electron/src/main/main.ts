@@ -1,3 +1,4 @@
+import { WindowHotkeys } from "./WindowHotkeys.js";
 import {
   app,
   autoUpdater,
@@ -26,7 +27,7 @@ import { PrettyConsoleLoggerSink } from "@get-halo/logger/PrettyConsoleLoggerSin
 import started from "electron-squirrel-startup";
 import { LOG_CHANNELS } from "../shared/channels.js";
 import { SHORTCUT_CHANNEL, shortcuts } from "../shared/shortcuts.js";
-import { checkForUpdates, startAppUpdates } from "./app/appUpdate.js";
+import { AppUpdates } from "./app/AppUpdates.js";
 import {
   createLocalDesktopAuthentication,
   type DesktopAuthentication,
@@ -84,6 +85,14 @@ let mainWindow: BrowserWindow | undefined;
 const windows = new Set<BrowserWindow>();
 // True after Quit / quitAndInstall so Close and Cmd+W destroy windows instead of hiding them.
 let isQuitting = false;
+const appUpdates = new AppUpdates({
+  config: applicationConfig.updates,
+  getWindow: () => mainWindow,
+  logger: logger.scope("updates"),
+  onInstallCancelled: () => {
+    isQuitting = false;
+  },
+});
 
 // oxlint-disable-next-line typescript/no-floating-promises -- Electron owns the app-ready lifecycle and keeps the process alive for this work.
 app.whenReady().then(async () => {
@@ -92,14 +101,12 @@ app.whenReady().then(async () => {
   registerLogBridge();
   registerDesktopApi({
     authentication,
+    appUpdates,
     getConnection: async () => await getWorkspaceConnection(authentication),
     ownsWindow: (window) => windows.has(window),
   });
   installMenu();
-  startAppUpdates({
-    config: applicationConfig.updates,
-    getWindow: () => mainWindow,
-  });
+  appUpdates.start();
   await openMainWindow();
   // Forge replaces the URL with undefined in packaged builds, excluding app control.
   if (
@@ -131,8 +138,10 @@ app.whenReady().then(async () => {
   if (applicationConfig.testWindowEvents) {
     const testEvents: NodeJS.EventEmitter = app;
     testEvents.on("halo:e2e:open-window", () => {
+      // Give the test-created window a separate HTTP/1.1 connection pool while
+      // retaining the default Electron session used for cross-window storage.
       // oxlint-disable-next-line typescript/no-floating-promises -- The harness waits for Electron's window event.
-      void createWindow();
+      void createWindow(["--halo-e2e-rpc-localhost"]);
     });
   }
   logger.info({ event: "app-ready" });
@@ -180,14 +189,26 @@ async function getWorkspaceConnection(
   if (connection instanceof Error || connection === undefined)
     return connection;
 
-  authorizeExtensionRequests(connection);
+  authorizeWorkspaceViews(connection);
   return connection;
 }
 
-function authorizeExtensionRequests(connection: HaloRpcConnection) {
+function authorizeWorkspaceViews(connection: HaloRpcConnection) {
+  const webSocketOrigin = new URL(connection.origin);
+  webSocketOrigin.protocol =
+    webSocketOrigin.protocol === "http:" ? "ws:" : "wss:";
+  const desktopPath = new URL(
+    "../desktop/",
+    new URL(`${connection.extensionPath}/`, connection.origin),
+  ).pathname;
   electronSession.defaultSession.webRequest.onBeforeSendHeaders(
     {
-      urls: [`${connection.origin}${connection.extensionPath}/*`],
+      urls: [
+        `${connection.origin}${connection.extensionPath}/*`,
+        `${webSocketOrigin.origin}${connection.extensionPath}/*`,
+        `${connection.origin}${desktopPath}*`,
+        `${webSocketOrigin.origin}${desktopPath}*`,
+      ],
     },
     (details, callback) => {
       details.requestHeaders.authorization = `Bearer ${connection.token}`;
@@ -225,6 +246,7 @@ app.on("window-all-closed", () => {
 });
 
 app.on("will-quit", () => {
+  appUpdates.close();
   void closePendingOAuthCallbacks().catch((cause) => {
     console.warn("OAuth callback close failed:", cause);
   });
@@ -239,7 +261,9 @@ async function openMainWindow(): Promise<void> {
   });
 }
 
-async function createWindow(): Promise<BrowserWindow> {
+async function createWindow(
+  additionalArguments: string[] = [],
+): Promise<BrowserWindow> {
   const window = new BrowserWindow({
     show: applicationConfig.showMainWindow,
     title: "Halo",
@@ -255,7 +279,27 @@ async function createWindow(): Promise<BrowserWindow> {
       contextIsolation: true,
       sandbox: true,
       nodeIntegration: false,
+      additionalArguments,
     },
+  });
+  const hotkeys = new WindowHotkeys();
+  hotkeys.attach(window);
+  // Route app shortcuts through the originating window, including embedded frames.
+  window.webContents.on("before-input-event", (event, input) => {
+    if (input.type !== "keyDown" || input.isComposing || input.alt) return;
+    const primaryModifier =
+      process.platform === "darwin"
+        ? input.meta && !input.control
+        : input.control && !input.meta;
+    if (!primaryModifier) return;
+    const shortcut = Object.entries(shortcuts).find(
+      ([, item]) =>
+        item.key === `${input.shift ? "Shift+" : ""}${input.key.toUpperCase()}`,
+    );
+    if (shortcut === undefined) return;
+    event.preventDefault();
+    if (!input.isAutoRepeat)
+      window.webContents.send(SHORTCUT_CHANNEL, shortcut[0]);
   });
   windows.add(window);
   window.once("closed", () => windows.delete(window));
@@ -320,7 +364,7 @@ function installMenu(): void {
   const isMac = process.platform === "darwin";
   const checkForUpdatesItem: MenuItemConstructorOptions = {
     label: "Check for Updates…",
-    click: () => checkForUpdates(),
+    click: () => appUpdates.checkForUpdates(),
   };
   const openLogsItem: MenuItemConstructorOptions = {
     label: "Open Logs",
@@ -332,6 +376,15 @@ function installMenu(): void {
   const fileMenu: MenuItemConstructorOptions = {
     label: "File",
     submenu: [
+      {
+        label: shortcuts.newTab.label,
+        accelerator: shortcuts.newTab.accelerator,
+        click: () =>
+          BrowserWindow.getFocusedWindow()?.webContents.send(
+            SHORTCUT_CHANNEL,
+            "newTab",
+          ),
+      },
       {
         label: shortcuts.newChat.label,
         accelerator: shortcuts.newChat.accelerator,

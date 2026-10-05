@@ -16,15 +16,13 @@ export const brands = {
   },
 } satisfies Record<string, BrandDefinition>;
 
-type Brand = keyof typeof brands;
-
-export function BrandLogo(props: { brand: Brand; size: IconSize }) {
+export function LogoImage(props: { src: string; size: IconSize }) {
   const className = useStyles(logo);
   const box = iconSizeValues[props.size];
 
   return (
     <img
-      src={brands[props.brand].logoUrl}
+      src={props.src}
       alt=""
       aria-hidden="true"
       className={className}

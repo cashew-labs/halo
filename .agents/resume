@@ -1,4 +1,28 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if [[ -n "${HALO_GCP_SA_KEY:-}" ]]; then
+  mkdir -p "$HOME/.config/gcloud"
+  node --input-type=module <<'EOF'
+import fs from "node:fs";
+
+const raw = process.env.HALO_GCP_SA_KEY;
+if (raw === undefined) process.exit(0);
+let credential;
+try {
+  credential = JSON.parse(raw);
+} catch {
+  credential = JSON.parse(Buffer.from(raw, "base64").toString("utf8"));
+}
+if (credential?.type !== "service_account") {
+  throw new Error("HALO_GCP_SA_KEY is not a service-account credential");
+}
+fs.writeFileSync(
+  `${process.env.HOME}/.config/gcloud/application_default_credentials.json`,
+  JSON.stringify(credential),
+  { mode: 0o600 },
+);
+EOF
+fi
+
 echo "Orb ready"
