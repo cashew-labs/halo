@@ -162,6 +162,7 @@ export const contract = publicProcedure.router({
       .input(type<{ routineId: string; enabled: boolean }>())
       .output(type<Routine>()),
     runNow: oc.input(type<{ routineId: string }>()).output(type<RoutineRun>()),
+    runScheduled: oc.input(type<{ routineId: string }>()).output(type<void>()),
     listRuns: oc
       .input(type<{ routineId: string; limit?: number }>())
       .output(type<RoutineRun[]>()),

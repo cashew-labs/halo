@@ -347,6 +347,51 @@ export class WorkspaceService {
     });
   }
 
+  /** Activity from a due schedule wakes the VM before dispatching its routine. */
+  async wakeForRoutine(workspaceId: string) {
+    const client = this.db.client;
+    const owner =
+      client instanceof DatabaseSync
+        ? errore.try({
+            // SAFETY: The projection selects only workspace.user_id.
+            try: () =>
+              client
+                .prepare("SELECT user_id FROM workspace WHERE id = ?")
+                .get(workspaceId) as { user_id: string } | undefined,
+            catch: (cause) =>
+              new WorkspaceServiceError({
+                detail: "find routine workspace",
+                cause,
+              }),
+          })
+        : await client
+            .query<{ user_id: string }>(
+              "SELECT user_id FROM workspace WHERE id = $1",
+              [workspaceId],
+            )
+            .then((selected) => selected.rows[0])
+            .catch(
+              (cause) =>
+                new WorkspaceServiceError({
+                  detail: "find routine workspace",
+                  cause,
+                }),
+            );
+    if (owner instanceof Error) return owner;
+    if (owner === undefined)
+      return new WorkspaceServiceError({ detail: "find routine workspace" });
+    const activity = await this.recordActivity(owner.user_id);
+    if (activity instanceof Error) return activity;
+    const input = { workspaceId, ownerUserId: owner.user_id };
+    const status = await this.provider.getStatus?.(input);
+    if (status instanceof Error) return status;
+    if (status === "paused") {
+      const resumed = await this.provider.resume?.(input);
+      if (resumed instanceof Error) return resumed;
+    }
+    return await this.provider.getConnection(input);
+  }
+
   async hasWorkspace(workspaceId: string) {
     const client = this.db.client;
     if (client instanceof DatabaseSync) {

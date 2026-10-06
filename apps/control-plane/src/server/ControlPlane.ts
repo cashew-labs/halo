@@ -11,6 +11,7 @@ import {
 } from "./controlPlaneHttp.js";
 import { DatabaseService, type DatabaseConfig } from "../DatabaseService.js";
 import { WorkspaceService } from "../workspace/WorkspaceService.js";
+import { RoutineCoordinator } from "../workspace/RoutineCoordinator.js";
 import type { WorkspaceProviderApi } from "../workspace/provider/WorkspaceProviderApi.js";
 
 import { TraceIngestion } from "../traces/TraceIngestion.js";
@@ -25,17 +26,20 @@ export class ControlPlane {
   private readonly publicOrigin: string;
   // Owns active requests that upgraded beyond the HTTP server lifecycle.
   private readonly requests: ServingControlPlaneHttp;
+  private readonly routines: RoutineCoordinator;
 
   private constructor(ctx: {
     db: DatabaseService;
     http: ListeningControlPlaneHttp;
     publicOrigin: string;
     requests: ServingControlPlaneHttp;
+    routines: RoutineCoordinator;
   }) {
     this.db = ctx.db;
     this.http = ctx.http;
     this.publicOrigin = ctx.publicOrigin;
     this.requests = ctx.requests;
+    this.routines = ctx.routines;
   }
 
   get origin() {
@@ -94,11 +98,16 @@ export class ControlPlane {
     });
     if (workspace instanceof Error) return workspace;
 
+    const routines = await RoutineCoordinator.start({ db, workspace });
+    if (routines instanceof Error) return routines;
+    cleanup.defer(async () => await routines.close());
+
     const requests = serveControlPlaneHttp({
       server: http.server,
       auth,
       publicOrigin,
       workspace,
+      routines,
       webRoot,
       build: ctx.build,
       inferenceApiKey: ctx.inferenceApiKey,
@@ -117,11 +126,13 @@ export class ControlPlane {
       http,
       publicOrigin,
       requests,
+      routines,
     });
   }
 
   async close() {
     this.requests.close();
+    await this.routines.close();
     const httpClosed = await closeControlPlaneHttp(this.http.server);
     const databaseClosed = await this.db.close();
 

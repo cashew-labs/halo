@@ -365,13 +365,16 @@ export class RoutineService {
 
   // Marks runs left by a stopped process as interrupted and skips occurrences missed while
   // it was stopped by scheduling each enabled routine from now.
-  async recover() {
+  async recover(options?: { preserveDue?: boolean }) {
     return await this.actionQueue.run(async () => {
       const now = Date.now();
       const nextRuns = new Map<string, number | undefined>();
       for (const routine of this.routines) {
         if (!routine.enabled) continue;
-        const nextRunAt = nextOccurrence({ ...routine, after: now });
+        const nextRunAt =
+          options?.preserveDue && routine.nextRunAt !== undefined
+            ? Date.parse(routine.nextRunAt)
+            : nextOccurrence({ ...routine, after: now });
         // A stored schedule that no longer resolves stays paused until edited.
         nextRuns.set(
           routine.id,

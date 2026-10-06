@@ -247,6 +247,32 @@ routineTest(
 );
 
 routineTest(
+  "keeps an overdue occurrence after a managed workspace wakes",
+  async ({ openRoutines }) => {
+    const before = await openRoutines();
+    const saved = await before.save(everyTwoMinutes);
+    if (saved instanceof Error) throw saved;
+    vi.setSystemTime(new Date("2026-09-25T08:05:00Z"));
+    const after = await openRoutines();
+    const recovered = await after.recover({ preserveDue: true });
+    if (recovered instanceof Error) throw recovered;
+    expect(after.get(saved.id)).toMatchObject({
+      nextRunAt: "2026-09-25T08:02:00.000Z",
+    });
+    const run = await after.beginRun({
+      routineId: saved.id,
+      trigger: "schedule",
+    });
+    expect(run).toMatchObject({
+      scheduledFor: "2026-09-25T08:02:00.000Z",
+    });
+    expect(
+      await after.beginRun({ routineId: saved.id, trigger: "schedule" }),
+    ).toBeUndefined();
+  },
+);
+
+routineTest(
   "editing and removing a routine publishes the change",
   async ({ openRoutines }) => {
     const routines = await openRoutines();
