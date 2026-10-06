@@ -10,8 +10,11 @@ const repoRoot = path.resolve(
  * Vitest `test` options for one package, split by `REVIEW_TEST_TIER`.
  *
  * Unset or `durable` runs the committed tests, as before. `tmp` runs only the
- * package's gitignored `.tmp-tests/` files. `--coverage` writes lcov with
- * repo-relative paths to `<package>/.tmp-tests/coverage/lcov.info`.
+ * package's gitignored `.tmp-tests/` files. When the review tool sets
+ * `REVIEW_TEST_FILES` (newline-separated repo-relative paths), only the listed
+ * files in this package run; a package with none runs nothing. `--coverage`
+ * writes lcov with repo-relative paths to
+ * `<package>/.tmp-tests/coverage/lcov.info`.
  *
  * This file imports nothing from Vitest, so each package keeps using its own
  * Vitest version through `defineConfig`.
@@ -26,9 +29,10 @@ export function testTierOptions(...excludedTests: string[]) {
   return {
     // Vitest's default include and exclude, plus the tier split.
     include:
-      tier === "tmp"
+      listedTestFiles() ??
+      (tier === "tmp"
         ? [".tmp-tests/**/*.{test,spec}.ts"]
-        : ["**/*.{test,spec}.?(c|m)[jt]s?(x)"],
+        : ["**/*.{test,spec}.?(c|m)[jt]s?(x)"]),
     exclude: [
       "**/node_modules/**",
       "**/.git/**",
@@ -47,4 +51,17 @@ export function testTierOptions(...excludedTests: string[]) {
       exclude: ["**/.tmp-tests/**", ...excludedTests],
     },
   };
+}
+
+/** The `REVIEW_TEST_FILES` entries inside this package, relative to it. Vitest runs from the package directory. */
+function listedTestFiles(): string[] | undefined {
+  const listed = process.env.REVIEW_TEST_FILES;
+  if (listed === undefined) return undefined;
+  const files = listed
+    .split("\n")
+    .filter(Boolean)
+    .map((file) => path.relative(process.cwd(), path.join(repoRoot, file)))
+    .filter((file) => !file.startsWith(".."));
+  // A pattern that matches nothing, because an empty include falls back to Vitest's default.
+  return files.length > 0 ? files : ["__no-listed-test-files__"];
 }

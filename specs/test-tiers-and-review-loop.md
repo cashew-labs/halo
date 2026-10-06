@@ -7,7 +7,7 @@ Status: Halo PR 1 (test tiers) implemented; the review tool is in progress in `c
 1. Split Halo's tests into two tiers:
    - **Temp tests** are the default. They run while a PR is developed and reviewed, and they are never merged into `main` or run by CI again.
    - **Durable tests** are opt-in. This is a small set that is committed and runs repeatedly in CI.
-2. Measure changed-line coverage against the union of both tiers. Every changed executable line must be covered or exempted with a reason the reviewer accepts.
+2. Measure changed-line coverage from the tests the change added or edited: changed durable tests plus every temp test. Every changed executable line must be covered or exempted with a reason the reviewer accepts.
 3. Build a review tool for coding agents. A Pi-based reviewer reviews the logic of the source changes and the tests, checks coverage, and returns findings. The coding agent and the reviewer loop until the reviewer approves. The loop runs only locally.
 4. Show every test that ran, including temp tests, and the coverage report in Diffmap and Whiteboard. They are collapsed by default.
 5. In a later stack, prune Halo's durable suite to a small CI set.
@@ -19,7 +19,7 @@ The review tool is personal coding-agent tooling, not part of the Halo product. 
 | Separate repository (the review tool) | Halo |
 |---|---|
 | The Pi reviewer, its prompt, the `ReviewVerdict` type, and the loop state | `.tmp-tests/` folders and the gitignore rule |
-| The changed-line coverage report (`git diff` + merged lcov) | The shared Vitest preset, per-package `test:tmp` scripts that honor `REVIEW_TEST_TIER`, and the root `pnpm test:tmp` |
+| The changed-line coverage report (`git diff` + merged lcov) | The shared Vitest preset, per-package `test:tmp` scripts that honor `REVIEW_TEST_TIER` and `REVIEW_TEST_FILES`, and the root `pnpm test:tmp` |
 | `tmp-tests publish` / `fetch` (the `refs/tmp-tests/*` side ref) | The testing-conventions update |
 | The `pre-push` gate and its agent detection | `.review.json`, the tool's config for Halo |
 | `review install` (writes the Git hook) and `review doctor` | The `AGENTS.md` section on the push gate |
@@ -60,7 +60,7 @@ So temp tests only have to be **on disk and included by the runner** during the 
 | Reviewers and tools cannot see gitignored files | Snapshot them to a side ref (see below) |
 | Tests disappear with the worktree, so nobody can reproduce them | The same side ref |
 | The report may describe an older head | The report records `baseSha`, `headSha`, and a hash of the working tree. The reviewer rejects a stale report. |
-| Coverage must drop out of the report after merge | Run coverage twice: durable tests, then temp tests. The report marks lines that only temp tests cover. |
+| Coverage must drop out of the report after merge | Run the changed durable tests and the temp tests separately. The report marks lines that only temp tests cover. |
 
 ### Side ref: `refs/tmp-tests/<branch>`
 
@@ -69,8 +69,7 @@ So temp tests only have to be **on disk and included by the runner** during the 
 - **Parents:** the PR head and the previous side commit, if one exists. Chaining the side commits keeps every round's temp tests reachable.
 - **Tree:** the head tree, plus:
   - `**/.tmp-tests/**`
-  - `.tmp-tests/coverage/report.json`
-  - `.tmp-tests/coverage/lcov.info`
+  - the coverage report under `.tmp-tests/report/` and each package's `.tmp-tests/coverage/lcov.info` (logs excluded)
   - `.tmp-tests/review/round-<n>/verdict.json` and `replies.json`, the review record for this commit
 
 The command pushes the commit to `refs/tmp-tests/<branch>`.
@@ -103,16 +102,17 @@ Alternatives considered:
 - There is no fixed budget. The coding agent and the reviewer choose the tier by judgment, and most tests should be temp tests.
 - A new durable test needs a rationale that the reviewer accepts, for example "guards invariant X across future changes".
 
-**Selection.** `REVIEW_TEST_TIER=durable|tmp` selects the tier. This variable is the review tool's convention, so every repository that uses the tool honors it.
-- `durable` runs only durable test files; `tmp` runs only `.tmp-tests/` files.
+**Selection.** Two variables, both the review tool's convention, so every repository that uses the tool honors them:
+- `REVIEW_TEST_FILES` lists the exact test files to run, newline-separated and repo-relative. The review tool always sets it: the changed durable test files for the durable run, and every temp test for the temp run. Each package runs only the listed files inside it, and a package with none runs nothing.
+- `REVIEW_TEST_TIER=durable|tmp` says which tier the run belongs to. Without `REVIEW_TEST_FILES` (a manual `pnpm test:tmp`), `durable` runs every durable test and `tmp` runs every `.tmp-tests/` file.
 - Vitest reads it through `tools/vitest/testTierOptions.ts`, which each package's new `vitest.config.ts` passes to its own `defineConfig`. The preset imports nothing from Vitest, because `workspace-server` pins Vitest 4 while the root uses Vitest 5. Unset behaves like `durable`, so existing scripts run the same tests as before.
 - Playwright reads it through `testMatch` (with Electron coverage, later).
 - `pnpm check` stays durable-only.
 
 **How the packages are wired.** Halo uses the same three layers as `test:unit`:
-1. **Each package's `package.json`** has `"test:tmp": "vitest run --coverage --passWithNoTests"`, because Turbo also reaches packages without tests for the requested tier. Its `vitest.config.ts` uses the shared preset, which reads `REVIEW_TEST_TIER` and writes lcov with repo-relative paths to that package's `.tmp-tests/coverage/lcov.info`.
-2. **`turbo.json`** declares `"test:tmp": { "outputs": [".tmp-tests/coverage/**"] }`.
-3. **The root `package.json`** has `"test:tmp": "turbo run test:tmp --affected"`. Turbo runs the script in every package affected by the change, including dependents, and skips the rest.
+1. **Each package's `package.json`** has `"test:tmp": "vitest run --coverage --passWithNoTests"`, because Turbo also reaches packages with no listed tests. Its `vitest.config.ts` uses the shared preset, which reads `REVIEW_TEST_TIER` and `REVIEW_TEST_FILES` and writes lcov with repo-relative paths to that package's `.tmp-tests/coverage/lcov.info`.
+2. **`turbo.json`** declares `test:tmp` with `env: ["REVIEW_TEST_TIER", "REVIEW_TEST_FILES"]` and `outputs: [".tmp-tests/coverage/**"]`.
+3. **The root `package.json`** has `"test:tmp": "turbo run test:tmp"`. It runs every package, not only affected ones, because the file list already decides what runs: packages with no listed files exit at once or replay from Turbo's cache. `--affected` would also skip a package whose only change is a gitignored temp test.
 
 Two backend packages that both use Vitest each get their own script and config; Turbo runs both. `pnpm test:tmp` is local and agent-only.
 
@@ -125,25 +125,31 @@ Two backend packages that both use Vitest each get their own script and config; 
 - renderer through Playwright `page.coverage`;
 - conversion through `monocart-coverage-reports`.
 
+**Which tests run.** Coverage starts from the tests the change added or edited, not the whole suite:
+- **Durable run:** the durable test files that the change added or modified, compared with the merge-base, including uncommitted ones. A test file is any file named `*.test.*`, `*.spec.*`, `test_*.py`, `*_test.py`, or `*_test.go`.
+- **Temp run:** every temp test file.
+
+An existing test that the change relies on counts only once it is edited. The coding agent should add a temp test for the new behavior rather than touch an existing test with a no-op edit. This works the same way for Playwright, which also accepts a list of test files. A tier with no files is skipped. A round runs a handful of tests, so no suite is run in full.
+
 **Report.** `review coverage` builds the report from Git and lcov, with nothing specific to Halo:
-1. Parse `git diff -U0 <merge-base>` for added and changed lines in source files (see "Default exclusions").
-2. Run `testCommand` with `REVIEW_TEST_TIER=durable`. Collect every lcov file that matches the `lcov` glob and merge them: a line counts as covered if any file reports it ran more than 0 times.
-3. Run `testCommand` again with `REVIEW_TEST_TIER=tmp`, and collect and merge the same way. Each test runs once per round. The temp run touches only packages with `.tmp-tests/` files, and Turbo can replay the durable run from cache when no source or durable test file changed.
+1. Parse `git diff -U0 <merge-base>`, plus untracked files, for added and changed lines in source files (see "Default exclusions").
+2. Run `testCommand` with `REVIEW_TEST_TIER=durable` and `REVIEW_TEST_FILES` set to the changed durable test files. Collect every lcov file that matches the `lcov` glob and merge them: a line counts as covered if any file reports it ran more than 0 times.
+3. Run `testCommand` with `REVIEW_TEST_TIER=tmp` and the temp test files, and collect and merge the same way.
 4. Combine the two runs. Each changed line gets one of these states:
    - covered by durable tests (in the durable run);
    - covered by temp tests only (in the temp run but not the durable run), so its coverage disappears after merge;
    - uncovered (in neither run);
    - exempt.
-5. Write `.tmp-tests/coverage/report.json`:
+5. Write `.tmp-tests/report/report.json`, apart from the repository's lcov glob so the tool's output is never merged back in:
    - `baseSha`, `headSha`, `treeHash`;
    - per file: `changed`, `coveredDurable`, `coveredTmpOnly`, `uncovered`, `exempt`;
-   - the list of test files that ran, with their tier and pass or fail result.
+   - the durable and temp test file lists, and each run's result and log path.
 
-**Default exclusions.** Only code files count, judged by extension (`.ts`, `.tsx`, `.js`, `.py`, `.go`, and similar), so Markdown specs and JSON never count. Test files never count: `**/*.test.*`, `**/*.spec.*`, `**/.tmp-tests/**`, `**/test/**`, and `**/e2e/**`. Build output is gitignored, so it never appears in the diff. A repository with committed generated code adds those paths through the optional `exclude` field.
+**Default exclusions.** Only code files count, judged by extension (`.ts`, `.tsx`, `.js`, `.py`, `.go`, and similar), so Markdown specs and JSON never count. Test files and tool configuration never count: `**/*.test.*`, `**/*.spec.*`, `**/*.config.*`, `**/.tmp-tests/**`, `**/test/**`, `**/tests/**`, `**/e2e/**`, and `**/__tests__/**`. Build output is gitignored, so it never appears in the diff. A repository with committed generated code adds those paths through the optional `exclude` field.
 
 **Exemptions.** A `// coverage-exempt: <reason>` comment exempts a line or block. Every exemption appears in the report, and the reviewer judges the reason.
 
-**Gate.** All changed executable lines are covered or exempt, and both runs pass.
+**Gate.** All changed executable lines are covered or exempt, and every run that had test files passes.
 
 **Temp tests stand alone.** A temp test cannot depend on code in a durable test file, because the two tiers run separately. Shared setup belongs in the package's fixtures or test config, as Halo's conventions already require.
 
@@ -193,15 +199,15 @@ type ReviewVerdict = {
 ```
 
 **Approval rules.** The reviewer approves only when all of these hold:
-- both test runs pass;
+- every test run that had files passes;
 - changed-line coverage is 100% (covered or exempt with a reason the reviewer accepts);
 - no open P0 or P1 findings remain, in the source changes or in the tests.
 
-**State.** Loop state is local, under `tmp/review-agent/<branch>/` (gitignored):
-- `session/`: the persisted reviewer session, so later rounds remember earlier rulings and do not raise them again.
-- `round-<n>/verdict.json`: the verdict for round *n*.
-- `round-<n>/replies.json`: the coder's replies for round *n*, as `{ findingId: string; reply: string }[]`. `review reply` writes this file.
-- `approved`: the head SHAs that received `approve`. The push gate reads this file.
+**State.** All loop state is local and never committed:
+- `.tmp-tests/review/<branch>/round-<n>/verdict.json`: the verdict for round *n*. It sits under `.tmp-tests/`, so `review tmp-tests publish` includes it in the side ref.
+- `.tmp-tests/review/<branch>/round-<n>/replies.json`: the coder's replies for round *n*, as `{ findingId: string; reply: string }[]`. `review reply` writes this file.
+- `.git/code-review-agent/sessions/<branch>/`: the persisted reviewer session, so later rounds remember earlier rulings and do not raise them again. It is inside the Git directory, so it is never published.
+- `.git/code-review-agent/approved`: the head SHAs that received `approve`. The push gate reads this file.
 
 ### 4. Trigger: the push gate
 
@@ -262,7 +268,7 @@ Setup has two scopes. Both are prompts that you paste into a coding agent, becau
 
 **`review init`** prints a prompt that has the agent:
 1. Find every package with tests and the runner each uses.
-2. Give each one a script that runs with coverage, writes lcov with repo-relative paths, and honors `REVIEW_TEST_TIER=durable|tmp`.
+2. Give each one a script that runs with coverage, writes lcov with repo-relative paths, runs exactly the files in `REVIEW_TEST_FILES` (none when the list is empty, exiting 0), and honors `REVIEW_TEST_TIER=durable|tmp`.
 3. Wire them into one root test command, through the repository's orchestrator (Turbo, Nx) if it has one.
 4. Add `**/.tmp-tests/` to `.gitignore` and write `.review.json`.
 5. Run `review install`.
@@ -272,7 +278,7 @@ The result is an ordinary PR to that repository. Halo PR 1 is Halo's `review ini
 
 **Checks:**
 - `review doctor` checks this agent's setup: `REVIEW_GATE=1` is visible in its shell, the hook is installed, `.review.json` exists, and the Anthropic login works.
-- `review coverage --check` checks the repository's setup: both tiers run, lcov files appear where the glob expects them, their paths match `git diff` paths, and the durable run excludes `.tmp-tests/`.
+- `review coverage --check` checks the repository's setup: each run that had files passes and writes lcov where the glob expects it, the lcov paths match repository paths, and a probe run with an empty `REVIEW_TEST_FILES` list exits 0 and covers nothing. Otherwise the command ignores the list.
 
 **Installation details.**
 - The CLI installs globally (`npm i -g`) or as a single binary built with `bun build --compile`.
@@ -287,12 +293,12 @@ One file per repository, at its root. It has two jobs:
 
 | Field | Required | Purpose |
 |---|---|---|
-| `testCommand` | Yes | The one entry point that runs the repository's tests with coverage. The tool runs it twice, with `REVIEW_TEST_TIER=durable` and `REVIEW_TEST_TIER=tmp`. There is no safe default, and a wrong guess would quietly produce a useless report. |
+| `testCommand` | Yes | The one entry point that runs the repository's tests with coverage. The tool runs it once per tier, with `REVIEW_TEST_TIER` and `REVIEW_TEST_FILES` set, and the command runs exactly the listed files. There is no safe default, and a wrong guess would quietly produce a useless report. |
 | `lcov` | Yes (default `**/coverage/lcov.info`) | A glob for the lcov files the runs write. The tool collects and merges every match. |
 | `exclude` | No | Extra paths that are not source code, such as committed generated code. Defaults are in "Default exclusions". |
 | `instructions` | No | Files with the repository's review rules. Defaults to `AGENTS.md` and `CLAUDE.md`. |
 
-A separate durable-test command is not needed, because the same command runs with a different `REVIEW_TEST_TIER`. A list of test suites is not needed either: a repository with several runners or languages makes `testCommand` run all of them, as long as each part writes lcov that the glob matches.
+A separate durable-test command is not needed, because the same command runs with a different `REVIEW_TEST_TIER` and file list. A list of test suites is not needed either: a repository with several runners or languages makes `testCommand` run all of them, as long as each part writes lcov that the glob matches.
 
 **Halo's `.review.json`:**
 
@@ -339,7 +345,7 @@ A separate durable-test command is not needed, because the same command runs wit
 6. **Review surfaces:** the Whiteboard lenses and coverage section, and the Diffmap collapsible section.
 
 **Halo PR stack:**
-1. **Test tiers:** the `.tmp-tests` gitignore rule, the shared Vitest preset and per-package configs that honor `REVIEW_TEST_TIER`, per-package `test:tmp` scripts, the Turbo task, the root `pnpm test:tmp`, and the testing-conventions update.
+1. **Test tiers:** the `.tmp-tests` gitignore rule, the shared Vitest preset and per-package configs that honor `REVIEW_TEST_TIER` and `REVIEW_TEST_FILES`, per-package `test:tmp` scripts, the Turbo task, the root `pnpm test:tmp`, and the testing-conventions update.
 2. **Review tool setup:** `.review.json` and the `AGENTS.md` push-gate section. This depends on review tool steps 1–4.
 3. **Electron coverage:** main-process and renderer V8 coverage in Playwright.
 4. **(Separate stack) Durable-suite pruning.**
@@ -356,7 +362,7 @@ A separate durable-test command is not needed, because the same command runs wit
 8. **Repository:** `cashew-labs/code-review-agent`.
 9. **Anthropic credential:** your Claude Pro/Max login through Pi's OAuth flow.
 10. **Setup:** two pasted prompts, `review connect` per agent and `review init` per repository. The gate's main switch is `REVIEW_GATE=1`, with agent markers as a fallback.
-11. **Coverage runs:** durable tests, then temp tests, selected by `REVIEW_TEST_TIER`. Each test runs once per round.
+11. **Coverage runs:** only the changed durable test files, then every temp test, passed in `REVIEW_TEST_FILES`. An existing test counts only once edited; agents add temp tests instead of no-op edits.
 12. **`.review.json`:** two fields, `testCommand` and `lcov`; `exclude` and `instructions` are optional.
 
 ## Open questions
