@@ -15,7 +15,8 @@
     "format:check": "oxfmt --check .",
     "test": "pnpm run test:unit",
     "test:unit": "vitest run src",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:tmp": "vitest run --coverage --passWithNoTests"
   },
   "devDependencies": {
     "@get-halo/typescript-config": "workspace:*",

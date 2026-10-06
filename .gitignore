@@ -16,6 +16,8 @@ node_modules
 # Testing
 coverage
 .vitest/
+# Temp tests run only for the PR that adds them; see the testing conventions.
+.tmp-tests/
 
 # Turbo
 .turbo

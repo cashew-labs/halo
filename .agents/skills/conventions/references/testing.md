@@ -2,11 +2,20 @@
 
 Start with what a consumer can do, drive that behavior through the package's public surface, and check the result they can observe.
 
-Do not write tests unless you are updating existing tests, adding coverage to an existing test file, or the user asks for them. When changing tests, extend the existing canonical test file and fixture where they fit.
+Do not add durable tests unless you are updating existing tests, adding coverage to an existing test file, or the user asks for them. When changing durable tests, extend the existing canonical test file and fixture where they fit. Temp tests are always allowed.
+
+## Choose the tier
+
+Tests belong to one of two tiers:
+
+- **Temp tests are the default.** Put them in `<package>/.tmp-tests/`, named `*.test.ts` or `*.spec.ts`. The directory is gitignored: temp tests verify the current change while it is built and reviewed, and they never merge or run in CI. Cover every changed line with temp tests unless a durable test already covers it.
+- **Durable tests are the exception.** They live in the locations below, are committed, and run in CI. Add or keep one only when it protects meaningful consumer behavior or a non-obvious invariant that could realistically regress, and state that rationale in the PR.
+
+`REVIEW_TEST_TIER` selects the tier: `durable` (or unset) runs committed tests, and `tmp` runs only `.tmp-tests/`. The tiers run separately, so a temp test must not import code from a durable test file. Put shared setup in the package's fixtures. Each Vitest package's `test:tmp` script runs the selected tier with coverage and writes repo-relative lcov to `<package>/.tmp-tests/coverage/lcov.info`; the root `pnpm test:tmp` runs it for affected packages.
 
 ## Test value
 
-Prefer a smaller suite of durable tests over broad low-value coverage. Keep a test when it protects meaningful consumer behavior or a non-obvious invariant that could realistically regress. If a test mainly mirrors the implementation or would only fail when intentionally changing nearby code, it probably does not merit permanent coverage. Temporary tests are fine as implementation scaffolding, but should not be checked in.
+Prefer a smaller suite of durable tests over broad low-value coverage. Keep a durable test when it protects meaningful consumer behavior or a non-obvious invariant that could realistically regress. If a test mainly mirrors the implementation or would only fail when intentionally changing nearby code, it belongs in the temp tier, not the durable suite.
 
 ## Choose the consumer boundary
 
