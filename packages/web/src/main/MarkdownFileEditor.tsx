@@ -1,4 +1,4 @@
-import { TaskItem, TaskList } from "@tiptap/extension-list";
+import { TaskList } from "@tiptap/extension-list";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   backgroundColor,
@@ -13,6 +13,8 @@ import { style, useStyles } from "purse-styles";
 import { useAutosaveFile } from "./useAutosaveFile.js";
 import { useMarkdownEditor } from "./useMarkdownEditor.js";
 import { markdownImage } from "./markdownImage.js";
+import { BlockEditing } from "./BlockEditing.js";
+import { MarkdownTaskItem } from "./MarkdownTaskItem.js";
 import {
   MarkdownFindHighlight,
   setMarkdownFindHighlight,
@@ -65,8 +67,9 @@ export function MarkdownFileEditor({
   /* oxlint-disable react/refs -- The factory stores the ref; only later plugin event handlers read its client. */
   const extensions = useMemo(
     () => [
+      BlockEditing,
       TaskList,
-      TaskItem.configure({ nested: true }),
+      MarkdownTaskItem.configure({ nested: true }),
       markdownImage({
         client: apiRef,
         documentPath: path,
@@ -235,12 +238,6 @@ const editorClass = style(flex({ direction: "column" }), {
   },
   '& .ProseMirror ul[data-type="taskList"] > li::before': {
     content: "none",
-  },
-  '& .ProseMirror ul[data-type="taskList"] > li > label': {
-    cursor: "pointer",
-  },
-  '& .ProseMirror ul[data-type="taskList"] > li > label input': {
-    accentColor: colors.accent[9],
   },
   '& .ProseMirror ul[data-type="taskList"] > li > div': {
     minWidth: 0,

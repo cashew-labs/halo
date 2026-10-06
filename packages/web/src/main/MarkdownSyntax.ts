@@ -99,7 +99,8 @@ function fragmentSource(
         {
           type: block ? parent.type.name : "paragraph",
           attrs: block ? parent.attrs : undefined,
-          content: doc.slice(from, to).content.toJSON(),
+          // ProseMirror serializes an empty fragment as null; Tiptap expects absence.
+          content: doc.slice(from, to).content.toJSON() ?? undefined,
         },
       ],
     },
