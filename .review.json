@@ -1,0 +1,25 @@
+{
+  "tests": [
+    {
+      "runner": "playwright",
+      "dir": "apps/electron",
+      "match": "e2e/**/*.e2e.test.ts",
+      "build": "pnpm run test:e2e:build"
+    },
+    {
+      "runner": "playwright",
+      "dir": "packages/extension-tools",
+      "match": "test/**/*.test.ts",
+      "build": "pnpm --filter @get-halo/extension-sdk build && pnpm run build"
+    },
+    {
+      "runner": "command",
+      "match": [
+        "releases/**/*.test.mjs",
+        "packages/copy-path-to-symbol/**/*.test.js"
+      ],
+      "run": "node --test {files}"
+    },
+    { "runner": "vitest", "match": "!**/fixtures.test.ts" }
+  ]
+}
