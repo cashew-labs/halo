@@ -227,9 +227,17 @@ exeTest.skipIf(process.env.HALO_EXE_TEST_CONFIG === undefined)(
       await ssh(config, "exe.dev", ["ls", vmName, "--json"]),
     );
     expect(paused).toMatchObject({
-      vms: [{ vm_name: vmName, status: "paused" }],
+      vms: [
+        {
+          vm_name: vmName,
+          status: expect.stringMatching(/^(paused|suspended)$/u),
+        },
+      ],
     });
-    expect(await provider.resume(input)).toBeUndefined();
+    expect(await provider.getStatus(input)).toBe("paused");
+    // Opening a workspace uses ensure, which must wake it before assignment.
+    expect(await secondProvider.ensure(input)).toBeUndefined();
+    expect(await provider.getStatus(input)).toBe("running");
     await expect.poll(desktopStatus, { timeout: 60_000 }).toBe(200);
     expect(
       await ssh(config, guest, ["cat /proc/sys/kernel/random/boot_id"]),
@@ -237,6 +245,9 @@ exeTest.skipIf(process.env.HALO_EXE_TEST_CONFIG === undefined)(
     const guestTime = Number(await ssh(config, guest, ["date +%s"])) * 1000;
     expect(Math.abs(Date.now() - guestTime)).toBeLessThan(10_000);
     await identify();
+    expect(await provider.pause(input)).toBeUndefined();
+    expect(await provider.resume(input)).toBeUndefined();
+    await expect.poll(desktopStatus, { timeout: 60_000 }).toBe(200);
   },
   180_000,
 );

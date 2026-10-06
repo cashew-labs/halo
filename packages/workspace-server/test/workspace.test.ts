@@ -2324,6 +2324,80 @@ serverTest(
 );
 
 serverTest(
+  "reports unavailable connection cards after reopening a workspace with integrations disabled",
+  async ({ createServer, llm }) => {
+    const local = createServer();
+    await local.start();
+    const session = await local.rpc.thread.new();
+    const requesting = local.promptAndWait({
+      ...session,
+      text: "Show the Gmail card",
+    });
+    const js =
+      'return await tools.halo.showConnectionCard({ integration: "google_gmail" });';
+    await llm.respond(
+      m.tool.start("exec", {
+        id: "local-connection-card",
+        arguments: { js },
+      }),
+    );
+    await llm.respond(m.assistant("The Gmail card is ready."));
+    await requesting;
+    const before = sessionToolExecutions(
+      await local.rpc.thread.snapshot(session),
+    );
+    expect(before).toMatchObject([
+      {
+        approvals: [],
+        result: {
+          details: { connectionRequests: [{ integration: "google_gmail" }] },
+        },
+      },
+    ]);
+    await local.stop();
+
+    // Exe reuses the saved database but leaves integrations disabled until their control-plane migration.
+    const hosted = createServer({
+      workspaceRoot: local.workspaceRoot,
+      integrationsEnabled: false,
+    });
+    await hosted.start();
+    const retrying = hosted.promptAndWait({
+      ...session,
+      text: "Show the Gmail card again",
+    });
+    await llm.respond(
+      m.tool.start("exec", {
+        id: "hosted-connection-card",
+        arguments: { js },
+      }),
+    );
+    await llm.respond(({ messages }) => {
+      const output = messageText(
+        messages.findLast((item) => item.role === "tool")!,
+      );
+      expect(output).toContain("integration_unavailable");
+      expect(output).toContain("Integrations are disabled");
+      expect(output).toContain("No connection card was shown");
+      return m.assistant(
+        "Gmail is unavailable here; approving or reconnecting will not enable it.",
+      );
+    });
+    await retrying;
+    const after = sessionToolExecutions(
+      await hosted.rpc.thread.snapshot(session),
+    );
+    expect(after).toHaveLength(2);
+    expect(after[0]).toEqual(before[0]);
+    expect(after[1]).toMatchObject({
+      approvals: [],
+      calls: [{ tool: { path: "halo.showConnectionCard" }, status: "failed" }],
+    });
+    expect(after[1]?.result?.details).not.toHaveProperty("connectionRequests");
+  },
+);
+
+serverTest(
   "finishes approval requests and retries only after a thread response",
   async ({ server, llm }) => {
     for (const decision of ["allow", "deny"] as const) {
