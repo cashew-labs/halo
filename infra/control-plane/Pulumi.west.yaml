@@ -9,6 +9,6 @@ config:
   halo-control-plane:controlPlaneImage: us-west2-docker.pkg.dev/halo-relay/halo-west-workspaces/control-plane:0.1.64
   halo-control-plane:workspaceImage: us-west2-docker.pkg.dev/halo-relay/halo-west-workspaces/workspace-server:0.1.64
   halo-control-plane:workspaceProvider: exe
-  halo-control-plane:exeTemplateVmName: halo-exe-0-1-63
+  halo-control-plane:exeTemplateVmName: halo-exe-0-1-64
   halo-control-plane:exePrivateKeySecretId: halo-west-exe-account-key
   halo-control-plane:exeGatewaySecretId: halo-west-exe-gateway-seed
