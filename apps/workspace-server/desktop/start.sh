@@ -23,15 +23,8 @@ dbus_pid=
 cleanup() {
   trap - EXIT TERM INT
   # Flush Chrome's saved tabs before terminating its display server.
-  chrome_lock=$(readlink "$HOME/.config/halo-chrome/SingletonLock" 2>/dev/null || true)
-  chrome_pid=${chrome_lock##*-}
-  if [[ "$chrome_pid" =~ ^[0-9]+$ ]] && \
-    [[ "$(readlink "/proc/$chrome_pid/exe" 2>/dev/null || true)" = /opt/google/chrome/chrome ]]; then
-    kill -TERM "$chrome_pid" 2>/dev/null || true
-    for attempt in {1..100}; do
-      if [[ ! -e "/proc/$chrome_pid/exe" ]]; then break; fi
-      sleep 0.1
-    done
+  if ! bash "$desktop_dir/stop-chrome.sh"; then
+    echo 'Chrome shutdown failed; stopping the desktop' >&2
   fi
   kill "${desktop_pids[@]}" 2>/dev/null || true
   if [[ -n "$dbus_pid" ]]; then kill "$dbus_pid" 2>/dev/null || true; fi

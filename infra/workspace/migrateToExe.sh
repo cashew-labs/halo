@@ -37,6 +37,8 @@ restore_on_failure() {
 trap restore_on_failure EXIT
 gcloud compute ssh "$INSTANCE" "${gcp_ssh[@]}" --command='sudo test ! -f /mnt/halo/workspace/.halo/state.db'
 source_stopped=true
+# Old images lack ordered desktop shutdown; close Chrome using the same current helper.
+gcloud compute ssh "$INSTANCE" "${gcp_ssh[@]}" --command='sudo docker exec -i halo-workspace bash -s' < "$root/apps/workspace-server/desktop/stop-chrome.sh"
 gcloud compute ssh "$INSTANCE" "${gcp_ssh[@]}" --command='sudo systemctl stop halo && sudo sync'
 snapshot="${INSTANCE}-exe-$(date -u +%Y%m%d%H%M%S)"
 gcloud compute disks snapshot "$disk" --project="$PROJECT" --zone="$ZONE" --snapshot-names="$snapshot" --quiet
