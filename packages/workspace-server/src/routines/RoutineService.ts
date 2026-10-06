@@ -363,8 +363,8 @@ export class RoutineService {
     });
   }
 
-  // Marks runs left by a stopped process as interrupted and skips occurrences missed while
-  // it was stopped by scheduling each enabled routine from now.
+  // Marks runs left by a stopped process as interrupted. Local scheduling skips missed
+  // occurrences; managed scheduling preserves the due time for the control plane to dispatch.
   async recover(options?: { preserveDue?: boolean }) {
     return await this.actionQueue.run(async () => {
       const now = Date.now();
