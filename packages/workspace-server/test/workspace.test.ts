@@ -1193,6 +1193,79 @@ serverTest(
 );
 
 serverTest(
+  "preserves invalid tool argument paths in model-visible exec results",
+  async ({ server, llm }) => {
+    const session = await server.rpc.thread.new();
+    const prompt = server.promptAndWait({
+      ...session,
+      text: "Search the web",
+    });
+    await llm.respond(
+      m.tool.start("exec", {
+        id: "invalid-search",
+        arguments: {
+          js: `return await tools.web.search({ query: "wheresryan22 github open source" });`,
+        },
+      }),
+    );
+    await llm.respond(({ messages }) => {
+      const output = messageText(
+        messages.find(
+          (message) =>
+            message.role === "tool" &&
+            message.tool_call_id === "invalid-search",
+        )!,
+      );
+      expect(JSON.parse(output)).toMatchObject({
+        ok: false,
+        error: {
+          code: "invalid_tool_arguments",
+          details: {
+            issues: expect.arrayContaining([
+              { message: "Expected required property", path: ["objective"] },
+              {
+                message: "Expected required property",
+                path: ["search_queries"],
+              },
+              { message: "Expected string", path: ["objective"] },
+              { message: "Expected array", path: ["search_queries"] },
+            ]),
+          },
+        },
+      });
+      return m.tool.start("exec", {
+        id: "invalid-search-query",
+        arguments: {
+          js: `return await tools.web.search({ objective: "Find projects", search_queries: ["valid query", 42] });`,
+        },
+      });
+    });
+    await llm.respond(({ messages }) => {
+      const output = messageText(
+        messages.find(
+          (message) =>
+            message.role === "tool" &&
+            message.tool_call_id === "invalid-search-query",
+        )!,
+      );
+      expect(JSON.parse(output)).toMatchObject({
+        ok: false,
+        error: {
+          code: "invalid_tool_arguments",
+          details: {
+            issues: [
+              { message: "Expected string", path: ["search_queries", "1"] },
+            ],
+          },
+        },
+      });
+      return m.assistant("The invalid fields are identified.");
+    });
+    await prompt;
+  },
+);
+
+serverTest(
   "denies the same capabilities through direct tools and exec",
   async ({ createServer, llm }) => {
     const server = createServer({ agentCapabilities: [] });

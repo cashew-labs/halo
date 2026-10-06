@@ -356,6 +356,15 @@ function toExecutorSchema(schema: TObject) {
         return {
           issues: [...Value.Errors(schema, value)].map((issue) => ({
             message: issue.message,
+            path:
+              issue.path === ""
+                ? []
+                : issue.path
+                    .slice(1)
+                    .split("/")
+                    .map((part) =>
+                      part.replaceAll("~1", "/").replaceAll("~0", "~"),
+                    ),
           })),
         };
       },
