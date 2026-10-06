@@ -112,7 +112,7 @@ Alternatives considered:
 **How the packages are wired.** Halo uses the same three layers as `test:unit`:
 1. **Each package's `package.json`** has `"test:tmp": "vitest run --coverage --passWithNoTests"`, because Turbo also reaches packages with no listed tests. Its `vitest.config.ts` uses the shared preset, which reads `REVIEW_TEST_TIER` and `REVIEW_TEST_FILES` and writes lcov with repo-relative paths to that package's `.tmp-tests/coverage/lcov.info`.
 2. **`turbo.json`** declares `test:tmp` with `env: ["REVIEW_TEST_TIER", "REVIEW_TEST_FILES"]` and `outputs: [".tmp-tests/coverage/**"]`.
-3. **The root `package.json`** has `"test:tmp": "turbo run test:tmp"`. It runs every package, not only affected ones, because the file list already decides what runs: packages with no listed files exit at once or replay from Turbo's cache. `--affected` would also skip a package whose only change is a gitignored temp test.
+3. **The root `package.json`** has `"test:tmp": "turbo run test:tmp"`. It runs every package, not only affected ones, because the file list already decides what runs: packages with no listed files exit at once. A new list changes every package's cache key, so those no-op runs repeat each round, which costs little. `--affected` would also skip a package whose only change is a gitignored temp test.
 
 Two backend packages that both use Vitest each get their own script and config; Turbo runs both. `pnpm test:tmp` is local and agent-only.
 
