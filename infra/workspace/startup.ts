@@ -11,11 +11,21 @@ export function workspaceStartup(ctx: {
       : `workspace_hostname=$(curl -fsS -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/hostname)
 gateway_service_account=$(curl -fsS -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/halo-control-plane-service-account)
 control_plane_origin=$(curl -fsS -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/halo-control-plane-origin)
-workspace_id=$(curl -fsS -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/halo-workspace-id)`;
+workspace_id=$(curl -fsS -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/halo-workspace-id)
+runtime_response=$(curl -sS -w '\\n%{http_code}' -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/attributes/halo-workspace-runtime)
+case "\${runtime_response##*$'\\n'}" in
+  200)
+    workspace_runtime="\${runtime_response%$'\\n'*}"
+    jq -e 'type == "object"' <<< "$workspace_runtime" >/dev/null
+    ;;
+  # Existing VMs retain their startup path until the control plane assigns a key.
+  404) workspace_runtime=null ;;
+  *) echo "Could not read workspace runtime metadata" >&2; exit 1 ;;
+esac`;
   const writeConfig =
     ctx.gateway === undefined
       ? `jq --arg owner "$owner_user_id" '.ownerUserId = $owner' /run/halo-workspace-server.json > /mnt/halo/workspace/.halo/workspace-server.json`
-      : `jq --arg owner "$owner_user_id" --arg traces "$control_plane_origin" --arg workspace "$workspace_id" --arg audience "http://$workspace_hostname:8788" --arg service_account "$gateway_service_account" '.ownerUserId = $owner | .traceUpload = { origin: $traces, workspaceId: $workspace } | .gateway = { audience: $audience, serviceAccountEmail: $service_account }' /run/halo-workspace-server.json > /mnt/halo/workspace/.halo/workspace-server.json`;
+      : `jq --arg owner "$owner_user_id" --arg traces "$control_plane_origin" --arg workspace "$workspace_id" --argjson runtime "$workspace_runtime" --arg audience "http://$workspace_hostname:8788" --arg service_account "$gateway_service_account" '.ownerUserId = $owner | (if $runtime == null then del(.runtime) else .runtime = $runtime end) | .traceUpload = { origin: $traces, workspaceId: $workspace } | .gateway = { audience: $audience, serviceAccountEmail: $service_account }' /run/halo-workspace-server.json > /mnt/halo/workspace/.halo/workspace-server.json`;
 
   return `#!/usr/bin/env bash
 set -euo pipefail

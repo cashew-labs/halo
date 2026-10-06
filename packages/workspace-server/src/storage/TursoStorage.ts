@@ -38,8 +38,8 @@ import type {
 } from "@earendil-works/pi-durable";
 import { type ReadonlyStream, Stream } from "@get-halo/shared/Stream";
 import type { DatabaseClient } from "./DatabaseClient.js";
-import type { SessionData } from "./SessionRepoApi.js";
-import { SessionBackendError } from "./sessionSchema.js";
+import type { ThreadData } from "./ThreadRepoApi.js";
+import { ThreadBackendError } from "./threadSchema.js";
 
 type SqliteValue = null | number | bigint | string | Uint8Array;
 type SqliteExecutor = {
@@ -180,7 +180,7 @@ export class TursoStorage implements Storage {
     ): Promise<T>;
     close(): Promise<void>;
   };
-  private readonly sessionId: string;
+  private readonly threadId: string;
   private onClose?: () => void;
   private nextId: number;
   private closed = false;
@@ -190,12 +190,12 @@ export class TursoStorage implements Storage {
 
   private constructor(
     db: TursoStorage["db"],
-    sessionId: string,
+    threadId: string,
     nextId: number,
     onClose?: () => void,
   ) {
     this.db = db;
-    this.sessionId = sessionId;
+    this.threadId = threadId;
     this.nextId = nextId;
     this.onClose = onClose;
   }
@@ -203,24 +203,24 @@ export class TursoStorage implements Storage {
   /** Initialize storage over an owned SQLite database facade. */
   static async open(input: {
     database: DatabaseClient;
-    sessionId: string;
+    threadId: string;
     onClose?: () => void;
   }): Promise<TursoStorage> {
-    const db = sessionDatabase(input.database, input.sessionId);
+    const db = threadDatabase(input.database, input.threadId);
     try {
       await db.run(
-        "INSERT OR IGNORE INTO durable_metadata (session_id, next_id, next_seq) VALUES (?, '2', 1)",
-        input.sessionId,
+        "INSERT OR IGNORE INTO durable_metadata (thread_id, next_id, next_seq) VALUES (?, '2', 1)",
+        input.threadId,
       );
       const metadata = await db.get<MetadataRow>(
-        "SELECT next_id, next_seq FROM durable_metadata WHERE session_id = ?",
-        input.sessionId,
+        "SELECT next_id, next_seq FROM durable_metadata WHERE thread_id = ?",
+        input.threadId,
       );
       if (metadata === undefined)
         throw new Error("Durable SQLite metadata is missing");
       return new TursoStorage(
         db,
-        input.sessionId,
+        input.threadId,
         Number(metadata.next_id),
         input.onClose,
       );
@@ -234,57 +234,57 @@ export class TursoStorage implements Storage {
     }
   }
 
-  /** Read the canonical root session view without opening a runtime storage handle. */
-  static async readSession(input: {
+  /** Read the canonical root thread view without opening a runtime storage handle. */
+  static async readThread(input: {
     database: DatabaseClient;
-    sessionId: string;
-  }): Promise<SessionData> {
-    const db = sessionDatabase(input.database, input.sessionId);
+    threadId: string;
+  }): Promise<ThreadData> {
+    const db = threadDatabase(input.database, input.threadId);
     return await db.readTransaction(
       async (transaction) =>
-        await TursoStorage.readSessionData(transaction, input.sessionId),
+        await TursoStorage.readThreadData(transaction, input.threadId),
     );
   }
 
-  async read(): Promise<SessionData> {
+  async read(): Promise<ThreadData> {
     this.assertOpen();
     return await this.db.readTransaction(
       async (transaction) =>
-        await TursoStorage.readSessionData(transaction, this.sessionId),
+        await TursoStorage.readThreadData(transaction, this.threadId),
     );
   }
 
-  private static async readSessionData(
+  private static async readThreadData(
     transaction: SqliteExecutor,
-    sessionId: string,
-  ): Promise<SessionData> {
+    threadId: string,
+  ): Promise<ThreadData> {
     const metadata = await transaction.get<MetadataRow>(
-      "SELECT next_id, next_seq FROM durable_metadata WHERE session_id = ?",
-      sessionId,
+      "SELECT next_id, next_seq FROM durable_metadata WHERE thread_id = ?",
+      threadId,
     );
     if (metadata === undefined)
-      throw new SessionBackendError({ detail: `Unknown session ${sessionId}` });
+      throw new ThreadBackendError({ detail: `Unknown thread ${threadId}` });
     const entries = await transaction.all<JsonRow>(
-      "SELECT record FROM entries WHERE session_id = ? AND conversation_id = 1 ORDER BY id",
-      sessionId,
+      "SELECT record FROM entries WHERE thread_id = ? AND conversation_id = 1 ORDER BY id",
+      threadId,
     );
     const submissions = await transaction.all<JsonRow>(
-      "SELECT record FROM submissions WHERE session_id = ? AND conversation_id = 1 ORDER BY id",
-      sessionId,
+      "SELECT record FROM submissions WHERE thread_id = ? AND conversation_id = 1 ORDER BY id",
+      threadId,
     );
     const documentRows = await transaction.all<IdRow>(
       `SELECT id FROM documents
-        WHERE session_id = ? AND scope_kind = 'conversation' AND owner_id = 1
+        WHERE thread_id = ? AND scope_kind = 'conversation' AND owner_id = 1
         AND retired_at IS NULL AND kind IN (?, ?) ORDER BY id`,
-      sessionId,
+      threadId,
       encodeIndexedString("pi.live"),
-      encodeIndexedString("halo.session"),
+      encodeIndexedString("halo.thread"),
     );
     const documents: Record<string, JsonObject> = {};
     for (const row of documentRows) {
-      const stored = await TursoStorage.materializeDocumentForSession(
+      const stored = await TursoStorage.materializeDocumentForThread(
         transaction,
-        sessionId,
+        threadId,
         row.id as DocumentId,
         "current",
       );
@@ -292,15 +292,15 @@ export class TursoStorage implements Storage {
     }
     const lastRunRow = await transaction.get<JsonRow>(
       `SELECT record, settled_seq FROM submissions
-        WHERE session_id = ? AND conversation_id = 1 AND json_extract(record, '$.type') = 'input'
+        WHERE thread_id = ? AND conversation_id = 1 AND json_extract(record, '$.type') = 'input'
         AND status IN ('done', 'unanswered') AND settled_seq = (
           SELECT max(settled_seq) FROM submissions
-          WHERE session_id = ? AND conversation_id = 1 AND json_extract(record, '$.type') = 'input'
+          WHERE thread_id = ? AND conversation_id = 1 AND json_extract(record, '$.type') = 'input'
           AND status IN ('done', 'unanswered') AND json_type(record, '$.entry') = 'integer'
         ) AND json_type(record, '$.entry') = 'integer'
         ORDER BY json_extract(record, '$.entry'), id LIMIT 1`,
-      sessionId,
-      sessionId,
+      threadId,
+      threadId,
     );
     return {
       seq: metadata.next_seq - 1,
@@ -325,8 +325,8 @@ export class TursoStorage implements Storage {
       const candidateNextId = this.candidateNextId(writes);
       const seq = await this.db.transaction(async (transaction) => {
         const metadata = await transaction.get<MetadataRow>(
-          "SELECT next_id, next_seq FROM durable_metadata WHERE session_id = ?",
-          this.sessionId,
+          "SELECT next_id, next_seq FROM durable_metadata WHERE thread_id = ?",
+          this.threadId,
         );
         if (metadata === undefined)
           throw new Error("Durable SQLite metadata is missing");
@@ -341,10 +341,10 @@ export class TursoStorage implements Storage {
           committedSeq,
         );
         await transaction.run(
-          "UPDATE durable_metadata SET next_id = ?, next_seq = ? WHERE session_id = ?",
+          "UPDATE durable_metadata SET next_id = ?, next_seq = ? WHERE thread_id = ?",
           String(Math.max(Number(metadata.next_id), candidateNextId)),
           committedSeq + 1,
-          this.sessionId,
+          this.threadId,
         );
         return committedSeq;
       });
@@ -355,7 +355,7 @@ export class TursoStorage implements Storage {
       const notification =
         error instanceof Error
           ? error
-          : new SessionBackendError({
+          : new ThreadBackendError({
               detail: "Commit failed",
               cause: error,
             });
@@ -382,8 +382,8 @@ export class TursoStorage implements Storage {
   ): Promise<ConversationRecord | undefined> {
     this.assertOpen();
     const row = await this.db.get<JsonRow>(
-      "SELECT record FROM conversations WHERE session_id = ? AND id = ?",
-      this.sessionId,
+      "SELECT record FROM conversations WHERE thread_id = ? AND id = ?",
+      this.threadId,
       id,
     );
     return row === undefined
@@ -398,8 +398,8 @@ export class TursoStorage implements Storage {
     _context: Context,
   ): Promise<Page<ConversationRecord, Cursor>> {
     this.assertOpen();
-    const clauses = ["session_id = ?", "id > ?"];
-    const params: SqliteValue[] = [this.sessionId, cursorId(cursor) ?? -1];
+    const clauses = ["thread_id = ?", "id > ?"];
+    const params: SqliteValue[] = [this.threadId, cursorId(cursor) ?? -1];
     if (query.ownerConversationId !== undefined) {
       clauses.push("owner_conversation_id = ?");
       params.push(query.ownerConversationId);
@@ -490,8 +490,8 @@ export class TursoStorage implements Storage {
         throw new Error(`Unknown conversation: ${conversationId}`);
     }
     const row = await this.db.get<EntryJsonRow>(
-      "SELECT record, commit_seq FROM entries WHERE session_id = ? AND id = ?",
-      this.sessionId,
+      "SELECT record, commit_seq FROM entries WHERE thread_id = ? AND id = ?",
+      this.threadId,
       id,
     );
     if (row === undefined) return undefined;
@@ -522,13 +522,13 @@ export class TursoStorage implements Storage {
       const row =
         upper === undefined
           ? await this.db.get<JsonRow>(
-              "SELECT record FROM entries WHERE session_id = ? AND conversation_id = ? AND head IS NOT NULL ORDER BY id DESC LIMIT 1",
-              this.sessionId,
+              "SELECT record FROM entries WHERE thread_id = ? AND conversation_id = ? AND head IS NOT NULL ORDER BY id DESC LIMIT 1",
+              this.threadId,
               conversation.id,
             )
           : await this.db.get<JsonRow>(
-              "SELECT record FROM entries WHERE session_id = ? AND conversation_id = ? AND head IS NOT NULL AND id <= ? ORDER BY id DESC LIMIT 1",
-              this.sessionId,
+              "SELECT record FROM entries WHERE thread_id = ? AND conversation_id = ? AND head IS NOT NULL AND id <= ? ORDER BY id DESC LIMIT 1",
+              this.threadId,
               conversation.id,
               upper,
             );
@@ -559,8 +559,8 @@ export class TursoStorage implements Storage {
       upper = Math.min(upper ?? Number.MAX_SAFE_INTEGER, after - 1);
     const values: EntryRecord[] = [];
     while (true) {
-      const clauses = ["session_id = ?", "conversation_id = ?"];
-      const params: SqliteValue[] = [this.sessionId, conversation.id];
+      const clauses = ["thread_id = ?", "conversation_id = ?"];
+      const params: SqliteValue[] = [this.threadId, conversation.id];
       if (query.minEntryId !== undefined) {
         clauses.push("id >= ?");
         params.push(query.minEntryId);
@@ -591,8 +591,8 @@ export class TursoStorage implements Storage {
   async task(id: TaskId, _context: Context): Promise<StoredTask | undefined> {
     this.assertOpen();
     const row = await this.db.get<JsonRow>(
-      "SELECT record FROM tasks WHERE session_id = ? AND id = ?",
-      this.sessionId,
+      "SELECT record FROM tasks WHERE thread_id = ? AND id = ?",
+      this.threadId,
       id,
     );
     return row === undefined ? undefined : parseJson<StoredTask>(row.record);
@@ -605,8 +605,8 @@ export class TursoStorage implements Storage {
     _context: Context,
   ): Promise<Page<StoredTask, Cursor>> {
     this.assertOpen();
-    const clauses = ["session_id = ?", "id > ?"];
-    const params: SqliteValue[] = [this.sessionId, cursorId(cursor) ?? -1];
+    const clauses = ["thread_id = ?", "id > ?"];
+    const params: SqliteValue[] = [this.threadId, cursorId(cursor) ?? -1];
     if (query.conversationId !== undefined) {
       clauses.push("conversation_id = ?");
       params.push(query.conversationId);
@@ -644,8 +644,8 @@ export class TursoStorage implements Storage {
   ): Promise<SubmissionRecord | undefined> {
     this.assertOpen();
     const row = await this.db.get<JsonRow>(
-      "SELECT record FROM submissions WHERE session_id = ? AND id = ?",
-      this.sessionId,
+      "SELECT record FROM submissions WHERE thread_id = ? AND id = ?",
+      this.threadId,
       id,
     );
     return row === undefined
@@ -660,8 +660,8 @@ export class TursoStorage implements Storage {
     _context: Context,
   ): Promise<Page<SubmissionRecord, Cursor>> {
     this.assertOpen();
-    const clauses = ["session_id = ?", "id > ?"];
-    const params: SqliteValue[] = [this.sessionId, cursorId(cursor) ?? -1];
+    const clauses = ["thread_id = ?", "id > ?"];
+    const params: SqliteValue[] = [this.threadId, cursorId(cursor) ?? -1];
     if (query.conversationId !== undefined) {
       clauses.push("conversation_id = ?");
       params.push(query.conversationId);
@@ -688,8 +688,8 @@ export class TursoStorage implements Storage {
   ): Promise<SubmissionRecord | undefined> {
     this.assertOpen();
     const row = await this.db.get<JsonRow>(
-      "SELECT record FROM submissions WHERE session_id = ? AND conversation_id = ? AND request_id = ?",
-      this.sessionId,
+      "SELECT record FROM submissions WHERE thread_id = ? AND conversation_id = ? AND request_id = ?",
+      this.threadId,
       conversationId,
       encodeIndexedString(requestId),
     );
@@ -708,14 +708,14 @@ export class TursoStorage implements Storage {
     const sql =
       at === "current"
         ? `SELECT record FROM documents
-					WHERE session_id = ? AND kind = ? AND scope_kind = ? AND owner_id = ? AND family = ? AND key_value = ?
+					WHERE thread_id = ? AND kind = ? AND scope_kind = ? AND owner_id = ? AND family = ? AND key_value = ?
 					AND retired_at IS NULL ORDER BY created_at DESC LIMIT 1`
         : `SELECT record FROM documents
-					WHERE session_id = ? AND kind = ? AND scope_kind = ? AND owner_id = ? AND family = ? AND key_value = ?
+					WHERE thread_id = ? AND kind = ? AND scope_kind = ? AND owner_id = ? AND family = ? AND key_value = ?
 					AND created_at <= ? AND (retired_at IS NULL OR retired_at > ?)
 					ORDER BY created_at DESC LIMIT 1`;
     const params: SqliteValue[] = [
-      this.sessionId,
+      this.threadId,
       parts.kind,
       parts.scopeKind,
       parts.ownerId,
@@ -751,13 +751,13 @@ export class TursoStorage implements Storage {
     this.assertOpen();
     const scope = scopeColumns(query.scope);
     const clauses = [
-      "session_id = ?",
+      "thread_id = ?",
       "scope_kind = ?",
       "owner_id = ?",
       "id > ?",
     ];
     const params: SqliteValue[] = [
-      this.sessionId,
+      this.threadId,
       scope.scopeKind,
       scope.ownerId,
       cursorId(cursor) ?? -1,
@@ -823,8 +823,8 @@ export class TursoStorage implements Storage {
     id: ConversationId,
   ): Promise<ConversationRecord | undefined> {
     const row = await this.db.get<JsonRow>(
-      "SELECT record FROM conversations WHERE session_id = ? AND id = ?",
-      this.sessionId,
+      "SELECT record FROM conversations WHERE thread_id = ? AND id = ?",
+      this.threadId,
       id,
     );
     return row === undefined
@@ -837,23 +837,23 @@ export class TursoStorage implements Storage {
     id: DocumentId,
     at: DocumentPoint,
   ): Promise<StoredDocument | undefined> {
-    return await TursoStorage.materializeDocumentForSession(
+    return await TursoStorage.materializeDocumentForThread(
       executor,
-      this.sessionId,
+      this.threadId,
       id,
       at,
     );
   }
 
-  private static async materializeDocumentForSession(
+  private static async materializeDocumentForThread(
     executor: SqliteExecutor,
-    sessionId: string,
+    threadId: string,
     id: DocumentId,
     at: DocumentPoint,
   ): Promise<StoredDocument | undefined> {
     const row = await executor.get<JsonRow>(
-      "SELECT record FROM documents WHERE session_id = ? AND id = ?",
-      sessionId,
+      "SELECT record FROM documents WHERE thread_id = ? AND id = ?",
+      threadId,
       id,
     );
     if (row === undefined) return undefined;
@@ -865,8 +865,8 @@ export class TursoStorage implements Storage {
     const upper = at === "current" ? Number.MAX_SAFE_INTEGER : at;
     const base = await executor.get<RevisionRow>(
       `SELECT seq, kind, version, content FROM document_revisions
-				WHERE session_id = ? AND document_id = ? AND kind = 'base' AND seq <= ? ORDER BY seq DESC LIMIT 1`,
-      sessionId,
+				WHERE thread_id = ? AND document_id = ? AND kind = 'base' AND seq <= ? ORDER BY seq DESC LIMIT 1`,
+      threadId,
       id,
       upper,
     );
@@ -875,8 +875,8 @@ export class TursoStorage implements Storage {
     let value = parseJson<JsonObject>(base.content);
     const tail = await executor.all<RevisionRow>(
       `SELECT seq, kind, version, content FROM document_revisions
-				WHERE session_id = ? AND document_id = ? AND seq > ? AND seq <= ? ORDER BY seq`,
-      sessionId,
+				WHERE thread_id = ? AND document_id = ? AND seq > ? AND seq <= ? ORDER BY seq`,
+      threadId,
       id,
       base.seq,
       upper,
@@ -923,8 +923,8 @@ export class TursoStorage implements Storage {
       const id = document ? write.record.id : write.value.id;
       const existing = (
         await executor.get<RecordIdRow>(
-          "SELECT record_type FROM record_ids WHERE session_id = ? AND id = ?",
-          this.sessionId,
+          "SELECT record_type FROM record_ids WHERE thread_id = ? AND id = ?",
+          this.threadId,
           id,
         )
       )?.record_type;
@@ -1021,8 +1021,8 @@ export class TursoStorage implements Storage {
         );
       }
       const row = await executor.get<JsonRow>(
-        "SELECT record FROM documents WHERE session_id = ? AND id = ?",
-        this.sessionId,
+        "SELECT record FROM documents WHERE thread_id = ? AND id = ?",
+        this.threadId,
         id,
       );
       const existing =
@@ -1035,8 +1035,8 @@ export class TursoStorage implements Storage {
         throw new Error(`Document ${id} is retired`);
       if (action.content?.kind === "delta") {
         const previous = await executor.get<{ readonly version: number }>(
-          "SELECT version FROM document_revisions WHERE session_id = ? AND document_id = ? ORDER BY seq DESC LIMIT 1",
-          this.sessionId,
+          "SELECT version FROM document_revisions WHERE thread_id = ? AND document_id = ? ORDER BY seq DESC LIMIT 1",
+          this.threadId,
           id,
         );
         if (previous === undefined)
@@ -1071,9 +1071,9 @@ export class TursoStorage implements Storage {
     const id = (
       await executor.get<IdRow>(
         `SELECT id FROM documents
-				WHERE session_id = ? AND kind = ? AND scope_kind = ? AND owner_id = ? AND family = ? AND key_value = ? AND retired_at IS NULL
+				WHERE thread_id = ? AND kind = ? AND scope_kind = ? AND owner_id = ? AND family = ? AND key_value = ? AND retired_at IS NULL
 				LIMIT 1`,
-        this.sessionId,
+        this.threadId,
         parts.kind,
         parts.scopeKind,
         parts.ownerId,
@@ -1093,8 +1093,8 @@ export class TursoStorage implements Storage {
       case "conversation":
         await this.claimId(executor, write.value.id, "conversation");
         await executor.run(
-          "INSERT INTO conversations (session_id, id, owner_conversation_id, owner_task_id, record) VALUES (?, ?, ?, ?, ?)",
-          this.sessionId,
+          "INSERT INTO conversations (thread_id, id, owner_conversation_id, owner_task_id, record) VALUES (?, ?, ?, ?, ?)",
+          this.threadId,
           write.value.id,
           write.value.owner?.conversationId ?? null,
           write.value.owner?.taskId ?? null,
@@ -1104,8 +1104,8 @@ export class TursoStorage implements Storage {
       case "entry":
         await this.claimId(executor, write.value.id, "entry");
         await executor.run(
-          "INSERT INTO entries (session_id, id, conversation_id, head, commit_seq, record) VALUES (?, ?, ?, ?, ?, ?)",
-          this.sessionId,
+          "INSERT INTO entries (thread_id, id, conversation_id, head, commit_seq, record) VALUES (?, ?, ?, ?, ?, ?)",
+          this.threadId,
           write.value.id,
           write.value.conversationId,
           write.value.head ?? null,
@@ -1116,12 +1116,12 @@ export class TursoStorage implements Storage {
       case "task":
         await this.claimId(executor, write.value.id, "task");
         await executor.run(
-          `INSERT INTO tasks (session_id, id, conversation_id, kind, status, abort_requested, background, record)
+          `INSERT INTO tasks (thread_id, id, conversation_id, kind, status, abort_requested, background, record)
 						VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-						ON CONFLICT(session_id, id) DO UPDATE SET conversation_id = excluded.conversation_id, kind = excluded.kind,
+						ON CONFLICT(thread_id, id) DO UPDATE SET conversation_id = excluded.conversation_id, kind = excluded.kind,
 						status = excluded.status, abort_requested = excluded.abort_requested,
 						background = excluded.background, record = excluded.record`,
-          this.sessionId,
+          this.threadId,
           write.value.id,
           write.value.conversationId,
           encodeIndexedString(write.value.kind),
@@ -1134,11 +1134,11 @@ export class TursoStorage implements Storage {
       case "submission":
         await this.claimId(executor, write.value.id, "submission");
         await executor.run(
-          `INSERT INTO submissions (session_id, id, conversation_id, request_id, status, settled_seq, record) VALUES (?, ?, ?, ?, ?, ?, ?)
-						ON CONFLICT(session_id, id) DO UPDATE SET conversation_id = excluded.conversation_id,
+          `INSERT INTO submissions (thread_id, id, conversation_id, request_id, status, settled_seq, record) VALUES (?, ?, ?, ?, ?, ?, ?)
+						ON CONFLICT(thread_id, id) DO UPDATE SET conversation_id = excluded.conversation_id,
 						request_id = excluded.request_id, status = excluded.status,
 						settled_seq = coalesce(submissions.settled_seq, excluded.settled_seq), record = excluded.record`,
-          this.sessionId,
+          this.threadId,
           write.value.id,
           write.value.conversationId,
           write.value.requestId === undefined
@@ -1167,8 +1167,8 @@ export class TursoStorage implements Storage {
     table: TableName,
   ): Promise<void> {
     await executor.run(
-      "INSERT OR IGNORE INTO record_ids (session_id, id, record_type) VALUES (?, ?, ?)",
-      this.sessionId,
+      "INSERT OR IGNORE INTO record_ids (thread_id, id, record_type) VALUES (?, ?, ?)",
+      this.threadId,
       id,
       table,
     );
@@ -1228,9 +1228,9 @@ export class TursoStorage implements Storage {
         await this.claimId(executor, id, "document");
         await executor.run(
           `INSERT INTO documents
-						(session_id, id, kind, family, key_value, scope_kind, owner_id, created_at, retired_at, record)
+						(thread_id, id, kind, family, key_value, scope_kind, owner_id, created_at, retired_at, record)
 						VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          this.sessionId,
+          this.threadId,
           id,
           parts.kind,
           parts.family,
@@ -1243,8 +1243,8 @@ export class TursoStorage implements Storage {
         );
       } else {
         const row = (await executor.get<JsonRow>(
-          "SELECT record FROM documents WHERE session_id = ? AND id = ?",
-          this.sessionId,
+          "SELECT record FROM documents WHERE thread_id = ? AND id = ?",
+          this.threadId,
           id,
         ))!;
         record = parseJson<DocumentRecord>(row.record);
@@ -1253,8 +1253,8 @@ export class TursoStorage implements Storage {
       if (content !== undefined) {
         if (content.kind === "base" && isCurrentOnly(record)) {
           await executor.run(
-            "DELETE FROM document_revisions WHERE session_id = ? AND document_id = ?",
-            this.sessionId,
+            "DELETE FROM document_revisions WHERE thread_id = ? AND document_id = ?",
+            this.threadId,
             id,
           );
         }
@@ -1263,8 +1263,8 @@ export class TursoStorage implements Storage {
             ? encodeJson(content.value)
             : encodeJson(content.ops);
         await executor.run(
-          "INSERT INTO document_revisions (session_id, document_id, seq, kind, version, content) VALUES (?, ?, ?, ?, ?, ?)",
-          this.sessionId,
+          "INSERT INTO document_revisions (thread_id, document_id, seq, kind, version, content) VALUES (?, ?, ?, ?, ?, ?)",
+          this.threadId,
           id,
           seq,
           content.kind,
@@ -1277,17 +1277,17 @@ export class TursoStorage implements Storage {
         if (action.create === undefined) {
           record = { ...record, retiredAt: seq };
           await executor.run(
-            "UPDATE documents SET retired_at = ?, record = ? WHERE session_id = ? AND id = ?",
+            "UPDATE documents SET retired_at = ?, record = ? WHERE thread_id = ? AND id = ?",
             seq,
             encodeJson(record),
-            this.sessionId,
+            this.threadId,
             id,
           );
         }
         if (isCurrentOnly(record)) {
           await executor.run(
-            "DELETE FROM document_revisions WHERE session_id = ? AND document_id = ?",
-            this.sessionId,
+            "DELETE FROM document_revisions WHERE thread_id = ? AND document_id = ?",
+            this.threadId,
             id,
           );
         }
@@ -1297,15 +1297,15 @@ export class TursoStorage implements Storage {
 
   private assertOpen(): void {
     if (this.closed)
-      throw new SessionBackendError({ detail: "Storage is closed" });
+      throw new ThreadBackendError({ detail: "Storage is closed" });
   }
 }
 
-function sessionDatabase(
+function threadDatabase(
   database: DatabaseClient,
-  sessionId: string,
+  threadId: string,
 ): TursoStorage["db"] {
-  if (sessionId.length === 0) throw new TypeError("Session ID is required");
+  if (threadId.length === 0) throw new TypeError("Thread ID is required");
   const access = async <T>(
     operation: (
       connection: Parameters<Parameters<DatabaseClient["access"]>[0]>[0],

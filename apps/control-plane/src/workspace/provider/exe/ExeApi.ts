@@ -58,7 +58,7 @@ export class ExeApi {
     const exp = Math.floor(expiresAt / 1000);
     const permissions =
       namespace === "v0@exe.dev"
-        ? { exp, cmds: ["ls", "cp", "ssh", "pause", "resume"] }
+        ? { exp, cmds: ["ls", "cp", "ssh", "pause", "resume", "tag"] }
         : { exp };
     const payload = JSON.stringify(permissions);
     const signature = await new Promise<string | ExeApiError>((resolve) => {

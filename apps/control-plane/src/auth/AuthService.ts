@@ -4,11 +4,14 @@ import { isAPIError } from "better-auth/api";
 import { getMigrations } from "better-auth/db/migration";
 import { toNodeHandler } from "better-auth/node";
 import { bearer, oneTimeToken } from "better-auth/plugins";
+import { symmetricDecrypt, symmetricEncrypt } from "better-auth/crypto";
+import { apiKey } from "@better-auth/api-key";
 import * as errore from "errore";
 import type { DatabaseClient, DatabaseService } from "../DatabaseService.js";
 
 const loopbackHost = "127.0.0.1";
 const desktopAuthStatePattern = /^[A-Za-z0-9_-]{32,128}$/u;
+const workspaceKeyConfigId = "workspace-runtime";
 
 class AuthServiceError extends errore.createTaggedError({
   name: "AuthServiceError",
@@ -29,6 +32,13 @@ export class InvalidDesktopAuthCodeError extends errore.createTaggedError({
   name: "InvalidDesktopAuthCodeError",
   message: "Desktop sign-in code is invalid or expired",
 }) {}
+
+export class WorkspaceAuthenticationRequiredError extends errore.createTaggedError(
+  {
+    name: "WorkspaceAuthenticationRequiredError",
+    message: "A valid workspace service token is required",
+  },
+) {}
 
 type AuthServiceOptions = {
   db: DatabaseService;
@@ -74,6 +84,14 @@ function authOptions(options: AuthServiceOptions, database: DatabaseClient) {
     secret: options.secret,
     database,
     trustedOrigins: [options.origin],
+    // Machine credentials are managed only by WorkspaceService, never by clients.
+    disabledPaths: [
+      "/api-key/create",
+      "/api-key/get",
+      "/api-key/list",
+      "/api-key/update",
+      "/api-key/delete",
+    ],
     // Desktop sign-in starts through RPC, so the Better Auth state cookie
     // would be set on Electron's fetch, not the system browser that finishes
     // Google OAuth. State still lives in the verification table.
@@ -90,6 +108,15 @@ function authOptions(options: AuthServiceOptions, database: DatabaseClient) {
       },
     },
     plugins: [
+      apiKey({
+        configId: workspaceKeyConfigId,
+        defaultPrefix: "halo_workspace_",
+        enableSessionForAPIKeys: false,
+        rateLimit: { enabled: false },
+        // Idle pause must not expire the credential needed when work resumes.
+        // oxlint-disable-next-line unicorn/no-null -- Better Auth uses null for no expiry.
+        keyExpiration: { defaultExpiresIn: null },
+      }),
       bearer(),
       oneTimeToken({
         disableClientRequest: true,
@@ -107,15 +134,18 @@ export class AuthService {
   private readonly auth: BetterAuth;
   private readonly nodeHandler: NodeHandler;
   private readonly origin: string;
+  private readonly workspaceEncryptionKey: string;
 
   private constructor(ctx: {
     auth: BetterAuth;
     nodeHandler: NodeHandler;
     origin: string;
+    workspaceEncryptionKey: string;
   }) {
     this.auth = ctx.auth;
     this.nodeHandler = ctx.nodeHandler;
     this.origin = ctx.origin;
+    this.workspaceEncryptionKey = ctx.workspaceEncryptionKey;
   }
 
   static async start(options: AuthServiceOptions) {
@@ -138,6 +168,7 @@ export class AuthService {
       auth,
       nodeHandler: toNodeHandler(auth),
       origin: options.origin,
+      workspaceEncryptionKey: `workspace-runtime:${options.secret}`,
     });
   }
 
@@ -250,6 +281,81 @@ export class AuthService {
         image: result.user.image === null ? undefined : result.user.image,
       },
     } satisfies AuthSession;
+  }
+
+  async createWorkspaceCredential(ctx: {
+    userId: string;
+    workspaceId: string;
+  }) {
+    const credential = await this.auth.api
+      .createApiKey({
+        body: {
+          configId: workspaceKeyConfigId,
+          userId: ctx.userId,
+          permissions: { workspace: [ctx.workspaceId] },
+        },
+      })
+      .catch(
+        (cause) =>
+          new AuthServiceError({ detail: "issue workspace key", cause }),
+      );
+    if (credential instanceof Error) return credential;
+    // Better Auth stores a hash. Encrypt the assignable copy so retries can reuse it.
+    const encryptedKey = await symmetricEncrypt({
+      key: this.workspaceEncryptionKey,
+      data: credential.key,
+    }).catch(
+      (cause) =>
+        new AuthServiceError({ detail: "encrypt workspace key", cause }),
+    );
+    if (encryptedKey instanceof Error) {
+      const revoked = await this.revokeWorkspaceCredential({
+        userId: ctx.userId,
+        keyId: credential.id,
+      });
+      return revoked instanceof Error ? revoked : encryptedKey;
+    }
+    return { keyId: credential.id, encryptedKey };
+  }
+
+  async readWorkspaceToken(encryptedKey: string) {
+    return await symmetricDecrypt({
+      key: this.workspaceEncryptionKey,
+      data: encryptedKey,
+    }).catch(
+      (cause) =>
+        new AuthServiceError({ detail: "decrypt workspace key", cause }),
+    );
+  }
+
+  async verifyWorkspaceToken(headers: Headers) {
+    const authorization = headers.get("authorization");
+    if (authorization === null || !authorization.startsWith("Bearer "))
+      return new WorkspaceAuthenticationRequiredError();
+    const verified = await this.auth.api
+      .verifyApiKey({
+        body: { configId: workspaceKeyConfigId, key: authorization.slice(7) },
+      })
+      .catch(
+        (cause) =>
+          new AuthServiceError({ detail: "verify workspace key", cause }),
+      );
+    if (verified instanceof Error) return verified;
+    if (!verified.valid || verified.key === null)
+      return new WorkspaceAuthenticationRequiredError();
+    return { keyId: verified.key.id, userId: verified.key.referenceId };
+  }
+
+  async revokeWorkspaceCredential(ctx: { userId: string; keyId: string }) {
+    const revoked = await this.auth.api
+      .updateApiKey({
+        body: { configId: workspaceKeyConfigId, ...ctx, enabled: false },
+      })
+      .catch(
+        (cause) =>
+          new AuthServiceError({ detail: "revoke workspace key", cause }),
+      );
+    if (revoked instanceof Error) return revoked;
   }
 
   private async createDesktopAuthCode(headers: Headers) {

@@ -7,13 +7,12 @@ import type {
   RoutineRunTrigger,
 } from "@get-halo/client";
 import * as errore from "errore";
-import type { HaloAgentSession } from "../agent/HaloAgentSession.js";
 import { maxBashTimeoutMs, runBash } from "../agent/tools/bash/run.js";
 import {
   FilesystemPathNotFoundError,
   type FilesystemService,
 } from "../filesystem/FilesystemService.js";
-import type { SessionRegistry } from "../sessions/SessionRegistry.js";
+import type { ThreadManager } from "../sessions/ThreadManager.js";
 import type { RoutineService } from "./RoutineService.js";
 
 class RoutineRunnerStoppedError extends errore.createTaggedError({
@@ -28,9 +27,16 @@ type RunOutcome = {
   sessionId?: string;
 };
 
-type RoutineSessionRegistry = Pick<SessionRegistry, "create" | "markDone"> & {
-  open(sessionId: string): Promise<Error | Pick<HaloAgentSession, "abort">>;
-};
+type RoutineThreadManager = Pick<
+  ThreadManager,
+  | "new"
+  | "markDone"
+  | "abort"
+  | "setName"
+  | "appendMessages"
+  | "prompt"
+  | "wait"
+>;
 
 const interruptedMessage = "Halo stopped before the run finished.";
 // Keeps the end of long script output, where failures usually appear.
@@ -44,14 +50,14 @@ export class RoutineRunner {
   >();
   private stopping = false;
   private readonly routines: RoutineService;
-  private readonly sessions: RoutineSessionRegistry;
+  private readonly sessions: RoutineThreadManager;
   private readonly filesystem: Pick<FilesystemService, "stat">;
   private readonly workspaceRoot: string;
   private readonly logger: Logger;
 
   constructor(ctx: {
     routines: RoutineService;
-    sessions: RoutineSessionRegistry;
+    sessions: RoutineThreadManager;
     filesystem: Pick<FilesystemService, "stat">;
     workspaceRoot: string;
     logger: Logger;
@@ -69,9 +75,7 @@ export class RoutineRunner {
     const sessionIds = await this.routines.runningSessionIds();
     if (sessionIds instanceof Error) return sessionIds;
     for (const sessionId of sessionIds) {
-      const session = await this.sessions.open(sessionId);
-      if (session instanceof Error) return session;
-      const aborted = await session.abort();
+      const aborted = await this.sessions.abort(sessionId);
       if (aborted instanceof Error) return aborted;
     }
     return await this.routines.recover();
@@ -135,7 +139,7 @@ export class RoutineRunner {
     signal: AbortSignal;
   }): Promise<RunOutcome> {
     const { routine, run, signal } = input;
-    const session = await this.sessions.create();
+    const session = await this.sessions.new();
     if (session instanceof Error)
       return { status: "failed", error: session.message };
     const attached = await this.routines.attachSession({
@@ -147,7 +151,10 @@ export class RoutineRunner {
         event: "routine-session-link-failed",
         error: attached,
       });
-    const named = await session.setName(runSessionName(routine, run));
+    const named = await this.sessions.setName(
+      session.sessionId,
+      runSessionName(routine, run),
+    );
     if (named instanceof Error)
       this.logger.warn({ event: "routine-session-name-failed", error: named });
     if (signal.aborted)
@@ -169,7 +176,7 @@ export class RoutineRunner {
   }
 
   private async runScript(input: {
-    session: HaloAgentSession;
+    session: { sessionId: string };
     extensionId?: string;
     action: Extract<RoutineAction, { type: "runScript" }>;
     signal: AbortSignal;
@@ -207,7 +214,7 @@ export class RoutineRunner {
         : result.truncated
           ? `${result.tail}\n[Full output: ${result.fullOutputPath}]`
           : result.stdout + result.stderr;
-    const appended = await session.appendMessages([
+    const appended = await this.sessions.appendMessages(session.sessionId, [
       {
         role: "bashExecution",
         command: action.command,
@@ -241,24 +248,31 @@ export class RoutineRunner {
   }
 
   private async runAgent(input: {
-    session: HaloAgentSession;
+    session: { sessionId: string };
     prompt: string;
     signal: AbortSignal;
   }): Promise<RunOutcome> {
     const { session, prompt, signal } = input;
     const abort = async () => {
-      const aborted = await session.abort();
+      const aborted = await this.sessions.abort(session.sessionId);
       if (aborted instanceof Error)
         this.logger.warn({ event: "routine-abort-failed", error: aborted });
     };
     signal.addEventListener("abort", abort, { once: true });
     using cleanup = new errore.DisposableStack();
     cleanup.defer(() => signal.removeEventListener("abort", abort));
-    const outcome = await session.prompt({ text: prompt });
+    const accepted = await this.sessions.prompt({
+      sessionId: session.sessionId,
+      text: prompt,
+    });
+    if (accepted instanceof Error)
+      return { status: "failed", error: accepted.message };
+    // Cancellation may race admission; abort again once the durable input exists.
+    if (signal.aborted) await abort();
+    const outcome = await this.sessions.wait({ ...session, ...accepted });
     if (outcome instanceof Error)
       return { status: "failed", error: outcome.message };
-    if (outcome === undefined || outcome.status === "completed")
-      return { status: "completed" };
+    if (outcome.status === "completed") return { status: "completed" };
     if (outcome.status === "aborted")
       return {
         status: "interrupted",

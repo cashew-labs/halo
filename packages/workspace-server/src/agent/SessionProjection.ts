@@ -10,19 +10,20 @@ import {
   chatPromptTitle,
   type HaloMessage,
   type SessionSnapshot,
+  type SessionSummary,
 } from "@get-halo/client";
-import type { SessionData } from "../storage/SessionRepoApi.js";
+import type { ThreadData, ThreadMetadata } from "../storage/ThreadRepoApi.js";
 import { sessionEntry, sessionSnapshot } from "./sessionEvents.js";
 
 export type MessagePresentation =
   | Omit<Extract<HaloMessage, { role: "user" }>, "content">
-  | Omit<Extract<HaloMessage, { role: "custom" }>, "content" | "details">;
+  | Omit<Extract<HaloMessage, { role: "custom" }>, "content">;
 
-export const HaloSessionDoc = defineDoc<{
+export const HaloThreadDoc = defineDoc<{
   name?: string;
   inputs: Record<string, JsonRepresentation<MessagePresentation>>;
 }>({
-  kind: "halo.session",
+  kind: "halo.thread",
   version: 1,
   scope: "conversation",
   history: "latest",
@@ -35,10 +36,10 @@ export class SessionProjection {
   private seq: number;
   private readonly entries = new Map<number, EntryRecord>();
   private readonly submissions = new Map<number, SubmissionRecord>();
-  private documents: SessionData["documents"];
+  private documents: ThreadData["documents"];
   private lastRun: SessionSnapshot["lastRun"];
 
-  constructor(data: SessionData) {
+  constructor(data: ThreadData) {
     this.seq = data.seq;
     for (const entry of data.entries) this.entries.set(entry.id, entry);
     for (const submission of data.submissions)
@@ -87,8 +88,8 @@ export class SessionProjection {
   }
 
   private get presentation() {
-    // SAFETY: HaloSessionDoc is the only writer of this application document.
-    return (this.documents["halo.session"] ?? { inputs: {} }) as {
+    // SAFETY: HaloThreadDoc is the only writer of this application document.
+    return (this.documents["halo.thread"] ?? { inputs: {} }) as {
       name?: string;
       inputs: Record<string, MessagePresentation>;
     };
@@ -117,6 +118,32 @@ export class SessionProjection {
       lastRun: this.lastRun,
       connections: [],
     });
+  }
+
+  summary(input: {
+    metadata: ThreadMetadata;
+    cwd: string;
+    snapshot: SessionSnapshot;
+  }): Omit<SessionSummary, "markedDone" | "readReceiptCursorId"> {
+    const { metadata, cwd, snapshot } = input;
+    const latest = snapshot.entries.at(-1);
+    const timestamp =
+      latest?.type === "message" ? latest.message.timestamp : latest?.timestamp;
+    return {
+      sessionId: metadata.id,
+      agent: "pi",
+      cwd,
+      title: this.title(snapshot).trim() || undefined,
+      isRunning: snapshot.activeRun !== undefined,
+      latestResultId:
+        snapshot.lastRun?.id ??
+        snapshot.entries.findLast(
+          (entry) =>
+            entry.type === "message" && entry.message.role === "assistant",
+        )?.id,
+      createdAt: new Date(metadata.createdAt).toISOString(),
+      updatedAt: new Date(timestamp ?? metadata.createdAt).toISOString(),
+    };
   }
 
   title(snapshot: SessionSnapshot) {

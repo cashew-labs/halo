@@ -8,6 +8,7 @@ import { Value } from "@sinclair/typebox/value";
 import * as errore from "errore";
 import { ApplicationMode } from "./ApplicationMode.js";
 import { readGcpSecret } from "./readGcpSecret.js";
+import { togetherModel, workspaceInferencePath } from "./inference.js";
 
 const inferenceProjectId = "halo-relay";
 const togetherApiKeySecretId = "together-ai-api-key";
@@ -17,7 +18,19 @@ const developmentUserSchema = Type.Object({
   id: Type.String({ minLength: 1 }),
 });
 
+export const workspaceRuntimeConfigSchema = Type.Object({
+  origin: Type.String({ pattern: "^https?://" }),
+  workspaceId: Type.String({ minLength: 1 }),
+  token: Type.String({ minLength: 32 }),
+  generation: Type.Integer({ minimum: 1 }),
+});
+export type WorkspaceRuntimeConfig = Static<
+  typeof workspaceRuntimeConfigSchema
+>;
+export const workspaceRuntimeConfigFileName = "workspace-runtime.json";
+
 export const workspaceServerConfigSchema = Type.Object({
+  runtime: Type.Optional(workspaceRuntimeConfigSchema),
   environment: Type.Union([Type.Literal("local"), Type.Literal("cloud")]),
   workspaceRoot: Type.String(),
   legacyExecutorTenant: Type.Optional(Type.String({ minLength: 1 })),
@@ -80,7 +93,8 @@ export type WorkspaceServerApplicationConfig = {
   mode: ApplicationMode;
   server: WorkspaceServerConfig;
   inference: OpenAIInferenceConfig;
-  googleWebOAuthClient: GoogleWebOAuthClient;
+  googleWebOAuthClient: GoogleWebOAuthClient | undefined;
+  integrationsEnabled: boolean;
   oauthTestOrigin: string | undefined;
 };
 
@@ -103,7 +117,7 @@ export async function readWorkspaceServerApplicationConfig(): Promise<
       ? await readDevelopmentConfig()
       : await readConfigFile(configPath);
   if (server instanceof Error) return server;
-  const inference = await readInferenceConfig();
+  const inference = await readInferenceConfig(server.runtime);
   if (inference instanceof Error) return inference;
   const mode =
     configPath === undefined
@@ -111,8 +125,11 @@ export async function readWorkspaceServerApplicationConfig(): Promise<
       : process.env.HALO_E2E === "1"
         ? ApplicationMode.Test
         : ApplicationMode.Production;
-  const googleWebOAuth =
-    mode === ApplicationMode.Test && server.oauthTest !== undefined
+  // Runtime-authenticated workspaces leave integrations to the control-plane migration.
+  const integrationsEnabled = server.runtime === undefined;
+  const googleWebOAuth = !integrationsEnabled
+    ? { client: undefined, testOrigin: undefined }
+    : mode === ApplicationMode.Test && server.oauthTest !== undefined
       ? {
           client: server.oauthTest.googleWebClient,
           testOrigin: server.oauthTest.tokenOrigin,
@@ -124,6 +141,7 @@ export async function readWorkspaceServerApplicationConfig(): Promise<
     server,
     inference,
     googleWebOAuthClient: googleWebOAuth.client,
+    integrationsEnabled,
     oauthTestOrigin: googleWebOAuth.testOrigin,
   };
 }
@@ -191,7 +209,13 @@ async function readDevelopmentConfig(): Promise<WorkspaceServerConfig | Error> {
   if (ownerUserId instanceof Error) return ownerUserId;
   const rendererPort = process.env.HALO_RENDERER_PORT;
   const rendererOrigin = `http://localhost:${rendererPort === undefined ? "1420" : rendererPort}`;
+  const runtimePath = path.join(appDataDir, workspaceRuntimeConfigFileName);
+  const runtime = fs.existsSync(runtimePath)
+    ? await readWorkspaceRuntimeConfig(runtimePath)
+    : undefined;
+  if (runtime instanceof Error) return runtime;
   return {
+    runtime,
     environment: "local",
     workspaceRoot: path.resolve(workspaceRoot),
     appDataDir,
@@ -213,6 +237,32 @@ async function readDevelopmentConfig(): Promise<WorkspaceServerConfig | Error> {
       electronRunAsNode: false,
     },
   };
+}
+
+async function readWorkspaceRuntimeConfig(configPath: string) {
+  const raw = await fsPromises.readFile(configPath, "utf8").catch(
+    (cause) =>
+      new WorkspaceServerConfigError({
+        detail: "read workspace service settings",
+        cause,
+      }),
+  );
+  if (raw instanceof Error) return raw;
+  const parsed = errore.try({
+    // SAFETY: The runtime schema validates the JSON below.
+    try: () => JSON.parse(raw) as unknown,
+    catch: (cause) =>
+      new WorkspaceServerConfigError({
+        detail: "parse workspace service settings",
+        cause,
+      }),
+  });
+  if (parsed instanceof Error) return parsed;
+  if (!Value.Check(workspaceRuntimeConfigSchema, parsed))
+    return new WorkspaceServerConfigError({
+      detail: "validate workspace service settings",
+    });
+  return parsed;
 }
 
 async function readDevelopmentUserId(appDataDir: string) {
@@ -283,7 +333,21 @@ async function readExistingDevelopmentUserId(userPath: string) {
   return parsed.id;
 }
 
-async function readInferenceConfig(): Promise<OpenAIInferenceConfig | Error> {
+async function readInferenceConfig(
+  runtime: WorkspaceRuntimeConfig | undefined,
+): Promise<OpenAIInferenceConfig | Error> {
+  if (runtime !== undefined)
+    return {
+      backend: "openAI",
+      options: {
+        model: {
+          ...togetherModel,
+          baseUrl: new URL(workspaceInferencePath, runtime.origin).toString(),
+        },
+        apiKey: runtime.token,
+        reasoning: "low",
+      },
+    };
   const configured = process.env.HALO_LLM_CONFIG;
   if (configured !== undefined) {
     const options = errore.try({
@@ -308,28 +372,7 @@ async function readInferenceConfig(): Promise<OpenAIInferenceConfig | Error> {
   return {
     backend: "openAI",
     options: {
-      // The installed Pi catalog predates this model; supply its published metadata.
-      model: {
-        id: "deepseek-ai/DeepSeek-V4.1-Flash",
-        name: "DeepSeek V4.1 Flash",
-        provider: "together",
-        api: "openai-completions",
-        baseUrl: "https://api.together.ai/v1",
-        reasoning: true,
-        input: ["text", "image"],
-        contextWindow: 1_000_000,
-        maxTokens: 384_000,
-        cost: { input: 0.3, output: 1.2, cacheRead: 0.006, cacheWrite: 0 },
-        compat: {
-          supportsStore: false,
-          supportsDeveloperRole: false,
-          supportsReasoningEffort: false,
-          maxTokensField: "max_tokens",
-          thinkingFormat: "together",
-          supportsStrictMode: false,
-          supportsLongCacheRetention: false,
-        },
-      },
+      model: togetherModel,
       apiKey,
       reasoning: "low",
     },

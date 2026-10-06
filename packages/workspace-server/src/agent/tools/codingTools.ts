@@ -1,15 +1,9 @@
 import path from "node:path";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
-import { type TSchema, Type } from "typebox";
-import type { FilesystemService } from "../../filesystem/FilesystemService.js";
-import type { AgentAuthority } from "../runtime/AgentAuthority.js";
+import { Type } from "typebox";
+import type { ToolRuntime } from "../runtime/ToolRuntime.js";
 import type { BashOutputResult } from "./bash/BashOutput.js";
-import { maxBashToolTimeoutMs, runBash } from "./bash/run.js";
-import { editFile } from "./files/edit.js";
-import { patchFiles } from "./files/patch.js";
-import { readFile } from "./files/read.js";
-import { viewImage } from "./files/viewImage.js";
-import { writeFile } from "./files/write.js";
+import { maxBashToolTimeoutMs } from "./bash/run.js";
 
 const readParameters = Type.Object({
   path: Type.String(),
@@ -48,75 +42,32 @@ const bashParameters = Type.Object({
   ),
 });
 
-type Authorization = {
-  pluginId: string;
-  toolName: string;
-  requiredCapabilities: readonly string[];
-};
-
-export function createAuthorizedCodingTools(input: {
+export function createCodingTools(input: {
   cwd: string;
-  sessionId: string;
-  filesystem: FilesystemService;
-  authority: AgentAuthority;
+  threadId: string;
+  modelId: string;
+  runtime: ToolRuntime;
 }) {
+  const invoke: ToolRuntime["invoke"] = async <T>(
+    args: Parameters<ToolRuntime["invoke"]>[0],
+  ) =>
+    await input.runtime.invoke<T>({
+      ...args,
+      threadId: input.threadId,
+      modelId: input.modelId,
+    });
   return [
-    withAuthority(
-      createReadTool(input.filesystem, input.cwd),
-      input.authority,
-      authorization("files", "read", "workspace.files.read"),
-    ),
-    withAuthority(
-      createViewImageTool(input.filesystem, input.cwd),
-      input.authority,
-      authorization("files", "viewImage", "workspace.files.read"),
-    ),
-    withAuthority(
-      createEditTool(input.filesystem, input.cwd),
-      input.authority,
-      authorization("files", "edit", "workspace.files.write"),
-    ),
-    withAuthority(
-      createWriteTool(input.filesystem, input.cwd),
-      input.authority,
-      authorization("files", "write", "workspace.files.write"),
-    ),
-    withAuthority(
-      createPatchTool(input.filesystem, input.cwd),
-      input.authority,
-      authorization("files", "patch", "workspace.files.write"),
-    ),
-    withAuthority(
-      createBashTool(input.cwd, input.sessionId),
-      input.authority,
-      authorization("bash", "run", "workspace.shell.execute"),
-    ),
+    createReadTool(invoke),
+    createViewImageTool(invoke),
+    createEditTool(invoke),
+    createWriteTool(invoke),
+    createPatchTool(invoke),
+    createBashTool(invoke, input.cwd, input.threadId),
   ] as const;
 }
 
-function authorization(
-  pluginId: string,
-  toolName: string,
-  capability: string,
-): Authorization {
-  return { pluginId, toolName, requiredCapabilities: [capability] };
-}
-
-function withAuthority<TParameters extends TSchema, TDetails>(
-  tool: AgentTool<TParameters, TDetails>,
-  authority: AgentAuthority,
-  toolAuthorization: Authorization,
-): AgentTool<TParameters, TDetails> {
-  return {
-    ...tool,
-    async execute(id, params, signal, onUpdate) {
-      await authorize(authority, toolAuthorization);
-      return await tool.execute(id, params, signal, onUpdate);
-    },
-  };
-}
-
 function createBashTool(
+  invoke: ToolRuntime["invoke"],
   cwd: string,
   sessionId: string,
 ): AgentTool<
@@ -129,17 +80,23 @@ function createBashTool(
     description:
       "Run a bash command in the active workspace. Timeout defaults to 10 seconds. Maximum 10 minutes. Long output shows its beginning and end; the full text is saved to a searchable file.",
     parameters: bashParameters,
-    async execute(_id, params, signal) {
-      const result = await runBash(cwd, {
-        ...params,
+    async execute(toolCallId, params, signal) {
+      const invocation = await invoke<
+        BashOutputResult & { code: number | null }
+      >({
+        pluginId: "bash",
+        toolName: "run",
+        args: params,
+        toolCallId,
         signal,
-        output: {
+        bashOutput: {
           directory: path.join(cwd, ".halo", "tool-outputs", sessionId),
           headChars: 8_000,
           tailChars: 32_000,
         },
       });
-      if (result instanceof Error) throw result;
+      if (invocation instanceof Error) throw invocation;
+      const result = invocation.value;
       const text = result.truncated
         ? `Exit code: ${result.code ?? "unknown"}\nOutput (stdout and stderr as received):\n${result.head}\n\n[${(result.outputChars - 40_000).toLocaleString()} characters omitted from the middle. Full output: ${result.fullOutputPath}. Search that file or read a narrow range to inspect the omitted content. Results from those tools are also capped.]\n\n${result.tail}`
         : `Exit code: ${result.code ?? "unknown"}\nstdout:\n${result.stdout || "(empty)"}\nstderr:\n${result.stderr || "(empty)"}`;
@@ -152,8 +109,7 @@ function createBashTool(
 }
 
 function createPatchTool(
-  filesystem: FilesystemService,
-  cwd: string,
+  invoke: ToolRuntime["invoke"],
 ): AgentTool<
   typeof patchParameters,
   { added: string[]; modified: string[]; deleted: string[] }
@@ -163,9 +119,20 @@ function createPatchTool(
     label: "Patch",
     description: "Apply an apply_patch patch to files in the active workspace.",
     parameters: patchParameters,
-    async execute(_id, params) {
-      const result = await patchFiles({ filesystem, cwd, input: params });
-      if (result instanceof Error) throw result;
+    async execute(toolCallId, params, signal) {
+      const invocation = await invoke<{
+        added: string[];
+        modified: string[];
+        deleted: string[];
+      }>({
+        pluginId: "files",
+        toolName: "patch",
+        args: params,
+        toolCallId,
+        signal,
+      });
+      if (invocation instanceof Error) throw invocation;
+      const result = invocation.value;
       return {
         content: [{ type: "text", text: JSON.stringify(result, undefined, 2) }],
         details: result,
@@ -175,8 +142,7 @@ function createPatchTool(
 }
 
 function createReadTool(
-  filesystem: FilesystemService,
-  cwd: string,
+  invoke: ToolRuntime["invoke"],
 ): AgentTool<typeof readParameters, { path: string; text: string }> {
   return {
     name: "read",
@@ -184,9 +150,16 @@ function createReadTool(
     description:
       "Read a UTF-8 file in the active workspace. Use offset and limit for narrow reads. Long results show their beginning and end and save the full text to a searchable file.",
     parameters: readParameters,
-    async execute(_id, params) {
-      const result = await readFile({ filesystem, cwd, input: params });
-      if (result instanceof Error) throw result;
+    async execute(toolCallId, params, signal) {
+      const invocation = await invoke<{ path: string; text: string }>({
+        pluginId: "files",
+        toolName: "read",
+        args: params,
+        toolCallId,
+        signal,
+      });
+      if (invocation instanceof Error) throw invocation;
+      const result = invocation.value;
       return {
         content: [{ type: "text", text: result.text }],
         details: result,
@@ -196,8 +169,7 @@ function createReadTool(
 }
 
 function createViewImageTool(
-  filesystem: FilesystemService,
-  cwd: string,
+  invoke: ToolRuntime["invoke"],
 ): AgentTool<
   typeof viewImageParameters,
   { path: string; mimeType: string; sizeBytes: number }
@@ -208,9 +180,21 @@ function createViewImageTool(
     description:
       "View a PNG, JPEG, or WebP image from the active workspace. Source images must be 20 MiB or smaller.",
     parameters: viewImageParameters,
-    async execute(_id, params) {
-      const result = await viewImage({ filesystem, cwd, input: params });
-      if (result instanceof Error) throw result;
+    async execute(toolCallId, params, signal) {
+      const invocation = await invoke<{
+        path: string;
+        mimeType: string;
+        sizeBytes: number;
+        data: string;
+      }>({
+        pluginId: "files",
+        toolName: "viewImage",
+        args: params,
+        toolCallId,
+        signal,
+      });
+      if (invocation instanceof Error) throw invocation;
+      const result = invocation.value;
       return {
         content: [
           { type: "text", text: `Viewed image ${result.path}.` },
@@ -231,17 +215,23 @@ function createViewImageTool(
 }
 
 function createEditTool(
-  filesystem: FilesystemService,
-  cwd: string,
+  invoke: ToolRuntime["invoke"],
 ): AgentTool<typeof editParameters, { path: string; replacements: number }> {
   return {
     name: "edit",
     label: "Edit",
     description: "Replace exact text in a workspace file.",
     parameters: editParameters,
-    async execute(_id, params) {
-      const result = await editFile({ filesystem, cwd, input: params });
-      if (result instanceof Error) throw result;
+    async execute(toolCallId, params, signal) {
+      const invocation = await invoke<{ path: string; replacements: number }>({
+        pluginId: "files",
+        toolName: "edit",
+        args: params,
+        toolCallId,
+        signal,
+      });
+      if (invocation instanceof Error) throw invocation;
+      const result = invocation.value;
       return {
         content: [{ type: "text", text: JSON.stringify(result) }],
         details: result,
@@ -251,30 +241,27 @@ function createEditTool(
 }
 
 function createWriteTool(
-  filesystem: FilesystemService,
-  cwd: string,
+  invoke: ToolRuntime["invoke"],
 ): AgentTool<typeof writeParameters, { path: string }> {
   return {
     name: "write",
     label: "Write",
     description: "Write a UTF-8 file in the active workspace.",
     parameters: writeParameters,
-    async execute(_id, params) {
-      const result = await writeFile({ filesystem, cwd, input: params });
-      if (result instanceof Error) throw result;
+    async execute(toolCallId, params, signal) {
+      const invocation = await invoke<{ path: string }>({
+        pluginId: "files",
+        toolName: "write",
+        args: params,
+        toolCallId,
+        signal,
+      });
+      if (invocation instanceof Error) throw invocation;
+      const result = invocation.value;
       return {
         content: [{ type: "text", text: JSON.stringify(result) }],
         details: result,
       };
     },
   };
-}
-
-async function authorize(
-  authority: AgentAuthority,
-  toolAuthorization: Authorization,
-) {
-  const denied = await authority.authorize(toolAuthorization);
-  // Pi reports rejected tool promises as failed tool calls.
-  if (denied instanceof Error) throw denied;
 }

@@ -66,7 +66,7 @@ export function useMarkSessionRead({
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
 
     async function markRead() {
-      const result = await api.sessions
+      const result = await api.thread
         .markRead(readInput)
         .catch((cause) => new MarkSessionReadError({ cause }));
       if (!(result instanceof Error)) return;

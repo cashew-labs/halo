@@ -11,10 +11,10 @@ import { expect } from "vitest";
 import { piBackendTest } from "./fixtures.test.js";
 
 piBackendTest(
-  "creates, lists, reserves, closes, and reopens a session",
+  "creates, lists, reserves, closes, and reopens a thread",
   async ({ piBackend }) => {
-    const created = await piBackend.repo.create({ id: "session-1" });
-    expect(created.metadata).toMatchObject({ id: "session-1" });
+    const created = await piBackend.repo.create({ id: "thread-1" });
+    expect(created.metadata).toMatchObject({ id: "thread-1" });
     expect(await piBackend.repo.list()).toEqual([created.metadata]);
     await expect(piBackend.repo.open(created.metadata)).rejects.toThrow(
       "already open",
@@ -27,15 +27,15 @@ piBackendTest(
 );
 
 piBackendTest(
-  "isolates simultaneous durable sessions sharing one database",
+  "isolates simultaneous durable threads sharing one database",
   async ({ piBackend }) => {
-    const first = await piBackend.repo.create({ id: "session-a" });
-    const second = await piBackend.repo.create({ id: "session-b" });
-    // SAFETY: These are valid positive durable IDs chosen explicitly to verify cross-session reuse.
+    const first = await piBackend.repo.create({ id: "thread-a" });
+    const second = await piBackend.repo.create({ id: "thread-b" });
+    // SAFETY: These are valid positive durable IDs chosen explicitly to verify cross-thread reuse.
     const rootId = 1 as ConversationId;
-    // SAFETY: These are valid positive durable IDs chosen explicitly to verify cross-session reuse.
+    // SAFETY: These are valid positive durable IDs chosen explicitly to verify cross-thread reuse.
     const submissionId = 2 as SubmissionId;
-    // SAFETY: These are valid positive durable IDs chosen explicitly to verify cross-session reuse.
+    // SAFETY: These are valid positive durable IDs chosen explicitly to verify cross-thread reuse.
     const documentId = 3 as DocumentId;
     const writes = (label: string): readonly StorageWrite[] => [
       { type: "conversation", value: { id: rootId } },
@@ -103,7 +103,7 @@ piBackendTest(
 piBackendTest(
   "reads the canonical root history, materialized documents, and latest settled run",
   async ({ piBackend }) => {
-    const handle = await piBackend.repo.create({ id: "read-session" });
+    const handle = await piBackend.repo.create({ id: "read-thread" });
     const rootId = 1 as ConversationId;
     const firstSubmissionId = 10 as SubmissionId;
     const secondSubmissionId = 20 as SubmissionId;
@@ -170,7 +170,7 @@ piBackendTest(
           type: "document.create",
           record: {
             id: haloSessionId,
-            kind: "halo.session",
+            kind: "halo.thread",
             scope: { kind: "conversation", conversationId: rootId },
             history: "latest",
             fork: "initial",
@@ -260,7 +260,7 @@ piBackendTest(
       ],
       documents: {
         "pi.live": { count: 2 },
-        "halo.session": { name: "After" },
+        "halo.thread": { name: "After" },
       },
       lastRun: secondDone,
     });

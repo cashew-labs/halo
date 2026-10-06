@@ -8,38 +8,49 @@ import { useReauthenticate } from "./Authentication.js";
 
 export function ConnectionStatus() {
   const { state } = useConnection();
-  const statusClass = useStyles(statusStyle);
+  const asleep =
+    state.power === "asleep" &&
+    state.status !== "authentication" &&
+    state.status !== "offline" &&
+    state.status !== "incompatible";
+  const statusClass = useStyles(statusStyle, asleep && asleepStyle);
   const mismatch =
     state.error instanceof IncompatibleServerError ? state.error : undefined;
-  const label =
-    mismatch !== undefined
-      ? mismatch.supportedProtocols.every(
-          (version) => version > Number(mismatch.clientProtocolVersion),
+  const label = (() => {
+    if (mismatch !== undefined) {
+      const { supportedProtocols, clientProtocolVersion } = mismatch;
+      if (
+        supportedProtocols.every(
+          (version) => version > Number(clientProtocolVersion),
         )
-        ? "App update required"
-        : mismatch.supportedProtocols.every(
-              (version) => version < Number(mismatch.clientProtocolVersion),
-            )
-          ? "Server update required"
-          : "Unsupported API protocol"
-      : state.status === "connected"
-        ? "Connected"
-        : state.status === "offline"
-          ? "Disconnected"
-          : state.status === "authentication"
-            ? "Sign in required"
-            : state.api === undefined && state.status !== "reconnecting"
-              ? "Connecting…"
-              : "Reconnecting…";
+      )
+        return "App update required";
+      if (
+        supportedProtocols.every(
+          (version) => version < Number(clientProtocolVersion),
+        )
+      )
+        return "Server update required";
+      return "Unsupported API protocol";
+    }
+    if (state.status === "offline") return "Disconnected";
+    if (state.status === "authentication") return "Sign in required";
+    if (state.power === "sleeping") return "Sleeping…";
+    if (state.power === "asleep") return "Asleep";
+    if (state.power === "waking") return "Waking…";
+    if (state.status === "connected") return "Connected";
+    if (state.api === undefined && state.status !== "reconnecting")
+      return "Connecting…";
+    return "Reconnecting…";
+  })();
+  const color = (() => {
+    if (asleep) return colors.blue[12];
+    if (label === "Connected") return colors.green[9];
+    return colors.amber[9];
+  })();
   const indicator = (
     <>
-      <span
-        aria-hidden="true"
-        style={{
-          color:
-            state.status === "connected" ? colors.green[9] : colors.amber[9],
-        }}
-      >
+      <span aria-hidden="true" style={{ color }}>
         ●
       </span>
       <span>{label}</span>
@@ -165,3 +176,4 @@ const statusStyle = style(
     minHeight: 24,
   },
 );
+const asleepStyle = style({ color: colors.blue[12] });

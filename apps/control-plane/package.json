@@ -16,6 +16,7 @@
     "test:exe": "vitest run src/workspace/provider/exe/ExeWorkspaceProvider.test.ts"
   },
   "dependencies": {
+    "@better-auth/api-key": "1.7.4",
     "@get-halo/client": "workspace:*",
     "@get-halo/config": "workspace:*",
     "@get-halo/shared": "workspace:*",
@@ -26,6 +27,7 @@
     "google-auth-library": "^11.0.2",
     "httpxy": "^0.5.5",
     "pg": "^8.23.0",
+    "raw-body": "3.0.2",
     "tsx": "^4.23.13"
   },
   "devDependencies": {

@@ -1,5 +1,5 @@
 import fs from "node:fs/promises";
-import type { GoogleAuth } from "google-auth-library";
+import stream from "node:stream";
 import * as errore from "errore";
 import type { TraceUploader } from "./TraceService.js";
 
@@ -10,15 +10,12 @@ class TraceUploadError extends errore.createTaggedError({
 
 export class ControlPlaneTraceUploader implements TraceUploader {
   private readonly origin: string;
-  private readonly auth: Pick<GoogleAuth, "getIdTokenClient">;
+  private readonly token: string;
 
-  constructor(ctx: {
-    origin: string;
-    auth: Pick<GoogleAuth, "getIdTokenClient">;
-  }) {
-    const { origin, auth } = ctx;
+  constructor(ctx: { origin: string; token: string }) {
+    const { origin, token } = ctx;
     this.origin = origin;
-    this.auth = auth;
+    this.token = token;
   }
 
   async upload(input: { key: string; filePath: string }) {
@@ -27,10 +24,6 @@ export class ControlPlaneTraceUploader implements TraceUploader {
         input.key,
       );
     if (match === null) return new TraceUploadError({ key: input.key });
-    const client = await this.auth
-      .getIdTokenClient(new URL("/api/traces", this.origin).toString())
-      .catch((cause) => new TraceUploadError({ key: input.key, cause }));
-    if (client instanceof Error) return client;
     const opened = await fs
       .open(input.filePath, "r")
       .catch((cause) => new TraceUploadError({ key: input.key, cause }));
@@ -39,19 +32,27 @@ export class ControlPlaneTraceUploader implements TraceUploader {
     using cleanup = new errore.DisposableStack();
     const body = file.createReadStream({ autoClose: false });
     cleanup.defer(() => body.destroy());
-    const response = await client
-      .request({
-        url: new URL(
-          `/api/traces/${match[1]}/${match[2]}`,
-          this.origin,
-        ).toString(),
-        method: "POST",
-        headers: { "content-type": "application/gzip" },
-        data: body,
-        timeout: 60_000,
-        retry: false,
-      })
-      .catch((cause) => new TraceUploadError({ key: input.key, cause }));
+    const options = {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${this.token}`,
+        "content-type": "application/gzip",
+      },
+      // SAFETY: fs.createReadStream emits byte buffers; toWeb preserves their chunks.
+      body: stream.Readable.toWeb(body) as ReadableStream<Uint8Array>,
+      duplex: "half" as const,
+      signal: AbortSignal.timeout(60_000),
+      redirect: "error" as const,
+    };
+    const response = await fetch(
+      new URL(`/api/traces/${match[1]}/${match[2]}`, this.origin),
+      options,
+    ).catch((cause) => new TraceUploadError({ key: input.key, cause }));
     if (response instanceof Error) return response;
+    const closed = await response.body
+      ?.cancel()
+      .catch((cause) => new TraceUploadError({ key: input.key, cause }));
+    if (closed instanceof Error) return closed;
+    if (!response.ok) return new TraceUploadError({ key: input.key });
   }
 }

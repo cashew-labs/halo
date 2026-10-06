@@ -3,7 +3,7 @@ import { contract } from "@get-halo/client";
 import type { Logger } from "@get-halo/logger";
 import * as errore from "errore";
 import { orpcErrors } from "../orpcErrors.js";
-import type { SessionRegistry } from "../sessions/SessionRegistry.js";
+import type { ThreadManager } from "../sessions/ThreadManager.js";
 import type { ToolRuntime } from "../agent/runtime/ToolRuntime.js";
 
 class TestApiUnavailableError extends errore.createTaggedError({
@@ -12,7 +12,7 @@ class TestApiUnavailableError extends errore.createTaggedError({
 }) {}
 
 export type TestApiRouterContext = {
-  sessions: SessionRegistry;
+  sessions: ThreadManager;
   toolRuntime: ToolRuntime;
   logger: Logger;
   testApiEnabled: boolean;
@@ -28,7 +28,7 @@ const os = implement(contract.testApi)
 
 export const testApiRouter = os.router({
   seedSession: os.seedSession.handler(async ({ input, context }) => {
-    const session = await context.sessions.create();
+    const session = await context.sessions.new();
     if (session instanceof Error) throw orpcErrors.badRequest(session);
     await using cleanup = new errore.AsyncDisposableStack();
     cleanup.defer(async () => {
@@ -39,9 +39,15 @@ export const testApiRouter = os.router({
           error: closed,
         });
     });
-    const named = await session.setName(input.title);
+    const named = await context.sessions.setName(
+      session.sessionId,
+      input.title,
+    );
     if (named instanceof Error) throw orpcErrors.badRequest(named);
-    const appended = await session.appendMessages(input.messages);
+    const appended = await context.sessions.appendMessages(
+      session.sessionId,
+      input.messages,
+    );
     if (appended instanceof Error) throw orpcErrors.badRequest(appended);
     const closed = await context.sessions.close(session.sessionId);
     cleanup.move();

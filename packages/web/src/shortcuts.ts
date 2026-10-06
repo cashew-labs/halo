@@ -1,6 +1,7 @@
 export const shortcuts = {
   newTab: { label: "New chat tab", key: "T", accelerator: "CmdOrCtrl+T" },
   newChat: { label: "New chat", key: "N", accelerator: "CmdOrCtrl+N" },
+  closeTab: { label: "Close tab", key: "W", accelerator: "CmdOrCtrl+W" },
   shortcutMenu: {
     label: "Keyboard shortcuts",
     key: "P",

@@ -1,16 +1,16 @@
 # Inference dependency
 
 `WorkspaceServer.start({ config, host })` requires an `LLMApi` on `host`. Each
-session creates an in-memory Pi `Models` collection backed by that shared API through
-its own trace recorder. This keeps concurrent model calls associated with the
-correct conversation. Sessions do not discover providers, select a default
-model, or load model credentials.
+durable thread uses an in-memory Pi `Models` collection backed by that shared API.
+Automatic agent trace recording is not wired into the durable thread runtime;
+consumers can use the explicit trace API and its upload transport. Threads do not
+discover providers, select a default model, or load model credentials.
 
-`LLMApi` exposes the assigned model's metadata and `stream(context, options)`, using Pi's existing message and event types. The implementation owns inference transport and authentication. Forward cancellation through `options.signal`. Halo continues to own tools, conversation state, and persistence. There is no model-selection or model-list API yet.
+`LLMApi` exposes the assigned model's metadata and `stream(context, options)`, using Pi's normalized `TranscriptContext` and event types. Pi `Models` normalizes prompt and tool declarations before calling it; direct consumers must call Pi's `normalizeContext()` first. The implementation owns inference transport and authentication. Forward cancellation through `options.signal`. Halo continues to own tools, conversation state, and persistence. There is no model-selection or model-list API yet.
 
-Without `HALO_LLM_CONFIG`, the standalone workspace-server bootstrap uses `createOpenAILLMApi` in both development and production. It reads `together-ai-api-key` from GCP Secret Manager in `halo-relay` using Application Default Credentials and supplies `together/deepseek-ai/DeepSeek-V4.1-Flash` with its explicit capabilities, limits, and Together compatibility settings. The installed Pi catalog predates this model. The default reasoning level is `low`; stream options can override it. Credentials stay in memory, and this path does not discover local Pi configuration files.
+For runtime-authenticated workspaces, the standalone bootstrap uses `createOpenAILLMApi` with the control-plane inference URL and the workspace token. The control plane owns the Together key. Runtime-less workspaces retain the direct path: without `HALO_LLM_CONFIG`, the bootstrap reads `together-ai-api-key` from GCP Secret Manager in `halo-relay` using Application Default Credentials and supplies `together/deepseek-ai/DeepSeek-V4.1-Flash` with its explicit capabilities, limits, and Together compatibility settings. The installed Pi catalog predates this model. The default reasoning level is `low`; stream options can override it. Credentials stay in memory, and this path does not discover local Pi configuration files.
 
-When a control-plane inference service is available, its client can implement `LLMApi` and be supplied by the VM bootstrap. It should obtain the assigned model from the control plane and send inference there; authorization must be enforced by the control plane on each request. No control-plane transport is implemented here.
+Control-plane inference authenticates the workspace token on every request and forwards only the configured model request. The standalone bootstrap supplies this transport through `LLMApi`; the reusable server receives it from its host and does not load the model key.
 
 `createOpenAILLMApi({ model, apiKey, reasoning })` implements `LLMApi` using Pi's OpenAI Chat Completions client. The supplied model includes `baseUrl` and its capabilities and limits. Server hosts can set `HALO_LLM_CONFIG` to a JSON-encoded `OpenAILLMApiOptions` object to select this transport. The bootstrap passes it directly to the factory. Inference cancellation is forwarded to the HTTP request.
 

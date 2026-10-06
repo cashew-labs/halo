@@ -28,7 +28,7 @@ export const workspaceBashPlugin: HaloToolPlugin = {
         const result = await runBash(context.workspaceRoot, {
           ...input,
           signal: context.signal,
-          output: {
+          output: context.bashOutput ?? {
             directory: path.join(
               context.workspaceRoot,
               ".halo",

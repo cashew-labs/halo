@@ -31,7 +31,7 @@ type RoutineRow = {
   timezone: string;
   action: string;
   enabled: number;
-  auto_archive_session: number;
+  auto_archive_thread: number;
   next_run_at: number | null;
   created_at: number;
   updated_at: number;
@@ -42,7 +42,7 @@ type RoutineRunRow = {
   routine_id: string;
   trigger: RoutineRunTrigger;
   scheduled_for: number;
-  session_id: string | null;
+  thread_id: string | null;
   status: RoutineRunStatus;
   started_at: number;
   finished_at: number | null;
@@ -150,7 +150,7 @@ export class RoutineService {
         connection
           .prepare(
             `INSERT INTO halo_routines
-               (id, extension_id, name, cron, timezone, action, enabled, auto_archive_session, next_run_at, created_at, updated_at)
+               (id, extension_id, name, cron, timezone, action, enabled, auto_archive_thread, next_run_at, created_at, updated_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(id) DO UPDATE SET
                extension_id = excluded.extension_id,
@@ -159,7 +159,7 @@ export class RoutineService {
                timezone = excluded.timezone,
                action = excluded.action,
                enabled = excluded.enabled,
-               auto_archive_session = excluded.auto_archive_session,
+               auto_archive_thread = excluded.auto_archive_thread,
                next_run_at = excluded.next_run_at,
                updated_at = excluded.updated_at`,
           )
@@ -248,13 +248,13 @@ export class RoutineService {
       // SAFETY: The projection matches the halo_routine_runs table.
       return connection
         .prepare(
-          `SELECT session_id FROM halo_routine_runs
-           WHERE status = 'running' AND session_id IS NOT NULL`,
+          `SELECT thread_id FROM halo_routine_runs
+           WHERE status = 'running' AND thread_id IS NOT NULL`,
         )
-        .all() as { session_id: string }[];
+        .all() as { thread_id: string }[];
     });
     if (rows instanceof Error) return rows;
-    return rows.map((row) => row.session_id);
+    return rows.map((row) => row.thread_id);
   }
 
   // Starts one run record. A scheduled run claims the due occurrence and advances the schedule
@@ -333,7 +333,7 @@ export class RoutineService {
   async attachSession(input: { runId: string; sessionId: string }) {
     return await this.updateRun({
       runId: input.runId,
-      sql: "UPDATE halo_routine_runs SET session_id = ? WHERE id = ?",
+      sql: "UPDATE halo_routine_runs SET thread_id = ? WHERE id = ?",
       params: [input.sessionId, input.runId],
       apply: (run) => ({ ...run, sessionId: input.sessionId }),
     });
@@ -573,7 +573,7 @@ function routineFromRow(row: RoutineRow, lastRun: RoutineRun | undefined) {
     timezone: row.timezone,
     action,
     enabled: row.enabled === 1,
-    autoArchiveSession: row.auto_archive_session === 1,
+    autoArchiveSession: row.auto_archive_thread === 1,
     nextRunAt:
       row.next_run_at === null
         ? undefined
@@ -591,7 +591,7 @@ function runFromRow(row: RoutineRunRow): RoutineRun {
     routineId: row.routine_id,
     trigger: row.trigger,
     scheduledFor: new Date(row.scheduled_for).toISOString(),
-    sessionId: row.session_id === null ? undefined : row.session_id,
+    sessionId: row.thread_id === null ? undefined : row.thread_id,
     status: row.status,
     startedAt: new Date(row.started_at).toISOString(),
     finishedAt:

@@ -1,8 +1,11 @@
 import { randomUUID } from "node:crypto";
 import type { Message } from "@earendil-works/pi-ai";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
-import { copyJson } from "@earendil-works/chord";
-import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
+import { copyJson, type JsonRepresentation } from "@earendil-works/chord";
+import {
+  BACKGROUND_CONTEXT,
+  withAbortSignal,
+} from "@earendil-works/chord/context";
 import {
   Harness,
   createRegistry,
@@ -11,12 +14,18 @@ import {
   type Conversation,
   type ToolRegistration,
   type EntryDraft,
+  type CommitPublication,
+  type SubmissionId,
 } from "@earendil-works/pi-durable";
-import type { SessionHandle, SessionData } from "../storage/SessionRepoApi.js";
+import type { ThreadHandle, ThreadData } from "../storage/ThreadRepoApi.js";
 import type { LLMApi } from "../llm/LLMApi.js";
 import { createPiModelRuntime } from "../llm/createPiModelRuntime.js";
 import * as errore from "errore";
-import { Stream } from "@get-halo/shared/Stream";
+import {
+  Stream,
+  type ReadonlyStream,
+  type ReadonlyProjectedStream,
+} from "@get-halo/shared/Stream";
 import {
   type HaloMessage as StoredMessage,
   type SessionWatchItem,
@@ -26,19 +35,27 @@ import {
   type SessionSnapshot,
   type SessionSummary,
   chatPromptContent,
+  applySessionEvent,
+  sessionToolExecutions,
+  toolApprovalDecisionCustomType,
+  type ToolApprovalDecision,
 } from "@get-halo/client";
+import {
+  ToolApprovalNotFoundError,
+  ToolApprovalService,
+} from "./ToolApprovalService.js";
 import { prepareChatAttachments } from "./chatAttachments.js";
 import type { WorkspaceLayout } from "../workspace/WorkspaceService.js";
 import type { FilesystemService } from "../filesystem/FilesystemService.js";
 import type { ToolRuntime } from "./runtime/ToolRuntime.js";
-import { createAuthorizedCodingTools } from "./tools/codingTools.js";
+import { createCodingTools } from "./tools/codingTools.js";
 import { createExecTool } from "./tools/execTool.js";
 import { limitToolOutput } from "./tools/limitToolOutput.js";
 import { WorkspaceResourceLoader } from "./WorkspaceResourceLoader.js";
 import type { HaloEnvironment } from "./workspacePrompt.js";
 import { sessionEvents } from "./sessionEvents.js";
 import {
-  HaloSessionDoc,
+  HaloThreadDoc,
   SessionProjection,
   type MessagePresentation,
 } from "./SessionProjection.js";
@@ -65,10 +82,13 @@ export class SessionStorageError extends errore.createTaggedError({
 }) {}
 
 type SessionNotification = {
-  customType: "halo.integration.connected";
+  customType:
+    | "halo.integration.connected"
+    | typeof toolApprovalDecisionCustomType;
   content: string;
+  details?: unknown;
 };
-export type HaloAgentSessionOptions = {
+export type ThreadOptions = {
   environment: HaloEnvironment;
   llmApi: LLMApi;
   filesystem: FilesystemService;
@@ -76,9 +96,28 @@ export type HaloAgentSessionOptions = {
   toolRuntime: ToolRuntime;
 };
 
-export class HaloAgentSession {
-  // All consumers observe the same complete committed revision.
-  private snapshot: SessionSnapshot;
+type ThreadEvent =
+  | { type: "commit"; publication: CommitPublication }
+  | { type: "fault"; error: string }
+  | HaloConnectionEvent;
+
+export class Thread {
+  private readonly workIdleChanges = new Stream<boolean>();
+  readonly workIdle = this.workIdleChanges.project(
+    false,
+    (_previous, idle) => idle,
+  );
+  private inspectingWork = false;
+  private operations = 0;
+  private readonly lifecycleStream = new Stream<{ type: "idle" }>();
+  readonly lifecycle: ReadonlyStream<{ type: "idle" }> = this.lifecycleStream;
+  private idleTimer: ReturnType<typeof setTimeout> | undefined;
+  private idleDelayElapsed = false;
+  private leases = 0;
+  private activity = 0;
+  private readonly eventStream = new Stream<ThreadEvent>();
+  readonly events: ReadonlyStream<ThreadEvent> = this.eventStream;
+  readonly snapshot: ReadonlyProjectedStream<SessionSnapshot>;
   private readonly projection: SessionProjection;
   private readonly updates = new Stream<SessionWatchItem>();
   private readonly summaryChanges = new Stream<void>();
@@ -88,17 +127,19 @@ export class HaloAgentSession {
   readonly sessionId: string;
   private readonly harness: Harness;
   private readonly conversation: Conversation;
-  private readonly stored: SessionHandle;
+  private readonly stored: ThreadHandle;
   private readonly filesystem: FilesystemService;
   private readonly workspaceRoot: string;
+  private readonly approvals: ToolApprovalService;
 
   private constructor(ctx: {
     harness: Harness;
     conversation: Conversation;
-    stored: SessionHandle;
-    data: SessionData;
+    stored: ThreadHandle;
+    data: ThreadData;
     filesystem: FilesystemService;
     workspaceRoot: string;
+    approvals: ToolApprovalService;
   }) {
     const { harness, conversation, stored, data, filesystem, workspaceRoot } =
       ctx;
@@ -108,25 +149,38 @@ export class HaloAgentSession {
     this.sessionId = stored.metadata.id;
     this.filesystem = filesystem;
     this.workspaceRoot = workspaceRoot;
+    this.approvals = ctx.approvals;
     this.projection = new SessionProjection(data);
-    this.snapshot = this.projection.snapshot();
-    // Installed while the bootstrap commit still owns the mutation line.
-    this.detach = harness.subscribeCommits((publication) => {
-      const previous = this.snapshot;
+    this.snapshot = this.events.project(
+      this.projection.snapshot(),
+      (previous, event) => {
+        if (event.type === "fault")
+          return { ...previous, activeRun: undefined, fault: event.error };
+        if (event.type === "halo.connection")
+          return applySessionEvent(previous, event);
+        this.projection.apply(event.publication);
+        return {
+          ...this.projection.snapshot(),
+          connections: previous.connections,
+        };
+      },
+    );
+    const publish = (event: ThreadEvent) => {
+      const previous = this.snapshot.latestValue;
       const summary = this.readSummary();
-      this.projection.apply(publication);
-      this.snapshot = this.projection.snapshot();
-      for (const event of sessionEvents(previous, this.snapshot))
-        this.updates.append({ type: "event", event });
+      this.eventStream.append(event);
+      for (const update of sessionEvents(previous, this.snapshot.latestValue))
+        this.updates.append({ type: "event", event: update });
       if (JSON.stringify(summary) !== JSON.stringify(this.readSummary()))
         this.summaryChanges.append();
-    });
+      this.scheduleIdle();
+    };
+    // Installed while the bootstrap commit still owns the mutation line.
+    this.detach = harness.subscribeCommits((publication) =>
+      publish({ type: "commit", publication }),
+    );
     this.detachStorage = stored.fatalCommitErrors.subscribe((error) => {
-      this.snapshot = {
-        ...this.snapshot,
-        activeRun: undefined,
-        fault: error.message,
-      };
+      publish({ type: "fault", error: error.message });
       this.updates.append({
         type: "event",
         event: { type: "session.failed", error: error.message },
@@ -135,7 +189,7 @@ export class HaloAgentSession {
     });
   }
 
-  static async attach(options: HaloAgentSessionOptions, stored: SessionHandle) {
+  static async attach(options: ThreadOptions, stored: ThreadHandle) {
     await using cleanup = new errore.AsyncDisposableStack();
     cleanup.defer(async () => await stored.close());
     const { layout, toolRuntime: runtime, llmApi } = options;
@@ -147,12 +201,14 @@ export class HaloAgentSession {
     });
     const reloaded = await resourceLoader.reload();
     if (reloaded instanceof Error) return reloaded;
+    const approvals = new ToolApprovalService();
+    cleanup.defer(() => approvals.close());
     const tools: ToolRegistration[] = [
-      ...createAuthorizedCodingTools({
+      ...createCodingTools({
         cwd: layout.root,
-        sessionId: stored.metadata.id,
-        filesystem: options.filesystem,
-        authority: runtime,
+        threadId: stored.metadata.id,
+        modelId: llmApi.model.id,
+        runtime,
       }).map((tool: AgentTool): ToolRegistration => ({
         name: tool.name,
         description: tool.description,
@@ -173,7 +229,13 @@ export class HaloAgentSession {
           };
         },
       })),
-      createExecTool({ runtime, runtimeDescription, modelId: llmApi.model.id }),
+      createExecTool({
+        runtime,
+        runtimeDescription,
+        modelId: llmApi.model.id,
+        threadId: stored.metadata.id,
+        consumeApproval: (input) => approvals.consume(input),
+      }),
     ].map((tool) =>
       limitToolOutput(tool, {
         workspaceRoot: layout.root,
@@ -203,7 +265,7 @@ export class HaloAgentSession {
     const conversation = await harness
       .root(BACKGROUND_CONTEXT, {
         init: async (tx, conversationId) => {
-          await tx.doc(HaloSessionDoc, conversationId);
+          await tx.doc(HaloThreadDoc, conversationId);
         },
       })
       .catch((cause) => new CreateAgentSessionError({ cause }));
@@ -221,13 +283,14 @@ export class HaloAgentSession {
     const session = await harness
       .commit(
         async () =>
-          new HaloAgentSession({
+          new Thread({
             harness,
             conversation,
             stored,
             data: await stored.read(),
             filesystem: options.filesystem,
             workspaceRoot: layout.root,
+            approvals,
           }),
         BACKGROUND_CONTEXT,
       )
@@ -239,6 +302,104 @@ export class HaloAgentSession {
 
   resume() {
     this.harness.resume();
+    this.scheduleIdle();
+  }
+
+  retain(options?: { observer: true }): Disposable {
+    this.leases++;
+    if (options?.observer !== true) this.operations++;
+    this.scheduleIdle();
+    return {
+      [Symbol.dispose]: () => {
+        this.leases--;
+        if (options?.observer !== true) this.operations--;
+        this.scheduleIdle();
+      },
+    };
+  }
+
+  async canUnload() {
+    const hasOperationsOrSubscribers = this.leases > 0;
+    if (
+      !this.idleDelayElapsed ||
+      this.closed.signal.aborted ||
+      hasOperationsOrSubscribers
+    )
+      return false;
+    const activity = this.activity;
+    const inspection = await this.harness
+      .inspect(BACKGROUND_CONTEXT)
+      .catch(
+        (cause) =>
+          new SessionStorageError({ sessionId: this.sessionId, cause }),
+      );
+    if (inspection instanceof Error) return inspection;
+    const noActivityOccurredDuringInspection = this.activity === activity;
+    return (
+      !this.closed.signal.aborted &&
+      noActivityOccurredDuringInspection &&
+      inspection.tasks.length === 0 &&
+      inspection.submissions.length === 0
+    );
+  }
+
+  private scheduleIdle() {
+    this.activity++;
+    this.publishWorkIdle(false);
+    this.inspectWorkIdle();
+    this.idleDelayElapsed = false;
+    clearTimeout(this.idleTimer);
+    if (this.closed.signal.aborted || this.leases > 0) return;
+    this.idleTimer = setTimeout(() => {
+      this.idleDelayElapsed = true;
+      // oxlint-disable-next-line typescript/no-floating-promises -- Timer work reports inspection errors; Pi owns inspection through close.
+      this.canUnload().then((idle) => {
+        if (idle instanceof Error) {
+          console.warn(idle);
+          return;
+        }
+        if (idle) this.lifecycleStream.append({ type: "idle" });
+      });
+    }, 5 * 60_000);
+    this.idleTimer.unref();
+  }
+
+  private publishWorkIdle(idle: boolean) {
+    if (idle !== this.workIdle.latestValue) this.workIdleChanges.append(idle);
+  }
+
+  private inspectWorkIdle() {
+    if (this.inspectingWork || this.closed.signal.aborted) return;
+    this.inspectingWork = true;
+    // oxlint-disable-next-line typescript/no-floating-promises -- Inspection errors are logged; stale inspections cannot declare the thread idle.
+    this.inspectWorkIdleUnqueued().then((activity) => {
+      this.inspectingWork = false;
+      if (activity !== this.activity) this.inspectWorkIdle();
+    });
+  }
+
+  private async inspectWorkIdleUnqueued() {
+    while (!this.closed.signal.aborted) {
+      const activity = this.activity;
+      const inspection = await this.harness
+        .inspect(BACKGROUND_CONTEXT)
+        .catch(
+          (cause) =>
+            new SessionStorageError({ sessionId: this.sessionId, cause }),
+        );
+      if (inspection instanceof Error) {
+        console.warn(inspection);
+        return this.activity;
+      }
+      if (this.closed.signal.aborted) return;
+      if (activity !== this.activity) continue;
+      this.publishWorkIdle(
+        this.operations === 0 &&
+          inspection.tasks.length === 0 &&
+          inspection.submissions.length === 0,
+      );
+      return activity;
+    }
   }
 
   onSummaryChange(listener: () => Promise<void>) {
@@ -251,7 +412,7 @@ export class HaloAgentSession {
   }
 
   readSnapshot(connections: HaloConnectionState[]) {
-    return { ...this.snapshot, connections };
+    return { ...this.snapshot.latestValue, connections };
   }
 
   async *watch(options: {
@@ -272,7 +433,59 @@ export class HaloAgentSession {
   }
 
   publishConnectionEvent(event: HaloConnectionEvent) {
+    this.eventStream.append(event);
     this.updates.append({ type: "event", event });
+  }
+
+  async respondToToolApproval(input: {
+    approvalId: string;
+    decision: ToolApprovalDecision;
+  }) {
+    const approval = sessionToolExecutions(this.readSnapshot([]))
+      .flatMap((execution) =>
+        execution.type === "exec" ? execution.approvals : [],
+      )
+      .find((candidate) => candidate.id === input.approvalId);
+    if (approval === undefined || approval.status !== "pending")
+      return new ToolApprovalNotFoundError({ approvalId: input.approvalId });
+    const reserved = this.approvals.reserve(approval.id);
+    if (reserved instanceof Error) return reserved;
+    const content =
+      input.decision === "allow"
+        ? `[System] The user approved ${approval.toolPath} once. Retry that operation with the same arguments and continue their last request.`
+        : `[System] The user denied ${approval.toolPath}. Do not retry that operation. Continue their last request without it.`;
+    const saved = await this.conversation
+      .commit(async (tx) => {
+        await tx.appendEntry(this.conversation.id, {
+          kind: "halo.message",
+          // The separate continuation supplies model context; this entry records the decision even if that input is aborted.
+          model: [],
+          data: {
+            message: {
+              role: "custom",
+              customType: toolApprovalDecisionCustomType,
+              content,
+              details: { approvalId: approval.id, decision: input.decision },
+              display: false,
+              timestamp: Date.now(),
+            },
+          },
+        });
+      }, BACKGROUND_CONTEXT)
+      .catch(
+        (cause) =>
+          new SessionStorageError({ sessionId: this.sessionId, cause }),
+      );
+    if (saved instanceof Error) {
+      this.approvals.release(approval.id);
+      return saved;
+    }
+    if (input.decision === "allow") this.approvals.allow(approval);
+    const response = await this.notify({
+      customType: toolApprovalDecisionCustomType,
+      content,
+    });
+    if (response instanceof Error) return response;
   }
 
   async appendMessages(messages: readonly StoredMessage[]) {
@@ -290,7 +503,7 @@ export class HaloAgentSession {
   async setName(name: string) {
     return await this.conversation
       .commit(async (tx) => {
-        (await tx.doc(HaloSessionDoc, this.conversation.id)).name = name;
+        (await tx.doc(HaloThreadDoc, this.conversation.id)).name = name;
       }, BACKGROUND_CONTEXT)
       .catch(
         (cause) =>
@@ -341,24 +554,12 @@ export class HaloAgentSession {
         : randomUUID();
     const saved = await this.conversation
       .commit(async (tx) => {
-        const state = await tx.doc(HaloSessionDoc, this.conversation.id);
-        if (message.role === "user") {
-          const { content: _content, ...presentation } = message;
-          // SAFETY: Removing undefined optional fields preserves the presentation shape and makes it valid Chord JSON.
-          state.inputs[requestId] ??= copyJson(presentation, {
-            omitUndefinedProperties: true,
-          }) as MessagePresentation;
-        } else {
-          const {
-            content: _content,
-            details: _details,
-            ...presentation
-          } = message;
-          // SAFETY: Removing undefined optional fields preserves the presentation shape and makes it valid Chord JSON.
-          state.inputs[requestId] ??= copyJson(presentation, {
-            omitUndefinedProperties: true,
-          }) as MessagePresentation;
-        }
+        const state = await tx.doc(HaloThreadDoc, this.conversation.id);
+        const { content: _content, ...presentation } = message;
+        // SAFETY: Removing undefined optional fields preserves the presentation shape and makes it valid Chord JSON.
+        state.inputs[requestId] ??= copyJson(presentation, {
+          omitUndefinedProperties: true,
+        }) as JsonRepresentation<MessagePresentation>;
       }, BACKGROUND_CONTEXT)
       .catch(
         (cause) =>
@@ -379,16 +580,42 @@ export class HaloAgentSession {
         (cause) => new PromptFailedError({ reason: "Prompt failed", cause }),
       );
     if (submitted instanceof Error) return submitted;
+    return { submissionId: Number(submitted.id) };
+  }
+
+  async wait(submissionId: number, signal?: AbortSignal) {
+    const context = withAbortSignal(
+      signal === undefined
+        ? this.closed.signal
+        : AbortSignal.any([signal, this.closed.signal]),
+      BACKGROUND_CONTEXT,
+    );
+    if (!Number.isSafeInteger(submissionId) || submissionId < 1)
+      return new PromptFailedError({ reason: "Invalid submission ID" });
+    // SAFETY: The external ID is a positive safe integer; Pi checks its existence below.
+    const submitted = await this.harness
+      .submission(submissionId as SubmissionId, context)
+      .catch(
+        (cause) =>
+          new PromptFailedError({ reason: "Could not read submission", cause }),
+      );
+    if (submitted instanceof Error) return submitted;
+    if (submitted === undefined)
+      return new PromptFailedError({ reason: "Unknown thread submission" });
     const status = await submitted
-      .status(BACKGROUND_CONTEXT)
+      .status(context)
       .catch(
         (cause) =>
           new PromptFailedError({ reason: "Could not read submission", cause }),
       );
     if (status instanceof Error) return status;
-    if (status.status === "queued") return;
+    if (
+      status.conversationId !== this.conversation.id ||
+      status.type !== "input"
+    )
+      return new PromptFailedError({ reason: "Unknown thread submission" });
     const settled = await submitted
-      .wait(BACKGROUND_CONTEXT)
+      .wait(context)
       .catch(
         (cause) =>
           new PromptFailedError({ reason: "Prompt interrupted", cause }),
@@ -425,7 +652,10 @@ export class HaloAgentSession {
   }
 
   async close() {
+    this.publishWorkIdle(false);
     this.closed.abort();
+    this.approvals.close();
+    clearTimeout(this.idleTimer);
     const closed = await this.harness
       .close(BACKGROUND_CONTEXT)
       .catch(
@@ -434,31 +664,17 @@ export class HaloAgentSession {
       );
     this.detach();
     this.detachStorage();
+    this.snapshot[Symbol.dispose]();
+    this.workIdle[Symbol.dispose]();
     if (closed instanceof Error) return closed;
   }
 
   readSummary(): Omit<SessionSummary, "markedDone" | "readReceiptCursorId"> {
-    const snapshot = this.snapshot;
-    const latest = snapshot.entries.at(-1);
-    const timestamp =
-      latest?.type === "message" ? latest.message.timestamp : latest?.timestamp;
-    return {
-      sessionId: this.sessionId,
-      agent: "pi",
+    return this.projection.summary({
+      metadata: this.stored.metadata,
       cwd: this.workspaceRoot,
-      title: this.projection.title(snapshot).trim() || undefined,
-      isRunning: snapshot.activeRun !== undefined,
-      latestResultId:
-        snapshot.lastRun?.id ??
-        snapshot.entries.findLast(
-          (entry) =>
-            entry.type === "message" && entry.message.role === "assistant",
-        )?.id,
-      createdAt: new Date(this.stored.metadata.createdAt).toISOString(),
-      updatedAt: new Date(
-        timestamp ?? this.stored.metadata.createdAt,
-      ).toISOString(),
-    };
+      snapshot: this.snapshot.latestValue,
+    });
   }
 }
 

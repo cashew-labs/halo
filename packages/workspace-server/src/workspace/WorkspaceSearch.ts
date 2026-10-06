@@ -7,7 +7,7 @@ import type {
   WorkspaceSearchResponse,
 } from "@get-halo/client";
 import { SessionProjection } from "../agent/SessionProjection.js";
-import type { SessionRepoApi } from "../storage/SessionRepoApi.js";
+import type { ThreadRepoApi } from "../storage/ThreadRepoApi.js";
 import type { WorkspaceService } from "./WorkspaceService.js";
 
 const maxFileBytes = 5 * 1024 * 1024;
@@ -166,9 +166,9 @@ function messageSegments(entry: HaloEntry) {
 
 export class WorkspaceSearch {
   private readonly workspace: WorkspaceService;
-  private readonly repo: SessionRepoApi;
+  private readonly repo: ThreadRepoApi;
 
-  constructor(ctx: { workspace: WorkspaceService; repo: SessionRepoApi }) {
+  constructor(ctx: { workspace: WorkspaceService; repo: ThreadRepoApi }) {
     this.workspace = ctx.workspace;
     this.repo = ctx.repo;
   }

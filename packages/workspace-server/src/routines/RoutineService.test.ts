@@ -1,7 +1,7 @@
 import { InvalidRoutineError, type RoutineInput } from "@get-halo/client";
 import { Logger } from "@get-halo/logger";
 import { afterEach, beforeEach, expect, vi } from "vitest";
-import { AbortFailedError } from "../agent/HaloAgentSession.js";
+import { AbortFailedError } from "../agent/Thread.js";
 import { routineTest } from "./fixtures.test.js";
 import { RoutineRunner } from "./RoutineRunner.js";
 import { RoutineNotFoundError } from "./RoutineService.js";
@@ -196,8 +196,12 @@ routineTest(
     const failedRunner = new RoutineRunner({
       routines,
       sessions: {
-        open: async () => ({ abort: async () => abortError }),
-        create: vi.fn(),
+        abort: async () => abortError,
+        new: vi.fn(),
+        setName: vi.fn(),
+        appendMessages: vi.fn(),
+        prompt: vi.fn(),
+        wait: vi.fn(),
         markDone: vi.fn(),
       },
       filesystem: { stat: vi.fn() },
@@ -215,10 +219,17 @@ routineTest(
         lastRun: { status: "running" },
       });
     });
-    const open = vi.fn(async () => ({ abort }));
     const runner = new RoutineRunner({
       routines,
-      sessions: { open, create: vi.fn(), markDone: vi.fn() },
+      sessions: {
+        abort,
+        new: vi.fn(),
+        markDone: vi.fn(),
+        setName: vi.fn(),
+        appendMessages: vi.fn(),
+        prompt: vi.fn(),
+        wait: vi.fn(),
+      },
       filesystem: { stat: vi.fn() },
       workspaceRoot: "/workspace",
       logger: new Logger(),
@@ -227,7 +238,7 @@ routineTest(
     const recovered = await runner.recover();
 
     expect(recovered).toBeUndefined();
-    expect(open).toHaveBeenCalledWith("session-1");
+    expect(abort).toHaveBeenCalledWith("session-1");
     expect(abort).toHaveBeenCalledOnce();
     expect(routines.get(saved.id)).toMatchObject({
       lastRun: { status: "interrupted" },
