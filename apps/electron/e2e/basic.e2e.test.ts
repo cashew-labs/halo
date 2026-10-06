@@ -198,6 +198,26 @@ e2eTest(
 );
 
 e2eTest(
+  "Tiptap leaves original line endings unchanged when only revealing formatting",
+  async ({ app }) => {
+    const path = "line-endings.md";
+    const original =
+      "## Heading\r\n\r\nBefore **bold** and _italic_ after.\r\n\r\nPlain paragraph.\r\n";
+    await app.server.rpc.workspace.writeFile({ path, content: original });
+    await app.page.getByRole("link", { name: path, exact: true }).click();
+    const editor = app.page.getByTestId("file-page-content").locator(".tiptap");
+    const source = editor.getByRole("textbox", { name: "Markdown syntax" });
+    await editor.locator("em").click();
+    await expect(source).toHaveText("*italic*");
+    await editor.getByText("Plain paragraph.", { exact: true }).click();
+    await expect(source).toHaveCount(0);
+    // Wait through the autosave debounce to detect reveal/blur being treated as edits.
+    await app.page.waitForTimeout(750);
+    expect(await app.server.rpc.workspace.readFile({ path })).toBe(original);
+  },
+);
+
+e2eTest(
   "recovers after returning online without losing the draft",
   async ({ app }) => {
     await expect(
