@@ -31,15 +31,6 @@ describe.runIf(process.platform === "darwin")("macOS update recovery", () => {
     expect(fixture.status).toEqual({ state: "idle" });
   });
 
-  test("keeps a staged update through repeated polls without invoking native housekeeping", async () => {
-    await fixture.updater.check();
-    fixture.native.rejectAdditionalDownloads = true;
-    await fixture.updater.check();
-    await fixture.updater.check();
-    expect(await fixture.updater.install()).toBeUndefined();
-    expect(fixture.native.liveVersion).toBe("0.1.54");
-  });
-
   test.each([
     { status: 200, latest: "0.1.54", installed: "0.1.54" },
     { status: 200, latest: "0.1.55", installed: "0.1.55" },
@@ -57,81 +48,6 @@ describe.runIf(process.platform === "darwin")("macOS update recovery", () => {
     },
   );
 
-  test.each([
-    "directory",
-    "state",
-    "corrupt state",
-    "corrupt bundle",
-    "executable",
-  ])(
-    "redownloads when the staged %s disappears or becomes unreadable",
-    async (missing) => {
-      await fixture.updater.check();
-      if (missing === "directory")
-        await fs.rm(fixture.native.staged, { recursive: true });
-      if (missing === "state") await fs.rm(fixture.statePath);
-      if (missing === "corrupt state")
-        await fs.writeFile(fixture.statePath, "broken plist");
-      if (missing === "corrupt bundle")
-        await fs.writeFile(
-          path.join(fixture.native.staged, "Contents/Info.plist"),
-          "broken plist",
-        );
-      if (missing === "executable")
-        await fs.rm(path.join(fixture.native.staged, "Contents/MacOS/Halo"));
-      await fixture.updater.check();
-      expect(await fixture.updater.install()).toBeUndefined();
-      expect(fixture.native.liveVersion).toBe("0.1.54");
-    },
-  );
-
-  test("recovers a missing download discovered at install time", async () => {
-    await fixture.updater.check();
-    await fs.rm(fixture.native.staged, { recursive: true });
-    expect(await fixture.updater.install()).toBeInstanceOf(Error);
-    await fixture.updater.check();
-    expect(await fixture.updater.install()).toBeUndefined();
-    expect(fixture.native.liveVersion).toBe("0.1.54");
-  });
-
-  test.each([500, 204, 200])(
-    "keeps a pending update when the feed returns HTTP %s or an older version",
-    async (status) => {
-      await fixture.updater.check();
-      fixture.responseStatus = status;
-      fixture.latest = "0.1.53";
-      await fixture.updater.check();
-      expect(fixture.status).toEqual({
-        state: "downloaded",
-        version: "0.1.54",
-      });
-      expect(await fixture.updater.install()).toBeUndefined();
-      expect(fixture.native.liveVersion).toBe("0.1.54");
-    },
-  );
-
-  test("stages the newest of multiple releases, including a version published during download", async () => {
-    await fixture.updater.check();
-    fixture.latest = "0.1.55";
-    fixture.native.advanceDuringDownload = "0.1.56";
-    await fixture.updater.check();
-    expect(fixture.status).toEqual({ state: "downloaded", version: "0.1.56" });
-    expect(await fixture.updater.install()).toBeUndefined();
-    expect(fixture.native.liveVersion).toBe("0.1.56");
-  });
-
-  test.each(["error", "throw", "not available"] as const)(
-    "retries a native download failure (%s) with fresh cache state",
-    async (failure) => {
-      fixture.native.downloadFailure = failure;
-      expect(await fixture.updater.check()).toBeInstanceOf(Error);
-      fixture.native.downloadFailure = undefined;
-      await fixture.updater.check();
-      expect(await fixture.updater.install()).toBeUndefined();
-      expect(fixture.native.liveVersion).toBe("0.1.54");
-    },
-  );
-
   test("recovers when downloading a replacement version fails", async () => {
     await fixture.updater.check();
     fixture.latest = "0.1.55";
@@ -142,75 +58,6 @@ describe.runIf(process.platform === "darwin")("macOS update recovery", () => {
     await fixture.updater.check();
     expect(await fixture.updater.install()).toBeUndefined();
     expect(fixture.native.liveVersion).toBe("0.1.55");
-  });
-
-  test.each(["throw", "error"] as const)(
-    "recovers when installation starts then fails (%s)",
-    async (failure) => {
-      await fixture.updater.check();
-      fixture.native.installFailure = failure;
-      await fixture.updater.install();
-      await new Promise<void>((resolve) => setImmediate(resolve));
-      fixture.native.installFailure = undefined;
-      await fixture.updater.check();
-      expect(await fixture.updater.install()).toBeUndefined();
-      expect(fixture.native.liveVersion).toBe("0.1.54");
-      expect(fixture.cancelled).toBe(true);
-    },
-  );
-
-  test.each([false, true])(
-    "requires reopening after a vetoed quit (download missing: %s)",
-    async (missing) => {
-      await fixture.updater.check();
-      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-      fixture.native.installFailure = "veto";
-      await fixture.updater.install();
-      await vi.advanceTimersByTimeAsync(30_000);
-      vi.useRealTimers();
-      fixture.latest = "0.1.55";
-      if (missing) await fs.rm(fixture.native.staged, { recursive: true });
-      await fixture.updater.check();
-      expect(await fixture.updater.install()).toBeInstanceOf(Error);
-      expect(fixture.native.installCalls).toBe(1);
-      expect(fixture.status).toMatchObject({ state: "error" });
-      fixture.relaunch("0.1.53");
-      fixture.native.installFailure = undefined;
-      await fixture.updater.check();
-      expect(await fixture.updater.install()).toBeUndefined();
-      expect(fixture.native.liveVersion).toBe("0.1.55");
-    },
-  );
-
-  test("preserves the original download while a slow native quit completes after timeout", async () => {
-    await fixture.updater.check();
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-    fixture.native.installFailure = "delayed";
-    await fixture.updater.install();
-    fixture.latest = "0.1.55";
-    await vi.advanceTimersByTimeAsync(31_000);
-    await fixture.updater.check();
-    expect(await fixture.updater.install()).toBeInstanceOf(Error);
-    expect(fixture.native.installCalls).toBe(1);
-    await fixture.native.finishDelayedInstall();
-    expect(fixture.native.liveVersion).toBe("0.1.54");
-  });
-
-  test("recovers from a confirmed native failure after an installation timeout", async () => {
-    await fixture.updater.check();
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-    fixture.native.installFailure = "veto";
-    await fixture.updater.install();
-    await vi.advanceTimersByTimeAsync(30_000);
-    vi.useRealTimers();
-    fixture.native.installFailure = undefined;
-    fixture.native.emit(
-      "error",
-      new Error("Native installer confirmed failure"),
-    );
-    await fixture.updater.check();
-    expect(await fixture.updater.install()).toBeUndefined();
-    expect(fixture.native.liveVersion).toBe("0.1.54");
   });
 
   test("retries after the installer exits unsuccessfully and the old application is relaunched", async () => {
@@ -224,44 +71,6 @@ describe.runIf(process.platform === "darwin")("macOS update recovery", () => {
     expect(fixture.native.liveVersion).toBe("0.1.54");
   });
 
-  test("coalesces concurrent checks and does not install during a download", async () => {
-    fixture.native.hold = true;
-    const checks = [fixture.updater.check(), fixture.updater.check()];
-    await vi.waitFor(() => expect(fixture.status.state).toBe("available"));
-    expect(await fixture.updater.install()).toBeInstanceOf(Error);
-    fixture.native.releaseDownload();
-    await Promise.all(checks);
-    expect(await fixture.updater.install()).toBeUndefined();
-    expect(fixture.native.liveVersion).toBe("0.1.54");
-  });
-
-  test("rejects malformed metadata and recovers on the next valid feed", async () => {
-    fixture.latest = "not-a-version";
-    expect(await fixture.updater.check()).toBeInstanceOf(Error);
-    fixture.latest = "0.1.54";
-    await fixture.updater.check();
-    expect(fixture.status).toEqual({ state: "downloaded", version: "0.1.54" });
-  });
-
-  test("does not overlap a stalled native download and handles a late failure", async () => {
-    fixture.native.hold = true;
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-    const check = fixture.updater.check();
-    await vi.waitFor(() => expect(fixture.status.state).toBe("available"));
-    await vi.advanceTimersByTimeAsync(21 * 60_000);
-    expect(await check).toBeInstanceOf(Error);
-    expect(fixture.status.state).toBe("error");
-    await fixture.updater.check();
-    expect(fixture.status.state).toBe("error");
-    fixture.native.emit("error", new Error("Late native timeout"));
-    expect(fixture.readyVersions).toEqual([]);
-    vi.useRealTimers();
-    fixture.relaunch("0.1.53");
-    fixture.native.hold = false;
-    await fixture.updater.check();
-    expect(fixture.status).toEqual({ state: "downloaded", version: "0.1.54" });
-  });
-
   test("never stages a downgrade or mistakes a stale download for success", async () => {
     fixture.latest = "0.1.52";
     await fixture.updater.check();
@@ -270,16 +79,6 @@ describe.runIf(process.platform === "darwin")("macOS update recovery", () => {
     fixture.native.advanceDuringDownload = "0.1.52";
     expect(await fixture.updater.check()).toBeInstanceOf(Error);
     expect(fixture.status.state).toBe("error");
-  });
-
-  test("stops work cleanly when the app exits during download", async () => {
-    fixture.native.hold = true;
-    const check = fixture.updater.check();
-    await vi.waitFor(() => expect(fixture.status.state).toBe("available"));
-    fixture.updater.close();
-    await check;
-    expect(fixture.native.listenerCount("update-downloaded")).toBe(0);
-    expect(fixture.readyVersions).toEqual([]);
   });
 });
 

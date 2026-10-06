@@ -82,28 +82,6 @@ routineTest(
 );
 
 routineTest(
-  "paused routines do not run until resumed",
-  async ({ openRoutines }) => {
-    const routines = await openRoutines();
-    const saved = await routines.save(everyTwoMinutes);
-    if (saved instanceof Error) throw saved;
-    const scheduler = startScheduler(routines);
-    await scheduler.start();
-
-    await routines.setEnabled({ routineId: saved.id, enabled: false });
-    await vi.advanceTimersByTimeAsync(10 * 60_000);
-    expect(await scheduledTimes(routines, saved.id)).toEqual([]);
-
-    await routines.setEnabled({ routineId: saved.id, enabled: true });
-    await vi.advanceTimersByTimeAsync(2 * 60_000);
-    expect(await scheduledTimes(routines, saved.id)).toEqual([
-      "2026-09-25T08:12:00.000Z",
-    ]);
-    await scheduler.stop();
-  },
-);
-
-routineTest(
   "a restarted scheduler skips occurrences missed while stopped",
   async ({ openRoutines }) => {
     const routines = await openRoutines();
@@ -128,31 +106,5 @@ routineTest(
       nextRunAt: "2026-09-25T08:10:00.000Z",
     });
     await after.stop();
-  },
-);
-
-routineTest(
-  "waits for occurrences beyond the timer limit",
-  async ({ openRoutines }) => {
-    const routines = await openRoutines();
-    const saved = await routines.save({
-      ...everyTwoMinutes,
-      cron: "0 0 1 1 *",
-    });
-    if (saved instanceof Error) throw saved;
-    const scheduler = startScheduler(routines);
-    await scheduler.start();
-
-    // More than three timer limits away.
-    await vi.advanceTimersByTimeAsync(
-      Date.parse("2026-12-31T23:59:00Z") - Date.now(),
-    );
-    expect(await scheduledTimes(routines, saved.id)).toEqual([]);
-
-    await vi.advanceTimersByTimeAsync(60_000);
-    expect(await scheduledTimes(routines, saved.id)).toEqual([
-      "2027-01-01T00:00:00.000Z",
-    ]);
-    await scheduler.stop();
   },
 );

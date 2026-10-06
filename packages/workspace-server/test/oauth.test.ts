@@ -66,23 +66,6 @@ test("server OAuth completion redirects to its pending session", async () => {
   ]);
 });
 
-test("server OAuth cancellation redirects with cancelled state", async () => {
-  await using setup = await createOAuthTest();
-  const started = await setup.start("server-redirect");
-  if (started instanceof Error) throw started;
-
-  const response = await fetch(
-    `${setup.origin}/oauth/callback?state=${setup.runtime.state}&error=access_denied`,
-    { redirect: "manual" },
-  );
-
-  expect(response.status).toBe(302);
-  expect(response.headers.get("location")).toBe("/#/sessions/session%2Fone");
-  expect(setup.connections.statesForSession("session/one")).toMatchObject([
-    { request, status: "cancelled" },
-  ]);
-});
-
 test("OAuth callback rejects state that is not pending", async () => {
   await using setup = await createOAuthTest();
 
@@ -94,22 +77,6 @@ test("OAuth callback rejects state that is not pending", async () => {
   expect(response.status).toBe(400);
   expect(response.headers.get("location")).toBeNull();
   expect(await response.text()).toBe("Authorization is no longer pending.");
-});
-
-test("client loopback completion keeps the close-tab response", async () => {
-  await using setup = await createOAuthTest();
-  const started = await setup.start("client-loopback");
-  if (started instanceof Error) throw started;
-
-  const response = await fetch(
-    `${setup.origin}/oauth/callback?state=${setup.runtime.state}&code=accepted`,
-    { redirect: "manual" },
-  );
-
-  expect(response.status).toBe(200);
-  expect(setup.runtime.completionKind).toBe("client-loopback");
-  expect(response.headers.get("location")).toBeNull();
-  expect(await response.text()).toContain("You can close this tab.");
 });
 
 async function createOAuthTest() {

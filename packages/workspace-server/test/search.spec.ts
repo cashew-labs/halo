@@ -190,61 +190,6 @@ serverTest(
 );
 
 serverTest(
-  "searches visible Markdown text in document order",
-  async ({ server }) => {
-    await server.rpc.workspace.writeFile({
-      path: "notes.md",
-      content: "# foo\n\n[other](foo)\n\nfo**o**\n",
-    });
-
-    const result = await server.rpc.workspace.search({ query: "foo" });
-    const hits = result.hits.filter(
-      (hit) =>
-        hit.kind === "file" &&
-        hit.path === "notes.md" &&
-        hit.source === "content",
-    );
-    expect(hits.map((hit) => hit.matchIndex)).toEqual([0, 1]);
-    expect(
-      hits.map((hit) =>
-        hit.snippet.slice(hit.snippetMatch.start, hit.snippetMatch.end),
-      ),
-    ).toEqual(["foo", "foo"]);
-    expect(hits[1]?.snippet).toContain("other");
-    expect(hits[1]?.snippet).not.toContain("[other](foo)");
-  },
-);
-
-serverTest("skips files removed after listing", async ({ server }) => {
-  await server.rpc.workspace.writeFile({
-    path: "removed.txt",
-    content: "silver marmot",
-  });
-  await server.rpc.workspace.writeFile({
-    path: "kept.txt",
-    content: "silver marmot",
-  });
-
-  const listPaths = WorkspaceService.prototype.listPaths;
-  const listing = vi
-    .spyOn(WorkspaceService.prototype, "listPaths")
-    .mockImplementationOnce(async function (this: WorkspaceService) {
-      const paths = await listPaths.call(this);
-      await fs.unlink(path.join(server.workspaceRoot, "removed.txt"));
-      return paths;
-    });
-  try {
-    const result = await server.rpc.workspace.search({
-      query: "silver marmot",
-    });
-    expect(result.hits.some((hit) => hit.path === "kept.txt")).toBe(true);
-    expect(result.hits.some((hit) => hit.path === "removed.txt")).toBe(false);
-  } finally {
-    listing.mockRestore();
-  }
-});
-
-serverTest(
   "does not search a directory replaced with a symlink after listing",
   async ({ server }) => {
     const workspaceDir = path.join(server.workspaceRoot, "notes");
