@@ -34,8 +34,11 @@ restore_on_failure() {
   trap - EXIT
   if [ "$source_stopped" = true ] && [ "$completed" != true ]; then
     # Reopening the source invalidates every copy, including an interrupted final tag step.
-    if ssh "${ssh_args[@]}" exe.dev tag -d "$INSTANCE" "$EXE_WORKSPACE_TAG-migrated" "$EXE_WORKSPACE_TAG-assigned" &&
-      gcloud compute ssh "$INSTANCE" "${gcp_ssh[@]}" --command='sudo rm -f /var/lib/halo/exe-migration-stopped && sudo systemctl start halo'; then
+    if gcloud compute ssh "$INSTANCE" "${gcp_ssh[@]}" --command='sudo rm -f /var/lib/halo/exe-migration-stopped && sudo systemctl start halo'; then
+      # Exe rejects removal of absent tags, including failures before tagging.
+      # The removed source checkpoint already makes this copy ineligible.
+      ssh "${ssh_args[@]}" exe.dev tag -d "$INSTANCE" "$EXE_WORKSPACE_TAG-migrated" "$EXE_WORKSPACE_TAG-assigned" ||
+        echo 'Migration tags could not be removed; the source checkpoint still prevents cutover' >&2
       echo 'Source restarted; destination copy is no longer eligible for cutover' >&2
     else
       echo 'Could not invalidate the copy and restart its source; inspect both VMs before recovery' >&2
