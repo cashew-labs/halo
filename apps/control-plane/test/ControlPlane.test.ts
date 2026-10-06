@@ -1,4 +1,14 @@
 import { gzipSync } from "node:zlib";
+import {
+  AuthTemplateSlug,
+  ConnectionName,
+  Effect,
+  IntegrationSlug,
+  Owner,
+  ToolAddress,
+} from "@executor-js/sdk/core";
+import { Layer } from "effect";
+import { FetchHttpClient } from "effect/unstable/http";
 import { TraceCloudDriver } from "./TraceCloudDriver.js";
 import fs from "node:fs/promises";
 import http from "node:http";
@@ -94,6 +104,37 @@ const testAuth = {
 
 const desktopAuthState = "desktop-auth-state-0123456789abcdef";
 
+const integrationEncryptionKey = Buffer.alloc(32, 17);
+// Only Google's external Discovery HTTP boundary is replaced. Executor parses,
+// installs and persists the document through its real OpenAPI plugin.
+const integrationHttpClientLayer = FetchHttpClient.layer.pipe(
+  Layer.provide(
+    Layer.succeed(FetchHttpClient.Fetch, async () =>
+      Response.json({
+        discoveryVersion: "v1",
+        id: "test:v1",
+        name: "test",
+        version: "v1",
+        title: "Test Google API",
+        rootUrl: "https://example.invalid/",
+        servicePath: "test/v1/",
+        resources: {
+          documents: {
+            methods: {
+              list: {
+                id: "test.documents.list",
+                path: "documents",
+                httpMethod: "GET",
+                response: { type: "object" },
+              },
+            },
+          },
+        },
+      }),
+    ),
+  ),
+);
+
 const controlPlaneTest = test.extend<{
   traceCloud: TraceCloudDriver;
   inferenceApiKey: string | undefined;
@@ -160,6 +201,8 @@ const controlPlaneTest = test.extend<{
       workspaceProvider,
       traceCloud: traceCloud.cloud(),
       inferenceApiKey,
+      integrationEncryptionKey,
+      integrationHttpClientLayer,
     });
     if (plane instanceof Error) throw plane;
     await use(plane);
@@ -193,6 +236,239 @@ const controlPlaneTest = test.extend<{
     await use(createControlPlaneRpcClient(plane.origin, session.token));
   },
 });
+
+controlPlaneTest(
+  "persists user-bound integration catalogs and native policies after restart",
+  async ({ appDataDir, webRoot, workspaceProvider }) => {
+    const databaseUrl = process.env.HALO_TEST_POSTGRES_URL;
+    const config =
+      databaseUrl === undefined
+        ? {
+            deployment: "local" as const,
+            workspace: { deployment: "local" as const },
+            appDataDir,
+            port: 0,
+            auth: testAuth,
+          }
+        : {
+            deployment: "cloudRun" as const,
+            workspace: {
+              deployment: "gcp" as const,
+              instanceTemplate: "test",
+              projectId: "test",
+              zone: "test",
+            },
+            port: 0,
+            auth: testAuth,
+            databaseUrl,
+            origin: "https://control-plane.example.invalid",
+            traceBucket: "test",
+            workspaceServiceAccount: "test",
+          };
+    const plane = await ControlPlane.start({
+      config,
+      webRoot,
+      workspaceProvider,
+      integrationEncryptionKey,
+      integrationHttpClientLayer,
+    });
+    if (plane instanceof Error) throw plane;
+    await using cleanup = new errore.AsyncDisposableStack();
+    const lifetime = { open: true };
+    cleanup.defer(async () => {
+      if (lifetime.open) {
+        const closed = await plane.close();
+        if (closed instanceof Error) throw closed;
+      }
+    });
+    const integrations = plane.integrations!;
+    const read = async () =>
+      await integrations.withUser("alice", (executor) =>
+        executor.integrations.list(),
+      );
+    const [first, second] = await Promise.all([read(), read()]);
+    if (first instanceof Error) throw first;
+    expect(second).toEqual(first);
+    expect(first.map((entry) => entry.slug)).toContain("google_gmail");
+    expect(first.map((entry) => entry.slug)).not.toContain("google_meet");
+    const policy = await integrations.withUser("alice", (executor) =>
+      executor.policies.create({
+        owner: Owner.make("user"),
+        pattern: "google_gmail.*",
+        action: "block",
+      }),
+    );
+    if (policy instanceof Error) throw policy;
+    const custom = await integrations.withUser("alice", (executor) =>
+      executor.openapi.addSpec({
+        slug: "private-api",
+        name: "Alice's API",
+        authenticationTemplate: [
+          {
+            type: "apiKey",
+            slug: "token",
+            headers: {
+              Authorization: ["Bearer ", { type: "variable", name: "token" }],
+            },
+          },
+        ],
+        spec: {
+          kind: "blob",
+          value: JSON.stringify({
+            openapi: "3.0.0",
+            info: { title: "Private", version: "1" },
+            servers: [{ url: "https://example.invalid" }],
+            paths: {
+              "/items": {
+                get: {
+                  operationId: "listItems",
+                  responses: { "200": { description: "OK" } },
+                },
+              },
+            },
+          }),
+        },
+      }),
+    );
+    if (custom instanceof Error) throw custom;
+    const connection = await integrations.withUser("alice", (executor) =>
+      executor.connections.create({
+        owner: Owner.make("user"),
+        name: ConnectionName.make("personal"),
+        integration: IntegrationSlug.make("private-api"),
+        template: AuthTemplateSlug.make("token"),
+        value: "private-test-token",
+      }),
+    );
+    if (connection instanceof Error) throw connection;
+    expect(
+      await integrations.withUser("bob", (executor) =>
+        executor.policies.list(),
+      ),
+    ).toEqual([]);
+    expect(
+      await integrations.withUser("bob", (executor) =>
+        executor.integrations.get(IntegrationSlug.make("private-api")),
+      ),
+    ).toBeNull();
+    lifetime.open = false;
+    const closed = await plane.close();
+    expect(closed).toBeUndefined();
+    expect(await read()).toBeInstanceOf(Error);
+
+    const reopened = await ControlPlane.start({
+      config,
+      webRoot,
+      workspaceProvider,
+      integrationEncryptionKey,
+      integrationHttpClientLayer: FetchHttpClient.layer.pipe(
+        Layer.provide(
+          Layer.succeed(FetchHttpClient.Fetch, async (input, init) => {
+            expect(String(input)).toBe("https://example.invalid/items");
+            expect(new Headers(init?.headers).get("authorization")).toBe(
+              "Bearer private-test-token",
+            );
+            return Response.json({ items: ["fixture-item"] });
+          }),
+        ),
+      ),
+    });
+    if (reopened instanceof Error) throw reopened;
+    cleanup.defer(async () => {
+      const reopenedClosed = await reopened.close();
+      if (reopenedClosed instanceof Error) throw reopenedClosed;
+    });
+    expect(
+      await reopened.integrations!.withUser("alice", (executor) =>
+        executor.policies.list(),
+      ),
+    ).toEqual([policy]);
+    const persisted = await reopened.integrations!.withUser(
+      "alice",
+      (executor) =>
+        executor.integrations.get(IntegrationSlug.make("private-api")),
+    );
+    expect(persisted).toMatchObject({
+      slug: "private-api",
+      name: "Alice's API",
+    });
+    const invoked = await reopened.integrations!.withUser("alice", (executor) =>
+      executor.execute(
+        ToolAddress.make(`${connection.address}.items.listItems`),
+        {},
+      ),
+    );
+    if (invoked instanceof Error) throw invoked;
+    expect(JSON.stringify(invoked)).toContain("fixture-item");
+  },
+);
+
+controlPlaneTest(
+  "drains accepted integration work and rejects new work during shutdown",
+  async ({ plane }) => {
+    const entered = Promise.withResolvers<void>();
+    const resume = Promise.withResolvers<void>();
+    const work = plane.integrations!.withUser("alice", (executor) =>
+      Effect.gen(function* () {
+        entered.resolve();
+        yield* Effect.promise(async () => await resume.promise);
+        return yield* executor.policies.list();
+      }),
+    );
+    await entered.promise;
+    const closing = plane.integrations!.close();
+    expect(
+      await plane.integrations!.withUser("bob", (executor) =>
+        executor.policies.list(),
+      ),
+    ).toBeInstanceOf(Error);
+    resume.resolve();
+    expect(await work).toEqual([]);
+    expect(await closing).toBeUndefined();
+  },
+);
+
+controlPlaneTest(
+  "releases startup resources when the integration key is invalid",
+  async ({ appDataDir, webRoot, workspaceProvider }) => {
+    const probe = http.createServer();
+    probe.listen(0, "127.0.0.1");
+    await events.once(probe, "listening");
+    // SAFETY: A listening TCP server has AddressInfo, not a pipe address.
+    const port = (probe.address() as AddressInfo).port;
+    await new Promise<void>((resolveClose) =>
+      probe.close(() => resolveClose()),
+    );
+    const config = {
+      deployment: "local" as const,
+      workspace: { deployment: "local" as const },
+      appDataDir,
+      port,
+      auth: testAuth,
+    };
+    const failed = await ControlPlane.start({
+      config,
+      webRoot,
+      workspaceProvider,
+      integrationEncryptionKey: Buffer.alloc(1),
+    });
+    expect(failed).toBeInstanceOf(Error);
+    const retried = await ControlPlane.start({
+      config,
+      webRoot,
+      workspaceProvider,
+      integrationEncryptionKey,
+      integrationHttpClientLayer,
+    });
+    if (retried instanceof Error) throw retried;
+    await using cleanup = new errore.AsyncDisposableStack();
+    cleanup.defer(async () => {
+      const closed = await retried.close();
+      if (closed instanceof Error) throw closed;
+    });
+    expect((await fetch(`${retried.origin}/health`)).status).toBe(200);
+  },
+);
 
 controlPlaneTest(
   "stays reachable on loopback until closed",

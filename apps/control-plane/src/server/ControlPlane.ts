@@ -15,6 +15,8 @@ import type { WorkspaceProviderApi } from "../workspace/provider/WorkspaceProvid
 
 import { TraceIngestion } from "../traces/TraceIngestion.js";
 import type { TraceCloud } from "../traces/TraceCloud.js";
+import { CredentialService } from "../credentials/CredentialService.js";
+import { IntegrationService } from "../integrations/IntegrationService.js";
 
 const loopbackHost = "127.0.0.1";
 const cloudRunHost = "0.0.0.0";
@@ -25,17 +27,20 @@ export class ControlPlane {
   private readonly publicOrigin: string;
   // Owns active requests that upgraded beyond the HTTP server lifecycle.
   private readonly requests: ServingControlPlaneHttp;
+  readonly integrations: IntegrationService | undefined;
 
   private constructor(ctx: {
     db: DatabaseService;
     http: ListeningControlPlaneHttp;
     publicOrigin: string;
     requests: ServingControlPlaneHttp;
+    integrations: IntegrationService | undefined;
   }) {
     this.db = ctx.db;
     this.http = ctx.http;
     this.publicOrigin = ctx.publicOrigin;
     this.requests = ctx.requests;
+    this.integrations = ctx.integrations;
   }
 
   get origin() {
@@ -50,6 +55,10 @@ export class ControlPlane {
     traceCloud?: TraceCloud;
     inferenceApiKey?: string;
     workspaceIdleTimeoutMs?: number;
+    integrationEncryptionKey?: Buffer;
+    integrationHttpClientLayer?: Parameters<
+      typeof IntegrationService.start
+    >[0]["httpClientLayer"];
   }) {
     const { config, webRoot } = ctx;
     await using cleanup = new errore.AsyncDisposableStack();
@@ -94,6 +103,28 @@ export class ControlPlane {
     });
     if (workspace instanceof Error) return workspace;
 
+    const credentials =
+      ctx.integrationEncryptionKey === undefined
+        ? undefined
+        : await CredentialService.start({
+            db,
+            encryptionKey: ctx.integrationEncryptionKey,
+          });
+    if (credentials instanceof Error) return credentials;
+    const integrations =
+      credentials === undefined
+        ? undefined
+        : await IntegrationService.start({
+            db,
+            credentials,
+            httpClientLayer: ctx.integrationHttpClientLayer,
+          });
+    if (integrations instanceof Error) return integrations;
+    cleanup.defer(async () => {
+      const closed = await integrations?.close();
+      if (closed instanceof Error) console.error(closed);
+    });
+
     const requests = serveControlPlaneHttp({
       server: http.server,
       auth,
@@ -117,15 +148,18 @@ export class ControlPlane {
       http,
       publicOrigin,
       requests,
+      integrations,
     });
   }
 
   async close() {
     this.requests.close();
     const httpClosed = await closeControlPlaneHttp(this.http.server);
+    const integrationsClosed = await this.integrations?.close();
     const databaseClosed = await this.db.close();
 
     if (httpClosed instanceof Error) return httpClosed;
+    if (integrationsClosed instanceof Error) return integrationsClosed;
     if (databaseClosed instanceof Error) return databaseClosed;
   }
 }
