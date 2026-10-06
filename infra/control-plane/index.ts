@@ -14,6 +14,22 @@ const databaseName = "halo";
 const databaseUserName = "halo";
 const controlPlaneServiceName = `${name}-control-plane`;
 const controlPlaneImage = configuration.require("controlPlaneImage");
+const workspaceProvider = configuration.get("workspaceProvider") ?? "gcp";
+if (workspaceProvider !== "gcp" && workspaceProvider !== "exe")
+  throw new Error("workspaceProvider must be gcp or exe");
+const exeTemplateVmName =
+  workspaceProvider === "exe"
+    ? configuration.require("exeTemplateVmName")
+    : undefined;
+const exePrivateKeySecretId =
+  workspaceProvider === "exe"
+    ? configuration.require("exePrivateKeySecretId")
+    : undefined;
+const exeGatewaySecretId =
+  workspaceProvider === "exe"
+    ? configuration.require("exeGatewaySecretId")
+    : undefined;
+
 const workspaceImage = configuration.require("workspaceImage");
 const deploymentServiceAccount = configuration.require(
   "deploymentServiceAccount",
@@ -425,6 +441,28 @@ const controlPlaneTogetherApiKeyAccess = new gcp.secretmanager.SecretIamMember(
   },
 );
 
+const exeSecretAccess = [exePrivateKeySecretId, exeGatewaySecretId].flatMap(
+  (secretId, index) =>
+    secretId === undefined
+      ? []
+      : [
+          new gcp.secretmanager.SecretIamMember(`exe-secret-access-${index}`, {
+            project,
+            secretId,
+            role: "roles/secretmanager.secretAccessor",
+            member: pulumi.interpolate`serviceAccount:${runtime.email}`,
+          }),
+        ],
+);
+
+if (exePrivateKeySecretId !== undefined)
+  new gcp.secretmanager.SecretIamMember("exe-release-key-access", {
+    project,
+    secretId: exePrivateKeySecretId,
+    role: "roles/secretmanager.secretAccessor",
+    member: `serviceAccount:${deploymentServiceAccount}`,
+  });
+
 const controlPlane = new gcp.cloudrunv2.Service(
   "control-plane-service",
   {
@@ -452,6 +490,17 @@ const controlPlane = new gcp.cloudrunv2.Service(
         ],
       },
       volumes: [
+        ...(exePrivateKeySecretId === undefined
+          ? []
+          : [
+              {
+                name: "exe-account-key",
+                secret: {
+                  secret: exePrivateKeySecretId,
+                  items: [{ version: "1", path: "key", mode: 0o444 }],
+                },
+              },
+            ]),
         {
           name: "cloudsql",
           cloudSqlInstance: { instances: [databaseInstance.connectionName] },
@@ -480,8 +529,22 @@ const controlPlane = new gcp.cloudrunv2.Service(
             timeoutSeconds: 5,
             failureThreshold: 3,
           },
-          volumeMounts: [{ name: "cloudsql", mountPath: "/cloudsql" }],
+          volumeMounts: [
+            { name: "cloudsql", mountPath: "/cloudsql" },
+            ...(exePrivateKeySecretId === undefined
+              ? []
+              : [{ name: "exe-account-key", mountPath: "/etc/halo/exe" }]),
+          ],
           envs: [
+            { name: "WORKSPACE_PROVIDER", value: workspaceProvider },
+            ...(workspaceProvider !== "exe"
+              ? []
+              : [
+                  { name: "EXE_TEMPLATE_VM_NAME", value: exeTemplateVmName },
+                  { name: "EXE_WORKSPACE_TAG", value: name },
+                  { name: "EXE_PRIVATE_KEY_PATH", value: "/etc/halo/exe/key" },
+                  { name: "EXE_GATEWAY_SECRET_ID", value: exeGatewaySecretId },
+                ]),
             { name: "BETTER_AUTH_URL", value: controlPlaneOrigin },
             {
               name: "DATABASE_URL_SECRET_ID",
@@ -525,6 +588,7 @@ const controlPlane = new gcp.cloudrunv2.Service(
       databaseUrlAccess,
       googleClientIdAccess,
       googleClientSecretAccess,
+      ...exeSecretAccess,
       workspaceServiceAccountAccess,
     ],
   },
@@ -684,3 +748,6 @@ export const controlPlaneAuthSecretVersion = authSecretVersion.version;
 export const controlPlaneName = controlPlane.name;
 export const controlPlaneUrl = controlPlaneOrigin;
 export const controlPlaneDomainIp = controlPlaneAddress.address;
+
+export const selectedWorkspaceProvider = workspaceProvider;
+export const exeWorkspaceTemplate = exeTemplateVmName;

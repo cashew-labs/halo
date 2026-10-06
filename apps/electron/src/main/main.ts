@@ -394,8 +394,19 @@ function installMenu(): void {
             "newChat",
           ),
       },
+      {
+        label: shortcuts.closeTab.label,
+        accelerator: shortcuts.closeTab.accelerator,
+        click: () =>
+          BrowserWindow.getFocusedWindow()?.webContents.send(
+            SHORTCUT_CHANNEL,
+            "closeTab",
+          ),
+      },
       { type: "separator" },
-      isMac ? { role: "close" } : { role: "quit" },
+      isMac
+        ? { role: "close", accelerator: "CmdOrCtrl+Shift+W" }
+        : { role: "quit" },
     ],
   };
   const viewMenu: MenuItemConstructorOptions = {

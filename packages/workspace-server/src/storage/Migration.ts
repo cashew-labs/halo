@@ -26,6 +26,7 @@ const migrationLedgerSql = `
 export function applyMigrations(input: {
   connection: Database;
   migrations: readonly Migration[];
+  stopBefore?: string;
 }) {
   const valid = validate(input.migrations);
   if (valid instanceof Error) return valid;
@@ -58,6 +59,8 @@ export function applyMigrations(input: {
   if (verified instanceof Error) return verified;
 
   for (const migration of input.migrations.slice(verified)) {
+    if (input.stopBefore !== undefined && migration.id >= input.stopBefore)
+      break;
     const checksum = checksumFor(migration);
     const result = errore.try({
       try: () =>

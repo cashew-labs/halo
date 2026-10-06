@@ -74,7 +74,7 @@ USER node
 WORKDIR /home/node/documents
 HEALTHCHECK --interval=30s --start-period=120s --timeout=15s \
     CMD node --import /opt/halo/node_modules/tsx/dist/loader.mjs /opt/halo/packages/halo-cli/src/cli.ts status --json
-ENTRYPOINT ["dbus-run-session", "--", "bash", "/opt/halo/apps/workspace-server/desktop/start.sh"]
+ENTRYPOINT ["bash", "/opt/halo/apps/workspace-server/desktop/start.sh"]
 CMD ["/opt/halo/apps/workspace-server/container.json"]
 
 ARG VERSION=dev

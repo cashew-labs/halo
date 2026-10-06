@@ -232,3 +232,52 @@ then remove them explicitly to stop snapshot storage charges.
 References: [GCP authentication](https://www.pulumi.com/registry/packages/gcp/installation-configuration/),
 [GCS backends](https://www.pulumi.com/docs/iac/operations/stack-management/using-a-diy-backend/),
 [KMS secrets](https://www.pulumi.com/docs/iac/concepts/secrets/#google-cloud-key-management-service-kms).
+
+## First GCP-to-Exe cutover
+
+This is a coordinated data transfer, not an empty-workspace provider switch.
+Keep production on GCP while the release builds images and signs the desktop.
+Before the first release reads the Exe key, grant its deployment service account
+Secret Manager accessor on only `exePrivateKeySecretId`. The conditional Pulumi
+grant is applied later in that release; it cannot bootstrap its own earlier read.
+Keep the control-plane auth secret and workspace IDs unchanged.
+
+After the new Exe template has been published, run `workspace/migrateToExe.sh`
+for each existing GCP workspace with the release's template, account-key path,
+deployment tag and a private `RUNNER_TEMP` directory. It closes Chrome, stops the
+source, retains a disk snapshot, copies and compares the home archive, then
+pauses and tags the destination. The source must remain stopped. Its temporary
+systemd drop-in deletes the migration checkpoint on any subsequent service start;
+the release checks that checkpoint and its boot ID before changing providers.
+A source that has restarted requires a fresh copy, even if its Exe tags remain.
+
+Before cutover, use the normal control-plane `DatabaseService`, `AuthService`
+and `WorkspaceService` on a trusted operator host to assign the copied VMs:
+
+```text
+verify GCP workspace IDs match the existing production workspace rows
+verify each corresponding Exe VM has the deployment's migrated tag
+start AuthService with the existing production database and auth secret
+start WorkspaceService with ExeWorkspaceProvider and the production origin
+for each existing owner:
+    WorkspaceService.ensure(owner)  // persists a scoped key and assigns the copy
+    verify guest assignment completed for the same workspace ID
+    pause the guest
+    add the deployment's assigned tag
+```
+
+Do not manufacture keys, put shared cloud credentials in guests, or create new
+workspace rows for this operation. The operator host does not need an HTTP
+listener. Assignment configures the guest; model-dependent startup may wait for
+the new control plane. Once every source has a current checkpoint and every
+destination has both `halo-west-migrated` and `halo-west-assigned`, retry the
+release. It activates the control plane first, updates all assigned workspace
+containers, verifies their normal RPC revision/protocols, then publishes clients.
+The initial cutover guard fails before changing the provider if preparation is
+incomplete. Later Exe releases use the ordinary workspace update path.
+
+To abort before cutover, remove both destination migration/assignment tags and
+remove `/var/lib/halo/exe-migration-stopped` before restarting the source service.
+Keep its snapshot and the destination for recovery; do not reuse a stale copy.
+After cutover, rollback must first copy the latest Exe edits back and use a GCP
+image that understands the migrated Pi state. The old GCP image cannot read it.

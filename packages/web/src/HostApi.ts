@@ -32,6 +32,7 @@ export interface HostApi {
   showLandingPage?: boolean;
   setHotkeys?(hotkeys: Hotkey[]): void;
   onShortcut?(listener: (shortcut: ShortcutId) => void): () => void;
+  closeWindow?(): void;
   getAuthSession(): Promise<ControlPlaneSession | Error | undefined>;
   signIn(): Promise<ControlPlaneSession | Error | undefined>;
   connectHalo(options: {

@@ -19,6 +19,7 @@ class ExeWorkspaceProviderError extends errore.createTaggedError({
 const vmSchema = Type.Object({
   vm_name: Type.String(),
   status: Type.String(),
+  tags: Type.Optional(Type.Array(Type.String())),
   // Verified on the real /exec ls response, including a newly cloned private VM.
   proxy_share: Type.String(),
 });
@@ -39,17 +40,20 @@ export class ExeWorkspaceProvider implements WorkspaceProviderApi {
   private readonly api: ExeApi;
   private readonly templateVmName: string;
   private readonly gatewaySecret: string;
+  private readonly workspaceTag: string | undefined;
 
   constructor(ctx: {
     privateKeyPath: string;
     templateVmName: string;
     gatewaySecret: string;
+    workspaceTag?: string;
   }) {
     this.api = new ExeApi({
       privateKeyPath: ctx.privateKeyPath,
     });
     this.templateVmName = ctx.templateVmName;
     this.gatewaySecret = ctx.gatewaySecret;
+    this.workspaceTag = ctx.workspaceTag;
   }
 
   async ensure(input: WorkspaceProviderAssignment): Promise<void | Error> {
@@ -113,6 +117,18 @@ export class ExeWorkspaceProvider implements WorkspaceProviderApi {
     if (vmName instanceof Error) return vmName;
     const result = await this.api.execute(["resume", vmName]);
     if (result instanceof Error) return result;
+    // Real RAM restore left the guest clock frozen despite NTP reporting synced.
+    const clock = await this.api.execute([
+      "ssh",
+      vmName,
+      `sudo date -s '@${Math.floor(Date.now() / 1000)}' >/dev/null && printf HALO_CLOCK_SYNCHRONIZED`,
+    ]);
+    if (clock instanceof Error) return clock;
+    if (clock.trim() !== "HALO_CLOCK_SYNCHRONIZED")
+      return new ExeWorkspaceProviderError({
+        workspaceId: input.workspaceId,
+        detail: "synchronize resumed guest clock",
+      });
   }
 
   private async ensureWorkspace(input: WorkspaceProviderAssignment) {
@@ -155,19 +171,29 @@ export class ExeWorkspaceProvider implements WorkspaceProviderApi {
       }
     }
     if (existing?.status === "paused") {
-      const resumed = await this.resume(input);
+      // Assignment corrects the clock in its existing SSH call below.
+      const resumed = await this.api.execute(["resume", vmName]);
       if (resumed instanceof Error) return resumed;
     }
     const assignment = Buffer.from(
       JSON.stringify({ ...input, gatewayToken: this.gatewayToken(input) }),
     ).toString("base64url");
-    return await this.assign({
+    const assigned = await this.assign({
       input,
       vmName,
       assignment,
       // Another instance may have created this running VM before SSH is ready.
       attemptsRemaining: 30,
     });
+    if (assigned instanceof Error) return assigned;
+    // Release discovery must never include a clone whose assignment failed.
+    if (
+      this.workspaceTag !== undefined &&
+      !existing?.tags?.includes(this.workspaceTag)
+    ) {
+      const tagged = await this.api.execute(["tag", vmName, this.workspaceTag]);
+      if (tagged instanceof Error) return tagged;
+    }
   }
 
   private async assign(ctx: {
@@ -179,7 +205,7 @@ export class ExeWorkspaceProvider implements WorkspaceProviderApi {
     const assigned = await this.api.execute([
       "ssh",
       ctx.vmName,
-      `sudo /usr/local/bin/halo-workspace-assign ${ctx.assignment}`,
+      `sudo date -s '@${Math.floor(Date.now() / 1000)}' >/dev/null && sudo /usr/local/bin/halo-workspace-assign ${ctx.assignment}`,
     ]);
     // A real clone returned before SSH was reachable; Exe reports that as 422.
     if (
