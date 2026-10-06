@@ -234,6 +234,8 @@ exeTest.skipIf(process.env.HALO_EXE_TEST_CONFIG === undefined)(
     expect(
       await ssh(config, guest, ["cat /proc/sys/kernel/random/boot_id"]),
     ).toBe(bootId);
+    const guestTime = Number(await ssh(config, guest, ["date +%s"])) * 1000;
+    expect(Math.abs(Date.now() - guestTime)).toBeLessThan(10_000);
     await identify();
   },
   180_000,

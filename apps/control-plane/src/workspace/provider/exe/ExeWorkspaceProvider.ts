@@ -117,6 +117,18 @@ export class ExeWorkspaceProvider implements WorkspaceProviderApi {
     if (vmName instanceof Error) return vmName;
     const result = await this.api.execute(["resume", vmName]);
     if (result instanceof Error) return result;
+    // Real RAM restore left the guest clock frozen despite NTP reporting synced.
+    const clock = await this.api.execute([
+      "ssh",
+      vmName,
+      `sudo date -s '@${Math.floor(Date.now() / 1000)}' >/dev/null && printf HALO_CLOCK_SYNCHRONIZED`,
+    ]);
+    if (clock instanceof Error) return clock;
+    if (clock.trim() !== "HALO_CLOCK_SYNCHRONIZED")
+      return new ExeWorkspaceProviderError({
+        workspaceId: input.workspaceId,
+        detail: "synchronize resumed guest clock",
+      });
   }
 
   private async ensureWorkspace(input: WorkspaceProviderAssignment) {
@@ -159,7 +171,8 @@ export class ExeWorkspaceProvider implements WorkspaceProviderApi {
       }
     }
     if (existing?.status === "paused") {
-      const resumed = await this.resume(input);
+      // Assignment corrects the clock in its existing SSH call below.
+      const resumed = await this.api.execute(["resume", vmName]);
       if (resumed instanceof Error) return resumed;
     }
     const assignment = Buffer.from(
@@ -192,7 +205,7 @@ export class ExeWorkspaceProvider implements WorkspaceProviderApi {
     const assigned = await this.api.execute([
       "ssh",
       ctx.vmName,
-      `sudo /usr/local/bin/halo-workspace-assign ${ctx.assignment}`,
+      `sudo date -s '@${Math.floor(Date.now() / 1000)}' >/dev/null && sudo /usr/local/bin/halo-workspace-assign ${ctx.assignment}`,
     ]);
     // A real clone returned before SSH was reachable; Exe reports that as 422.
     if (

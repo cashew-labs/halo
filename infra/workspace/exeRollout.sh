@@ -69,7 +69,7 @@ case "$mode" in
     fi
     # A release is active work: refresh the idle clock using the workspace's
     # existing scoped reporter before transferring bytes to a resumed guest.
-    ssh "${ssh_args[@]}" "$vm.exe.xyz" 'sudo docker exec -i halo-workspace node --import /opt/halo/node_modules/tsx/dist/loader.mjs --input-type=module' <<'ACTIVITY'
+    if ! ssh "${ssh_args[@]}" "$vm.exe.xyz" 'sudo docker exec -i halo-workspace node --import /opt/halo/node_modules/tsx/dist/loader.mjs --input-type=module' <<'ACTIVITY'
 import fs from 'node:fs/promises';
 import { ControlPlaneWorkReporter } from '/opt/halo/packages/workspace-server/src/server/ControlPlaneWorkReporter.ts';
 const { runtime } = JSON.parse(await fs.readFile('/etc/halo/workspace-server.json', 'utf8'));
@@ -77,6 +77,10 @@ const reporter = new ControlPlaneWorkReporter(runtime);
 const result = await reporter.report(false, new AbortController().signal);
 if (result instanceof Error) { console.error(result.message); process.exitCode = 1; }
 ACTIVITY
+    then
+      # A crashed or stopped old container must still receive the repair image.
+      echo 'Could not report release activity; continuing with the workspace update' >&2
+    fi
     docker save "$image" | gzip -1 | ssh "${ssh_args[@]}" "$vm.exe.xyz" 'gzip -d | sudo docker load'
     scp "${ssh_args[@]}" "$root/infra/workspace/exeTemplate.sh" "$root/infra/workspace/desktop-seccomp.json" "$vm.exe.xyz:/tmp/"
     ssh "${ssh_args[@]}" "$vm.exe.xyz" "sudo bash /tmp/exeTemplate.sh '$image' update-host && sudo /usr/local/bin/halo-workspace-upgrade '$image'"
