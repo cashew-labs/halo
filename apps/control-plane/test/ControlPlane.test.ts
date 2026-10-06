@@ -321,6 +321,18 @@ controlPlaneTest(
     expect(await (await identify(bobRuntime.token)).json()).toEqual({
       workspaceId: bob.id,
     });
+    // A workspace key is a machine credential, never a user session, and
+    // users cannot mint workspace keys themselves.
+    const machine = createControlPlaneRpcClient(plane.origin, rotated.token);
+    expect(await machine.auth.session()).toEqual({ status: "signed-out" });
+    await expect(machine.workspace.rotateRuntimeToken()).rejects.toMatchObject({
+      code: "UNAUTHORIZED",
+    });
+    const minted = await fetch(`${plane.origin}/api/auth/api-key/create`, {
+      method: "POST",
+      headers: bobHeaders,
+    });
+    expect(minted.status).toBe(404);
   },
 );
 

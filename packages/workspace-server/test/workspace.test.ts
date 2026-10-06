@@ -194,6 +194,120 @@ serverTest(
   },
 );
 
+serverTest(
+  "keeps full chat history when Durable compacts model context",
+  async ({ server, llm }) => {
+    const old = "Old context. ".repeat(45_000);
+    const recent = "Recent context. ".repeat(6_500);
+    const session = await server.rpc.testApi.seedSession({
+      title: "Long conversation",
+      messages: [
+        { role: "user", content: old, timestamp: Date.now() },
+        { role: "user", content: recent, timestamp: Date.now() },
+      ],
+    });
+    const prompting = server.promptAndWait({
+      ...session,
+      text: "Continue after compaction",
+    });
+    await llm.respond(m.assistant("COMPACTED_OLD_CONTEXT"));
+    await llm.respond(({ messages }) => {
+      const context = messages
+        .map((message) => messageText(message))
+        .join("\n");
+      expect(context).toContain("COMPACTED_OLD_CONTEXT");
+      expect(context).not.toContain(old);
+      return m.assistant("Continued with compact context.");
+    });
+    await prompting;
+    const snapshot = await server.rpc.thread.snapshot(session);
+    expect(
+      sessionMessages(snapshot)
+        .filter((message) => message.role === "user")
+        .map((message) => message.content),
+    ).toEqual([old, recent, "Continue after compaction"]);
+    expect(assistantReplies(snapshot)).toEqual([
+      "Continued with compact context.",
+    ]);
+    await server.stop();
+    await server.start();
+    expect(await server.rpc.thread.snapshot(session)).toEqual(snapshot);
+  },
+);
+
+serverTest(
+  "reopens a conversation after shutting down with a tool and viewer still active",
+  { timeout: 20_000 },
+  async ({ server, llm, http }) => {
+    const session = await server.rpc.thread.new();
+    const watch = await server.rpc.thread.events(session);
+    await watch.next();
+    const accepted = await server.rpc.thread.prompt({
+      ...session,
+      text: "Fetch the report",
+    });
+    const waiting = server.rpc.thread.wait({ ...session, ...accepted });
+    const disconnected = expect(waiting).rejects.toThrow();
+    const command = `printf x >> replay-count.txt; curl --silent --fail '${http.url("/pending-report")}'`;
+    await llm.respond(
+      m.tool.start("exec", {
+        id: "pending-report",
+        arguments: {
+          js: `return await tools.bash.run({ command: ${JSON.stringify(command)} });`,
+        },
+      }),
+    );
+    await http.request("/pending-report");
+
+    await server.stop();
+    await disconnected;
+    await server.start();
+
+    await llm.respond(({ messages }) => {
+      expect(messages).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            role: "tool",
+            tool_call_id: "pending-report",
+            content: expect.stringContaining("interrupted"),
+          }),
+        ]),
+      );
+      return m.assistant("The interrupted report was not rerun.");
+    });
+    await expect
+      .poll(async () =>
+        assistantReplies(await server.rpc.thread.snapshot(session)),
+      )
+      .toContain("The interrupted report was not rerun.");
+    const restored = await server.rpc.thread.snapshot(session);
+    expect(sessionMessages(restored)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ role: "user", content: "Fetch the report" }),
+      ]),
+    );
+    expect(restored.activeRun).toBeUndefined();
+    expect(sessionToolExecutions(restored)).toMatchObject([
+      { id: "pending-report", type: "exec", status: "failed" },
+    ]);
+    expect(
+      await server.rpc.workspace.readFile({ path: "replay-count.txt" }),
+    ).toBe("x");
+
+    const continued = server.promptAndWait({
+      ...session,
+      text: "Continue without the report",
+    });
+    await llm.respond(m.assistant("Continuing without it."));
+    await continued;
+    await expect
+      .poll(async () =>
+        assistantReplies(await server.rpc.thread.snapshot(session)),
+      )
+      .toContain("Continuing without it.");
+  },
+);
+
 serverTest("reads, writes, and lists workspace files", async ({ server }) => {
   expect(await server.rpc.workspace.get()).toMatchObject({
     workspaceRoot: server.workspaceRoot,
@@ -230,6 +344,12 @@ serverTest("rejects files outside the public workspace", async ({ server }) => {
   await expect(
     server.rpc.workspace.readFile({ path: "../outside.txt" }),
   ).rejects.toThrow("'../outside.txt' is not a workspace file");
+  // Deletion is recursive, so the workspace root itself must be refused.
+  await server.rpc.workspace.writeFile({ path: "keep.md", content: "Keep" });
+  await expect(server.rpc.workspace.deleteEntry({ path: "" })).rejects.toThrow(
+    "not a workspace file",
+  );
+  expect(await server.rpc.workspace.readFile({ path: "keep.md" })).toBe("Keep");
 });
 
 serverTest(
@@ -474,6 +594,89 @@ serverTest(
 );
 
 serverTest(
+  "strips gateway credentials and preserves the public origin for extension requests",
+  async ({ createServer }) => {
+    const gatewayToken = "test-workspace-gateway-token-0123456789";
+    const server = createServer({ gateway: { token: gatewayToken } });
+    await server.start();
+    const directory = path.join(
+      server.workspaceRoot,
+      ".halo/extensions/origin-test",
+    );
+    const launcher = path.join(directory, "dist/start.mjs");
+    await fs.mkdir(path.dirname(launcher), { recursive: true });
+    await fs.writeFile(
+      path.join(directory, "package.json"),
+      JSON.stringify({ name: "origin-test" }),
+    );
+    // A real extension process echoes the headers it receives.
+    await fs.writeFile(
+      launcher,
+      `
+      import http from "node:http";
+      const server = http.createServer((request, response) => {
+        response.setHeader("content-type", "application/json");
+        response.end(JSON.stringify(request.headers));
+      });
+      server.listen(0, "127.0.0.1", () => {
+        process.send("http://127.0.0.1:" + server.address().port + "/view/");
+      });
+      process.on("message", (message) => {
+        if (message === "shutdown") server.close(() => process.exit(0));
+      });
+    `,
+    );
+    await server.rpc.extensions.reload();
+    const url = `${server.transport.origin}/extensions/origin-test/view/`;
+    const forwarded = {
+      host: "private-vm.exe.xyz:8788",
+      // Exe rewrites these to describe its own proxy hop.
+      "x-forwarded-host": "private-vm.exe.xyz:8788",
+      "x-forwarded-proto": "https",
+      "x-halo-public-host": "halo.example:8443",
+      "x-halo-public-proto": "https",
+      cookie: "private-cookie",
+      "x-exedev-authorization": "Bearer private-provider-token",
+      "x-exedev-token-ctx": "private-token-context",
+      "x-exedev-userid": "private-user",
+      "x-exedev-email": "private@example.com",
+    };
+    const gatewayHeaders = {
+      ...forwarded,
+      authorization: `Bearer ${gatewayToken}`,
+    };
+    const response = await fetch(url, { headers: gatewayHeaders });
+    expect(response.status).toBe(200);
+    const received = await response.json();
+    expect(received).toMatchObject({
+      "x-forwarded-host": "halo.example:8443",
+      "x-forwarded-proto": "https",
+    });
+    for (const name of [
+      "authorization",
+      "cookie",
+      "x-halo-public-host",
+      "x-halo-public-proto",
+      "x-exedev-authorization",
+      "x-exedev-token-ctx",
+      "x-exedev-userid",
+      "x-exedev-email",
+    ])
+      expect(received).not.toHaveProperty(name);
+
+    // Without the gateway token, spoofed public-origin headers are ignored.
+    const direct = await fetch(url, {
+      headers: { ...forwarded, ...server.transport.headers },
+    });
+    expect(direct.status).toBe(200);
+    expect(await direct.json()).toMatchObject({
+      "x-forwarded-host": new URL(server.transport.origin).host,
+      "x-forwarded-proto": "http",
+    });
+  },
+);
+
+serverTest(
   "does not create files through a workspace symlink",
   async ({ server }) => {
     const outside = path.join(server.harness.paths.root, "outside");
@@ -490,6 +693,32 @@ serverTest(
       }),
     ).rejects.toThrow("not a workspace file");
     expect(await fs.readdir(outside)).toEqual([]);
+  },
+);
+
+serverTest(
+  "refuses to overwrite an existing note when creating or moving files",
+  async ({ server }) => {
+    await server.rpc.workspace.writeFile({
+      path: "Archive/Notes/Plan.md",
+      content: "Keep this note",
+    });
+    await expect(
+      server.rpc.workspace.createEntry({
+        path: "Archive/Notes/Plan.md",
+        kind: "file",
+      }),
+    ).rejects.toThrow("already exists");
+    await server.rpc.workspace.createEntry({ path: "Other.md", kind: "file" });
+    await expect(
+      server.rpc.workspace.moveEntry({
+        source: "Other.md",
+        destination: "Archive/Notes/Plan.md",
+      }),
+    ).rejects.toThrow("already exists");
+    expect(
+      await server.rpc.workspace.readFile({ path: "Archive/Notes/Plan.md" }),
+    ).toBe("Keep this note");
   },
 );
 
@@ -1057,6 +1286,33 @@ serverTest(
     ).toMatchObject({ conflict: true });
     expect(await server.rpc.workspace.readFile({ path: "race.md" })).toBe(
       "Newer server version",
+    );
+  },
+);
+
+serverTest(
+  "preserves both note alternatives when inference returns an empty merge",
+  async ({ server, llm }) => {
+    await server.rpc.workspace.writeFile({
+      path: "fallback.md",
+      content: "# Heading\n\nServer detail.\n\nFooter.\n",
+    });
+    const preparing = server.rpc.workspace.reconcileNote({
+      path: "fallback.md",
+      base: "# Heading\n\nOriginal.\n\nFooter.\n",
+      content: "# Heading\n\nLocal detail.\n\nFooter.\n",
+    });
+    await llm.respond(m.assistant('{"markdown":""}'));
+    const prepared = await preparing;
+    expect(prepared.content).toBe(
+      "# Heading\n\nLocal detail.\n\nServer detail.\n\nFooter.\n",
+    );
+    await server.rpc.workspace.writeFile({
+      path: "fallback.md",
+      ...prepared,
+    });
+    expect(await server.rpc.workspace.readFile({ path: "fallback.md" })).toBe(
+      prepared.content,
     );
   },
 );
