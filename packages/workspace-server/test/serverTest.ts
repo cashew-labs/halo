@@ -14,6 +14,7 @@ type ServerOptions = {
   gateway?: WorkspaceServerOptions["config"]["gateway"];
   workspaceRoot?: string;
   testApiEnabled?: boolean;
+  integrationsEnabled?: boolean;
   traceUploader?: WorkspaceServerOptions["host"]["traceUploader"];
   traceWorkspaceId?: string;
 };
@@ -54,6 +55,7 @@ export const serverTest = baseTest.extend<{
     await use((options = {}) => {
       const server = new TestServer({
         gateway: options.gateway,
+        integrationsEnabled: options.integrationsEnabled,
         artifacts,
         llmApi: createOpenAILLMApi(llm.configuration),
         agentCapabilities: options.agentCapabilities,

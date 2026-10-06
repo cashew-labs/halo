@@ -114,6 +114,8 @@ export class ToolInputRequiredError extends errore.createTaggedError({
 type HaloToolsPluginOptions = {
   plugins: readonly HaloToolPlugin[];
   executionContext: AsyncLocalStorage<ToolExecutionContext>;
+  connectionRequests: ReadonlyMap<string, ConnectionRequest>;
+  integrationsEnabled: boolean;
 };
 
 const showConnectionCardInputSchema = Type.Object({
@@ -145,6 +147,7 @@ type ToolExecutionContext = Pick<
 > & {
   parentToolCallId?: string;
   onToolEvent?: (event: ExecActivityUpdate) => void;
+  onConnectionRequest?: (request: ConnectionRequest) => void;
 };
 
 const haloToolsPlugin = definePlugin((options?: HaloToolsPluginOptions) => {
@@ -165,12 +168,33 @@ const haloToolsPlugin = definePlugin((options?: HaloToolsPluginOptions) => {
             description:
               "Show the user a card where they can choose whether to connect an integration. This does not connect an account or grant access by itself. Use it proactively when the task needs an integration that has no connection; do not ask for confirmation first.",
             inputSchema: toExecutorSchema(showConnectionCardInputSchema),
-            annotations: {
-              requiresApproval: true,
-              approvalDescription:
-                "Show an optional integration connection card",
-            },
-            execute: () => Effect.succeed(undefined),
+            execute: (args) =>
+              Effect.sync(() => {
+                if (!Value.Check(showConnectionCardInputSchema, args))
+                  return ToolResult.fail({
+                    code: "invalid_tool_arguments",
+                    message: "Expected an integration id",
+                  });
+                const request = options.connectionRequests.get(
+                  args.integration,
+                );
+                if (request === undefined)
+                  return ToolResult.fail({
+                    code: "integration_unavailable",
+                    message: options.integrationsEnabled
+                      ? `Integration '${args.integration}' is not configured for connections in this workspace. No connection card was shown.`
+                      : "Integrations are disabled in this workspace until they move to the control plane. No connection card was shown; approval or reconnecting cannot enable them.",
+                  });
+                const context = options.executionContext.getStore();
+                if (context?.onConnectionRequest === undefined)
+                  return ToolResult.fail({
+                    code: "connection_card_context_required",
+                    message:
+                      "Connection cards must be requested from a thread's exec tool",
+                  });
+                context.onConnectionRequest(request);
+                return ToolResult.ok({ status: "shown" });
+              }),
           }),
         ],
       },
@@ -264,7 +288,6 @@ function configuredOAuthClients(input: {
 }
 
 const oauthStartAddress = "executor.coreTools.oauth.start";
-const showConnectionCardAddress = "halo.showConnectionCard";
 const oauthStartInputSchema = Type.Object({
   client: Type.String(),
   clientOwner: Type.Union([Type.Literal("org"), Type.Literal("user")]),
@@ -404,7 +427,6 @@ export class ToolRuntime {
   private readonly toolPlugins: readonly HaloToolPlugin[];
   private readonly authority: AgentAuthority;
   private readonly context: Pick<HaloToolContext, "workspaceRoot" | "userId">;
-  private readonly connectionRequests: ReadonlyMap<string, ConnectionRequest>;
   private readonly integrationNames: ReadonlyMap<string, string>;
   private readonly googleWebOAuthClientSlug: OAuthClientSlug | undefined;
 
@@ -416,7 +438,6 @@ export class ToolRuntime {
     toolPlugins: readonly HaloToolPlugin[];
     authority: AgentAuthority;
     context: Pick<HaloToolContext, "workspaceRoot" | "userId">;
-    connectionRequests: ReadonlyMap<string, ConnectionRequest>;
     integrationNames: ReadonlyMap<string, string>;
     googleWebOAuthClientSlug: OAuthClientSlug | undefined;
   }) {
@@ -427,7 +448,6 @@ export class ToolRuntime {
     this.toolPlugins = input.toolPlugins;
     this.authority = input.authority;
     this.context = input.context;
-    this.connectionRequests = input.connectionRequests;
     this.integrationNames = input.integrationNames;
     this.googleWebOAuthClientSlug = input.googleWebOAuthClientSlug;
   }
@@ -520,15 +540,13 @@ export class ToolRuntime {
         parentToolCallId: input.parentToolCallId,
         threadId: input.threadId,
         onToolEvent: input.onToolEvent,
+        onConnectionRequest: (request) => connectionRequests.push(request),
       },
       async () =>
         await Effect.runPromise(
           this.engine.execute(input.code, {
             onElicitation: (context) => {
-              const connection = connectionInput(
-                context,
-                this.connectionRequests,
-              );
+              const connection = connectionInput(context);
               if (connection !== undefined) {
                 connectionRequests.push(connection);
                 return Effect.succeed({ action: "decline" as const });
@@ -769,6 +787,12 @@ async function createToolRuntime(
   setQuickJSModule(quickJsModule);
 
   const executionContext = new AsyncLocalStorage<ToolExecutionContext>();
+  const connectionRequests = integrationsEnabled
+    ? connectionRequestsForClient(
+        oauthClients.desktop,
+        installableGooglePresets,
+      )
+    : new Map<string, ConnectionRequest>();
   const executor = await Effect.runPromise(
     createExecutor({
       tenant: Tenant.make(input.workspaceRoot),
@@ -777,6 +801,8 @@ async function createToolRuntime(
         haloToolsPlugin({
           plugins: input.toolPlugins,
           executionContext,
+          connectionRequests,
+          integrationsEnabled,
         }),
         ...(integrationsEnabled ? [googleOpenApiPlugin] : []),
       ] as const,
@@ -856,12 +882,6 @@ async function createToolRuntime(
     toolPlugins: input.toolPlugins,
     authority: input.authority,
     context: { workspaceRoot: input.workspaceRoot, userId: input.userId },
-    connectionRequests: integrationsEnabled
-      ? connectionRequestsForClient(
-          oauthClients.desktop,
-          installableGooglePresets,
-        )
-      : new Map(),
     integrationNames,
     googleWebOAuthClientSlug:
       oauthClients.web === undefined
@@ -958,14 +978,7 @@ function sandboxPath(address: string) {
 
 function connectionInput(
   context: ElicitationContext,
-  connectionRequests: ReadonlyMap<string, ConnectionRequest>,
 ): ConnectionRequest | undefined {
-  if (context.address === showConnectionCardAddress) {
-    if (!Value.Check(showConnectionCardInputSchema, context.args)) {
-      return undefined;
-    }
-    return connectionRequests.get(context.args.integration);
-  }
   if (context.address !== oauthStartAddress) return undefined;
   if (!Value.Check(oauthStartInputSchema, context.args)) return undefined;
   const args: Static<typeof oauthStartInputSchema> = context.args;

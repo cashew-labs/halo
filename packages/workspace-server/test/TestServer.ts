@@ -24,6 +24,7 @@ export class TestServer {
   private readonly llmApi: WorkspaceServerOptions["host"]["llmApi"];
   private readonly agentCapabilities: WorkspaceServerOptions["host"]["agentCapabilities"];
   private readonly testApiEnabled: boolean;
+  private readonly integrationsEnabled: boolean | undefined;
   private readonly traceWorkspaceId: WorkspaceServerOptions["config"]["traceWorkspaceId"];
   private readonly traceUploader: WorkspaceServerOptions["host"]["traceUploader"];
   private readonly gateway: WorkspaceServerOptions["config"]["gateway"];
@@ -34,6 +35,7 @@ export class TestServer {
     llmApi: WorkspaceServerOptions["host"]["llmApi"];
     agentCapabilities?: WorkspaceServerOptions["host"]["agentCapabilities"];
     testApiEnabled?: boolean;
+    integrationsEnabled?: boolean;
     traceUploader?: WorkspaceServerOptions["host"]["traceUploader"];
     traceWorkspaceId?: string;
     gateway?: WorkspaceServerOptions["config"]["gateway"];
@@ -52,6 +54,7 @@ export class TestServer {
     this.llmApi = llmApi;
     this.agentCapabilities = ctx.agentCapabilities;
     this.testApiEnabled = testApiEnabled === undefined ? false : testApiEnabled;
+    this.integrationsEnabled = ctx.integrationsEnabled;
     this.traceUploader = traceUploader;
     this.traceWorkspaceId = traceWorkspaceId;
     this.gateway = gateway;
@@ -104,6 +107,7 @@ export class TestServer {
         port: this.listenPort,
         corsOrigins: [],
         testApiEnabled: this.testApiEnabled,
+        integrationsEnabled: this.integrationsEnabled,
         traceWorkspaceId: this.traceWorkspaceId,
         gateway: this.gateway,
         extensionRuntime: {

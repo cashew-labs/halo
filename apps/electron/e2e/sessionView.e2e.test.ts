@@ -940,27 +940,51 @@ const googleDriveConnection = {
   template: "googleOAuth2",
 } as const;
 
-e2eTest("shows a connection request", async ({ harness, app }) => {
-  await harness.loadSession({
-    title: "Drive search",
-    messages: [
-      m.user("Find my planning document"),
-      m.connectionRequest(googleDriveConnection),
-    ],
-  });
+e2eTest(
+  "shows a connection card from exec without asking for approval",
+  async ({ app, llm }, testInfo) => {
+    await app.page
+      .getByRole("button", { name: "New tab", exact: true })
+      .click();
+    const pane = app.page.getByRole("main", { name: "New session" });
+    await pane
+      .getByLabel("Message", { exact: true })
+      .fill("Show the Drive connection card");
+    await pane.getByRole("button", { name: "Send", exact: true }).click();
+    await llm.respond(
+      m.tool.start("exec", {
+        id: "show-drive-connection",
+        arguments: {
+          js: 'return await tools.halo.showConnectionCard({ integration: "google_drive" });',
+        },
+      }),
+    );
+    await llm.respond(
+      m.assistant("Choose whether to connect Drive using the card."),
+    );
+    await expect(
+      app.page.getByRole("log", { name: "Session transcript" }),
+    ).toContainText("Choose whether to connect Drive using the card.");
+    await expect(
+      app.page.getByRole("region", { name: /approval/ }),
+    ).toHaveCount(0);
 
-  const card = app.page.getByRole("region", {
-    name: "Google Drive connection",
-  });
-  await expect(card).toBeVisible();
-  await expect(
-    card.getByText("Search, read, create, and share files."),
-  ).toBeVisible();
-  await expect(card.getByRole("button", { name: "Connect" })).toBeVisible();
-  await expect(
-    card.getByText("Connect your account so the agent can continue"),
-  ).toHaveCount(0);
-});
+    const card = app.page.getByRole("region", {
+      name: "Google Drive connection",
+    });
+    await expect(card).toBeVisible();
+    await expect(
+      card.getByText("Search, read, create, and share files."),
+    ).toBeVisible();
+    await expect(card.getByRole("button", { name: "Connect" })).toBeVisible();
+    await expect(
+      card.getByText("Connect your account so the agent can continue"),
+    ).toHaveCount(0);
+    await app.page.screenshot({
+      path: testInfo.outputPath("connection-card-without-approval.png"),
+    });
+  },
+);
 
 e2eTest(
   "shows connection and approval cards from the same exec",
