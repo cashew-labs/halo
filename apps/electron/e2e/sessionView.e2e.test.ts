@@ -13,7 +13,7 @@ e2eTest(
       content: "The hidden detail is violet lantern.",
     });
     await app.page
-      .getByRole("button", { name: "New session", exact: true })
+      .getByRole("button", { name: "New tab", exact: true })
       .click();
     const pane = app.page.getByRole("main", { name: "New session" });
     await pane.getByLabel("Message", { exact: true }).fill("Review @brief");
@@ -39,7 +39,9 @@ e2eTest(
     await expect(sent).toContainText("brief.md");
     await expect(sent).not.toContainText("Workspace references:");
     await expect(
-      app.page.getByRole("tab", { name: "Review", selected: true }),
+      app.page
+        .getByRole("toolbar", { name: /^Pane \d+ tabs$/ })
+        .getByRole("button", { name: "Review", pressed: true }),
     ).toBeVisible();
   },
 );
@@ -101,7 +103,7 @@ e2eTest(
   "drops images, PDFs, and Word files into chat and keeps their model context after reload",
   async ({ app, llm }, testInfo) => {
     await app.page
-      .getByRole("button", { name: "New session", exact: true })
+      .getByRole("button", { name: "New tab", exact: true })
       .click();
     const pane = app.page.getByRole("main");
     const fixtures = await Promise.all(
@@ -157,7 +159,7 @@ e2eTest(
       path: testInfo.outputPath("attachments-ready.png"),
     });
     const uploads: Route[] = [];
-    await app.page.route("**/rpc/sessions/prompt", (route) => {
+    await app.page.route("**/rpc/thread/prompt", (route) => {
       uploads.push(route);
     });
     await pane.getByRole("button", { name: "Send", exact: true }).click();
@@ -168,7 +170,7 @@ e2eTest(
     await expect(pane.getByRole("status")).toHaveText("Preparing attachments…");
     await expect(attachments.getByRole("listitem")).toHaveCount(3);
     await uploads[0]!.continue();
-    await app.page.unroute("**/rpc/sessions/prompt");
+    await app.page.unroute("**/rpc/thread/prompt");
     await llm.respond(({ messages }) => {
       const user = messages.findLast((message) => message.role === "user");
       expect(user).toBeDefined();
@@ -194,12 +196,16 @@ e2eTest(
     await expect(pane.getByRole("log")).toContainText(
       "I can see the image and both PDF pages.",
     );
-    const chatTabId = await app.page
-      .getByRole("tab", { selected: true })
-      .getAttribute("id");
-    expect(chatTabId).not.toBeNull();
-    const chatTab = app.page.locator(`#${chatTabId}`);
-    const initialTabCount = await app.page.getByRole("tab").count();
+    const chatTabTitle = await app.page
+      .getByRole("toolbar", { name: /^Pane \d+ tabs$/ })
+      .getByRole("button", { pressed: true })
+      .innerText();
+    const chatTab = app.page
+      .getByRole("toolbar", { name: /^Pane \d+ tabs$/ })
+      .getByRole("button", { name: chatTabTitle, exact: true });
+    const initialTabCount = await app.page
+      .locator("[role=toolbar] button[aria-pressed]")
+      .count();
     await editor.fill("Keep this follow-up draft");
     for (const [index, name] of [
       "picture.png",
@@ -207,12 +213,14 @@ e2eTest(
       "document.docx",
     ].entries()) {
       await userMessage.getByRole("link", { name, exact: true }).click();
-      await expect(app.page.getByRole("tab")).toHaveCount(
-        initialTabCount + index + 1,
-      );
-      await expect(app.page.getByRole("tab", { selected: true })).toHaveText(
-        name,
-      );
+      await expect(
+        app.page.locator("[role=toolbar] button[aria-pressed]"),
+      ).toHaveCount(initialTabCount + index + 1);
+      await expect(
+        app.page
+          .getByRole("toolbar", { name: /^Pane \d+ tabs$/ })
+          .getByRole("button", { pressed: true }),
+      ).toHaveText(name);
       await expect(chatTab).toBeVisible();
       await chatTab.click();
       await expect(editor).toHaveText("Keep this follow-up draft");
@@ -221,7 +229,9 @@ e2eTest(
     await userMessage
       .getByRole("link", { name: "picture.png", exact: true })
       .click();
-    await expect(app.page.getByRole("tab")).toHaveCount(initialTabCount + 3);
+    await expect(
+      app.page.locator("[role=toolbar] button[aria-pressed]"),
+    ).toHaveCount(initialTabCount + 3);
     await expect(
       app.page.getByRole("img", { name: /\/picture\.png$/ }),
     ).toBeVisible();
@@ -335,9 +345,11 @@ e2eTest(
         .last()
         .getByRole("link"),
     ).toHaveCount(3);
-    await expect(app.page.getByRole("tab", { selected: true })).toHaveText(
-      "Review the files",
-    );
+    await expect(
+      app.page
+        .getByRole("toolbar", { name: /^Pane \d+ tabs$/ })
+        .getByRole("button", { pressed: true }),
+    ).toHaveText("Review the files");
   },
 );
 
@@ -345,7 +357,7 @@ e2eTest(
   "preserves the draft and files after an attachment error and sends a corrected selection",
   async ({ app, llm }) => {
     await app.page
-      .getByRole("button", { name: "New session", exact: true })
+      .getByRole("button", { name: "New tab", exact: true })
       .click();
     const pane = app.page.getByRole("main");
     await pane
@@ -394,7 +406,7 @@ e2eTest(
   "pastes an image into a new attachment-only chat",
   async ({ app, llm }) => {
     await app.page
-      .getByRole("button", { name: "New session", exact: true })
+      .getByRole("button", { name: "New tab", exact: true })
       .click();
     const pane = app.page.getByRole("main");
     const image = await fs.readFile(
@@ -438,9 +450,11 @@ e2eTest(
     await expect(pane.getByRole("log")).toContainText(
       "I received your pasted image.",
     );
-    await expect(app.page.getByRole("tab", { selected: true })).toHaveText(
-      "clipboard.png",
-    );
+    await expect(
+      app.page
+        .getByRole("toolbar", { name: /^Pane \d+ tabs$/ })
+        .getByRole("button", { pressed: true }),
+    ).toHaveText("clipboard.png");
     await expect(
       pane
         .getByRole("article", { name: "You message" })
@@ -453,10 +467,10 @@ e2eTest(
   "keeps the first message visible while the saved session reconnects",
   async ({ app, llm }) => {
     await app.page
-      .getByRole("button", { name: "New session", exact: true })
+      .getByRole("button", { name: "New tab", exact: true })
       .click();
     const subscriptions: Route[] = [];
-    await app.page.route("**/rpc/sessions/watch", async (route) => {
+    await app.page.route("**/rpc/thread/events", async (route) => {
       subscriptions.push(route);
       if (subscriptions.length === 2) return;
       await route.continue();
@@ -509,7 +523,7 @@ e2eTest(
   "preserves the reading position during streaming and follows again at the bottom",
   async ({ app, llm }) => {
     await app.page
-      .getByRole("button", { name: "New session", exact: true })
+      .getByRole("button", { name: "New tab", exact: true })
       .click();
     await app.page
       .getByRole("main")
@@ -553,6 +567,70 @@ e2eTest(
       app.page.getByRole("button", { name: "Stop", exact: true }),
     ).not.toBeVisible();
     await expect(finalStep).toBeInViewport();
+  },
+);
+
+e2eTest(
+  "keeps rendering a long session while a response streams faster than it renders",
+  async ({ app, harness, llm }) => {
+    e2eTest.setTimeout(120_000);
+    const pageErrors: string[] = [];
+    app.page.on("pageerror", (error) =>
+      pageErrors.push(error.stack ?? error.message),
+    );
+    await harness.loadSession({
+      title: "Long conversation",
+      messages: Array.from({ length: 400 }, (_, index) => [
+        m.user(`Question ${index}: Please explain step ${index} in detail.`),
+        m.assistant(
+          [
+            `## Answer ${index}`,
+            "",
+            `Step ${index} has a detailed explanation with \`code\` and a list:`,
+            "",
+            "- first point",
+            "- second point",
+            "",
+            "| Column | Value |",
+            "| --- | --- |",
+            `| step | ${index} |`,
+            "",
+            "```ts",
+            `const step = ${index};`,
+            "```",
+          ].join("\n"),
+        ),
+      ]).flat(),
+    });
+    const session = app.page.getByRole("main", { name: "Long conversation" });
+    const transcript = session.getByRole("log", { name: "Session transcript" });
+    await expect(transcript).toContainText("Answer 399");
+
+    // Keep renderer work slower than incoming deltas on fast CI machines.
+    const cdp = await app.page.context().newCDPSession(app.page);
+    await cdp.send("Emulation.setCPUThrottlingRate", { rate: 4 });
+
+    await session.getByLabel("Message", { exact: true }).fill("Keep going");
+    await session.getByRole("button", { name: "Send", exact: true }).click();
+    const response = await llm.stream();
+    // Each delta re-renders the whole transcript. Deltas that arrive faster
+    // than that render once made React count the Find updates as nested and
+    // unmount the window with "Maximum update depth exceeded".
+    for (let index = 0; index < 2_000; index++) {
+      response.write(m.assistant(`token-${index} `));
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    response.end();
+    await expect
+      .poll(
+        async () =>
+          pageErrors[0] ??
+          (await transcript.textContent())?.includes("token-1999"),
+        { timeout: 60_000 },
+      )
+      .toBe(true);
+    expect(pageErrors).toEqual([]);
+    await expect(transcript).toContainText("Answer 399");
   },
 );
 
@@ -611,9 +689,7 @@ e2eTest("starts a new session", async ({ harness, app }) => {
     ],
   });
 
-  await app.page
-    .getByRole("button", { name: "New session", exact: true })
-    .click();
+  await app.page.getByRole("button", { name: "New tab", exact: true }).click();
 
   const newSession = app.page.getByRole("main", {
     name: "New session",
@@ -697,7 +773,7 @@ e2eTest(
     ).toBeVisible();
 
     await app.page
-      .getByRole("button", { name: "New session", exact: true })
+      .getByRole("button", { name: "New tab", exact: true })
       .click();
     const draft = app.page.getByRole("main", {
       name: "New session",
@@ -723,7 +799,7 @@ e2eTest(
       content: "The project mascot is a blue bicycle.",
     });
     await app.page
-      .getByRole("button", { name: "New session", exact: true })
+      .getByRole("button", { name: "New tab", exact: true })
       .click();
     await app.page
       .getByRole("main")
@@ -806,7 +882,7 @@ e2eTest(
   "answers a new message after stopping a pending model response",
   async ({ app, llm }) => {
     await app.page
-      .getByRole("button", { name: "New session", exact: true })
+      .getByRole("button", { name: "New tab", exact: true })
       .click();
     await app.page
       .getByRole("main")
@@ -832,7 +908,7 @@ e2eTest(
   "finishes a pending response while Electron is closed",
   async ({ app, llm }) => {
     await app.page
-      .getByRole("button", { name: "New session", exact: true })
+      .getByRole("button", { name: "New tab", exact: true })
       .click();
     await app.page
       .getByRole("main")
@@ -860,14 +936,14 @@ e2eTest(
   "titles a session immediately and keeps its first message when inference is denied",
   async ({ app, llm }) => {
     await app.page
-      .getByRole("button", { name: "New session", exact: true })
+      .getByRole("button", { name: "New tab", exact: true })
       .click();
     const pane = app.page.getByRole("main");
     const observed = await app.page.evaluateHandle(() => {
       const titles: string[] = [];
       const observer = new MutationObserver(() => {
         const title = document.querySelector(
-          '[role="tab"][aria-selected="true"]',
+          '[role="toolbar"] button[aria-pressed="true"]',
         )?.textContent;
         if (title !== undefined && title !== null) titles.push(title);
       });
@@ -882,9 +958,11 @@ e2eTest(
       .getByLabel("Message", { exact: true })
       .fill("Keep my original question");
     await pane.getByRole("button", { name: "Send", exact: true }).click();
-    await expect(app.page.getByRole("tab", { selected: true })).toHaveText(
-      "Keep my original question",
-    );
+    await expect(
+      app.page
+        .getByRole("toolbar", { name: /^Pane \d+ tabs$/ })
+        .getByRole("button", { pressed: true }),
+    ).toHaveText("Keep my original question");
     await llm.respond(m.error("Model access denied"));
 
     await expect(pane.getByRole("alert")).toContainText("Model access denied");
@@ -900,10 +978,12 @@ e2eTest(
       pane.getByRole("log", { name: "Session transcript" }),
     ).toContainText("Ready to continue.");
     await expect(pane.getByRole("alert")).not.toBeVisible();
-    await expect(app.page.getByRole("tab", { selected: true })).toHaveText(
-      "Keep my original question",
-    );
-    const [session] = await app.server.rpc.sessions.list();
+    await expect(
+      app.page
+        .getByRole("toolbar", { name: /^Pane \d+ tabs$/ })
+        .getByRole("button", { pressed: true }),
+    ).toHaveText("Keep my original question");
+    const [session] = await app.server.rpc.thread.list();
     expect(session).toBeDefined();
     const observedTitles = await observed.evaluate(({ titles, observer }) => {
       observer.disconnect();
@@ -924,27 +1004,199 @@ const googleDriveConnection = {
   template: "googleOAuth2",
 } as const;
 
-e2eTest("shows a connection request", async ({ harness, app }) => {
-  await harness.loadSession({
-    title: "Drive search",
-    messages: [
-      m.user("Find my planning document"),
-      m.connectionRequest(googleDriveConnection),
-    ],
-  });
+e2eTest(
+  "shows a connection card from exec without asking for approval",
+  async ({ app, llm }, testInfo) => {
+    await app.page
+      .getByRole("button", { name: "New tab", exact: true })
+      .click();
+    const pane = app.page.getByRole("main", { name: "New session" });
+    await pane
+      .getByLabel("Message", { exact: true })
+      .fill("Show the Drive connection card");
+    await pane.getByRole("button", { name: "Send", exact: true }).click();
+    await llm.respond(
+      m.tool.start("exec", {
+        id: "show-drive-connection",
+        arguments: {
+          js: 'return await tools.halo.showConnectionCard({ integration: "google_drive" });',
+        },
+      }),
+    );
+    await llm.respond(
+      m.assistant("Choose whether to connect Drive using the card."),
+    );
+    await expect(
+      app.page.getByRole("log", { name: "Session transcript" }),
+    ).toContainText("Choose whether to connect Drive using the card.");
+    await expect(
+      app.page.getByRole("region", { name: /approval/ }),
+    ).toHaveCount(0);
 
-  const card = app.page.getByRole("region", {
-    name: "Google Drive connection",
-  });
-  await expect(card).toBeVisible();
-  await expect(
-    card.getByText("Search, read, create, and share files."),
-  ).toBeVisible();
-  await expect(card.getByRole("button", { name: "Connect" })).toBeVisible();
-  await expect(
-    card.getByText("Connect your account so the agent can continue"),
-  ).toHaveCount(0);
-});
+    const card = app.page.getByRole("region", {
+      name: "Google Drive connection",
+    });
+    await expect(card).toBeVisible();
+    await expect(
+      card.getByText("Search, read, create, and share files."),
+    ).toBeVisible();
+    await expect(card.getByRole("button", { name: "Connect" })).toBeVisible();
+    await expect(
+      card.getByText("Connect your account so the agent can continue"),
+    ).toHaveCount(0);
+    await app.page.screenshot({
+      path: testInfo.outputPath("connection-card-without-approval.png"),
+    });
+  },
+);
+
+e2eTest(
+  "shows connection and approval cards from the same exec",
+  async ({ app, llm }, testInfo) => {
+    await app.page
+      .getByRole("button", { name: "New tab", exact: true })
+      .click();
+    const pane = app.page.getByRole("main", { name: "New session" });
+    await pane
+      .getByLabel("Message", { exact: true })
+      .fill("Connect Drive and create a policy");
+    await pane.getByRole("button", { name: "Send", exact: true }).click();
+    await llm.respond(
+      m.tool.start("exec", {
+        id: "mixed-requests",
+        arguments: {
+          js: `return await Promise.allSettled([
+        tools.halo.showConnectionCard({ integration: "google_drive" }),
+        tools.executor.coreTools.policies.create({ owner: "user", pattern: "mixed-demo.*", action: "block" })
+      ]);`,
+        },
+      }),
+    );
+    await llm.respond(m.assistant("Please respond to both cards."));
+    const connection = app.page.getByRole("region", {
+      name: "Google Drive connection",
+    });
+    const approval = app.page.getByRole("region", {
+      name: "Approve this tool action? approval",
+    });
+    await expect(
+      connection.getByRole("button", { name: "Connect", exact: true }),
+    ).toBeVisible();
+    await expect(
+      approval.getByRole("button", { name: "Allow once", exact: true }),
+    ).toBeVisible();
+    await expect(
+      app.page.getByRole("button", { name: "Stop", exact: true }),
+    ).not.toBeVisible();
+    await app.page.screenshot({
+      path: testInfo.outputPath("mixed-requests.png"),
+    });
+    await app.page.reload();
+    await expect(connection).toBeVisible();
+    await expect(approval).toBeVisible();
+  },
+);
+
+e2eTest(
+  "shows a Gmail draft approval request",
+  async ({ harness, app, llm }) => {
+    await harness.loadSession({
+      title: "Draft reply",
+      messages: [
+        m.user("Draft a reply"),
+        m.exec({
+          js: "return await tools.google_gmail.user.default.gmail.users.drafts.create({})",
+          approvals: [
+            {
+              id: "draft-approval",
+              toolPath: "google_gmail.user.default.gmail.users.drafts.create",
+              message: "POST /gmail/v1/users/{userId}/drafts",
+              arguments: {},
+              status: "pending",
+            },
+          ],
+        }),
+      ],
+    });
+
+    const card = app.page.getByRole("region", {
+      name: "Create Gmail draft? approval",
+    });
+    await expect(card).toBeVisible();
+    await expect(card.locator('[data-approval-icon="mail"]')).toBeVisible();
+    await expect(card.locator('[data-approval-icon="generic"]')).toHaveCount(0);
+    await expect(
+      card.getByText(
+        "The agent wants to create a draft reply in your Gmail account.",
+      ),
+    ).toBeVisible();
+    await expect(card.getByRole("button", { name: "Deny" })).toBeVisible();
+    await expect(
+      card.getByRole("button", { name: "Allow once" }),
+    ).toBeVisible();
+    await app.page
+      .getByLabel("Message", { exact: true })
+      .fill("Work on something else");
+    await app.page.getByRole("button", { name: "Send", exact: true }).click();
+    await llm.waitForRequest();
+    await card.getByRole("button", { name: "Allow once" }).click();
+    await expect(card.getByRole("status")).toHaveText("Allowed once");
+    await expect(card.locator('[data-approval-icon="allowed"]')).toBeVisible();
+    await expect(card.getByRole("button")).toHaveCount(0);
+    await expect(
+      card.getByText(
+        "The agent wants to create a draft reply in your Gmail account.",
+      ),
+    ).toBeVisible();
+    await app.page.getByRole("button", { name: "Stop", exact: true }).click();
+    await expect(
+      app.page.getByRole("button", { name: "Stop", exact: true }),
+    ).not.toBeVisible();
+    await app.page.reload();
+    await expect(card.getByRole("status")).toHaveText("Allowed once");
+    await expect(card.getByRole("button")).toHaveCount(0);
+  },
+);
+
+e2eTest(
+  "shows a generic icon for other approvals",
+  async ({ harness, app, llm }) => {
+    await harness.loadSession({
+      title: "Policy approval",
+      messages: [
+        m.user("Create a tool policy"),
+        m.exec({
+          js: "return await tools.executor.coreTools.policies.create({})",
+          approvals: [
+            {
+              id: "policy-approval",
+              toolPath: "executor.coreTools.policies.create",
+              message: "Approve executor.coreTools.policies.create?",
+              arguments: {},
+              status: "pending",
+            },
+          ],
+        }),
+      ],
+    });
+
+    const card = app.page.getByRole("region", {
+      name: "Approve this tool action? approval",
+    });
+    await expect(card.locator('[data-approval-icon="generic"]')).toBeVisible();
+    await expect(card.locator('[data-approval-icon="mail"]')).toHaveCount(0);
+    await card.getByRole("button", { name: "Deny", exact: true }).click();
+    await llm.respond(m.assistant("I will continue without that action."));
+    await expect(card.getByRole("status")).toHaveText("Denied");
+    await expect(card.locator('[data-approval-icon="denied"]')).toBeVisible();
+    await expect(card.getByRole("button")).toHaveCount(0);
+    await expect(
+      card.getByText("Approve executor.coreTools.policies.create?", {
+        exact: true,
+      }),
+    ).toBeVisible();
+  },
+);
 
 e2eTest(
   "starts connecting a tool from the connection card",
@@ -1069,7 +1321,7 @@ e2eTest(
       content: "Read before the request",
     });
     await app.page
-      .getByRole("button", { name: "New session", exact: true })
+      .getByRole("button", { name: "New tab", exact: true })
       .click();
     await app.page
       .getByRole("main")
@@ -1182,7 +1434,7 @@ e2eTest(
   "keeps tool details expanded through exec progress and assistant streaming",
   async ({ app, llm, http }) => {
     await app.page
-      .getByRole("button", { name: "New session", exact: true })
+      .getByRole("button", { name: "New tab", exact: true })
       .click();
     await app.page
       .getByRole("main")
@@ -1364,7 +1616,7 @@ e2eTest(
   "keeps parallel tool activity visible when another tool finishes",
   async ({ app, llm, http }) => {
     await app.page
-      .getByRole("button", { name: "New session", exact: true })
+      .getByRole("button", { name: "New tab", exact: true })
       .click();
     await app.page
       .getByRole("main")
@@ -1453,7 +1705,7 @@ e2eTest(
   "shows identical parallel commands as separate active work",
   async ({ app, llm }) => {
     await app.page
-      .getByRole("button", { name: "New session", exact: true })
+      .getByRole("button", { name: "New tab", exact: true })
       .click();
     await app.page
       .getByRole("main")
@@ -1542,7 +1794,7 @@ e2eTest(
   "restores partial assistant text on reload and continues the same response",
   async ({ app, llm }) => {
     await app.page
-      .getByRole("button", { name: "New session", exact: true })
+      .getByRole("button", { name: "New tab", exact: true })
       .click();
     await app.page
       .getByRole("main")
@@ -1581,7 +1833,7 @@ e2eTest(
   "shows running sessions and keeps completed results unread until opened",
   async ({ app, llm }) => {
     const listRequests: string[] = [];
-    await app.page.route("**/rpc/sessions/list", async (route) => {
+    await app.page.route("**/rpc/thread/list", async (route) => {
       listRequests.push(route.request().url());
       await route.abort();
     });
@@ -1602,7 +1854,7 @@ e2eTest(
     await app.page.reload();
 
     await app.page
-      .getByRole("button", { name: "New session", exact: true })
+      .getByRole("button", { name: "New tab", exact: true })
       .click();
     await app.page
       .getByRole("main")
@@ -1628,12 +1880,12 @@ e2eTest(
 
     // Opening a running session must not count its future result as read.
     await app.page
-      .getByRole("button", { name: "New session", exact: true })
+      .getByRole("button", { name: "New tab", exact: true })
       .click();
     await sessionLink.click();
     await expect(working).toBeVisible();
     await app.page
-      .getByRole("button", { name: "New session", exact: true })
+      .getByRole("button", { name: "New tab", exact: true })
       .click();
     const response = await llm.stream();
     response.write(m.assistant("The report is ready."));
@@ -1646,11 +1898,11 @@ e2eTest(
     await expect(sessionLink).toBeVisible();
     await expect(unread).toBeVisible();
     const pendingWatches: Route[] = [];
-    await app.page.route("**/rpc/sessions/watch", (route) => {
+    await app.page.route("**/rpc/thread/events", (route) => {
       pendingWatches.push(route);
     });
     let readAttempts = 0;
-    await app.page.route("**/rpc/sessions/markRead", async (route) => {
+    await app.page.route("**/rpc/thread/markRead", async (route) => {
       readAttempts++;
       if (readAttempts === 1) {
         await route.abort();
@@ -1664,13 +1916,13 @@ e2eTest(
     await app.page.waitForTimeout(300);
     await expect(unread).toBeVisible();
     await pendingWatches[0]!.continue();
-    await app.page.unroute("**/rpc/sessions/watch");
+    await app.page.unroute("**/rpc/thread/events");
     await expect(app.page.getByRole("log")).toContainText(
       "The report is ready.",
     );
     await expect(unread).not.toBeVisible();
     expect(readAttempts).toBe(2);
-    await app.page.unroute("**/rpc/sessions/markRead");
+    await app.page.unroute("**/rpc/thread/markRead");
     await app.page.reload();
     await expect(sessionLink).toBeVisible();
     await expect(unread).not.toBeVisible();
@@ -1684,7 +1936,7 @@ e2eTest(
     await llm.respond(m.assistant("Here is the conclusion."));
     await expect(working).not.toBeVisible();
     await app.page
-      .getByRole("button", { name: "New session", exact: true })
+      .getByRole("button", { name: "New tab", exact: true })
       .click();
     await app.page.reload();
     await expect(sessionLink).toBeVisible();
@@ -1698,7 +1950,7 @@ e2eTest(
   "shares unread results and read receipts between windows",
   async ({ app, llm }) => {
     await app.page
-      .getByRole("button", { name: "New session", exact: true })
+      .getByRole("button", { name: "New tab", exact: true })
       .click();
     await app.page
       .getByRole("main")
@@ -1711,10 +1963,10 @@ e2eTest(
     const otherWindow = await app.openWindow();
     await otherWindow.getByRole("main").waitFor();
     await otherWindow
-      .getByRole("button", { name: "New session", exact: true })
+      .getByRole("button", { name: "New tab", exact: true })
       .click();
     await app.page
-      .getByRole("button", { name: "New session", exact: true })
+      .getByRole("button", { name: "New tab", exact: true })
       .click();
     await llm.respond(m.assistant("Your result arrived while you were away."));
     const unread = app.page.getByRole("img", { name: "Unread result" });
@@ -1738,7 +1990,7 @@ e2eTest(
   "archives an open thread from its hover action",
   async ({ app, llm }) => {
     await app.page
-      .getByRole("button", { name: "New session", exact: true })
+      .getByRole("button", { name: "New tab", exact: true })
       .click();
     const pane = app.page.getByRole("main");
     await pane

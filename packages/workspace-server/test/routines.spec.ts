@@ -52,7 +52,7 @@ serverTest(
     expect(started).toMatchObject({ trigger: "manual", status: "running" });
     const run = await waitForRun(server.rpc, routine.id, "completed");
 
-    const snapshot = await server.rpc.sessions.snapshot({
+    const snapshot = await server.rpc.thread.snapshot({
       sessionId: run.sessionId!,
     });
     expect(sessionMessages(snapshot)).toMatchObject([
@@ -63,7 +63,7 @@ serverTest(
         exitCode: 0,
       },
     ]);
-    const sessions = await server.rpc.sessions.list();
+    const sessions = await server.rpc.thread.list();
     expect(
       sessions.find((session) => session.sessionId === run.sessionId),
     ).toMatchObject({
@@ -87,7 +87,7 @@ serverTest(
 
     await server.rpc.routines.runNow({ routineId: routine.id });
     const run = await waitForRun(server.rpc, routine.id, "completed");
-    const snapshot = await server.rpc.sessions.snapshot({
+    const snapshot = await server.rpc.thread.snapshot({
       sessionId: run.sessionId!,
     });
     expect(sessionMessages(snapshot)).toMatchObject([
@@ -95,7 +95,7 @@ serverTest(
     ]);
     expect((await server.rpc.routines.list())[0]?.extensionId).toBeUndefined();
     expect(
-      (await server.rpc.sessions.list()).find(
+      (await server.rpc.thread.list()).find(
         (session) => session.sessionId === run.sessionId,
       )?.markedDone,
     ).toBe(false);
@@ -125,12 +125,12 @@ serverTest(
     await expect
       .poll(
         async () =>
-          (await server.rpc.sessions.list()).find(
+          (await server.rpc.thread.list()).find(
             (session) => session.sessionId === run.sessionId,
           )?.markedDone,
       )
       .toBe(true);
-    const snapshot = await server.rpc.sessions.snapshot({
+    const snapshot = await server.rpc.thread.snapshot({
       sessionId: run.sessionId!,
     });
     expect(sessionMessages(snapshot)).toMatchObject([
@@ -164,7 +164,7 @@ serverTest(
     const finished = await waitForRun(server.rpc, routine.id, "completed");
 
     expect(finished.id).toBe(run.id);
-    const snapshot = await server.rpc.sessions.snapshot({
+    const snapshot = await server.rpc.thread.snapshot({
       sessionId: finished.sessionId!,
     });
     expect(sessionMessages(snapshot).map((message) => message.role)).toEqual([
@@ -249,7 +249,7 @@ serverTest(
     const [restarted] = await server.rpc.routines.list();
     expect(restarted).toMatchObject({ enabled: true });
     expect(Date.parse(restarted!.nextRunAt!)).toBeGreaterThan(Date.now());
-    const snapshot = await server.rpc.sessions.snapshot({
+    const snapshot = await server.rpc.thread.snapshot({
       sessionId: interrupted!.sessionId!,
     });
     expect(sessionMessages(snapshot)).toMatchObject([

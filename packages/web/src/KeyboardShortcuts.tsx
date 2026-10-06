@@ -55,7 +55,7 @@ export function KeyboardShortcuts() {
       setOpen(false);
       setError(undefined);
       if (action.type === "runAgent") {
-        const created = await api.sessions.create().catch(
+        const created = await api.thread.new().catch(
           (cause) =>
             new HotkeyRunError({
               reason: cause instanceof Error ? cause.message : String(cause),
@@ -76,7 +76,7 @@ export function KeyboardShortcuts() {
           path: `/sessions/${created.sessionId}`,
           newTab: true,
         });
-        const prompted = await api.sessions
+        const prompted = await api.thread
           .prompt({
             sessionId: created.sessionId,
             text: action.prompt,
@@ -96,7 +96,10 @@ export function KeyboardShortcuts() {
         return;
       }
       if (action.type === "closeTab") {
+        const { root } = workspace.getSnapshot();
+        const isLastTab = root.kind === "pane" && root.tabs.length === 1;
         workspace.close(workspace.activePane().activeTabId);
+        if (isLastTab) host.closeWindow?.();
         return;
       }
       if (action.type === "openFile") {
@@ -122,7 +125,7 @@ export function KeyboardShortcuts() {
         newTab: action.type === "newTab",
       });
     },
-    [api, queryClient, workspace],
+    [api, host, queryClient, workspace],
   );
 
   const runShortcut = useCallback(
@@ -135,7 +138,12 @@ export function KeyboardShortcuts() {
         );
         return;
       }
-      if (id === "newTab" || id === "newChat" || id === "shortcutMenu") {
+      if (
+        id === "newTab" ||
+        id === "newChat" ||
+        id === "closeTab" ||
+        id === "shortcutMenu"
+      ) {
         void runAction({ type: id }).catch(console.error);
         return;
       }

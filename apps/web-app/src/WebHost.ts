@@ -12,7 +12,7 @@ import {
   protocolHeader,
   type HaloClient,
 } from "@get-halo/client";
-import type { HostApi } from "@get-halo/web/HostApi";
+import type { AppInfo, HostApi } from "@get-halo/web/HostApi";
 import { createAuthClient } from "better-auth/client";
 import * as errore from "errore";
 
@@ -22,6 +22,34 @@ class WebHostError extends errore.createTaggedError({
 }) {}
 
 export class WebHost implements HostApi {
+  async getAppInfo(): Promise<AppInfo> {
+    return {
+      version: import.meta.env.VITE_HALO_VERSION,
+      development: import.meta.env.VITE_HALO_DEVELOPMENT,
+      update: { state: "disabled", reason: "Browser updates arrive on reload" },
+    };
+  }
+
+  async getWorkspaceStatus() {
+    return await this.controlPlane.workspace
+      .status(undefined, {
+        signal: AbortSignal.timeout(10_000),
+      })
+      .catch(
+        (cause) =>
+          new WebHostError({ operation: "read workspace status", cause }),
+      );
+  }
+
+  async recordWorkspaceActivity() {
+    const workspace = await this.controlPlane.workspace
+      .ensure(undefined, { signal: AbortSignal.timeout(60_000) })
+      .catch(
+        (cause) => new WebHostError({ operation: "wake the workspace", cause }),
+      );
+    if (workspace instanceof Error) return workspace;
+  }
+
   readonly showLandingPage = true;
 
   // Tracks the active workspace client for integration connections.
@@ -84,13 +112,6 @@ export class WebHost implements HostApi {
       signal,
     );
     if (compatible instanceof Error) return compatible;
-    const workspace = await this.controlPlane.workspace
-      .ensure(undefined, { signal })
-      .catch(
-        (cause) =>
-          new WebHostError({ operation: "ensure the workspace", cause }),
-      );
-    if (workspace instanceof Error) return workspace;
 
     const health = await fetch("/workspace/health", { signal }).catch(
       (cause) =>
@@ -141,7 +162,7 @@ export class WebHost implements HostApi {
         operation: "start a connection without a workspace",
       });
     }
-    const started = await this.haloClient.sessions
+    const started = await this.haloClient.thread
       .startConnection({
         ...input,
         completion: {
@@ -169,7 +190,7 @@ export class WebHost implements HostApi {
         operation: "cancel a connection without a workspace",
       });
     }
-    return await this.haloClient.sessions
+    return await this.haloClient.thread
       .cancelConnection(input)
       .then(() => undefined)
       .catch(

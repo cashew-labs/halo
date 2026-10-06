@@ -10,9 +10,11 @@ import type { WorkspaceServerOptions } from "@get-halo/workspace-server";
 vi.setConfig({ testTimeout: 20_000 });
 
 type ServerOptions = {
+  agentCapabilities?: WorkspaceServerOptions["host"]["agentCapabilities"];
   gateway?: WorkspaceServerOptions["config"]["gateway"];
   workspaceRoot?: string;
   testApiEnabled?: boolean;
+  integrationsEnabled?: boolean;
   traceUploader?: WorkspaceServerOptions["host"]["traceUploader"];
   traceWorkspaceId?: string;
 };
@@ -53,8 +55,10 @@ export const serverTest = baseTest.extend<{
     await use((options = {}) => {
       const server = new TestServer({
         gateway: options.gateway,
+        integrationsEnabled: options.integrationsEnabled,
         artifacts,
         llmApi: createOpenAILLMApi(llm.configuration),
+        agentCapabilities: options.agentCapabilities,
         traceUploader: options.traceUploader,
         traceWorkspaceId: options.traceWorkspaceId,
         workspaceRoot:

@@ -27,9 +27,9 @@ import {
   type ExtensionsRouterContext,
 } from "../extensions/extensionsRouter.js";
 import {
-  sessionsRouter,
-  type SessionsRouterContext,
-} from "../sessions/sessionsRouter.js";
+  threadRouter,
+  type ThreadRouterContext,
+} from "../sessions/threadRouter.js";
 import {
   workspaceRouter,
   type WorkspaceRouterContext,
@@ -46,7 +46,7 @@ export type HaloContext = RequestHeadersHandlerPluginContext &
   TracesRouterContext &
   WorkspaceRouterContext &
   ExtensionsRouterContext &
-  SessionsRouterContext &
+  ThreadRouterContext &
   TestApiRouterContext & { build?: { version: string; revision: string } };
 
 const server = implement(contract.server).$context<HaloContext>();
@@ -68,7 +68,7 @@ export const haloRpcRouter = {
   routines: routinesRouter,
   browser: browserRouter,
   workspace: workspaceRouter,
-  sessions: sessionsRouter,
+  thread: threadRouter,
   traces: tracesRouter,
   extensions: extensionsRouter,
   testApi: testApiRouter,

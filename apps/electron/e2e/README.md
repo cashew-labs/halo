@@ -21,7 +21,7 @@ Import `m` from `@get-halo/shared/testing`; server and Electron tests share this
 
 ```ts
 e2eTest("answers a message", async ({ app, llm }) => {
-  await app.page.getByRole("button", { name: "New session" }).click();
+  await app.page.getByRole("button", { name: "New tab" }).click();
   await app.page.getByLabel("Message", { exact: true }).fill("Hello");
   await app.page.getByRole("button", { name: "Send", exact: true }).click();
 

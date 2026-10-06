@@ -72,6 +72,10 @@ async function handleDesktopRequest(args: {
   getConnection: () => Promise<HaloRpcConnection | Error | undefined>;
 }) {
   switch (args.request.type) {
+    case "getWorkspaceStatus":
+      return await args.authentication.getWorkspaceStatus?.();
+    case "recordWorkspaceActivity":
+      return await args.authentication.recordWorkspaceActivity?.();
     case "getConnection": {
       return await args.getConnection();
     }
@@ -132,7 +136,7 @@ async function connectIntegration(args: {
   if (callback instanceof Error) return callback;
 
   const client = createWorkspaceClient(connection);
-  const started = await client.sessions
+  const started = await client.thread
     .startConnection({
       sessionId: args.request.sessionId,
       request: args.request.request,
@@ -227,7 +231,7 @@ async function completeIntegrationOAuth(args: {
     return;
   }
 
-  const completed = await args.client.sessions
+  const completed = await args.client.thread
     .completeOAuth({
       state: received.state,
       code: received.code,
@@ -249,7 +253,7 @@ async function cancelPendingConnection(args: {
   sessionId: string;
   connectionId: string;
 }) {
-  const cancelled = await args.client.sessions
+  const cancelled = await args.client.thread
     .cancelConnection({
       sessionId: args.sessionId,
       connectionId: args.connectionId,

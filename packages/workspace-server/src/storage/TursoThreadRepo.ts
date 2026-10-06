@@ -4,23 +4,23 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { uuidv7 } from "@earendil-works/pi-ai";
 import type { DatabaseClient } from "./DatabaseClient.js";
 import type {
-  SessionHandle,
-  SessionData,
-  SessionMetadata,
-  SessionProductFields,
-  SessionRepoApi,
-} from "./SessionRepoApi.js";
+  ThreadHandle,
+  ThreadData,
+  ThreadMetadata,
+  ThreadProductFields,
+  ThreadRepoApi,
+} from "./ThreadRepoApi.js";
 import { TursoStorage } from "./TursoStorage.js";
-import { decodeSessionJson, SessionBackendError } from "./sessionSchema.js";
+import { decodeThreadJson, ThreadBackendError } from "./threadSchema.js";
 
-type SessionProductFieldsRow = {
+type ThreadProductFieldsRow = {
   id: string;
   marked_done: number;
   read_receipt_cursor_id: string | null;
 };
 type MetadataRow = { metadata: string };
 
-export class TursoSessionRepo implements SessionRepoApi {
+export class TursoThreadRepo implements ThreadRepoApi {
   private readonly reserved = new Set<string>();
   private readonly storages = new Set<TursoStorage>();
   private closed = false;
@@ -29,31 +29,31 @@ export class TursoSessionRepo implements SessionRepoApi {
 
   async create(options?: { id?: string }) {
     const createdAt = Date.now();
-    const sessionId = options?.id ?? uuidv7(createdAt);
-    this.reserve(sessionId);
+    const threadId = options?.id ?? uuidv7(createdAt);
+    this.reserve(threadId);
     const inserted = await this.database.access((connection) =>
       connection
-        .prepare("INSERT INTO halo_sessions (id, metadata) VALUES (?, ?)")
-        .run(sessionId, JSON.stringify({ id: sessionId, createdAt })),
+        .prepare("INSERT INTO halo_threads (id, metadata) VALUES (?, ?)")
+        .run(threadId, JSON.stringify({ id: threadId, createdAt })),
     );
     if (inserted instanceof Error) {
-      this.reserved.delete(sessionId);
+      this.reserved.delete(threadId);
       throw inserted;
     }
-    return await this.openReserved({ id: sessionId, createdAt });
+    return await this.openReserved({ id: threadId, createdAt });
   }
 
-  async open(metadata: SessionMetadata) {
+  async open(metadata: ThreadMetadata) {
     this.reserve(metadata.id);
     const loaded = await this.database.access((connection) => {
       const row = connection
-        .prepare("SELECT metadata FROM halo_sessions WHERE id = ?")
+        .prepare("SELECT metadata FROM halo_threads WHERE id = ?")
         .get(metadata.id) as MetadataRow | undefined;
       if (row === undefined)
-        throw new SessionBackendError({
-          detail: `Unknown session ${metadata.id}`,
+        throw new ThreadBackendError({
+          detail: `Unknown thread ${metadata.id}`,
         });
-      const persisted = decodeSessionJson<SessionMetadata>(row.metadata);
+      const persisted = decodeThreadJson<ThreadMetadata>(row.metadata);
       return { id: persisted.id, createdAt: persisted.createdAt };
     });
     if (loaded instanceof Error) {
@@ -68,10 +68,10 @@ export class TursoSessionRepo implements SessionRepoApi {
     const listed = await this.database.access((connection) =>
       (
         connection
-          .prepare("SELECT metadata FROM halo_sessions")
+          .prepare("SELECT metadata FROM halo_threads")
           .all() as MetadataRow[]
       )
-        .map(({ metadata }) => decodeSessionJson<SessionMetadata>(metadata))
+        .map(({ metadata }) => decodeThreadJson<ThreadMetadata>(metadata))
         .map(({ id, createdAt }) => ({ id, createdAt }))
         .toSorted((a, b) => b.createdAt - a.createdAt),
     );
@@ -79,55 +79,69 @@ export class TursoSessionRepo implements SessionRepoApi {
     return listed;
   }
 
-  async read(sessionId: string): Promise<SessionData> {
+  async read(threadId: string): Promise<ThreadData> {
     this.assertOpen();
-    return await TursoStorage.readSession({
+    return await TursoStorage.readThread({
       database: this.database,
-      sessionId,
+      threadId,
     });
+  }
+
+  async listPendingThreadIds() {
+    return await this.database.access((connection) =>
+      (
+        connection
+          .prepare(`
+        SELECT thread_id FROM tasks WHERE status IN ('pending', 'running', 'waiting', 'completing')
+        UNION
+        SELECT thread_id FROM submissions WHERE status IN ('queued', 'placed')
+      `)
+          .all() as { thread_id: string }[]
+      ).map((row) => row.thread_id),
+    );
   }
 
   async listProductFields() {
     return await this.database.access(
       (connection) =>
-        new Map<string, SessionProductFields>(
+        new Map<string, ThreadProductFields>(
           (
             connection
               .prepare(
-                "SELECT id, marked_done, read_receipt_cursor_id FROM halo_sessions",
+                "SELECT id, marked_done, read_receipt_cursor_id FROM halo_threads",
               )
-              .all() as SessionProductFieldsRow[]
+              .all() as ThreadProductFieldsRow[]
           ).map((row) => [row.id, decodeProductFields(row)]),
         ),
     );
   }
-  async getProductFields(sessionId: string) {
+  async getProductFields(threadId: string) {
     return await this.database.access((connection) => {
       const row = connection
         .prepare(
-          "SELECT id, marked_done, read_receipt_cursor_id FROM halo_sessions WHERE id = ?",
+          "SELECT id, marked_done, read_receipt_cursor_id FROM halo_threads WHERE id = ?",
         )
-        .get(sessionId) as SessionProductFieldsRow | undefined;
+        .get(threadId) as ThreadProductFieldsRow | undefined;
       return row === undefined ? undefined : decodeProductFields(row);
     });
   }
-  async setMarkedDone(input: { sessionId: string; markedDone: boolean }) {
+  async setMarkedDone(input: { threadId: string; markedDone: boolean }) {
     return await this.database.access((connection) => {
       connection
-        .prepare("UPDATE halo_sessions SET marked_done = ? WHERE id = ?")
-        .run(input.markedDone ? 1 : 0, input.sessionId);
+        .prepare("UPDATE halo_threads SET marked_done = ? WHERE id = ?")
+        .run(input.markedDone ? 1 : 0, input.threadId);
     });
   }
   async setReadReceipt(input: {
-    sessionId: string;
+    threadId: string;
     readReceiptCursorId?: string;
   }) {
     return await this.database.access((connection) => {
       connection
         .prepare(
-          "UPDATE halo_sessions SET read_receipt_cursor_id = ? WHERE id = ?",
+          "UPDATE halo_threads SET read_receipt_cursor_id = ? WHERE id = ?",
         )
-        .run(input.readReceiptCursorId ?? null, input.sessionId);
+        .run(input.readReceiptCursorId ?? null, input.threadId);
     });
   }
 
@@ -141,21 +155,19 @@ export class TursoSessionRepo implements SessionRepoApi {
             .close(BACKGROUND_CONTEXT)
             .catch(
               (cause) =>
-                new SessionBackendError({ detail: "Close storage", cause }),
+                new ThreadBackendError({ detail: "Close storage", cause }),
             ),
       ),
     );
     return closed.find((item) => item instanceof Error);
   }
 
-  private async openReserved(
-    metadata: SessionMetadata,
-  ): Promise<SessionHandle> {
+  private async openReserved(metadata: ThreadMetadata): Promise<ThreadHandle> {
     const opened = await TursoStorage.open({
       database: this.database,
-      sessionId: metadata.id,
+      threadId: metadata.id,
     }).catch(
-      (cause) => new SessionBackendError({ detail: "Open storage", cause }),
+      (cause) => new ThreadBackendError({ detail: "Open storage", cause }),
     );
     if (opened instanceof Error) {
       this.reserved.delete(metadata.id);
@@ -175,24 +187,22 @@ export class TursoSessionRepo implements SessionRepoApi {
       close: async () => await storage.close(BACKGROUND_CONTEXT),
     };
   }
-  private reserve(sessionId: string) {
+  private reserve(threadId: string) {
     this.assertOpen();
-    if (this.reserved.has(sessionId))
-      throw new SessionBackendError({
-        detail: `Session is already open: ${sessionId}`,
+    if (this.reserved.has(threadId))
+      throw new ThreadBackendError({
+        detail: `Thread is already open: ${threadId}`,
       });
-    this.reserved.add(sessionId);
+    this.reserved.add(threadId);
   }
   private assertOpen() {
     if (this.closed)
-      throw new SessionBackendError({ detail: "Repository is closed" });
+      throw new ThreadBackendError({ detail: "Repository is closed" });
   }
 }
 
-function decodeProductFields(
-  row: SessionProductFieldsRow,
-): SessionProductFields {
-  const fields: SessionProductFields = { markedDone: row.marked_done === 1 };
+function decodeProductFields(row: ThreadProductFieldsRow): ThreadProductFields {
+  const fields: ThreadProductFields = { markedDone: row.marked_done === 1 };
   if (row.read_receipt_cursor_id !== null)
     fields.readReceiptCursorId = row.read_receipt_cursor_id;
   return fields;

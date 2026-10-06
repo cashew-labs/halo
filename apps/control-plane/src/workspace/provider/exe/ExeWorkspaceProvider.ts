@@ -8,6 +8,7 @@ import type {
   WorkspaceProviderApi,
   WorkspaceProviderConnection,
   WorkspaceProviderInput,
+  WorkspaceProviderAssignment,
 } from "../WorkspaceProviderApi.js";
 
 class ExeWorkspaceProviderError extends errore.createTaggedError({
@@ -18,6 +19,7 @@ class ExeWorkspaceProviderError extends errore.createTaggedError({
 const vmSchema = Type.Object({
   vm_name: Type.String(),
   status: Type.String(),
+  tags: Type.Optional(Type.Array(Type.String())),
   // Verified on the real /exec ls response, including a newly cloned private VM.
   proxy_share: Type.String(),
 });
@@ -29,25 +31,32 @@ export class ExeWorkspaceProvider implements WorkspaceProviderApi {
   // Coalesce same-workspace provisioning within this control-plane instance.
   private readonly pendingEnsures = new Map<
     string,
-    { ownerUserId: string; operation: Promise<void | Error> }
+    {
+      ownerUserId: string;
+      runtime: WorkspaceProviderAssignment["runtime"];
+      operation: Promise<void | Error>;
+    }
   >();
   private readonly api: ExeApi;
   private readonly templateVmName: string;
   private readonly gatewaySecret: string;
+  private readonly workspaceTag: string | undefined;
 
   constructor(ctx: {
     privateKeyPath: string;
     templateVmName: string;
     gatewaySecret: string;
+    workspaceTag?: string;
   }) {
     this.api = new ExeApi({
       privateKeyPath: ctx.privateKeyPath,
     });
     this.templateVmName = ctx.templateVmName;
     this.gatewaySecret = ctx.gatewaySecret;
+    this.workspaceTag = ctx.workspaceTag;
   }
 
-  async ensure(input: WorkspaceProviderInput) {
+  async ensure(input: WorkspaceProviderAssignment): Promise<void | Error> {
     const pending = this.pendingEnsures.get(input.workspaceId);
     if (pending !== undefined) {
       if (pending.ownerUserId !== input.ownerUserId)
@@ -55,11 +64,17 @@ export class ExeWorkspaceProvider implements WorkspaceProviderApi {
           workspaceId: input.workspaceId,
           detail: "workspace is being assigned to another owner",
         });
+      if (JSON.stringify(pending.runtime) !== JSON.stringify(input.runtime)) {
+        const completed = await pending.operation;
+        if (completed instanceof Error) return completed;
+        return await this.ensure(input);
+      }
       return await pending.operation;
     }
     const operation = this.ensureWorkspace(input);
     this.pendingEnsures.set(input.workspaceId, {
       ownerUserId: input.ownerUserId,
+      runtime: input.runtime,
       operation,
     });
     const result = await operation;
@@ -84,6 +99,15 @@ export class ExeWorkspaceProvider implements WorkspaceProviderApi {
     } satisfies WorkspaceProviderConnection;
   }
 
+  async getStatus(input: WorkspaceProviderInput) {
+    const vm = await this.findVm(input);
+    if (vm instanceof Error) return vm;
+    // A real sleeping workspace was reported as suspended by Exe.
+    return vm?.status === "paused" || vm?.status === "suspended"
+      ? ("paused" as const)
+      : ("running" as const);
+  }
+
   async pause(input: WorkspaceProviderInput) {
     const vmName = this.vmName(input);
     if (vmName instanceof Error) return vmName;
@@ -96,9 +120,21 @@ export class ExeWorkspaceProvider implements WorkspaceProviderApi {
     if (vmName instanceof Error) return vmName;
     const result = await this.api.execute(["resume", vmName]);
     if (result instanceof Error) return result;
+    // Real RAM restore left the guest clock frozen despite NTP reporting synced.
+    const clock = await this.api.execute([
+      "ssh",
+      vmName,
+      `sudo date -s '@${Math.floor(Date.now() / 1000)}' >/dev/null && printf HALO_CLOCK_SYNCHRONIZED`,
+    ]);
+    if (clock instanceof Error) return clock;
+    if (clock.trim() !== "HALO_CLOCK_SYNCHRONIZED")
+      return new ExeWorkspaceProviderError({
+        workspaceId: input.workspaceId,
+        detail: "synchronize resumed guest clock",
+      });
   }
 
-  private async ensureWorkspace(input: WorkspaceProviderInput) {
+  private async ensureWorkspace(input: WorkspaceProviderAssignment) {
     const vmName = this.vmName(input);
     if (vmName instanceof Error) return vmName;
     const existing = await this.findVm(input);
@@ -137,20 +173,30 @@ export class ExeWorkspaceProvider implements WorkspaceProviderApi {
           });
       }
     }
-    if (existing?.status === "paused") {
-      const resumed = await this.resume(input);
+    if (existing?.status === "paused" || existing?.status === "suspended") {
+      // Assignment corrects the clock in its existing SSH call below.
+      const resumed = await this.api.execute(["resume", vmName]);
       if (resumed instanceof Error) return resumed;
     }
     const assignment = Buffer.from(
       JSON.stringify({ ...input, gatewayToken: this.gatewayToken(input) }),
     ).toString("base64url");
-    return await this.assign({
+    const assigned = await this.assign({
       input,
       vmName,
       assignment,
       // Another instance may have created this running VM before SSH is ready.
       attemptsRemaining: 30,
     });
+    if (assigned instanceof Error) return assigned;
+    // Release discovery must never include a clone whose assignment failed.
+    if (
+      this.workspaceTag !== undefined &&
+      !existing?.tags?.includes(this.workspaceTag)
+    ) {
+      const tagged = await this.api.execute(["tag", vmName, this.workspaceTag]);
+      if (tagged instanceof Error) return tagged;
+    }
   }
 
   private async assign(ctx: {
@@ -162,7 +208,7 @@ export class ExeWorkspaceProvider implements WorkspaceProviderApi {
     const assigned = await this.api.execute([
       "ssh",
       ctx.vmName,
-      `sudo /usr/local/bin/halo-workspace-assign ${ctx.assignment}`,
+      `sudo date -s '@${Math.floor(Date.now() / 1000)}' >/dev/null && sudo /usr/local/bin/halo-workspace-assign ${ctx.assignment}`,
     ]);
     // A real clone returned before SSH was reachable; Exe reports that as 422.
     if (

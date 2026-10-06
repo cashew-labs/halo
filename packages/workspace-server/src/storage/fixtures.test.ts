@@ -4,10 +4,10 @@ import type { Storage } from "@earendil-works/pi-durable";
 import { test as baseTest } from "vitest";
 import { FilesystemService } from "../filesystem/FilesystemService.js";
 import { DatabaseClient } from "./DatabaseClient.js";
-import { TursoSessionRepo } from "./TursoSessionRepo.js";
+import { TursoThreadRepo } from "./TursoThreadRepo.js";
 
 type PiBackendFixture = {
-  repo: TursoSessionRepo;
+  repo: TursoThreadRepo;
   openStorage(): Promise<Storage>;
 };
 
@@ -28,7 +28,7 @@ export const piBackendTest = baseTest.extend<{
       filesystem,
     });
     if (database instanceof Error) throw database;
-    const repo = new TursoSessionRepo(database);
+    const repo = new TursoThreadRepo(database);
 
     await use({
       repo,

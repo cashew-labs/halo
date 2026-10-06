@@ -35,6 +35,7 @@ import {
 import { AssistantMessage } from "./AssistantMessage.tsx";
 import { BashExecution } from "./BashExecution.tsx";
 import { Editor } from "./Editor.tsx";
+import { ExecutorApprovalCard } from "./ExecutorApprovalCard.tsx";
 import { ExecutorConnectionCard } from "./ExecutorConnectionCard.tsx";
 import { ToolActivity } from "./ToolActivity.tsx";
 import { useTabFindSource } from "../../panes/TabFind.js";
@@ -523,7 +524,11 @@ function SessionView({
   const view = useStyles(styles.view);
   const stopped = useStyles(styles.stopped);
   const items = useMemo(() => sessionViewItems(state), [state]);
-  useLayoutEffect(() => {
+  // Publish the Find source after paint. A layout effect schedules a sync
+  // re-render on every session event; when events arrive faster than this
+  // view renders, React counts those nested updates until it throws
+  // "Maximum update depth exceeded" and unmounts the window.
+  useEffect(() => {
     const root = viewRef.current;
     if (root === null) return;
     const elements =
@@ -747,6 +752,15 @@ function SessionViewRow({
         if (part.kind === "executorConnection") {
           return (
             <ExecutorConnectionCard
+              key={part.id}
+              sessionId={sessionId}
+              part={part}
+            />
+          );
+        }
+        if (part.kind === "toolApproval") {
+          return (
+            <ExecutorApprovalCard
               key={part.id}
               sessionId={sessionId}
               part={part}

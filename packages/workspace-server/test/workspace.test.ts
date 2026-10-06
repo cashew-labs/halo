@@ -3,7 +3,6 @@ import {
   createHaloClient,
   connectHaloClient,
   haloProtocolVersion,
-  haloSupportedProtocols,
   emptySessionSnapshot,
   isThreadUnread,
   reduceSessionUpdate,
@@ -19,9 +18,8 @@ import fs from "node:fs/promises";
 import nodeHttp from "node:http";
 import path from "node:path";
 import { gunzipSync } from "node:zlib";
-import { IdTokenClient } from "google-auth-library";
 import { ControlPlaneTraceUploader } from "@get-halo/workspace-server";
-import { assert, expect } from "vitest";
+import { assert, expect, vi } from "vitest";
 import { contentText } from "@earendil-works/pi-ai";
 import { m } from "@get-halo/shared/testing";
 import { messageText } from "@get-halo/workspace-server/testing";
@@ -64,13 +62,13 @@ for (const fixture of attachmentFixtures) {
   serverTest(
     `sends ${fixture.name} attachment contents to the model`,
     async ({ server, llm }) => {
-      const session = await server.rpc.sessions.create();
+      const session = await server.rpc.thread.new();
       const bytes = await fs.readFile(
         path.join(import.meta.dirname, "fixtures", "attachments", fixture.name),
       );
       // Browsers may omit MIME types. Conversion must still use the file's contents.
       const file = new File([bytes], fixture.name);
-      const prompt = server.rpc.sessions.prompt({
+      const prompt = server.promptAndWait({
         ...session,
         text: "Explain the attachment",
         files: [file],
@@ -97,7 +95,7 @@ for (const fixture of attachmentFixtures) {
         return m.assistant("I received the attachment contents.");
       });
       await Promise.all([prompt, response]);
-      const snapshot = await server.rpc.sessions.snapshot(session);
+      const snapshot = await server.rpc.thread.snapshot(session);
       const user = sessionMessages(snapshot).find(
         (message) => message.role === "user",
       );
@@ -110,7 +108,7 @@ for (const fixture of attachmentFixtures) {
           path.join(server.workspaceRoot, user.attachments![0]!.path),
         ),
       ).toEqual(bytes);
-      expect((await server.rpc.sessions.list())[0]!.title).toBe(
+      expect((await server.rpc.thread.list())[0]!.title).toBe(
         "Explain the attachment",
       );
     },
@@ -120,27 +118,27 @@ for (const fixture of attachmentFixtures) {
 serverTest(
   "retains attachment-only messages, duplicate filenames, and model context after restart",
   async ({ server, llm }) => {
-    const session = await server.rpc.sessions.create();
+    const session = await server.rpc.thread.new();
     const files = [
       new File(["First note: crimson fox"], "notes.txt"),
       new File(["Second note: cobalt owl"], "notes.txt"),
     ];
-    const prompt = server.rpc.sessions.prompt({ ...session, text: "", files });
+    const prompt = server.promptAndWait({ ...session, text: "", files });
     await llm.respond(m.assistant("I have both files."));
     await prompt;
     await server.stop();
     await server.start();
-    const snapshot = await server.rpc.sessions.snapshot(session);
+    const snapshot = await server.rpc.thread.snapshot(session);
     const user = sessionMessages(snapshot).find(
       (message) => message.role === "user",
     );
     assert(user?.role === "user");
     expect(user.attachments).toHaveLength(2);
     expect(user.attachments![0]!.path).not.toBe(user.attachments![1]!.path);
-    expect((await server.rpc.sessions.list())[0]!.title).toBe(
+    expect((await server.rpc.thread.list())[0]!.title).toBe(
       "notes.txt, notes.txt",
     );
-    const next = server.rpc.sessions.prompt({
+    const next = server.promptAndWait({
       ...session,
       text: "Recall both notes",
     });
@@ -157,7 +155,7 @@ serverTest(
 serverTest(
   "rejects unreadable and oversized attachments without sending an empty user message",
   async ({ server, llm }) => {
-    const session = await server.rpc.sessions.create();
+    const session = await server.rpc.thread.new();
     const cases = [
       {
         files: [new File([new Uint8Array([0, 1, 2, 3])], "archive.bin")],
@@ -191,17 +189,17 @@ serverTest(
     ];
     for (const input of cases) {
       await expect(
-        server.rpc.sessions.prompt({
+        server.promptAndWait({
           ...session,
           text: "Read these",
           files: input.files,
         }),
       ).rejects.toThrow(input.reason);
       expect(
-        sessionMessages(await server.rpc.sessions.snapshot(session)),
+        sessionMessages(await server.rpc.thread.snapshot(session)),
       ).toHaveLength(0);
     }
-    const prompt = server.rpc.sessions.prompt({
+    const prompt = server.promptAndWait({
       ...session,
       text: "Try a readable file",
       files: [new File(["Valid note"], "valid.txt")],
@@ -214,23 +212,10 @@ serverTest(
 serverTest(
   "uploads archives through the control plane and retries rejected requests after restart",
   async ({ createServer, http }) => {
-    const token = `header.${Buffer.from(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600 })).toString("base64url")}.signature`;
+    const token = "workspace-test-runtime-token";
     const uploader = new ControlPlaneTraceUploader({
       origin: http.url(""),
-      auth: {
-        async getIdTokenClient(audience) {
-          expect(audience).toBe(http.url("/api/traces"));
-          return new IdTokenClient({
-            targetAudience: audience,
-            idTokenProvider: {
-              async fetchIdToken(target) {
-                expect(target).toBe(audience);
-                return token;
-              },
-            },
-          });
-        },
-      },
+      token,
     });
     const workspaceId = "11111111-1111-4111-8111-111111111111";
     const server = createServer({
@@ -460,26 +445,26 @@ async function readTraces(workspaceRoot: string, state = "pending") {
 serverTest(
   "lists saved conversations during overlapping requests and a pending response",
   async ({ server, llm }) => {
-    const saved = await server.rpc.sessions.create();
-    const save = server.rpc.sessions.prompt({
+    const saved = await server.rpc.thread.new();
+    const save = server.promptAndWait({
       ...saved,
       text: "Saved conversation",
     });
     await llm.respond(m.assistant("Saved answer."));
     await save;
-    await server.rpc.sessions.close(saved);
+    await server.rpc.thread.close(saved);
 
-    const active = await server.rpc.sessions.create();
-    const answer = server.rpc.sessions.prompt({
+    const active = await server.rpc.thread.new();
+    const answer = server.promptAndWait({
       ...active,
       text: "Active conversation",
     });
     await llm.waitForRequest();
 
     const [firstListing, secondListing] = await Promise.all([
-      server.rpc.sessions.list(),
-      server.rpc.sessions.list(),
-      server.rpc.sessions.snapshot(saved),
+      server.rpc.thread.list(),
+      server.rpc.thread.list(),
+      server.rpc.thread.snapshot(saved),
     ]);
     for (const listing of [firstListing, secondListing]) {
       expect(
@@ -500,16 +485,16 @@ serverTest(
 serverTest(
   "continues each conversation with its own history after restarting the server",
   async ({ server, llm }) => {
-    const notebook = await server.rpc.sessions.create();
-    const saveNotebook = server.rpc.sessions.prompt({
+    const notebook = await server.rpc.thread.new();
+    const saveNotebook = server.promptAndWait({
       ...notebook,
       text: "Blue notebook",
     });
     await llm.respond(m.assistant("Saved the notebook."));
     await saveNotebook;
 
-    const bicycle = await server.rpc.sessions.create();
-    const saveBicycle = server.rpc.sessions.prompt({
+    const bicycle = await server.rpc.thread.new();
+    const saveBicycle = server.promptAndWait({
       ...bicycle,
       text: "Red bicycle",
     });
@@ -519,7 +504,7 @@ serverTest(
     await server.stop();
     await server.start();
 
-    const recallNotebook = server.rpc.sessions.prompt({
+    const recallNotebook = server.promptAndWait({
       ...notebook,
       text: "Continue",
     });
@@ -533,10 +518,10 @@ serverTest(
     );
     await recallNotebook;
     expect(
-      assistantReplies(await server.rpc.sessions.snapshot(notebook)),
+      assistantReplies(await server.rpc.thread.snapshot(notebook)),
     ).toEqual(["Saved the notebook.", "Blue notebook → Continue"]);
 
-    const recallBicycle = server.rpc.sessions.prompt({
+    const recallBicycle = server.promptAndWait({
       ...bicycle,
       text: "Continue",
     });
@@ -549,67 +534,300 @@ serverTest(
       ),
     );
     await recallBicycle;
-    expect(
-      assistantReplies(await server.rpc.sessions.snapshot(bicycle)),
-    ).toEqual(["Saved the bicycle.", "Red bicycle → Continue"]);
+    expect(assistantReplies(await server.rpc.thread.snapshot(bicycle))).toEqual(
+      ["Saved the bicycle.", "Red bicycle → Continue"],
+    );
   },
 );
 
 serverTest(
-  "resumes pending work when a closed session is reopened without restarting the server",
+  "reports missing event threads as BAD_REQUEST",
+  async ({ server }) => {
+    const consume = async () => {
+      const events = await server.rpc.thread.events({
+        sessionId: "missing-thread",
+      });
+      for await (const event of events) {
+        throw new Error(`A missing thread emitted ${event.type}`);
+      }
+    };
+    await expect(consume()).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: "Session 'missing-thread' does not exist.",
+    });
+  },
+);
+
+serverTest(
+  "reads closed pending work without resuming it until a live stream is opened",
   async ({ server, llm }) => {
-    const session = await server.rpc.sessions.create();
-    const prompting = server.rpc.sessions.prompt({
+    const session = await server.rpc.thread.new();
+    const accepted = await server.rpc.thread.prompt({
       ...session,
       text: "Continue after reopening",
     });
-    const interrupted = expect(prompting).rejects.toThrow();
+    const waiting = server.rpc.thread.wait({ ...session, ...accepted });
+    const interrupted = expect(waiting).rejects.toThrow();
     await llm.waitForRequest();
-    await server.rpc.sessions.close(session);
+    await server.rpc.thread.close(session);
     await interrupted;
-    await server.rpc.sessions.snapshot(session);
+    const saved = await server.rpc.thread.snapshot(session);
+    expect(sessionMessages(saved)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: "user",
+          content: "Continue after reopening",
+        }),
+      ]),
+    );
+    expect(await server.rpc.thread.list()).toEqual([
+      expect.objectContaining({ ...session, isRunning: false }),
+    ]);
+    expect(
+      (await server.rpc.workspace.search({ query: "Continue after reopening" }))
+        .hits,
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "session", ...session }),
+      ]),
+    );
+    // A second close fails only if these reads left the runtime closed.
+    await expect(server.rpc.thread.close(session)).rejects.toThrow(
+      "is not open",
+    );
+    const controller = new AbortController();
+    using cleanup = new errore.DisposableStack();
+    cleanup.defer(() => controller.abort());
+    const events = await server.rpc.thread.events(session, {
+      signal: controller.signal,
+    });
+    expect((await events.next()).value).toMatchObject({ type: "snapshot" });
     await llm.respond(m.assistant("Resumed after reopening."));
     await expect
       .poll(async () =>
-        assistantReplies(await server.rpc.sessions.snapshot(session)),
+        assistantReplies(await server.rpc.thread.snapshot(session)),
       )
       .toEqual(["Resumed after reopening."]);
     expect(
-      (await server.rpc.sessions.snapshot(session)).activeRun,
+      (await server.rpc.thread.snapshot(session)).activeRun,
     ).toBeUndefined();
   },
 );
 
 serverTest(
-  "resumes an interrupted model request and deduplicates prompt retries across restart",
+  "keeps saved history and observable summary status consistent without loading a thread",
   async ({ server, llm }) => {
-    const session = await server.rpc.sessions.create();
+    const session = await server.rpc.thread.new();
+    const done = server.promptAndWait({
+      ...session,
+      text: "Remember sapphire robin",
+    });
+    await llm.respond(m.assistant("Sapphire robin remembered."));
+    await done;
+    const live = await server.rpc.thread.snapshot(session);
+    const summaries = await server.rpc.thread.list();
+    const summary = summaries[0]!;
+    assert(summary.latestResultId !== undefined);
+    expect(summary).toMatchObject({
+      title: "Remember sapphire robin",
+      isRunning: false,
+    });
+    await server.rpc.thread.close(session);
+
+    expect(await server.rpc.thread.snapshot(session)).toEqual(live);
+    expect(await server.rpc.thread.list()).toEqual(summaries);
+    const controller = new AbortController();
+    using cleanup = new errore.DisposableStack();
+    cleanup.defer(() => controller.abort());
+    const updates = await server.rpc.thread.watchSummaries(undefined, {
+      signal: controller.signal,
+    });
+    expect((await updates.next()).value).toEqual({
+      type: "snapshot",
+      sessions: summaries,
+    });
+    await server.rpc.thread.markRead({
+      ...session,
+      observedResultId: summary.latestResultId,
+    });
+    const read = { ...summary, readReceiptCursorId: summary.latestResultId };
+    expect((await updates.next()).value).toEqual({
+      type: "updated",
+      session: read,
+    });
+    await server.rpc.thread.markDone(session);
+    expect((await updates.next()).value).toEqual({
+      type: "updated",
+      session: { ...read, markedDone: true },
+    });
+    expect(await server.rpc.thread.list()).toEqual([
+      { ...read, markedDone: true },
+    ]);
+    await expect(server.rpc.thread.close(session)).rejects.toThrow(
+      "is not open",
+    );
+    controller.abort();
+    await server.stop();
+    await server.start();
+    expect(await server.rpc.thread.snapshot(session)).toEqual(live);
+    expect(await server.rpc.thread.list()).toEqual([
+      { ...read, markedDone: true },
+    ]);
+    await expect(server.rpc.thread.close(session)).rejects.toThrow(
+      "is not open",
+    );
+  },
+);
+
+serverTest(
+  "unloads idle threads but retains active work and event subscribers",
+  async ({ server, llm }) => {
+    const schedule = globalThis.setTimeout;
+    // Accelerate only the five-minute idle clock, leaving network timers real.
+    using clock = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation((callback, delay, ...args) =>
+        schedule(callback, delay === 300_000 ? 1_000 : delay, ...args),
+      );
+    const idle = await server.rpc.thread.new();
+    const watched = await server.rpc.thread.new();
+    const busy = await server.rpc.thread.new();
+    const controller = new AbortController();
+    using cleanup = new errore.DisposableStack();
+    cleanup.defer(() => controller.abort());
+    const events = await server.rpc.thread.events(watched, {
+      signal: controller.signal,
+    });
+    expect((await events.next()).value).toMatchObject({ type: "snapshot" });
+    const accepted = await server.rpc.thread.prompt({
+      ...busy,
+      text: "Keep working while idle threads unload",
+    });
+    await llm.waitForRequest();
+    await server.rpc.thread.markDone(idle);
+
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
+    await expect(server.rpc.thread.close(idle)).rejects.toThrow("is not open");
+    expect(
+      (await server.rpc.thread.list()).find(
+        (item) => item.sessionId === busy.sessionId,
+      ),
+    ).toMatchObject({ isRunning: true });
+    await llm.respond(m.assistant("Work survived idle collection."));
+    expect(
+      await server.rpc.thread.wait({ ...busy, ...accepted }),
+    ).toMatchObject({ status: "completed" });
+
+    const reopened = await server.rpc.thread.events(idle, {
+      signal: controller.signal,
+    });
+    expect((await reopened.next()).value).toMatchObject({ type: "snapshot" });
+    controller.abort();
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    // It stayed loaded while subscribed, and disconnect starts a fresh full delay.
+    await server.rpc.thread.close(watched);
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    await expect(server.rpc.thread.close(idle)).rejects.toThrow("is not open");
+    await expect(server.rpc.thread.close(busy)).rejects.toThrow("is not open");
+
+    // Concurrent acquisitions after unload share one storage owner and one admission.
+    const input = {
+      ...busy,
+      text: "Continue after unloading",
+      clientMessageId: "after-idle",
+    };
+    const [first, retry] = await Promise.all([
+      server.rpc.thread.prompt(input),
+      server.rpc.thread.prompt(input),
+    ]);
+    expect(retry).toEqual(first);
+    await llm.respond(m.assistant("Continued after unloading."));
+    await server.rpc.thread.wait({ ...busy, ...first });
+    expect(assistantReplies(await server.rpc.thread.snapshot(busy))).toEqual([
+      "Work survived idle collection.",
+      "Continued after unloading.",
+    ]);
+    expect(clock).toHaveBeenCalledWith(expect.any(Function), 300_000);
+  },
+);
+
+serverTest(
+  "deduplicates thread and prompt request IDs and resumes waiting after restart",
+  async ({ server, llm }) => {
+    const [session, retry] = await Promise.all([
+      server.rpc.thread.new({ requestId: "durable-thread" }),
+      server.rpc.thread.new({ requestId: "durable-thread" }),
+    ]);
+    expect(retry).toEqual(session);
+    expect(
+      await server.rpc.thread.new({ requestId: "different-thread" }),
+    ).not.toEqual(session);
     const input = {
       ...session,
       text: "Remember this once",
       clientMessageId: "durable-retry",
     };
-    const prompting = server.rpc.sessions.prompt(input);
-    const disconnected = expect(prompting).rejects.toThrow();
+    const accepted = await server.rpc.thread.prompt(input);
+    const waiting = server.rpc.thread.wait({ ...session, ...accepted });
+    const disconnected = expect(waiting).rejects.toThrow();
     await llm.waitForRequest();
     await server.stop();
     await disconnected;
     await server.start();
+    expect(
+      await server.rpc.thread.new({ requestId: "durable-thread" }),
+    ).toEqual(session);
     await llm.respond(m.assistant("Remembered once."));
     await expect
       .poll(async () =>
-        assistantReplies(await server.rpc.sessions.snapshot(session)),
+        assistantReplies(await server.rpc.thread.snapshot(session)),
       )
       .toEqual(["Remembered once."]);
-    await server.rpc.sessions.prompt(input);
-    const settled = await server.rpc.sessions.snapshot(session);
+    expect(await server.rpc.thread.prompt(input)).toEqual(accepted);
+    await server.rpc.thread.wait({ ...session, ...accepted });
+    const settled = await server.rpc.thread.snapshot(session);
     expect(
       sessionMessages(settled).filter((message) => message.role === "user"),
     ).toHaveLength(1);
     await server.stop();
     await server.start();
-    await server.rpc.sessions.prompt(input);
-    expect(await server.rpc.sessions.snapshot(session)).toEqual(settled);
+    expect(await server.rpc.thread.prompt(input)).toEqual(accepted);
+    await server.rpc.thread.wait({ ...session, ...accepted });
+    expect(await server.rpc.thread.snapshot(session)).toEqual(settled);
+  },
+);
+
+serverTest(
+  "waits for distinct submissions admitted during the same run",
+  async ({ server, llm }) => {
+    const session = await server.rpc.thread.new();
+    const first = await server.rpc.thread.prompt({
+      ...session,
+      text: "Start the report",
+    });
+    await llm.waitForRequest();
+    const second = await server.rpc.thread.prompt({
+      ...session,
+      text: "Include the budget",
+    });
+    expect(second.submissionId).not.toBe(first.submissionId);
+    const firstDone = server.rpc.thread.wait({ ...session, ...first });
+    const secondDone = server.rpc.thread.wait({ ...session, ...second });
+    await llm.respond(m.assistant("Starting the report."));
+    await llm.respond(({ messages }) => {
+      expect(
+        messageText(messages.findLast((message) => message.role === "user")!),
+      ).toBe("Include the budget");
+      return m.assistant("Report with budget complete.");
+    });
+    expect(await firstDone).toMatchObject({ status: "completed" });
+    expect(await secondDone).toMatchObject({ status: "completed" });
+    expect(assistantReplies(await server.rpc.thread.snapshot(session))).toEqual(
+      ["Starting the report.", "Report with budget complete."],
+    );
+    await expect(
+      server.rpc.thread.wait({ ...session, submissionId: 999999 }),
+    ).rejects.toThrow("Unknown thread submission");
   },
 );
 
@@ -625,7 +843,7 @@ serverTest(
         { role: "user", content: recent, timestamp: Date.now() },
       ],
     });
-    const prompting = server.rpc.sessions.prompt({
+    const prompting = server.promptAndWait({
       ...session,
       text: "Continue after compaction",
     });
@@ -639,7 +857,7 @@ serverTest(
       return m.assistant("Continued with compact context.");
     });
     await prompting;
-    const snapshot = await server.rpc.sessions.snapshot(session);
+    const snapshot = await server.rpc.thread.snapshot(session);
     expect(
       sessionMessages(snapshot)
         .filter((message) => message.role === "user")
@@ -650,7 +868,7 @@ serverTest(
     ]);
     await server.stop();
     await server.start();
-    expect(await server.rpc.sessions.snapshot(session)).toEqual(snapshot);
+    expect(await server.rpc.thread.snapshot(session)).toEqual(snapshot);
   },
 );
 
@@ -718,8 +936,8 @@ serverTest(
       ]),
     });
 
-    const session = await server.rpc.sessions.create();
-    const prompted = server.rpc.sessions.prompt({
+    const session = await server.rpc.thread.new();
+    const prompted = server.promptAndWait({
       ...session,
       text: "View the workspace images",
     });
@@ -743,7 +961,7 @@ serverTest(
     await prompted;
 
     const executions = sessionToolExecutions(
-      await server.rpc.sessions.snapshot(session),
+      await server.rpc.thread.snapshot(session),
     );
     expect(executions.slice(0, 3)).toMatchObject(
       images.map((image) => ({
@@ -875,6 +1093,470 @@ serverTest("rejects files outside the public workspace", async ({ server }) => {
   ).rejects.toThrow("'../outside.txt' is not a workspace file");
 });
 
+serverTest(
+  "runs file and shell operations through direct tools and exec",
+  async ({ server, llm }) => {
+    for (const surface of ["direct", "exec"] as const) {
+      const session = await server.rpc.thread.new();
+      const file = `${surface}.txt`;
+      const prompt = server.promptAndWait({
+        ...session,
+        text: "Write, edit, patch, and read the notes",
+      });
+      const operations = [
+        {
+          name: "write",
+          path: "files.write",
+          args: { path: file, content: "alpha\nbeta\nalpha\n" },
+          expected: { path: file },
+        },
+        {
+          name: "edit",
+          path: "files.edit",
+          args: {
+            path: file,
+            oldText: "alpha",
+            newText: "delta",
+            replaceAll: true,
+          },
+          expected: { path: file, replacements: 2 },
+        },
+        {
+          name: "patch",
+          path: "files.patch",
+          args: {
+            patchText: `*** Begin Patch\n*** Update File: ${file}\n@@\n-beta\n+gamma\n*** End Patch`,
+          },
+          expected: { added: [], modified: [file], deleted: [] },
+        },
+        {
+          name: "read",
+          path: "files.read",
+          args: { path: file, offset: 2, limit: 1 },
+          expected: "gamma",
+        },
+        {
+          name: "bash",
+          path: "bash.run",
+          args: { command: `cat ${file}` },
+          expected: "delta\ngamma\ndelta\n",
+        },
+      ] as const;
+      for (const [index, operation] of operations.entries()) {
+        await llm.respond(
+          m.tool.start(surface === "direct" ? operation.name : "exec", {
+            id: `${surface}-${index}`,
+            arguments:
+              surface === "direct"
+                ? operation.args
+                : {
+                    js: `return await tools.${operation.path}(${JSON.stringify(operation.args)});`,
+                  },
+          }),
+        );
+      }
+      await llm.respond(({ messages }) => {
+        for (const [index, operation] of operations.entries()) {
+          const toolMessage = messages.find(
+            (message) =>
+              message.role === "tool" &&
+              message.tool_call_id === `${surface}-${index}`,
+          )!;
+          const output = messageText(toolMessage);
+          if (operation.name === "read" || operation.name === "bash") {
+            if (surface === "direct")
+              expect(output).toContain(operation.expected);
+            else
+              expect(JSON.parse(output)).toMatchObject({
+                ok: true,
+                data:
+                  operation.name === "read"
+                    ? { text: expect.stringContaining(operation.expected) }
+                    : { stdout: operation.expected, code: 0 },
+              });
+          } else {
+            expect(JSON.parse(output)).toMatchObject(
+              surface === "direct"
+                ? operation.expected
+                : { ok: true, data: operation.expected },
+            );
+          }
+        }
+        return m.assistant("Operations complete.");
+      });
+      await prompt;
+      expect(await server.rpc.workspace.readFile({ path: file })).toBe(
+        "delta\ngamma\ndelta\n",
+      );
+    }
+  },
+);
+
+serverTest(
+  "preserves invalid tool argument paths in model-visible exec results",
+  async ({ server, llm }) => {
+    const session = await server.rpc.thread.new();
+    const prompt = server.promptAndWait({
+      ...session,
+      text: "Search the web",
+    });
+    await llm.respond(
+      m.tool.start("exec", {
+        id: "invalid-search",
+        arguments: {
+          js: `return await tools.web.search({ query: "wheresryan22 github open source" });`,
+        },
+      }),
+    );
+    await llm.respond(({ messages }) => {
+      const output = messageText(
+        messages.find(
+          (message) =>
+            message.role === "tool" &&
+            message.tool_call_id === "invalid-search",
+        )!,
+      );
+      expect(JSON.parse(output)).toMatchObject({
+        ok: false,
+        error: {
+          code: "invalid_tool_arguments",
+          details: {
+            issues: expect.arrayContaining([
+              { message: "Expected required property", path: ["objective"] },
+              {
+                message: "Expected required property",
+                path: ["search_queries"],
+              },
+              { message: "Expected string", path: ["objective"] },
+              { message: "Expected array", path: ["search_queries"] },
+            ]),
+          },
+        },
+      });
+      return m.tool.start("exec", {
+        id: "invalid-search-query",
+        arguments: {
+          js: `return await tools.web.search({ objective: "Find projects", search_queries: ["valid query", 42] });`,
+        },
+      });
+    });
+    await llm.respond(({ messages }) => {
+      const output = messageText(
+        messages.find(
+          (message) =>
+            message.role === "tool" &&
+            message.tool_call_id === "invalid-search-query",
+        )!,
+      );
+      expect(JSON.parse(output)).toMatchObject({
+        ok: false,
+        error: {
+          code: "invalid_tool_arguments",
+          details: {
+            issues: [
+              { message: "Expected string", path: ["search_queries", "1"] },
+            ],
+          },
+        },
+      });
+      return m.assistant("The invalid fields are identified.");
+    });
+    await prompt;
+  },
+);
+
+serverTest(
+  "denies the same capabilities through direct tools and exec",
+  async ({ createServer, llm }) => {
+    const server = createServer({ agentCapabilities: [] });
+    await server.start();
+    await server.rpc.workspace.writeFile({
+      path: "protected.txt",
+      content: "original",
+    });
+    const session = await server.rpc.thread.new();
+    const prompt = server.promptAndWait({
+      ...session,
+      text: "Attempt restricted tools",
+    });
+    const operations = [
+      {
+        name: "read",
+        path: "files.read",
+        args: { path: "protected.txt" },
+        capability: "workspace.files.read",
+      },
+      {
+        name: "viewImage",
+        path: "files.viewImage",
+        args: { path: "protected.txt" },
+        capability: "workspace.files.read",
+      },
+      {
+        name: "write",
+        path: "files.write",
+        args: { path: "protected.txt", content: "changed" },
+        capability: "workspace.files.write",
+      },
+      {
+        name: "edit",
+        path: "files.edit",
+        args: {
+          path: "protected.txt",
+          oldText: "original",
+          newText: "changed",
+        },
+        capability: "workspace.files.write",
+      },
+      {
+        name: "patch",
+        path: "files.patch",
+        args: {
+          patchText:
+            "*** Begin Patch\n*** Update File: protected.txt\n@@\n-original\n+changed\n*** End Patch",
+        },
+        capability: "workspace.files.write",
+      },
+      {
+        name: "bash",
+        path: "bash.run",
+        args: { command: "printf changed > protected.txt" },
+        capability: "workspace.shell.execute",
+      },
+    ] as const;
+    await llm.respond(
+      operations.flatMap((operation) => [
+        m.tool.start(operation.name, {
+          id: `direct-${operation.name}`,
+          arguments: operation.args,
+        }),
+        m.tool.start("exec", {
+          id: `exec-${operation.name}`,
+          arguments: {
+            js: `return await tools.${operation.path}(${JSON.stringify(operation.args)});`,
+          },
+        }),
+      ]),
+    );
+    await llm.respond(({ messages }) => {
+      for (const operation of operations)
+        for (const surface of ["direct", "exec"]) {
+          const toolMessage = messages.find(
+            (message) =>
+              message.role === "tool" &&
+              message.tool_call_id === `${surface}-${operation.name}`,
+          )!;
+          expect(messageText(toolMessage)).toContain(operation.capability);
+          expect(messageText(toolMessage)).toContain("not granted");
+        }
+      return m.assistant("No restricted operations were performed.");
+    });
+    await prompt;
+    expect(await server.rpc.workspace.readFile({ path: "protected.txt" })).toBe(
+      "original",
+    );
+  },
+);
+
+serverTest(
+  "accesses unrelated workspace threads through exec",
+  async ({ server, llm }) => {
+    const unrelated = await server.rpc.testApi.seedSession({
+      title: "Shared report",
+      messages: [
+        { role: "user", content: "cobalt ibis", timestamp: Date.now() },
+      ],
+    });
+    const caller = await server.rpc.thread.new();
+    const prompt = server.promptAndWait({
+      ...caller,
+      text: "Inspect workspace threads",
+    });
+    await llm.respond(
+      m.tool.start("exec", {
+        id: "threads",
+        arguments: {
+          js: `
+      const created = await tools.thread.new({requestId: "independent-thread"});
+      const retry = await tools.thread.new({requestId: "independent-thread"});
+      const listed = await tools.thread.list({});
+      const snapshot = await tools.thread.snapshot({threadId: ${JSON.stringify(unrelated.sessionId)}});
+      return {created, retry, listed, snapshot};
+    `,
+        },
+      }),
+    );
+    await llm.respond(({ messages }) => {
+      const output = JSON.parse(
+        messageText(
+          messages.find(
+            (message) =>
+              message.role === "tool" && message.tool_call_id === "threads",
+          )!,
+        ),
+      );
+      expect(output.created).toMatchObject({
+        ok: true,
+        data: { threadId: expect.any(String) },
+      });
+      expect(output.retry).toEqual(output.created);
+      expect(output.listed).toMatchObject({
+        ok: true,
+        data: expect.arrayContaining([
+          expect.objectContaining({ threadId: unrelated.sessionId }),
+        ]),
+      });
+      expect(output.snapshot.ok).toBe(true);
+      expect(JSON.stringify(output.snapshot.data)).toContain("cobalt ibis");
+      return m.assistant("Read the independent conversation.");
+    });
+    await prompt;
+  },
+);
+
+serverTest(
+  "thread tools preserve durable submissions, bounded waits, and explicit abort",
+  async ({ server, llm }) => {
+    const target = await server.rpc.thread.new();
+    const input = {
+      threadId: target.sessionId,
+      requestId: "shared-message",
+      text: "Answer the report",
+    };
+    const accepted = await server.rpc.testApi.invokeTool({
+      path: "thread.prompt",
+      input,
+    });
+    expect(accepted).toMatchObject({ submissionId: expect.any(Number) });
+    expect(
+      await server.rpc.testApi.invokeTool({ path: "thread.prompt", input }),
+    ).toEqual(accepted);
+    // SAFETY: The public tool response was checked for a numeric submissionId above.
+    const waiting = {
+      threadId: target.sessionId,
+      ...(accepted as { submissionId: number }),
+    };
+    await llm.waitForRequest();
+    expect(
+      await server.rpc.testApi.invokeTool({
+        path: "thread.wait",
+        input: { ...waiting, timeoutMs: 10 },
+      }),
+    ).toEqual({ status: "pending" });
+    expect(
+      (await server.rpc.thread.list()).find(
+        (thread) => thread.sessionId === target.sessionId,
+      )?.isRunning,
+    ).toBe(true);
+    await expect(
+      server.rpc.testApi.invokeTool(
+        {
+          path: "thread.wait",
+          input: { ...waiting, timeoutMs: 30_000 },
+        },
+        { signal: AbortSignal.timeout(100) },
+      ),
+    ).rejects.toThrow();
+    await llm.respond(m.assistant("The shared report is ready."));
+    expect(
+      await server.rpc.testApi.invokeTool({
+        path: "thread.wait",
+        input: waiting,
+      }),
+    ).toMatchObject({ status: "completed" });
+    await server.stop();
+    await server.start();
+    expect(
+      await server.rpc.testApi.invokeTool({ path: "thread.prompt", input }),
+    ).toEqual(accepted);
+    expect(
+      await server.rpc.testApi.invokeTool({
+        path: "thread.wait",
+        input: waiting,
+      }),
+    ).toMatchObject({ status: "completed" });
+    await expect(
+      server.rpc.testApi.invokeTool({
+        path: "thread.wait",
+        input: { ...waiting, submissionId: 999999 },
+      }),
+    ).rejects.toThrow("Unknown thread submission");
+    const next = await server.rpc.testApi.invokeTool({
+      path: "thread.prompt",
+      input: { ...input, requestId: "abort-message", text: "More work" },
+    });
+    expect(next).toMatchObject({ submissionId: expect.any(Number) });
+    await llm.waitForRequest();
+    await server.rpc.testApi.invokeTool({
+      path: "thread.abort",
+      input: { threadId: target.sessionId },
+    });
+    expect(
+      await server.rpc.testApi.invokeTool({
+        path: "thread.wait",
+        input: {
+          threadId: target.sessionId,
+          // SAFETY: The prompt response was checked for a numeric submissionId above.
+          ...(next as { submissionId: number }),
+        },
+      }),
+    ).toMatchObject({ status: "aborted" });
+    expect(
+      sessionMessages(await server.rpc.thread.snapshot(target)).filter(
+        (message) => message.role === "user",
+      ),
+    ).toHaveLength(2);
+  },
+);
+
+serverTest(
+  "thread tools enforce workspace grants without ownership rules",
+  async ({ createServer }) => {
+    const server = createServer({ agentCapabilities: [] });
+    await server.start();
+    const target = await server.rpc.thread.new();
+    for (const operation of [
+      { name: "list", input: {}, capability: "read" },
+      {
+        name: "snapshot",
+        input: { threadId: target.sessionId },
+        capability: "read",
+      },
+      {
+        name: "wait",
+        input: { threadId: target.sessionId, submissionId: 1 },
+        capability: "read",
+      },
+      { name: "new", input: { requestId: "denied" }, capability: "write" },
+      {
+        name: "prompt",
+        input: {
+          threadId: target.sessionId,
+          requestId: "denied",
+          text: "Do not run",
+        },
+        capability: "write",
+      },
+      {
+        name: "abort",
+        input: { threadId: target.sessionId },
+        capability: "write",
+      },
+    ]) {
+      await expect(
+        server.rpc.testApi.invokeTool({
+          path: `thread.${operation.name}`,
+          input: operation.input,
+        }),
+      ).rejects.toThrow(`workspace.threads.${operation.capability}`);
+    }
+    expect(await server.rpc.thread.list()).toHaveLength(1);
+    expect(sessionMessages(await server.rpc.thread.snapshot(target))).toEqual(
+      [],
+    );
+  },
+);
+
 serverTest("reads files prepared by the tool fixture", async ({ server }) => {
   await server.rpc.testApi.invokeTool({
     path: "files.write",
@@ -911,7 +1593,7 @@ serverTest(
         { role: "user", content: "Blue notebook", timestamp: Date.now() },
       ],
     });
-    expect(await server.rpc.sessions.list()).toEqual(
+    expect(await server.rpc.thread.list()).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ ...saved, title: "Saved notes" }),
       ]),
@@ -919,7 +1601,7 @@ serverTest(
     await server.stop();
     await server.start();
 
-    const continued = server.rpc.sessions.prompt({
+    const continued = server.promptAndWait({
       ...saved,
       text: "Continue",
     });
@@ -932,9 +1614,9 @@ serverTest(
       ),
     );
     await continued;
-    expect(assistantReplies(await server.rpc.sessions.snapshot(saved))).toEqual(
-      ["Blue notebook → Continue"],
-    );
+    expect(assistantReplies(await server.rpc.thread.snapshot(saved))).toEqual([
+      "Blue notebook → Continue",
+    ]);
   },
 );
 
@@ -1241,7 +1923,7 @@ serverTest("rejects previews through symlinks", async ({ server }) => {
 });
 
 function assistantReplies(
-  session: Awaited<ReturnType<HaloClient["sessions"]["snapshot"]>>,
+  session: Awaited<ReturnType<HaloClient["thread"]["snapshot"]>>,
 ) {
   return sessionMessages(session).flatMap((message) =>
     message.role === "assistant" ? [contentText(message.content)] : [],
@@ -1249,15 +1931,19 @@ function assistantReplies(
 }
 
 serverTest(
-  "finishes a conversation after the prompt request disconnects",
+  "accepts a prompt before the provider responds and cancelling its waiter does not cancel work",
   async ({ server, llm }) => {
-    const session = await server.rpc.sessions.create();
+    const session = await server.rpc.thread.new();
     const controller = new AbortController();
-    const prompting = server.rpc.sessions.prompt(
-      { ...session, text: "Keep going after I disconnect" },
+    const accepted = await server.rpc.thread.prompt({
+      ...session,
+      text: "Keep going after I disconnect",
+    });
+    const waiting = server.rpc.thread.wait(
+      { ...session, ...accepted },
       { signal: controller.signal },
     );
-    const disconnected = expect(prompting).rejects.toThrow();
+    const disconnected = expect(waiting).rejects.toThrow();
     await llm.waitForRequest();
 
     controller.abort();
@@ -1265,32 +1951,32 @@ serverTest(
     await llm.respond(m.assistant("I kept going."));
 
     await expect
-      .poll(async () => await server.rpc.sessions.snapshot(session))
+      .poll(async () => await server.rpc.thread.snapshot(session))
       .toMatchObject({
         lastRun: { status: "completed" },
       });
-    expect(
-      assistantReplies(await server.rpc.sessions.snapshot(session)),
-    ).toEqual(["I kept going."]);
+    expect(assistantReplies(await server.rpc.thread.snapshot(session))).toEqual(
+      ["I kept going."],
+    );
 
-    const continued = server.rpc.sessions.prompt({
+    const continued = server.promptAndWait({
       ...session,
       text: "Thanks",
     });
     await llm.respond(m.assistant("You're welcome."));
     await continued;
-    expect(
-      assistantReplies(await server.rpc.sessions.snapshot(session)),
-    ).toEqual(["I kept going.", "You're welcome."]);
+    expect(assistantReplies(await server.rpc.thread.snapshot(session))).toEqual(
+      ["I kept going.", "You're welcome."],
+    );
   },
 );
 
 serverTest(
   "reconnects to a running conversation without losing or duplicating its answer",
   async ({ server, llm }) => {
-    const session = await server.rpc.sessions.create();
+    const session = await server.rpc.thread.new();
     const initial = new AbortController();
-    const watch = await server.rpc.sessions.watch(session, {
+    const watch = await server.rpc.thread.events(session, {
       signal: initial.signal,
     });
     const first = await watch.next();
@@ -1299,7 +1985,7 @@ serverTest(
       snapshot: { entries: [] },
     });
 
-    const prompted = server.rpc.sessions.prompt({
+    const prompted = server.promptAndWait({
       ...session,
       text: "Keep going while I reconnect",
     });
@@ -1308,7 +1994,7 @@ serverTest(
     await watch.return();
 
     const reconnected = new AbortController();
-    const updates = await server.rpc.sessions.watch(session, {
+    const updates = await server.rpc.thread.events(session, {
       signal: reconnected.signal,
     });
     const current = await updates.next();
@@ -1341,7 +2027,7 @@ serverTest(
         "content" in message ? [contentText(message.content)] : [],
       ),
     ).toEqual(["Keep going while I reconnect", "I kept going."]);
-    expect(await server.rpc.sessions.snapshot(session)).toMatchObject({
+    expect(await server.rpc.thread.snapshot(session)).toMatchObject({
       entries: state.entries,
       lastRun: state.lastRun,
     });
@@ -1356,8 +2042,8 @@ serverTest(
       path: "large.txt",
       content: fullText,
     });
-    const session = await server.rpc.sessions.create();
-    const prompt = server.rpc.sessions.prompt({
+    const session = await server.rpc.thread.new();
+    const prompt = server.promptAndWait({
       ...session,
       text: "Find the needle",
     });
@@ -1413,8 +2099,8 @@ serverTest(
 serverTest(
   "preserves the full result when exec returns a large value",
   async ({ server, llm }) => {
-    const session = await server.rpc.sessions.create();
-    const prompt = server.rpc.sessions.prompt({
+    const session = await server.rpc.thread.new();
+    const prompt = server.promptAndWait({
       ...session,
       text: "Return a large value",
     });
@@ -1453,7 +2139,7 @@ serverTest(
       path: "large.txt",
       content: fullText,
     });
-    const session = await server.rpc.sessions.create();
+    const session = await server.rpc.thread.new();
     const outputDirectory = path.join(
       server.workspaceRoot,
       ".halo",
@@ -1465,7 +2151,7 @@ serverTest(
       "blocked",
     );
 
-    const prompt = server.rpc.sessions.prompt({
+    const prompt = server.promptAndWait({
       ...session,
       text: "Read large.txt",
     });
@@ -1493,8 +2179,8 @@ serverTest(
 serverTest(
   "streams large nested Bash output to a searchable file",
   async ({ server, llm }) => {
-    const session = await server.rpc.sessions.create();
-    const prompt = server.rpc.sessions.prompt({
+    const session = await server.rpc.thread.new();
+    const prompt = server.promptAndWait({
       ...session,
       text: "Run a noisy command",
     });
@@ -1528,8 +2214,8 @@ serverTest(
   "writes Bash output to disk before the command exits",
   { timeout: 40_000 },
   async ({ server, llm }) => {
-    const session = await server.rpc.sessions.create();
-    const prompt = server.rpc.sessions.prompt({
+    const session = await server.rpc.thread.new();
+    const prompt = server.promptAndWait({
       ...session,
       text: "Run a long command",
     });
@@ -1572,15 +2258,382 @@ serverTest(
 );
 
 serverTest(
+  "preserves every connection and approval requested by one exec",
+  async ({ server, llm }) => {
+    const session = await server.rpc.thread.new();
+    const prompting = server.promptAndWait({
+      ...session,
+      text: "Connect Drive and Gmail and create two policies",
+    });
+    await llm.respond(
+      m.tool.start("exec", {
+        id: "mixed-requests",
+        arguments: {
+          js: `return await Promise.allSettled([
+        tools.halo.showConnectionCard({ integration: "google_drive" }),
+        tools.executor.coreTools.policies.create({ owner: "user", pattern: "mixed-first.*", action: "block" }),
+        tools.halo.showConnectionCard({ integration: "google_gmail" }),
+        tools.executor.coreTools.policies.create({ owner: "user", pattern: "mixed-second.*", action: "block" })
+      ]);`,
+        },
+      }),
+    );
+    await llm.respond(
+      m.assistant("Please respond to the connection and approval cards."),
+    );
+    await prompting;
+    const snapshot = await server.rpc.thread.snapshot(session);
+    const executions = sessionToolExecutions(snapshot);
+    expect(executions).toHaveLength(1);
+    const execution = executions[0]!;
+    assert(execution.type === "exec");
+    expect(execution.approvals).toHaveLength(2);
+    expect(execution.approvals).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          toolPath: "executor.coreTools.policies.create",
+          status: "pending",
+          arguments: {
+            owner: "user",
+            pattern: "mixed-first.*",
+            action: "block",
+          },
+        }),
+        expect.objectContaining({
+          toolPath: "executor.coreTools.policies.create",
+          status: "pending",
+          arguments: {
+            owner: "user",
+            pattern: "mixed-second.*",
+            action: "block",
+          },
+        }),
+      ]),
+    );
+    expect(execution.result?.details).toMatchObject({
+      connectionRequests: [
+        expect.objectContaining({ integration: "google_drive" }),
+        expect.objectContaining({ integration: "google_gmail" }),
+      ],
+    });
+    await server.rpc.thread.close(session);
+    expect(
+      sessionToolExecutions(await server.rpc.thread.snapshot(session)),
+    ).toEqual(executions);
+  },
+);
+
+serverTest(
+  "reports unavailable connection cards after reopening a workspace with integrations disabled",
+  async ({ createServer, llm }) => {
+    const local = createServer();
+    await local.start();
+    const session = await local.rpc.thread.new();
+    const requesting = local.promptAndWait({
+      ...session,
+      text: "Show the Gmail card",
+    });
+    const js =
+      'return await tools.halo.showConnectionCard({ integration: "google_gmail" });';
+    await llm.respond(
+      m.tool.start("exec", {
+        id: "local-connection-card",
+        arguments: { js },
+      }),
+    );
+    await llm.respond(m.assistant("The Gmail card is ready."));
+    await requesting;
+    const before = sessionToolExecutions(
+      await local.rpc.thread.snapshot(session),
+    );
+    expect(before).toMatchObject([
+      {
+        approvals: [],
+        result: {
+          details: { connectionRequests: [{ integration: "google_gmail" }] },
+        },
+      },
+    ]);
+    await local.stop();
+
+    // Exe reuses the saved database but leaves integrations disabled until their control-plane migration.
+    const hosted = createServer({
+      workspaceRoot: local.workspaceRoot,
+      integrationsEnabled: false,
+    });
+    await hosted.start();
+    const retrying = hosted.promptAndWait({
+      ...session,
+      text: "Show the Gmail card again",
+    });
+    await llm.respond(
+      m.tool.start("exec", {
+        id: "hosted-connection-card",
+        arguments: { js },
+      }),
+    );
+    await llm.respond(({ messages }) => {
+      const output = messageText(
+        messages.findLast((item) => item.role === "tool")!,
+      );
+      expect(output).toContain("integration_unavailable");
+      expect(output).toContain("Integrations are disabled");
+      expect(output).toContain("No connection card was shown");
+      return m.assistant(
+        "Gmail is unavailable here; approving or reconnecting will not enable it.",
+      );
+    });
+    await retrying;
+    const after = sessionToolExecutions(
+      await hosted.rpc.thread.snapshot(session),
+    );
+    expect(after).toHaveLength(2);
+    expect(after[0]).toEqual(before[0]);
+    expect(after[1]).toMatchObject({
+      approvals: [],
+      calls: [{ tool: { path: "halo.showConnectionCard" }, status: "failed" }],
+    });
+    expect(after[1]?.result?.details).not.toHaveProperty("connectionRequests");
+  },
+);
+
+serverTest(
+  "finishes approval requests and retries only after a thread response",
+  async ({ server, llm }) => {
+    for (const decision of ["allow", "deny"] as const) {
+      const session = await server.rpc.thread.new();
+      const prompting = server.promptAndWait({
+        ...session,
+        text: `${decision} the policy`,
+      });
+      const js = `return await tools.executor.coreTools.policies.create({ owner: "user", pattern: "approval-test-${decision}.*", action: "block" });`;
+      await llm.respond(
+        m.tool.start("exec", {
+          id: `approval-request-${decision}`,
+          arguments: { js },
+        }),
+      );
+      await llm.respond(m.assistant(`Waiting for ${decision}`));
+      await prompting;
+      const pending = await server.rpc.thread.snapshot(session);
+      expect(pending.activeRun).toBeUndefined();
+      const approval = sessionToolExecutions(pending).flatMap((execution) =>
+        execution.type === "exec" ? execution.approvals : [],
+      )[0]!;
+      expect(approval.status).toBe("pending");
+
+      await server.rpc.thread.respondToToolApproval({
+        ...session,
+        approvalId: approval.id,
+        decision,
+      });
+      if (decision === "allow") {
+        await llm.respond(
+          m.tool.start("exec", {
+            id: "approval-retry-allow",
+            arguments: { js },
+          }),
+        );
+      }
+      await llm.respond(m.assistant(`${decision} finished`));
+
+      await expect
+        .poll(async () => {
+          const snapshot = await server.rpc.thread.snapshot(session);
+          return {
+            activeRun: snapshot.activeRun,
+            executions: sessionToolExecutions(snapshot),
+          };
+        })
+        .toMatchObject({
+          activeRun: undefined,
+          executions:
+            decision === "allow"
+              ? [
+                  {
+                    approvals: [{ id: approval.id, status: "allowed" }],
+                  },
+                  { id: "approval-retry-allow", status: "completed" },
+                ]
+              : [
+                  {
+                    approvals: [{ id: approval.id, status: "denied" }],
+                  },
+                ],
+        });
+      const completed = await server.rpc.thread.snapshot(session);
+      const executions = sessionToolExecutions(completed);
+      expect(executions[0]).toMatchObject({
+        type: "exec",
+        status: "completed",
+        approvals: [
+          {
+            id: approval.id,
+            status: decision === "allow" ? "allowed" : "denied",
+          },
+        ],
+      });
+      expect(executions).toHaveLength(decision === "allow" ? 2 : 1);
+      if (decision === "allow") {
+        expect(executions[1]).toMatchObject({
+          id: "approval-retry-allow",
+          status: "completed",
+          approvals: [],
+        });
+      }
+      await server.rpc.thread.close(session);
+      const restored = await server.rpc.thread.snapshot(session);
+      expect(sessionToolExecutions(restored)).toEqual(executions);
+      await expect(
+        server.rpc.thread.respondToToolApproval({
+          ...session,
+          approvalId: approval.id,
+          decision,
+        }),
+      ).rejects.toThrow("no longer pending");
+    }
+  },
+);
+
+serverTest(
+  "keeps approval decisions when a busy continuation is aborted",
+  async ({ server, llm }) => {
+    for (const decision of ["allow", "deny"] as const) {
+      const session = await server.rpc.thread.new();
+      const prompting = server.promptAndWait({
+        ...session,
+        text: "Create a policy",
+      });
+      await llm.respond(
+        m.tool.start("exec", {
+          id: `pending-${decision}`,
+          arguments: {
+            js: `return await tools.executor.coreTools.policies.create({ owner: "user", pattern: "abort-${decision}.*", action: "block" });`,
+          },
+        }),
+      );
+      await llm.respond(m.assistant("Please respond to the approval card."));
+      await prompting;
+      const snapshot = await server.rpc.thread.snapshot(session);
+      const approval = sessionToolExecutions(snapshot).flatMap((execution) =>
+        execution.type === "exec" ? execution.approvals : [],
+      )[0]!;
+      const busy = await server.rpc.thread.prompt({
+        ...session,
+        text: "Work on something else",
+      });
+      await llm.waitForRequest();
+      await server.rpc.thread.respondToToolApproval({
+        ...session,
+        approvalId: approval.id,
+        decision,
+      });
+      await server.rpc.thread.abort(session);
+      await server.rpc.thread.wait({
+        ...session,
+        submissionId: busy.submissionId,
+      });
+      const stopped = await server.rpc.thread.snapshot(session);
+      expect(sessionToolExecutions(stopped)[0]).toMatchObject({
+        approvals: [
+          {
+            id: approval.id,
+            status: decision === "allow" ? "allowed" : "denied",
+          },
+        ],
+      });
+      await server.rpc.thread.close(session);
+      const restored = await server.rpc.thread.snapshot(session);
+      expect(sessionToolExecutions(restored)).toEqual(
+        sessionToolExecutions(stopped),
+      );
+      await expect(
+        server.rpc.thread.respondToToolApproval({
+          ...session,
+          approvalId: approval.id,
+          decision,
+        }),
+      ).rejects.toThrow("no longer pending");
+    }
+  },
+);
+
+serverTest(
+  "requires another approval when retry arguments change",
+  async ({ server, llm }) => {
+    const session = await server.rpc.thread.new();
+    const originalJs =
+      'return await tools.executor.coreTools.policies.create({ owner: "user", pattern: "approval-original.*", action: "block" });';
+    const prompting = server.promptAndWait({
+      ...session,
+      text: "Create the policy",
+    });
+    await llm.respond(
+      m.tool.start("exec", {
+        id: "approval-original",
+        arguments: { js: originalJs },
+      }),
+    );
+    await llm.respond(m.assistant("Waiting for approval"));
+    await prompting;
+    const pending = await server.rpc.thread.snapshot(session);
+    const originalApproval = sessionToolExecutions(pending).flatMap(
+      (execution) => (execution.type === "exec" ? execution.approvals : []),
+    )[0]!;
+
+    await server.rpc.thread.respondToToolApproval({
+      ...session,
+      approvalId: originalApproval.id,
+      decision: "allow",
+    });
+    const changedJs =
+      'return await tools.executor.coreTools.policies.create({ owner: "user", pattern: "approval-changed.*", action: "block" });';
+    await llm.respond(
+      m.tool.start("exec", {
+        id: "approval-changed",
+        arguments: { js: changedJs },
+      }),
+    );
+    await llm.respond(m.assistant("The changed request needs approval"));
+
+    await expect
+      .poll(async () => {
+        const snapshot = await server.rpc.thread.snapshot(session);
+        return {
+          activeRun: snapshot.activeRun,
+          approvals: sessionToolExecutions(snapshot).flatMap((execution) =>
+            execution.type === "exec" ? execution.approvals : [],
+          ),
+        };
+      })
+      .toMatchObject({
+        activeRun: undefined,
+        approvals: [
+          { id: originalApproval.id, status: "allowed" },
+          { status: "pending", arguments: { pattern: "approval-changed.*" } },
+        ],
+      });
+    const completed = await server.rpc.thread.snapshot(session);
+    const approvals = sessionToolExecutions(completed).flatMap((execution) =>
+      execution.type === "exec" ? execution.approvals : [],
+    );
+    expect(approvals).toMatchObject([
+      { id: originalApproval.id, status: "allowed" },
+      { status: "pending", arguments: { pattern: "approval-changed.*" } },
+    ]);
+  },
+);
+
+serverTest(
   "exposes the same exec activity through live updates, snapshots, and server restart",
   async ({ server, llm, http }) => {
     await server.rpc.workspace.writeFile({
       path: "notes.md",
       content: "Saved notes",
     });
-    const session = await server.rpc.sessions.create();
+    const session = await server.rpc.thread.new();
     const controller = new AbortController();
-    const watch = await server.rpc.sessions.watch(session, {
+    const watch = await server.rpc.thread.events(session, {
       signal: controller.signal,
     });
     const events: SessionEvent[] = [];
@@ -1593,7 +2646,7 @@ serverTest(
       }
     })();
 
-    const prompt = server.rpc.sessions.prompt({
+    const prompt = server.promptAndWait({
       ...session,
       text: "Read the notes and fetch the report",
     });
@@ -1628,13 +2681,13 @@ serverTest(
         },
       ]);
     await expect
-      .poll(async () => await server.rpc.sessions.snapshot(session))
+      .poll(async () => await server.rpc.thread.snapshot(session))
       .toEqual(live);
     const runId = live.activeRun!.id;
 
     request.respond("The report is ready.");
     await llm.waitForRequest();
-    const waiting = await server.rpc.sessions.snapshot(session);
+    const waiting = await server.rpc.thread.snapshot(session);
     expect(waiting.activeRun).toBeDefined();
     expect(waiting.activeRun!.id).toBe(runId);
     expect(waiting.lastRun).toBeUndefined();
@@ -1660,14 +2713,14 @@ serverTest(
         ],
       },
     ]);
-    expect(await server.rpc.sessions.snapshot(session)).toEqual(live);
+    expect(await server.rpc.thread.snapshot(session)).toEqual(live);
     expect(new Set(live.entries.map((entry) => entry.id)).size).toBe(
       live.entries.length,
     );
 
     await server.stop();
     await server.start();
-    expect(await server.rpc.sessions.snapshot(session)).toEqual(live);
+    expect(await server.rpc.thread.snapshot(session)).toEqual(live);
   },
 );
 
@@ -1675,14 +2728,15 @@ serverTest(
   "reopens a conversation after shutting down with a tool and viewer still active",
   { timeout: 20_000 },
   async ({ server, llm, http }) => {
-    const session = await server.rpc.sessions.create();
-    const watch = await server.rpc.sessions.watch(session);
+    const session = await server.rpc.thread.new();
+    const watch = await server.rpc.thread.events(session);
     await watch.next();
-    const prompting = server.rpc.sessions.prompt({
+    const accepted = await server.rpc.thread.prompt({
       ...session,
       text: "Fetch the report",
     });
-    const disconnected = expect(prompting).rejects.toThrow();
+    const waiting = server.rpc.thread.wait({ ...session, ...accepted });
+    const disconnected = expect(waiting).rejects.toThrow();
     const command = `printf x >> replay-count.txt; curl --silent --fail '${http.url("/pending-report")}'`;
     await llm.respond(
       m.tool.start("exec", {
@@ -1712,10 +2766,10 @@ serverTest(
     });
     await expect
       .poll(async () =>
-        assistantReplies(await server.rpc.sessions.snapshot(session)),
+        assistantReplies(await server.rpc.thread.snapshot(session)),
       )
       .toContain("The interrupted report was not rerun.");
-    const restored = await server.rpc.sessions.snapshot(session);
+    const restored = await server.rpc.thread.snapshot(session);
     expect(sessionMessages(restored)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ role: "user", content: "Fetch the report" }),
@@ -1729,7 +2783,7 @@ serverTest(
       await server.rpc.workspace.readFile({ path: "replay-count.txt" }),
     ).toBe("x");
 
-    const continued = server.rpc.sessions.prompt({
+    const continued = server.promptAndWait({
       ...session,
       text: "Continue without the report",
     });
@@ -1737,7 +2791,7 @@ serverTest(
     await continued;
     await expect
       .poll(async () =>
-        assistantReplies(await server.rpc.sessions.snapshot(session)),
+        assistantReplies(await server.rpc.thread.snapshot(session)),
       )
       .toContain("Continuing without it.");
   },
@@ -1747,8 +2801,8 @@ serverTest(
   "kills nested bash.run after the default 10s timeout",
   { timeout: 25_000 },
   async ({ server, llm }) => {
-    const session = await server.rpc.sessions.create();
-    const prompt = server.rpc.sessions.prompt({
+    const session = await server.rpc.thread.new();
+    const prompt = server.promptAndWait({
       ...session,
       text: "Run the command",
     });
@@ -1764,7 +2818,7 @@ serverTest(
       .poll(
         async () => {
           const execution = sessionToolExecutions(
-            await server.rpc.sessions.snapshot(session),
+            await server.rpc.thread.snapshot(session),
           ).find((item) => item.id === "default-timeout");
           const content = execution?.result?.content;
           if (content === undefined) return "";
@@ -1786,14 +2840,14 @@ serverTest(
     using cleanup = new errore.DisposableStack();
     const first = new AbortController();
     cleanup.defer(() => first.abort());
-    const updates = await server.rpc.sessions.watchSummaries(undefined, {
+    const updates = await server.rpc.thread.watchSummaries(undefined, {
       signal: first.signal,
     });
     expect((await updates.next()).value).toEqual({
       type: "snapshot",
       sessions: [],
     });
-    const session = await server.rpc.sessions.create();
+    const session = await server.rpc.thread.new();
     expect((await updates.next()).value).toMatchObject({
       type: "updated",
       session: {
@@ -1803,7 +2857,7 @@ serverTest(
       },
     });
 
-    const prompting = server.rpc.sessions.prompt({
+    const prompting = server.promptAndWait({
       ...session,
       text: "Work without an open conversation",
     });
@@ -1829,7 +2883,7 @@ serverTest(
     first.abort();
 
     // Finish another run while this client is disconnected.
-    const again = server.rpc.sessions.prompt({
+    const again = server.promptAndWait({
       ...session,
       text: "Finish while I am disconnected",
     });
@@ -1837,7 +2891,7 @@ serverTest(
     await again;
     const reconnect = new AbortController();
     cleanup.defer(() => reconnect.abort());
-    const resumed = await server.rpc.sessions.watchSummaries(undefined, {
+    const resumed = await server.rpc.thread.watchSummaries(undefined, {
       signal: reconnect.signal,
     });
     const current = await resumed.next();
@@ -1859,13 +2913,13 @@ serverTest(
     expect(isThreadUnread(current.value.sessions[0]!)).toBe(true);
 
     // Aborting an active run also pushes its settled status.
-    const aborted = server.rpc.sessions.prompt({
+    const aborted = server.promptAndWait({
       ...session,
       text: "Stop this run",
     });
     await nextSummary(resumed, (summary) => summary.isRunning);
     await llm.waitForRequest();
-    await server.rpc.sessions.abort(session);
+    await server.rpc.thread.abort(session);
     await aborted;
     const stopped = await nextSummary(
       resumed,
@@ -1878,7 +2932,7 @@ serverTest(
     await server.start();
     const restart = new AbortController();
     cleanup.defer(() => restart.abort());
-    const restored = await server.rpc.sessions.watchSummaries(undefined, {
+    const restored = await server.rpc.thread.watchSummaries(undefined, {
       signal: restart.signal,
     });
     expect((await restored.next()).value).toMatchObject({
@@ -1902,23 +2956,23 @@ serverTest(
     using cleanup = new errore.DisposableStack();
     const firstConnection = new AbortController();
     cleanup.defer(() => firstConnection.abort());
-    const updates = await server.rpc.sessions.watchSummaries(undefined, {
+    const updates = await server.rpc.thread.watchSummaries(undefined, {
       signal: firstConnection.signal,
     });
     await updates.next();
 
-    const first = await server.rpc.sessions.create();
+    const first = await server.rpc.thread.new();
     await nextSummary(
       updates,
       (summary) => summary.sessionId === first.sessionId,
     );
-    const second = await server.rpc.sessions.create();
+    const second = await server.rpc.thread.new();
     await nextSummary(
       updates,
       (summary) => summary.sessionId === second.sessionId,
     );
-    await server.rpc.sessions.markUnread(second);
-    const secondSummary = (await server.rpc.sessions.list()).find(
+    await server.rpc.thread.markUnread(second);
+    const secondSummary = (await server.rpc.thread.list()).find(
       (summary) => summary.sessionId === second.sessionId,
     );
     expect(secondSummary).toMatchObject({
@@ -1927,7 +2981,7 @@ serverTest(
     });
     expect(secondSummary?.readReceiptCursorId).toBeUndefined();
 
-    const prompted = server.rpc.sessions.prompt({
+    const prompted = server.promptAndWait({
       ...first,
       text: "Produce a result for status commands",
     });
@@ -1944,7 +2998,7 @@ serverTest(
     );
     assert(completed.latestResultId !== undefined);
 
-    await server.rpc.sessions.markRead({
+    await server.rpc.thread.markRead({
       ...first,
       observedResultId: completed.latestResultId,
     });
@@ -1959,7 +3013,7 @@ serverTest(
       readReceiptCursorId: read.latestResultId,
     });
 
-    await server.rpc.sessions.markUnread(first);
+    await server.rpc.thread.markUnread(first);
     const unread = await nextSummary(
       updates,
       (summary) =>
@@ -1971,7 +3025,7 @@ serverTest(
     });
     expect(unread.readReceiptCursorId).toBeUndefined();
 
-    const nextPrompt = server.rpc.sessions.prompt({
+    const nextPrompt = server.promptAndWait({
       ...first,
       text: "Produce another result for status commands",
     });
@@ -1988,11 +3042,11 @@ serverTest(
         summary.latestResultId !== completed.latestResultId &&
         isThreadUnread(summary),
     );
-    await server.rpc.sessions.markRead({
+    await server.rpc.thread.markRead({
       ...first,
       observedResultId: completed.latestResultId,
     });
-    const afterStaleRead = (await server.rpc.sessions.list()).find(
+    const afterStaleRead = (await server.rpc.thread.list()).find(
       (summary) => summary.sessionId === first.sessionId,
     );
     expect(afterStaleRead?.latestResultId).toBe(nextCompleted.latestResultId);
@@ -2000,7 +3054,7 @@ serverTest(
     assert(afterStaleRead !== undefined);
     expect(isThreadUnread(afterStaleRead)).toBe(true);
 
-    await server.rpc.sessions.markDone(first);
+    await server.rpc.thread.markDone(first);
     const done = await nextSummary(
       updates,
       (summary) => summary.sessionId === first.sessionId && summary.markedDone,
@@ -2018,7 +3072,7 @@ serverTest(
 
     const secondConnection = new AbortController();
     cleanup.defer(() => secondConnection.abort());
-    const restored = await server.rpc.sessions.watchSummaries(undefined, {
+    const restored = await server.rpc.thread.watchSummaries(undefined, {
       signal: secondConnection.signal,
     });
     const snapshot = await restored.next();
@@ -2044,7 +3098,7 @@ serverTest(
     });
 
     assert(restoredFirst.latestResultId !== undefined);
-    await server.rpc.sessions.markRead({
+    await server.rpc.thread.markRead({
       ...first,
       observedResultId: restoredFirst.latestResultId,
     });
@@ -2058,7 +3112,7 @@ serverTest(
       readReceiptCursorId: restoredRead.latestResultId,
     });
 
-    await server.rpc.sessions.markUndone(first);
+    await server.rpc.thread.markUndone(first);
     const restoredUndone = await nextSummary(
       restored,
       (summary) => summary.sessionId === first.sessionId && !summary.markedDone,
@@ -2071,7 +3125,7 @@ serverTest(
     secondConnection.abort();
     await server.stop();
     await server.start();
-    const final = await server.rpc.sessions.list();
+    const final = await server.rpc.thread.list();
     const finalFirst = final.find(
       (summary) => summary.sessionId === first.sessionId,
     );
@@ -2096,10 +3150,10 @@ serverTest(
     using cleanup = new errore.DisposableStack();
     const controller = new AbortController();
     cleanup.defer(() => controller.abort());
-    const first = await server.rpc.sessions.watchSummaries(undefined, {
+    const first = await server.rpc.thread.watchSummaries(undefined, {
       signal: controller.signal,
     });
-    const second = await server.rpc.sessions.watchSummaries(undefined, {
+    const second = await server.rpc.thread.watchSummaries(undefined, {
       signal: controller.signal,
     });
     await first.next();
@@ -2131,12 +3185,12 @@ serverTest(
     using cleanup = new errore.DisposableStack();
     const controller = new AbortController();
     cleanup.defer(() => controller.abort());
-    const updates = await server.rpc.sessions.watchSummaries(undefined, {
+    const updates = await server.rpc.thread.watchSummaries(undefined, {
       signal: controller.signal,
     });
     await updates.next();
-    const session = await server.rpc.sessions.create();
-    const prompted = server.rpc.sessions.prompt({
+    const session = await server.rpc.thread.new();
+    const prompted = server.promptAndWait({
       ...session,
       text: "Denied model",
     });
@@ -2147,7 +3201,7 @@ serverTest(
       updates,
       (summary) => !summary.isRunning && summary.latestResultId !== undefined,
     );
-    expect(await server.rpc.sessions.snapshot(session)).toMatchObject({
+    expect(await server.rpc.thread.snapshot(session)).toMatchObject({
       lastRun: { id: failed.latestResultId, status: "failed" },
     });
   },
@@ -2262,8 +3316,8 @@ serverTest(
       signal: controller.signal,
     });
     expect((await updates.next()).value).toEqual([]);
-    const session = await server.rpc.sessions.create();
-    const prompt = server.rpc.sessions.prompt({
+    const session = await server.rpc.thread.new();
+    const prompt = server.promptAndWait({
       ...session,
       text: "Make Cmd+Shift+K open a new chat tab",
     });
@@ -2372,8 +3426,18 @@ serverTest(
       `
       import http from "node:http";
       import crypto from "node:crypto";
-      const server = http.createServer((request, response) => {
+      const server = http.createServer(async (request, response) => {
         response.setHeader("content-type", "application/json");
+        if (request.url.endsWith("/threads")) {
+          const result = await fetch(process.env.HALO_EXTENSION_TOOLS_ORIGIN + "/extension-tools/invoke", {
+            method: "POST",
+            headers: { "content-type": "application/json", authorization: "Bearer " + process.env.HALO_EXTENSION_TOOLS_TOKEN },
+            body: JSON.stringify({ json: { path: "thread.list", input: {} } }),
+          });
+          response.writeHead(result.status);
+          response.end(await result.text());
+          return;
+        }
         response.end(JSON.stringify(request.headers));
       });
       server.on("upgrade", (request, socket) => {
@@ -2413,6 +3477,19 @@ serverTest(
       ...forwarded,
       authorization: `Bearer ${gatewayToken}`,
     };
+    const independent = await server.rpc.thread.new();
+    const threadsResponse = await fetch(`${url}threads`, {
+      headers: gatewayHeaders,
+    });
+    expect(threadsResponse.status).toBe(200);
+    expect(await threadsResponse.json()).toMatchObject({
+      json: {
+        ok: true,
+        data: expect.arrayContaining([
+          expect.objectContaining({ threadId: independent.sessionId }),
+        ]),
+      },
+    });
     const response = await fetch(url, { headers: gatewayHeaders });
     expect(response.status).toBe(200);
     const received = await response.json();
@@ -2649,55 +3726,13 @@ serverTest(
 );
 
 serverTest(
-  "keeps previous protocol summaries readable and rejects unsupported writes",
-  async ({ server, llm }) => {
+  "advertises protocol 24 and rejects unsupported writes",
+  async ({ server }) => {
     const connected = await connectHaloClient({ transport: server.transport });
     assert(!(connected instanceof Error));
     expect(connected.serverInfo).toEqual({
       protocolVersion: haloProtocolVersion,
-      supportedProtocols: haloSupportedProtocols,
-    });
-    const session = await server.rpc.sessions.create();
-    const prompting = server.rpc.sessions.prompt({
-      ...session,
-      text: "Complete a result for an older client",
-    });
-    await llm.respond(m.assistant("The result is ready."));
-    await prompting;
-    for (const version of [18, 19]) {
-      const previousProtocol = createHaloClient({
-        transport: {
-          ...server.transport,
-          headers: {
-            ...server.transport.headers,
-            "x-halo-protocol-version": String(version),
-          },
-        },
-      });
-      expect(
-        await previousProtocol.workspace.writeFile({
-          path: `legacy-${version}.md`,
-          content: "Legacy client",
-        }),
-      ).toEqual({ path: `legacy-${version}.md` });
-      expect(await previousProtocol.sessions.list()).toEqual([
-        expect.objectContaining({
-          sessionId: session.sessionId,
-          latestResultId: expect.any(String),
-        }),
-      ]);
-    }
-    const previousStatusProtocol = createHaloClient({
-      transport: {
-        ...server.transport,
-        headers: {
-          ...server.transport.headers,
-          "x-halo-protocol-version": "20",
-        },
-      },
-    });
-    await expect(previousStatusProtocol.sessions.list()).rejects.toMatchObject({
-      code: "UNSUPPORTED_PROTOCOL",
+      supportedProtocols: [24],
     });
     const unsupported = createHaloClient({
       transport: {
@@ -2709,7 +3744,7 @@ serverTest(
       },
     });
     expect(await unsupported.server.info()).toMatchObject({
-      supportedProtocols: haloSupportedProtocols,
+      supportedProtocols: [24],
     });
     await expect(
       unsupported.workspace.writeFile({

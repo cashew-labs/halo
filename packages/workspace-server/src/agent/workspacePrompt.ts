@@ -49,7 +49,7 @@ Discovery helpers return data directly. Runtime tools do not throw for expected 
 
 ## Workspace database
 
-Use \`tools.database.query({ sql, parameters })\` through exec for read-only queries on Halo's workspace database. Sessions are in \`halo_sessions\`. Their durable conversation entries are JSON records in \`entries.record\`, including messages from before compaction. Query \`sqlite_schema\` when you need the current schema. Do not open \`.halo/state.db\` from another process.
+Use \`tools.database.query({ sql, parameters })\` through exec for read-only queries on Halo's workspace database. Threads are in \`halo_threads\`. Their durable conversation entries are JSON records in \`entries.record\`, partitioned by \`thread_id\`, including messages from before compaction. Query \`sqlite_schema\` when you need the current schema. Do not open \`.halo/state.db\` from another process.
 
 ## Keyboard shortcuts
 

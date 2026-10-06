@@ -6,23 +6,20 @@ import {
   connectionRequestLabel,
   type ConnectionRequest,
 } from "@get-halo/client";
-import {
-  PromptFailedError,
-  type HaloAgentSession,
-} from "../agent/HaloAgentSession.js";
+import { PromptFailedError } from "../agent/Thread.js";
 import type { ConnectionService } from "../agent/runtime/ConnectionService.js";
 import { orpcErrors } from "../orpcErrors.js";
-import type { SessionRegistry } from "./SessionRegistry.js";
+import type { ThreadManager } from "./ThreadManager.js";
 
-export type SessionsRouterContext = {
-  sessions: SessionRegistry;
+export type ThreadRouterContext = {
+  sessions: ThreadManager;
   connections: ConnectionService;
   logger: Logger;
 };
 
-const os = implement(contract.sessions).$context<SessionsRouterContext>();
+const os = implement(contract.thread).$context<ThreadRouterContext>();
 
-export const sessionsRouter = os.router({
+export const threadRouter = os.router({
   watchSummaries: os.watchSummaries.handler(({ context, signal }) =>
     context.sessions.watchSummaries(signal),
   ),
@@ -48,29 +45,30 @@ export const sessionsRouter = os.router({
     if (sessions instanceof Error) return orpcErrors.badRequest(sessions);
     return sessions;
   }),
-  create: os.create.handler(async ({ context }) => {
+  new: os.new.handler(async ({ input, context }) => {
     context.logger.info({ event: "newAgentSession" });
-    const session = await context.sessions.create();
+    const session = await context.sessions.new(input);
     if (session instanceof Error) return orpcErrors.badRequest(session);
     return { sessionId: session.sessionId };
   }),
   snapshot: os.snapshot.handler(async ({ input, context }) => {
-    const session = await context.sessions.open(input.sessionId);
-    if (session instanceof Error) return orpcErrors.badRequest(session);
-    const snapshot = await session.readSnapshot(
+    const snapshot = await context.sessions.snapshot(
+      input.sessionId,
       context.connections.statesForSession(input.sessionId),
     );
     if (snapshot instanceof Error) return orpcErrors.badRequest(snapshot);
     return snapshot;
   }),
-  watch: os.watch.handler(async ({ input, context, signal }) => {
-    const session = await context.sessions.open(input.sessionId);
-    if (session instanceof Error) return orpcErrors.badRequest(session);
-    return session.watch({
+  events: os.events.handler(async function* ({ input, context, signal }) {
+    const events = context.sessions.events(input.sessionId, {
       signal,
       readConnections: () =>
         context.connections.statesForSession(input.sessionId),
     });
+    for await (const event of events) {
+      if (event instanceof Error) throw orpcErrors.badRequest(event);
+      yield event;
+    }
   }),
   prompt: os.prompt.handler(async ({ input, context, signal }) => {
     context.logger.info({
@@ -78,13 +76,17 @@ export const sessionsRouter = os.router({
       sessionId: input.sessionId,
       textLength: input.text.length,
     });
-    const session = await context.sessions.open(input.sessionId);
-    if (session instanceof Error) return orpcErrors.badRequest(session);
     const prompted = await runWithSignal(
       signal,
-      async () => await session.prompt(input),
+      async () => await context.sessions.prompt(input),
     );
     if (prompted instanceof Error) return orpcErrors.badRequest(prompted);
+    return prompted;
+  }),
+  wait: os.wait.handler(async ({ input, context, signal }) => {
+    const settled = await context.sessions.wait(input, signal);
+    if (settled instanceof Error) return orpcErrors.badRequest(settled);
+    return settled;
   }),
   startConnection: os.startConnection.handler(
     async ({ input, context, signal }) => {
@@ -93,17 +95,20 @@ export const sessionsRouter = os.router({
         sessionId: input.sessionId,
         integration: input.request.integration,
       });
-      const session = await context.sessions.open(input.sessionId);
-      if (session instanceof Error) return orpcErrors.badRequest(session);
       const started = await context.connections.startConnection({
         sessionId: input.sessionId,
         request: input.request,
         completion: input.completion,
         onEvent: async (event) => {
-          session.publishConnectionEvent(event);
+          const published = await context.sessions.publishConnectionEvent(
+            input.sessionId,
+            event,
+          );
+          if (published instanceof Error) return published;
           if (event.status === "connected") {
             notifyConnectedSession({
-              session,
+              sessions: context.sessions,
+              sessionId: input.sessionId,
               request: event.request,
               signal: undefined,
             })
@@ -134,7 +139,8 @@ export const sessionsRouter = os.router({
       }
       if (started.status === "authorization-required") return started;
       const notified = await notifyConnectedSession({
-        session,
+        sessions: context.sessions,
+        sessionId: input.sessionId,
         request: input.request,
         signal,
       });
@@ -156,14 +162,24 @@ export const sessionsRouter = os.router({
     const cancelled = await context.connections.cancelConnection(input);
     if (cancelled instanceof Error) return orpcErrors.badRequest(cancelled);
   }),
+  respondToToolApproval: os.respondToToolApproval.handler(
+    async ({ input, context }) => {
+      context.logger.info({
+        event: "agentSession.respondToToolApproval",
+        sessionId: input.sessionId,
+        approvalId: input.approvalId,
+        decision: input.decision,
+      });
+      const responded = await context.sessions.respondToToolApproval(input);
+      if (responded instanceof Error) return orpcErrors.badRequest(responded);
+    },
+  ),
   abort: os.abort.handler(async ({ input, context }) => {
     context.logger.info({
       event: "abort",
       sessionId: input.sessionId,
     });
-    const session = await context.sessions.open(input.sessionId);
-    if (session instanceof Error) return orpcErrors.badRequest(session);
-    const aborted = await session.abort();
+    const aborted = await context.sessions.abort(input.sessionId);
     if (aborted instanceof Error) return orpcErrors.badRequest(aborted);
   }),
   close: os.close.handler(async ({ input, context }) => {
@@ -177,14 +193,15 @@ export const sessionsRouter = os.router({
 });
 
 async function notifyConnectedSession(args: {
-  session: HaloAgentSession;
+  sessions: ThreadManager;
+  sessionId: string;
   request: ConnectionRequest;
   signal: AbortSignal | undefined;
 }) {
   return await runWithSignal(
     args.signal,
     async () =>
-      await args.session.notify({
+      await args.sessions.notify(args.sessionId, {
         customType: "halo.integration.connected",
         content: `[System] The user connected ${connectionRequestLabel(args.request)}. You can now retry the operation that required this connection. Continue the user's last request.`,
       }),

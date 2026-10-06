@@ -8,8 +8,8 @@ export class HaloToolInputError extends errore.createTaggedError({
   message: 'Invalid input for Halo tool "$tool"',
 }) {}
 
-export type HaloToolExecution = {
-  value: unknown;
+export type HaloToolExecution<T = unknown> = {
+  value: T;
 };
 
 export type HaloToolContext = {
@@ -18,6 +18,9 @@ export type HaloToolContext = {
   runtime: ToolRuntime;
   signal: AbortSignal | undefined;
   modelId: string | undefined;
+  threadId?: string;
+  toolCallId?: string;
+  bashOutput?: { directory: string; headChars: number; tailChars: number };
 };
 
 export type HaloTool = {

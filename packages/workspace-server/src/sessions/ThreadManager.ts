@@ -1,22 +1,29 @@
 import * as errore from "errore";
+import { createHash } from "node:crypto";
 import { Stream } from "@get-halo/shared/Stream";
 import { SerialQueue } from "@get-halo/shared/SerialQueue";
 import {
   isThreadUnread,
   type SessionSummary,
   type SessionSummariesUpdate,
+  type ChatPrompt,
+  type HaloMessage,
+  type HaloConnectionState,
+  type HaloConnectionEvent,
 } from "@get-halo/client";
 import {
-  HaloAgentSession,
+  Thread,
   CreateAgentSessionError,
-  type HaloAgentSessionOptions,
-} from "../agent/HaloAgentSession.js";
+  SessionStorageError,
+  type ThreadOptions,
+} from "../agent/Thread.js";
+import { SessionProjection } from "../agent/SessionProjection.js";
 import type {
-  SessionProductFields,
-  SessionRepoApi,
-  SessionHandle,
-  SessionMetadata,
-} from "../storage/SessionRepoApi.js";
+  ThreadProductFields,
+  ThreadRepoApi,
+  ThreadHandle,
+  ThreadMetadata,
+} from "../storage/ThreadRepoApi.js";
 
 export class SessionNotFoundError extends errore.createTaggedError({
   name: "SessionNotFoundError",
@@ -38,13 +45,13 @@ export class SessionNotOpenError extends errore.createTaggedError({
   message: "Agent session '$sessionId' is not open.",
 }) {}
 
-class SessionRegistryClosedError extends errore.createTaggedError({
-  name: "SessionRegistryClosedError",
+class ThreadManagerClosedError extends errore.createTaggedError({
+  name: "ThreadManagerClosedError",
   message: "The server is shutting down.",
 }) {}
 
-type SessionRegistryOptions = HaloAgentSessionOptions & {
-  repo: SessionRepoApi;
+type ThreadManagerOptions = ThreadOptions & {
+  repo: ThreadRepoApi;
 };
 
 type PiSessionSummary = Omit<
@@ -52,35 +59,38 @@ type PiSessionSummary = Omit<
   "markedDone" | "readReceiptCursorId"
 >;
 
-export class SessionRegistry {
+export class ThreadManager {
+  private readonly idleChanges = new Stream<boolean>();
+  readonly idle = this.idleChanges.project(false, (_previous, idle) => idle);
+  private readonly idleSubscriptions = new Map<string, () => void>();
   private closing = false;
   // Recovery opens sessions paused until interrupted routines have been aborted.
   private started = false;
   private readonly closed = new AbortController();
   // Serializes snapshots and updates so reconnect cannot miss a transition.
   private readonly summaryQueue = new SerialQueue();
+  private readonly creationQueue = new SerialQueue();
   private readonly summaries = new Map<string, SessionSummary>();
   private readonly summaryChanges = new Stream<SessionSummariesUpdate>();
   private readonly summarySubscriptions = new Map<string, () => void>();
+  private readonly lifecycleSubscriptions = new Map<string, () => void>();
+  private readonly lifecycleQueues = new Map<string, SerialQueue>();
+  private readonly closeFailures = new Map<string, Error>();
   private readonly productFieldsBySession = new Map<
     string,
-    SessionProductFields
+    ThreadProductFields
   >();
   private readonly pending = new Set<Promise<unknown>>();
-  private readonly sessions = new Map<string, HaloAgentSession>();
-  private readonly stored = new Map<string, Promise<SessionHandle | Error>>();
-  private readonly opening = new Map<
-    string,
-    Promise<Error | HaloAgentSession>
-  >();
-  private readonly repo: SessionRepoApi;
-  private readonly environment: HaloAgentSessionOptions["environment"];
-  private readonly llmApi: HaloAgentSessionOptions["llmApi"];
-  private readonly filesystem: HaloAgentSessionOptions["filesystem"];
-  private readonly layout: HaloAgentSessionOptions["layout"];
-  private readonly toolRuntime: HaloAgentSessionOptions["toolRuntime"];
+  private readonly sessions = new Map<string, Thread>();
+  private readonly stored = new Map<string, Promise<ThreadHandle | Error>>();
+  private readonly repo: ThreadRepoApi;
+  private readonly environment: ThreadOptions["environment"];
+  private readonly llmApi: ThreadOptions["llmApi"];
+  private readonly filesystem: ThreadOptions["filesystem"];
+  private readonly layout: ThreadOptions["layout"];
+  private readonly toolRuntime: ThreadOptions["toolRuntime"];
 
-  constructor(ctx: SessionRegistryOptions) {
+  constructor(ctx: ThreadManagerOptions) {
     const { repo, environment, llmApi, filesystem, layout, toolRuntime } = ctx;
     this.repo = repo;
     this.environment = environment;
@@ -98,16 +108,16 @@ export class SessionRegistry {
   }
 
   async start() {
-    const metadata = await this.repo
-      .list()
-      .catch((cause) => new ListAgentSessionsError({ cause }));
-    if (metadata instanceof Error) return metadata;
-    for (const item of metadata) {
-      const session = await this.open(item.id);
+    const pending = await this.repo.listPendingThreadIds();
+    if (pending instanceof Error) return pending;
+    for (const sessionId of pending) {
+      const session = await this.openSession(sessionId);
       if (session instanceof Error) return session;
-      session.resume();
     }
     this.started = true;
+    // Includes threads opened paused by routine recovery.
+    for (const session of this.sessions.values()) session.resume();
+    this.publishIdle();
   }
 
   async *watchSummaries(
@@ -136,16 +146,156 @@ export class SessionRegistry {
     yield* updates;
   }
 
-  async create() {
-    return await this.track(async () => await this.createSession());
+  async new(input?: { requestId?: string }) {
+    return await this.track(
+      async () =>
+        await this.creationQueue.run(async () => {
+          // Deterministic, filesystem-safe identity makes creation retries survive restart.
+          const sessionId =
+            input?.requestId === undefined
+              ? undefined
+              : `thread-${createHash("sha256").update(input.requestId).digest("hex")}`;
+          if (sessionId !== undefined) {
+            const metadata = await this.repo
+              .list()
+              .catch((cause) => new ListAgentSessionsError({ cause }));
+            if (metadata instanceof Error) return metadata;
+            if (metadata.some((item) => item.id === sessionId)) {
+              const opened = await this.openSession(sessionId);
+              if (opened instanceof Error) return opened;
+              return { sessionId };
+            }
+          }
+          const thread = await this.createSession(sessionId);
+          if (thread instanceof Error) return thread;
+          return { sessionId: thread.sessionId };
+        }),
+    );
   }
 
-  async open(sessionId: string) {
-    return await this.track(async () => await this.openSession(sessionId));
+  private async withThread<T>(
+    sessionId: string,
+    operation: (thread: Thread) => Promise<T> | T,
+  ) {
+    return await this.track(async () => {
+      const acquired = await this.acquire(sessionId);
+      if (acquired instanceof Error) return acquired;
+      using cleanup = new errore.DisposableStack();
+      cleanup.use(acquired.lease);
+      return await operation(acquired.thread);
+    });
+  }
+
+  private async acquire(sessionId: string, options?: { observer: true }) {
+    return await this.lifecycleQueue(sessionId).run(async () => {
+      const thread = await this.openSessionUnqueued(sessionId);
+      if (thread instanceof Error) return thread;
+      return { thread, lease: thread.retain(options) };
+    });
+  }
+
+  async prompt(input: ChatPrompt & { sessionId: string }) {
+    return await this.withThread(
+      input.sessionId,
+      async (thread) => await thread.prompt(input),
+    );
+  }
+
+  async wait(
+    input: { sessionId: string; submissionId: number },
+    signal?: AbortSignal,
+  ) {
+    const abortSignal =
+      signal === undefined
+        ? this.closed.signal
+        : AbortSignal.any([signal, this.closed.signal]);
+    return await this.withThread(
+      input.sessionId,
+      async (thread) => await thread.wait(input.submissionId, abortSignal),
+    );
+  }
+
+  async snapshot(sessionId: string, connections: HaloConnectionState[]) {
+    return await this.track(async () => {
+      const thread = this.sessions.get(sessionId);
+      if (thread !== undefined) return thread.readSnapshot(connections);
+      const projection = await this.readStoredProjection(sessionId);
+      if (projection instanceof Error) return projection;
+      return { ...projection.snapshot(), connections };
+    });
+  }
+
+  async *events(
+    sessionId: string,
+    options: {
+      signal?: AbortSignal;
+      readConnections: () => HaloConnectionState[];
+    },
+  ) {
+    const acquired = await this.track(
+      async () => await this.acquire(sessionId, { observer: true }),
+    );
+    if (acquired instanceof Error) {
+      yield acquired;
+      return;
+    }
+    using cleanup = new errore.DisposableStack();
+    cleanup.use(acquired.lease);
+    yield* acquired.thread.watch(options);
+  }
+
+  async abort(sessionId: string) {
+    return await this.withThread(
+      sessionId,
+      async (thread) => await thread.abort(),
+    );
+  }
+
+  async setName(sessionId: string, name: string) {
+    return await this.withThread(
+      sessionId,
+      async (thread) => await thread.setName(name),
+    );
+  }
+
+  async appendMessages(sessionId: string, messages: readonly HaloMessage[]) {
+    return await this.withThread(
+      sessionId,
+      async (thread) => await thread.appendMessages(messages),
+    );
+  }
+
+  async notify(sessionId: string, input: Parameters<Thread["notify"]>[0]) {
+    return await this.withThread(
+      sessionId,
+      async (thread) => await thread.notify(input),
+    );
+  }
+
+  async respondToToolApproval(
+    input: Parameters<Thread["respondToToolApproval"]>[0] & {
+      sessionId: string;
+    },
+  ) {
+    return await this.withThread(
+      input.sessionId,
+      async (thread) => await thread.respondToToolApproval(input),
+    );
+  }
+
+  async publishConnectionEvent(sessionId: string, event: HaloConnectionEvent) {
+    return await this.withThread(sessionId, (thread) =>
+      thread.publishConnectionEvent(event),
+    );
   }
 
   async close(sessionId: string) {
-    return await this.track(async () => await this.closeSession(sessionId));
+    return await this.track(
+      async () =>
+        await this.lifecycleQueue(sessionId).run(
+          async () => await this.closeSession(sessionId),
+        ),
+    );
   }
 
   async markRead(input: { sessionId: string; observedResultId: string }) {
@@ -162,7 +312,7 @@ export class SessionRegistry {
             return;
           const readReceiptCursorId = summary.latestResultId;
           const saved = await this.repo.setReadReceipt({
-            sessionId,
+            threadId: sessionId,
             readReceiptCursorId,
           });
           if (saved instanceof Error) return saved;
@@ -184,7 +334,7 @@ export class SessionRegistry {
           if (summary.latestResultId === undefined || isThreadUnread(summary))
             return;
           const saved = await this.repo.setReadReceipt({
-            sessionId,
+            threadId: sessionId,
           });
           if (saved instanceof Error) return saved;
           this.productFieldsBySession.set(sessionId, {
@@ -203,11 +353,11 @@ export class SessionRegistry {
           if (summary instanceof Error) return summary;
           if (summary.markedDone) return;
           const saved = await this.repo.setMarkedDone({
-            sessionId,
+            threadId: sessionId,
             markedDone: true,
           });
           if (saved instanceof Error) return saved;
-          const fields: SessionProductFields = { markedDone: true };
+          const fields: ThreadProductFields = { markedDone: true };
           fields.readReceiptCursorId = summary.readReceiptCursorId;
           this.productFieldsBySession.set(sessionId, fields);
           this.publish({ ...summary, markedDone: true });
@@ -223,11 +373,11 @@ export class SessionRegistry {
           if (summary instanceof Error) return summary;
           if (!summary.markedDone) return;
           const saved = await this.repo.setMarkedDone({
-            sessionId,
+            threadId: sessionId,
             markedDone: false,
           });
           if (saved instanceof Error) return saved;
-          const fields: SessionProductFields = { markedDone: false };
+          const fields: ThreadProductFields = { markedDone: false };
           fields.readReceiptCursorId = summary.readReceiptCursorId;
           this.productFieldsBySession.set(sessionId, fields);
           this.publish({ ...summary, markedDone: false });
@@ -236,11 +386,15 @@ export class SessionRegistry {
   }
 
   private async track<T>(operation: () => Promise<T>) {
-    if (this.closing) return new SessionRegistryClosedError();
+    if (this.closing) return new ThreadManagerClosedError();
     const pending = operation();
     this.pending.add(pending);
+    this.publishIdle();
     using cleanup = new errore.DisposableStack();
-    cleanup.defer(() => this.pending.delete(pending));
+    cleanup.defer(() => {
+      this.pending.delete(pending);
+      this.publishIdle();
+    });
     return await pending;
   }
 
@@ -259,21 +413,21 @@ export class SessionRegistry {
       const fields = productFields.get(item.id);
       if (fields === undefined)
         return new SessionNotFoundError({ sessionId: item.id });
-      const cached = this.summaries.get(item.id);
-      if (cached !== undefined) {
-        const current = applyProductFields({
-          summary: cached,
-          fields,
-        });
-        this.summaries.set(item.id, current);
-        summaries.push(current);
-        continue;
-      }
       const session = this.sessions.get(item.id);
-      if (session === undefined)
-        return new SessionNotOpenError({ sessionId: item.id });
-      const summary = await session.readSummary();
-      if (summary instanceof Error) return summary;
+      let summary = session?.readSummary();
+      if (summary === undefined) {
+        const projection = await this.readStoredProjection(item.id);
+        if (projection instanceof Error) return projection;
+        summary = {
+          ...projection.summary({
+            metadata: item,
+            cwd: this.layout.root,
+            snapshot: projection.snapshot(),
+          }),
+          // Saved pending work is not executing while its runtime is closed.
+          isRunning: false,
+        };
+      }
       const current = applyProductFields({
         summary,
         fields,
@@ -297,6 +451,14 @@ export class SessionRegistry {
     );
   }
 
+  private async readStoredProjection(sessionId: string) {
+    const data = await this.repo
+      .read(sessionId)
+      .catch((cause) => new SessionStorageError({ sessionId, cause }));
+    if (data instanceof Error) return data;
+    return new SessionProjection(data);
+  }
+
   private async getProductFieldsUnqueued(sessionId: string) {
     const cached = this.productFieldsBySession.get(sessionId);
     if (cached !== undefined) return cached;
@@ -307,9 +469,9 @@ export class SessionRegistry {
     return fields;
   }
 
-  private async createSession() {
+  private async createSession(sessionId?: string) {
     const stored = await this.repo
-      .create({})
+      .create({ id: sessionId })
       .catch((cause) => new CreateAgentSessionError({ cause }));
     if (stored instanceof Error) return stored;
     this.productFieldsBySession.set(stored.metadata.id, { markedDone: false });
@@ -318,43 +480,67 @@ export class SessionRegistry {
   }
 
   private async openSession(sessionId: string) {
+    return await this.lifecycleQueue(sessionId).run(
+      async () => await this.openSessionUnqueued(sessionId),
+    );
+  }
+
+  private lifecycleQueue(sessionId: string) {
+    let queue = this.lifecycleQueues.get(sessionId);
+    if (queue === undefined) {
+      queue = new SerialQueue();
+      this.lifecycleQueues.set(sessionId, queue);
+    }
+    return queue;
+  }
+
+  private async openSessionUnqueued(sessionId: string) {
+    const failed = this.closeFailures.get(sessionId);
+    if (failed !== undefined) return failed;
     const live = this.sessions.get(sessionId);
     if (live !== undefined) return live;
-    const pending = this.opening.get(sessionId);
-    if (pending !== undefined) return await pending;
-
-    const opening = this.openAndRegister(sessionId);
-    this.opening.set(sessionId, opening);
-    const session = await opening;
-    this.opening.delete(sessionId);
-    return session;
+    return await this.openAndRegister(sessionId);
   }
 
   private async closeSession(sessionId: string) {
     const session = this.sessions.get(sessionId);
     if (session === undefined) return new SessionNotOpenError({ sessionId });
-    this.summarySubscriptions.get(sessionId)?.();
-    this.summarySubscriptions.delete(sessionId);
     const published = await this.publishSummary(sessionId);
     if (published instanceof Error) return published;
+    this.summarySubscriptions.get(sessionId)?.();
+    this.summarySubscriptions.delete(sessionId);
     const closed = await session.close();
+    if (closed instanceof Error) {
+      // Keep ownership until resource release is known; never admit a replacement.
+      this.closeFailures.set(sessionId, closed);
+      return closed;
+    }
     this.sessions.delete(sessionId);
+    this.idleSubscriptions.get(sessionId)?.();
+    this.idleSubscriptions.delete(sessionId);
+    this.closeFailures.delete(sessionId);
+    this.publishIdle();
+    this.lifecycleSubscriptions.get(sessionId)?.();
+    this.lifecycleSubscriptions.delete(sessionId);
     await this.summaryQueue.run(() => {
       const summary = this.summaries.get(sessionId);
       if (summary !== undefined) this.publish({ ...summary, isRunning: false });
     });
-    this.summarySubscriptions.get(sessionId)?.();
-    this.summarySubscriptions.delete(sessionId);
     this.stored.delete(sessionId);
-    if (closed instanceof Error) return closed;
   }
 
   async shutdown() {
     this.closing = true;
+    this.publishIdle();
     this.closed.abort();
+    await Promise.all(this.pending);
     for (const unsubscribe of this.summarySubscriptions.values()) unsubscribe();
     this.summarySubscriptions.clear();
-    await Promise.all(this.pending);
+    for (const unsubscribe of this.lifecycleSubscriptions.values())
+      unsubscribe();
+    this.lifecycleSubscriptions.clear();
+    for (const unsubscribe of this.idleSubscriptions.values()) unsubscribe();
+    this.idleSubscriptions.clear();
 
     const sessions = [...this.sessions.values()];
     this.sessions.clear();
@@ -363,7 +549,10 @@ export class SessionRegistry {
     );
     const sessionError = closed.find((result) => result instanceof Error);
     this.stored.clear();
+    this.lifecycleQueues.clear();
+    this.closeFailures.clear();
     this.productFieldsBySession.clear();
+    this.idle[Symbol.dispose]();
     if (sessionError instanceof Error) return sessionError;
   }
 
@@ -374,7 +563,7 @@ export class SessionRegistry {
         ? await this.findStored(sessionId)
         : await existing;
     if (stored instanceof Error) return stored;
-    const session = await HaloAgentSession.attach(
+    const session = await Thread.attach(
       {
         environment: this.environment,
         llmApi: this.llmApi,
@@ -393,11 +582,20 @@ export class SessionRegistry {
     if (published instanceof Error) {
       this.summarySubscriptions.get(sessionId)?.();
       this.summarySubscriptions.delete(sessionId);
+      this.lifecycleSubscriptions.get(sessionId)?.();
+      this.lifecycleSubscriptions.delete(sessionId);
+      const closed = await session.close();
+      if (closed instanceof Error) {
+        this.closeFailures.set(sessionId, closed);
+        console.warn(closed);
+        return published;
+      }
       this.sessions.delete(sessionId);
+      this.idleSubscriptions.get(sessionId)?.();
+      this.idleSubscriptions.delete(sessionId);
+      this.publishIdle();
       this.stored.delete(sessionId);
       this.summaries.delete(sessionId);
-      const closed = await session.close();
-      if (closed instanceof Error) console.warn(closed);
       return published;
     }
     if (this.started) session.resume();
@@ -414,7 +612,7 @@ export class SessionRegistry {
     return await this.openStored(item);
   }
 
-  private async openStored(metadata: SessionMetadata) {
+  private async openStored(metadata: ThreadMetadata) {
     const existing = this.stored.get(metadata.id);
     if (existing !== undefined) return await existing;
     const opening = this.repo
@@ -428,8 +626,31 @@ export class SessionRegistry {
     return stored;
   }
 
-  private register(session: HaloAgentSession) {
+  private register(session: Thread) {
     this.sessions.set(session.sessionId, session);
+    this.idleSubscriptions.set(
+      session.sessionId,
+      session.workIdle.subscribe(() => this.publishIdle()),
+    );
+    this.lifecycleSubscriptions.set(
+      session.sessionId,
+      session.lifecycle.subscribe(() => {
+        if (this.closing) return;
+        // oxlint-disable-next-line typescript/no-floating-promises -- Tracked through shutdown; returned lifecycle errors are logged below.
+        this.track(
+          async () =>
+            await this.lifecycleQueue(session.sessionId).run(async () => {
+              if (this.sessions.get(session.sessionId) !== session) return;
+              const idle = await session.canUnload();
+              if (idle instanceof Error) return idle;
+              if (!idle) return;
+              return await this.closeSession(session.sessionId);
+            }),
+        ).then((result) => {
+          if (result instanceof Error) console.warn(result);
+        });
+      }),
+    );
     this.summarySubscriptions.set(
       session.sessionId,
       session.onSummaryChange(async () => {
@@ -467,6 +688,18 @@ export class SessionRegistry {
     this.summaries.set(session.sessionId, session);
     this.summaryChanges.append({ type: "updated", session });
   }
+
+  private publishIdle() {
+    const idle =
+      this.started &&
+      !this.closing &&
+      this.pending.size === 0 &&
+      this.closeFailures.size === 0 &&
+      [...this.sessions.values()].every(
+        (session) => session.workIdle.latestValue,
+      );
+    if (idle !== this.idle.latestValue) this.idleChanges.append(idle);
+  }
 }
 
 function applyProductFields({
@@ -474,7 +707,7 @@ function applyProductFields({
   fields,
 }: {
   summary: PiSessionSummary | SessionSummary;
-  fields: SessionProductFields;
+  fields: ThreadProductFields;
 }): SessionSummary {
   return { ...summary, ...fields };
 }

@@ -19,20 +19,32 @@ if [[ ! -f "$HOME/.config/halo-chrome/Default/Preferences" ]]; then
 fi
 
 desktop_pids=()
+dbus_pid=
 cleanup() {
   trap - EXIT TERM INT
+  # Flush Chrome's saved tabs before terminating its display server.
+  if ! bash "$desktop_dir/stop-chrome.sh"; then
+    echo 'Chrome shutdown failed; stopping the desktop' >&2
+  fi
   kill "${desktop_pids[@]}" 2>/dev/null || true
+  if [[ -n "$dbus_pid" ]]; then kill "$dbus_pid" 2>/dev/null || true; fi
   wait || true
 }
 trap cleanup EXIT
 trap 'exit 0' TERM INT
 
+# Keep the supervisor as the signal recipient; dbus-run-session exits before cleanup.
+dbus_info=$(dbus-daemon --session --fork --print-address=1 --print-pid=1)
+export DBUS_SESSION_BUS_ADDRESS=${dbus_info%$'\n'*}
+dbus_pid=${dbus_info##*$'\n'}
+
 Xtigervnc "$DISPLAY" -geometry 1280x800 -depth 24 -localhost \
   -SecurityTypes None -AlwaysShared -AcceptSetDesktopSize -nolisten tcp &
-desktop_pids+=("$!")
+vnc_pid=$!
+desktop_pids+=("$vnc_pid")
 for attempt in {1..100}; do
   if xdpyinfo >/dev/null 2>&1; then break; fi
-  kill -0 "${desktop_pids[0]}"
+  kill -0 "$vnc_pid"
   sleep 0.1
 done
 xdpyinfo >/dev/null
@@ -43,6 +55,11 @@ xfsettingsd --no-daemon &
 desktop_pids+=("$!")
 xfce4-panel --disable-wm-check &
 desktop_pids+=("$!")
+# Reopen the user's saved browser after container maintenance or a provider move.
+# Chrome is a user application: closing it must not stop the desktop service.
+if compgen -G "$HOME/.config/halo-chrome/Default/Sessions/Session_*" >/dev/null; then
+  bash "$desktop_dir/chrome.sh" &
+fi
 /usr/bin/websockify --web /usr/share/novnc 127.0.0.1:6080 127.0.0.1:5901 &
 desktop_pids+=("$!")
 node --import /opt/halo/node_modules/tsx/dist/loader.mjs \

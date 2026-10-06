@@ -32,6 +32,9 @@ const gcpWorkspaceSchema = Type.Object({
 const exeWorkspaceSchema = Type.Object({
   deployment: Type.Literal("exe"),
   templateVmName: Type.String({ pattern: "^[a-z][a-z0-9-]{0,62}$" }),
+  workspaceTag: Type.Optional(
+    Type.String({ pattern: "^[a-z][a-z0-9-]{0,62}$" }),
+  ),
   privateKeyPath: Type.String({ minLength: 1 }),
   gatewaySecret: Type.String({ minLength: 32 }),
 });
@@ -61,6 +64,7 @@ export type ControlPlaneConfig = Static<typeof controlPlaneConfigSchema>;
 export type ControlPlaneApplicationConfig = {
   mode: ApplicationMode;
   server: ControlPlaneConfig;
+  inferenceApiKey: string;
 };
 
 interface AuthSecretIds {
@@ -80,21 +84,30 @@ class ControlPlaneConfigError extends errore.createTaggedError({
   message: "Control plane configuration failed: $detail",
 }) {}
 
-async function readConfig(): Promise<ControlPlaneApplicationConfig | Error> {
+export async function readControlPlaneConfig(): Promise<
+  ControlPlaneApplicationConfig | Error
+> {
   const configPath = process.argv[2];
-  if (configPath !== undefined) {
-    const server = await readConfigFile(configPath);
-    if (server instanceof Error) return server;
-    return { mode: ApplicationMode.Production, server };
-  }
-  if (process.env.K_SERVICE === undefined) {
-    const server = await readDevelopmentConfig();
-    if (server instanceof Error) return server;
-    return { mode: ApplicationMode.Development, server };
-  }
-  const server = await readCloudRunConfig();
+  const server =
+    configPath !== undefined
+      ? await readConfigFile(configPath)
+      : process.env.K_SERVICE === undefined
+        ? await readDevelopmentConfig()
+        : await readCloudRunConfig();
   if (server instanceof Error) return server;
-  return { mode: ApplicationMode.Production, server };
+  const inferenceApiKey = await readGcpSecret({
+    projectId: secretProjectId,
+    secretId: "together-ai-api-key",
+  });
+  if (inferenceApiKey instanceof Error) return inferenceApiKey;
+  return {
+    mode:
+      configPath === undefined && process.env.K_SERVICE === undefined
+        ? ApplicationMode.Development
+        : ApplicationMode.Production,
+    server,
+    inferenceApiKey,
+  };
 }
 
 async function readConfigFile(configPath: string) {
@@ -191,17 +204,8 @@ async function readCloudRunConfig(): Promise<ControlPlaneConfig | Error> {
     return new ControlPlaneConfigError({
       detail: "set GOOGLE_CLIENT_SECRET_ID",
     });
-  const workspaceProjectId = process.env.WORKSPACE_PROJECT_ID;
-  if (workspaceProjectId === undefined)
-    return new ControlPlaneConfigError({ detail: "set WORKSPACE_PROJECT_ID" });
-  const workspaceZone = process.env.WORKSPACE_ZONE;
-  if (workspaceZone === undefined)
-    return new ControlPlaneConfigError({ detail: "set WORKSPACE_ZONE" });
-  const workspaceInstanceTemplate = process.env.WORKSPACE_INSTANCE_TEMPLATE;
-  if (workspaceInstanceTemplate === undefined)
-    return new ControlPlaneConfigError({
-      detail: "set WORKSPACE_INSTANCE_TEMPLATE",
-    });
+  const workspace = await readCloudWorkspaceConfig();
+  if (workspace instanceof Error) return workspace;
 
   const databaseUrl = await readGcpSecret({
     projectId: secretProjectId,
@@ -222,12 +226,7 @@ async function readCloudRunConfig(): Promise<ControlPlaneConfig | Error> {
     traceBucket: process.env.TRACE_BUCKET,
     workspaceServiceAccount: process.env.WORKSPACE_SERVICE_ACCOUNT,
     auth,
-    workspace: {
-      deployment: "gcp" as const,
-      projectId: workspaceProjectId,
-      zone: workspaceZone,
-      instanceTemplate: workspaceInstanceTemplate,
-    },
+    workspace,
   };
   if (!Value.Check(controlPlaneConfigSchema, server))
     return new ControlPlaneConfigError({
@@ -236,4 +235,45 @@ async function readCloudRunConfig(): Promise<ControlPlaneConfig | Error> {
   return server;
 }
 
-export const config = await readConfig();
+async function readCloudWorkspaceConfig() {
+  const provider = process.env.WORKSPACE_PROVIDER ?? "gcp";
+  if (provider === "exe") {
+    const gatewaySecretId = process.env.EXE_GATEWAY_SECRET_ID;
+    if (gatewaySecretId === undefined)
+      return new ControlPlaneConfigError({
+        detail: "set EXE_GATEWAY_SECRET_ID",
+      });
+    const gatewaySecret = await readGcpSecret({
+      projectId: secretProjectId,
+      secretId: gatewaySecretId,
+    });
+    if (gatewaySecret instanceof Error) return gatewaySecret;
+    const workspace = {
+      deployment: "exe" as const,
+      templateVmName: process.env.EXE_TEMPLATE_VM_NAME,
+      workspaceTag: process.env.EXE_WORKSPACE_TAG,
+      privateKeyPath: process.env.EXE_PRIVATE_KEY_PATH,
+      gatewaySecret,
+    };
+    if (!Value.Check(exeWorkspaceSchema, workspace))
+      return new ControlPlaneConfigError({
+        detail: "validate Exe workspace configuration",
+      });
+    return workspace;
+  }
+  if (provider !== "gcp")
+    return new ControlPlaneConfigError({
+      detail: "WORKSPACE_PROVIDER must be gcp or exe",
+    });
+  const workspace = {
+    deployment: "gcp" as const,
+    projectId: process.env.WORKSPACE_PROJECT_ID,
+    zone: process.env.WORKSPACE_ZONE,
+    instanceTemplate: process.env.WORKSPACE_INSTANCE_TEMPLATE,
+  };
+  if (!Value.Check(gcpWorkspaceSchema, workspace))
+    return new ControlPlaneConfigError({
+      detail: "validate GCP workspace configuration",
+    });
+  return workspace;
+}

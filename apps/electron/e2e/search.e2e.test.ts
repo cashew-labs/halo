@@ -19,7 +19,7 @@ e2eTest(
     });
 
     await app.page.getByRole("link", { name: "plain.txt" }).click();
-    await app.page.keyboard.press("ControlOrMeta+f");
+    await app.pressShortcut({ key: "f" });
     const find = app.page.getByRole("search", { name: "Find in tab" });
     await find
       .getByRole("textbox", { name: "Find in tab" })
@@ -118,13 +118,17 @@ e2eTest(
     ).toBeFocused();
     await app.page.keyboard.press("Escape");
 
-    const session = await app.server.rpc.sessions.create();
-    const prompt = app.server.rpc.sessions.prompt({
+    const session = await app.server.rpc.thread.new();
+    const { submissionId } = await app.server.rpc.thread.prompt({
       ...session,
       text: "The silver marmot is here",
     });
+    const completion = app.server.rpc.thread.wait({
+      sessionId: session.sessionId,
+      submissionId,
+    });
     await llm.respond(m.assistant("I see the silver marmot."));
-    await prompt;
+    expect(await completion).toEqual({ status: "completed" });
     await app.page
       .getByRole("link", { name: "The silver marmot is here" })
       .click();
@@ -224,15 +228,19 @@ e2eTest(
         .getByText("const amberBeaconTwo = 2;", { exact: true }),
     ).toBeInViewport();
 
-    const session = await app.server.rpc.sessions.create();
-    const prompt = app.server.rpc.sessions.prompt({
+    const session = await app.server.rpc.thread.new();
+    const { submissionId } = await app.server.rpc.thread.prompt({
       ...session,
       text: "Review the long field note",
+    });
+    const completion = app.server.rpc.thread.wait({
+      sessionId: session.sessionId,
+      submissionId,
     });
     await llm.respond(
       m.assistant(["amber beacon", ...filler, "amber beacon"].join("\n\n")),
     );
-    await prompt;
+    expect(await completion).toEqual({ status: "completed" });
     await app.page
       .getByRole("link", { name: "Review the long field note" })
       .click();
@@ -288,13 +296,17 @@ e2eTest(
       content:
         "A careful field report describes the wet creek and the trail along the ridge before a silver marmot waits here beside the cairn while hikers record the time and weather.",
     });
-    const session = await app.server.rpc.sessions.create();
-    const prompt = app.server.rpc.sessions.prompt({
+    const session = await app.server.rpc.thread.new();
+    const { submissionId } = await app.server.rpc.thread.prompt({
       ...session,
       text: "Find the silver marmot",
     });
+    const completion = app.server.rpc.thread.wait({
+      sessionId: session.sessionId,
+      submissionId,
+    });
     await llm.respond(m.assistant("The silver marmot is in the notes."));
-    await prompt;
+    expect(await completion).toEqual({ status: "completed" });
 
     await app.page
       .getByRole("link", { name: "Find the silver marmot" })

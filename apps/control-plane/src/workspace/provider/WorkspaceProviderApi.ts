@@ -1,7 +1,13 @@
+import type { WorkspaceRuntimeConfig } from "@get-halo/config/workspaceServer";
+
 /** Halo identity only; each provider owns its VM naming and resource lookup. */
 export type WorkspaceProviderInput = {
   workspaceId: string;
   ownerUserId: string;
+};
+
+export type WorkspaceProviderAssignment = WorkspaceProviderInput & {
+  runtime: WorkspaceRuntimeConfig;
 };
 
 /** Server-side connection details. Credentials must not be sent to clients. */
@@ -32,7 +38,7 @@ export interface WorkspaceProviderApi {
    * Concurrent calls for the same identity must not create separate workspaces.
    * Success does not guarantee that the workspace server is ready for requests.
    */
-  ensure(input: WorkspaceProviderInput): Promise<void | Error>;
+  ensure(input: WorkspaceProviderAssignment): Promise<void | Error>;
 
   /**
    * Resolve a connection without provisioning or waking the workspace.
@@ -41,6 +47,11 @@ export interface WorkspaceProviderApi {
   getConnection(
     input: WorkspaceProviderInput,
   ): Promise<WorkspaceProviderConnection | undefined | Error>;
+
+  /** Read VM power without provisioning or waking it; absent when unsupported. */
+  getStatus?: (
+    input: WorkspaceProviderInput,
+  ) => Promise<"running" | "paused" | Error>;
 
   /**
    * Suspend execution without deleting the workspace; absent when unsupported.

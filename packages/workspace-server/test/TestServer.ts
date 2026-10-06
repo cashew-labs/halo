@@ -22,7 +22,9 @@ export class TestServer {
   readonly workspaceRoot: string;
   private readonly artifacts: TestArtifacts;
   private readonly llmApi: WorkspaceServerOptions["host"]["llmApi"];
+  private readonly agentCapabilities: WorkspaceServerOptions["host"]["agentCapabilities"];
   private readonly testApiEnabled: boolean;
+  private readonly integrationsEnabled: boolean | undefined;
   private readonly traceWorkspaceId: WorkspaceServerOptions["config"]["traceWorkspaceId"];
   private readonly traceUploader: WorkspaceServerOptions["host"]["traceUploader"];
   private readonly gateway: WorkspaceServerOptions["config"]["gateway"];
@@ -31,7 +33,9 @@ export class TestServer {
     artifacts: TestArtifacts;
     workspaceRoot: string;
     llmApi: WorkspaceServerOptions["host"]["llmApi"];
+    agentCapabilities?: WorkspaceServerOptions["host"]["agentCapabilities"];
     testApiEnabled?: boolean;
+    integrationsEnabled?: boolean;
     traceUploader?: WorkspaceServerOptions["host"]["traceUploader"];
     traceWorkspaceId?: string;
     gateway?: WorkspaceServerOptions["config"]["gateway"];
@@ -48,7 +52,9 @@ export class TestServer {
     this.artifacts = artifacts;
     this.workspaceRoot = workspaceRoot;
     this.llmApi = llmApi;
+    this.agentCapabilities = ctx.agentCapabilities;
     this.testApiEnabled = testApiEnabled === undefined ? false : testApiEnabled;
+    this.integrationsEnabled = ctx.integrationsEnabled;
     this.traceUploader = traceUploader;
     this.traceWorkspaceId = traceWorkspaceId;
     this.gateway = gateway;
@@ -75,6 +81,15 @@ export class TestServer {
     return this.running.rendererRpc;
   }
 
+  async promptAndWait(...args: Parameters<HaloClient["thread"]["prompt"]>) {
+    const [input, options] = args;
+    const accepted = await this.rpc.thread.prompt(input, options);
+    return await this.rpc.thread.wait(
+      { sessionId: input.sessionId, submissionId: accepted.submissionId },
+      options,
+    );
+  }
+
   async start() {
     if (this.current !== undefined) {
       throw new Error(
@@ -92,6 +107,7 @@ export class TestServer {
         port: this.listenPort,
         corsOrigins: [],
         testApiEnabled: this.testApiEnabled,
+        integrationsEnabled: this.integrationsEnabled,
         traceWorkspaceId: this.traceWorkspaceId,
         gateway: this.gateway,
         extensionRuntime: {
@@ -101,6 +117,7 @@ export class TestServer {
       },
       host: {
         llmApi: this.llmApi,
+        agentCapabilities: this.agentCapabilities,
         traceUploader: this.traceUploader,
         logger: this.artifacts.logger,
         createCredentialVault: ({ filesystem, workspaceRoot }) =>

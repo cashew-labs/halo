@@ -5,6 +5,7 @@ import type { MessagePresentation } from "./SessionProjection.js";
 import {
   directToolIdentity,
   execToolCallSchema,
+  toolApprovalSchema,
   executionWithOutput,
   type HaloMessage,
   type HaloEntry,
@@ -18,14 +19,20 @@ import {
 
 const execDetailsSchema = Type.Object({
   toolCalls: Type.Array(execToolCallSchema),
+  toolApprovals: Type.Optional(Type.Array(toolApprovalSchema)),
 });
 
 function toolOutput(name: string, result: ToolResult): ToolOutput {
   if (name !== "exec") return { type: "tool", result };
   if (!Value.Check(execDetailsSchema, result.details))
-    return { type: "exec", result, calls: [] };
-  const { toolCalls, ...details } = result.details;
-  return { type: "exec", result: { ...result, details }, calls: toolCalls };
+    return { type: "exec", result, calls: [], approvals: [] };
+  const { toolCalls, toolApprovals, ...details } = result.details;
+  return {
+    type: "exec",
+    result: { ...result, details },
+    calls: toolCalls,
+    approvals: toolApprovals ?? [],
+  };
 }
 
 export function sessionEntry(
@@ -96,7 +103,7 @@ export function sessionSnapshot(input: {
                 };
                 const execution: ToolExecution =
                   slot.name === "exec"
-                    ? { ...base, type: "exec", calls: [] }
+                    ? { ...base, type: "exec", calls: [], approvals: [] }
                     : { ...base, type: "tool" };
                 const result = entries.findLast(
                   (entry) =>
@@ -171,7 +178,12 @@ export function sessionEvents(
           toolCallId: tool.id,
           output:
             tool.type === "exec"
-              ? { type: "exec", result: tool.result, calls: tool.calls }
+              ? {
+                  type: "exec",
+                  result: tool.result,
+                  calls: tool.calls,
+                  approvals: tool.approvals,
+                }
               : { type: "tool", result: tool.result },
           status: tool.status,
         });

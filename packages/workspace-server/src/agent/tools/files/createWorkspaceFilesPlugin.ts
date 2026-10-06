@@ -9,6 +9,7 @@ import { deleteFile } from "./delete.js";
 import { editFile } from "./edit.js";
 import { patchFiles } from "./patch.js";
 import { readFile } from "./read.js";
+import { viewImage } from "./viewImage.js";
 import { writeFile } from "./write.js";
 
 const readInput = Type.Object({
@@ -52,6 +53,17 @@ export function createWorkspaceFilesPlugin(
         execute: async (input, context) =>
           await execution(
             readFile({ filesystem, cwd: context.workspaceRoot, input }),
+          ),
+      }),
+      defineHaloTool({
+        name: "viewImage",
+        description:
+          "Read a PNG, JPEG, or WebP image for model viewing. Source images must be 20 MiB or smaller.",
+        inputSchema: Type.Object({ path: Type.String() }),
+        requiredCapabilities: ["workspace.files.read"],
+        execute: async (input, context) =>
+          await execution(
+            viewImage({ filesystem, cwd: context.workspaceRoot, input }),
           ),
       }),
       defineHaloTool({

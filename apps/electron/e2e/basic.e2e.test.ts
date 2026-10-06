@@ -14,9 +14,11 @@ e2eTest("opens the server-configured workspace", async ({ harness, app }) => {
     app.page.getByRole("main", { name: "New session" }),
   ).toBeVisible();
   await expect(
-    app.page.getByRole("button", { name: "New session", exact: true }),
+    app.page.getByRole("button", { name: "New tab", exact: true }),
   ).toBeVisible();
-  await expect(app.page.getByText(/^Halo \d+\.\d+\.\d+$/)).toBeVisible();
+  await expect(
+    app.page.getByTestId("app-update-status").getByText(/^\d+\.\d+\.\d+$/),
+  ).toBeVisible();
 
   expect(await app.server.rpc.workspace.get()).toMatchObject({
     workspaceRoot: harness.paths.workspace,
@@ -140,22 +142,30 @@ e2eTest(
       .getByRole("button", { name: "Expand Notes #1", exact: true })
       .click();
     await app.page.getByRole("link", { name: "Links.md", exact: true }).click();
-    const sourceTab = app.page.getByRole("tab", {
-      name: "Links.md",
-      exact: true,
-    });
+    const sourceTab = app.page
+      .getByRole("toolbar", { name: /^Pane \d+ tabs$/ })
+      .getByRole("button", {
+        name: "Links.md",
+        exact: true,
+      });
     const editor = app.page
       .getByRole("main", { name: path, exact: true })
       .getByLabel(path, { exact: true });
-    const initialTabCount = await app.page.getByRole("tab").count();
+    const initialTabCount = await app.page
+      .locator("[role=toolbar] button[aria-pressed]")
+      .count();
     await editor.getByRole("link", { name: "Data", exact: true }).click();
-    await expect(app.page.getByRole("tab")).toHaveCount(initialTabCount + 1);
     await expect(
-      app.page.getByRole("tab", {
-        name: "data #1.csv",
-        selected: true,
-        exact: true,
-      }),
+      app.page.locator("[role=toolbar] button[aria-pressed]"),
+    ).toHaveCount(initialTabCount + 1);
+    await expect(
+      app.page
+        .getByRole("toolbar", { name: /^Pane \d+ tabs$/ })
+        .getByRole("button", {
+          name: "data #1.csv",
+          pressed: true,
+          exact: true,
+        }),
     ).toBeVisible();
     await expect(
       app.page.getByRole("textbox", { name: "data #1.csv", exact: true }),
@@ -164,19 +174,25 @@ e2eTest(
     await editor
       .getByRole("link", { name: "Picture", exact: true })
       .click({ button: "middle" });
-    await expect(app.page.getByRole("tab")).toHaveCount(initialTabCount + 2);
+    await expect(
+      app.page.locator("[role=toolbar] button[aria-pressed]"),
+    ).toHaveCount(initialTabCount + 2);
     await expect(
       app.page.getByRole("img", { name: "picture.svg", exact: true }),
     ).toBeVisible();
     await sourceTab.click();
     await editor.getByRole("link", { name: "Data again", exact: true }).click();
-    await expect(app.page.getByRole("tab")).toHaveCount(initialTabCount + 2);
     await expect(
-      app.page.getByRole("tab", {
-        name: "data #1.csv",
-        selected: true,
-        exact: true,
-      }),
+      app.page.locator("[role=toolbar] button[aria-pressed]"),
+    ).toHaveCount(initialTabCount + 2);
+    await expect(
+      app.page
+        .getByRole("toolbar", { name: /^Pane \d+ tabs$/ })
+        .getByRole("button", {
+          name: "data #1.csv",
+          pressed: true,
+          exact: true,
+        }),
     ).toBeVisible();
     await sourceTab.click();
     await expect(editor).toContainText("References");
@@ -1067,7 +1083,7 @@ e2eTest("uses a dismissible sidebar on small screens", async ({ app }) => {
 
   const newSession = page
     .locator("[data-testid='pane-tab-bar']")
-    .getByRole("button", { name: "New session", exact: true });
+    .getByRole("button", { name: "New tab", exact: true });
   await expect(newSession).toHaveText("");
   await newSession.click();
   await expect(drawer).toHaveCount(0);
@@ -1082,7 +1098,7 @@ e2eTest("uses a dismissible sidebar on small screens", async ({ app }) => {
   await expect(drawer).toHaveCount(0);
   await expect(open).toHaveCount(0);
   await expect(
-    page.getByRole("button", { name: "New session", exact: true }),
+    page.getByRole("button", { name: "New tab", exact: true }),
   ).toBeVisible();
   expect(
     await page.getByRole("main").evaluate((element) => element.clientWidth),
@@ -1171,7 +1187,7 @@ e2eTest(
     await expect(editor.locator("h1, strong, em")).toHaveCount(0);
 
     await app.page
-      .getByRole("button", { name: "New session", exact: true })
+      .getByRole("button", { name: "New tab", exact: true })
       .click();
     const message = app.page
       .getByRole("main", { name: "New session" })
@@ -1332,7 +1348,10 @@ e2eTest(
     await client.send("Emulation.setTouchEmulationEnabled", { enabled: false });
     await client.send("Emulation.setFocusEmulationEnabled", { enabled: false });
     await client.detach();
-    await app.page.getByRole("tab", { name: path }).click();
+    await app.page
+      .getByRole("toolbar", { name: /^Pane \d+ tabs$/ })
+      .getByRole("button", { name: path, exact: true })
+      .click();
   },
 );
 
@@ -1481,32 +1500,58 @@ e2eTest(
     await page
       .getByRole("link", { name: "One.md", exact: true })
       .click({ modifiers: ["Meta"] });
-    await expect(page.getByRole("tab")).toHaveCount(2);
     await expect(
-      page.getByRole("tab", { name: "One.md", exact: true }),
-    ).toHaveAttribute("aria-selected", "true");
+      page.locator("[role=toolbar] button[aria-pressed]"),
+    ).toHaveCount(2);
+    await expect(
+      page
+        .getByRole("toolbar", { name: /^Pane \d+ tabs$/ })
+        .getByRole("button", { name: "One.md", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
     await page.getByRole("link", { name: "Two.md", exact: true }).click();
-    await expect(page.getByRole("tab")).toHaveCount(2);
+    await expect(
+      page.locator("[role=toolbar] button[aria-pressed]"),
+    ).toHaveCount(2);
     await expect(
       page.getByRole("main", { name: "Two.md", exact: true }),
     ).toBeVisible();
     await expect(
-      page.getByRole("tab", { name: "One.md", exact: true }),
+      page
+        .getByRole("toolbar", { name: /^Pane \d+ tabs$/ })
+        .getByRole("button", { name: "One.md", exact: true }),
     ).toHaveCount(0);
-    await page.getByRole("tab", { name: "New session", exact: true }).click();
+    await page
+      .getByRole("toolbar", { name: /^Pane \d+ tabs$/ })
+      .getByRole("button", { name: "New session", exact: true })
+      .click();
     await expect(page.getByLabel("Message", { exact: true })).toHaveText(
       "Keep my draft",
     );
     await page
-      .getByRole("tab", { name: "New session", exact: true })
+      .getByRole("toolbar", { name: /^Pane \d+ tabs$/ })
+      .getByRole("button", { name: "New session", exact: true })
       .press("ArrowRight");
     await expect(
-      page.getByRole("tab", { name: "Two.md", exact: true }),
+      page
+        .getByRole("toolbar", { name: /^Pane \d+ tabs$/ })
+        .getByRole("button", { name: "Two.md", exact: true }),
     ).toBeFocused();
-    await page
-      .getByRole("button", { name: "Close Two.md", exact: true })
-      .click();
-    await expect(page.getByRole("tab")).toHaveCount(1);
+    const tabButtons = page
+      .getByRole("toolbar", { name: "Pane 1 tabs", exact: true })
+      .getByRole("button", { pressed: true });
+    await tabButtons.press("ArrowRight");
+    await expect(tabButtons).toHaveText("New session");
+    await tabButtons.press("End");
+    await expect(tabButtons).toHaveText("Two.md");
+    await tabButtons.press("Home");
+    await expect(tabButtons).toHaveText("New session");
+    await tabButtons.press("ArrowLeft");
+    await expect(tabButtons).toHaveText("Two.md");
+    await tabButtons.press("Delete");
+    await expect(tabButtons).toBeFocused();
+    await expect(
+      page.locator("[role=toolbar] button[aria-pressed]"),
+    ).toHaveCount(1);
     await expect(page.getByLabel("Message", { exact: true })).toHaveText(
       "Keep my draft",
     );
@@ -1526,17 +1571,19 @@ e2eTest(
         .getByRole("link", { name: `${name}.md`, exact: true })
         .click({ modifiers: ["Meta"] });
     }
-    await page.getByRole("tab", { name: "Two.md", exact: true }).click();
+    await page
+      .getByRole("toolbar", { name: /^Pane \d+ tabs$/ })
+      .getByRole("button", { name: "Two.md", exact: true })
+      .click();
     await page.reload();
-    await expect(page.getByRole("tab")).toHaveText([
-      "New session",
-      "One.md",
-      "Two.md",
-      "Three.md",
-    ]);
     await expect(
-      page.getByRole("tab", { name: "Two.md", exact: true }),
-    ).toHaveAttribute("aria-selected", "true");
+      page.locator("[role=toolbar] button[aria-pressed]"),
+    ).toHaveText(["New session", "One.md", "Two.md", "Three.md"]);
+    await expect(
+      page
+        .getByRole("toolbar", { name: /^Pane \d+ tabs$/ })
+        .getByRole("button", { name: "Two.md", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
     await expect(
       page.getByRole("main", { name: "Two.md", exact: true }),
     ).toBeVisible();
@@ -1544,46 +1591,49 @@ e2eTest(
       .getByRole("button", { name: "Close Two.md", exact: true })
       .click();
     await page.reload();
-    await expect(page.getByRole("tab")).toHaveText([
-      "New session",
-      "One.md",
-      "Three.md",
-    ]);
     await expect(
-      page.getByRole("tab", { name: "Three.md", exact: true }),
-    ).toHaveAttribute("aria-selected", "true");
+      page.locator("[role=toolbar] button[aria-pressed]"),
+    ).toHaveText(["New session", "One.md", "Three.md"]);
+    await expect(
+      page
+        .getByRole("toolbar", { name: /^Pane \d+ tabs$/ })
+        .getByRole("button", { name: "Three.md", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
     await app.quit();
     await app.open();
-    await expect(app.page.getByRole("tab")).toHaveText([
-      "New session",
-      "One.md",
-      "Three.md",
-    ]);
     await expect(
-      app.page.getByRole("tab", { name: "Three.md", exact: true }),
-    ).toHaveAttribute("aria-selected", "true");
+      app.page.locator("[role=toolbar] button[aria-pressed]"),
+    ).toHaveText(["New session", "One.md", "Three.md"]);
+    await expect(
+      app.page
+        .getByRole("toolbar", { name: /^Pane \d+ tabs$/ })
+        .getByRole("button", { name: "Three.md", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
     // A full navigation loads the URL before the pane manager starts.
     await app.page.evaluate(() =>
       window.history.replaceState(undefined, "", "#/files/Two.md"),
     );
     await app.page.reload();
-    await expect(app.page.getByRole("tab")).toHaveText([
-      "New session",
-      "One.md",
-      "Three.md",
-      "Two.md",
-    ]);
     await expect(
-      app.page.getByRole("tab", { name: "Two.md", exact: true }),
-    ).toHaveAttribute("aria-selected", "true");
+      app.page.locator("[role=toolbar] button[aria-pressed]"),
+    ).toHaveText(["New session", "One.md", "Three.md", "Two.md"]);
+    await expect(
+      app.page
+        .getByRole("toolbar", { name: /^Pane \d+ tabs$/ })
+        .getByRole("button", { name: "Two.md", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
     await app.page.evaluate(() =>
       window.history.replaceState(undefined, "", "#/files/One.md"),
     );
     await app.page.reload();
-    await expect(app.page.getByRole("tab")).toHaveCount(4);
     await expect(
-      app.page.getByRole("tab", { name: "One.md", exact: true }),
-    ).toHaveAttribute("aria-selected", "true");
+      app.page.locator("[role=toolbar] button[aria-pressed]"),
+    ).toHaveCount(4);
+    await expect(
+      app.page
+        .getByRole("toolbar", { name: /^Pane \d+ tabs$/ })
+        .getByRole("button", { name: "One.md", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
   },
 );
 
@@ -1607,11 +1657,14 @@ e2eTest(
     const area = page.locator("[data-testid='pane-workspace']");
     const box = (await area.boundingBox())!;
     await page
-      .getByRole("tab", { name: "Right.md", exact: true })
+      .getByRole("toolbar", { name: /^Pane \d+ tabs$/ })
+      .getByRole("button", { name: "Right.md", exact: true })
       .dragTo(area, {
         targetPosition: { x: box.width - 10, y: box.height / 2 },
       });
-    await expect(page.getByRole("tablist")).toHaveCount(2);
+    await expect(
+      page.getByRole("toolbar", { name: /^Pane \d+ tabs$/ }),
+    ).toHaveCount(2);
     await expect(
       page.getByRole("main", { name: "Left.md", exact: true }),
     ).toBeVisible();
@@ -1631,17 +1684,22 @@ e2eTest(
       .dragTo(area, {
         targetPosition: { x: box.width * 0.75, y: box.height - 10 },
       });
-    await expect(page.getByRole("tablist")).toHaveCount(3);
+    await expect(
+      page.getByRole("toolbar", { name: /^Pane \d+ tabs$/ }),
+    ).toHaveCount(3);
     await page
       .getByRole("main", { name: "Pane conversation", exact: true })
       .getByLabel("Message", { exact: true })
       .fill("Unsent draft survives moving");
     await page
-      .getByRole("tab", { name: "Pane conversation", exact: true })
+      .getByRole("toolbar", { name: /^Pane \d+ tabs$/ })
+      .getByRole("button", { name: "Pane conversation", exact: true })
       .dragTo(area, {
         targetPosition: { x: box.width * 0.25, y: box.height / 2 },
       });
-    await expect(page.getByRole("tablist")).toHaveCount(2);
+    await expect(
+      page.getByRole("toolbar", { name: /^Pane \d+ tabs$/ }),
+    ).toHaveCount(2);
     await expect(page.getByLabel("Message", { exact: true })).toHaveText(
       "Unsent draft survives moving",
     );
@@ -1649,18 +1707,30 @@ e2eTest(
     await divider.focus();
     await divider.press("ArrowRight");
     await expect(divider).toHaveAttribute("aria-valuenow", "55");
-    await page.getByRole("tab", { name: "Right.md", exact: true }).click();
+    await page
+      .getByRole("toolbar", { name: /^Pane \d+ tabs$/ })
+      .getByRole("button", { name: "Right.md", exact: true })
+      .click();
     await page.reload();
-    await expect(page.getByRole("tablist")).toHaveCount(2);
-    await expect(page.getByRole("tablist").first().getByRole("tab")).toHaveText(
-      ["Left.md", "Pane conversation"],
-    );
     await expect(
-      page.getByRole("tab", { name: "Pane conversation", exact: true }),
-    ).toHaveAttribute("aria-selected", "true");
+      page.getByRole("toolbar", { name: /^Pane \d+ tabs$/ }),
+    ).toHaveCount(2);
     await expect(
-      page.getByRole("tab", { name: "Right.md", exact: true }),
-    ).toHaveAttribute("aria-selected", "true");
+      page
+        .getByRole("toolbar", { name: /^Pane \d+ tabs$/ })
+        .first()
+        .locator("button[aria-pressed]"),
+    ).toHaveText(["Left.md", "Pane conversation"]);
+    await expect(
+      page
+        .getByRole("toolbar", { name: /^Pane \d+ tabs$/ })
+        .getByRole("button", { name: "Pane conversation", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
+    await expect(
+      page
+        .getByRole("toolbar", { name: /^Pane \d+ tabs$/ })
+        .getByRole("button", { name: "Right.md", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
     await expect(divider).toHaveAttribute("aria-valuenow", "55");
     await expect(page.getByLabel("Message", { exact: true })).toBeEditable();
     // Allow editor mount autofocus and its animation frame to finish.
@@ -1671,7 +1741,9 @@ e2eTest(
         ),
     );
     await expect(
-      page.locator('[data-pane-id][data-active="true"]').getByRole("tab"),
+      page
+        .locator('[data-pane-id][data-active="true"]')
+        .locator("[role=toolbar] button[aria-pressed]"),
     ).toHaveText("Right.md");
     await expect(page).toHaveURL(/#\/files\/Right.md$/);
     await page
@@ -1680,7 +1752,9 @@ e2eTest(
     await page
       .getByRole("button", { name: "Close Right.md", exact: true })
       .click();
-    await expect(page.getByRole("tablist")).toHaveCount(1);
+    await expect(
+      page.getByRole("toolbar", { name: /^Pane \d+ tabs$/ }),
+    ).toHaveCount(1);
     await expect(page.getByLabel("Message", { exact: true })).toHaveText(
       "Unsent draft survives moving",
     );
@@ -1714,7 +1788,9 @@ for (const edge of ["left", "top", "bottom"] as const) {
                 : box.height / 2,
         },
       });
-      await expect(page.getByRole("tablist")).toHaveCount(2);
+      await expect(
+        page.getByRole("toolbar", { name: /^Pane \d+ tabs$/ }),
+      ).toHaveCount(2);
       const keep = (await page
         .getByRole("main", { name: "Keep.md", exact: true })
         .boundingBox())!;
@@ -2293,20 +2369,56 @@ e2eTest(
   async ({ app }) => {
     const page = app.page;
     await page
-      .getByRole("tabpanel")
+      .locator('[data-testid="pane-tab-content"]:visible')
       .getByLabel("Message", { exact: true })
       .fill("Keep my draft");
     await app.pressShortcut({ key: "T" });
-    await expect(page.getByRole("tab")).toHaveCount(2);
     await expect(
-      page.getByRole("tabpanel").getByLabel("Message", { exact: true }),
+      page.locator("[role=toolbar] button[aria-pressed]"),
+    ).toHaveCount(2);
+    await expect(
+      page
+        .locator('[data-testid="pane-tab-content"]:visible')
+        .getByLabel("Message", { exact: true }),
     ).toHaveText("");
     await app.pressShortcut({ key: "T" });
-    await expect(page.getByRole("tab")).toHaveCount(3);
-    await page.getByRole("tab").first().click();
     await expect(
-      page.getByRole("tabpanel").getByLabel("Message", { exact: true }),
+      page.locator("[role=toolbar] button[aria-pressed]"),
+    ).toHaveCount(3);
+    await page.locator("[role=toolbar] button[aria-pressed]").first().click();
+    await expect(
+      page
+        .locator('[data-testid="pane-tab-content"]:visible')
+        .getByLabel("Message", { exact: true }),
     ).toHaveText("Keep my draft");
+  },
+);
+
+e2eTest(
+  "closes only the current tab with the keyboard and closes the window after the last tab",
+  async ({ app }) => {
+    const page = app.page;
+    const tabs = page.locator("[role=toolbar] button[aria-pressed]");
+    const message = page
+      .locator('[data-testid="pane-tab-content"]:visible')
+      .getByLabel("Message", { exact: true });
+    await message.fill("Keep this draft");
+    await app.pressShortcut({ key: "T" });
+    await expect(tabs).toHaveCount(2);
+    await message.fill("Close this draft");
+    await app.pressShortcut({ key: "W" });
+    await expect(tabs).toHaveCount(1);
+    await expect(message).toHaveText("Keep this draft");
+    expect(await app.isWindowVisible()).toBe(true);
+    const otherWindow = await app.openWindow();
+    await expect(
+      otherWindow.locator('[data-testid="pane-tab-content"]:visible'),
+    ).toBeVisible();
+    await app.pressShortcut({ key: "W" });
+    await expect.poll(async () => await app.isWindowVisible()).toBe(false);
+    await expect(
+      otherWindow.locator('[data-testid="pane-tab-content"]:visible'),
+    ).toBeVisible();
   },
 );
 
@@ -2315,7 +2427,7 @@ e2eTest(
   async ({ app, llm }) => {
     const page = app.page;
     await page
-      .getByRole("tabpanel")
+      .locator('[data-testid="pane-tab-content"]:visible')
       .getByLabel("Message", { exact: true })
       .fill("Make Cmd+Shift+K open a new chat tab");
     await page.getByRole("button", { name: "Send", exact: true }).click();
@@ -2339,7 +2451,8 @@ e2eTest(
     ).toBeVisible();
     const popup = page.getByRole("dialog", { name: "Keyboard shortcuts" });
     const tabCount = await page
-      .getByRole("tab", { includeHidden: true })
+      .getByRole("toolbar", { name: /^Pane \d+ tabs$/ })
+      .locator("button[aria-pressed]")
       .count();
     await popup.getByText("New chat tab", { exact: true }).click();
     await popup.getByText("Quick chat", { exact: true }).click();
@@ -2352,9 +2465,11 @@ e2eTest(
     await page.keyboard.press("ArrowDown");
     await page.keyboard.press("Enter");
     await expect(popup).toBeVisible();
-    await expect(page.getByRole("tab", { includeHidden: true })).toHaveCount(
-      tabCount,
-    );
+    await expect(
+      page
+        .getByRole("toolbar", { name: /^Pane \d+ tabs$/ })
+        .locator("button[aria-pressed]"),
+    ).toHaveCount(tabCount);
     await page.mouse.click(10, 10);
     await expect(popup).toHaveCount(0);
     await app.pressShortcut({ key: "P" });
@@ -2362,15 +2477,21 @@ e2eTest(
     await page.keyboard.press("Escape");
     await expect(popup).toHaveCount(0);
     await app.pressShortcut({ key: "K", shift: true });
-    await expect(page.getByRole("tab")).toHaveCount(2);
+    await expect(
+      page.locator("[role=toolbar] button[aria-pressed]"),
+    ).toHaveCount(2);
     await page
-      .getByRole("tabpanel")
+      .locator('[data-testid="pane-tab-content"]:visible')
       .getByLabel("Message", { exact: true })
       .fill("Keep this draft too");
     await app.pressShortcut({ key: "K", shift: true });
-    await expect(page.getByRole("tab")).toHaveCount(3);
     await expect(
-      page.getByRole("tabpanel").getByLabel("Message", { exact: true }),
+      page.locator("[role=toolbar] button[aria-pressed]"),
+    ).toHaveCount(3);
+    await expect(
+      page
+        .locator('[data-testid="pane-tab-content"]:visible')
+        .getByLabel("Message", { exact: true }),
     ).toHaveText("");
     const [hotkey] = await app.server.rpc.hotkeys.list();
     await app.server.rpc.workspace.writeFile({
@@ -2396,14 +2517,20 @@ e2eTest(
     ).toHaveCount(0);
     await page.keyboard.press("Escape");
     await app.pressShortcut({ key: "K", shift: true });
-    await expect(page.getByRole("tab")).toHaveCount(3);
+    await expect(
+      page.locator("[role=toolbar] button[aria-pressed]"),
+    ).toHaveCount(3);
     await app.pressShortcut({ key: "L", shift: true });
     await expect(
-      page.getByRole("tab", { name: "Hotkey notes.md", exact: true }),
-    ).toHaveAttribute("aria-selected", "true");
+      page
+        .getByRole("toolbar", { name: /^Pane \d+ tabs$/ })
+        .getByRole("button", { name: "Hotkey notes.md", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
     await app.quit();
     await app.open();
-    await expect(app.page.getByRole("tabpanel")).toBeVisible();
+    await expect(
+      app.page.locator('[data-testid="pane-tab-content"]:visible'),
+    ).toBeVisible();
     await app.pressShortcut({ key: "P" });
     await expect(
       app.page
@@ -2413,8 +2540,10 @@ e2eTest(
     await app.page.keyboard.press("Escape");
     await app.pressShortcut({ key: "L", shift: true });
     await expect(
-      app.page.getByRole("tab", { name: "Hotkey notes.md", exact: true }),
-    ).toHaveAttribute("aria-selected", "true");
+      app.page
+        .getByRole("toolbar", { name: /^Pane \d+ tabs$/ })
+        .getByRole("button", { name: "Hotkey notes.md", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
     await app.server.rpc.hotkeys.remove({ id: hotkey!.id });
     await app.pressShortcut({ key: "P" });
     await expect(
@@ -2446,7 +2575,7 @@ e2eTest(
     const instruction =
       "Create daily.md with an original summary of the workspace notes.";
     await app.page
-      .getByRole("tabpanel")
+      .locator('[data-testid="pane-tab-content"]:visible')
       .getByLabel("Message", { exact: true })
       .fill("Make Cmd+Shift+J create daily.md with an agent-generated summary");
     await app.page.getByRole("button", { name: "Send", exact: true }).click();
@@ -2468,18 +2597,22 @@ e2eTest(
         exact: true,
       }),
     ).toBeVisible();
-    expect(await app.server.rpc.sessions.list()).toHaveLength(1);
+    expect(await app.server.rpc.thread.list()).toHaveLength(1);
     const [hotkey] = await app.server.rpc.hotkeys.list();
     expect(hotkey?.action).toEqual({ type: "runAgent", prompt: instruction });
     await app.quit();
     await app.open();
-    await expect(app.page.getByRole("tabpanel")).toBeVisible();
+    await expect(
+      app.page.locator('[data-testid="pane-tab-content"]:visible'),
+    ).toBeVisible();
     await app.pressShortcut({ key: "T" });
     await app.page
-      .getByRole("tabpanel")
+      .locator('[data-testid="pane-tab-content"]:visible')
       .getByLabel("Message", { exact: true })
       .fill("Keep my draft");
-    const count = await app.page.getByRole("tab").count();
+    const count = await app.page
+      .locator("[role=toolbar] button[aria-pressed]")
+      .count();
     // Opening the list synchronizes with the restored bindings, without invoking them.
     await app.pressShortcut({ key: "P" });
     await expect(
@@ -2489,9 +2622,13 @@ e2eTest(
     ).toBeVisible();
     await app.page.keyboard.press("Escape");
     await app.pressShortcut({ key: "J", shift: true });
-    await expect(app.page.getByRole("tab")).toHaveCount(count + 1);
     await expect(
-      app.page.getByRole("tabpanel").getByText(instruction, { exact: true }),
+      app.page.locator("[role=toolbar] button[aria-pressed]"),
+    ).toHaveCount(count + 1);
+    await expect(
+      app.page
+        .locator('[data-testid="pane-tab-content"]:visible')
+        .getByText(instruction, { exact: true }),
     ).toBeVisible();
     await llm.respond((request) => {
       expect(
@@ -2520,7 +2657,7 @@ e2eTest(
     const firstRun = app.page.url();
     const updated = "Create weekly.md with an original weekly summary.";
     await app.page
-      .getByRole("tabpanel")
+      .locator('[data-testid="pane-tab-content"]:visible')
       .getByLabel("Message", { exact: true })
       .fill("Change the shortcut to make a weekly summary instead");
     await app.page.getByRole("button", { name: "Send", exact: true }).click();
@@ -2550,16 +2687,23 @@ e2eTest(
     ).toBeVisible();
     await app.page.keyboard.press("Escape");
     await app.pressShortcut({ key: "J", shift: true });
-    await expect(app.page.getByRole("tab")).toHaveCount(count + 2);
     await expect(
-      app.page.getByRole("tabpanel").getByText(updated, { exact: true }),
+      app.page.locator("[role=toolbar] button[aria-pressed]"),
+    ).toHaveCount(count + 2);
+    await expect(
+      app.page
+        .locator('[data-testid="pane-tab-content"]:visible')
+        .getByText(updated, { exact: true }),
     ).toBeVisible();
     expect(app.page.url()).not.toBe(firstRun);
     await app.page
-      .getByRole("tab", { name: "New session", exact: true })
+      .getByRole("toolbar", { name: /^Pane \d+ tabs$/ })
+      .getByRole("button", { name: "New session", exact: true })
       .click();
     await expect(
-      app.page.getByRole("tabpanel").getByLabel("Message", { exact: true }),
+      app.page
+        .locator('[data-testid="pane-tab-content"]:visible')
+        .getByLabel("Message", { exact: true }),
     ).toHaveText("Keep my draft");
     await llm.respond(
       m.tool.start("exec", {
@@ -2570,7 +2714,10 @@ e2eTest(
       }),
     );
     await llm.respond(m.assistant("Created weekly.md."));
-    await app.page.getByRole("tab", { name: updated, exact: true }).click();
+    await app.page
+      .getByRole("toolbar", { name: /^Pane \d+ tabs$/ })
+      .getByRole("button", { name: updated, exact: true })
+      .click();
     await expect(
       app.page.getByText("Created weekly.md.", { exact: true }),
     ).toBeVisible();
@@ -2578,10 +2725,13 @@ e2eTest(
       await app.server.rpc.workspace.readFile({ path: "weekly.md" }),
     ).toContain("# Weekly summary");
     await app.page
-      .getByRole("tab", { name: "New session", exact: true })
+      .getByRole("toolbar", { name: /^Pane \d+ tabs$/ })
+      .getByRole("button", { name: "New session", exact: true })
       .click();
     await expect(
-      app.page.getByRole("tabpanel").getByLabel("Message", { exact: true }),
+      app.page
+        .locator('[data-testid="pane-tab-content"]:visible')
+        .getByLabel("Message", { exact: true }),
     ).toHaveText("Keep my draft");
   },
 );
@@ -2604,7 +2754,7 @@ e2eTest(
         .getByText("Generate notes", { exact: true }),
     ).toBeVisible();
     await app.page.keyboard.press("Escape");
-    await app.page.route("**/rpc/sessions/create", async (route) => {
+    await app.page.route("**/rpc/thread/new", async (route) => {
       await route.fulfill({
         status: 400,
         contentType: "application/json",
@@ -2620,11 +2770,13 @@ e2eTest(
       "Could not run the hotkey",
     );
     await expect(
-      app.page.getByRole("tab", { includeHidden: true }),
+      app.page
+        .getByRole("toolbar", { name: /^Pane \d+ tabs$/ })
+        .locator("button[aria-pressed]"),
     ).toHaveCount(1);
     await app.page.keyboard.press("Escape");
-    await app.page.unroute("**/rpc/sessions/create");
-    await app.page.route("**/rpc/sessions/prompt", async (route) => {
+    await app.page.unroute("**/rpc/thread/new");
+    await app.page.route("**/rpc/thread/prompt", async (route) => {
       await route.fulfill({
         status: 400,
         contentType: "application/json",
@@ -2640,7 +2792,7 @@ e2eTest(
       "Could not run the hotkey",
     );
     await app.page.keyboard.press("Escape");
-    await app.page.unroute("**/rpc/sessions/prompt");
+    await app.page.unroute("**/rpc/thread/prompt");
     await app.pressShortcut({ key: "J", shift: true });
     await llm.respond(m.assistant("Your generated note."));
     await expect(
@@ -2673,7 +2825,9 @@ e2eTest(
       .dragTo(area, {
         targetPosition: { x: box.width - 10, y: box.height / 2 },
       });
-    await expect(page.getByRole("tablist")).toHaveCount(2);
+    await expect(
+      page.getByRole("toolbar", { name: /^Pane \d+ tabs$/ }),
+    ).toHaveCount(2);
     await expect(page.getByText("Left answer", { exact: true })).toBeVisible();
     await expect(page.getByText("Right answer", { exact: true })).toBeVisible();
     await app.server.rpc.hotkeys.save({
@@ -2718,7 +2872,7 @@ e2eTest(
       }),
     ).toBeVisible();
     const input = app.page
-      .getByRole("tabpanel")
+      .locator('[data-testid="pane-tab-content"]:visible')
       .getByLabel("Message", { exact: true });
     await input.fill("Keep this while I leave the office");
     await app.page.clock.install();
@@ -2742,7 +2896,7 @@ e2eTest(
     await expect(
       app.page.getByText("Halo disconnected from its server", { exact: true }),
     ).toHaveCount(0);
-    expect(await app.server.rpc.sessions.list()).toHaveLength(0);
+    expect(await app.server.rpc.thread.list()).toHaveLength(0);
   },
 );
 
@@ -3078,7 +3232,7 @@ e2eTest(
   "recovers from a gateway outage and requests sign-in only for unauthorized access",
   async ({ app }) => {
     await app.page
-      .getByRole("button", { name: "New session", exact: true })
+      .getByRole("button", { name: "New tab", exact: true })
       .click();
     const draft = app.page
       .getByRole("main", { name: "New session", exact: true })
@@ -3122,7 +3276,7 @@ e2eTest(
         app.page.getByText("Connection details", { exact: true }),
       ).toHaveCount(0);
     }
-    expect(await app.server.rpc.sessions.list()).toHaveLength(0);
+    expect(await app.server.rpc.thread.list()).toHaveLength(0);
   },
 );
 
@@ -3187,7 +3341,7 @@ e2eTest(
     ).toHaveCount(0);
     await expect(connected).not.toHaveAttribute("tabindex", "0");
     await app.page
-      .getByRole("button", { name: "New session", exact: true })
+      .getByRole("button", { name: "New tab", exact: true })
       .click();
     const draft = app.page
       .getByRole("main", { name: "New session", exact: true })

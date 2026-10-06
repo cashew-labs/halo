@@ -9,38 +9,42 @@ export type StreamConsumeOptions = {
 export type ReadonlyStream<T> = {
   subscribe(subscriber: StreamSubscriber<T>): () => void;
   consume(options?: StreamConsumeOptions): StreamConsumer<T>;
+  /**
+   * Subscribe immediately with an independent native stream. Slow readers buffer
+   * events without backpressuring the source. Cancel to discard and unsubscribe;
+   * abort closes the subscription, allowing already queued events to drain.
+   */
+  toReadableStream(options?: StreamConsumeOptions): ReadableStream<T>;
   project<S>(
     initialState: S,
     reducer: (state: S, value: T) => S,
-  ): ReadonlyStream<S>;
+  ): ReadonlyProjectedStream<S>;
   map<U>(transform: (value: T) => U): ReadonlyStream<U>;
   filter<S extends T>(predicate: (value: T) => value is S): ReadonlyStream<S>;
   filter(predicate: (value: T) => boolean): ReadonlyStream<T>;
 };
 
-export class Stream<T> implements ReadonlyStream<T> {
-  private readonly subscribers = new Set<StreamSubscriber<T>>();
+export type ReadonlyProjectedStream<T> = ReadonlyStream<T> &
+  Disposable & {
+    readonly latestValue: T;
+  };
 
-  append(value: T): void {
-    for (const subscriber of this.subscribers) {
-      subscriber(value);
-    }
-  }
-
-  subscribe(subscriber: StreamSubscriber<T>): () => void {
-    this.subscribers.add(subscriber);
-    return () => this.subscribers.delete(subscriber);
-  }
+abstract class BaseStream<T> implements ReadonlyStream<T> {
+  abstract subscribe(subscriber: StreamSubscriber<T>): () => void;
 
   project<V>(
     initialState: V,
     reducer: (state: V, value: T) => V,
-  ): ReadonlyStream<V> {
+  ): ReadonlyProjectedStream<V> {
     return new ProjectedStream(this, initialState, reducer);
   }
 
   consume(options?: StreamConsumeOptions): StreamConsumer<T> {
     return new StreamConsumer(this, options);
+  }
+
+  toReadableStream(options?: StreamConsumeOptions): ReadableStream<T> {
+    return createReadableStream({ stream: this, ...options });
   }
 
   map<U>(transform: (value: T) => U): ReadonlyStream<U> {
@@ -54,80 +58,120 @@ export class Stream<T> implements ReadonlyStream<T> {
   }
 }
 
-class ProjectedStream<T, S> implements ReadonlyStream<S> {
-  constructor(
-    private readonly source: ReadonlyStream<T>,
-    private readonly initialState: S,
-    private readonly reducer: (state: S, value: T) => S,
-  ) {}
+export class Stream<T> extends BaseStream<T> {
+  private readonly subscribers = new Set<StreamSubscriber<T>>();
 
-  subscribe(subscriber: StreamSubscriber<S>): () => void {
-    let state = this.initialState;
-    return this.source.subscribe((value) => {
-      state = this.reducer(state, value);
-      subscriber(state);
-    });
+  append(value: T): void {
+    for (const subscriber of this.subscribers) {
+      subscriber(value);
+    }
   }
 
-  project<V>(
-    initialState: V,
-    reducer: (state: V, value: S) => V,
-  ): ReadonlyStream<V> {
-    return new ProjectedStream(this, initialState, reducer);
-  }
-
-  consume(options?: StreamConsumeOptions): StreamConsumer<S> {
-    return new StreamConsumer(this, options);
-  }
-
-  map<U>(transform: (value: S) => U): ReadonlyStream<U> {
-    return new MappedStream(this, transform);
-  }
-
-  filter<U extends S>(predicate: (value: S) => value is U): ReadonlyStream<U>;
-  filter(predicate: (value: S) => boolean): ReadonlyStream<S>;
-  filter(predicate: (value: S) => boolean): ReadonlyStream<S> {
-    return new FilteredStream(this, predicate);
+  subscribe(subscriber: StreamSubscriber<T>): () => void {
+    this.subscribers.add(subscriber);
+    return () => this.subscribers.delete(subscriber);
   }
 }
 
-class MappedStream<T, U> implements ReadonlyStream<U> {
+/** Emits the latest values whenever any source changes, after every source is ready. */
+export function combineLatest<T>(
+  sources: readonly ReadonlyStream<T>[],
+): ReadonlyStream<readonly T[]> {
+  return new CombinedStream({ sources });
+}
+
+class CombinedStream<T> extends BaseStream<readonly T[]> {
+  private readonly sources: readonly ReadonlyStream<T>[];
+
+  constructor(ctx: { sources: readonly ReadonlyStream<T>[] }) {
+    super();
+    this.sources = ctx.sources;
+  }
+
+  override subscribe(subscriber: StreamSubscriber<readonly T[]>) {
+    const values: T[] = [];
+    const received = new Set<number>();
+    using cleanup = new errore.DisposableStack();
+    for (const [index, source] of this.sources.entries()) {
+      cleanup.defer(
+        source.subscribe((value) => {
+          values[index] = value;
+          received.add(index);
+          if (received.size === this.sources.length) subscriber([...values]);
+        }),
+      );
+    }
+    if (this.sources.length === 0) subscriber([]);
+    const owned = cleanup.move();
+    return () => owned.dispose();
+  }
+}
+
+class ProjectedStream<T, S>
+  extends BaseStream<S>
+  implements ReadonlyProjectedStream<S>
+{
+  private readonly subscribers = new Set<StreamSubscriber<S>>();
+  private readonly cleanup = new errore.DisposableStack();
+  private state: S;
+
+  constructor(
+    source: ReadonlyStream<T>,
+    initialState: S,
+    reducer: (state: S, value: T) => S,
+  ) {
+    super();
+    this.state = initialState;
+    this.cleanup.defer(
+      source.subscribe((value) => {
+        this.state = reducer(this.state, value);
+        for (const subscriber of this.subscribers) subscriber(this.state);
+      }),
+    );
+  }
+
+  get latestValue(): S {
+    return this.state;
+  }
+
+  subscribe(subscriber: StreamSubscriber<S>): () => void {
+    if (this.cleanup.disposed) return () => {};
+    this.subscribers.add(subscriber);
+    try {
+      subscriber(this.state);
+    } catch (error) {
+      this.subscribers.delete(subscriber);
+      throw error;
+    }
+    return () => this.subscribers.delete(subscriber);
+  }
+
+  [Symbol.dispose](): void {
+    this.cleanup.dispose();
+    this.subscribers.clear();
+  }
+}
+
+class MappedStream<T, U> extends BaseStream<U> {
   constructor(
     private readonly source: ReadonlyStream<T>,
     private readonly transform: (value: T) => U,
-  ) {}
+  ) {
+    super();
+  }
 
   subscribe(subscriber: StreamSubscriber<U>): () => void {
     return this.source.subscribe((value) => subscriber(this.transform(value)));
   }
-
-  project<V>(
-    initialState: V,
-    reducer: (state: V, value: U) => V,
-  ): ReadonlyStream<V> {
-    return new ProjectedStream(this, initialState, reducer);
-  }
-
-  consume(options?: StreamConsumeOptions): StreamConsumer<U> {
-    return new StreamConsumer(this, options);
-  }
-
-  map<V>(transform: (value: U) => V): ReadonlyStream<V> {
-    return new MappedStream(this, transform);
-  }
-
-  filter<V extends U>(predicate: (value: U) => value is V): ReadonlyStream<V>;
-  filter(predicate: (value: U) => boolean): ReadonlyStream<U>;
-  filter(predicate: (value: U) => boolean): ReadonlyStream<U> {
-    return new FilteredStream(this, predicate);
-  }
 }
 
-class FilteredStream<T, U extends T = T> implements ReadonlyStream<U> {
+class FilteredStream<T, U extends T = T> extends BaseStream<U> {
   constructor(
     private readonly source: ReadonlyStream<T>,
     private readonly predicate: (value: T) => boolean,
-  ) {}
+  ) {
+    super();
+  }
 
   subscribe(subscriber: StreamSubscriber<U>): () => void {
     return this.source.subscribe((value) => {
@@ -136,27 +180,31 @@ class FilteredStream<T, U extends T = T> implements ReadonlyStream<U> {
       subscriber(value as U);
     });
   }
+}
 
-  project<V>(
-    initialState: V,
-    reducer: (state: V, value: U) => V,
-  ): ReadonlyStream<V> {
-    return new ProjectedStream(this, initialState, reducer);
-  }
-
-  consume(options?: StreamConsumeOptions): StreamConsumer<U> {
-    return new StreamConsumer(this, options);
-  }
-
-  map<V>(transform: (value: U) => V): ReadonlyStream<V> {
-    return new MappedStream(this, transform);
-  }
-
-  filter<V extends U>(predicate: (value: U) => value is V): ReadonlyStream<V>;
-  filter(predicate: (value: U) => boolean): ReadonlyStream<U>;
-  filter(predicate: (value: U) => boolean): ReadonlyStream<U> {
-    return new FilteredStream(this, predicate);
-  }
+function createReadableStream<T>({
+  stream,
+  abortSignal,
+}: StreamConsumeOptions & { stream: ReadonlyStream<T> }) {
+  const cleanup = new errore.DisposableStack();
+  return new ReadableStream<T>({
+    start(controller) {
+      if (abortSignal?.aborted) {
+        controller.close();
+        return;
+      }
+      cleanup.defer(stream.subscribe((value) => controller.enqueue(value)));
+      const abort = () => {
+        cleanup.dispose();
+        controller.close();
+      };
+      abortSignal?.addEventListener("abort", abort, { once: true });
+      cleanup.defer(() => abortSignal?.removeEventListener("abort", abort));
+    },
+    cancel() {
+      cleanup.dispose();
+    },
+  });
 }
 
 export class StreamConsumer<T>

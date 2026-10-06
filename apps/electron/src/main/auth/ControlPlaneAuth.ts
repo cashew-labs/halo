@@ -154,15 +154,6 @@ export class ControlPlaneAuth implements DesktopAuthentication {
     );
     if (authentication instanceof Error) return authentication;
     if (authentication.status === "signed-in") {
-      const workspace = await client.workspace.ensure().catch(
-        (cause) =>
-          new ControlPlaneAuthError({
-            operation: "prepare your workspace",
-            cause,
-          }),
-      );
-      if (workspace instanceof Error) return workspace;
-
       return authentication.session;
     }
 
@@ -241,6 +232,35 @@ export class ControlPlaneAuth implements DesktopAuthentication {
 
     const { token: _token, ...session } = exchanged;
     return session;
+  }
+
+  async getWorkspaceStatus() {
+    if (this.token === undefined) return;
+    return await this.createClient(this.token)
+      .workspace.status(undefined, {
+        signal: AbortSignal.timeout(10_000),
+      })
+      .catch(
+        (cause) =>
+          new ControlPlaneAuthError({
+            operation: "read workspace status",
+            cause,
+          }),
+      );
+  }
+
+  async recordWorkspaceActivity() {
+    if (this.token === undefined) return;
+    const workspace = await this.createClient(this.token)
+      .workspace.ensure()
+      .catch(
+        (cause) =>
+          new ControlPlaneAuthError({
+            operation: "wake your workspace",
+            cause,
+          }),
+      );
+    if (workspace instanceof Error) return workspace;
   }
 
   private createClient(token?: string) {

@@ -24,6 +24,7 @@ import {
   type AuthService,
   DesktopAuthRequiredError,
   InvalidDesktopSignInRequestError,
+  WorkspaceAuthenticationRequiredError,
 } from "../auth/AuthService.js";
 import {
   controlPlaneRpcRouter,
@@ -35,6 +36,10 @@ import {
   isWorkspaceProxyRequest,
   WorkspaceGateway,
 } from "../workspace/proxy.js";
+
+import { workspaceInferencePath } from "@get-halo/config/inference";
+import { serveWorkspaceInference } from "../inference/workspaceInference.js";
+import { serveWorkspaceIdleReport } from "../workspace/workspaceIdleHttp.js";
 
 const requestUrlBase = "http://localhost";
 const webContentSecurityPolicy = [
@@ -98,6 +103,7 @@ export function serveControlPlaneHttp(ctx: {
   build?: { version: string; revision: string };
   webRoot: string;
   traces?: TraceIngestion;
+  inferenceApiKey?: string;
 }) {
   const { server, auth, publicOrigin, workspace, webRoot, traces } = ctx;
   const upgradeSockets = new Set<Duplex>();
@@ -137,6 +143,7 @@ export function serveControlPlaneHttp(ctx: {
       rpc,
       webRoot,
       build: ctx.build,
+      inferenceApiKey: ctx.inferenceApiKey,
     });
   });
   server.on("upgrade", async (request, socket, head) => {
@@ -196,6 +203,7 @@ async function routeControlPlaneRequest(ctx: {
   auth: AuthService;
   gateway: WorkspaceGateway;
   traces?: TraceIngestion;
+  inferenceApiKey?: string;
   workspace: WorkspaceService;
   build?: { version: string; revision: string };
   rpc: RPCHandler<ControlPlaneContext>;
@@ -206,6 +214,21 @@ async function routeControlPlaneRequest(ctx: {
     request.url === undefined ? "/" : request.url,
     requestUrlBase,
   );
+
+  if (url.pathname === "/api/workspace-runtime/idle") {
+    await serveWorkspaceIdleReport(request, response, workspace);
+    return;
+  }
+
+  if (url.pathname === `${workspaceInferencePath}/chat/completions`) {
+    await serveWorkspaceInference({
+      request,
+      response,
+      workspace,
+      apiKey: ctx.inferenceApiKey,
+    });
+    return;
+  }
 
   if (isPathWithin(url.pathname, "/api/traces")) {
     if (ctx.traces === undefined) {
@@ -218,6 +241,30 @@ async function routeControlPlaneRequest(ctx: {
 
   if (request.method === "GET" && url.pathname === "/health") {
     response.writeHead(200).end();
+    return;
+  }
+
+  if (
+    request.method === "GET" &&
+    url.pathname === "/api/workspace-runtime/identity"
+  ) {
+    response.setHeader("cache-control", "no-store");
+    const headers = new Headers();
+    if (request.headers.authorization !== undefined)
+      headers.set("authorization", request.headers.authorization);
+    const identity = await workspace.authenticateRuntime(headers);
+    if (identity instanceof WorkspaceAuthenticationRequiredError) {
+      response.writeHead(401).end();
+      return;
+    }
+    if (identity instanceof Error) {
+      console.error(identity);
+      response.writeHead(500).end();
+      return;
+    }
+    response
+      .writeHead(200, { "content-type": "application/json" })
+      .end(JSON.stringify(identity));
     return;
   }
 

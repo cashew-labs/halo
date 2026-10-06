@@ -11,6 +11,12 @@ import { LOG_CHANNELS } from "../shared/channels.js";
 import { DESKTOP_CHANNEL, type DesktopBridge } from "../shared/desktop.js";
 
 const desktopBridge: DesktopBridge = {
+  getWorkspaceStatus: async () =>
+    await ipcRenderer.invoke(DESKTOP_CHANNEL, { type: "getWorkspaceStatus" }),
+  recordWorkspaceActivity: async () =>
+    await ipcRenderer.invoke(DESKTOP_CHANNEL, {
+      type: "recordWorkspaceActivity",
+    }),
   setHotkeys: (hotkeys) => ipcRenderer.send(CUSTOM_SHORTCUTS_CHANNEL, hotkeys),
   onShortcut: (listener) => {
     const handleShortcut = (

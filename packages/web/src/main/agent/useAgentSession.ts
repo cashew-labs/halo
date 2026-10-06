@@ -1,3 +1,4 @@
+import { ORPCError } from "@orpc/client";
 import { useConnection } from "../../api/ConnectionContext.js";
 import { sessionError } from "./sessionView.js";
 import { useContext, useEffect, useRef, useState } from "react";
@@ -58,6 +59,7 @@ export function useAgentSession(
         draftSessionSnapshotQueryKey(sessionId),
       ) ?? emptySessionSnapshot(),
   );
+  const stateRef = useRef(state);
   const [localError, setLocalError] = useState<string | undefined>(undefined);
   const [openedFor, setOpenedFor] = useState(sessionId);
 
@@ -69,20 +71,24 @@ export function useAgentSession(
   }
 
   useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+
+  useEffect(() => {
     // Hidden tabs retain their UI state, but must release HTTP streams so new
     // chats and prompts are not blocked by the browser's connection limit.
     if (sessionId === undefined || !isTabVisible || !enabled) return;
     const controller = new AbortController();
 
     const updates = new Stream<SessionWatchItem>();
-    const states = updates.project(emptySessionSnapshot(), reduceSessionUpdate);
-    const unsubscribe = states.subscribe(setState);
+    const states = updates.project(stateRef.current, reduceSessionUpdate);
+    const unsubscribe = states.subscribe(() => setState(states.latestValue));
     reconnectStream({
       name: "Session event",
       onError: (error) => service.fail(api, error),
       signal: controller.signal,
       open: async () =>
-        await api.sessions.watch({ sessionId }, { signal: controller.signal }),
+        await api.thread.events({ sessionId }, { signal: controller.signal }),
       onItem: (item) => {
         if (item.type === "snapshot") {
           queryClientRef.current.removeQueries({
@@ -111,6 +117,7 @@ export function useAgentSession(
 
     return () => {
       unsubscribe();
+      states[Symbol.dispose]();
       controller.abort();
     };
   }, [api, sessionId, isTabVisible, service, enabled]);
@@ -124,13 +131,16 @@ export function useAgentSession(
       return error;
     }
     setLocalError(undefined);
-    const result = await api.sessions
+    const result = await api.thread
       .prompt({ sessionId: readySessionId, ...input })
       .then(() => undefined)
       .catch(
         (e) =>
           new PromptFailedError({
-            reason: "Couldn't send your message. Please try again.",
+            reason:
+              e instanceof ORPCError && e.code === "BAD_REQUEST"
+                ? e.message
+                : "Couldn't send your message. Please try again.",
             cause: e,
           }),
       );
@@ -147,7 +157,7 @@ export function useAgentSession(
 
   async function abort() {
     if (readySessionId === undefined) return;
-    const result = await api.sessions
+    const result = await api.thread
       .abort({ sessionId: readySessionId })
       .then(() => undefined)
       .catch(
@@ -223,7 +233,7 @@ export function useDraftAgentSession(
     const submittedTitle = chatPromptTitle(input);
     setTitle(submittedTitle);
     if (sessionIdRef.current === undefined) {
-      const created = await api.sessions.create().catch(
+      const created = await api.thread.new().catch(
         (e) =>
           new PromptFailedError({
             reason: "Couldn't start this chat. Please try again.",
@@ -250,13 +260,16 @@ export function useDraftAgentSession(
       sessionTitleQueryKey(sessionIdRef.current),
       submittedTitle,
     );
-    const result = await api.sessions
+    const result = await api.thread
       .prompt({ sessionId: sessionIdRef.current, ...input })
       .then(() => undefined)
       .catch(
         (e) =>
           new PromptFailedError({
-            reason: "Couldn't send your message. Please try again.",
+            reason:
+              e instanceof ORPCError && e.code === "BAD_REQUEST"
+                ? e.message
+                : "Couldn't send your message. Please try again.",
             cause: e,
           }),
       );

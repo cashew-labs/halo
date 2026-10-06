@@ -24,7 +24,7 @@ function SessionRow({ session }: { session: SessionSummary }) {
   const mutation = useMutation({
     mutationKey: ["thread-done", session.sessionId],
     mutationFn: async () =>
-      await api.sessions.markDone({ sessionId: session.sessionId }),
+      await api.thread.markDone({ sessionId: session.sessionId }),
   });
   const title = session.title ? session.title : session.sessionId;
   return (
