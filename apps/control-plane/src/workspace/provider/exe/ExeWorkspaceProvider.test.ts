@@ -256,6 +256,25 @@ exeTest.skipIf(process.env.HALO_EXE_TEST_CONFIG === undefined)(
     ]);
     expect(await provider.pause(input)).toBeUndefined();
     expect(await provider.ensure(input)).toBeUndefined();
+    const workspaceTag = "halo-migration-assignment-test";
+    const taggedProvider = new ExeWorkspaceProvider({
+      ...config,
+      workspaceTag,
+    });
+    expect(
+      await taggedProvider.ensure({ ...input, ownerUserId: "another-owner" }),
+    ).toBeInstanceOf(Error);
+    expect(
+      JSON.parse(await ssh(config, "exe.dev", ["ls", vmName, "--json"])),
+    ).not.toMatchObject({
+      vms: [{ tags: expect.arrayContaining([workspaceTag]) }],
+    });
+    expect(await taggedProvider.ensure(input)).toBeUndefined();
+    expect(
+      JSON.parse(await ssh(config, "exe.dev", ["ls", vmName, "--json"])),
+    ).toMatchObject({
+      vms: [{ tags: expect.arrayContaining([workspaceTag]) }],
+    });
     expect(
       await ssh(config, guest, [
         "sudo cat /var/lib/halo/home/documents/migration-check.txt",

@@ -162,6 +162,18 @@ export class ExeWorkspaceProvider implements WorkspaceProviderApi {
       const resumed = await this.resume(input);
       if (resumed instanceof Error) return resumed;
     }
+    const assignment = Buffer.from(
+      JSON.stringify({ ...input, gatewayToken: this.gatewayToken(input) }),
+    ).toString("base64url");
+    const assigned = await this.assign({
+      input,
+      vmName,
+      assignment,
+      // Another instance may have created this running VM before SSH is ready.
+      attemptsRemaining: 30,
+    });
+    if (assigned instanceof Error) return assigned;
+    // Release discovery must never include a clone whose assignment failed.
     if (
       this.workspaceTag !== undefined &&
       !existing?.tags?.includes(this.workspaceTag)
@@ -169,16 +181,6 @@ export class ExeWorkspaceProvider implements WorkspaceProviderApi {
       const tagged = await this.api.execute(["tag", vmName, this.workspaceTag]);
       if (tagged instanceof Error) return tagged;
     }
-    const assignment = Buffer.from(
-      JSON.stringify({ ...input, gatewayToken: this.gatewayToken(input) }),
-    ).toString("base64url");
-    return await this.assign({
-      input,
-      vmName,
-      assignment,
-      // Another instance may have created this running VM before SSH is ready.
-      attemptsRemaining: 30,
-    });
   }
 
   private async assign(ctx: {
