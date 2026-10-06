@@ -7,8 +7,6 @@ import {
   Owner,
   ToolAddress,
 } from "@executor-js/sdk/core";
-import { Layer } from "effect";
-import { FetchHttpClient } from "effect/unstable/http";
 import { TraceCloudDriver } from "./TraceCloudDriver.js";
 import fs from "node:fs/promises";
 import http from "node:http";
@@ -107,33 +105,28 @@ const desktopAuthState = "desktop-auth-state-0123456789abcdef";
 const integrationEncryptionKey = Buffer.alloc(32, 17);
 // Only Google's external Discovery HTTP boundary is replaced. Executor parses,
 // installs and persists the document through its real OpenAPI plugin.
-const integrationHttpClientLayer = FetchHttpClient.layer.pipe(
-  Layer.provide(
-    Layer.succeed(FetchHttpClient.Fetch, async () =>
-      Response.json({
-        discoveryVersion: "v1",
-        id: "test:v1",
-        name: "test",
-        version: "v1",
-        title: "Test Google API",
-        rootUrl: "https://example.invalid/",
-        servicePath: "test/v1/",
-        resources: {
-          documents: {
-            methods: {
-              list: {
-                id: "test.documents.list",
-                path: "documents",
-                httpMethod: "GET",
-                response: { type: "object" },
-              },
-            },
+const getOpenAPISpec = async (_url: string) =>
+  JSON.stringify({
+    discoveryVersion: "v1",
+    id: "test:v1",
+    name: "test",
+    version: "v1",
+    title: "Test Google API",
+    rootUrl: "https://example.invalid/",
+    servicePath: "test/v1/",
+    resources: {
+      documents: {
+        methods: {
+          list: {
+            id: "test.documents.list",
+            path: "documents",
+            httpMethod: "GET",
+            response: { type: "object" },
           },
         },
-      }),
-    ),
-  ),
-);
+      },
+    },
+  });
 
 const controlPlaneTest = test.extend<{
   traceCloud: TraceCloudDriver;
@@ -146,7 +139,45 @@ const controlPlaneTest = test.extend<{
   webRoot: string;
   workspaceProvider: WorkspaceProviderApi;
   workspaceHost: WorkspaceHostDriver;
+  integrationApi: {
+    origin: string;
+    requests: { url: string | undefined; authorization: string | undefined }[];
+  };
 }>({
+  // oxlint-disable-next-line eslint/no-empty-pattern -- Native fixture signature.
+  integrationApi: async ({}, use) => {
+    const requests: {
+      url: string | undefined;
+      authorization: string | undefined;
+    }[] = [];
+    const server = http.createServer((request, response) => {
+      requests.push({
+        url: request.url,
+        authorization: request.headers.authorization,
+      });
+      if (request.url !== "/items") {
+        response.writeHead(404).end();
+        return;
+      }
+      response
+        .writeHead(200, { "content-type": "application/json" })
+        .end(JSON.stringify({ items: ["fixture-item"] }));
+    });
+    server.listen(0, "127.0.0.1");
+    await events.once(server, "listening");
+    await using cleanup = new errore.AsyncDisposableStack();
+    cleanup.defer(async () => {
+      server.closeAllConnections();
+      await new Promise<void>((resolveClose, reject) =>
+        server.close((error) =>
+          error === undefined ? resolveClose() : reject(error),
+        ),
+      );
+    });
+    // SAFETY: A listening TCP server has AddressInfo, not a pipe address.
+    const address = server.address() as AddressInfo;
+    await use({ origin: `http://127.0.0.1:${address.port}`, requests });
+  },
   // oxlint-disable-next-line eslint/no-empty-pattern -- Native fixture signature.
   inferenceApiKey: async ({}, use) => {
     await use(process.env.HALO_TEST_TOGETHER_API_KEY);
@@ -202,7 +233,7 @@ const controlPlaneTest = test.extend<{
       traceCloud: traceCloud.cloud(),
       inferenceApiKey,
       integrationEncryptionKey,
-      integrationHttpClientLayer,
+      getOpenAPISpec,
     });
     if (plane instanceof Error) throw plane;
     await use(plane);
@@ -239,7 +270,7 @@ const controlPlaneTest = test.extend<{
 
 controlPlaneTest(
   "persists user-bound integration catalogs and native policies after restart",
-  async ({ appDataDir, webRoot, workspaceProvider }) => {
+  async ({ appDataDir, webRoot, workspaceProvider, integrationApi }) => {
     const databaseUrl = process.env.HALO_TEST_POSTGRES_URL;
     const config =
       databaseUrl === undefined
@@ -270,7 +301,7 @@ controlPlaneTest(
       webRoot,
       workspaceProvider,
       integrationEncryptionKey,
-      integrationHttpClientLayer,
+      getOpenAPISpec,
     });
     if (plane instanceof Error) throw plane;
     await using cleanup = new errore.AsyncDisposableStack();
@@ -317,7 +348,7 @@ controlPlaneTest(
           value: JSON.stringify({
             openapi: "3.0.0",
             info: { title: "Private", version: "1" },
-            servers: [{ url: "https://example.invalid" }],
+            servers: [{ url: integrationApi.origin }],
             paths: {
               "/items": {
                 get: {
@@ -361,17 +392,8 @@ controlPlaneTest(
       webRoot,
       workspaceProvider,
       integrationEncryptionKey,
-      integrationHttpClientLayer: FetchHttpClient.layer.pipe(
-        Layer.provide(
-          Layer.succeed(FetchHttpClient.Fetch, async (input, init) => {
-            expect(String(input)).toBe("https://example.invalid/items");
-            expect(new Headers(init?.headers).get("authorization")).toBe(
-              "Bearer private-test-token",
-            );
-            return Response.json({ items: ["fixture-item"] });
-          }),
-        ),
-      ),
+      getOpenAPISpec: async () =>
+        new Error("Persisted presets must not fetch again"),
     });
     if (reopened instanceof Error) throw reopened;
     cleanup.defer(async () => {
@@ -400,6 +422,9 @@ controlPlaneTest(
     );
     if (invoked instanceof Error) throw invoked;
     expect(JSON.stringify(invoked)).toContain("fixture-item");
+    expect(
+      integrationApi.requests.filter((request) => request.url === "/items"),
+    ).toEqual([{ url: "/items", authorization: "Bearer private-test-token" }]);
   },
 );
 
@@ -458,7 +483,7 @@ controlPlaneTest(
       webRoot,
       workspaceProvider,
       integrationEncryptionKey,
-      integrationHttpClientLayer,
+      getOpenAPISpec,
     });
     if (retried instanceof Error) throw retried;
     await using cleanup = new errore.AsyncDisposableStack();

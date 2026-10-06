@@ -2,13 +2,12 @@ import { randomBytes } from "node:crypto";
 import fs from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { ProviderItemId } from "@executor-js/sdk/core";
-import { Effect, Exit } from "effect";
 import * as errore from "errore";
 import { expect, test } from "vitest";
 import { DatabaseService } from "../DatabaseService.js";
 import {
   CredentialService,
+  CredentialDecryptionError,
   InvalidCredentialKeyError,
 } from "./CredentialService.js";
 
@@ -53,19 +52,14 @@ const credentialTest = test.extend<{
   },
 });
 
-const itemId = ProviderItemId.make;
-
 credentialTest(
   "persists encrypted credentials across database reopen",
   async ({ openCredentials, databasePath }) => {
     const encryptionKey = randomBytes(32);
     const first = await openCredentials(encryptionKey);
-    await Effect.runPromise(
-      first.credentials.forUser("user-a").set!(
-        itemId("github"),
-        "secret-token-value",
-      ),
-    );
+    expect(
+      await first.credentials.set("user-a", "github", "secret-token-value"),
+    ).toBeUndefined();
     const closed = await first.db.close();
     if (closed instanceof Error) throw closed;
 
@@ -73,18 +67,12 @@ credentialTest(
     expect(raw.includes("secret-token-value")).toBe(false);
 
     const second = await openCredentials(encryptionKey);
-    const provider = second.credentials.forUser("user-a");
-    expect(await Effect.runPromise(provider.get(itemId("github")))).toBe(
+    expect(await second.credentials.get("user-a", "github")).toBe(
       "secret-token-value",
     );
-    expect(await Effect.runPromise(provider.list!())).toEqual([
-      { id: "github", name: "github" },
-    ]);
-
-    await Effect.runPromise(provider.delete!(itemId("github")));
-    expect(await Effect.runPromise(provider.has!(itemId("github")))).toBe(
-      false,
-    );
+    expect(await second.credentials.list("user-a")).toEqual(["github"]);
+    expect(await second.credentials.delete("user-a", "github")).toBeUndefined();
+    expect(await second.credentials.get("user-a", "github")).toBeUndefined();
   },
 );
 
@@ -92,18 +80,15 @@ credentialTest(
   "keeps each user's credentials separate",
   async ({ openCredentials }) => {
     const { credentials } = await openCredentials(randomBytes(32));
-    const alice = credentials.forUser("alice");
-    const bob = credentials.forUser("bob");
+    expect(
+      await credentials.set("alice", "github", "alice-token"),
+    ).toBeUndefined();
+    expect(await credentials.get("bob", "github")).toBeUndefined();
+    expect(await credentials.list("bob")).toEqual([]);
 
-    await Effect.runPromise(alice.set!(itemId("github"), "alice-token"));
-    expect(await Effect.runPromise(bob.get(itemId("github")))).toBeNull();
-    expect(await Effect.runPromise(bob.list!())).toEqual([]);
-
-    await Effect.runPromise(bob.set!(itemId("github"), "bob-token"));
-    await Effect.runPromise(bob.delete!(itemId("github")));
-    expect(await Effect.runPromise(alice.get(itemId("github")))).toBe(
-      "alice-token",
-    );
+    expect(await credentials.set("bob", "github", "bob-token")).toBeUndefined();
+    expect(await credentials.delete("bob", "github")).toBeUndefined();
+    expect(await credentials.get("alice", "github")).toBe("alice-token");
   },
 );
 
@@ -112,26 +97,21 @@ credentialTest(
   async ({ openCredentials }) => {
     const encryptionKey = randomBytes(32);
     const { db, credentials } = await openCredentials(encryptionKey);
-    await Effect.runPromise(
-      credentials.forUser("alice").set!(itemId("github"), "alice-token"),
-    );
+    expect(
+      await credentials.set("alice", "github", "alice-token"),
+    ).toBeUndefined();
 
     const wrongKey = await openCredentials(randomBytes(32));
-    const wrongKeyRead = await Effect.runPromiseExit(
-      wrongKey.credentials.forUser("alice").get(itemId("github")),
-    );
-    expect(Exit.isFailure(wrongKeyRead)).toBe(true);
-    expect(JSON.stringify(wrongKeyRead)).toContain("StorageError");
+    const wrongKeyRead = await wrongKey.credentials.get("alice", "github");
+    expect(wrongKeyRead).toBeInstanceOf(CredentialDecryptionError);
 
     const client = db.client;
     if (!(client instanceof DatabaseSync)) throw new Error("expected SQLite");
     client.exec(
       "UPDATE credential SET user_id = 'mallory' WHERE user_id = 'alice'",
     );
-    const movedRead = await Effect.runPromiseExit(
-      credentials.forUser("mallory").get(itemId("github")),
-    );
-    expect(Exit.isFailure(movedRead)).toBe(true);
+    const movedRead = await credentials.get("mallory", "github");
+    expect(movedRead).toBeInstanceOf(CredentialDecryptionError);
   },
 );
 

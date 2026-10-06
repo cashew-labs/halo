@@ -56,9 +56,7 @@ export class ControlPlane {
     inferenceApiKey?: string;
     workspaceIdleTimeoutMs?: number;
     integrationEncryptionKey?: Buffer;
-    integrationHttpClientLayer?: Parameters<
-      typeof IntegrationService.start
-    >[0]["httpClientLayer"];
+    getOpenAPISpec?: (url: string) => Promise<string | Error>;
   }) {
     const { config, webRoot } = ctx;
     await using cleanup = new errore.AsyncDisposableStack();
@@ -117,7 +115,7 @@ export class ControlPlane {
         : await IntegrationService.start({
             db,
             credentials,
-            httpClientLayer: ctx.integrationHttpClientLayer,
+            getOpenAPISpec: ctx.getOpenAPISpec,
           });
     if (integrations instanceof Error) return integrations;
     cleanup.defer(async () => {

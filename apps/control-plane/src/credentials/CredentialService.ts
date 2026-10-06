@@ -1,19 +1,9 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
-import {
-  ProviderItemId,
-  ProviderKey,
-  StorageError,
-  type CredentialProvider,
-  type ProviderEntry,
-} from "@executor-js/sdk/core";
 import { Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
-import { Effect } from "effect";
 import * as errore from "errore";
 import type { DatabaseService } from "../DatabaseService.js";
-
-const credentialProviderKey = ProviderKey.make("halo");
 
 const keyLength = 32;
 const nonceLength = 12;
@@ -81,48 +71,14 @@ export class CredentialService {
     return service;
   }
 
-  forUser(userId: string): CredentialProvider {
-    return {
-      key: credentialProviderKey,
-      writable: true,
-      get: (credentialId: ProviderItemId) =>
-        toEffect(
-          "get credential",
-          async () => await this.get(userId, credentialId),
-        ),
-      has: (credentialId: ProviderItemId) =>
-        toEffect("check credential", async () => {
-          const value = await this.get(userId, credentialId);
-          if (value instanceof Error) return value;
-          return value !== null;
-        }),
-      set: (credentialId: ProviderItemId, value: string) =>
-        toEffect(
-          "set credential",
-          async () => await this.set(userId, credentialId, value),
-        ),
-      delete: (credentialId: ProviderItemId) =>
-        toEffect(
-          "delete credential",
-          async () => await this.delete(userId, credentialId),
-        ),
-      list: () =>
-        toEffect<ProviderEntry[]>(
-          "list credentials",
-          async () => await this.list(userId),
-        ),
-    };
-  }
-
-  private async get(userId: string, credentialId: string) {
+  async get(userId: string, credentialId: string) {
     const row = await this.selectRow(userId, credentialId);
     if (row instanceof Error) return row;
-    // oxlint-disable-next-line unicorn/no-null -- CredentialProvider.get reports absence as null.
-    if (row === undefined) return null;
+    if (row === undefined) return undefined;
     return this.decrypt({ userId, credentialId, row });
   }
 
-  private async set(userId: string, credentialId: string, value: string) {
+  async set(userId: string, credentialId: string, value: string) {
     const row = this.encrypt({ userId, credentialId, value });
     const updatedAt = new Date().toISOString();
     const sql = `INSERT INTO credential (user_id, credential_id, nonce, ciphertext, auth_tag, updated_at)
@@ -161,7 +117,7 @@ export class CredentialService {
       );
   }
 
-  private async delete(userId: string, credentialId: string) {
+  async delete(userId: string, credentialId: string) {
     const sql =
       "DELETE FROM credential WHERE user_id = $1 AND credential_id = $2";
     const client = this.db.client;
@@ -188,7 +144,7 @@ export class CredentialService {
       );
   }
 
-  private async list(userId: string) {
+  async list(userId: string) {
     const sql =
       "SELECT credential_id FROM credential WHERE user_id = $1 ORDER BY credential_id";
     const client = this.db.client;
@@ -212,16 +168,13 @@ export class CredentialService {
             );
     if (rows instanceof Error) return rows;
 
-    const entries: ProviderEntry[] = [];
+    const credentialIds: string[] = [];
     for (const row of rows) {
       if (!Value.Check(credentialIdRowSchema, row))
         return new CredentialServiceError({ detail: "read malformed row" });
-      entries.push({
-        id: ProviderItemId.make(row.credential_id),
-        name: row.credential_id,
-      });
+      credentialIds.push(row.credential_id);
     }
-    return entries;
+    return credentialIds;
   }
 
   private async selectRow(userId: string, credentialId: string) {
@@ -349,20 +302,4 @@ function credentialTableSql(timestamp: "TEXT" | "TIMESTAMPTZ") {
 // JSON encoding keeps the identifier boundary unambiguous.
 function additionalData(userId: string, credentialId: string) {
   return Buffer.from(JSON.stringify([userId, credentialId]), "utf8");
-}
-
-function toEffect<A>(
-  label: string,
-  run: () => Promise<A | Error>,
-): Effect.Effect<A, StorageError> {
-  return Effect.flatMap(Effect.promise(run), (value) =>
-    value instanceof Error
-      ? Effect.fail(
-          new StorageError({
-            message: `${label}: ${value.message}`,
-            cause: value,
-          }),
-        )
-      : Effect.succeed(value),
-  );
 }

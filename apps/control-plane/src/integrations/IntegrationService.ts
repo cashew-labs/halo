@@ -7,11 +7,17 @@ import {
   createExecutor,
   Effect,
   IntegrationSlug,
+  ProviderItemId,
+  ProviderKey,
+  StorageError,
   Subject,
   Tenant,
+  type CredentialProvider,
   type Executor,
-  type ExecutorConfig,
+  type ProviderEntry,
 } from "@executor-js/sdk/core";
+import { Layer } from "effect";
+import { FetchHttpClient } from "effect/unstable/http";
 import * as errore from "errore";
 import type { CredentialService } from "../credentials/CredentialService.js";
 import type { DatabaseService } from "../DatabaseService.js";
@@ -19,10 +25,8 @@ import { createExecutorDatabase } from "./createExecutorDatabase.js";
 
 // Executor 1.6 rewrites Meet's Discovery URL to a legacy endpoint returning 404.
 const presets = googleCatalog.filter((preset) => preset.id !== "google-meet");
-const plugins = [
-  openApiPlugin({ presets, specFormats: [googleDiscoveryAdapter] }),
-] as const;
-type IntegrationExecutor = Executor<typeof plugins>;
+type IntegrationPlugins = readonly [ReturnType<typeof openApiPlugin>];
+type IntegrationExecutor = Executor<IntegrationPlugins>;
 
 class IntegrationServiceError extends errore.createTaggedError({
   name: "IntegrationServiceError",
@@ -42,7 +46,7 @@ export class IntegrationService {
     Error
   >;
   private readonly credentials: CredentialService;
-  private readonly httpClientLayer: ExecutorConfig["httpClientLayer"];
+  private readonly plugins: IntegrationPlugins;
 
   private constructor(ctx: {
     database: Exclude<
@@ -50,24 +54,56 @@ export class IntegrationService {
       Error
     >;
     credentials: CredentialService;
-    httpClientLayer?: ExecutorConfig["httpClientLayer"];
+    getOpenAPISpec?: (url: string) => Promise<string | Error>;
   }) {
     this.database = ctx.database;
     this.credentials = ctx.credentials;
-    this.httpClientLayer = ctx.httpClientLayer;
+    const getOpenAPISpec = ctx.getOpenAPISpec;
+    // Only spec loading is overridden. Tool invocations keep Executor's normal HTTP client.
+    const httpClientLayer =
+      getOpenAPISpec === undefined
+        ? undefined
+        : FetchHttpClient.layer.pipe(
+            Layer.provide(
+              Layer.succeed(FetchHttpClient.Fetch, async (input) => {
+                const spec = await getOpenAPISpec(
+                  input instanceof Request ? input.url : String(input),
+                );
+                // Fetch reports failure by rejecting; adapt Halo's error value at this SDK boundary.
+                if (spec instanceof Error) throw spec;
+                return new Response(spec, {
+                  headers: { "content-type": "application/json" },
+                });
+              }),
+            ),
+          );
+    this.plugins = [
+      openApiPlugin({
+        presets,
+        specFormats: [
+          httpClientLayer === undefined
+            ? googleDiscoveryAdapter
+            : {
+                ...googleDiscoveryAdapter,
+                fetch: (input) =>
+                  googleDiscoveryAdapter.fetch({ ...input, httpClientLayer }),
+              },
+        ],
+      }),
+    ];
   }
 
   static async start(ctx: {
     db: DatabaseService;
     credentials: CredentialService;
-    httpClientLayer?: ExecutorConfig["httpClientLayer"];
+    getOpenAPISpec?: (url: string) => Promise<string | Error>;
   }) {
     const database = await createExecutorDatabase(ctx.db);
     if (database instanceof Error) return database;
     return new IntegrationService({
       database,
       credentials: ctx.credentials,
-      httpClientLayer: ctx.httpClientLayer,
+      getOpenAPISpec: ctx.getOpenAPISpec,
     });
   }
 
@@ -114,9 +150,8 @@ export class IntegrationService {
         tenant: Tenant.make(userId),
         subject: Subject.make(userId),
         db: this.database,
-        providers: [this.credentials.forUser(userId)],
-        plugins,
-        httpClientLayer: this.httpClientLayer,
+        providers: [this.credentialProvider(userId)],
+        plugins: this.plugins,
         onElicitation: () => Effect.succeed({ action: "decline" as const }),
       }),
     ).catch(
@@ -174,6 +209,41 @@ export class IntegrationService {
     return executor;
   }
 
+  private credentialProvider(userId: string): CredentialProvider {
+    return {
+      key: ProviderKey.make("halo"),
+      writable: true,
+      get: (credentialId: ProviderItemId) =>
+        toEffect("get credential", async () => {
+          const value = await this.credentials.get(userId, credentialId);
+          // oxlint-disable-next-line unicorn/no-null -- Executor's provider contract uses null for absence.
+          return value === undefined ? null : value;
+        }),
+      has: (credentialId: ProviderItemId) =>
+        toEffect("check credential", async () => {
+          const value = await this.credentials.get(userId, credentialId);
+          if (value instanceof Error) return value;
+          return value !== undefined;
+        }),
+      set: (credentialId: ProviderItemId, value: string) =>
+        toEffect(
+          "set credential",
+          async () => await this.credentials.set(userId, credentialId, value),
+        ),
+      delete: (credentialId: ProviderItemId) =>
+        toEffect(
+          "delete credential",
+          async () => await this.credentials.delete(userId, credentialId),
+        ),
+      list: () =>
+        toEffect<ProviderEntry[]>("list credentials", async () => {
+          const ids = await this.credentials.list(userId);
+          if (ids instanceof Error) return ids;
+          return ids.map((id) => ({ id: ProviderItemId.make(id), name: id }));
+        }),
+    };
+  }
+
   async close() {
     this.closed = true;
     await Promise.all(this.active);
@@ -190,4 +260,20 @@ export class IntegrationService {
     );
     return results.find((result) => result instanceof Error);
   }
+}
+
+function toEffect<A>(
+  label: string,
+  run: () => Promise<A | Error>,
+): Effect.Effect<A, StorageError> {
+  return Effect.flatMap(Effect.promise(run), (value) =>
+    value instanceof Error
+      ? Effect.fail(
+          new StorageError({
+            message: `${label}: ${value.message}`,
+            cause: value,
+          }),
+        )
+      : Effect.succeed(value),
+  );
 }
