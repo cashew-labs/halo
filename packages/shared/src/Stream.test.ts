@@ -1,6 +1,113 @@
 import { expect, test } from "vitest";
 import { combineLatest, Stream } from "@get-halo/shared/Stream";
 
+test("native streams subscribe immediately and buffer independently", async () => {
+  const source = new Stream<string | undefined>();
+  source.append("before subscribing");
+  const first = source.toReadableStream();
+  const second = source.toReadableStream();
+  expect(Object.getPrototypeOf(first)).toBe(ReadableStream.prototype);
+  const reader = first.getReader();
+  const other = second.getReader();
+  source.append("first");
+  source.append(undefined);
+
+  await expect(reader.read()).resolves.toEqual({ done: false, value: "first" });
+  await expect(reader.read()).resolves.toEqual({
+    done: false,
+    value: undefined,
+  });
+  const pending = reader.read();
+  await reader.cancel();
+  await expect(pending).resolves.toEqual({ done: true, value: undefined });
+  source.append("last");
+
+  await expect(other.read()).resolves.toEqual({ done: false, value: "first" });
+  await expect(other.read()).resolves.toEqual({
+    done: false,
+    value: undefined,
+  });
+  await expect(other.read()).resolves.toEqual({ done: false, value: "last" });
+  source.append("discard on cancel");
+  await other.cancel();
+  await expect(other.read()).resolves.toEqual({ done: true, value: undefined });
+});
+
+test("native stream cancellation detaches mapped subscriptions", async () => {
+  const source = new Stream<number>();
+  const transformed: number[] = [];
+  const controller = new AbortController();
+  const readable = source
+    .map((value) => {
+      transformed.push(value);
+      return value * 3;
+    })
+    .toReadableStream({ abortSignal: controller.signal });
+  const reader = readable.getReader();
+  source.append(2);
+  await expect(reader.read()).resolves.toEqual({ done: false, value: 6 });
+  await reader.cancel();
+  controller.abort();
+  source.append(5);
+  expect(transformed).toEqual([2]);
+});
+
+test("native streams pipe combined projected states through transforms and close on abort", async () => {
+  const left = new Stream<number>();
+  const right = new Stream<number>();
+  using leftState = left.project(2, (_previous, value) => value);
+  using rightState = right.project(7, (_previous, value) => value);
+  const controller = new AbortController();
+  const readable = combineLatest([leftState, rightState])
+    .map(([a, b]) => a! + b!)
+    .filter((sum) => sum > 10)
+    .toReadableStream({ abortSignal: controller.signal });
+  const received: number[] = [];
+  const piping = readable.pipeTo(
+    new WritableStream<number>({
+      write(value) {
+        received.push(value);
+      },
+    }),
+  );
+  left.append(5);
+  right.append(1);
+  right.append(9);
+  controller.abort();
+  right.append(20);
+  await piping;
+  expect(received).toEqual([12, 14]);
+
+  const projection = leftState.toReadableStream();
+  const reader = projection.getReader();
+  await expect(reader.read()).resolves.toEqual({ done: false, value: 5 });
+  await reader.cancel();
+});
+
+test("native stream abort closes pending reads and pre-aborted subscriptions do not replay", async () => {
+  const source = new Stream<number>();
+  using state = source.project(3, (_previous, value) => value);
+  const alreadyClosed = state.toReadableStream({
+    abortSignal: AbortSignal.abort(),
+  });
+  await expect(alreadyClosed.getReader().read()).resolves.toEqual({
+    done: true,
+    value: undefined,
+  });
+
+  const controller = new AbortController();
+  const reader = source
+    .toReadableStream({ abortSignal: controller.signal })
+    .getReader();
+  const pending = [reader.read(), reader.read()];
+  controller.abort();
+  source.append(8);
+  await expect(Promise.all(pending)).resolves.toEqual([
+    { done: true, value: undefined },
+    { done: true, value: undefined },
+  ]);
+});
+
 test("consume accepts optional options and stops when aborted", async () => {
   const stream = new Stream<number>();
   const abortController = new AbortController();
