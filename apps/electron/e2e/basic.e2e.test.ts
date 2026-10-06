@@ -108,9 +108,7 @@ e2eTest(
     ).toBeVisible();
     expect(fullTreeReads).toEqual([]);
     expect(scopes.flat().some((path) => path.startsWith("Closed"))).toBe(false);
-    await app.page
-      .getByRole("button", { name: "Actions for deep.md", exact: true })
-      .click();
+    await openFileActions(app.page, "deep.md");
     await app.page
       .getByRole("menuitem", { name: "Move to…", exact: true })
       .click();
