@@ -1,7 +1,7 @@
 import type { Migration } from "../Migration.js";
 
 export const tandemSessionStateMigration: Migration = {
-  id: "20260930140000-tandem-session-state",
+  id: "20261006130000-tandem-session-state",
   sql: `CREATE TABLE halo_session_state (
     tuple_key BLOB PRIMARY KEY NOT NULL,
     id TEXT NOT NULL UNIQUE,

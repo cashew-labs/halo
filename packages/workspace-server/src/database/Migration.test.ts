@@ -377,7 +377,12 @@ migrationTest(
 migrationTest(
   "leaves already-durable thread state unchanged",
   ({ migration }) => {
-    const old = migration.open(workspaceMigrations.slice(0, -1));
+    const old = migration.open(
+      workspaceMigrations.slice(
+        0,
+        workspaceMigrations.indexOf(durableStorageMigration) + 1,
+      ),
+    );
     old.exec(
       `INSERT INTO halo_threads (id,metadata,read_receipt_cursor_id) VALUES ('current','{"id":"current","createdAt":1}','123');`,
     );

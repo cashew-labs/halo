@@ -40,10 +40,6 @@ import { ExecutorConnectionCard } from "./ExecutorConnectionCard.tsx";
 import { ToolActivity } from "./ToolActivity.tsx";
 import { useTabFindSource } from "../../panes/TabFind.js";
 import { useConnection } from "../../api/ConnectionContext.js";
-import {
-  useWorkspacePathsQuery,
-  useWorkspaceQuery,
-} from "../../api/ApiProvider.js";
 import { draftReferencesQueryKey } from "../chatReferences.js";
 import {
   clearMessageDraft,
@@ -129,10 +125,6 @@ function ChatPane({
   const [draft, setDraft] = useMessageDraft(draftKey);
   const [references, setReferences] =
     useState<ChatReference[]>(initialReferences);
-  const workspace = useWorkspaceQuery().data;
-  const paths = useWorkspacePathsQuery(workspace).data?.filter(
-    (path) => !path.endsWith("/"),
-  );
   const [attachments, setAttachments] = useState<{ id: string; file: File }[]>(
     [],
   );
@@ -368,7 +360,6 @@ function ChatPane({
             aria-label="Message"
             size="sm"
             className={composer}
-            referencePaths={paths}
             referencePlacement={
               draftId !== undefined && state.entries.length === 0
                 ? "below"

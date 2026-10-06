@@ -126,6 +126,7 @@ export const contract = publicProcedure.router({
   workspace: {
     get: oc.output(type<WorkspaceInfo>()),
     listPaths: oc.output(type<string[]>()),
+    searchPaths: oc.input(type<{ query: string }>()).output(type<string[]>()),
     watchDirectories: oc
       .input(type<{ paths: string[] }>())
       .output(

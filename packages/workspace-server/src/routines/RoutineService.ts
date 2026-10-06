@@ -167,6 +167,22 @@ export class RoutineService {
     return runs.map(toRun);
   }
 
+  async runningSessionIds() {
+    const runs = await this.db
+      .query({ collection: "routineRuns", where: { status: "running" } })
+      .catch(
+        (cause) =>
+          new RoutineStorageError({
+            operation: "list running sessions",
+            cause,
+          }),
+      );
+    if (runs instanceof Error) return runs;
+    return runs.flatMap((run) =>
+      run.sessionId === undefined ? [] : [run.sessionId],
+    );
+  }
+
   // Claim the due occurrence and advance the schedule in the same transaction.
   async beginRun(input: {
     routineId: string;

@@ -211,12 +211,12 @@ routineTest(
     });
 
     expect(await failedRunner.recover()).toBe(abortError);
-    expect(routines.get(saved.id)).toMatchObject({
+    expect(await routines.get(saved.id)).toMatchObject({
       lastRun: { status: "running" },
     });
 
     const abort = vi.fn(async () => {
-      expect(routines.get(saved.id)).toMatchObject({
+      expect(await routines.get(saved.id)).toMatchObject({
         lastRun: { status: "running" },
       });
     });
@@ -241,7 +241,7 @@ routineTest(
     expect(recovered).toBeUndefined();
     expect(abort).toHaveBeenCalledWith("session-1");
     expect(abort).toHaveBeenCalledOnce();
-    expect(routines.get(saved.id)).toMatchObject({
+    expect(await routines.get(saved.id)).toMatchObject({
       lastRun: { status: "interrupted" },
     });
   },

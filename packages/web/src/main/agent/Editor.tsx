@@ -1,5 +1,7 @@
 import type React from "react";
 import { useState } from "react";
+import { skipToken, useQuery } from "@tanstack/react-query";
+import { useApi } from "../../api/ApiProvider.js";
 import type { Editor as TiptapEditor } from "@tiptap/core";
 import {
   backgroundColor,
@@ -34,7 +36,6 @@ type EditorProps = {
   actions?: React.ReactNode;
   header?: React.ReactNode;
   error?: React.ReactNode;
-  referencePaths?: string[];
   onAddReference?: (path: string) => void;
   referencePlacement?: "above" | "below";
 };
@@ -56,7 +57,6 @@ export function Editor({
   actions,
   header,
   error,
-  referencePaths,
   onAddReference,
   referencePlacement = "above",
 }: EditorProps) {
@@ -77,14 +77,16 @@ export function Editor({
     to: number;
   }>();
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const matches =
-    referenceQuery === undefined
-      ? []
-      : (referencePaths ?? [])
-          .filter((path) =>
-            path.toLowerCase().includes(referenceQuery.query.toLowerCase()),
-          )
-          .slice(0, 8);
+  const api = useApi();
+  const query = referenceQuery?.query;
+  const { data: matches = [], isPending } = useQuery({
+    queryKey: ["reference-paths", query],
+    queryFn:
+      query === undefined
+        ? skipToken
+        : async ({ signal }) =>
+            await api.workspace.searchPaths({ query }, { signal }),
+  });
 
   function selectReference(path: string) {
     if (editor === null || referenceQuery === undefined) return;
@@ -162,9 +164,7 @@ export function Editor({
         >
           {matches.length === 0 ? (
             <div className={resultClassName}>
-              {referencePaths === undefined
-                ? "Loading files…"
-                : "No matching files"}
+              {isPending ? "Loading files…" : "No matching files"}
             </div>
           ) : (
             matches.map((path, index) => (

@@ -1082,6 +1082,31 @@ serverTest(
 );
 
 serverTest(
+  "searches reference paths with bounded, file-only results",
+  async ({ server }) => {
+    for (let index = 0; index < 10; index++) {
+      await server.harness.files.write({
+        path: path.join(server.workspaceRoot, "notes", `Report-${index}.md`),
+        content: "report",
+      });
+    }
+    await server.harness.files.write({
+      path: path.join(server.workspaceRoot, "elsewhere", "unique.txt"),
+      content: "unique",
+    });
+    expect(await server.rpc.workspace.searchPaths({ query: "REPORT" })).toEqual(
+      Array.from({ length: 8 }, (_, index) => `notes/Report-${index}.md`),
+    );
+    expect(await server.rpc.workspace.searchPaths({ query: "unique" })).toEqual(
+      ["elsewhere/unique.txt"],
+    );
+    expect(
+      await server.rpc.workspace.searchPaths({ query: "missing" }),
+    ).toEqual([]);
+  },
+);
+
+serverTest(
   "streams only requested directory listings and refreshes after deletion",
   async ({ server }) => {
     const setupEvents = await server.rpc.workspace.events();

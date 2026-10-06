@@ -1,7 +1,7 @@
 import type { Migration } from "../Migration.js";
 
 export const tandemRoutinesMigration: Migration = {
-  id: "20260930130000-tandem-routines",
+  id: "20261006120000-tandem-routines",
   sql: `
     CREATE TABLE halo_routine_definitions (
       tuple_key BLOB PRIMARY KEY NOT NULL,

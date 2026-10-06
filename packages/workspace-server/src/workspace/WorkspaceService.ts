@@ -205,6 +205,23 @@ export class WorkspaceService {
     return paths;
   }
 
+  async searchPaths(query: string, signal?: AbortSignal) {
+    const matches: string[] = [];
+    const directories = [""];
+    const needle = query.toLowerCase();
+    while (directories.length > 0 && matches.length < 8) {
+      if (signal?.aborted) return matches;
+      const entries = await this.listDirectory(directories.pop()!);
+      if (entries instanceof Error) return entries;
+      for (const entry of entries) {
+        if (entry.endsWith("/")) directories.push(entry.slice(0, -1));
+        else if (entry.toLowerCase().includes(needle)) matches.push(entry);
+        if (matches.length === 8) break;
+      }
+    }
+    return matches;
+  }
+
   async listDirectory(path: string) {
     const absolutePath =
       path === "" ? this.layout.root : await this.resolveEntryPath(path);

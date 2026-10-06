@@ -8,10 +8,10 @@ import { routinesMigration } from "./20260925090000-routines.js";
 import { personalRoutinesMigration } from "./20260928090000-personalRoutines.js";
 import { routineSessionArchiveMigration } from "./20260928100000-routineSessionArchive.js";
 import { durableStorageMigration } from "./20261003100000-durableStorage.js";
-import { tandemTuplesMigration } from "./20260929130000-tandemTuples.js";
-import { tandemHotkeysMigration } from "./20260930120000-tandemHotkeys.js";
-import { tandemRoutinesMigration } from "./20260930130000-tandemRoutines.js";
-import { tandemSessionStateMigration } from "./20260930140000-tandemSessionState.js";
+import { tandemTuplesMigration } from "./20261006100000-tandemTuples.js";
+import { tandemHotkeysMigration } from "./20261006110000-tandemHotkeys.js";
+import { tandemRoutinesMigration } from "./20261006120000-tandemRoutines.js";
+import { tandemSessionStateMigration } from "./20261006130000-tandemSessionState.js";
 
 import {
   legacyThreadsMigration,
@@ -25,12 +25,12 @@ export const workspaceMigrations = [
   routinesMigration,
   personalRoutinesMigration,
   routineSessionArchiveMigration,
+  durableStorageMigration,
+  legacyThreadsMigration,
   tandemTuplesMigration,
   tandemHotkeysMigration,
   tandemRoutinesMigration,
   tandemSessionStateMigration,
-  durableStorageMigration,
-  legacyThreadsMigration,
 ] satisfies readonly Migration[];
 
 export function migrateWorkspace(connection: Database) {
