@@ -263,6 +263,42 @@ migrationTest(
 );
 
 migrationTest(
+  "upgrades a pre-status database without losing its conversation",
+  ({ migration }) => {
+    const old = migration.open([initialWorkspaceMigration]);
+    old.exec(`
+      INSERT INTO halo_sessions VALUES ('early','{"id":"early","createdAt":1}',2,'{}');
+      INSERT INTO halo_session_entries (session_id,id,parent_id,seq,timestamp,type,payload)
+        VALUES ('early','message',NULL,1,1,'message','{"message":{"role":"user","content":"Keep this early conversation","timestamp":1}}');
+    `);
+    migration.close(old);
+    const upgraded = migration.open(workspaceMigrations);
+    expect(
+      upgraded
+        .prepare(
+          "SELECT id,marked_done,read_receipt_cursor_id FROM halo_threads",
+        )
+        .all(),
+    ).toEqual([
+      // oxlint-disable-next-line unicorn/no-null -- The database column uses SQL NULL.
+      { id: "early", marked_done: 0, read_receipt_cursor_id: null },
+    ]);
+    expect(
+      upgraded
+        .prepare(
+          "SELECT json_extract(record,'$.model[0].content') AS content FROM entries",
+        )
+        .all(),
+    ).toEqual([{ content: "Keep this early conversation" }]);
+    migration.close(upgraded);
+    const restarted = migration.open(workspaceMigrations);
+    expect(
+      restarted.prepare("SELECT count(*) AS count FROM entries").get(),
+    ).toEqual({ count: 1 });
+  },
+);
+
+migrationTest(
   "preserves branches, compaction context, names, and read receipts after interrupted migration",
   ({ migration }) => {
     const durableIndex = workspaceMigrations.indexOf(durableStorageMigration);

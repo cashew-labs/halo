@@ -238,3 +238,51 @@ exeTest.skipIf(process.env.HALO_EXE_TEST_CONFIG === undefined)(
   },
   180_000,
 );
+
+exeTest.skipIf(process.env.HALO_EXE_TEST_CONFIG === undefined)(
+  "assigns a pre-copied private workspace without replacing its saved home",
+  async ({ config, input, provider }) => {
+    const vmName = `halo-${input.workspaceId}`;
+    await ssh(config, "exe.dev", [
+      "cp",
+      config.templateVmName,
+      vmName,
+      "--copy-tags=false",
+      "--json",
+    ]);
+    const guest = `${vmName}.exe.xyz`;
+    await ssh(config, guest, [
+      "sudo test ! -f /etc/halo/assignment.json && printf 'Saved before assignment\\n' | sudo tee /var/lib/halo/home/documents/migration-check.txt >/dev/null && sudo chown 1000:1000 /var/lib/halo/home/documents/migration-check.txt",
+    ]);
+    expect(await provider.pause(input)).toBeUndefined();
+    expect(await provider.ensure(input)).toBeUndefined();
+    expect(
+      await ssh(config, guest, [
+        "sudo cat /var/lib/halo/home/documents/migration-check.txt",
+      ]),
+    ).toBe("Saved before assignment\n");
+    const connection = await provider.getConnection(input);
+    if (connection instanceof Error || connection === undefined)
+      throw connection;
+    if (connection.authorization.type !== "headers")
+      throw new Error("Expected private Exe ingress credentials");
+    const headers = connection.authorization.value;
+    await expect
+      .poll(
+        async () => {
+          const response = await fetch(`${connection.origin}/desktop/`, {
+            headers,
+            redirect: "manual",
+            signal: AbortSignal.timeout(5000),
+          });
+          await response.arrayBuffer();
+          return response.status;
+        },
+        { timeout: 60_000 },
+      )
+      .toBe(200);
+    expect(await provider.pause(input)).toBeUndefined();
+    expect(await provider.getStatus(input)).toBe("paused");
+  },
+  180_000,
+);

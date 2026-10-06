@@ -18,7 +18,7 @@ const migrationId = "20261005100000-legacy-threads";
 
 /** Stage legacy rows before the already-published durable migration drops them. */
 export function prepareLegacyThreads(connection: Database) {
-  return errore.try({
+  const staged = errore.try({
     try: () => {
       const ledger = connection
         .prepare(
@@ -59,7 +59,7 @@ export function prepareLegacyThreads(connection: Database) {
             )
             .get() === undefined
         ) {
-          return stageBranches(connection);
+          return true;
         }
         connection.exec(`
           DELETE FROM halo_legacy_routine_threads;
@@ -81,39 +81,79 @@ export function prepareLegacyThreads(connection: Database) {
           connection.exec(
             "INSERT OR IGNORE INTO halo_legacy_routine_threads SELECT id, session_id FROM halo_routine_runs",
           );
-        return stageBranches(connection);
+        return true;
       })();
     },
     catch: (cause) =>
       new DatabaseError({ operation: "stage legacy threads", cause }),
   });
+  if (staged instanceof Error) return staged;
+  if (staged === undefined) return;
+  const rows = errore.try({
+    try: () => ({
+      // SAFETY: These projections match the staging tables; branch tips are JSON string IDs or null.
+      sessions: connection
+        .prepare("SELECT id FROM halo_legacy_sessions ORDER BY id")
+        .all() as { id: string }[],
+      // SAFETY: The staging projection includes the original entry columns and its session ID.
+      entries: connection
+        .prepare(
+          "SELECT session_id,id,parent_id,seq,timestamp,type,payload FROM halo_legacy_entries ORDER BY session_id,seq",
+        )
+        .all() as (LegacyEntry & { session_id: string })[],
+      // SAFETY: Pi branch tips are JSON string IDs or JSON null with their session ID.
+      tips: connection
+        .prepare(
+          "SELECT session_id,key,json_extract(payload,'$') AS tip FROM halo_legacy_values WHERE namespace='pi.branch.tip' ORDER BY session_id,key",
+        )
+        .all() as (LegacyTip & { session_id: string })[],
+    }),
+    catch: (cause) =>
+      new DatabaseError({ operation: "read staged legacy threads", cause }),
+  });
+  if (rows instanceof Error) return rows;
+  const branches = stageBranches(rows);
+  if (branches instanceof Error) return branches;
+  return errore.try({
+    try: () =>
+      connection.transaction(() => {
+        const insertBranch = connection.prepare(
+          "INSERT INTO legacy_branches VALUES (?, ?, ?, ?)",
+        );
+        const insertEntry = connection.prepare(
+          "INSERT INTO legacy_entry_map VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        );
+        for (const row of branches.branches) insertBranch.run(...row);
+        for (const row of branches.entries) insertEntry.run(...row);
+      })(),
+    catch: (cause) =>
+      new DatabaseError({ operation: "write staged legacy branches", cause }),
+  });
 }
 
-/** Turso has no recursive CTE support; stage each parent chain in chronological order. */
-function stageBranches(connection: Database) {
-  // SAFETY: These projections match the staging tables created above.
-  const sessions = connection
-    .prepare("SELECT id FROM halo_legacy_sessions ORDER BY id")
-    .all() as { id: string }[];
-  const insertBranch = connection.prepare(
-    "INSERT INTO legacy_branches VALUES (?, ?, ?, ?)",
-  );
-  const insertEntry = connection.prepare(
-    "INSERT INTO legacy_entry_map VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-  );
-  for (const { id: threadId } of sessions) {
-    // SAFETY: The staging table contains the original legacy entry columns.
-    const entries = connection
-      .prepare(
-        "SELECT id,parent_id,seq,timestamp,type,payload FROM halo_legacy_entries WHERE session_id=? ORDER BY seq",
-      )
-      .all(threadId) as LegacyEntry[];
-    // SAFETY: Pi's branch tips are JSON string IDs or JSON null.
-    const tips = connection
-      .prepare(
-        "SELECT key,json_extract(payload,'$') AS tip FROM halo_legacy_values WHERE session_id=? AND namespace='pi.branch.tip' ORDER BY key",
-      )
-      .all(threadId) as LegacyTip[];
+/** Turso has no recursive CTE support; prepare parent chains before the SQL transaction. */
+function stageBranches(rows: {
+  sessions: { id: string }[];
+  entries: (LegacyEntry & { session_id: string })[];
+  tips: (LegacyTip & { session_id: string })[];
+}) {
+  const branchRows: [string, string, number, string | null][] = [];
+  const entryRows: [
+    string,
+    number,
+    string,
+    string | null,
+    number,
+    number,
+    string,
+    string,
+    number,
+  ][] = [];
+  for (const { id: threadId } of rows.sessions) {
+    const entries = rows.entries.filter(
+      (entry) => entry.session_id === threadId,
+    );
+    const tips = rows.tips.filter((tip) => tip.session_id === threadId);
     const main = tips.find((tip) => tip.key === "main");
     const branches = [
       {
@@ -136,7 +176,7 @@ function stageBranches(connection: Database) {
     const copied = new Set<string>();
     for (const [index, branch] of branches.entries()) {
       const conversationId = index + 1;
-      insertBranch.run(threadId, branch.key, conversationId, branch.tip);
+      branchRows.push([threadId, branch.key, conversationId, branch.tip]);
       const history: LegacyEntry[] = [];
       const visited = new Set<string>();
       let entryId = branch.tip;
@@ -155,7 +195,7 @@ function stageBranches(connection: Database) {
         entryId = entry.parent_id;
       }
       for (const entry of history.toReversed()) {
-        insertEntry.run(
+        entryRows.push([
           threadId,
           conversationId,
           entry.id,
@@ -165,7 +205,7 @@ function stageBranches(connection: Database) {
           entry.type,
           entry.payload,
           nextId++,
-        );
+        ]);
       }
     }
     if (copied.size !== entries.length)
@@ -174,6 +214,7 @@ function stageBranches(connection: Database) {
         cause: new Error(`Unreachable legacy entries in thread ${threadId}`),
       });
   }
+  return { branches: branchRows, entries: entryRows };
 }
 
 export const legacyThreadsMigration: Migration = {

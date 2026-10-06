@@ -30,16 +30,44 @@ ssh "${ssh_args[@]}" "$INSTANCE.exe.xyz" 'sudo test ! -f /etc/halo/assignment.js
 source_stopped=false
 completed=false
 restore_on_failure() {
+  result=$?
+  trap - EXIT
   if [ "$source_stopped" = true ] && [ "$completed" != true ]; then
-    gcloud compute ssh "$INSTANCE" "${gcp_ssh[@]}" --command='sudo systemctl start halo' || echo 'Failed to restart source; restore it manually' >&2
+    # Reopening the source invalidates every copy, including an interrupted final tag step.
+    if ssh "${ssh_args[@]}" exe.dev tag -d "$INSTANCE" "$EXE_WORKSPACE_TAG-migrated" "$EXE_WORKSPACE_TAG-assigned" &&
+      gcloud compute ssh "$INSTANCE" "${gcp_ssh[@]}" --command='sudo rm -f /var/lib/halo/exe-migration-stopped && sudo systemctl start halo'; then
+      echo 'Source restarted; destination copy is no longer eligible for cutover' >&2
+    else
+      echo 'Could not invalidate the copy and restart its source; inspect both VMs before recovery' >&2
+      result=1
+    fi
   fi
+  exit "$result"
 }
 trap restore_on_failure EXIT
 gcloud compute ssh "$INSTANCE" "${gcp_ssh[@]}" --command='sudo test ! -f /mnt/halo/workspace/.halo/state.db'
 source_stopped=true
 # Old images lack ordered desktop shutdown; close Chrome using the same current helper.
 gcloud compute ssh "$INSTANCE" "${gcp_ssh[@]}" --command='sudo docker exec -i halo-workspace bash -s' < "$root/apps/workspace-server/desktop/stop-chrome.sh"
-gcloud compute ssh "$INSTANCE" "${gcp_ssh[@]}" --command='sudo systemctl stop halo && sudo sync'
+# Invalidate this checkpoint on every service start. Systemd can unload stopped
+# units and forget their timestamps, so timestamps cannot prove copy freshness.
+gcloud compute ssh "$INSTANCE" "${gcp_ssh[@]}" --command='sudo bash -s' <<'CHECKPOINT'
+set -euo pipefail
+mkdir -p /var/lib/halo /etc/systemd/system/halo.service.d
+cat > /etc/systemd/system/halo.service.d/exe-migration.conf <<'UNIT'
+[Service]
+ExecStartPre=/usr/bin/rm -f /var/lib/halo/exe-migration-stopped
+UNIT
+systemctl daemon-reload
+cat /proc/sys/kernel/random/boot_id > /var/lib/halo/exe-migration-stopped
+chmod 600 /var/lib/halo/exe-migration-stopped
+# Write the checkpoint before stopping: a start racing with stop must remove it,
+# rather than being followed by a newly written, apparently valid checkpoint.
+systemctl stop halo
+sync
+test "$(systemctl show halo -p ActiveState --value)" = inactive
+CHECKPOINT
+
 snapshot="${INSTANCE}-exe-$(date -u +%Y%m%d%H%M%S)"
 gcloud compute disks snapshot "$disk" --project="$PROJECT" --zone="$ZONE" --snapshot-names="$snapshot" --quiet
 archive="$RUNNER_TEMP/$INSTANCE-home.tar.gz"
@@ -73,4 +101,5 @@ ssh "${ssh_args[@]}" exe.dev tag "$INSTANCE" "$EXE_WORKSPACE_TAG"
 ssh "${ssh_args[@]}" exe.dev tag "$INSTANCE" "$EXE_WORKSPACE_TAG-migrated"
 completed=true
 echo "HALO_WORKSPACE_COPIED vm=$INSTANCE snapshot=$snapshot sha256=$checksum"
-echo 'Source service remains stopped. Validate the destination, then switch the provider or restart the source before returning users.'
+echo 'Source must remain stopped until cutover. Assign the destination through WorkspaceService before deploying Exe.'
+echo "To abort: remove $EXE_WORKSPACE_TAG-migrated and $EXE_WORKSPACE_TAG-assigned from $INSTANCE before restarting its GCP source. A resumed source requires a fresh copy."

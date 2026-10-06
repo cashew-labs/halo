@@ -374,7 +374,7 @@ jobs:
             exit 1
           fi
 
-      - name: Require copied workspaces before the first Exe cutover
+      - name: Require current, assigned copies before the first Exe cutover
         if: steps.provider.outputs.provider == 'exe'
         shell: bash
         run: |
@@ -384,11 +384,21 @@ jobs:
               --filter='name~"^halo-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"' \
               --format='json(name)' | jq -c 'map(.name)')"
             ssh_args=(-F /dev/null -i "$EXE_PRIVATE_KEY_PATH" -o IdentitiesOnly=yes -o IdentityAgent=none -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=infra/workspace/exe-known-hosts)
-            ssh "${ssh_args[@]}" exe.dev ls --json | jq -e --argjson sources "$sources" --arg tag halo-west-migrated \
-              '.vms as $vms | all($sources[]; . as $name | any($vms[]; .vm_name == $name and ((.tags // []) | index($tag) != null)))' || {
-                echo "Copy and verify every GCP workspace before activating Exe" >&2
+            ssh "${ssh_args[@]}" exe.dev ls --json | jq -e --argjson sources "$sources" --arg copied halo-west-migrated --arg assigned halo-west-assigned \
+              '.vms as $vms | all($sources[]; . as $name | any($vms[]; .vm_name == $name and ((.tags // []) | index($copied) != null and index($assigned) != null)))' || {
+                echo "Copy, verify, and assign every GCP workspace before activating Exe" >&2
                 exit 1
               }
+            # A copied tag alone is insufficient: the source must still be in
+            # the stopped boot recorded before its archive was written. The source
+            # service invalidates this checkpoint if it is started again.
+            for instance in $(jq -r '.[]' <<< "$sources"); do
+              gcloud compute ssh "$instance" --project="$PROJECT" --zone="$ZONE" --tunnel-through-iap --quiet --command='sudo bash -s' <<'CHECKPOINT'
+            set -euo pipefail
+            test "$(systemctl show halo -p ActiveState --value)" = inactive
+            test "$(cat /proc/sys/kernel/random/boot_id)" = "$(cat /var/lib/halo/exe-migration-stopped)"
+            CHECKPOINT
+            done
           fi
 
       - name: Deploy backends with the previous browser bundle

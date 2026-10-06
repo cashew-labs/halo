@@ -26,6 +26,13 @@ export const workspaceMigrations = [
 ] satisfies readonly Migration[];
 
 export function migrateWorkspace(connection: Database) {
+  // Verify the complete ledger, but add legacy columns before staging their rows.
+  const prerequisites = applyMigrations({
+    connection,
+    migrations: workspaceMigrations,
+    stopBefore: durableStorageMigration.id,
+  });
+  if (prerequisites instanceof Error) return prerequisites;
   const prepared = prepareLegacyThreads(connection);
   if (prepared instanceof Error) return prepared;
   return applyMigrations({ connection, migrations: workspaceMigrations });
