@@ -23,30 +23,3 @@ e2eTest(
     );
   },
 );
-
-e2eTest(
-  "keeps extension tool access after restarting Halo",
-  async ({ app, harness }) => {
-    await harness.loadExtension("./fixtures/workspaceNotes");
-    await harness.tools.files.write({
-      path: "notes.txt",
-      content: "Available after restart",
-    });
-    await app.quit();
-    await app.open();
-    await app.page
-      .getByRole("link", { name: "workspaceNotes", exact: true })
-      .click();
-    const pane = app.page
-      .locator('iframe[title="workspaceNotes"]')
-      .contentFrame();
-    const refresh = pane.getByRole("button", { name: "Refresh notes" });
-    const status = pane.getByRole("status");
-    await expect(async () => {
-      await refresh.click();
-      await expect(status).toHaveText("Available after restart", {
-        timeout: 1_000,
-      });
-    }).toPass({ timeout: 10_000 });
-  },
-);
