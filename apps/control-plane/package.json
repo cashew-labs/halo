@@ -13,8 +13,7 @@
     "format:check": "oxfmt --check .",
     "test": "pnpm run test:e2e",
     "test:e2e": "vitest run",
-    "test:exe": "vitest run src/workspace/provider/exe/ExeWorkspaceProvider.test.ts",
-    "test:tmp": "vitest run --coverage --passWithNoTests"
+    "test:exe": "vitest run src/workspace/provider/exe/ExeWorkspaceProvider.test.ts"
   },
   "dependencies": {
     "@better-auth/api-key": "1.7.4",

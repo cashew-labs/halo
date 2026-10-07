@@ -17,8 +17,7 @@
     "lint:fix": "NODE_OPTIONS=--experimental-strip-types oxlint --fix src",
     "test": "pnpm run test:unit",
     "test:unit": "vitest run src --passWithNoTests",
-    "typecheck": "tsc --noEmit",
-    "test:tmp": "vitest run --coverage --passWithNoTests"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@get-halo/client": "workspace:*",

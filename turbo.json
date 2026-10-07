@@ -40,11 +40,6 @@
     },
     "test:unit": {},
     "test:e2e": {},
-    "test:tmp": {
-      "env": ["REVIEW_TEST_TIER", "REVIEW_TEST_FILES"],
-      "inputs": ["$TURBO_DEFAULT$", ".tmp-tests/**", "!.tmp-tests/coverage/**"],
-      "outputs": [".tmp-tests/coverage/**"]
-    },
     "dev": {
       "cache": false,
       "persistent": true

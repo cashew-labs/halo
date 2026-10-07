@@ -8,10 +8,10 @@ Do not add durable tests unless you are updating existing tests, adding coverage
 
 Tests belong to one of two tiers:
 
-- **Temp tests are the default.** Put them in `<package>/.tmp-tests/`, named `*.test.ts` or `*.spec.ts`. The directory is gitignored: temp tests verify the current change while it is built and reviewed, and they never merge or run in CI. Cover every changed line with temp tests. Coverage counts only the durable tests the change edits plus every temp test, so when an existing durable test already exercises the change, add a temp test for the new behavior instead of making a no-op edit to the durable test.
+- **Temp tests are the default.** Put them in a `.tmp-tests/` folder where the package's runner already finds tests, such as `src/.tmp-tests/` for Vitest, and name them like the package's other tests. The folder is gitignored: temp tests verify the current change while it is built and reviewed, and they never merge or run in CI. Cover every changed line with temp tests. Coverage counts only the durable tests the change edits plus every temp test, so when an existing durable test already exercises the change, add a temp test for the new behavior instead of making a no-op edit to the durable test.
 - **Durable tests are the exception.** They live in the locations below, are committed, and run in CI. Add or keep one only when it protects meaningful consumer behavior or a non-obvious invariant that could realistically regress, and state that rationale in the PR.
 
-`REVIEW_TEST_TIER` selects the tier: `durable` (or unset) runs committed tests, and `tmp` runs only `.tmp-tests/`. The tiers run separately, so a temp test must not import code from a durable test file. Put shared setup in the package's fixtures. When `REVIEW_TEST_FILES` lists test files (newline-separated, repo-relative), each package runs only the listed files inside it. Each Vitest package's `test:tmp` script runs the selected tests with coverage and writes repo-relative lcov to `<package>/.tmp-tests/coverage/lcov.info`; the root `pnpm test:tmp` runs it in every package.
+The review tool (code-review-agent) runs each tier separately and passes the selected files to the runner itself, so a temp test must not import code from a durable test file. Put shared setup in the package's fixtures. Local `pnpm test` runs also pick up temp tests.
 
 ## Test value
 
