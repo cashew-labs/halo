@@ -22,8 +22,8 @@ The review tool is personal coding-agent tooling, not part of the Halo product. 
 | The changed-line coverage report (`git diff` + merged lcov), and running each test runner with coverage | `@vitest/coverage-v8` for each Vitest version |
 | `tmp-tests publish` / `fetch` (the `refs/tmp-tests/*` side ref) | The testing-conventions update |
 | The `pre-push` gate and its agent detection | `.review.json`, the tool's config for Halo |
-| `review install` (writes the Git hook) and `review doctor` | The `AGENTS.md` section on the push gate |
-| The setup prompts: `review connect` (per agent) and `review init` (per repository) | Electron V8 coverage |
+| `review init --hook` (writes the Git hook) and `review doctor` | Electron V8 coverage |
+| The setup prompt, `review init`, and the user-level agent instructions it offers | |
 | The skill that tells agents how to use the tool | The durable-suite pruning stack |
 
 The command is `review`.
@@ -207,10 +207,10 @@ The review runs when an agent tries to get code into a PR, not when it finishes 
 2. `review gate` passes at once if `approved` contains the commit being pushed.
 3. Otherwise the push fails with: "No approved review for `<sha>`. Run `review`, address the findings, then push again."
 4. The agent runs `review` as an ordinary long-running command. Each run is one round. It fixes each finding, or answers it with `review reply <findingId> "won't fix: <reason>"`, and runs `review` again.
-5. On `approve`, `review` records the SHA and runs `review tmp-tests publish`. The agent pushes again, and the gate passes.
+5. On `approve`, `review` records the approved tree. If that tree is already committed, it publishes the side ref; otherwise the hook publishes it on push, or, without the hook, the agent runs `review tmp-tests publish` after committing. With the hook, the agent's push then passes the gate.
 6. A new commit after approval has a new SHA, so the gate requires a new review. Unchanged code is never reviewed twice.
 
-**Only agent pushes are gated.** A push from your own terminal passes straight through. The main switch is `REVIEW_GATE=1`, which `review connect` has each agent add to its own configuration (see "Setup"). Built-in agent markers are a fallback, so an agent that has not been set up yet is still gated. The gate enforces review when any of these is set:
+**Only agent pushes are gated, and only in clones whose owner installed the hook.** A push from your own terminal passes straight through. The gate recognizes agents by the markers they set in their shells, so no setup step sets a variable. It enforces review when any of these is set:
 
 | Agent | Marker | Verified |
 |---|---|---|
@@ -221,7 +221,7 @@ The review runs when an agent tries to get code into a PR, not when it finishes 
 | Gemini CLI | `GEMINI_CLI` | From its source, not installed here |
 | Copilot CLI | `COPILOT_CLI` | From detection libraries, not installed here |
 | Generic | `AGENT`, `AI_AGENT` | Proposed standard ([agents.md #136](https://github.com/agentsmd/agents.md/issues/136)) |
-| Any agent (main switch) | `REVIEW_GATE=1` | Set by `review connect` in that agent's own configuration |
+| An agent without a marker | `REVIEW_GATE=1` | Set by hand in that agent's own configuration, only if needed |
 
 - OpenCode (`OPENCODE_CLIENT`) and Pi are unconfirmed. Implementation checks each by having it run `env`; without a marker, they rely on `REVIEW_GATE=1`.
 - `REVIEW_GATE=0` turns the gate off, for example to push by hand from inside an agent's terminal.
@@ -231,49 +231,37 @@ The review runs when an agent tries to get code into a PR, not when it finishes 
 - The verdict is also `escalate` early if the same finding `id` is disputed twice.
 - On `escalate`, the push stays blocked and the agent reports to you.
 
-**Bypass.** An agent could run `git push --no-verify` or unset the marker. The `AGENTS.md` section forbids that. This is a workflow guard for your own agents, not a security boundary.
+**Bypass.** An agent could run `git push --no-verify` or unset the marker. The user-level instructions forbid that. This is a workflow guard for your own agents, not a security boundary.
 
-**Agent instructions.** A short skill, also copied into the repository's `AGENTS.md`, explains the gate, the `review` and `review reply` commands, and the tier rules. The gate's error message names the command to run, so an agent that missed the instructions still learns it at push time.
+**Agent instructions.** Each person chooses whether to add a short block to their own agent's user-level instructions, such as `~/.claude/CLAUDE.md`; it applies only in repositories with a `.review.json`. A skill carries the same text. They explain the gate, the `review` and `review reply` commands, and the tier rules. Halo's own `AGENTS.md` does not mention the tool, so teammates who do not use it are unaffected. With the hook installed, the gate's error message names the command to run, so an agent that missed the instructions still learns it at push time.
 
 ### 5. Setup
 
-Setup has two scopes. Both are prompts that you paste into a coding agent, because the agent knows (or can look up) where its own settings live and how the repository runs its tests. Fixed installer code would need per-agent and per-repository knowledge. No existing package sets environment variables per agent; rulesync, agent-config, and `npx skills add` cover hooks, rules, MCP, and skills only.
+Setup is one prompt, printed by `review init`, that you paste into a coding agent. The agent knows (or can look up) where its own settings live and how the repository runs its tests, which fixed installer code would not. The prompt leaves out steps `review doctor` already verifies.
 
-| Command | Scope | When | Result |
-|---|---|---|---|
-| `review connect` | Per agent, on your machine | Once per coding agent | The CLI is installed, `REVIEW_GATE=1` is in that agent's configuration, and you are logged in |
-| `review init` | Per repository, committed | Once per repository | Test tiers and coverage are set up, `.review.json` exists, and the Git hook is installed |
+1. **For the repository, once.** Only while the repository has no `.review.json`: write `.review.json` with one `tests` entry per kind of test file (Vitest, Playwright, or a command such as `node --test {files}`), install the coverage provider each runner needs, add `**/.tmp-tests/` to `.gitignore`, run `review coverage --check` with a throwaway temp test for each entry, and open a PR. Nothing in the repository's agent files changes.
+2. **For each person, by choice.** The agent installs or updates the CLI, then asks before each of these:
+   - adding the code-review-agent block to the agent's user-level instructions;
+   - installing the pre-push hook in this clone, by running `review init --hook`;
+   - asking you to run `review login`, if needed.
 
-**`review connect`** prints this prompt:
+   It ends by running `review doctor`.
 
-> Set up the code-review-agent push gate for yourself.
-> 1. Install the CLI: `npm i -g @cashew-labs/code-review-agent`.
-> 2. Add the environment variable `REVIEW_GATE=1` to **your own agent configuration**, so it is set in every shell command you run. Do not put it in a shell profile such as `~/.zshrc` or `~/.bashrc`; it must not apply to my normal terminal. If you cannot set environment variables for your shell commands, stop and tell me.
-> 3. In this repository, run `review install`.
-> 4. Ask me to run `review login` myself, because it opens a browser.
-> 5. Tell me to restart you. After the restart, run `review doctor` and report the result.
-
-**`review init`** prints a prompt that has the agent:
-1. Write `.review.json` with one `tests` entry per kind of test file (Vitest, Playwright, or a command such as `node --test {files}`), and install the coverage provider each runner needs.
-2. Add `**/.tmp-tests/` to `.gitignore` and the push-gate section to `AGENTS.md`.
-3. Run `review install`.
-4. Add a throwaway temp test for each entry, run `review coverage --check`, and fix whatever it reports, until it passes.
-
-The result is an ordinary PR to that repository. Halo PR 1 is Halo's `review init` work, done by hand, and becomes the worked example the prompt points to.
+Halo's #375 to #383 are the repository part of this, done by hand.
 
 **Checks:**
-- `review doctor` checks this agent's setup: `REVIEW_GATE=1` is visible in its shell, the hook is installed, `.review.json` exists, and the Anthropic login works.
+- `review doctor` checks that `.review.json` exists and the Anthropic login works, and reports whether the hook is installed and whether this shell counts as an agent's. The last two are optional.
 - `review coverage --check` checks the repository's setup: every selected test file has a `tests` entry, each run that had files passes and records executed source lines, and the lcov paths match repository paths.
 
 **Installation details.**
 - The CLI installs globally (`npm i -g`) or as a single binary built with `bun build --compile`.
-- `review install` writes one `pre-push` hook. Worktrees share hooks with the main checkout, so every worktree gets it. If a `pre-push` hook already exists, it adds one line instead of replacing it. Halo has no hook manager and no existing hooks.
+- `review init --hook` writes one `pre-push` hook. Worktrees share hooks with the main checkout, so every worktree gets it. If a `pre-push` hook already exists, it keeps it and runs it after the gate. Halo has no hook manager and no existing hooks.
 - The skill that explains the gate, `review`, and `review reply` can be installed with `npx skills add`, which knows each agent's skill folder.
 
 ### 6. `.review.json`
 
 One file per repository, at its root. It has two jobs:
-1. **Opt-in switch.** The gate acts only in repositories that have it. Elsewhere, pushes pass even with the hook installed and `REVIEW_GATE=1` set.
+1. **Opt-in switch.** The gate acts only in repositories that have it. Elsewhere, pushes pass even with the hook installed.
 2. **Repository-specific settings** that the tool cannot guess.
 
 | Field | Required | Purpose |
@@ -315,13 +303,13 @@ A repository whose tests all run on Vitest needs only `{}`. The README in `code-
 1. **CLI skeleton and coverage:** `.review.json` loading, `review coverage` (git diff, durable and temp runs, lcov merge, exemptions), and `review coverage --check`.
 2. **Side ref:** `review tmp-tests publish` and `fetch`, with chained side commits.
 3. **Reviewer:** the Pi session, read-only tools, `submit_verdict`, and the `review` command for one round.
-4. **Loop and gate:** round state, `review reply`, the 5-round cap, `review gate` with `REVIEW_GATE` and marker detection, and `review install`.
-5. **Setup:** `review login`, `review doctor`, the `review connect` and `review init` prompts, the skill, and the `AGENTS.md` text.
+4. **Loop and gate:** round state, `review reply`, the 5-round cap, `review gate` with marker detection, and the hook.
+5. **Setup:** `review login`, `review doctor`, the `review init` prompt, the skill, and the user-level instructions.
 6. **Review surfaces:** the Whiteboard lenses and coverage section, and the Diffmap collapsible section.
 
 **Halo PR stack:**
 1. **Test tiers:** the `.tmp-tests` gitignore rule, `@vitest/coverage-v8` for each Vitest version, and the testing-conventions update.
-2. **Review tool setup:** `.review.json` and the `AGENTS.md` push-gate section. This depends on review tool steps 1–4.
+2. **Review tool setup:** `.review.json`. This depends on review tool steps 1–4.
 3. **Electron coverage:** main-process and renderer V8 coverage in Playwright.
 4. **(Separate stack) Durable-suite pruning.**
 
@@ -336,7 +324,7 @@ A repository whose tests all run on Vitest needs only `{}`. The README in `code-
 7. **Trigger:** a `pre-push` gate that applies only to agent pushes, not a stop hook.
 8. **Repository:** `cashew-labs/code-review-agent`.
 9. **Anthropic credential:** your Claude Pro/Max login through Pi's OAuth flow.
-10. **Setup:** two pasted prompts, `review connect` per agent and `review init` per repository. The gate's main switch is `REVIEW_GATE=1`, with agent markers as a fallback.
+10. **Setup:** one pasted prompt, `review init`: the repository's shared config once, then each person's own opt-in choices. The gate recognizes agents by their markers; `REVIEW_GATE=1` is only for agents without one.
 11. **Coverage runs:** only the changed durable test files, then every temp test. An existing test counts only once edited; agents add temp tests instead of no-op edits.
 12. **`.review.json`:** a `tests` list of runners that the tool runs itself, so repositories need no test scripts for it; `exclude` and `instructions` are optional.
 
