@@ -382,3 +382,74 @@ e2eTest(
     ).toHaveCount(0);
   },
 );
+
+e2eTest(
+  "keeps moved Markdown images visible and copies them",
+  async ({ app }) => {
+    const path = "image-copy.md";
+    await app.server.rpc.workspace.writeFile({
+      path: "picture.svg",
+      content:
+        '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="60"><rect width="80" height="60" fill="blue"/></svg>',
+    });
+    await app.server.rpc.workspace.writeFile({
+      path,
+      content: "Before image\n\n![Picture](picture.svg)",
+    });
+    await app.page.getByRole("link", { name: path }).click();
+    const editor = app.page
+      .getByRole("main", { name: path })
+      .getByLabel(path, { exact: true });
+    const image = editor.getByRole("img", { name: "Picture" });
+    await expect
+      .poll(
+        async () =>
+          await image.evaluate((node: HTMLImageElement) => node.naturalWidth),
+      )
+      .toBe(80);
+
+    await editor.getByText("Before image").click();
+    await editor.press("End");
+    await editor.press("Enter");
+    await expect(image).toHaveAttribute("src", /^blob:/);
+    await expect
+      .poll(
+        async () =>
+          await image.evaluate((node: HTMLImageElement) => node.naturalWidth),
+      )
+      .toBe(80);
+    await expect
+      .poll(async () => await app.server.rpc.workspace.readFile({ path }))
+      .not.toBe("Before image\n\n![Picture](picture.svg)");
+
+    await image.click({ button: "right" });
+    await app.page.getByRole("button", { name: "Copy image" }).click();
+    await expect
+      .poll(
+        async () =>
+          await app.page.evaluate(async () => {
+            const items = await navigator.clipboard.read();
+            const png = await items[0]?.getType("image/png");
+            return png !== undefined && png.size > 0;
+          }),
+      )
+      .toBe(true);
+
+    await image.click();
+    await app.page.evaluate(async () => {
+      await navigator.clipboard.writeText("reset");
+    });
+    await app.page.keyboard.press("ControlOrMeta+c");
+    await expect
+      .poll(
+        async () =>
+          await app.page.evaluate(async () => {
+            const items = await navigator.clipboard.read();
+            if (!items[0]?.types.includes("image/png")) return false;
+            const png = await items[0].getType("image/png");
+            return png !== undefined && png.size > 0;
+          }),
+      )
+      .toBe(true);
+  },
+);
