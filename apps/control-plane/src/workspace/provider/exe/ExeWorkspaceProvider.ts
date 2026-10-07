@@ -120,6 +120,12 @@ export class ExeWorkspaceProvider implements WorkspaceProviderApi {
     if (vmName instanceof Error) return vmName;
     const result = await this.api.execute(["resume", vmName]);
     if (result instanceof Error) return result;
+    return await this.synchronizeClock(input);
+  }
+
+  async synchronizeClock(input: WorkspaceProviderInput) {
+    const vmName = this.vmName(input);
+    if (vmName instanceof Error) return vmName;
     // Real RAM restore left the guest clock frozen despite NTP reporting synced.
     const clock = await this.api.execute([
       "ssh",

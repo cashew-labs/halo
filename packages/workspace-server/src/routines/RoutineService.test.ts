@@ -1,6 +1,10 @@
 import { type RoutineInput } from "@get-halo/client";
+import { Logger } from "@get-halo/logger";
 import { afterEach, beforeEach, expect, vi } from "vitest";
+import { AbortFailedError } from "../agent/Thread.js";
 import { routineTest } from "./fixtures.test.js";
+import { RoutineRunner } from "./RoutineRunner.js";
+import { RoutineNotFoundError } from "./RoutineService.js";
 
 const everyTwoMinutes: RoutineInput = {
   extensionId: "appointments",
@@ -95,5 +99,126 @@ routineTest(
     expect(await after.listRuns({ routineId: saved.id })).toMatchObject([
       { id: run.id, status: "interrupted" },
     ]);
+  },
+);
+
+routineTest(
+  "recovery aborts attached routine sessions before interrupting their runs",
+  async ({ openRoutines }) => {
+    const routines = await openRoutines();
+    const saved = await routines.save(everyTwoMinutes);
+    if (saved instanceof Error) throw saved;
+    const run = await routines.beginRun({
+      routineId: saved.id,
+      trigger: "manual",
+    });
+    if (run instanceof Error || run === undefined) throw new Error("No run");
+    await routines.attachSession({ runId: run.id, sessionId: "session-1" });
+    const abortError = new AbortFailedError({
+      reason: "abort failed",
+      cause: new Error("abort failed"),
+    });
+    const failedRunner = new RoutineRunner({
+      routines,
+      sessions: {
+        abort: async () => abortError,
+        new: vi.fn(),
+        setName: vi.fn(),
+        appendMessages: vi.fn(),
+        prompt: vi.fn(),
+        wait: vi.fn(),
+        markDone: vi.fn(),
+      },
+      filesystem: { stat: vi.fn() },
+      workspaceRoot: "/workspace",
+      logger: new Logger(),
+    });
+
+    expect(await failedRunner.recover()).toBe(abortError);
+    expect(routines.get(saved.id)).toMatchObject({
+      lastRun: { status: "running" },
+    });
+
+    const abort = vi.fn(async () => {
+      expect(routines.get(saved.id)).toMatchObject({
+        lastRun: { status: "running" },
+      });
+    });
+    const runner = new RoutineRunner({
+      routines,
+      sessions: {
+        abort,
+        new: vi.fn(),
+        markDone: vi.fn(),
+        setName: vi.fn(),
+        appendMessages: vi.fn(),
+        prompt: vi.fn(),
+        wait: vi.fn(),
+      },
+      filesystem: { stat: vi.fn() },
+      workspaceRoot: "/workspace",
+      logger: new Logger(),
+    });
+
+    const recovered = await runner.recover();
+
+    expect(recovered).toBeUndefined();
+    expect(abort).toHaveBeenCalledWith("session-1");
+    expect(abort).toHaveBeenCalledOnce();
+    expect(routines.get(saved.id)).toMatchObject({
+      lastRun: { status: "interrupted" },
+    });
+  },
+);
+
+routineTest(
+  "keeps an overdue occurrence after a managed workspace wakes",
+  async ({ openRoutines }) => {
+    const before = await openRoutines();
+    const saved = await before.save(everyTwoMinutes);
+    if (saved instanceof Error) throw saved;
+    vi.setSystemTime(new Date("2026-09-25T08:05:00Z"));
+    const after = await openRoutines();
+    const recovered = await after.recover({ preserveDue: true });
+    if (recovered instanceof Error) throw recovered;
+    expect(after.get(saved.id)).toMatchObject({
+      nextRunAt: "2026-09-25T08:02:00.000Z",
+    });
+    const run = await after.beginRun({
+      routineId: saved.id,
+      trigger: "schedule",
+    });
+    expect(run).toMatchObject({
+      scheduledFor: "2026-09-25T08:02:00.000Z",
+    });
+    expect(
+      await after.beginRun({ routineId: saved.id, trigger: "schedule" }),
+    ).toBeUndefined();
+  },
+);
+
+routineTest(
+  "editing and removing a routine publishes the change",
+  async ({ openRoutines }) => {
+    const routines = await openRoutines();
+    const saved = await routines.save(everyTwoMinutes);
+    if (saved instanceof Error) throw saved;
+    const controller = new AbortController();
+    const updates = routines.watch(controller.signal);
+    expect((await updates.next()).value).toEqual([saved]);
+
+    const edited = await routines.save({
+      ...everyTwoMinutes,
+      id: saved.id,
+      name: "Book tennis lesson",
+    });
+    expect((await updates.next()).value).toEqual([edited]);
+
+    await routines.remove(saved.id);
+    expect((await updates.next()).value).toEqual([]);
+    expect(await routines.listRuns({ routineId: saved.id })).toEqual(
+      new RoutineNotFoundError({ routineId: saved.id }),
+    );
+    controller.abort();
   },
 );

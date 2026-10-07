@@ -13,7 +13,7 @@ import { type ControlPlaneClient } from "@get-halo/shared/controlPlaneContract";
 import { betterAuth } from "better-auth";
 import { testUtils } from "better-auth/plugins";
 import * as errore from "errore";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { ControlPlane } from "../src/server/ControlPlane.js";
 import { LocalWorkspaceProvider } from "../src/workspace/provider/local/LocalWorkspaceProvider.js";
 import type { WorkspaceProviderApi } from "../src/workspace/provider/WorkspaceProviderApi.js";
@@ -30,11 +30,20 @@ import {
 /** External workspace HTTP hosts, discovered through the real local provider. */
 class WorkspaceHostDriver {
   readonly provider: LocalWorkspaceProvider;
+  readonly requests: string[] = [];
+  readonly exeAuthorizations: Array<string | undefined> = [];
   private readonly server: http.Server;
 
   private constructor(ctx: { appDataDir: string }) {
     this.provider = new LocalWorkspaceProvider(ctx);
     this.server = http.createServer((request, response) => {
+      this.requests.push(request.url ?? "");
+      const exeAuthorization = request.headers["x-exedev-authorization"];
+      this.exeAuthorizations.push(
+        Array.isArray(exeAuthorization)
+          ? exeAuthorization[0]
+          : exeAuthorization,
+      );
       if (request.headers.authorization !== "Bearer test-workspace-token") {
         response.writeHead(401).end();
         return;
@@ -49,6 +58,12 @@ class WorkspaceHostDriver {
         .writeHead(200, { "content-type": "application/json" })
         .end(JSON.stringify({ workspace: "test-workspace" }));
     });
+  }
+
+  get origin() {
+    // SAFETY: This getter is used only after the numeric TCP listener starts.
+    const address = this.server.address() as AddressInfo;
+    return `http://127.0.0.1:${address.port}`;
   }
 
   static async start(ctx: { appDataDir: string }) {
@@ -266,6 +281,183 @@ controlPlaneTest(
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u,
     );
     expect(new Date(first.createdAt).toISOString()).toBe(first.createdAt);
+  },
+);
+
+const sleepingRoutineTest = controlPlaneTest.extend<{
+  sleepingProvider: {
+    paused: boolean;
+    clockReady: boolean;
+    failClockOnResume: boolean;
+    resumeAttempts: number;
+    clockSyncAttempts: number;
+  };
+  workspaceProvider: WorkspaceProviderApi;
+}>({
+  // oxlint-disable-next-line eslint/no-empty-pattern -- Vitest fixture callbacks require destructured parameters.
+  sleepingProvider: async ({}, use) => {
+    await use({
+      paused: true,
+      clockReady: false,
+      failClockOnResume: false,
+      resumeAttempts: 0,
+      clockSyncAttempts: 0,
+    });
+  },
+  workspaceProvider: async ({ appDataDir, sleepingProvider }, use) => {
+    const local = new LocalWorkspaceProvider({ appDataDir });
+    await use({
+      ensure: async (input) => await local.ensure(input),
+      getConnection: async () => {
+        if (sleepingProvider.paused || !sleepingProvider.clockReady)
+          return undefined;
+        const connection = await local.getConnection();
+        if (connection instanceof Error || connection === undefined)
+          return connection;
+        return {
+          origin: connection.origin,
+          authorization: {
+            type: "headers" as const,
+            value: {
+              authorization: "Bearer test-workspace-token",
+              "x-exedev-authorization": "test-private-token",
+            },
+          },
+        };
+      },
+      getStatus: async () =>
+        sleepingProvider.paused ? ("paused" as const) : ("running" as const),
+      resume: async () => {
+        sleepingProvider.resumeAttempts += 1;
+        sleepingProvider.paused = false;
+        if (sleepingProvider.failClockOnResume) {
+          sleepingProvider.failClockOnResume = false;
+          return new Error("guest clock synchronization failed");
+        }
+        sleepingProvider.clockReady = true;
+      },
+      synchronizeClock: async () => {
+        sleepingProvider.clockSyncAttempts += 1;
+        sleepingProvider.clockReady = true;
+      },
+    } satisfies WorkspaceProviderApi);
+  },
+});
+
+sleepingRoutineTest(
+  "wakes a sleeping workspace and dispatches its due routine",
+  async ({
+    plane,
+    authenticatedRpc,
+    appDataDir,
+    workspaceHost,
+    sleepingProvider,
+  }) => {
+    const workspace = await authenticatedRpc.workspace.ensure();
+    const runtime = await readRuntimeSettings(appDataDir);
+    const published = await writeWorkspaceServerConnection({
+      appDataDir,
+      connection: {
+        workspaceRoot: appDataDir,
+        origin: workspaceHost.origin,
+        token: "test-workspace-token",
+      },
+    });
+    if (published instanceof Error) throw published;
+    const endpoint = `${plane.origin}/api/workspace-runtime/routines`;
+    const due = {
+      routines: [
+        {
+          id: "morning-report",
+          nextRunAt: new Date(Date.now() - 1000).toISOString(),
+        },
+      ],
+    };
+    const unauthorized = await fetch(endpoint, {
+      method: "POST",
+      body: JSON.stringify(due),
+      headers: { authorization: "Bearer invalid" },
+    });
+    expect(unauthorized.status).toBe(401);
+    const invalid = await fetch(endpoint, {
+      method: "POST",
+      body: JSON.stringify({
+        routines: [{ id: "bad", nextRunAt: "not a date" }],
+      }),
+      headers: { authorization: `Bearer ${runtime.token}` },
+    });
+    expect(invalid.status).toBe(400);
+    const accepted = await fetch(endpoint, {
+      method: "POST",
+      body: JSON.stringify(due),
+      headers: { authorization: `Bearer ${runtime.token}` },
+    });
+    expect(accepted.status).toBe(204);
+    await vi.waitFor(() => {
+      expect(sleepingProvider.paused).toBe(false);
+      expect(workspaceHost.requests).toContain("/rpc/routines/runScheduled");
+      expect(workspaceHost.exeAuthorizations).toContain("test-private-token");
+    });
+    expect(workspace.id).toBe(runtime.workspaceId);
+  },
+);
+
+sleepingRoutineTest(
+  "repairs the guest clock after resume unpauses the VM but clock sync fails",
+  async ({
+    plane,
+    authenticatedRpc,
+    appDataDir,
+    workspaceHost,
+    sleepingProvider,
+  }) => {
+    await authenticatedRpc.workspace.ensure();
+    const runtime = await readRuntimeSettings(appDataDir);
+    const published = await writeWorkspaceServerConnection({
+      appDataDir,
+      connection: {
+        workspaceRoot: appDataDir,
+        origin: workspaceHost.origin,
+        token: "test-workspace-token",
+      },
+    });
+    if (published instanceof Error) throw published;
+    sleepingProvider.failClockOnResume = true;
+    const now = Date.now();
+    const dateNow = vi.spyOn(Date, "now").mockReturnValue(now);
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    const endpoint = `${plane.origin}/api/workspace-runtime/routines`;
+    const snapshot = {
+      routines: [
+        { id: "morning-report", nextRunAt: new Date(now - 1000).toISOString() },
+      ],
+    };
+    const publish = async () =>
+      await fetch(endpoint, {
+        method: "POST",
+        body: JSON.stringify(snapshot),
+        headers: { authorization: `Bearer ${runtime.token}` },
+      });
+    try {
+      expect((await publish()).status).toBe(204);
+      await vi.waitFor(() => expect(errorLog).toHaveBeenCalled());
+      expect(sleepingProvider.paused).toBe(false);
+      expect(sleepingProvider.clockReady).toBe(false);
+      expect(workspaceHost.requests).not.toContain(
+        "/rpc/routines/runScheduled",
+      );
+
+      dateNow.mockReturnValue(now + 31_000);
+      expect((await publish()).status).toBe(204);
+      await vi.waitFor(() => {
+        expect(sleepingProvider.clockSyncAttempts).toBe(1);
+        expect(workspaceHost.requests).toContain("/rpc/routines/runScheduled");
+      });
+      expect(sleepingProvider.resumeAttempts).toBe(1);
+    } finally {
+      dateNow.mockRestore();
+      errorLog.mockRestore();
+    }
   },
 );
 
