@@ -150,10 +150,9 @@ An existing test that the change relies on counts only once it is edited. The co
 **Credentials.** The reviewer uses your Claude Pro/Max login through Pi's Anthropic OAuth flow ("Anthropic (Claude Pro/Max)"), stored in Pi's `auth.json`. `review login` runs that flow once. `ANTHROPIC_API_KEY`, if set, takes priority.
 
 **Tools:**
-- Pi's read-only tool set (`createReadOnlyTools`): `read`, `grep`, `find` (glob), and `ls`.
-- `git diff`.
-- The configured test command and `review coverage`.
-- No write or edit tools, and no general shell. The tool runs only the commands above, through an allowlist. Their only output is the report under `.tmp-tests/report/`, coverage in the worktree's Git directory, and the loop state directory.
+- Pi's read-only tools: `read`, `grep`, `find` (glob), and `ls`, confined to the repository.
+- `git_diff` for one path at a time.
+- No write, edit, or shell tools. The review tool runs the tests itself, through `review coverage`, before the reviewer starts.
 
 Pi's `grep` and `find` respect `.gitignore`, so they do not list `.tmp-tests/` files. The tool passes the temp test paths from `report.json` in the prompt, and `read` opens them directly.
 
