@@ -111,3 +111,23 @@ test("breaking iteration closes that consumer while another keeps receiving", as
   await expect(second.next()).resolves.toEqual({ done: false, value: 1 });
   await expect(second.next()).resolves.toEqual({ done: false, value: 2 });
 });
+
+// Services replay their current state; changes from either source update the combined view.
+test("combines current projected values and removes subscriptions on disposal", () => {
+  const threads = new Stream<boolean>();
+  const tools = new Stream<boolean>();
+  using threadsIdle = threads.project(false, (_previous, idle) => idle);
+  using toolsIdle = tools.project(false, (_previous, idle) => idle);
+  threads.append(true);
+  const allIdle = Stream.combineLatest([threadsIdle, toolsIdle])
+    .map((values) => values.every(Boolean))
+    .project(false, (_previous, idle) => idle);
+  expect(allIdle.latestValue).toBe(false);
+  tools.append(true);
+  expect(allIdle.latestValue).toBe(true);
+  threads.append(false);
+  expect(allIdle.latestValue).toBe(false);
+  allIdle[Symbol.dispose]();
+  threads.append(true);
+  expect(allIdle.latestValue).toBe(false);
+});
