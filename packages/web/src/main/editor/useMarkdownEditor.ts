@@ -8,7 +8,7 @@ import { useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { colors, monoFontFamily } from "maui";
 import { style, useStyles } from "purse-styles";
-import { useRefCurrent } from "./agent/useRefCurrent.js";
+import { useRefCurrent } from "../agent/useRefCurrent.js";
 import { ListEditing } from "./ListEditing.js";
 import { MarkdownSyntax } from "./MarkdownSyntax.js";
 import { serializeMarkdown } from "./serializeMarkdown.js";

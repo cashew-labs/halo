@@ -10,7 +10,7 @@ import {
 } from "maui";
 import { Editor } from "maui/editor";
 import { style, useStyles } from "purse-styles";
-import { useAutosaveFile } from "./useAutosaveFile.js";
+import { useAutosaveFile } from "../useAutosaveFile.js";
 import { useMarkdownEditor } from "./useMarkdownEditor.js";
 import { markdownImage } from "./markdownImage.js";
 import { BlockEditing } from "./BlockEditing.js";
@@ -24,15 +24,15 @@ import {
   useSessionsQuery,
   useWorkspacePathsQuery,
   useWorkspaceQuery,
-} from "../api/ApiProvider.js";
-import { useTabFindSource } from "../panes/TabFind.js";
-import { useIsActiveTab } from "../panes/WorkspacePanesProvider.js";
-import { observeFileSelection } from "./chatReferences.js";
+} from "../../api/ApiProvider.js";
+import { useTabFindSource } from "../../panes/TabFind.js";
+import { useIsActiveTab } from "../../panes/WorkspacePanesProvider.js";
+import { observeFileSelection } from "../chatReferences.js";
 import {
   referenceHref,
   useReferencePicker,
   type ReferenceTarget,
-} from "./ReferencePicker.js";
+} from "../ReferencePicker.js";
 
 export function MarkdownFileEditor({
   path,
