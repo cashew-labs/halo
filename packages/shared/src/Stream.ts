@@ -61,6 +61,13 @@ abstract class BaseStream<T> implements ReadonlyStream<T> {
 export class Stream<T> extends BaseStream<T> {
   private readonly subscribers = new Set<StreamSubscriber<T>>();
 
+  /** Emits the latest values whenever any source changes, after every source is ready. */
+  static combineLatest<T>(
+    sources: readonly ReadonlyStream<T>[],
+  ): ReadonlyStream<readonly T[]> {
+    return new CombinedStream({ sources });
+  }
+
   append(value: T): void {
     for (const subscriber of this.subscribers) {
       subscriber(value);
@@ -71,13 +78,6 @@ export class Stream<T> extends BaseStream<T> {
     this.subscribers.add(subscriber);
     return () => this.subscribers.delete(subscriber);
   }
-}
-
-/** Emits the latest values whenever any source changes, after every source is ready. */
-export function combineLatest<T>(
-  sources: readonly ReadonlyStream<T>[],
-): ReadonlyStream<readonly T[]> {
-  return new CombinedStream({ sources });
 }
 
 class CombinedStream<T> extends BaseStream<readonly T[]> {

@@ -1,6 +1,6 @@
 import { HotkeyService } from "../hotkeys/HotkeyService.js";
 import { WorkspaceIdleReporter } from "./WorkspaceIdleReporter.js";
-import { combineLatest } from "@get-halo/shared/Stream";
+import { Stream } from "@get-halo/shared/Stream";
 import { RoutineService } from "../routines/RoutineService.js";
 import { RoutineRunner } from "../routines/RoutineRunner.js";
 import { RoutineScheduler } from "../routines/RoutineScheduler.js";
@@ -348,8 +348,8 @@ export class WorkspaceServer {
     const recovered = await sessions.start();
     if (recovered instanceof Error) return recovered;
     const idleReporter = new WorkspaceIdleReporter({
-      idle: combineLatest([sessions.idle, toolRuntime.idle]).map((states) =>
-        states.every(Boolean),
+      idle: Stream.combineLatest([sessions.idle, toolRuntime.idle]).map(
+        (states) => states.every(Boolean),
       ),
       report: host.reportWorkIdle,
     });
