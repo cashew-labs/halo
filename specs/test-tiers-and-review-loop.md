@@ -22,8 +22,8 @@ The review tool is personal coding-agent tooling, not part of the Halo product. 
 | The changed-line coverage report (`git diff` + merged lcov), and running each test runner with coverage | `@vitest/coverage-v8` for each Vitest version |
 | `tmp-tests publish` / `fetch` (the `refs/tmp-tests/*` side ref) | The testing-conventions update |
 | The `pre-push` gate and its agent detection | `.review.json`, the tool's config for Halo |
-| `review init --hook` (writes the Git hook) and `review doctor` | Electron V8 coverage |
-| The setup prompt, `review init`, and the user-level agent instructions it offers | |
+| `review init --hook` (writes the Git hook) and `review doctor` | Source maps in coverage builds |
+| The setup prompt, `review init`, and the user-level agent instructions it offers | The renderer-coverage snippet in the Electron fixture |
 | The skill that tells agents how to use the tool | The durable-suite pruning stack |
 
 The command is `review`.
@@ -112,6 +112,13 @@ Alternatives considered:
 ### 2. Changed-line coverage (review tool)
 
 **Collection** is the review tool's job. Halo installs `@vitest/coverage-v8` at each Vitest version: 5.0.1 at the root and 4.1.11 in `workspace-server`. `allowExternal` keeps coverage of sibling workspace packages, and Vitest 5 reports only files that tests loaded, which is what `all: false` did in older versions. Coverage output goes to the worktree's Git directory, so it is never committed or published.
+
+**Electron E2Es** use the tool's `playwright` runner on `apps/electron`, after `pnpm run test:e2e:build`, which emits source maps when the tool sets `REVIEW_COVERAGE=1`. The tool collects three kinds of V8 coverage:
+- **main process and workspace server:** the tool sets `NODE_V8_COVERAGE`, which Electron and the server the fixture starts inherit. Node writes it when each process exits, and `ElectronTestApp` flushes the main process with `v8.takeCoverage()` before closing, because a slow quit can end in SIGKILL.
+- **renderer:** `ElectronTestApp` saves Playwright `page.coverage` of the first window to `REVIEW_COVERAGE_DIR`. It starts coverage after the first load and reloads, so startup code counts. Extra windows from `openWindow()` are not covered.
+- **packaged scripts:** the tool reads them from `app.asar`, as files under `apps/electron`, and maps them through their source maps.
+
+The tool converts everything with `monocart-coverage-reports`, so Halo needs no coverage helper or dependency. The workspace server runs through tsx, for which Node records only line lengths, so its coverage is coarser: untaken branches show, but some executed statements are not counted. Coverage slows the app, so E2Es get a 90-second timeout under the tool.
 
 **Which tests run.** Coverage starts from the tests the change added or edited, not the whole suite:
 - **Durable run:** the durable test files that the change added or modified, compared with the merge-base, including uncommitted ones. A test file is any file named `*.test.*`, `*.spec.*`, `test_*.py`, `*_test.py`, or `*_test.go`.
@@ -310,7 +317,7 @@ A repository whose tests all run on Vitest needs only `{}`. The README in `code-
 **Halo PR stack:**
 1. **Test tiers:** the `.tmp-tests` gitignore rule, `@vitest/coverage-v8` for each Vitest version, and the testing-conventions update.
 2. **Review tool setup:** `.review.json`. This depends on review tool steps 1–4.
-3. **Electron coverage:** main-process and renderer V8 coverage in Playwright.
+3. **Electron coverage:** source maps in coverage builds, the renderer-coverage snippet, and a longer E2E timeout under the tool.
 4. **(Separate stack) Durable-suite pruning.**
 
 ## Decisions
