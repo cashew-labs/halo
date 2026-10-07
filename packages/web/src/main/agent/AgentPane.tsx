@@ -515,7 +515,11 @@ function SessionView({
   const view = useStyles(styles.view);
   const stopped = useStyles(styles.stopped);
   const items = useMemo(() => sessionViewItems(state), [state]);
-  useLayoutEffect(() => {
+  // Publish the Find source after paint. A layout effect schedules a sync
+  // re-render on every session event; when events arrive faster than this
+  // view renders, React counts those nested updates until it throws
+  // "Maximum update depth exceeded" and unmounts the window.
+  useEffect(() => {
     const root = viewRef.current;
     if (root === null) return;
     const elements =

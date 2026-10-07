@@ -15,7 +15,8 @@
     "format:check": "oxfmt --check .",
     "lint": "NODE_OPTIONS=--experimental-strip-types oxlint --deny-warnings src",
     "lint:fix": "NODE_OPTIONS=--experimental-strip-types oxlint --fix src",
-    "test": "vitest run src --passWithNoTests",
+    "test": "pnpm run test:unit",
+    "test:unit": "vitest run src --passWithNoTests",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

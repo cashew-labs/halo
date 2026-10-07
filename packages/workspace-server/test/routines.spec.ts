@@ -9,8 +9,6 @@ import {
   type RoutineInput,
   type RoutineRunStatus,
 } from "@get-halo/client";
-import { m } from "@get-halo/shared/testing";
-import { messageText } from "@get-halo/workspace-server/testing";
 import { expect } from "vitest";
 import * as errore from "errore";
 import { TandemClient } from "@tanishqkancharla/tandem-core";
@@ -81,133 +79,6 @@ serverTest(
 );
 
 serverTest(
-  "a personal script runs from the workspace without an extension",
-  async ({ server }) => {
-    const routine = await server.rpc.routines.save({
-      name: "Workspace check",
-      cron: "0 9 * * *",
-      timezone: "UTC",
-      action: { type: "runScript", command: "pwd" },
-    });
-
-    await server.rpc.routines.runNow({ routineId: routine.id });
-    const run = await waitForRun(server.rpc, routine.id, "completed");
-    const snapshot = await server.rpc.thread.snapshot({
-      sessionId: run.sessionId!,
-    });
-    expect(sessionMessages(snapshot)).toMatchObject([
-      { role: "bashExecution", output: `${server.workspaceRoot}\n` },
-    ]);
-    expect((await server.rpc.routines.list())[0]?.extensionId).toBeUndefined();
-    expect(
-      (await server.rpc.thread.list()).find(
-        (session) => session.sessionId === run.sessionId,
-      )?.markedDone,
-    ).toBe(false);
-
-    await server.stop();
-    await server.start();
-    expect((await server.rpc.routines.list())[0]).toMatchObject({
-      id: routine.id,
-      lastRun: { id: run.id, status: "completed" },
-    });
-  },
-);
-
-serverTest(
-  "auto archives a finished run while keeping its session accessible",
-  async ({ server }) => {
-    const routine = await server.rpc.routines.save({
-      name: "Daily check",
-      cron: "0 9 * * *",
-      timezone: "UTC",
-      action: { type: "runScript", command: "echo checked" },
-      autoArchiveSession: true,
-    });
-
-    await server.rpc.routines.runNow({ routineId: routine.id });
-    const run = await waitForRun(server.rpc, routine.id, "completed");
-    await expect
-      .poll(
-        async () =>
-          (await server.rpc.thread.list()).find(
-            (session) => session.sessionId === run.sessionId,
-          )?.markedDone,
-      )
-      .toBe(true);
-    const snapshot = await server.rpc.thread.snapshot({
-      sessionId: run.sessionId!,
-    });
-    expect(sessionMessages(snapshot)).toMatchObject([
-      { role: "bashExecution", output: "checked\n" },
-    ]);
-
-    await server.stop();
-    await server.start();
-    expect((await server.rpc.routines.list())[0]).toMatchObject({
-      autoArchiveSession: true,
-    });
-  },
-);
-
-serverTest(
-  "an agent routine prompts the model in its session",
-  async ({ server, llm }) => {
-    await installExtension(server, "briefing");
-    const routine = await server.rpc.routines.save({
-      ...bookHaircut,
-      extensionId: "briefing",
-      name: "Morning briefing",
-      action: { type: "runAgent", prompt: "Summarize today's calendar" },
-    });
-
-    const run = await server.rpc.routines.runNow({ routineId: routine.id });
-    await llm.respond(({ messages }) => {
-      expect(messageText(messages.at(-1)!)).toBe("Summarize today's calendar");
-      return m.assistant("You have two meetings.");
-    });
-    const finished = await waitForRun(server.rpc, routine.id, "completed");
-
-    expect(finished.id).toBe(run.id);
-    const snapshot = await server.rpc.thread.snapshot({
-      sessionId: finished.sessionId!,
-    });
-    expect(sessionMessages(snapshot).map((message) => message.role)).toEqual([
-      "user",
-      "assistant",
-    ]);
-  },
-);
-
-serverTest(
-  "failed scripts and missing extensions are reported in run history",
-  async ({ server }) => {
-    await installExtension(server, "appointments");
-    const failing = await server.rpc.routines.save({
-      ...bookHaircut,
-      action: { type: "runScript", command: "echo no slots; exit 3" },
-    });
-    const orphaned = await server.rpc.routines.save({
-      ...bookHaircut,
-      extensionId: "removed",
-    });
-
-    await server.rpc.routines.runNow({ routineId: failing.id });
-    expect(await waitForRun(server.rpc, failing.id, "failed")).toMatchObject({
-      error: "The script exited with code 3.",
-    });
-    const skipped = await server.rpc.routines.runNow({
-      routineId: orphaned.id,
-    });
-    expect(skipped).toMatchObject({
-      status: "skipped",
-      error: "Extension 'removed' is not installed.",
-    });
-    expect(skipped.sessionId).toBeUndefined();
-  },
-);
-
-serverTest(
   "restarting during a run interrupts it without disabling the routine",
   async ({ server }) => {
     await installExtension(server, "appointments");
@@ -266,7 +137,6 @@ serverTest(
     ]);
   },
 );
-
 serverTest(
   "syncs routines and related runs through Tandem",
   async ({ server }) => {

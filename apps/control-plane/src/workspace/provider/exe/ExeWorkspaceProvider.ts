@@ -102,7 +102,10 @@ export class ExeWorkspaceProvider implements WorkspaceProviderApi {
   async getStatus(input: WorkspaceProviderInput) {
     const vm = await this.findVm(input);
     if (vm instanceof Error) return vm;
-    return vm?.status === "paused" ? ("paused" as const) : ("running" as const);
+    // A real sleeping workspace was reported as suspended by Exe.
+    return vm?.status === "paused" || vm?.status === "suspended"
+      ? ("paused" as const)
+      : ("running" as const);
   }
 
   async pause(input: WorkspaceProviderInput) {
@@ -170,7 +173,7 @@ export class ExeWorkspaceProvider implements WorkspaceProviderApi {
           });
       }
     }
-    if (existing?.status === "paused") {
+    if (existing?.status === "paused" || existing?.status === "suspended") {
       // Assignment corrects the clock in its existing SSH call below.
       const resumed = await this.api.execute(["resume", vmName]);
       if (resumed instanceof Error) return resumed;

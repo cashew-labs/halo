@@ -394,10 +394,10 @@ jobs:
             # service invalidates this checkpoint if it is started again.
             for instance in $(jq -r '.[]' <<< "$sources"); do
               gcloud compute ssh "$instance" --project="$PROJECT" --zone="$ZONE" --tunnel-through-iap --quiet --command='sudo bash -s' <<'CHECKPOINT'
-            set -euo pipefail
-            test "$(systemctl show halo -p ActiveState --value)" = inactive
-            test "$(cat /proc/sys/kernel/random/boot_id)" = "$(cat /var/lib/halo/exe-migration-stopped)"
-            CHECKPOINT
+          set -euo pipefail
+          test "$(systemctl show halo -p ActiveState --value)" = inactive
+          test "$(cat /proc/sys/kernel/random/boot_id)" = "$(cat /var/lib/halo/exe-migration-stopped)"
+          CHECKPOINT
             done
           fi
 

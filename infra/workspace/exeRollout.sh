@@ -39,7 +39,7 @@ case "$mode" in
     details=$(ssh "${ssh_args[@]}" exe.dev ls "$vm" --json)
     if [ "$(jq '.vms | length' <<< "$details")" = 0 ]; then
       ssh "${ssh_args[@]}" exe.dev new --name="$vm" --image=ghcr.io/boldsoftware/exeuntu@sha256:d410ce9638ffe170e965b6ac4cfd90a868887faf6c3f256c038c7dd8c83af0d2 --disk=50GB --json
-    elif [ "$(jq -er '.vms[0].status' <<< "$details")" = paused ]; then
+    elif jq -e '.vms[0].status == "paused" or .vms[0].status == "suspended"' <<< "$details" >/dev/null; then
       ssh "${ssh_args[@]}" exe.dev resume "$vm"
     fi
     published=$(ssh "${ssh_args[@]}" "$vm.exe.xyz" 'sudo cat /etc/halo/template-ready 2>/dev/null || true')
@@ -63,7 +63,7 @@ case "$mode" in
     : "${INSTANCE:?}"
     vm="$INSTANCE"
     status=$(ssh "${ssh_args[@]}" exe.dev ls "$vm" --json | jq -er '.vms[0].status')
-    if [ "$status" = paused ]; then
+    if [ "$status" = paused ] || [ "$status" = suspended ]; then
       restore_paused=true
       ssh "${ssh_args[@]}" exe.dev resume "$vm"
     fi
@@ -92,7 +92,7 @@ ACTIVITY
       sleep 5
     done
     if [ "$ready" != true ]; then cat "$RUNNER_TEMP/exe-status-error.log" >&2; echo "$vm did not become ready for $image" >&2; exit 1; fi
-    if [ "$status" = paused ]; then ssh "${ssh_args[@]}" exe.dev pause "$vm"; fi
+    if [ "$status" = paused ] || [ "$status" = suspended ]; then ssh "${ssh_args[@]}" exe.dev pause "$vm"; fi
     restore_paused=false
     echo "HALO_WORKSPACE_READY image=$image revision=$GITHUB_SHA"
     ;;
