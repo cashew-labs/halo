@@ -63,7 +63,7 @@ function listedTestFiles(): string[] | undefined {
     .map((file) => path.relative(process.cwd(), path.join(repoRoot, file)))
     .filter((file) => !file.startsWith(".."))
     // `include` takes glob patterns, so escape characters that globs treat specially.
-    .map((file) => file.replace(/[[\]{}()*?!+@]/g, "\\$&"));
+    .map((file) => file.replace(/[\\[\]{}()*?!+@]/g, "\\$&"));
   // A pattern that matches nothing, because an empty include falls back to Vitest's default.
   return files.length > 0 ? files : ["__no-listed-test-files__"];
 }
