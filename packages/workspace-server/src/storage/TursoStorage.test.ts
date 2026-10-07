@@ -49,6 +49,85 @@ registerStorageConformance(
 );
 
 piBackendTest(
+  "drains admitted commits before releasing a session",
+  async ({ piBackend }) => {
+    const handle = await piBackend.repo.create();
+    const finished: string[] = [];
+    const committing = handle.storage
+      .commit(
+        [{ type: "conversation", value: { id: 1 as ConversationId } }],
+        BACKGROUND_CONTEXT,
+      )
+      .then(() => finished.push("commit"));
+    const closing = handle.close().then(() => finished.push("close"));
+    await closing;
+    expect(finished).toEqual(["commit", "close"]);
+    await committing;
+    const reopened = await piBackend.repo.open(handle.metadata);
+    expect(
+      await reopened.storage.conversation(
+        1 as ConversationId,
+        BACKGROUND_CONTEXT,
+      ),
+    ).toEqual({ id: 1 });
+  },
+);
+
+piBackendTest(
+  "reports fatal commit failures through the session handle and preserves the rejection",
+  async ({ piBackend }) => {
+    const handle = await piBackend.repo.create();
+    const fatalErrors: Error[] = [];
+    const unsubscribe = handle.fatalCommitErrors.subscribe((error) =>
+      fatalErrors.push(error),
+    );
+    const conversationId = 1 as ConversationId;
+    await handle.storage.commit(
+      [{ type: "conversation", value: { id: conversationId } }],
+      BACKGROUND_CONTEXT,
+    );
+
+    const transactionFailure = await handle.storage
+      .commit(
+        [{ type: "conversation", value: { id: conversationId } }],
+        BACKGROUND_CONTEXT,
+      )
+      .catch((error: Error) => error);
+    expect(transactionFailure).toBe(fatalErrors[0]);
+
+    const documentId = 2 as DocumentId;
+    const synchronousFailure = await handle.storage
+      .commit(
+        [
+          {
+            type: "document.create",
+            record: {
+              id: documentId,
+              kind: "duplicate",
+              scope: { kind: "session" },
+            },
+            content: { kind: "base", version: 1, value: {} },
+          },
+          {
+            type: "document.create",
+            record: {
+              id: documentId,
+              kind: "duplicate",
+              scope: { kind: "session" },
+            },
+            content: { kind: "base", version: 1, value: {} },
+          },
+        ],
+        BACKGROUND_CONTEXT,
+      )
+      .catch((error: Error) => error);
+    expect(synchronousFailure).toBe(fatalErrors[1]);
+    expect(fatalErrors).toHaveLength(2);
+    unsubscribe();
+  },
+);
+
+piBackendTest(
   "finds unfinished threads including background tasks and passive writes",
   async ({ piBackend }) => {
     const conversationId = 1 as ConversationId;
@@ -132,85 +211,6 @@ piBackendTest(
     expect(await piBackend.repo.listPendingThreadIds()).toEqual(
       [...taskThreads.slice(0, 4), ...submissionThreads.slice(0, 2)].toSorted(),
     );
-  },
-);
-
-piBackendTest(
-  "drains admitted commits before releasing a session",
-  async ({ piBackend }) => {
-    const handle = await piBackend.repo.create();
-    const finished: string[] = [];
-    const committing = handle.storage
-      .commit(
-        [{ type: "conversation", value: { id: 1 as ConversationId } }],
-        BACKGROUND_CONTEXT,
-      )
-      .then(() => finished.push("commit"));
-    const closing = handle.close().then(() => finished.push("close"));
-    await closing;
-    expect(finished).toEqual(["commit", "close"]);
-    await committing;
-    const reopened = await piBackend.repo.open(handle.metadata);
-    expect(
-      await reopened.storage.conversation(
-        1 as ConversationId,
-        BACKGROUND_CONTEXT,
-      ),
-    ).toEqual({ id: 1 });
-  },
-);
-
-piBackendTest(
-  "reports fatal commit failures through the session handle and preserves the rejection",
-  async ({ piBackend }) => {
-    const handle = await piBackend.repo.create();
-    const fatalErrors: Error[] = [];
-    const unsubscribe = handle.fatalCommitErrors.subscribe((error) =>
-      fatalErrors.push(error),
-    );
-    const conversationId = 1 as ConversationId;
-    await handle.storage.commit(
-      [{ type: "conversation", value: { id: conversationId } }],
-      BACKGROUND_CONTEXT,
-    );
-
-    const transactionFailure = await handle.storage
-      .commit(
-        [{ type: "conversation", value: { id: conversationId } }],
-        BACKGROUND_CONTEXT,
-      )
-      .catch((error: Error) => error);
-    expect(transactionFailure).toBe(fatalErrors[0]);
-
-    const documentId = 2 as DocumentId;
-    const synchronousFailure = await handle.storage
-      .commit(
-        [
-          {
-            type: "document.create",
-            record: {
-              id: documentId,
-              kind: "duplicate",
-              scope: { kind: "session" },
-            },
-            content: { kind: "base", version: 1, value: {} },
-          },
-          {
-            type: "document.create",
-            record: {
-              id: documentId,
-              kind: "duplicate",
-              scope: { kind: "session" },
-            },
-            content: { kind: "base", version: 1, value: {} },
-          },
-        ],
-        BACKGROUND_CONTEXT,
-      )
-      .catch((error: Error) => error);
-    expect(synchronousFailure).toBe(fatalErrors[1]);
-    expect(fatalErrors).toHaveLength(2);
-    unsubscribe();
   },
 );
 

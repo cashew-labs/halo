@@ -11,25 +11,13 @@ import { expect } from "vitest";
 import { piBackendTest } from "./fixtures.test.js";
 
 piBackendTest(
-  "creates, lists, reserves, closes, and reopens a thread",
-  async ({ piBackend }) => {
-    const created = await piBackend.repo.create({ id: "thread-1" });
-    expect(created.metadata).toMatchObject({ id: "thread-1" });
-    expect(await piBackend.repo.list()).toEqual([created.metadata]);
-    await expect(piBackend.repo.open(created.metadata)).rejects.toThrow(
-      "already open",
-    );
-    await created.close();
-    const reopened = await piBackend.repo.open(created.metadata);
-    expect(reopened.metadata).toEqual(created.metadata);
-    await reopened.close();
-  },
-);
-
-piBackendTest(
   "isolates simultaneous durable threads sharing one database",
   async ({ piBackend }) => {
     const first = await piBackend.repo.create({ id: "thread-a" });
+    // A second writer for an open thread would corrupt its history.
+    await expect(piBackend.repo.open(first.metadata)).rejects.toThrow(
+      "already open",
+    );
     const second = await piBackend.repo.create({ id: "thread-b" });
     // SAFETY: These are valid positive durable IDs chosen explicitly to verify cross-thread reuse.
     const rootId = 1 as ConversationId;
@@ -97,6 +85,22 @@ piBackendTest(
     ).toMatchObject({ value: { label: "second" } });
 
     await Promise.all([first.close(), second.close()]);
+  },
+);
+
+piBackendTest(
+  "creates, lists, reserves, closes, and reopens a thread",
+  async ({ piBackend }) => {
+    const created = await piBackend.repo.create({ id: "thread-1" });
+    expect(created.metadata).toMatchObject({ id: "thread-1" });
+    expect(await piBackend.repo.list()).toEqual([created.metadata]);
+    await expect(piBackend.repo.open(created.metadata)).rejects.toThrow(
+      "already open",
+    );
+    await created.close();
+    const reopened = await piBackend.repo.open(created.metadata);
+    expect(reopened.metadata).toEqual(created.metadata);
+    await reopened.close();
   },
 );
 
