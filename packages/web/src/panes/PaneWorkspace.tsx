@@ -142,7 +142,11 @@ export function PaneWorkspace({ sessions }: { sessions: SessionSummary[] }) {
 
   const chrome = usePaneStyles();
 
-  function openFileLink(event: MouseEvent, paneId: string, sourcePath: string) {
+  function openWorkspaceLink(
+    event: MouseEvent,
+    paneId: string,
+    sourcePath: string,
+  ) {
     if (event.type === "click" ? event.button !== 0 : event.button !== 1)
       return;
     const link =
@@ -153,12 +157,14 @@ export function PaneWorkspace({ sessions }: { sessions: SessionSummary[] }) {
     const href = link.getAttribute("href")?.trim();
     if (!href) return;
     let path: string;
-    if (href.startsWith("#/files/")) path = href.slice(1);
-    else if (href.startsWith("/files/")) path = href;
+    if (href.startsWith("#/files/") || href.startsWith("#/sessions/"))
+      path = href.slice(1);
+    else if (href.startsWith("/files/") || href.startsWith("/sessions/"))
+      path = href;
     else {
       if (
         /^(?:[a-z][a-z0-9+.-]*:|\/\/|#)/i.test(href) ||
-        /^\/(?:sessions|draft|extensions)\//.test(href)
+        /^\/(?:draft|extensions)\//.test(href)
       )
         return;
       const documentPath = sourcePath.startsWith("/files/")
@@ -293,9 +299,11 @@ export function PaneWorkspace({ sessions }: { sessions: SessionSummary[] }) {
             }}
             onPointerDownCapture={() => workspace.select(pane.id)}
             onFocusCapture={() => workspace.select(pane.id)}
-            onClickCapture={(event) => openFileLink(event, pane.id, tab.path)}
+            onClickCapture={(event) =>
+              openWorkspaceLink(event, pane.id, tab.path)
+            }
             onAuxClickCapture={(event) =>
-              openFileLink(event, pane.id, tab.path)
+              openWorkspaceLink(event, pane.id, tab.path)
             }
           >
             <TabVisibilityContext value={pane.activeTabId === tab.id}>

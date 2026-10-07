@@ -10,6 +10,7 @@ import {
   type HaloMessage,
   type HaloConnectionState,
   type HaloConnectionEvent,
+  sessionMessages,
 } from "@get-halo/client";
 import {
   Thread,
@@ -58,6 +59,16 @@ type PiSessionSummary = Omit<
   SessionSummary,
   "markedDone" | "readReceiptCursorId"
 >;
+
+function messageContentText(
+  content: Extract<HaloMessage, { role: "user" | "assistant" }>["content"],
+) {
+  return Array.isArray(content)
+    ? content
+        .flatMap((part) => (part.type === "text" ? [part.text] : []))
+        .join("\n")
+    : content;
+}
 
 export class ThreadManager {
   private readonly idleChanges = new Stream<boolean>();
@@ -195,9 +206,32 @@ export class ThreadManager {
   }
 
   async prompt(input: ChatPrompt & { sessionId: string }) {
+    const sessionContents = new Map<string, string>();
+    for (const reference of input.references ?? []) {
+      if (!("sessionId" in reference)) continue;
+      const snapshot = await this.snapshot(reference.sessionId, []);
+      if (snapshot instanceof Error) return snapshot;
+      const transcript = sessionMessages(snapshot)
+        .flatMap((message) => {
+          if (message.role === "user")
+            return [
+              `User: ${message.displayText ?? messageContentText(message.content)}`,
+            ];
+          if (message.role === "assistant")
+            return [`Assistant: ${messageContentText(message.content)}`];
+          return [];
+        })
+        .join("\n\n");
+      sessionContents.set(
+        reference.sessionId,
+        transcript.length > 30_000
+          ? `(Earlier messages omitted)\n${transcript.slice(-30_000)}`
+          : transcript,
+      );
+    }
     return await this.withThread(
       input.sessionId,
-      async (thread) => await thread.prompt(input),
+      async (thread) => await thread.prompt(input, sessionContents),
     );
   }
 
