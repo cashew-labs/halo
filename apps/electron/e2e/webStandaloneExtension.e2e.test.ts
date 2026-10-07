@@ -113,6 +113,31 @@ e2eTest(
   },
 );
 
+async function createAuthenticatedCookie(ctx: {
+  appDataDir: string;
+  origin: string;
+}) {
+  using database = new DatabaseSync(
+    path.join(ctx.appDataDir, "control-plane.db"),
+  );
+  const testAuth = betterAuth({
+    baseURL: ctx.origin,
+    secret: auth.secret,
+    database,
+    plugins: [testUtils()],
+  });
+  const context = await testAuth.$context;
+  const user = context.test.createUser({
+    email: "owner@example.com",
+    name: "Workspace Owner",
+  });
+  await context.test.saveUser(user);
+  const login = await context.test.login({ userId: user.id });
+  const cookie = login.headers.get("cookie");
+  if (cookie === null) throw new Error("Test sign-in did not return a cookie");
+  return cookie;
+}
+
 e2eTest(
   "opens a workspace extension WebSocket through the standalone web URL",
   async ({ browser, harness, testArtifacts }) => {
@@ -285,28 +310,3 @@ e2eTest(
     await llm.respond(m.assistant("The connection is ready."));
   },
 );
-
-async function createAuthenticatedCookie(ctx: {
-  appDataDir: string;
-  origin: string;
-}) {
-  using database = new DatabaseSync(
-    path.join(ctx.appDataDir, "control-plane.db"),
-  );
-  const testAuth = betterAuth({
-    baseURL: ctx.origin,
-    secret: auth.secret,
-    database,
-    plugins: [testUtils()],
-  });
-  const context = await testAuth.$context;
-  const user = context.test.createUser({
-    email: "owner@example.com",
-    name: "Workspace Owner",
-  });
-  await context.test.saveUser(user);
-  const login = await context.test.login({ userId: user.id });
-  const cookie = login.headers.get("cookie");
-  if (cookie === null) throw new Error("Test sign-in did not return a cookie");
-  return cookie;
-}
