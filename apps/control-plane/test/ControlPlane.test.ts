@@ -445,19 +445,32 @@ controlPlaneTest(
 );
 
 const sleepingRoutineTest = controlPlaneTest.extend<{
-  sleepingProvider: { paused: boolean };
+  sleepingProvider: {
+    paused: boolean;
+    clockReady: boolean;
+    failClockOnResume: boolean;
+    resumeAttempts: number;
+    clockSyncAttempts: number;
+  };
   workspaceProvider: WorkspaceProviderApi;
 }>({
   // oxlint-disable-next-line eslint/no-empty-pattern -- Vitest fixture callbacks require destructured parameters.
   sleepingProvider: async ({}, use) => {
-    await use({ paused: true });
+    await use({
+      paused: true,
+      clockReady: false,
+      failClockOnResume: false,
+      resumeAttempts: 0,
+      clockSyncAttempts: 0,
+    });
   },
   workspaceProvider: async ({ appDataDir, sleepingProvider }, use) => {
     const local = new LocalWorkspaceProvider({ appDataDir });
     await use({
       ensure: async (input) => await local.ensure(input),
       getConnection: async () => {
-        if (sleepingProvider.paused) return undefined;
+        if (sleepingProvider.paused || !sleepingProvider.clockReady)
+          return undefined;
         const connection = await local.getConnection();
         if (connection instanceof Error || connection === undefined)
           return connection;
@@ -475,7 +488,17 @@ const sleepingRoutineTest = controlPlaneTest.extend<{
       getStatus: async () =>
         sleepingProvider.paused ? ("paused" as const) : ("running" as const),
       resume: async () => {
+        sleepingProvider.resumeAttempts += 1;
         sleepingProvider.paused = false;
+        if (sleepingProvider.failClockOnResume) {
+          sleepingProvider.failClockOnResume = false;
+          return new Error("guest clock synchronization failed");
+        }
+        sleepingProvider.clockReady = true;
+      },
+      synchronizeClock: async () => {
+        sleepingProvider.clockSyncAttempts += 1;
+        sleepingProvider.clockReady = true;
       },
     } satisfies WorkspaceProviderApi);
   },
@@ -536,6 +559,65 @@ sleepingRoutineTest(
       expect(workspaceHost.exeAuthorizations).toContain("test-private-token");
     });
     expect(workspace.id).toBe(runtime.workspaceId);
+  },
+);
+
+sleepingRoutineTest(
+  "repairs the guest clock after resume unpauses the VM but clock sync fails",
+  async ({
+    plane,
+    authenticatedRpc,
+    appDataDir,
+    workspaceHost,
+    sleepingProvider,
+  }) => {
+    await authenticatedRpc.workspace.ensure();
+    const runtime = await readRuntimeSettings(appDataDir);
+    const published = await writeWorkspaceServerConnection({
+      appDataDir,
+      connection: {
+        workspaceRoot: appDataDir,
+        origin: workspaceHost.origin,
+        token: "test-workspace-token",
+      },
+    });
+    if (published instanceof Error) throw published;
+    sleepingProvider.failClockOnResume = true;
+    const now = Date.now();
+    const dateNow = vi.spyOn(Date, "now").mockReturnValue(now);
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    const endpoint = `${plane.origin}/api/workspace-runtime/routines`;
+    const snapshot = {
+      routines: [
+        { id: "morning-report", nextRunAt: new Date(now - 1000).toISOString() },
+      ],
+    };
+    const publish = async () =>
+      await fetch(endpoint, {
+        method: "POST",
+        body: JSON.stringify(snapshot),
+        headers: { authorization: `Bearer ${runtime.token}` },
+      });
+    try {
+      expect((await publish()).status).toBe(204);
+      await vi.waitFor(() => expect(errorLog).toHaveBeenCalled());
+      expect(sleepingProvider.paused).toBe(false);
+      expect(sleepingProvider.clockReady).toBe(false);
+      expect(workspaceHost.requests).not.toContain(
+        "/rpc/routines/runScheduled",
+      );
+
+      dateNow.mockReturnValue(now + 31_000);
+      expect((await publish()).status).toBe(204);
+      await vi.waitFor(() => {
+        expect(sleepingProvider.clockSyncAttempts).toBe(1);
+        expect(workspaceHost.requests).toContain("/rpc/routines/runScheduled");
+      });
+      expect(sleepingProvider.resumeAttempts).toBe(1);
+    } finally {
+      dateNow.mockRestore();
+      errorLog.mockRestore();
+    }
   },
 );
 

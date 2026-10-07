@@ -388,6 +388,11 @@ export class WorkspaceService {
     if (status === "paused") {
       const resumed = await this.provider.resume?.(input);
       if (resumed instanceof Error) return resumed;
+    } else {
+      // Resume can unpause Exe before clock synchronization fails. Retry the
+      // clock step even when the next poll finds the VM already running.
+      const synchronized = await this.provider.synchronizeClock?.(input);
+      if (synchronized instanceof Error) return synchronized;
     }
     return await this.provider.getConnection(input);
   }
