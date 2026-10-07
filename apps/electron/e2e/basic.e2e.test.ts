@@ -20,6 +20,47 @@ e2eTest("opens the server-configured workspace", async ({ harness, app }) => {
   });
 });
 
+e2eTest(
+  "adds file and session links with @ in Markdown",
+  async ({ app, harness }, testInfo) => {
+    const previous = await harness.loadSession({
+      title: "Previous plan",
+      messages: [m.user("Plan the launch"), m.assistant("Launch on Friday.")],
+    });
+    await app.server.rpc.workspace.writeFile({
+      path: "brief.md",
+      content: "# Brief",
+    });
+    await app.server.rpc.workspace.writeFile({ path: "notes.md", content: "" });
+    await app.page.getByRole("link", { name: "notes.md", exact: true }).click();
+    const pane = app.page.getByRole("main", { name: "notes.md" });
+    const editor = pane.getByLabel("notes.md", { exact: true });
+    await editor.fill("See @brief");
+    await app.page.screenshot({
+      path: testInfo.outputPath("markdown-reference-picker.png"),
+    });
+    await pane.getByRole("option", { name: /brief.md/ }).click();
+    await editor.pressSequentially("and @Previous");
+    await pane.getByRole("option", { name: /Previous plan/ }).click();
+    await expect
+      .poll(
+        async () =>
+          await app.server.rpc.workspace.readFile({ path: "notes.md" }),
+      )
+      .toContain("/files/brief.md");
+    const saved = await app.server.rpc.workspace.readFile({ path: "notes.md" });
+    expect(saved).toContain(`/sessions/${previous.sessionId}`);
+    await app.page.reload();
+    await expect(pane.getByRole("link", { name: "@brief.md" })).toBeVisible();
+    await pane
+      .getByRole("link", { name: "@Previous plan" })
+      .click({ modifiers: ["Meta"] });
+    await expect(
+      app.page.getByRole("main", { name: "Previous plan" }),
+    ).toBeVisible();
+  },
+);
+
 e2eTest("rejects a non-web external URL", async ({ app }) => {
   await expect(
     app.page.evaluate(async () => {
