@@ -94,7 +94,7 @@ Alternatives considered:
 
 ### 1. Test tiers (Halo)
 
-**Temp tier (the default).** Files are `<package>/.tmp-tests/**/*.test.ts` (or `*.spec.ts`).
+**Temp tier (the default).** Files sit in a `.tmp-tests/` folder where the package's runner already finds tests, such as `src/.tmp-tests/*.test.ts` for Vitest.
 - `**/.tmp-tests/` is gitignored, except in the side-ref commit.
 - Temp tests use the package's existing fixtures and the same fixture API as durable tests.
 
@@ -104,9 +104,8 @@ Alternatives considered:
 
 **Selection.** The review tool chooses the files and runs them itself, so Halo needs no selection code:
 - For each tier it gives every selected test file to the first `.review.json` `tests` entry whose `dir` and `match` fit it, and runs that entry's runner with exactly those files.
-- Vitest runs once per package (the nearest folder with a `package.json`), with the package's own `vitest` binary, so `workspace-server`'s Vitest 4 and the root's Vitest 5 each run their own packages. The tool adds `--coverage.enabled`, the lcov reporter, and `--coverage.allowExternal`; Halo's Vitest setup is unchanged.
-- Temp tests sit where the runner already looks, so Vitest's default `include` finds `src/.tmp-tests/*.test.ts` without a config. Local `pnpm test` runs pick them up too; CI never has them.
-- `pnpm check` stays durable-only.
+- Vitest runs once per Vitest root: the nearest folder with a Vite or Vitest config, else the nearest folder with a `package.json`. It uses the nearest `node_modules/.bin/vitest` at or above that folder, so `workspace-server` runs its own Vitest 4 and the other packages run the root's Vitest 5. The tool adds `--coverage.enabled`, the lcov reporter, and `--coverage.allowExternal`, and turns off coverage thresholds; Halo's Vitest setup is unchanged.
+- Temp tests sit where the runner already looks, so Vitest's default `include` finds `src/.tmp-tests/*.test.ts` without a config. Local `pnpm test` and `pnpm check` runs therefore also run any temp tests in the working tree. Turbo does not hash gitignored files, so a cached result does not rerun when only a temp test changes. CI never has temp tests.
 
 **Promotion** to the durable tier is a file move. The reviewer must accept it.
 
@@ -129,7 +128,7 @@ An existing test that the change relies on counts only once it is edited. The co
    - covered by temp tests only (in the temp run but not the durable run), so its coverage disappears after merge;
    - uncovered (in neither run);
    - exempt.
-5. Write `.tmp-tests/report/report.json`, apart from the repository's lcov glob so the tool's output is never merged back in:
+5. Write `.tmp-tests/report/report.json`. Raw coverage stays in the worktree's Git directory, so it is never committed or published:
    - `baseSha`, `headSha`, `treeHash`;
    - per file: `changed`, `coveredDurable`, `coveredTmpOnly`, `uncovered`, `exempt`;
    - the durable and temp test file lists, and each run's result and log path.
@@ -154,7 +153,7 @@ An existing test that the change relies on counts only once it is edited. The co
 - Pi's read-only tool set (`createReadOnlyTools`): `read`, `grep`, `find` (glob), and `ls`.
 - `git diff`.
 - The configured test command and `review coverage`.
-- No write or edit tools, and no general shell. The tool runs only the commands above, through an allowlist. Their only output is under `.tmp-tests/coverage/` and the loop state directory.
+- No write or edit tools, and no general shell. The tool runs only the commands above, through an allowlist. Their only output is the report under `.tmp-tests/report/`, coverage in the worktree's Git directory, and the loop state directory.
 
 Pi's `grep` and `find` respect `.gitignore`, so they do not list `.tmp-tests/` files. The tool passes the temp test paths from `report.json` in the prompt, and `read` opens them directly.
 
