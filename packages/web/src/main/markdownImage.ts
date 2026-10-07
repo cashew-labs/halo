@@ -1,5 +1,6 @@
 import Image from "@tiptap/extension-image";
-import { Plugin, PluginKey } from "@tiptap/pm/state";
+import { NodeSelection, Plugin, PluginKey } from "@tiptap/pm/state";
+import type { EditorView } from "@tiptap/pm/view";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import * as errore from "errore";
 import type { HaloClient } from "@get-halo/client";
@@ -16,10 +17,98 @@ type PastePlaceholder =
 export function markdownImage(options: {
   client: { current: HaloClient };
   documentPath: string;
+  copyMenuClassName: string;
   onError: (message: string | undefined) => void;
 }) {
-  const { client, documentPath, onError } = options;
+  const { client, documentPath, copyMenuClassName, onError } = options;
   const placeholders = new PluginKey<DecorationSet>("imagePaste");
+  const previews = new Map<string, File>();
+  let copyMenu:
+    | { button: HTMLButtonElement; image: HTMLImageElement; close: () => void }
+    | undefined;
+
+  const copyImage = (image: HTMLImageElement) => {
+    if (!image.complete || image.naturalWidth === 0) return;
+    const source = image.getAttribute("data-markdown-src");
+    const cached = source === null ? undefined : previews.get(source);
+    const png =
+      cached?.type === "image/png"
+        ? cached
+        : new Promise<Blob>((resolve, reject) => {
+            const canvas = document.createElement("canvas");
+            canvas.width = image.naturalWidth;
+            canvas.height = image.naturalHeight;
+            const context = canvas.getContext("2d");
+            if (context === null) {
+              reject(new MarkdownImageError({ operation: "copy" }));
+              return;
+            }
+            context.drawImage(image, 0, 0);
+            canvas.toBlob((blob) => {
+              if (blob === null)
+                reject(new MarkdownImageError({ operation: "copy" }));
+              else resolve(blob);
+            }, "image/png");
+          });
+    onError(undefined);
+    void navigator.clipboard
+      .write([new ClipboardItem({ "image/png": png })])
+      .catch((cause) => {
+        const error = new MarkdownImageError({ operation: "copy", cause });
+        console.warn(error);
+        onError("Could not copy image. Please try again.");
+      });
+  };
+
+  const showCopyMenu = (
+    view: EditorView,
+    image: HTMLImageElement,
+    x: number,
+    y: number,
+  ) => {
+    copyMenu?.close();
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = copyMenuClassName;
+    button.contentEditable = "false";
+    button.setAttribute("aria-label", "Copy image");
+    button.title = "Copy image";
+    button.textContent = "⧉ Copy image";
+    button.style.left = `${x}px`;
+    button.style.top = `${y}px`;
+    const listeners = new AbortController();
+    const close = () => {
+      listeners.abort();
+      button.remove();
+      if (copyMenu?.button === button) copyMenu = undefined;
+    };
+    button.addEventListener("click", () => {
+      copyImage(image);
+      close();
+    });
+    document.addEventListener(
+      "pointerdown",
+      (event) => {
+        if (!(event.target instanceof Node) || !button.contains(event.target))
+          close();
+      },
+      { signal: listeners.signal },
+    );
+    document.addEventListener(
+      "keydown",
+      (event) => {
+        if (event.key === "Escape") close();
+      },
+      { signal: listeners.signal },
+    );
+    document.addEventListener("scroll", close, {
+      capture: true,
+      signal: listeners.signal,
+    });
+    (view.dom.parentElement ?? document.body).append(button);
+    copyMenu = { button, image, close };
+    button.focus();
+  };
 
   return Image.extend({
     renderMarkdown(node, helpers, context) {
@@ -39,11 +128,21 @@ export function markdownImage(options: {
           if (key !== "src" && value !== null) dom.setAttribute(key, value);
         }
         const src: string = HTMLAttributes.src;
+        dom.setAttribute("data-markdown-src", src);
         let objectUrl: string | undefined;
         let destroyed = false;
+        const showPreview = (file: File) => {
+          objectUrl = URL.createObjectURL(file);
+          dom.src = objectUrl;
+        };
         const load = async () => {
           if (/^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(src)) {
             dom.src = src;
+            return;
+          }
+          const cached = previews.get(src);
+          if (cached !== undefined) {
+            showPreview(cached);
             return;
           }
           const base = new URL(
@@ -63,14 +162,15 @@ export function markdownImage(options: {
             return;
           }
           if (preview.kind !== "image") return;
-          objectUrl = URL.createObjectURL(preview.file);
-          dom.src = objectUrl;
+          previews.set(src, preview.file);
+          showPreview(preview.file);
         };
         void load().catch(console.error);
         return {
           dom,
           destroy() {
             destroyed = true;
+            if (copyMenu?.image === dom) copyMenu.close();
             if (objectUrl !== undefined) URL.revokeObjectURL(objectUrl);
           },
         };
@@ -110,6 +210,32 @@ export function markdownImage(options: {
           },
           props: {
             decorations: (state) => placeholders.getState(state),
+            handleKeyDown: (view, event) => {
+              if (
+                !(event.metaKey || event.ctrlKey) ||
+                event.key.toLowerCase() !== "c" ||
+                !(view.state.selection instanceof NodeSelection) ||
+                view.state.selection.node.type.name !== "image"
+              )
+                return false;
+              const image = view.nodeDOM(view.state.selection.from);
+              if (!(image instanceof HTMLImageElement)) return false;
+              copyImage(image);
+              return true;
+            },
+            handleDOMEvents: {
+              contextmenu(view, event) {
+                const image = event.target;
+                if (
+                  !(image instanceof HTMLImageElement) ||
+                  !view.dom.contains(image)
+                )
+                  return false;
+                event.preventDefault();
+                showCopyMenu(view, image, event.clientX, event.clientY);
+                return true;
+              },
+            },
             handlePaste: (view, event) => {
               if (event.clipboardData === null) return false;
               const files = [...event.clipboardData.files].filter((file) =>

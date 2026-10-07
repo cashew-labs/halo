@@ -1,6 +1,13 @@
 import { TaskItem, TaskList } from "@tiptap/extension-list";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { colors, flex } from "maui";
+import {
+  backgroundColor,
+  colors,
+  flex,
+  radius,
+  shadow,
+  text as textStyle,
+} from "maui";
 import { Editor } from "maui/editor";
 import { style, useStyles } from "purse-styles";
 import { useAutosaveFile } from "./useAutosaveFile.js";
@@ -31,6 +38,7 @@ export function MarkdownFileEditor({
   }, [api]);
   const [error, setError] = useState<string>();
   const [, forceUpdate] = useState(0);
+  const copyMenuClassName = useStyles(copyMenuStyle);
   /* oxlint-disable react/refs -- The factory stores the ref; only later plugin event handlers read its client. */
   const extensions = useMemo(
     () => [
@@ -39,11 +47,12 @@ export function MarkdownFileEditor({
       markdownImage({
         client: apiRef,
         documentPath: path,
+        copyMenuClassName,
         onError: setError,
       }),
       MarkdownFindHighlight,
     ],
-    [path, apiRef],
+    [path, apiRef, copyMenuClassName],
   );
   /* oxlint-enable react/refs */
   const className = useStyles(editorClass);
@@ -196,3 +205,22 @@ const editorClass = style(flex({ direction: "column" }), {
     pointerEvents: "none",
   },
 });
+
+const copyMenuStyle = style(
+  radius.sm,
+  shadow.medium,
+  textStyle({ size: "sm" }),
+  {
+    position: "fixed",
+    zIndex: 100,
+    display: "flex",
+    alignItems: "center",
+    minHeight: "28px",
+    paddingInline: "10px",
+    border: 0,
+    color: colors.gray[12],
+    backgroundColor: backgroundColor.element,
+    cursor: "pointer",
+    "&:hover": { backgroundColor: backgroundColor.elementHover },
+  },
+);
