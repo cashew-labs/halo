@@ -8,10 +8,7 @@ import { routinesMigration } from "./20260925090000-routines.js";
 import { personalRoutinesMigration } from "./20260928090000-personalRoutines.js";
 import { routineSessionArchiveMigration } from "./20260928100000-routineSessionArchive.js";
 import { durableStorageMigration } from "./20261003100000-durableStorage.js";
-import { tandemTuplesMigration } from "./20261006100000-tandemTuples.js";
-import { tandemHotkeysMigration } from "./20261006110000-tandemHotkeys.js";
-import { tandemRoutinesMigration } from "./20261006120000-tandemRoutines.js";
-import { tandemSessionStateMigration } from "./20261006130000-tandemSessionState.js";
+import { prepareTandem, tandemMigration } from "./20261006100000-tandem.js";
 
 import {
   legacyThreadsMigration,
@@ -27,10 +24,7 @@ export const workspaceMigrations = [
   routineSessionArchiveMigration,
   durableStorageMigration,
   legacyThreadsMigration,
-  tandemTuplesMigration,
-  tandemHotkeysMigration,
-  tandemRoutinesMigration,
-  tandemSessionStateMigration,
+  tandemMigration,
 ] satisfies readonly Migration[];
 
 export function migrateWorkspace(connection: Database) {
@@ -43,5 +37,13 @@ export function migrateWorkspace(connection: Database) {
   if (prerequisites instanceof Error) return prerequisites;
   const prepared = prepareLegacyThreads(connection);
   if (prepared instanceof Error) return prepared;
+  const legacy = applyMigrations({
+    connection,
+    migrations: workspaceMigrations,
+    stopBefore: tandemMigration.id,
+  });
+  if (legacy instanceof Error) return legacy;
+  const tandem = prepareTandem(connection);
+  if (tandem instanceof Error) return tandem;
   return applyMigrations({ connection, migrations: workspaceMigrations });
 }

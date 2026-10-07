@@ -210,7 +210,7 @@ migrationTest(
       INSERT INTO halo_session_usage (session_id, id, seq, payload)
         VALUES ('old-session', 'usage', 1, '{}');
       INSERT INTO user_hotkeys (user_id, hotkeys)
-        VALUES ('user', '{"command":"Ctrl+K"}');
+        VALUES ('user', '[{"id":"key","label":"Chat","accelerator":"Ctrl+K","action":{"type":"newTab"}}]');
       INSERT INTO halo_routines (id, name, cron, timezone, action, enabled, created_at, updated_at)
         VALUES ('routine', 'Daily notes', '0 8 * * *', 'UTC', '{"type":"runAgent","prompt":"Summarize"}', 0, 1, 1);
       INSERT INTO halo_routine_runs (id, routine_id, trigger, scheduled_for, session_id, status, started_at)
@@ -258,7 +258,11 @@ migrationTest(
         ),
     ).toEqual(["id", "metadata", "marked_done", "read_receipt_cursor_id"]);
     expect(upgraded.prepare("SELECT * FROM user_hotkeys").all()).toEqual([
-      { user_id: "user", hotkeys: '{"command":"Ctrl+K"}' },
+      {
+        user_id: "user",
+        hotkeys:
+          '[{"id":"key","label":"Chat","accelerator":"Ctrl+K","action":{"type":"newTab"}}]',
+      },
     ]);
     // Existing routine history keeps its link to the migrated thread.
     expect(
@@ -477,6 +481,220 @@ migrationTest(
         }),
       );
     }
+  },
+);
+
+migrationTest(
+  "imports app state from main once, preserving order and relationships",
+  async ({ migration }) => {
+    const old = migration.open(
+      workspaceMigrations.slice(
+        0,
+        workspaceMigrations.indexOf(durableStorageMigration),
+      ),
+    );
+    expect(prepareLegacyThreads(old)).toBeUndefined();
+    expect(
+      applyMigrations({
+        connection: old,
+        migrations: workspaceMigrations.slice(0, -1),
+      }),
+    ).toBeUndefined();
+    old.exec(`
+    INSERT INTO user_hotkeys VALUES
+      ('owner', '[{"id":"z-🦉","label":"First","accelerator":"Ctrl+K","action":{"type":"newTab"}},{"id":"a","label":"Second","accelerator":"Ctrl+L","action":{"type":"openFile","path":"notes.md"}}]'),
+      ('other', '[{"id":"other-key","label":"Other","accelerator":"Ctrl+K","action":{"type":"runAgent","prompt":"Hello"}}]');
+    INSERT INTO halo_threads (id, metadata, marked_done, read_receipt_cursor_id) VALUES
+      ('thread', '{"id":"thread","createdAt":1}', 1, 'cursor-🦉'),
+      ('unread', '{"id":"unread","createdAt":2}', 0, NULL);
+    INSERT INTO halo_routines
+      (id, extension_id, name, cron, timezone, action, enabled, next_run_at, created_at, updated_at, auto_archive_thread)
+      VALUES ('routine', 'mail', 'Mail', '0 8 * * *', 'UTC', '{"type":"runAgent","prompt":"Read mail"}', 1, 1735819200123, 1735689600123, 1735776000456, 1),
+      ('personal', NULL, 'Personal', '0 9 * * *', 'UTC', '{"type":"runScript","command":"echo ok"}', 0, NULL, 1735689600123, 1735689600123, 0);
+    INSERT INTO halo_routine_runs
+      (id, routine_id, trigger, scheduled_for, thread_id, status, started_at, finished_at, error)
+      VALUES ('z-first', 'routine', 'schedule', 1735776000000, 'thread', 'completed', 1735776000123, 1735776000321, NULL),
+      ('a-later', 'routine', 'manual', 1735776000001, 'thread', 'failed', 1735776000123, 1735776000456, 'Exit 7'),
+      ('skip', 'routine', 'manual', 1735776000002, NULL, 'skipped', 1735776000789, 1735776000789, 'Busy');
+  `);
+    migration.close(old);
+    await using cleanup = new errore.AsyncDisposableStack();
+    const filesystem = new FilesystemService();
+    cleanup.defer(async () => {
+      const result = await filesystem.close();
+      if (result instanceof Error) throw result;
+    });
+    for (const restarted of [false, true]) {
+      await using lifetime = new errore.AsyncDisposableStack();
+      const db = await DatabaseService.open({
+        directory: migration.directory,
+        filesystem,
+      });
+      if (db instanceof Error) throw db;
+      lifetime.defer(async () => {
+        const result = await db.close();
+        if (result instanceof Error) throw result;
+      });
+      expect(
+        await db.query({
+          collection: "hotkeys",
+          where: { userId: "owner" },
+          orderBy: { position: "asc" },
+        }),
+      ).toEqual([
+        {
+          id: "z-🦉",
+          userId: "owner",
+          label: restarted ? "Edited" : "First",
+          accelerator: "Ctrl+K",
+          action: { type: "newTab" },
+          position: 0,
+        },
+        {
+          id: "a",
+          userId: "owner",
+          label: "Second",
+          accelerator: "Ctrl+L",
+          action: { type: "openFile", path: "notes.md" },
+          position: 1,
+        },
+      ]);
+      expect(
+        await db.query({ collection: "hotkeys", where: { id: "other-key" } }),
+      ).toMatchObject([
+        {
+          userId: "other",
+          position: 0,
+          action: { type: "runAgent", prompt: "Hello" },
+        },
+      ]);
+      expect(
+        await db.query({
+          collection: "routines",
+          where: { id: "routine" },
+          with: { lastRun: true },
+        }),
+      ).toMatchObject([
+        {
+          extensionId: "mail",
+          enabled: true,
+          autoArchiveSession: true,
+          action: { type: "runAgent", prompt: "Read mail" },
+          createdAt: "2025-01-01T00:00:00.123Z",
+          updatedAt: "2025-01-02T00:00:00.456Z",
+          nextRunAt: "2025-01-02T12:00:00.123Z",
+          runSequence: 3,
+          lastRunId: "a-later",
+          lastRun: {
+            id: "a-later",
+            status: "failed",
+            error: "Exit 7",
+            sessionId: "thread",
+          },
+        },
+      ]);
+      expect(
+        await db.query({ collection: "routines", where: { id: "personal" } }),
+      ).toMatchObject([
+        {
+          enabled: false,
+          autoArchiveSession: false,
+          extensionId: undefined,
+          nextRunAt: undefined,
+          lastRunId: undefined,
+          runSequence: 0,
+        },
+      ]);
+      expect(
+        (
+          await db.query({
+            collection: "routineRuns",
+            where: { routineId: "routine" },
+            orderBy: { startedAt: "desc", sequence: "desc" },
+          })
+        ).map(({ id }) => id),
+      ).toEqual(["skip", "a-later", "z-first"]);
+      expect(
+        await db.query({ collection: "routineRuns", where: { id: "z-first" } }),
+      ).toMatchObject([
+        {
+          trigger: "schedule",
+          status: "completed",
+          scheduledFor: "2025-01-02T00:00:00.000Z",
+          startedAt: "2025-01-02T00:00:00.123Z",
+          finishedAt: "2025-01-02T00:00:00.321Z",
+          error: undefined,
+        },
+      ]);
+      expect(
+        await db.query({ collection: "sessionState", orderBy: { id: "asc" } }),
+      ).toEqual([
+        {
+          id: "thread",
+          markedDone: !restarted,
+          readReceiptCursorId: "cursor-🦉",
+        },
+        { id: "unread", markedDone: false, readReceiptCursorId: undefined },
+      ]);
+      if (!restarted) {
+        await using tx = db.useTransaction();
+        await tx.update("hotkeys", "z-🦉", (record) => ({
+          ...record,
+          label: "Edited",
+        }));
+        await tx.update("sessionState", "thread", (record) => ({
+          ...record,
+          markedDone: false,
+        }));
+        await db.commit(tx);
+      }
+    }
+  },
+);
+
+migrationTest(
+  "rolls back a failed Tandem import and retries without losing source data",
+  ({ migration }) => {
+    const old = migration.open(
+      workspaceMigrations.slice(
+        0,
+        workspaceMigrations.indexOf(durableStorageMigration),
+      ),
+    );
+    expect(prepareLegacyThreads(old)).toBeUndefined();
+    const mainMigrations = workspaceMigrations.slice(0, -1);
+    expect(
+      applyMigrations({ connection: old, migrations: mainMigrations }),
+    ).toBeUndefined();
+    old.exec(
+      `INSERT INTO user_hotkeys VALUES ('owner', '[{"id":"valid","label":"Valid","accelerator":"Ctrl+K","action":{"type":"newTab"}},{"id":"broken","label":"Broken","accelerator":"Ctrl+L"}]')`,
+    );
+    expect(migrateWorkspace(old)).toBeInstanceOf(Error);
+    expect(
+      old
+        .prepare("SELECT name FROM sqlite_master WHERE name = 'halo_hotkeys'")
+        .all(),
+    ).toEqual([]);
+    expect(
+      old.prepare("SELECT id FROM halo_migrations ORDER BY id").all(),
+    ).toEqual(mainMigrations.map(({ id }) => ({ id })));
+    expect(
+      old
+        .prepare("SELECT json_array_length(hotkeys) AS count FROM user_hotkeys")
+        .get(),
+    ).toEqual({ count: 2 });
+    old.exec(
+      `UPDATE user_hotkeys SET hotkeys = json_set(hotkeys, '$[1].action', json('{"type":"newTab"}'))`,
+    );
+    expect(migrateWorkspace(old)).toBeUndefined();
+    expect(
+      old.prepare("SELECT id FROM halo_hotkeys ORDER BY position").all(),
+    ).toEqual([{ id: "valid" }, { id: "broken" }]);
+    migration.close(old);
+    const reopened = migration.open(workspaceMigrations);
+    expect(
+      reopened.prepare("SELECT count(*) AS count FROM halo_hotkeys").get(),
+    ).toEqual({ count: 2 });
   },
 );
 
