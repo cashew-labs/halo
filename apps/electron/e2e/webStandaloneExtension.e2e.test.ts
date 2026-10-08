@@ -1,5 +1,8 @@
 import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
+import http from "node:http";
+import { once } from "node:events";
+import type { AddressInfo } from "node:net";
 import { expect } from "@playwright/test";
 import { betterAuth } from "better-auth";
 import { testUtils } from "better-auth/plugins";
@@ -7,6 +10,9 @@ import * as errore from "errore";
 import { ControlPlane } from "../../control-plane/src/server/ControlPlane.js";
 import { LocalWorkspaceProvider } from "../../control-plane/src/workspace/provider/local/LocalWorkspaceProvider.js";
 import { m } from "@get-halo/shared/testing";
+import { createORPCClient } from "@orpc/client";
+import { RPCLink } from "@orpc/client/fetch";
+import type { ControlPlaneClient } from "@get-halo/shared/controlPlaneContract";
 import { e2eTest } from "./e2eTest.js";
 
 const auth = {
@@ -189,6 +195,145 @@ e2eTest(
     await expect(frame.contentFrame().getByRole("status")).toHaveText(
       "Hello from WebSocket",
     );
+  },
+);
+
+e2eTest(
+  "confirms a saved connection without asking the user to reconnect",
+  async ({ browser, testArtifacts }, testInfo) => {
+    await using cleanup = new errore.AsyncDisposableStack();
+    const provider = http.createServer((request, response) => {
+      response.writeHead(200, { "content-type": "application/json" }).end(
+        JSON.stringify({
+          openapi: "3.0.0",
+          info: { title: "Example API", version: "1" },
+          servers: [{ url: `http://${request.headers.host}` }],
+          components: {
+            securitySchemes: {
+              key: { type: "apiKey", in: "header", name: "X-Api-Key" },
+            },
+          },
+          security: [{ key: [] }],
+          paths: {
+            "/items": {
+              get: {
+                operationId: "listItems",
+                responses: { "200": { description: "OK" } },
+              },
+            },
+          },
+        }),
+      );
+    });
+    provider.listen(0, "127.0.0.1");
+    await once(provider, "listening");
+    cleanup.defer(async () => {
+      provider.closeAllConnections();
+      await new Promise<void>((resolve, reject) =>
+        provider.close((error) =>
+          error === undefined ? resolve() : reject(error),
+        ),
+      );
+    });
+    // SAFETY: The provider is listening on a TCP port.
+    const providerOrigin = `http://127.0.0.1:${(provider.address() as AddressInfo).port}`;
+    const plane = await ControlPlane.start({
+      config: {
+        deployment: "local",
+        workspace: { deployment: "local" },
+        appDataDir: testArtifacts.paths.userData,
+        port: 0,
+        auth,
+      },
+      webRoot: path.resolve(import.meta.dirname, "../../web-app/dist"),
+      workspaceProvider: new LocalWorkspaceProvider({
+        appDataDir: testArtifacts.paths.userData,
+      }),
+      integrationEncryptionKey: Buffer.alloc(32, 17),
+      allowLocalIntegrationUrls: true,
+      getOpenAPISpec: async () =>
+        JSON.stringify({
+          discoveryVersion: "v1",
+          id: "test:v1",
+          name: "test",
+          version: "v1",
+          title: "Google fixture",
+          rootUrl: `${providerOrigin}/`,
+          servicePath: "test/",
+          resources: {},
+        }),
+    });
+    if (plane instanceof Error) throw plane;
+    cleanup.defer(async () => {
+      const closed = await plane.close();
+      if (closed instanceof Error) throw closed;
+    });
+    const cookie = await createAuthenticatedCookie({
+      appDataDir: testArtifacts.paths.userData,
+      origin: plane.origin,
+    });
+    const client: ControlPlaneClient = createORPCClient(
+      new RPCLink({
+        origin: plane.origin,
+        url: "/rpc",
+        headers: { cookie, origin: plane.origin },
+      }),
+    );
+    await client.integrations.registerOpenAPI({
+      name: "Example API",
+      slug: "example-api",
+      url: `${providerOrigin}/spec`,
+    });
+    const setup = await client.integrations.startSetup({
+      integration: "example-api",
+      connectionName: "personal",
+    });
+    using database = new DatabaseSync(
+      path.join(testArtifacts.paths.userData, "control-plane.db"),
+    );
+    database.exec(
+      "CREATE TRIGGER fail_setup_write BEFORE UPDATE ON halo_integration_setup WHEN NEW.status='ready' BEGIN SELECT RAISE(ABORT, 'fixture setup write failed'); END;",
+    );
+    const context = await browser.newContext({
+      extraHTTPHeaders: { cookie },
+      viewport: { width: 960, height: 640 },
+      deviceScaleFactor: 2,
+    });
+    cleanup.defer(async () => await context.close());
+    const page = await context.newPage();
+    await page.goto(setup.setupUrl);
+    await page.getByLabel("token", { exact: true }).fill("fixture-api-key");
+    await page.getByRole("button", { name: "Connect", exact: true }).click();
+    await expect(page.getByRole("status")).toContainText(
+      "Connection saved; confirming status…",
+    );
+    await expect(
+      page.getByRole("button", { name: /Connect|Cancel/ }),
+    ).toHaveCount(0);
+    await testInfo.attach("connection-confirming", {
+      body: await page.screenshot({
+        path: testInfo.outputPath("connection-confirming.png"),
+      }),
+      contentType: "image/png",
+    });
+    await page.reload();
+    await expect(page.getByRole("status")).toContainText(
+      "Connection saved; confirming status…",
+    );
+    database.exec("DROP TRIGGER fail_setup_write");
+    await expect(
+      page.getByRole("heading", { name: "Example API connected" }),
+    ).toBeVisible();
+    await expect(page.getByRole("status")).toContainText(
+      "Your connection is ready",
+    );
+    await testInfo.attach("connection-ready", {
+      body: await page.screenshot({
+        path: testInfo.outputPath("connection-ready.png"),
+      }),
+      contentType: "image/png",
+    });
+    expect(await client.integrations.connections()).toHaveLength(1);
   },
 );
 

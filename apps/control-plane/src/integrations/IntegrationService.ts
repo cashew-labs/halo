@@ -13,6 +13,7 @@ import {
 } from "@executor-js/plugin-openapi/providers/google";
 import {
   createExecutor,
+  definePlugin,
   ConnectionNotFoundError,
   CredentialResolutionError,
   ElicitationDeclinedError,
@@ -58,9 +59,44 @@ import { createExecutorDatabase } from "./createExecutorDatabase.js";
 // Executor 1.6 rewrites Meet's Discovery URL to a legacy endpoint returning 404.
 const presets = googleCatalog.filter((preset) => preset.id !== "google-meet");
 const maxRemoteResponseBytes = 64 * 1024 * 1024;
+// Host-only: no agent tools. The receipt and connection metadata commit together.
+// CredentialService remains a separate store; this is proof of a completed save,
+// not a distributed transaction covering every possible provider failure.
+const setupReceipts = definePlugin(() => ({
+  id: "haloSetups" as const,
+  storage: () => ({}),
+  extension: (ctx) => ({
+    get: (setupId: string) =>
+      ctx.pluginStorage.getForOwner<IntegrationConnection>({
+        collection: "completed",
+        key: setupId,
+        owner: Owner.make("user"),
+      }),
+    run: <A, E>(input: {
+      setupId: string;
+      operation: Effect.Effect<A, E>;
+      connection: (value: A) => Connection | undefined;
+    }) =>
+      ctx.transaction(
+        Effect.gen(function* () {
+          const result = yield* input.operation;
+          const connection = input.connection(result);
+          if (connection !== undefined)
+            yield* ctx.pluginStorage.put({
+              collection: "completed",
+              key: input.setupId,
+              owner: Owner.make("user"),
+              data: safeConnection(connection),
+            });
+          return result;
+        }),
+      ),
+  }),
+}));
 type IntegrationPlugins = readonly [
   ReturnType<typeof openApiPlugin>,
   ReturnType<typeof mcpPlugin>,
+  ReturnType<typeof setupReceipts>,
 ];
 type IntegrationExecutor = Executor<IntegrationPlugins>;
 
@@ -178,6 +214,7 @@ export class IntegrationService {
         resolveTools: (input) =>
           mcp.resolveTools!({ ...input, httpClientLayer: mcpHttpClientLayer }),
       },
+      setupReceipts(),
     ];
   }
 
@@ -310,6 +347,25 @@ export class IntegrationService {
     const setup = await this.readSetup(ctx);
     if (setup instanceof Error) return setup;
     const { reconnect: _reconnect, ...publicSetup } = setup;
+    if (setup.status === "ready") return publicSetup;
+    const receipt = await this.withUser(ctx.userId, (executor) =>
+      executor.haloSetups.get(ctx.setupId),
+    );
+    if (receipt instanceof Error) return receipt;
+    if (receipt !== null) {
+      const saved = await this.confirmSetup({
+        ...ctx,
+        setup,
+        connection: receipt.data,
+      });
+      if (saved instanceof Error) console.warn(saved);
+      return {
+        ...publicSetup,
+        connection: receipt.data,
+        status:
+          saved instanceof Error ? ("confirming" as const) : ("ready" as const),
+      };
+    }
     return publicSetup;
   }
 
@@ -405,105 +461,114 @@ export class IntegrationService {
     });
     const redirectUri = `${this.publicOrigin}/api/integrations/oauth/callback`;
     const result = await this.withUser(ctx.userId, (executor) =>
-      Effect.gen(function* () {
-        const integration = yield* executor.integrations.get(
-          IntegrationSlug.make(setup.integration),
-        );
-        if (integration === null)
-          return new IntegrationSetupError({ detail: "Integration not found" });
-        const input = {
-          owner: Owner.make("user"),
-          name: ConnectionName.make(setup.connectionName),
-          integration: integration.slug,
-          template: AuthTemplateSlug.make(ctx.template),
-        };
-        const existing = yield* executor.connections.get(input);
-        if (existing !== null && !setup.reconnect)
-          return new IntegrationSetupError({
-            detail: "Connection name is already taken",
-          });
-        if (
-          setup.reconnect &&
-          (existing === null ||
-            existing.template !== setup.reconnect.template ||
-            (existing.oauthClient ?? undefined) !== setup.reconnect.client ||
-            (existing.oauthClientOwner ?? undefined) !==
-              setup.reconnect.clientOwner)
-        )
-          return new IntegrationSetupError({
-            detail: "The connection changed; restart reconnect",
-          });
-        if (method.kind !== "oauth")
-          return {
-            status: "connected" as const,
-            connection: yield* executor.connections.create({
-              ...input,
-              values,
-              identityLabel: existing?.identityLabel,
-            }),
-          };
-        if (setup.reconnect) {
-          if (!setup.reconnect.client || !setup.reconnect.clientOwner)
+      executor.haloSetups.run({
+        setupId: ctx.setupId,
+        connection: (connected) =>
+          connected instanceof Error || connected.status !== "connected"
+            ? undefined
+            : connected.connection,
+        operation: Effect.gen(function* () {
+          const integration = yield* executor.integrations.get(
+            IntegrationSlug.make(setup.integration),
+          );
+          if (integration === null)
             return new IntegrationSetupError({
-              detail: "The connection has no OAuth client binding",
+              detail: "Integration not found",
+            });
+          const input = {
+            owner: Owner.make("user"),
+            name: ConnectionName.make(setup.connectionName),
+            integration: integration.slug,
+            template: AuthTemplateSlug.make(ctx.template),
+          };
+          const existing = yield* executor.connections.get(input);
+          if (existing !== null && !setup.reconnect)
+            return new IntegrationSetupError({
+              detail: "Connection name is already taken",
+            });
+          if (
+            setup.reconnect &&
+            (existing === null ||
+              existing.template !== setup.reconnect.template ||
+              (existing.oauthClient ?? undefined) !== setup.reconnect.client ||
+              (existing.oauthClientOwner ?? undefined) !==
+                setup.reconnect.clientOwner)
+          )
+            return new IntegrationSetupError({
+              detail: "The connection changed; restart reconnect",
+            });
+          if (method.kind !== "oauth")
+            return {
+              status: "connected" as const,
+              connection: yield* executor.connections.create({
+                ...input,
+                values,
+                identityLabel: existing?.identityLabel,
+              }),
+            };
+          if (setup.reconnect) {
+            if (!setup.reconnect.client || !setup.reconnect.clientOwner)
+              return new IntegrationSetupError({
+                detail: "The connection has no OAuth client binding",
+              });
+            return yield* executor.oauth.start({
+              ...input,
+              client: OAuthClientSlug.make(setup.reconnect.client),
+              clientOwner: Owner.make(setup.reconnect.clientOwner),
+              redirectUri,
+            });
+          }
+          const descriptor = integration.authMethods.find(
+            (item) => item.template === ctx.template,
+          )?.oauth;
+          const clients = yield* executor.oauth.listClients();
+          const client = clients.find(
+            (candidate) =>
+              candidate.authorizationUrl === descriptor?.authorizationUrl &&
+              candidate.tokenUrl === descriptor?.tokenUrl,
+          );
+          const discovered =
+            client === undefined && descriptor?.discoveryUrl !== undefined
+              ? yield* executor.oauth.probe({ url: descriptor.discoveryUrl })
+              : undefined;
+          const matching =
+            client ??
+            clients.find(
+              (candidate) =>
+                candidate.authorizationUrl === discovered?.authorizationUrl &&
+                candidate.tokenUrl === discovered?.tokenUrl,
+            );
+          const slug =
+            matching?.slug ??
+            (!discovered?.registrationEndpoint
+              ? undefined
+              : yield* executor.oauth.registerDynamicClient({
+                  owner: Owner.make("user"),
+                  slug: OAuthClientSlug.make(`setup-${setup.setupId}`),
+                  issuer: discovered.issuer,
+                  registrationEndpoint: discovered.registrationEndpoint,
+                  authorizationUrl: discovered.authorizationUrl,
+                  tokenUrl: discovered.tokenUrl,
+                  resource: discovered.resource,
+                  scopes: discovered.scopesSupported ?? [],
+                  tokenEndpointAuthMethodsSupported:
+                    discovered.tokenEndpointAuthMethodsSupported,
+                  redirectUri,
+                  originIntegration: integration.slug,
+                  clientName: "Halo",
+                }));
+          if (slug === undefined)
+            return new IntegrationSetupError({
+              detail:
+                "No configured OAuth client matches this integration; the server does not support dynamic registration",
             });
           return yield* executor.oauth.start({
             ...input,
-            client: OAuthClientSlug.make(setup.reconnect.client),
-            clientOwner: Owner.make(setup.reconnect.clientOwner),
+            client: slug,
+            clientOwner: matching?.owner ?? Owner.make("user"),
             redirectUri,
           });
-        }
-        const descriptor = integration.authMethods.find(
-          (item) => item.template === ctx.template,
-        )?.oauth;
-        const clients = yield* executor.oauth.listClients();
-        const client = clients.find(
-          (candidate) =>
-            candidate.authorizationUrl === descriptor?.authorizationUrl &&
-            candidate.tokenUrl === descriptor?.tokenUrl,
-        );
-        const discovered =
-          client === undefined && descriptor?.discoveryUrl !== undefined
-            ? yield* executor.oauth.probe({ url: descriptor.discoveryUrl })
-            : undefined;
-        const matching =
-          client ??
-          clients.find(
-            (candidate) =>
-              candidate.authorizationUrl === discovered?.authorizationUrl &&
-              candidate.tokenUrl === discovered?.tokenUrl,
-          );
-        const slug =
-          matching?.slug ??
-          (!discovered?.registrationEndpoint
-            ? undefined
-            : yield* executor.oauth.registerDynamicClient({
-                owner: Owner.make("user"),
-                slug: OAuthClientSlug.make(`setup-${setup.setupId}`),
-                issuer: discovered.issuer,
-                registrationEndpoint: discovered.registrationEndpoint,
-                authorizationUrl: discovered.authorizationUrl,
-                tokenUrl: discovered.tokenUrl,
-                resource: discovered.resource,
-                scopes: discovered.scopesSupported ?? [],
-                tokenEndpointAuthMethodsSupported:
-                  discovered.tokenEndpointAuthMethodsSupported,
-                redirectUri,
-                originIntegration: integration.slug,
-                clientName: "Halo",
-              }));
-        if (slug === undefined)
-          return new IntegrationSetupError({
-            detail:
-              "No configured OAuth client matches this integration; the server does not support dynamic registration",
-          });
-        return yield* executor.oauth.start({
-          ...input,
-          client: slug,
-          clientOwner: matching?.owner ?? Owner.make("user"),
-          redirectUri,
-        });
+        }),
       }),
     );
     if (result instanceof Error) {
@@ -521,14 +586,12 @@ export class IntegrationService {
       return result;
     }
     if (result.status === "connected") {
-      const saved = await this.finishSetup({
+      const saved = await this.confirmSetup({
         ...ctx,
         setup,
-        claim: "submitting",
-        status: "ready",
         connection: safeConnection(result.connection),
       });
-      if (saved instanceof Error) return saved;
+      if (saved instanceof Error) console.warn(saved);
       return {};
     }
     const safeAuthorization = await this.validateRemoteUrl(
@@ -575,11 +638,42 @@ export class IntegrationService {
     setupId: string;
     claim: "submitting" | "consuming";
   }) {
+    const receipt = await this.withUser(ctx.userId, (executor) =>
+      executor.haloSetups.get(ctx.setupId),
+    );
+    if (receipt instanceof Error) return receipt;
+    if (receipt !== null) return;
     const saved = await this.sql(
       "UPDATE halo_integration_setup SET status='failed',oauth_state=NULL WHERE setup_id=$1 AND user_id=$2 AND status='authorizing' AND oauth_state=$3 RETURNING *",
       [ctx.setupId, ctx.userId, ctx.claim],
     );
     if (saved instanceof Error) return saved;
+  }
+
+  private async confirmSetup(ctx: {
+    userId: string;
+    setupId: string;
+    setup: IntegrationSetup;
+    connection: IntegrationConnection;
+  }) {
+    const saved = await this.sql(
+      "UPDATE halo_integration_setup SET status='ready',data=$1,oauth_state=NULL WHERE setup_id=$2 AND user_id=$3 RETURNING *",
+      [
+        JSON.stringify({
+          ...ctx.setup,
+          status: "ready",
+          connection: ctx.connection,
+          message: undefined,
+        }),
+        ctx.setupId,
+        ctx.userId,
+      ],
+    );
+    if (saved instanceof Error) return saved;
+    if (saved.length === 0)
+      return new IntegrationSetupError({
+        detail: "Connection saved; confirming status. Do not reconnect.",
+      });
   }
 
   private async finishSetup(ctx: {
@@ -616,6 +710,10 @@ export class IntegrationService {
   async cancelSetup(ctx: { userId: string; setupId: string }) {
     const setup = await this.setup(ctx);
     if (setup instanceof Error) return setup;
+    if (setup.status === "confirming")
+      return new IntegrationSetupError({
+        detail: "Connection already saved; confirming status",
+      });
     // Claim cancellation before calling the SDK; a racing callback cannot consume the state.
     const rows = await this.sql(
       "UPDATE halo_integration_setup SET status='cancelled' WHERE setup_id=$1 AND user_id=$2 AND status IN ('awaiting_credentials','authorizing') AND (oauth_state IS NULL OR oauth_state NOT IN ('submitting','consuming')) RETURNING *",
@@ -672,26 +770,35 @@ export class IntegrationService {
             detail: "Authorization was declined",
           });
         }
-        return yield* executor.oauth.complete({
-          state: OAuthState.make(ctx.state),
-          code: ctx.code,
+        return yield* executor.haloSetups.run({
+          setupId: row.setup_id,
+          connection: (value) => value,
+          operation: executor.oauth.complete({
+            state: OAuthState.make(ctx.state),
+            code: ctx.code,
+          }),
         });
       }),
     );
-    const saved = await this.finishSetup({
+    if (connection instanceof Error) {
+      const saved = await this.finishSetup({
+        userId: row.user_id,
+        setupId: row.setup_id,
+        setup,
+        claim: "consuming",
+        status: "failed",
+        message: "Authorization failed. Restart setup to try again.",
+      });
+      if (saved instanceof Error) return saved;
+      return { setupUrl: this.setupUrl(row.setup_id) };
+    }
+    const saved = await this.confirmSetup({
       userId: row.user_id,
       setupId: row.setup_id,
       setup,
-      claim: "consuming",
-      status: connection instanceof Error ? "failed" : "ready",
-      connection:
-        connection instanceof Error ? undefined : safeConnection(connection),
-      message:
-        connection instanceof Error
-          ? "Authorization failed. Restart setup to try again."
-          : undefined,
+      connection: safeConnection(connection),
     });
-    if (saved instanceof Error) return saved;
+    if (saved instanceof Error) console.warn(saved);
     return { setupUrl: this.setupUrl(row.setup_id) };
   }
 

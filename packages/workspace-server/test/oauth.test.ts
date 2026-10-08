@@ -147,25 +147,32 @@ test.for(["authorizing", "ready"] as const)(
   },
 );
 
-test("authorizing setup expires at the advertised deadline", async ({
-  setup,
-}) => {
-  const started = await setup.connections.startConnection({
-    sessionId: "owner",
-    request,
-    onEvent: async (event) => {
-      setup.events.push(event);
-    },
-  });
-  if (started instanceof Error || started.status !== "authorization-required")
-    throw new Error("Setup did not start");
-  await vi.advanceTimersByTimeAsync(started.expiresAt - Date.now() + 2_000);
-  expect(setup.events.map((event) => event.status)).toEqual([
-    "connecting",
-    "expired",
-  ]);
-  expect(vi.getTimerCount()).toBe(0);
-});
+test.for(["authorizing", "confirming"] as const)(
+  "%s setup respects whether authorization completed at the deadline",
+  async (status, { setup }) => {
+    setup.status = { status };
+    const started = await setup.connections.startConnection({
+      sessionId: "owner",
+      request,
+      onEvent: async (event) => {
+        setup.events.push(event);
+      },
+    });
+    if (started instanceof Error || started.status !== "authorization-required")
+      throw new Error("Setup did not start");
+    await vi.advanceTimersByTimeAsync(started.expiresAt - Date.now() + 2_000);
+    if (status === "confirming") {
+      expect(setup.events.map((event) => event.status)).toEqual(["connecting"]);
+      setup.status = { status: "ready" };
+      await vi.advanceTimersByTimeAsync(2_000);
+    }
+    expect(setup.events.map((event) => event.status)).toEqual([
+      "connecting",
+      status === "authorizing" ? "expired" : "connected",
+    ]);
+    expect(vi.getTimerCount()).toBe(0);
+  },
+);
 
 test("missing remote host returns an explicit setup error", async () => {
   const connections = new ConnectionService({});

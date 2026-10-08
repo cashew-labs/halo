@@ -779,6 +779,30 @@ Remote responses are limited to **64 MiB after decompression**, enforced during 
 
 **Timer decision:** keep the current Halo setup deadline and Executor OAuth expiry unchanged, as requested. Late callbacks may require starting setup again; moving timer ownership or refreshing the deadline is not part of this change.
 
+### ✅ Recover a saved connection when Halo's status write fails
+
+**Today:** Executor can commit a connection before Halo updates its separate setup row. Treating the final status-write error as a failed connection misleads the user and can lead to unnecessary reconnects.
+
+**Proposed:** record a credential-free success receipt for this exact setup ID in Executor's plugin storage, in the same transaction as its connection metadata. Halo retries only its setup-status write when the browser or workspace polls. This also works after a control-plane restart and distinguishes a completed reconnect from an older working connection. CredentialService remains a separate store; this is not a distributed transaction covering provider-side failures.
+
+```callstack
+ Submit credentials or complete OAuth [[apps/control-plane/src/integrations/IntegrationService.ts#IntegrationService.submitSetup]]
++├── save connection metadata and a setup-specific receipt together
++├── try to mark Halo's setup ready
++└── preserve the successful result if only that final status write fails
+ Read setup status [[apps/control-plane/src/integrations/IntegrationService.ts#IntegrationService.setup]]
++├── look up the authenticated user's receipt for this setup
++├── retry only the Halo status update # never replay OAuth or a tool call
++├── show “Connection saved; confirming status…” while that write fails [[setup-recovery-ui:new:129-136]]
++└── show the normal connected page once the write succeeds
+```
+
+The browser continues polling through `confirming`, including after a refresh; it shows neither a credential form nor a cancellation button. The workspace waits for the final connected notification. A saved connection is not an unfinished authorization, so `confirming` does not expire while waiting for status repair. The existing deadlines still apply to unfinished authorization, and an already-expired callback still cannot start Executor completion. Control-plane protocol 5 adds this state; workspace protocol is unchanged.
+
+Fault-injection coverage exercises initial setup and same-address reconnect through OpenAPI/API-key, MCP bearer, and Google's OAuth adapter; recovery after restart; rejected duplicate submission/cancellation; one connection per account; no repeated token exchange; and a declined reconnect that must stay failed despite an old connection. Local provider fixtures are not live consent tests.
+
+**Recovery verification:** affected-package checks passed all 56 tasks; control-plane tests passed 28 (2 skipped); workspace tests passed 89. The compiled browser app, backed by the real control plane with a failing setup-table write, passed the confirming → refresh → connected workflow with no additional credential submission and exactly one saved connection. Screenshots cover both states. Electron packaging passed. This follow-up did not rerun PostgreSQL or live provider consent; the PostgreSQL results below describe earlier checkpoints.
+
 **Post-merge verification:** all 56 affected-package tasks passed; the control-plane suite passed 27 tests (2 skipped), and the full workspace suite passed 88 tests using the package's fixture exclusions. Counts changed because main consolidated tests. Packaged Electron build and browser setup-launch E2E passed; the tab opens without replacing the session. The PostgreSQL persistence/reconnect test passed again against a disposable PostgreSQL 15 instance. Lockfile installation passed. No live provider consent or production deployment was performed.
 
 ```callstack
@@ -8445,4 +8469,37 @@ index 5292efff..93ad8015 100644
      );
    }
  
+```
+
+### Setup recovery browser patch
+
+```source-diff:setup-recovery-ui:packages/web/src/IntegrationSetupPage.tsx
+diff --git a/packages/web/src/IntegrationSetupPage.tsx b/packages/web/src/IntegrationSetupPage.tsx
+index b2736e3a..6e122276 100644
+--- a/packages/web/src/IntegrationSetupPage.tsx
++++ b/packages/web/src/IntegrationSetupPage.tsx
+@@ -44,6 +44,7 @@ export function IntegrationSetupPage({
+     },
+     refetchInterval: (query) =>
+       query.state.data?.status === "authorizing" ||
++      query.state.data?.status === "confirming" ||
+       query.state.data?.status === "awaiting_credentials"
+         ? 1500
+         : false,
+@@ -125,6 +126,14 @@ export function IntegrationSetupPage({
+                 )}
+               </>
+             )}
++            {data.status === "confirming" && (
++              <div role="status">
++                <P>
++                  Connection saved; confirming status… You do not need to
++                  connect again. This page will update automatically.
++                </P>
++              </div>
++            )}
+             {data.status === "cancelled" && (
+               <div role="status">
+                 <P>
+
 ```

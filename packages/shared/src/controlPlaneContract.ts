@@ -32,6 +32,7 @@ export type IntegrationSetup = IntegrationSetupCatalogEntry & {
   status:
     | "awaiting_credentials"
     | "authorizing"
+    | "confirming"
     | "ready"
     | "cancelled"
     | "expired"
@@ -90,8 +91,8 @@ function validated<T extends TSchema>(schema: T) {
   };
 }
 
-// Version 4 requires server-derived identity on connection_required outcomes.
-export const controlPlaneProtocolVersion = 4 as const;
+// Version 5 adds confirming for a saved connection awaiting setup-status repair.
+export const controlPlaneProtocolVersion = 5 as const;
 export const controlPlaneSupportedProtocols = [controlPlaneProtocolVersion];
 
 export type ControlPlaneSession = {

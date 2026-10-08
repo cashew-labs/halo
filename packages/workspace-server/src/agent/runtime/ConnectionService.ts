@@ -46,6 +46,7 @@ export type RemoteConnectionBackend = {
         status:
           | "awaiting_credentials"
           | "authorizing"
+          | "confirming"
           | "ready"
           | "cancelled"
           | "expired"
@@ -152,7 +153,8 @@ export class ConnectionService {
     if (this.pendingConnections.get(connectionId) !== pending) return;
     if (
       Date.now() >= pending.expiresAt &&
-      (setup instanceof Error || setup.status !== "ready")
+      (setup instanceof Error ||
+        (setup.status !== "ready" && setup.status !== "confirming"))
     ) {
       this.takeConnection(connectionId);
       const notified = await this.publishEvent(
@@ -168,7 +170,8 @@ export class ConnectionService {
     if (
       setup instanceof Error ||
       setup.status === "awaiting_credentials" ||
-      setup.status === "authorizing"
+      setup.status === "authorizing" ||
+      setup.status === "confirming"
     ) {
       pending.expires = setTimeout(
         () => void this.pollRemote(connectionId),

@@ -44,6 +44,7 @@ export function IntegrationSetupPage({
     },
     refetchInterval: (query) =>
       query.state.data?.status === "authorizing" ||
+      query.state.data?.status === "confirming" ||
       query.state.data?.status === "awaiting_credentials"
         ? 1500
         : false,
@@ -124,6 +125,14 @@ export function IntegrationSetupPage({
                   <Text>{data.connection.accountLabel}</Text>
                 )}
               </>
+            )}
+            {data.status === "confirming" && (
+              <div role="status">
+                <P>
+                  Connection saved; confirming status… You do not need to
+                  connect again. This page will update automatically.
+                </P>
+              </div>
             )}
             {data.status === "cancelled" && (
               <div role="status">

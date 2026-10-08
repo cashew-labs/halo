@@ -811,6 +811,219 @@ controlPlaneTest(
 );
 
 controlPlaneTest(
+  "recovers committed setups and reconnects after status-write failures and restart",
+  async ({
+    plane,
+    authenticatedRpc: human,
+    browserHeaders,
+    appDataDir,
+    integrationApi,
+    mcpApi,
+    webRoot,
+    workspaceProvider,
+  }) => {
+    await human.integrations.registerOpenAPI({
+      name: "Key API",
+      slug: "recovery-key",
+      url: `${integrationApi.origin}/key-spec`,
+    });
+    await human.integrations.registerMcp({
+      name: "MCP",
+      slug: "recovery-mcp",
+      endpoint: mcpApi.privateEndpoint,
+      auth: "bearer",
+    });
+    const session = await human.auth.session();
+    if (session.status !== "signed-in") throw new Error("Missing session");
+    const configured = await plane.integrations!.withUser(
+      session.session.user.id,
+      (executor) =>
+        Effect.gen(function* () {
+          yield* executor.openapi.configure(
+            IntegrationSlug.make("google_gmail"),
+            {
+              authenticationTemplate: [
+                {
+                  slug: "googleOAuth2",
+                  kind: "oauth2",
+                  authorizationUrl: `${integrationApi.origin}/oauth/authorize`,
+                  tokenUrl: `${integrationApi.origin}/oauth/token`,
+                  scopes: ["read"],
+                },
+              ],
+            },
+          );
+          yield* executor.oauth.createClient({
+            owner: Owner.make("user"),
+            slug: OAuthClientSlug.make("recovery"),
+            authorizationUrl: `${integrationApi.origin}/oauth/authorize`,
+            tokenUrl: `${integrationApi.origin}/oauth/token`,
+            grant: "authorization_code",
+            clientId: "fixture",
+            clientSecret: "private-client-secret",
+          });
+        }),
+    );
+    if (configured instanceof Error) throw configured;
+    using database = new DatabaseSync(join(appDataDir, "control-plane.db"));
+    const catalog = await human.integrations.catalog();
+    const completed: {
+      setupId: string;
+      connection: NonNullable<
+        Awaited<ReturnType<typeof human.integrations.setup>>["connection"]
+      >;
+    }[] = [];
+    for (const integration of [
+      "recovery-key",
+      "recovery-mcp",
+      "google_gmail",
+    ]) {
+      const method = catalog.find((entry) => entry.integration === integration)!
+        .methods[0]!;
+      // Test both a new unnamed connection and replacing the same account.
+      for (const reconnect of [false, true]) {
+        const previous = completed.find(
+          (entry) => entry.connection.integration === integration,
+        );
+        const attempt = await human.integrations.startSetup({
+          integration,
+          connectionName: reconnect ? previous!.connection.name : undefined,
+        });
+        database.exec(
+          `CREATE TRIGGER fail_recovery_write BEFORE UPDATE ON halo_integration_setup WHEN NEW.setup_id='${attempt.setupId}' AND NEW.status='ready' BEGIN SELECT RAISE(ABORT, 'fixture setup write failed'); END;`,
+        );
+        const submitted = await human.integrations.submitSetup({
+          setupId: attempt.setupId,
+          template: method.template,
+          values:
+            method.kind === "oauth"
+              ? {}
+              : {
+                  token:
+                    integration === "recovery-mcp"
+                      ? "fixture-mcp-key"
+                      : "replacement-api-key",
+                },
+        });
+        if (method.kind === "oauth") {
+          const state = new URL(submitted.authorizationUrl!).searchParams.get(
+            "state",
+          )!;
+          const callbackUrl = `${plane.origin}/api/integrations/oauth/callback?state=${encodeURIComponent(state)}&code=fixture-code`;
+          const response = await fetch(callbackUrl, { redirect: "manual" });
+          expect(response.status).toBe(303);
+          expect(response.headers.get("location")).toContain(attempt.setupId);
+          expect(
+            (await fetch(callbackUrl, { redirect: "manual" })).status,
+          ).toBe(400);
+        }
+        const confirming = await human.integrations.setup({
+          setupId: attempt.setupId,
+        });
+        expect(confirming).toMatchObject({
+          status: "confirming",
+          connection: { integration },
+        });
+        if (reconnect)
+          expect(confirming.connection).toEqual(previous!.connection);
+        await expect(
+          human.integrations.submitSetup({
+            setupId: attempt.setupId,
+            template: method.template,
+          }),
+        ).rejects.toThrow();
+        await expect(
+          human.integrations.cancelSetup({ setupId: attempt.setupId }),
+        ).rejects.toThrow();
+        expect(
+          (await human.integrations.connections()).filter(
+            (connection) => connection.integration === integration,
+          ),
+        ).toEqual([confirming.connection]);
+        completed.push({
+          setupId: attempt.setupId,
+          connection: confirming.connection!,
+        });
+        database.exec("DROP TRIGGER fail_recovery_write");
+        if (!reconnect) {
+          expect(
+            await human.integrations.setup({ setupId: attempt.setupId }),
+          ).toMatchObject({
+            status: "ready",
+            connection: confirming.connection,
+          });
+        }
+      }
+    }
+    // Keep every reconnect unconfirmed across a full control-plane restart.
+    database.exec(
+      "CREATE TRIGGER fail_recovery_write BEFORE UPDATE ON halo_integration_setup WHEN NEW.status='ready' BEGIN SELECT RAISE(ABORT, 'fixture setup write failed'); END;",
+    );
+    const requestsBeforeRestart = integrationApi.requests.length;
+    await plane.close();
+    const reopened = await ControlPlane.start({
+      config: {
+        deployment: "local",
+        workspace: { deployment: "local" },
+        appDataDir,
+        port: 0,
+        auth: testAuth,
+      },
+      webRoot,
+      workspaceProvider,
+      integrationEncryptionKey,
+      allowLocalIntegrationUrls: true,
+      getOpenAPISpec,
+    });
+    if (reopened instanceof Error) throw reopened;
+    await using cleanup = new errore.AsyncDisposableStack();
+    cleanup.defer(async () => {
+      const closed = await reopened.close();
+      if (closed instanceof Error) console.warn(closed);
+    });
+    const headers = new Headers(browserHeaders);
+    headers.set("origin", reopened.origin);
+    const restored = createControlPlaneRpcClient(reopened.origin, headers);
+    for (const attempt of completed.filter((_, index) => index % 2 === 1)) {
+      expect(
+        await restored.integrations.setup({ setupId: attempt.setupId }),
+      ).toMatchObject({ status: "confirming", connection: attempt.connection });
+    }
+    database.exec("DROP TRIGGER fail_recovery_write");
+    for (const attempt of completed) {
+      expect(
+        await restored.integrations.setup({ setupId: attempt.setupId }),
+      ).toMatchObject({ status: "ready", connection: attempt.connection });
+    }
+    expect(await restored.integrations.connections()).toHaveLength(3);
+    expect(integrationApi.requests).toHaveLength(requestsBeforeRestart);
+    // An older working connection is not proof that this new attempt succeeded.
+    const failed = await restored.integrations.startSetup({
+      integration: "google_gmail",
+      connectionName: completed.at(-1)!.connection.name,
+    });
+    const declined = await restored.integrations.submitSetup({
+      setupId: failed.setupId,
+      template: "googleOAuth2",
+    });
+    const declinedState = new URL(declined.authorizationUrl!).searchParams.get(
+      "state",
+    )!;
+    expect(
+      (
+        await fetch(
+          `${reopened.origin}/api/integrations/oauth/callback?state=${encodeURIComponent(declinedState)}&error=access_denied`,
+          { redirect: "manual" },
+        )
+      ).status,
+    ).toBe(303);
+    expect(
+      await restored.integrations.setup({ setupId: failed.setupId }),
+    ).toMatchObject({ status: "failed" });
+  },
+);
+
+controlPlaneTest(
   "redeems OAuth setup state once and preserves setups across restart",
   async ({
     agent,
@@ -911,12 +1124,25 @@ controlPlaneTest(
           `${plane.origin}/api/integrations/oauth/callback?state=${encodeURIComponent(state)}&code=fixture-code`,
           { redirect: "manual" },
         );
-        expect(response.status).toBe(400);
+        expect(response.status).toBe(303);
+        expect(response.headers.get("location")).toContain(attempt.setupId);
       } else await expect(submitting).rejects.toThrow();
       expect(
         await authenticatedRpc.integrations.setup({ setupId: attempt.setupId }),
-      ).toMatchObject({ status: "failed" });
+      ).toMatchObject({
+        status: fault === "reject-finish" ? "confirming" : "failed",
+      });
       setupDatabase.exec("DROP TRIGGER fail_setup_write");
+      if (fault === "reject-finish") {
+        expect(
+          await authenticatedRpc.integrations.setup({
+            setupId: attempt.setupId,
+          }),
+        ).toMatchObject({
+          status: "ready",
+          connection: { integration: "setup-oauth" },
+        });
+      }
       const retry = await authenticatedRpc.integrations.startSetup({
         integration: "setup-oauth",
         connectionName: pending.connectionName,
