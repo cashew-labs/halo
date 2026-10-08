@@ -17,10 +17,18 @@ export const chatAttachmentSchema = Type.Object({
 });
 
 export type ChatAttachment = Static<typeof chatAttachmentSchema>;
-export const chatReferenceSchema = Type.Object({
+const fileReferenceSchema = Type.Object({
   path: Type.String({ minLength: 1 }),
   text: Type.Optional(Type.String({ minLength: 1 })),
 });
+const sessionReferenceSchema = Type.Object({
+  sessionId: Type.String({ minLength: 1 }),
+  title: Type.String({ minLength: 1 }),
+});
+export const chatReferenceSchema = Type.Union([
+  fileReferenceSchema,
+  sessionReferenceSchema,
+]);
 export type ChatReference = Static<typeof chatReferenceSchema>;
 export type ChatPrompt = {
   text: string;
@@ -32,13 +40,16 @@ export type ChatPrompt = {
 export function chatPromptContent(
   text: string,
   references: readonly ChatReference[],
+  sessionContents: ReadonlyMap<string, string> = new Map(),
 ) {
   if (references.length === 0) return text;
-  const context = references.map(({ path, text: selected }) =>
-    selected === undefined
-      ? `File: ${JSON.stringify(path)}. Read this workspace file if needed.`
-      : `Selected text from ${JSON.stringify(path)}:\n${selected}`,
-  );
+  const context = references.map((reference) => {
+    if ("sessionId" in reference)
+      return `Session ${JSON.stringify(reference.title)} (${reference.sessionId}):\n${sessionContents.get(reference.sessionId) ?? "No messages in this session."}`;
+    return reference.text === undefined
+      ? `File: ${JSON.stringify(reference.path)}. Read this workspace file if needed.`
+      : `Selected text from ${JSON.stringify(reference.path)}:\n${reference.text}`;
+  });
   return `${text}${text ? "\n\n" : ""}Workspace references:\n${context.join("\n\n")}`;
 }
 
@@ -76,7 +87,11 @@ export function chatPromptTitle(input: {
   return (
     input.text.trim() ||
     input.files?.map((file) => file.name).join(", ") ||
-    input.references?.map((reference) => reference.path).join(", ") ||
+    input.references
+      ?.map((reference) =>
+        "sessionId" in reference ? reference.title : reference.path,
+      )
+      .join(", ") ||
     "New session"
   );
 }

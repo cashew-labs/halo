@@ -37,6 +37,13 @@ export const routinesRouter = os.router({
     // SAFETY: Only a scheduled trigger can find no due occurrence.
     return run as RoutineRun;
   }),
+  runScheduled: os.runScheduled.handler(async ({ context, input }) => {
+    const run = await context.routineRunner.start({
+      routineId: input.routineId,
+      trigger: "schedule",
+    });
+    if (run instanceof Error) return orpcErrors.badRequest(run);
+  }),
   listRuns: os.listRuns.handler(async ({ context, input }) => {
     const runs = await context.routines.listRuns(input);
     if (runs instanceof Error) return orpcErrors.badRequest(runs);

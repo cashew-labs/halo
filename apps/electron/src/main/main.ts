@@ -34,10 +34,7 @@ import {
 } from "./DesktopAuthentication.js";
 import { ControlPlaneAuth } from "./auth/ControlPlaneAuth.js";
 import { createAdcDesktopIdentity } from "./auth/createAdcDesktopIdentity.js";
-import {
-  closePendingOAuthCallbacks,
-  registerDesktopApi,
-} from "./api/registerDesktopApi.js";
+import { registerDesktopApi } from "./api/registerDesktopApi.js";
 import type { HaloRpcConnection } from "../shared/HaloRpcConnection.js";
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string;
 declare const MAIN_WINDOW_VITE_NAME: string;
@@ -247,9 +244,6 @@ app.on("window-all-closed", () => {
 
 app.on("will-quit", () => {
   appUpdates.close();
-  void closePendingOAuthCallbacks().catch((cause) => {
-    console.warn("OAuth callback close failed:", cause);
-  });
   logger.destroy();
 });
 

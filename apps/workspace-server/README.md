@@ -114,12 +114,16 @@ model through the OpenAI-compatible Pi transport. See [the inference boundary](.
 
 ## Credential storage
 
-`FileCredentialVault` stores credential values as plain files under
-`<workspace>/.halo/executor/credentials`, with directory mode `0700` and file
-mode `0600`. Filenames are hashes of credential IDs. This filesystem-backed
-store has no Electron or OS-keyring dependency; credentials will move to the
-control plane in a later phase. Existing encrypted credential files are not
-migrated.
+Integration credentials are encrypted in the control-plane database by
+`CredentialService`. Its encryption key comes from the canonical GCP Secret
+Manager secret `halo-control-plane-integration-credential-key` in `halo-relay`.
+The workspace calls the control plane with its runtime identity; it neither
+loads integration credentials nor receives them from the setup page.
+
+Executor still runs JavaScript and local tools on the workspace. Its local
+database and tool approvals remain. Existing files under
+`<workspace>/.halo/executor/credentials` are left untouched but are no longer
+read. Users reconnect through the control plane; old connections are not migrated.
 
 ## Test setup
 
@@ -129,7 +133,7 @@ Electron's fixture launches the same `src/main.ts` as normal runs. The app enabl
 
 ## Ownership
 
-`WorkspaceServer` lives in `@get-halo/workspace-server`. It owns service construction, the shared database, product HTTP, and cleanup; there is no separate runtime object or public bag of child services. The app's `main.ts` reads launch settings, supplies inference, credentials, bind address, and executable choices, calls `WorkspaceServer.start({ config, host })`, and owns discovery files and process shutdown. Tests construct the same class through the package root.
+`WorkspaceServer` lives in `@get-halo/workspace-server`. It owns service construction, the shared database, product HTTP, and cleanup; there is no separate runtime object or public bag of child services. The app's `main.ts` reads launch settings, supplies inference, remote integration access, bind address, and executable choices, calls `WorkspaceServer.start({ config, host })`, and owns discovery files and process shutdown. Tests construct the same class through the package root.
 
 ```text
 pnpm dev

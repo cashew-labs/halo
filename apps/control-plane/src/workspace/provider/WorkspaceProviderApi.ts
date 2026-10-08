@@ -61,4 +61,7 @@ export interface WorkspaceProviderApi {
 
   /** Wake a paused workspace; absent when unsupported. Does not imply server readiness. */
   resume?: (input: WorkspaceProviderInput) => Promise<void | Error>;
+
+  /** Repair a running workspace's guest clock before time-sensitive work. */
+  synchronizeClock?: (input: WorkspaceProviderInput) => Promise<void | Error>;
 }

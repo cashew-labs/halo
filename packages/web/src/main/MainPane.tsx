@@ -30,7 +30,11 @@ export function MainPane({ sessions }: { sessions: SessionSummary[] }) {
       </Route>
       <Route path="/draft/:draftId">
         {(params) => (
-          <DraftAgentPane key={params.draftId} draftId={params.draftId} />
+          <DraftAgentPane
+            key={params.draftId}
+            draftId={params.draftId}
+            sessions={sessions}
+          />
         )}
       </Route>
       <Route path="/sessions/:sessionId">
