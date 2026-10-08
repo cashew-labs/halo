@@ -472,15 +472,24 @@ export class ToolRuntime {
     const connectionRequests: ConnectionRequest[] = [];
     const approvalRequests: ToolApproval[] = [];
     const collectConnectionRequest = (request: ConnectionRequest) => {
+      // Released desktop clients validate the old card schema before sending
+      // IPC. These routing markers are inert: setup authority stays on the CP.
+      const compatible = {
+        client: "control-plane",
+        clientOwner: "org" as const,
+        owner: "user" as const,
+        template: "control-plane",
+        ...request,
+        connectionName: request.connectionName ?? "default",
+      };
       if (
         !connectionRequests.some(
           (existing) =>
-            existing.kind === request.kind &&
-            existing.integration === request.integration &&
-            existing.connectionName === request.connectionName,
+            existing.integration === compatible.integration &&
+            existing.connectionName === compatible.connectionName,
         )
       )
-        connectionRequests.push(request);
+        connectionRequests.push(compatible);
     };
     const execution = await this.executionContext.run(
       {

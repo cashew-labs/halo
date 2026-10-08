@@ -98,6 +98,7 @@ export const threadRouter = os.router({
       const started = await context.connections.startConnection({
         sessionId: input.sessionId,
         request: input.request,
+        legacyClient: input.completion !== undefined,
         onEvent: async (event) => {
           const published = await context.sessions.publishConnectionEvent(
             input.sessionId,
@@ -146,6 +147,13 @@ export const threadRouter = os.router({
       if (notified instanceof Error) return orpcErrors.badRequest(notified);
       return started;
     },
+  ),
+  completeOAuth: os.completeOAuth.handler(() =>
+    orpcErrors.badRequest(
+      new Error(
+        "This connection attempt expired when the workspace was upgraded. Connect again to finish authorization in Halo.",
+      ),
+    ),
   ),
   cancelConnection: os.cancelConnection.handler(async ({ input, context }) => {
     context.logger.info({

@@ -379,15 +379,15 @@ serverTest(
   },
 );
 
-serverTest(
-  "protocol 25 clients keep routine CRUD, execution, and the original workspace stream",
-  async ({ server }) => {
+serverTest.for([24, 25])(
+  "protocol %i clients keep routine CRUD, execution, and the original workspace stream",
+  async (protocol, { server }) => {
     const legacy = createHaloClient({
       transport: {
         ...server.transport,
         headers: {
           ...server.transport.headers,
-          "x-halo-protocol-version": "25",
+          "x-halo-protocol-version": String(protocol),
         },
       },
     });

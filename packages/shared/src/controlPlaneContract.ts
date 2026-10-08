@@ -93,7 +93,8 @@ function validated<T extends TSchema>(schema: T) {
 
 // Version 5 adds confirming for a saved connection awaiting setup-status repair.
 export const controlPlaneProtocolVersion = 5 as const;
-export const controlPlaneSupportedProtocols = [controlPlaneProtocolVersion];
+// Protocol 3 exposes the unchanged auth/workspace APIs, without integrations.
+export const controlPlaneSupportedProtocols = [3, controlPlaneProtocolVersion];
 
 export type ControlPlaneSession = {
   session: {

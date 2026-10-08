@@ -39,7 +39,7 @@ import type {
 // Automation APIs are additive. Existing clients keep the protocol-25 stream
 // unless they explicitly subscribe to automation updates.
 export const haloProtocolVersion = 25 as const;
-export const haloSupportedProtocols = [haloProtocolVersion];
+export const haloSupportedProtocols = [24, haloProtocolVersion];
 
 export const RequestRejectedError = error("BAD_REQUEST", {
   message: "Halo could not complete the request.",
@@ -244,9 +244,16 @@ export const contract = publicProcedure.router({
         type<{
           sessionId: string;
           request: ConnectionRequest;
+          // Protocol 24 clients still send completion. OAuth now finishes on
+          // the control plane; no provider code is sent to this redirect URI.
+          completion?:
+            | { kind: "client-loopback"; redirectUri: string }
+            | { kind: "server-redirect"; redirectUri: string };
         }>(),
       )
       .output(type<ConnectionStarted>()),
+    // An OAuth attempt started on a replaced workspace must be restarted.
+    completeOAuth: oc.input(type<{ state: string; code: string }>()),
     cancelConnection:
       oc.input(type<{ sessionId: string; connectionId: string }>()),
     respondToToolApproval:

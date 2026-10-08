@@ -3921,3 +3921,32 @@ controlPlaneTest(
     }
   },
 );
+
+controlPlaneTest(
+  "released protocol 3 clients retain authenticated workspace access",
+  async ({ plane, browserHeaders }) => {
+    const headers = new Headers(browserHeaders);
+    headers.set("x-halo-protocol-version", "3");
+    const legacy = createControlPlaneRpcClient(plane.origin, headers);
+    expect(await legacy.server.info()).toMatchObject({
+      protocolVersion: 5,
+      supportedProtocols: [3, 5],
+    });
+    expect(await legacy.auth.session()).toMatchObject({ status: "signed-in" });
+    const workspace = await legacy.workspace.ensure();
+    expect(workspace.id).toBeTruthy();
+    expect(await legacy.workspace.status()).toEqual({ status: "running" });
+    const unauthenticated = createControlPlaneRpcClient(
+      plane.origin,
+      new Headers({ "x-halo-protocol-version": "3" }),
+    );
+    await expect(unauthenticated.workspace.ensure()).rejects.toMatchObject({
+      code: "UNAUTHORIZED",
+    });
+    headers.set("x-halo-protocol-version", "999");
+    const unsupported = createControlPlaneRpcClient(plane.origin, headers);
+    await expect(unsupported.workspace.ensure()).rejects.toMatchObject({
+      code: "UNSUPPORTED_PROTOCOL",
+    });
+  },
+);
