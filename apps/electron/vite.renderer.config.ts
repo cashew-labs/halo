@@ -8,7 +8,8 @@ export default defineConfig({
   plugins: [react()],
   build: {
     minify: false,
-    sourcemap: false,
+    // code-review-agent reads renderer coverage from source maps; emit them only for its builds.
+    sourcemap: process.env.REVIEW_COVERAGE === "1",
     rolldownOptions: {
       output: {
         minify: false,

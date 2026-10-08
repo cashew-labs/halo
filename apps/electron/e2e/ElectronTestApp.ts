@@ -9,6 +9,11 @@ import {
 } from "playwright";
 import type { TestArtifacts } from "./TestArtifacts.js";
 import { resolveUnpackedExecutable } from "./resolveUnpackedExecutable.js";
+import {
+  flushMainCoverage,
+  startPageCoverage,
+  stopPageCoverage,
+} from "./e2eCoverage.js";
 
 type RunningApp = {
   electron: ElectronApplication;
@@ -19,6 +24,8 @@ type RunningApp = {
 
 export class ElectronTestApp {
   private current: RunningApp | undefined;
+  // Pages whose renderer coverage is being collected, stopped before the app closes.
+  private readonly coveredPages = new Set<Page>();
   constructor(private readonly artifacts: TestArtifacts) {}
 
   get page() {
@@ -70,6 +77,8 @@ export class ElectronTestApp {
     const page = await electronApp.firstWindow();
     const rendererCaptured = await this.artifacts.captureRenderer(page);
     if (rendererCaptured instanceof Error) throw rendererCaptured;
+    await startPageCoverage(page);
+    this.coveredPages.add(page);
     resources.defer(async () => {
       if (page.isClosed()) return;
       const screenshot = await this.artifacts.captureScreenshot(page, launch);
@@ -101,6 +110,16 @@ export class ElectronTestApp {
     const current = this.current;
     if (current === undefined) return;
     this.current = undefined;
+    // Write coverage while the app is still alive; teardown below may kill it.
+    await flushMainCoverage(current.electron).catch((cause) => {
+      console.warn("Flushing main-process coverage failed:", cause);
+    });
+    for (const page of this.coveredPages) {
+      await stopPageCoverage(page).catch((cause) => {
+        console.warn("Stopping renderer coverage failed:", cause);
+      });
+    }
+    this.coveredPages.clear();
     const child = current.electron.process();
     using cleanup = new errore.DisposableStack();
     // GitHub Actions can keep Halo alive after Connect. Do not wait on close().
@@ -168,6 +187,8 @@ export class ElectronTestApp {
     const page = await opened;
     const captured = await this.artifacts.captureRenderer(page);
     if (captured instanceof Error) throw captured;
+    await startPageCoverage(page);
+    this.coveredPages.add(page);
     return page;
   }
 

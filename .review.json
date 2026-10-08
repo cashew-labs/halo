@@ -1,0 +1,26 @@
+{
+  "tests": [
+    {
+      "runner": "command",
+      "dir": "packages/copy-path-to-symbol",
+      "match": "**/*.test.js",
+      "run": "node --test {files}"
+    },
+    {
+      "runner": "playwright",
+      "dir": "apps/electron",
+      "match": "e2e/**/*.e2e.test.ts",
+      "build": "pnpm run test:e2e:build"
+    },
+    {
+      "runner": "playwright",
+      "dir": "packages/extension-tools",
+      "match": "test/**/*.test.ts",
+      "build": "pnpm --filter @get-halo/extension-sdk exec tsc -p tsconfig.json --sourceMap && pnpm exec tsc -p tsconfig.build.json --sourceMap && node --input-type=module -e \"import { chmodSync } from 'node:fs'; chmodSync('dist/cli.js', 0o755)\""
+    },
+    {
+      "runner": "vitest",
+      "match": "!**/fixtures.test.ts"
+    }
+  ]
+}

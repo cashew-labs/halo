@@ -16,6 +16,8 @@ node_modules
 # Testing
 coverage
 .vitest/
+# code-review-agent temp tests (per-change, never merged)
+**/.tmp-tests/
 
 # Turbo
 .turbo
