@@ -65,6 +65,7 @@ export type ControlPlaneApplicationConfig = {
   mode: ApplicationMode;
   server: ControlPlaneConfig;
   inferenceApiKey: string;
+  integrationEncryptionKey: Buffer;
 };
 
 interface AuthSecretIds {
@@ -100,6 +101,9 @@ export async function readControlPlaneConfig(): Promise<
     secretId: "together-ai-api-key",
   });
   if (inferenceApiKey instanceof Error) return inferenceApiKey;
+  const integrationEncryptionKey = await readIntegrationEncryptionKey();
+  if (integrationEncryptionKey instanceof Error)
+    return integrationEncryptionKey;
   return {
     mode:
       configPath === undefined && process.env.K_SERVICE === undefined
@@ -107,7 +111,22 @@ export async function readControlPlaneConfig(): Promise<
         : ApplicationMode.Production,
     server,
     inferenceApiKey,
+    integrationEncryptionKey,
   };
+}
+
+async function readIntegrationEncryptionKey() {
+  const encoded = await readGcpSecret({
+    projectId: secretProjectId,
+    secretId: "halo-control-plane-integration-credential-key",
+  });
+  if (encoded instanceof Error) return encoded;
+  const key = Buffer.from(encoded.trim(), "base64");
+  if (key.length !== 32 || key.toString("base64") !== encoded.trim())
+    return new ControlPlaneConfigError({
+      detail: "integration key must be 32 bytes encoded as base64",
+    });
+  return key;
 }
 
 async function readConfigFile(configPath: string) {

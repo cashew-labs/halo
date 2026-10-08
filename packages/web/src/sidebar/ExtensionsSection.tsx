@@ -1,7 +1,7 @@
 import { useEffect, useEffectEvent } from "react";
 import { Text } from "maui";
 import * as MauiIcons from "maui/icons";
-import { CalendarTimer } from "maui/icons";
+import { CalendarTimer, Puzzle } from "maui/icons";
 import { useLocation } from "wouter";
 
 import { useExtensions, useRoutines } from "../api/WorkspaceUpdatesProvider.js";
@@ -71,10 +71,11 @@ export function ExtensionsSection() {
             }
             pageTitle={extension?.displayName ?? extensionId}
             hasChildItems={owned.length > 0}
+            chevronPosition="trailing"
             icon={
               extension?.icon === undefined
-                ? undefined
-                : icons.get(extension.icon)
+                ? Puzzle
+                : (icons.get(extension.icon) ?? Puzzle)
             }
             trailing={
               extension === undefined ? (

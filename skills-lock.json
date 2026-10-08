@@ -13,11 +13,11 @@
       "skillPath": "skills/errore/SKILL.md",
       "computedHash": "c8c58707dfee91f71d479431d3ab3d64d63f824c22760444e7ae08b6397fd378"
     },
-    "generate-spec": {
+    "generate-diffmap": {
       "source": "tanishqkancharla/diffmap",
       "sourceType": "github",
-      "skillPath": "skills/generate-spec/SKILL.md",
-      "computedHash": "638341eebc677df91248c3568f80434460135d5f4d2d4f4366bcbaa8aeebbd54"
+      "skillPath": "skills/generate-diffmap/SKILL.md",
+      "computedHash": "82da86e68130814d2a291ca0e870c86905f44e7d6a49d3005f864a707ca41f22"
     },
     "maui": {
       "source": "tanishqkancharla/maui",

@@ -231,6 +231,7 @@ const haloConnectionEventSchema = Type.Union([
       Type.Literal("connected"),
       Type.Literal("cancelled"),
       Type.Literal("expired"),
+      Type.Literal("failed"),
     ]),
   }),
 ]);

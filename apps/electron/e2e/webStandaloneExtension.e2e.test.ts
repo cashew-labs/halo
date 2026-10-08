@@ -1,5 +1,8 @@
 import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
+import http from "node:http";
+import { once } from "node:events";
+import type { AddressInfo } from "node:net";
 import { expect } from "@playwright/test";
 import { betterAuth } from "better-auth";
 import { testUtils } from "better-auth/plugins";
@@ -7,6 +10,9 @@ import * as errore from "errore";
 import { ControlPlane } from "../../control-plane/src/server/ControlPlane.js";
 import { LocalWorkspaceProvider } from "../../control-plane/src/workspace/provider/local/LocalWorkspaceProvider.js";
 import { m } from "@get-halo/shared/testing";
+import { createORPCClient } from "@orpc/client";
+import { RPCLink } from "@orpc/client/fetch";
+import type { ControlPlaneClient } from "@get-halo/shared/controlPlaneContract";
 import { e2eTest } from "./e2eTest.js";
 
 const auth = {
@@ -193,20 +199,156 @@ e2eTest(
 );
 
 e2eTest(
-  "completes an integration connection through same-tab web OAuth",
-  async ({ browser, harness, http, llm, testArtifacts }) => {
+  "confirms a saved connection without asking the user to reconnect",
+  async ({ browser, testArtifacts }, testInfo) => {
+    await using cleanup = new errore.AsyncDisposableStack();
+    const provider = http.createServer((request, response) => {
+      response.writeHead(200, { "content-type": "application/json" }).end(
+        JSON.stringify({
+          openapi: "3.0.0",
+          info: { title: "Example API", version: "1" },
+          servers: [{ url: `http://${request.headers.host}` }],
+          components: {
+            securitySchemes: {
+              key: { type: "apiKey", in: "header", name: "X-Api-Key" },
+            },
+          },
+          security: [{ key: [] }],
+          paths: {
+            "/items": {
+              get: {
+                operationId: "listItems",
+                responses: { "200": { description: "OK" } },
+              },
+            },
+          },
+        }),
+      );
+    });
+    provider.listen(0, "127.0.0.1");
+    await once(provider, "listening");
+    cleanup.defer(async () => {
+      provider.closeAllConnections();
+      await new Promise<void>((resolve, reject) =>
+        provider.close((error) =>
+          error === undefined ? resolve() : reject(error),
+        ),
+      );
+    });
+    // SAFETY: The provider is listening on a TCP port.
+    const providerOrigin = `http://127.0.0.1:${(provider.address() as AddressInfo).port}`;
+    const plane = await ControlPlane.start({
+      config: {
+        deployment: "local",
+        workspace: { deployment: "local" },
+        appDataDir: testArtifacts.paths.userData,
+        port: 0,
+        auth,
+      },
+      webRoot: path.resolve(import.meta.dirname, "../../web-app/dist"),
+      workspaceProvider: new LocalWorkspaceProvider({
+        appDataDir: testArtifacts.paths.userData,
+      }),
+      integrationEncryptionKey: Buffer.alloc(32, 17),
+      allowLocalIntegrationUrls: true,
+      getOpenAPISpec: async () =>
+        JSON.stringify({
+          discoveryVersion: "v1",
+          id: "test:v1",
+          name: "test",
+          version: "v1",
+          title: "Google fixture",
+          rootUrl: `${providerOrigin}/`,
+          servicePath: "test/",
+          resources: {},
+        }),
+    });
+    if (plane instanceof Error) throw plane;
+    cleanup.defer(async () => {
+      const closed = await plane.close();
+      if (closed instanceof Error) throw closed;
+    });
+    const cookie = await createAuthenticatedCookie({
+      appDataDir: testArtifacts.paths.userData,
+      origin: plane.origin,
+    });
+    const client: ControlPlaneClient = createORPCClient(
+      new RPCLink({
+        origin: plane.origin,
+        url: "/rpc",
+        headers: { cookie, origin: plane.origin },
+      }),
+    );
+    await client.integrations.registerOpenAPI({
+      name: "Example API",
+      slug: "example-api",
+      url: `${providerOrigin}/spec`,
+    });
+    const setup = await client.integrations.startSetup({
+      integration: "example-api",
+      connectionName: "personal",
+    });
+    using database = new DatabaseSync(
+      path.join(testArtifacts.paths.userData, "control-plane.db"),
+    );
+    database.exec(
+      "CREATE TRIGGER fail_setup_write BEFORE UPDATE ON halo_integration_setup WHEN NEW.status='ready' BEGIN SELECT RAISE(ABORT, 'fixture setup write failed'); END;",
+    );
+    const context = await browser.newContext({
+      extraHTTPHeaders: { cookie },
+      viewport: { width: 960, height: 640 },
+      deviceScaleFactor: 2,
+    });
+    cleanup.defer(async () => await context.close());
+    const page = await context.newPage();
+    await page.goto(setup.setupUrl);
+    await page.getByLabel("token", { exact: true }).fill("fixture-api-key");
+    await page.getByRole("button", { name: "Connect", exact: true }).click();
+    await expect(page.getByRole("status")).toContainText(
+      "Connection saved; confirming status…",
+    );
+    await expect(
+      page.getByRole("button", { name: /Connect|Cancel/ }),
+    ).toHaveCount(0);
+    await testInfo.attach("connection-confirming", {
+      body: await page.screenshot({
+        path: testInfo.outputPath("connection-confirming.png"),
+      }),
+      contentType: "image/png",
+    });
+    await page.reload();
+    await expect(page.getByRole("status")).toContainText(
+      "Connection saved; confirming status…",
+    );
+    database.exec("DROP TRIGGER fail_setup_write");
+    await expect(
+      page.getByRole("heading", { name: "Example API connected" }),
+    ).toBeVisible();
+    await expect(page.getByRole("status")).toContainText(
+      "Your connection is ready",
+    );
+    await testInfo.attach("connection-ready", {
+      body: await page.screenshot({
+        path: testInfo.outputPath("connection-ready.png"),
+      }),
+      contentType: "image/png",
+    });
+    expect(await client.integrations.connections()).toHaveLength(1);
+  },
+);
+
+e2eTest(
+  "opens remote integration setup in a new tab without leaving the session",
+  async ({ browser, harness, testArtifacts }) => {
     e2eTest.setTimeout(60_000);
     const session = await harness.loadSession({
       title: "Drive search",
       messages: [
         m.user("Find my planning document"),
         m.connectionRequest({
-          client: "first-party:google",
-          clientOwner: "org",
-          owner: "user",
+          kind: "control-plane",
           connectionName: "default",
           integration: "google_drive",
-          template: "googleOAuth2",
         }),
       ],
     });
@@ -244,69 +386,51 @@ e2eTest(
     const card = page.getByRole("region", {
       name: "Google Drive connection",
     });
-    await page.route("https://accounts.google.com/**", async (route) => {
-      const authorizationUrl = new URL(route.request().url());
-      const callbackValue = authorizationUrl.searchParams.get("redirect_uri");
-      const state = authorizationUrl.searchParams.get("state");
-      if (callbackValue === null || state === null) {
-        throw new Error("OAuth authorization request was incomplete");
-      }
-      const callback = new URL(callbackValue);
-      callback.searchParams.set("code", "accepted-code");
-      callback.searchParams.set("state", state);
+    await expect(card).toBeVisible({ timeout: 10_000 });
+    const setupUrl = `${plane.origin}/integrations/setup/browser-launch`;
+    // This browser-host scenario controls the remote launch response at the
+    // transport boundary; control-plane tests cover setup and OAuth completion.
+    await page.route("**/rpc/thread/startConnection", async (route) => {
+      expect(route.request().postDataJSON()).toMatchObject({
+        json: {
+          sessionId: session.sessionId,
+          request: {
+            kind: "control-plane",
+            integration: "google_drive",
+            connectionName: "default",
+          },
+        },
+      });
       await route.fulfill({
-        body: `<main><a href="${callback.toString()}">Authorize Halo</a></main>`,
+        json: {
+          json: {
+            status: "authorization-required",
+            authorizationUrl: setupUrl,
+            connectionId: "browser-launch",
+            expiresAt: Date.now() + 60_000,
+            wasConnected: false,
+          },
+        },
+      });
+    });
+    await context.route(setupUrl, async (route) => {
+      await route.fulfill({
+        body: "<main><h1>Set up Google Drive</h1></main>",
         contentType: "text/html; charset=utf-8",
       });
     });
-    const authorizationRequest = page.waitForRequest((request) => {
-      const url = new URL(request.url());
-      return (
-        url.origin === "https://accounts.google.com" &&
-        url.pathname === "/o/oauth2/v2/auth"
-      );
-    });
+    const popup = context.waitForEvent("page");
     await card
       .getByRole("button", { name: "Connect" })
       .click({ noWaitAfter: true });
-    const authorizationUrl = new URL((await authorizationRequest).url());
-    expect(authorizationUrl.searchParams.get("client_id")).toBe(
-      "e2e-google-web-client",
-    );
-    const callbackValue = authorizationUrl.searchParams.get("redirect_uri");
-    if (callbackValue === null) {
-      throw new Error("OAuth authorization request was incomplete");
-    }
-    const callback = new URL(callbackValue);
-    expect(callback.origin).toBe(plane.origin);
-    expect(callback.pathname).toBe("/workspace/oauth/callback");
-
-    const tokenRequest = http.request("/token");
-    await page
-      .getByRole("link", { name: "Authorize Halo" })
-      .click({ noWaitAfter: true });
-    const token = await tokenRequest;
-    token.respond(
-      JSON.stringify({
-        access_token: "test-access-token",
-        expires_in: 3_600,
-        scope: authorizationUrl.searchParams.get("scope"),
-        token_type: "Bearer",
-      }),
-      { contentType: "application/json" },
-    );
-
-    await page.waitForURL(`${plane.origin}/#/sessions/${session.sessionId}`);
-    await page.waitForLoadState("domcontentloaded");
-    await expect(page.getByTestId("sessions-shell")).toBeVisible({
-      timeout: 10_000,
-    });
-    const returnedCard = page.getByRole("region", {
-      name: "Google Drive connection",
-    });
+    const setupPage = await popup;
+    await expect(setupPage).toHaveURL(setupUrl);
     await expect(
-      returnedCard.getByText("Connected", { exact: true }),
-    ).toBeVisible({ timeout: 10_000 });
-    await llm.respond(m.assistant("The connection is ready."));
+      setupPage.getByRole("heading", { name: "Set up Google Drive" }),
+    ).toBeVisible();
+    await expect(page).toHaveURL(
+      `${plane.origin}/#/sessions/${session.sessionId}`,
+    );
+    await expect(card).toBeVisible();
   },
 );

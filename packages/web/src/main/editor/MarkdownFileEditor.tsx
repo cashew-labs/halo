@@ -1,19 +1,38 @@
-import { TaskItem, TaskList } from "@tiptap/extension-list";
+import { TaskList } from "@tiptap/extension-list";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { colors, flex } from "maui";
+import {
+  backgroundColor,
+  colors,
+  flex,
+  radius,
+  shadow,
+  text as textStyle,
+} from "maui";
 import { Editor } from "maui/editor";
 import { style, useStyles } from "purse-styles";
-import { useAutosaveFile } from "./useAutosaveFile.js";
+import { useAutosaveFile } from "../useAutosaveFile.js";
 import { useMarkdownEditor } from "./useMarkdownEditor.js";
 import { markdownImage } from "./markdownImage.js";
+import { BlockEditing } from "./BlockEditing.js";
+import { MarkdownTaskItem } from "./MarkdownTaskItem.js";
 import {
   MarkdownFindHighlight,
   setMarkdownFindHighlight,
 } from "./MarkdownFindHighlight.js";
-import { useApi } from "../api/ApiProvider.js";
-import { useTabFindSource } from "../panes/TabFind.js";
-import { useIsActiveTab } from "../panes/WorkspacePanesProvider.js";
-import { observeFileSelection } from "./chatReferences.js";
+import {
+  useApi,
+  useSessionsQuery,
+  useWorkspacePathsQuery,
+  useWorkspaceQuery,
+} from "../../api/ApiProvider.js";
+import { useTabFindSource } from "../../panes/TabFind.js";
+import { useIsActiveTab } from "../../panes/WorkspacePanesProvider.js";
+import { observeFileSelection } from "../chatReferences.js";
+import {
+  referenceHref,
+  useReferencePicker,
+  type ReferenceTarget,
+} from "../ReferencePicker.js";
 
 export function MarkdownFileEditor({
   path,
@@ -25,28 +44,64 @@ export function MarkdownFileEditor({
   const autosave = useAutosaveFile({ path, loaded });
   const isActiveTab = useIsActiveTab();
   const api = useApi();
+  const workspace = useWorkspaceQuery().data;
+  const paths = useWorkspacePathsQuery(workspace).data;
+  const sessions = useSessionsQuery(workspace).data ?? [];
+  const targets: ReferenceTarget[] = [
+    ...(paths ?? [])
+      .filter((candidate) => !candidate.endsWith("/"))
+      .map((candidate) => ({ kind: "file" as const, path: candidate })),
+    ...sessions.map((session) => ({
+      kind: "session" as const,
+      sessionId: session.sessionId,
+      title: session.title ?? session.sessionId,
+    })),
+  ];
   const apiRef = useRef(api);
   useEffect(() => {
     apiRef.current = api;
   }, [api]);
   const [error, setError] = useState<string>();
   const [, forceUpdate] = useState(0);
+  const copyMenuClassName = useStyles(copyMenuStyle);
   /* oxlint-disable react/refs -- The factory stores the ref; only later plugin event handlers read its client. */
   const extensions = useMemo(
     () => [
+      BlockEditing,
       TaskList,
-      TaskItem.configure({ nested: true }),
+      MarkdownTaskItem.configure({ nested: true }),
       markdownImage({
         client: apiRef,
         documentPath: path,
+        copyMenuClassName,
         onError: setError,
       }),
       MarkdownFindHighlight,
     ],
-    [path, apiRef],
+    [path, apiRef, copyMenuClassName],
   );
   /* oxlint-enable react/refs */
   const className = useStyles(editorClass);
+  const shellClassName = useStyles(editorShellClass);
+  const picker = useReferencePicker({
+    targets,
+    placement: "cursor",
+    onSelect: (target, query) => {
+      if (editor === null) return;
+      editor
+        .chain()
+        .focus()
+        .insertContentAt({ from: query.from, to: query.to }, [
+          {
+            type: "text",
+            text: `@${target.kind === "file" ? target.path.split("/").at(-1) : target.title}`,
+            marks: [{ type: "link", attrs: { href: referenceHref(target) } }],
+          },
+          { type: "text", text: " " },
+        ])
+        .run();
+    },
+  });
   const editor = useMarkdownEditor({
     content: autosave.loaded,
     onChange: (content) => {
@@ -55,6 +110,8 @@ export function MarkdownFileEditor({
     },
     "aria-label": path,
     extensions,
+    onSelectionUpdate: picker.onSelectionUpdate,
+    onKeyDown: picker.onKeyDown,
   });
   const doc = editor?.state.doc;
   useEffect(() => {
@@ -144,7 +201,10 @@ export function MarkdownFileEditor({
   return (
     <>
       {error !== undefined && <p role="alert">{error}</p>}
-      <Editor editor={editor} size="sm" className={className} />
+      <div className={shellClassName}>
+        {picker.menu}
+        <Editor editor={editor} size="sm" className={className} />
+      </div>
     </>
   );
 }
@@ -179,12 +239,6 @@ const editorClass = style(flex({ direction: "column" }), {
   '& .ProseMirror ul[data-type="taskList"] > li::before': {
     content: "none",
   },
-  '& .ProseMirror ul[data-type="taskList"] > li > label': {
-    cursor: "pointer",
-  },
-  '& .ProseMirror ul[data-type="taskList"] > li > label input': {
-    accentColor: colors.accent[9],
-  },
   '& .ProseMirror ul[data-type="taskList"] > li > div': {
     minWidth: 0,
   },
@@ -196,3 +250,24 @@ const editorClass = style(flex({ direction: "column" }), {
     pointerEvents: "none",
   },
 });
+
+const copyMenuStyle = style(
+  radius.sm,
+  shadow.medium,
+  textStyle({ size: "sm" }),
+  {
+    position: "fixed",
+    zIndex: 100,
+    display: "flex",
+    alignItems: "center",
+    minHeight: "28px",
+    paddingInline: "10px",
+    border: 0,
+    color: colors.gray[12],
+    backgroundColor: backgroundColor.element,
+    cursor: "pointer",
+    "&:hover": { backgroundColor: backgroundColor.elementHover },
+  },
+);
+
+const editorShellClass = style({ position: "relative", minHeight: "100%" });

@@ -10,6 +10,7 @@ import { HaloApp } from "./HaloApp.tsx";
 import { Authentication } from "./Authentication.tsx";
 import { StandaloneExtension } from "./StandaloneExtension.js";
 import { ApiProvider } from "./api/ApiProvider.tsx";
+import { IntegrationSetupPage } from "./IntegrationSetupPage.js";
 import "./css.js";
 // Document shell (html/body/#root) must apply before React; purse-styles injects in layout effect.
 import "./styles.css";
@@ -33,12 +34,26 @@ export function mountHaloApp(root: HTMLElement, host: HostApi) {
         <MauiProvider>
           <QueryClientProvider client={queryClient}>
             <Authentication>
-              <ApiProvider>
-                <HaloRoutes />
-                {import.meta.env.DEV && (
-                  <Agentation endpoint="http://127.0.0.1:4747" />
+              <Switch>
+                {host.integrationSetup !== undefined && (
+                  <Route path="/integrations/setup/:setupId">
+                    {(params) => (
+                      <IntegrationSetupPage
+                        setupId={params.setupId}
+                        api={host.integrationSetup!}
+                      />
+                    )}
+                  </Route>
                 )}
-              </ApiProvider>
+                <Route>
+                  <ApiProvider>
+                    <HaloRoutes />
+                    {import.meta.env.DEV && (
+                      <Agentation endpoint="http://127.0.0.1:4747" />
+                    )}
+                  </ApiProvider>
+                </Route>
+              </Switch>
             </Authentication>
           </QueryClientProvider>
         </MauiProvider>

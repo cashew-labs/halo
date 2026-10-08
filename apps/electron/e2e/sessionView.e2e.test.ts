@@ -6,6 +6,57 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 e2eTest(
+  "references files and sessions from a message",
+  async ({ app, harness, llm }) => {
+    await harness.loadSession({
+      title: "Previous plan",
+      messages: [
+        m.user("What is the launch color?"),
+        m.assistant("The launch color is indigo."),
+      ],
+    });
+    await app.server.rpc.workspace.writeFile({
+      path: "brief.md",
+      content: "The release date is Friday.",
+    });
+    await app.page
+      .getByRole("button", { name: "New tab", exact: true })
+      .click();
+    const pane = app.page.getByRole("main", { name: "New session" });
+    const editor = pane.getByLabel("Message", { exact: true });
+    await editor.fill("Compare @brief");
+    await pane.getByRole("option", { name: /brief.md/ }).click();
+    await expect(pane.getByRole("list", { name: "References" })).toContainText(
+      "brief.md",
+    );
+    await editor.pressSequentially(" with @Previous");
+    await pane.getByRole("option", { name: /Previous plan/ }).click();
+    await expect(pane.getByRole("list", { name: "References" })).toContainText(
+      "Previous plan",
+    );
+    await pane.getByRole("button", { name: "Send", exact: true }).click();
+    await llm.respond(({ messages }) => {
+      const user = messages.findLast((message) => message.role === "user");
+      expect(user).toBeDefined();
+      expect(messageText(user!)).toContain('File: "brief.md"');
+      expect(messageText(user!)).toContain("The launch color is indigo.");
+      return m.assistant("I can compare those references.");
+    });
+    const sent = app.page.getByRole("article", { name: "You message" });
+    await expect(sent.getByRole("list", { name: "References" })).toContainText(
+      "brief.md",
+    );
+    await expect(sent.getByRole("list", { name: "References" })).toContainText(
+      "Previous plan",
+    );
+    await sent.getByRole("link", { name: "Previous plan" }).click();
+    await expect(
+      app.page.getByRole("main", { name: "Previous plan" }),
+    ).toBeVisible();
+  },
+);
+
+e2eTest(
   "drops images, PDFs, and Word files into chat and keeps their model context after reload",
   async ({ app, llm }, testInfo) => {
     await app.page
@@ -357,53 +408,6 @@ e2eTest(
     await expect(app.page.getByRole("main")).toContainText(
       "The server finished while Electron was closed.",
     );
-  },
-);
-
-e2eTest(
-  "shows connection and approval cards from the same exec",
-  async ({ app, llm }, testInfo) => {
-    await app.page
-      .getByRole("button", { name: "New tab", exact: true })
-      .click();
-    const pane = app.page.getByRole("main", { name: "New session" });
-    await pane
-      .getByLabel("Message", { exact: true })
-      .fill("Connect Drive and create a policy");
-    await pane.getByRole("button", { name: "Send", exact: true }).click();
-    await llm.respond(
-      m.tool.start("exec", {
-        id: "mixed-requests",
-        arguments: {
-          js: `return await Promise.allSettled([
-        tools.halo.showConnectionCard({ integration: "google_drive" }),
-        tools.executor.coreTools.policies.create({ owner: "user", pattern: "mixed-demo.*", action: "block" })
-      ]);`,
-        },
-      }),
-    );
-    await llm.respond(m.assistant("Please respond to both cards."));
-    const connection = app.page.getByRole("region", {
-      name: "Google Drive connection",
-    });
-    const approval = app.page.getByRole("region", {
-      name: "Approve this tool action? approval",
-    });
-    await expect(
-      connection.getByRole("button", { name: "Connect", exact: true }),
-    ).toBeVisible();
-    await expect(
-      approval.getByRole("button", { name: "Allow once", exact: true }),
-    ).toBeVisible();
-    await expect(
-      app.page.getByRole("button", { name: "Stop", exact: true }),
-    ).not.toBeVisible();
-    await app.page.screenshot({
-      path: testInfo.outputPath("mixed-requests.png"),
-    });
-    await app.page.reload();
-    await expect(connection).toBeVisible();
-    await expect(approval).toBeVisible();
   },
 );
 
