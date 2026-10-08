@@ -1,4 +1,5 @@
 import type {
+  AutomationSourceState,
   AutomationEvent,
   Automation,
   AutomationInput,
@@ -156,6 +157,9 @@ export const contract = publicProcedure.router({
     remove: oc.input(type<{ id: string }>()).output(type<void>()),
   },
   automations: {
+    sourceStatus: oc
+      .input(type<{ automationId: string }>())
+      .output(type<AutomationSourceState>()),
     runNow: oc
       .input(type<{ automationId: string }>())
       .output(type<AutomationRun>()),

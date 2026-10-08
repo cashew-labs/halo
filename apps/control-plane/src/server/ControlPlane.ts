@@ -1,3 +1,5 @@
+import { AutomationStore } from "../automations/AutomationStore.js";
+import { AutomationCoordinator } from "../automations/AutomationCoordinator.js";
 import { join } from "node:path";
 import type { ControlPlaneConfig } from "@get-halo/config/controlPlane";
 import * as errore from "errore";
@@ -30,6 +32,7 @@ export class ControlPlane {
   private readonly requests: ServingControlPlaneHttp;
   readonly integrations: IntegrationService | undefined;
   private readonly routines: RoutineCoordinator;
+  private readonly automationCoordinator: AutomationCoordinator;
 
   private constructor(ctx: {
     db: DatabaseService;
@@ -38,6 +41,7 @@ export class ControlPlane {
     requests: ServingControlPlaneHttp;
     integrations: IntegrationService | undefined;
     routines: RoutineCoordinator;
+    automationCoordinator: AutomationCoordinator;
   }) {
     this.db = ctx.db;
     this.http = ctx.http;
@@ -45,6 +49,7 @@ export class ControlPlane {
     this.requests = ctx.requests;
     this.integrations = ctx.integrations;
     this.routines = ctx.routines;
+    this.automationCoordinator = ctx.automationCoordinator;
   }
 
   get origin() {
@@ -145,6 +150,16 @@ export class ControlPlane {
     if (routines instanceof Error) return routines;
     cleanup.defer(async () => await routines.close());
 
+    const automationStore = new AutomationStore({ db });
+    const initializedAutomations = await automationStore.initialize();
+    if (initializedAutomations instanceof Error) return initializedAutomations;
+    const automationCoordinator = new AutomationCoordinator({
+      store: automationStore,
+      workspace,
+    });
+    automationCoordinator.start();
+    cleanup.defer(async () => await automationCoordinator.close());
+
     const requests = serveControlPlaneHttp({
       server: http.server,
       auth,
@@ -152,6 +167,7 @@ export class ControlPlane {
       workspace,
       integrations,
       routines,
+      automationStore,
       webRoot,
       build: ctx.build,
       inferenceApiKey: ctx.inferenceApiKey,
@@ -172,12 +188,14 @@ export class ControlPlane {
       requests,
       integrations,
       routines,
+      automationCoordinator,
     });
   }
 
   async close() {
     this.requests.close();
     await this.routines.close();
+    await this.automationCoordinator.close();
     const httpClosed = await closeControlPlaneHttp(this.http.server);
     const integrationsClosed = await this.integrations?.close();
     const databaseClosed = await this.db.close();

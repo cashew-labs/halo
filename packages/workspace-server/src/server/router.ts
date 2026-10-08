@@ -1,4 +1,7 @@
-import { automationsRouter } from "../automations/automationsRouter.js";
+import {
+  automationsRouter,
+  type AutomationsRouterContext,
+} from "../automations/automationsRouter.js";
 import { watchWorkspace } from "./watchWorkspace.js";
 import {
   hotkeysRouter,
@@ -43,6 +46,7 @@ import {
 export type HaloContext = RequestHeadersHandlerPluginContext &
   HotkeysRouterContext &
   RoutinesRouterContext &
+  AutomationsRouterContext &
   BrowserRouterContext &
   TracesRouterContext &
   WorkspaceRouterContext &

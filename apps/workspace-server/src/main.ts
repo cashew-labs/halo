@@ -16,6 +16,7 @@ import {
   ControlPlaneTraceUploader,
   ControlPlaneWorkReporter,
   ControlPlaneRoutineReporter,
+  ControlPlaneAutomationClient,
   WorkspaceServer,
 } from "@get-halo/workspace-server";
 import { createOpenAILLMApi } from "@get-halo/workspace-server/llm";
@@ -115,6 +116,10 @@ async function run() {
       extensionRuntime,
     },
     host: {
+      automationControl:
+        applicationConfig.server.runtime === undefined
+          ? undefined
+          : new ControlPlaneAutomationClient(applicationConfig.server.runtime),
       remoteIntegrationTools:
         applicationConfig.server.runtime === undefined
           ? undefined

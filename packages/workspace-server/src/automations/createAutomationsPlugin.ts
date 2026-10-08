@@ -1,3 +1,4 @@
+import type { AutomationSources } from "./AutomationSources.js";
 import { Type } from "@sinclair/typebox";
 import {
   automationInputSchema,
@@ -16,12 +17,28 @@ const automationIdSchema = Type.Object({
 
 // Resolve the runner on invocation: agent sessions borrow the tool runtime at startup.
 export function createAutomationsPlugin(
-  services: () => { automations: AutomationService; runner: AutomationRunner },
+  services: () => {
+    automations: AutomationService;
+    runner: AutomationRunner;
+    sources: AutomationSources;
+  },
 ): HaloToolPlugin {
   return {
     id: "automations",
     name: "Automations",
     tools: [
+      defineHaloTool({
+        name: "sourceStatus",
+        description:
+          "Synchronize a trigger registration and report its control-plane setup status, errors, and recent deliveries. Check this after saving a Gmail or webhook trigger before saying it is live.",
+        inputSchema: automationIdSchema,
+        requiredCapabilities: ["workspace.automations"],
+        execute: async ({ automationId }) => {
+          const state = await services().sources.status(automationId);
+          if (state instanceof Error) return state;
+          return { value: state };
+        },
+      }),
       defineHaloTool({
         name: "list",
         description:

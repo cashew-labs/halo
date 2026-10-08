@@ -101,3 +101,41 @@ export const automationEventSchema = Type.Object({
   payload: Type.Record(Type.String(), Type.Unknown()),
 });
 export type AutomationEvent = Static<typeof automationEventSchema>;
+
+export const automationRegistrationSchema = Type.Object({
+  id: Type.String({ minLength: 1, maxLength: 128 }),
+  revision: Type.Integer({ minimum: 1 }),
+  name: Type.String({ minLength: 1, maxLength: 80 }),
+  activation: automationActivationSchema,
+  enabled: Type.Boolean(),
+});
+export type AutomationRegistration = Static<
+  typeof automationRegistrationSchema
+>;
+export const automationSnapshotSchema = Type.Object({
+  generation: Type.Integer({ minimum: 0 }),
+  automations: Type.Array(automationRegistrationSchema, { maxItems: 1000 }),
+});
+export type AutomationSnapshot = Static<typeof automationSnapshotSchema>;
+export type AutomationDelivery = {
+  eventId: string;
+  automationId: string;
+  revision: number;
+  source: "webhook" | "gmail";
+  occurredAt: string;
+  status: "pending" | "delivered" | "failed" | "cancelled";
+  error?: string;
+  runId?: string;
+};
+
+export type AutomationSourceState = {
+  automationId: string;
+  revision: number;
+  kind: "webhook" | "gmail";
+  status: "pending" | "active" | "paused" | "needsAttention";
+  detail?: string;
+  endpoint?: string;
+  emailAddress?: string;
+  expiresAt?: string;
+  deliveries: AutomationDelivery[];
+};

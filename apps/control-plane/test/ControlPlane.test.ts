@@ -3179,3 +3179,64 @@ function traceArchive(
       .join("\n") + "\n",
   );
 }
+
+controlPlaneTest(
+  "scopes automation registrations to the runtime owner and ignores stale snapshots",
+  async ({ plane, authenticatedRpc, appDataDir }) => {
+    await authenticatedRpc.workspace.ensure();
+    const alice = await readRuntimeSettings(appDataDir);
+    const endpoint = `${plane.origin}/api/workspace-runtime/automations`;
+    const definition = {
+      id: "incoming-mail",
+      revision: 1,
+      name: "Incoming mail",
+      enabled: true,
+      activation: { type: "trigger", trigger: { type: "webhook" } },
+    };
+    const register = async (
+      token: string,
+      generation: number,
+      enabled: boolean,
+    ) =>
+      await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          generation,
+          automations: [{ ...definition, enabled }],
+        }),
+      });
+    expect((await register("invalid", 1, true)).status).toBe(401);
+    expect((await register(alice.token, 1, true)).status).toBe(204);
+    expect((await register(alice.token, 3, false)).status).toBe(204);
+    expect((await register(alice.token, 2, true)).status).toBe(204);
+    const state = await fetch(`${endpoint}/${definition.id}`, {
+      headers: { authorization: `Bearer ${alice.token}` },
+    });
+    expect(await state.json()).toMatchObject({
+      automationId: definition.id,
+      status: "paused",
+      deliveries: [],
+    });
+    const bobHeaders = await createAuthenticatedHeaders(
+      appDataDir,
+      plane.origin,
+      "automation-bob@example.com",
+    );
+    await createControlPlaneRpcClient(
+      plane.origin,
+      bobHeaders,
+    ).workspace.ensure();
+    const bob = await readRuntimeSettings(appDataDir);
+    expect(
+      (
+        await fetch(`${endpoint}/${definition.id}`, {
+          headers: { authorization: `Bearer ${bob.token}` },
+        })
+      ).status,
+    ).toBe(404);
+  },
+);

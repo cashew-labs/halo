@@ -1,3 +1,6 @@
+import { serveAutomationState } from "../automations/automationStateHttp.js";
+import type { AutomationStore } from "../automations/AutomationStore.js";
+import { serveAutomationSnapshot } from "../automations/automationSnapshotHttp.js";
 import { acceptsProtocol, protocolHeader } from "@get-halo/client";
 import {
   controlPlaneProtocolVersion,
@@ -105,6 +108,7 @@ export function serveControlPlaneHttp(ctx: {
   workspace: WorkspaceService;
   integrations?: IntegrationService;
   routines: RoutineCoordinator;
+  automationStore: AutomationStore;
   build?: { version: string; revision: string };
   webRoot: string;
   traces?: TraceIngestion;
@@ -144,6 +148,7 @@ export function serveControlPlaneHttp(ctx: {
       auth,
       workspace,
       routines: ctx.routines,
+      automationStore: ctx.automationStore,
       gateway,
       traces,
       rpc,
@@ -216,6 +221,7 @@ async function routeControlPlaneRequest(ctx: {
   workspace: WorkspaceService;
   integrations?: IntegrationService;
   routines: RoutineCoordinator;
+  automationStore: AutomationStore;
   build?: { version: string; revision: string };
   rpc: RPCHandler<ControlPlaneContext>;
   webRoot: string;
@@ -250,6 +256,31 @@ async function routeControlPlaneRequest(ctx: {
 
   if (url.pathname === "/api/workspace-runtime/idle") {
     await serveWorkspaceIdleReport(request, response, workspace);
+    return;
+  }
+
+  const automationState =
+    /^\/api\/workspace-runtime\/automations\/([a-zA-Z0-9_-]+)$/.exec(
+      url.pathname,
+    );
+  if (automationState?.[1] !== undefined) {
+    await serveAutomationState({
+      request,
+      response,
+      automationId: automationState[1],
+      workspace,
+      store: ctx.automationStore,
+    });
+    return;
+  }
+
+  if (url.pathname === "/api/workspace-runtime/automations") {
+    await serveAutomationSnapshot(
+      request,
+      response,
+      workspace,
+      ctx.automationStore,
+    );
     return;
   }
 

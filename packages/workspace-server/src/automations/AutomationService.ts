@@ -6,6 +6,7 @@ import * as errore from "errore";
 import {
   automationEventSchema,
   type AutomationEvent,
+  type AutomationSnapshot,
   automationActionSchema,
   automationActivationSchema,
   type AutomationActivation,
@@ -133,6 +134,32 @@ export class AutomationService {
     yield* updates;
   }
 
+  async registrationSnapshot() {
+    return await this.actionQueue.run(async () => {
+      const row = await this.database.access(
+        (connection) =>
+          // SAFETY: The migration creates one generation row with id 1.
+          connection
+            .prepare("SELECT generation FROM halo_automation_sync WHERE id = 1")
+            .get() as { generation: number },
+      );
+      if (row instanceof Error) return row;
+      const snapshot: AutomationSnapshot = {
+        generation: row.generation,
+        automations: this.automations.map(
+          ({ id, revision, name, activation, enabled }) => ({
+            id,
+            revision,
+            name,
+            activation,
+            enabled,
+          }),
+        ),
+      };
+      return snapshot;
+    });
+  }
+
   async save(input: AutomationInput) {
     const valid = validateInput(input);
     if (valid instanceof Error) return valid;
@@ -142,6 +169,10 @@ export class AutomationService {
       );
       if (input.id !== undefined && existing === undefined)
         return new AutomationNotFoundError({ automationId: input.id });
+      if (existing === undefined && this.automations.length >= 1000)
+        return new InvalidAutomationError({
+          reason: "This workspace has reached its 1000 automation limit",
+        });
       const now = Date.now();
       const enabled = input.enabled ?? existing?.enabled ?? true;
       const autoArchiveSession =
@@ -163,6 +194,11 @@ export class AutomationService {
       };
       const saved = await this.database.access((connection) =>
         connection.transaction(() => {
+          connection
+            .prepare(
+              "UPDATE halo_automation_sync SET generation = generation + 1 WHERE id = 1",
+            )
+            .run();
           connection
             .prepare(
               `INSERT INTO halo_automations
@@ -219,6 +255,11 @@ export class AutomationService {
         connection.transaction(() => {
           connection
             .prepare(
+              "UPDATE halo_automation_sync SET generation = generation + 1 WHERE id = 1",
+            )
+            .run();
+          connection
+            .prepare(
               "UPDATE halo_automations SET enabled = ?, next_run_at = ?, updated_at = ?, revision = revision + 1 WHERE id = ?",
             )
             .run(
@@ -253,11 +294,18 @@ export class AutomationService {
     return await this.actionQueue.run(async () => {
       const automation = this.get(automationId);
       if (automation instanceof Error) return automation;
-      const removed = await this.database.access((connection) => {
-        connection
-          .prepare("DELETE FROM halo_automations WHERE id = ?")
-          .run(automationId);
-      });
+      const removed = await this.database.access((connection) =>
+        connection.transaction(() => {
+          connection
+            .prepare("DELETE FROM halo_automations WHERE id = ?")
+            .run(automationId);
+          connection
+            .prepare(
+              "UPDATE halo_automation_sync SET generation = generation + 1 WHERE id = 1",
+            )
+            .run();
+        })(),
+      );
       if (removed instanceof Error) return removed;
       this.publish(this.automations.filter((item) => item.id !== automationId));
     });

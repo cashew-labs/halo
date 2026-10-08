@@ -1,3 +1,6 @@
+import { AutomationSources } from "../automations/AutomationSources.js";
+import type { ControlPlaneAutomationClient } from "../automations/ControlPlaneAutomationClient.js";
+import { AutomationSync } from "../automations/AutomationSync.js";
 import { createAutomationsPlugin } from "../automations/createAutomationsPlugin.js";
 import { AutomationRunner } from "../automations/AutomationRunner.js";
 import { HotkeyService } from "../hotkeys/HotkeyService.js";
@@ -69,6 +72,7 @@ export type WorkspaceServerConfig = {
 };
 
 export type WorkspaceServerHost = {
+  automationControl?: Pick<ControlPlaneAutomationClient, "report" | "status">;
   remoteConnections?: import("../agent/runtime/ConnectionService.js").RemoteConnectionBackend;
   remoteIntegrationTools?: RemoteIntegrationTools;
   reportRoutineSchedule?: (
@@ -106,6 +110,7 @@ export class WorkspaceServer {
   private readonly workspace: WorkspaceService;
   private readonly sessions: ThreadManager;
   private readonly automationRunner: AutomationRunner;
+  private readonly automationSync: AutomationSync | undefined;
   private readonly routineScheduler: RoutineScheduler | RoutineSync;
   private readonly toolRuntime: ToolRuntime;
   private readonly connectionService: ConnectionService;
@@ -124,6 +129,7 @@ export class WorkspaceServer {
     sessions: ThreadManager;
     automationRunner: AutomationRunner;
     routineScheduler: RoutineScheduler | RoutineSync;
+    automationSync: AutomationSync | undefined;
     toolRuntime: ToolRuntime;
     connectionService: ConnectionService;
     browsers: BrowserService;
@@ -140,6 +146,7 @@ export class WorkspaceServer {
       sessions,
       automationRunner,
       routineScheduler,
+      automationSync,
       toolRuntime,
       connectionService,
       browsers,
@@ -156,6 +163,7 @@ export class WorkspaceServer {
     this.sessions = sessions;
     this.automationRunner = automationRunner;
     this.routineScheduler = routineScheduler;
+    this.automationSync = automationSync;
     this.toolRuntime = toolRuntime;
     this.connectionService = connectionService;
     this.browsers = browsers;
@@ -265,6 +273,7 @@ export class WorkspaceServer {
           createAutomationsPlugin(() => ({
             automations: routines.automations,
             runner: automationRunner,
+            sources: automationSources,
           })),
           createThreadPlugin(() => ({
             threads: sessions,
@@ -370,6 +379,22 @@ export class WorkspaceServer {
             logger: host.logger,
           });
     cleanup.defer(async () => await routineScheduler.stop());
+    const automationSync =
+      host.automationControl === undefined
+        ? undefined
+        : new AutomationSync({
+            automations: routines.automations,
+            report: async (snapshot, signal) =>
+              await host.automationControl!.report(snapshot, signal),
+            logger: host.logger,
+          });
+    automationSync?.start();
+    cleanup.defer(async () => await automationSync?.close());
+    const automationSources = new AutomationSources({
+      automations: routines.automations,
+      sync: automationSync,
+      control: host.automationControl,
+    });
     const requests = serveHaloHttp({
       ...http,
       context: {
@@ -377,6 +402,7 @@ export class WorkspaceServer {
         hotkeys,
         routines,
         routineRunner,
+        automationSources,
         traces,
         browsers,
         extensions,
@@ -407,6 +433,7 @@ export class WorkspaceServer {
       sessions,
       automationRunner,
       routineScheduler,
+      automationSync,
       toolRuntime,
       connectionService,
       browsers,
@@ -430,6 +457,7 @@ export class WorkspaceServer {
     this.connectionService.close();
     // Routine runs record their interruption before their sessions close.
     await this.routineScheduler.stop();
+    await this.automationSync?.close();
     await this.automationRunner.stop();
     const sessionsClosed = await this.sessions.shutdown();
     await this.traces.close();

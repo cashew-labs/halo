@@ -1,10 +1,19 @@
+import type { AutomationSources } from "./AutomationSources.js";
 import { implement } from "@orpc/server";
 import { contract } from "@get-halo/client";
 import { orpcErrors } from "../orpcErrors.js";
 import type { RoutinesRouterContext } from "../routines/routinesRouter.js";
 
-const os = implement(contract.automations).$context<RoutinesRouterContext>();
+export type AutomationsRouterContext = RoutinesRouterContext & {
+  automationSources: AutomationSources;
+};
+const os = implement(contract.automations).$context<AutomationsRouterContext>();
 export const automationsRouter = os.router({
+  sourceStatus: os.sourceStatus.handler(async ({ context, input }) => {
+    const state = await context.automationSources.status(input.automationId);
+    if (state instanceof Error) return orpcErrors.badRequest(state);
+    return state;
+  }),
   runNow: os.runNow.handler(async ({ context, input }) => {
     const run = await context.routineRunner.automations.start({
       ...input,

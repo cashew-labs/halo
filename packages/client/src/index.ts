@@ -125,6 +125,12 @@ export {
 } from "./routines.js";
 
 export {
+  automationRegistrationSchema,
+  automationSnapshotSchema,
+  type AutomationRegistration,
+  type AutomationSnapshot,
+  type AutomationDelivery,
+  type AutomationSourceState,
   automationEventSchema,
   type AutomationEvent,
   automationActionSchema,
