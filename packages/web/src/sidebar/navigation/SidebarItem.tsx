@@ -33,6 +33,7 @@ type SidebarItemProps = {
   items?: ReactNode;
   hasChildItems?: boolean;
   icon?: IconComponent;
+  chevronPosition?: "leading" | "trailing";
   leading?: ReactNode;
   trailing?: ReactNode;
   hoverTrailing?: ReactNode;
@@ -78,7 +79,7 @@ export function SidebarItem(props: SidebarItemProps) {
       <NavigationTreeItemContent>
         {({ hasChildItems, isExpanded }) => (
           <>
-            {hasChildItems ? (
+            {hasChildItems && props.chevronPosition !== "trailing" ? (
               <Button slot="chevron" className={chevronClassName}>
                 <ChevronRight
                   size="sm"
@@ -122,6 +123,18 @@ export function SidebarItem(props: SidebarItemProps) {
             </Link>
             {props.trailing === undefined ? undefined : (
               <span className={trailingClassName}>{props.trailing}</span>
+            )}
+            {hasChildItems && props.chevronPosition === "trailing" && (
+              <Button slot="chevron" className={chevronClassName}>
+                <ChevronRight
+                  size="sm"
+                  className={
+                    isExpanded
+                      ? chevronIconExpandedClassName
+                      : chevronIconClassName
+                  }
+                />
+              </Button>
             )}
             {props.hoverTrailing === undefined ? undefined : (
               <span

@@ -1,139 +1,118 @@
 import { randomUUID } from "node:crypto";
-import { OAUTH2_SESSION_TTL_MS } from "@executor-js/sdk/core";
 import * as errore from "errore";
 import {
   connectionRequestKey,
   type ConnectionRequest,
   type ConnectionStarted,
-  type OAuthCompletion,
   applyConnectionEvent,
   type HaloConnectionEvent,
   type HaloConnectionState,
 } from "@get-halo/client";
+
+const setupTtlMs = 15 * 60 * 1_000;
 
 export class ConnectionSessionMismatchError extends errore.createTaggedError({
   name: "ConnectionSessionMismatchError",
   message: "The connection does not belong to session '$sessionId'.",
 }) {}
 
-export class OAuthStateNotFoundError extends errore.createTaggedError({
-  name: "OAuthStateNotFoundError",
-  message: "The OAuth state is not pending.",
+export class ConnectionUnavailableError extends errore.createTaggedError({
+  name: "ConnectionUnavailableError",
+  message: "Control-plane connection setup is unavailable.",
 }) {}
 
-type PendingConnection = {
-  connectionId: string;
-  completion: OAuthCompletion;
-  expires: ReturnType<typeof setTimeout>;
+type StartConnectionInput = {
   onEvent: (event: HaloConnectionEvent) => Promise<Error | undefined>;
   request: ConnectionRequest;
   sessionId: string;
-  state: string;
 };
 
-type StartConnectionInput = {
-  onEvent: PendingConnection["onEvent"];
-  request: ConnectionRequest;
-  sessionId: string;
-  completion: OAuthCompletion;
+type PendingConnection = StartConnectionInput & {
+  connectionId: string;
+  setupId: string;
+  expiresAt: number;
+  expires: ReturnType<typeof setTimeout>;
 };
 
-type OAuthRuntime = {
-  startOAuth(
-    input: ConnectionRequest & { completion: OAuthCompletion },
-  ): Promise<
+export type RemoteConnectionBackend = {
+  catalog(): Promise<Error | { integration: string; name: string }[]>;
+  startSetup(input: {
+    integration: string;
+    connectionName?: string;
+  }): Promise<Error | { setupId: string; setupUrl: string }>;
+  setup(input: { setupId: string }): Promise<
     | Error
-    | { status: "connected" }
-    | { status: "redirect"; authorizationUrl: string; state: string }
+    | {
+        status:
+          | "awaiting_credentials"
+          | "authorizing"
+          | "confirming"
+          | "ready"
+          | "cancelled"
+          | "expired"
+          | "failed";
+      }
   >;
-  completeOAuth(input: {
-    state: string;
-    code: string;
-  }): Promise<Error | undefined>;
-  cancelOAuth(state: string): Promise<Error | undefined>;
+  cancelSetup(input: { setupId: string }): Promise<Error | undefined>;
 };
-
-export type OAuthCompletionTarget = Pick<
-  PendingConnection,
-  "completion" | "sessionId"
->;
 
 export class ConnectionService {
+  private closed = false;
   private readonly pendingConnections = new Map<string, PendingConnection>();
-  private readonly connectionIdsByState = new Map<string, string>();
   private readonly connectionStatesBySession = new Map<
     string,
     HaloConnectionState[]
   >();
+  private readonly remote: RemoteConnectionBackend | undefined;
 
-  constructor(private readonly runtime: OAuthRuntime) {}
+  constructor(ctx: { remote?: RemoteConnectionBackend }) {
+    this.remote = ctx.remote;
+  }
 
   close() {
-    for (const pending of this.pendingConnections.values()) {
+    this.closed = true;
+    for (const pending of this.pendingConnections.values())
       clearTimeout(pending.expires);
-    }
     this.pendingConnections.clear();
-    this.connectionIdsByState.clear();
     this.connectionStatesBySession.clear();
   }
 
   statesForSession(sessionId: string) {
-    const states = this.connectionStatesBySession.get(sessionId);
-    return states === undefined ? [] : states;
-  }
-
-  completionTarget(state: string): OAuthCompletionTarget | undefined {
-    const connectionId = this.connectionIdsByState.get(state);
-    if (connectionId === undefined) return undefined;
-    const pending = this.pendingConnections.get(connectionId);
-    if (pending === undefined) return undefined;
-    return { completion: pending.completion, sessionId: pending.sessionId };
+    return this.connectionStatesBySession.get(sessionId) ?? [];
   }
 
   async startConnection(
     input: StartConnectionInput,
   ): Promise<ConnectionStarted | Error> {
-    const started = await this.runtime.startOAuth({
-      ...input.request,
-      completion: input.completion,
+    if (this.remote === undefined || this.closed)
+      return new ConnectionUnavailableError();
+    const started = await this.remote.startSetup({
+      integration: input.request.integration,
+      connectionName: input.request.connectionName,
     });
     if (started instanceof Error) return started;
-
-    const connectionId = randomUUID();
-    if (started.status === "connected") {
-      this.recordEvent(input.sessionId, {
-        type: "halo.connection",
-        connectionId,
-        request: input.request,
-        status: "connected",
+    if (this.closed) {
+      const cancelled = await this.remote.cancelSetup({
+        setupId: started.setupId,
       });
-      return { status: "connected" };
+      if (cancelled instanceof Error) return cancelled;
+      return new ConnectionUnavailableError();
     }
-
-    const previous = this.statesForSession(input.sessionId).find(
-      (state) =>
-        connectionRequestKey(state.request) ===
-        connectionRequestKey(input.request),
-    );
-    const wasConnected = previous?.status === "connected";
-    const expiresAt = Date.now() + OAUTH2_SESSION_TTL_MS;
-    const expires = setTimeout(async () => {
-      const expired = await this.expireConnection(connectionId);
-      if (expired instanceof Error) {
-        console.warn("OAuth expiry failed:", expired);
-      }
-    }, OAUTH2_SESSION_TTL_MS);
+    const connectionId = randomUUID();
+    const expiresAt = Date.now() + setupTtlMs;
     const pending: PendingConnection = {
+      ...input,
       connectionId,
-      completion: input.completion,
-      expires,
-      onEvent: input.onEvent,
-      request: input.request,
-      sessionId: input.sessionId,
-      state: started.state,
+      setupId: started.setupId,
+      expiresAt,
+      expires: setTimeout(() => void this.pollRemote(connectionId), 1_000),
     };
     this.pendingConnections.set(connectionId, pending);
-    this.connectionIdsByState.set(started.state, connectionId);
+    const wasConnected = this.statesForSession(input.sessionId).some(
+      (state) =>
+        connectionRequestKey(state.request) ===
+          connectionRequestKey(input.request) && state.status === "connected",
+    );
     const notified = await this.publishEvent(pending, {
       type: "halo.connection",
       connectionId,
@@ -145,77 +124,71 @@ export class ConnectionService {
     if (notified instanceof Error) return notified;
     return {
       status: "authorization-required",
-      authorizationUrl: started.authorizationUrl,
+      authorizationUrl: started.setupUrl,
       connectionId,
       expiresAt,
       wasConnected,
     };
   }
 
-  async completeOAuth(input: { state: string; code: string }) {
-    const pending = this.takeConnectionByState(input.state);
-    if (pending === undefined) return new OAuthStateNotFoundError();
-    const completed = await this.runtime.completeOAuth(input);
-    if (completed instanceof Error) {
-      const notified = await this.publishEvent(
-        pending,
-        this.connectionEvent(pending, "cancelled"),
-      );
-      if (notified instanceof Error) {
-        console.warn("OAuth failure notification failed:", notified);
-      }
-      return completed;
-    }
-    return await this.publishEvent(
-      pending,
-      this.connectionEvent(pending, "connected"),
-    );
-  }
-
-  async cancelOAuth(state: string) {
-    const pending = this.takeConnectionByState(state);
-    if (pending === undefined) return new OAuthStateNotFoundError();
-    const cancelled = await this.runtime.cancelOAuth(state);
-    const notified = await this.publishEvent(
-      pending,
-      this.connectionEvent(pending, "cancelled"),
-    );
-    if (cancelled instanceof Error) return cancelled;
-    return notified;
-  }
-
   async cancelConnection(input: { connectionId: string; sessionId: string }) {
     const pending = this.pendingConnections.get(input.connectionId);
     if (pending === undefined) return;
-    if (pending.sessionId !== input.sessionId) {
+    if (pending.sessionId !== input.sessionId)
       return new ConnectionSessionMismatchError({ sessionId: input.sessionId });
+    if (this.remote === undefined) return new ConnectionUnavailableError();
+    const cancelled = await this.remote.cancelSetup({
+      setupId: pending.setupId,
+    });
+    if (cancelled instanceof Error) return cancelled;
+    if (this.pendingConnections.get(input.connectionId) !== pending) return;
+    clearTimeout(pending.expires);
+    await this.pollRemote(input.connectionId);
+  }
+
+  private async pollRemote(connectionId: string) {
+    const pending = this.pendingConnections.get(connectionId);
+    if (pending === undefined || this.remote === undefined) return;
+    const setup = await this.remote.setup({ setupId: pending.setupId });
+    if (this.pendingConnections.get(connectionId) !== pending) return;
+    if (
+      Date.now() >= pending.expiresAt &&
+      (setup instanceof Error ||
+        (setup.status !== "ready" && setup.status !== "confirming"))
+    ) {
+      this.takeConnection(connectionId);
+      const notified = await this.publishEvent(
+        pending,
+        this.connectionEvent(pending, "expired"),
+      );
+      if (notified instanceof Error)
+        console.warn("Connection expiry notification failed:", notified);
+      return;
     }
-    this.takeConnection(input.connectionId);
-    const cancelled = await this.runtime.cancelOAuth(pending.state);
+    if (setup instanceof Error)
+      console.warn("Connection setup lookup failed:", setup);
+    if (
+      setup instanceof Error ||
+      setup.status === "awaiting_credentials" ||
+      setup.status === "authorizing" ||
+      setup.status === "confirming"
+    ) {
+      pending.expires = setTimeout(
+        () => void this.pollRemote(connectionId),
+        2_000,
+      );
+      return;
+    }
+    this.takeConnection(connectionId);
     const notified = await this.publishEvent(
       pending,
-      this.connectionEvent(pending, "cancelled"),
+      this.connectionEvent(
+        pending,
+        setup.status === "ready" ? "connected" : setup.status,
+      ),
     );
-    if (cancelled instanceof Error) return cancelled;
-    return notified;
-  }
-
-  private async expireConnection(connectionId: string) {
-    const pending = this.takeConnection(connectionId);
-    if (pending === undefined) return;
-    const cancelled = await this.runtime.cancelOAuth(pending.state);
-    const notified = await this.publishEvent(
-      pending,
-      this.connectionEvent(pending, "expired"),
-    );
-    if (cancelled instanceof Error) return cancelled;
-    return notified;
-  }
-
-  private takeConnectionByState(state: string) {
-    const connectionId = this.connectionIdsByState.get(state);
-    if (connectionId === undefined) return undefined;
-    return this.takeConnection(connectionId);
+    if (notified instanceof Error)
+      console.warn("Connection setup notification failed:", notified);
   }
 
   private takeConnection(connectionId: string) {
@@ -223,13 +196,12 @@ export class ConnectionService {
     if (pending === undefined) return;
     clearTimeout(pending.expires);
     this.pendingConnections.delete(connectionId);
-    this.connectionIdsByState.delete(pending.state);
     return pending;
   }
 
   private connectionEvent(
     pending: PendingConnection,
-    status: "connected" | "cancelled" | "expired",
+    status: "connected" | "cancelled" | "expired" | "failed",
   ): HaloConnectionEvent {
     return {
       type: "halo.connection",
@@ -240,17 +212,13 @@ export class ConnectionService {
   }
 
   private async publishEvent(
-    pending: Pick<PendingConnection, "onEvent" | "sessionId">,
+    pending: StartConnectionInput,
     event: HaloConnectionEvent,
   ) {
-    this.recordEvent(pending.sessionId, event);
-    return await pending.onEvent(event);
-  }
-
-  private recordEvent(sessionId: string, event: HaloConnectionEvent) {
     this.connectionStatesBySession.set(
-      sessionId,
-      applyConnectionEvent(this.statesForSession(sessionId), event),
+      pending.sessionId,
+      applyConnectionEvent(this.statesForSession(pending.sessionId), event),
     );
+    return await pending.onEvent(event);
   }
 }

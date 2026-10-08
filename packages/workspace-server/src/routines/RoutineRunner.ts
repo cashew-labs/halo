@@ -71,14 +71,14 @@ export class RoutineRunner {
   }
 
   // Stops agents owned by unfinished routine runs before the registry can resume all sessions.
-  async recover() {
+  async recover(options?: { preserveDue?: boolean }) {
     const sessionIds = await this.routines.runningSessionIds();
     if (sessionIds instanceof Error) return sessionIds;
     for (const sessionId of sessionIds) {
       const aborted = await this.sessions.abort(sessionId);
       if (aborted instanceof Error) return aborted;
     }
-    return await this.routines.recover();
+    return await this.routines.recover(options);
   }
 
   // Records a run and starts it in the background. Returns the run record, or

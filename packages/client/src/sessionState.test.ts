@@ -243,3 +243,65 @@ test("keeps run outcomes without allowing late updates to replace a newer run", 
   expect(aborted.lastRun).toEqual({ id: "retry", status: "aborted" });
   expect(aborted.activeRun).toBeUndefined();
 });
+
+test.each([
+  {
+    kind: "control-plane" as const,
+    connectionName: "default",
+    integration: "google_drive",
+  },
+  { kind: "control-plane" as const, integration: "google_drive" },
+])("restores connection progress from session state (%j)", (request) => {
+  let snapshot = applySessionEvent(emptySessionSnapshot(), {
+    type: "halo.connection",
+    connectionId: "connection-1",
+    request,
+    status: "connecting",
+    expiresAt: 10_000,
+    wasConnected: false,
+  });
+  expect(snapshot.connections).toEqual([
+    {
+      connectionId: "connection-1",
+      request,
+      status: "connecting",
+      expiresAt: 10_000,
+      wasConnected: false,
+    },
+  ]);
+
+  snapshot = applySessionEvent(snapshot, {
+    type: "halo.connection",
+    connectionId: "connection-1",
+    request,
+    status: "connected",
+  });
+  expect(snapshot.connections).toMatchObject([
+    { connectionId: "connection-1", request, status: "connected" },
+  ]);
+});
+
+test("keeps an existing connection when reconnect authorization is cancelled", () => {
+  const request = {
+    kind: "control-plane" as const,
+    connectionName: "default",
+    integration: "google_drive",
+  };
+  let snapshot = applySessionEvent(emptySessionSnapshot(), {
+    type: "halo.connection",
+    connectionId: "connection-1",
+    request,
+    status: "connecting",
+    expiresAt: 10_000,
+    wasConnected: true,
+  });
+  snapshot = applySessionEvent(snapshot, {
+    type: "halo.connection",
+    connectionId: "connection-1",
+    request,
+    status: "cancelled",
+  });
+  expect(snapshot.connections).toMatchObject([
+    { connectionId: "connection-1", request, status: "connected" },
+  ]);
+});

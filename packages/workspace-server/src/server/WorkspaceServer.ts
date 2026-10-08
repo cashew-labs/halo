@@ -4,6 +4,10 @@ import { combineLatest } from "@get-halo/shared/Stream";
 import { RoutineService } from "../routines/RoutineService.js";
 import { RoutineRunner } from "../routines/RoutineRunner.js";
 import { RoutineScheduler } from "../routines/RoutineScheduler.js";
+import {
+  RoutineSync,
+  type RoutineScheduleSnapshot,
+} from "../routines/RoutineSync.js";
 import { createHotkeysPlugin } from "../hotkeys/createHotkeysPlugin.js";
 import path from "node:path";
 import { TursoThreadRepo } from "../storage/TursoThreadRepo.js";
@@ -19,11 +23,10 @@ import { createThreadPlugin } from "../sessions/createThreadPlugin.js";
 import { WorkspaceService } from "../workspace/WorkspaceService.js";
 import { WorkspaceSearch } from "../workspace/WorkspaceSearch.js";
 import { StaticAgentAuthority } from "../agent/runtime/AgentAuthority.js";
-import type { CredentialVault } from "../agent/runtime/CredentialVault.js";
 import { ConnectionService } from "../agent/runtime/ConnectionService.js";
 import {
   ToolRuntime,
-  type GoogleWebOAuthClient,
+  type RemoteIntegrationTools,
 } from "../agent/runtime/ToolRuntime.js";
 import { workspaceBashPlugin } from "../agent/tools/bash/workspaceBashPlugin.js";
 import { createWorkspaceFilesPlugin } from "../agent/tools/files/createWorkspaceFilesPlugin.js";
@@ -61,12 +64,15 @@ export type WorkspaceServerConfig = {
   cliNodeExecutable?: string;
   cliElectronRunAsNode?: boolean;
   extensionRuntime: ExtensionRuntime;
-  integrationsEnabled?: boolean;
-  googleWebOAuthClient?: GoogleWebOAuthClient;
-  oauthTestOrigin?: string;
 };
 
 export type WorkspaceServerHost = {
+  remoteConnections?: import("../agent/runtime/ConnectionService.js").RemoteConnectionBackend;
+  remoteIntegrationTools?: RemoteIntegrationTools;
+  reportRoutineSchedule?: (
+    snapshot: RoutineScheduleSnapshot,
+    signal: AbortSignal,
+  ) => Promise<void | Error>;
   reportWorkIdle?: (
     idle: boolean,
     signal: AbortSignal,
@@ -79,11 +85,6 @@ export type WorkspaceServerHost = {
   traceUploader?: TraceUploader;
   // Logger the host owns; the server writes through it and does not close the sinks.
   logger: Logger;
-  // Host-owned vault. The server passes its FilesystemService; the host must not close it.
-  createCredentialVault: (input: {
-    filesystem: FilesystemService;
-    workspaceRoot: string;
-  }) => CredentialVault;
 };
 
 export type WorkspaceServerOptions = {
@@ -103,7 +104,7 @@ export class WorkspaceServer {
   private readonly workspace: WorkspaceService;
   private readonly sessions: ThreadManager;
   private readonly routineRunner: RoutineRunner;
-  private readonly routineScheduler: RoutineScheduler;
+  private readonly routineScheduler: RoutineScheduler | RoutineSync;
   private readonly toolRuntime: ToolRuntime;
   private readonly connectionService: ConnectionService;
   private readonly browsers: BrowserService;
@@ -120,7 +121,7 @@ export class WorkspaceServer {
     workspace: WorkspaceService;
     sessions: ThreadManager;
     routineRunner: RoutineRunner;
-    routineScheduler: RoutineScheduler;
+    routineScheduler: RoutineScheduler | RoutineSync;
     toolRuntime: ToolRuntime;
     connectionService: ConnectionService;
     browsers: BrowserService;
@@ -250,17 +251,11 @@ export class WorkspaceServer {
     const [initialized, toolRuntime] = await Promise.all([
       workspace.initialize(),
       ToolRuntime.create({
+        remoteConnections: host.remoteConnections,
+        remoteIntegrationTools: host.remoteIntegrationTools,
         database,
         workspaceRoot,
         userId: config.ownerUserId,
-        integrationsEnabled: config.integrationsEnabled,
-        credentialVault:
-          config.integrationsEnabled === false
-            ? undefined
-            : host.createCredentialVault({ filesystem, workspaceRoot }),
-        oauthRedirectUri: `${http.origin}/oauth/callback`,
-        googleWebOAuthClient: config.googleWebOAuthClient,
-        oauthTestOrigin: config.oauthTestOrigin,
         toolPlugins: [
           createWorkspaceFilesPlugin(filesystem),
           createDatabaseQueryPlugin(database),
@@ -297,7 +292,9 @@ export class WorkspaceServer {
     if (initialized instanceof Error) return initialized;
     if (toolRuntime instanceof Error) return toolRuntime;
 
-    const connectionService = new ConnectionService(toolRuntime);
+    const connectionService = new ConnectionService({
+      remote: host.remoteConnections,
+    });
     cleanup.defer(() => connectionService.close());
     const extensions = new ExtensionHost({
       workspaceRoot,
@@ -333,7 +330,9 @@ export class WorkspaceServer {
       logger: host.logger,
     });
     cleanup.defer(async () => await routineRunner.stop());
-    const recoveredRoutines = await routineRunner.recover();
+    const recoveredRoutines = await routineRunner.recover({
+      preserveDue: host.reportRoutineSchedule !== undefined,
+    });
     if (recoveredRoutines instanceof Error) return recoveredRoutines;
     const recovered = await sessions.start();
     if (recovered instanceof Error) return recovered;
@@ -344,11 +343,18 @@ export class WorkspaceServer {
       report: host.reportWorkIdle,
     });
     cleanup.defer(async () => await idleReporter.close());
-    const routineScheduler = new RoutineScheduler({
-      routines,
-      runner: routineRunner,
-      logger: host.logger,
-    });
+    const routineScheduler =
+      host.reportRoutineSchedule === undefined
+        ? new RoutineScheduler({
+            routines,
+            runner: routineRunner,
+            logger: host.logger,
+          })
+        : new RoutineSync({
+            routines,
+            report: host.reportRoutineSchedule,
+            logger: host.logger,
+          });
     cleanup.defer(async () => await routineScheduler.stop());
     const requests = serveHaloHttp({
       ...http,
