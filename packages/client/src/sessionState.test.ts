@@ -371,15 +371,14 @@ test("keeps run outcomes without allowing late updates to replace a newer run", 
   expect(aborted.activeRun).toBeUndefined();
 });
 
-test("restores connection progress from session state", () => {
-  const request = {
-    client: "first-party:google",
-    clientOwner: "org" as const,
-    owner: "user" as const,
+test.each([
+  {
+    kind: "control-plane" as const,
     connectionName: "default",
     integration: "google_drive",
-    template: "googleOAuth2",
-  };
+  },
+  { kind: "control-plane" as const, integration: "google_drive" },
+])("restores connection progress from session state (%j)", (request) => {
   let snapshot = applySessionEvent(emptySessionSnapshot(), {
     type: "halo.connection",
     connectionId: "connection-1",
@@ -411,12 +410,9 @@ test("restores connection progress from session state", () => {
 
 test("keeps an existing connection when reconnect authorization is cancelled", () => {
   const request = {
-    client: "first-party:google",
-    clientOwner: "org" as const,
-    owner: "user" as const,
+    kind: "control-plane" as const,
     connectionName: "default",
     integration: "google_drive",
-    template: "googleOAuth2",
   };
   let snapshot = applySessionEvent(emptySessionSnapshot(), {
     type: "halo.connection",

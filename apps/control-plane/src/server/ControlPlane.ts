@@ -57,6 +57,7 @@ export class ControlPlane {
     workspaceIdleTimeoutMs?: number;
     integrationEncryptionKey?: Buffer;
     getOpenAPISpec?: (url: string) => Promise<string | Error>;
+    allowLocalIntegrationUrls?: boolean;
   }) {
     const { config, webRoot } = ctx;
     await using cleanup = new errore.AsyncDisposableStack();
@@ -116,6 +117,20 @@ export class ControlPlane {
             db,
             credentials,
             getOpenAPISpec: ctx.getOpenAPISpec,
+            publicOrigin,
+            allowLocalUrls:
+              config.deployment === "local" &&
+              ctx.allowLocalIntegrationUrls === true,
+            firstPartyOAuthClients: [
+              {
+                name: "google",
+                authorizationUrl:
+                  "https://accounts.google.com/o/oauth2/v2/auth",
+                tokenUrl: "https://oauth2.googleapis.com/token",
+                clientId: config.auth.googleClientId,
+                clientSecret: config.auth.googleClientSecret,
+              },
+            ],
           });
     if (integrations instanceof Error) return integrations;
     cleanup.defer(async () => {
@@ -128,6 +143,7 @@ export class ControlPlane {
       auth,
       publicOrigin,
       workspace,
+      integrations,
       webRoot,
       build: ctx.build,
       inferenceApiKey: ctx.inferenceApiKey,

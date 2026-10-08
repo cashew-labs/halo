@@ -148,18 +148,21 @@ export function ExecutorConnectionCard({
     >
       <Flex column gap={1} p={6}>
         <Flex row gap={4} alignItems="center">
-          <LogoImage
-            src={display === undefined ? brand.logoUrl : display.icon}
-            size="xl"
-          />
+          {display !== undefined && <LogoImage src={display.icon} size="xl" />}
           <Text size="md" fontWeight={600} style={{ flex: 1, minWidth: 0 }}>
             {label}
           </Text>
           {status === "idle" ? (
             <Button
               variant="primary"
-              variantColor={brand.buttonColor}
-              style={{ color: brand.buttonForeground }}
+              variantColor={
+                display === undefined ? undefined : brand.buttonColor
+              }
+              style={
+                display === undefined
+                  ? undefined
+                  : { color: brand.buttonForeground }
+              }
               className={brandButtonClassName}
               isDisabled={!canConnect}
               onClick={() => connect.mutate()}
@@ -227,6 +230,7 @@ const connectionStatusColor = {
   connected: colors.green[11],
   cancelled: colors.orange[11],
   expired: colors.red[11],
+  failed: colors.red[11],
 } as const;
 
 const connectionStatusCopy = {
@@ -234,6 +238,7 @@ const connectionStatusCopy = {
   connecting: "Opened in your browser",
   cancelled: "Cancelled",
   expired: "Expired",
+  failed: "Connection failed",
 } as const;
 
 function ConnectionOverflowMenu({

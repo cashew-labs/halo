@@ -29,18 +29,25 @@ const credentialTest = test.extend<{
     await use(join(directory, "control-plane.db"));
     await fs.rm(directory, { recursive: true, force: true });
   },
-  // Each call opens a new connection to the same file, so tests can reopen it.
+  // Each call opens a new connection to the same disposable database.
   openCredentials: async ({ databasePath }, use) => {
     await using cleanup = new errore.AsyncDisposableStack();
 
     await use(async (encryptionKey) => {
-      const db = await DatabaseService.start({
-        type: "sqlite",
-        path: databasePath,
-      });
+      const url = process.env.HALO_TEST_POSTGRES_URL;
+      const db = await DatabaseService.start(
+        url === undefined
+          ? { type: "sqlite", path: databasePath }
+          : { type: "postgres", connectionString: url },
+      );
       if (db instanceof Error) throw db;
       cleanup.defer(async () => {
-        if (db.client instanceof DatabaseSync && !db.client.isOpen) return;
+        if (
+          db.client instanceof DatabaseSync
+            ? !db.client.isOpen
+            : db.client.ended
+        )
+          return;
         const closed = await db.close();
         if (closed instanceof Error) throw closed;
       });
@@ -60,10 +67,17 @@ credentialTest(
     expect(
       await first.credentials.set("user-a", "github", "secret-token-value"),
     ).toBeUndefined();
+    const postgresRows =
+      first.db.client instanceof DatabaseSync
+        ? undefined
+        : await first.db.client.query("SELECT * FROM credential");
     const closed = await first.db.close();
     if (closed instanceof Error) throw closed;
 
-    const raw = await fs.readFile(databasePath);
+    const raw =
+      postgresRows === undefined
+        ? await fs.readFile(databasePath)
+        : Buffer.from(JSON.stringify(postgresRows.rows));
     expect(raw.includes("secret-token-value")).toBe(false);
 
     const second = await openCredentials(encryptionKey);
@@ -106,10 +120,15 @@ credentialTest(
     expect(wrongKeyRead).toBeInstanceOf(CredentialDecryptionError);
 
     const client = db.client;
-    if (!(client instanceof DatabaseSync)) throw new Error("expected SQLite");
-    client.exec(
-      "UPDATE credential SET user_id = 'mallory' WHERE user_id = 'alice'",
-    );
+    if (client instanceof DatabaseSync) {
+      client.exec(
+        "UPDATE credential SET user_id = 'mallory' WHERE user_id = 'alice'",
+      );
+    } else {
+      await client.query(
+        "UPDATE credential SET user_id = 'mallory' WHERE user_id = 'alice'",
+      );
+    }
     const movedRead = await credentials.get("mallory", "github");
     expect(movedRead).toBeInstanceOf(CredentialDecryptionError);
   },

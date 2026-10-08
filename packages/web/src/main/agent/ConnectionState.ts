@@ -6,7 +6,7 @@ import {
 } from "@get-halo/client";
 
 export type ConnectionState =
-  | { status: "idle" | "connected" | "cancelled" | "expired" }
+  | { status: "idle" | "connected" | "cancelled" | "expired" | "failed" }
   | { status: "starting"; wasConnected: boolean }
   | {
       status: "connecting";

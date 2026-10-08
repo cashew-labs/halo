@@ -168,20 +168,17 @@ e2eTest(
 );
 
 e2eTest(
-  "completes an integration connection through same-tab web OAuth",
-  async ({ browser, harness, http, llm, testArtifacts }) => {
+  "opens remote integration setup in a new tab without leaving the session",
+  async ({ browser, harness, testArtifacts }) => {
     e2eTest.setTimeout(60_000);
     const session = await harness.loadSession({
       title: "Drive search",
       messages: [
         m.user("Find my planning document"),
         m.connectionRequest({
-          client: "first-party:google",
-          clientOwner: "org",
-          owner: "user",
+          kind: "control-plane",
           connectionName: "default",
           integration: "google_drive",
-          template: "googleOAuth2",
         }),
       ],
     });
@@ -219,70 +216,52 @@ e2eTest(
     const card = page.getByRole("region", {
       name: "Google Drive connection",
     });
-    await page.route("https://accounts.google.com/**", async (route) => {
-      const authorizationUrl = new URL(route.request().url());
-      const callbackValue = authorizationUrl.searchParams.get("redirect_uri");
-      const state = authorizationUrl.searchParams.get("state");
-      if (callbackValue === null || state === null) {
-        throw new Error("OAuth authorization request was incomplete");
-      }
-      const callback = new URL(callbackValue);
-      callback.searchParams.set("code", "accepted-code");
-      callback.searchParams.set("state", state);
+    await expect(card).toBeVisible({ timeout: 10_000 });
+    const setupUrl = `${plane.origin}/integrations/setup/browser-launch`;
+    // This browser-host scenario controls the remote launch response at the
+    // transport boundary; control-plane tests cover setup and OAuth completion.
+    await page.route("**/rpc/thread/startConnection", async (route) => {
+      expect(route.request().postDataJSON()).toMatchObject({
+        json: {
+          sessionId: session.sessionId,
+          request: {
+            kind: "control-plane",
+            integration: "google_drive",
+            connectionName: "default",
+          },
+        },
+      });
       await route.fulfill({
-        body: `<main><a href="${callback.toString()}">Authorize Halo</a></main>`,
+        json: {
+          json: {
+            status: "authorization-required",
+            authorizationUrl: setupUrl,
+            connectionId: "browser-launch",
+            expiresAt: Date.now() + 60_000,
+            wasConnected: false,
+          },
+        },
+      });
+    });
+    await context.route(setupUrl, async (route) => {
+      await route.fulfill({
+        body: "<main><h1>Set up Google Drive</h1></main>",
         contentType: "text/html; charset=utf-8",
       });
     });
-    const authorizationRequest = page.waitForRequest((request) => {
-      const url = new URL(request.url());
-      return (
-        url.origin === "https://accounts.google.com" &&
-        url.pathname === "/o/oauth2/v2/auth"
-      );
-    });
+    const popup = context.waitForEvent("page");
     await card
       .getByRole("button", { name: "Connect" })
       .click({ noWaitAfter: true });
-    const authorizationUrl = new URL((await authorizationRequest).url());
-    expect(authorizationUrl.searchParams.get("client_id")).toBe(
-      "e2e-google-web-client",
-    );
-    const callbackValue = authorizationUrl.searchParams.get("redirect_uri");
-    if (callbackValue === null) {
-      throw new Error("OAuth authorization request was incomplete");
-    }
-    const callback = new URL(callbackValue);
-    expect(callback.origin).toBe(plane.origin);
-    expect(callback.pathname).toBe("/workspace/oauth/callback");
-
-    const tokenRequest = http.request("/token");
-    await page
-      .getByRole("link", { name: "Authorize Halo" })
-      .click({ noWaitAfter: true });
-    const token = await tokenRequest;
-    token.respond(
-      JSON.stringify({
-        access_token: "test-access-token",
-        expires_in: 3_600,
-        scope: authorizationUrl.searchParams.get("scope"),
-        token_type: "Bearer",
-      }),
-      { contentType: "application/json" },
-    );
-
-    await page.waitForURL(`${plane.origin}/#/sessions/${session.sessionId}`);
-    await page.waitForLoadState("domcontentloaded");
-    await expect(page.getByTestId("sessions-shell")).toBeVisible({
-      timeout: 10_000,
-    });
-    const returnedCard = page.getByRole("region", {
-      name: "Google Drive connection",
-    });
+    const setupPage = await popup;
+    await expect(setupPage).toHaveURL(setupUrl);
     await expect(
-      returnedCard.getByText("Connected", { exact: true }),
-    ).toBeVisible({ timeout: 10_000 });
-    await llm.respond(m.assistant("The connection is ready."));
+      setupPage.getByRole("heading", { name: "Set up Google Drive" }),
+    ).toBeVisible();
+    await expect(page).toHaveURL(
+      `${plane.origin}/#/sessions/${session.sessionId}`,
+    );
+    await expect(card).toBeVisible();
   },
 );
 

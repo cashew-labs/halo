@@ -1,10 +1,8 @@
 import {
-  FileCredentialVault,
   WorkspaceServer,
   type WorkspaceServerOptions,
 } from "@get-halo/workspace-server";
 import { createHaloClient, type HaloClient } from "@get-halo/client";
-import path from "node:path";
 import type { TestArtifacts } from "./TestArtifacts.js";
 
 type RunningServer = {
@@ -26,6 +24,8 @@ export class TestServer {
   private readonly testApiEnabled: boolean;
   private readonly traceWorkspaceId: WorkspaceServerOptions["config"]["traceWorkspaceId"];
   private readonly traceUploader: WorkspaceServerOptions["host"]["traceUploader"];
+  private readonly remoteConnections: WorkspaceServerOptions["host"]["remoteConnections"];
+  private readonly remoteIntegrationTools: WorkspaceServerOptions["host"]["remoteIntegrationTools"];
   private readonly gateway: WorkspaceServerOptions["config"]["gateway"];
 
   constructor(ctx: {
@@ -35,6 +35,8 @@ export class TestServer {
     agentCapabilities?: WorkspaceServerOptions["host"]["agentCapabilities"];
     testApiEnabled?: boolean;
     traceUploader?: WorkspaceServerOptions["host"]["traceUploader"];
+    remoteConnections?: WorkspaceServerOptions["host"]["remoteConnections"];
+    remoteIntegrationTools?: WorkspaceServerOptions["host"]["remoteIntegrationTools"];
     traceWorkspaceId?: string;
     gateway?: WorkspaceServerOptions["config"]["gateway"];
   }) {
@@ -53,6 +55,8 @@ export class TestServer {
     this.agentCapabilities = ctx.agentCapabilities;
     this.testApiEnabled = testApiEnabled === undefined ? false : testApiEnabled;
     this.traceUploader = traceUploader;
+    this.remoteConnections = ctx.remoteConnections;
+    this.remoteIntegrationTools = ctx.remoteIntegrationTools;
     this.traceWorkspaceId = traceWorkspaceId;
     this.gateway = gateway;
   }
@@ -113,19 +117,11 @@ export class TestServer {
       },
       host: {
         llmApi: this.llmApi,
+        remoteConnections: this.remoteConnections,
+        remoteIntegrationTools: this.remoteIntegrationTools,
         agentCapabilities: this.agentCapabilities,
         traceUploader: this.traceUploader,
         logger: this.artifacts.logger,
-        createCredentialVault: ({ filesystem, workspaceRoot }) =>
-          new FileCredentialVault({
-            filesystem,
-            directory: path.join(
-              workspaceRoot,
-              ".halo",
-              "executor",
-              "credentials",
-            ),
-          }),
       },
     });
     if (server instanceof Error) throw server;

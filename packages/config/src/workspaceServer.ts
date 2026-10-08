@@ -12,8 +12,6 @@ import { togetherModel, workspaceInferencePath } from "./inference.js";
 
 const inferenceProjectId = "halo-relay";
 const togetherApiKeySecretId = "together-ai-api-key";
-const googleWebClientIdSecretId = "halo-workspace-google-web-client-id";
-const googleWebClientSecretId = "halo-workspace-google-web-client-secret";
 const developmentUserSchema = Type.Object({
   id: Type.String({ minLength: 1 }),
 });
@@ -67,15 +65,6 @@ export const workspaceServerConfigSchema = Type.Object({
       electronRunAsNode: Type.Boolean(),
     }),
   ),
-  oauthTest: Type.Optional(
-    Type.Object({
-      googleWebClient: Type.Object({
-        clientId: Type.String({ minLength: 1 }),
-        clientSecret: Type.String({ minLength: 1 }),
-      }),
-      tokenOrigin: Type.String({ minLength: 1 }),
-    }),
-  ),
 });
 
 export type WorkspaceServerConfig = Static<typeof workspaceServerConfigSchema>;
@@ -93,14 +82,6 @@ export type WorkspaceServerApplicationConfig = {
   mode: ApplicationMode;
   server: WorkspaceServerConfig;
   inference: OpenAIInferenceConfig;
-  googleWebOAuthClient: GoogleWebOAuthClient | undefined;
-  integrationsEnabled: boolean;
-  oauthTestOrigin: string | undefined;
-};
-
-export type GoogleWebOAuthClient = {
-  clientId: string;
-  clientSecret: string;
 };
 
 class WorkspaceServerConfigError extends errore.createTaggedError({
@@ -125,43 +106,10 @@ export async function readWorkspaceServerApplicationConfig(): Promise<
       : process.env.HALO_E2E === "1"
         ? ApplicationMode.Test
         : ApplicationMode.Production;
-  // Runtime-authenticated workspaces leave integrations to the control-plane migration.
-  const integrationsEnabled = server.runtime === undefined;
-  const googleWebOAuth = !integrationsEnabled
-    ? { client: undefined, testOrigin: undefined }
-    : mode === ApplicationMode.Test && server.oauthTest !== undefined
-      ? {
-          client: server.oauthTest.googleWebClient,
-          testOrigin: server.oauthTest.tokenOrigin,
-        }
-      : await readGoogleWebOAuth();
-  if (googleWebOAuth instanceof Error) return googleWebOAuth;
   return {
     mode,
     server,
     inference,
-    googleWebOAuthClient: googleWebOAuth.client,
-    integrationsEnabled,
-    oauthTestOrigin: googleWebOAuth.testOrigin,
-  };
-}
-
-async function readGoogleWebOAuth() {
-  const [clientId, clientSecret] = await Promise.all([
-    readGcpSecret({
-      projectId: inferenceProjectId,
-      secretId: googleWebClientIdSecretId,
-    }),
-    readGcpSecret({
-      projectId: inferenceProjectId,
-      secretId: googleWebClientSecretId,
-    }),
-  ]);
-  if (clientId instanceof Error) return clientId;
-  if (clientSecret instanceof Error) return clientSecret;
-  return {
-    client: { clientId, clientSecret },
-    testOrigin: undefined,
   };
 }
 

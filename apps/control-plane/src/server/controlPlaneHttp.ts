@@ -32,6 +32,7 @@ import {
 } from "./controlPlaneRpcRouter.js";
 import type { TraceIngestion } from "../traces/TraceIngestion.js";
 import type { WorkspaceService } from "../workspace/WorkspaceService.js";
+import type { IntegrationService } from "../integrations/IntegrationService.js";
 import {
   isWorkspaceProxyRequest,
   WorkspaceGateway,
@@ -100,6 +101,7 @@ export function serveControlPlaneHttp(ctx: {
   auth: AuthService;
   publicOrigin: string;
   workspace: WorkspaceService;
+  integrations?: IntegrationService;
   build?: { version: string; revision: string };
   webRoot: string;
   traces?: TraceIngestion;
@@ -141,6 +143,8 @@ export function serveControlPlaneHttp(ctx: {
       gateway,
       traces,
       rpc,
+      integrations: ctx.integrations,
+      publicOrigin,
       webRoot,
       build: ctx.build,
       inferenceApiKey: ctx.inferenceApiKey,
@@ -201,10 +205,12 @@ async function routeControlPlaneRequest(ctx: {
   request: IncomingMessage;
   response: ServerResponse;
   auth: AuthService;
+  publicOrigin: string;
   gateway: WorkspaceGateway;
   traces?: TraceIngestion;
   inferenceApiKey?: string;
   workspace: WorkspaceService;
+  integrations?: IntegrationService;
   build?: { version: string; revision: string };
   rpc: RPCHandler<ControlPlaneContext>;
   webRoot: string;
@@ -214,6 +220,28 @@ async function routeControlPlaneRequest(ctx: {
     request.url === undefined ? "/" : request.url,
     requestUrlBase,
   );
+
+  if (
+    request.method === "GET" &&
+    url.pathname === "/api/integrations/oauth/callback"
+  ) {
+    const result = await ctx.integrations?.oauthCallback({
+      state: url.searchParams.get("state") ?? "",
+      code: url.searchParams.has("error")
+        ? undefined
+        : (url.searchParams.get("code") ?? undefined),
+    });
+    response.setHeader("cache-control", "no-store");
+    response.setHeader("referrer-policy", "no-referrer");
+    if (result === undefined || result instanceof Error) {
+      response.writeHead(400, { "content-type": "text/plain" });
+      response.end("Invalid or expired authorization callback.");
+      return;
+    }
+    response.writeHead(303, { location: result.setupUrl });
+    response.end();
+    return;
+  }
 
   if (url.pathname === "/api/workspace-runtime/idle") {
     await serveWorkspaceIdleReport(request, response, workspace);
@@ -301,8 +329,10 @@ async function routeControlPlaneRequest(ctx: {
       request,
       response,
       auth,
+      publicOrigin: ctx.publicOrigin,
       workspace,
       rpc,
+      integrations: ctx.integrations,
       build: ctx.build,
     });
     return;
@@ -439,14 +469,22 @@ async function serveControlPlaneRpc(ctx: {
   request: IncomingMessage;
   response: ServerResponse;
   auth: AuthService;
+  publicOrigin: string;
   workspace: WorkspaceService;
+  integrations?: IntegrationService;
   build?: { version: string; revision: string };
   rpc: RPCHandler<ControlPlaneContext>;
 }) {
   const { request, response, auth, workspace, rpc } = ctx;
   const handled = await rpc.handle(request, response, {
     prefix: "/rpc",
-    context: { auth, workspace, build: ctx.build },
+    context: {
+      auth,
+      publicOrigin: ctx.publicOrigin,
+      workspace,
+      integrations: ctx.integrations,
+      build: ctx.build,
+    },
   });
 
   if (handled.matched) return;

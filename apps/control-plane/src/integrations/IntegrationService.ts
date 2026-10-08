@@ -1,3 +1,11 @@
+import crypto from "node:crypto";
+import dns from "node:dns/promises";
+import http from "node:http";
+import https from "node:https";
+import stream from "node:stream";
+import zlib from "node:zlib";
+import { DatabaseSync } from "node:sqlite";
+import { mcpPlugin } from "@executor-js/plugin-mcp/core";
 import { openApiPlugin } from "@executor-js/plugin-openapi/core";
 import {
   googleCatalog,
@@ -5,8 +13,19 @@ import {
 } from "@executor-js/plugin-openapi/providers/google";
 import {
   createExecutor,
+  ConnectionNotFoundError,
+  CredentialResolutionError,
+  ElicitationDeclinedError,
+  ToolBlockedError,
   Effect,
+  isToolResult,
+  parseToolAddress,
   IntegrationSlug,
+  AuthTemplateSlug,
+  ConnectionName,
+  OAuthClientSlug,
+  OAuthState,
+  Owner,
   ProviderItemId,
   ProviderKey,
   StorageError,
@@ -15,23 +34,67 @@ import {
   type CredentialProvider,
   type Executor,
   type ProviderEntry,
+  type Tool,
+  type Integration,
+  type Connection,
+  type FirstPartyOAuthClientConfig,
 } from "@executor-js/sdk/core";
+import type {
+  IntegrationConnection,
+  IntegrationInvocation,
+  IntegrationJson,
+  IntegrationTool,
+  IntegrationToolSchema,
+  IntegrationSetup,
+  IntegrationSetupCatalogEntry,
+} from "@get-halo/shared/controlPlaneContract";
 import { Layer } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
 import * as errore from "errore";
 import type { CredentialService } from "../credentials/CredentialService.js";
-import type { DatabaseService } from "../DatabaseService.js";
+import type { DatabaseService, DatabaseClient } from "../DatabaseService.js";
 import { createExecutorDatabase } from "./createExecutorDatabase.js";
 
 // Executor 1.6 rewrites Meet's Discovery URL to a legacy endpoint returning 404.
 const presets = googleCatalog.filter((preset) => preset.id !== "google-meet");
-type IntegrationPlugins = readonly [ReturnType<typeof openApiPlugin>];
+type IntegrationPlugins = readonly [
+  ReturnType<typeof openApiPlugin>,
+  ReturnType<typeof mcpPlugin>,
+];
 type IntegrationExecutor = Executor<IntegrationPlugins>;
 
 class IntegrationServiceError extends errore.createTaggedError({
   name: "IntegrationServiceError",
   message: "Integration service failed: $detail",
 }) {}
+
+export class IntegrationToolNotFoundError extends errore.createTaggedError({
+  name: "IntegrationToolNotFoundError",
+  message: "Integration tool not found",
+}) {}
+
+export class IntegrationSetupError extends errore.createTaggedError({
+  name: "IntegrationSetupError",
+  message: "$detail",
+}) {}
+
+type SetupRow = {
+  setup_id: string;
+  user_id: string;
+  data: string;
+  status: IntegrationSetup["status"];
+  expires_at: number;
+  oauth_state?: string;
+};
+
+// Persist only identity/bindings, never credentials; reconnect is fixed at start.
+type StoredSetup = IntegrationSetup & {
+  reconnect?: {
+    template: string;
+    client?: string;
+    clientOwner?: "user" | "org";
+  };
+};
 
 export class IntegrationService {
   // Coalesce first-use initialization per user and drain all work before shutdown.
@@ -40,6 +103,8 @@ export class IntegrationService {
     Promise<IntegrationExecutor | IntegrationServiceError>
   >();
   private readonly active = new Set<Promise<unknown>>();
+  private readonly activeUsers = new Map<string, number>();
+  private readonly initializing = new Set<string>();
   private closed = false;
   private readonly database: Exclude<
     Awaited<ReturnType<typeof createExecutorDatabase>>,
@@ -47,6 +112,10 @@ export class IntegrationService {
   >;
   private readonly credentials: CredentialService;
   private readonly plugins: IntegrationPlugins;
+  private readonly setupDb: DatabaseClient;
+  private readonly publicOrigin: string;
+  private readonly firstPartyOAuthClients: readonly FirstPartyOAuthClientConfig[];
+  private readonly allowLocalUrls: boolean;
 
   private constructor(ctx: {
     database: Exclude<
@@ -55,9 +124,17 @@ export class IntegrationService {
     >;
     credentials: CredentialService;
     getOpenAPISpec?: (url: string) => Promise<string | Error>;
+    setupDb: DatabaseClient;
+    publicOrigin: string;
+    firstPartyOAuthClients?: readonly FirstPartyOAuthClientConfig[];
+    allowLocalUrls?: boolean;
   }) {
     this.database = ctx.database;
     this.credentials = ctx.credentials;
+    this.setupDb = ctx.setupDb;
+    this.publicOrigin = ctx.publicOrigin;
+    this.firstPartyOAuthClients = ctx.firstPartyOAuthClients ?? [];
+    this.allowLocalUrls = ctx.allowLocalUrls ?? false;
     const getOpenAPISpec = ctx.getOpenAPISpec;
     // Only spec loading is overridden. Tool invocations keep Executor's normal HTTP client.
     const httpClientLayer =
@@ -80,6 +157,7 @@ export class IntegrationService {
     this.plugins = [
       openApiPlugin({
         presets,
+        httpClientLayer: this.safeHttpLayer(),
         specFormats: [
           httpClientLayer === undefined
             ? googleDiscoveryAdapter
@@ -90,6 +168,8 @@ export class IntegrationService {
               },
         ],
       }),
+      // Remote HTTP/SSE only: never spawn user-supplied processes in the control plane.
+      mcpPlugin({ httpClientLayer: this.safeHttpLayer() }),
     ];
   }
 
@@ -97,29 +177,869 @@ export class IntegrationService {
     db: DatabaseService;
     credentials: CredentialService;
     getOpenAPISpec?: (url: string) => Promise<string | Error>;
+    publicOrigin: string;
+    firstPartyOAuthClients?: readonly FirstPartyOAuthClientConfig[];
+    allowLocalUrls?: boolean;
   }) {
     const database = await createExecutorDatabase(ctx.db);
     if (database instanceof Error) return database;
-    return new IntegrationService({
+    const service = new IntegrationService({
       database,
       credentials: ctx.credentials,
       getOpenAPISpec: ctx.getOpenAPISpec,
+      setupDb: ctx.db.client,
+      publicOrigin: ctx.publicOrigin,
+      firstPartyOAuthClients: ctx.firstPartyOAuthClients,
+      allowLocalUrls: ctx.allowLocalUrls,
     });
+    const initialized = await service.sql(
+      "CREATE TABLE IF NOT EXISTS halo_integration_setup (setup_id TEXT PRIMARY KEY, user_id TEXT NOT NULL, integration TEXT NOT NULL, connection_name TEXT NOT NULL, data TEXT NOT NULL, status TEXT NOT NULL, expires_at BIGINT NOT NULL, oauth_state TEXT)",
+    );
+    if (initialized instanceof Error) return initialized;
+    const indexed = await service.sql(
+      "CREATE UNIQUE INDEX IF NOT EXISTS halo_integration_setup_state ON halo_integration_setup (oauth_state) WHERE oauth_state NOT IN ('submitting','consuming')",
+    );
+    if (indexed instanceof Error) return indexed;
+    const names = await service.sql(
+      "CREATE UNIQUE INDEX IF NOT EXISTS halo_integration_setup_active_name ON halo_integration_setup (user_id,integration,connection_name) WHERE status='authorizing'",
+    );
+    if (names instanceof Error) return names;
+    const dropped = await service.sql(
+      "DROP INDEX IF EXISTS halo_integration_setup_name",
+    );
+    if (dropped instanceof Error) return dropped;
+    return service;
   }
 
-  // Internal boundary only. Phase 2 derives userId from authenticated runtime
-  // state and exposes narrow operations; callers must not retain the executor.
+  private async sql(query: string, params: (string | number)[] = []) {
+    const db = this.setupDb;
+    if (db instanceof DatabaseSync)
+      return errore.try({
+        // SAFETY: Every row-returning query below selects the service-owned setup table.
+        try: () =>
+          db.prepare(query.replace(/\$\d+/g, "?")).all(...params) as SetupRow[],
+        catch: (cause) =>
+          new IntegrationServiceError({ detail: "persist setup", cause }),
+      });
+    return await db
+      .query<SetupRow>(query, params)
+      .then((result) => result.rows)
+      .catch(
+        (cause) =>
+          new IntegrationServiceError({ detail: "persist setup", cause }),
+      );
+  }
+
+  async catalog(userId: string) {
+    return await this.withUser(userId, (executor) =>
+      Effect.map(executor.integrations.list(), (integrations) =>
+        integrations.map(setupCatalogEntry),
+      ),
+    );
+  }
+
+  async startSetup(ctx: {
+    userId: string;
+    integration: string;
+    connectionName?: string;
+  }) {
+    const catalog = await this.catalog(ctx.userId);
+    if (catalog instanceof Error) return catalog;
+    const entry = catalog.find(
+      (candidate) => candidate.integration === ctx.integration,
+    );
+    if (entry === undefined)
+      return new IntegrationSetupError({ detail: "Integration not found" });
+    const existing =
+      ctx.connectionName === undefined
+        ? undefined
+        : await this.withUser(ctx.userId, (executor) =>
+            executor.connections.get({
+              owner: Owner.make("user"),
+              integration: IntegrationSlug.make(ctx.integration),
+              name: ConnectionName.make(ctx.connectionName!),
+            }),
+          );
+    if (existing instanceof Error) return existing;
+    const setupId = crypto.randomUUID();
+    const setup: StoredSetup = {
+      ...entry,
+      reconnect:
+        existing === null || existing === undefined
+          ? undefined
+          : {
+              template: existing.template,
+              client: existing.oauthClient ?? undefined,
+              clientOwner: existing.oauthClientOwner ?? undefined,
+            },
+      setupId,
+      connectionName:
+        ctx.connectionName ??
+        `connection${crypto.randomBytes(6).toString("hex")}`,
+      status: "awaiting_credentials",
+    };
+    const saved = await this.sql(
+      "INSERT INTO halo_integration_setup (setup_id,user_id,data,status,expires_at,integration,connection_name) VALUES ($1,$2,$3,$4,$5,$6,$7)",
+      [
+        setupId,
+        ctx.userId,
+        JSON.stringify(setup),
+        setup.status,
+        Date.now() + 15 * 60 * 1000,
+        setup.integration,
+        setup.connectionName,
+      ],
+    );
+    if (saved instanceof Error) return saved;
+    return { setupId, setupUrl: this.setupUrl(setupId) };
+  }
+
+  private setupUrl(setupId: string) {
+    return `${this.publicOrigin}/integrations/setup/${encodeURIComponent(setupId)}`;
+  }
+
+  async setup(ctx: { userId: string; setupId: string }) {
+    const setup = await this.readSetup(ctx);
+    if (setup instanceof Error) return setup;
+    const { reconnect: _reconnect, ...publicSetup } = setup;
+    return publicSetup;
+  }
+
+  private async readSetup(ctx: { userId: string; setupId: string }) {
+    const expired = await this.sql(
+      "UPDATE halo_integration_setup SET status='expired', oauth_state=NULL WHERE setup_id=$1 AND user_id=$2 AND expires_at <= $3 AND status IN ('awaiting_credentials','authorizing') AND (oauth_state IS NULL OR oauth_state NOT IN ('submitting','consuming') OR expires_at <= $4) RETURNING *",
+      [ctx.setupId, ctx.userId, Date.now(), Date.now() - 30_000],
+    );
+    if (expired instanceof Error) return expired;
+    const rows = await this.sql(
+      "SELECT * FROM halo_integration_setup WHERE setup_id=$1 AND user_id=$2",
+      [ctx.setupId, ctx.userId],
+    );
+    if (rows instanceof Error) return rows;
+    const row = rows[0];
+    if (row === undefined)
+      return new IntegrationSetupError({ detail: "Setup not found" });
+    const parsed = errore.try({
+      // SAFETY: Only this service writes data, serializing IntegrationSetup without credentials.
+      try: () => JSON.parse(row.data) as StoredSetup,
+      catch: (cause) =>
+        new IntegrationServiceError({ detail: "read setup", cause }),
+    });
+    if (parsed instanceof Error) return parsed;
+    return { ...parsed, status: row.status };
+  }
+
+  async submitSetup(ctx: {
+    userId: string;
+    setupId: string;
+    template: string;
+    values?: Record<string, string>;
+  }) {
+    const setup = await this.readSetup(ctx);
+    if (setup instanceof Error) return setup;
+    if (setup.status !== "awaiting_credentials")
+      return new IntegrationSetupError({
+        detail: "Setup is no longer awaiting credentials",
+      });
+    const method = setup.methods.find(
+      (candidate) => candidate.template === ctx.template,
+    );
+    if (method === undefined)
+      return new IntegrationSetupError({
+        detail: "Unknown authentication method",
+      });
+    if (setup.reconnect && setup.reconnect.template !== ctx.template)
+      return new IntegrationSetupError({
+        detail: "Reconnect must use the existing authentication method",
+      });
+    const values = ctx.values ?? {};
+    if (
+      Object.keys(values).some((key) => !method.fields.includes(key)) ||
+      method.fields.some((key) => !values[key])
+    )
+      return new IntegrationSetupError({
+        detail: "Supply only the required credential fields",
+      });
+    // An abandoned browser may never poll its expired setup again.
+    const expired = await this.sql(
+      "UPDATE halo_integration_setup SET status='expired',oauth_state=NULL WHERE user_id=$1 AND integration=$2 AND connection_name=$3 AND status='authorizing' AND expires_at <= $4 AND (oauth_state IS NULL OR oauth_state NOT IN ('submitting','consuming') OR expires_at <= $5) RETURNING *",
+      [
+        ctx.userId,
+        setup.integration,
+        setup.connectionName,
+        Date.now(),
+        Date.now() - 30_000,
+      ],
+    );
+    if (expired instanceof Error) return expired;
+    const claimed = await this.sql(
+      "UPDATE halo_integration_setup SET status='authorizing',oauth_state='submitting' WHERE setup_id=$1 AND user_id=$2 AND status='awaiting_credentials' AND expires_at > $3 AND NOT EXISTS (SELECT 1 FROM halo_integration_setup other WHERE other.user_id=$4 AND other.integration=$5 AND other.connection_name=$6 AND (other.status='authorizing' OR (other.status='ready' AND $7=0))) RETURNING *",
+      [
+        ctx.setupId,
+        ctx.userId,
+        Date.now(),
+        ctx.userId,
+        setup.integration,
+        setup.connectionName,
+        setup.reconnect ? 1 : 0,
+      ],
+    );
+    if (claimed instanceof Error) return claimed;
+    if (claimed.length === 0)
+      return new IntegrationSetupError({
+        detail:
+          "Setup is no longer awaiting credentials or its connection name is already taken",
+      });
+    const redirectUri = `${this.publicOrigin}/api/integrations/oauth/callback`;
+    const result = await this.withUser(ctx.userId, (executor) =>
+      Effect.gen(function* () {
+        const integration = yield* executor.integrations.get(
+          IntegrationSlug.make(setup.integration),
+        );
+        if (integration === null)
+          return new IntegrationSetupError({ detail: "Integration not found" });
+        const input = {
+          owner: Owner.make("user"),
+          name: ConnectionName.make(setup.connectionName),
+          integration: integration.slug,
+          template: AuthTemplateSlug.make(ctx.template),
+        };
+        const existing = yield* executor.connections.get(input);
+        if (existing !== null && !setup.reconnect)
+          return new IntegrationSetupError({
+            detail: "Connection name is already taken",
+          });
+        if (
+          setup.reconnect &&
+          (existing === null ||
+            existing.template !== setup.reconnect.template ||
+            (existing.oauthClient ?? undefined) !== setup.reconnect.client ||
+            (existing.oauthClientOwner ?? undefined) !==
+              setup.reconnect.clientOwner)
+        )
+          return new IntegrationSetupError({
+            detail: "The connection changed; restart reconnect",
+          });
+        if (method.kind !== "oauth")
+          return {
+            status: "connected" as const,
+            connection: yield* executor.connections.create({
+              ...input,
+              values,
+              identityLabel: existing?.identityLabel,
+            }),
+          };
+        if (setup.reconnect) {
+          if (!setup.reconnect.client || !setup.reconnect.clientOwner)
+            return new IntegrationSetupError({
+              detail: "The connection has no OAuth client binding",
+            });
+          return yield* executor.oauth.start({
+            ...input,
+            client: OAuthClientSlug.make(setup.reconnect.client),
+            clientOwner: Owner.make(setup.reconnect.clientOwner),
+            redirectUri,
+          });
+        }
+        const descriptor = integration.authMethods.find(
+          (item) => item.template === ctx.template,
+        )?.oauth;
+        const clients = yield* executor.oauth.listClients();
+        const client = clients.find(
+          (candidate) =>
+            candidate.authorizationUrl === descriptor?.authorizationUrl &&
+            candidate.tokenUrl === descriptor?.tokenUrl,
+        );
+        const discovered =
+          client === undefined && descriptor?.discoveryUrl !== undefined
+            ? yield* executor.oauth.probe({ url: descriptor.discoveryUrl })
+            : undefined;
+        const matching =
+          client ??
+          clients.find(
+            (candidate) =>
+              candidate.authorizationUrl === discovered?.authorizationUrl &&
+              candidate.tokenUrl === discovered?.tokenUrl,
+          );
+        const slug =
+          matching?.slug ??
+          (!discovered?.registrationEndpoint
+            ? undefined
+            : yield* executor.oauth.registerDynamicClient({
+                owner: Owner.make("user"),
+                slug: OAuthClientSlug.make(`setup-${setup.setupId}`),
+                issuer: discovered.issuer,
+                registrationEndpoint: discovered.registrationEndpoint,
+                authorizationUrl: discovered.authorizationUrl,
+                tokenUrl: discovered.tokenUrl,
+                resource: discovered.resource,
+                scopes: discovered.scopesSupported ?? [],
+                tokenEndpointAuthMethodsSupported:
+                  discovered.tokenEndpointAuthMethodsSupported,
+                redirectUri,
+                originIntegration: integration.slug,
+                clientName: "Halo",
+              }));
+        if (slug === undefined)
+          return new IntegrationSetupError({
+            detail:
+              "No configured OAuth client matches this integration; the server does not support dynamic registration",
+          });
+        return yield* executor.oauth.start({
+          ...input,
+          client: slug,
+          clientOwner: matching?.owner ?? Owner.make("user"),
+          redirectUri,
+        });
+      }),
+    );
+    if (result instanceof Error) {
+      const failed = await this.finishSetup({
+        ...ctx,
+        setup,
+        status: "failed",
+        message:
+          result instanceof IntegrationSetupError
+            ? result.message
+            : "Connection setup failed. Restart setup to try again.",
+      });
+      if (failed instanceof Error) return failed;
+      return result;
+    }
+    if (result.status === "connected") {
+      const saved = await this.finishSetup({
+        ...ctx,
+        setup,
+        status: "ready",
+        connection: safeConnection(result.connection),
+      });
+      if (saved instanceof Error) return saved;
+      return {};
+    }
+    const safeAuthorization = await this.validateRemoteUrl(
+      result.authorizationUrl,
+    );
+    if (safeAuthorization instanceof Error) {
+      const cancelled = await this.withUser(ctx.userId, (executor) =>
+        executor.oauth.cancel(result.state),
+      );
+      if (cancelled instanceof Error) return cancelled;
+      const failed = await this.finishSetup({
+        ...ctx,
+        setup,
+        status: "failed",
+        message: "The provider returned an unsafe authorization URL.",
+      });
+      if (failed instanceof Error) return failed;
+      return safeAuthorization;
+    }
+    const saved = await this.sql(
+      "UPDATE halo_integration_setup SET oauth_state=$1 WHERE setup_id=$2 AND user_id=$3 AND status='authorizing' RETURNING *",
+      [result.state, ctx.setupId, ctx.userId],
+    );
+    if (saved instanceof Error) return saved;
+    return { authorizationUrl: result.authorizationUrl };
+  }
+
+  private async finishSetup(ctx: {
+    userId: string;
+    setupId: string;
+    setup: IntegrationSetup;
+    status: IntegrationSetup["status"];
+    connection?: IntegrationConnection;
+    message?: string;
+  }) {
+    const saved = await this.sql(
+      "UPDATE halo_integration_setup SET status=$1,data=$2,oauth_state=NULL WHERE setup_id=$3 AND user_id=$4 AND status='authorizing' RETURNING *",
+      [
+        ctx.status,
+        JSON.stringify({
+          ...ctx.setup,
+          status: ctx.status,
+          connection: ctx.connection,
+          message: ctx.message,
+        }),
+        ctx.setupId,
+        ctx.userId,
+      ],
+    );
+    if (saved instanceof Error) return saved;
+  }
+
+  async cancelSetup(ctx: { userId: string; setupId: string }) {
+    const setup = await this.setup(ctx);
+    if (setup instanceof Error) return setup;
+    // Claim cancellation before calling the SDK; a racing callback cannot consume the state.
+    const rows = await this.sql(
+      "UPDATE halo_integration_setup SET status='cancelled' WHERE setup_id=$1 AND user_id=$2 AND status IN ('awaiting_credentials','authorizing') AND (oauth_state IS NULL OR oauth_state NOT IN ('submitting','consuming')) RETURNING *",
+      [ctx.setupId, ctx.userId],
+    );
+    if (rows instanceof Error) return rows;
+    if (rows.length === 0 && setup.status === "authorizing")
+      return new IntegrationSetupError({
+        detail:
+          "Credential submission or authorization completion is in progress",
+      });
+    const state = rows[0]?.oauth_state;
+    if (state)
+      return await this.withUser(ctx.userId, (executor) =>
+        executor.oauth.cancel(OAuthState.make(state)),
+      );
+  }
+
+  async oauthCallback(ctx: { state: string; code?: string }) {
+    // Atomic durable claim provides single consumption even with multiple control-plane replicas.
+    const rows = await this.sql(
+      "UPDATE halo_integration_setup SET oauth_state='consuming' WHERE oauth_state=$1 AND oauth_state NOT IN ('submitting','consuming') AND status='authorizing' AND expires_at > $2 RETURNING *",
+      [ctx.state, Date.now()],
+    );
+    if (rows instanceof Error) return rows;
+    const row = rows[0];
+    if (row === undefined)
+      return new IntegrationSetupError({
+        detail: "Invalid or already consumed OAuth state",
+      });
+    const setup = await this.setup({
+      userId: row.user_id,
+      setupId: row.setup_id,
+    });
+    if (setup instanceof Error) return setup;
+    if (setup.status !== "authorizing")
+      return new IntegrationSetupError({
+        detail: "Authorization setup has expired",
+      });
+    const connection = await this.withUser(row.user_id, (executor) =>
+      Effect.gen(function* () {
+        if (ctx.code === undefined) {
+          yield* executor.oauth.cancel(OAuthState.make(ctx.state));
+          return new IntegrationSetupError({
+            detail: "Authorization was declined",
+          });
+        }
+        return yield* executor.oauth.complete({
+          state: OAuthState.make(ctx.state),
+          code: ctx.code,
+        });
+      }),
+    );
+    const saved = await this.finishSetup({
+      userId: row.user_id,
+      setupId: row.setup_id,
+      setup,
+      status: connection instanceof Error ? "failed" : "ready",
+      connection:
+        connection instanceof Error ? undefined : safeConnection(connection),
+      message:
+        connection instanceof Error
+          ? "Authorization failed. Restart setup to try again."
+          : undefined,
+    });
+    if (saved instanceof Error) return saved;
+    return { setupUrl: this.setupUrl(row.setup_id) };
+  }
+
+  async registerOpenAPI(ctx: {
+    userId: string;
+    name: string;
+    slug: string;
+    url: string;
+  }) {
+    const safe = await this.validateRemoteUrl(ctx.url);
+    if (safe instanceof Error) return safe;
+    return await this.withUser(ctx.userId, (executor) =>
+      Effect.asVoid(
+        executor.openapi.addSpec({
+          name: ctx.name,
+          slug: ctx.slug,
+          spec: { kind: "url", url: ctx.url },
+        }),
+      ),
+    );
+  }
+
+  async registerMcp(ctx: {
+    userId: string;
+    name: string;
+    slug: string;
+    endpoint: string;
+    auth: "none" | "bearer" | "oauth";
+  }) {
+    const safe = await this.validateRemoteUrl(ctx.endpoint);
+    if (safe instanceof Error) return safe;
+    return await this.withUser(ctx.userId, (executor) =>
+      Effect.asVoid(
+        executor.mcp.addServer({
+          name: ctx.name,
+          slug: ctx.slug,
+          endpoint: ctx.endpoint,
+          authenticationTemplate:
+            ctx.auth === "oauth"
+              ? [{ slug: "oauth2", kind: "oauth2" }]
+              : ctx.auth === "none"
+                ? [{ slug: "none", kind: "none" }]
+                : [
+                    {
+                      slug: "bearer",
+                      type: "apiKey",
+                      headers: {
+                        Authorization: [
+                          "Bearer ",
+                          { type: "variable", name: "token" },
+                        ],
+                      },
+                    },
+                  ],
+        }),
+      ),
+    );
+  }
+
+  private async validateRemoteUrl(value: string) {
+    const url = errore.try({
+      try: () => new URL(value),
+      catch: (cause) =>
+        new IntegrationSetupError({ detail: "Invalid remote URL", cause }),
+    });
+    if (url instanceof Error) return url;
+    if (
+      !["https:", "http:"].includes(url.protocol) ||
+      url.username ||
+      url.password ||
+      url.hash
+    )
+      return new IntegrationSetupError({ detail: "Unsafe remote URL" });
+    if (this.allowLocalUrls) return;
+    if (url.protocol !== "https:")
+      return new IntegrationSetupError({
+        detail: "Remote integrations require HTTPS",
+      });
+    const addresses = await dns
+      .lookup(url.hostname.replace(/^\[|\]$/g, ""), { all: true })
+      .catch(
+        (cause) =>
+          new IntegrationSetupError({
+            detail: "Remote host could not be resolved",
+            cause,
+          }),
+      );
+    if (addresses instanceof Error) return addresses;
+    if (
+      addresses.length === 0 ||
+      addresses.some(({ address }) => !publicAddress(address))
+    )
+      return new IntegrationSetupError({
+        detail: "Remote URL must resolve to a public network",
+      });
+  }
+
+  private safeFetch: typeof globalThis.fetch = async (input, init) => {
+    const request = new Request(input, init);
+    const safe = await this.validateRemoteUrl(request.url);
+    if (safe instanceof Error) throw safe;
+    const body =
+      request.body === null
+        ? undefined
+        : Buffer.from(await request.arrayBuffer());
+    // Check the addresses returned to the actual socket, not just an earlier
+    // DNS preflight. Keep the original hostname for Host and TLS verification.
+    return await new Promise<Response>((resolve, reject) => {
+      const transport = request.url.startsWith("https:") ? https : http;
+      const outgoing = transport.request(
+        request.url,
+        {
+          method: request.method,
+          headers: Object.fromEntries(request.headers),
+          signal: request.signal,
+          lookup: (hostname, options, callback) => {
+            void dns
+              .lookup(hostname, { all: true, family: options.family })
+              .then((addresses) => {
+                if (
+                  addresses.length === 0 ||
+                  (!this.allowLocalUrls &&
+                    addresses.some(({ address }) => !publicAddress(address)))
+                ) {
+                  callback(
+                    new IntegrationSetupError({
+                      detail: "Remote URL must resolve to a public network",
+                    }),
+                    "",
+                    4,
+                  );
+                  return;
+                }
+                callback(
+                  // oxlint-disable-next-line unicorn/no-null -- Node's DNS callback requires null for success.
+                  null,
+                  options.all ? addresses : addresses[0]!.address,
+                  addresses[0]!.family,
+                );
+              })
+              .catch((cause) =>
+                callback(
+                  new IntegrationSetupError({
+                    detail: "Remote host could not be resolved",
+                    cause,
+                  }),
+                  "",
+                  4,
+                ),
+              );
+          },
+        },
+        (incoming) => {
+          const status = incoming.statusCode ?? 500;
+          if (status >= 300 && status < 400) {
+            incoming.destroy();
+            reject(
+              new IntegrationSetupError({
+                detail: "Remote redirects are not allowed",
+              }),
+            );
+            return;
+          }
+          const headers = new Headers();
+          for (const [key, value] of Object.entries(incoming.headers)) {
+            if (value === undefined) continue;
+            for (const item of Array.isArray(value) ? value : [value])
+              headers.append(key, item);
+          }
+          const encoding = headers.get("content-encoding");
+          const decoder =
+            encoding === "gzip"
+              ? zlib.createGunzip()
+              : encoding === "deflate"
+                ? zlib.createInflate()
+                : encoding === "br"
+                  ? zlib.createBrotliDecompress()
+                  : undefined;
+          if (decoder !== undefined) {
+            headers.delete("content-encoding");
+            headers.delete("content-length");
+            incoming.once("error", (error) => decoder.destroy(error));
+            decoder.once("close", () => incoming.destroy());
+          }
+          const readable =
+            decoder === undefined ? incoming : incoming.pipe(decoder);
+          // SAFETY: Node's IncomingMessage and zlib transforms produce byte streams.
+          const responseBody =
+            request.method === "HEAD" || [204, 205, 304].includes(status)
+              ? undefined
+              : (stream.Readable.toWeb(readable) as ReadableStream<Uint8Array>);
+          if (responseBody === undefined) readable.resume();
+          const response = errore.try({
+            try: () => new Response(responseBody, { status, headers }),
+            catch: (cause) =>
+              new IntegrationServiceError({
+                detail: "read remote response",
+                cause,
+              }),
+          });
+          if (response instanceof Error) {
+            incoming.destroy();
+            reject(response);
+            return;
+          }
+          resolve(response);
+        },
+      );
+      outgoing.once("error", reject);
+      outgoing.end(body);
+    });
+  };
+
+  private safeHttpLayer() {
+    return FetchHttpClient.layer.pipe(
+      Layer.provide(Layer.succeed(FetchHttpClient.Fetch, this.safeFetch)),
+    );
+  }
+
+  async connections(userId: string) {
+    return await this.withUser(userId, (executor) =>
+      Effect.gen(function* () {
+        const connections = yield* executor.connections.list({
+          owner: Owner.make("user"),
+        });
+        return connections.map((connection): IntegrationConnection => ({
+          address: connection.address,
+          integration: connection.integration,
+          name: connection.name,
+          accountLabel: connection.identityLabel ?? undefined,
+        }));
+      }),
+    );
+  }
+
+  async search(ctx: {
+    userId: string;
+    query: string;
+    integration?: string;
+    limit?: number;
+    signal?: AbortSignal;
+  }) {
+    return await this.withUser(
+      ctx.userId,
+      (executor) =>
+        Effect.gen(function* () {
+          const tools = (yield* executor.tools.list({
+            query: ctx.query,
+            integration:
+              ctx.integration === undefined
+                ? undefined
+                : IntegrationSlug.make(ctx.integration),
+          })).filter(isIntegrationTool);
+          const limit = ctx.limit ?? 50;
+          return {
+            tools: tools.slice(0, limit).map(summarizeTool),
+            truncated: tools.length > limit,
+          };
+        }),
+      ctx.signal,
+    );
+  }
+
+  async describe(ctx: {
+    userId: string;
+    address: string;
+    signal?: AbortSignal;
+  }) {
+    return await this.withUser(
+      ctx.userId,
+      (executor) =>
+        Effect.gen(function* () {
+          const tool = yield* resolveTool(executor, ctx.address);
+          if (tool instanceof Error) return tool;
+          const schema = yield* executor.tools.schema(tool.address);
+          if (schema === null) return new IntegrationToolNotFoundError();
+          const json = serializeJson(schema);
+          if (json instanceof Error) return json;
+          // SAFETY: Serialization preserves the SDK schema object's keys and checks JSON compatibility.
+          const wire = json as {
+            inputSchema?: IntegrationJson;
+            outputSchema?: IntegrationJson;
+            schemaDefinitions?: IntegrationJson;
+            inputTypeScript?: string;
+            outputTypeScript?: string;
+          };
+          return {
+            ...summarizeTool(tool),
+            inputSchema: wire.inputSchema,
+            outputSchema: wire.outputSchema,
+            schemaDefinitions: wire.schemaDefinitions,
+            inputTypeScript: wire.inputTypeScript,
+            outputTypeScript: wire.outputTypeScript,
+            requiresApproval: tool.annotations?.requiresApproval,
+          } satisfies IntegrationToolSchema;
+        }),
+      ctx.signal,
+    );
+  }
+
+  async invoke(ctx: {
+    userId: string;
+    address: string;
+    arguments: Record<string, IntegrationJson>;
+    signal?: AbortSignal;
+  }) {
+    const result = await this.withUser(
+      ctx.userId,
+      (executor) =>
+        Effect.gen(function* () {
+          const tool = yield* resolveTool(executor, ctx.address);
+          if (tool instanceof Error) return tool;
+          return yield* executor.execute(tool.address, ctx.arguments).pipe(
+            Effect.match({
+              onFailure: (error): IntegrationInvocation => {
+                if (error instanceof ToolBlockedError)
+                  return { status: "blocked" };
+                if (error instanceof ElicitationDeclinedError)
+                  return { status: "approval_required" };
+                if (
+                  (error instanceof CredentialResolutionError &&
+                    error.reauthRequired === true) ||
+                  error instanceof ConnectionNotFoundError
+                )
+                  return {
+                    status: "connection_required",
+                    integration: tool.integration,
+                    connectionName: tool.connection,
+                  };
+                return {
+                  status: "failed",
+                  code: "outcome_unknown",
+                  message:
+                    "Integration invocation failed; do not automatically retry.",
+                };
+              },
+              onSuccess: (value): IntegrationInvocation => {
+                if (isToolResult(value) && !value.ok) {
+                  if (
+                    (value.error.code === "connection_rejected" &&
+                      value.error.status === 401) ||
+                    value.error.code === "oauth_scope_insufficient"
+                  )
+                    return {
+                      status: "connection_required",
+                      integration: tool.integration,
+                      connectionName: tool.connection,
+                    };
+                  const timeout =
+                    value.error.code === "upstream_response_headers_timeout" ||
+                    value.error.code === "upstream_response_body_timeout";
+                  return {
+                    status: "failed",
+                    code: timeout ? "outcome_unknown" : "tool_failed",
+                    message: timeout
+                      ? "Integration response timed out; do not automatically retry."
+                      : "The integration reported a tool error.",
+                  };
+                }
+                const json = serializeJson(
+                  isToolResult(value) && value.ok ? value.data : value,
+                );
+                if (json instanceof Error)
+                  return {
+                    status: "failed",
+                    code: "outcome_unknown",
+                    message:
+                      "Integration returned an unsupported result; do not automatically retry.",
+                  };
+                return { status: "completed", result: json };
+              },
+            }),
+          );
+        }),
+      ctx.signal,
+    );
+    if (result instanceof IntegrationToolNotFoundError) return result;
+    if (result instanceof Error)
+      return {
+        status: "failed",
+        code: "outcome_unknown",
+        message:
+          "Integration invocation interrupted or unavailable; do not automatically retry.",
+      } satisfies IntegrationInvocation;
+    return result;
+  }
+
+  // Internal boundary only. RPC callers derive userId from runtime authentication.
+  // Callbacks must not retain the executor.
   async withUser<A, E>(
     userId: string,
     run: (executor: IntegrationExecutor) => Effect.Effect<A, E>,
+    signal?: AbortSignal,
   ) {
     if (this.closed)
       return new IntegrationServiceError({ detail: "service is closed" });
-    const work = this.run(userId, run);
+    this.activeUsers.set(userId, (this.activeUsers.get(userId) ?? 0) + 1);
+    const work = this.run(userId, run, signal);
     this.active.add(work);
     await using cleanup = new errore.AsyncDisposableStack();
     cleanup.defer(() => {
       this.active.delete(work);
+      const count = this.activeUsers.get(userId)! - 1;
+      if (count === 0) this.activeUsers.delete(userId);
+      else this.activeUsers.set(userId, count);
     });
     return await work;
   }
@@ -127,18 +1047,57 @@ export class IntegrationService {
   private async run<A, E>(
     userId: string,
     run: (executor: IntegrationExecutor) => Effect.Effect<A, E>,
+    signal?: AbortSignal,
   ) {
     let pending = this.executors.get(userId);
     if (pending === undefined) {
-      pending = this.create(userId);
+      const evicted =
+        this.executors.size >= 100
+          ? [...this.executors.keys()].find(
+              (id) => !this.activeUsers.has(id) && !this.initializing.has(id),
+            )
+          : undefined;
+      if (this.executors.size >= 100 && evicted === undefined)
+        return new IntegrationServiceError({
+          detail: "all Executor slots are busy",
+        });
+      const previous =
+        evicted === undefined ? undefined : this.executors.get(evicted);
+      if (evicted !== undefined) this.executors.delete(evicted);
+      this.initializing.add(userId);
+      pending = (async () => {
+        await using cleanup = new errore.AsyncDisposableStack();
+        cleanup.defer(() => {
+          this.initializing.delete(userId);
+        });
+        const old = await previous;
+        if (old !== undefined && !(old instanceof Error)) {
+          const closed = await Effect.runPromise(old.close()).catch(
+            (cause) =>
+              new IntegrationServiceError({ detail: "evict Executor", cause }),
+          );
+          if (closed instanceof Error) return closed;
+        }
+        return await this.create(userId);
+      })();
       this.executors.set(userId, pending);
     }
-    const executor = await pending;
-    if (executor instanceof Error) {
-      this.executors.delete(userId);
-      return executor;
-    }
-    return await Effect.runPromise(run(executor)).catch(
+    const initialization = pending;
+    const executors = this.executors;
+    return await Effect.runPromise(
+      Effect.gen(function* () {
+        const executor = yield* Effect.promise(
+          async () => await initialization,
+        );
+        if (executor instanceof Error) {
+          if (executors.get(userId) === initialization)
+            executors.delete(userId);
+          return executor;
+        }
+        return yield* run(executor);
+      }).pipe(Effect.timeout("30 seconds")),
+      { signal },
+    ).catch(
       (cause) =>
         new IntegrationServiceError({ detail: "execute operation", cause }),
     );
@@ -150,10 +1109,13 @@ export class IntegrationService {
         tenant: Tenant.make(userId),
         subject: Subject.make(userId),
         db: this.database,
+        fetch: this.safeFetch,
+        httpClientLayer: this.safeHttpLayer(),
+        firstPartyOAuthClients: this.firstPartyOAuthClients,
         providers: [this.credentialProvider(userId)],
         plugins: this.plugins,
         onElicitation: () => Effect.succeed({ action: "decline" as const }),
-      }),
+      }).pipe(Effect.timeout("30 seconds")),
     ).catch(
       (cause) =>
         new IntegrationServiceError({ detail: "create Executor", cause }),
@@ -167,6 +1129,33 @@ export class IntegrationService {
       );
       if (result instanceof Error) console.error(result);
     });
+    // Native fallback covers existing and future connections. Explicit restrictions still win.
+    const approved = await Effect.runPromise(
+      Effect.gen(function* () {
+        const policies = yield* executor.policies.list();
+        if (
+          policies.some(
+            (policy) =>
+              policy.owner === "org" &&
+              policy.pattern === "*" &&
+              policy.action === "approve",
+          )
+        )
+          return;
+        yield* executor.policies.create({
+          owner: Owner.make("org"),
+          pattern: "*",
+          action: "approve",
+        });
+      }).pipe(Effect.timeout("30 seconds")),
+    ).catch(
+      (cause) =>
+        new IntegrationServiceError({
+          detail: "configure default approval",
+          cause,
+        }),
+    );
+    if (approved instanceof Error) return approved;
     for (const preset of presets) {
       const { defaultSlug, url, specFormat } = preset;
       if (
@@ -195,7 +1184,7 @@ export class IntegrationService {
             ),
             healthCheck: preset.healthCheck,
           });
-        }),
+        }).pipe(Effect.timeout("30 seconds")),
       ).catch(
         (cause) =>
           new IntegrationServiceError({
@@ -260,6 +1249,106 @@ export class IntegrationService {
     );
     return results.find((result) => result instanceof Error);
   }
+}
+
+function setupCatalogEntry(
+  integration: Integration,
+): IntegrationSetupCatalogEntry {
+  return {
+    integration: integration.slug,
+    name: integration.name,
+    methods: integration.authMethods.map((method) => ({
+      template: method.template,
+      label: method.label,
+      kind: method.kind,
+      fields:
+        method.kind === "oauth" || method.kind === "none"
+          ? []
+          : [
+              ...new Set(
+                (method.placements ?? [])
+                  .filter((placement) => placement.literal === undefined)
+                  .map((placement) => placement.variable ?? "token"),
+              ),
+            ],
+    })),
+  };
+}
+
+function safeConnection(connection: Connection): IntegrationConnection {
+  return {
+    address: connection.address,
+    integration: connection.integration,
+    name: connection.name,
+    accountLabel: connection.identityLabel ?? undefined,
+  };
+}
+
+function publicAddress(address: string) {
+  if (address.includes(":"))
+    return (
+      /^[23][0-9a-f]{3}:/i.test(address) &&
+      !/^(2001:(db8|0):|2002:|3fff:)/i.test(address)
+    );
+  const [a, b] = address.split(".").map(Number);
+  return (
+    a !== undefined &&
+    b !== undefined &&
+    a > 0 &&
+    a < 224 &&
+    a !== 10 &&
+    a !== 127 &&
+    !(a === 169 && b === 254) &&
+    !(a === 172 && b >= 16 && b <= 31) &&
+    !(a === 192 && (b === 168 || b === 0 || b === 2 || b === 88)) &&
+    !(a === 100 && b >= 64 && b <= 127) &&
+    !(a === 198 && (b === 18 || b === 19 || b === 51)) &&
+    !(a === 203 && b === 0)
+  );
+}
+
+function isIntegrationTool(tool: Tool) {
+  return (
+    tool.static !== true &&
+    (tool.pluginId === "openapi" || tool.pluginId === "mcp") &&
+    parseToolAddress(tool.address) !== null
+  );
+}
+
+function summarizeTool(tool: Tool): IntegrationTool {
+  return {
+    address: tool.address,
+    integration: tool.integration,
+    connection: tool.connection,
+    name: tool.name,
+    description: tool.description,
+  };
+}
+
+function resolveTool(executor: IntegrationExecutor, address: string) {
+  return Effect.gen(function* () {
+    if (parseToolAddress(address) === null)
+      return new IntegrationToolNotFoundError();
+    const tools = yield* executor.tools.list({ includeBlocked: true });
+    return (
+      tools.find(
+        (tool) => tool.address === address && isIntegrationTool(tool),
+      ) ?? new IntegrationToolNotFoundError()
+    );
+  });
+}
+
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Executor returns unknown; this is the SDK-to-JSON boundary.
+function serializeJson(value: unknown) {
+  return errore.try({
+    // SAFETY: A successful JSON serialization and parse produces only JSON values.
+    try: () => JSON.parse(JSON.stringify(value)) as IntegrationJson,
+    catch: (cause) =>
+      new IntegrationServiceError({
+        detail: "serialize integration result",
+        cause,
+      }),
+  });
 }
 
 function toEffect<A>(

@@ -1,175 +1,169 @@
-import { createServer, type Server } from "node:http";
-import type { AddressInfo } from "node:net";
-import { once } from "node:events";
-import { Logger } from "@get-halo/logger";
-import type {
-  ConnectionRequest,
-  OAuthCompletion,
-  HaloConnectionEvent,
-} from "@get-halo/client";
-import { expect, test } from "vitest";
-import { ConnectionService } from "../src/agent/runtime/ConnectionService.js";
-import { handleOAuthCallback } from "../src/server/oauth.js";
+import type { HaloConnectionEvent } from "@get-halo/client";
+import { expect, test as baseTest, vi } from "vitest";
+import {
+  ConnectionService,
+  ConnectionUnavailableError,
+  type RemoteConnectionBackend,
+} from "../src/agent/runtime/ConnectionService.js";
 
-const request: ConnectionRequest = {
-  client: "test-client",
-  clientOwner: "org",
-  owner: "user",
-  connectionName: "default",
-  integration: "test-integration",
-  template: "oauth2",
+type SetupDriver = {
+  events: HaloConnectionEvent[];
+  status: Awaited<ReturnType<RemoteConnectionBackend["setup"]>>;
+  cancellationError: Error | undefined;
+  cancellations: number;
 };
 
-class FakeOAuthRuntime {
-  readonly state = "test-oauth-state";
-  completionKind: OAuthCompletion["kind"] | undefined;
-  redirectUri: string | undefined;
-
-  async startOAuth(input: ConnectionRequest & { completion: OAuthCompletion }) {
-    this.completionKind = input.completion.kind;
-    this.redirectUri = input.completion.redirectUri;
-    return {
-      status: "redirect" as const,
-      authorizationUrl: `https://provider.example/authorize?state=${this.state}`,
-      state: this.state,
+const test = baseTest.extend<{
+  setup: SetupDriver & { connections: ConnectionService };
+}>({
+  // oxlint-disable-next-line eslint/no-empty-pattern -- Vitest fixtures require destructured parameters.
+  setup: async ({}, use) => {
+    vi.useFakeTimers();
+    const state: SetupDriver = {
+      status: { status: "authorizing" },
+      cancellationError: undefined,
+      cancellations: 0,
+      events: [],
     };
-  }
-
-  async completeOAuth(_input: { state: string; code: string }) {
-    return undefined;
-  }
-
-  async cancelOAuth(_state: string) {
-    return undefined;
-  }
-}
-
-test("server OAuth completion redirects to its pending session", async () => {
-  await using setup = await createOAuthTest();
-  const started = await setup.start("server-redirect");
-  if (started instanceof Error) throw started;
-
-  const response = await fetch(
-    `${setup.origin}/oauth/callback?state=${setup.runtime.state}&code=accepted`,
-    { redirect: "manual" },
-  );
-
-  expect(setup.runtime.redirectUri).toBe(
-    "https://halo.example/workspace/oauth/callback",
-  );
-  expect(setup.runtime.completionKind).toBe("server-redirect");
-  expect(response.status).toBe(302);
-  expect(response.headers.get("location")).toBe("/#/sessions/session%2Fone");
-  expect(response.headers.get("cache-control")).toBe("no-store");
-  expect(setup.connections.statesForSession("session/one")).toMatchObject([
-    { request, status: "connected" },
-  ]);
-});
-
-test("server OAuth cancellation redirects with cancelled state", async () => {
-  await using setup = await createOAuthTest();
-  const started = await setup.start("server-redirect");
-  if (started instanceof Error) throw started;
-
-  const response = await fetch(
-    `${setup.origin}/oauth/callback?state=${setup.runtime.state}&error=access_denied`,
-    { redirect: "manual" },
-  );
-
-  expect(response.status).toBe(302);
-  expect(response.headers.get("location")).toBe("/#/sessions/session%2Fone");
-  expect(setup.connections.statesForSession("session/one")).toMatchObject([
-    { request, status: "cancelled" },
-  ]);
-});
-
-test("OAuth callback rejects state that is not pending", async () => {
-  await using setup = await createOAuthTest();
-
-  const response = await fetch(
-    `${setup.origin}/oauth/callback?state=unknown&code=accepted`,
-    { redirect: "manual" },
-  );
-
-  expect(response.status).toBe(400);
-  expect(response.headers.get("location")).toBeNull();
-  expect(await response.text()).toBe("Authorization is no longer pending.");
-});
-
-test("client loopback completion keeps the close-tab response", async () => {
-  await using setup = await createOAuthTest();
-  const started = await setup.start("client-loopback");
-  if (started instanceof Error) throw started;
-
-  const response = await fetch(
-    `${setup.origin}/oauth/callback?state=${setup.runtime.state}&code=accepted`,
-    { redirect: "manual" },
-  );
-
-  expect(response.status).toBe(200);
-  expect(setup.runtime.completionKind).toBe("client-loopback");
-  expect(response.headers.get("location")).toBeNull();
-  expect(await response.text()).toContain("You can close this tab.");
-});
-
-async function createOAuthTest() {
-  const runtime = new FakeOAuthRuntime();
-  const connections = new ConnectionService(runtime);
-  const logger = new Logger({ sinks: [] });
-  const server = createServer(async (incoming, response) => {
-    await handleOAuthCallback({
-      url: new URL(
-        incoming.url === undefined ? "/" : incoming.url,
-        origin(server),
-      ),
-      request: incoming,
-      response,
-      context: { connections, logger },
+    const connections = new ConnectionService({
+      remote: {
+        catalog: async () => [],
+        startSetup: async () => ({
+          setupId: "setup",
+          setupUrl: "https://halo.example/integrations/setup/setup",
+        }),
+        setup: async () => state.status,
+        cancelSetup: async () => {
+          state.cancellations++;
+          return state.cancellationError;
+        },
+      },
     });
-  });
-  server.listen(0, "127.0.0.1");
-  const listening = await once(server, "listening").catch(
-    (cause) =>
-      new Error("Could not start the OAuth callback test server", { cause }),
-  );
-  if (listening instanceof Error) throw listening;
-  return {
-    connections,
-    origin: origin(server),
-    runtime,
-    async start(kind: "client-loopback" | "server-redirect") {
-      const events: HaloConnectionEvent[] = [];
-      const started = await connections.startConnection({
-        sessionId: "session/one",
-        request,
-        completion: {
-          kind,
-          redirectUri: "https://halo.example/workspace/oauth/callback",
-        },
-        onEvent: async (event) => {
-          events.push(event);
-          return undefined;
-        },
-      });
-      if (!(started instanceof Error)) {
-        expect(events).toMatchObject([{ status: "connecting" }]);
-      }
-      return started;
-    },
-    async [Symbol.asyncDispose]() {
-      connections.close();
-      logger.destroy();
-      server.closeAllConnections();
-      const closed = await new Promise<Error | undefined>((resolve) =>
-        server.close((error) => resolve(error)),
-      );
-      if (closed instanceof Error) throw closed;
-    },
-  };
-}
+    await use(Object.assign(state, { connections }));
+    connections.close();
+    expect(vi.getTimerCount()).toBe(0);
+    vi.useRealTimers();
+  },
+});
 
-function origin(server: Server) {
-  // SAFETY: createOAuthTest calls this only after the TCP server starts listening.
-  const address = server.address() as AddressInfo;
-  return `http://127.0.0.1:${address.port}`;
-}
+const request = { kind: "control-plane" as const, integration: "example" };
+
+test("remote setup publishes ready once and enforces cancellation ownership", async ({
+  setup,
+}) => {
+  setup.cancellationError = new Error("Setup is completing");
+  const started = await setup.connections.startConnection({
+    sessionId: "owner",
+    request,
+    onEvent: async (event) => {
+      setup.events.push(event);
+    },
+  });
+  expect(started).toMatchObject({
+    status: "authorization-required",
+    authorizationUrl: "https://halo.example/integrations/setup/setup",
+  });
+  if (started instanceof Error || started.status !== "authorization-required")
+    throw new Error("Setup did not start");
+  expect(
+    await setup.connections.cancelConnection({
+      sessionId: "other",
+      connectionId: started.connectionId,
+    }),
+  ).toBeInstanceOf(Error);
+  expect(setup.cancellations).toBe(0);
+  expect(
+    await setup.connections.cancelConnection({
+      sessionId: "owner",
+      connectionId: started.connectionId,
+    }),
+  ).toBeInstanceOf(Error);
+  expect(setup.cancellations).toBe(1);
+  expect(setup.events.map((event) => event.status)).toEqual(["connecting"]);
+  await vi.advanceTimersByTimeAsync(1_000);
+  setup.status = { status: "ready" };
+  await vi.advanceTimersByTimeAsync(2_000);
+  await vi.advanceTimersByTimeAsync(10_000);
+  expect(setup.events.map((event) => event.status)).toEqual([
+    "connecting",
+    "connected",
+  ]);
+});
+
+test.for(["cancelled", "expired", "failed"] as const)(
+  "remote %s setup terminates polling",
+  async (status, { setup }) => {
+    setup.status = { status };
+    await setup.connections.startConnection({
+      sessionId: "owner",
+      request,
+      onEvent: async () => undefined,
+    });
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(setup.connections.statesForSession("owner")).toMatchObject([
+      { status },
+    ]);
+    expect(vi.getTimerCount()).toBe(0);
+  },
+);
+
+test("cancellation publishes once and stops polling", async ({ setup }) => {
+  const started = await setup.connections.startConnection({
+    sessionId: "owner",
+    request,
+    onEvent: async (event) => {
+      setup.events.push(event);
+    },
+  });
+  if (started instanceof Error || started.status !== "authorization-required")
+    throw new Error("Setup did not start");
+  expect(
+    await setup.connections.cancelConnection({
+      sessionId: "owner",
+      connectionId: started.connectionId,
+    }),
+  ).toBeUndefined();
+  await setup.connections.cancelConnection({
+    sessionId: "owner",
+    connectionId: started.connectionId,
+  });
+  await vi.advanceTimersByTimeAsync(10_000);
+  expect(setup.cancellations).toBe(1);
+  expect(setup.events.map((event) => event.status)).toEqual([
+    "connecting",
+    "cancelled",
+  ]);
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+test("authorizing setup expires at the advertised deadline", async ({
+  setup,
+}) => {
+  const started = await setup.connections.startConnection({
+    sessionId: "owner",
+    request,
+    onEvent: async (event) => {
+      setup.events.push(event);
+    },
+  });
+  if (started instanceof Error || started.status !== "authorization-required")
+    throw new Error("Setup did not start");
+  await vi.advanceTimersByTimeAsync(started.expiresAt - Date.now() + 2_000);
+  expect(setup.events.map((event) => event.status)).toEqual([
+    "connecting",
+    "expired",
+  ]);
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+test("missing remote host returns an explicit setup error", async () => {
+  const connections = new ConnectionService({});
+  expect(
+    await connections.startConnection({
+      sessionId: "owner",
+      request,
+      onEvent: async () => undefined,
+    }),
+  ).toBeInstanceOf(ConnectionUnavailableError);
+  connections.close();
+});
