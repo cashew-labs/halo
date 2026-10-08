@@ -41,6 +41,8 @@ import {
 import { workspaceInferencePath } from "@get-halo/config/inference";
 import { serveWorkspaceInference } from "../inference/workspaceInference.js";
 import { serveWorkspaceIdleReport } from "../workspace/workspaceIdleHttp.js";
+import { serveWorkspaceRoutineSnapshot } from "../workspace/workspaceRoutineHttp.js";
+import type { RoutineCoordinator } from "../workspace/RoutineCoordinator.js";
 
 const requestUrlBase = "http://localhost";
 const webContentSecurityPolicy = [
@@ -102,6 +104,7 @@ export function serveControlPlaneHttp(ctx: {
   publicOrigin: string;
   workspace: WorkspaceService;
   integrations?: IntegrationService;
+  routines: RoutineCoordinator;
   build?: { version: string; revision: string };
   webRoot: string;
   traces?: TraceIngestion;
@@ -140,6 +143,7 @@ export function serveControlPlaneHttp(ctx: {
       response,
       auth,
       workspace,
+      routines: ctx.routines,
       gateway,
       traces,
       rpc,
@@ -211,6 +215,7 @@ async function routeControlPlaneRequest(ctx: {
   inferenceApiKey?: string;
   workspace: WorkspaceService;
   integrations?: IntegrationService;
+  routines: RoutineCoordinator;
   build?: { version: string; revision: string };
   rpc: RPCHandler<ControlPlaneContext>;
   webRoot: string;
@@ -245,6 +250,16 @@ async function routeControlPlaneRequest(ctx: {
 
   if (url.pathname === "/api/workspace-runtime/idle") {
     await serveWorkspaceIdleReport(request, response, workspace);
+    return;
+  }
+
+  if (url.pathname === "/api/workspace-runtime/routines") {
+    await serveWorkspaceRoutineSnapshot(
+      request,
+      response,
+      workspace,
+      ctx.routines,
+    );
     return;
   }
 

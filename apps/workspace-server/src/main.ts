@@ -15,6 +15,7 @@ import {
 import {
   ControlPlaneTraceUploader,
   ControlPlaneWorkReporter,
+  ControlPlaneRoutineReporter,
   WorkspaceServer,
 } from "@get-halo/workspace-server";
 import { createOpenAILLMApi } from "@get-halo/workspace-server/llm";
@@ -165,6 +166,16 @@ async function run() {
               };
             })(),
       llmApi,
+      reportRoutineSchedule:
+        applicationConfig.server.runtime === undefined
+          ? undefined
+          : (() => {
+              const reporter = new ControlPlaneRoutineReporter(
+                applicationConfig.server.runtime,
+              );
+              return async (snapshot, signal) =>
+                await reporter.report(snapshot, signal);
+            })(),
       reportWorkIdle:
         applicationConfig.server.runtime === undefined
           ? undefined

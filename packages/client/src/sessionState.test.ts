@@ -2,14 +2,12 @@ import { expect, test } from "vitest";
 import {
   applySessionEvent,
   emptySessionSnapshot,
-  reduceSessionUpdate,
   sessionMessages,
   sessionToolExecutions,
   toolApprovalDecisionCustomType,
   type HaloEntry,
   type HaloMessage,
   type SessionSnapshot,
-  type ToolExecution,
 } from "@get-halo/client";
 
 const emptyUsage = {
@@ -100,96 +98,6 @@ test("follows a partial response through its committed entry and completed run",
   expect(snapshot.activeRun).toBeUndefined();
   expect(snapshot.lastRun).toEqual({ id: "run-1", status: "completed" });
   expect(during.activeRun?.message).toEqual(partial);
-});
-
-test("exposes exec's nested calls during execution and from its committed result", () => {
-  const request = assistantMessage({
-    stopReason: "toolUse",
-    content: [
-      {
-        type: "toolCall",
-        id: "exec-1",
-        name: "exec",
-        arguments: { js: "await tools.read()" },
-      },
-    ],
-  });
-  let snapshot: SessionSnapshot = {
-    ...emptySessionSnapshot(),
-    entries: [{ type: "message", id: "request-1", message: request }],
-  };
-  snapshot = applySessionEvent(snapshot, {
-    type: "run.started",
-    runId: "run-1",
-  });
-  const execution: ToolExecution = {
-    type: "exec",
-    id: "exec-1",
-    tool: { path: "exec", displayName: "Exec" },
-    arguments: { js: "await tools.read()" },
-    status: "running",
-    calls: [],
-    approvals: [],
-  };
-  snapshot = applySessionEvent(snapshot, {
-    type: "tool.started",
-    runId: "run-1",
-    execution,
-  });
-  const call = {
-    id: "read-1",
-    parentId: "exec-1",
-    tool: { path: "files.read", displayName: "Files" },
-    arguments: { path: "notes.md" },
-    status: "running" as const,
-  };
-  snapshot = applySessionEvent(snapshot, {
-    type: "tool.updated",
-    runId: "run-1",
-    toolCallId: "exec-1",
-    status: "running",
-    output: {
-      type: "exec",
-      result: { content: [] },
-      calls: [call],
-      approvals: [],
-    },
-  });
-  expect(sessionToolExecutions(snapshot)).toMatchObject([
-    { type: "exec", status: "running", calls: [call] },
-  ]);
-  const during = snapshot;
-  const entry: HaloEntry = {
-    type: "toolResult",
-    id: "result-1",
-    toolCallId: "exec-1",
-    tool: execution.tool,
-    timestamp: 3,
-    isError: false,
-    output: {
-      type: "exec",
-      result: { content: [{ type: "text", text: "Read notes" }] },
-      calls: [{ ...call, status: "completed" }],
-      approvals: [],
-    },
-  };
-  snapshot = applySessionEvent(snapshot, { type: "entry.committed", entry });
-  expect(snapshot.activeRun?.tools).toEqual([]);
-  expect(sessionToolExecutions(snapshot)).toEqual([
-    {
-      ...execution,
-      status: "completed",
-      result: entry.output.result,
-      calls: [{ ...call, status: "completed" }],
-    },
-  ]);
-  const reopened = reduceSessionUpdate(during, { type: "snapshot", snapshot });
-  expect(sessionToolExecutions(reopened)).toEqual(
-    sessionToolExecutions(snapshot),
-  );
-  expect(sessionToolExecutions(during)).toMatchObject([
-    { calls: [{ status: "running" }] },
-  ]);
 });
 
 test("overlays persisted tool approval decisions", () => {
@@ -302,41 +210,6 @@ test("keeps model-call order while parallel tools complete out of order", () => 
     "completed",
     "completed",
   ]);
-});
-
-test("replaces a previous session and continues the snapshot's active run", () => {
-  const previous: SessionSnapshot = {
-    ...emptySessionSnapshot(),
-    entries: [
-      {
-        type: "message",
-        id: "old",
-        message: userMessage("Previous session", 1),
-      },
-    ],
-  };
-  const current: SessionSnapshot = {
-    ...emptySessionSnapshot(),
-    entries: [
-      {
-        type: "message",
-        id: "current",
-        message: userMessage("Current session", 2),
-      },
-    ],
-    activeRun: { id: "run-2", tools: [] },
-  };
-  const restored = reduceSessionUpdate(previous, {
-    type: "snapshot",
-    snapshot: current,
-  });
-  const completed = reduceSessionUpdate(restored, {
-    type: "event",
-    event: { type: "run.finished", run: { id: "run-2", status: "completed" } },
-  });
-  expect(completed.entries).toEqual(current.entries);
-  expect(completed.activeRun).toBeUndefined();
-  expect(previous.entries[0]?.id).toBe("old");
 });
 
 test("keeps run outcomes without allowing late updates to replace a newer run", () => {

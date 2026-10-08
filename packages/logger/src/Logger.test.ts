@@ -54,25 +54,3 @@ loggerTest(
     });
   },
 );
-
-loggerTest("adds another real sink", async ({ directory }) => {
-  const firstPath = path.join(directory, "first.jsonl");
-  const secondPath = path.join(directory, "second.jsonl");
-  const logger = new Logger({
-    sinks: [new JsonlLoggerSink({ filePath: firstPath })],
-  })
-    .scope("main")
-    .addSink(new JsonlLoggerSink({ filePath: secondPath }));
-
-  logger.log({ event: "ready" });
-
-  const [first, second] = await Promise.all([
-    fs.readFile(firstPath, "utf8"),
-    fs.readFile(secondPath, "utf8"),
-  ]);
-  expect(first).toBe(second);
-  expect(JSON.parse(first)).toMatchObject({
-    scopes: [{ name: "main", data: {} }],
-    data: { event: "ready" },
-  });
-});

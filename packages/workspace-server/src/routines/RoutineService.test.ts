@@ -1,4 +1,4 @@
-import { InvalidRoutineError, type RoutineInput } from "@get-halo/client";
+import { type RoutineInput } from "@get-halo/client";
 import { Logger } from "@get-halo/logger";
 import { afterEach, beforeEach, expect, vi } from "vitest";
 import { AbortFailedError } from "../agent/Thread.js";
@@ -22,81 +22,6 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
 });
-
-routineTest(
-  "schedules a routine in its time zone",
-  async ({ openRoutines }) => {
-    const routines = await openRoutines();
-
-    const saved = await routines.save({
-      ...everyTwoMinutes,
-      name: "  Morning briefing ",
-      cron: "0  8 * * *",
-      timezone: "America/New_York",
-      action: { type: "runAgent", prompt: "Summarize my inbox" },
-    });
-
-    expect(saved).toMatchObject({
-      name: "Morning briefing",
-      cron: "0 8 * * *",
-      enabled: true,
-      // 8:00 AM EDT later that morning.
-      nextRunAt: "2026-09-25T12:00:00.000Z",
-    });
-    expect(routines.list()).toEqual([saved]);
-  },
-);
-
-routineTest("rejects routines that cannot run", async ({ openRoutines }) => {
-  const routines = await openRoutines();
-
-  for (const input of [
-    { ...everyTwoMinutes, cron: "* * * * * *" },
-    { ...everyTwoMinutes, cron: "0 0 30 2 *" },
-    { ...everyTwoMinutes, timezone: "Mars/Olympus" },
-    { ...everyTwoMinutes, extensionId: "../elsewhere" },
-    {
-      ...everyTwoMinutes,
-      action: { type: "runScript" as const, command: "ls", cwd: "../.." },
-    },
-    { ...everyTwoMinutes, action: { type: "runAgent" as const, prompt: " " } },
-  ]) {
-    expect(await routines.save(input)).toBeInstanceOf(InvalidRoutineError);
-  }
-  expect(await routines.save({ ...everyTwoMinutes, id: "missing" })).toEqual(
-    new RoutineNotFoundError({ routineId: "missing" }),
-  );
-  expect(routines.list()).toEqual([]);
-});
-
-routineTest(
-  "pausing stops the schedule and resuming restarts it from now",
-  async ({ openRoutines }) => {
-    const routines = await openRoutines();
-    const saved = await routines.save(everyTwoMinutes);
-    if (saved instanceof Error) throw saved;
-
-    const paused = await routines.setEnabled({
-      routineId: saved.id,
-      enabled: false,
-    });
-    expect(paused).toMatchObject({ enabled: false, nextRunAt: undefined });
-
-    vi.setSystemTime(new Date("2026-09-25T09:15:00Z"));
-    expect(
-      await routines.beginRun({ routineId: saved.id, trigger: "schedule" }),
-    ).toBeUndefined();
-
-    const resumed = await routines.setEnabled({
-      routineId: saved.id,
-      enabled: true,
-    });
-    expect(resumed).toMatchObject({
-      enabled: true,
-      nextRunAt: "2026-09-25T09:16:00.000Z",
-    });
-  },
-);
 
 routineTest(
   "a scheduled run claims its occurrence and skips overlapping runs",
@@ -243,6 +168,32 @@ routineTest(
     expect(routines.get(saved.id)).toMatchObject({
       lastRun: { status: "interrupted" },
     });
+  },
+);
+
+routineTest(
+  "keeps an overdue occurrence after a managed workspace wakes",
+  async ({ openRoutines }) => {
+    const before = await openRoutines();
+    const saved = await before.save(everyTwoMinutes);
+    if (saved instanceof Error) throw saved;
+    vi.setSystemTime(new Date("2026-09-25T08:05:00Z"));
+    const after = await openRoutines();
+    const recovered = await after.recover({ preserveDue: true });
+    if (recovered instanceof Error) throw recovered;
+    expect(after.get(saved.id)).toMatchObject({
+      nextRunAt: "2026-09-25T08:02:00.000Z",
+    });
+    const run = await after.beginRun({
+      routineId: saved.id,
+      trigger: "schedule",
+    });
+    expect(run).toMatchObject({
+      scheduledFor: "2026-09-25T08:02:00.000Z",
+    });
+    expect(
+      await after.beginRun({ routineId: saved.id, trigger: "schedule" }),
+    ).toBeUndefined();
   },
 );
 

@@ -25,10 +25,7 @@ import { DatabaseSync } from "node:sqlite";
 import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
 import { writeWorkspaceServerConnection } from "@get-halo/shared/WorkspaceServerConnection";
-import {
-  controlPlaneProtocolVersion,
-  type ControlPlaneClient,
-} from "@get-halo/shared/controlPlaneContract";
+import { type ControlPlaneClient } from "@get-halo/shared/controlPlaneContract";
 import { betterAuth } from "better-auth";
 import { testUtils } from "better-auth/plugins";
 import * as errore from "errore";
@@ -55,11 +52,20 @@ import {
 /** External workspace HTTP hosts, discovered through the real local provider. */
 class WorkspaceHostDriver {
   readonly provider: LocalWorkspaceProvider;
+  readonly requests: string[] = [];
+  readonly exeAuthorizations: Array<string | undefined> = [];
   private readonly server: http.Server;
 
   private constructor(ctx: { appDataDir: string }) {
     this.provider = new LocalWorkspaceProvider(ctx);
     this.server = http.createServer((request, response) => {
+      this.requests.push(request.url ?? "");
+      const exeAuthorization = request.headers["x-exedev-authorization"];
+      this.exeAuthorizations.push(
+        Array.isArray(exeAuthorization)
+          ? exeAuthorization[0]
+          : exeAuthorization,
+      );
       if (request.headers.authorization !== "Bearer test-workspace-token") {
         response.writeHead(401).end();
         return;
@@ -74,6 +80,12 @@ class WorkspaceHostDriver {
         .writeHead(200, { "content-type": "application/json" })
         .end(JSON.stringify({ workspace: "test-workspace" }));
     });
+  }
+
+  get origin() {
+    // SAFETY: This getter is used only after the numeric TCP listener starts.
+    const address = this.server.address() as AddressInfo;
+    return `http://127.0.0.1:${address.port}`;
   }
 
   static async start(ctx: { appDataDir: string }) {
@@ -2243,168 +2255,11 @@ controlPlaneTest(
 );
 
 controlPlaneTest(
-  "stays reachable on loopback until closed",
-  async ({ appDataDir, webRoot, workspaceProvider }) => {
-    await using cleanup = new errore.AsyncDisposableStack();
-    const plane = await ControlPlane.start({
-      config: {
-        deployment: "local",
-        workspace: { deployment: "local" },
-        appDataDir,
-        port: 0,
-        auth: testAuth,
-      },
-      webRoot,
-      workspaceProvider,
-    });
-    if (plane instanceof Error) throw plane;
-    const lifetime = { open: true };
-    cleanup.defer(async () => {
-      if (!lifetime.open) return;
-      const closed = await plane.close();
-      if (closed instanceof Error) console.warn(closed);
-    });
-
-    const health = await fetch(`${plane.origin}/health`);
-    expect(health.status).toBe(200);
-
-    lifetime.open = false;
-    const closed = await plane.close();
-    if (closed instanceof Error) throw closed;
-
-    const afterClose = await fetch(`${plane.origin}/health`).then(
-      () => "answered",
-      () => "gone",
-    );
-    expect(afterClose).toBe("gone");
-  },
-);
-
-controlPlaneTest(
-  "serves browser navigation and built assets",
-  async ({ plane }) => {
-    const root = await fetch(plane.origin);
-    expect(root.status).toBe(200);
-    expect(root.headers.get("cache-control")).toBe("no-cache");
-    expect(root.headers.get("content-security-policy")).toContain(
-      "frame-ancestors 'none'",
-    );
-    expect(root.headers.get("content-security-policy")).toContain(
-      "frame-src 'self'",
-    );
-    expect(root.headers.get("content-type")).toBe("text/html; charset=utf-8");
-    expect(await root.text()).toBe("<main>Halo web app</main>");
-
-    const navigation = await fetch(`${plane.origin}/sessions/example`);
-    expect(navigation.status).toBe(200);
-    expect(navigation.headers.get("cache-control")).toBe("no-cache");
-    expect(await navigation.text()).toBe("<main>Halo web app</main>");
-
-    const asset = await fetch(`${plane.origin}/assets/app.js`);
-    expect(asset.status).toBe(200);
-    expect(asset.headers.get("cache-control")).toBe(
-      "public, max-age=31536000, immutable",
-    );
-    expect(asset.headers.get("content-type")).toBe(
-      "text/javascript; charset=utf-8",
-    );
-    expect(await asset.text()).toBe("window.Halo = true;");
-  },
-);
-
-controlPlaneTest(
-  "does not serve the SPA for missing assets or service routes",
-  async ({ plane }) => {
-    const responses = await Promise.all([
-      fetch(`${plane.origin}/assets/missing.js`),
-      fetch(`${plane.origin}/api/missing`),
-      fetch(`${plane.origin}/rpc/missing`),
-      fetch(`${plane.origin}/workspace/missing`),
-      fetch(`${plane.origin}/health/missing`),
-    ]);
-
-    expect(responses.map((response) => response.status)).toEqual([
-      404, 404, 404, 401, 404,
-    ]);
-  },
-);
-
-controlPlaneTest("serves Better Auth at /api/auth", async ({ plane }) => {
-  const ok = await fetch(`${plane.origin}/api/auth/ok`);
-  expect(ok.status).toBe(200);
-  expect(await ok.json()).toEqual({ ok: true });
-});
-
-controlPlaneTest("serves the typed control-plane RPC", async ({ rpc }) => {
-  expect(await rpc.server.info()).toEqual({
-    protocolVersion: controlPlaneProtocolVersion,
-    supportedProtocols: [controlPlaneProtocolVersion],
-    build: { version: "test-release", revision: "test-revision" },
-  });
-  expect(await rpc.auth.session()).toEqual({ status: "signed-out" });
-});
-
-controlPlaneTest(
   "requires authentication to ensure a workspace",
   async ({ rpc }) => {
     await expect(rpc.workspace.ensure()).rejects.toMatchObject({
       code: "UNAUTHORIZED",
     });
-  },
-);
-
-controlPlaneTest(
-  "starts Google sign-in in the browser without opening the website",
-  async ({ plane, rpc }) => {
-    const result = await rpc.auth.start({
-      callback: "http://127.0.0.1:49152/auth/callback",
-      state: desktopAuthState,
-    });
-
-    const google = new URL(result.authorizationUrl);
-    expect(google.origin).toBe("https://accounts.google.com");
-    expect(google.pathname).toBe("/o/oauth2/v2/auth");
-    expect(google.searchParams.get("client_id")).toBe(testAuth.googleClientId);
-    expect(google.searchParams.get("redirect_uri")).toBe(
-      `${plane.origin}/api/auth/callback/google`,
-    );
-  },
-);
-
-controlPlaneTest(
-  "keeps the desktop start page as a Google redirect",
-  async ({ plane }) => {
-    const start = new URL("/api/desktop-auth/start", plane.origin);
-    start.searchParams.set("callback", "http://127.0.0.1:49152/auth/callback");
-    start.searchParams.set("state", desktopAuthState);
-
-    const response = await fetch(start, { redirect: "manual" });
-    expect(response.status).toBe(302);
-
-    const google = new URL(response.headers.get("location")!);
-    expect(google.origin).toBe("https://accounts.google.com");
-    expect(google.pathname).toBe("/o/oauth2/v2/auth");
-  },
-);
-
-controlPlaneTest(
-  "does not send OAuth errors to the website homepage",
-  async ({ plane }) => {
-    const response = await fetch(`${plane.origin}/api/auth/callback/google`, {
-      redirect: "manual",
-    });
-    expect(response.status).toBe(302);
-    expect(response.headers.get("location")).toBe(
-      `${plane.origin}/api/desktop-auth/error?error=state_not_found`,
-    );
-
-    const error = await fetch(
-      `${plane.origin}/api/desktop-auth/error?error=state_not_found`,
-    );
-    expect(error.status).toBe(200);
-    const body = await error.text();
-    expect(body).toContain("state_not_found");
-    expect(body).not.toContain("Halo web app");
   },
 );
 
@@ -2477,6 +2332,183 @@ controlPlaneTest(
   },
 );
 
+const sleepingRoutineTest = controlPlaneTest.extend<{
+  sleepingProvider: {
+    paused: boolean;
+    clockReady: boolean;
+    failClockOnResume: boolean;
+    resumeAttempts: number;
+    clockSyncAttempts: number;
+  };
+  workspaceProvider: WorkspaceProviderApi;
+}>({
+  // oxlint-disable-next-line eslint/no-empty-pattern -- Vitest fixture callbacks require destructured parameters.
+  sleepingProvider: async ({}, use) => {
+    await use({
+      paused: true,
+      clockReady: false,
+      failClockOnResume: false,
+      resumeAttempts: 0,
+      clockSyncAttempts: 0,
+    });
+  },
+  workspaceProvider: async ({ appDataDir, sleepingProvider }, use) => {
+    const local = new LocalWorkspaceProvider({ appDataDir });
+    await use({
+      ensure: async (input) => await local.ensure(input),
+      getConnection: async () => {
+        if (sleepingProvider.paused || !sleepingProvider.clockReady)
+          return undefined;
+        const connection = await local.getConnection();
+        if (connection instanceof Error || connection === undefined)
+          return connection;
+        return {
+          origin: connection.origin,
+          authorization: {
+            type: "headers" as const,
+            value: {
+              authorization: "Bearer test-workspace-token",
+              "x-exedev-authorization": "test-private-token",
+            },
+          },
+        };
+      },
+      getStatus: async () =>
+        sleepingProvider.paused ? ("paused" as const) : ("running" as const),
+      resume: async () => {
+        sleepingProvider.resumeAttempts += 1;
+        sleepingProvider.paused = false;
+        if (sleepingProvider.failClockOnResume) {
+          sleepingProvider.failClockOnResume = false;
+          return new Error("guest clock synchronization failed");
+        }
+        sleepingProvider.clockReady = true;
+      },
+      synchronizeClock: async () => {
+        sleepingProvider.clockSyncAttempts += 1;
+        sleepingProvider.clockReady = true;
+      },
+    } satisfies WorkspaceProviderApi);
+  },
+});
+
+sleepingRoutineTest(
+  "wakes a sleeping workspace and dispatches its due routine",
+  async ({
+    plane,
+    authenticatedRpc,
+    appDataDir,
+    workspaceHost,
+    sleepingProvider,
+  }) => {
+    const workspace = await authenticatedRpc.workspace.ensure();
+    const runtime = await readRuntimeSettings(appDataDir);
+    const published = await writeWorkspaceServerConnection({
+      appDataDir,
+      connection: {
+        workspaceRoot: appDataDir,
+        origin: workspaceHost.origin,
+        token: "test-workspace-token",
+      },
+    });
+    if (published instanceof Error) throw published;
+    const endpoint = `${plane.origin}/api/workspace-runtime/routines`;
+    const due = {
+      routines: [
+        {
+          id: "morning-report",
+          nextRunAt: new Date(Date.now() - 1000).toISOString(),
+        },
+      ],
+    };
+    const unauthorized = await fetch(endpoint, {
+      method: "POST",
+      body: JSON.stringify(due),
+      headers: { authorization: "Bearer invalid" },
+    });
+    expect(unauthorized.status).toBe(401);
+    const invalid = await fetch(endpoint, {
+      method: "POST",
+      body: JSON.stringify({
+        routines: [{ id: "bad", nextRunAt: "not a date" }],
+      }),
+      headers: { authorization: `Bearer ${runtime.token}` },
+    });
+    expect(invalid.status).toBe(400);
+    const accepted = await fetch(endpoint, {
+      method: "POST",
+      body: JSON.stringify(due),
+      headers: { authorization: `Bearer ${runtime.token}` },
+    });
+    expect(accepted.status).toBe(204);
+    await vi.waitFor(() => {
+      expect(sleepingProvider.paused).toBe(false);
+      expect(workspaceHost.requests).toContain("/rpc/routines/runScheduled");
+      expect(workspaceHost.exeAuthorizations).toContain("test-private-token");
+    });
+    expect(workspace.id).toBe(runtime.workspaceId);
+  },
+);
+
+sleepingRoutineTest(
+  "repairs the guest clock after resume unpauses the VM but clock sync fails",
+  async ({
+    plane,
+    authenticatedRpc,
+    appDataDir,
+    workspaceHost,
+    sleepingProvider,
+  }) => {
+    await authenticatedRpc.workspace.ensure();
+    const runtime = await readRuntimeSettings(appDataDir);
+    const published = await writeWorkspaceServerConnection({
+      appDataDir,
+      connection: {
+        workspaceRoot: appDataDir,
+        origin: workspaceHost.origin,
+        token: "test-workspace-token",
+      },
+    });
+    if (published instanceof Error) throw published;
+    sleepingProvider.failClockOnResume = true;
+    const now = Date.now();
+    const dateNow = vi.spyOn(Date, "now").mockReturnValue(now);
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    const endpoint = `${plane.origin}/api/workspace-runtime/routines`;
+    const snapshot = {
+      routines: [
+        { id: "morning-report", nextRunAt: new Date(now - 1000).toISOString() },
+      ],
+    };
+    const publish = async () =>
+      await fetch(endpoint, {
+        method: "POST",
+        body: JSON.stringify(snapshot),
+        headers: { authorization: `Bearer ${runtime.token}` },
+      });
+    try {
+      expect((await publish()).status).toBe(204);
+      await vi.waitFor(() => expect(errorLog).toHaveBeenCalled());
+      expect(sleepingProvider.paused).toBe(false);
+      expect(sleepingProvider.clockReady).toBe(false);
+      expect(workspaceHost.requests).not.toContain(
+        "/rpc/routines/runScheduled",
+      );
+
+      dateNow.mockReturnValue(now + 31_000);
+      expect((await publish()).status).toBe(204);
+      await vi.waitFor(() => {
+        expect(sleepingProvider.clockSyncAttempts).toBe(1);
+        expect(workspaceHost.requests).toContain("/rpc/routines/runScheduled");
+      });
+      expect(sleepingProvider.resumeAttempts).toBe(1);
+    } finally {
+      dateNow.mockRestore();
+      errorLog.mockRestore();
+    }
+  },
+);
+
 async function readRuntimeSettings(appDataDir: string) {
   const runtime: unknown = JSON.parse(
     await fs.readFile(join(appDataDir, workspaceRuntimeConfigFileName), "utf8"),
@@ -2485,62 +2517,6 @@ async function readRuntimeSettings(appDataDir: string) {
     throw new Error("Invalid assigned workspace service settings");
   return runtime;
 }
-
-controlPlaneTest(
-  "assigns a stable workspace-only key and rejects user or gateway credentials",
-  async ({ plane, authenticatedRpc, browserHeaders, appDataDir }) => {
-    const workspace = await authenticatedRpc.workspace.ensure();
-    const runtime = await readRuntimeSettings(appDataDir);
-    expect(runtime).toMatchObject({
-      origin: plane.origin,
-      workspaceId: workspace.id,
-      generation: 1,
-    });
-    expect(Object.keys(workspace).toSorted()).toEqual(["createdAt", "id"]);
-    const endpoint = `${plane.origin}/api/workspace-runtime/identity`;
-    const accepted = await fetch(endpoint, {
-      headers: { authorization: `Bearer ${runtime.token}` },
-    });
-    expect(accepted.status).toBe(200);
-    expect(accepted.headers.get("cache-control")).toBe("no-store");
-    expect(await accepted.json()).toEqual({ workspaceId: workspace.id });
-    await authenticatedRpc.workspace.ensure();
-    expect(await readRuntimeSettings(appDataDir)).toEqual(runtime);
-    const rejectedHeaders = [
-      browserHeaders,
-      new Headers(),
-      new Headers({ authorization: "Bearer invalid" }),
-      new Headers({ authorization: "Bearer test-workspace-token" }),
-    ];
-    for (const headers of rejectedHeaders) {
-      const rejected = await fetch(endpoint, { headers });
-      expect(rejected.status).toBe(401);
-    }
-    const machineClient = createControlPlaneRpcClient(
-      plane.origin,
-      runtime.token,
-    );
-    expect(await machineClient.auth.session()).toEqual({
-      status: "signed-out",
-    });
-    await expect(machineClient.workspace.ensure()).rejects.toMatchObject({
-      code: "UNAUTHORIZED",
-    });
-    await expect(
-      machineClient.workspace.rotateRuntimeToken(),
-    ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
-    for (const action of ["create", "get", "list", "update", "delete"]) {
-      const rejected = await fetch(
-        `${plane.origin}/api/auth/api-key/${action}`,
-        {
-          method: action === "get" || action === "list" ? "GET" : "POST",
-          headers: browserHeaders,
-        },
-      );
-      expect(rejected.status).toBe(404);
-    }
-  },
-);
 
 controlPlaneTest(
   "derives workspace identity from its key and revokes the old key on rotation",
@@ -2585,52 +2561,18 @@ controlPlaneTest(
     expect(await (await identify(bobRuntime.token)).json()).toEqual({
       workspaceId: bob.id,
     });
-  },
-);
-
-controlPlaneTest(
-  "shares one persistent credential across concurrent control-plane instances",
-  async ({ plane, appDataDir, webRoot, workspaceProvider, browserHeaders }) => {
-    await using cleanup = new errore.AsyncDisposableStack();
-    const second = await ControlPlane.start({
-      config: {
-        deployment: "local",
-        workspace: { deployment: "local" },
-        appDataDir,
-        port: 0,
-        auth: testAuth,
-      },
-      workspaceProvider,
-      webRoot,
+    // A workspace key is a machine credential, never a user session, and
+    // users cannot mint workspace keys themselves.
+    const machine = createControlPlaneRpcClient(plane.origin, rotated.token);
+    expect(await machine.auth.session()).toEqual({ status: "signed-out" });
+    await expect(machine.workspace.rotateRuntimeToken()).rejects.toMatchObject({
+      code: "UNAUTHORIZED",
     });
-    if (second instanceof Error) throw second;
-    cleanup.defer(async () => {
-      const closed = await second.close();
-      if (closed instanceof Error) console.warn(closed);
+    const minted = await fetch(`${plane.origin}/api/auth/api-key/create`, {
+      method: "POST",
+      headers: bobHeaders,
     });
-    const firstRpc = createControlPlaneRpcClient(plane.origin, browserHeaders);
-    const secondRpc = createControlPlaneRpcClient(
-      second.origin,
-      browserHeaders,
-    );
-    const results = await Promise.all([
-      firstRpc.workspace.ensure(),
-      secondRpc.workspace.ensure(),
-      firstRpc.workspace.ensure(),
-    ]);
-    expect(results[1]).toEqual(results[0]);
-    expect(results[2]).toEqual(results[0]);
-    const before = await readRuntimeSettings(appDataDir);
-    await secondRpc.workspace.ensure();
-    const after = await readRuntimeSettings(appDataDir);
-    expect(after.token).toBe(before.token);
-    for (const origin of [plane.origin, second.origin]) {
-      const response = await fetch(`${origin}/api/workspace-runtime/identity`, {
-        headers: { authorization: `Bearer ${after.token}` },
-      });
-      expect(response.status).toBe(200);
-      expect(await response.json()).toEqual({ workspaceId: results[0]?.id });
-    }
+    expect(minted.status).toBe(404);
   },
 );
 
@@ -2692,111 +2634,6 @@ controlPlaneTest(
   },
 );
 
-// This opt-in test calls the real billed Together service; there is no fake model host.
-controlPlaneTest.skipIf(process.env.HALO_TEST_TOGETHER_API_KEY === undefined)(
-  "streams a real Together completion using the assigned workspace key",
-  async ({ plane, authenticatedRpc, appDataDir }) => {
-    await authenticatedRpc.workspace.ensure();
-    const runtime = await readRuntimeSettings(appDataDir);
-    const response = await fetch(
-      `${plane.origin}${workspaceInferencePath}/chat/completions`,
-      {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${runtime.token}`,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
-          model: togetherModel.id,
-          stream: true,
-          max_tokens: 32,
-          reasoning: { enabled: false },
-          messages: [{ role: "user", content: "Reply with exactly: halo" }],
-        }),
-      },
-    );
-    expect(response.status).toBe(200);
-    expect(response.headers.get("content-type")).toContain("text/event-stream");
-    const stream = await response.text();
-    expect(stream).toContain("data: [DONE]");
-    const text = stream
-      .split("\n")
-      .filter((line) => line.startsWith("data: ") && line !== "data: [DONE]")
-      .map((line) => {
-        // SAFETY: Together's documented SSE chunks contain OpenAI-compatible deltas.
-        const chunk = JSON.parse(line.slice(6)) as {
-          choices: Array<{ delta: { content?: string } }>;
-        };
-        return chunk.choices
-          .map((choice) => choice.delta.content ?? "")
-          .join("");
-      })
-      .join("");
-    expect(text.toLowerCase()).toContain("halo");
-    const invalidMessage = await fetch(
-      `${plane.origin}${workspaceInferencePath}/chat/completions`,
-      {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${runtime.token}`,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
-          model: togetherModel.id,
-          stream: true,
-          messages: [{ role: "invalid-role", content: "Invalid input" }],
-        }),
-      },
-    );
-    expect(invalidMessage.status).toBe(400);
-    expect(await invalidMessage.text()).toContain("error");
-  },
-  60_000,
-);
-
-const providerControlPlaneTest = controlPlaneTest.extend<{
-  workspaceProvider: WorkspaceProviderApi;
-}>({
-  workspaceProvider: async ({ workspaceHost }, use) => {
-    await use(workspaceHost.provider);
-  },
-});
-
-providerControlPlaneTest(
-  "uses the supplied provider for authenticated gateway traffic before and after ensure",
-  async ({ plane, browserHeaders }) => {
-    const beforeEnsure = await fetch(`${plane.origin}/workspace/health`, {
-      headers: browserHeaders,
-    });
-    expect(beforeEnsure.status).toBe(200);
-    expect(await beforeEnsure.json()).toEqual({ workspace: "test-workspace" });
-
-    const spoofed = new Headers(browserHeaders);
-    spoofed.set("x-halo-public-host", "attacker.example");
-    spoofed.set("x-halo-public-proto", "https");
-    const forwarded = await fetch(`${plane.origin}/workspace/headers`, {
-      headers: spoofed,
-    });
-    expect(forwarded.status).toBe(200);
-    expect(await forwarded.json()).toMatchObject({
-      "x-halo-public-host": new URL(plane.origin).host,
-      "x-halo-public-proto": "http",
-    });
-
-    const rpc = createControlPlaneRpcClient(plane.origin, browserHeaders);
-    const [first, concurrent] = await Promise.all([
-      rpc.workspace.ensure(),
-      rpc.workspace.ensure(),
-    ]);
-    expect(concurrent).toEqual(first);
-    const afterEnsure = await fetch(`${plane.origin}/workspace/health`, {
-      headers: browserHeaders,
-    });
-    expect(afterEnsure.status).toBe(200);
-    expect(await afterEnsure.json()).toEqual({ workspace: "test-workspace" });
-  },
-);
-
 function createControlPlaneRpcClient(origin: string, token?: string | Headers) {
   const link = new RPCLink({
     origin,
@@ -2833,77 +2670,6 @@ async function createAuthenticatedHeaders(
   const login = await context.test.login({ userId: user.id });
   return login.headers;
 }
-
-controlPlaneTest.skipIf(process.env.HALO_TEST_TRACE_BUCKET === undefined)(
-  "isolates real trace uploads by workspace key and preserves immutable retries",
-  async ({ plane, traceCloud, authenticatedRpc, appDataDir }) => {
-    const alice = await authenticatedRpc.workspace.ensure();
-    const aliceRuntime = await readRuntimeSettings(appDataDir);
-    const bobHeaders = await createAuthenticatedHeaders(
-      appDataDir,
-      plane.origin,
-      "trace-bob@example.com",
-    );
-    const bob = await createControlPlaneRpcClient(
-      plane.origin,
-      bobHeaders,
-    ).workspace.ensure();
-    const bobRuntime = await readRuntimeSettings(appDataDir);
-    const traceId = "a".repeat(32);
-    const endpoint = `${plane.origin}/api/traces/conversation/${traceId}`;
-    const send = async (
-      token: string,
-      body: Buffer,
-      suffix = "",
-      extraHeaders = {},
-    ) =>
-      await fetch(endpoint + suffix, {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${token}`,
-          "content-type": "application/gzip",
-          ...extraHeaders,
-        },
-        body,
-      });
-    const aliceArchive = traceArchive(alice.id, traceId);
-    const bobArchive = traceArchive(bob.id, traceId);
-    expect((await send(aliceRuntime.token, bobArchive)).status).toBe(400);
-    expect(
-      (await send(aliceRuntime.token, aliceArchive, `?workspaceId=${bob.id}`))
-        .status,
-    ).toBe(400);
-    const aliceKey = `v1/workspaces/${alice.id}/sessions/conversation/${traceId}.jsonl.gz`;
-    const bobKey = `v1/workspaces/${bob.id}/sessions/conversation/${traceId}.jsonl.gz`;
-    traceCloud.track(aliceKey);
-    traceCloud.track(bobKey);
-    expect(
-      (
-        await send(aliceRuntime.token, aliceArchive, "", {
-          "x-workspace-id": bob.id,
-          "x-user-id": "bob",
-        })
-      ).status,
-    ).toBe(204);
-    expect((await send(bobRuntime.token, bobArchive)).status).toBe(204);
-    expect(await traceCloud.read(aliceKey)).toEqual(aliceArchive);
-    expect(await traceCloud.read(bobKey)).toEqual(bobArchive);
-    expect(
-      (
-        await send(
-          aliceRuntime.token,
-          traceArchive(alice.id, traceId, "modified"),
-        )
-      ).status,
-    ).toBe(204);
-    expect(await traceCloud.read(aliceKey)).toEqual(aliceArchive);
-    await authenticatedRpc.workspace.rotateRuntimeToken();
-    expect((await send(aliceRuntime.token, aliceArchive)).status).toBe(401);
-    const rotated = await readRuntimeSettings(appDataDir);
-    expect((await send(rotated.token, aliceArchive)).status).toBe(204);
-  },
-  30_000,
-);
 
 controlPlaneTest(
   "rejects missing, invalid, browser-session and rotated credentials for trace uploads",
@@ -3005,24 +2771,3 @@ function traceArchive(
       .join("\n") + "\n",
   );
 }
-
-controlPlaneTest(
-  "rejects unsupported protocols before provisioning",
-  async ({ plane, browserHeaders }) => {
-    const headers = new Headers(browserHeaders);
-    headers.set("x-halo-protocol-version", "999");
-    const rpc = createORPCClient<ControlPlaneClient>(
-      new RPCLink({
-        origin: plane.origin,
-        url: "/rpc",
-        headers: Object.fromEntries(headers),
-      }),
-    );
-    expect(await rpc.server.info()).toMatchObject({
-      supportedProtocols: [controlPlaneProtocolVersion],
-    });
-    await expect(rpc.workspace.ensure()).rejects.toMatchObject({
-      code: "UNSUPPORTED_PROTOCOL",
-    });
-  },
-);

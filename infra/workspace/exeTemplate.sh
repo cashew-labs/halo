@@ -90,7 +90,7 @@ image=${1:?Usage: halo-workspace-upgrade IMAGE}
 exec 9>/run/halo-workspace-upgrade.lock
 flock 9
 # The release runner transfers the image before interrupting the workspace.
-docker image inspect "$image" >/dev/null
+image_id=$(docker image inspect --format '{{.Id}}' "$image")
 if [ ! -f /etc/halo/assignment.json ]; then
   echo "Cannot upgrade an unassigned workspace" >&2
   exit 1
@@ -100,7 +100,7 @@ docker run --rm --entrypoint cat "$image" /opt/halo/apps/workspace-server/contai
 if [ "$(cat /etc/halo/image)" = "$image" ] && \
   cmp -s /etc/halo/workspace-server-base.json.tmp /etc/halo/workspace-server-base.json && \
   systemctl is-active --quiet halo && \
-  [ "$(docker inspect --format '{{.Image}}' halo-workspace 2>/dev/null)" = "$image" ]; then
+  [ "$(docker inspect --format '{{.Image}}' halo-workspace 2>/dev/null)" = "$image_id" ]; then
   rm /etc/halo/workspace-server-base.json.tmp
   exit 0
 fi

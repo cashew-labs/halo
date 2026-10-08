@@ -66,6 +66,24 @@ authServiceTest(
   },
 );
 
+authServiceTest("rejects email and password sign-in", async ({ auth }) => {
+  const response = await auth.handle(
+    new Request(`${testOrigin}/api/auth/sign-in/email`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        origin: testOrigin,
+      },
+      body: JSON.stringify({
+        email: "user@example.com",
+        password: "not-used",
+      }),
+    }),
+  );
+  if (response instanceof Error) throw response;
+  expect(response.status).toBe(400);
+});
+
 authServiceTest(
   "starts Google sign-in with this origin as the callback",
   async ({ auth }) => {
@@ -100,21 +118,3 @@ authServiceTest(
     expect(google.searchParams.get("response_type")).toBe("code");
   },
 );
-
-authServiceTest("rejects email and password sign-in", async ({ auth }) => {
-  const response = await auth.handle(
-    new Request(`${testOrigin}/api/auth/sign-in/email`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        origin: testOrigin,
-      },
-      body: JSON.stringify({
-        email: "user@example.com",
-        password: "not-used",
-      }),
-    }),
-  );
-  if (response instanceof Error) throw response;
-  expect(response.status).toBe(400);
-});

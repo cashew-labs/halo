@@ -194,12 +194,27 @@ const haloToolsPlugin = definePlugin((options?: HaloToolsPluginOptions) => {
             description:
               "Show the user a card where they can choose whether to connect an integration. This does not connect an account or grant access by itself. Use it proactively when the task needs an integration that has no connection; do not ask for confirmation first.",
             inputSchema: toExecutorSchema(showConnectionCardInputSchema),
-            annotations: {
-              requiresApproval: true,
-              approvalDescription:
-                "Show an optional integration connection card",
-            },
-            execute: () => Effect.succeed(undefined),
+            execute: (args) =>
+              Effect.sync(() => {
+                if (!Value.Check(showConnectionCardInputSchema, args))
+                  return ToolResult.fail({
+                    code: "invalid_tool_arguments",
+                    message: "Expected an integration id",
+                  });
+                const context = options.executionContext.getStore();
+                if (context?.collectConnectionRequest === undefined)
+                  return ToolResult.fail({
+                    code: "connection_card_context_required",
+                    message:
+                      "Connection cards must be requested from a thread's exec tool",
+                  });
+                // Resolve catalog membership on the control plane at setup time.
+                context.collectConnectionRequest({
+                  kind: "control-plane",
+                  integration: args.integration,
+                });
+                return ToolResult.ok({ status: "shown" });
+              }),
           }),
         ],
       },
@@ -222,7 +237,6 @@ const haloToolsPlugin = definePlugin((options?: HaloToolsPluginOptions) => {
 let quickJsModulePromise: Promise<QuickJSWASMModule> | undefined;
 
 const oauthStartAddress = "executor.coreTools.oauth.start";
-const showConnectionCardAddress = "halo.showConnectionCard";
 const oauthStartInputSchema = Type.Object({
   client: Type.String(),
   clientOwner: Type.Union([Type.Literal("org"), Type.Literal("user")]),
@@ -282,6 +296,15 @@ function toExecutorSchema(schema: TObject) {
         return {
           issues: [...Value.Errors(schema, value)].map((issue) => ({
             message: issue.message,
+            path:
+              issue.path === ""
+                ? []
+                : issue.path
+                    .slice(1)
+                    .split("/")
+                    .map((part) =>
+                      part.replaceAll("~1", "/").replaceAll("~0", "~"),
+                    ),
           })),
         };
       },
@@ -1029,14 +1052,6 @@ function sandboxPath(address: string) {
 function connectionInput(
   context: ElicitationContext,
 ): ConnectionRequest | undefined {
-  if (context.address === showConnectionCardAddress) {
-    if (!Value.Check(showConnectionCardInputSchema, context.args)) {
-      return undefined;
-    }
-    // Resolve ownership and catalog membership on the control plane at setup time.
-    // This also supports integrations registered after the workspace started.
-    return { kind: "control-plane", integration: context.args.integration };
-  }
   if (context.address !== oauthStartAddress) return undefined;
   if (!Value.Check(oauthStartInputSchema, context.args)) return undefined;
   const args: Static<typeof oauthStartInputSchema> = context.args;

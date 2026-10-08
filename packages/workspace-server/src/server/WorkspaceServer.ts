@@ -4,6 +4,10 @@ import { combineLatest } from "@get-halo/shared/Stream";
 import { RoutineService } from "../routines/RoutineService.js";
 import { RoutineRunner } from "../routines/RoutineRunner.js";
 import { RoutineScheduler } from "../routines/RoutineScheduler.js";
+import {
+  RoutineSync,
+  type RoutineScheduleSnapshot,
+} from "../routines/RoutineSync.js";
 import { createHotkeysPlugin } from "../hotkeys/createHotkeysPlugin.js";
 import path from "node:path";
 import { TursoThreadRepo } from "../storage/TursoThreadRepo.js";
@@ -65,6 +69,10 @@ export type WorkspaceServerConfig = {
 export type WorkspaceServerHost = {
   remoteConnections?: import("../agent/runtime/ConnectionService.js").RemoteConnectionBackend;
   remoteIntegrationTools?: RemoteIntegrationTools;
+  reportRoutineSchedule?: (
+    snapshot: RoutineScheduleSnapshot,
+    signal: AbortSignal,
+  ) => Promise<void | Error>;
   reportWorkIdle?: (
     idle: boolean,
     signal: AbortSignal,
@@ -96,7 +104,7 @@ export class WorkspaceServer {
   private readonly workspace: WorkspaceService;
   private readonly sessions: ThreadManager;
   private readonly routineRunner: RoutineRunner;
-  private readonly routineScheduler: RoutineScheduler;
+  private readonly routineScheduler: RoutineScheduler | RoutineSync;
   private readonly toolRuntime: ToolRuntime;
   private readonly connectionService: ConnectionService;
   private readonly browsers: BrowserService;
@@ -113,7 +121,7 @@ export class WorkspaceServer {
     workspace: WorkspaceService;
     sessions: ThreadManager;
     routineRunner: RoutineRunner;
-    routineScheduler: RoutineScheduler;
+    routineScheduler: RoutineScheduler | RoutineSync;
     toolRuntime: ToolRuntime;
     connectionService: ConnectionService;
     browsers: BrowserService;
@@ -322,7 +330,9 @@ export class WorkspaceServer {
       logger: host.logger,
     });
     cleanup.defer(async () => await routineRunner.stop());
-    const recoveredRoutines = await routineRunner.recover();
+    const recoveredRoutines = await routineRunner.recover({
+      preserveDue: host.reportRoutineSchedule !== undefined,
+    });
     if (recoveredRoutines instanceof Error) return recoveredRoutines;
     const recovered = await sessions.start();
     if (recovered instanceof Error) return recovered;
@@ -333,11 +343,18 @@ export class WorkspaceServer {
       report: host.reportWorkIdle,
     });
     cleanup.defer(async () => await idleReporter.close());
-    const routineScheduler = new RoutineScheduler({
-      routines,
-      runner: routineRunner,
-      logger: host.logger,
-    });
+    const routineScheduler =
+      host.reportRoutineSchedule === undefined
+        ? new RoutineScheduler({
+            routines,
+            runner: routineRunner,
+            logger: host.logger,
+          })
+        : new RoutineSync({
+            routines,
+            report: host.reportRoutineSchedule,
+            logger: host.logger,
+          });
     cleanup.defer(async () => await routineScheduler.stop());
     const requests = serveHaloHttp({
       ...http,

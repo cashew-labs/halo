@@ -12,7 +12,11 @@ export DOCKER_CONFIG="$RUNNER_TEMP/exe-registry"
 mkdir -p "$DOCKER_CONFIG"
 gcloud auth print-access-token | docker login -u oauth2accesstoken --password-stdin "${WORKSPACE_IMAGE%%/*}"
 docker pull --platform linux/amd64 "$WORKSPACE_IMAGE"
-image=$(docker inspect --format '{{.Id}}' "$WORKSPACE_IMAGE")
+# A daemon's image ID can change across save/load storage backends. Transfer a
+# tag derived from the immutable registry digest so both daemons resolve it.
+source_digest=$(docker image inspect --format '{{index .RepoDigests 0}}' "$WORKSPACE_IMAGE")
+image="halo-workspace:${source_digest##*:}"
+docker tag "$WORKSPACE_IMAGE" "$image"
 restore_paused=false
 restore_sleep_on_exit() {
   result=$?
@@ -35,7 +39,7 @@ case "$mode" in
     details=$(ssh "${ssh_args[@]}" exe.dev ls "$vm" --json)
     if [ "$(jq '.vms | length' <<< "$details")" = 0 ]; then
       ssh "${ssh_args[@]}" exe.dev new --name="$vm" --image=ghcr.io/boldsoftware/exeuntu@sha256:d410ce9638ffe170e965b6ac4cfd90a868887faf6c3f256c038c7dd8c83af0d2 --disk=50GB --json
-    elif [ "$(jq -er '.vms[0].status' <<< "$details")" = paused ]; then
+    elif jq -e '.vms[0].status == "paused" or .vms[0].status == "suspended"' <<< "$details" >/dev/null; then
       ssh "${ssh_args[@]}" exe.dev resume "$vm"
     fi
     published=$(ssh "${ssh_args[@]}" "$vm.exe.xyz" 'sudo cat /etc/halo/template-ready 2>/dev/null || true')
@@ -59,9 +63,23 @@ case "$mode" in
     : "${INSTANCE:?}"
     vm="$INSTANCE"
     status=$(ssh "${ssh_args[@]}" exe.dev ls "$vm" --json | jq -er '.vms[0].status')
-    if [ "$status" = paused ]; then
+    if [ "$status" = paused ] || [ "$status" = suspended ]; then
       restore_paused=true
       ssh "${ssh_args[@]}" exe.dev resume "$vm"
+    fi
+    # A release is active work: refresh the idle clock using the workspace's
+    # existing scoped reporter before transferring bytes to a resumed guest.
+    if ! ssh "${ssh_args[@]}" "$vm.exe.xyz" 'sudo docker exec -i halo-workspace node --import /opt/halo/node_modules/tsx/dist/loader.mjs --input-type=module' <<'ACTIVITY'
+import fs from 'node:fs/promises';
+import { ControlPlaneWorkReporter } from '/opt/halo/packages/workspace-server/src/server/ControlPlaneWorkReporter.ts';
+const { runtime } = JSON.parse(await fs.readFile('/etc/halo/workspace-server.json', 'utf8'));
+const reporter = new ControlPlaneWorkReporter(runtime);
+const result = await reporter.report(false, new AbortController().signal);
+if (result instanceof Error) { console.error(result.message); process.exitCode = 1; }
+ACTIVITY
+    then
+      # A crashed or stopped old container must still receive the repair image.
+      echo 'Could not report release activity; continuing with the workspace update' >&2
     fi
     docker save "$image" | gzip -1 | ssh "${ssh_args[@]}" "$vm.exe.xyz" 'gzip -d | sudo docker load'
     scp "${ssh_args[@]}" "$root/infra/workspace/exeTemplate.sh" "$root/infra/workspace/desktop-seccomp.json" "$vm.exe.xyz:/tmp/"
@@ -74,7 +92,7 @@ case "$mode" in
       sleep 5
     done
     if [ "$ready" != true ]; then cat "$RUNNER_TEMP/exe-status-error.log" >&2; echo "$vm did not become ready for $image" >&2; exit 1; fi
-    if [ "$status" = paused ]; then ssh "${ssh_args[@]}" exe.dev pause "$vm"; fi
+    if [ "$status" = paused ] || [ "$status" = suspended ]; then ssh "${ssh_args[@]}" exe.dev pause "$vm"; fi
     restore_paused=false
     echo "HALO_WORKSPACE_READY image=$image revision=$GITHUB_SHA"
     ;;

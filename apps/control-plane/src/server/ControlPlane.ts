@@ -11,6 +11,7 @@ import {
 } from "./controlPlaneHttp.js";
 import { DatabaseService, type DatabaseConfig } from "../DatabaseService.js";
 import { WorkspaceService } from "../workspace/WorkspaceService.js";
+import { RoutineCoordinator } from "../workspace/RoutineCoordinator.js";
 import type { WorkspaceProviderApi } from "../workspace/provider/WorkspaceProviderApi.js";
 
 import { TraceIngestion } from "../traces/TraceIngestion.js";
@@ -28,6 +29,7 @@ export class ControlPlane {
   // Owns active requests that upgraded beyond the HTTP server lifecycle.
   private readonly requests: ServingControlPlaneHttp;
   readonly integrations: IntegrationService | undefined;
+  private readonly routines: RoutineCoordinator;
 
   private constructor(ctx: {
     db: DatabaseService;
@@ -35,12 +37,14 @@ export class ControlPlane {
     publicOrigin: string;
     requests: ServingControlPlaneHttp;
     integrations: IntegrationService | undefined;
+    routines: RoutineCoordinator;
   }) {
     this.db = ctx.db;
     this.http = ctx.http;
     this.publicOrigin = ctx.publicOrigin;
     this.requests = ctx.requests;
     this.integrations = ctx.integrations;
+    this.routines = ctx.routines;
   }
 
   get origin() {
@@ -137,6 +141,9 @@ export class ControlPlane {
       const closed = await integrations?.close();
       if (closed instanceof Error) console.error(closed);
     });
+    const routines = await RoutineCoordinator.start({ db, workspace });
+    if (routines instanceof Error) return routines;
+    cleanup.defer(async () => await routines.close());
 
     const requests = serveControlPlaneHttp({
       server: http.server,
@@ -144,6 +151,7 @@ export class ControlPlane {
       publicOrigin,
       workspace,
       integrations,
+      routines,
       webRoot,
       build: ctx.build,
       inferenceApiKey: ctx.inferenceApiKey,
@@ -163,11 +171,13 @@ export class ControlPlane {
       publicOrigin,
       requests,
       integrations,
+      routines,
     });
   }
 
   async close() {
     this.requests.close();
+    await this.routines.close();
     const httpClosed = await closeControlPlaneHttp(this.http.server);
     const integrationsClosed = await this.integrations?.close();
     const databaseClosed = await this.db.close();
