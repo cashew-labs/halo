@@ -157,7 +157,7 @@ function asRoutine(automation: Automation): Routine | RoutineNotFoundError {
   };
 }
 
-function asRoutineRun(run: AutomationRun): RoutineRun {
+export function asRoutineRun(run: AutomationRun): RoutineRun {
   return {
     ...run,
     routineId: run.automationId,

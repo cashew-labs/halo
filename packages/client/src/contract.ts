@@ -1,4 +1,5 @@
 import type {
+  AutomationEvent,
   Automation,
   AutomationInput,
   AutomationRun,
@@ -155,6 +156,15 @@ export const contract = publicProcedure.router({
     remove: oc.input(type<{ id: string }>()).output(type<void>()),
   },
   automations: {
+    runNow: oc
+      .input(type<{ automationId: string }>())
+      .output(type<AutomationRun>()),
+    runScheduled: oc
+      .input(type<{ automationId: string }>())
+      .output(type<void>()),
+    acceptEvent: oc
+      .input(type<AutomationEvent>())
+      .output(type<AutomationRun>()),
     list: oc.output(type<Automation[]>()),
     watch: oc.output(asyncIteratorObject(type<Automation[]>())),
     save: oc.input(type<AutomationInput>()).output(type<Automation>()),

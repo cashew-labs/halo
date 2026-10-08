@@ -1,3 +1,5 @@
+import { createAutomationsPlugin } from "../automations/createAutomationsPlugin.js";
+import { AutomationRunner } from "../automations/AutomationRunner.js";
 import { HotkeyService } from "../hotkeys/HotkeyService.js";
 import { WorkspaceIdleReporter } from "./WorkspaceIdleReporter.js";
 import { combineLatest } from "@get-halo/shared/Stream";
@@ -103,7 +105,7 @@ export class WorkspaceServer {
   private readonly sessionRepo: TursoThreadRepo;
   private readonly workspace: WorkspaceService;
   private readonly sessions: ThreadManager;
-  private readonly routineRunner: RoutineRunner;
+  private readonly automationRunner: AutomationRunner;
   private readonly routineScheduler: RoutineScheduler | RoutineSync;
   private readonly toolRuntime: ToolRuntime;
   private readonly connectionService: ConnectionService;
@@ -120,7 +122,7 @@ export class WorkspaceServer {
     sessionRepo: TursoThreadRepo;
     workspace: WorkspaceService;
     sessions: ThreadManager;
-    routineRunner: RoutineRunner;
+    automationRunner: AutomationRunner;
     routineScheduler: RoutineScheduler | RoutineSync;
     toolRuntime: ToolRuntime;
     connectionService: ConnectionService;
@@ -136,7 +138,7 @@ export class WorkspaceServer {
       sessionRepo,
       workspace,
       sessions,
-      routineRunner,
+      automationRunner,
       routineScheduler,
       toolRuntime,
       connectionService,
@@ -152,7 +154,7 @@ export class WorkspaceServer {
     this.sessionRepo = sessionRepo;
     this.workspace = workspace;
     this.sessions = sessions;
-    this.routineRunner = routineRunner;
+    this.automationRunner = automationRunner;
     this.routineScheduler = routineScheduler;
     this.toolRuntime = toolRuntime;
     this.connectionService = connectionService;
@@ -260,6 +262,10 @@ export class WorkspaceServer {
           createWorkspaceFilesPlugin(filesystem),
           createDatabaseQueryPlugin(database),
           createHotkeysPlugin(hotkeys),
+          createAutomationsPlugin(() => ({
+            automations: routines.automations,
+            runner: automationRunner,
+          })),
           createThreadPlugin(() => ({
             threads: sessions,
             connections: connectionService,
@@ -270,6 +276,7 @@ export class WorkspaceServer {
         authority: new StaticAgentAuthority(
           host.agentCapabilities ?? [
             "workspace.hotkeys",
+            "workspace.automations",
             "workspace.files.read",
             "workspace.files.write",
             "workspace.shell.execute",
@@ -322,24 +329,31 @@ export class WorkspaceServer {
           error: closed,
         });
     });
-    const routineRunner = new RoutineRunner({
-      routines,
+    const automationRunner = new AutomationRunner({
+      automations: routines.automations,
       sessions,
       filesystem,
       workspaceRoot,
       logger: host.logger,
     });
-    cleanup.defer(async () => await routineRunner.stop());
-    const recoveredRoutines = await routineRunner.recover({
+    const routineRunner = new RoutineRunner({
+      automations: automationRunner,
+      routines,
+    });
+    cleanup.defer(async () => await automationRunner.stop());
+    const recoveredRoutines = await automationRunner.recover({
       preserveDue: host.reportRoutineSchedule !== undefined,
     });
     if (recoveredRoutines instanceof Error) return recoveredRoutines;
     const recovered = await sessions.start();
     if (recovered instanceof Error) return recovered;
+    await automationRunner.startWorker();
     const idleReporter = new WorkspaceIdleReporter({
-      idle: combineLatest([sessions.idle, toolRuntime.idle]).map((states) =>
-        states.every(Boolean),
-      ),
+      idle: combineLatest([
+        sessions.idle,
+        toolRuntime.idle,
+        automationRunner.idle,
+      ]).map((states) => states.every(Boolean)),
       report: host.reportWorkIdle,
     });
     cleanup.defer(async () => await idleReporter.close());
@@ -391,7 +405,7 @@ export class WorkspaceServer {
       sessionRepo,
       workspace,
       sessions,
-      routineRunner,
+      automationRunner,
       routineScheduler,
       toolRuntime,
       connectionService,
@@ -416,7 +430,7 @@ export class WorkspaceServer {
     this.connectionService.close();
     // Routine runs record their interruption before their sessions close.
     await this.routineScheduler.stop();
-    await this.routineRunner.stop();
+    await this.automationRunner.stop();
     const sessionsClosed = await this.sessions.shutdown();
     await this.traces.close();
     await this.browsers.shutdown();

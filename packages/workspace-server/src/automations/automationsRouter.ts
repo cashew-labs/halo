@@ -5,6 +5,28 @@ import type { RoutinesRouterContext } from "../routines/routinesRouter.js";
 
 const os = implement(contract.automations).$context<RoutinesRouterContext>();
 export const automationsRouter = os.router({
+  runNow: os.runNow.handler(async ({ context, input }) => {
+    const run = await context.routineRunner.automations.start({
+      ...input,
+      trigger: "manual",
+    });
+    if (run instanceof Error) return orpcErrors.badRequest(run);
+    if (run === undefined)
+      return orpcErrors.badRequest(new Error("Manual run was not accepted"));
+    return run;
+  }),
+  runScheduled: os.runScheduled.handler(async ({ context, input }) => {
+    const run = await context.routineRunner.automations.start({
+      ...input,
+      trigger: "schedule",
+    });
+    if (run instanceof Error) return orpcErrors.badRequest(run);
+  }),
+  acceptEvent: os.acceptEvent.handler(async ({ context, input }) => {
+    const run = await context.routineRunner.automations.acceptEvent(input);
+    if (run instanceof Error) return orpcErrors.badRequest(run);
+    return run;
+  }),
   list: os.list.handler(({ context }) => context.routines.automations.list()),
   watch: os.watch.handler(({ context, signal }) =>
     context.routines.automations.watch(signal),

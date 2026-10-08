@@ -3,7 +3,7 @@ import { Logger } from "@get-halo/logger";
 import { afterEach, beforeEach, expect, vi } from "vitest";
 import { AbortFailedError } from "../agent/Thread.js";
 import { routineTest } from "./fixtures.test.js";
-import { RoutineRunner } from "./RoutineRunner.js";
+import { AutomationRunner } from "../automations/AutomationRunner.js";
 import { RoutineNotFoundError } from "./RoutineService.js";
 
 const everyTwoMinutes: RoutineInput = {
@@ -24,7 +24,7 @@ afterEach(() => {
 });
 
 routineTest(
-  "a scheduled run claims its occurrence and skips overlapping runs",
+  "a scheduled run claims its occurrence and queues overlapping runs",
   async ({ openRoutines }) => {
     const routines = await openRoutines();
     const saved = await routines.save(everyTwoMinutes);
@@ -40,10 +40,12 @@ routineTest(
       trigger: "schedule",
     });
     if (run instanceof Error || run === undefined) throw new Error("No run");
+    await routines.automations.claimNext();
     expect(run).toMatchObject({
-      status: "running",
+      status: "queued",
       scheduledFor: "2026-09-25T08:02:00.000Z",
     });
+    await routines.automations.claimNext();
     await routines.attachSession({ runId: run.id, sessionId: "session-1" });
 
     const overlap = await routines.beginRun({
@@ -51,25 +53,24 @@ routineTest(
       trigger: "manual",
     });
     expect(overlap).toMatchObject({
-      status: "skipped",
-      error: "The previous run is still running.",
+      status: "queued",
     });
     expect(routines.get(saved.id)).toMatchObject({
       nextRunAt: "2026-09-25T08:04:00.000Z",
-      lastRun: { id: run.id, status: "running", sessionId: "session-1" },
+      lastRun: { status: "queued" },
     });
     expect((await openRoutines()).get(saved.id)).toMatchObject({
-      lastRun: { id: run.id, status: "running" },
+      lastRun: { status: "queued" },
     });
 
     await routines.finishRun({ runId: run.id, status: "completed" });
     const history = await routines.listRuns({ routineId: saved.id });
     expect(history).toMatchObject([
-      { status: "skipped", trigger: "manual" },
+      { status: "queued", trigger: "manual" },
       { status: "completed", trigger: "schedule", sessionId: "session-1" },
     ]);
     expect(routines.get(saved.id)).toMatchObject({
-      lastRun: { id: run.id, status: "completed" },
+      lastRun: { status: "queued" },
     });
   },
 );
@@ -87,6 +88,7 @@ routineTest(
     });
     if (run instanceof Error || run === undefined) throw new Error("No run");
 
+    await before.automations.claimNext();
     vi.setSystemTime(new Date("2026-09-25T08:09:10Z"));
     const after = await openRoutines();
     await after.recover();
@@ -113,13 +115,14 @@ routineTest(
       trigger: "manual",
     });
     if (run instanceof Error || run === undefined) throw new Error("No run");
+    await routines.automations.claimNext();
     await routines.attachSession({ runId: run.id, sessionId: "session-1" });
     const abortError = new AbortFailedError({
       reason: "abort failed",
       cause: new Error("abort failed"),
     });
-    const failedRunner = new RoutineRunner({
-      routines,
+    const failedRunner = new AutomationRunner({
+      automations: routines.automations,
       sessions: {
         abort: async () => abortError,
         new: vi.fn(),
@@ -144,8 +147,8 @@ routineTest(
         lastRun: { status: "running" },
       });
     });
-    const runner = new RoutineRunner({
-      routines,
+    const runner = new AutomationRunner({
+      automations: routines.automations,
       sessions: {
         abort,
         new: vi.fn(),

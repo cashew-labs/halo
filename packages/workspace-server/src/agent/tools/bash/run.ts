@@ -47,12 +47,14 @@ export async function runBash(
   workspaceRoot: string,
   {
     command,
+    env,
     cwd,
     timeoutMs,
     signal,
     output,
   }: {
     command: string;
+    env?: Record<string, string | undefined>;
     // Defaults to the workspace root.
     cwd?: string;
     timeoutMs?: number;
@@ -97,6 +99,7 @@ export async function runBash(
       cwd: cwd ?? workspaceRoot,
       env: {
         ...process.env,
+        ...env,
         PATH: workspaceExecutablePath(workspaceRoot),
         PAGER: "cat",
       },

@@ -91,3 +91,13 @@ export class InvalidAutomationError extends errore.createTaggedError({
   name: "InvalidAutomationError",
   message: "$reason",
 }) {}
+
+export const automationEventSchema = Type.Object({
+  eventId: Type.String({ minLength: 1, maxLength: 200 }),
+  automationId: Type.String({ minLength: 1 }),
+  revision: Type.Integer({ minimum: 1 }),
+  source: Type.Union([Type.Literal("webhook"), Type.Literal("gmail")]),
+  occurredAt: Type.String({ minLength: 1 }),
+  payload: Type.Record(Type.String(), Type.Unknown()),
+});
+export type AutomationEvent = Static<typeof automationEventSchema>;
