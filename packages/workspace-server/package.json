@@ -62,6 +62,7 @@
     "@get-halo/typescript-config": "workspace:*",
     "@types/heic-convert": "2.1.1",
     "@types/node": "^22.20.1",
+    "@vitest/coverage-v8": "4.1.11",
     "openai": "6.26.0",
     "typescript": "7.0.2",
     "vitest": "^4.1.11"
