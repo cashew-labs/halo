@@ -9,6 +9,11 @@ export type AutomationsRouterContext = RoutinesRouterContext & {
 };
 const os = implement(contract.automations).$context<AutomationsRouterContext>();
 export const automationsRouter = os.router({
+  webhookAccess: os.webhookAccess.handler(async ({ context, input }) => {
+    const access = await context.automationSources.webhookAccess(input);
+    if (access instanceof Error) return orpcErrors.badRequest(access);
+    return access;
+  }),
   sourceStatus: os.sourceStatus.handler(async ({ context, input }) => {
     const state = await context.automationSources.status(input.automationId);
     if (state instanceof Error) return orpcErrors.badRequest(state);

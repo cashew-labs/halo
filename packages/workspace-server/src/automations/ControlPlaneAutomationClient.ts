@@ -2,6 +2,7 @@ import * as errore from "errore";
 import type {
   AutomationSnapshot,
   AutomationSourceState,
+  AutomationWebhookAccess,
 } from "@get-halo/client";
 
 class AutomationControlPlaneError extends errore.createTaggedError({
@@ -45,6 +46,22 @@ export class ControlPlaneAutomationClient {
       (cause) =>
         new AutomationControlPlaneError({
           detail: "read source status",
+          cause,
+        }),
+    );
+  }
+
+  async webhookAccess(input: { automationId: string; rotate?: boolean }) {
+    const response = await this.request({
+      path: `/${encodeURIComponent(input.automationId)}/${input.rotate === true ? "rotate" : "reveal"}`,
+      method: "POST",
+    });
+    if (response instanceof Error) return response;
+    // SAFETY: The authenticated owner-only endpoint returns this public contract.
+    return await (response.json() as Promise<AutomationWebhookAccess>).catch(
+      (cause) =>
+        new AutomationControlPlaneError({
+          detail: "read webhook credentials",
           cause,
         }),
     );

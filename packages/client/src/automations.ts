@@ -139,3 +139,9 @@ export type AutomationSourceState = {
   expiresAt?: string;
   deliveries: AutomationDelivery[];
 };
+
+export type AutomationWebhookAccess = {
+  endpoint: string;
+  token: string;
+  url: string;
+};

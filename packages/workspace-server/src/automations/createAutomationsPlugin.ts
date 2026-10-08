@@ -28,6 +28,21 @@ export function createAutomationsPlugin(
     name: "Automations",
     tools: [
       defineHaloTool({
+        name: "webhookAccess",
+        description:
+          "Reveal the private URL and bearer token for a webhook automation. Set rotate:true to revoke the old token immediately. Treat the URL and token as credentials: give them only to the user or the service they authorize. Call after saving a webhook trigger to finish setup.",
+        inputSchema: Type.Object({
+          automationId: Type.String({ minLength: 1 }),
+          rotate: Type.Optional(Type.Boolean()),
+        }),
+        requiredCapabilities: ["workspace.automations"],
+        execute: async (input) => {
+          const access = await services().sources.webhookAccess(input);
+          if (access instanceof Error) return access;
+          return { value: access };
+        },
+      }),
+      defineHaloTool({
         name: "sourceStatus",
         description:
           "Synchronize a trigger registration and report its control-plane setup status, errors, and recent deliveries. Check this after saving a Gmail or webhook trigger before saying it is live.",

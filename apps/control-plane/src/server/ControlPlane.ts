@@ -1,3 +1,4 @@
+import { WebhookService } from "../automations/WebhookService.js";
 import { AutomationStore } from "../automations/AutomationStore.js";
 import { AutomationCoordinator } from "../automations/AutomationCoordinator.js";
 import { join } from "node:path";
@@ -153,6 +154,13 @@ export class ControlPlane {
     const automationStore = new AutomationStore({ db });
     const initializedAutomations = await automationStore.initialize();
     if (initializedAutomations instanceof Error) return initializedAutomations;
+    const webhooks = new WebhookService({
+      store: automationStore,
+      credentials,
+      origin: publicOrigin,
+    });
+    const initializedWebhooks = await webhooks.initialize();
+    if (initializedWebhooks instanceof Error) return initializedWebhooks;
     const automationCoordinator = new AutomationCoordinator({
       store: automationStore,
       workspace,
@@ -168,6 +176,7 @@ export class ControlPlane {
       integrations,
       routines,
       automationStore,
+      webhooks,
       webRoot,
       build: ctx.build,
       inferenceApiKey: ctx.inferenceApiKey,

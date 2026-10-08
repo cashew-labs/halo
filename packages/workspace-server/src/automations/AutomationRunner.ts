@@ -52,6 +52,7 @@ export class AutomationRunner {
     { controller: AbortController; done: Promise<void> }
   >();
   private stopping = false;
+  private lastPrunedAt = 0;
   private readonly actionQueue = new SerialQueue();
   private readonly idleChanges = new Stream<boolean>();
   readonly idle = this.idleChanges.project(false, (_previous, idle) => idle);
@@ -126,6 +127,44 @@ export class AutomationRunner {
   private async pump() {
     await this.actionQueue.run(async () => {
       clearTimeout(this.retry);
+      if (Date.now() - this.lastPrunedAt > 60 * 60 * 1000) {
+        const events = await this.automations.expiredEvents();
+        if (events instanceof Error) {
+          this.logger.warn({
+            event: "automation-retention-failed",
+            error: events,
+          });
+        } else {
+          for (const event of events) {
+            const removed = await fs
+              .rm(
+                path.join(
+                  this.workspaceRoot,
+                  ".halo",
+                  "automation-events",
+                  `${event.id}.json`,
+                ),
+                { force: true },
+              )
+              .catch((cause) => new AutomationEventFileError({ cause }));
+            if (removed instanceof Error) {
+              this.logger.warn({
+                event: "automation-retention-failed",
+                error: removed,
+              });
+              continue;
+            }
+            const forgotten = await this.automations.forgetEvent(event);
+            if (forgotten instanceof Error)
+              this.logger.warn({
+                event: "automation-retention-failed",
+                error: forgotten,
+              });
+          }
+        }
+        this.lastPrunedAt = Date.now();
+      }
+
       while (!this.stopping && this.active.size < 4) {
         const claimed = await this.automations.claimNext();
         if (claimed instanceof Error) {

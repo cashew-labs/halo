@@ -27,7 +27,7 @@ export class AutomationConflictError extends errore.createTaggedError({
   message: "Idempotency key was already used with different content",
 }) {}
 
-type TriggerRegistration = {
+export type TriggerRegistration = {
   workspace_id: string;
   automation_id: string;
   owner_id: string;
@@ -344,6 +344,23 @@ export class AutomationStore {
       ],
     );
     if (updated instanceof Error) return updated;
+  }
+
+  async prune() {
+    const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    return await this.database.transaction(async (sql) => {
+      const removed = await sql.query(
+        "DELETE FROM automation_deliveries WHERE source = 'webhook' AND status <> 'pending' AND created_at < $1",
+        [cutoff],
+      );
+      if (removed instanceof Error) return removed;
+      // Keep Gmail's event IDs as a deduplication ledger, without retaining message payloads.
+      const redacted = await sql.query(
+        "UPDATE automation_deliveries SET payload = '{}' WHERE source = 'gmail' AND status <> 'pending' AND created_at < $1 AND payload <> '{}'",
+        [cutoff],
+      );
+      if (redacted instanceof Error) return redacted;
+    });
   }
 
   async history(input: { workspaceId: string; automationId: string }) {

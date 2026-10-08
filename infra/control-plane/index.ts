@@ -42,6 +42,16 @@ const togetherApiKeySecretId = "together-ai-api-key";
 const controlPlaneDomain = configuration.require("controlPlaneDomain");
 const controlPlaneOrigin = `https://${controlPlaneDomain}`;
 
+// URLs can contain private webhook tokens. Cloud Run request logs are generated
+// before application redaction, so exclude this route at the logging sink.
+// Keep this filter on any additional or inherited export sinks (see README).
+new gcp.logging.ProjectExclusion("webhook-request-secrets", {
+  project,
+  name: `${name}-webhook-request-secrets`,
+  description: "Do not retain webhook URLs containing bearer credentials",
+  filter: 'httpRequest.requestUrl =~ "/api/webhooks/"',
+});
+
 const vertexAi = new gcp.projects.Service("vertex-ai", {
   project,
   service: "aiplatform.googleapis.com",

@@ -14,6 +14,7 @@ export class AutomationCoordinator {
   private timer: NodeJS.Timeout | undefined;
   private ticking: Promise<void> | undefined;
   private closed = false;
+  private lastPrunedAt = 0;
   private readonly store: AutomationStore;
   private readonly workspace: WorkspaceService;
   private readonly auth = new GoogleAuth();
@@ -40,6 +41,15 @@ export class AutomationCoordinator {
   }
 
   private async tick() {
+    if (Date.now() - this.lastPrunedAt > 60 * 60 * 1000) {
+      const pruned = await this.store.prune();
+      if (pruned instanceof Error) {
+        console.error(pruned);
+        return;
+      }
+      this.lastPrunedAt = Date.now();
+    }
+
     // Bound work in each turn; database leases also protect overlapping Cloud Run revisions.
     for (let index = 0; index < 20 && !this.closed; index++) {
       const claimed = await this.store.claim();

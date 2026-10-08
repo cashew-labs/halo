@@ -1,3 +1,4 @@
+import type { WebhookService } from "./WebhookService.js";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { AutomationSourceState } from "@get-halo/client";
 import { WorkspaceAuthenticationRequiredError } from "../auth/AuthService.js";
@@ -13,11 +14,14 @@ export async function serveAutomationState(ctx: {
   automationId: string;
   workspace: WorkspaceService;
   store: AutomationStore;
+  webhooks: WebhookService;
+  secretAction?: string;
 }) {
   const { request, response } = ctx;
   response.setHeader("cache-control", "no-store");
-  if (request.method !== "GET") {
-    response.writeHead(405, { allow: "GET" }).end();
+  const method = ctx.secretAction === undefined ? "GET" : "POST";
+  if (request.method !== method) {
+    response.writeHead(405, { allow: method }).end();
     return;
   }
   const identity = await ctx.workspace.authenticateRuntimeOwner(
@@ -51,6 +55,25 @@ export async function serveAutomationState(ctx: {
     response.writeHead(503).end();
     return;
   }
+  const access =
+    activation.trigger.type === "webhook"
+      ? await ctx.webhooks.access(registration, ctx.secretAction === "rotate")
+      : undefined;
+  if (ctx.secretAction !== undefined) {
+    if (access === undefined) {
+      response.writeHead(400).end();
+      return;
+    }
+    if (access instanceof Error) {
+      console.error(access);
+      response.writeHead(503).end();
+      return;
+    }
+    response
+      .writeHead(200, { "content-type": "application/json" })
+      .end(JSON.stringify(access));
+    return;
+  }
   const deliveries = await ctx.store.history({
     workspaceId: identity.workspaceId,
     automationId: ctx.automationId,
@@ -64,8 +87,22 @@ export async function serveAutomationState(ctx: {
     automationId: registration.automation_id,
     revision: registration.revision,
     kind: activation.trigger.type,
-    status: registration.enabled === 0 ? "paused" : registration.source_status,
-    detail: registration.source_error ?? undefined,
+    status:
+      registration.enabled === 0
+        ? "paused"
+        : access instanceof Error
+          ? "needsAttention"
+          : access !== undefined
+            ? "active"
+            : registration.source_status,
+    detail:
+      access instanceof Error
+        ? access.message
+        : (registration.source_error ?? undefined),
+    endpoint:
+      activation.trigger.type === "webhook"
+        ? ctx.webhooks.endpoint(registration)
+        : undefined,
     deliveries,
   };
   response

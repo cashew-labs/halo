@@ -1,5 +1,6 @@
 import type {
   AutomationSourceState,
+  AutomationWebhookAccess,
   AutomationEvent,
   Automation,
   AutomationInput,
@@ -157,6 +158,9 @@ export const contract = publicProcedure.router({
     remove: oc.input(type<{ id: string }>()).output(type<void>()),
   },
   automations: {
+    webhookAccess: oc
+      .input(type<{ automationId: string; rotate?: boolean }>())
+      .output(type<AutomationWebhookAccess>()),
     sourceStatus: oc
       .input(type<{ automationId: string }>())
       .output(type<AutomationSourceState>()),

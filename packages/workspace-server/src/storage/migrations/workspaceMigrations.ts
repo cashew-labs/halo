@@ -1,3 +1,4 @@
+import { automationEventRetentionMigration } from "./20261008160000-automationEventRetention.js";
 import { automationSyncMigration } from "./20261008150000-automationSync.js";
 import type { Database } from "@tursodatabase/database/compat";
 import { applyMigrations } from "../Migration.js";
@@ -28,6 +29,7 @@ export const workspaceMigrations = [
   legacyThreadsMigration,
   automationsMigration,
   automationSyncMigration,
+  automationEventRetentionMigration,
 ] satisfies readonly Migration[];
 
 export function migrateWorkspace(connection: Database) {

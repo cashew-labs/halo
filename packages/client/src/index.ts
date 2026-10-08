@@ -131,6 +131,7 @@ export {
   type AutomationSnapshot,
   type AutomationDelivery,
   type AutomationSourceState,
+  type AutomationWebhookAccess,
   automationEventSchema,
   type AutomationEvent,
   automationActionSchema,

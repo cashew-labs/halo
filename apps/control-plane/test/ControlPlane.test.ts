@@ -30,9 +30,16 @@ import { betterAuth } from "better-auth";
 import { testUtils } from "better-auth/plugins";
 import * as errore from "errore";
 import { expect, test, vi } from "vitest";
-import { createHaloClient, sessionToolExecutions } from "@get-halo/client";
+import {
+  type AutomationDelivery,
+  createHaloClient,
+  sessionToolExecutions,
+} from "@get-halo/client";
 import { Logger } from "@get-halo/logger";
-import { WorkspaceServer } from "@get-halo/workspace-server";
+import {
+  ControlPlaneAutomationClient,
+  WorkspaceServer,
+} from "@get-halo/workspace-server";
 import { createOpenAILLMApi } from "@get-halo/workspace-server/llm";
 import { LLMDriver } from "@get-halo/workspace-server/testing";
 import { m } from "@get-halo/shared/testing";
@@ -176,6 +183,8 @@ const controlPlaneTest = test.extend<{
   workspaceHost: WorkspaceHostDriver;
   allowLocalIntegrationUrls: boolean;
   agent: {
+    rpc: ReturnType<typeof createHaloClient>;
+    workspaceRoot: string;
     run: (code: string) => Promise<ReturnType<typeof sessionToolExecutions>>;
   };
   mcpApi: { publicEndpoint: string; privateEndpoint: string; calls: string[] };
@@ -216,6 +225,10 @@ const controlPlaneTest = test.extend<{
       host: {
         llmApi: createOpenAILLMApi(llm.configuration),
         logger: new Logger({ sinks: [] }),
+        automationControl: new ControlPlaneAutomationClient({
+          origin: plane.origin,
+          token: (await readRuntimeSettings(appDataDir)).token,
+        }),
         remoteIntegrationTools: {
           search: async (input, signal) =>
             await runtime.integrations.search(input, { signal }),
@@ -239,7 +252,18 @@ const controlPlaneTest = test.extend<{
         headers: { authorization: `Bearer ${connection.token}` },
       },
     });
+    const published = await writeWorkspaceServerConnection({
+      appDataDir,
+      connection: {
+        workspaceRoot,
+        origin: `http://127.0.0.1:${connection.port}`,
+        token: connection.token,
+      },
+    });
+    if (published instanceof Error) throw published;
     await use({
+      rpc: client,
+      workspaceRoot,
       run: async (code) => {
         const session = await client.thread.new();
         const submitted = await client.thread.prompt({
@@ -3238,5 +3262,97 @@ controlPlaneTest(
         })
       ).status,
     ).toBe(404);
+  },
+);
+
+controlPlaneTest(
+  "accepts private webhooks, deduplicates retries, and runs the saved action",
+  async ({ agent }) => {
+    const automation = await agent.rpc.automations.save({
+      name: "Webhook receipt",
+      activation: { type: "trigger", trigger: { type: "webhook" } },
+      action: {
+        type: "runScript",
+        command: 'cat "$HALO_AUTOMATION_EVENT_FILE" >> received.jsonl',
+      },
+    });
+    const access = await agent.rpc.automations.webhookAccess({
+      automationId: automation.id,
+    });
+    const state = await agent.rpc.automations.sourceStatus({
+      automationId: automation.id,
+    });
+    expect(state).toMatchObject({
+      status: "active",
+      endpoint: access.endpoint,
+    });
+    expect(JSON.stringify(state)).not.toContain(access.token);
+    const payload = { marker: "hello; $(touch unsafe)" };
+    const send = async (
+      url: string,
+      body: typeof payload | undefined,
+      token?: string,
+    ) => {
+      const headers = new Headers({
+        "content-type": "application/json",
+        "idempotency-key": "first",
+      });
+      if (token !== undefined) headers.set("authorization", `Bearer ${token}`);
+      return await fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body ?? payload),
+      });
+    };
+    expect((await send(access.endpoint, payload)).status).toBe(401);
+    const first = await send(access.url, payload);
+    expect(first.status).toBe(202);
+    // SAFETY: A successful webhook response follows the public delivery contract.
+    const receipt = (await first.json()) as AutomationDelivery;
+    expect(
+      await (await send(access.endpoint, payload, access.token)).json(),
+    ).toMatchObject({ eventId: receipt.eventId });
+    expect((await send(access.url, { marker: "different" })).status).toBe(409);
+    await expect
+      .poll(
+        async () =>
+          await agent.rpc.automations.listRuns({ automationId: automation.id }),
+      )
+      .toMatchObject([{ status: "completed", trigger: "event" }]);
+    const lines = (
+      await fs.readFile(join(agent.workspaceRoot, "received.jsonl"), "utf8")
+    ).trim();
+    expect(JSON.parse(lines)).toMatchObject({ payload });
+    expect(lines).not.toContain(access.token);
+    expect(
+      await fs.access(join(agent.workspaceRoot, "unsafe")).then(
+        () => true,
+        () => false,
+      ),
+    ).toBe(false);
+    const rotated = await agent.rpc.automations.webhookAccess({
+      automationId: automation.id,
+      rotate: true,
+    });
+    expect(rotated.endpoint).toBe(access.endpoint);
+    expect(rotated.token).not.toBe(access.token);
+    expect((await send(access.url, payload)).status).toBe(401);
+    expect((await send(rotated.url, payload)).status).toBe(202);
+    await agent.rpc.automations.setEnabled({
+      automationId: automation.id,
+      enabled: false,
+    });
+    expect(
+      (
+        await agent.rpc.automations.sourceStatus({
+          automationId: automation.id,
+        })
+      ).status,
+    ).toBe("paused");
+    expect((await send(rotated.url, payload)).status).toBe(410);
+    expect(
+      (await agent.rpc.automations.listRuns({ automationId: automation.id }))
+        .length,
+    ).toBe(1);
   },
 );

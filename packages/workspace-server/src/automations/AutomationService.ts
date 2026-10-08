@@ -1,5 +1,5 @@
 // oxlint-disable unicorn/no-null -- SQL rows and bindings use null for NULL.
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { Value } from "@sinclair/typebox/value";
 import { Cron } from "croner";
 import * as errore from "errore";
@@ -57,6 +57,7 @@ type AutomationRunRow = {
   error: string | null;
   snapshot: string | null;
   payload: string | null;
+  payload_hash: string | null;
 };
 
 const extensionIdPattern = /^[a-z][a-z0-9-]*$/;
@@ -392,6 +393,37 @@ export class AutomationService {
     });
   }
 
+  async expiredEvents() {
+    return await this.database.access(
+      (connection) =>
+        // SAFETY: The projection includes just the ID and persisted JSON payload.
+        connection
+          .prepare(
+            "SELECT id, payload FROM halo_automation_runs WHERE payload IS NOT NULL AND status NOT IN ('running', 'queued') AND started_at < ? LIMIT 1000",
+          )
+          .all(Date.now() - 7 * 24 * 60 * 60 * 1000) as {
+          id: string;
+          payload: string;
+        }[],
+    );
+  }
+
+  async forgetEvent(input: { id: string; payload: string }) {
+    return await this.actionQueue.run(async () => {
+      const saved = await this.database.access((connection) => {
+        connection
+          .prepare(
+            "UPDATE halo_automation_runs SET payload_hash = ?, payload = NULL, snapshot = NULL WHERE id = ? AND status NOT IN ('running', 'queued')",
+          )
+          .run(
+            createHash("sha256").update(input.payload).digest("hex"),
+            input.id,
+          );
+      });
+      if (saved instanceof Error) return saved;
+    });
+  }
+
   async acceptEvent(event: AutomationEvent) {
     if (
       !Value.Check(automationEventSchema, event) ||
@@ -424,7 +456,10 @@ export class AutomationService {
         if (
           existing.automation_id !== event.automationId ||
           existing.revision !== event.revision ||
-          existing.payload !== payload
+          (existing.payload === null
+            ? existing.payload_hash !==
+              createHash("sha256").update(payload).digest("hex")
+            : existing.payload !== payload)
         )
           return new InvalidAutomationError({
             reason: "Event ID already belongs to a different delivery",

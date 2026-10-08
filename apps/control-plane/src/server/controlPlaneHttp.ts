@@ -1,3 +1,5 @@
+import { serveWebhook } from "../automations/webhookHttp.js";
+import type { WebhookService } from "../automations/WebhookService.js";
 import { serveAutomationState } from "../automations/automationStateHttp.js";
 import type { AutomationStore } from "../automations/AutomationStore.js";
 import { serveAutomationSnapshot } from "../automations/automationSnapshotHttp.js";
@@ -109,6 +111,7 @@ export function serveControlPlaneHttp(ctx: {
   integrations?: IntegrationService;
   routines: RoutineCoordinator;
   automationStore: AutomationStore;
+  webhooks: WebhookService;
   build?: { version: string; revision: string };
   webRoot: string;
   traces?: TraceIngestion;
@@ -149,6 +152,7 @@ export function serveControlPlaneHttp(ctx: {
       workspace,
       routines: ctx.routines,
       automationStore: ctx.automationStore,
+      webhooks: ctx.webhooks,
       gateway,
       traces,
       rpc,
@@ -222,6 +226,7 @@ async function routeControlPlaneRequest(ctx: {
   integrations?: IntegrationService;
   routines: RoutineCoordinator;
   automationStore: AutomationStore;
+  webhooks: WebhookService;
   build?: { version: string; revision: string };
   rpc: RPCHandler<ControlPlaneContext>;
   webRoot: string;
@@ -259,8 +264,21 @@ async function routeControlPlaneRequest(ctx: {
     return;
   }
 
+  const webhook = /^\/api\/webhooks\/([a-zA-Z0-9_-]+)$/.exec(url.pathname);
+  if (webhook?.[1] !== undefined) {
+    await serveWebhook({
+      request,
+      response,
+      url,
+      webhookId: webhook[1],
+      webhooks: ctx.webhooks,
+      store: ctx.automationStore,
+    });
+    return;
+  }
+
   const automationState =
-    /^\/api\/workspace-runtime\/automations\/([a-zA-Z0-9_-]+)$/.exec(
+    /^\/api\/workspace-runtime\/automations\/([a-zA-Z0-9_-]+)(?:\/(reveal|rotate))?$/.exec(
       url.pathname,
     );
   if (automationState?.[1] !== undefined) {
@@ -270,6 +288,8 @@ async function routeControlPlaneRequest(ctx: {
       automationId: automationState[1],
       workspace,
       store: ctx.automationStore,
+      webhooks: ctx.webhooks,
+      secretAction: automationState[2],
     });
     return;
   }

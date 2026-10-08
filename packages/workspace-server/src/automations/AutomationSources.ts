@@ -11,16 +11,29 @@ export class AutomationSources {
   private readonly automations: AutomationService;
   private readonly sync: AutomationSync | undefined;
   private readonly control:
-    | Pick<ControlPlaneAutomationClient, "report" | "status">
+    | Pick<ControlPlaneAutomationClient, "report" | "status" | "webhookAccess">
     | undefined;
   constructor(ctx: {
     automations: AutomationService;
     sync?: AutomationSync;
-    control?: Pick<ControlPlaneAutomationClient, "report" | "status">;
+    control?: Pick<
+      ControlPlaneAutomationClient,
+      "report" | "status" | "webhookAccess"
+    >;
   }) {
     this.automations = ctx.automations;
     this.sync = ctx.sync;
     this.control = ctx.control;
+  }
+  async webhookAccess(input: { automationId: string; rotate?: boolean }) {
+    const state = await this.status(input.automationId);
+    if (state instanceof Error) return state;
+    if (state.kind !== "webhook" || this.control === undefined)
+      return new InvalidAutomationError({
+        reason:
+          "Webhook access requires a webhook trigger and a control-plane connection",
+      });
+    return await this.control.webhookAccess(input);
   }
   async status(automationId: string) {
     const automation = this.automations.get(automationId);
