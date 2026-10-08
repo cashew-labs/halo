@@ -57,6 +57,7 @@ import { createExecutorDatabase } from "./createExecutorDatabase.js";
 
 // Executor 1.6 rewrites Meet's Discovery URL to a legacy endpoint returning 404.
 const presets = googleCatalog.filter((preset) => preset.id !== "google-meet");
+const maxRemoteResponseBytes = 64 * 1024 * 1024;
 type IntegrationPlugins = readonly [
   ReturnType<typeof openApiPlugin>,
   ReturnType<typeof mcpPlugin>,
@@ -154,6 +155,8 @@ export class IntegrationService {
               }),
             ),
           );
+    const mcpHttpClientLayer = this.safeHttpLayer(true);
+    const mcp = mcpPlugin({ httpClientLayer: mcpHttpClientLayer });
     this.plugins = [
       openApiPlugin({
         presets,
@@ -169,7 +172,12 @@ export class IntegrationService {
         ],
       }),
       // Remote HTTP/SSE only: never spawn user-supplied processes in the control plane.
-      mcpPlugin({ httpClientLayer: this.safeHttpLayer() }),
+      {
+        ...mcp,
+        // Executor 1.6 ignores the plugin HTTP override during discovery only.
+        resolveTools: (input) =>
+          mcp.resolveTools!({ ...input, httpClientLayer: mcpHttpClientLayer }),
+      },
     ];
   }
 
@@ -390,6 +398,11 @@ export class IntegrationService {
         detail:
           "Setup is no longer awaiting credentials or its connection name is already taken",
       });
+    await using cleanup = new errore.AsyncDisposableStack();
+    cleanup.defer(async () => {
+      const failed = await this.failSetupClaim({ ...ctx, claim: "submitting" });
+      if (failed instanceof Error) console.error(failed);
+    });
     const redirectUri = `${this.publicOrigin}/api/integrations/oauth/callback`;
     const result = await this.withUser(ctx.userId, (executor) =>
       Effect.gen(function* () {
@@ -497,6 +510,7 @@ export class IntegrationService {
       const failed = await this.finishSetup({
         ...ctx,
         setup,
+        claim: "submitting",
         status: "failed",
         message:
           result instanceof IntegrationSetupError
@@ -510,6 +524,7 @@ export class IntegrationService {
       const saved = await this.finishSetup({
         ...ctx,
         setup,
+        claim: "submitting",
         status: "ready",
         connection: safeConnection(result.connection),
       });
@@ -527,6 +542,7 @@ export class IntegrationService {
       const failed = await this.finishSetup({
         ...ctx,
         setup,
+        claim: "submitting",
         status: "failed",
         message: "The provider returned an unsafe authorization URL.",
       });
@@ -534,23 +550,49 @@ export class IntegrationService {
       return safeAuthorization;
     }
     const saved = await this.sql(
-      "UPDATE halo_integration_setup SET oauth_state=$1 WHERE setup_id=$2 AND user_id=$3 AND status='authorizing' RETURNING *",
+      "UPDATE halo_integration_setup SET oauth_state=$1 WHERE setup_id=$2 AND user_id=$3 AND status='authorizing' AND oauth_state='submitting' RETURNING *",
       [result.state, ctx.setupId, ctx.userId],
     );
-    if (saved instanceof Error) return saved;
+    if (saved instanceof Error || saved.length === 0) {
+      const cancelled = await this.withUser(ctx.userId, (executor) =>
+        executor.oauth.cancel(result.state),
+      );
+      if (cancelled instanceof Error) console.error(cancelled);
+      return saved instanceof Error
+        ? saved
+        : new IntegrationSetupError({
+            detail:
+              "Setup is no longer authorizing. Restart setup to try again.",
+          });
+    }
     return { authorizationUrl: result.authorizationUrl };
+  }
+
+  // Runs on every exit after a claim. Success clears/replaces the marker, making
+  // this a no-op; duplicate requests never acquire a claim or install cleanup.
+  private async failSetupClaim(ctx: {
+    userId: string;
+    setupId: string;
+    claim: "submitting" | "consuming";
+  }) {
+    const saved = await this.sql(
+      "UPDATE halo_integration_setup SET status='failed',oauth_state=NULL WHERE setup_id=$1 AND user_id=$2 AND status='authorizing' AND oauth_state=$3 RETURNING *",
+      [ctx.setupId, ctx.userId, ctx.claim],
+    );
+    if (saved instanceof Error) return saved;
   }
 
   private async finishSetup(ctx: {
     userId: string;
     setupId: string;
     setup: IntegrationSetup;
+    claim: "submitting" | "consuming";
     status: IntegrationSetup["status"];
     connection?: IntegrationConnection;
     message?: string;
   }) {
     const saved = await this.sql(
-      "UPDATE halo_integration_setup SET status=$1,data=$2,oauth_state=NULL WHERE setup_id=$3 AND user_id=$4 AND status='authorizing' RETURNING *",
+      "UPDATE halo_integration_setup SET status=$1,data=$2,oauth_state=NULL WHERE setup_id=$3 AND user_id=$4 AND status='authorizing' AND oauth_state=$5 RETURNING *",
       [
         ctx.status,
         JSON.stringify({
@@ -561,9 +603,14 @@ export class IntegrationService {
         }),
         ctx.setupId,
         ctx.userId,
+        ctx.claim,
       ],
     );
     if (saved instanceof Error) return saved;
+    if (saved.length === 0)
+      return new IntegrationSetupError({
+        detail: "Setup is no longer authorizing. Restart setup to try again.",
+      });
   }
 
   async cancelSetup(ctx: { userId: string; setupId: string }) {
@@ -599,6 +646,15 @@ export class IntegrationService {
       return new IntegrationSetupError({
         detail: "Invalid or already consumed OAuth state",
       });
+    await using cleanup = new errore.AsyncDisposableStack();
+    cleanup.defer(async () => {
+      const failed = await this.failSetupClaim({
+        userId: row.user_id,
+        setupId: row.setup_id,
+        claim: "consuming",
+      });
+      if (failed instanceof Error) console.error(failed);
+    });
     const setup = await this.setup({
       userId: row.user_id,
       setupId: row.setup_id,
@@ -626,6 +682,7 @@ export class IntegrationService {
       userId: row.user_id,
       setupId: row.setup_id,
       setup,
+      claim: "consuming",
       status: connection instanceof Error ? "failed" : "ready",
       connection:
         connection instanceof Error ? undefined : safeConnection(connection),
@@ -732,7 +789,11 @@ export class IntegrationService {
       });
   }
 
-  private safeFetch: typeof globalThis.fetch = async (input, init) => {
+  private safeFetch = async (
+    input: Parameters<typeof globalThis.fetch>[0],
+    init?: Parameters<typeof globalThis.fetch>[1],
+    allowEventStream = false,
+  ) => {
     const request = new Request(input, init);
     const safe = await this.validateRemoteUrl(request.url);
     if (safe instanceof Error) throw safe;
@@ -821,12 +882,51 @@ export class IntegrationService {
           }
           const readable =
             decoder === undefined ? incoming : incoming.pipe(decoder);
+          const eventStream =
+            allowEventStream &&
+            headers.get("content-type")?.split(";")[0]?.trim().toLowerCase() ===
+              "text/event-stream";
+          const size = { bytes: 0, emptyLine: true, carriageReturn: false };
+          const bounded = new stream.Transform({
+            transform(chunk: Buffer, _encoding, callback) {
+              if (!eventStream) size.bytes += chunk.length;
+              else
+                for (const byte of chunk) {
+                  // SSE accepts LF, CRLF and CR, including delimiters split across chunks.
+                  if (size.carriageReturn && byte === 10) {
+                    size.carriageReturn = false;
+                    continue;
+                  }
+                  size.carriageReturn = byte === 13;
+                  size.bytes++;
+                  if (size.bytes > maxRemoteResponseBytes) break;
+                  if (byte === 10 || byte === 13) {
+                    if (size.emptyLine) size.bytes = 0;
+                    size.emptyLine = true;
+                  } else size.emptyLine = false;
+                }
+              if (size.bytes > maxRemoteResponseBytes) {
+                callback(
+                  new IntegrationSetupError({
+                    detail:
+                      "Remote response exceeds 64 MiB after decompression. Use pagination or request less data.",
+                  }),
+                );
+                return;
+              }
+              callback(undefined, chunk);
+            },
+          });
+          readable.once("error", (error) => bounded.destroy(error));
+          bounded.once("close", () => readable.destroy());
           // SAFETY: Node's IncomingMessage and zlib transforms produce byte streams.
           const responseBody =
             request.method === "HEAD" || [204, 205, 304].includes(status)
               ? undefined
-              : (stream.Readable.toWeb(readable) as ReadableStream<Uint8Array>);
-          if (responseBody === undefined) readable.resume();
+              : (stream.Readable.toWeb(
+                  readable.pipe(bounded),
+                ) as ReadableStream<Uint8Array>);
+          if (responseBody === undefined) bounded.destroy();
           const response = errore.try({
             try: () => new Response(responseBody, { status, headers }),
             catch: (cause) =>
@@ -848,9 +948,15 @@ export class IntegrationService {
     });
   };
 
-  private safeHttpLayer() {
+  private safeHttpLayer(allowEventStream = false) {
     return FetchHttpClient.layer.pipe(
-      Layer.provide(Layer.succeed(FetchHttpClient.Fetch, this.safeFetch)),
+      Layer.provide(
+        Layer.succeed(
+          FetchHttpClient.Fetch,
+          async (input, init) =>
+            await this.safeFetch(input, init, allowEventStream),
+        ),
+      ),
     );
   }
 

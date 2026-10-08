@@ -771,9 +771,26 @@ The actual compiled browser app, served by the canonical fixture, verified API-k
 
 For Phase 5, `pnpm halo-dev app snapshot` again failed because no Electron app-control endpoint was available. The agent result/card payload is verified through the actual server consumer surface, but the new automatic-card path was not driven in the desktop UI. Earlier screenshots above are Phase 4 evidence, not new Phase 5 captures. No live Google consent, MCP OAuth/DCR, or PostgreSQL multi-replica reconnect test was run.
 
-**Phase 8 final checks:** `pnpm run check-affected` passed all 53 tasks. The full control-plane suite passed 36 tests (4 skipped); canonical workspace/connection suites passed 120 tests after review fixes. Integration calls now follow caller cancellation rather than a global 30-second deadline; a real 31-second call verifies this. Cancellation rereads remote setup status so completed connections remain connected. Electron packaging passed. Three packaged UI tests passed: connection and local approval cards coexist, local approval rejection works, and remote setup opens in another tab while retaining the session. The browser setup test controls the transport response; it does not claim live OAuth. Frozen-lockfile installation and source diff whitespace checks passed; embedded patches retain context-line spaces.
+**Phase 8 pre-merge checks:** `pnpm run check-affected` passed all 53 tasks. The full control-plane suite passed 36 tests (4 skipped); canonical workspace/connection suites passed 120 tests after review fixes. Integration calls now follow caller cancellation rather than a global 30-second deadline; a real 31-second call verifies this. Cancellation rereads remote setup status so completed connections remain connected. Electron packaging passed. Three packaged UI tests passed: connection and local approval cards coexist, local approval rejection works, and remote setup opens in another tab while retaining the session. The browser setup test controls the transport response; it does not claim live OAuth. Frozen-lockfile installation and source diff whitespace checks passed; embedded patches retain context-line spaces.
 
-**PR review state:** PR #393 is open but conflicts with newer main changes. Automated review also flagged claimed-setup failure cleanup and missing response-size limits in remote fetch; these require investigation before merge. No integrated-main validation or production-readiness claim is made.
+**PR review follow-up:** merged `origin/main`, preserving routine scheduling and upstream test consolidation. Failed setup submissions/callbacks release only their own in-progress claim; successful, expired or cancelled states cannot be overwritten by cleanup. An authorization URL is returned only after its OAuth state is persisted. Database fault tests cover rejected writes, updates affecting no rows, failed completion storage and retrying the same connection.
+
+Remote responses are limited to **64 MiB after decompression**, enforced during streaming. MCP event streams have a per-message limit instead of a lifetime limit; ordinary OpenAPI/OAuth responses always have a whole-body limit, regardless of the server's claimed content type. Boundary tests accept exactly 64 MiB, reject one extra byte, accept multiple events totaling over 80 MiB and reject an oversized event.
+
+**Timer decision:** keep the current Halo setup deadline and Executor OAuth expiry unchanged, as requested. Late callbacks may require starting setup again; moving timer ownership or refreshing the deadline is not part of this change.
+
+**Post-merge verification:** all 56 affected-package tasks passed; the control-plane suite passed 27 tests (2 skipped), and the full workspace suite passed 88 tests using the package's fixture exclusions. Counts changed because main consolidated tests. Packaged Electron build and browser setup-launch E2E passed; the tab opens without replacing the session. The PostgreSQL persistence/reconnect test passed again against a disposable PostgreSQL 15 instance. Lockfile installation passed. No live provider consent or production deployment was performed.
+
+```callstack
+ Claim a setup submission or OAuth callback
++├── finish the claimed attempt as failed on unsuccessful exit [[review-fixes:new:401-405]]
++├── preserve terminal states and reject updates that affected no row
++└── return an authorization URL only after persisting its state
+ Fetch an integration response
++├── decompress before counting bytes
++├── stop ordinary responses above 64 MiB
++└── limit each MCP event instead of its whole stream
+```
 
 **Phase 8 PostgreSQL verification:** disposable PostgreSQL 15 passed the integration persistence/reopen test, owner isolation and two-replica concurrent same-setup reconnect (one successful completion, same connection address). Four credential tests passed against PostgreSQL: encrypted persistence/reopen, owner separation, wrong-key/tamper rejection and invalid-key rejection. Production-mode integration execution correctly rejects the HTTP fixture before sending a provider request; successful provider execution is covered by SQLite development fixtures, not claimed as a live PostgreSQL provider test.
 
@@ -8175,4 +8192,257 @@ index 00182d6f..a253a9fc 100644
      cancelConnection:
        oc.input(type<{ sessionId: string; connectionId: string }>()),
      respondToToolApproval:
+```
+
+## Post-merge setup and response-bound patch
+
+```source-diff:review-fixes:apps/control-plane/src/integrations/IntegrationService.ts
+diff --git a/apps/control-plane/src/integrations/IntegrationService.ts b/apps/control-plane/src/integrations/IntegrationService.ts
+index 5292efff..93ad8015 100644
+--- a/apps/control-plane/src/integrations/IntegrationService.ts
++++ b/apps/control-plane/src/integrations/IntegrationService.ts
+@@ -57,6 +57,7 @@ import { createExecutorDatabase } from "./createExecutorDatabase.js";
+ 
+ // Executor 1.6 rewrites Meet's Discovery URL to a legacy endpoint returning 404.
+ const presets = googleCatalog.filter((preset) => preset.id !== "google-meet");
++const maxRemoteResponseBytes = 64 * 1024 * 1024;
+ type IntegrationPlugins = readonly [
+   ReturnType<typeof openApiPlugin>,
+   ReturnType<typeof mcpPlugin>,
+@@ -154,6 +155,8 @@ export class IntegrationService {
+               }),
+             ),
+           );
++    const mcpHttpClientLayer = this.safeHttpLayer(true);
++    const mcp = mcpPlugin({ httpClientLayer: mcpHttpClientLayer });
+     this.plugins = [
+       openApiPlugin({
+         presets,
+@@ -169,7 +172,12 @@ export class IntegrationService {
+         ],
+       }),
+       // Remote HTTP/SSE only: never spawn user-supplied processes in the control plane.
+-      mcpPlugin({ httpClientLayer: this.safeHttpLayer() }),
++      {
++        ...mcp,
++        // Executor 1.6 ignores the plugin HTTP override during discovery only.
++        resolveTools: (input) =>
++          mcp.resolveTools!({ ...input, httpClientLayer: mcpHttpClientLayer }),
++      },
+     ];
+   }
+ 
+@@ -390,6 +398,11 @@ export class IntegrationService {
+         detail:
+           "Setup is no longer awaiting credentials or its connection name is already taken",
+       });
++    await using cleanup = new errore.AsyncDisposableStack();
++    cleanup.defer(async () => {
++      const failed = await this.failSetupClaim({ ...ctx, claim: "submitting" });
++      if (failed instanceof Error) console.error(failed);
++    });
+     const redirectUri = `${this.publicOrigin}/api/integrations/oauth/callback`;
+     const result = await this.withUser(ctx.userId, (executor) =>
+       Effect.gen(function* () {
+@@ -497,6 +510,7 @@ export class IntegrationService {
+       const failed = await this.finishSetup({
+         ...ctx,
+         setup,
++        claim: "submitting",
+         status: "failed",
+         message:
+           result instanceof IntegrationSetupError
+@@ -510,6 +524,7 @@ export class IntegrationService {
+       const saved = await this.finishSetup({
+         ...ctx,
+         setup,
++        claim: "submitting",
+         status: "ready",
+         connection: safeConnection(result.connection),
+       });
+@@ -527,6 +542,7 @@ export class IntegrationService {
+       const failed = await this.finishSetup({
+         ...ctx,
+         setup,
++        claim: "submitting",
+         status: "failed",
+         message: "The provider returned an unsafe authorization URL.",
+       });
+@@ -534,23 +550,49 @@ export class IntegrationService {
+       return safeAuthorization;
+     }
+     const saved = await this.sql(
+-      "UPDATE halo_integration_setup SET oauth_state=$1 WHERE setup_id=$2 AND user_id=$3 AND status='authorizing' RETURNING *",
++      "UPDATE halo_integration_setup SET oauth_state=$1 WHERE setup_id=$2 AND user_id=$3 AND status='authorizing' AND oauth_state='submitting' RETURNING *",
+       [result.state, ctx.setupId, ctx.userId],
+     );
+-    if (saved instanceof Error) return saved;
++    if (saved instanceof Error || saved.length === 0) {
++      const cancelled = await this.withUser(ctx.userId, (executor) =>
++        executor.oauth.cancel(result.state),
++      );
++      if (cancelled instanceof Error) console.error(cancelled);
++      return saved instanceof Error
++        ? saved
++        : new IntegrationSetupError({
++            detail:
++              "Setup is no longer authorizing. Restart setup to try again.",
++          });
++    }
+     return { authorizationUrl: result.authorizationUrl };
+   }
+ 
++  // Runs on every exit after a claim. Success clears/replaces the marker, making
++  // this a no-op; duplicate requests never acquire a claim or install cleanup.
++  private async failSetupClaim(ctx: {
++    userId: string;
++    setupId: string;
++    claim: "submitting" | "consuming";
++  }) {
++    const saved = await this.sql(
++      "UPDATE halo_integration_setup SET status='failed',oauth_state=NULL WHERE setup_id=$1 AND user_id=$2 AND status='authorizing' AND oauth_state=$3 RETURNING *",
++      [ctx.setupId, ctx.userId, ctx.claim],
++    );
++    if (saved instanceof Error) return saved;
++  }
++
+   private async finishSetup(ctx: {
+     userId: string;
+     setupId: string;
+     setup: IntegrationSetup;
++    claim: "submitting" | "consuming";
+     status: IntegrationSetup["status"];
+     connection?: IntegrationConnection;
+     message?: string;
+   }) {
+     const saved = await this.sql(
+-      "UPDATE halo_integration_setup SET status=$1,data=$2,oauth_state=NULL WHERE setup_id=$3 AND user_id=$4 AND status='authorizing' RETURNING *",
++      "UPDATE halo_integration_setup SET status=$1,data=$2,oauth_state=NULL WHERE setup_id=$3 AND user_id=$4 AND status='authorizing' AND oauth_state=$5 RETURNING *",
+       [
+         ctx.status,
+         JSON.stringify({
+@@ -561,9 +603,14 @@ export class IntegrationService {
+         }),
+         ctx.setupId,
+         ctx.userId,
++        ctx.claim,
+       ],
+     );
+     if (saved instanceof Error) return saved;
++    if (saved.length === 0)
++      return new IntegrationSetupError({
++        detail: "Setup is no longer authorizing. Restart setup to try again.",
++      });
+   }
+ 
+   async cancelSetup(ctx: { userId: string; setupId: string }) {
+@@ -599,6 +646,15 @@ export class IntegrationService {
+       return new IntegrationSetupError({
+         detail: "Invalid or already consumed OAuth state",
+       });
++    await using cleanup = new errore.AsyncDisposableStack();
++    cleanup.defer(async () => {
++      const failed = await this.failSetupClaim({
++        userId: row.user_id,
++        setupId: row.setup_id,
++        claim: "consuming",
++      });
++      if (failed instanceof Error) console.error(failed);
++    });
+     const setup = await this.setup({
+       userId: row.user_id,
+       setupId: row.setup_id,
+@@ -626,6 +682,7 @@ export class IntegrationService {
+       userId: row.user_id,
+       setupId: row.setup_id,
+       setup,
++      claim: "consuming",
+       status: connection instanceof Error ? "failed" : "ready",
+       connection:
+         connection instanceof Error ? undefined : safeConnection(connection),
+@@ -732,7 +789,11 @@ export class IntegrationService {
+       });
+   }
+ 
+-  private safeFetch: typeof globalThis.fetch = async (input, init) => {
++  private safeFetch = async (
++    input: Parameters<typeof globalThis.fetch>[0],
++    init?: Parameters<typeof globalThis.fetch>[1],
++    allowEventStream = false,
++  ) => {
+     const request = new Request(input, init);
+     const safe = await this.validateRemoteUrl(request.url);
+     if (safe instanceof Error) throw safe;
+@@ -821,12 +882,51 @@ export class IntegrationService {
+           }
+           const readable =
+             decoder === undefined ? incoming : incoming.pipe(decoder);
++          const eventStream =
++            allowEventStream &&
++            headers.get("content-type")?.split(";")[0]?.trim().toLowerCase() ===
++              "text/event-stream";
++          const size = { bytes: 0, emptyLine: true, carriageReturn: false };
++          const bounded = new stream.Transform({
++            transform(chunk: Buffer, _encoding, callback) {
++              if (!eventStream) size.bytes += chunk.length;
++              else
++                for (const byte of chunk) {
++                  // SSE accepts LF, CRLF and CR, including delimiters split across chunks.
++                  if (size.carriageReturn && byte === 10) {
++                    size.carriageReturn = false;
++                    continue;
++                  }
++                  size.carriageReturn = byte === 13;
++                  size.bytes++;
++                  if (size.bytes > maxRemoteResponseBytes) break;
++                  if (byte === 10 || byte === 13) {
++                    if (size.emptyLine) size.bytes = 0;
++                    size.emptyLine = true;
++                  } else size.emptyLine = false;
++                }
++              if (size.bytes > maxRemoteResponseBytes) {
++                callback(
++                  new IntegrationSetupError({
++                    detail:
++                      "Remote response exceeds 64 MiB after decompression. Use pagination or request less data.",
++                  }),
++                );
++                return;
++              }
++              callback(undefined, chunk);
++            },
++          });
++          readable.once("error", (error) => bounded.destroy(error));
++          bounded.once("close", () => readable.destroy());
+           // SAFETY: Node's IncomingMessage and zlib transforms produce byte streams.
+           const responseBody =
+             request.method === "HEAD" || [204, 205, 304].includes(status)
+               ? undefined
+-              : (stream.Readable.toWeb(readable) as ReadableStream<Uint8Array>);
+-          if (responseBody === undefined) readable.resume();
++              : (stream.Readable.toWeb(
++                  readable.pipe(bounded),
++                ) as ReadableStream<Uint8Array>);
++          if (responseBody === undefined) bounded.destroy();
+           const response = errore.try({
+             try: () => new Response(responseBody, { status, headers }),
+             catch: (cause) =>
+@@ -848,9 +948,15 @@ export class IntegrationService {
+     });
+   };
+ 
+-  private safeHttpLayer() {
++  private safeHttpLayer(allowEventStream = false) {
+     return FetchHttpClient.layer.pipe(
+-      Layer.provide(Layer.succeed(FetchHttpClient.Fetch, this.safeFetch)),
++      Layer.provide(
++        Layer.succeed(
++          FetchHttpClient.Fetch,
++          async (input, init) =>
++            await this.safeFetch(input, init, allowEventStream),
++        ),
++      ),
+     );
+   }
+ 
 ```

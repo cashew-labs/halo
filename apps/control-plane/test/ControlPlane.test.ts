@@ -264,6 +264,52 @@ const controlPlaneTest = test.extend<{
     const calls: string[] = [];
     const inputSchema = Type.Object({ marker: Type.String() });
     const server = http.createServer(async (request, response) => {
+      if (request.url === "/events" || request.url === "/oversized-event") {
+        if (request.method !== "POST") {
+          response.writeHead(405).end();
+          return;
+        }
+        const chunks: Buffer[] = [];
+        for await (const chunk of request) chunks.push(Buffer.from(chunk));
+        // SAFETY: Only Executor's MCP client sends JSON-RPC requests to this fixture.
+        const message = JSON.parse(Buffer.concat(chunks).toString()) as {
+          id?: number;
+          method: string;
+        };
+        if (message.id === undefined) {
+          response.writeHead(202).end();
+          return;
+        }
+        const result =
+          message.method === "initialize"
+            ? {
+                protocolVersion: "2025-03-26",
+                capabilities: { tools: {} },
+                serverInfo: { name: "large-events", version: "1" },
+              }
+            : {
+                tools: [
+                  { name: "echo_marker", description: "Echo", inputSchema },
+                ],
+              };
+        // More than 64 MiB total is valid when each event stays below the cap.
+        const padding =
+          message.method !== "initialize"
+            ? ""
+            : request.url === "/events"
+              ? `:${"x".repeat(40 * 1024 * 1024)}\r\n\r\n:${"x".repeat(40 * 1024 * 1024)}\n\n`
+              : `:${"x".repeat(64 * 1024 * 1024)}\n\n`;
+        response.writeHead(200, {
+          "content-type": "text/event-stream",
+          "content-encoding": "gzip",
+        });
+        response.end(
+          gzipSync(
+            `${padding}event: message\ndata: ${JSON.stringify({ jsonrpc: "2.0", id: message.id, result })}\n\n`,
+          ),
+        );
+        return;
+      }
       if (request.url !== "/public" && request.url !== "/private") {
         response.writeHead(404).end();
         return;
@@ -349,6 +395,22 @@ const controlPlaneTest = test.extend<{
         authorization: request.headers.authorization,
         apiKey: request.headers["x-api-key"],
       });
+      if (request.url?.startsWith("/sized-spec")) {
+        const prefix =
+          '{"openapi":"3.0.0","info":{"title":"Bounded","version":"1"},"paths":{},"x-padding":"';
+        const suffix = '"}';
+        const bytes = 64 * 1024 * 1024 + (request.url.endsWith("over") ? 1 : 0);
+        const eventType = request.url.includes("event");
+        const body = eventType
+          ? `${"\n".repeat(bytes - prefix.length - suffix.length)}${prefix}${suffix}`
+          : `${prefix}${"x".repeat(bytes - prefix.length - suffix.length)}${suffix}`;
+        response.writeHead(200, {
+          "content-type": eventType ? "text/event-stream" : "application/json",
+          "content-encoding": "gzip",
+        });
+        response.end(gzipSync(body));
+        return;
+      }
       if (request.url === "/redirect-spec") {
         response
           .writeHead(302, {
@@ -813,6 +875,62 @@ controlPlaneTest(
         }),
     );
     if (configured instanceof Error) throw configured;
+    // Inject storage failures at the database boundary after Halo owns a claim.
+    // A failed update must not strand the setup or return an unusable OAuth URL.
+    using setupDatabase = new DatabaseSync(
+      join(appDataDir, "control-plane.db"),
+    );
+    for (const fault of [
+      "reject-state",
+      "ignore-state",
+      "reject-finish",
+    ] as const) {
+      const attempt = await authenticatedRpc.integrations.startSetup({
+        integration: "setup-oauth",
+      });
+      const pending = await authenticatedRpc.integrations.setup({
+        setupId: attempt.setupId,
+      });
+      using faultCleanup = new errore.DisposableStack();
+      setupDatabase.exec(`CREATE TRIGGER fail_setup_write BEFORE UPDATE ON halo_integration_setup
+        WHEN NEW.setup_id='${attempt.setupId}' AND ${fault === "reject-finish" ? "NEW.status='ready'" : "NEW.oauth_state IS NOT NULL AND NEW.oauth_state NOT IN ('submitting','consuming')"}
+        BEGIN SELECT RAISE(${fault === "ignore-state" ? "IGNORE" : "ABORT, 'fixture setup write failed'"}); END;`);
+      faultCleanup.defer(() =>
+        setupDatabase.exec("DROP TRIGGER IF EXISTS fail_setup_write"),
+      );
+      const submitting = authenticatedRpc.integrations.submitSetup({
+        setupId: attempt.setupId,
+        template: oauthMethod.template,
+      });
+      if (fault === "reject-finish") {
+        const authorization = await submitting;
+        const state = new URL(authorization.authorizationUrl!).searchParams.get(
+          "state",
+        )!;
+        const response = await fetch(
+          `${plane.origin}/api/integrations/oauth/callback?state=${encodeURIComponent(state)}&code=fixture-code`,
+          { redirect: "manual" },
+        );
+        expect(response.status).toBe(400);
+      } else await expect(submitting).rejects.toThrow();
+      expect(
+        await authenticatedRpc.integrations.setup({ setupId: attempt.setupId }),
+      ).toMatchObject({ status: "failed" });
+      setupDatabase.exec("DROP TRIGGER fail_setup_write");
+      const retry = await authenticatedRpc.integrations.startSetup({
+        integration: "setup-oauth",
+        connectionName: pending.connectionName,
+      });
+      expect(
+        await authenticatedRpc.integrations.submitSetup({
+          setupId: retry.setupId,
+          template: oauthMethod.template,
+        }),
+      ).toHaveProperty("authorizationUrl");
+      await authenticatedRpc.integrations.cancelSetup({
+        setupId: retry.setupId,
+      });
+    }
     const googleConfigured = await plane.integrations!.withUser(
       session.session.user.id,
       (executor) =>
@@ -1170,6 +1288,70 @@ controlPlaneTest(
       }),
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
   },
+);
+
+controlPlaneTest(
+  "bounds decompressed responses while allowing long-lived MCP event streams",
+  async ({ authenticatedRpc, integrationApi, mcpApi, plane, appDataDir }) => {
+    await authenticatedRpc.workspace.ensure();
+    const runtime = createControlPlaneRpcClient(
+      plane.origin,
+      (await readRuntimeSettings(appDataDir)).token,
+    );
+    await authenticatedRpc.integrations.registerOpenAPI({
+      name: "At limit",
+      slug: "at-limit",
+      url: `${integrationApi.origin}/sized-spec`,
+    });
+    await expect(
+      authenticatedRpc.integrations.registerOpenAPI({
+        name: "Over limit",
+        slug: "over-limit",
+        url: `${integrationApi.origin}/sized-spec-over`,
+      }),
+    ).rejects.toThrow();
+    const catalog = await authenticatedRpc.integrations.catalog();
+    expect(catalog.some((entry) => entry.integration === "at-limit")).toBe(
+      true,
+    );
+    expect(catalog.some((entry) => entry.integration === "over-limit")).toBe(
+      false,
+    );
+    // An OpenAPI server cannot opt out of the whole-body limit by changing MIME type.
+    await expect(
+      authenticatedRpc.integrations.registerOpenAPI({
+        name: "False event stream",
+        slug: "false-events",
+        url: `${integrationApi.origin}/sized-spec-event-over`,
+      }),
+    ).rejects.toThrow();
+    for (const [slug, path] of [
+      ["bounded-events", "/events"],
+      ["oversized-event", "/oversized-event"],
+    ] as const) {
+      await authenticatedRpc.integrations.registerMcp({
+        name: slug,
+        slug,
+        endpoint: new URL(path, mcpApi.publicEndpoint).href,
+        auth: "none",
+      });
+      const started = await authenticatedRpc.integrations.startSetup({
+        integration: slug,
+      });
+      await authenticatedRpc.integrations.submitSetup({
+        setupId: started.setupId,
+        template: "none",
+      });
+      const discovered = await runtime.integrations.search({
+        query: "",
+        integration: slug,
+      });
+      expect(discovered.tools.map((tool) => tool.name)).toEqual(
+        slug === "bounded-events" ? ["echo_marker"] : [],
+      );
+    }
+  },
+  60_000,
 );
 
 controlPlaneTest.extend({ allowLocalIntegrationUrls: false })(
