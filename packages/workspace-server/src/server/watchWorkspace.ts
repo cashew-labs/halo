@@ -45,7 +45,7 @@ export async function* watchWorkspace({
       type: "routines",
       routines,
     })),
-    forward(context.routines.automations.watch(abortSignal), (automations) => ({
+    forward(context.automations.watch(abortSignal), (automations) => ({
       type: "automations",
       automations,
     })),

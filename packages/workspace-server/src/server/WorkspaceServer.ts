@@ -1,3 +1,4 @@
+import { AutomationService } from "../automations/AutomationService.js";
 import { AutomationSources } from "../automations/AutomationSources.js";
 import type { ControlPlaneAutomationClient } from "../automations/ControlPlaneAutomationClient.js";
 import { AutomationSync } from "../automations/AutomationSync.js";
@@ -259,8 +260,9 @@ export class WorkspaceServer {
       userId: config.ownerUserId,
     });
     if (hotkeys instanceof Error) return hotkeys;
-    const routines = await RoutineService.open({ database });
-    if (routines instanceof Error) return routines;
+    const automations = await AutomationService.open({ database });
+    if (automations instanceof Error) return automations;
+    const routines = new RoutineService({ automations });
     const [initialized, toolRuntime] = await Promise.all([
       workspace.initialize(),
       ToolRuntime.create({
@@ -274,7 +276,7 @@ export class WorkspaceServer {
           createDatabaseQueryPlugin(database),
           createHotkeysPlugin(hotkeys),
           createAutomationsPlugin(() => ({
-            automations: routines.automations,
+            automations,
             runner: automationRunner,
             sources: automationSources,
           })),
@@ -342,7 +344,7 @@ export class WorkspaceServer {
         });
     });
     const automationRunner = new AutomationRunner({
-      automations: routines.automations,
+      automations,
       sessions,
       filesystem,
       workspaceRoot,
@@ -386,7 +388,7 @@ export class WorkspaceServer {
       host.automationControl === undefined
         ? undefined
         : new AutomationSync({
-            automations: routines.automations,
+            automations,
             report: async (snapshot, signal) =>
               await host.automationControl!.report(snapshot, signal),
             logger: host.logger,
@@ -394,7 +396,7 @@ export class WorkspaceServer {
     automationSync?.start();
     cleanup.defer(async () => await automationSync?.close());
     const automationSources = new AutomationSources({
-      automations: routines.automations,
+      automations,
       sync: automationSync,
       control: host.automationControl,
     });
@@ -405,6 +407,8 @@ export class WorkspaceServer {
         hotkeys,
         routines,
         routineRunner,
+        automations,
+        automationRunner,
         automationSources,
         traces,
         browsers,

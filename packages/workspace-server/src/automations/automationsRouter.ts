@@ -2,9 +2,12 @@ import type { AutomationSources } from "./AutomationSources.js";
 import { implement } from "@orpc/server";
 import { contract } from "@get-halo/client";
 import { orpcErrors } from "../orpcErrors.js";
-import type { RoutinesRouterContext } from "../routines/routinesRouter.js";
+import type { AutomationService } from "./AutomationService.js";
+import type { AutomationRunner } from "./AutomationRunner.js";
 
-export type AutomationsRouterContext = RoutinesRouterContext & {
+export type AutomationsRouterContext = {
+  automations: AutomationService;
+  automationRunner: AutomationRunner;
   automationSources: AutomationSources;
 };
 const os = implement(contract.automations).$context<AutomationsRouterContext>();
@@ -25,7 +28,7 @@ export const automationsRouter = os.router({
     return state;
   }),
   runNow: os.runNow.handler(async ({ context, input }) => {
-    const run = await context.routineRunner.automations.start({
+    const run = await context.automationRunner.start({
       ...input,
       trigger: "manual",
     });
@@ -35,39 +38,37 @@ export const automationsRouter = os.router({
     return run;
   }),
   runScheduled: os.runScheduled.handler(async ({ context, input }) => {
-    const run = await context.routineRunner.automations.start({
+    const run = await context.automationRunner.start({
       ...input,
       trigger: "schedule",
     });
     if (run instanceof Error) return orpcErrors.badRequest(run);
   }),
   acceptEvent: os.acceptEvent.handler(async ({ context, input }) => {
-    const run = await context.routineRunner.automations.acceptEvent(input);
+    const run = await context.automationRunner.acceptEvent(input);
     if (run instanceof Error) return orpcErrors.badRequest(run);
     return run;
   }),
-  list: os.list.handler(({ context }) => context.routines.automations.list()),
+  list: os.list.handler(({ context }) => context.automations.list()),
   watch: os.watch.handler(({ context, signal }) =>
-    context.routines.automations.watch(signal),
+    context.automations.watch(signal),
   ),
   save: os.save.handler(async ({ context, input }) => {
-    const saved = await context.routines.automations.save(input);
+    const saved = await context.automations.save(input);
     if (saved instanceof Error) return orpcErrors.badRequest(saved);
     return saved;
   }),
   remove: os.remove.handler(async ({ context, input }) => {
-    const removed = await context.routines.automations.remove(
-      input.automationId,
-    );
+    const removed = await context.automations.remove(input.automationId);
     if (removed instanceof Error) return orpcErrors.badRequest(removed);
   }),
   setEnabled: os.setEnabled.handler(async ({ context, input }) => {
-    const updated = await context.routines.automations.setEnabled(input);
+    const updated = await context.automations.setEnabled(input);
     if (updated instanceof Error) return orpcErrors.badRequest(updated);
     return updated;
   }),
   listRuns: os.listRuns.handler(async ({ context, input }) => {
-    const runs = await context.routines.automations.listRuns(input);
+    const runs = await context.automations.listRuns(input);
     if (runs instanceof Error) return orpcErrors.badRequest(runs);
     return runs;
   }),
