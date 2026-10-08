@@ -16,10 +16,6 @@ import {
 import type { AppUpdates } from "../app/AppUpdates.js";
 import type { DesktopAuthentication } from "../DesktopAuthentication.js";
 import type { HaloRpcConnection } from "../../shared/HaloRpcConnection.js";
-import {
-  listenForLoopbackCallback,
-  type ListeningLoopbackCallback,
-} from "./listenForLoopbackCallback.js";
 import { openExternalUrl } from "../openExternalUrl.js";
 
 class DesktopRequestError extends errore.createTaggedError({
@@ -106,18 +102,6 @@ async function handleDesktopRequest(args: {
   }
 }
 
-// Executor pending OAuth sessions last OAUTH2_SESSION_TTL_MS (15 minutes).
-const oauthCallbackTimeoutMs = 15 * 60 * 1_000;
-const pendingOAuthCallbacks = new Map<string, ListeningLoopbackCallback>();
-
-export async function closePendingOAuthCallbacks() {
-  const callbacks = [...pendingOAuthCallbacks.values()];
-  pendingOAuthCallbacks.clear();
-  for (const callback of callbacks) {
-    await closeOAuthCallback(callback);
-  }
-}
-
 async function connectIntegration(args: {
   request: ConnectIntegrationRequest;
   getConnection: () => Promise<HaloRpcConnection | Error | undefined>;
@@ -130,20 +114,11 @@ async function connectIntegration(args: {
     });
   }
 
-  const callback = await listenForLoopbackCallback({
-    timeoutMs: oauthCallbackTimeoutMs,
-  });
-  if (callback instanceof Error) return callback;
-
   const client = createWorkspaceClient(connection);
   const started = await client.thread
     .startConnection({
       sessionId: args.request.sessionId,
       request: args.request.request,
-      completion: {
-        kind: "client-loopback",
-        redirectUri: callback.callbackUrl,
-      },
     })
     .catch(
       (cause) =>
@@ -152,14 +127,8 @@ async function connectIntegration(args: {
           cause,
         }),
     );
-  if (started instanceof Error) {
-    await closeOAuthCallback(callback);
-    return started;
-  }
-  if (started.status === "connected") {
-    await closeOAuthCallback(callback);
-    return started;
-  }
+  if (started instanceof Error) return started;
+  if (started.status === "connected") return started;
 
   const opened = await openExternalUrl(started.authorizationUrl);
   if (opened instanceof Error) {
@@ -168,22 +137,12 @@ async function connectIntegration(args: {
       sessionId: args.request.sessionId,
       connectionId: started.connectionId,
     });
-    await closeOAuthCallback(callback);
     return new DesktopOperationError({
       operation: "open the authorization page",
       cause: opened,
     });
   }
 
-  pendingOAuthCallbacks.set(started.connectionId, callback);
-  void completeIntegrationOAuth({
-    callback,
-    client,
-    sessionId: args.request.sessionId,
-    connectionId: started.connectionId,
-  }).catch((cause) => {
-    console.warn("OAuth completion failed:", cause);
-  });
   return started;
 }
 
@@ -191,9 +150,6 @@ async function cancelIntegration(args: {
   request: CancelIntegrationRequest;
   getConnection: () => Promise<HaloRpcConnection | Error | undefined>;
 }) {
-  const callback = pendingOAuthCallbacks.get(args.request.connectionId);
-  if (callback !== undefined) await closeOAuthCallback(callback);
-
   const connection = await args.getConnection();
   if (connection instanceof Error) return connection;
   if (connection === undefined) {
@@ -206,46 +162,6 @@ async function cancelIntegration(args: {
     sessionId: args.request.sessionId,
     connectionId: args.request.connectionId,
   });
-}
-
-async function completeIntegrationOAuth(args: {
-  callback: ListeningLoopbackCallback;
-  client: HaloClient;
-  sessionId: string;
-  connectionId: string;
-}) {
-  await using cleanup = new errore.AsyncDisposableStack();
-  cleanup.defer(async () => {
-    pendingOAuthCallbacks.delete(args.connectionId);
-    await closeOAuthCallback(args.callback);
-  });
-
-  const received = await args.callback.result;
-  if (received instanceof Error) {
-    console.warn("OAuth callback failed:", received);
-    await cancelPendingConnection(args);
-    return;
-  }
-  if ("cancelled" in received || "providerError" in received) {
-    await cancelPendingConnection(args);
-    return;
-  }
-
-  const completed = await args.client.thread
-    .completeOAuth({
-      state: received.state,
-      code: received.code,
-    })
-    .catch(
-      (cause) =>
-        new DesktopOperationError({
-          operation: "finish the connection",
-          cause,
-        }),
-    );
-  if (completed instanceof Error) {
-    console.warn("OAuth completion failed:", completed);
-  }
 }
 
 async function cancelPendingConnection(args: {
@@ -266,14 +182,7 @@ async function cancelPendingConnection(args: {
         }),
     );
   if (cancelled instanceof Error) {
-    console.warn("OAuth cleanup failed:", cancelled);
-  }
-}
-
-async function closeOAuthCallback(callback: ListeningLoopbackCallback) {
-  const closed = await callback.close();
-  if (closed instanceof Error) {
-    console.warn("OAuth callback close failed:", closed);
+    console.warn("Connection cancellation failed:", cancelled);
   }
 }
 

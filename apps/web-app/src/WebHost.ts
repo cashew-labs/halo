@@ -66,6 +66,30 @@ export class WebHost implements HostApi {
   // Owns browser authentication for this host.
   private readonly authClient = createAuthClient();
 
+  readonly integrationSetup: NonNullable<HostApi["integrationSetup"]> = {
+    read: async (setupId) =>
+      await this.controlPlane.integrations
+        .setup({ setupId })
+        .catch(
+          (cause) =>
+            new WebHostError({ operation: "read connection setup", cause }),
+        ),
+    submit: async (input) =>
+      await this.controlPlane.integrations
+        .submitSetup(input)
+        .catch(
+          (cause) =>
+            new WebHostError({ operation: "create the connection", cause }),
+        ),
+    cancel: async (setupId) =>
+      await this.controlPlane.integrations
+        .cancelSetup({ setupId })
+        .catch(
+          (cause) =>
+            new WebHostError({ operation: "cancel connection setup", cause }),
+        ),
+  };
+
   async getAuthSession() {
     const compatible = await checkControlPlaneCompatibility(
       this.controlPlane,
@@ -162,25 +186,29 @@ export class WebHost implements HostApi {
         operation: "start a connection without a workspace",
       });
     }
+    // Reserve the tab during the click, before the RPC consumes user activation.
+    const setupPage = window.open("about:blank", "_blank");
+    if (setupPage === null)
+      return new WebHostError({
+        operation: "open setup (allow pop-ups and retry)",
+      });
+    // oxlint-disable-next-line unicorn/no-null -- The DOM requires null to detach the setup tab's opener.
+    setupPage.opener = null;
     const started = await this.haloClient.thread
-      .startConnection({
-        ...input,
-        completion: {
-          kind: "server-redirect",
-          redirectUri: new URL(
-            "/workspace/oauth/callback",
-            window.location.origin,
-          ).toString(),
-        },
-      })
+      .startConnection(input)
       .catch(
         (cause) =>
           new WebHostError({ operation: "start the connection", cause }),
       );
-    if (started instanceof Error) return started;
-    if (started.status === "authorization-required") {
-      window.location.assign(started.authorizationUrl);
+    if (started instanceof Error) {
+      setupPage.close();
+      return started;
     }
+    if (started.status === "authorization-required") {
+      setupPage.location.replace(started.authorizationUrl);
+      return started;
+    }
+    setupPage.close();
     return started;
   }
 

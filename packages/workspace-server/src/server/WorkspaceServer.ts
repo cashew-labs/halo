@@ -23,11 +23,10 @@ import { createThreadPlugin } from "../sessions/createThreadPlugin.js";
 import { WorkspaceService } from "../workspace/WorkspaceService.js";
 import { WorkspaceSearch } from "../workspace/WorkspaceSearch.js";
 import { StaticAgentAuthority } from "../agent/runtime/AgentAuthority.js";
-import type { CredentialVault } from "../agent/runtime/CredentialVault.js";
 import { ConnectionService } from "../agent/runtime/ConnectionService.js";
 import {
   ToolRuntime,
-  type GoogleWebOAuthClient,
+  type RemoteIntegrationTools,
 } from "../agent/runtime/ToolRuntime.js";
 import { workspaceBashPlugin } from "../agent/tools/bash/workspaceBashPlugin.js";
 import { createWorkspaceFilesPlugin } from "../agent/tools/files/createWorkspaceFilesPlugin.js";
@@ -65,12 +64,11 @@ export type WorkspaceServerConfig = {
   cliNodeExecutable?: string;
   cliElectronRunAsNode?: boolean;
   extensionRuntime: ExtensionRuntime;
-  integrationsEnabled?: boolean;
-  googleWebOAuthClient?: GoogleWebOAuthClient;
-  oauthTestOrigin?: string;
 };
 
 export type WorkspaceServerHost = {
+  remoteConnections?: import("../agent/runtime/ConnectionService.js").RemoteConnectionBackend;
+  remoteIntegrationTools?: RemoteIntegrationTools;
   reportRoutineSchedule?: (
     snapshot: RoutineScheduleSnapshot,
     signal: AbortSignal,
@@ -87,11 +85,6 @@ export type WorkspaceServerHost = {
   traceUploader?: TraceUploader;
   // Logger the host owns; the server writes through it and does not close the sinks.
   logger: Logger;
-  // Host-owned vault. The server passes its FilesystemService; the host must not close it.
-  createCredentialVault: (input: {
-    filesystem: FilesystemService;
-    workspaceRoot: string;
-  }) => CredentialVault;
 };
 
 export type WorkspaceServerOptions = {
@@ -258,17 +251,11 @@ export class WorkspaceServer {
     const [initialized, toolRuntime] = await Promise.all([
       workspace.initialize(),
       ToolRuntime.create({
+        remoteConnections: host.remoteConnections,
+        remoteIntegrationTools: host.remoteIntegrationTools,
         database,
         workspaceRoot,
         userId: config.ownerUserId,
-        integrationsEnabled: config.integrationsEnabled,
-        credentialVault:
-          config.integrationsEnabled === false
-            ? undefined
-            : host.createCredentialVault({ filesystem, workspaceRoot }),
-        oauthRedirectUri: `${http.origin}/oauth/callback`,
-        googleWebOAuthClient: config.googleWebOAuthClient,
-        oauthTestOrigin: config.oauthTestOrigin,
         toolPlugins: [
           createWorkspaceFilesPlugin(filesystem),
           createDatabaseQueryPlugin(database),
@@ -305,7 +292,9 @@ export class WorkspaceServer {
     if (initialized instanceof Error) return initialized;
     if (toolRuntime instanceof Error) return toolRuntime;
 
-    const connectionService = new ConnectionService(toolRuntime);
+    const connectionService = new ConnectionService({
+      remote: host.remoteConnections,
+    });
     cleanup.defer(() => connectionService.close());
     const extensions = new ExtensionHost({
       workspaceRoot,

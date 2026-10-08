@@ -35,6 +35,7 @@ async function run() {
           },
     config: config.server,
     inferenceApiKey: config.inferenceApiKey,
+    integrationEncryptionKey: config.integrationEncryptionKey,
     workspaceProvider,
     traceCloud:
       config.server.deployment === "cloudRun"

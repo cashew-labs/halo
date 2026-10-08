@@ -28,7 +28,6 @@ export {
   RequestRejectedError,
   type HaloClient,
   type ConnectionStarted,
-  type OAuthCompletion,
   type ExtensionSummary,
   type WorkspaceUpdate,
   type BrowserSnapshot,

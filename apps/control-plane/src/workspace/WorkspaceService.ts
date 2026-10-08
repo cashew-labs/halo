@@ -145,7 +145,7 @@ export class WorkspaceService {
     return { workspaceId: identity.workspaceId };
   }
 
-  private async authenticateRuntimeOwner(headers: Headers) {
+  async authenticateRuntimeOwner(headers: Headers) {
     const identity = await this.auth.verifyWorkspaceToken(headers);
     if (identity instanceof Error) return identity;
     const workspace = await this.findRecord(identity.userId);

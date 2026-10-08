@@ -78,7 +78,7 @@ export const e2eTest = baseTest.extend<E2EFixtures, E2EWorkerFixtures>({
     if (finished instanceof Error) throw finished;
   },
   server: [
-    async ({ testArtifacts, llm, http }, use) => {
+    async ({ testArtifacts, llm }, use) => {
       await using cleanup = new errore.AsyncDisposableStack();
       const server = await startWorkspaceServerProcess({
         entry: resolve(
@@ -107,13 +107,6 @@ export const e2eTest = baseTest.extend<E2EFixtures, E2EWorkerFixtures>({
           extensionRuntime: {
             executable: process.execPath,
             electronRunAsNode: false,
-          },
-          oauthTest: {
-            googleWebClient: {
-              clientId: "e2e-google-web-client",
-              clientSecret: "e2e-google-web-secret",
-            },
-            tokenOrigin: http.url(""),
           },
         },
       });

@@ -7,6 +7,7 @@ import type {
 import type {
   ControlPlaneWorkspaceStatus,
   ControlPlaneSession,
+  IntegrationSetup,
 } from "@get-halo/shared/controlPlaneContract";
 import type { ShortcutId } from "./shortcuts.js";
 
@@ -25,6 +26,15 @@ export type AppInfo = {
 };
 
 export interface HostApi {
+  integrationSetup?: {
+    read(setupId: string): Promise<IntegrationSetup | Error>;
+    submit(input: {
+      setupId: string;
+      template: string;
+      values: Record<string, string>;
+    }): Promise<{ authorizationUrl?: string } | Error>;
+    cancel(setupId: string): Promise<void | Error>;
+  };
   getWorkspaceStatus?(): Promise<
     ControlPlaneWorkspaceStatus | Error | undefined
   >;

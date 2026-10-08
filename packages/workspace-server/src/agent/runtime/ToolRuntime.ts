@@ -1,4 +1,26 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import type { RemoteConnectionBackend } from "./ConnectionService.js";
+import type {
+  IntegrationJson,
+  IntegrationTool,
+  IntegrationToolSchema,
+  IntegrationInvocation,
+} from "@get-halo/shared/controlPlaneContract";
+
+export interface RemoteIntegrationTools {
+  search(
+    input: { query: string; integration?: string; limit?: number },
+    signal?: AbortSignal,
+  ): Promise<{ tools: IntegrationTool[]; truncated: boolean } | Error>;
+  describe(
+    input: { address: string },
+    signal?: AbortSignal,
+  ): Promise<IntegrationToolSchema | Error>;
+  invoke(
+    input: { address: string; arguments: Record<string, IntegrationJson> },
+    signal?: AbortSignal,
+  ): Promise<IntegrationInvocation | Error>;
+}
 import { randomUUID } from "node:crypto";
 import { Stream } from "@get-halo/shared/Stream";
 import * as Cause from "effect/Cause";
@@ -14,33 +36,15 @@ import type {
   SandboxToolInvoker,
 } from "@executor-js/codemode-core";
 import {
-  openApiPlugin,
-  type OpenApiPluginExtension,
-} from "@executor-js/plugin-openapi/core";
-import {
-  googleCatalog,
-  googleCatalogOAuthScopesForPreset,
-  googleDiscoveryAdapter,
-} from "@executor-js/plugin-openapi/providers/google";
-import {
   makeQuickJsExecutor,
   setQuickJSModule,
 } from "@executor-js/runtime-quickjs";
 import {
-  AuthTemplateSlug,
-  ConnectionName,
   createExecutor,
   definePlugin,
   Effect,
   type ElicitationContext,
   type Executor,
-  firstPartyOAuthClientSlug,
-  type FirstPartyOAuthClientConfig,
-  type IntegrationPreset,
-  IntegrationSlug,
-  OAuthClientSlug,
-  OAuthState,
-  Owner,
   parseToolAddress,
   type Plugin,
   StorageError,
@@ -61,7 +65,6 @@ import {
 import * as errore from "errore";
 import type {
   ConnectionRequest,
-  OAuthCompletion,
   ToolApproval,
   ToolIdentity,
 } from "@get-halo/client";
@@ -74,13 +77,6 @@ import type {
   HaloToolPlugin,
 } from "../tools/HaloToolPlugin.js";
 import type { AgentAuthority } from "./AgentAuthority.js";
-import type { CredentialVault } from "./CredentialVault.js";
-import { createExecutorCredentialProvider } from "./createExecutorCredentialProvider.js";
-
-export type GoogleWebOAuthClient = {
-  clientId: string;
-  clientSecret: string;
-};
 
 export class ToolRuntimeError extends errore.createTaggedError({
   name: "ToolRuntimeError",
@@ -114,8 +110,6 @@ export class ToolInputRequiredError extends errore.createTaggedError({
 type HaloToolsPluginOptions = {
   plugins: readonly HaloToolPlugin[];
   executionContext: AsyncLocalStorage<ToolExecutionContext>;
-  connectionRequests: ReadonlyMap<string, ConnectionRequest>;
-  integrationsEnabled: boolean;
 };
 
 const showConnectionCardInputSchema = Type.Object({
@@ -123,6 +117,38 @@ const showConnectionCardInputSchema = Type.Object({
     description: "The integration id returned by executor.integrations.list",
   }),
 });
+
+const searchInputSchema = Type.Object({
+  query: Type.String(),
+  limit: Type.Optional(Type.Integer({ minimum: 1 })),
+  source: Type.Optional(
+    Type.Union([Type.Literal("workspace"), Type.Literal("control-plane")]),
+  ),
+});
+const describeInputSchema = Type.Object({
+  path: Type.String({ minLength: 1 }),
+});
+const remoteArgumentsSchema = Type.Record(
+  Type.String(),
+  Type.Recursive((self) =>
+    Type.Union([
+      Type.Null(),
+      Type.Boolean(),
+      Type.Number(),
+      Type.String(),
+      Type.Array(self),
+      Type.Record(Type.String(), self),
+    ]),
+  ),
+);
+
+function toolFailure(
+  code: string,
+  message: string,
+  details?: IntegrationInvocation,
+) {
+  return ToolResult.fail({ code, message, details });
+}
 
 type ExecActivityUpdate =
   | {
@@ -147,7 +173,7 @@ type ToolExecutionContext = Pick<
 > & {
   parentToolCallId?: string;
   onToolEvent?: (event: ExecActivityUpdate) => void;
-  onConnectionRequest?: (request: ConnectionRequest) => void;
+  collectConnectionRequest?: (request: ConnectionRequest) => void;
 };
 
 const haloToolsPlugin = definePlugin((options?: HaloToolsPluginOptions) => {
@@ -175,24 +201,18 @@ const haloToolsPlugin = definePlugin((options?: HaloToolsPluginOptions) => {
                     code: "invalid_tool_arguments",
                     message: "Expected an integration id",
                   });
-                const request = options.connectionRequests.get(
-                  args.integration,
-                );
-                if (request === undefined)
-                  return ToolResult.fail({
-                    code: "integration_unavailable",
-                    message: options.integrationsEnabled
-                      ? `Integration '${args.integration}' is not configured for connections in this workspace. No connection card was shown.`
-                      : "Integrations are disabled in this workspace until they move to the control plane. No connection card was shown; approval or reconnecting cannot enable them.",
-                  });
                 const context = options.executionContext.getStore();
-                if (context?.onConnectionRequest === undefined)
+                if (context?.collectConnectionRequest === undefined)
                   return ToolResult.fail({
                     code: "connection_card_context_required",
                     message:
                       "Connection cards must be requested from a thread's exec tool",
                   });
-                context.onConnectionRequest(request);
+                // Resolve catalog membership on the control plane at setup time.
+                context.collectConnectionRequest({
+                  kind: "control-plane",
+                  integration: args.integration,
+                });
                 return ToolResult.ok({ status: "shown" });
               }),
           }),
@@ -216,77 +236,6 @@ const haloToolsPlugin = definePlugin((options?: HaloToolsPluginOptions) => {
 
 let quickJsModulePromise: Promise<QuickJSWASMModule> | undefined;
 
-type InstallableGooglePreset = IntegrationPreset & {
-  defaultSlug: string;
-  specFormat: string;
-  url: string;
-};
-
-// Executor 1.6 rewrites Meet's service-hosted Discovery URL to a legacy endpoint that returns 404.
-const googlePresets = googleCatalog.filter(
-  (preset) => preset.id !== "google-meet",
-);
-
-const installableGooglePresets = googlePresets.filter(
-  (preset): preset is InstallableGooglePreset =>
-    preset.defaultSlug !== undefined &&
-    preset.specFormat !== undefined &&
-    preset.url !== undefined,
-);
-
-const googleOpenApiPlugin = openApiPlugin({
-  presets: googlePresets,
-  specFormats: [googleDiscoveryAdapter],
-});
-
-const desktopGoogleOAuthClient: FirstPartyOAuthClientConfig = {
-  name: "google",
-  authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth",
-  tokenUrl: "https://oauth2.googleapis.com/token",
-  clientId:
-    "912701444316-56kksjel6n6tqbkhki2ujd8h1u9bug1d.apps.googleusercontent.com",
-  // Google desktop apps receive a secret, but Google does not treat it as confidential.
-  clientSecret: "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",
-  integrations: installableGooglePresets.map((preset) =>
-    IntegrationSlug.make(preset.defaultSlug),
-  ),
-  allowedScopes: [
-    ...new Set(
-      googlePresets.flatMap((preset) =>
-        googleCatalogOAuthScopesForPreset(preset.id),
-      ),
-    ),
-  ],
-};
-
-function configuredOAuthClients(input: {
-  googleWebOAuthClient: GoogleWebOAuthClient | undefined;
-  oauthTestOrigin: string | undefined;
-}) {
-  const webClient: FirstPartyOAuthClientConfig | undefined =
-    input.googleWebOAuthClient === undefined
-      ? undefined
-      : {
-          ...desktopGoogleOAuthClient,
-          name: "google-web",
-          clientId: input.googleWebOAuthClient.clientId,
-          clientSecret: input.googleWebOAuthClient.clientSecret,
-        };
-  const testOrigin = input.oauthTestOrigin;
-  if (testOrigin === undefined)
-    return { desktop: desktopGoogleOAuthClient, web: webClient };
-  return {
-    desktop: {
-      ...desktopGoogleOAuthClient,
-      tokenUrl: `${testOrigin}/token`,
-    },
-    web:
-      webClient === undefined
-        ? undefined
-        : { ...webClient, tokenUrl: `${testOrigin}/token` },
-  };
-}
-
 const oauthStartAddress = "executor.coreTools.oauth.start";
 const oauthStartInputSchema = Type.Object({
   client: Type.String(),
@@ -299,39 +248,7 @@ const oauthStartInputSchema = Type.Object({
   newConnection: Type.Optional(Type.Boolean()),
 });
 
-type HaloRuntimePlugins = readonly [
-  Plugin<"halo-tools", object>,
-  Plugin<"openapi", OpenApiPluginExtension>,
-];
-
-function connectionRequestsForClient(
-  client: FirstPartyOAuthClientConfig,
-  presets: readonly InstallableGooglePreset[],
-) {
-  return new Map(
-    presets.flatMap((preset) =>
-      preset.authTemplate === undefined
-        ? []
-        : preset.authTemplate.flatMap((authentication) =>
-            authentication.kind === "oauth2"
-              ? [
-                  [
-                    preset.defaultSlug,
-                    {
-                      client: firstPartyOAuthClientSlug(client.name),
-                      clientOwner: "org" as const,
-                      owner: "user" as const,
-                      connectionName: "default",
-                      integration: preset.defaultSlug,
-                      template: authentication.slug,
-                    } satisfies ConnectionRequest,
-                  ] as const,
-                ]
-              : [],
-          ),
-    ),
-  );
-}
+type HaloRuntimePlugins = readonly [Plugin<"halo-tools", object>];
 
 function toExecutorTool(input: {
   pluginId: string;
@@ -400,19 +317,18 @@ function toExecutorSchema(schema: TObject) {
 }
 
 type ToolRuntimeOptions = {
+  remoteConnections?: RemoteConnectionBackend;
+  remoteIntegrationTools?: RemoteIntegrationTools;
   database: DatabaseClient;
   workspaceRoot: string;
   userId: string;
-  integrationsEnabled?: boolean;
-  credentialVault?: CredentialVault;
   toolPlugins: readonly HaloToolPlugin[];
   authority: AgentAuthority;
-  oauthRedirectUri: string;
-  googleWebOAuthClient?: GoogleWebOAuthClient;
-  oauthTestOrigin?: string;
 };
 
 export class ToolRuntime {
+  // Display metadata only; routing never depends on a discovery cache.
+  private readonly remoteToolIdentities = new Map<string, ToolIdentity>();
   private readonly executionChanges = new Stream<number>();
   private readonly executions = this.executionChanges.project(
     0,
@@ -436,8 +352,10 @@ export class ToolRuntime {
   private readonly toolPlugins: readonly HaloToolPlugin[];
   private readonly authority: AgentAuthority;
   private readonly context: Pick<HaloToolContext, "workspaceRoot" | "userId">;
+  private readonly remoteConnections: boolean;
+  private readonly remoteIntegrationTools: RemoteIntegrationTools | undefined;
+  private readonly remoteConnectionBackend: RemoteConnectionBackend | undefined;
   private readonly integrationNames: ReadonlyMap<string, string>;
-  private readonly googleWebOAuthClientSlug: OAuthClientSlug | undefined;
 
   constructor(input: {
     executor: Executor<HaloRuntimePlugins>;
@@ -447,8 +365,10 @@ export class ToolRuntime {
     toolPlugins: readonly HaloToolPlugin[];
     authority: AgentAuthority;
     context: Pick<HaloToolContext, "workspaceRoot" | "userId">;
+    remoteConnections: boolean;
+    remoteIntegrationTools?: RemoteIntegrationTools;
+    remoteConnectionBackend?: RemoteConnectionBackend;
     integrationNames: ReadonlyMap<string, string>;
-    googleWebOAuthClientSlug: OAuthClientSlug | undefined;
   }) {
     this.executor = input.executor;
     this.engine = input.engine;
@@ -457,12 +377,17 @@ export class ToolRuntime {
     this.toolPlugins = input.toolPlugins;
     this.authority = input.authority;
     this.context = input.context;
+    this.remoteConnections = input.remoteConnections;
+    this.remoteIntegrationTools = input.remoteIntegrationTools;
+    this.remoteConnectionBackend = input.remoteConnectionBackend;
     this.integrationNames = input.integrationNames;
-    this.googleWebOAuthClientSlug = input.googleWebOAuthClientSlug;
   }
 
   getToolIdentity(path: string) {
-    return toolIdentity(path, this.integrationNames);
+    return (
+      this.remoteToolIdentities.get(path) ??
+      toolIdentity(path, this.integrationNames)
+    );
   }
 
   async invoke<T = unknown>(input: {
@@ -517,6 +442,11 @@ export class ToolRuntime {
       "Execute JavaScript. tools and console are in scope.",
       'Return the value you need next, for example `return await tools.search({ query: "send email" })`, `return await tools.files.read({ path: "notes.md" })`, or `return await tools[path](args)`. Without return, exec reports (no result), even when a tool failed.',
       "Runtime tools do not throw for expected failures. They return { ok: true, data } or { ok: false, error }. Check result.ok.",
+      ...(this.remoteConnections
+        ? [
+            `Discover with tools.search({ query, source: "control-plane" }); results contain tools, truncated and unavailableSources. Describe with tools.describe.tool({ path }). Remote paths start with integrations.; invoke the complete saved path with tools[path](args). Request account setup with tools.halo.showConnectionCard({ integration }); list current integrations with tools.executor.integrations.list({}). Credentials are entered in the control plane, never in tool arguments.`,
+          ]
+        : []),
     ].join("\n");
     const inventoryStart = executorDescription.indexOf(
       INTEGRATION_INVENTORY_HEADER,
@@ -541,6 +471,17 @@ export class ToolRuntime {
     cleanup.use(this.retainExecution());
     const connectionRequests: ConnectionRequest[] = [];
     const approvalRequests: ToolApproval[] = [];
+    const collectConnectionRequest = (request: ConnectionRequest) => {
+      if (
+        !connectionRequests.some(
+          (existing) =>
+            existing.kind === request.kind &&
+            existing.integration === request.integration &&
+            existing.connectionName === request.connectionName,
+        )
+      )
+        connectionRequests.push(request);
+    };
     const execution = await this.executionContext.run(
       {
         signal: input.signal,
@@ -549,7 +490,7 @@ export class ToolRuntime {
         parentToolCallId: input.parentToolCallId,
         threadId: input.threadId,
         onToolEvent: input.onToolEvent,
-        onConnectionRequest: (request) => connectionRequests.push(request),
+        collectConnectionRequest,
       },
       async () =>
         await Effect.runPromise(
@@ -557,7 +498,7 @@ export class ToolRuntime {
             onElicitation: (context) => {
               const connection = connectionInput(context);
               if (connection !== undefined) {
-                connectionRequests.push(connection);
+                collectConnectionRequest(connection);
                 return Effect.succeed({ action: "decline" as const });
               }
               const toolPath = sandboxPath(String(context.address));
@@ -584,9 +525,12 @@ export class ToolRuntime {
             new ToolRuntimeError({ operation: "code execution", cause }),
         ),
     );
-    if (execution instanceof Error) return execution;
     const cause =
-      execution.error === undefined ? undefined : new Error(execution.error);
+      execution instanceof Error
+        ? execution
+        : execution.error === undefined
+          ? undefined
+          : new Error(execution.error);
     if (connectionRequests.length > 0 || approvalRequests.length > 0) {
       return new ToolInputRequiredError({
         connectionRequests,
@@ -609,9 +553,18 @@ export class ToolRuntime {
       { signal: input.signal, modelId: input.modelId, runtime: this },
       async () =>
         await Effect.runPromise(
-          this.executor.execute(ToolAddress.make(input.path), input.args),
+          this.dispatch(
+            {
+              path: sandboxPath(input.path),
+              args: input.args,
+              signal: input.signal,
+            },
+            this.toolInvoker,
+          ),
         )
-          .then((value) => ({ value }))
+          .then((value) => ({
+            value: isToolResult(value) && value.ok ? value.data : value,
+          }))
           .catch(
             (cause) =>
               new ToolRuntimeError({ operation: "tool invocation", cause }),
@@ -639,7 +592,7 @@ export class ToolRuntime {
     const result = await this.executionContext.run(
       { signal: input.signal, modelId: undefined, runtime: this },
       async () =>
-        await Effect.runPromise(this.toolInvoker.invoke(input))
+        await Effect.runPromise(this.dispatch(input, this.toolInvoker))
           .then((value) => {
             // SAFETY: makeExecutorToolInvoker normalizes every successful invocation to ToolResult.
             return value as ToolResult<unknown>;
@@ -653,23 +606,102 @@ export class ToolRuntime {
     return result;
   }
 
-  async search(input: { query: string; limit?: number }) {
+  async search(
+    input: {
+      query: string;
+      limit?: number;
+      source?: "workspace" | "control-plane";
+    },
+    signal?: AbortSignal,
+  ) {
+    if (!Value.Check(searchInputSchema, input))
+      return new ToolRuntimeError({ operation: "invalid search arguments" });
     const tools = await Effect.runPromise(
-      this.executor.tools.list({ query: input.query }),
+      input.source === "control-plane"
+        ? Effect.succeed([])
+        : this.executor.tools.list({ query: input.query }),
     ).catch(
       (cause) => new ToolRuntimeError({ operation: "tool search", cause }),
     );
     if (tools instanceof Error) return tools;
-    const items = tools.map((catalogTool) => ({
-      path: catalogTool.address,
-      name: catalogTool.name,
-      description: catalogTool.description,
-    }));
-    if (input.limit === undefined) return items;
-    return items.slice(0, input.limit);
+    const items = tools
+      .map((catalogTool) => ({
+        path: sandboxPath(String(catalogTool.address)),
+        name: catalogTool.name,
+        description: catalogTool.description,
+        source: "workspace" as const,
+      }))
+      .toSorted((left, right) => left.path.localeCompare(right.path));
+    const limit = input.limit ?? 100;
+    const remote =
+      input.source === "workspace"
+        ? undefined
+        : this.remoteIntegrationTools === undefined
+          ? new ToolRuntimeError({ operation: "remote discovery unavailable" })
+          : await this.remoteIntegrationTools.search(
+              { query: input.query, limit: Math.min(100, limit) },
+              signal,
+            );
+    if (remote instanceof Error && input.source === "control-plane")
+      return remote;
+    if (remote instanceof Error)
+      console.warn("Remote tool discovery unavailable:", remote.message);
+    if (remote !== undefined && !(remote instanceof Error)) {
+      for (const entry of remote.tools)
+        this.remoteToolIdentities.set(`integrations.${entry.address}`, {
+          path: `integrations.${entry.address}`,
+          displayName: entry.name,
+          integrationId: entry.integration,
+        });
+    }
+    const combined = [
+      ...items,
+      ...(remote === undefined || remote instanceof Error
+        ? []
+        : remote.tools.map((entry) => ({
+            path: `integrations.${entry.address}`,
+            name: entry.name,
+            description: entry.description,
+            source: "control-plane" as const,
+          }))),
+    ];
+    const unique = [
+      ...new Map(combined.map((entry) => [entry.path, entry])).values(),
+    ];
+    return {
+      tools: unique.slice(0, limit),
+      truncated:
+        unique.length > limit ||
+        (remote !== undefined &&
+          !(remote instanceof Error) &&
+          remote.truncated),
+      unavailableSources:
+        remote instanceof Error ? ["control-plane" as const] : [],
+    };
   }
 
-  async describe(input: { path: string }) {
+  async describe(input: { path: string }, signal?: AbortSignal) {
+    if (!Value.Check(describeInputSchema, input))
+      return new ToolRuntimeError({
+        operation: "invalid description arguments",
+      });
+    if (input.path.startsWith("integrations.")) {
+      if (this.remoteIntegrationTools === undefined)
+        return new ToolRuntimeError({
+          operation: "remote description unavailable",
+        });
+      const schema = await this.remoteIntegrationTools.describe(
+        { address: input.path.slice("integrations.".length) },
+        signal,
+      );
+      if (schema instanceof Error) return schema;
+      this.remoteToolIdentities.set(input.path, {
+        path: input.path,
+        displayName: schema.name,
+        integrationId: schema.integration,
+      });
+      return { ...schema, path: input.path };
+    }
     const description = await Effect.runPromise(
       this.executor.tools.schema(ToolAddress.make(input.path)),
     ).catch(
@@ -685,65 +717,112 @@ export class ToolRuntime {
       description: description.description,
       inputSchema: description.inputSchema,
       outputSchema: description.outputSchema,
+      schemaDefinitions: description.schemaDefinitions,
       inputTypeScript: description.inputTypeScript,
       outputTypeScript: description.outputTypeScript,
     };
   }
 
-  async completeOAuth(input: { state: string; code: string }) {
-    const completed = await Effect.runPromise(
-      this.executor.oauth.complete({
-        state: OAuthState.make(input.state),
-        code: input.code,
-      }),
-    ).catch(
-      (cause) => new ToolRuntimeError({ operation: "OAuth completion", cause }),
-    );
-    if (completed instanceof Error) return completed;
-  }
-
-  async startOAuth(input: ConnectionRequest & { completion: OAuthCompletion }) {
-    const client =
-      input.completion.kind === "client-loopback"
-        ? OAuthClientSlug.make(input.client)
-        : this.googleWebOAuthClientSlug;
-    if (client === undefined) {
-      return new ToolRuntimeError({
-        operation: "start server OAuth without a web client",
+  dispatch(
+    input: { path: string; args: unknown; signal?: AbortSignal },
+    local: SandboxToolInvoker,
+  ): ReturnType<SandboxToolInvoker["invoke"]> {
+    const context = this.executionContext.getStore();
+    const signal = input.signal ?? context?.signal;
+    if (
+      input.path === "search" ||
+      input.path === "describe.tool" ||
+      (input.path === "executor.integrations.list" &&
+        this.remoteConnectionBackend !== undefined) ||
+      input.path.startsWith("integrations.")
+    ) {
+      return Effect.promise(async () => {
+        const failure = toolFailure;
+        if (signal?.aborted)
+          return failure(
+            "outcome_unknown",
+            "Execution cancelled; external effects may have completed",
+          );
+        if (input.path === "search" || input.path === "describe.tool") {
+          if (
+            input.path === "search" &&
+            !Value.Check(searchInputSchema, input.args)
+          )
+            return failure(
+              "invalid_tool_arguments",
+              "Invalid search arguments",
+            );
+          if (
+            input.path === "describe.tool" &&
+            !Value.Check(describeInputSchema, input.args)
+          )
+            return failure(
+              "invalid_tool_arguments",
+              "Invalid describe arguments",
+            );
+          // SAFETY: The corresponding discovery schema was checked above.
+          const value =
+            input.path === "search"
+              ? await this.search(
+                  input.args as Parameters<ToolRuntime["search"]>[0],
+                  signal,
+                )
+              : await this.describe(input.args as { path: string }, signal);
+          return value instanceof Error
+            ? failure("discovery_failed", value.message)
+            : ToolResult.ok(value);
+        }
+        if (
+          input.path === "executor.integrations.list" &&
+          this.remoteConnectionBackend !== undefined
+        ) {
+          const catalog = await this.remoteConnectionBackend.catalog();
+          return catalog instanceof Error
+            ? failure("discovery_failed", catalog.message)
+            : ToolResult.ok(catalog);
+        }
+        if (this.remoteIntegrationTools === undefined)
+          return failure("unavailable", "Remote integrations unavailable");
+        const validArguments = errore.try({
+          try: () => Value.Check(remoteArgumentsSchema, input.args),
+          catch: (cause) =>
+            new ToolRuntimeError({
+              operation: "remote argument validation",
+              cause,
+            }),
+        });
+        if (validArguments instanceof Error || !validArguments)
+          return failure(
+            "invalid_arguments",
+            "Remote arguments must be a JSON object",
+          );
+        // SAFETY: The recursive JSON-object schema passed before RPC dispatch.
+        const args = input.args as Record<string, IntegrationJson>;
+        const outcome = await this.remoteIntegrationTools.invoke(
+          {
+            address: input.path.slice("integrations.".length),
+            arguments: args,
+          },
+          signal,
+        );
+        if (outcome instanceof Error)
+          return failure("outcome_unknown", outcome.message);
+        if (outcome.status === "completed")
+          return ToolResult.ok(outcome.result);
+        if (outcome.status === "connection_required")
+          context?.collectConnectionRequest?.({
+            kind: "control-plane",
+            integration: outcome.integration,
+            connectionName: outcome.connectionName,
+          });
+        return failure(
+          outcome.status === "failed" ? outcome.code : outcome.status,
+          outcome.status === "failed" ? outcome.message : outcome.status,
+          outcome,
+        );
       });
     }
-    const started = await Effect.runPromise(
-      this.executor.oauth.start({
-        client,
-        clientOwner: Owner.make(input.clientOwner),
-        owner: Owner.make(input.owner),
-        name: ConnectionName.make(input.connectionName),
-        integration: IntegrationSlug.make(input.integration),
-        template: AuthTemplateSlug.make(input.template),
-        identityLabel: input.identityLabel,
-        newConnection: input.newConnection,
-        redirectUri: input.completion.redirectUri,
-      }),
-    ).catch(
-      (cause) => new ToolRuntimeError({ operation: "OAuth start", cause }),
-    );
-    if (started instanceof Error) return started;
-    if (started.status === "connected") return { status: "connected" as const };
-    return {
-      status: "redirect" as const,
-      authorizationUrl: started.authorizationUrl,
-      state: started.state,
-    };
-  }
-
-  async cancelOAuth(state: string) {
-    const cancelled = await Effect.runPromise(
-      this.executor.oauth.cancel(OAuthState.make(state)),
-    ).catch(
-      (cause) =>
-        new ToolRuntimeError({ operation: "OAuth cancellation", cause }),
-    );
-    if (cancelled instanceof Error) return cancelled;
+    return local.invoke(input);
   }
 
   async close() {
@@ -771,20 +850,15 @@ export class ToolRuntime {
 async function createToolRuntime(
   input: ToolRuntimeOptions,
 ): Promise<ToolRuntime | ToolRuntimeError> {
-  const integrationsEnabled = input.integrationsEnabled !== false;
-  if (integrationsEnabled && input.credentialVault === undefined)
+  if (
+    input.toolPlugins.some(
+      (plugin) =>
+        plugin.id === "integrations" || plugin.id.startsWith("integrations."),
+    )
+  )
     return new ToolRuntimeError({
-      operation: "missing integration credential vault",
+      operation: "reserved integrations namespace",
     });
-  const oauthClients = configuredOAuthClients({
-    googleWebOAuthClient: input.googleWebOAuthClient,
-    oauthTestOrigin: input.oauthTestOrigin,
-  });
-  const firstPartyOAuthClients = !integrationsEnabled
-    ? []
-    : oauthClients.web === undefined
-      ? [oauthClients.desktop]
-      : [oauthClients.desktop, oauthClients.web];
   if (quickJsModulePromise === undefined) {
     quickJsModulePromise = newQuickJSWASMModule(quickJsVariant);
   }
@@ -796,12 +870,6 @@ async function createToolRuntime(
   setQuickJSModule(quickJsModule);
 
   const executionContext = new AsyncLocalStorage<ToolExecutionContext>();
-  const connectionRequests = integrationsEnabled
-    ? connectionRequestsForClient(
-        oauthClients.desktop,
-        installableGooglePresets,
-      )
-    : new Map<string, ConnectionRequest>();
   const executor = await Effect.runPromise(
     createExecutor({
       tenant: Tenant.make(input.workspaceRoot),
@@ -810,18 +878,10 @@ async function createToolRuntime(
         haloToolsPlugin({
           plugins: input.toolPlugins,
           executionContext,
-          connectionRequests,
-          integrationsEnabled,
         }),
-        ...(integrationsEnabled ? [googleOpenApiPlugin] : []),
       ] as const,
-      providers:
-        integrationsEnabled && input.credentialVault !== undefined
-          ? [createExecutorCredentialProvider(input.credentialVault)]
-          : [],
-      coreTools: integrationsEnabled ? { includeProviders: true } : undefined,
-      redirectUri: input.oauthRedirectUri,
-      firstPartyOAuthClients,
+      providers: [],
+      coreTools: { includeProviders: false },
       db: ({ tables }) =>
         Effect.promise(
           async () => await createExecutorDatabase(input.database, tables),
@@ -852,11 +912,6 @@ async function createToolRuntime(
       console.warn("Failed to close Executor after startup failure:", closed);
   });
 
-  const installed = integrationsEnabled
-    ? await installGooglePresets(executor)
-    : undefined;
-  if (installed instanceof Error) return installed;
-
   const integrations = await Effect.runPromise(
     executor.integrations.list(),
   ).catch(
@@ -865,10 +920,9 @@ async function createToolRuntime(
   );
   if (integrations instanceof Error) return integrations;
   const integrationNames = new Map(
-    integrations.map((integration) => [
-      String(integration.slug),
-      integration.name,
-    ]),
+    integrations.map(
+      (integration) => [String(integration.slug), integration.name] as const,
+    ),
   );
 
   const engine = createExecutionEngine({
@@ -891,11 +945,10 @@ async function createToolRuntime(
     toolPlugins: input.toolPlugins,
     authority: input.authority,
     context: { workspaceRoot: input.workspaceRoot, userId: input.userId },
+    remoteConnections: input.remoteConnections !== undefined,
+    remoteIntegrationTools: input.remoteIntegrationTools,
+    remoteConnectionBackend: input.remoteConnections,
     integrationNames,
-    googleWebOAuthClientSlug:
-      oauthClients.web === undefined
-        ? undefined
-        : firstPartyOAuthClientSlug(oauthClients.web.name),
   });
   cleanup.move();
   return runtime;
@@ -910,18 +963,23 @@ function withToolActivity<E extends Cause.YieldableError>(input: {
     timeoutMs: input.codeExecutor.timeoutMs,
     execute: (code, toolInvoker) => {
       const context = input.executionContext.getStore();
+      const routed: SandboxToolInvoker = {
+        invoke: (invocation) =>
+          context === undefined
+            ? toolInvoker.invoke(invocation)
+            : context.runtime.dispatch(invocation, toolInvoker),
+      };
       return input.codeExecutor.execute(code, {
         invoke: (invocation) => {
-          const identity = toolIdentity(
-            invocation.path,
-            input.integrationNames,
-          );
+          const identity =
+            context?.runtime.getToolIdentity(invocation.path) ??
+            toolIdentity(invocation.path, input.integrationNames);
           if (
             context?.onToolEvent === undefined ||
             context.parentToolCallId === undefined ||
             identity === undefined
           ) {
-            return toolInvoker.invoke(invocation);
+            return routed.invoke(invocation);
           }
 
           const invocationId = randomUUID();
@@ -935,7 +993,7 @@ function withToolActivity<E extends Cause.YieldableError>(input: {
             },
           });
           return Effect.gen(function* () {
-            const result = yield* Effect.exit(toolInvoker.invoke(invocation));
+            const result = yield* Effect.exit(routed.invoke(invocation));
             if (Exit.isSuccess(result)) {
               context.onToolEvent?.({
                 type: "tool.finished",
@@ -963,6 +1021,12 @@ function toolIdentity(
   path: string,
   integrationNames: ReadonlyMap<string, string>,
 ): ToolIdentity | undefined {
+  if (path.startsWith("integrations."))
+    return {
+      path,
+      displayName: "Integration",
+      integrationId: "integrations",
+    };
   if (
     path === "search" ||
     path === "executor.integrations.list" ||
@@ -992,59 +1056,8 @@ function connectionInput(
   if (!Value.Check(oauthStartInputSchema, context.args)) return undefined;
   const args: Static<typeof oauthStartInputSchema> = context.args;
   return {
-    client: args.client,
-    clientOwner: args.clientOwner,
-    owner: args.owner,
-    connectionName: args.name,
+    kind: "control-plane",
     integration: args.integration,
-    template: args.template,
-    identityLabel: args.identityLabel === null ? undefined : args.identityLabel,
-    newConnection: args.newConnection,
+    connectionName: args.name,
   };
-}
-
-async function installGooglePresets(executor: Executor<HaloRuntimePlugins>) {
-  if (installableGooglePresets.length !== googlePresets.length) {
-    return new ToolRuntimeError({
-      operation: "Google integration catalog",
-      cause: new Error("Executor has a Google preset that cannot be installed"),
-    });
-  }
-
-  for (const preset of installableGooglePresets) {
-    const existing = await Effect.runPromise(
-      executor.integrations.get(IntegrationSlug.make(preset.defaultSlug)),
-    ).catch(
-      (cause) =>
-        new ToolRuntimeError({
-          operation: `Google integration lookup (${preset.id})`,
-          cause,
-        }),
-    );
-    if (existing instanceof Error) return existing;
-    if (existing !== null) continue;
-
-    const authenticationTemplate = preset.authTemplate?.flatMap((method) =>
-      method.kind === "oauth2" ? [method] : [],
-    );
-    const added = await Effect.runPromise(
-      executor.openapi.addSpec({
-        spec: { kind: "url", url: preset.url },
-        slug: preset.defaultSlug,
-        name: preset.name,
-        description: preset.summary,
-        specFormat: preset.specFormat,
-        family: preset.family,
-        authenticationTemplate,
-        healthCheck: preset.healthCheck,
-      }),
-    ).catch(
-      (cause) =>
-        new ToolRuntimeError({
-          operation: `Google integration setup (${preset.id})`,
-          cause,
-        }),
-    );
-    if (added instanceof Error) return added;
-  }
 }
