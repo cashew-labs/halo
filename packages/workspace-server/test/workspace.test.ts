@@ -2253,6 +2253,7 @@ serverTest(
 serverTest(
   "shows a remote setup card without per-action approval or a startup catalog",
   async ({ createServer, llm }) => {
+    const setup = { cancelled: false };
     const server = createServer({
       remoteConnections: {
         catalog: async () => new Error("Control plane temporarily offline"),
@@ -2263,8 +2264,12 @@ serverTest(
             setupUrl: "https://halo.example/integrations/setup/setup",
           };
         },
-        setup: async () => ({ status: "awaiting_credentials" }),
-        cancelSetup: async () => undefined,
+        setup: async () => ({
+          status: setup.cancelled ? "cancelled" : "awaiting_credentials",
+        }),
+        cancelSetup: async () => {
+          setup.cancelled = true;
+        },
       },
     });
     await server.start();

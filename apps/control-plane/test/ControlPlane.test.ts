@@ -1895,7 +1895,6 @@ controlPlaneTest(
       { address: slow.address, arguments: {} },
       { signal: controller.signal },
     );
-    const cancelled = expect(waiting).rejects.toThrow();
     await expect
       .poll(
         () =>
@@ -1903,6 +1902,16 @@ controlPlaneTest(
             .length,
       )
       .toBe(1);
+    // A valid slow call must outlive initialization's 30-second deadline.
+    expect(
+      await Promise.race([
+        waiting,
+        new Promise<string>((done) =>
+          setTimeout(() => done("pending"), 31_000),
+        ),
+      ]),
+    ).toBe("pending");
+    const cancelled = expect(waiting).rejects.toThrow();
     controller.abort();
     await cancelled;
     await expect.poll(() => integrationApi.disconnected).toEqual(["/slow"]);
@@ -1920,6 +1929,7 @@ controlPlaneTest(
       ).tools,
     ).toHaveLength(1);
   },
+  60_000,
 );
 
 controlPlaneTest(

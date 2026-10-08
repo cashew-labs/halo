@@ -141,11 +141,8 @@ export class ConnectionService {
     });
     if (cancelled instanceof Error) return cancelled;
     if (this.pendingConnections.get(input.connectionId) !== pending) return;
-    this.takeConnection(input.connectionId);
-    return await this.publishEvent(
-      pending,
-      this.connectionEvent(pending, "cancelled"),
-    );
+    clearTimeout(pending.expires);
+    await this.pollRemote(input.connectionId);
   }
 
   private async pollRemote(connectionId: string) {

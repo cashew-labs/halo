@@ -35,6 +35,13 @@ const test = baseTest.extend<{
         setup: async () => state.status,
         cancelSetup: async () => {
           state.cancellations++;
+          if (state.cancellationError !== undefined)
+            return state.cancellationError;
+          if (
+            !(state.status instanceof Error) &&
+            state.status.status === "authorizing"
+          )
+            state.status = { status: "cancelled" };
           return state.cancellationError;
         },
       },
@@ -107,34 +114,38 @@ test.for(["cancelled", "expired", "failed"] as const)(
   },
 );
 
-test("cancellation publishes once and stops polling", async ({ setup }) => {
-  const started = await setup.connections.startConnection({
-    sessionId: "owner",
-    request,
-    onEvent: async (event) => {
-      setup.events.push(event);
-    },
-  });
-  if (started instanceof Error || started.status !== "authorization-required")
-    throw new Error("Setup did not start");
-  expect(
+test.for(["authorizing", "ready"] as const)(
+  "cancellation preserves remote %s outcome and stops polling",
+  async (status, { setup }) => {
+    setup.status = { status };
+    const started = await setup.connections.startConnection({
+      sessionId: "owner",
+      request,
+      onEvent: async (event) => {
+        setup.events.push(event);
+      },
+    });
+    if (started instanceof Error || started.status !== "authorization-required")
+      throw new Error("Setup did not start");
+    expect(
+      await setup.connections.cancelConnection({
+        sessionId: "owner",
+        connectionId: started.connectionId,
+      }),
+    ).toBeUndefined();
     await setup.connections.cancelConnection({
       sessionId: "owner",
       connectionId: started.connectionId,
-    }),
-  ).toBeUndefined();
-  await setup.connections.cancelConnection({
-    sessionId: "owner",
-    connectionId: started.connectionId,
-  });
-  await vi.advanceTimersByTimeAsync(10_000);
-  expect(setup.cancellations).toBe(1);
-  expect(setup.events.map((event) => event.status)).toEqual([
-    "connecting",
-    "cancelled",
-  ]);
-  expect(vi.getTimerCount()).toBe(0);
-});
+    });
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(setup.cancellations).toBe(1);
+    expect(setup.events.map((event) => event.status)).toEqual([
+      "connecting",
+      status === "ready" ? "connected" : "cancelled",
+    ]);
+    expect(vi.getTimerCount()).toBe(0);
+  },
+);
 
 test("authorizing setup expires at the advertised deadline", async ({
   setup,
