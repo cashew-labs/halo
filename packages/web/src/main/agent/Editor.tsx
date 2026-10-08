@@ -14,7 +14,7 @@ import {
 import { Editor as MauiEditor } from "maui/editor";
 import { style, useStyles } from "purse-styles";
 import { proseInlineCode } from "./proseInlineCode.ts";
-import { useMarkdownEditor } from "../useMarkdownEditor.js";
+import { useMarkdownEditor } from "../editor/useMarkdownEditor.js";
 import {
   useReferencePicker,
   type ReferenceTarget,
