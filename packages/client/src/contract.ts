@@ -1,4 +1,5 @@
 import type {
+  AutomationGmailConnection,
   AutomationSourceState,
   AutomationWebhookAccess,
   AutomationEvent,
@@ -35,7 +36,7 @@ import type {
   WorkspaceTreeEvent,
 } from "./rpc.js";
 
-export const haloProtocolVersion = 25 as const;
+export const haloProtocolVersion = 26 as const;
 export const haloSupportedProtocols = [haloProtocolVersion];
 
 export const RequestRejectedError = error("BAD_REQUEST", {
@@ -80,6 +81,7 @@ export type BrowserExecution = {
 export type WorkspaceUpdate =
   | { type: "hotkeys"; hotkeys: Hotkey[] }
   | { type: "routines"; routines: Routine[] }
+  | { type: "automations"; automations: Automation[] }
   | { type: "extensions"; extensions: ExtensionSummary[] }
   | { type: "extensionsError"; message: string }
   | { type: "sessions"; update: SessionSummariesUpdate }
@@ -158,6 +160,7 @@ export const contract = publicProcedure.router({
     remove: oc.input(type<{ id: string }>()).output(type<void>()),
   },
   automations: {
+    gmailConnections: oc.output(type<AutomationGmailConnection[]>()),
     webhookAccess: oc
       .input(type<{ automationId: string; rotate?: boolean }>())
       .output(type<AutomationWebhookAccess>()),
@@ -165,7 +168,12 @@ export const contract = publicProcedure.router({
       .input(type<{ automationId: string }>())
       .output(type<AutomationSourceState>()),
     runNow: oc
-      .input(type<{ automationId: string }>())
+      .input(
+        type<{
+          automationId: string;
+          samplePayload?: AutomationEvent["payload"];
+        }>(),
+      )
       .output(type<AutomationRun>()),
     runScheduled: oc
       .input(type<{ automationId: string }>())

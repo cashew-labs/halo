@@ -9,6 +9,11 @@ export type AutomationsRouterContext = RoutinesRouterContext & {
 };
 const os = implement(contract.automations).$context<AutomationsRouterContext>();
 export const automationsRouter = os.router({
+  gmailConnections: os.gmailConnections.handler(async ({ context }) => {
+    const connections = await context.automationSources.gmailConnections();
+    if (connections instanceof Error) return orpcErrors.badRequest(connections);
+    return connections;
+  }),
   webhookAccess: os.webhookAccess.handler(async ({ context, input }) => {
     const access = await context.automationSources.webhookAccess(input);
     if (access instanceof Error) return orpcErrors.badRequest(access);

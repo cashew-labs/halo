@@ -2,7 +2,10 @@ import type { GmailService } from "../automations/GmailService.js";
 import type { GmailPushReceiver } from "../automations/gmailHttp.js";
 import { serveWebhook } from "../automations/webhookHttp.js";
 import type { WebhookService } from "../automations/WebhookService.js";
-import { serveAutomationState } from "../automations/automationStateHttp.js";
+import {
+  serveAutomationState,
+  serveAutomationGmailConnections,
+} from "../automations/automationStateHttp.js";
 import type { AutomationStore } from "../automations/AutomationStore.js";
 import { serveAutomationSnapshot } from "../automations/automationSnapshotHttp.js";
 import { acceptsProtocol, protocolHeader } from "@get-halo/client";
@@ -290,6 +293,15 @@ async function routeControlPlaneRequest(ctx: {
     return;
   }
 
+  if (url.pathname === "/api/workspace-runtime/automations/gmail/connections") {
+    await serveAutomationGmailConnections({
+      request,
+      response,
+      workspace,
+      integrations: ctx.integrations,
+    });
+    return;
+  }
   const automationState =
     /^\/api\/workspace-runtime\/automations\/([a-zA-Z0-9_-]+)(?:\/(reveal|rotate))?$/.exec(
       url.pathname,

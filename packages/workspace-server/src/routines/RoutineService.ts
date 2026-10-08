@@ -8,7 +8,6 @@ import type {
   RoutineInput,
   RoutineRun,
   RoutineRunStatus,
-  RoutineRunTrigger,
 } from "@get-halo/client";
 import {
   AutomationService,
@@ -127,7 +126,7 @@ export class RoutineService {
 
   async beginRun(input: {
     routineId: string;
-    trigger: RoutineRunTrigger;
+    trigger: "schedule" | "manual";
     skipReason?: string;
   }) {
     const existing = this.get(input.routineId);
@@ -161,6 +160,5 @@ export function asRoutineRun(run: AutomationRun): RoutineRun {
   return {
     ...run,
     routineId: run.automationId,
-    trigger: run.trigger === "event" ? "manual" : run.trigger,
   };
 }

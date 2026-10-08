@@ -1,3 +1,4 @@
+import type { IntegrationService } from "../integrations/IntegrationService.js";
 import type { GmailService } from "./GmailService.js";
 import type { WebhookService } from "./WebhookService.js";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -121,4 +122,44 @@ export async function serveAutomationState(ctx: {
   response
     .writeHead(200, { "content-type": "application/json" })
     .end(JSON.stringify(state));
+}
+
+export async function serveAutomationGmailConnections(ctx: {
+  request: IncomingMessage;
+  response: ServerResponse;
+  workspace: WorkspaceService;
+  integrations: IntegrationService | undefined;
+}) {
+  const { request, response } = ctx;
+  response.setHeader("cache-control", "no-store");
+  if (request.method !== "GET") {
+    response.writeHead(405, { allow: "GET" }).end();
+    return;
+  }
+  const identity = await ctx.workspace.authenticateRuntimeOwner(
+    new Headers({ authorization: request.headers.authorization ?? "" }),
+  );
+  if (identity instanceof WorkspaceAuthenticationRequiredError) {
+    response.writeHead(401).end();
+    return;
+  }
+  if (identity instanceof Error || ctx.integrations === undefined) {
+    response.writeHead(503).end();
+    return;
+  }
+  const connections = await ctx.integrations.connections(identity.ownerUserId);
+  if (connections instanceof Error) {
+    console.error(connections);
+    response.writeHead(503).end();
+    return;
+  }
+  response
+    .writeHead(200, { "content-type": "application/json" })
+    .end(
+      JSON.stringify(
+        connections.filter(
+          (connection) => connection.integration === "google_gmail",
+        ),
+      ),
+    );
 }

@@ -74,7 +74,7 @@ export type WorkspaceServerConfig = {
 export type WorkspaceServerHost = {
   automationControl?: Pick<
     ControlPlaneAutomationClient,
-    "report" | "status" | "webhookAccess"
+    "report" | "status" | "webhookAccess" | "gmailConnections"
   >;
   remoteConnections?: import("../agent/runtime/ConnectionService.js").RemoteConnectionBackend;
   remoteIntegrationTools?: RemoteIntegrationTools;

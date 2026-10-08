@@ -145,3 +145,9 @@ export type AutomationWebhookAccess = {
   token: string;
   url: string;
 };
+
+export type AutomationGmailConnection = {
+  address: string;
+  name: string;
+  accountLabel?: string;
+};

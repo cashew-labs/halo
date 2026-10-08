@@ -11,19 +11,29 @@ export class AutomationSources {
   private readonly automations: AutomationService;
   private readonly sync: AutomationSync | undefined;
   private readonly control:
-    | Pick<ControlPlaneAutomationClient, "report" | "status" | "webhookAccess">
+    | Pick<
+        ControlPlaneAutomationClient,
+        "report" | "status" | "webhookAccess" | "gmailConnections"
+      >
     | undefined;
   constructor(ctx: {
     automations: AutomationService;
     sync?: AutomationSync;
     control?: Pick<
       ControlPlaneAutomationClient,
-      "report" | "status" | "webhookAccess"
+      "report" | "status" | "webhookAccess" | "gmailConnections"
     >;
   }) {
     this.automations = ctx.automations;
     this.sync = ctx.sync;
     this.control = ctx.control;
+  }
+  async gmailConnections() {
+    if (this.control === undefined)
+      return new InvalidAutomationError({
+        reason: "Gmail connections require a control-plane connection.",
+      });
+    return await this.control.gmailConnections();
   }
   async webhookAccess(input: { automationId: string; rotate?: boolean }) {
     const state = await this.status(input.automationId);

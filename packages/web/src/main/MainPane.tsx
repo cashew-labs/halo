@@ -3,7 +3,7 @@ import type { SessionSummary } from "@get-halo/client";
 import { AgentPane, DraftAgentPane } from "./agent/AgentPane.tsx";
 import { FilePane } from "./FilePane.tsx";
 import { ExtensionPane } from "./ExtensionPane.js";
-import { RoutinePane } from "./RoutinePane.js";
+import { AutomationPane, AutomationsPane } from "./AutomationPane.js";
 import { DesktopPane } from "./DesktopPane.js";
 
 export function MainPane({ sessions }: { sessions: SessionSummary[] }) {
@@ -17,10 +17,21 @@ export function MainPane({ sessions }: { sessions: SessionSummary[] }) {
           <ExtensionPane extensionId={decodeURIComponent(params.extensionId)} />
         )}
       </Route>
+      <Route path="/automations">
+        <AutomationsPane />
+      </Route>
+      <Route path="/automations/:automationId">
+        {(params) => (
+          <AutomationPane
+            automationId={decodeURIComponent(params.automationId)}
+            sessions={sessions}
+          />
+        )}
+      </Route>
       <Route path="/routines/:routineId">
         {(params) => (
-          <RoutinePane
-            routineId={decodeURIComponent(params.routineId)}
+          <AutomationPane
+            automationId={decodeURIComponent(params.routineId)}
             sessions={sessions}
           />
         )}

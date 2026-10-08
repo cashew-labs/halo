@@ -127,6 +127,7 @@ export {
 export {
   automationRegistrationSchema,
   automationSnapshotSchema,
+  type AutomationGmailConnection,
   type AutomationRegistration,
   type AutomationSnapshot,
   type AutomationDelivery,

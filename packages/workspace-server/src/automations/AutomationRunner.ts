@@ -96,7 +96,11 @@ export class AutomationRunner {
     await this.pump();
   }
 
-  async start(input: { automationId: string; trigger: "manual" | "schedule" }) {
+  async start(input: {
+    automationId: string;
+    trigger: "manual" | "schedule";
+    samplePayload?: AutomationEvent["payload"];
+  }) {
     if (this.stopping) return new AutomationRunnerStoppedError();
     const automation = this.automations.get(input.automationId);
     if (automation instanceof Error) return automation;

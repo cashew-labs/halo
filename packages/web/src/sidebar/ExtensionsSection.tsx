@@ -1,10 +1,13 @@
 import { useEffect, useEffectEvent } from "react";
 import { Text } from "maui";
 import * as MauiIcons from "maui/icons";
-import { CalendarTimer, Puzzle } from "maui/icons";
+import { CalendarTimer, Puzzle, Bolt } from "maui/icons";
 import { useLocation } from "wouter";
 
-import { useExtensions, useRoutines } from "../api/WorkspaceUpdatesProvider.js";
+import {
+  useExtensions,
+  useAutomations,
+} from "../api/WorkspaceUpdatesProvider.js";
 import { useExpandSidebar } from "./navigation/NavigationSidebar.js";
 import { SidebarItem } from "./navigation/SidebarItem.js";
 import { SidebarSection } from "./navigation/SidebarSection.js";
@@ -13,26 +16,28 @@ const icons = new Map(Object.entries(MauiIcons));
 
 export function ExtensionsSection() {
   const extensions = useExtensions();
-  const routines = useRoutines();
+  const automations = useAutomations();
   const expand = useExpandSidebar();
   const [location] = useLocation();
-  // Extensions with routines stay listed while their process is not running.
+  // Extensions with automations stay listed while their process is not running.
   const extensionIds = [
     ...new Set([
       ...(extensions.data ?? []).map((extension) => extension.id),
-      ...(routines ?? []).flatMap((routine) =>
-        routine.extensionId === undefined ? [] : [routine.extensionId],
+      ...(automations ?? []).flatMap((automation) =>
+        automation.extensionId === undefined ? [] : [automation.extensionId],
       ),
     ]),
   ];
-  const openExtensionId = routines?.find(
-    (routine) => location === `/routines/${encodeURIComponent(routine.id)}`,
+  const openExtensionId = automations?.find(
+    (automation) =>
+      location === `/automations/${encodeURIComponent(automation.id)}` ||
+      location === `/routines/${encodeURIComponent(automation.id)}`,
   )?.extensionId;
   const expandExtension = useEffectEvent((extensionId: string) =>
     expand([`extension:${extensionId}`]),
   );
 
-  // Reveal the open routine under its extension.
+  // Reveal the open automation under its extension.
   useEffect(() => {
     if (openExtensionId !== undefined) expandExtension(openExtensionId);
   }, [openExtensionId]);
@@ -57,8 +62,8 @@ export function ExtensionsSection() {
         const extension = extensions.data?.find(
           (item) => item.id === extensionId,
         );
-        const owned = (routines ?? []).filter(
-          (routine) => routine.extensionId === extensionId,
+        const owned = (automations ?? []).filter(
+          (automation) => automation.extensionId === extensionId,
         );
         return (
           <SidebarItem
@@ -84,22 +89,26 @@ export function ExtensionsSection() {
                 </Text>
               ) : undefined
             }
-            items={owned.map((routine) => (
+            items={owned.map((automation) => (
               <SidebarItem
-                key={routine.id}
-                id={`routine:${routine.id}`}
-                href={`/routines/${encodeURIComponent(routine.id)}`}
-                pageTitle={routine.name}
-                icon={CalendarTimer}
+                key={automation.id}
+                id={`automation:${automation.id}`}
+                href={`/automations/${encodeURIComponent(automation.id)}`}
+                pageTitle={automation.name}
+                icon={
+                  automation.activation.type === "routine"
+                    ? CalendarTimer
+                    : Bolt
+                }
                 trailing={
-                  routine.enabled ? undefined : (
+                  automation.enabled ? undefined : (
                     <Text size="xs" color="lowContrast">
                       Paused
                     </Text>
                   )
                 }
               >
-                {routine.name}
+                {automation.name}
               </SidebarItem>
             ))}
           >

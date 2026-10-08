@@ -363,6 +363,7 @@ export class AutomationService {
     automationId: string;
     trigger: "manual" | "schedule";
     skipReason?: string;
+    samplePayload?: AutomationEvent["payload"];
   }) {
     return await this.actionQueue.run(async () => {
       const automation = this.get(input.automationId);
@@ -383,7 +384,45 @@ export class AutomationService {
             ? undefined
             : Date.parse(automation.nextRunAt);
       if (nextRunAt instanceof Error) return nextRunAt;
+      if (
+        input.samplePayload !== undefined &&
+        (input.trigger !== "manual" || automation.activation.type !== "trigger")
+      )
+        return new InvalidAutomationError({
+          reason: "Sample input requires a manual trigger test",
+        });
+      const event: AutomationEvent | undefined =
+        input.samplePayload === undefined ||
+        automation.activation.type !== "trigger"
+          ? undefined
+          : {
+              eventId: `test-${randomUUID()}`,
+              automationId: automation.id,
+              revision: automation.revision,
+              source: automation.activation.trigger.type,
+              occurredAt: new Date(now).toISOString(),
+              payload: input.samplePayload,
+            };
+      const payload = errore.try({
+        try: () => (event === undefined ? undefined : JSON.stringify(event)),
+        catch: (cause) =>
+          new InvalidAutomationError({
+            reason: "Sample input must be JSON",
+            cause,
+          }),
+      });
+      if (payload instanceof Error) return payload;
+      if (
+        payload !== undefined &&
+        (Buffer.byteLength(payload) > 270_000 ||
+          !Value.Check(automationEventSchema, event))
+      )
+        return new InvalidAutomationError({
+          reason: "Sample input must be a JSON object of at most 256 KiB",
+        });
       return await this.enqueueUnqueued({
+        event,
+        payload,
         automation,
         trigger: input.trigger,
         scheduledFor,

@@ -3688,6 +3688,9 @@ controlPlaneTest(
     });
     if (ready.status !== "ready" || ready.connection === undefined)
       throw new Error("Gmail setup did not finish");
+    expect(await agent.rpc.automations.gmailConnections()).toMatchObject([
+      { address: ready.connection.address },
+    ]);
     const automation = await agent.rpc.automations.save({
       name: "Invoices",
       activation: {

@@ -28,6 +28,18 @@ export function createAutomationsPlugin(
     name: "Automations",
     tools: [
       defineHaloTool({
+        name: "gmailConnections",
+        description:
+          "List the user's saved Gmail accounts and connectionAddress values for a Gmail trigger. If none exist, use the connection setup tools to connect Gmail, then list again. Halo manages Pub/Sub and watch renewal; users do not need a GCP project.",
+        inputSchema: Type.Object({}),
+        requiredCapabilities: ["workspace.automations"],
+        execute: async () => {
+          const connections = await services().sources.gmailConnections();
+          if (connections instanceof Error) return connections;
+          return { value: connections };
+        },
+      }),
+      defineHaloTool({
         name: "webhookAccess",
         description:
           "Reveal the private URL and bearer token for a webhook automation. Set rotate:true to revoke the old token immediately. Treat the URL and token as credentials: give them only to the user or the service they authorize. Call after saving a webhook trigger to finish setup.",
@@ -65,7 +77,7 @@ export function createAutomationsPlugin(
       defineHaloTool({
         name: "save",
         description:
-          "Create or update an automation. Omit id to create; include an ID from list to replace a definition. Choose activation.type routine with a five-field cron and IANA timezone, or trigger with webhook or Gmail. Gmail requires an existing connectionAddress, messageReceived, and optional exact sender/subject substring filters. Actions run a saved agent prompt or shell command in a new session. Agent prompts must include all needed context. Event data is JSON in HALO_AUTOMATION_EVENT_FILE for scripts and a referenced file for agents; never interpolate event data into commands. Saving does not run the action. Editing cancels queued runs from the previous definition; an active run finishes its saved action. External trigger setup also requires control-plane registration; check source status before claiming it is live.",
+          "Create or update an automation. Omit id to create; include an ID from list to replace a definition. Choose activation.type routine with a five-field cron and IANA timezone, or trigger with webhook or Gmail. Gmail requires a connectionAddress from gmailConnections, messageReceived, and optional exact sender/subject substring filters. Actions run a saved agent prompt or shell command in a new session. Agent prompts must include all needed context. Event data is JSON in HALO_AUTOMATION_EVENT_FILE for scripts and a referenced file for agents; never interpolate event data into commands. Saving does not run the action. Editing cancels queued runs from the previous definition; an active run finishes its saved action. External trigger setup also requires control-plane registration; check source status before claiming it is live.",
         inputSchema: automationInputSchema,
         requiredCapabilities: ["workspace.automations"],
         execute: async (input) => {
@@ -108,8 +120,13 @@ export function createAutomationsPlugin(
       defineHaloTool({
         name: "run",
         description:
-          "Run the saved action once now, including when paused, without changing its activation. Queues behind an active run of the same automation. No external event data is supplied.",
-        inputSchema: automationIdSchema,
+          "Run the saved action once now, including when paused, without changing its activation. Queues behind an active run of the same automation. Optional samplePayload supplies test JSON for a trigger, including when paused.",
+        inputSchema: Type.Object({
+          automationId: Type.String({ minLength: 1 }),
+          samplePayload: Type.Optional(
+            Type.Record(Type.String(), Type.Unknown()),
+          ),
+        }),
         requiredCapabilities: ["workspace.automations"],
         execute: async (input) => {
           const run = await services().runner.start({

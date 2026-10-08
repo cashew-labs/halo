@@ -303,7 +303,10 @@ serverTest(
       input: {
         name: "Tool-created automation",
         activation: { type: "trigger", trigger: { type: "webhook" } },
-        action: { type: "runScript", command: "echo tool-created" },
+        action: {
+          type: "runScript",
+          command: 'cat "$HALO_AUTOMATION_EVENT_FILE" > tool-event.json',
+        },
       },
     });
     const [automation] = await server.rpc.automations.list();
@@ -320,7 +323,10 @@ serverTest(
     ).toMatchObject([{ id: automation!.id, enabled: false }]);
     await server.rpc.testApi.invokeTool({
       path: "automations.run",
-      input: { automationId: automation!.id },
+      input: {
+        automationId: automation!.id,
+        samplePayload: { test: "paused" },
+      },
     });
     await expect
       .poll(
@@ -332,6 +338,14 @@ serverTest(
           )[0]?.status,
       )
       .toBe("completed");
+    expect(
+      JSON.parse(
+        await fs.readFile(
+          path.join(server.workspaceRoot, "tool-event.json"),
+          "utf8",
+        ),
+      ),
+    ).toMatchObject({ payload: { test: "paused" } });
     expect(
       await server.rpc.testApi.invokeTool({
         path: "automations.history",

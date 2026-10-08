@@ -9,7 +9,7 @@ import type { AppInfo } from "../HostApi.js";
 import { FilesystemSection } from "./FilesystemSection.tsx";
 import { SessionsSection } from "./SessionsSection.tsx";
 import { ExtensionsSection } from "./ExtensionsSection.js";
-import { ScheduledSection } from "./ScheduledSection.js";
+import { AutomationsSection } from "./AutomationsSection.js";
 import { NavigationSidebar } from "./navigation/NavigationSidebar.js";
 import { sidebarPadding } from "./navigation/SidebarSection.js";
 import { SidebarItem } from "./navigation/SidebarItem.js";
@@ -53,7 +53,7 @@ export function Sidebar({ sessions, appInfo }: SidebarProps) {
         >
           Desktop
         </SidebarItem>
-        <ScheduledSection />
+        <AutomationsSection />
         <ExtensionsSection />
         <FilesystemSection />
         <SessionsSection sessions={sessions} />

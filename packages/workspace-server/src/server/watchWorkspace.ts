@@ -45,6 +45,10 @@ export async function* watchWorkspace({
       type: "routines",
       routines,
     })),
+    forward(context.routines.automations.watch(abortSignal), (automations) => ({
+      type: "automations",
+      automations,
+    })),
   ];
   await using cleanup = new errore.AsyncDisposableStack();
   cleanup.defer(async () => {

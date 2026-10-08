@@ -12,7 +12,7 @@ import type {
   ExtensionSummary,
   HaloClient,
   Hotkey,
-  Routine,
+  Automation,
   SessionSummary,
 } from "@get-halo/client";
 import { useWorkspaceQuery, workspacePathsQueryKey } from "./ApiProvider.js";
@@ -30,12 +30,12 @@ type WorkspaceState = {
   };
   hotkeys: Hotkey[];
   // Undefined until the server sends its first snapshot.
-  routines: Routine[] | undefined;
+  automations: Automation[] | undefined;
 };
 const empty: WorkspaceState = {
   extensions: { data: undefined, error: undefined },
   hotkeys: [],
-  routines: undefined,
+  automations: undefined,
 };
 const WorkspaceUpdatesContext = createContext<WorkspaceState>(empty);
 
@@ -102,13 +102,18 @@ export function WorkspaceUpdatesProvider({
           );
           return;
         }
+        if (item.type === "routines") return;
         setState((current) => {
           const previous =
             current.workspaceRoot === workspaceRoot ? current : empty;
           if (item.type === "hotkeys")
             return { ...previous, workspaceRoot, hotkeys: item.hotkeys };
-          if (item.type === "routines")
-            return { ...previous, workspaceRoot, routines: item.routines };
+          if (item.type === "automations")
+            return {
+              ...previous,
+              workspaceRoot,
+              automations: item.automations,
+            };
           if (item.type === "extensions")
             return {
               ...previous,
@@ -148,6 +153,6 @@ export function useHotkeys() {
   return useContext(WorkspaceUpdatesContext).hotkeys;
 }
 
-export function useRoutines() {
-  return useContext(WorkspaceUpdatesContext).routines;
+export function useAutomations() {
+  return useContext(WorkspaceUpdatesContext).automations;
 }

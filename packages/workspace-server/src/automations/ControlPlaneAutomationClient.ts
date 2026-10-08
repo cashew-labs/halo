@@ -1,5 +1,6 @@
 import * as errore from "errore";
 import type {
+  AutomationGmailConnection,
   AutomationSnapshot,
   AutomationSourceState,
   AutomationWebhookAccess,
@@ -16,6 +17,24 @@ export class ControlPlaneAutomationClient {
   constructor(ctx: { origin: string; token: string }) {
     this.origin = ctx.origin;
     this.token = ctx.token;
+  }
+
+  async gmailConnections() {
+    const response = await this.request({
+      path: "/gmail/connections",
+      method: "GET",
+    });
+    if (response instanceof Error) return response;
+    // SAFETY: The authenticated control plane returns the owner-scoped public contract.
+    return await (
+      response.json() as Promise<AutomationGmailConnection[]>
+    ).catch(
+      (cause) =>
+        new AutomationControlPlaneError({
+          detail: "list Gmail connections",
+          cause,
+        }),
+    );
   }
 
   async report(snapshot: AutomationSnapshot, signal: AbortSignal) {
