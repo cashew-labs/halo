@@ -123,3 +123,17 @@ export {
   type RoutineRunStatus,
   type RoutineRunTrigger,
 } from "./routines.js";
+
+export {
+  automationActionSchema,
+  automationActivationSchema,
+  automationInputSchema,
+  InvalidAutomationError,
+  type Automation,
+  type AutomationAction,
+  type AutomationActivation,
+  type AutomationInput,
+  type AutomationRun,
+  type AutomationRunStatus,
+  type AutomationRunTrigger,
+} from "./automations.js";

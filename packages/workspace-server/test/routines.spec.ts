@@ -132,3 +132,72 @@ serverTest(
     ]);
   },
 );
+
+serverTest(
+  "automations share scheduled routines and persist trigger definitions",
+  async ({ server }) => {
+    const scheduled = await server.rpc.routines.save({
+      ...bookHaircut,
+      extensionId: undefined,
+    });
+    const webhook = await server.rpc.automations.save({
+      name: "Handle incoming webhook",
+      activation: { type: "trigger", trigger: { type: "webhook" } },
+      action: { type: "runScript", command: "echo accepted" },
+    });
+    expect(webhook).toMatchObject({ revision: 1, enabled: true });
+    expect(webhook.nextRunAt).toBeUndefined();
+    expect(await server.rpc.automations.list()).toMatchObject([
+      {
+        id: scheduled.id,
+        activation: {
+          type: "routine",
+          schedule: { cron: bookHaircut.cron, timezone: bookHaircut.timezone },
+        },
+      },
+      {
+        id: webhook.id,
+        activation: { type: "trigger", trigger: { type: "webhook" } },
+      },
+    ]);
+    expect(
+      (await server.rpc.routines.list()).map((routine) => routine.id),
+    ).toEqual([scheduled.id]);
+    await expect(
+      server.rpc.routines.setEnabled({ routineId: webhook.id, enabled: false }),
+    ).rejects.toThrow();
+    const gmail = await server.rpc.automations.save({
+      id: webhook.id,
+      name: "Handle mail",
+      activation: {
+        type: "trigger",
+        trigger: {
+          type: "gmail",
+          connectionAddress: "gmail/personal",
+          event: "messageReceived",
+          from: "SENDER@example.com",
+          subjectContains: "Invoice",
+        },
+      },
+      action: { type: "runAgent", prompt: "Summarize the new invoice" },
+    });
+    expect(gmail).toMatchObject({
+      revision: 2,
+      activation: { trigger: { from: "sender@example.com" } },
+    });
+    await server.stop();
+    await server.start();
+    expect(
+      (await server.rpc.automations.list()).find(
+        (automation) => automation.id === gmail.id,
+      ),
+    ).toEqual(gmail);
+    const paused = await server.rpc.automations.setEnabled({
+      automationId: gmail.id,
+      enabled: false,
+    });
+    expect(paused).toMatchObject({ revision: 3, enabled: false });
+    await server.rpc.automations.remove({ automationId: scheduled.id });
+    expect(await server.rpc.routines.list()).toEqual([]);
+  },
+);

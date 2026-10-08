@@ -1,3 +1,8 @@
+import type {
+  Automation,
+  AutomationInput,
+  AutomationRun,
+} from "./automations.js";
 import type { ServerInfo } from "./protocol.js";
 import type { Hotkey, HotkeyInput } from "./hotkeys.js";
 import type { Routine, RoutineInput, RoutineRun } from "./routines.js";
@@ -148,6 +153,18 @@ export const contract = publicProcedure.router({
     watch: oc.output(asyncIteratorObject(type<Hotkey[]>())),
     save: oc.input(type<HotkeyInput>()).output(type<Hotkey>()),
     remove: oc.input(type<{ id: string }>()).output(type<void>()),
+  },
+  automations: {
+    list: oc.output(type<Automation[]>()),
+    watch: oc.output(asyncIteratorObject(type<Automation[]>())),
+    save: oc.input(type<AutomationInput>()).output(type<Automation>()),
+    remove: oc.input(type<{ automationId: string }>()).output(type<void>()),
+    setEnabled: oc
+      .input(type<{ automationId: string; enabled: boolean }>())
+      .output(type<Automation>()),
+    listRuns: oc
+      .input(type<{ automationId: string; limit?: number }>())
+      .output(type<AutomationRun[]>()),
   },
   routines: {
     list: oc.output(type<Routine[]>()),

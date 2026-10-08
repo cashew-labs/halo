@@ -14,6 +14,8 @@ import {
   prepareLegacyThreads,
 } from "./20261005100000-legacyThreads.js";
 
+import { automationsMigration } from "./20261008140000-automations.js";
+
 export const workspaceMigrations = [
   initialWorkspaceMigration,
   initialExecutorMigration,
@@ -23,6 +25,7 @@ export const workspaceMigrations = [
   routineSessionArchiveMigration,
   durableStorageMigration,
   legacyThreadsMigration,
+  automationsMigration,
 ] satisfies readonly Migration[];
 
 export function migrateWorkspace(connection: Database) {

@@ -1,3 +1,4 @@
+import { automationsRouter } from "../automations/automationsRouter.js";
 import { watchWorkspace } from "./watchWorkspace.js";
 import {
   hotkeysRouter,
@@ -66,6 +67,7 @@ export const haloRpcRouter = {
   server: serverRouter,
   hotkeys: hotkeysRouter,
   routines: routinesRouter,
+  automations: automationsRouter,
   browser: browserRouter,
   workspace: workspaceRouter,
   thread: threadRouter,

@@ -1,18 +1,9 @@
 import { Type, type Static } from "@sinclair/typebox";
 import * as errore from "errore";
 
-export const routineActionSchema = Type.Union([
-  Type.Object({
-    type: Type.Literal("runAgent"),
-    prompt: Type.String({ minLength: 1 }),
-  }),
-  Type.Object({
-    type: Type.Literal("runScript"),
-    command: Type.String({ minLength: 1 }),
-    // Workspace-relative; defaults to the workspace or extension directory.
-    cwd: Type.Optional(Type.String({ minLength: 1 })),
-  }),
-]);
+import { automationActionSchema } from "./automations.js";
+
+export const routineActionSchema = automationActionSchema;
 export type RoutineAction = Static<typeof routineActionSchema>;
 
 export const routineInputSchema = Type.Object({
@@ -29,6 +20,8 @@ export type RoutineInput = Static<typeof routineInputSchema>;
 
 export type RoutineRunTrigger = "schedule" | "manual";
 export type RoutineRunStatus =
+  | "queued"
+  | "cancelled"
   | "running"
   | "completed"
   | "failed"

@@ -38,6 +38,8 @@ class ScheduleDescriptionError extends errore.createTaggedError({
 }) {}
 
 const statusLabels = {
+  queued: "Queued",
+  cancelled: "Cancelled",
   running: "Running",
   completed: "Completed",
   failed: "Failed",
