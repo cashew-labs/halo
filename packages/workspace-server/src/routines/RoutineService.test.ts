@@ -42,7 +42,7 @@ routineTest(
     if (run instanceof Error || run === undefined) throw new Error("No run");
     await routines.automations.claimNext();
     expect(run).toMatchObject({
-      status: "queued",
+      status: "running",
       scheduledFor: "2026-09-25T08:02:00.000Z",
     });
     await routines.automations.claimNext();
@@ -53,24 +53,24 @@ routineTest(
       trigger: "manual",
     });
     expect(overlap).toMatchObject({
-      status: "queued",
+      status: "running",
     });
     expect(routines.get(saved.id)).toMatchObject({
       nextRunAt: "2026-09-25T08:04:00.000Z",
-      lastRun: { status: "queued" },
+      lastRun: { status: "running" },
     });
     expect((await openRoutines()).get(saved.id)).toMatchObject({
-      lastRun: { status: "queued" },
+      lastRun: { status: "running" },
     });
 
     await routines.finishRun({ runId: run.id, status: "completed" });
     const history = await routines.listRuns({ routineId: saved.id });
     expect(history).toMatchObject([
-      { status: "queued", trigger: "manual" },
+      { status: "running", trigger: "manual" },
       { status: "completed", trigger: "schedule", sessionId: "session-1" },
     ]);
     expect(routines.get(saved.id)).toMatchObject({
-      lastRun: { status: "queued" },
+      lastRun: { status: "running" },
     });
   },
 );

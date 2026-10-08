@@ -63,6 +63,7 @@ class WorkspaceHostDriver {
   readonly provider: LocalWorkspaceProvider;
   readonly requests: string[] = [];
   readonly exeAuthorizations: Array<string | undefined> = [];
+  readonly scheduledProtocols: string[] = [];
   private readonly server: http.Server;
 
   private constructor(ctx: { appDataDir: string }) {
@@ -77,6 +78,19 @@ class WorkspaceHostDriver {
       );
       if (request.headers.authorization !== "Bearer test-workspace-token") {
         response.writeHead(401).end();
+        return;
+      }
+      if (request.url === "/rpc/routines/runScheduled") {
+        const protocol = request.headers["x-halo-protocol-version"];
+        // Model the pre-automation workspace during a rolling deployment.
+        if (protocol !== "25") {
+          response.writeHead(400).end();
+          return;
+        }
+        this.scheduledProtocols.push(protocol);
+        response
+          .writeHead(200, { "content-type": "application/json" })
+          .end('{"json":null}');
         return;
       }
       if (request.url === "/headers") {
@@ -3045,6 +3059,7 @@ sleepingRoutineTest(
     await vi.waitFor(() => {
       expect(sleepingProvider.paused).toBe(false);
       expect(workspaceHost.requests).toContain("/rpc/routines/runScheduled");
+      expect(workspaceHost.scheduledProtocols).toContain("25");
       expect(workspaceHost.exeAuthorizations).toContain("test-private-token");
     });
     expect(workspace.id).toBe(runtime.workspaceId);

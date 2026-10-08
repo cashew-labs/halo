@@ -18,10 +18,8 @@ export const routineInputSchema = Type.Object({
 });
 export type RoutineInput = Static<typeof routineInputSchema>;
 
-export type RoutineRunTrigger = "schedule" | "manual" | "event";
+export type RoutineRunTrigger = "schedule" | "manual";
 export type RoutineRunStatus =
-  | "queued"
-  | "cancelled"
   | "running"
   | "completed"
   | "failed"

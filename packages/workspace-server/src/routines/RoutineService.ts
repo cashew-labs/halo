@@ -104,7 +104,10 @@ export class RoutineService {
       limit: input.limit,
     });
     if (runs instanceof Error) return runs;
-    return runs.map(asRoutineRun);
+    return runs.flatMap((run) => {
+      const routineRun = asRoutineRun(run);
+      return routineRun === undefined ? [] : [routineRun];
+    });
   }
 
   async runningSessionIds() {
@@ -156,9 +159,25 @@ function asRoutine(automation: Automation): Routine | RoutineNotFoundError {
   };
 }
 
-export function asRoutineRun(run: AutomationRun): RoutineRun {
+export function asRoutineRun(run: AutomationRun): RoutineRun | undefined {
+  // A trigger converted to a routine keeps its event history in automations,
+  // but old routine clients only understand scheduled and manual runs.
+  if (run.trigger === "event") return;
   return {
     ...run,
+    trigger: run.trigger,
     routineId: run.automationId,
+    // Older UIs have no labels for queued/cancelled. Keep the original enum
+    // on this compatibility surface; automations expose the full run state.
+    status:
+      run.status === "queued"
+        ? "running"
+        : run.status === "cancelled"
+          ? "skipped"
+          : run.status,
+    error:
+      run.status === "queued"
+        ? "Waiting for the active run to finish."
+        : run.error,
   };
 }

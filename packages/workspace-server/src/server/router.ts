@@ -62,8 +62,12 @@ const serverRouter = server.router({
     supportedProtocols: haloSupportedProtocols,
     build: context.build,
   })),
-  watch: server.watch.handler(({ context, signal }) =>
-    watchWorkspace({ context, signal }),
+  watch: server.watch.handler(({ context, input, signal }) =>
+    watchWorkspace({
+      context,
+      includeAutomations: input?.includeAutomations,
+      signal,
+    }),
   ),
 });
 

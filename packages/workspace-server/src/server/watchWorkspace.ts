@@ -13,9 +13,11 @@ class WorkspaceWatchError extends errore.createTaggedError({
 // connections available for transcripts, prompts, cancellation, and file I/O.
 export async function* watchWorkspace({
   context,
+  includeAutomations,
   signal,
 }: {
   context: HaloContext;
+  includeAutomations?: boolean;
   signal: AbortSignal | undefined;
 }) {
   const closed = new AbortController();
@@ -45,11 +47,16 @@ export async function* watchWorkspace({
       type: "routines",
       routines,
     })),
-    forward(context.automations.watch(abortSignal), (automations) => ({
-      type: "automations",
-      automations,
-    })),
   ];
+  // Old clients treat unknown update variants as extension errors.
+  if (includeAutomations === true) {
+    tasks.push(
+      forward(context.automations.watch(abortSignal), (automations) => ({
+        type: "automations",
+        automations,
+      })),
+    );
+  }
   await using cleanup = new errore.AsyncDisposableStack();
   cleanup.defer(async () => {
     closed.abort();

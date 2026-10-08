@@ -36,7 +36,9 @@ import type {
   WorkspaceTreeEvent,
 } from "./rpc.js";
 
-export const haloProtocolVersion = 26 as const;
+// Automation APIs are additive. Existing clients keep the protocol-25 stream
+// unless they explicitly subscribe to automation updates.
+export const haloProtocolVersion = 25 as const;
 export const haloSupportedProtocols = [haloProtocolVersion];
 
 export const RequestRejectedError = error("BAD_REQUEST", {
@@ -90,7 +92,9 @@ export type WorkspaceUpdate =
 export const contract = publicProcedure.router({
   server: {
     info: oc.output(type<ServerInfo>()),
-    watch: oc.output(asyncIteratorObject(type<WorkspaceUpdate>())),
+    watch: oc
+      .input(type<{ includeAutomations?: boolean } | undefined>())
+      .output(asyncIteratorObject(type<WorkspaceUpdate>())),
   },
   browser: {
     open: oc.input(type<{ url: string }>()).output(

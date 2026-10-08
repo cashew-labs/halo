@@ -1,12 +1,15 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import {
+  createHaloClient,
   sessionMessages,
+  type WorkspaceUpdate,
   type HaloClient,
   type RoutineInput,
   type RoutineRunStatus,
 } from "@get-halo/client";
-import { expect } from "vitest";
+import { expect, vi } from "vitest";
+import * as errore from "errore";
 import { serverTest } from "./serverTest.js";
 import type { TestServer } from "./TestServer.js";
 
@@ -101,7 +104,7 @@ serverTest(
     expect(
       await server.rpc.routines.runNow({ routineId: routine.id }),
     ).toMatchObject({
-      status: "queued",
+      status: "running",
     });
 
     await server.rpc.routines.setEnabled({
@@ -114,7 +117,10 @@ serverTest(
     const [overlap, interrupted] = await server.rpc.routines.listRuns({
       routineId: routine.id,
     });
-    expect(overlap).toMatchObject({ status: "cancelled" });
+    expect(overlap).toMatchObject({ status: "skipped" });
+    expect(
+      await server.rpc.automations.listRuns({ automationId: routine.id }),
+    ).toMatchObject([{ status: "cancelled" }, { status: "interrupted" }]);
     expect(interrupted).toMatchObject({
       id: first.id,
       status: "interrupted",
@@ -292,6 +298,22 @@ serverTest(
     await expect(
       server.rpc.automations.acceptEvent({ ...second, eventId: "event-third" }),
     ).rejects.toThrow();
+    await server.rpc.automations.save({
+      ...automation,
+      activation: {
+        type: "routine",
+        schedule: { cron: "0 8 * * *", timezone: "UTC" },
+      },
+      action: { type: "runScript", command: "echo converted" },
+    });
+    // Old routine views cannot represent event runs; the automation retains them.
+    expect(
+      await server.rpc.routines.listRuns({ routineId: automation.id }),
+    ).toEqual([]);
+    expect((await server.rpc.routines.list())[0]?.lastRun).toBeUndefined();
+    expect(
+      await server.rpc.automations.listRuns({ automationId: automation.id }),
+    ).toHaveLength(2);
   },
 );
 
@@ -354,5 +376,99 @@ serverTest(
     ).toMatchObject([
       { trigger: "manual", status: "completed", sessionId: expect.any(String) },
     ]);
+  },
+);
+
+serverTest(
+  "protocol 25 clients keep routine CRUD, execution, and the original workspace stream",
+  async ({ server }) => {
+    const legacy = createHaloClient({
+      transport: {
+        ...server.transport,
+        headers: {
+          ...server.transport.headers,
+          "x-halo-protocol-version": "25",
+        },
+      },
+    });
+    const controller = new AbortController();
+    using cleanup = new errore.DisposableStack();
+    cleanup.defer(() => controller.abort());
+    const oldUpdates: WorkspaceUpdate[] = [];
+    const newUpdates: WorkspaceUpdate[] = [];
+    const oldStream = await legacy.server.watch(undefined, {
+      signal: controller.signal,
+    });
+    const newStream = await server.rpc.server.watch(
+      { includeAutomations: true },
+      { signal: controller.signal },
+    );
+    const readers = [
+      (async () => {
+        for await (const update of oldStream) oldUpdates.push(update);
+      })(),
+      (async () => {
+        for await (const update of newStream) newUpdates.push(update);
+      })(),
+    ];
+    // Attach rejection handlers immediately; aborting an HTTP stream is expected.
+    const settled = Promise.allSettled(readers);
+    await expect
+      .poll(() => oldUpdates.some((update) => update.type === "routines"))
+      .toBe(true);
+    await expect
+      .poll(() => newUpdates.some((update) => update.type === "automations"))
+      .toBe(true);
+    const routine = await legacy.routines.save({
+      ...bookHaircut,
+      extensionId: undefined,
+      timezone: "UTC",
+      cron: "* * * * *",
+      action: { type: "runScript", command: "echo legacy" },
+    });
+    const started = await legacy.routines.runNow({ routineId: routine.id });
+    expect(started).toMatchObject({ trigger: "manual", status: "running" });
+    await waitForRun(legacy, routine.id, "completed");
+    using dateNow = vi
+      .spyOn(Date, "now")
+      .mockReturnValue(Date.parse(routine.nextRunAt!) + 1);
+    await legacy.routines.runScheduled({ routineId: routine.id });
+    await expect
+      .poll(async () =>
+        (await legacy.routines.listRuns({ routineId: routine.id })).some(
+          (run) => run.trigger === "schedule" && run.status === "completed",
+        ),
+      )
+      .toBe(true);
+    dateNow.mockRestore();
+    await legacy.routines.save({
+      ...bookHaircut,
+      extensionId: undefined,
+      id: routine.id,
+      name: "Edited by old client",
+    });
+    await expect
+      .poll(() =>
+        oldUpdates.some(
+          (update) =>
+            update.type === "routines" &&
+            update.routines.some(
+              (item) => item.name === "Edited by old client",
+            ),
+        ),
+      )
+      .toBe(true);
+    expect(newUpdates.some((update) => update.type === "automations")).toBe(
+      true,
+    );
+    await legacy.routines.remove({ routineId: routine.id });
+    await expect
+      .poll(() => oldUpdates.at(-1))
+      .toMatchObject({ type: "routines", routines: [] });
+    expect(oldUpdates.some((update) => update.type === "automations")).toBe(
+      false,
+    );
+    controller.abort();
+    await settled;
   },
 );

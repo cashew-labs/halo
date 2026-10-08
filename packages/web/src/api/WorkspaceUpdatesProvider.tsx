@@ -64,7 +64,10 @@ export function WorkspaceUpdatesProvider({
       name: "Workspace updates",
       signal: controller.signal,
       open: async () =>
-        await api.server.watch(undefined, { signal: controller.signal }),
+        await api.server.watch(
+          { includeAutomations: true },
+          { signal: controller.signal },
+        ),
       // Filesystem events do not have a snapshot; refetch after every reconnect.
 
       onItem: async (item) => {
