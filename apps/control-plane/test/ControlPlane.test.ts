@@ -1,3 +1,5 @@
+import crypto from "node:crypto";
+import { OAuth2Client } from "google-auth-library";
 import { gzipSync } from "node:zlib";
 import { Server as McpServer } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -192,6 +194,22 @@ const controlPlaneTest = test.extend<{
     origin: string;
     requests: { url: string | undefined; authorization: string | undefined }[];
     disconnected: string[];
+    gmail: {
+      enabled: boolean;
+      cursor: number;
+      expired: boolean;
+      rejected: boolean;
+      watches: number;
+      stops: number;
+      messages: {
+        id: string;
+        historyId: number;
+        from: string;
+        subject: string;
+        labels: string[];
+      }[];
+      token: (email?: string, audience?: string) => string;
+    };
   };
 }>({
   allowLocalIntegrationUrls: true,
@@ -407,6 +425,44 @@ const controlPlaneTest = test.extend<{
   },
   // oxlint-disable-next-line eslint/no-empty-pattern -- Native fixture signature.
   integrationApi: async ({}, use) => {
+    const signing = crypto.generateKeyPairSync("rsa", { modulusLength: 2048 });
+    const fixtureMessages: {
+      id: string;
+      historyId: number;
+      from: string;
+      subject: string;
+      labels: string[];
+    }[] = [];
+    const gmail = {
+      enabled: false,
+      cursor: 100,
+      expired: false,
+      rejected: false,
+      watches: 0,
+      stops: 0,
+      messages: fixtureMessages,
+      token: (
+        email = "push@halo.test",
+        audience = "https://halo.test/api/automation-events/gmail",
+      ) => {
+        const header = Buffer.from(
+          JSON.stringify({ alg: "RS256", kid: "fixture" }),
+        ).toString("base64url");
+        const payload = Buffer.from(
+          JSON.stringify({
+            iss: "https://accounts.google.com",
+            aud: audience,
+            sub: "push-service",
+            email,
+            email_verified: true,
+            iat: Math.floor(Date.now() / 1000),
+            exp: Math.floor(Date.now() / 1000) + 3600,
+          }),
+        ).toString("base64url");
+        const text = `${header}.${payload}`;
+        return `${text}.${crypto.sign("RSA-SHA256", Buffer.from(text), signing.privateKey).toString("base64url")}`;
+      },
+    };
     const requests: {
       url: string | undefined;
       authorization: string | undefined;
@@ -419,6 +475,105 @@ const controlPlaneTest = test.extend<{
         authorization: request.headers.authorization,
         apiKey: request.headers["x-api-key"],
       });
+      if (request.url === "/google-certs") {
+        response
+          .writeHead(200, {
+            "content-type": "application/json",
+            "cache-control": "public, max-age=3600",
+          })
+          .end(
+            JSON.stringify({
+              fixture: signing.publicKey.export({
+                type: "spki",
+                format: "pem",
+              }),
+            }),
+          );
+        return;
+      }
+      if (request.url?.startsWith("/gmail/v1/")) {
+        if (gmail.rejected) {
+          response.writeHead(401).end();
+          return;
+        }
+        const url = new URL(request.url, "http://fixture");
+        const json = (body: string) =>
+          response
+            .writeHead(200, { "content-type": "application/json" })
+            .end(body);
+        if (url.pathname.endsWith("/profile")) {
+          json(
+            JSON.stringify({
+              emailAddress: "mailbox@example.net",
+              historyId: String(gmail.cursor),
+            }),
+          );
+          return;
+        }
+        if (url.pathname.endsWith("/watch")) {
+          gmail.watches++;
+          json(
+            JSON.stringify({
+              historyId: String(gmail.cursor),
+              expiration: String(Date.now() + 7 * 24 * 60 * 60 * 1000),
+            }),
+          );
+          return;
+        }
+        if (url.pathname.endsWith("/stop")) {
+          gmail.stops++;
+          json("{}");
+          return;
+        }
+        if (url.pathname.endsWith("/history")) {
+          if (gmail.expired) {
+            response.writeHead(404).end();
+            return;
+          }
+          const after = Number(url.searchParams.get("startHistoryId"));
+          const offset = Number(url.searchParams.get("pageToken") ?? 0);
+          const messages = gmail.messages.filter(
+            (message) => message.historyId > after,
+          );
+          const page = messages.slice(offset, offset + 1);
+          json(
+            JSON.stringify({
+              historyId: String(gmail.cursor),
+              nextPageToken:
+                offset + 1 < messages.length ? String(offset + 1) : undefined,
+              history: page.map((message) => ({
+                id: String(message.historyId),
+                messagesAdded: [
+                  { message: { id: message.id, labelIds: message.labels } },
+                ],
+              })),
+            }),
+          );
+          return;
+        }
+        const message = gmail.messages.find((entry) =>
+          url.pathname.endsWith(`/messages/${entry.id}`),
+        );
+        if (message === undefined) {
+          response.writeHead(404).end();
+          return;
+        }
+        json(
+          JSON.stringify({
+            id: message.id,
+            threadId: `thread-${message.id}`,
+            labelIds: message.labels,
+            snippet: "Fixture email",
+            payload: {
+              headers: [
+                { name: "From", value: message.from },
+                { name: "Subject", value: message.subject },
+              ],
+            },
+          }),
+        );
+        return;
+      }
       if (request.url?.startsWith("/sized-spec")) {
         const prefix =
           '{"openapi":"3.0.0","info":{"title":"Bounded","version":"1"},"paths":{},"x-padding":"';
@@ -566,6 +721,7 @@ const controlPlaneTest = test.extend<{
       origin: `http://127.0.0.1:${address.port}`,
       requests,
       disconnected,
+      gmail,
     });
   },
   // oxlint-disable-next-line eslint/no-empty-pattern -- Native fixture signature.
@@ -625,6 +781,11 @@ const controlPlaneTest = test.extend<{
         appDataDir,
         port: 0,
         auth: testAuth,
+        gmail: {
+          topic: "projects/halo-test/topics/gmail",
+          audience: "https://halo.test/api/automation-events/gmail",
+          serviceAccount: "push@halo.test",
+        },
       },
       webRoot,
       workspaceProvider,
@@ -632,8 +793,16 @@ const controlPlaneTest = test.extend<{
       inferenceApiKey,
       integrationEncryptionKey,
       allowLocalIntegrationUrls,
+      gmailApiOrigin: integrationApi.origin,
+      gmailPushAuth: new OAuth2Client({
+        endpoints: {
+          oauth2FederatedSignonPemCertsUrl: `${integrationApi.origin}/google-certs`,
+        },
+      }),
       getOpenAPISpec: async (url) =>
-        await getOpenAPISpec(url, integrationApi.origin),
+        integrationApi.gmail.enabled && url.includes("gmail")
+          ? gmailDiscovery(integrationApi.origin)
+          : await getOpenAPISpec(url, integrationApi.origin),
     });
     if (plane instanceof Error) throw plane;
     await use(plane);
@@ -3267,6 +3436,7 @@ controlPlaneTest(
 
 controlPlaneTest(
   "accepts private webhooks, deduplicates retries, and runs the saved action",
+  { timeout: 15_000 },
   async ({ agent }) => {
     const automation = await agent.rpc.automations.save({
       name: "Webhook receipt",
@@ -3317,6 +3487,7 @@ controlPlaneTest(
       .poll(
         async () =>
           await agent.rpc.automations.listRuns({ automationId: automation.id }),
+        { timeout: 10_000 },
       )
       .toMatchObject([{ status: "completed", trigger: "event" }]);
     const lines = (
@@ -3354,5 +3525,381 @@ controlPlaneTest(
       (await agent.rpc.automations.listRuns({ automationId: automation.id }))
         .length,
     ).toBe(1);
+  },
+);
+
+function gmailDiscovery(origin: string) {
+  const parameter = {
+    userId: { type: "string", location: "path", required: true },
+  };
+  return JSON.stringify({
+    discoveryVersion: "v1",
+    id: "gmail:v1",
+    name: "gmail",
+    version: "v1",
+    title: "Gmail fixture",
+    rootUrl: `${origin}/`,
+    servicePath: "",
+    schemas: {
+      WatchRequest: {
+        type: "object",
+        properties: {
+          topicName: { type: "string" },
+          labelIds: { type: "array", items: { type: "string" } },
+          labelFilterBehavior: { type: "string" },
+        },
+      },
+    },
+    resources: {
+      users: {
+        methods: {
+          getProfile: {
+            id: "gmail.users.getProfile",
+            path: "gmail/v1/users/{userId}/profile",
+            httpMethod: "GET",
+            parameters: parameter,
+            response: { type: "object" },
+          },
+          watch: {
+            id: "gmail.users.watch",
+            path: "gmail/v1/users/{userId}/watch",
+            httpMethod: "POST",
+            parameters: parameter,
+            request: { $ref: "WatchRequest" },
+            response: { type: "object" },
+          },
+          stop: {
+            id: "gmail.users.stop",
+            path: "gmail/v1/users/{userId}/stop",
+            httpMethod: "POST",
+            parameters: parameter,
+            response: { type: "object" },
+          },
+        },
+        resources: {
+          history: {
+            methods: {
+              list: {
+                id: "gmail.users.history.list",
+                path: "gmail/v1/users/{userId}/history",
+                httpMethod: "GET",
+                parameters: {
+                  ...parameter,
+                  startHistoryId: {
+                    type: "string",
+                    location: "query",
+                    required: true,
+                  },
+                  pageToken: { type: "string", location: "query" },
+                  maxResults: { type: "integer", location: "query" },
+                  historyTypes: {
+                    type: "string",
+                    repeated: true,
+                    location: "query",
+                  },
+                },
+                response: { type: "object" },
+              },
+            },
+          },
+          messages: {
+            methods: {
+              get: {
+                id: "gmail.users.messages.get",
+                path: "gmail/v1/users/{userId}/messages/{id}",
+                httpMethod: "GET",
+                parameters: {
+                  ...parameter,
+                  id: { type: "string", location: "path", required: true },
+                  format: { type: "string", location: "query" },
+                  metadataHeaders: {
+                    type: "string",
+                    repeated: true,
+                    location: "query",
+                  },
+                },
+                response: { type: "object" },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+}
+
+controlPlaneTest(
+  "verifies Gmail push identity and fans matching mail into shared automation execution",
+  { timeout: 60_000 },
+  async ({ plane, authenticatedRpc, integrationApi, agent }) => {
+    integrationApi.gmail.enabled = true;
+    const session = await authenticatedRpc.auth.session();
+    if (session.status !== "signed-in") throw new Error("Missing session");
+    const configured = await plane.integrations!.withUser(
+      session.session.user.id,
+      (executor) =>
+        executor.openapi.configure(IntegrationSlug.make("google_gmail"), {
+          authenticationTemplate: [
+            {
+              slug: "googleOAuth2",
+              kind: "oauth2",
+              authorizationUrl: `${integrationApi.origin}/oauth/authorize`,
+              tokenUrl: `${integrationApi.origin}/oauth/token`,
+              scopes: ["read"],
+            },
+          ],
+        }),
+    );
+    if (configured instanceof Error) throw configured;
+    const oauthClient = await plane.integrations!.withUser(
+      session.session.user.id,
+      (executor) =>
+        executor.oauth.createClient({
+          owner: Owner.make("user"),
+          slug: OAuthClientSlug.make("gmail-fixture"),
+          grant: "authorization_code",
+          clientId: "fixture-client",
+          clientSecret: "fixture-secret",
+          authorizationUrl: `${integrationApi.origin}/oauth/authorize`,
+          tokenUrl: `${integrationApi.origin}/oauth/token`,
+        }),
+    );
+    if (oauthClient instanceof Error) throw oauthClient;
+    const setup = await authenticatedRpc.integrations.startSetup({
+      integration: "google_gmail",
+    });
+    const authorization = await authenticatedRpc.integrations.submitSetup({
+      setupId: setup.setupId,
+      template: "googleOAuth2",
+    });
+    const state = new URL(authorization.authorizationUrl!).searchParams.get(
+      "state",
+    )!;
+    expect(
+      (
+        await fetch(
+          `${plane.origin}/api/integrations/oauth/callback?state=${encodeURIComponent(state)}&code=gmail-code`,
+          { redirect: "manual" },
+        )
+      ).status,
+    ).toBe(303);
+    const ready = await authenticatedRpc.integrations.setup({
+      setupId: setup.setupId,
+    });
+    if (ready.status !== "ready" || ready.connection === undefined)
+      throw new Error("Gmail setup did not finish");
+    const automation = await agent.rpc.automations.save({
+      name: "Invoices",
+      activation: {
+        type: "trigger",
+        trigger: {
+          type: "gmail",
+          event: "messageReceived",
+          connectionAddress: ready.connection.address,
+          from: "billing@example.org",
+          subjectContains: "Invoice",
+        },
+      },
+      action: {
+        type: "runScript",
+        command: 'cat "$HALO_AUTOMATION_EVENT_FILE" >> gmail-received.jsonl',
+      },
+    });
+    await expect
+      .poll(
+        async () =>
+          await agent.rpc.automations.sourceStatus({
+            automationId: automation.id,
+          }),
+        { timeout: 15_000 },
+      )
+      .toMatchObject({ status: "active", emailAddress: "mailbox@example.net" });
+    expect(integrationApi.gmail.watches).toBe(1);
+    const second = await agent.rpc.automations.save({
+      name: "All incoming mail",
+      activation: {
+        type: "trigger",
+        trigger: {
+          type: "gmail",
+          event: "messageReceived",
+          connectionAddress: ready.connection.address,
+        },
+      },
+      action: { type: "runScript", command: "true" },
+    });
+    await expect
+      .poll(
+        async () =>
+          await agent.rpc.automations.sourceStatus({ automationId: second.id }),
+        { timeout: 15_000 },
+      )
+      .toMatchObject({ status: "active" });
+    expect(integrationApi.gmail.watches).toBe(1);
+    integrationApi.gmail.messages.push(
+      {
+        id: "unmatched",
+        historyId: 101,
+        from: "other@example.org",
+        subject: "Invoice",
+        labels: ["INBOX"],
+      },
+      {
+        id: "matched",
+        historyId: 102,
+        from: "Billing <billing@example.org>",
+        subject: "Your INVOICE",
+        labels: ["INBOX"],
+      },
+      {
+        id: "sent",
+        historyId: 103,
+        from: "billing@example.org",
+        subject: "Invoice",
+        labels: ["INBOX", "SENT"],
+      },
+    );
+    integrationApi.gmail.cursor = 103;
+    const push = async (token = integrationApi.gmail.token()) =>
+      await fetch(`${plane.origin}/api/automation-events/gmail`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          message: {
+            data: Buffer.from(
+              JSON.stringify({
+                emailAddress: "mailbox@example.net",
+                historyId: "103",
+              }),
+            ).toString("base64"),
+          },
+        }),
+      });
+    expect(
+      (await push(integrationApi.gmail.token("wrong@halo.test"))).status,
+    ).toBe(401);
+    expect(
+      (await push(integrationApi.gmail.token(undefined, "https://wrong.test")))
+        .status,
+    ).toBe(401);
+    expect((await push()).status).toBe(204);
+    await expect
+      .poll(
+        async () =>
+          await agent.rpc.automations.listRuns({ automationId: automation.id }),
+        { timeout: 15_000 },
+      )
+      .toMatchObject([{ status: "completed", trigger: "event" }]);
+    const event = JSON.parse(
+      await fs.readFile(
+        join(agent.workspaceRoot, "gmail-received.jsonl"),
+        "utf8",
+      ),
+    );
+    expect(event).toMatchObject({
+      source: "gmail",
+      payload: { messageId: "matched", emailAddress: "mailbox@example.net" },
+    });
+    expect((await push()).status).toBe(204);
+    await expect
+      .poll(
+        async () =>
+          (
+            await agent.rpc.automations.sourceStatus({
+              automationId: automation.id,
+            })
+          ).deliveries,
+      )
+      .toHaveLength(1);
+    expect(
+      integrationApi.requests.some((request) =>
+        request.url?.includes("pageToken=1"),
+      ),
+    ).toBe(true);
+    await expect
+      .poll(async () =>
+        (
+          await agent.rpc.automations.listRuns({ automationId: second.id })
+        ).filter((run) => run.status === "completed"),
+      )
+      .toHaveLength(2);
+    integrationApi.gmail.expired = true;
+    integrationApi.gmail.cursor = 110;
+    expect((await push()).status).toBe(204);
+    await expect
+      .poll(
+        async () =>
+          (
+            await agent.rpc.automations.sourceStatus({
+              automationId: second.id,
+            })
+          ).detail,
+      )
+      .toContain("history expired");
+    integrationApi.gmail.expired = false;
+    integrationApi.gmail.rejected = true;
+    expect((await push()).status).toBe(204);
+    await expect
+      .poll(
+        async () =>
+          (
+            await agent.rpc.automations.sourceStatus({
+              automationId: second.id,
+            })
+          ).status,
+        { timeout: 15_000 },
+      )
+      .toBe("needsAttention");
+    integrationApi.gmail.rejected = false;
+    await agent.rpc.automations.setEnabled({
+      automationId: automation.id,
+      enabled: false,
+    });
+    await agent.rpc.automations.sourceStatus({ automationId: automation.id });
+    integrationApi.gmail.messages.push({
+      id: "after-gap",
+      historyId: 111,
+      from: "billing@example.org",
+      subject: "Invoice",
+      labels: ["INBOX"],
+    });
+    integrationApi.gmail.cursor = 111;
+    expect((await push()).status).toBe(204);
+    await expect
+      .poll(
+        async () =>
+          (
+            await agent.rpc.automations.listRuns({ automationId: second.id })
+          ).filter((run) => run.status === "completed"),
+        { timeout: 15_000 },
+      )
+      .toHaveLength(3);
+    expect(
+      (await agent.rpc.automations.listRuns({ automationId: automation.id }))
+        .length,
+    ).toBe(1);
+    expect(integrationApi.gmail.stops).toBe(0);
+    const clock = vi
+      .spyOn(Date, "now")
+      .mockReturnValue(Date.now() + 25 * 60 * 60 * 1000);
+    try {
+      await expect
+        .poll(() => integrationApi.gmail.watches, { timeout: 15_000 })
+        .toBe(2);
+      await agent.rpc.automations.setEnabled({
+        automationId: second.id,
+        enabled: false,
+      });
+      await agent.rpc.automations.sourceStatus({ automationId: second.id });
+      // Advancing beyond the quiet reconcile deadline lets the last watch be stopped.
+      clock.mockReturnValue(Date.now() + 6 * 60 * 1000);
+      await expect
+        .poll(() => integrationApi.gmail.stops, { timeout: 15_000 })
+        .toBe(1);
+    } finally {
+      clock.mockRestore();
+    }
   },
 );

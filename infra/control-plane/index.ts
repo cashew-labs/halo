@@ -52,6 +52,75 @@ new gcp.logging.ProjectExclusion("webhook-request-secrets", {
   filter: 'httpRequest.requestUrl =~ "/api/webhooks/"',
 });
 
+const pubsubApi = new gcp.projects.Service("gmail-pubsub-api", {
+  project,
+  service: "pubsub.googleapis.com",
+  disableOnDestroy: false,
+});
+const gmailApi = new gcp.projects.Service("gmail-api", {
+  project,
+  service: "gmail.googleapis.com",
+  disableOnDestroy: false,
+});
+const gmailTopic = new gcp.pubsub.Topic(
+  "gmail-events",
+  { project, name: `${name}-gmail-events` },
+  { dependsOn: [pubsubApi, gmailApi] },
+);
+new gcp.pubsub.TopicIAMMember("gmail-publisher", {
+  project,
+  topic: gmailTopic.name,
+  role: "roles/pubsub.publisher",
+  member: "serviceAccount:gmail-api-push@system.gserviceaccount.com",
+});
+const gmailPushIdentity = new gcp.serviceaccount.Account(
+  "gmail-push-identity",
+  {
+    project,
+    accountId: `${name}-gmail-push`,
+    displayName: "Authenticated Gmail Pub/Sub delivery",
+  },
+);
+const pubsubIdentity = new gcp.projects.ServiceIdentity(
+  "gmail-pubsub-service-identity",
+  { project, service: "pubsub.googleapis.com" },
+  { dependsOn: pubsubApi },
+);
+const pubsubTokenCreator = new gcp.serviceaccount.IAMMember(
+  "gmail-push-token-creator",
+  {
+    serviceAccountId: gmailPushIdentity.name,
+    role: "roles/iam.serviceAccountTokenCreator",
+    member: pulumi.interpolate`serviceAccount:${pubsubIdentity.email}`,
+  },
+  { dependsOn: pubsubApi },
+);
+new gcp.serviceaccount.IAMMember("gmail-push-deployer", {
+  serviceAccountId: gmailPushIdentity.name,
+  role: "roles/iam.serviceAccountUser",
+  member: `serviceAccount:${deploymentServiceAccount}`,
+});
+new gcp.pubsub.Subscription(
+  "gmail-events-push",
+  {
+    project,
+    name: `${name}-gmail-events-push`,
+    topic: gmailTopic.id,
+    ackDeadlineSeconds: 30,
+    messageRetentionDuration: "604800s",
+    expirationPolicy: { ttl: "" },
+    retryPolicy: { minimumBackoff: "10s", maximumBackoff: "600s" },
+    pushConfig: {
+      pushEndpoint: `${controlPlaneOrigin}/api/automation-events/gmail`,
+      oidcToken: {
+        serviceAccountEmail: gmailPushIdentity.email,
+        audience: `${controlPlaneOrigin}/api/automation-events/gmail`,
+      },
+    },
+  },
+  { dependsOn: pubsubTokenCreator },
+);
+
 const vertexAi = new gcp.projects.Service("vertex-ai", {
   project,
   service: "aiplatform.googleapis.com",
@@ -546,6 +615,11 @@ const controlPlane = new gcp.cloudrunv2.Service(
               : [{ name: "exe-account-key", mountPath: "/etc/halo/exe" }]),
           ],
           envs: [
+            { name: "GMAIL_PUBSUB_TOPIC", value: gmailTopic.id },
+            {
+              name: "GMAIL_PUSH_SERVICE_ACCOUNT",
+              value: gmailPushIdentity.email,
+            },
             { name: "WORKSPACE_PROVIDER", value: workspaceProvider },
             ...(workspaceProvider !== "exe"
               ? []

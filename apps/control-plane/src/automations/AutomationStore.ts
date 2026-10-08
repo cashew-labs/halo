@@ -144,11 +144,6 @@ export class AutomationStore {
     });
   }
 
-  async registrations() {
-    return await this.database.query<TriggerRegistration>(
-      "SELECT * FROM automation_registrations",
-    );
-  }
   async registration(input: { workspaceId: string; automationId: string }) {
     const rows = await this.database.query<TriggerRegistration>(
       "SELECT * FROM automation_registrations WHERE workspace_id = $1 AND automation_id = $2 AND deleted = 0",
@@ -354,6 +349,11 @@ export class AutomationStore {
         [cutoff],
       );
       if (removed instanceof Error) return removed;
+      const obsolete = await sql.query(
+        `DELETE FROM automation_deliveries WHERE source = 'gmail' AND status <> 'pending' AND created_at < $1 AND EXISTS (SELECT 1 FROM automation_registrations r WHERE r.workspace_id = automation_deliveries.workspace_id AND r.automation_id = automation_deliveries.automation_id AND (r.deleted = 1 OR r.revision <> automation_deliveries.revision))`,
+        [cutoff],
+      );
+      if (obsolete instanceof Error) return obsolete;
       // Keep Gmail's event IDs as a deduplication ledger, without retaining message payloads.
       const redacted = await sql.query(
         "UPDATE automation_deliveries SET payload = '{}' WHERE source = 'gmail' AND status <> 'pending' AND created_at < $1 AND payload <> '{}'",

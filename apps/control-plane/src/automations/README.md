@@ -31,3 +31,31 @@ must not be pasted into logs or analytics.
 
 The integration encryption key is also required for webhook provisioning. Without
 it, source status reports needsAttention instead of returning an unusable endpoint.
+
+## Gmail
+
+One Pub/Sub topic and authenticated push subscription serve the environment.
+The push service account, expected audience and topic are control-plane settings;
+users only select an existing Gmail connection. Gmail requires the topic project
+to match the Google developer project of the OAuth app making `users.watch`.
+The Pulumi stack provisions the topic, publisher permission, push identity and
+subscription. Deploy those resources together with the control-plane revision.
+
+Mailbox identity comes from `users.getProfile` through the user's existing
+Executor connection, with trigger HTTP requests restricted to Google Gmail and
+OAuth token endpoints. Editable integration definitions cannot substitute a fake
+mailbox response. The login email and push payload never select a Halo owner.
+A signed Google OIDC token with the configured audience and verified push service
+account is required. Notifications mark an already verified mailbox dirty before
+acknowledgement. History cursors advance only with committed matched deliveries.
+
+Triggers start at the current history ID, listen to new INBOX messages, and exclude
+SENT and DRAFT messages. Sender matches one exact email address; subject matching
+is case-insensitive substring matching. No historical backfill is performed.
+Shared watches renew every 20–24 hours, with five-minute history reconciliation
+when notifications are quiet. An expired history cursor resets to the current
+profile cursor and leaves a visible gap notice. Revoked connections require
+attention. Every owner's connection is revalidated before mailbox fanout.
+
+Gmail payloads contain mailbox/message/thread identifiers, From, Subject and a
+snippet. Actions can use the existing Gmail tools to fetch additional content.

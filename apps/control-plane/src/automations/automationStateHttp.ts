@@ -1,3 +1,4 @@
+import type { GmailService } from "./GmailService.js";
 import type { WebhookService } from "./WebhookService.js";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { AutomationSourceState } from "@get-halo/client";
@@ -15,6 +16,7 @@ export async function serveAutomationState(ctx: {
   workspace: WorkspaceService;
   store: AutomationStore;
   webhooks: WebhookService;
+  gmail: GmailService;
   secretAction?: string;
 }) {
   const { request, response } = ctx;
@@ -83,6 +85,15 @@ export async function serveAutomationState(ctx: {
     response.writeHead(503).end();
     return;
   }
+  const gmailState =
+    activation.trigger.type === "gmail"
+      ? await ctx.gmail.state(registration)
+      : undefined;
+  if (gmailState instanceof Error) {
+    console.error(gmailState);
+    response.writeHead(503).end();
+    return;
+  }
   const state: AutomationSourceState = {
     automationId: registration.automation_id,
     revision: registration.revision,
@@ -103,8 +114,10 @@ export async function serveAutomationState(ctx: {
       activation.trigger.type === "webhook"
         ? ctx.webhooks.endpoint(registration)
         : undefined,
+    ...gmailState,
     deliveries,
   };
+  if (registration.enabled === 0) state.status = "paused";
   response
     .writeHead(200, { "content-type": "application/json" })
     .end(JSON.stringify(state));

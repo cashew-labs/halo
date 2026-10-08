@@ -1,3 +1,5 @@
+import type { GmailService } from "../automations/GmailService.js";
+import type { GmailPushReceiver } from "../automations/gmailHttp.js";
 import { serveWebhook } from "../automations/webhookHttp.js";
 import type { WebhookService } from "../automations/WebhookService.js";
 import { serveAutomationState } from "../automations/automationStateHttp.js";
@@ -112,6 +114,8 @@ export function serveControlPlaneHttp(ctx: {
   routines: RoutineCoordinator;
   automationStore: AutomationStore;
   webhooks: WebhookService;
+  gmail: GmailService;
+  gmailPush: GmailPushReceiver;
   build?: { version: string; revision: string };
   webRoot: string;
   traces?: TraceIngestion;
@@ -153,6 +157,8 @@ export function serveControlPlaneHttp(ctx: {
       routines: ctx.routines,
       automationStore: ctx.automationStore,
       webhooks: ctx.webhooks,
+      gmail: ctx.gmail,
+      gmailPush: ctx.gmailPush,
       gateway,
       traces,
       rpc,
@@ -227,6 +233,8 @@ async function routeControlPlaneRequest(ctx: {
   routines: RoutineCoordinator;
   automationStore: AutomationStore;
   webhooks: WebhookService;
+  gmail: GmailService;
+  gmailPush: GmailPushReceiver;
   build?: { version: string; revision: string };
   rpc: RPCHandler<ControlPlaneContext>;
   webRoot: string;
@@ -264,6 +272,11 @@ async function routeControlPlaneRequest(ctx: {
     return;
   }
 
+  if (url.pathname === "/api/automation-events/gmail") {
+    await ctx.gmailPush.serve(request, response);
+    return;
+  }
+
   const webhook = /^\/api\/webhooks\/([a-zA-Z0-9_-]+)$/.exec(url.pathname);
   if (webhook?.[1] !== undefined) {
     await serveWebhook({
@@ -290,6 +303,7 @@ async function routeControlPlaneRequest(ctx: {
       store: ctx.automationStore,
       webhooks: ctx.webhooks,
       secretAction: automationState[2],
+      gmail: ctx.gmail,
     });
     return;
   }
@@ -301,6 +315,7 @@ async function routeControlPlaneRequest(ctx: {
       workspace,
       ctx.automationStore,
     );
+    ctx.gmail.schedule();
     return;
   }
 
