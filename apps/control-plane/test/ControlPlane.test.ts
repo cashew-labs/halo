@@ -1031,6 +1031,63 @@ controlPlaneTest(
 );
 
 controlPlaneTest(
+  "asks Google to show its account picker",
+  async ({ plane, authenticatedRpc }) => {
+    const session = await authenticatedRpc.auth.session();
+    if (session.status !== "signed-in") throw new Error("Missing session");
+    const google = {
+      authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      tokenUrl: "https://oauth2.googleapis.com/token",
+    };
+    const configured = await plane.integrations!.withUser(
+      session.session.user.id,
+      (executor) =>
+        Effect.gen(function* () {
+          yield* executor.openapi.configure(
+            IntegrationSlug.make("google_gmail"),
+            {
+              authenticationTemplate: [
+                {
+                  slug: "googleOAuth2",
+                  kind: "oauth2",
+                  ...google,
+                  scopes: ["read"],
+                },
+              ],
+            },
+          );
+          yield* executor.oauth.createClient({
+            owner: Owner.make("user"),
+            slug: OAuthClientSlug.make("google_account_choice"),
+            ...google,
+            grant: "authorization_code",
+            clientId: "fixture",
+            clientSecret: "fixture-secret",
+          });
+        }),
+    );
+    if (configured instanceof Error) throw configured;
+    const method = (await authenticatedRpc.integrations.catalog()).find(
+      (entry) => entry.integration === "google_gmail",
+    )!.methods[0]!;
+    const attempt = await authenticatedRpc.integrations.startSetup({
+      integration: "google_gmail",
+    });
+    const submitted = await authenticatedRpc.integrations.submitSetup({
+      setupId: attempt.setupId,
+      template: method.template,
+      values: {},
+    });
+    const url = new URL(submitted.authorizationUrl!);
+    expect(url.host).toBe("accounts.google.com");
+    expect(url.searchParams.get("prompt")).toBe("select_account consent");
+    await authenticatedRpc.integrations.cancelSetup({
+      setupId: attempt.setupId,
+    });
+  },
+);
+
+controlPlaneTest(
   "recovers committed setups and reconnects after status-write failures and restart",
   async ({
     plane,

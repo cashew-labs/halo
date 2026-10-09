@@ -87,9 +87,14 @@ export class ConnectionService {
   ): Promise<ConnectionStarted | Error> {
     if (this.remote === undefined || this.closed)
       return new ConnectionUnavailableError();
+    // Cards that name no connection carry a placeholder name for released
+    // clients. Sending it would reconnect, replacing that connection's account.
     const started = await this.remote.startSetup({
       integration: input.request.integration,
-      connectionName: input.request.connectionName,
+      connectionName:
+        "newConnection" in input.request && input.request.newConnection
+          ? undefined
+          : input.request.connectionName,
     });
     if (started instanceof Error) return started;
     if (this.closed) {

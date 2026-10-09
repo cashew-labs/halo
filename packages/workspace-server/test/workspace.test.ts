@@ -1811,8 +1811,9 @@ serverTest(
           )?.status,
       )
       .toBe("cancelled");
+    // An unnamed card adds a connection instead of reconnecting "default".
     expect(requested).toEqual([
-      { integration: "example", connectionName: "default" },
+      { integration: "example", connectionName: undefined },
       { integration: "example", connectionName: "personal" },
     ]);
     await expect(

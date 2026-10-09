@@ -68,6 +68,7 @@ import type {
   ToolApproval,
   ToolIdentity,
 } from "@get-halo/client";
+import { addConnectionCard } from "./connectionCards.js";
 import { createExecutorDatabase } from "./createExecutorDatabase.js";
 import type { DatabaseClient } from "../../storage/DatabaseClient.js";
 import type {
@@ -471,26 +472,8 @@ export class ToolRuntime {
     cleanup.use(this.retainExecution());
     const connectionRequests: ConnectionRequest[] = [];
     const approvalRequests: ToolApproval[] = [];
-    const collectConnectionRequest = (request: ConnectionRequest) => {
-      // Released desktop clients validate the old card schema before sending
-      // IPC. These routing markers are inert: setup authority stays on the CP.
-      const compatible = {
-        client: "control-plane",
-        clientOwner: "org" as const,
-        owner: "user" as const,
-        template: "control-plane",
-        ...request,
-        connectionName: request.connectionName ?? "default",
-      };
-      if (
-        !connectionRequests.some(
-          (existing) =>
-            existing.integration === compatible.integration &&
-            existing.connectionName === compatible.connectionName,
-        )
-      )
-        connectionRequests.push(compatible);
-    };
+    const collectConnectionRequest = (request: ConnectionRequest) =>
+      addConnectionCard(connectionRequests, request);
     const execution = await this.executionContext.run(
       {
         signal: input.signal,
