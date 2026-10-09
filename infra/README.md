@@ -16,6 +16,37 @@ remains the registrar and authoritative DNS provider. Production Electron
 builds use the custom origin, while the Cloud Run default URL remains reachable
 for previously released desktop clients.
 
+## Staging and production stacks
+
+The `control-plane/` program has two stacks in `halo-relay`. Each has its own
+control plane, Cloud SQL database, load balancer, secrets, and exe.dev VM tag
+(`halo-<stack>`). They share the exe.dev account, the Together API key, the
+Google OAuth clients, and release images.
+
+| Stack  | Role       | Origin                        | Images                                             |
+| ------ | ---------- | ----------------------------- | -------------------------------------------------- |
+| `west` | Staging    | `https://staging.gethalo.dev` | Builds into `halo-west-workspaces`                 |
+| `prod` | Production | `https://gethalo.dev`         | Reads `halo-west-workspaces` (`imageRepositoryId`) |
+
+`west` keeps its name because every resource name derives from the stack name.
+`prod` sets these options to share `west`'s resources:
+
+- `imageRepositoryId` reads release images from `west`'s repository and skips
+  creating a repository, build-source bucket, and builder, so release images
+  are built once and deployed to both stacks.
+- `googleClientIdSecretId` and `googleClientSecretId` reuse the
+  `halo-west-control-plane-google-client-*` sign-in client.
+- `ownsDeploymentAccess: false` leaves the project-wide grants to the deployment
+  service account (logging config, Pub/Sub admin, OS Login, IAP, and the exe.dev
+  key) to `west`. Do not destroy `west` without first moving that ownership.
+- Without `exeGatewaySecretId`, the stack generates `halo-<stack>-exe-gateway-seed`.
+
+Set `redirectWww: false` for a subdomain origin; apex origins also serve and
+redirect `www`.
+
+Until the cutover moves `west` to `staging.gethalo.dev`, `west` still serves
+`gethalo.dev` and `prod` is not deployed.
+
 ## Production layout
 
 - `control-plane/` owns the `halo-west` network, Cloud NAT, Artifact Registry,
@@ -195,19 +226,22 @@ Production Google OAuth credentials live in Secret Manager as:
 - `halo-workspace-google-web-client-id`
 - `halo-workspace-google-web-client-secret`
 
-The control plane loads its sign-in client through its runtime service account.
+`prod` reads the same sign-in client secrets. The control plane loads its
+sign-in client through its runtime service account.
 Every workspace-server app loads the canonical web integration client through
 ADC; IAM grants each local or cloud runtime access to those two secrets. The
 control-plane Google OAuth client must authorize:
 
 ```text
 https://gethalo.dev/api/auth/callback/google
+https://staging.gethalo.dev/api/auth/callback/google
 ```
 
 The workspace web OAuth client must authorize:
 
 ```text
 https://gethalo.dev/workspace/oauth/callback
+https://staging.gethalo.dev/workspace/oauth/callback
 ```
 
 The public origin is available as the stack output:

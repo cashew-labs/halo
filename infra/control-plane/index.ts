@@ -25,34 +25,54 @@ const exePrivateKeySecretId =
   workspaceProvider === "exe"
     ? configuration.require("exePrivateKeySecretId")
     : undefined;
+// Staging keeps its existing seed; a new stack generates its own.
 const exeGatewaySecretId =
   workspaceProvider === "exe"
-    ? configuration.require("exeGatewaySecretId")
+    ? (configuration.get("exeGatewaySecretId") ?? createExeGatewaySecret())
     : undefined;
 
 const workspaceImage = configuration.require("workspaceImage");
 const deploymentServiceAccount = configuration.require(
   "deploymentServiceAccount",
 );
-const googleClientIdSecretId = `${name}-control-plane-google-client-id`;
-const googleClientSecretId = `${name}-control-plane-google-client-secret`;
+// Stacks may share one Google sign-in client by naming another stack's secrets.
+const googleClientIdSecretId =
+  configuration.get("googleClientIdSecretId") ??
+  `${name}-control-plane-google-client-id`;
+const googleClientSecretId =
+  configuration.get("googleClientSecretId") ??
+  `${name}-control-plane-google-client-secret`;
+// Project-wide grants to the shared deployment identity need exactly one owning
+// stack: deleting or replacing a non-authoritative binding in either stack
+// would remove it for both.
+const ownsDeploymentAccess =
+  configuration.getBoolean("ownsDeploymentAccess") ?? true;
 const googleWebClientIdSecretId = "halo-workspace-google-web-client-id";
 const googleWebClientSecretId = "halo-workspace-google-web-client-secret";
 const togetherApiKeySecretId = "together-ai-api-key";
 const controlPlaneDomain = configuration.require("controlPlaneDomain");
 const controlPlaneOrigin = `https://${controlPlaneDomain}`;
+// Apex domains also serve www and redirect it; subdomains such as staging do not.
+const redirectWww = configuration.getBoolean("redirectWww") ?? true;
+const controlPlaneHostnames = redirectWww
+  ? [controlPlaneDomain, `www.${controlPlaneDomain}`]
+  : [controlPlaneDomain];
+// A stack that deploys another stack's release images reads that stack's
+// repository instead of owning a repository, build bucket, and builder.
+const sharedImageRepositoryId = configuration.get("imageRepositoryId");
 
 // URLs can contain private webhook tokens. Cloud Run request logs are generated
 // before application redaction, so exclude this route at the logging sink.
 // Keep this filter on any additional or inherited export sinks (see README).
-const deploymentLoggingConfig = new gcp.projects.IAMMember(
-  "deployment-logging-config",
-  {
-    project,
-    role: "roles/logging.configWriter",
-    member: `serviceAccount:${deploymentServiceAccount}`,
-  },
-);
+const deploymentLoggingConfig = ownsDeploymentAccess
+  ? [
+      new gcp.projects.IAMMember("deployment-logging-config", {
+        project,
+        role: "roles/logging.configWriter",
+        member: `serviceAccount:${deploymentServiceAccount}`,
+      }),
+    ]
+  : [];
 new gcp.logging.ProjectExclusion(
   "webhook-request-secrets",
   {
@@ -61,7 +81,7 @@ new gcp.logging.ProjectExclusion(
     description: "Do not retain webhook URLs containing bearer credentials",
     filter: 'httpRequest.requestUrl =~ "/api/webhooks/"',
   },
-  { dependsOn: [deploymentLoggingConfig] },
+  { dependsOn: deploymentLoggingConfig },
 );
 
 const pubsubApi = new gcp.projects.Service("gmail-pubsub-api", {
@@ -74,18 +94,19 @@ const gmailApi = new gcp.projects.Service("gmail-api", {
   service: "gmail.googleapis.com",
   disableOnDestroy: false,
 });
-const deploymentPubsubAdmin = new gcp.projects.IAMMember(
-  "deployment-pubsub-admin",
-  {
-    project,
-    role: "roles/pubsub.admin",
-    member: `serviceAccount:${deploymentServiceAccount}`,
-  },
-);
+const deploymentPubsubAdmin = ownsDeploymentAccess
+  ? [
+      new gcp.projects.IAMMember("deployment-pubsub-admin", {
+        project,
+        role: "roles/pubsub.admin",
+        member: `serviceAccount:${deploymentServiceAccount}`,
+      }),
+    ]
+  : [];
 const gmailTopic = new gcp.pubsub.Topic(
   "gmail-events",
   { project, name: `${name}-gmail-events` },
-  { dependsOn: [pubsubApi, gmailApi, deploymentPubsubAdmin] },
+  { dependsOn: [pubsubApi, gmailApi, ...deploymentPubsubAdmin] },
 );
 new gcp.pubsub.TopicIAMMember("gmail-publisher", {
   project,
@@ -191,39 +212,52 @@ new gcp.compute.Firewall("workspace-gateway", {
   allows: [{ protocol: "tcp", ports: ["8788"] }],
 });
 
-const repository = new gcp.artifactregistry.Repository("images", {
-  repositoryId: `${name}-workspaces`,
-  location: region,
-  format: "DOCKER",
-});
-const sources = new gcp.storage.Bucket("build-sources", {
-  name: `${project}-${name}-build-sources`,
-  location: region,
-  uniformBucketLevelAccess: true,
-  publicAccessPrevention: "enforced",
-  lifecycleRules: [{ action: { type: "Delete" }, condition: { age: 7 } }],
-});
-const builder = new gcp.serviceaccount.Account("builder", {
-  accountId: `${name}-builder`,
-  displayName: "Halo workspace image builder",
-});
-new gcp.artifactregistry.RepositoryIamMember("image-writer", {
-  project,
-  location: region,
-  repository: repository.name,
-  role: "roles/artifactregistry.writer",
-  member: pulumi.interpolate`serviceAccount:${builder.email}`,
-});
-new gcp.storage.BucketIAMMember("source-reader", {
-  bucket: sources.name,
-  role: "roles/storage.objectViewer",
-  member: pulumi.interpolate`serviceAccount:${builder.email}`,
-});
-new gcp.projects.IAMMember("build-logs", {
-  project,
-  role: "roles/logging.logWriter",
-  member: pulumi.interpolate`serviceAccount:${builder.email}`,
-});
+const imageBuild =
+  sharedImageRepositoryId === undefined
+    ? createImageBuild()
+    : {
+        repositoryId: sharedImageRepositoryId,
+        sources: undefined,
+        builder: undefined,
+      };
+const imageRepositoryId = imageBuild.repositoryId;
+
+function createImageBuild() {
+  const repository = new gcp.artifactregistry.Repository("images", {
+    repositoryId: `${name}-workspaces`,
+    location: region,
+    format: "DOCKER",
+  });
+  const sources = new gcp.storage.Bucket("build-sources", {
+    name: `${project}-${name}-build-sources`,
+    location: region,
+    uniformBucketLevelAccess: true,
+    publicAccessPrevention: "enforced",
+    lifecycleRules: [{ action: { type: "Delete" }, condition: { age: 7 } }],
+  });
+  const builder = new gcp.serviceaccount.Account("builder", {
+    accountId: `${name}-builder`,
+    displayName: "Halo workspace image builder",
+  });
+  new gcp.artifactregistry.RepositoryIamMember("image-writer", {
+    project,
+    location: region,
+    repository: repository.name,
+    role: "roles/artifactregistry.writer",
+    member: pulumi.interpolate`serviceAccount:${builder.email}`,
+  });
+  new gcp.storage.BucketIAMMember("source-reader", {
+    bucket: sources.name,
+    role: "roles/storage.objectViewer",
+    member: pulumi.interpolate`serviceAccount:${builder.email}`,
+  });
+  new gcp.projects.IAMMember("build-logs", {
+    project,
+    role: "roles/logging.logWriter",
+    member: pulumi.interpolate`serviceAccount:${builder.email}`,
+  });
+  return { repositoryId: repository.repositoryId, sources, builder };
+}
 
 const runtime = new gcp.serviceaccount.Account("control-plane-runtime", {
   accountId: `${name}-control-plane`,
@@ -272,7 +306,7 @@ const workspaceImageAccess = new gcp.artifactregistry.RepositoryIamMember(
   {
     project,
     location: region,
-    repository: repository.name,
+    repository: imageRepositoryId,
     role: "roles/artifactregistry.reader",
     member: pulumi.interpolate`serviceAccount:${workspaceRuntime.email}`,
   },
@@ -335,20 +369,22 @@ const workspaceServiceAccountAccess = new gcp.serviceaccount.IAMMember(
   },
 );
 
-new gcp.projects.IAMMember("deployment-workspace-os-login", {
-  project,
-  role: "roles/compute.osAdminLogin",
-  member: `serviceAccount:${deploymentServiceAccount}`,
-});
-new gcp.projects.IAMMember("deployment-workspace-iap", {
-  project,
-  role: "roles/iap.tunnelResourceAccessor",
-  member: `serviceAccount:${deploymentServiceAccount}`,
-  condition: {
-    title: "workspace-ssh",
-    expression: "destination.port == 22",
-  },
-});
+if (ownsDeploymentAccess) {
+  new gcp.projects.IAMMember("deployment-workspace-os-login", {
+    project,
+    role: "roles/compute.osAdminLogin",
+    member: `serviceAccount:${deploymentServiceAccount}`,
+  });
+  new gcp.projects.IAMMember("deployment-workspace-iap", {
+    project,
+    role: "roles/iap.tunnelResourceAccessor",
+    member: `serviceAccount:${deploymentServiceAccount}`,
+    condition: {
+      title: "workspace-ssh",
+      expression: "destination.port == 22",
+    },
+  });
+}
 new gcp.serviceaccount.IAMMember("deployment-workspace-service-account", {
   serviceAccountId: workspaceRuntime.name,
   role: "roles/iam.serviceAccountUser",
@@ -557,7 +593,7 @@ const exeSecretAccess = [exePrivateKeySecretId, exeGatewaySecretId].flatMap(
         ],
 );
 
-if (exePrivateKeySecretId !== undefined)
+if (ownsDeploymentAccess && exePrivateKeySecretId !== undefined)
   new gcp.secretmanager.SecretIamMember("exe-release-key-access", {
     project,
     secretId: exePrivateKeySecretId,
@@ -717,7 +753,7 @@ const controlPlaneCertificate = new gcp.certificatemanager.Certificate(
     name: controlPlaneServiceName,
     project,
     scope: "DEFAULT",
-    managed: { domains: [controlPlaneDomain, `www.${controlPlaneDomain}`] },
+    managed: { domains: controlPlaneHostnames },
   },
   { dependsOn: [certificateManager] },
 );
@@ -736,16 +772,17 @@ new gcp.certificatemanager.CertificateMapEntry(
     hostname: controlPlaneDomain,
   },
 );
-new gcp.certificatemanager.CertificateMapEntry(
-  "control-plane-certificate-www",
-  {
-    name: `${controlPlaneServiceName}-www`,
-    project,
-    map: controlPlaneCertificateMap.name,
-    certificates: [controlPlaneCertificate.id],
-    hostname: `www.${controlPlaneDomain}`,
-  },
-);
+if (redirectWww)
+  new gcp.certificatemanager.CertificateMapEntry(
+    "control-plane-certificate-www",
+    {
+      name: `${controlPlaneServiceName}-www`,
+      project,
+      map: controlPlaneCertificateMap.name,
+      certificates: [controlPlaneCertificate.id],
+      hostname: `www.${controlPlaneDomain}`,
+    },
+  );
 const controlPlaneEndpoint = new gcp.compute.RegionNetworkEndpointGroup(
   "control-plane-endpoint",
   {
@@ -772,20 +809,22 @@ const controlPlaneHttpsRoutes = new gcp.compute.URLMap(
     name: `${controlPlaneServiceName}-https`,
     project,
     defaultService: controlPlaneBackend.id,
-    hostRules: [
-      { hosts: [`www.${controlPlaneDomain}`], pathMatcher: "redirect-www" },
-    ],
-    pathMatchers: [
-      {
-        name: "redirect-www",
-        defaultUrlRedirect: {
-          hostRedirect: controlPlaneDomain,
-          httpsRedirect: true,
-          redirectResponseCode: "MOVED_PERMANENTLY_DEFAULT",
-          stripQuery: false,
-        },
-      },
-    ],
+    hostRules: redirectWww
+      ? [{ hosts: [`www.${controlPlaneDomain}`], pathMatcher: "redirect-www" }]
+      : [],
+    pathMatchers: redirectWww
+      ? [
+          {
+            name: "redirect-www",
+            defaultUrlRedirect: {
+              hostRedirect: controlPlaneDomain,
+              httpsRedirect: true,
+              redirectResponseCode: "MOVED_PERMANENTLY_DEFAULT",
+              stripQuery: false,
+            },
+          },
+        ]
+      : [],
   },
 );
 const controlPlaneHttpsProxy = new gcp.compute.TargetHttpsProxy(
@@ -836,11 +875,11 @@ new gcp.compute.GlobalForwardingRule("control-plane-http", {
 
 export const networkId = network.id;
 export const subnetId = subnet.id;
-export const repositoryId = repository.name;
-export const imageRepository = pulumi.interpolate`${region}-docker.pkg.dev/${project}/${repository.repositoryId}/workspace-server`;
-export const controlPlaneImageRepository = pulumi.interpolate`${region}-docker.pkg.dev/${project}/${repository.repositoryId}/control-plane`;
-export const buildSourceBucket = sources.name;
-export const buildServiceAccount = builder.name;
+export const repositoryId = imageRepositoryId;
+export const imageRepository = pulumi.interpolate`${region}-docker.pkg.dev/${project}/${imageRepositoryId}/workspace-server`;
+export const controlPlaneImageRepository = pulumi.interpolate`${region}-docker.pkg.dev/${project}/${imageRepositoryId}/control-plane`;
+export const buildSourceBucket = imageBuild.sources?.name;
+export const buildServiceAccount = imageBuild.builder?.name;
 export const controlPlaneServiceAccount = runtime.email;
 export const workspaceServiceAccount = workspaceRuntime.email;
 export const traceBucket = traces.name;
@@ -858,3 +897,31 @@ export const controlPlaneDomainIp = controlPlaneAddress.address;
 
 export const selectedWorkspaceProvider = workspaceProvider;
 export const exeWorkspaceTemplate = exeTemplateVmName;
+
+function createExeGatewaySecret() {
+  const secret = new gcp.secretmanager.Secret(
+    "exe-gateway-seed",
+    {
+      project,
+      secretId: `${name}-exe-gateway-seed`,
+      replication: { auto: {} },
+      deletionProtection: true,
+    },
+    { protect: true },
+  );
+  const version = new gcp.secretmanager.SecretVersion(
+    "exe-gateway-seed-version",
+    {
+      secret: secret.id,
+      secretData: new random.RandomPassword("exe-gateway-seed-value", {
+        length: 48,
+        special: false,
+      }).result,
+    },
+    { protect: true },
+  );
+  // Consumers read the latest version, so they must wait for the first one.
+  return pulumi
+    .all([secret.secretId, version.id])
+    .apply(([secretId]) => secretId);
+}
