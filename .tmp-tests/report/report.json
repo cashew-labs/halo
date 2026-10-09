@@ -1,0 +1,142 @@
+{
+  "baseRef": "origin/HEAD",
+  "baseSha": "5b482b3816888cc3858b2363abb2d54f7f2a5267",
+  "headSha": "5b482b3816888cc3858b2363abb2d54f7f2a5267",
+  "treeHash": "03078029d6bfddfd7d3b909050db59ef0d089d0f",
+  "generatedAt": "2026-10-09T18:00:36.301Z",
+  "runs": {
+    "durable": {
+      "tier": "durable",
+      "testFiles": [],
+      "skipped": true,
+      "runners": [],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 0,
+      "log": ".tmp-tests/report/durable.log",
+      "lcovFiles": []
+    },
+    "tmp": {
+      "tier": "tmp",
+      "testFiles": [
+        "apps/electron/e2e/.tmp-tests/startupWindow.e2e.test.ts"
+      ],
+      "skipped": false,
+      "runners": [
+        {
+          "runner": "playwright",
+          "dir": "apps/electron",
+          "testFiles": [
+            "apps/electron/e2e/.tmp-tests/startupWindow.e2e.test.ts"
+          ],
+          "exitCode": 0
+        }
+      ],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 38778,
+      "log": ".tmp-tests/report/tmp.log",
+      "lcovFiles": [
+        "../../../.git/worktrees/review/code-review-agent/coverage/tmp-0/lcov/lcov.info"
+      ]
+    }
+  },
+  "durableTestFiles": [],
+  "tmpTestFiles": [
+    "apps/electron/e2e/.tmp-tests/startupWindow.e2e.test.ts"
+  ],
+  "files": [
+    {
+      "path": "apps/electron/src/main/main.ts",
+      "loaded": true,
+      "changed": [
+        262,
+        279,
+        280,
+        281,
+        282
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [
+        280,
+        281
+      ],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "packages/web/src/api/ApiProvider.tsx",
+      "loaded": true,
+      "changed": [
+        62
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "packages/web/src/ConnectionPage.tsx",
+      "loaded": true,
+      "changed": [
+        273
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "packages/web/src/HaloApp.tsx",
+      "loaded": true,
+      "changed": [
+        78
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "packages/web/src/LoadingPage.tsx",
+      "loaded": true,
+      "changed": [
+        36
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "packages/web/src/main/ExtensionView.tsx",
+      "loaded": true,
+      "changed": [
+        53
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "packages/web/src/SignInPage.tsx",
+      "loaded": true,
+      "changed": [
+        61
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    }
+  ],
+  "totals": {
+    "executable": 2,
+    "coveredDurable": 0,
+    "coveredTmpOnly": 2,
+    "uncovered": 0,
+    "exempt": 0
+  },
+  "passed": true
+}

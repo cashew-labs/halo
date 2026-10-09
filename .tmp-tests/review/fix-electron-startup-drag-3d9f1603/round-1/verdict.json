@@ -1,0 +1,46 @@
+{
+  "status": "changes_requested",
+  "summary": "The change adds a static drag strip (`#startup-titlebar`) to the Electron index.html that shows until WorkspaceShell mounts. It sizes the startup pages with `--halo-window-content-height` and keeps the BrowserWindow hidden until `ready-to-show`. The source logic looks correct, and the screenshots show the expected layout. Two problems block approval: no test runs the production `window.show()` path, and the temp test does not check that the strip is a drag region or that the content fits the window.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "test",
+      "file": "apps/electron/src/main/main.ts",
+      "line": 281,
+      "severity": "P1",
+      "body": "The change to window visibility is not tested. In E2E mode `applicationConfig.showMainWindow` is false (packages/config/src/electron.ts:86-89), so the temp test only registers the `ready-to-show` listener. `window.show()` never runs. The coverage report counts lines 280-281 as covered, but the changed behavior is not: Halo's main window now stays hidden until the first paint and must then appear. A regression here would leave production users with an invisible app. Add a temp test that launches with `HALO_E2E_HEADFUL=1` (passed through by `processEnvironment()`) and asserts `app.isWindowVisible()` becomes true. If practical, also check that `#startup-titlebar` is already in the DOM when the window is shown, for example by recording `document.getElementById('startup-titlebar') !== null` from a `once('show')` listener through `electronApp.evaluate`."
+    },
+    {
+      "id": "F2",
+      "kind": "test",
+      "file": "apps/electron/e2e/.tmp-tests/startupWindow.e2e.test.ts",
+      "line": 31,
+      "severity": "P1",
+      "body": "The test only checks that `#startup-titlebar` is visible or hidden. The purpose of this change is a draggable strip that does not cover content and does not make startup pages overflow. Removing `-webkit-app-region: drag`, or breaking the `--halo-window-content-height` calculation (for example, losing the matching `padding-top`), would still pass. While the connection page and the standalone extension are shown, assert that the strip's computed `app-region`/`-webkit-app-region` is `drag` and its height is 36px. Also assert that the document does not scroll vertically (`document.scrollingElement.scrollHeight <= innerHeight`) and that the first content element (the waiting text or the extension iframe) starts at or below y=36. After the handoff, assert that the shell fills the full window height (no 36px offset remains)."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "apps/electron/src/main/main.ts:280-281: when showMainWindow is true, the window is shown after ready-to-show",
+      "tier": "tmp",
+      "rationale": "The only branch that changed in production is never run, because E2E mode hides the window."
+    },
+    {
+      "target": "apps/electron/index.html: startup strip computed app-region is drag, its height is 36px, and the root content does not overflow; after the WorkspaceShell mounts the var is 0 and the shell is 100dvh tall",
+      "tier": "tmp",
+      "rationale": "Checking visibility alone does not show that the drag region works or that the height calculation is correct."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "5b482b3816888cc3858b2363abb2d54f7f2a5267",
+  "treeHash": "35d5df2eb3d7f391dc9d8f260f40d7b05373441e",
+  "codeTree": "89f8358bff3c9ccb3b24757179c3fe9349b5188e",
+  "coverage": {
+    "executable": 2,
+    "covered": 2,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-09T17:59:23.784Z"
+}
