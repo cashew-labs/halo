@@ -3412,7 +3412,7 @@ controlPlaneTest(
     const alice = await readRuntimeSettings(appDataDir);
     const endpoint = `${plane.origin}/api/workspace-runtime/automations`;
     const definition = {
-      id: "incoming-mail",
+      id: "schedules",
       revision: 1,
       name: "Incoming mail",
       enabled: true,

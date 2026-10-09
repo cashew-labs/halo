@@ -302,7 +302,10 @@ async function routeControlPlaneRequest(ctx: {
     });
     return;
   }
-  if (url.pathname === "/api/workspace-runtime/automations/schedules") {
+  if (
+    url.pathname === "/api/workspace-runtime/automations/schedules" &&
+    request.method === "POST"
+  ) {
     await serveWorkspaceAutomationSnapshot(
       request,
       response,
