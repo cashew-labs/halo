@@ -1,0 +1,56 @@
+{
+  "status": "changes_requested",
+  "summary": "This change adds a persisted production/staging release channel. The channel selects the control-plane origin, the session file, and the update repository, and a \"Use Staging\" menu item switches it and relaunches the app. The coverage gate fails: 80 changed lines are uncovered, including all of the channel-to-config mapping and the menu switch flow. A bad or unreadable channel file also crashes startup, and the user has no way to recover from inside the app.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "source",
+      "file": "packages/config/src/electron.ts",
+      "line": 92,
+      "severity": "P1",
+      "body": "`readConfig` returns `readReleaseChannel`'s error whenever the `release-channel` file has unexpected contents or cannot be read (permissions, EISDIR, a partial write). `main.ts:47-50` then throws at module load. The packaged app crashes before any window or menu exists, so the user cannot switch back from inside the app and must find and delete a hidden file in userData. Before this change, this failure mode did not exist. An auxiliary preference file should not be able to brick startup. Fall back to `production` and surface the problem: log it after the logger exists, or return the read error alongside the config so `main.ts` can log it or show a dialog. Then update the temp tests to match."
+    },
+    {
+      "id": "F2",
+      "kind": "test",
+      "file": "packages/config/src/electron.ts",
+      "line": 90,
+      "severity": "P1",
+      "body": "No test loads `electron.ts`, `AppUpdates.ts`, `ControlPlaneAuth.ts`, or `main.ts`, so 80 changed lines are uncovered and none is exempt. The behavior that matters is untested: the channel-to-config mapping (staging origin, `staging-control-plane-session` path, `cashew-labs/halo-staging` update repository), the rule that dev and test modes ignore the channel for the origin and for updates, and the update feed URL and `updateSource` built from `config.repository`. The temp test covers only the file read and write helpers."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "packages/config/src/electron.ts readConfig (lines 90-125): mock `electron`'s `app` (isPackaged true/false, getPath, setPath) and HALO_USER_DATA, then assert controlPlaneOrigin, controlPlaneSessionPath, and updates.repository for production with no file, production with a `staging` file, and development with a `staging` file (development origin, updates disabled)",
+      "tier": "tmp",
+      "rationale": "This mapping is the core of the feature: wrong values send users to the wrong deployment or update feed."
+    },
+    {
+      "target": "packages/config/src/electron.ts:92: an invalid or unreadable release-channel file must not make config resolution fail (after fixing F1)",
+      "tier": "tmp",
+      "rationale": "Guards the startup-crash regression."
+    },
+    {
+      "target": "apps/electron/src/main/app/AppUpdates.ts:77 and 154-156: with `electron` and `update-electron-app` mocked, assert the darwin feedUrl contains the configured repository and that updateElectronApp receives `{ type: ElectronPublicUpdateService, repo }`",
+      "tier": "tmp",
+      "rationale": "Confirms that updates actually follow the selected channel."
+    },
+    {
+      "target": "apps/electron/src/main/main.ts:494-531 switchReleaseChannel: on cancel, the menu is rebuilt and nothing is written; on confirm, the file is written and relaunch/quit is called; on a write error, the error box is shown and there is no relaunch. Use a test, or an exemption with a concrete reason if the main-process module cannot be loaded in vitest",
+      "tier": "tmp",
+      "rationale": "These changed lines are currently uncovered and not exempt."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "fd14d4133d9f5946bbd390c0aa6b38d3990faf30",
+  "treeHash": "a16bf2dd68504299f15f8d443afaefb70f4b9ee7",
+  "codeTree": "33cdf57362cd8640f9c1a801d926254e1a07f43b",
+  "coverage": {
+    "executable": 93,
+    "covered": 13,
+    "exempt": 0,
+    "uncovered": 80
+  },
+  "createdAt": "2026-10-09T20:59:16.986Z"
+}

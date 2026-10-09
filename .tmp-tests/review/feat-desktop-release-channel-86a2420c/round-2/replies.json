@@ -1,0 +1,6 @@
+[
+  {
+    "findingId": "F2",
+    "reply": "fixed: apps/electron/.tmp-tests/ControlPlaneAuth.test.ts checks that start() uses the token at sessionPath (bearer header), ignores the default file, and starts signed out when the channel has no session"
+  }
+]

@@ -1,0 +1,498 @@
+{
+  "baseRef": "origin/main",
+  "baseSha": "3e40f6a612a8f4a62e21732d87cab9cce0229040",
+  "headSha": "837a7db569a220b671bcb865d5b21bfd2917d0fa",
+  "treeHash": "329bc5730b2ec14bddf94441a621d4e4e649e5d8",
+  "generatedAt": "2026-10-09T21:02:19.170Z",
+  "runs": {
+    "durable": {
+      "tier": "durable",
+      "testFiles": [],
+      "skipped": true,
+      "runners": [],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 0,
+      "log": ".tmp-tests/report/durable.log",
+      "lcovFiles": []
+    },
+    "tmp": {
+      "tier": "tmp",
+      "testFiles": [
+        "apps/electron/.tmp-tests/AppUpdates.test.ts",
+        "apps/electron/.tmp-tests/ControlPlaneAuth.test.ts",
+        "packages/config/.tmp-tests/electron.test.ts",
+        "packages/config/.tmp-tests/releaseChannel.test.ts"
+      ],
+      "skipped": false,
+      "runners": [
+        {
+          "runner": "vitest",
+          "dir": ".",
+          "testFiles": [
+            "apps/electron/.tmp-tests/AppUpdates.test.ts",
+            "apps/electron/.tmp-tests/ControlPlaneAuth.test.ts",
+            "packages/config/.tmp-tests/electron.test.ts",
+            "packages/config/.tmp-tests/releaseChannel.test.ts"
+          ],
+          "exitCode": 0
+        }
+      ],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 830,
+      "log": ".tmp-tests/report/tmp.log",
+      "lcovFiles": [
+        "../../../.git/worktrees/repo/code-review-agent/coverage/tmp-0/vitest-0/lcov.info",
+        "../../../.git/worktrees/repo/code-review-agent/coverage/tmp-0/vitest-1/lcov.info"
+      ]
+    }
+  },
+  "durableTestFiles": [],
+  "tmpTestFiles": [
+    "apps/electron/.tmp-tests/AppUpdates.test.ts",
+    "apps/electron/.tmp-tests/ControlPlaneAuth.test.ts",
+    "packages/config/.tmp-tests/electron.test.ts",
+    "packages/config/.tmp-tests/releaseChannel.test.ts"
+  ],
+  "files": [
+    {
+      "path": "apps/electron/src/main/app/AppUpdates.ts",
+      "loaded": true,
+      "changed": [
+        8,
+        77,
+        154,
+        155,
+        156,
+        157
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "apps/electron/src/main/auth/ControlPlaneAuth.ts",
+      "loaded": true,
+      "changed": [
+        67,
+        69
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "apps/electron/src/main/main.ts",
+      "loaded": false,
+      "changed": [
+        24,
+        68,
+        69,
+        70,
+        71,
+        72,
+        73,
+        185,
+        381,
+        382,
+        383,
+        384,
+        385,
+        386,
+        387,
+        388,
+        389,
+        390,
+        391,
+        473,
+        493,
+        494,
+        495,
+        496,
+        497,
+        502,
+        503,
+        504,
+        505,
+        506,
+        507,
+        508,
+        509,
+        510,
+        511,
+        512,
+        513,
+        514,
+        515,
+        516,
+        517,
+        518,
+        519,
+        520,
+        521,
+        522,
+        523,
+        524,
+        525,
+        526,
+        527,
+        528,
+        529,
+        530,
+        531,
+        532,
+        533,
+        534,
+        535,
+        536,
+        537,
+        538,
+        539,
+        540,
+        541
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": [
+        {
+          "line": 24,
+          "reason": "main.ts starts Electron on import, so Vitest cannot load it"
+        },
+        {
+          "line": 69,
+          "reason": "main.ts starts Electron on import, so Vitest cannot load it"
+        },
+        {
+          "line": 70,
+          "reason": "main.ts starts Electron on import, so Vitest cannot load it"
+        },
+        {
+          "line": 71,
+          "reason": "main.ts starts Electron on import, so Vitest cannot load it"
+        },
+        {
+          "line": 72,
+          "reason": "main.ts starts Electron on import, so Vitest cannot load it"
+        },
+        {
+          "line": 185,
+          "reason": "main.ts starts Electron on import, so Vitest cannot load it"
+        },
+        {
+          "line": 382,
+          "reason": "main.ts starts Electron on import, so Vitest cannot load it"
+        },
+        {
+          "line": 383,
+          "reason": "main.ts starts Electron on import, so Vitest cannot load it"
+        },
+        {
+          "line": 384,
+          "reason": "main.ts starts Electron on import, so Vitest cannot load it"
+        },
+        {
+          "line": 385,
+          "reason": "main.ts starts Electron on import, so Vitest cannot load it"
+        },
+        {
+          "line": 386,
+          "reason": "main.ts starts Electron on import, so Vitest cannot load it"
+        },
+        {
+          "line": 387,
+          "reason": "main.ts starts Electron on import, so Vitest cannot load it"
+        },
+        {
+          "line": 389,
+          "reason": "main.ts starts Electron on import, so Vitest cannot load it"
+        },
+        {
+          "line": 473,
+          "reason": "main.ts starts Electron on import, so Vitest cannot load it"
+        },
+        {
+          "line": 495,
+          "reason": "main.ts starts Electron on import, so Vitest cannot load it"
+        },
+        {
+          "line": 496,
+          "reason": "main.ts starts Electron on import, so Vitest cannot load it"
+        },
+        {
+          "line": 503,
+          "reason": "main.ts starts Electron on import, so Vitest cannot load it"
+        },
+        {
+          "line": 504,
+          "reason": "main.ts starts Electron on import, so Vitest cannot load it"
+        },
+        {
+          "line": 505,
+          "reason": "main.ts starts Electron on import, so Vitest cannot load it"
+        },
+        {
+          "line": 506,
+          "reason": "main.ts starts Electron on import, so Vitest cannot load it"
+        },
+        {
+          "line": 507,
+          "reason": "main.ts starts Electron on import, so Vitest cannot load it"
+        },
+        {
+          "line": 508,
+          "reason": "main.ts starts Electron on import, so Vitest cannot load it"
+        },
+        {
+          "line": 509,
+          "reason": "main.ts starts Electron on import, so Vitest cannot load it"
+        },
+        {
+          "line": 510,
+          "reason": "main.ts starts Electron on import, so Vitest cannot load it"
+        },
+        {
+          "line": 511,
+          "reason": "main.ts starts Electron on import, so Vitest cannot load it"
+        },
+        {
+          "line": 512,
+          "reason": "main.ts starts Electron on import, so Vitest cannot load it"
+        },
+        {
+          "line": 513,
+          "reason": "main.ts starts Electron on import, so Vitest cannot load it"
+        },
+        {
+          "line": 514,
+          "reason": "main.ts starts Electron on import, so Vitest cannot load it"
+        },
+        {
+          "line": 515,
+          "reason": "main.ts starts Electron on import, so Vitest cannot load it"
+        },
+        {
+          "line": 516,
+          "reason": "main.ts starts Electron on import, so Vitest cannot load it"
+        },
+        {
+          "line": 517,
+          "reason": "main.ts starts Electron on import, so Vitest cannot load it"
+        },
+        {
+          "line": 519,
+          "reason": "main.ts starts Electron on import, so Vitest cannot load it"
+        },
+        {
+          "line": 520,
+          "reason": "main.ts starts Electron on import, so Vitest cannot load it"
+        },
+        {
+          "line": 521,
+          "reason": "main.ts starts Electron on import, so Vitest cannot load it"
+        },
+        {
+          "line": 522,
+          "reason": "main.ts starts Electron on import, so Vitest cannot load it"
+        },
+        {
+          "line": 523,
+          "reason": "main.ts starts Electron on import, so Vitest cannot load it"
+        },
+        {
+          "line": 525,
+          "reason": "main.ts starts Electron on import, so Vitest cannot load it"
+        },
+        {
+          "line": 526,
+          "reason": "main.ts starts Electron on import, so Vitest cannot load it"
+        },
+        {
+          "line": 528,
+          "reason": "main.ts starts Electron on import, so Vitest cannot load it"
+        },
+        {
+          "line": 529,
+          "reason": "main.ts starts Electron on import, so Vitest cannot load it"
+        },
+        {
+          "line": 530,
+          "reason": "main.ts starts Electron on import, so Vitest cannot load it"
+        },
+        {
+          "line": 532,
+          "reason": "main.ts starts Electron on import, so Vitest cannot load it"
+        },
+        {
+          "line": 533,
+          "reason": "main.ts starts Electron on import, so Vitest cannot load it"
+        },
+        {
+          "line": 534,
+          "reason": "main.ts starts Electron on import, so Vitest cannot load it"
+        },
+        {
+          "line": 535,
+          "reason": "main.ts starts Electron on import, so Vitest cannot load it"
+        },
+        {
+          "line": 536,
+          "reason": "main.ts starts Electron on import, so Vitest cannot load it"
+        },
+        {
+          "line": 538,
+          "reason": "main.ts starts Electron on import, so Vitest cannot load it"
+        },
+        {
+          "line": 539,
+          "reason": "main.ts starts Electron on import, so Vitest cannot load it"
+        }
+      ]
+    },
+    {
+      "path": "packages/config/src/electron.ts",
+      "loaded": true,
+      "changed": [
+        6,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        37,
+        38,
+        39,
+        40,
+        41,
+        43,
+        54,
+        92,
+        93,
+        94,
+        95,
+        96,
+        97,
+        98,
+        103,
+        104,
+        105,
+        106,
+        109,
+        111,
+        131
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [
+        10,
+        92,
+        94,
+        96,
+        97
+      ],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "packages/config/src/releaseChannel.ts",
+      "loaded": true,
+      "changed": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44,
+        45,
+        46,
+        47,
+        48,
+        49,
+        50,
+        51,
+        52
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [
+        17,
+        18,
+        19,
+        21,
+        22,
+        24,
+        25,
+        26,
+        27,
+        38,
+        41,
+        43,
+        51
+      ],
+      "uncovered": [],
+      "exempt": []
+    }
+  ],
+  "totals": {
+    "executable": 66,
+    "coveredDurable": 0,
+    "coveredTmpOnly": 18,
+    "uncovered": 0,
+    "exempt": 48
+  },
+  "passed": true
+}

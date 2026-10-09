@@ -1,0 +1,33 @@
+{
+  "status": "changes_requested",
+  "summary": "F1 is fixed: a damaged or unreadable channel file now falls back to production and is logged. The new temp tests check the channel-to-config mapping and the update repository wiring with real assertions. I accept the reason for leaving main.ts untested: importing it starts the app as a side effect. ControlPlaneAuth.start's changed lines (67, 69) remain uncovered and have no exemption, although a small temp test with a mocked `electron` can check them easily.",
+  "findings": [
+    {
+      "id": "F2",
+      "kind": "test",
+      "file": "apps/electron/src/main/auth/ControlPlaneAuth.ts",
+      "line": 67,
+      "severity": "P1",
+      "body": "The main.ts exemption is accepted: importing main.ts starts the app as a side effect, so it cannot load under vitest. Lines 67 and 69 of `ControlPlaneAuth.start` are still uncovered and have no exemption. Taking the session file from `sessionPath` instead of `dataDir/control-plane-session` is what keeps the staging and production sign-ins apart. Add a temp test that mocks `electron`'s `safeStorage` (encrypt/decrypt as identity, `isAsyncEncryptionAvailable` resolving true) and starts `ControlPlaneAuth` with a custom `sessionPath`. It should check that the token stored at that path is used, for example through the bearer token on the request that `getSession` or `getWorkspaceConnection` makes, and that a session at the default `control-plane-session` path is not read."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "apps/electron/src/main/auth/ControlPlaneAuth.ts:67-69 — ControlPlaneAuth.start reads the session token from ctx.sessionPath",
+      "tier": "tmp",
+      "rationale": "These changed lines are uncovered and not exempt, and they carry the per-channel session separation."
+    }
+  ],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "5c10da719ad67b61534227a900a1905883d75db5",
+  "treeHash": "fccaf2bff3024af3fa63d3c3e1ed6a28ba309933",
+  "codeTree": "4baec4e162aa6af55abf0f4ca7d28eb8da9b07df",
+  "coverage": {
+    "executable": 68,
+    "covered": 18,
+    "exempt": 0,
+    "uncovered": 50
+  },
+  "createdAt": "2026-10-09T21:01:07.803Z"
+}

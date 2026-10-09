@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change adds a saved production/staging release channel. The channel selects the control-plane origin, the session file, and the update repository, and a \"Use Staging\" menu item switches it and relaunches the app. This round adds only `coverage-exempt` comments to main.ts, with the reason I accepted in round 2: importing main.ts starts Electron. The coverage gate now passes, all temp tests pass, and no findings remain.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 4,
+  "headSha": "837a7db569a220b671bcb865d5b21bfd2917d0fa",
+  "treeHash": "329bc5730b2ec14bddf94441a621d4e4e649e5d8",
+  "codeTree": "b4b7da670dbf8b09927a2a64a3d5612db38ec731",
+  "coverage": {
+    "executable": 66,
+    "covered": 18,
+    "exempt": 48,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-09T21:02:26.591Z"
+}
