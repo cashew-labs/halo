@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change replaces the connection card's overflow menu with inline Connect, Cancel, Add account, and Connect again buttons. A client-only query key records which card started an attempt, so server snapshots no longer clear it, and a failed start restores the previous card. The temp tests now run the click handlers, the `onMutate`/`onError` card-id writes, the cancel transition, and the rendering for each card, so F3 is resolved. The coverage gate passes with one exemption I accept (the queryFn of a disabled query).",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 3,
+  "headSha": "254e80e593323244c49e855ada6889c4a7896563",
+  "treeHash": "2eced15cfbaf3c6c04f2be0fd17b669ad17ec490",
+  "codeTree": "79481601e88f488c477cb7b3f16c6a4df1335abc",
+  "coverage": {
+    "executable": 27,
+    "covered": 26,
+    "exempt": 1,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-09T22:25:15.998Z"
+}

@@ -1,0 +1,51 @@
+{
+  "status": "changes_requested",
+  "summary": "The change replaces the overflow menu on the connection card with inline buttons (Connect, Cancel, Add account, Connect again). It also adds a client-side `cardId`, so a finished attempt shows only on the card that started it. It is not ready. Nothing loads ExecutorConnectionCard.tsx, so the coverage gate fails with 47 uncovered lines. `cardId` is lost on every stream resubscribe, which happens on each tab switch, not only on reload. The start-error path drops `cardId`, while the other paths keep it.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "source",
+      "file": "packages/web/src/main/agent/useAgentSession.ts",
+      "line": 103,
+      "severity": "P1",
+      "body": "The per-card result depends on `cardId`, which exists only in the client query cache. The snapshot handler overwrites the query with `connectionStateFromServer(sessionConnection)`, which has no `cardId`. This handler runs on every stream resubscribe. The stream effect (line 80) reruns whenever `isTabVisible` changes, so it runs on each tab switch, not only after a reload as the comment at ConnectionState.ts:8-9 says. Once the snapshot lands, `connectionStateForCard` (ConnectionState.ts:94) falls back to showing the result on every card. Example: connect on card A, switch tabs, and return. Now every card for that request shows \"Connected\" and \"Add account\". If the switch happens while the attempt is still connecting, the later terminal event also has no `cardId`. Fix: when the snapshot is applied, keep the existing `cardId` if the current state has the same `connectionId`, or the same terminal status. Alternatively, store the starting card outside the query data that the server overwrites."
+    },
+    {
+      "id": "F2",
+      "kind": "source",
+      "file": "packages/web/src/main/agent/ExecutorConnectionCard.tsx",
+      "line": 108,
+      "severity": "P1",
+      "body": "When `connect` fails after a previous connection, `onError` restores `{ status: \"connected\" }` without a `cardId`. Every card for the request then shows Connected. The cancel path (lines 125-127) and `applyConnectionEvent` (ConnectionState.ts:76) keep `cardId` in the same \"restore connected\" case, so the behavior is inconsistent. Example: card A connected earlier, so only A shows Connected. Card B then fails to start an attempt, and suddenly every card shows Connected. Keep `current.cardId` here, or restore the state from before the mutation."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "packages/web/src/main/agent/ExecutorConnectionCard.tsx:157-193 (status label and button for each state)",
+      "tier": "tmp",
+      "rationale": "No test loads this file, so all 47 changed lines are uncovered. Add a temp test that renders two cards with the same request and different `part.id` values, for example with react-dom/server's renderToStaticMarkup and a QueryClient seeded with each ConnectionState. Check the following. Idle: both cards show Connect. Starting: no button. Connecting: both cards show Cancel and the status label. Connected/expired/failed/cancelled with cardId=A: card A shows Add account or Connect again, and card B shows Connect. Without a cardId, both cards show the result. Also check that Connect and Add account are disabled when sessionId is undefined."
+    },
+    {
+      "target": "packages/web/src/main/agent/ExecutorConnectionCard.tsx:65-134 (connect and cancel mutation state transitions: onMutate, mutationFn, onSuccess, onError, cancel)",
+      "tier": "tmp",
+      "rationale": "These handlers write `cardId` into the shared state, and the per-card behavior depends on them. They are uncovered. Test them, either by extracting the transitions into pure helpers in ConnectionState.ts and unit-testing those, or by driving the card with a mocked host in a DOM or E2E test. Cover these cases: starting/connecting/connected record this card's id; cancel keeps cardId; onError keeps cardId (see F2)."
+    },
+    {
+      "target": "Snapshot reapplication in useAgentSession.ts:101-104 keeps the starting card (F1)",
+      "tier": "tmp",
+      "rationale": "After the F1 fix, test that applying a server snapshot for the same attempt does not clear `cardId`."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "13c74828ebcca884795bf40d1f5eecb43c1b26e1",
+  "treeHash": "8ccea4324d7d109f397df319b0cec02ed78a043a",
+  "codeTree": "62fb8df43883cce4ad6f19baf213af5420cd02ba",
+  "coverage": {
+    "executable": 56,
+    "covered": 9,
+    "exempt": 0,
+    "uncovered": 47
+  },
+  "createdAt": "2026-10-09T22:22:00.502Z"
+}

@@ -1,0 +1,43 @@
+{
+  "status": "changes_requested",
+  "summary": "F1 and F2 are fixed. The starting card's id now lives in its own client-only query key, which server snapshots do not overwrite, and a failed start restores the previous card's id. The coverage gate still fails. The card-id writes in `onMutate` and `onError`, which make up those fixes, never run in a test. Neither do the button click handlers or the cancel state update.",
+  "findings": [
+    {
+      "id": "F3",
+      "kind": "test",
+      "file": "packages/web/src/main/agent/ExecutorConnectionCard.tsx",
+      "line": 102,
+      "severity": "P1",
+      "body": "These card-id writes never run in a test: `onMutate` (lines 102, 108-109) records the card that started the attempt and saves the previous one, and `onError` (line 122) restores it. Together they are the fix for F1 and F2. The temp tests only render static markup with seeded query data and test the pure transition helpers. Lines 118 and 137 (applying the helpers), and the onClick wiring at 182, 190, and 200, also never run, so a wrong key or a swapped handler would go unnoticed. The test can stay without a DOM. Make the mocked maui `Button` capture its `onClick`, render with `renderToStaticMarkup`, call the captured handler, and await the mutation. Then check the QueryClient data under `connectionCardQueryKey` and `connectionStateQueryKey`."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "ExecutorConnectionCard.tsx:101-109 and 117-125: clicking Connect on card B writes 'b' under connectionCardQueryKey and sets the state to starting, then connecting after connectIntegration resolves. When connectIntegration returns an Error and card A had connected earlier, the card key returns to 'a' and the state returns to connected, so card B renders Connect and card A renders Add account.",
+      "tier": "tmp",
+      "rationale": "These lines are the F1 and F2 fixes, and no test runs them. Capture `onClick` in the existing maui Button mock, call it, await the mutation, and check the query data."
+    },
+    {
+      "target": "ExecutorConnectionCard.tsx:128-137 and 182: clicking Cancel calls host.cancelIntegration with the connectionId of the connection in progress, then writes cancelled, or connected when wasConnected is true, into the state query.",
+      "tier": "tmp",
+      "rationale": "No test runs the cancel button wiring or the state update after a cancel."
+    },
+    {
+      "target": "ExecutorConnectionCard.tsx:72 (the queryFn of the disabled card-id query)",
+      "tier": "tmp",
+      "rationale": "This queryFn never runs because the query is disabled. Either cover it or record a coverage exemption with that reason; I would accept the exemption."
+    }
+  ],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "0df158edf3b2899f37f325c25b01f4c9254afdae",
+  "treeHash": "81ff2b688b8a9c8de8a6eecf7af3ba69c5b2a8aa",
+  "codeTree": "f712033345e627c51f5740b1629023486b03dcbf",
+  "coverage": {
+    "executable": 27,
+    "covered": 17,
+    "exempt": 0,
+    "uncovered": 10
+  },
+  "createdAt": "2026-10-09T22:24:08.804Z"
+}
