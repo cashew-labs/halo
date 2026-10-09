@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The only change since round 2 is the `login_hint` assertion in the durable control-plane test. It now normalises null to undefined, and the check is equivalent to before. The account hint, the `newConnection` placeholder marker, and the tests are unchanged from the approved round. Both test tiers pass, and every changed line is covered or validly exempt.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 3,
+  "headSha": "b05f322a3555d16200923b24fa4af64346632759",
+  "treeHash": "465fabee93b0cfe9ee5fff813e9d2adbae6d38fe",
+  "codeTree": "c03ed7276e07f05898797a08d9a603bcf6516396",
+  "coverage": {
+    "executable": 27,
+    "covered": 26,
+    "exempt": 1,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-09T22:39:18.129Z"
+}

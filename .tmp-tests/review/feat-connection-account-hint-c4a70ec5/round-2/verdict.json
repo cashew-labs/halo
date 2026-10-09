@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change adds an optional `account` hint to connection cards. The hint reaches Google's account picker as `login_hint` with `prompt=select_account consent`, and the card and setup page display it. Unnamed cards now carry an explicit `newConnection` marker instead of relying on the \"default\" string. Both earlier findings are fixed: F1 by the updated released-client expectation, and F2 by the `newConnection` marker, whose temp test shows that a connection actually named \"default\" can still be reconnected. Both test tiers pass, and every changed line is covered or validly exempt.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "a51c2d251d344e8dffa0a285a9f0393a2719f12a",
+  "treeHash": "b98e475b408ada92e54f63beb91d014c861c8789",
+  "codeTree": "28ec88a7070d4a8c8ca387b32f728e570d874982",
+  "coverage": {
+    "executable": 27,
+    "covered": 26,
+    "exempt": 1,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-09T22:37:28.225Z"
+}
