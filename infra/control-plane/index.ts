@@ -45,12 +45,24 @@ const controlPlaneOrigin = `https://${controlPlaneDomain}`;
 // URLs can contain private webhook tokens. Cloud Run request logs are generated
 // before application redaction, so exclude this route at the logging sink.
 // Keep this filter on any additional or inherited export sinks (see README).
-new gcp.logging.ProjectExclusion("webhook-request-secrets", {
-  project,
-  name: `${name}-webhook-request-secrets`,
-  description: "Do not retain webhook URLs containing bearer credentials",
-  filter: 'httpRequest.requestUrl =~ "/api/webhooks/"',
-});
+const deploymentLoggingConfig = new gcp.projects.IAMMember(
+  "deployment-logging-config",
+  {
+    project,
+    role: "roles/logging.configWriter",
+    member: `serviceAccount:${deploymentServiceAccount}`,
+  },
+);
+new gcp.logging.ProjectExclusion(
+  "webhook-request-secrets",
+  {
+    project,
+    name: `${name}-webhook-request-secrets`,
+    description: "Do not retain webhook URLs containing bearer credentials",
+    filter: 'httpRequest.requestUrl =~ "/api/webhooks/"',
+  },
+  { dependsOn: [deploymentLoggingConfig] },
+);
 
 const pubsubApi = new gcp.projects.Service("gmail-pubsub-api", {
   project,
