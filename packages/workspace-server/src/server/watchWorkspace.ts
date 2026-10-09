@@ -43,12 +43,8 @@ export async function* watchWorkspace({
       update,
     })),
     forward(files, (batch) => ({ type: "files", events: batch })),
-    forward(context.routines.watch(abortSignal), (routines) => ({
-      type: "routines",
-      routines,
-    })),
   ];
-  // Old clients treat unknown update variants as extension errors.
+  // Preserve protocol 25 opt-in semantics for existing stream consumers.
   if (includeAutomations === true) {
     tasks.push(
       forward(context.automations.watch(abortSignal), (automations) => ({

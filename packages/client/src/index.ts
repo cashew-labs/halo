@@ -112,17 +112,6 @@ export {
   type HotkeyInput,
   type HotkeyAction,
 } from "./hotkeys.js";
-export {
-  routineActionSchema,
-  routineInputSchema,
-  InvalidRoutineError,
-  type Routine,
-  type RoutineAction,
-  type RoutineInput,
-  type RoutineRun,
-  type RoutineRunStatus,
-  type RoutineRunTrigger,
-} from "./routines.js";
 
 export {
   automationRegistrationSchema,

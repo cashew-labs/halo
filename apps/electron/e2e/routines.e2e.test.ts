@@ -7,23 +7,29 @@ e2eTest(
     await harness.tools.bash.run({
       command: "mkdir -p .halo/extensions/appointments",
     });
-    await app.server.rpc.routines.save({
+    await app.server.rpc.automations.save({
       extensionId: "appointments",
       name: "Book haircut",
-      cron: "0 8 * * 1",
-      timezone: "America/New_York",
+      activation: {
+        type: "routine",
+        schedule: { cron: "0 8 * * 1", timezone: "America/New_York" },
+      },
       action: { type: "runScript", command: "echo booked haircut" },
     });
-    await app.server.rpc.routines.save({
+    await app.server.rpc.automations.save({
       name: "Daily workspace check",
-      cron: "0 9 * * *",
-      timezone: "America/New_York",
+      activation: {
+        type: "routine",
+        schedule: { cron: "0 9 * * *", timezone: "America/New_York" },
+      },
       action: { type: "runScript", command: "echo original check" },
     });
-    await app.server.rpc.routines.save({
+    await app.server.rpc.automations.save({
       name: "Morning briefing",
-      cron: "0 8 * * *",
-      timezone: "America/New_York",
+      activation: {
+        type: "routine",
+        schedule: { cron: "0 8 * * *", timezone: "America/New_York" },
+      },
       action: { type: "runAgent", prompt: "Original briefing prompt" },
       enabled: false,
     });

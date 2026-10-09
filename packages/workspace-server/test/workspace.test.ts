@@ -1522,13 +1522,13 @@ serverTest(
 );
 
 serverTest(
-  "advertises protocols 24 and 25 and rejects unsupported writes",
+  "advertises protocols 25 and 26 and rejects unsupported writes",
   async ({ server }) => {
     const connected = await connectHaloClient({ transport: server.transport });
     assert(!(connected instanceof Error));
     expect(connected.serverInfo).toEqual({
       protocolVersion: haloProtocolVersion,
-      supportedProtocols: [24, 25],
+      supportedProtocols: [25, 26],
     });
     const unsupported = createHaloClient({
       transport: {
@@ -1540,7 +1540,7 @@ serverTest(
       },
     });
     expect(await unsupported.server.info()).toMatchObject({
-      supportedProtocols: [24, 25],
+      supportedProtocols: [25, 26],
     });
     await expect(
       unsupported.workspace.writeFile({
@@ -1696,7 +1696,7 @@ serverTest(
 );
 
 serverTest(
-  "released protocol 24 clients can connect new and saved integration cards",
+  "released protocol 25 clients can connect new and saved integration cards",
   async ({ createServer, llm }) => {
     let status: "authorizing" | "ready" | "failed" = "authorizing";
     const requested: { integration: string; connectionName?: string }[] = [];
@@ -1720,7 +1720,7 @@ serverTest(
         ...server.transport,
         headers: {
           ...server.transport.headers,
-          "x-halo-protocol-version": "24",
+          "x-halo-protocol-version": "25",
         },
       },
     });
