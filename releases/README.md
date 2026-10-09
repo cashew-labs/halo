@@ -38,6 +38,9 @@ pane so updating does not lose saved navigation.
 
 Deploy the control plane first. Both scheduled and event dispatch use protocol
 25 and automation RPCs available in 0.1.68, so they reach old workspaces during
-rollout. Workspace schedule snapshots keep the existing internal
-`/api/workspace-runtime/routines` route and `routines` field for this rollout.
+rollout. Workspace schedule snapshots now POST to
+`/api/workspace-runtime/automations/schedules` with an `automations` field.
+The old `/api/workspace-runtime/routines` route is removed without an alias.
+Older workspaces log failed schedule reports until upgraded; reporting does not
+block startup. Existing stored schedules remain available during that window.
 The storage migrations, IDs, run history and session links remain intact.
