@@ -107,6 +107,11 @@ private.
 The deployment identity also needs `roles/logging.configWriter` to manage the
 webhook request-log exclusion. Pulumi declares this binding before the exclusion;
 it must never be removed to work around a deployment permission failure.
+It also needs `roles/pubsub.admin` to provision the Gmail topic, push subscription
+and topic publisher policy. Pulumi grants this role before creating the topic,
+and waits for the deployer's push-identity act-as binding before creating the
+authenticated subscription. These permissions belong to the deployment identity,
+not workspace runtime accounts.
 
 Stopped and suspended workspaces receive the desired metadata before the rollout
 starts or resumes them. The rollout waits for SSH, then verifies readiness as

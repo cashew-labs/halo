@@ -74,10 +74,18 @@ const gmailApi = new gcp.projects.Service("gmail-api", {
   service: "gmail.googleapis.com",
   disableOnDestroy: false,
 });
+const deploymentPubsubAdmin = new gcp.projects.IAMMember(
+  "deployment-pubsub-admin",
+  {
+    project,
+    role: "roles/pubsub.admin",
+    member: `serviceAccount:${deploymentServiceAccount}`,
+  },
+);
 const gmailTopic = new gcp.pubsub.Topic(
   "gmail-events",
   { project, name: `${name}-gmail-events` },
-  { dependsOn: [pubsubApi, gmailApi] },
+  { dependsOn: [pubsubApi, gmailApi, deploymentPubsubAdmin] },
 );
 new gcp.pubsub.TopicIAMMember("gmail-publisher", {
   project,
@@ -107,11 +115,14 @@ const pubsubTokenCreator = new gcp.serviceaccount.IAMMember(
   },
   { dependsOn: pubsubApi },
 );
-new gcp.serviceaccount.IAMMember("gmail-push-deployer", {
-  serviceAccountId: gmailPushIdentity.name,
-  role: "roles/iam.serviceAccountUser",
-  member: `serviceAccount:${deploymentServiceAccount}`,
-});
+const gmailPushDeployer = new gcp.serviceaccount.IAMMember(
+  "gmail-push-deployer",
+  {
+    serviceAccountId: gmailPushIdentity.name,
+    role: "roles/iam.serviceAccountUser",
+    member: `serviceAccount:${deploymentServiceAccount}`,
+  },
+);
 new gcp.pubsub.Subscription(
   "gmail-events-push",
   {
@@ -130,7 +141,7 @@ new gcp.pubsub.Subscription(
       },
     },
   },
-  { dependsOn: pubsubTokenCreator },
+  { dependsOn: [pubsubTokenCreator, gmailPushDeployer] },
 );
 
 const vertexAi = new gcp.projects.Service("vertex-ai", {
