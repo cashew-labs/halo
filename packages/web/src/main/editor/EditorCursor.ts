@@ -34,6 +34,7 @@ class CursorView {
   private readonly preview: HTMLDivElement;
   private readonly resize: ResizeObserver;
   private readonly reducedMotion: MediaQueryList;
+  private readonly mouseInput: MediaQueryList;
 
   constructor(ctx: { view: EditorView }) {
     this.view = ctx.view;
@@ -42,6 +43,12 @@ class CursorView {
     this.reducedMotion = this.window.matchMedia(
       "(prefers-reduced-motion: reduce)",
     );
+    // Keep the native caret and selection UI on touch-first devices. Mobile
+    // viewport panning/zooming can offset a fixed overlay from the text.
+    this.mouseInput = this.window.matchMedia(
+      "(hover: hover) and (pointer: fine)",
+    );
+    this.mouseInput.addEventListener("change", this.scrolled);
     this.layer = this.document.createElement("div");
     this.layer.setAttribute("aria-hidden", "true");
     Object.assign(this.layer.style, {
@@ -186,6 +193,7 @@ class CursorView {
 
   private render() {
     if (
+      !this.mouseInput.matches ||
       !this.view.editable ||
       this.composing ||
       this.view.composing ||
@@ -261,6 +269,7 @@ class CursorView {
 
   private pointerMove = (event: PointerEvent) => {
     if (
+      !this.mouseInput.matches ||
       !this.view.editable ||
       event.pointerType !== "mouse" ||
       event.buttons !== 0 ||
@@ -333,6 +342,7 @@ class CursorView {
     if (this.frame !== undefined) this.window.cancelAnimationFrame(this.frame);
     this.hide();
     this.resize.disconnect();
+    this.mouseInput.removeEventListener("change", this.scrolled);
     this.document.removeEventListener("selectionchange", this.selectionChanged);
     this.document.removeEventListener("focusin", this.schedule);
     this.document.removeEventListener("focusout", this.schedule);
