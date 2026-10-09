@@ -1,0 +1,349 @@
+{
+  "baseRef": "fix/connection-card-state",
+  "baseSha": "254e80e593323244c49e855ada6889c4a7896563",
+  "headSha": "a51c2d251d344e8dffa0a285a9f0393a2719f12a",
+  "treeHash": "b98e475b408ada92e54f63beb91d014c861c8789",
+  "generatedAt": "2026-10-09T22:36:59.565Z",
+  "runs": {
+    "durable": {
+      "tier": "durable",
+      "testFiles": [
+        "apps/control-plane/test/ControlPlane.test.ts",
+        "packages/workspace-server/test/workspace.test.ts"
+      ],
+      "skipped": false,
+      "runners": [
+        {
+          "runner": "vitest",
+          "dir": ".",
+          "testFiles": [
+            "apps/control-plane/test/ControlPlane.test.ts",
+            "packages/workspace-server/test/workspace.test.ts"
+          ],
+          "exitCode": 0
+        }
+      ],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 81647,
+      "log": ".tmp-tests/report/durable.log",
+      "lcovFiles": [
+        "../halo-v2/.git/worktrees/halo-v2-connections/code-review-agent/coverage/durable-0/vitest-0/lcov.info",
+        "../halo-v2/.git/worktrees/halo-v2-connections/code-review-agent/coverage/durable-0/vitest-1/lcov.info"
+      ]
+    },
+    "tmp": {
+      "tier": "tmp",
+      "testFiles": [
+        "apps/control-plane/.tmp-tests/accountChoice.test.ts",
+        "packages/client/.tmp-tests/connectionRequestKey.test.ts",
+        "packages/web/.tmp-tests/ConnectionState.test.ts",
+        "packages/web/.tmp-tests/ExecutorConnectionCard.test.tsx",
+        "packages/web/.tmp-tests/IntegrationSetupPage.test.tsx",
+        "packages/workspace-server/.tmp-tests/connectionAccount.test.ts",
+        "packages/workspace-server/.tmp-tests/connectionCards.test.ts"
+      ],
+      "skipped": false,
+      "runners": [
+        {
+          "runner": "vitest",
+          "dir": ".",
+          "testFiles": [
+            "apps/control-plane/.tmp-tests/accountChoice.test.ts",
+            "packages/client/.tmp-tests/connectionRequestKey.test.ts",
+            "packages/web/.tmp-tests/ConnectionState.test.ts",
+            "packages/web/.tmp-tests/ExecutorConnectionCard.test.tsx",
+            "packages/web/.tmp-tests/IntegrationSetupPage.test.tsx",
+            "packages/workspace-server/.tmp-tests/connectionAccount.test.ts",
+            "packages/workspace-server/.tmp-tests/connectionCards.test.ts"
+          ],
+          "exitCode": 0
+        }
+      ],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 1750,
+      "log": ".tmp-tests/report/tmp.log",
+      "lcovFiles": [
+        "../halo-v2/.git/worktrees/halo-v2-connections/code-review-agent/coverage/tmp-0/vitest-0/lcov.info",
+        "../halo-v2/.git/worktrees/halo-v2-connections/code-review-agent/coverage/tmp-0/vitest-1/lcov.info",
+        "../halo-v2/.git/worktrees/halo-v2-connections/code-review-agent/coverage/tmp-0/vitest-2/lcov.info",
+        "../halo-v2/.git/worktrees/halo-v2-connections/code-review-agent/coverage/tmp-0/vitest-3/lcov.info"
+      ]
+    }
+  },
+  "durableTestFiles": [
+    "apps/control-plane/test/ControlPlane.test.ts",
+    "packages/workspace-server/test/workspace.test.ts"
+  ],
+  "tmpTestFiles": [
+    "apps/control-plane/.tmp-tests/accountChoice.test.ts",
+    "packages/client/.tmp-tests/connectionRequestKey.test.ts",
+    "packages/web/.tmp-tests/ConnectionState.test.ts",
+    "packages/web/.tmp-tests/ExecutorConnectionCard.test.tsx",
+    "packages/web/.tmp-tests/IntegrationSetupPage.test.tsx",
+    "packages/workspace-server/.tmp-tests/connectionAccount.test.ts",
+    "packages/workspace-server/.tmp-tests/connectionCards.test.ts"
+  ],
+  "files": [
+    {
+      "path": "apps/control-plane/src/integrations/accountChoice.ts",
+      "loaded": true,
+      "changed": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+      ],
+      "coveredDurable": [
+        4,
+        5,
+        6,
+        7,
+        8
+      ],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "apps/control-plane/src/integrations/IntegrationService.ts",
+      "loaded": true,
+      "changed": [
+        58,
+        298,
+        335,
+        641,
+        642,
+        643,
+        644,
+        645,
+        646
+      ],
+      "coveredDurable": [
+        335,
+        641
+      ],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "apps/workspace-server/src/main.ts",
+      "loaded": false,
+      "changed": [
+        158
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": [
+        {
+          "line": 158,
+          "reason": "type-only annotation"
+        }
+      ]
+    },
+    {
+      "path": "packages/client/src/ConnectionRequest.ts",
+      "loaded": true,
+      "changed": [
+        8,
+        9,
+        10,
+        33,
+        34,
+        35,
+        36
+      ],
+      "coveredDurable": [
+        33,
+        34,
+        35,
+        36
+      ],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "packages/shared/src/controlPlaneContract.ts",
+      "loaded": true,
+      "changed": [
+        32,
+        33,
+        177,
+        178,
+        179
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "packages/web/src/IntegrationSetupPage.tsx",
+      "loaded": true,
+      "changed": [
+        98,
+        99,
+        100,
+        101,
+        102,
+        103,
+        104
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "packages/web/src/main/agent/ExecutorConnectionCard.tsx",
+      "loaded": true,
+      "changed": [
+        154,
+        176,
+        177,
+        178,
+        179,
+        180,
+        181,
+        182,
+        183,
+        184,
+        185
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [
+        154
+      ],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "packages/workspace-server/src/agent/runtime/connectionCards.ts",
+      "loaded": true,
+      "changed": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39
+      ],
+      "coveredDurable": [
+        8,
+        12,
+        13,
+        22,
+        32,
+        35,
+        38
+      ],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "packages/workspace-server/src/agent/runtime/ConnectionService.ts",
+      "loaded": true,
+      "changed": [
+        43,
+        91,
+        92,
+        93,
+        95,
+        96,
+        97,
+        98,
+        99,
+        100,
+        101,
+        102
+      ],
+      "coveredDurable": [
+        93,
+        100,
+        102
+      ],
+      "coveredTmpOnly": [
+        101
+      ],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "packages/workspace-server/src/agent/runtime/ToolRuntime.ts",
+      "loaded": true,
+      "changed": [
+        71,
+        120,
+        121,
+        122,
+        123,
+        124,
+        125,
+        126,
+        127,
+        220,
+        479,
+        480
+      ],
+      "coveredDurable": [
+        220,
+        479,
+        480
+      ],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    }
+  ],
+  "totals": {
+    "executable": 27,
+    "coveredDurable": 24,
+    "coveredTmpOnly": 2,
+    "uncovered": 0,
+    "exempt": 1
+  },
+  "passed": true
+}
