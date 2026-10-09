@@ -1,0 +1,18 @@
+[
+  {
+    "findingId": "F1",
+    "reply": "fixed: exeRollout.sh and rollout.sh now verify against SOURCE_SHA instead of GITHUB_SHA. deploy-stack.yml sets SOURCE_SHA=inputs.source_sha at workflow level; release.yml's prepare-staging job sets SOURCE_SHA=github.sha for the template mode."
+  },
+  {
+    "findingId": "F2",
+    "reply": "fixed: committed releases/production.json at 0.1.68, matching the pinned Pulumi.prod.yaml. The promote PR preview only runs when deploy=true, so this bootstrap PR does not preview a stack that does not exist yet. releases/README.md documents the one-time pulumi up bootstrap."
+  },
+  {
+    "findingId": "F3",
+    "reply": "fixed: deploy-stack.yml rejects the gcp provider for any stack other than west, because GCP VMs have no stack label. prod uses exe, which filters by the halo-<stack> tag."
+  },
+  {
+    "findingId": "F4",
+    "reply": "fixed: the temp test now runs the real releases/promoteRelease.mjs and validatePromotion.mjs with cwd set to the fixture repository, and covers the usage error, a missing production.json, local main ahead of origin, and the validator's usage, version format, missing manifest, and older-version failures."
+  }
+]

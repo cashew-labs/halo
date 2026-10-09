@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "F5 is fixed. promote.yml now sets `deploy` only when production.json changes. A PR that changes only Pulumi.prod.yaml validates the pin without the version comparison or the staging lookup, and the Pulumi preview still runs. A new temp test covers the failed-command path (promoteRelease.mjs:97). All earlier findings are resolved, both test tiers pass, and the coverage gate passes.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 3,
+  "headSha": "d0c4e3308b86e4be94c107c3d1e0c071f4f584cc",
+  "treeHash": "606fb1b04a0d8a8c14a3f041c18c03575b71c16d",
+  "codeTree": "155201153e2c24b51fc620907f081ce0cf722df3",
+  "coverage": {
+    "executable": 103,
+    "covered": 103,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-09T21:21:54.903Z"
+}
