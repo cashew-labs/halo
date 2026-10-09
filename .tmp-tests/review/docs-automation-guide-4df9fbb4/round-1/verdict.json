@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "This change renames the halo-extension skill's `routines.md` reference to `automations.md`. It also rewrites the guidance to use only `halo automation` and `tools.automations`, because the `halo routine` CLI has been removed. I checked the docs against the code: the CLI subcommands in `packages/halo-cli/src/automation.ts`, the `automationInputSchema` fields, the script cwd defaults and 15-minute timeout in `AutomationRunner.ts`, and how the skill directory is copied when a workspace is seeded. Nothing still links to `routines.md`, and no executable lines changed. It is ready.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "96a3498af429353ba553d52783afbd95aeb115e7",
+  "treeHash": "89c51dd955e4f151777f56f38e0c2b1da0c24fb5",
+  "codeTree": "89c51dd955e4f151777f56f38e0c2b1da0c24fb5",
+  "coverage": {
+    "executable": 0,
+    "covered": 0,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-09T21:23:45.327Z"
+}
