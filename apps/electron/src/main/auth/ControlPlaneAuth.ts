@@ -12,7 +12,6 @@ import {
   type ServerResponse,
 } from "node:http";
 import type { AddressInfo } from "node:net";
-import { join } from "node:path";
 import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
 import {
@@ -65,9 +64,9 @@ export class ControlPlaneAuth implements DesktopAuthentication {
     this.token = ctx.token;
   }
 
-  static async start(ctx: { origin: string; dataDir: string }) {
+  static async start(ctx: { origin: string; sessionPath: string }) {
     const sessionStore = new ControlPlaneSessionStore({
-      path: join(ctx.dataDir, "control-plane-session"),
+      path: ctx.sessionPath,
     });
     const token = await sessionStore.read();
 

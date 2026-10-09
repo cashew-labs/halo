@@ -5,7 +5,7 @@ import * as errore from "errore";
 import path from "node:path";
 import type { LoggerApi } from "@get-halo/logger";
 import { MacAppUpdater } from "./MacAppUpdater.js";
-import { updateElectronApp } from "update-electron-app";
+import { updateElectronApp, UpdateSourceType } from "update-electron-app";
 
 /** How often packaged macOS/Windows builds poll update.electronjs.org. */
 const UPDATE_POLL_INTERVAL = "10 minutes";
@@ -74,7 +74,7 @@ export class AppUpdates {
       this.macUpdater = new MacAppUpdater({
         native: autoUpdater,
         version: app.getVersion(),
-        feedUrl: `https://update.electronjs.org/cashew-labs/halo/darwin-${process.arch}/${app.getVersion()}`,
+        feedUrl: `https://update.electronjs.org/${this.config.repository}/darwin-${process.arch}/${app.getVersion()}`,
         statePath: path.join(
           app.getPath("home"),
           "Library/Caches/com.saffronhealth.halo.ShipIt/ShipItState.plist",
@@ -151,6 +151,10 @@ export class AppUpdates {
     });
 
     updateElectronApp({
+      updateSource: {
+        type: UpdateSourceType.ElectronPublicUpdateService,
+        repo: this.config.repository,
+      },
       updateInterval: UPDATE_POLL_INTERVAL,
       onNotifyUser: (info) => {
         this.showUpdateReadyDialog(info.releaseName);
