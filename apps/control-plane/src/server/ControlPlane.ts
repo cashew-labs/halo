@@ -17,7 +17,7 @@ import {
 } from "./controlPlaneHttp.js";
 import { DatabaseService, type DatabaseConfig } from "../DatabaseService.js";
 import { WorkspaceService } from "../workspace/WorkspaceService.js";
-import { RoutineCoordinator } from "../workspace/RoutineCoordinator.js";
+import { AutomationScheduleCoordinator } from "../workspace/AutomationScheduleCoordinator.js";
 import type { WorkspaceProviderApi } from "../workspace/provider/WorkspaceProviderApi.js";
 
 import { TraceIngestion } from "../traces/TraceIngestion.js";
@@ -35,7 +35,7 @@ export class ControlPlane {
   // Owns active requests that upgraded beyond the HTTP server lifecycle.
   private readonly requests: ServingControlPlaneHttp;
   readonly integrations: IntegrationService | undefined;
-  private readonly routines: RoutineCoordinator;
+  private readonly automationSchedules: AutomationScheduleCoordinator;
   private readonly gmail: GmailService;
   private readonly automationCoordinator: AutomationCoordinator;
 
@@ -45,7 +45,7 @@ export class ControlPlane {
     publicOrigin: string;
     requests: ServingControlPlaneHttp;
     integrations: IntegrationService | undefined;
-    routines: RoutineCoordinator;
+    automationSchedules: AutomationScheduleCoordinator;
     gmail: GmailService;
     automationCoordinator: AutomationCoordinator;
   }) {
@@ -54,7 +54,7 @@ export class ControlPlane {
     this.publicOrigin = ctx.publicOrigin;
     this.requests = ctx.requests;
     this.integrations = ctx.integrations;
-    this.routines = ctx.routines;
+    this.automationSchedules = ctx.automationSchedules;
     this.gmail = ctx.gmail;
     this.automationCoordinator = ctx.automationCoordinator;
   }
@@ -157,9 +157,12 @@ export class ControlPlane {
       const closed = await integrations?.close();
       if (closed instanceof Error) console.error(closed);
     });
-    const routines = await RoutineCoordinator.start({ db, workspace });
-    if (routines instanceof Error) return routines;
-    cleanup.defer(async () => await routines.close());
+    const automationSchedules = await AutomationScheduleCoordinator.start({
+      db,
+      workspace,
+    });
+    if (automationSchedules instanceof Error) return automationSchedules;
+    cleanup.defer(async () => await automationSchedules.close());
 
     const automationStore = new AutomationStore({ db });
     const initializedAutomations = await automationStore.initialize();
@@ -193,7 +196,7 @@ export class ControlPlane {
       publicOrigin,
       workspace,
       integrations,
-      routines,
+      automationSchedules,
       automationStore,
       webhooks,
       gmail,
@@ -217,7 +220,7 @@ export class ControlPlane {
       publicOrigin,
       requests,
       integrations,
-      routines,
+      automationSchedules,
       gmail,
       automationCoordinator,
     });
@@ -225,7 +228,7 @@ export class ControlPlane {
 
   async close() {
     this.requests.close();
-    await this.routines.close();
+    await this.automationSchedules.close();
     await this.gmail.close();
     await this.automationCoordinator.close();
     const httpClosed = await closeControlPlaneHttp(this.http.server);

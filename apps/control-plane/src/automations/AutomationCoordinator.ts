@@ -1,4 +1,4 @@
-import { createHaloClient } from "@get-halo/client";
+import { createHaloClient, protocolHeader } from "@get-halo/client";
 import { GoogleAuth } from "google-auth-library";
 import * as errore from "errore";
 import type { WorkspaceService } from "../workspace/WorkspaceService.js";
@@ -97,14 +97,21 @@ export class AutomationCoordinator {
       Exclude<Awaited<ReturnType<AutomationStore["claim"]>>, Error>
     >,
   ) {
-    const connection = await this.workspace.wakeForRoutine(claimed.workspaceId);
+    const connection = await this.workspace.wakeForAutomation(
+      claimed.workspaceId,
+    );
     if (connection instanceof Error) return connection;
     if (connection === undefined)
       return new AutomationDeliveryError({ operation: "find workspace" });
     const headers = await this.authorization(connection);
     if (headers instanceof Error) return headers;
     const client = createHaloClient({
-      transport: { origin: connection.origin, path: "/rpc", headers },
+      transport: {
+        origin: connection.origin,
+        path: "/rpc",
+        // The control plane deploys first; use the released workspace protocol.
+        headers: { ...headers, [protocolHeader]: "25" },
+      },
     });
     const accepted = await client.automations
       .acceptEvent(claimed.event, { signal: AbortSignal.timeout(20_000) })
@@ -116,7 +123,9 @@ export class AutomationCoordinator {
     return accepted.id;
   }
 
-  private async authorization(connection: WorkspaceProviderConnection) {
+  private async authorization(
+    connection: WorkspaceProviderConnection,
+  ): Promise<Record<string, string> | Error> {
     if (connection.authorization.type === "headers")
       return { ...connection.authorization.value };
     if (connection.authorization.type === "bearer")

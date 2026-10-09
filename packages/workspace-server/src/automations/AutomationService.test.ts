@@ -1,16 +1,18 @@
-import { type RoutineInput } from "@get-halo/client";
+import { type AutomationInput } from "@get-halo/client";
 import { Logger } from "@get-halo/logger";
 import { afterEach, beforeEach, expect, vi } from "vitest";
 import { AbortFailedError } from "../agent/Thread.js";
-import { routineTest } from "./fixtures.test.js";
+import { automationTest } from "./fixtures.test.js";
 import { AutomationRunner } from "../automations/AutomationRunner.js";
-import { RoutineNotFoundError } from "./RoutineService.js";
+import { AutomationNotFoundError } from "./AutomationService.js";
 
-const everyTwoMinutes: RoutineInput = {
+const everyTwoMinutes: AutomationInput = {
   extensionId: "appointments",
   name: "Book haircut",
-  cron: "*/2 * * * *",
-  timezone: "UTC",
+  activation: {
+    type: "routine",
+    schedule: { cron: "*/2 * * * *", timezone: "UTC" },
+  },
   action: { type: "runScript", command: "./book.sh haircut" },
 };
 
@@ -23,74 +25,77 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-routineTest(
+automationTest(
   "a scheduled run claims its occurrence and queues overlapping runs",
-  async ({ openRoutines }) => {
-    const routines = await openRoutines();
-    const saved = await routines.save(everyTwoMinutes);
+  async ({ openAutomations }) => {
+    const automations = await openAutomations();
+    const saved = await automations.save(everyTwoMinutes);
     if (saved instanceof Error) throw saved;
 
     expect(
-      await routines.beginRun({ routineId: saved.id, trigger: "schedule" }),
+      await automations.beginRun({
+        automationId: saved.id,
+        trigger: "schedule",
+      }),
     ).toBeUndefined();
 
     vi.setSystemTime(new Date("2026-09-25T08:02:01Z"));
-    const run = await routines.beginRun({
-      routineId: saved.id,
+    const run = await automations.beginRun({
+      automationId: saved.id,
       trigger: "schedule",
     });
     if (run instanceof Error || run === undefined) throw new Error("No run");
-    await routines.automations.claimNext();
+    await automations.claimNext();
     expect(run).toMatchObject({
-      status: "running",
+      status: "queued",
       scheduledFor: "2026-09-25T08:02:00.000Z",
     });
-    await routines.automations.claimNext();
-    await routines.attachSession({ runId: run.id, sessionId: "session-1" });
+    await automations.claimNext();
+    await automations.attachSession({ runId: run.id, sessionId: "session-1" });
 
-    const overlap = await routines.beginRun({
-      routineId: saved.id,
+    const overlap = await automations.beginRun({
+      automationId: saved.id,
       trigger: "manual",
     });
     expect(overlap).toMatchObject({
-      status: "running",
+      status: "queued",
     });
-    expect(routines.get(saved.id)).toMatchObject({
+    expect(automations.get(saved.id)).toMatchObject({
       nextRunAt: "2026-09-25T08:04:00.000Z",
-      lastRun: { status: "running" },
+      lastRun: { status: "queued" },
     });
-    expect((await openRoutines()).get(saved.id)).toMatchObject({
-      lastRun: { status: "running" },
+    expect((await openAutomations()).get(saved.id)).toMatchObject({
+      lastRun: { status: "queued" },
     });
 
-    await routines.finishRun({ runId: run.id, status: "completed" });
-    const history = await routines.listRuns({ routineId: saved.id });
+    await automations.finishRun({ runId: run.id, status: "completed" });
+    const history = await automations.listRuns({ automationId: saved.id });
     expect(history).toMatchObject([
-      { status: "running", trigger: "manual" },
+      { status: "queued", trigger: "manual" },
       { status: "completed", trigger: "schedule", sessionId: "session-1" },
     ]);
-    expect(routines.get(saved.id)).toMatchObject({
-      lastRun: { status: "running" },
+    expect(automations.get(saved.id)).toMatchObject({
+      lastRun: { status: "queued" },
     });
   },
 );
 
-routineTest(
+automationTest(
   "reopening interrupts unfinished runs and skips missed occurrences",
-  async ({ openRoutines }) => {
-    const before = await openRoutines();
+  async ({ openAutomations }) => {
+    const before = await openAutomations();
     const saved = await before.save(everyTwoMinutes);
     if (saved instanceof Error) throw saved;
     vi.setSystemTime(new Date("2026-09-25T08:02:00Z"));
     const run = await before.beginRun({
-      routineId: saved.id,
+      automationId: saved.id,
       trigger: "schedule",
     });
     if (run instanceof Error || run === undefined) throw new Error("No run");
 
-    await before.automations.claimNext();
+    await before.claimNext();
     vi.setSystemTime(new Date("2026-09-25T08:09:10Z"));
-    const after = await openRoutines();
+    const after = await openAutomations();
     await after.recover();
     await after.finishRun({ runId: run.id, status: "completed" });
 
@@ -98,31 +103,31 @@ routineTest(
       nextRunAt: "2026-09-25T08:10:00.000Z",
       lastRun: { id: run.id, status: "interrupted" },
     });
-    expect(await after.listRuns({ routineId: saved.id })).toMatchObject([
+    expect(await after.listRuns({ automationId: saved.id })).toMatchObject([
       { id: run.id, status: "interrupted" },
     ]);
   },
 );
 
-routineTest(
+automationTest(
   "recovery aborts attached routine sessions before interrupting their runs",
-  async ({ openRoutines }) => {
-    const routines = await openRoutines();
-    const saved = await routines.save(everyTwoMinutes);
+  async ({ openAutomations }) => {
+    const automations = await openAutomations();
+    const saved = await automations.save(everyTwoMinutes);
     if (saved instanceof Error) throw saved;
-    const run = await routines.beginRun({
-      routineId: saved.id,
+    const run = await automations.beginRun({
+      automationId: saved.id,
       trigger: "manual",
     });
     if (run instanceof Error || run === undefined) throw new Error("No run");
-    await routines.automations.claimNext();
-    await routines.attachSession({ runId: run.id, sessionId: "session-1" });
+    await automations.claimNext();
+    await automations.attachSession({ runId: run.id, sessionId: "session-1" });
     const abortError = new AbortFailedError({
       reason: "abort failed",
       cause: new Error("abort failed"),
     });
     const failedRunner = new AutomationRunner({
-      automations: routines.automations,
+      automations: automations,
       sessions: {
         abort: async () => abortError,
         new: vi.fn(),
@@ -138,17 +143,17 @@ routineTest(
     });
 
     expect(await failedRunner.recover()).toBe(abortError);
-    expect(routines.get(saved.id)).toMatchObject({
+    expect(automations.get(saved.id)).toMatchObject({
       lastRun: { status: "running" },
     });
 
     const abort = vi.fn(async () => {
-      expect(routines.get(saved.id)).toMatchObject({
+      expect(automations.get(saved.id)).toMatchObject({
         lastRun: { status: "running" },
       });
     });
     const runner = new AutomationRunner({
-      automations: routines.automations,
+      automations: automations,
       sessions: {
         abort,
         new: vi.fn(),
@@ -168,59 +173,59 @@ routineTest(
     expect(recovered).toBeUndefined();
     expect(abort).toHaveBeenCalledWith("session-1");
     expect(abort).toHaveBeenCalledOnce();
-    expect(routines.get(saved.id)).toMatchObject({
+    expect(automations.get(saved.id)).toMatchObject({
       lastRun: { status: "interrupted" },
     });
   },
 );
 
-routineTest(
+automationTest(
   "keeps an overdue occurrence after a managed workspace wakes",
-  async ({ openRoutines }) => {
-    const before = await openRoutines();
+  async ({ openAutomations }) => {
+    const before = await openAutomations();
     const saved = await before.save(everyTwoMinutes);
     if (saved instanceof Error) throw saved;
     vi.setSystemTime(new Date("2026-09-25T08:05:00Z"));
-    const after = await openRoutines();
+    const after = await openAutomations();
     const recovered = await after.recover({ preserveDue: true });
     if (recovered instanceof Error) throw recovered;
     expect(after.get(saved.id)).toMatchObject({
       nextRunAt: "2026-09-25T08:02:00.000Z",
     });
     const run = await after.beginRun({
-      routineId: saved.id,
+      automationId: saved.id,
       trigger: "schedule",
     });
     expect(run).toMatchObject({
       scheduledFor: "2026-09-25T08:02:00.000Z",
     });
     expect(
-      await after.beginRun({ routineId: saved.id, trigger: "schedule" }),
+      await after.beginRun({ automationId: saved.id, trigger: "schedule" }),
     ).toBeUndefined();
   },
 );
 
-routineTest(
+automationTest(
   "editing and removing a routine publishes the change",
-  async ({ openRoutines }) => {
-    const routines = await openRoutines();
-    const saved = await routines.save(everyTwoMinutes);
+  async ({ openAutomations }) => {
+    const automations = await openAutomations();
+    const saved = await automations.save(everyTwoMinutes);
     if (saved instanceof Error) throw saved;
     const controller = new AbortController();
-    const updates = routines.watch(controller.signal);
+    const updates = automations.watch(controller.signal);
     expect((await updates.next()).value).toEqual([saved]);
 
-    const edited = await routines.save({
+    const edited = await automations.save({
       ...everyTwoMinutes,
       id: saved.id,
       name: "Book tennis lesson",
     });
     expect((await updates.next()).value).toEqual([edited]);
 
-    await routines.remove(saved.id);
+    await automations.remove(saved.id);
     expect((await updates.next()).value).toEqual([]);
-    expect(await routines.listRuns({ routineId: saved.id })).toEqual(
-      new RoutineNotFoundError({ routineId: saved.id }),
+    expect(await automations.listRuns({ automationId: saved.id })).toEqual(
+      new AutomationNotFoundError({ automationId: saved.id }),
     );
     controller.abort();
   },

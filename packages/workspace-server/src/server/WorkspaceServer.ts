@@ -7,13 +7,11 @@ import { AutomationRunner } from "../automations/AutomationRunner.js";
 import { HotkeyService } from "../hotkeys/HotkeyService.js";
 import { WorkspaceIdleReporter } from "./WorkspaceIdleReporter.js";
 import { combineLatest } from "@get-halo/shared/Stream";
-import { RoutineService } from "../routines/RoutineService.js";
-import { RoutineRunner } from "../routines/RoutineRunner.js";
-import { RoutineScheduler } from "../routines/RoutineScheduler.js";
+import { AutomationScheduler } from "../automations/AutomationScheduler.js";
 import {
-  RoutineSync,
-  type RoutineScheduleSnapshot,
-} from "../routines/RoutineSync.js";
+  AutomationScheduleSync,
+  type AutomationScheduleSnapshot,
+} from "../automations/AutomationScheduleSync.js";
 import { createHotkeysPlugin } from "../hotkeys/createHotkeysPlugin.js";
 import path from "node:path";
 import { TursoThreadRepo } from "../storage/TursoThreadRepo.js";
@@ -79,8 +77,8 @@ export type WorkspaceServerHost = {
   >;
   remoteConnections?: import("../agent/runtime/ConnectionService.js").RemoteConnectionBackend;
   remoteIntegrationTools?: RemoteIntegrationTools;
-  reportRoutineSchedule?: (
-    snapshot: RoutineScheduleSnapshot,
+  reportAutomationSchedule?: (
+    snapshot: AutomationScheduleSnapshot,
     signal: AbortSignal,
   ) => Promise<void | Error>;
   reportWorkIdle?: (
@@ -115,7 +113,9 @@ export class WorkspaceServer {
   private readonly sessions: ThreadManager;
   private readonly automationRunner: AutomationRunner;
   private readonly automationSync: AutomationSync | undefined;
-  private readonly routineScheduler: RoutineScheduler | RoutineSync;
+  private readonly automationScheduler:
+    | AutomationScheduler
+    | AutomationScheduleSync;
   private readonly toolRuntime: ToolRuntime;
   private readonly connectionService: ConnectionService;
   private readonly browsers: BrowserService;
@@ -132,7 +132,7 @@ export class WorkspaceServer {
     workspace: WorkspaceService;
     sessions: ThreadManager;
     automationRunner: AutomationRunner;
-    routineScheduler: RoutineScheduler | RoutineSync;
+    automationScheduler: AutomationScheduler | AutomationScheduleSync;
     automationSync: AutomationSync | undefined;
     toolRuntime: ToolRuntime;
     connectionService: ConnectionService;
@@ -149,7 +149,7 @@ export class WorkspaceServer {
       workspace,
       sessions,
       automationRunner,
-      routineScheduler,
+      automationScheduler,
       automationSync,
       toolRuntime,
       connectionService,
@@ -166,7 +166,7 @@ export class WorkspaceServer {
     this.workspace = workspace;
     this.sessions = sessions;
     this.automationRunner = automationRunner;
-    this.routineScheduler = routineScheduler;
+    this.automationScheduler = automationScheduler;
     this.automationSync = automationSync;
     this.toolRuntime = toolRuntime;
     this.connectionService = connectionService;
@@ -262,7 +262,6 @@ export class WorkspaceServer {
     if (hotkeys instanceof Error) return hotkeys;
     const automations = await AutomationService.open({ database });
     if (automations instanceof Error) return automations;
-    const routines = new RoutineService({ automations });
     const [initialized, toolRuntime] = await Promise.all([
       workspace.initialize(),
       ToolRuntime.create({
@@ -350,15 +349,11 @@ export class WorkspaceServer {
       workspaceRoot,
       logger: host.logger,
     });
-    const routineRunner = new RoutineRunner({
-      automations: automationRunner,
-      routines,
-    });
     cleanup.defer(async () => await automationRunner.stop());
-    const recoveredRoutines = await automationRunner.recover({
-      preserveDue: host.reportRoutineSchedule !== undefined,
+    const recoveredAutomations = await automationRunner.recover({
+      preserveDue: host.reportAutomationSchedule !== undefined,
     });
-    if (recoveredRoutines instanceof Error) return recoveredRoutines;
+    if (recoveredAutomations instanceof Error) return recoveredAutomations;
     const recovered = await sessions.start();
     if (recovered instanceof Error) return recovered;
     await automationRunner.startWorker();
@@ -371,19 +366,19 @@ export class WorkspaceServer {
       report: host.reportWorkIdle,
     });
     cleanup.defer(async () => await idleReporter.close());
-    const routineScheduler =
-      host.reportRoutineSchedule === undefined
-        ? new RoutineScheduler({
-            routines,
-            runner: routineRunner,
+    const automationScheduler =
+      host.reportAutomationSchedule === undefined
+        ? new AutomationScheduler({
+            automations,
+            runner: automationRunner,
             logger: host.logger,
           })
-        : new RoutineSync({
-            routines,
-            report: host.reportRoutineSchedule,
+        : new AutomationScheduleSync({
+            automations,
+            report: host.reportAutomationSchedule,
             logger: host.logger,
           });
-    cleanup.defer(async () => await routineScheduler.stop());
+    cleanup.defer(async () => await automationScheduler.stop());
     const automationSync =
       host.automationControl === undefined
         ? undefined
@@ -405,8 +400,6 @@ export class WorkspaceServer {
       context: {
         build: config.build,
         hotkeys,
-        routines,
-        routineRunner,
         automations,
         automationRunner,
         automationSources,
@@ -428,7 +421,7 @@ export class WorkspaceServer {
     });
     cleanup.defer(async () => await requests.close());
     await extensions.reload();
-    const scheduled = await routineScheduler.start();
+    const scheduled = await automationScheduler.start();
     if (scheduled instanceof Error) return scheduled;
     cleanup.move();
     return new WorkspaceServer({
@@ -439,7 +432,7 @@ export class WorkspaceServer {
       workspace,
       sessions,
       automationRunner,
-      routineScheduler,
+      automationScheduler,
       automationSync,
       toolRuntime,
       connectionService,
@@ -463,7 +456,7 @@ export class WorkspaceServer {
     await this.requests.close();
     this.connectionService.close();
     // Routine runs record their interruption before their sessions close.
-    await this.routineScheduler.stop();
+    await this.automationScheduler.stop();
     await this.automationSync?.close();
     await this.automationRunner.stop();
     const sessionsClosed = await this.sessions.shutdown();

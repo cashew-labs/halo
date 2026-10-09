@@ -9,7 +9,6 @@ import type {
 } from "./automations.js";
 import type { ServerInfo } from "./protocol.js";
 import type { Hotkey, HotkeyInput } from "./hotkeys.js";
-import type { Routine, RoutineInput, RoutineRun } from "./routines.js";
 import type { ChatPrompt } from "./chatAttachments.js";
 import type { WorkspaceFilePreview } from "./rpc.js";
 import type { WorkspaceSearchResponse } from "./search.js";
@@ -36,10 +35,10 @@ import type {
   WorkspaceTreeEvent,
 } from "./rpc.js";
 
-// Automation APIs are additive. Existing clients keep the protocol-25 stream
-// unless they explicitly subscribe to automation updates.
-export const haloProtocolVersion = 25 as const;
-export const haloSupportedProtocols = [24, haloProtocolVersion];
+// Protocol 25 automation clients remain supported; routine APIs are retired.
+// Automation stream updates still require an explicit opt-in.
+export const haloProtocolVersion = 26 as const;
+export const haloSupportedProtocols = [25, haloProtocolVersion];
 
 export const RequestRejectedError = error("BAD_REQUEST", {
   message: "Halo could not complete the request.",
@@ -82,7 +81,6 @@ export type BrowserExecution = {
 
 export type WorkspaceUpdate =
   | { type: "hotkeys"; hotkeys: Hotkey[] }
-  | { type: "routines"; routines: Routine[] }
   | { type: "automations"; automations: Automation[] }
   | { type: "extensions"; extensions: ExtensionSummary[] }
   | { type: "extensionsError"; message: string }
@@ -195,20 +193,6 @@ export const contract = publicProcedure.router({
     listRuns: oc
       .input(type<{ automationId: string; limit?: number }>())
       .output(type<AutomationRun[]>()),
-  },
-  routines: {
-    list: oc.output(type<Routine[]>()),
-    watch: oc.output(asyncIteratorObject(type<Routine[]>())),
-    save: oc.input(type<RoutineInput>()).output(type<Routine>()),
-    remove: oc.input(type<{ routineId: string }>()).output(type<void>()),
-    setEnabled: oc
-      .input(type<{ routineId: string; enabled: boolean }>())
-      .output(type<Routine>()),
-    runNow: oc.input(type<{ routineId: string }>()).output(type<RoutineRun>()),
-    runScheduled: oc.input(type<{ routineId: string }>()).output(type<void>()),
-    listRuns: oc
-      .input(type<{ routineId: string; limit?: number }>())
-      .output(type<RoutineRun[]>()),
   },
   thread: {
     list: oc.output(type<SessionSummary[]>()),

@@ -64,6 +64,7 @@ class WorkspaceHostDriver {
   readonly requests: string[] = [];
   readonly exeAuthorizations: Array<string | undefined> = [];
   readonly scheduledProtocols: string[] = [];
+  readonly eventProtocols: string[] = [];
   private readonly server: http.Server;
 
   private constructor(ctx: { appDataDir: string }) {
@@ -80,9 +81,9 @@ class WorkspaceHostDriver {
         response.writeHead(401).end();
         return;
       }
-      if (request.url === "/rpc/routines/runScheduled") {
+      if (request.url === "/rpc/automations/runScheduled") {
         const protocol = request.headers["x-halo-protocol-version"];
-        // Model the pre-automation workspace during a rolling deployment.
+        // Model a released protocol 25 workspace during a rolling deployment.
         if (protocol !== "25") {
           response.writeHead(400).end();
           return;
@@ -91,6 +92,18 @@ class WorkspaceHostDriver {
         response
           .writeHead(200, { "content-type": "application/json" })
           .end('{"json":null}');
+        return;
+      }
+      if (request.url === "/rpc/automations/acceptEvent") {
+        const protocol = request.headers["x-halo-protocol-version"];
+        if (protocol !== "25") {
+          response.writeHead(400).end();
+          return;
+        }
+        this.eventProtocols.push(protocol);
+        response
+          .writeHead(200, { "content-type": "application/json" })
+          .end('{"json":{"id":"released-workspace-run"}}');
         return;
       }
       if (request.url === "/headers") {
@@ -2947,7 +2960,7 @@ controlPlaneTest(
   },
 );
 
-const sleepingRoutineTest = controlPlaneTest.extend<{
+const sleepingAutomationTest = controlPlaneTest.extend<{
   sleepingProvider: {
     paused: boolean;
     clockReady: boolean;
@@ -3007,8 +3020,8 @@ const sleepingRoutineTest = controlPlaneTest.extend<{
   },
 });
 
-sleepingRoutineTest(
-  "wakes a sleeping workspace and dispatches its due routine",
+sleepingAutomationTest(
+  "wakes a sleeping workspace and dispatches its due automation",
   async ({
     plane,
     authenticatedRpc,
@@ -3027,9 +3040,9 @@ sleepingRoutineTest(
       },
     });
     if (published instanceof Error) throw published;
-    const endpoint = `${plane.origin}/api/workspace-runtime/routines`;
+    const endpoint = `${plane.origin}/api/workspace-runtime/automations/schedules`;
     const due = {
-      routines: [
+      automations: [
         {
           id: "morning-report",
           nextRunAt: new Date(Date.now() - 1000).toISOString(),
@@ -3042,10 +3055,34 @@ sleepingRoutineTest(
       headers: { authorization: "Bearer invalid" },
     });
     expect(unauthorized.status).toBe(401);
+    const oldRoute = await fetch(
+      `${plane.origin}/api/workspace-runtime/routines`,
+      {
+        method: "POST",
+        body: JSON.stringify({ routines: due.automations }),
+        headers: { authorization: `Bearer ${runtime.token}` },
+      },
+    );
+    expect(oldRoute.status).toBe(404);
+    const oldPayload = await fetch(endpoint, {
+      method: "POST",
+      body: JSON.stringify({ routines: due.automations }),
+      headers: { authorization: `Bearer ${runtime.token}` },
+    });
+    expect(oldPayload.status).toBe(400);
+    for (const body of ["{", "x".repeat(256 * 1024 + 1)]) {
+      const malformed = await fetch(endpoint, {
+        method: "POST",
+        body,
+        headers: { authorization: `Bearer ${runtime.token}` },
+      });
+      expect(malformed.status).toBe(400);
+    }
+
     const invalid = await fetch(endpoint, {
       method: "POST",
       body: JSON.stringify({
-        routines: [{ id: "bad", nextRunAt: "not a date" }],
+        automations: [{ id: "bad", nextRunAt: "not a date" }],
       }),
       headers: { authorization: `Bearer ${runtime.token}` },
     });
@@ -3058,7 +3095,7 @@ sleepingRoutineTest(
     expect(accepted.status).toBe(204);
     await vi.waitFor(() => {
       expect(sleepingProvider.paused).toBe(false);
-      expect(workspaceHost.requests).toContain("/rpc/routines/runScheduled");
+      expect(workspaceHost.requests).toContain("/rpc/automations/runScheduled");
       expect(workspaceHost.scheduledProtocols).toContain("25");
       expect(workspaceHost.exeAuthorizations).toContain("test-private-token");
     });
@@ -3066,7 +3103,7 @@ sleepingRoutineTest(
   },
 );
 
-sleepingRoutineTest(
+sleepingAutomationTest(
   "repairs the guest clock after resume unpauses the VM but clock sync fails",
   async ({
     plane,
@@ -3090,9 +3127,9 @@ sleepingRoutineTest(
     const now = Date.now();
     const dateNow = vi.spyOn(Date, "now").mockReturnValue(now);
     const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
-    const endpoint = `${plane.origin}/api/workspace-runtime/routines`;
+    const endpoint = `${plane.origin}/api/workspace-runtime/automations/schedules`;
     const snapshot = {
-      routines: [
+      automations: [
         { id: "morning-report", nextRunAt: new Date(now - 1000).toISOString() },
       ],
     };
@@ -3108,14 +3145,16 @@ sleepingRoutineTest(
       expect(sleepingProvider.paused).toBe(false);
       expect(sleepingProvider.clockReady).toBe(false);
       expect(workspaceHost.requests).not.toContain(
-        "/rpc/routines/runScheduled",
+        "/rpc/automations/runScheduled",
       );
 
       dateNow.mockReturnValue(now + 31_000);
       expect((await publish()).status).toBe(204);
       await vi.waitFor(() => {
         expect(sleepingProvider.clockSyncAttempts).toBe(1);
-        expect(workspaceHost.requests).toContain("/rpc/routines/runScheduled");
+        expect(workspaceHost.requests).toContain(
+          "/rpc/automations/runScheduled",
+        );
       });
       expect(sleepingProvider.resumeAttempts).toBe(1);
     } finally {
@@ -3395,7 +3434,7 @@ controlPlaneTest(
     const alice = await readRuntimeSettings(appDataDir);
     const endpoint = `${plane.origin}/api/workspace-runtime/automations`;
     const definition = {
-      id: "incoming-mail",
+      id: "schedules",
       revision: 1,
       name: "Incoming mail",
       enabled: true,
@@ -3446,6 +3485,61 @@ controlPlaneTest(
         })
       ).status,
     ).toBe(404);
+  },
+);
+
+controlPlaneTest(
+  "delivers webhook events to a released protocol-25 workspace during rollout",
+  async ({ plane, authenticatedRpc, appDataDir, workspaceHost }) => {
+    await authenticatedRpc.workspace.ensure();
+    const published = await writeWorkspaceServerConnection({
+      appDataDir,
+      connection: {
+        workspaceRoot: appDataDir,
+        origin: workspaceHost.origin,
+        token: "test-workspace-token",
+      },
+    });
+    if (published instanceof Error) throw published;
+    const runtime = await readRuntimeSettings(appDataDir);
+    const control = new ControlPlaneAutomationClient({
+      origin: plane.origin,
+      token: runtime.token,
+    });
+    const registered = await control.report(
+      {
+        generation: 1,
+        automations: [
+          {
+            id: "released-webhook",
+            revision: 1,
+            name: "Released webhook",
+            enabled: true,
+            activation: { type: "trigger", trigger: { type: "webhook" } },
+          },
+        ],
+      },
+      new AbortController().signal,
+    );
+    if (registered instanceof Error) throw registered;
+    const access = await control.webhookAccess({
+      automationId: "released-webhook",
+    });
+    if (access instanceof Error) throw access;
+    const accepted = await fetch(access.url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ marker: "protocol25" }),
+    });
+    expect(accepted.status).toBe(202);
+    await expect
+      .poll(async () => await control.status("released-webhook"), {
+        timeout: 3000,
+      })
+      .toMatchObject({
+        deliveries: [{ status: "delivered", runId: "released-workspace-run" }],
+      });
+    expect(workspaceHost.eventProtocols).toEqual(["25"]);
   },
 );
 

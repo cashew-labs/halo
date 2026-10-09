@@ -105,7 +105,6 @@ export function WorkspaceUpdatesProvider({
           );
           return;
         }
-        if (item.type === "routines") return;
         setState((current) => {
           const previous =
             current.workspaceRoot === workspaceRoot ? current : empty;

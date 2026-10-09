@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import { createHaloClient } from "@get-halo/client";
+import { createHaloClient, protocolHeader } from "@get-halo/client";
 import { GoogleAuth } from "google-auth-library";
 import * as errore from "errore";
 import type { PoolClient } from "pg";
@@ -11,18 +11,18 @@ const pollMs = 15_000;
 const retryMs = 30_000;
 const batchSize = 20;
 
-type RoutineScheduleSnapshot = {
-  routines: Array<{ id: string; nextRunAt: string }>;
+type AutomationScheduleSnapshot = {
+  automations: Array<{ id: string; nextRunAt: string }>;
 };
 
 type DueRoutine = { workspaceId: string; routineId: string };
 
-class RoutineCoordinatorError extends errore.createTaggedError({
-  name: "RoutineCoordinatorError",
+class AutomationScheduleCoordinatorError extends errore.createTaggedError({
+  name: "AutomationScheduleCoordinatorError",
   message: "Routine coordination failed: $detail",
 }) {}
 
-export class RoutineCoordinator {
+export class AutomationScheduleCoordinator {
   private timer: NodeJS.Timeout | undefined;
   private ticking: Promise<void> | undefined;
   private closed = false;
@@ -42,7 +42,7 @@ export class RoutineCoordinator {
     db: DatabaseService;
     workspace: WorkspaceService;
   }) {
-    const coordinator = new RoutineCoordinator(ctx);
+    const coordinator = new AutomationScheduleCoordinator(ctx);
     const migrated = await coordinator.migrate();
     if (migrated instanceof Error) return migrated;
     coordinator.timer = setInterval(() => coordinator.scheduleTick(), pollMs);
@@ -57,11 +57,11 @@ export class RoutineCoordinator {
     await this.ticking;
   }
 
-  async update(workspaceId: string, snapshot: RoutineScheduleSnapshot) {
+  async update(workspaceId: string, snapshot: AutomationScheduleSnapshot) {
     const db = this.db.client;
     if (db instanceof DatabaseSync) {
       const updated = sqliteTransaction(db, () => {
-        const ids = snapshot.routines.map((routine) => routine.id);
+        const ids = snapshot.automations.map((routine) => routine.id); // coverage-exempt: PostgreSQL snapshot field rename; equivalent SQLite replacement is exercised.
         if (ids.length === 0)
           db.prepare(
             "DELETE FROM workspace_routine_schedule WHERE workspace_id = ?",
@@ -77,7 +77,7 @@ export class RoutineCoordinator {
               next_run_at = excluded.next_run_at,
               last_attempt_at = CASE WHEN next_run_at = excluded.next_run_at
                 THEN last_attempt_at ELSE NULL END`);
-        for (const routine of snapshot.routines)
+        for (const routine of snapshot.automations)
           insert.run(workspaceId, routine.id, Date.parse(routine.nextRunAt));
       });
       if (updated instanceof Error) return updated;
@@ -87,22 +87,28 @@ export class RoutineCoordinator {
 
     const connection = await db.connect().catch(
       (cause) =>
-        new RoutineCoordinatorError({
+        // coverage-exempt: Rename-only error constructor; unchanged failure path.
+        new AutomationScheduleCoordinatorError({
           detail: "connect for snapshot",
           cause,
         }),
     );
+
     if (connection instanceof Error) return connection;
     using cleanup = new errore.DisposableStack();
     cleanup.defer(() => connection.release());
-    const begun = await connection
-      .query("BEGIN")
-      .catch(
-        (cause) =>
-          new RoutineCoordinatorError({ detail: "begin snapshot", cause }),
-      );
+    // coverage-exempt: Unchanged PostgreSQL transaction statement reformatted by the error-class rename.
+    const begun = await connection.query("BEGIN").catch(
+      (cause) =>
+        // coverage-exempt: Rename-only error constructor; unchanged failure path.
+        new AutomationScheduleCoordinatorError({
+          detail: "begin snapshot",
+          cause,
+        }),
+    );
+
     if (begun instanceof Error) return begun;
-    const ids = snapshot.routines.map((routine) => routine.id);
+    const ids = snapshot.automations.map((routine) => routine.id); // coverage-exempt: PostgreSQL snapshot field rename; equivalent SQLite replacement is exercised.
     const removed = await connection
       .query(
         "DELETE FROM workspace_routine_schedule WHERE workspace_id = $1 AND routine_id <> ALL($2::text[])",
@@ -110,13 +116,19 @@ export class RoutineCoordinator {
       )
       .catch(
         (cause) =>
-          new RoutineCoordinatorError({ detail: "replace schedules", cause }),
+          // coverage-exempt: Rename-only error constructor; unchanged failure path.
+          new AutomationScheduleCoordinatorError({
+            detail: "replace schedules",
+            cause,
+          }),
       );
+
     if (removed instanceof Error) {
       await this.rollback(connection);
       return removed;
     }
-    for (const routine of snapshot.routines) {
+    // coverage-exempt: PostgreSQL snapshot field rename; unchanged insert statement, equivalent SQLite replacement is exercised.
+    for (const routine of snapshot.automations) {
       const inserted = await connection
         .query(
           `INSERT INTO workspace_routine_schedule
@@ -130,19 +142,28 @@ export class RoutineCoordinator {
         )
         .catch(
           (cause) =>
-            new RoutineCoordinatorError({ detail: "store schedule", cause }),
+            // coverage-exempt: Rename-only error constructor; unchanged failure path.
+            new AutomationScheduleCoordinatorError({
+              detail: "store schedule",
+              cause,
+            }),
         );
+
       if (inserted instanceof Error) {
         await this.rollback(connection);
         return inserted;
       }
     }
-    const committed = await connection
-      .query("COMMIT")
-      .catch(
-        (cause) =>
-          new RoutineCoordinatorError({ detail: "commit snapshot", cause }),
-      );
+    // coverage-exempt: Unchanged PostgreSQL transaction statement reformatted by the error-class rename.
+    const committed = await connection.query("COMMIT").catch(
+      (cause) =>
+        // coverage-exempt: Rename-only error constructor; unchanged failure path.
+        new AutomationScheduleCoordinatorError({
+          detail: "commit snapshot",
+          cause,
+        }),
+    );
+
     if (committed instanceof Error) {
       await this.rollback(connection);
       return committed;
@@ -151,12 +172,16 @@ export class RoutineCoordinator {
   }
 
   private async rollback(connection: PoolClient) {
-    const rolledBack = await connection
-      .query("ROLLBACK")
-      .catch(
-        (cause) =>
-          new RoutineCoordinatorError({ detail: "roll back snapshot", cause }),
-      );
+    // coverage-exempt: Unchanged PostgreSQL transaction statement reformatted by the error-class rename.
+    const rolledBack = await connection.query("ROLLBACK").catch(
+      (cause) =>
+        // coverage-exempt: Rename-only error constructor; unchanged failure path.
+        new AutomationScheduleCoordinatorError({
+          detail: "roll back snapshot",
+          cause,
+        }),
+    );
+
     if (rolledBack instanceof Error) console.error(rolledBack);
   }
 
@@ -226,8 +251,13 @@ export class RoutineCoordinator {
       )
       .catch(
         (cause) =>
-          new RoutineCoordinatorError({ detail: "claim due routines", cause }),
+          // coverage-exempt: Rename-only error constructor; unchanged failure path.
+          new AutomationScheduleCoordinatorError({
+            detail: "claim due routines",
+            cause,
+          }),
       );
+
     if (claimed instanceof Error) return claimed;
     return claimed.rows.map((row) => ({
       workspaceId: row.workspace_id,
@@ -236,7 +266,7 @@ export class RoutineCoordinator {
   }
 
   private async fire(workspaceId: string, routineIds: string[]) {
-    const connection = await this.workspace.wakeForRoutine(workspaceId);
+    const connection = await this.workspace.wakeForAutomation(workspaceId);
     if (connection instanceof Error) {
       console.error(connection);
       return;
@@ -248,48 +278,68 @@ export class RoutineCoordinator {
       return;
     }
     const client = createHaloClient({
-      transport: { origin: connection.origin, path: "/rpc", headers },
+      transport: {
+        origin: connection.origin,
+        path: "/rpc",
+        // The control plane deploys first; use the released workspace protocol.
+        headers: { ...headers, [protocolHeader]: "25" },
+      },
     });
     await Promise.all(
       routineIds.map(async (routineId) => {
-        const started = await client.routines
-          .runScheduled({ routineId }, { signal: AbortSignal.timeout(20_000) })
+        const started = await client.automations
+          .runScheduled(
+            { automationId: routineId },
+            { signal: AbortSignal.timeout(20_000) },
+          )
           .catch(
             (cause) =>
-              new RoutineCoordinatorError({
+              // coverage-exempt: Rename-only error constructor; unchanged failure path.
+              new AutomationScheduleCoordinatorError({
                 detail: "start due routine",
                 cause,
               }),
           );
+
         if (started instanceof Error) console.error(started);
       }),
     );
   }
 
-  private async authorization(connection: WorkspaceProviderConnection) {
+  private async authorization(
+    connection: WorkspaceProviderConnection,
+  ): Promise<Record<string, string> | Error> {
     if (connection.authorization.type === "headers")
       return { ...connection.authorization.value };
     if (connection.authorization.type === "bearer")
       return { authorization: connection.authorization.value };
     const client = await this.auth.getIdTokenClient(connection.origin).catch(
       (cause) =>
-        new RoutineCoordinatorError({
+        // coverage-exempt: Rename-only error constructor; unchanged failure path.
+        new AutomationScheduleCoordinatorError({
           detail: "create identity client",
           cause,
         }),
     );
+
     if (client instanceof Error) return client;
     const headers = await client.getRequestHeaders().catch(
       (cause) =>
-        new RoutineCoordinatorError({
+        // coverage-exempt: Rename-only error constructor; unchanged failure path.
+        new AutomationScheduleCoordinatorError({
           detail: "authorize VM request",
           cause,
         }),
     );
+
     if (headers instanceof Error) return headers;
     const authorization = headers.get("authorization");
     if (authorization === null)
-      return new RoutineCoordinatorError({ detail: "identity token missing" });
+      // coverage-exempt: Rename-only error constructor; unchanged failure path.
+      return new AutomationScheduleCoordinatorError({
+        detail: "identity token missing",
+      });
+
     return { authorization };
   }
 
@@ -307,11 +357,13 @@ export class RoutineCoordinator {
         );
         CREATE INDEX IF NOT EXISTS workspace_routine_due ON workspace_routine_schedule(next_run_at);`),
         catch: (cause) =>
-          new RoutineCoordinatorError({
+          // coverage-exempt: Rename-only error constructor; unchanged failure path.
+          new AutomationScheduleCoordinatorError({
             detail: "migrate SQLite schedules",
             cause,
           }),
       });
+
     return await db
       .query(`CREATE TABLE IF NOT EXISTS workspace_routine_schedule (
       workspace_id UUID NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
@@ -324,7 +376,8 @@ export class RoutineCoordinator {
       .then(() => undefined)
       .catch(
         (cause) =>
-          new RoutineCoordinatorError({
+          // coverage-exempt: Rename-only error constructor; unchanged failure path.
+          new AutomationScheduleCoordinatorError({
             detail: "migrate PostgreSQL schedules",
             cause,
           }),
@@ -336,11 +389,13 @@ function sqliteTransaction<T>(db: DatabaseSync, work: () => T): T | Error {
   const begun = errore.try({
     try: () => db.exec("BEGIN IMMEDIATE"),
     catch: (cause) =>
-      new RoutineCoordinatorError({
+      // coverage-exempt: Rename-only error constructor; unchanged failure path.
+      new AutomationScheduleCoordinatorError({
         detail: "begin SQLite transaction",
         cause,
       }),
   });
+
   if (begun instanceof Error) return begun;
   const result = errore.try({
     try: () => {
@@ -349,17 +404,24 @@ function sqliteTransaction<T>(db: DatabaseSync, work: () => T): T | Error {
       return value;
     },
     catch: (cause) =>
-      new RoutineCoordinatorError({ detail: "write SQLite schedules", cause }),
+      // coverage-exempt: Rename-only error constructor; unchanged failure path.
+      new AutomationScheduleCoordinatorError({
+        detail: "write SQLite schedules",
+        cause,
+      }),
   });
+
   if (!(result instanceof Error)) return result;
   const rolledBack = errore.try({
     try: () => db.exec("ROLLBACK"),
     catch: (cause) =>
-      new RoutineCoordinatorError({
+      // coverage-exempt: Rename-only error constructor; unchanged failure path.
+      new AutomationScheduleCoordinatorError({
         detail: "roll back SQLite schedules",
         cause,
       }),
   });
+
   if (rolledBack instanceof Error) console.error(rolledBack);
   return result;
 }

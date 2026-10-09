@@ -12,7 +12,7 @@ import type { AutomationStore } from "./AutomationStore.js";
 
 class AutomationSnapshotError extends errore.createTaggedError({
   name: "AutomationSnapshotError",
-  message: "Invalid workspace routine snapshot",
+  message: "Invalid workspace automation snapshot",
 }) {}
 
 export async function serveAutomationSnapshot(
