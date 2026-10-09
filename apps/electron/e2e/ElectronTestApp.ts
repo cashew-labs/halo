@@ -22,7 +22,10 @@ type RunningApp = {
 
 export class ElectronTestApp {
   private current: RunningApp | undefined;
-  constructor(private readonly artifacts: TestArtifacts) {}
+  constructor(
+    private readonly artifacts: TestArtifacts,
+    private readonly traceSnapshots: boolean,
+  ) {}
 
   get page() {
     return this.running.page;
@@ -65,7 +68,7 @@ export class ElectronTestApp {
     if (captured instanceof Error) throw captured;
     await electronApp
       .context()
-      .tracing.start({ screenshots: true, snapshots: true });
+      .tracing.start({ screenshots: true, snapshots: this.traceSnapshots });
     resources.defer(
       async () =>
         await electronApp.context().tracing.stop({ path: launch.trace }),
