@@ -31,6 +31,8 @@ export type IntegrationSetup = IntegrationSetupCatalogEntry & {
   connectionName: string;
   // The account the user asked to connect, shown as a hint.
   account?: string;
+  // The Halo account that receives the connection, when Halo opened the page.
+  owner?: string;
   status:
     | "awaiting_credentials"
     | "authorizing"
@@ -217,6 +219,31 @@ export const controlPlaneContract = publicProcedure.router({
         validated(
           Type.Object(
             { setupId: Type.String({ minLength: 1, maxLength: 128 }) },
+            { additionalProperties: false },
+          ),
+        ),
+      )
+      .output(type<void>()),
+    // Signed-in Halo clients issue a single-use link for the browser they open.
+    createSetupHandoff: authenticatedProcedure
+      .input(
+        validated(
+          Type.Object(
+            { setupId: Type.String({ minLength: 1, maxLength: 128 }) },
+            { additionalProperties: false },
+          ),
+        ),
+      )
+      .output(type<{ url: string }>()),
+    // Binds the redeeming browser to the setup with a cookie.
+    redeemSetupHandoff: publicProcedure
+      .input(
+        validated(
+          Type.Object(
+            {
+              setupId: Type.String({ minLength: 1, maxLength: 128 }),
+              handoff: Type.String({ minLength: 1, maxLength: 128 }),
+            },
             { additionalProperties: false },
           ),
         ),

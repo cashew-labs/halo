@@ -124,7 +124,15 @@ type SetupRow = {
   status: IntegrationSetup["status"];
   expires_at: number;
   oauth_state?: string;
+  owner_label?: string | null;
 };
+
+// A handoff link lets the browser that Halo opened act for the setup owner.
+const handoffTtlMs = 2 * 60 * 1_000;
+
+function secretHash(secret: string) {
+  return crypto.createHash("sha256").update(secret).digest("base64url");
+}
 
 // Persist only identity/bindings, never credentials; reconnect is fixed at start.
 type StoredSetup = IntegrationSetup & {
@@ -261,6 +269,11 @@ export class IntegrationService {
       "DROP INDEX IF EXISTS halo_integration_setup_name",
     );
     if (dropped instanceof Error) return dropped;
+    // Stores only hashes of the handoff and browser secrets.
+    const browsers = await service.sql(
+      "CREATE TABLE IF NOT EXISTS halo_integration_setup_browser (setup_id TEXT PRIMARY KEY, handoff_hash TEXT, handoff_expires_at BIGINT, browser_hash TEXT, owner_label TEXT)",
+    );
+    if (browsers instanceof Error) return browsers;
     return service;
   }
 
@@ -356,7 +369,9 @@ export class IntegrationService {
   async setup(ctx: { userId: string; setupId: string }) {
     const setup = await this.readSetup(ctx);
     if (setup instanceof Error) return setup;
-    const { reconnect: _reconnect, ...publicSetup } = setup;
+    const { reconnect: _reconnect, ownerLabel, ...stored } = setup;
+    const publicSetup: IntegrationSetup =
+      ownerLabel === undefined ? stored : { ...stored, owner: ownerLabel };
     if (setup.status === "ready") return publicSetup;
     const receipt = await this.withUser(ctx.userId, (executor) =>
       executor.haloSetups.get(ctx.setupId),
@@ -386,7 +401,7 @@ export class IntegrationService {
     );
     if (expired instanceof Error) return expired;
     const rows = await this.sql(
-      "SELECT * FROM halo_integration_setup WHERE setup_id=$1 AND user_id=$2",
+      "SELECT s.*, b.owner_label FROM halo_integration_setup s LEFT JOIN halo_integration_setup_browser b ON b.setup_id=s.setup_id WHERE s.setup_id=$1 AND s.user_id=$2",
       [ctx.setupId, ctx.userId],
     );
     if (rows instanceof Error) return rows;
@@ -400,7 +415,65 @@ export class IntegrationService {
         new IntegrationServiceError({ detail: "read setup", cause }),
     });
     if (parsed instanceof Error) return parsed;
-    return { ...parsed, status: row.status };
+    return {
+      ...parsed,
+      status: row.status,
+      ownerLabel: row.owner_label ?? undefined,
+    };
+  }
+
+  // Issues a single-use link that binds the browser opening it to this setup.
+  async createSetupHandoff(ctx: {
+    userId: string;
+    setupId: string;
+    ownerLabel: string;
+  }) {
+    const setup = await this.readSetup(ctx);
+    if (setup instanceof Error) return setup;
+    if (setup.status !== "awaiting_credentials")
+      return new IntegrationSetupError({
+        detail: "Setup is no longer awaiting credentials",
+      });
+    const handoff = crypto.randomBytes(32).toString("base64url");
+    const saved = await this.sql(
+      "INSERT INTO halo_integration_setup_browser (setup_id,handoff_hash,handoff_expires_at,owner_label) VALUES ($1,$2,$3,$4) ON CONFLICT (setup_id) DO UPDATE SET handoff_hash=excluded.handoff_hash, handoff_expires_at=excluded.handoff_expires_at, owner_label=excluded.owner_label",
+      [
+        ctx.setupId,
+        secretHash(handoff),
+        Date.now() + handoffTtlMs,
+        ctx.ownerLabel,
+      ],
+    );
+    if (saved instanceof Error) return saved;
+    // The fragment keeps the handoff out of request URLs and logs.
+    return {
+      url: `${this.setupUrl(ctx.setupId)}#handoff=${encodeURIComponent(handoff)}`,
+    };
+  }
+
+  // Consumes a handoff once and returns the secret for that browser's cookie.
+  async redeemSetupHandoff(ctx: { setupId: string; handoff: string }) {
+    const browser = crypto.randomBytes(32).toString("base64url");
+    const rows = await this.sql(
+      "UPDATE halo_integration_setup_browser SET handoff_hash=NULL, browser_hash=$1 WHERE setup_id=$2 AND handoff_hash=$3 AND handoff_expires_at > $4 RETURNING *",
+      [secretHash(browser), ctx.setupId, secretHash(ctx.handoff), Date.now()],
+    );
+    if (rows instanceof Error) return rows;
+    if (rows.length === 0)
+      return new IntegrationSetupError({
+        detail: "This setup link has expired or was already used",
+      });
+    return { browser };
+  }
+
+  // Returns the setup owner when the browser secret belongs to this setup.
+  async setupOwnerForBrowser(ctx: { setupId: string; browser: string }) {
+    const rows = await this.sql(
+      "SELECT s.user_id FROM halo_integration_setup s JOIN halo_integration_setup_browser b ON b.setup_id=s.setup_id WHERE s.setup_id=$1 AND b.browser_hash=$2",
+      [ctx.setupId, secretHash(ctx.browser)],
+    );
+    if (rows instanceof Error) return rows;
+    return rows[0]?.user_id;
   }
 
   async submitSetup(ctx: {
@@ -747,7 +820,38 @@ export class IntegrationService {
       );
   }
 
-  async oauthCallback(ctx: { state: string; code?: string }) {
+  async oauthCallback(ctx: {
+    state: string;
+    code?: string;
+    // The Halo user signed in to this browser, if any.
+    userId?: string;
+    // Setup browser secrets read from this browser's cookies.
+    browsers: ReadonlyMap<string, string>;
+  }) {
+    // Only the browser that started the setup, or its owner, may finish it.
+    const pending = await this.sql(
+      "SELECT setup_id, user_id FROM halo_integration_setup WHERE oauth_state=$1",
+      [ctx.state],
+    );
+    if (pending instanceof Error) return pending;
+    const owner = pending[0];
+    if (owner === undefined)
+      return new IntegrationSetupError({
+        detail: "Invalid or already consumed OAuth state",
+      });
+    const browser = ctx.browsers.get(owner.setup_id);
+    const browserOwner =
+      browser === undefined
+        ? undefined
+        : await this.setupOwnerForBrowser({
+            setupId: owner.setup_id,
+            browser,
+          });
+    if (browserOwner instanceof Error) return browserOwner;
+    if (ctx.userId !== owner.user_id && browserOwner !== owner.user_id)
+      return new IntegrationSetupError({
+        detail: "This browser did not start the setup",
+      });
     // Atomic durable claim provides single consumption even with multiple control-plane replicas.
     const rows = await this.sql(
       "UPDATE halo_integration_setup SET oauth_state='consuming' WHERE oauth_state=$1 AND oauth_state NOT IN ('submitting','consuming') AND status='authorizing' AND expires_at > $2 RETURNING *",

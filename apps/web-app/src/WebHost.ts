@@ -88,6 +88,14 @@ export class WebHost implements HostApi {
           (cause) =>
             new WebHostError({ operation: "cancel connection setup", cause }),
         ),
+    redeemHandoff: async (input) =>
+      await this.controlPlane.integrations
+        .redeemSetupHandoff(input)
+        .catch(
+          (cause) =>
+            new WebHostError({ operation: "open connection setup", cause }),
+        ),
+    signIn: async () => await this.signIn(),
   };
 
   async getAuthSession() {

@@ -22,6 +22,10 @@ import {
   IntegrationSetupError,
   type IntegrationService,
 } from "../integrations/IntegrationService.js";
+import {
+  setupBrowserCookie,
+  setupBrowserCookies,
+} from "../integrations/setupBrowserCookie.js";
 
 export type ControlPlaneContext = RequestHeadersHandlerPluginContext &
   ResponseHeadersHandlerPluginContext & {
@@ -68,56 +72,99 @@ const loadRuntime = implementer.middleware(async ({ context, next }) => {
   });
 });
 
+// Signed-in people only. Desktop bearer sessions are not ambient.
+async function integrationUser(context: ControlPlaneContext) {
+  const headers = context.reqHeaders ?? new Headers();
+  const origin = headers.get("origin");
+  // Browser cookies require same-origin requests. Desktop bearer sessions are not ambient.
+  if (origin !== null && origin !== context.publicOrigin)
+    throw new ORPCError("FORBIDDEN");
+  if (origin === null && !headers.get("authorization")?.startsWith("Bearer "))
+    throw new ORPCError("FORBIDDEN"); // coverage-exempt: moved unchanged from loadIntegrationUser
+  const session = await context.auth.getSession(headers);
+  if (session instanceof Error) throw internalError(session);
+  if (session === undefined) throw new ORPCError("UNAUTHORIZED");
+  if (context.integrations === undefined)
+    throw new ORPCError("SERVICE_UNAVAILABLE"); // coverage-exempt: moved unchanged from loadIntegrationUser
+  return {
+    ownerUserId: session.user.id,
+    ownerLabel: session.user.email,
+    integrations: context.integrations,
+  };
+}
+
+// Signed-in people or the owner's workspace runtime.
+async function integrationOwner(context: ControlPlaneContext) {
+  const headers = context.reqHeaders ?? new Headers();
+  const session = await context.auth.getSession(headers);
+  if (session instanceof Error) throw internalError(session);
+  const runtime =
+    session === undefined
+      ? await context.workspace.authenticateRuntimeOwner(headers)
+      : undefined;
+  if (runtime instanceof WorkspaceAuthenticationRequiredError)
+    throw new ORPCError("UNAUTHORIZED");
+  if (runtime instanceof Error) throw internalError(runtime);
+  if (context.integrations === undefined)
+    throw new ORPCError("SERVICE_UNAVAILABLE"); // coverage-exempt: moved unchanged from loadIntegrationOwner
+  if (
+    session !== undefined &&
+    headers.get("origin") !== null &&
+    headers.get("origin") !== context.publicOrigin
+  )
+    throw new ORPCError("FORBIDDEN"); // coverage-exempt: moved unchanged from loadIntegrationOwner
+  return {
+    ownerUserId: session?.user.id ?? runtime!.ownerUserId,
+    integrations: context.integrations,
+  };
+}
+
+// The browser that redeemed a setup's handoff acts for the setup owner, without
+// a Halo session.
+async function setupBrowserOwner(
+  context: ControlPlaneContext,
+  setupId: string,
+) {
+  const headers = context.reqHeaders ?? new Headers();
+  const browser = setupBrowserCookies(headers).get(setupId);
+  if (browser === undefined || context.integrations === undefined) return;
+  if (headers.get("origin") !== context.publicOrigin)
+    throw new ORPCError("FORBIDDEN");
+  const owner = await context.integrations.setupOwnerForBrowser({
+    setupId,
+    browser,
+  });
+  if (owner instanceof Error) throw internalError(owner);
+  if (owner === undefined) return;
+  return { ownerUserId: owner, integrations: context.integrations };
+}
+
 const loadIntegrationUser = implementer.middleware(
-  async ({ context, next }) => {
-    const headers = context.reqHeaders ?? new Headers();
-    const origin = headers.get("origin");
-    // Browser cookies require same-origin requests. Desktop bearer sessions are not ambient.
-    if (origin !== null && origin !== context.publicOrigin)
-      throw new ORPCError("FORBIDDEN");
-    if (origin === null && !headers.get("authorization")?.startsWith("Bearer "))
-      throw new ORPCError("FORBIDDEN");
-    const session = await context.auth.getSession(headers);
-    if (session instanceof Error) throw internalError(session);
-    if (session === undefined) throw new ORPCError("UNAUTHORIZED");
-    if (context.integrations === undefined)
-      throw new ORPCError("SERVICE_UNAVAILABLE");
-    return await next({
-      context: {
-        ownerUserId: session.user.id,
-        integrations: context.integrations,
-      },
-    });
-  },
+  async ({ context, next }) =>
+    await next({ context: await integrationUser(context) }),
 );
 
 const loadIntegrationOwner = implementer.middleware(
-  async ({ context, next }) => {
-    const headers = context.reqHeaders ?? new Headers();
-    const session = await context.auth.getSession(headers);
-    if (session instanceof Error) throw internalError(session);
-    const runtime =
-      session === undefined
-        ? await context.workspace.authenticateRuntimeOwner(headers)
-        : undefined;
-    if (runtime instanceof WorkspaceAuthenticationRequiredError)
-      throw new ORPCError("UNAUTHORIZED");
-    if (runtime instanceof Error) throw internalError(runtime);
-    if (context.integrations === undefined)
-      throw new ORPCError("SERVICE_UNAVAILABLE");
-    if (
-      session !== undefined &&
-      headers.get("origin") !== null &&
-      headers.get("origin") !== context.publicOrigin
-    )
-      throw new ORPCError("FORBIDDEN");
-    return await next({
-      context: {
-        ownerUserId: session?.user.id ?? runtime!.ownerUserId,
-        integrations: context.integrations,
-      },
-    });
-  },
+  async ({ context, next }) =>
+    await next({ context: await integrationOwner(context) }),
+);
+
+const loadSetupOwner = implementer.middleware(
+  async ({ context, next }, input: { setupId: string }) =>
+    await next({
+      context:
+        (await setupBrowserOwner(context, input.setupId)) ??
+        (await integrationOwner(context)),
+    }),
+);
+
+const loadSetupUser = implementer.middleware(
+  async ({ context, next }, input: { setupId: string }) =>
+    await next({
+      context:
+        (await setupBrowserOwner(context, input.setupId)) ??
+        (await integrationUser(context)),
+    }),
 );
 
 function integrationError(result: Error): never {
@@ -206,7 +253,7 @@ export const controlPlaneRpcRouter = os.router({
         return result;
       }),
     setup: os.integrations.setup
-      .use(loadIntegrationOwner)
+      .use(loadSetupOwner)
       .handler(async ({ context, input }) => {
         const result = await context.integrations.setup({
           ...input,
@@ -216,7 +263,7 @@ export const controlPlaneRpcRouter = os.router({
         return result;
       }),
     cancelSetup: os.integrations.cancelSetup
-      .use(loadIntegrationOwner)
+      .use(loadSetupOwner)
       .handler(async ({ context, input }) => {
         const result = await context.integrations.cancelSetup({
           ...input,
@@ -225,7 +272,7 @@ export const controlPlaneRpcRouter = os.router({
         if (result instanceof Error) return integrationError(result);
       }),
     submitSetup: os.integrations.submitSetup
-      .use(loadIntegrationUser)
+      .use(loadSetupUser)
       .handler(async ({ context, input }) => {
         const result = await context.integrations.submitSetup({
           ...input,
@@ -234,6 +281,36 @@ export const controlPlaneRpcRouter = os.router({
         if (result instanceof Error) return integrationError(result);
         return result;
       }),
+    createSetupHandoff: os.integrations.createSetupHandoff
+      .use(loadIntegrationUser)
+      .handler(async ({ context, input }) => {
+        const result = await context.integrations.createSetupHandoff({
+          ...input,
+          userId: context.ownerUserId,
+          ownerLabel: context.ownerLabel,
+        });
+        if (result instanceof Error) return integrationError(result);
+        return result;
+      }),
+    redeemSetupHandoff: os.integrations.redeemSetupHandoff.handler(
+      async ({ context, input }) => {
+        // The cookie is set only for the page that Halo opened on this origin.
+        if (context.reqHeaders?.get("origin") !== context.publicOrigin)
+          throw new ORPCError("FORBIDDEN");
+        if (context.integrations === undefined)
+          throw new ORPCError("SERVICE_UNAVAILABLE"); // coverage-exempt: integrations are configured in every tested deployment
+        const result = await context.integrations.redeemSetupHandoff(input);
+        if (result instanceof Error) return integrationError(result);
+        context.resHeaders?.append(
+          "set-cookie",
+          setupBrowserCookie({
+            setupId: input.setupId,
+            browser: result.browser,
+            publicOrigin: context.publicOrigin,
+          }),
+        );
+      },
+    ),
     registerOpenAPI: os.integrations.registerOpenAPI
       .use(loadIntegrationUser)
       .handler(async ({ context, input }) => {
