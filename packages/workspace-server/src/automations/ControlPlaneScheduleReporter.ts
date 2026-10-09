@@ -1,9 +1,9 @@
 import * as errore from "errore";
 import type { AutomationScheduleSnapshot } from "./AutomationScheduleSync.js";
 
-class RoutineReportError extends errore.createTaggedError({
-  name: "RoutineReportError",
-  message: "Could not publish workspace routines: $detail",
+class AutomationReportError extends errore.createTaggedError({
+  name: "AutomationReportError",
+  message: "Could not publish workspace automation schedules: $detail",
 }) {}
 
 export class ControlPlaneScheduleReporter {
@@ -17,7 +17,7 @@ export class ControlPlaneScheduleReporter {
 
   async report(snapshot: AutomationScheduleSnapshot, signal: AbortSignal) {
     const response = await fetch(
-      new URL("/api/workspace-runtime/routines", this.origin),
+      new URL("/api/workspace-runtime/automations/schedules", this.origin),
       {
         method: "POST",
         headers: {
@@ -29,16 +29,17 @@ export class ControlPlaneScheduleReporter {
         signal: AbortSignal.any([signal, AbortSignal.timeout(10_000)]),
       },
     ).catch(
-      (cause) => new RoutineReportError({ detail: "send snapshot", cause }),
+      (cause) => new AutomationReportError({ detail: "send snapshot", cause }),
     );
     if (response instanceof Error) return response;
     const closed = await response.body
       ?.cancel()
       .catch(
-        (cause) => new RoutineReportError({ detail: "close response", cause }),
+        (cause) =>
+          new AutomationReportError({ detail: "close response", cause }),
       );
     if (closed instanceof Error) return closed;
     if (!response.ok)
-      return new RoutineReportError({ detail: `HTTP ${response.status}` });
+      return new AutomationReportError({ detail: `HTTP ${response.status}` });
   }
 }

@@ -2947,7 +2947,7 @@ controlPlaneTest(
   },
 );
 
-const sleepingRoutineTest = controlPlaneTest.extend<{
+const sleepingAutomationTest = controlPlaneTest.extend<{
   sleepingProvider: {
     paused: boolean;
     clockReady: boolean;
@@ -3007,8 +3007,8 @@ const sleepingRoutineTest = controlPlaneTest.extend<{
   },
 });
 
-sleepingRoutineTest(
-  "wakes a sleeping workspace and dispatches its due routine",
+sleepingAutomationTest(
+  "wakes a sleeping workspace and dispatches its due automation",
   async ({
     plane,
     authenticatedRpc,
@@ -3027,9 +3027,9 @@ sleepingRoutineTest(
       },
     });
     if (published instanceof Error) throw published;
-    const endpoint = `${plane.origin}/api/workspace-runtime/routines`;
+    const endpoint = `${plane.origin}/api/workspace-runtime/automations/schedules`;
     const due = {
-      routines: [
+      automations: [
         {
           id: "morning-report",
           nextRunAt: new Date(Date.now() - 1000).toISOString(),
@@ -3042,10 +3042,25 @@ sleepingRoutineTest(
       headers: { authorization: "Bearer invalid" },
     });
     expect(unauthorized.status).toBe(401);
+    const oldRoute = await fetch(
+      `${plane.origin}/api/workspace-runtime/routines`,
+      {
+        method: "POST",
+        body: JSON.stringify({ routines: due.automations }),
+        headers: { authorization: `Bearer ${runtime.token}` },
+      },
+    );
+    expect(oldRoute.status).toBe(404);
+    const oldPayload = await fetch(endpoint, {
+      method: "POST",
+      body: JSON.stringify({ routines: due.automations }),
+      headers: { authorization: `Bearer ${runtime.token}` },
+    });
+    expect(oldPayload.status).toBe(400);
     const invalid = await fetch(endpoint, {
       method: "POST",
       body: JSON.stringify({
-        routines: [{ id: "bad", nextRunAt: "not a date" }],
+        automations: [{ id: "bad", nextRunAt: "not a date" }],
       }),
       headers: { authorization: `Bearer ${runtime.token}` },
     });
@@ -3066,7 +3081,7 @@ sleepingRoutineTest(
   },
 );
 
-sleepingRoutineTest(
+sleepingAutomationTest(
   "repairs the guest clock after resume unpauses the VM but clock sync fails",
   async ({
     plane,
@@ -3090,9 +3105,9 @@ sleepingRoutineTest(
     const now = Date.now();
     const dateNow = vi.spyOn(Date, "now").mockReturnValue(now);
     const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
-    const endpoint = `${plane.origin}/api/workspace-runtime/routines`;
+    const endpoint = `${plane.origin}/api/workspace-runtime/automations/schedules`;
     const snapshot = {
-      routines: [
+      automations: [
         { id: "morning-report", nextRunAt: new Date(now - 1000).toISOString() },
       ],
     };

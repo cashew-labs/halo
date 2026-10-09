@@ -1,9 +1,8 @@
 import type { Logger } from "@get-halo/logger";
 import type { AutomationService } from "./AutomationService.js";
 
-// Keep the wire field during control-plane/workspace rolling upgrades.
 export type AutomationScheduleSnapshot = {
-  routines: Array<{ id: string; nextRunAt: string }>;
+  automations: Array<{ id: string; nextRunAt: string }>;
 };
 
 /** Publishes the workspace's authoritative schedule after changes and while awake. */
@@ -60,19 +59,22 @@ export class AutomationScheduleSync {
     while (this.dirty && !this.closed) {
       this.dirty = false;
       const snapshot: AutomationScheduleSnapshot = {
-        routines: this.automations
+        automations: this.automations
           .list()
-          .flatMap((routine) =>
-            routine.activation.type === "routine" &&
-            routine.enabled &&
-            routine.nextRunAt !== undefined
-              ? [{ id: routine.id, nextRunAt: routine.nextRunAt }]
+          .flatMap((automation) =>
+            automation.activation.type === "routine" &&
+            automation.enabled &&
+            automation.nextRunAt !== undefined
+              ? [{ id: automation.id, nextRunAt: automation.nextRunAt }]
               : [],
           ),
       };
       const reported = await this.report(snapshot, this.controller.signal);
       if (reported instanceof Error && !this.closed)
-        this.logger.warn({ event: "routine-sync-failed", error: reported });
+        this.logger.warn({
+          event: "automation-schedule-sync-failed",
+          error: reported,
+        });
     }
     this.reporting = undefined;
   }

@@ -9,7 +9,7 @@ import type { AutomationScheduleCoordinator } from "./AutomationScheduleCoordina
 
 const snapshotSchema = Type.Object(
   {
-    routines: Type.Array(
+    automations: Type.Array(
       Type.Object(
         {
           id: Type.String({ minLength: 1, maxLength: 128 }),
@@ -23,12 +23,12 @@ const snapshotSchema = Type.Object(
   { additionalProperties: false },
 );
 
-class RoutineSnapshotError extends errore.createTaggedError({
-  name: "RoutineSnapshotError",
-  message: "Invalid workspace routine snapshot",
+class AutomationSnapshotError extends errore.createTaggedError({
+  name: "AutomationSnapshotError",
+  message: "Invalid workspace automation snapshot",
 }) {}
 
-export async function serveWorkspaceRoutineSnapshot(
+export async function serveWorkspaceAutomationSnapshot(
   request: IncomingMessage,
   response: ServerResponse,
   workspace: WorkspaceService,
@@ -55,7 +55,7 @@ export async function serveWorkspaceRoutineSnapshot(
   const raw = await getRawBody(request, {
     limit: 256 * 1024,
     encoding: "utf8",
-  }).catch((cause) => new RoutineSnapshotError({ cause }));
+  }).catch((cause) => new AutomationSnapshotError({ cause }));
   if (raw instanceof Error) {
     response.writeHead(400).end();
     return;
@@ -63,12 +63,12 @@ export async function serveWorkspaceRoutineSnapshot(
   const snapshot = errore.try({
     // SAFETY: The schema validates the parsed value before it is used.
     try: () => JSON.parse(raw) as Static<typeof snapshotSchema>,
-    catch: (cause) => new RoutineSnapshotError({ cause }),
+    catch: (cause) => new AutomationSnapshotError({ cause }),
   });
   if (
     snapshot instanceof Error ||
     !Value.Check(snapshotSchema, snapshot) ||
-    snapshot.routines.some(
+    snapshot.automations.some(
       (routine) => !Number.isFinite(Date.parse(routine.nextRunAt)),
     )
   ) {

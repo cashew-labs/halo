@@ -12,7 +12,7 @@ const retryMs = 30_000;
 const batchSize = 20;
 
 type AutomationScheduleSnapshot = {
-  routines: Array<{ id: string; nextRunAt: string }>;
+  automations: Array<{ id: string; nextRunAt: string }>;
 };
 
 type DueRoutine = { workspaceId: string; routineId: string };
@@ -61,7 +61,7 @@ export class AutomationScheduleCoordinator {
     const db = this.db.client;
     if (db instanceof DatabaseSync) {
       const updated = sqliteTransaction(db, () => {
-        const ids = snapshot.routines.map((routine) => routine.id);
+        const ids = snapshot.automations.map((routine) => routine.id);
         if (ids.length === 0)
           db.prepare(
             "DELETE FROM workspace_routine_schedule WHERE workspace_id = ?",
@@ -77,7 +77,7 @@ export class AutomationScheduleCoordinator {
               next_run_at = excluded.next_run_at,
               last_attempt_at = CASE WHEN next_run_at = excluded.next_run_at
                 THEN last_attempt_at ELSE NULL END`);
-        for (const routine of snapshot.routines)
+        for (const routine of snapshot.automations)
           insert.run(workspaceId, routine.id, Date.parse(routine.nextRunAt));
       });
       if (updated instanceof Error) return updated;
@@ -103,7 +103,7 @@ export class AutomationScheduleCoordinator {
         }),
     );
     if (begun instanceof Error) return begun;
-    const ids = snapshot.routines.map((routine) => routine.id);
+    const ids = snapshot.automations.map((routine) => routine.id);
     const removed = await connection
       .query(
         "DELETE FROM workspace_routine_schedule WHERE workspace_id = $1 AND routine_id <> ALL($2::text[])",
@@ -120,7 +120,7 @@ export class AutomationScheduleCoordinator {
       await this.rollback(connection);
       return removed;
     }
-    for (const routine of snapshot.routines) {
+    for (const routine of snapshot.automations) {
       const inserted = await connection
         .query(
           `INSERT INTO workspace_routine_schedule

@@ -129,3 +129,14 @@ work described above. The test creates a billed VM and deletes only its own clon
 HALO_EXE_TEST_CONFIG=/absolute/path/to/private-exe-test.json \
   pnpm --filter @get-halo/control-plane test:exe
 ```
+
+### Automation schedule snapshots
+
+Managed workspaces POST `{ automations: [{ id, nextRunAt }] }` to
+`/api/workspace-runtime/automations/schedules` using their scoped runtime token.
+The snapshot replaces the workspace's schedule registrations. Trigger definitions
+continue to use `/api/workspace-runtime/automations`; these are separate protocols.
+The old `/api/workspace-runtime/routines` route is removed without an alias.
+During a control-plane-first rollout, older workspaces log failed schedule reports
+until upgraded. Reporting runs asynchronously and does not block startup; stored
+schedules and protocol-25 dispatch remain available during that transition.

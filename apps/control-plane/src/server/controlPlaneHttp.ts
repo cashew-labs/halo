@@ -51,7 +51,7 @@ import {
 import { workspaceInferencePath } from "@get-halo/config/inference";
 import { serveWorkspaceInference } from "../inference/workspaceInference.js";
 import { serveWorkspaceIdleReport } from "../workspace/workspaceIdleHttp.js";
-import { serveWorkspaceRoutineSnapshot } from "../workspace/workspaceRoutineHttp.js";
+import { serveWorkspaceAutomationSnapshot } from "../workspace/workspaceAutomationHttp.js";
 import type { AutomationScheduleCoordinator } from "../workspace/AutomationScheduleCoordinator.js";
 
 const requestUrlBase = "http://localhost";
@@ -114,7 +114,7 @@ export function serveControlPlaneHttp(ctx: {
   publicOrigin: string;
   workspace: WorkspaceService;
   integrations?: IntegrationService;
-  routines: AutomationScheduleCoordinator;
+  automationSchedules: AutomationScheduleCoordinator;
   automationStore: AutomationStore;
   webhooks: WebhookService;
   gmail: GmailService;
@@ -157,7 +157,7 @@ export function serveControlPlaneHttp(ctx: {
       response,
       auth,
       workspace,
-      routines: ctx.routines,
+      automationSchedules: ctx.automationSchedules,
       automationStore: ctx.automationStore,
       webhooks: ctx.webhooks,
       gmail: ctx.gmail,
@@ -233,7 +233,7 @@ async function routeControlPlaneRequest(ctx: {
   inferenceApiKey?: string;
   workspace: WorkspaceService;
   integrations?: IntegrationService;
-  routines: AutomationScheduleCoordinator;
+  automationSchedules: AutomationScheduleCoordinator;
   automationStore: AutomationStore;
   webhooks: WebhookService;
   gmail: GmailService;
@@ -302,6 +302,15 @@ async function routeControlPlaneRequest(ctx: {
     });
     return;
   }
+  if (url.pathname === "/api/workspace-runtime/automations/schedules") {
+    await serveWorkspaceAutomationSnapshot(
+      request,
+      response,
+      workspace,
+      ctx.automationSchedules,
+    );
+    return;
+  }
   const automationState =
     /^\/api\/workspace-runtime\/automations\/([a-zA-Z0-9_-]+)(?:\/(reveal|rotate))?$/.exec(
       url.pathname,
@@ -328,16 +337,6 @@ async function routeControlPlaneRequest(ctx: {
       ctx.automationStore,
     );
     ctx.gmail.schedule();
-    return;
-  }
-
-  if (url.pathname === "/api/workspace-runtime/routines") {
-    await serveWorkspaceRoutineSnapshot(
-      request,
-      response,
-      workspace,
-      ctx.routines,
-    );
     return;
   }
 
