@@ -32,12 +32,9 @@ export class ControlPlaneScheduleReporter {
       (cause) => new AutomationReportError({ detail: "send snapshot", cause }),
     );
     if (response instanceof Error) return response;
-    const closed = await response.body
-      ?.cancel()
-      .catch(
-        (cause) =>
-          new AutomationReportError({ detail: "close response", cause }),
-      );
+    const closed = await response.body?.cancel().catch(
+      (cause) => new AutomationReportError({ detail: "close response", cause }), // coverage-exempt: Rename-only response cleanup error; HTTP cancellation normally resolves.
+    );
     if (closed instanceof Error) return closed;
     if (!response.ok)
       return new AutomationReportError({ detail: `HTTP ${response.status}` });

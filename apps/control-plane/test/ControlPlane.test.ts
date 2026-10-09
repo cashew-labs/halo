@@ -3057,6 +3057,15 @@ sleepingAutomationTest(
       headers: { authorization: `Bearer ${runtime.token}` },
     });
     expect(oldPayload.status).toBe(400);
+    for (const body of ["{", "x".repeat(256 * 1024 + 1)]) {
+      const malformed = await fetch(endpoint, {
+        method: "POST",
+        body,
+        headers: { authorization: `Bearer ${runtime.token}` },
+      });
+      expect(malformed.status).toBe(400);
+    }
+
     const invalid = await fetch(endpoint, {
       method: "POST",
       body: JSON.stringify({
