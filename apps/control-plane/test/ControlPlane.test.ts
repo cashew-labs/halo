@@ -1088,6 +1088,152 @@ controlPlaneTest(
 );
 
 controlPlaneTest(
+  "lets only the browser that Halo opened finish a setup without a sign-in",
+  async ({ plane, authenticatedRpc, appDataDir, integrationApi }) => {
+    await authenticatedRpc.workspace.ensure();
+    const runtime = createControlPlaneRpcClient(
+      plane.origin,
+      (await readRuntimeSettings(appDataDir)).token,
+    );
+    const session = await authenticatedRpc.auth.session();
+    if (session.status !== "signed-in") throw new Error("Missing session");
+    const oauth = {
+      authorizationUrl: `${integrationApi.origin}/oauth/authorize`,
+      tokenUrl: `${integrationApi.origin}/oauth/token`,
+    };
+    const configured = await plane.integrations!.withUser(
+      session.session.user.id,
+      (executor) =>
+        Effect.gen(function* () {
+          yield* executor.openapi.configure(
+            IntegrationSlug.make("google_gmail"),
+            {
+              authenticationTemplate: [
+                {
+                  slug: "googleOAuth2",
+                  kind: "oauth2",
+                  ...oauth,
+                  scopes: ["read"],
+                },
+              ],
+            },
+          );
+          yield* executor.oauth.createClient({
+            owner: Owner.make("user"),
+            slug: OAuthClientSlug.make("handoff"),
+            ...oauth,
+            grant: "authorization_code",
+            clientId: "fixture",
+            clientSecret: "fixture-secret",
+          });
+        }),
+    );
+    if (configured instanceof Error) throw configured;
+    const method = (await authenticatedRpc.integrations.catalog()).find(
+      (entry) => entry.integration === "google_gmail",
+    )!.methods[0]!;
+    const { setupId } = await runtime.integrations.startSetup({
+      integration: "google_gmail",
+    });
+    // Only a signed-in Halo client can issue a handoff, not the workspace.
+    await expect(
+      runtime.integrations.createSetupHandoff({ setupId }),
+    ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    const { url } = await authenticatedRpc.integrations.createSetupHandoff({
+      setupId,
+    });
+    const link = new URL(url);
+    expect(link.origin + link.pathname).toBe(
+      `${plane.origin}/integrations/setup/${setupId}`,
+    );
+    expect(link.search).toBe("");
+    const handoff = new URLSearchParams(link.hash.slice(1)).get("handoff")!;
+
+    const cookies = new Map<string, string>();
+    // SAFETY: The control-plane origin serves controlPlaneContract at /rpc.
+    const browser = (headers: Record<string, string>) =>
+      createORPCClient(
+        new RPCLink({
+          origin: plane.origin,
+          url: "/rpc",
+          headers: () => ({
+            ...headers,
+            cookie: [...cookies].map(([n, v]) => `${n}=${v}`).join("; "),
+          }),
+          fetch: async (request, init) => {
+            const response = await fetch(request, init);
+            for (const cookie of response.headers.getSetCookie()) {
+              const [pair] = cookie.split(";");
+              const [name, value] = pair!.split("=");
+              cookies.set(name!, value!);
+            }
+            return response;
+          },
+        }),
+      ) as ControlPlaneClient;
+    const opened = browser({ origin: plane.origin });
+    await expect(opened.integrations.setup({ setupId })).rejects.toMatchObject({
+      code: "UNAUTHORIZED",
+    });
+    await expect(
+      browser({
+        origin: "https://attacker.example",
+      }).integrations.redeemSetupHandoff({ setupId, handoff }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await opened.integrations.redeemSetupHandoff({ setupId, handoff });
+    expect([...cookies.keys()]).toEqual([`halo_setup_${setupId}`]);
+    // A handoff works once.
+    const reused = new Map(cookies);
+    cookies.clear();
+    await expect(
+      opened.integrations.redeemSetupHandoff({ setupId, handoff }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    // A forged browser secret does not stand in for a sign-in.
+    cookies.set(`halo_setup_${setupId}`, "forged");
+    await expect(opened.integrations.setup({ setupId })).rejects.toMatchObject({
+      code: "UNAUTHORIZED",
+    });
+    for (const [name, value] of reused) cookies.set(name, value);
+    // The cookie is only accepted from the control-plane origin.
+    await expect(
+      browser({ origin: "https://attacker.example" }).integrations.setup({
+        setupId,
+      }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(await opened.integrations.setup({ setupId })).toMatchObject({
+      status: "awaiting_credentials",
+      owner: "desktop@example.com",
+    });
+    const submitted = await opened.integrations.submitSetup({
+      setupId,
+      template: method.template,
+      values: {},
+    });
+    // A setup that has left credential entry cannot issue another handoff.
+    await expect(
+      authenticatedRpc.integrations.createSetupHandoff({ setupId }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    const state = new URL(submitted.authorizationUrl!).searchParams.get(
+      "state",
+    )!;
+    const callback = `${plane.origin}/api/integrations/oauth/callback?state=${encodeURIComponent(state)}&code=fixture-code`;
+    // A browser without the setup cookie or the owner's sign-in cannot finish
+    // the provider step, and does not use up the state.
+    expect((await fetch(callback, { redirect: "manual" })).status).toBe(400);
+    const finished = await fetch(callback, {
+      redirect: "manual",
+      headers: {
+        cookie: [...cookies].map(([n, v]) => `${n}=${v}`).join("; "),
+      },
+    });
+    expect(finished.status).toBe(303);
+    expect((await opened.integrations.setup({ setupId })).status).toMatch(
+      /^(ready|confirming)$/,
+    );
+  },
+);
+
+controlPlaneTest(
   "recovers committed setups and reconnects after status-write failures and restart",
   async ({
     plane,
@@ -1187,11 +1333,19 @@ controlPlaneTest(
             "state",
           )!;
           const callbackUrl = `${plane.origin}/api/integrations/oauth/callback?state=${encodeURIComponent(state)}&code=fixture-code`;
-          const response = await fetch(callbackUrl, { redirect: "manual" });
+          const response = await fetch(callbackUrl, {
+            redirect: "manual",
+            headers: browserHeaders,
+          });
           expect(response.status).toBe(303);
           expect(response.headers.get("location")).toContain(attempt.setupId);
           expect(
-            (await fetch(callbackUrl, { redirect: "manual" })).status,
+            (
+              await fetch(callbackUrl, {
+                redirect: "manual",
+                headers: browserHeaders,
+              })
+            ).status,
           ).toBe(400);
         }
         const confirming = await human.integrations.setup({
@@ -1290,7 +1444,7 @@ controlPlaneTest(
       (
         await fetch(
           `${reopened.origin}/api/integrations/oauth/callback?state=${encodeURIComponent(declinedState)}&error=access_denied`,
-          { redirect: "manual" },
+          { redirect: "manual", headers: browserHeaders },
         )
       ).status,
     ).toBe(303);
@@ -1399,7 +1553,7 @@ controlPlaneTest(
         )!;
         const response = await fetch(
           `${plane.origin}/api/integrations/oauth/callback?state=${encodeURIComponent(state)}&code=fixture-code`,
-          { redirect: "manual" },
+          { redirect: "manual", headers: browserHeaders },
         );
         expect(response.status).toBe(303);
         expect(response.headers.get("location")).toContain(attempt.setupId);
@@ -1463,7 +1617,7 @@ controlPlaneTest(
       (
         await fetch(
           `${plane.origin}/api/integrations/oauth/callback?state=${encodeURIComponent(googleState)}&code=google-code`,
-          { redirect: "manual" },
+          { redirect: "manual", headers: browserHeaders },
         )
       ).status,
     ).toBe(303);
@@ -1639,8 +1793,8 @@ controlPlaneTest(
     ).toMatchObject({ status: "authorizing" });
     const callback = `${reopened.origin}/api/integrations/oauth/callback?state=${encodeURIComponent(state)}&code=fixture-code`;
     const responses = await Promise.all([
-      fetch(callback, { redirect: "manual" }),
-      fetch(callback, { redirect: "manual" }),
+      fetch(callback, { redirect: "manual", headers: browserHeaders }),
+      fetch(callback, { redirect: "manual", headers: browserHeaders }),
     ]);
     expect(
       responses.map((response) => response.status).toSorted((a, b) => a - b),
@@ -1687,10 +1841,20 @@ controlPlaneTest(
     );
     const reconnectCallback = `${reopened.origin}/api/integrations/oauth/callback?state=${encodeURIComponent(nextAuthorization.searchParams.get("state")!)}&code=fixture-code`;
     expect(
-      (await fetch(reconnectCallback, { redirect: "manual" })).status,
+      (
+        await fetch(reconnectCallback, {
+          redirect: "manual",
+          headers: browserHeaders,
+        })
+      ).status,
     ).toBe(303);
     expect(
-      (await fetch(reconnectCallback, { redirect: "manual" })).status,
+      (
+        await fetch(reconnectCallback, {
+          redirect: "manual",
+          headers: browserHeaders,
+        })
+      ).status,
     ).toBe(400);
     expect(
       await human.integrations.setup({ setupId: oauthReconnect.setupId }),
@@ -1713,7 +1877,7 @@ controlPlaneTest(
       (
         await fetch(
           `${reopened.origin}/api/integrations/oauth/callback?state=${encodeURIComponent(cancelledState)}&code=fixture-code`,
-          { redirect: "manual" },
+          { redirect: "manual", headers: browserHeaders },
         )
       ).status,
     ).toBe(400);
@@ -1731,7 +1895,7 @@ controlPlaneTest(
       (
         await fetch(
           `${reopened.origin}/api/integrations/oauth/callback?state=${encodeURIComponent(declinedState)}&error=access_denied`,
-          { redirect: "manual" },
+          { redirect: "manual", headers: browserHeaders },
         )
       ).status,
     ).toBe(303);
@@ -1779,7 +1943,7 @@ controlPlaneTest(
       (
         await fetch(
           `${reopened.origin}/api/integrations/oauth/callback?state=${encodeURIComponent(expiringState)}&code=fixture-code`,
-          { redirect: "manual" },
+          { redirect: "manual", headers: browserHeaders },
         )
       ).status,
     ).toBe(400);
@@ -3797,7 +3961,13 @@ function gmailDiscovery(origin: string) {
 controlPlaneTest(
   "verifies Gmail push identity and fans matching mail into shared automation execution",
   { timeout: 60_000 },
-  async ({ plane, authenticatedRpc, integrationApi, agent }) => {
+  async ({
+    browserHeaders,
+    plane,
+    authenticatedRpc,
+    integrationApi,
+    agent,
+  }) => {
     integrationApi.gmail.enabled = true;
     const session = await authenticatedRpc.auth.session();
     if (session.status !== "signed-in") throw new Error("Missing session");
@@ -3845,7 +4015,7 @@ controlPlaneTest(
       (
         await fetch(
           `${plane.origin}/api/integrations/oauth/callback?state=${encodeURIComponent(state)}&code=gmail-code`,
-          { redirect: "manual" },
+          { redirect: "manual", headers: browserHeaders },
         )
       ).status,
     ).toBe(303);

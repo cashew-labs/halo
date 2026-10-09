@@ -43,6 +43,7 @@ import {
 import type { TraceIngestion } from "../traces/TraceIngestion.js";
 import type { WorkspaceService } from "../workspace/WorkspaceService.js";
 import type { IntegrationService } from "../integrations/IntegrationService.js";
+import { setupBrowserCookies } from "../integrations/setupBrowserCookie.js";
 import {
   isWorkspaceProxyRequest,
   WorkspaceGateway,
@@ -252,11 +253,15 @@ async function routeControlPlaneRequest(ctx: {
     request.method === "GET" &&
     url.pathname === "/api/integrations/oauth/callback"
   ) {
+    const headers = requestHeaders(request);
+    const session = await auth.getSession(headers);
     const result = await ctx.integrations?.oauthCallback({
       state: url.searchParams.get("state") ?? "",
       code: url.searchParams.has("error")
         ? undefined
         : (url.searchParams.get("code") ?? undefined),
+      userId: session instanceof Error ? undefined : session?.user.id,
+      browsers: setupBrowserCookies(headers),
     });
     response.setHeader("cache-control", "no-store");
     response.setHeader("referrer-policy", "no-referrer");
