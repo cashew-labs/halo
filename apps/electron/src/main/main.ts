@@ -21,6 +21,7 @@ import {
 } from "@get-halo/logger";
 import { config as resolvedApplicationConfig } from "@get-halo/config/electron";
 import { ApplicationMode } from "@get-halo/config/ApplicationMode";
+import { writeReleaseChannel } from "@get-halo/config/releaseChannel"; // coverage-exempt: main.ts starts Electron on import, so Vitest cannot load it
 import type { ControlPlaneSession } from "@get-halo/shared/controlPlaneContract";
 import { JsonlLoggerSink } from "@get-halo/logger/JsonlLoggerSink";
 import { PrettyConsoleLoggerSink } from "@get-halo/logger/PrettyConsoleLoggerSink";
@@ -64,6 +65,12 @@ const logger = new Logger({
     : [fileSink],
 });
 const rendererLogger = logger.scope("renderer");
+// coverage-exempt: main.ts starts Electron on import, so Vitest cannot load it
+if (applicationConfig.releaseChannelError !== undefined)
+  logger.error({
+    event: "release-channel-read-failed",
+    error: applicationConfig.releaseChannelError,
+  });
 
 if (applicationConfig.remoteDebugging) {
   app.commandLine.appendSwitch("remote-debugging-address", "127.0.0.1");
@@ -175,7 +182,7 @@ async function createDesktopAuthentication(): Promise<DesktopAuthentication> {
 
   return await ControlPlaneAuth.start({
     origin: applicationConfig.controlPlaneOrigin,
-    dataDir: applicationConfig.dataDir,
+    sessionPath: applicationConfig.controlPlaneSessionPath, // coverage-exempt: main.ts starts Electron on import, so Vitest cannot load it
   });
 }
 
@@ -371,6 +378,17 @@ function installMenu(): void {
       void openLogs();
     },
   };
+  // coverage-exempt: main.ts starts Electron on import, so Vitest cannot load it
+  const useStagingItem: MenuItemConstructorOptions = {
+    label: "Use Staging",
+    type: "checkbox",
+    checked: applicationConfig.releaseChannel === "staging",
+    visible: applicationConfig.mode === ApplicationMode.Production,
+    click: () => {
+      // oxlint-disable-next-line typescript/no-floating-promises -- Electron menu callbacks cannot await command work.
+      void switchReleaseChannel();
+    },
+  };
   const fileMenu: MenuItemConstructorOptions = {
     label: "File",
     submenu: [
@@ -452,6 +470,7 @@ function installMenu(): void {
             { role: "about" },
             { type: "separator" },
             checkForUpdatesItem,
+            useStagingItem, // coverage-exempt: main.ts starts Electron on import, so Vitest cannot load it
             openLogsItem,
             { type: "separator" },
             { role: "services" },
@@ -471,9 +490,53 @@ function installMenu(): void {
   Menu.setApplicationMenu(
     Menu.buildFromTemplate([
       ...menus,
-      { label: "Help", submenu: [checkForUpdatesItem, openLogsItem] },
+      // coverage-exempt: main.ts starts Electron on import, so Vitest cannot load it
+      {
+        label: "Help",
+        submenu: [checkForUpdatesItem, useStagingItem, openLogsItem],
+      },
     ]),
   );
+}
+
+// coverage-exempt: main.ts starts Electron on import, so Vitest cannot load it
+async function switchReleaseChannel(): Promise<void> {
+  const releaseChannel =
+    applicationConfig.releaseChannel === "staging" ? "production" : "staging";
+  const options: Electron.MessageBoxOptions = {
+    type: "info",
+    title: "Use Staging",
+    message:
+      releaseChannel === "staging"
+        ? "Switch Halo to staging?"
+        : "Switch Halo back to production?",
+    detail:
+      "Halo restarts and connects to the other deployment. You may need to sign in again. Updates follow the selected deployment.",
+    buttons: ["Restart", "Cancel"],
+    defaultId: 0,
+    cancelId: 1,
+  };
+  const { response } =
+    mainWindow === undefined
+      ? await dialog.showMessageBox(options)
+      : await dialog.showMessageBox(mainWindow, options);
+  if (response !== 0) {
+    // Electron toggled the checkbox on click; rebuild it from the saved channel.
+    installMenu();
+    return;
+  }
+  const written = await writeReleaseChannel({
+    releaseChannelPath: applicationConfig.releaseChannelPath,
+    releaseChannel,
+  });
+  if (written instanceof Error) {
+    logger.error({ event: "release-channel-write-failed", error: written });
+    installMenu();
+    dialog.showErrorBox("Use Staging", written.message);
+    return;
+  }
+  app.relaunch();
+  app.quit();
 }
 
 async function openLogs(): Promise<void> {

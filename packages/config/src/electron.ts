@@ -3,9 +3,29 @@ import path from "node:path";
 import { app } from "electron";
 import * as errore from "errore";
 import { ApplicationMode } from "./ApplicationMode.js";
+import { readReleaseChannel, type ReleaseChannel } from "./releaseChannel.js";
 
-const productionControlPlaneOrigin = "https://gethalo.dev";
 const developmentControlPlaneOrigin = "http://127.0.0.1:8787";
+
+const releaseChannels = {
+  production: {
+    controlPlaneOrigin: "https://gethalo.dev",
+    sessionFileName: "control-plane-session",
+    updateRepository: "cashew-labs/halo",
+  },
+  staging: {
+    controlPlaneOrigin: "https://staging.gethalo.dev",
+    sessionFileName: "staging-control-plane-session",
+    updateRepository: "cashew-labs/halo-staging",
+  },
+} satisfies Record<
+  ReleaseChannel,
+  {
+    controlPlaneOrigin: string;
+    sessionFileName: string;
+    updateRepository: string;
+  }
+>;
 
 class ElectronConfigError extends errore.createTaggedError({
   name: "ElectronConfigError",
@@ -14,7 +34,13 @@ class ElectronConfigError extends errore.createTaggedError({
 
 export type ElectronConfig = {
   mode: ApplicationMode;
+  releaseChannel: ReleaseChannel;
+  /** Holds `staging` when this install follows the staging deployment. */
+  releaseChannelPath: string;
+  /** Why the saved channel was ignored in favor of production, for main to log. */
+  releaseChannelError: Error | undefined;
   controlPlaneOrigin: string;
+  controlPlaneSessionPath: string;
   dataDir: string;
   logsDir: string;
   logFilePath: string;
@@ -25,7 +51,7 @@ export type ElectronConfig = {
   showMainWindow: boolean;
   testWindowEvents: boolean;
   updates:
-    | { enabled: true }
+    | { enabled: true; repository: string }
     | {
         enabled: false;
         reason:
@@ -63,14 +89,26 @@ function readConfig(): ElectronConfig | Error {
   });
   if (created instanceof Error) return created;
 
+  const releaseChannelPath = path.join(dataDir, "release-channel");
+  // A damaged preference must not prevent launch; production remains reachable.
+  const savedReleaseChannel = readReleaseChannel(releaseChannelPath);
+  const releaseChannel =
+    savedReleaseChannel instanceof Error ? "production" : savedReleaseChannel;
+  const channel = releaseChannels[releaseChannel];
+
   const isDevelopment = mode === ApplicationMode.Development;
   const isTest = mode === ApplicationMode.Test;
   return {
     mode,
+    releaseChannel,
+    releaseChannelPath,
+    releaseChannelError:
+      savedReleaseChannel instanceof Error ? savedReleaseChannel : undefined,
     controlPlaneOrigin:
       mode === ApplicationMode.Production
-        ? productionControlPlaneOrigin
+        ? channel.controlPlaneOrigin
         : developmentControlPlaneOrigin,
+    controlPlaneSessionPath: path.join(dataDir, channel.sessionFileName),
     dataDir,
     logsDir,
     logFilePath: path.join(
@@ -90,7 +128,7 @@ function readConfig(): ElectronConfig | Error {
     testWindowEvents: isTest,
     updates:
       mode === ApplicationMode.Production
-        ? { enabled: true }
+        ? { enabled: true, repository: channel.updateRepository }
         : {
             enabled: false,
             reason: isDevelopment
