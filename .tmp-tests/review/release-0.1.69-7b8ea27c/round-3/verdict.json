@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "This is the same 0.1.69 release bump, now rebased onto base 6dc09a3. On that base the protocol constants have not changed: workspace client 26 supports [25, 26] (contract.ts:40-41) and control-plane client 5 supports [3, 5] (controlPlaneContract.ts:95-97). No newer release manifest exists, so the previous version (0.1.68) and minimum frontend (0.1.68) still pass the validateRelease.mjs checks by inspection and match releases/README.md; with no executable lines changed, nothing blocks the release.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 3,
+  "headSha": "52c1726e89577c2114cc172c897e46b20f7bfce5",
+  "treeHash": "5ae605d7244fd3b3c46cdb643e2a028f5abee008",
+  "codeTree": "5ae605d7244fd3b3c46cdb643e2a028f5abee008",
+  "coverage": {
+    "executable": 0,
+    "covered": 0,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-09T22:16:08.284Z"
+}
