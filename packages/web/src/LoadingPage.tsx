@@ -33,7 +33,7 @@ const styles = {
   shell: style({
     display: "grid",
     placeItems: "center",
-    height: "100vh",
+    height: "var(--halo-window-content-height, 100vh)",
   }),
   indicator: style({
     opacity: 0,
