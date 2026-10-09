@@ -29,6 +29,8 @@ export type IntegrationSetupCatalogEntry = {
 export type IntegrationSetup = IntegrationSetupCatalogEntry & {
   setupId: string;
   connectionName: string;
+  // The account the user asked to connect, shown as a hint.
+  account?: string;
   status:
     | "awaiting_credentials"
     | "authorizing"
@@ -171,6 +173,9 @@ export const controlPlaneContract = publicProcedure.router({
               integration: Type.String({ minLength: 1, maxLength: 256 }),
               connectionName: Type.Optional(
                 Type.String({ pattern: "^[a-zA-Z][a-zA-Z0-9_-]{0,63}$" }),
+              ),
+              account: Type.Optional(
+                Type.String({ minLength: 1, maxLength: 320 }),
               ),
             },
             { additionalProperties: false },

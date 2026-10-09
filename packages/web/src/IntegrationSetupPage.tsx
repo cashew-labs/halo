@@ -95,6 +95,13 @@ export function IntegrationSetupPage({
             <Text size="sm" color="lowContrast">
               Connection: {data.connectionName}
             </Text>
+            {data.account !== undefined && data.status !== "ready" && (
+              <P>
+                Halo asked to connect <strong>{data.account}</strong>. Choose
+                that account on the provider’s sign-in screen, or choose another
+                account.
+              </P>
+            )}
             {data.status === "awaiting_credentials" && (
               <SetupForm
                 key={setupId}

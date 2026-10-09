@@ -155,6 +155,7 @@ async function run() {
                 startSetup: async (input: {
                   integration: string;
                   connectionName?: string;
+                  account?: string; // coverage-exempt: type-only annotation
                 }) =>
                   await client.integrations
                     .startSetup(input, { signal: AbortSignal.timeout(10_000) })

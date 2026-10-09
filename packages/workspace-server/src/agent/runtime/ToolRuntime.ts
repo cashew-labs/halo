@@ -68,6 +68,7 @@ import type {
   ToolApproval,
   ToolIdentity,
 } from "@get-halo/client";
+import { addConnectionCard, connectionCardRequest } from "./connectionCards.js";
 import { createExecutorDatabase } from "./createExecutorDatabase.js";
 import type { DatabaseClient } from "../../storage/DatabaseClient.js";
 import type {
@@ -116,6 +117,14 @@ const showConnectionCardInputSchema = Type.Object({
   integration: Type.String({
     description: "The integration id returned by executor.integrations.list",
   }),
+  account: Type.Optional(
+    Type.String({
+      minLength: 1,
+      maxLength: 320,
+      description:
+        "The account the user asked to connect, such as an email address. Omit it when the user did not name one. Show one card for each account.",
+    }),
+  ),
 });
 
 const searchInputSchema = Type.Object({
@@ -208,11 +217,7 @@ const haloToolsPlugin = definePlugin((options?: HaloToolsPluginOptions) => {
                     message:
                       "Connection cards must be requested from a thread's exec tool",
                   });
-                // Resolve catalog membership on the control plane at setup time.
-                context.collectConnectionRequest({
-                  kind: "control-plane",
-                  integration: args.integration,
-                });
+                context.collectConnectionRequest(connectionCardRequest(args));
                 return ToolResult.ok({ status: "shown" });
               }),
           }),
@@ -471,26 +476,8 @@ export class ToolRuntime {
     cleanup.use(this.retainExecution());
     const connectionRequests: ConnectionRequest[] = [];
     const approvalRequests: ToolApproval[] = [];
-    const collectConnectionRequest = (request: ConnectionRequest) => {
-      // Released desktop clients validate the old card schema before sending
-      // IPC. These routing markers are inert: setup authority stays on the CP.
-      const compatible = {
-        client: "control-plane",
-        clientOwner: "org" as const,
-        owner: "user" as const,
-        template: "control-plane",
-        ...request,
-        connectionName: request.connectionName ?? "default",
-      };
-      if (
-        !connectionRequests.some(
-          (existing) =>
-            existing.integration === compatible.integration &&
-            existing.connectionName === compatible.connectionName,
-        )
-      )
-        connectionRequests.push(compatible);
-    };
+    const collectConnectionRequest = (request: ConnectionRequest) =>
+      addConnectionCard(connectionRequests, request);
     const execution = await this.executionContext.run(
       {
         signal: input.signal,

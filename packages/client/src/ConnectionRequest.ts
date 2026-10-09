@@ -5,6 +5,9 @@ const controlPlaneConnectionRequestSchema = Type.Object({
   kind: Type.Literal("control-plane"),
   integration: Type.String(),
   connectionName: Type.Optional(Type.String()),
+  // The account the user asked to connect. It is a hint for the provider's
+  // account picker and does not restrict which account is connected.
+  account: Type.Optional(Type.String({ minLength: 1, maxLength: 320 })),
 });
 
 // Protocol 24 cards and saved transcripts use the workspace-owned OAuth shape.
@@ -27,10 +30,10 @@ export const connectionRequestSchema = Type.Union([
 export type ConnectionRequest = Static<typeof connectionRequestSchema>;
 
 export function connectionRequestKey(request: ConnectionRequest) {
-  return JSON.stringify([
-    request.integration,
-    request.connectionName ?? "default",
-  ]);
+  const key = [request.integration, request.connectionName ?? "default"];
+  if ("account" in request && request.account !== undefined)
+    key.push(request.account);
+  return JSON.stringify(key);
 }
 
 export function connectionRequestLabel(request: ConnectionRequest) {

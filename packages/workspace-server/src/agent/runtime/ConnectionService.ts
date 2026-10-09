@@ -40,6 +40,7 @@ export type RemoteConnectionBackend = {
   startSetup(input: {
     integration: string;
     connectionName?: string;
+    account?: string;
   }): Promise<Error | { setupId: string; setupUrl: string }>;
   setup(input: { setupId: string }): Promise<
     | Error
@@ -87,10 +88,18 @@ export class ConnectionService {
   ): Promise<ConnectionStarted | Error> {
     if (this.remote === undefined || this.closed)
       return new ConnectionUnavailableError();
-    const started = await this.remote.startSetup({
+    // Cards that name no connection carry a placeholder name for released
+    // clients. Sending it would reconnect, replacing that connection's account.
+    const setup: Parameters<RemoteConnectionBackend["startSetup"]>[0] = {
       integration: input.request.integration,
-      connectionName: input.request.connectionName,
-    });
+      connectionName:
+        "newConnection" in input.request && input.request.newConnection
+          ? undefined
+          : input.request.connectionName,
+    };
+    if ("account" in input.request && input.request.account !== undefined)
+      setup.account = input.request.account;
+    const started = await this.remote.startSetup(setup);
     if (started instanceof Error) return started;
     if (this.closed) {
       const cancelled = await this.remote.cancelSetup({
