@@ -14,3 +14,5 @@ export { ControlPlaneTraceUploader } from "./traces/ControlPlaneTraceUploader.js
 export { ControlPlaneWorkReporter } from "./server/ControlPlaneWorkReporter.js";
 export { ControlPlaneRoutineReporter } from "./routines/ControlPlaneRoutineReporter.js";
 export type { TraceUploader } from "./traces/TraceService.js";
+
+export { ControlPlaneAutomationClient } from "./automations/ControlPlaneAutomationClient.js";

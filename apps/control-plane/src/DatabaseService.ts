@@ -18,13 +18,16 @@ export type DatabaseClient = DatabaseSync | Pool;
 export class DatabaseService {
   private readonly database: DatabaseClient;
   private readonly integrations: DatabaseClient;
+  readonly automationClient: DatabaseClient;
 
   private constructor(ctx: {
     client: DatabaseClient;
     integrations: DatabaseClient;
+    automations: DatabaseClient;
   }) {
     this.database = ctx.client;
     this.integrations = ctx.integrations;
+    this.automationClient = ctx.automations;
   }
 
   static async start(config: DatabaseConfig) {
@@ -37,7 +40,11 @@ export class DatabaseService {
       });
       if (client instanceof Error) return client;
 
-      return new DatabaseService({ client, integrations: client });
+      return new DatabaseService({
+        client,
+        integrations: client,
+        automations: client,
+      });
     }
 
     const created = await fs
@@ -72,7 +79,17 @@ export class DatabaseService {
       client.close();
       return integrations;
     }
-    return new DatabaseService({ client, integrations });
+    const automations = errore.try({
+      try: () => new DatabaseSync(`${config.path}.automations`),
+      catch: (cause) =>
+        new DatabaseServiceError({ detail: "open automation database", cause }),
+    });
+    if (automations instanceof Error) {
+      integrations.close();
+      client.close();
+      return automations;
+    }
+    return new DatabaseService({ client, integrations, automations });
   }
 
   get client() {
@@ -91,6 +108,8 @@ export class DatabaseService {
         try: () => {
           if (this.integrations instanceof DatabaseSync)
             this.integrations.close();
+          if (this.automationClient instanceof DatabaseSync)
+            this.automationClient.close();
           client.close();
         },
         catch: (cause) =>

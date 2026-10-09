@@ -169,11 +169,26 @@ migrationTest(
     expect(upgraded.prepare("SELECT * FROM user_hotkeys").all()).toEqual([
       { user_id: "user", hotkeys: '{"command":"Ctrl+K"}' },
     ]);
+    expect(
+      upgraded
+        .prepare(
+          "SELECT id, revision, activation, enabled FROM halo_automations",
+        )
+        .all(),
+    ).toEqual([
+      {
+        id: "routine",
+        revision: 1,
+        activation:
+          '{"type":"routine","schedule":{"cron":"0 8 * * *","timezone":"UTC"}}',
+        enabled: 0,
+      },
+    ]);
     // Existing routine history keeps its link to the migrated thread.
     expect(
       upgraded
         .prepare(
-          "SELECT id, status, thread_id FROM halo_routine_runs ORDER BY id",
+          "SELECT id, status, thread_id FROM halo_automation_runs ORDER BY id",
         )
         .all(),
     ).toEqual([
@@ -326,7 +341,12 @@ migrationTest(
 migrationTest(
   "leaves already-durable thread state unchanged",
   ({ migration }) => {
-    const old = migration.open(workspaceMigrations.slice(0, -1));
+    const old = migration.open(
+      workspaceMigrations.slice(
+        0,
+        workspaceMigrations.indexOf(durableStorageMigration) + 1,
+      ),
+    );
     old.exec(
       `INSERT INTO halo_threads (id,metadata,read_receipt_cursor_id) VALUES ('current','{"id":"current","createdAt":1}','123');`,
     );

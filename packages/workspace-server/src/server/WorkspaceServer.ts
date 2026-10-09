@@ -1,3 +1,9 @@
+import { AutomationService } from "../automations/AutomationService.js";
+import { AutomationSources } from "../automations/AutomationSources.js";
+import type { ControlPlaneAutomationClient } from "../automations/ControlPlaneAutomationClient.js";
+import { AutomationSync } from "../automations/AutomationSync.js";
+import { createAutomationsPlugin } from "../automations/createAutomationsPlugin.js";
+import { AutomationRunner } from "../automations/AutomationRunner.js";
 import { HotkeyService } from "../hotkeys/HotkeyService.js";
 import { WorkspaceIdleReporter } from "./WorkspaceIdleReporter.js";
 import { combineLatest } from "@get-halo/shared/Stream";
@@ -67,6 +73,10 @@ export type WorkspaceServerConfig = {
 };
 
 export type WorkspaceServerHost = {
+  automationControl?: Pick<
+    ControlPlaneAutomationClient,
+    "report" | "status" | "webhookAccess" | "gmailConnections"
+  >;
   remoteConnections?: import("../agent/runtime/ConnectionService.js").RemoteConnectionBackend;
   remoteIntegrationTools?: RemoteIntegrationTools;
   reportRoutineSchedule?: (
@@ -103,7 +113,8 @@ export class WorkspaceServer {
   private readonly sessionRepo: TursoThreadRepo;
   private readonly workspace: WorkspaceService;
   private readonly sessions: ThreadManager;
-  private readonly routineRunner: RoutineRunner;
+  private readonly automationRunner: AutomationRunner;
+  private readonly automationSync: AutomationSync | undefined;
   private readonly routineScheduler: RoutineScheduler | RoutineSync;
   private readonly toolRuntime: ToolRuntime;
   private readonly connectionService: ConnectionService;
@@ -120,8 +131,9 @@ export class WorkspaceServer {
     sessionRepo: TursoThreadRepo;
     workspace: WorkspaceService;
     sessions: ThreadManager;
-    routineRunner: RoutineRunner;
+    automationRunner: AutomationRunner;
     routineScheduler: RoutineScheduler | RoutineSync;
+    automationSync: AutomationSync | undefined;
     toolRuntime: ToolRuntime;
     connectionService: ConnectionService;
     browsers: BrowserService;
@@ -136,8 +148,9 @@ export class WorkspaceServer {
       sessionRepo,
       workspace,
       sessions,
-      routineRunner,
+      automationRunner,
       routineScheduler,
+      automationSync,
       toolRuntime,
       connectionService,
       browsers,
@@ -152,8 +165,9 @@ export class WorkspaceServer {
     this.sessionRepo = sessionRepo;
     this.workspace = workspace;
     this.sessions = sessions;
-    this.routineRunner = routineRunner;
+    this.automationRunner = automationRunner;
     this.routineScheduler = routineScheduler;
+    this.automationSync = automationSync;
     this.toolRuntime = toolRuntime;
     this.connectionService = connectionService;
     this.browsers = browsers;
@@ -246,8 +260,9 @@ export class WorkspaceServer {
       userId: config.ownerUserId,
     });
     if (hotkeys instanceof Error) return hotkeys;
-    const routines = await RoutineService.open({ database });
-    if (routines instanceof Error) return routines;
+    const automations = await AutomationService.open({ database });
+    if (automations instanceof Error) return automations;
+    const routines = new RoutineService({ automations });
     const [initialized, toolRuntime] = await Promise.all([
       workspace.initialize(),
       ToolRuntime.create({
@@ -260,6 +275,11 @@ export class WorkspaceServer {
           createWorkspaceFilesPlugin(filesystem),
           createDatabaseQueryPlugin(database),
           createHotkeysPlugin(hotkeys),
+          createAutomationsPlugin(() => ({
+            automations,
+            runner: automationRunner,
+            sources: automationSources,
+          })),
           createThreadPlugin(() => ({
             threads: sessions,
             connections: connectionService,
@@ -270,6 +290,7 @@ export class WorkspaceServer {
         authority: new StaticAgentAuthority(
           host.agentCapabilities ?? [
             "workspace.hotkeys",
+            "workspace.automations",
             "workspace.files.read",
             "workspace.files.write",
             "workspace.shell.execute",
@@ -322,24 +343,31 @@ export class WorkspaceServer {
           error: closed,
         });
     });
-    const routineRunner = new RoutineRunner({
-      routines,
+    const automationRunner = new AutomationRunner({
+      automations,
       sessions,
       filesystem,
       workspaceRoot,
       logger: host.logger,
     });
-    cleanup.defer(async () => await routineRunner.stop());
-    const recoveredRoutines = await routineRunner.recover({
+    const routineRunner = new RoutineRunner({
+      automations: automationRunner,
+      routines,
+    });
+    cleanup.defer(async () => await automationRunner.stop());
+    const recoveredRoutines = await automationRunner.recover({
       preserveDue: host.reportRoutineSchedule !== undefined,
     });
     if (recoveredRoutines instanceof Error) return recoveredRoutines;
     const recovered = await sessions.start();
     if (recovered instanceof Error) return recovered;
+    await automationRunner.startWorker();
     const idleReporter = new WorkspaceIdleReporter({
-      idle: combineLatest([sessions.idle, toolRuntime.idle]).map((states) =>
-        states.every(Boolean),
-      ),
+      idle: combineLatest([
+        sessions.idle,
+        toolRuntime.idle,
+        automationRunner.idle,
+      ]).map((states) => states.every(Boolean)),
       report: host.reportWorkIdle,
     });
     cleanup.defer(async () => await idleReporter.close());
@@ -356,6 +384,22 @@ export class WorkspaceServer {
             logger: host.logger,
           });
     cleanup.defer(async () => await routineScheduler.stop());
+    const automationSync =
+      host.automationControl === undefined
+        ? undefined
+        : new AutomationSync({
+            automations,
+            report: async (snapshot, signal) =>
+              await host.automationControl!.report(snapshot, signal),
+            logger: host.logger,
+          });
+    automationSync?.start();
+    cleanup.defer(async () => await automationSync?.close());
+    const automationSources = new AutomationSources({
+      automations,
+      sync: automationSync,
+      control: host.automationControl,
+    });
     const requests = serveHaloHttp({
       ...http,
       context: {
@@ -363,6 +407,9 @@ export class WorkspaceServer {
         hotkeys,
         routines,
         routineRunner,
+        automations,
+        automationRunner,
+        automationSources,
         traces,
         browsers,
         extensions,
@@ -391,8 +438,9 @@ export class WorkspaceServer {
       sessionRepo,
       workspace,
       sessions,
-      routineRunner,
+      automationRunner,
       routineScheduler,
+      automationSync,
       toolRuntime,
       connectionService,
       browsers,
@@ -416,7 +464,8 @@ export class WorkspaceServer {
     this.connectionService.close();
     // Routine runs record their interruption before their sessions close.
     await this.routineScheduler.stop();
-    await this.routineRunner.stop();
+    await this.automationSync?.close();
+    await this.automationRunner.stop();
     const sessionsClosed = await this.sessions.shutdown();
     await this.traces.close();
     await this.browsers.shutdown();

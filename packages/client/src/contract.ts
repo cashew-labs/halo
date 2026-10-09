@@ -1,3 +1,12 @@
+import type {
+  AutomationGmailConnection,
+  AutomationSourceState,
+  AutomationWebhookAccess,
+  AutomationEvent,
+  Automation,
+  AutomationInput,
+  AutomationRun,
+} from "./automations.js";
 import type { ServerInfo } from "./protocol.js";
 import type { Hotkey, HotkeyInput } from "./hotkeys.js";
 import type { Routine, RoutineInput, RoutineRun } from "./routines.js";
@@ -27,8 +36,10 @@ import type {
   WorkspaceTreeEvent,
 } from "./rpc.js";
 
+// Automation APIs are additive. Existing clients keep the protocol-25 stream
+// unless they explicitly subscribe to automation updates.
 export const haloProtocolVersion = 25 as const;
-export const haloSupportedProtocols = [haloProtocolVersion];
+export const haloSupportedProtocols = [24, haloProtocolVersion];
 
 export const RequestRejectedError = error("BAD_REQUEST", {
   message: "Halo could not complete the request.",
@@ -72,6 +83,7 @@ export type BrowserExecution = {
 export type WorkspaceUpdate =
   | { type: "hotkeys"; hotkeys: Hotkey[] }
   | { type: "routines"; routines: Routine[] }
+  | { type: "automations"; automations: Automation[] }
   | { type: "extensions"; extensions: ExtensionSummary[] }
   | { type: "extensionsError"; message: string }
   | { type: "sessions"; update: SessionSummariesUpdate }
@@ -80,7 +92,9 @@ export type WorkspaceUpdate =
 export const contract = publicProcedure.router({
   server: {
     info: oc.output(type<ServerInfo>()),
-    watch: oc.output(asyncIteratorObject(type<WorkspaceUpdate>())),
+    watch: oc
+      .input(type<{ includeAutomations?: boolean } | undefined>())
+      .output(asyncIteratorObject(type<WorkspaceUpdate>())),
   },
   browser: {
     open: oc.input(type<{ url: string }>()).output(
@@ -149,6 +163,39 @@ export const contract = publicProcedure.router({
     save: oc.input(type<HotkeyInput>()).output(type<Hotkey>()),
     remove: oc.input(type<{ id: string }>()).output(type<void>()),
   },
+  automations: {
+    gmailConnections: oc.output(type<AutomationGmailConnection[]>()),
+    webhookAccess: oc
+      .input(type<{ automationId: string; rotate?: boolean }>())
+      .output(type<AutomationWebhookAccess>()),
+    sourceStatus: oc
+      .input(type<{ automationId: string }>())
+      .output(type<AutomationSourceState>()),
+    runNow: oc
+      .input(
+        type<{
+          automationId: string;
+          samplePayload?: AutomationEvent["payload"];
+        }>(),
+      )
+      .output(type<AutomationRun>()),
+    runScheduled: oc
+      .input(type<{ automationId: string }>())
+      .output(type<void>()),
+    acceptEvent: oc
+      .input(type<AutomationEvent>())
+      .output(type<AutomationRun>()),
+    list: oc.output(type<Automation[]>()),
+    watch: oc.output(asyncIteratorObject(type<Automation[]>())),
+    save: oc.input(type<AutomationInput>()).output(type<Automation>()),
+    remove: oc.input(type<{ automationId: string }>()).output(type<void>()),
+    setEnabled: oc
+      .input(type<{ automationId: string; enabled: boolean }>())
+      .output(type<Automation>()),
+    listRuns: oc
+      .input(type<{ automationId: string; limit?: number }>())
+      .output(type<AutomationRun[]>()),
+  },
   routines: {
     list: oc.output(type<Routine[]>()),
     watch: oc.output(asyncIteratorObject(type<Routine[]>())),
@@ -197,9 +244,16 @@ export const contract = publicProcedure.router({
         type<{
           sessionId: string;
           request: ConnectionRequest;
+          // Protocol 24 clients still send completion. OAuth now finishes on
+          // the control plane; no provider code is sent to this redirect URI.
+          completion?:
+            | { kind: "client-loopback"; redirectUri: string }
+            | { kind: "server-redirect"; redirectUri: string };
         }>(),
       )
       .output(type<ConnectionStarted>()),
+    // An OAuth attempt started on a replaced workspace must be restarted.
+    completeOAuth: oc.input(type<{ state: string; code: string }>()),
     cancelConnection:
       oc.input(type<{ sessionId: string; connectionId: string }>()),
     respondToToolApproval:

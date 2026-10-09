@@ -39,12 +39,19 @@ const exeWorkspaceSchema = Type.Object({
   gatewaySecret: Type.String({ minLength: 32 }),
 });
 
+const gmailSchema = Type.Object({
+  topic: Type.String({ pattern: "^projects/[^/]+/topics/[^/]+$" }),
+  audience: Type.String({ minLength: 1 }),
+  serviceAccount: Type.String({ minLength: 1 }),
+});
+
 export const controlPlaneConfigSchema = Type.Union([
   Type.Object({
     deployment: Type.Literal("local"),
     appDataDir: Type.String(),
     port: portSchema,
     auth: authSchema,
+    gmail: Type.Optional(gmailSchema),
     workspace: Type.Union([localWorkspaceSchema, exeWorkspaceSchema]),
   }),
   Type.Object({
@@ -55,6 +62,7 @@ export const controlPlaneConfigSchema = Type.Union([
     traceBucket: Type.String({ minLength: 1 }),
     workspaceServiceAccount: Type.String({ minLength: 1 }),
     auth: authSchema,
+    gmail: Type.Optional(gmailSchema),
     workspace: Type.Union([gcpWorkspaceSchema, exeWorkspaceSchema]),
   }),
 ]);
@@ -243,6 +251,14 @@ async function readCloudRunConfig(): Promise<ControlPlaneConfig | Error> {
     origin,
     databaseUrl,
     traceBucket: process.env.TRACE_BUCKET,
+    gmail:
+      process.env.GMAIL_PUBSUB_TOPIC === undefined
+        ? undefined
+        : {
+            topic: process.env.GMAIL_PUBSUB_TOPIC,
+            audience: `${origin}/api/automation-events/gmail`,
+            serviceAccount: process.env.GMAIL_PUSH_SERVICE_ACCOUNT,
+          },
     workspaceServiceAccount: process.env.WORKSPACE_SERVICE_ACCOUNT,
     auth,
     workspace,

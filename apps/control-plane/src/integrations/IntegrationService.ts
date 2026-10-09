@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import crypto from "node:crypto";
 import dns from "node:dns/promises";
 import http from "node:http";
@@ -153,6 +154,8 @@ export class IntegrationService {
   private readonly publicOrigin: string;
   private readonly firstPartyOAuthClients: readonly FirstPartyOAuthClientConfig[];
   private readonly allowLocalUrls: boolean;
+  private readonly gmailTransport = new AsyncLocalStorage<boolean>();
+  private readonly gmailApiOrigin: string | undefined;
 
   private constructor(ctx: {
     database: Exclude<
@@ -165,6 +168,7 @@ export class IntegrationService {
     publicOrigin: string;
     firstPartyOAuthClients?: readonly FirstPartyOAuthClientConfig[];
     allowLocalUrls?: boolean;
+    gmailApiOrigin?: string;
   }) {
     this.database = ctx.database;
     this.credentials = ctx.credentials;
@@ -172,6 +176,7 @@ export class IntegrationService {
     this.publicOrigin = ctx.publicOrigin;
     this.firstPartyOAuthClients = ctx.firstPartyOAuthClients ?? [];
     this.allowLocalUrls = ctx.allowLocalUrls ?? false;
+    this.gmailApiOrigin = ctx.gmailApiOrigin;
     const getOpenAPISpec = ctx.getOpenAPISpec;
     // Only spec loading is overridden. Tool invocations keep Executor's normal HTTP client.
     const httpClientLayer =
@@ -225,6 +230,7 @@ export class IntegrationService {
     publicOrigin: string;
     firstPartyOAuthClients?: readonly FirstPartyOAuthClientConfig[];
     allowLocalUrls?: boolean;
+    gmailApiOrigin?: string;
   }) {
     const database = await createExecutorDatabase(ctx.db);
     if (database instanceof Error) return database;
@@ -236,6 +242,7 @@ export class IntegrationService {
       publicOrigin: ctx.publicOrigin,
       firstPartyOAuthClients: ctx.firstPartyOAuthClients,
       allowLocalUrls: ctx.allowLocalUrls,
+      gmailApiOrigin: ctx.gmailApiOrigin,
     });
     const initialized = await service.sql(
       "CREATE TABLE IF NOT EXISTS halo_integration_setup (setup_id TEXT PRIMARY KEY, user_id TEXT NOT NULL, integration TEXT NOT NULL, connection_name TEXT NOT NULL, data TEXT NOT NULL, status TEXT NOT NULL, expires_at BIGINT NOT NULL, oauth_state TEXT)",
@@ -902,6 +909,27 @@ export class IntegrationService {
     allowEventStream = false,
   ) => {
     const request = new Request(input, init);
+    if (this.gmailTransport.getStore() === true) {
+      const url = new URL(request.url);
+      const gmail =
+        (url.origin === "https://gmail.googleapis.com" ||
+          url.origin === "https://www.googleapis.com") &&
+        url.pathname.startsWith("/gmail/v1/users/");
+      const oauth =
+        (url.origin === "https://oauth2.googleapis.com" &&
+          url.pathname === "/token") ||
+        (url.origin === "https://accounts.google.com" &&
+          url.pathname === "/o/oauth2/token");
+      const localDriver =
+        this.allowLocalUrls &&
+        this.gmailApiOrigin !== undefined &&
+        url.origin === this.gmailApiOrigin;
+      if (!gmail && !oauth && !localDriver)
+        throw new IntegrationSetupError({
+          detail: "Gmail triggers require an authentic Google Gmail endpoint",
+        });
+    }
+
     const safe = await this.validateRemoteUrl(request.url);
     if (safe instanceof Error) throw safe;
     const body =
@@ -1233,6 +1261,27 @@ export class IntegrationService {
           "Integration invocation interrupted or unavailable; do not automatically retry.",
       } satisfies IntegrationInvocation;
     return result;
+  }
+
+  // Bind the transport only after Executor initialization. No credential or arbitrary
+  // integration metadata leaves the user scope; edited specs cannot forge a mailbox.
+  async withGmailUser<A, E>(
+    userId: string,
+    run: (executor: IntegrationExecutor) => Effect.Effect<A, E>,
+    signal: AbortSignal,
+  ) {
+    return await this.withUser(
+      userId,
+      (executor) =>
+        Effect.promise(
+          async () =>
+            await this.gmailTransport.run(
+              true,
+              async () => await Effect.runPromise(run(executor), { signal }),
+            ),
+        ),
+      signal,
+    );
   }
 
   // Internal boundary only. RPC callers derive userId from runtime authentication.

@@ -1,4 +1,6 @@
 import * as errore from "errore";
+import { Type } from "@sinclair/typebox";
+import { Value } from "@sinclair/typebox/value";
 import {
   createHaloClient,
   connectHaloClient,
@@ -906,12 +908,12 @@ serverTest(
     const request = { kind: "control-plane" as const, integration: "new_mcp" };
     expect(execution.result?.details).toMatchObject({
       connectionRequests: expect.arrayContaining([
-        request,
-        {
+        expect.objectContaining(request),
+        expect.objectContaining({
           kind: "control-plane",
           integration: "google_gmail",
           connectionName: "personal",
-        },
+        }),
       ]),
     });
     const started = await server.rpc.thread.startConnection({
@@ -1520,13 +1522,13 @@ serverTest(
 );
 
 serverTest(
-  "advertises protocol 25 and rejects unsupported writes",
+  "advertises protocols 24 and 25 and rejects unsupported writes",
   async ({ server }) => {
     const connected = await connectHaloClient({ transport: server.transport });
     assert(!(connected instanceof Error));
     expect(connected.serverInfo).toEqual({
       protocolVersion: haloProtocolVersion,
-      supportedProtocols: [25],
+      supportedProtocols: [24, 25],
     });
     const unsupported = createHaloClient({
       transport: {
@@ -1538,7 +1540,7 @@ serverTest(
       },
     });
     expect(await unsupported.server.info()).toMatchObject({
-      supportedProtocols: [25],
+      supportedProtocols: [24, 25],
     });
     await expect(
       unsupported.workspace.writeFile({
@@ -1690,5 +1692,134 @@ serverTest(
       }),
     ).rejects.toThrow();
     expect(await server.rpc.workspace.listPaths()).not.toContain("race.md");
+  },
+);
+
+serverTest(
+  "released protocol 24 clients can connect new and saved integration cards",
+  async ({ createServer, llm }) => {
+    let status: "authorizing" | "ready" | "failed" = "authorizing";
+    const requested: { integration: string; connectionName?: string }[] = [];
+    const server = createServer({
+      remoteConnections: {
+        catalog: async () => [{ integration: "example", name: "Example" }],
+        startSetup: async (input) => {
+          requested.push(input);
+          return {
+            setupId: "setup",
+            setupUrl: "https://halo.example/integrations/setup/setup",
+          };
+        },
+        setup: async () => ({ status }),
+        cancelSetup: async () => undefined,
+      },
+    });
+    await server.start();
+    const legacy = createHaloClient({
+      transport: {
+        ...server.transport,
+        headers: {
+          ...server.transport.headers,
+          "x-halo-protocol-version": "24",
+        },
+      },
+    });
+    const session = await legacy.thread.new();
+    const prompting = server.promptAndWait({
+      ...session,
+      text: "Connect Example",
+    });
+    await llm.respond(
+      m.tool.start("exec", {
+        id: "legacy-card",
+        arguments: {
+          js: 'await tools.halo.showConnectionCard({ integration: "example" });',
+        },
+      }),
+    );
+    await llm.respond(m.assistant("Connect Example using this card."));
+    await prompting;
+    const execution = sessionToolExecutions(
+      await legacy.thread.snapshot(session),
+    )[0]!;
+    assert(execution.type === "exec");
+    // Freeze the request schema validated by Halo 0.1.65 renderer and desktop IPC.
+    const legacyRequestSchema = Type.Object({
+      client: Type.String(),
+      clientOwner: Type.Union([Type.Literal("org"), Type.Literal("user")]),
+      owner: Type.Union([Type.Literal("org"), Type.Literal("user")]),
+      connectionName: Type.String(),
+      integration: Type.String(),
+      template: Type.String(),
+    });
+    const details = execution.result?.details;
+    assert(
+      Value.Check(
+        Type.Object({ connectionRequests: Type.Array(legacyRequestSchema) }),
+        details,
+      ),
+    );
+    const request = details.connectionRequests[0];
+    assert(request !== undefined);
+    const completion = {
+      kind: "client-loopback" as const,
+      redirectUri: "http://127.0.0.1:49152/oauth/callback",
+    };
+    const started = await legacy.thread.startConnection({
+      ...session,
+      request,
+      completion,
+    });
+    expect(started).toMatchObject({
+      status: "authorization-required",
+      authorizationUrl: "https://halo.example/integrations/setup/setup",
+    });
+    status = "ready";
+    await llm.respond(m.assistant("Example is connected."));
+    await expect
+      .poll(async () => (await legacy.thread.snapshot(session)).connections)
+      .toMatchObject([{ request, status: "connected" }]);
+    // Old desktop's unused callback timeout cannot cancel a completed setup.
+    assert(started.status === "authorization-required");
+    await legacy.thread.cancelConnection({
+      ...session,
+      connectionId: started.connectionId,
+    });
+    expect((await legacy.thread.snapshot(session)).connections).toMatchObject([
+      { status: "connected" },
+    ]);
+    status = "failed";
+    const savedRequest = {
+      client: "google",
+      clientOwner: "org" as const,
+      owner: "user" as const,
+      connectionName: "personal",
+      integration: "example",
+      template: "googleOAuth2",
+    };
+    const failed = await legacy.thread.startConnection({
+      ...session,
+      request: savedRequest,
+      completion,
+    });
+    assert(failed.status === "authorization-required");
+    await expect
+      .poll(
+        async () =>
+          (await legacy.thread.snapshot(session)).connections.find(
+            (connection) => connection.connectionId === failed.connectionId,
+          )?.status,
+      )
+      .toBe("cancelled");
+    expect(requested).toEqual([
+      { integration: "example", connectionName: "default" },
+      { integration: "example", connectionName: "personal" },
+    ]);
+    await expect(
+      legacy.thread.completeOAuth({
+        state: "old-workspace-attempt",
+        code: "old-code",
+      }),
+    ).rejects.toThrow("Connect again");
   },
 );

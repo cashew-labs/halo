@@ -1,3 +1,13 @@
+import type { GmailService } from "../automations/GmailService.js";
+import type { GmailPushReceiver } from "../automations/gmailHttp.js";
+import { serveWebhook } from "../automations/webhookHttp.js";
+import type { WebhookService } from "../automations/WebhookService.js";
+import {
+  serveAutomationState,
+  serveAutomationGmailConnections,
+} from "../automations/automationStateHttp.js";
+import type { AutomationStore } from "../automations/AutomationStore.js";
+import { serveAutomationSnapshot } from "../automations/automationSnapshotHttp.js";
 import { acceptsProtocol, protocolHeader } from "@get-halo/client";
 import {
   controlPlaneProtocolVersion,
@@ -105,6 +115,10 @@ export function serveControlPlaneHttp(ctx: {
   workspace: WorkspaceService;
   integrations?: IntegrationService;
   routines: RoutineCoordinator;
+  automationStore: AutomationStore;
+  webhooks: WebhookService;
+  gmail: GmailService;
+  gmailPush: GmailPushReceiver;
   build?: { version: string; revision: string };
   webRoot: string;
   traces?: TraceIngestion;
@@ -144,6 +158,10 @@ export function serveControlPlaneHttp(ctx: {
       auth,
       workspace,
       routines: ctx.routines,
+      automationStore: ctx.automationStore,
+      webhooks: ctx.webhooks,
+      gmail: ctx.gmail,
+      gmailPush: ctx.gmailPush,
       gateway,
       traces,
       rpc,
@@ -216,6 +234,10 @@ async function routeControlPlaneRequest(ctx: {
   workspace: WorkspaceService;
   integrations?: IntegrationService;
   routines: RoutineCoordinator;
+  automationStore: AutomationStore;
+  webhooks: WebhookService;
+  gmail: GmailService;
+  gmailPush: GmailPushReceiver;
   build?: { version: string; revision: string };
   rpc: RPCHandler<ControlPlaneContext>;
   webRoot: string;
@@ -250,6 +272,62 @@ async function routeControlPlaneRequest(ctx: {
 
   if (url.pathname === "/api/workspace-runtime/idle") {
     await serveWorkspaceIdleReport(request, response, workspace);
+    return;
+  }
+
+  if (url.pathname === "/api/automation-events/gmail") {
+    await ctx.gmailPush.serve(request, response);
+    return;
+  }
+
+  const webhook = /^\/api\/webhooks\/([a-zA-Z0-9_-]+)$/.exec(url.pathname);
+  if (webhook?.[1] !== undefined) {
+    await serveWebhook({
+      request,
+      response,
+      url,
+      webhookId: webhook[1],
+      webhooks: ctx.webhooks,
+      store: ctx.automationStore,
+    });
+    return;
+  }
+
+  if (url.pathname === "/api/workspace-runtime/automations/gmail/connections") {
+    await serveAutomationGmailConnections({
+      request,
+      response,
+      workspace,
+      integrations: ctx.integrations,
+    });
+    return;
+  }
+  const automationState =
+    /^\/api\/workspace-runtime\/automations\/([a-zA-Z0-9_-]+)(?:\/(reveal|rotate))?$/.exec(
+      url.pathname,
+    );
+  if (automationState?.[1] !== undefined) {
+    await serveAutomationState({
+      request,
+      response,
+      automationId: automationState[1],
+      workspace,
+      store: ctx.automationStore,
+      webhooks: ctx.webhooks,
+      secretAction: automationState[2],
+      gmail: ctx.gmail,
+    });
+    return;
+  }
+
+  if (url.pathname === "/api/workspace-runtime/automations") {
+    await serveAutomationSnapshot(
+      request,
+      response,
+      workspace,
+      ctx.automationStore,
+    );
+    ctx.gmail.schedule();
     return;
   }
 

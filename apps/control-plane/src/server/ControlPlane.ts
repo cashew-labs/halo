@@ -1,3 +1,9 @@
+import type { OAuth2Client } from "google-auth-library";
+import { GmailService } from "../automations/GmailService.js";
+import { GmailPushReceiver } from "../automations/gmailHttp.js";
+import { WebhookService } from "../automations/WebhookService.js";
+import { AutomationStore } from "../automations/AutomationStore.js";
+import { AutomationCoordinator } from "../automations/AutomationCoordinator.js";
 import { join } from "node:path";
 import type { ControlPlaneConfig } from "@get-halo/config/controlPlane";
 import * as errore from "errore";
@@ -30,6 +36,8 @@ export class ControlPlane {
   private readonly requests: ServingControlPlaneHttp;
   readonly integrations: IntegrationService | undefined;
   private readonly routines: RoutineCoordinator;
+  private readonly gmail: GmailService;
+  private readonly automationCoordinator: AutomationCoordinator;
 
   private constructor(ctx: {
     db: DatabaseService;
@@ -38,6 +46,8 @@ export class ControlPlane {
     requests: ServingControlPlaneHttp;
     integrations: IntegrationService | undefined;
     routines: RoutineCoordinator;
+    gmail: GmailService;
+    automationCoordinator: AutomationCoordinator;
   }) {
     this.db = ctx.db;
     this.http = ctx.http;
@@ -45,6 +55,8 @@ export class ControlPlane {
     this.requests = ctx.requests;
     this.integrations = ctx.integrations;
     this.routines = ctx.routines;
+    this.gmail = ctx.gmail;
+    this.automationCoordinator = ctx.automationCoordinator;
   }
 
   get origin() {
@@ -62,6 +74,8 @@ export class ControlPlane {
     integrationEncryptionKey?: Buffer;
     getOpenAPISpec?: (url: string) => Promise<string | Error>;
     allowLocalIntegrationUrls?: boolean;
+    gmailPushAuth?: OAuth2Client;
+    gmailApiOrigin?: string;
   }) {
     const { config, webRoot } = ctx;
     await using cleanup = new errore.AsyncDisposableStack();
@@ -122,6 +136,8 @@ export class ControlPlane {
             credentials,
             getOpenAPISpec: ctx.getOpenAPISpec,
             publicOrigin,
+            gmailApiOrigin:
+              config.deployment === "local" ? ctx.gmailApiOrigin : undefined,
             allowLocalUrls:
               config.deployment === "local" &&
               ctx.allowLocalIntegrationUrls === true,
@@ -145,6 +161,32 @@ export class ControlPlane {
     if (routines instanceof Error) return routines;
     cleanup.defer(async () => await routines.close());
 
+    const automationStore = new AutomationStore({ db });
+    const initializedAutomations = await automationStore.initialize();
+    if (initializedAutomations instanceof Error) return initializedAutomations;
+    const webhooks = new WebhookService({
+      store: automationStore,
+      credentials,
+      origin: publicOrigin,
+    });
+    const initializedWebhooks = await webhooks.initialize();
+    if (initializedWebhooks instanceof Error) return initializedWebhooks;
+    const gmail = new GmailService({
+      automations: automationStore,
+      integrations,
+      configuration: config.gmail,
+    });
+    const initializedGmail = await gmail.start();
+    if (initializedGmail instanceof Error) return initializedGmail;
+    cleanup.defer(async () => await gmail.close());
+    const gmailPush = new GmailPushReceiver({ gmail, auth: ctx.gmailPushAuth });
+    const automationCoordinator = new AutomationCoordinator({
+      store: automationStore,
+      workspace,
+    });
+    automationCoordinator.start();
+    cleanup.defer(async () => await automationCoordinator.close());
+
     const requests = serveControlPlaneHttp({
       server: http.server,
       auth,
@@ -152,6 +194,10 @@ export class ControlPlane {
       workspace,
       integrations,
       routines,
+      automationStore,
+      webhooks,
+      gmail,
+      gmailPush,
       webRoot,
       build: ctx.build,
       inferenceApiKey: ctx.inferenceApiKey,
@@ -172,12 +218,16 @@ export class ControlPlane {
       requests,
       integrations,
       routines,
+      gmail,
+      automationCoordinator,
     });
   }
 
   async close() {
     this.requests.close();
     await this.routines.close();
+    await this.gmail.close();
+    await this.automationCoordinator.close();
     const httpClosed = await closeControlPlaneHttp(this.http.server);
     const integrationsClosed = await this.integrations?.close();
     const databaseClosed = await this.db.close();

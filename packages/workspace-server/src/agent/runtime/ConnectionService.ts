@@ -25,6 +25,7 @@ type StartConnectionInput = {
   onEvent: (event: HaloConnectionEvent) => Promise<Error | undefined>;
   request: ConnectionRequest;
   sessionId: string;
+  legacyClient?: boolean;
 };
 
 type PendingConnection = StartConnectionInput & {
@@ -207,7 +208,8 @@ export class ConnectionService {
       type: "halo.connection",
       connectionId: pending.connectionId,
       request: pending.request,
-      status,
+      status:
+        status === "failed" && pending.legacyClient ? "cancelled" : status,
     };
   }
 
