@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-: "${EXE_PRIVATE_KEY_PATH:?}" "${WORKSPACE_IMAGE:?}" "${RUNNER_TEMP:?}" "${VERSION:?}" "${GITHUB_SHA:?}"
+: "${EXE_PRIVATE_KEY_PATH:?}" "${WORKSPACE_IMAGE:?}" "${RUNNER_TEMP:?}" "${VERSION:?}" "${SOURCE_SHA:?}"
 mode=${1:?Usage: exeRollout.sh template|update}
 root=$(cd -- "$(dirname -- "$0")/../.." && pwd)
 release_manifest=${RELEASE_MANIFEST:-"$root/releases/$VERSION.json"}
@@ -87,14 +87,14 @@ ACTIVITY
     ready=false
     for attempt in $(seq 1 60); do
       if info=$(ssh "${ssh_args[@]}" "$vm.exe.xyz" 'sudo docker exec halo-workspace node --import /opt/halo/node_modules/tsx/dist/loader.mjs /opt/halo/packages/halo-cli/src/cli.ts status --json' 2> "$RUNNER_TEMP/exe-status-error.log"); then
-        if jq -e --arg revision "$GITHUB_SHA" --argjson protocols "$(jq -c .protocols.workspace.supported "$release_manifest")" '.build.revision == $revision and (.supportedProtocols // [.protocolVersion]) == $protocols' <<< "$info" >/dev/null; then ready=true; break; fi
+        if jq -e --arg revision "$SOURCE_SHA" --argjson protocols "$(jq -c .protocols.workspace.supported "$release_manifest")" '.build.revision == $revision and (.supportedProtocols // [.protocolVersion]) == $protocols' <<< "$info" >/dev/null; then ready=true; break; fi
       fi
       sleep 5
     done
     if [ "$ready" != true ]; then cat "$RUNNER_TEMP/exe-status-error.log" >&2; echo "$vm did not become ready for $image" >&2; exit 1; fi
     if [ "$status" = paused ] || [ "$status" = suspended ]; then ssh "${ssh_args[@]}" exe.dev pause "$vm"; fi
     restore_paused=false
-    echo "HALO_WORKSPACE_READY image=$image revision=$GITHUB_SHA"
+    echo "HALO_WORKSPACE_READY image=$image revision=$SOURCE_SHA"
     ;;
   *) echo "Mode must be template or update" >&2; exit 1 ;;
 esac
