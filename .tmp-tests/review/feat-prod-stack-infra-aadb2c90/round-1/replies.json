@@ -1,0 +1,10 @@
+[
+  {
+    "findingId": "F1",
+    "reply": "fixed: new ownsDeploymentAccess option (default true). west keeps owning deployment-logging-config, deployment-pubsub-admin, deployment-workspace-os-login, deployment-workspace-iap and exe-release-key-access; Pulumi.prod.yaml sets it false. README warns not to destroy west without moving ownership. Temp tests assert both sides."
+  },
+  {
+    "findingId": "F2",
+    "reply": "fixed: googleClientIdSecretId/googleClientSecretId are configurable and prod reuses the halo-west-* sign-in client secrets; without exeGatewaySecretId the stack generates halo-<stack>-exe-gateway-seed (secret + random version; consumers wait on the version). README now documents both and lists the staging OAuth redirect URIs. Temp tests assert both."
+  }
+]

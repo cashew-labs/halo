@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "This round fixes F1 and F2. F1: the new `ownsDeploymentAccess` option gives each shared deployment grant one owning stack, `west`, and `prod` turns it off. F2: the Google sign-in secret IDs are now configurable, so `prod` reuses the `halo-west-*` client. A stack without `exeGatewaySecretId` now generates its own 48-character gateway seed, which meets the control plane's 32-character minimum. Its consumers wait for the first secret version. The README matches the code, the temp tests check both stack configurations, every changed line is covered, and all test runs pass.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "5d7f60c41ac244f8967f2c3423fe631a08874547",
+  "treeHash": "390ab6d6325741f45927090878198f1fab53c15a",
+  "codeTree": "0e45513e1e3e34490874cd00df8945308eb46c47",
+  "coverage": {
+    "executable": 32,
+    "covered": 32,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-09T21:09:30.696Z"
+}

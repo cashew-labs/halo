@@ -1,0 +1,35 @@
+{
+  "status": "changes_requested",
+  "summary": "The change adds a `prod` control-plane stack that reads images from the `west` repository. It also adds a `redirectWww` switch for subdomain origins and makes the image-build resources conditional. The conditional logic is correct and covered by temp tests. It is not ready because the two stacks now co-own identical non-authoritative IAM bindings, and the prod stack depends on per-stack secrets that nothing creates or documents.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "source",
+      "file": "infra/control-plane/index.ts",
+      "line": 57,
+      "severity": "P1",
+      "body": "With the new `prod` stack, several non-authoritative IAM members grant the same (resource, role, member) binding in both stacks, so two Pulumi stacks manage one GCP binding:\n- `deployment-logging-config` (line 57)\n- `deployment-pubsub-admin` (86)\n- `deployment-workspace-os-login` (359)\n- `deployment-workspace-iap` (364)\n- `exe-release-key-access` (582), which binds the deploy SA on the shared `halo-west-exe-account-key`\n\nIf either stack destroys or replaces one of these resources, for example when tearing down or recreating staging or changing `deploymentServiceAccount`, GCP removes the binding for the other stack too. Pulumi reports no drift. The README says the logging binding \"must never be removed\". Losing these bindings breaks the prod release deploy (log exclusion, Pub/Sub, IAP SSH, exe key access). Give each shared project-level binding a single owner. For example, create them only in the stack that owns the shared resources, using the same pattern as `imageRepositoryId`, or add an explicit config flag. Alternatively, move them to a separate shared program."
+    },
+    {
+      "id": "F2",
+      "kind": "source",
+      "file": "infra/control-plane/Pulumi.prod.yaml",
+      "line": 14,
+      "severity": "P1",
+      "body": "The prod stack points to secrets that nothing creates or documents:\n- `exeGatewaySecretId: halo-prod-exe-gateway-seed`\n- the per-stack sign-in client secrets `halo-prod-control-plane-google-client-id` and `halo-prod-control-plane-google-client-secret`, from `${name}-control-plane-google-client-*` in index.ts lines 37-38.\n\nThe new README section (README.md lines 21-24) says the stacks \"share ... the Google OAuth clients\". In fact the control-plane sign-in client is read from stack-specific secret IDs, and the 'OAuth and runtime secrets' section still lists only the `halo-west-*` secrets. The first `pulumi up --stack prod` fails at the `SecretIamMember` resources for the missing secrets. Fix one of two ways:\n- Make the control-plane Google client secret IDs configurable so prod can reuse the `halo-west-*` secrets, which matches the README's 'shared' claim.\n- Correct the README and document creating the `halo-prod-*` OAuth secrets and the gateway seed as prerequisites for prod."
+    }
+  ],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "353120128fca8b01bfb67d25b8d1358f143a2b60",
+  "treeHash": "019f705fbf2c6f2f43ab232dbab3f8f22787db5c",
+  "codeTree": "b6a6451f4aa065bf142646b3e3deb013da658aa6",
+  "coverage": {
+    "executable": 19,
+    "covered": 19,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-09T21:07:28.692Z"
+}
