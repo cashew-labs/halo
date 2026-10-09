@@ -472,7 +472,8 @@ e2eTest(
         async () =>
           await app.page.evaluate(async () => {
             const items = await navigator.clipboard.read();
-            const png = await items[0]?.getType("image/png");
+            if (!items[0]?.types.includes("image/png")) return false;
+            const png = await items[0].getType("image/png");
             return png !== undefined && png.size > 0;
           }),
       )
