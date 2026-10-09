@@ -11,18 +11,18 @@ const pollMs = 15_000;
 const retryMs = 30_000;
 const batchSize = 20;
 
-type RoutineScheduleSnapshot = {
+type AutomationScheduleSnapshot = {
   routines: Array<{ id: string; nextRunAt: string }>;
 };
 
 type DueRoutine = { workspaceId: string; routineId: string };
 
-class RoutineCoordinatorError extends errore.createTaggedError({
-  name: "RoutineCoordinatorError",
+class AutomationScheduleCoordinatorError extends errore.createTaggedError({
+  name: "AutomationScheduleCoordinatorError",
   message: "Routine coordination failed: $detail",
 }) {}
 
-export class RoutineCoordinator {
+export class AutomationScheduleCoordinator {
   private timer: NodeJS.Timeout | undefined;
   private ticking: Promise<void> | undefined;
   private closed = false;
@@ -42,7 +42,7 @@ export class RoutineCoordinator {
     db: DatabaseService;
     workspace: WorkspaceService;
   }) {
-    const coordinator = new RoutineCoordinator(ctx);
+    const coordinator = new AutomationScheduleCoordinator(ctx);
     const migrated = await coordinator.migrate();
     if (migrated instanceof Error) return migrated;
     coordinator.timer = setInterval(() => coordinator.scheduleTick(), pollMs);
@@ -57,7 +57,7 @@ export class RoutineCoordinator {
     await this.ticking;
   }
 
-  async update(workspaceId: string, snapshot: RoutineScheduleSnapshot) {
+  async update(workspaceId: string, snapshot: AutomationScheduleSnapshot) {
     const db = this.db.client;
     if (db instanceof DatabaseSync) {
       const updated = sqliteTransaction(db, () => {
@@ -87,7 +87,7 @@ export class RoutineCoordinator {
 
     const connection = await db.connect().catch(
       (cause) =>
-        new RoutineCoordinatorError({
+        new AutomationScheduleCoordinatorError({
           detail: "connect for snapshot",
           cause,
         }),
@@ -95,12 +95,13 @@ export class RoutineCoordinator {
     if (connection instanceof Error) return connection;
     using cleanup = new errore.DisposableStack();
     cleanup.defer(() => connection.release());
-    const begun = await connection
-      .query("BEGIN")
-      .catch(
-        (cause) =>
-          new RoutineCoordinatorError({ detail: "begin snapshot", cause }),
-      );
+    const begun = await connection.query("BEGIN").catch(
+      (cause) =>
+        new AutomationScheduleCoordinatorError({
+          detail: "begin snapshot",
+          cause,
+        }),
+    );
     if (begun instanceof Error) return begun;
     const ids = snapshot.routines.map((routine) => routine.id);
     const removed = await connection
@@ -110,7 +111,10 @@ export class RoutineCoordinator {
       )
       .catch(
         (cause) =>
-          new RoutineCoordinatorError({ detail: "replace schedules", cause }),
+          new AutomationScheduleCoordinatorError({
+            detail: "replace schedules",
+            cause,
+          }),
       );
     if (removed instanceof Error) {
       await this.rollback(connection);
@@ -130,19 +134,23 @@ export class RoutineCoordinator {
         )
         .catch(
           (cause) =>
-            new RoutineCoordinatorError({ detail: "store schedule", cause }),
+            new AutomationScheduleCoordinatorError({
+              detail: "store schedule",
+              cause,
+            }),
         );
       if (inserted instanceof Error) {
         await this.rollback(connection);
         return inserted;
       }
     }
-    const committed = await connection
-      .query("COMMIT")
-      .catch(
-        (cause) =>
-          new RoutineCoordinatorError({ detail: "commit snapshot", cause }),
-      );
+    const committed = await connection.query("COMMIT").catch(
+      (cause) =>
+        new AutomationScheduleCoordinatorError({
+          detail: "commit snapshot",
+          cause,
+        }),
+    );
     if (committed instanceof Error) {
       await this.rollback(connection);
       return committed;
@@ -151,12 +159,13 @@ export class RoutineCoordinator {
   }
 
   private async rollback(connection: PoolClient) {
-    const rolledBack = await connection
-      .query("ROLLBACK")
-      .catch(
-        (cause) =>
-          new RoutineCoordinatorError({ detail: "roll back snapshot", cause }),
-      );
+    const rolledBack = await connection.query("ROLLBACK").catch(
+      (cause) =>
+        new AutomationScheduleCoordinatorError({
+          detail: "roll back snapshot",
+          cause,
+        }),
+    );
     if (rolledBack instanceof Error) console.error(rolledBack);
   }
 
@@ -226,7 +235,10 @@ export class RoutineCoordinator {
       )
       .catch(
         (cause) =>
-          new RoutineCoordinatorError({ detail: "claim due routines", cause }),
+          new AutomationScheduleCoordinatorError({
+            detail: "claim due routines",
+            cause,
+          }),
       );
     if (claimed instanceof Error) return claimed;
     return claimed.rows.map((row) => ({
@@ -236,7 +248,7 @@ export class RoutineCoordinator {
   }
 
   private async fire(workspaceId: string, routineIds: string[]) {
-    const connection = await this.workspace.wakeForRoutine(workspaceId);
+    const connection = await this.workspace.wakeForAutomation(workspaceId);
     if (connection instanceof Error) {
       console.error(connection);
       return;
@@ -252,11 +264,14 @@ export class RoutineCoordinator {
     });
     await Promise.all(
       routineIds.map(async (routineId) => {
-        const started = await client.routines
-          .runScheduled({ routineId }, { signal: AbortSignal.timeout(20_000) })
+        const started = await client.automations
+          .runScheduled(
+            { automationId: routineId },
+            { signal: AbortSignal.timeout(20_000) },
+          )
           .catch(
             (cause) =>
-              new RoutineCoordinatorError({
+              new AutomationScheduleCoordinatorError({
                 detail: "start due routine",
                 cause,
               }),
@@ -273,7 +288,7 @@ export class RoutineCoordinator {
       return { authorization: connection.authorization.value };
     const client = await this.auth.getIdTokenClient(connection.origin).catch(
       (cause) =>
-        new RoutineCoordinatorError({
+        new AutomationScheduleCoordinatorError({
           detail: "create identity client",
           cause,
         }),
@@ -281,7 +296,7 @@ export class RoutineCoordinator {
     if (client instanceof Error) return client;
     const headers = await client.getRequestHeaders().catch(
       (cause) =>
-        new RoutineCoordinatorError({
+        new AutomationScheduleCoordinatorError({
           detail: "authorize VM request",
           cause,
         }),
@@ -289,7 +304,9 @@ export class RoutineCoordinator {
     if (headers instanceof Error) return headers;
     const authorization = headers.get("authorization");
     if (authorization === null)
-      return new RoutineCoordinatorError({ detail: "identity token missing" });
+      return new AutomationScheduleCoordinatorError({
+        detail: "identity token missing",
+      });
     return { authorization };
   }
 
@@ -307,7 +324,7 @@ export class RoutineCoordinator {
         );
         CREATE INDEX IF NOT EXISTS workspace_routine_due ON workspace_routine_schedule(next_run_at);`),
         catch: (cause) =>
-          new RoutineCoordinatorError({
+          new AutomationScheduleCoordinatorError({
             detail: "migrate SQLite schedules",
             cause,
           }),
@@ -324,7 +341,7 @@ export class RoutineCoordinator {
       .then(() => undefined)
       .catch(
         (cause) =>
-          new RoutineCoordinatorError({
+          new AutomationScheduleCoordinatorError({
             detail: "migrate PostgreSQL schedules",
             cause,
           }),
@@ -336,7 +353,7 @@ function sqliteTransaction<T>(db: DatabaseSync, work: () => T): T | Error {
   const begun = errore.try({
     try: () => db.exec("BEGIN IMMEDIATE"),
     catch: (cause) =>
-      new RoutineCoordinatorError({
+      new AutomationScheduleCoordinatorError({
         detail: "begin SQLite transaction",
         cause,
       }),
@@ -349,13 +366,16 @@ function sqliteTransaction<T>(db: DatabaseSync, work: () => T): T | Error {
       return value;
     },
     catch: (cause) =>
-      new RoutineCoordinatorError({ detail: "write SQLite schedules", cause }),
+      new AutomationScheduleCoordinatorError({
+        detail: "write SQLite schedules",
+        cause,
+      }),
   });
   if (!(result instanceof Error)) return result;
   const rolledBack = errore.try({
     try: () => db.exec("ROLLBACK"),
     catch: (cause) =>
-      new RoutineCoordinatorError({
+      new AutomationScheduleCoordinatorError({
         detail: "roll back SQLite schedules",
         cause,
       }),

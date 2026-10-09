@@ -80,9 +80,9 @@ class WorkspaceHostDriver {
         response.writeHead(401).end();
         return;
       }
-      if (request.url === "/rpc/routines/runScheduled") {
+      if (request.url === "/rpc/automations/runScheduled") {
         const protocol = request.headers["x-halo-protocol-version"];
-        // Model the pre-automation workspace during a rolling deployment.
+        // Model a released protocol 25 workspace during a rolling deployment.
         if (protocol !== "25") {
           response.writeHead(400).end();
           return;
@@ -3058,7 +3058,7 @@ sleepingRoutineTest(
     expect(accepted.status).toBe(204);
     await vi.waitFor(() => {
       expect(sleepingProvider.paused).toBe(false);
-      expect(workspaceHost.requests).toContain("/rpc/routines/runScheduled");
+      expect(workspaceHost.requests).toContain("/rpc/automations/runScheduled");
       expect(workspaceHost.scheduledProtocols).toContain("25");
       expect(workspaceHost.exeAuthorizations).toContain("test-private-token");
     });
@@ -3108,14 +3108,16 @@ sleepingRoutineTest(
       expect(sleepingProvider.paused).toBe(false);
       expect(sleepingProvider.clockReady).toBe(false);
       expect(workspaceHost.requests).not.toContain(
-        "/rpc/routines/runScheduled",
+        "/rpc/automations/runScheduled",
       );
 
       dateNow.mockReturnValue(now + 31_000);
       expect((await publish()).status).toBe(204);
       await vi.waitFor(() => {
         expect(sleepingProvider.clockSyncAttempts).toBe(1);
-        expect(workspaceHost.requests).toContain("/rpc/routines/runScheduled");
+        expect(workspaceHost.requests).toContain(
+          "/rpc/automations/runScheduled",
+        );
       });
       expect(sleepingProvider.resumeAttempts).toBe(1);
     } finally {

@@ -5,7 +5,7 @@ import { Value } from "@sinclair/typebox/value";
 import * as errore from "errore";
 import { WorkspaceAuthenticationRequiredError } from "../auth/AuthService.js";
 import type { WorkspaceService } from "./WorkspaceService.js";
-import type { RoutineCoordinator } from "./RoutineCoordinator.js";
+import type { AutomationScheduleCoordinator } from "./AutomationScheduleCoordinator.js";
 
 const snapshotSchema = Type.Object(
   {
@@ -32,7 +32,7 @@ export async function serveWorkspaceRoutineSnapshot(
   request: IncomingMessage,
   response: ServerResponse,
   workspace: WorkspaceService,
-  coordinator: RoutineCoordinator,
+  coordinator: AutomationScheduleCoordinator,
 ) {
   response.setHeader("cache-control", "no-store");
   if (request.method !== "POST") {

@@ -52,7 +52,7 @@ import { workspaceInferencePath } from "@get-halo/config/inference";
 import { serveWorkspaceInference } from "../inference/workspaceInference.js";
 import { serveWorkspaceIdleReport } from "../workspace/workspaceIdleHttp.js";
 import { serveWorkspaceRoutineSnapshot } from "../workspace/workspaceRoutineHttp.js";
-import type { RoutineCoordinator } from "../workspace/RoutineCoordinator.js";
+import type { AutomationScheduleCoordinator } from "../workspace/AutomationScheduleCoordinator.js";
 
 const requestUrlBase = "http://localhost";
 const webContentSecurityPolicy = [
@@ -114,7 +114,7 @@ export function serveControlPlaneHttp(ctx: {
   publicOrigin: string;
   workspace: WorkspaceService;
   integrations?: IntegrationService;
-  routines: RoutineCoordinator;
+  routines: AutomationScheduleCoordinator;
   automationStore: AutomationStore;
   webhooks: WebhookService;
   gmail: GmailService;
@@ -233,7 +233,7 @@ async function routeControlPlaneRequest(ctx: {
   inferenceApiKey?: string;
   workspace: WorkspaceService;
   integrations?: IntegrationService;
-  routines: RoutineCoordinator;
+  routines: AutomationScheduleCoordinator;
   automationStore: AutomationStore;
   webhooks: WebhookService;
   gmail: GmailService;

@@ -15,7 +15,7 @@ import {
 import {
   ControlPlaneTraceUploader,
   ControlPlaneWorkReporter,
-  ControlPlaneRoutineReporter,
+  ControlPlaneScheduleReporter,
   ControlPlaneAutomationClient,
   WorkspaceServer,
 } from "@get-halo/workspace-server";
@@ -171,11 +171,11 @@ async function run() {
               };
             })(),
       llmApi,
-      reportRoutineSchedule:
+      reportAutomationSchedule:
         applicationConfig.server.runtime === undefined
           ? undefined
           : (() => {
-              const reporter = new ControlPlaneRoutineReporter(
+              const reporter = new ControlPlaneScheduleReporter(
                 applicationConfig.server.runtime,
               );
               return async (snapshot, signal) =>

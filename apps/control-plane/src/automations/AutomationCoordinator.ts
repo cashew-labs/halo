@@ -97,7 +97,9 @@ export class AutomationCoordinator {
       Exclude<Awaited<ReturnType<AutomationStore["claim"]>>, Error>
     >,
   ) {
-    const connection = await this.workspace.wakeForRoutine(claimed.workspaceId);
+    const connection = await this.workspace.wakeForAutomation(
+      claimed.workspaceId,
+    );
     if (connection instanceof Error) return connection;
     if (connection === undefined)
       return new AutomationDeliveryError({ operation: "find workspace" });

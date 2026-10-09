@@ -1,9 +1,9 @@
 import { Logger } from "@get-halo/logger";
 import type { RoutineInput } from "@get-halo/client";
 import { afterEach, beforeEach, expect, vi } from "vitest";
-import { routineTest } from "./fixtures.test.js";
-import { RoutineScheduler } from "./RoutineScheduler.js";
-import type { RoutineService } from "./RoutineService.js";
+import { routineTest } from "../routines/fixtures.test.js";
+import { AutomationScheduler } from "./AutomationScheduler.js";
+import type { RoutineService } from "../routines/RoutineService.js";
 
 const everyTwoMinutes: RoutineInput = {
   extensionId: "appointments",
@@ -24,11 +24,11 @@ afterEach(() => {
 
 // Claims each scheduled occurrence and finishes it at once, standing in for script or agent work.
 function startScheduler(routines: RoutineService) {
-  const scheduler = new RoutineScheduler({
-    routines,
+  const scheduler = new AutomationScheduler({
+    automations: routines.automations,
     runner: {
       start: async (input) => {
-        const run = await routines.beginRun(input);
+        const run = await routines.automations.beginRun(input);
         if (run instanceof Error || run === undefined) return run;
         await routines.finishRun({ runId: run.id, status: "completed" });
         return run;

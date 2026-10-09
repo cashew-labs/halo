@@ -1,40 +1,41 @@
 import type { Logger } from "@get-halo/logger";
-import type { RoutineService } from "./RoutineService.js";
+import type { AutomationService } from "./AutomationService.js";
 
-export type RoutineScheduleSnapshot = {
+// Keep the wire field during control-plane/workspace rolling upgrades.
+export type AutomationScheduleSnapshot = {
   routines: Array<{ id: string; nextRunAt: string }>;
 };
 
 /** Publishes the workspace's authoritative schedule after changes and while awake. */
-export class RoutineSync {
+export class AutomationScheduleSync {
   private timer: NodeJS.Timeout | undefined;
   private reporting: Promise<void> | undefined;
   private unsubscribe: (() => void) | undefined;
   private closed = false;
   private dirty = false;
-  private readonly routines: RoutineService;
+  private readonly automations: AutomationService;
   private readonly report: (
-    snapshot: RoutineScheduleSnapshot,
+    snapshot: AutomationScheduleSnapshot,
     signal: AbortSignal,
   ) => Promise<void | Error>;
   private readonly logger: Logger;
   private readonly controller = new AbortController();
 
   constructor(ctx: {
-    routines: RoutineService;
+    automations: AutomationService;
     report: (
-      snapshot: RoutineScheduleSnapshot,
+      snapshot: AutomationScheduleSnapshot,
       signal: AbortSignal,
     ) => Promise<void | Error>;
     logger: Logger;
   }) {
-    this.routines = ctx.routines;
+    this.automations = ctx.automations;
     this.report = ctx.report;
     this.logger = ctx.logger;
   }
 
   start() {
-    this.unsubscribe = this.routines.subscribe(() => this.schedule());
+    this.unsubscribe = this.automations.subscribe(() => this.schedule());
     this.timer = setInterval(() => this.schedule(), 30_000);
     this.timer.unref();
     this.schedule();
@@ -58,11 +59,13 @@ export class RoutineSync {
   private async flush() {
     while (this.dirty && !this.closed) {
       this.dirty = false;
-      const snapshot: RoutineScheduleSnapshot = {
-        routines: this.routines
+      const snapshot: AutomationScheduleSnapshot = {
+        routines: this.automations
           .list()
           .flatMap((routine) =>
-            routine.enabled && routine.nextRunAt !== undefined
+            routine.activation.type === "routine" &&
+            routine.enabled &&
+            routine.nextRunAt !== undefined
               ? [{ id: routine.id, nextRunAt: routine.nextRunAt }]
               : [],
           ),

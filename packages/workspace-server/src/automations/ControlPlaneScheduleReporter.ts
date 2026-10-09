@@ -1,12 +1,12 @@
 import * as errore from "errore";
-import type { RoutineScheduleSnapshot } from "./RoutineSync.js";
+import type { AutomationScheduleSnapshot } from "./AutomationScheduleSync.js";
 
 class RoutineReportError extends errore.createTaggedError({
   name: "RoutineReportError",
   message: "Could not publish workspace routines: $detail",
 }) {}
 
-export class ControlPlaneRoutineReporter {
+export class ControlPlaneScheduleReporter {
   private readonly origin: string;
   private readonly token: string;
 
@@ -15,7 +15,7 @@ export class ControlPlaneRoutineReporter {
     this.token = ctx.token;
   }
 
-  async report(snapshot: RoutineScheduleSnapshot, signal: AbortSignal) {
+  async report(snapshot: AutomationScheduleSnapshot, signal: AbortSignal) {
     const response = await fetch(
       new URL("/api/workspace-runtime/routines", this.origin),
       {
