@@ -5,15 +5,11 @@
   "protocols": {
     "workspace": {
       "client": 24,
-      "supported": [
-        24
-      ]
+      "supported": [24]
     },
     "controlPlane": {
       "client": 3,
-      "supported": [
-        3
-      ]
+      "supported": [3]
     }
   }
 }

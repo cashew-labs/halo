@@ -102,7 +102,8 @@ const config: ForgeConfig = {
       config: {
         repository: {
           owner: "cashew-labs",
-          name: "halo",
+          // Releases publish to halo-staging; promotion copies them to halo.
+          name: process.env.HALO_RELEASE_REPOSITORY ?? "halo",
         },
         prerelease: false,
         draft: false,

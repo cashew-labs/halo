@@ -1,0 +1,269 @@
+name: Promote Halo to production
+
+# `pnpm promote <version>` opens a PR that changes releases/production.json and
+# pins Pulumi.prod.yaml. Merging it deploys the images staging verified to the
+# prod stack and copies the signed desktop release to cashew-labs/halo.
+on:
+  pull_request:
+    paths:
+      - "releases/production.json"
+      - "infra/control-plane/Pulumi.prod.yaml"
+  push:
+    branches:
+      - main
+    paths:
+      - "releases/production.json"
+
+concurrency:
+  group: ${{ github.event_name == 'push' && 'halo-production' || format('halo-promote-pr-{0}', github.event.pull_request.number) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  PROJECT: halo-relay
+  REGION: us-west2
+
+jobs:
+  prepare:
+    name: Validate promotion
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    outputs:
+      version: ${{ steps.promotion.outputs.version }}
+      source_sha: ${{ steps.staging.outputs.source_sha }}
+      exe_template: ${{ steps.promotion.outputs.exe_template }}
+      deploy: ${{ steps.promotion.outputs.deploy }}
+      preview: ${{ steps.promotion.outputs.preview }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Test promotion validation
+        run: node --test releases/release.test.mjs
+
+      - name: Validate production version
+        id: promotion
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        shell: bash
+        run: |
+          previous="$RUNNER_TEMP/previous-production.json"
+          if ! git show "$BASE_SHA:releases/production.json" > "$previous" 2>/dev/null; then
+            # The first production.json records the version the bootstrap
+            # `pulumi up --stack prod` deployed; it does not deploy again, and
+            # there is no prod stack to preview yet.
+            rm -f "$previous"
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+            echo "preview=false" >> "$GITHUB_OUTPUT"
+          elif git diff --quiet "$BASE_SHA" HEAD -- releases/production.json; then
+            # A prod infrastructure change without a promotion: production keeps
+            # its version, and Pulumi.prod.yaml must still pin it.
+            rm -f "$previous"
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+            echo "preview=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+            echo "preview=true" >> "$GITHUB_OUTPUT"
+          fi
+          version="$(node releases/validatePromotion.mjs releases/production.json "$previous")"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "exe_template=halo-exe-${version//./-}" >> "$GITHUB_OUTPUT"
+
+      - name: Find the staging release
+        id: staging
+        if: steps.promotion.outputs.deploy == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.promotion.outputs.version }}
+        shell: bash
+        run: |
+          staging="$(gh release view "$VERSION" --repo cashew-labs/halo-staging --json isDraft,body)"
+          if [ "$(jq -r .isDraft <<< "$staging")" != false ]; then
+            echo "Staging release $VERSION is not published" >&2
+            exit 1
+          fi
+          source_sha="$(jq -r .body <<< "$staging" | node --input-type=module -e '
+            import { stagingSourceRevision } from "./releases/promotion.mjs";
+            let notes = "";
+            for await (const chunk of process.stdin) notes += chunk;
+            const revision = stagingSourceRevision(notes);
+            if (revision instanceof Error) {
+              console.error(revision.message);
+              process.exit(1);
+            }
+            console.log(revision);
+          ')"
+          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
+
+  preview:
+    name: Preview production infrastructure
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.prepare.outputs.preview == 'true'
+    needs: prepare
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+
+      - name: Setup pnpm
+        uses: pnpm/setup@703c52620218391530e48b9e8870d5c0082e1b9b # v2.1.0
+        with:
+          runtime: node@22
+          cache: true
+          install: false
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Select Pulumi backend
+        run: pnpm --filter @get-halo/infra exec pulumi login gs://halo-relay-pulumi-state
+
+      - name: Preview Pulumi changes
+        run: |
+          pnpm --filter @get-halo/infra exec pulumi -C control-plane preview \
+            --stack prod \
+            --non-interactive \
+            --color never \
+            --suppress-outputs
+
+  build-transition:
+    name: Build production transition image
+    if: github.event_name == 'push' && needs.prepare.outputs.deploy == 'true'
+    needs: prepare
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      transition_image: ${{ steps.images.outputs.transition_image }}
+      frontend_image: ${{ steps.images.outputs.frontend_image }}
+      workspace_image: ${{ steps.images.outputs.workspace_image }}
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+    steps:
+      - name: Checkout the staged source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.source_sha }}
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Setup pnpm
+        uses: pnpm/setup@703c52620218391530e48b9e8870d5c0082e1b9b # v2.1.0
+        with:
+          runtime: node@22
+          cache: true
+          install: false
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Select Pulumi backend
+        run: pnpm --filter @get-halo/infra exec pulumi login gs://halo-relay-pulumi-state
+
+      - name: Build transition image and pin staged images
+        id: images
+        shell: bash
+        run: |
+          # Images are built once by the staging release; only the transition
+          # differs, because it must serve production's current browser bundle.
+          bucket="$(pnpm --silent --filter @get-halo/infra exec pulumi -C control-plane stack output buildSourceBucket --stack west)"
+          builder="$(pnpm --silent --filter @get-halo/infra exec pulumi -C control-plane stack output buildServiceAccount --stack west)"
+          image_root="$REGION-docker.pkg.dev/$PROJECT/halo-west-workspaces"
+          previous_image="$(gcloud run services describe halo-prod-control-plane \
+            --project="$PROJECT" --region="$REGION" \
+            --format='value(spec.template.spec.containers[0].image)')"
+          test -n "$previous_image"
+          transition_image="$image_root/control-plane:$VERSION-$SOURCE_SHA-prod-transition"
+          if gcloud artifacts docker images describe "$transition_image" --project="$PROJECT" >/dev/null 2>&1; then
+            echo "Reusing $transition_image"
+          else
+            gcloud builds submit . \
+              --project="$PROJECT" \
+              --region="$REGION" \
+              --config=infra/controlplane.cloudbuild.yaml \
+              --ignore-file=infra/buildignore \
+              --gcs-source-staging-dir="gs://$bucket/source" \
+              --service-account="$builder" \
+              --substitutions="_IMAGE=$transition_image,_VERSION=$VERSION,_REVISION=$SOURCE_SHA,_TARGET=transition,_PREVIOUS_IMAGE=$previous_image"
+          fi
+          pin_image() {
+            local digest
+            digest="$(gcloud artifacts docker images describe "$1" --project="$PROJECT" --format='value(image_summary.digest)')"
+            test -n "$digest"
+            echo "${1%:*}@$digest"
+          }
+          echo "transition_image=$(pin_image "$transition_image")" >> "$GITHUB_OUTPUT"
+          echo "frontend_image=$(pin_image "$image_root/control-plane:$VERSION")" >> "$GITHUB_OUTPUT"
+          echo "workspace_image=$(pin_image "$image_root/workspace-server:$VERSION")" >> "$GITHUB_OUTPUT"
+
+  deploy-production:
+    name: Deploy production
+    needs: [prepare, build-transition]
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/deploy-stack.yml
+    with:
+      stack: prod
+      version: ${{ needs.prepare.outputs.version }}
+      source_sha: ${{ needs.prepare.outputs.source_sha }}
+      transition_image: ${{ needs.build-transition.outputs.transition_image }}
+      frontend_image: ${{ needs.build-transition.outputs.frontend_image }}
+      workspace_image: ${{ needs.build-transition.outputs.workspace_image }}
+      exe_template: ${{ needs.prepare.outputs.exe_template }}
+      allow_no_workspaces: true
+    secrets: inherit
+
+  publish-desktop:
+    name: Publish the staged desktop release
+    needs: [prepare, deploy-production]
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+      SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+    steps:
+      - name: Copy signed artifacts from cashew-labs/halo-staging
+        shell: bash
+        run: |
+          if [ "$(gh release view "$VERSION" --repo cashew-labs/halo --json isDraft --jq .isDraft 2>/dev/null)" = false ]; then
+            echo "Release $VERSION is already published"
+            exit 0
+          fi
+          assets="$RUNNER_TEMP/assets"
+          gh release download "$VERSION" --repo cashew-labs/halo-staging --dir "$assets"
+          if ! gh release view "$VERSION" --repo cashew-labs/halo >/dev/null 2>&1; then
+            gh release create "$VERSION" \
+              --repo cashew-labs/halo \
+              --target "$SOURCE_SHA" \
+              --title "$VERSION" \
+              --generate-notes \
+              --draft
+          fi
+          gh release upload "$VERSION" "$assets"/* --repo cashew-labs/halo --clobber
+          gh release edit "$VERSION" --repo cashew-labs/halo --draft=false --latest

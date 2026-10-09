@@ -20,6 +20,7 @@
     "infra:workspace:preview": "pnpm --filter @get-halo/infra workspace:preview",
     "infra:workspace:up": "pnpm --filter @get-halo/infra workspace:up",
     "prerelease": "node releases/createRelease.mjs",
+    "promote": "node releases/promoteRelease.mjs",
     "lint": "turbo run lint",
     "lint:fix": "turbo run lint:fix",
     "format": "turbo run format",
