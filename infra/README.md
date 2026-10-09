@@ -104,6 +104,10 @@ restricted to SSH, and access to the workspace runtime service account. Existing
 IAP firewall rules keep SSH reachable through IAP while workspace ports stay
 private.
 
+The deployment identity also needs `roles/logging.configWriter` to manage the
+webhook request-log exclusion. Pulumi declares this binding before the exclusion;
+it must never be removed to work around a deployment permission failure.
+
 Stopped and suspended workspaces receive the desired metadata before the rollout
 starts or resumes them. The rollout waits for SSH, then verifies readiness as
 usual. Startup uses a VM-local lock so automatic boot startup and the release's
