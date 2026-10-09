@@ -1,0 +1,98 @@
+{
+  "status": "changes_requested",
+  "summary": "The change adds a single-use handoff link. With it, the browser that Halo desktop opens can finish an integration setup without a Halo sign-in. It also binds the OAuth callback to that browser's setup cookie or the owner's session. The server logic and the durable test of the security path look sound, but it is not ready: the coverage gate fails, with 38 changed lines uncovered. Several of those lines are security or routing branches, one temp test does not check what its name promises, and two log files were left in the repo root.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "test",
+      "file": "packages/web/.tmp-tests/IntegrationSetupPage.test.tsx",
+      "line": 64,
+      "severity": "P1",
+      "body": "The test named \"the setup page names the Halo account and explains an unavailable setup\" never renders the error state. It only checks the owner line. The new unavailable-setup branch is still uncovered: the \"This setup link has expired or was already used.\" text when the handoff is \"failed\", and the generic text otherwise (IntegrationSetupPage.tsx:93). The new \"Sign in to Halo\" button that calls api.signIn() is also uncovered (IntegrationSetupPage.tsx:98). Render the page with a failed setup query, once with a failed handoff and once with no handoff. Assert both messages and that the Sign in button calls api.signIn."
+    },
+    {
+      "id": "F2",
+      "kind": "test",
+      "file": "packages/web/src/IntegrationSetupPage.tsx",
+      "line": 39,
+      "severity": "P1",
+      "body": "The page must not read the setup before the handoff cookie is set. Otherwise the first read returns 401 and the page shows an error. This ordering comes from `enabled: handoff !== undefined` together with useSetupHandoff's queryFn (line 322, uncovered). The static-render test seeds the query cache, so it never runs either queryFn. Add a temp test that mounts the page with `#handoff=...` in the URL. It must assert that api.redeemHandoff resolves before api.read is called, and that a failed redemption still lets the read run and selects the 'expired or already used' message."
+    },
+    {
+      "id": "F3",
+      "kind": "test",
+      "file": "packages/web/src/mountHaloApp.tsx",
+      "line": 36,
+      "severity": "P1",
+      "body": "This change moves the /integrations/setup/:setupId route outside <Authentication> so a signed-out browser with a handoff can reach it. All other routes must stay behind Authentication. No test loads this file (lines 36-58 are uncovered). Add a temp test of the route tree. It must check that the setup path renders IntegrationSetupPage without Authentication, and that another path (for example /) still renders Authentication."
+    },
+    {
+      "id": "F4",
+      "kind": "test",
+      "file": "apps/control-plane/src/server/controlPlaneRpcRouter.ts",
+      "line": 132,
+      "severity": "P1",
+      "body": "The new security branch in setupBrowserOwner is uncovered: a request with a setup cookie from a foreign Origin must get FORBIDDEN. createSetupHandoff's refusal for a setup that is no longer awaiting_credentials (IntegrationService.ts:434) is also uncovered. Add tests for both. Also add a test that a forged or stale halo_setup_<id> cookie value does not grant access (setupOwnerForBrowser returns undefined, and the request falls back to UNAUTHORIZED). The guards that moved into integrationUser and integrationOwner (lines 83, 88, 109, 115) and redeem's SERVICE_UNAVAILABLE check (line 301) are also uncovered. Cover them, or mark them coverage-exempt with a reason, for example that the code moved unchanged."
+    },
+    {
+      "id": "F5",
+      "kind": "test",
+      "file": "apps/web-app/src/WebHost.ts",
+      "line": 91,
+      "severity": "P1",
+      "body": "The new integrationSetup.redeemHandoff and signIn wiring (lines 91-98) is not loaded by any test. Add a temp test with a stubbed fetch. It must check that redeemHandoff posts to /rpc/integrations/redeemSetupHandoff with {setupId, handoff}, that a rejected call becomes a WebHostError, and that signIn delegates to WebHost.signIn."
+    },
+    {
+      "id": "F6",
+      "kind": "source",
+      "file": "tmp-e2e-run.log",
+      "line": 1,
+      "severity": "P1",
+      "body": "tmp-e2e-run.log and tmp-e2e-build.log are new untracked files in the repository root. AGENTS.md requires temporary files to go in a named folder under tmp/. Move or delete them so they are not committed by mistake."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "packages/web/src/IntegrationSetupPage.tsx:39,93,98,322 — the handoff is redeemed before the setup read; the failed-handoff and generic unavailable messages; the Sign in button calls api.signIn",
+      "tier": "tmp",
+      "rationale": "These are new UI and ordering behaviors that no test covers."
+    },
+    {
+      "target": "packages/web/src/mountHaloApp.tsx:36-58 — the setup route renders outside Authentication; other routes stay inside it",
+      "tier": "tmp",
+      "rationale": "An authentication-boundary change in routing with no coverage."
+    },
+    {
+      "target": "apps/control-plane/src/server/controlPlaneRpcRouter.ts:132 — a setup cookie with a foreign Origin returns FORBIDDEN; a forged cookie value falls back to UNAUTHORIZED",
+      "tier": "tmp",
+      "rationale": "Security branches of the new cookie authentication."
+    },
+    {
+      "target": "apps/control-plane/src/integrations/IntegrationService.ts:434 — createSetupHandoff refuses a setup that is not awaiting_credentials",
+      "tier": "tmp",
+      "rationale": "An uncovered new error path."
+    },
+    {
+      "target": "apps/web-app/src/WebHost.ts:91-98 — redeemHandoff RPC wiring, error wrapping, and signIn delegation",
+      "tier": "tmp",
+      "rationale": "No test loads this file."
+    },
+    {
+      "target": "Type-only lines apps/electron/src/main/DesktopAuthentication.ts:18 and packages/web/src/HostApi.ts:38-43",
+      "tier": "tmp",
+      "rationale": "These are interface and type declarations, so marking them coverage-exempt for that reason is acceptable. Either exempt them or load the files in a test."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "a80c8aacf56894017413ef04ebe63a38d58e48a4",
+  "treeHash": "755b430f005aca5070221acf429ac004ab7f7b7f",
+  "codeTree": "e465549ba18de3dbfb78895a815a67555379e888",
+  "coverage": {
+    "executable": 152,
+    "covered": 114,
+    "exempt": 0,
+    "uncovered": 38
+  },
+  "createdAt": "2026-10-09T22:54:37.595Z"
+}
