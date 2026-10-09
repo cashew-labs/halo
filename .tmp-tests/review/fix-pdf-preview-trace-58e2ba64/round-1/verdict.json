@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change adds a `traceSnapshots` Playwright option fixture. It defaults to true and is passed through `ElectronTestApp` into `tracing.start`. The attachment test in `sessionView.e2e.test.ts` turns DOM snapshots off so Playwright no longer evaluates snapshots inside the native PDF viewer frame. The temp test reads the trace archives and checks that both settings keep action and screenshot entries, that frame snapshots appear only when the option is on, and that the setting still applies after the app reopens. Both test runs pass, and no defects were found.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "02b997129a835f96f4c2a9f064aad9b3026934a2",
+  "treeHash": "afcbebd7b1aeb02c0dcb76c898f4b0c9568604b5",
+  "codeTree": "d8529eb1f9007c24bcd2decae452139cda01a795",
+  "coverage": {
+    "executable": 0,
+    "covered": 0,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-09T21:56:07.621Z"
+}

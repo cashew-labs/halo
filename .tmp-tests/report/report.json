@@ -1,0 +1,72 @@
+{
+  "baseRef": "618c591f4f9a0d14c70f6110a56459620ecc5a09",
+  "baseSha": "618c591f4f9a0d14c70f6110a56459620ecc5a09",
+  "headSha": "02b997129a835f96f4c2a9f064aad9b3026934a2",
+  "treeHash": "afcbebd7b1aeb02c0dcb76c898f4b0c9568604b5",
+  "generatedAt": "2026-10-09T21:55:51.471Z",
+  "runs": {
+    "durable": {
+      "tier": "durable",
+      "testFiles": [
+        "apps/electron/e2e/sessionView.e2e.test.ts"
+      ],
+      "skipped": false,
+      "runners": [
+        {
+          "runner": "playwright",
+          "dir": "apps/electron",
+          "testFiles": [
+            "apps/electron/e2e/sessionView.e2e.test.ts"
+          ],
+          "exitCode": 0
+        }
+      ],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 85928,
+      "log": ".tmp-tests/report/durable.log",
+      "lcovFiles": [
+        "../../../.git/worktrees/pdf-trace-worktree/code-review-agent/coverage/durable-0/lcov/lcov.info"
+      ]
+    },
+    "tmp": {
+      "tier": "tmp",
+      "testFiles": [
+        "apps/electron/e2e/.tmp-tests/traceSnapshots.e2e.test.ts"
+      ],
+      "skipped": false,
+      "runners": [
+        {
+          "runner": "playwright",
+          "dir": "apps/electron",
+          "testFiles": [
+            "apps/electron/e2e/.tmp-tests/traceSnapshots.e2e.test.ts"
+          ],
+          "exitCode": 0
+        }
+      ],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 25767,
+      "log": ".tmp-tests/report/tmp.log",
+      "lcovFiles": [
+        "../../../.git/worktrees/pdf-trace-worktree/code-review-agent/coverage/tmp-0/lcov/lcov.info"
+      ]
+    }
+  },
+  "durableTestFiles": [
+    "apps/electron/e2e/sessionView.e2e.test.ts"
+  ],
+  "tmpTestFiles": [
+    "apps/electron/e2e/.tmp-tests/traceSnapshots.e2e.test.ts"
+  ],
+  "files": [],
+  "totals": {
+    "executable": 0,
+    "coveredDurable": 0,
+    "coveredTmpOnly": 0,
+    "uncovered": 0,
+    "exempt": 0
+  },
+  "passed": true
+}
