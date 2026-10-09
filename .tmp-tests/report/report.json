@@ -1,0 +1,181 @@
+{
+  "baseRef": "5c5252e832e5e555298d492b5d8d9b3b4fc7a296",
+  "baseSha": "5c5252e832e5e555298d492b5d8d9b3b4fc7a296",
+  "headSha": "eeee452911cba379fe68fd36f5718d8a93b61e70",
+  "treeHash": "e245633d972175b224457acfcb65ca64ad189217",
+  "generatedAt": "2026-10-09T21:32:27.951Z",
+  "runs": {
+    "durable": {
+      "tier": "durable",
+      "testFiles": [
+        "apps/control-plane/test/ControlPlane.test.ts",
+        "apps/electron/e2e/routines.e2e.test.ts",
+        "packages/workspace-server/src/automations/AutomationScheduler.test.ts",
+        "packages/workspace-server/src/automations/AutomationService.test.ts",
+        "packages/workspace-server/src/automations/fixtures.test.ts",
+        "packages/workspace-server/test/automations.spec.ts",
+        "packages/workspace-server/test/workspace.test.ts",
+        "releases/release.test.mjs"
+      ],
+      "skipped": false,
+      "runners": [
+        {
+          "runner": "vitest",
+          "dir": ".",
+          "testFiles": [
+            "apps/control-plane/test/ControlPlane.test.ts",
+            "packages/workspace-server/src/automations/AutomationScheduler.test.ts",
+            "packages/workspace-server/src/automations/AutomationService.test.ts",
+            "packages/workspace-server/test/automations.spec.ts",
+            "packages/workspace-server/test/workspace.test.ts"
+          ],
+          "exitCode": 0
+        },
+        {
+          "runner": "playwright",
+          "dir": "apps/electron",
+          "testFiles": [
+            "apps/electron/e2e/routines.e2e.test.ts"
+          ],
+          "exitCode": 0
+        },
+        {
+          "runner": "command",
+          "dir": ".",
+          "testFiles": [
+            "releases/release.test.mjs"
+          ],
+          "exitCode": 0
+        }
+      ],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 187802,
+      "log": ".tmp-tests/report/durable.log",
+      "lcovFiles": [
+        "../../../.git/worktrees/api-worktree/code-review-agent/coverage/durable-0/vitest-0/lcov.info",
+        "../../../.git/worktrees/api-worktree/code-review-agent/coverage/durable-0/vitest-1/lcov.info",
+        "../../../.git/worktrees/api-worktree/code-review-agent/coverage/durable-1/lcov/lcov.info",
+        "../../../.git/worktrees/api-worktree/code-review-agent/coverage/durable-2/lcov/lcov.info"
+      ]
+    },
+    "tmp": {
+      "tier": "tmp",
+      "testFiles": [
+        "packages/workspace-server/src/automations/.tmp-tests/ControlPlaneScheduleReporter.test.ts",
+        "packages/workspace-server/test/.tmp-tests/released-client-upgrade.spec.ts"
+      ],
+      "skipped": false,
+      "runners": [
+        {
+          "runner": "vitest",
+          "dir": ".",
+          "testFiles": [
+            "packages/workspace-server/src/automations/.tmp-tests/ControlPlaneScheduleReporter.test.ts",
+            "packages/workspace-server/test/.tmp-tests/released-client-upgrade.spec.ts"
+          ],
+          "exitCode": 0
+        }
+      ],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 18511,
+      "log": ".tmp-tests/report/tmp.log",
+      "lcovFiles": [
+        "../../../.git/worktrees/api-worktree/code-review-agent/coverage/tmp-0/vitest-0/lcov.info"
+      ]
+    }
+  },
+  "durableTestFiles": [
+    "apps/control-plane/test/ControlPlane.test.ts",
+    "apps/electron/e2e/routines.e2e.test.ts",
+    "packages/workspace-server/src/automations/AutomationScheduler.test.ts",
+    "packages/workspace-server/src/automations/AutomationService.test.ts",
+    "packages/workspace-server/src/automations/fixtures.test.ts",
+    "packages/workspace-server/test/automations.spec.ts",
+    "packages/workspace-server/test/workspace.test.ts",
+    "releases/release.test.mjs"
+  ],
+  "tmpTestFiles": [
+    "packages/workspace-server/src/automations/.tmp-tests/ControlPlaneScheduleReporter.test.ts",
+    "packages/workspace-server/test/.tmp-tests/released-client-upgrade.spec.ts"
+  ],
+  "files": [
+    {
+      "path": "apps/control-plane/src/automations/AutomationCoordinator.ts",
+      "loaded": true,
+      "changed": [
+        1,
+        109,
+        110,
+        111,
+        112,
+        113,
+        114,
+        126,
+        127,
+        128
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "apps/control-plane/src/workspace/AutomationScheduleCoordinator.ts",
+      "loaded": true,
+      "changed": [
+        2,
+        281,
+        282,
+        283,
+        284,
+        285,
+        286,
+        309,
+        310,
+        311
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "packages/client/src/contract.ts",
+      "loaded": true,
+      "changed": [
+        38,
+        39,
+        40,
+        41
+      ],
+      "coveredDurable": [
+        40,
+        41
+      ],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "packages/workspace-server/src/server/watchWorkspace.ts",
+      "loaded": true,
+      "changed": [
+        47
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    }
+  ],
+  "totals": {
+    "executable": 2,
+    "coveredDurable": 2,
+    "coveredTmpOnly": 0,
+    "uncovered": 0,
+    "exempt": 0
+  },
+  "passed": true
+}

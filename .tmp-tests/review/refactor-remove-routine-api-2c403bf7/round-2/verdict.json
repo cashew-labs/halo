@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "This change removes the legacy routines RPC, the `halo routine` CLI command and the routine stream update. It moves the workspace protocol to 26, keeps 25 supported, and pins protocol 25 for control-plane dispatch during rollout. F2 is resolved: the fake workspace host in ControlPlane.test.ts now rejects acceptEvent calls with any header other than 25, a new test checks that event delivery succeeds with protocol 25, and the file's existing runScheduled protocol check now runs because the file changed. I accept the won't-fix reply on F1: the dependent docs PR (#411) in the same atomic stack replaces the skill references, and this layer is never deployed alone. Both test tiers pass and the coverage gate passes.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "eeee452911cba379fe68fd36f5718d8a93b61e70",
+  "treeHash": "e245633d972175b224457acfcb65ca64ad189217",
+  "codeTree": "b30691b8242101a89187c102d028b83701031572",
+  "coverage": {
+    "executable": 2,
+    "covered": 2,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-09T21:32:39.476Z"
+}

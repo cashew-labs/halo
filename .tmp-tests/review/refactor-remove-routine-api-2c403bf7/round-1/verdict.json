@@ -1,0 +1,46 @@
+{
+  "status": "changes_requested",
+  "summary": "This change removes the legacy `routines` RPC namespace, the `halo routine` CLI command and the routine workspace update. It moves the workspace protocol to 26 and keeps 25 supported. The control plane now pins protocol 25 when it dispatches to workspaces. The source logic and the migrated tests look correct. It is not ready for two reasons: the seeded halo-extension skill still tells agents to use the removed `halo routine` command, and no test in this round covers the changed control-plane dispatch lines (coverage gate failed).",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "source",
+      "file": "packages/workspace-server/src/extensions/skills/halo-extension/references/routines.md",
+      "line": 5,
+      "severity": "P1",
+      "body": "This change deletes `halo routine` (packages/halo-cli/src/routine.ts, and its registration in cli.ts). The workspace server still seeds the halo-extension skill, and that skill tells agents to use the removed command. references/routines.md:5 says \"Manage routines with the `halo routine` CLI\". Lines 31-45 list `halo routine add/update/list/run/history/pause/resume/remove`. Lines 55 and 62 tell the agent to verify with `halo routine run`/`history`. SKILL.md:63 says \"`halo routine` remains available for schedules\". references/lifecycle.md:115 tells agents to remove extension routines with `halo routine list/remove`. An agent that follows the seeded skill to schedule or remove a routine will now get an unknown-command error. Rewrite these sections to use `halo automation` / `tools.automations` with `activation: {type: \"routine\", schedule: {cron, timezone}}`. Include the run, history, pause and remove equivalents."
+    },
+    {
+      "id": "F2",
+      "kind": "test",
+      "file": "apps/control-plane/src/automations/AutomationCoordinator.ts",
+      "line": 113,
+      "severity": "P1",
+      "body": "The protocol-25 header override is what lets control-plane event dispatch (`acceptEvent`) and scheduled dispatch (`runScheduled`) reach released 0.1.68 workspaces during the rollout. No test in this round loads either control-plane coordinator. The coverage report lists AutomationCoordinator.ts 1, 109-111, 113, 126-128 and AutomationScheduleCoordinator.ts 2, 263-265, 267, 289-291 as uncovered. Without the override, the client's default header (now 26) is rejected by protocol-25 workspaces, and nothing in this change detects that. The existing ControlPlane.test.ts checks the runScheduled header but is unchanged, so it does not run here. It also does not check the header on acceptEvent."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "apps/control-plane/src/automations/AutomationCoordinator.ts:109-114 — event delivery calls /rpc/automations/acceptEvent with x-halo-protocol-version: 25 and the provider authorization headers",
+      "tier": "tmp",
+      "rationale": "Event delivery must still reach released protocol-25 workspaces after the client default moved to 26. Use a fake workspace host that rejects any protocol other than 25 (like WorkspaceHostDriver in ControlPlane.test.ts) and check that the event is accepted."
+    },
+    {
+      "target": "apps/control-plane/src/workspace/AutomationScheduleCoordinator.ts:262-268 — scheduled dispatch calls /rpc/automations/runScheduled with x-halo-protocol-version: 25",
+      "tier": "tmp",
+      "rationale": "This covers the changed lines and confirms that scheduled runs reach protocol-25 workspaces during rollout. Running or extending the existing ControlPlane.test.ts scheduled-dispatch case in this change's test set would also work."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "06e905f49544b732286e526c4972a590edcb4a0b",
+  "treeHash": "2aa6218fdf1d3de9ba2e426924243d3aaca2d8c0",
+  "codeTree": "757cd94bd34dc6ebf35111926f9968b6963c880e",
+  "coverage": {
+    "executable": 18,
+    "covered": 2,
+    "exempt": 0,
+    "uncovered": 16
+  },
+  "createdAt": "2026-10-09T21:25:21.660Z"
+}

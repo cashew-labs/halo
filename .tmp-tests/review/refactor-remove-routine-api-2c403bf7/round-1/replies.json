@@ -1,0 +1,6 @@
+[
+  {
+    "findingId": "F1",
+    "reply": "won't fix: This is layer2 of one atomic gh-stack merge. Immediately dependent PR411 (docs/automation-guide, currently96a3498a before rebase) replaces references/routines.md with automations.md and updates every cited SKILL.md/lifecycle.md example. Its independent code-review-agent review approved those docs against the canonicalCLI and seeding implementation. User authorized merging the complete409/410/411 stack and only then creating one release; this intermediate layer will never be deployed by itself. Keeping the docs as its own focused dependent PR is explicitly required by user stack-review workflow. Please evaluate this concern as resolved by the required downstream layer rather than duplicating the docs change here."
+  }
+]

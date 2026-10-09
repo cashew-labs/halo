@@ -1,0 +1,51 @@
+import { writeHaloRpcFile } from "@get-halo/shared/HaloRpcFile";
+import fs from "node:fs/promises";
+import path from "node:path";
+import childProcess from "node:child_process";
+import util from "node:util";
+import { expect, vi } from "vitest";
+import { serverTest } from "../serverTest.js";
+import { createHaloClient, type Automation, type AutomationRun, sessionMessages } from "../../../../tmp/automations-release-cleanup/release-client/src/index.ts";
+
+const artifacts = path.resolve(import.meta.dirname, "../../../../tmp/automations-release-cleanup");
+serverTest("released protocol 25 client keeps persisted automation history and execution after cleanup", async ({ createServer }) => {
+  const server = createServer();
+  const saved = path.join(artifacts, "release-database");
+  const expected = JSON.parse(await fs.readFile(path.join(saved, "expected.json"), "utf8")) as { automations: Automation[]; runs: AutomationRun[]; scheduledId: string; triggerId: string };
+  await fs.cp(path.join(saved, "workspace"), server.workspaceRoot, { recursive: true });
+  await fs.cp(path.join(saved, "user-data"), server.harness.paths.userData, { recursive: true });
+  await server.start();
+  const client = createHaloClient({ transport: server.transport });
+  expect(await client.server.info()).toMatchObject({ protocolVersion: 26, supportedProtocols: [25, 26] });
+  const automations = await client.automations.list();
+  expect(automations).toMatchObject(expected.automations.map(({ nextRunAt: _next, ...automation }) => automation));
+  expect(await client.automations.listRuns({ automationId: expected.scheduledId })).toEqual(expected.runs);
+  const priorSession = await client.thread.snapshot({ sessionId: expected.runs[0]!.sessionId! });
+  expect(sessionMessages(priorSession)).toMatchObject([{ role: "bashExecution", output: "release-upgrade-ok" }]);
+  await client.automations.runNow({ automationId: expected.scheduledId });
+  await expect.poll(async () => (await client.automations.listRuns({ automationId: expected.scheduledId }))[0]?.status).toBe("completed");
+  const scheduled = (await client.automations.list()).find((item) => item.id === expected.scheduledId)!;
+  using date = vi.spyOn(Date, "now").mockReturnValue(Date.parse(scheduled.nextRunAt!) + 1);
+  await client.automations.runScheduled({ automationId: scheduled.id });
+  await expect.poll(async () => (await client.automations.listRuns({ automationId: scheduled.id })).some((run) => run.trigger === "schedule" && run.status === "completed")).toBe(true);
+  date.mockRestore();
+  const trigger = automations.find((item) => item.id === expected.triggerId)!;
+  const event = { automationId: trigger.id, revision: trigger.revision, eventId: "upgrade-event", source: "webhook" as const, occurredAt: new Date().toISOString(), payload: { upgrade: true } };
+  const accepted = await client.automations.acceptEvent(event);
+  expect((await client.automations.acceptEvent(event)).id).toBe(accepted.id);
+  await expect.poll(async () => (await client.automations.listRuns({ automationId: trigger.id }))[0]?.status).toBe("completed");
+  const published = await writeHaloRpcFile({ userDataDir: server.harness.paths.userData, connection: { port: Number(new URL(server.transport.origin).port), token: server.transport.headers.authorization.slice("Bearer ".length) } });
+  if (published instanceof Error) throw published;
+  const cli = await util.promisify(childProcess.execFile)("pnpm", ["--silent", "--filter", "@get-halo/cli", "cli", "automation", "list", "--json"], { cwd: path.resolve(import.meta.dirname, "../../../.."), env: { ...process.env, HALO_RPC_FILE: path.join(server.harness.paths.userData, "rpc.json") } }).catch((error) => { throw new Error(error.stdout, { cause: error }); });
+  expect(cli.stdout).toContain("Release upgrade schedule");
+  await server.stop();
+  await server.start();
+  const reconnected = createHaloClient({ transport: server.transport });
+  expect((await reconnected.automations.listRuns({ automationId: trigger.id }))[0]?.id).toBe(accepted.id);
+});
+
+serverTest("retired protocol 24 cannot write to the cleanup backend", async ({ server }) => {
+  const retired = createHaloClient({ transport: { ...server.transport, headers: { ...server.transport.headers, "x-halo-protocol-version": "24" } } });
+  await expect(retired.automations.save({ name: "Rejected", activation: { type: "routine", schedule: { cron: "0 8 * * *", timezone: "UTC" } }, action: { type: "runScript", command: "echo rejected" } })).rejects.toMatchObject({ code: "UNSUPPORTED_PROTOCOL" });
+  expect(await server.rpc.automations.list()).toEqual([]);
+});
