@@ -151,6 +151,7 @@ export function ExecutorConnectionCard({
   const status = connection.status;
   const display = googleIntegrationDisplay(part.request.integration);
   const label = connectionRequestLabel(part.request);
+  const account = "account" in part.request ? part.request.account : undefined;
   const brand = brands.google;
   const canConnect = sessionId !== undefined;
   const brandButtonProps =
@@ -172,9 +173,16 @@ export function ExecutorConnectionCard({
       <Flex column gap={1} p={6}>
         <Flex row gap={4} alignItems="center">
           {display !== undefined && <LogoImage src={display.icon} size="xl" />}
-          <Text size="md" fontWeight={600} style={{ flex: 1, minWidth: 0 }}>
-            {label}
-          </Text>
+          <Flex column style={{ flex: 1, minWidth: 0 }}>
+            <Text size="md" fontWeight={600}>
+              {label}
+            </Text>
+            {account === undefined ? undefined : (
+              <Text size="sm" color="lowContrast">
+                {account}
+              </Text>
+            )}
+          </Flex>
           <Flex row gap={3} alignItems="center" style={{ flexShrink: 0 }}>
             {status === "idle" ? undefined : (
               <ConnectionStatusLabel status={status} />

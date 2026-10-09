@@ -891,6 +891,7 @@ serverTest(
         arguments: {
           js: `return await Promise.allSettled([
             tools.halo.showConnectionCard({ integration: "new_mcp" }),
+            tools.halo.showConnectionCard({ integration: "new_mcp", account: "me@example.com" }),
             tools.executor.coreTools.oauth.start({ client: "google", clientOwner: "org", owner: "user", name: "personal", integration: "google_gmail", template: "googleOAuth2" })
           ]);`,
         },
@@ -909,6 +910,7 @@ serverTest(
     expect(execution.result?.details).toMatchObject({
       connectionRequests: expect.arrayContaining([
         expect.objectContaining(request),
+        expect.objectContaining({ ...request, account: "me@example.com" }),
         expect.objectContaining({
           kind: "control-plane",
           integration: "google_gmail",
@@ -1811,8 +1813,9 @@ serverTest(
           )?.status,
       )
       .toBe("cancelled");
+    // An unnamed card adds a connection instead of reconnecting "default".
     expect(requested).toEqual([
-      { integration: "example", connectionName: "default" },
+      { integration: "example", connectionName: undefined },
       { integration: "example", connectionName: "personal" },
     ]);
     await expect(

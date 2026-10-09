@@ -907,6 +907,7 @@ controlPlaneTest(
       const started = await runtime.integrations.startSetup({
         integration,
         connectionName: "personal",
+        account: "personal@example.com",
       });
       expect(started.setupUrl).toBe(
         `${plane.origin}/integrations/setup/${started.setupId}`,
@@ -915,6 +916,7 @@ controlPlaneTest(
         await human.integrations.setup({ setupId: started.setupId }),
       ).toMatchObject({
         status: "awaiting_credentials",
+        account: "personal@example.com",
       });
       await expect(
         bob.integrations.setup({ setupId: started.setupId }),
@@ -1027,6 +1029,67 @@ controlPlaneTest(
     );
     expect(callback.status).toBe(400);
     expect(await callback.text()).not.toContain("secret");
+  },
+);
+
+controlPlaneTest(
+  "asks Google to show its account picker with the requested account",
+  async ({ plane, authenticatedRpc }) => {
+    const session = await authenticatedRpc.auth.session();
+    if (session.status !== "signed-in") throw new Error("Missing session");
+    const google = {
+      authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      tokenUrl: "https://oauth2.googleapis.com/token",
+    };
+    const configured = await plane.integrations!.withUser(
+      session.session.user.id,
+      (executor) =>
+        Effect.gen(function* () {
+          yield* executor.openapi.configure(
+            IntegrationSlug.make("google_gmail"),
+            {
+              authenticationTemplate: [
+                {
+                  slug: "googleOAuth2",
+                  kind: "oauth2",
+                  ...google,
+                  scopes: ["read"],
+                },
+              ],
+            },
+          );
+          yield* executor.oauth.createClient({
+            owner: Owner.make("user"),
+            slug: OAuthClientSlug.make("google_account_choice"),
+            ...google,
+            grant: "authorization_code",
+            clientId: "fixture",
+            clientSecret: "fixture-secret",
+          });
+        }),
+    );
+    if (configured instanceof Error) throw configured;
+    const method = (await authenticatedRpc.integrations.catalog()).find(
+      (entry) => entry.integration === "google_gmail",
+    )!.methods[0]!;
+    for (const account of [undefined, "me@example.com"]) {
+      const attempt = await authenticatedRpc.integrations.startSetup({
+        integration: "google_gmail",
+        account,
+      });
+      const submitted = await authenticatedRpc.integrations.submitSetup({
+        setupId: attempt.setupId,
+        template: method.template,
+        values: {},
+      });
+      const url = new URL(submitted.authorizationUrl!);
+      expect(url.host).toBe("accounts.google.com");
+      expect(url.searchParams.get("prompt")).toBe("select_account consent");
+      expect(url.searchParams.get("login_hint")).toBe(account ?? null);
+      await authenticatedRpc.integrations.cancelSetup({
+        setupId: attempt.setupId,
+      });
+    }
   },
 );
 

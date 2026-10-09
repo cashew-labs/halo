@@ -55,6 +55,7 @@ import { FetchHttpClient } from "effect/unstable/http";
 import * as errore from "errore";
 import type { CredentialService } from "../credentials/CredentialService.js";
 import type { DatabaseService, DatabaseClient } from "../DatabaseService.js";
+import { withAccountChoice } from "./accountChoice.js";
 import { createExecutorDatabase } from "./createExecutorDatabase.js";
 
 // Executor 1.6 rewrites Meet's Discovery URL to a legacy endpoint returning 404.
@@ -294,6 +295,7 @@ export class IntegrationService {
     userId: string;
     integration: string;
     connectionName?: string;
+    account?: string;
   }) {
     const catalog = await this.catalog(ctx.userId);
     if (catalog instanceof Error) return catalog;
@@ -330,6 +332,7 @@ export class IntegrationService {
         `connection${crypto.randomBytes(6).toString("hex")}`,
       status: "awaiting_credentials",
     };
+    if (ctx.account !== undefined) setup.account = ctx.account;
     const saved = await this.sql(
       "INSERT INTO halo_integration_setup (setup_id,user_id,data,status,expires_at,integration,connection_name) VALUES ($1,$2,$3,$4,$5,$6,$7)",
       [
@@ -635,7 +638,12 @@ export class IntegrationService {
               "Setup is no longer authorizing. Restart setup to try again.",
           });
     }
-    return { authorizationUrl: result.authorizationUrl };
+    return {
+      authorizationUrl: withAccountChoice(
+        result.authorizationUrl,
+        setup.account,
+      ),
+    };
   }
 
   // Runs on every exit after a claim. Success clears/replaces the marker, making
