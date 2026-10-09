@@ -467,34 +467,30 @@ e2eTest(
 
     await image.click({ button: "right" });
     await app.page.getByRole("button", { name: "Copy image" }).click();
-    await expect
-      .poll(
-        async () =>
-          await app.page.evaluate(async () => {
-            const items = await navigator.clipboard.read();
-            if (!items[0]?.types.includes("image/png")) return false;
-            const png = await items[0].getType("image/png");
-            return png !== undefined && png.size > 0;
-          }),
-      )
-      .toBe(true);
+    await expect(async () => {
+      const hasImage = await app.page.evaluate(async () => {
+        const items = await navigator.clipboard.read();
+        if (!items[0]?.types.includes("image/png")) return false;
+        const png = await items[0].getType("image/png");
+        return png.size > 0;
+      });
+      expect(hasImage).toBe(true);
+    }).toPass({ timeout: 10_000 });
 
     await image.click();
     await app.page.evaluate(async () => {
       await navigator.clipboard.writeText("reset");
     });
     await app.page.keyboard.press("ControlOrMeta+c");
-    await expect
-      .poll(
-        async () =>
-          await app.page.evaluate(async () => {
-            const items = await navigator.clipboard.read();
-            if (!items[0]?.types.includes("image/png")) return false;
-            const png = await items[0].getType("image/png");
-            return png !== undefined && png.size > 0;
-          }),
-      )
-      .toBe(true);
+    await expect(async () => {
+      const hasImage = await app.page.evaluate(async () => {
+        const items = await navigator.clipboard.read();
+        if (!items[0]?.types.includes("image/png")) return false;
+        const png = await items[0].getType("image/png");
+        return png.size > 0;
+      });
+      expect(hasImage).toBe(true);
+    }).toPass({ timeout: 10_000 });
   },
 );
 
