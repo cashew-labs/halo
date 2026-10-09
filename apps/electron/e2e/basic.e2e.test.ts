@@ -504,7 +504,24 @@ e2eTest(
     });
     await app.page.getByRole("link", { name: path, exact: true }).click();
     const editor = app.page.getByLabel(path, { exact: true });
-    await editor.getByText("Two", { exact: true }).click();
+    const block = editor.getByText("Two", { exact: true });
+    // Keyboard commands read the editor state after native selectionchange.
+    await Promise.all([
+      block.evaluate(
+        async (element) =>
+          await new Promise<void>((resolve) => {
+            const selected = () => {
+              const selection = document.getSelection();
+              if (selection === null || !element.contains(selection.anchorNode))
+                return;
+              document.removeEventListener("selectionchange", selected);
+              resolve();
+            };
+            document.addEventListener("selectionchange", selected);
+          }),
+      ),
+      block.click(),
+    ]);
     await app.page.keyboard.press("Escape");
     await expect(editor.locator(".halo-selected-block")).toHaveText("Two");
     await app.page.keyboard.press("Shift+ArrowDown");
