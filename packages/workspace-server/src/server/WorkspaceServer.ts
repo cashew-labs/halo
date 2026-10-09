@@ -7,8 +7,6 @@ import { AutomationRunner } from "../automations/AutomationRunner.js";
 import { HotkeyService } from "../hotkeys/HotkeyService.js";
 import { WorkspaceIdleReporter } from "./WorkspaceIdleReporter.js";
 import { combineLatest } from "@get-halo/shared/Stream";
-import { RoutineService } from "../routines/RoutineService.js";
-import { RoutineRunner } from "../routines/RoutineRunner.js";
 import { AutomationScheduler } from "../automations/AutomationScheduler.js";
 import {
   AutomationScheduleSync,
@@ -264,7 +262,6 @@ export class WorkspaceServer {
     if (hotkeys instanceof Error) return hotkeys;
     const automations = await AutomationService.open({ database });
     if (automations instanceof Error) return automations;
-    const routines = new RoutineService({ automations });
     const [initialized, toolRuntime] = await Promise.all([
       workspace.initialize(),
       ToolRuntime.create({
@@ -352,10 +349,6 @@ export class WorkspaceServer {
       workspaceRoot,
       logger: host.logger,
     });
-    const routineRunner = new RoutineRunner({
-      automations: automationRunner,
-      routines,
-    });
     cleanup.defer(async () => await automationRunner.stop());
     const recoveredAutomations = await automationRunner.recover({
       preserveDue: host.reportAutomationSchedule !== undefined,
@@ -407,8 +400,6 @@ export class WorkspaceServer {
       context: {
         build: config.build,
         hotkeys,
-        routines,
-        routineRunner,
         automations,
         automationRunner,
         automationSources,

@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import { createHaloClient } from "@get-halo/client";
+import { createHaloClient, protocolHeader } from "@get-halo/client";
 import { GoogleAuth } from "google-auth-library";
 import * as errore from "errore";
 import type { PoolClient } from "pg";
@@ -260,7 +260,12 @@ export class AutomationScheduleCoordinator {
       return;
     }
     const client = createHaloClient({
-      transport: { origin: connection.origin, path: "/rpc", headers },
+      transport: {
+        origin: connection.origin,
+        path: "/rpc",
+        // The control plane deploys first; use the released workspace protocol.
+        headers: { ...headers, [protocolHeader]: "25" },
+      },
     });
     await Promise.all(
       routineIds.map(async (routineId) => {
@@ -281,7 +286,9 @@ export class AutomationScheduleCoordinator {
     );
   }
 
-  private async authorization(connection: WorkspaceProviderConnection) {
+  private async authorization(
+    connection: WorkspaceProviderConnection,
+  ): Promise<Record<string, string> | Error> {
     if (connection.authorization.type === "headers")
       return { ...connection.authorization.value };
     if (connection.authorization.type === "bearer")
