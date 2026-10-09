@@ -1,0 +1,10 @@
+[
+  {
+    "findingId": "F1",
+    "reply": "won't fix: The supported rollout baseline is the actually published Halo 0.1.68 (tag 78277a3), not the older pre-automation protocol-25 fixture. That release already implements automations.runScheduled in packages/workspace-server/src/automations/automationsRouter.ts and its client contract. User explicitly authorizes retirement of older clients and direct API cleanup; the next stack layer supports workspace protocols25/26 and release minimum0.1.68. A frozen 0.1.68 client/database was verified against the cleanup backend. Retaining routines dispatch would break after layer410 removes that RPC. Current deployed0.1.68 workspaces support the new dispatch throughout the CP-first rollout."
+  },
+  {
+    "findingId": "F2",
+    "reply": "won't fix: The fixture must model the supported released baseline0.1.68, which serves automation RPCs. The old comment described a now-retired baseline; it is not evidence of actual0.1.68 behavior. Compare git show 0.1.68:packages/workspace-server/src/automations/automationsRouter.ts and contract.ts. The user explicitly requested clean removal and accepted schedule-report interruption for older workspace code. Restoring a routine-only fixture would test a compatibility promise this release no longer makes. Frozen0.1.68 upgrade and UI tests independently passed; protocol25 remains used for current0.1.68 dispatch."
+  }
+]

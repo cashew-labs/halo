@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change renames the routine schedule protocol to automation schedules across the control plane and the workspace server. It is ready to merge. F3 is fixed: AutomationScheduleSync.test.ts now uses the existing routineTest fixture and checks that only enabled routine-type automations are reported, that saves made during a report are combined into one follow-up report, that failed reports are retried, and that stop aborts an in-flight report. Both test tiers pass, and the coverage gate passes; I accept the remaining exemptions because those lines are rename-only, reformatted PostgreSQL-only code, or entrypoint wiring.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 3,
+  "headSha": "5c5252e832e5e555298d492b5d8d9b3b4fc7a296",
+  "treeHash": "e2109658977b06ef3b5535a77659d16c420297e1",
+  "codeTree": "eb2160c6c12817905316b490847e6503d74a6974",
+  "coverage": {
+    "executable": 69,
+    "covered": 43,
+    "exempt": 26,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-09T21:27:51.963Z"
+}

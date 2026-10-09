@@ -1,0 +1,51 @@
+{
+  "status": "changes_requested",
+  "summary": "The change renames the routine schedule path to automation schedules on both the control plane and the workspace server, moves the snapshot route to /api/workspace-runtime/automations/schedules, and switches the workspace scheduler to AutomationService and AutomationRunner. It is not ready to merge. Scheduled dispatch now uses a different workspace RPC, which can break older protocol-25 workspaces, and the base test fixture that guarded that case was rewritten. The coverage gate also fails: 33 changed lines are uncovered and none are exempt, including the new snapshot filter in AutomationScheduleSync.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "source",
+      "file": "apps/control-plane/src/workspace/AutomationScheduleCoordinator.ts",
+      "line": 267,
+      "severity": "P1",
+      "body": "`fire()` now dispatches due schedules with `client.automations.runScheduled({ automationId })` instead of `client.routines.runScheduled({ routineId })`. Before this change, the control-plane test fixture described its workspace as \"the pre-automation workspace during a rolling deployment\". That workspace was at protocol 25 and served only `/rpc/routines/runScheduled`. `haloProtocolVersion` is still 25, so the protocol header cannot tell such a workspace apart from a newer one. In a control-plane-first rollout, those workspaces still have stored rows in `workspace_routine_schedule`, and every dispatch will now fail with a 404. Their scheduled routines stop running until the VM is upgraded. The README says that \"stored schedules and protocol-25 dispatch remain available\", which is then not true. The rename does not require this behavior change, and current workspaces still serve `routines.runScheduled` through RoutineRunner. Fix: keep dispatching through `routines.runScheduled`, or fall back to it when `automations.runScheduled` returns not-found. Then make the README match the behavior."
+    },
+    {
+      "id": "F2",
+      "kind": "test",
+      "file": "apps/control-plane/test/ControlPlane.test.ts",
+      "line": 83,
+      "severity": "P1",
+      "body": "The fake workspace host used to model a pre-automation protocol-25 workspace that serves only `/rpc/routines/runScheduled`. The change makes it accept only `/rpc/automations/runScheduled` and relabels the comment as \"a released protocol 25 workspace\". This removes the rolling-deployment guard instead of satisfying it, so the test now passes even though older workspaces lose scheduled dispatch (see F1). Keep a fixture that models the older workspace, which serves only the routines RPC, and assert that a due schedule still reaches it."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "packages/workspace-server/src/automations/AutomationScheduleSync.ts:31,37,61,65,74: the published snapshot contains only automations with `activation.type === \"routine\"` that are enabled and have a `nextRunAt`. It excludes trigger automations and disabled routines. It is published again when an automation is saved or changed.",
+      "tier": "tmp",
+      "rationale": "The sync now reads AutomationService instead of RoutineService and adds an activation-type filter. This is changed behavior with no test, and every line of it is uncovered."
+    },
+    {
+      "target": "apps/control-plane/src/workspace/workspaceAutomationHttp.ts:66 (and 58 if practical): a POST to /api/workspace-runtime/automations/schedules whose body is not valid JSON returns 400, and a body over 256 KiB returns 400.",
+      "tier": "tmp",
+      "rationale": "These error paths in the renamed handler are uncovered. Each needs only one fetch against the test control plane."
+    },
+    {
+      "target": "Remaining uncovered lines: the error constructors in the PostgreSQL-only branches of AutomationScheduleCoordinator.ts (90–164, 238, 291–307, 327–378), ControlPlaneScheduleReporter.ts:39, apps/workspace-server/src/main.ts:18,174,178, and packages/workspace-server/src/index.ts:15. Cover them, or add a coverage exemption for each with a reason.",
+      "tier": "tmp",
+      "rationale": "The coverage gate failed with 33 uncovered lines and no exemptions. I would accept exemptions that state these lines only rename the error class or symbol and contain no new logic, for example \"rename-only error constructor in a Postgres branch the unit suite does not run\", or \"entrypoint wiring\" for main.ts and the re-export."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "7972e8d291021e853f1a65ecea0156db1ea943ec",
+  "treeHash": "c2d0269d9a813733826036b19c19c6006319bdcc",
+  "codeTree": "c64aaa025689dcdaaa2db5a7b2bf73079242abfa",
+  "coverage": {
+    "executable": 62,
+    "covered": 29,
+    "exempt": 0,
+    "uncovered": 33
+  },
+  "createdAt": "2026-10-09T21:19:30.712Z"
+}

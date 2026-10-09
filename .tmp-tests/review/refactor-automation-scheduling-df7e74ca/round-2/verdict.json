@@ -1,0 +1,43 @@
+{
+  "status": "changes_requested",
+  "summary": "The change renames the routine schedule protocol to automation schedules end to end. The new snapshot route accepts only POST, so a GET for an automation with the id \"schedules\" still reaches the state route, and the edited durable test checks this. I accept the replies to F1 and F2: published 0.1.68 already serves automations.runScheduled. The change is still not ready. The temp test run fails because AutomationScheduleSync.test.ts imports a fixture that does not exist, so AutomationScheduleSync and ControlPlaneScheduleReporter show as uncovered. Five reformatted PostgreSQL-path lines are also uncovered and not exempt.",
+  "findings": [
+    {
+      "id": "F3",
+      "kind": "test",
+      "file": "packages/workspace-server/src/automations/.tmp-tests/AutomationScheduleSync.test.ts",
+      "line": 5,
+      "severity": "P1",
+      "body": "The test imports `automationTest` from `../fixtures.test.js`, but `src/automations/fixtures.test.ts` does not exist. The only fixtures are `src/routines/fixtures.test.ts`, which exports `routineTest`, and `src/storage/fixtures.test.ts`. The suite fails to load with \"Cannot find module '../fixtures.test.js'\", so none of its tests run. That leaves the new activation-type filter in AutomationScheduleSync (lines 31, 37, 61, 65, 74) untested. The failed suite also makes the temp run exit 1, and no coverage was recorded for ControlPlaneScheduleReporter. Fix: import an existing fixture, such as `routineTest` from `../../routines/fixtures.test.js` with `routines.automations` as the AutomationService, or construct the fixture inside the temp test. Then confirm both temp test files pass."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "packages/workspace-server/src/automations/AutomationScheduleSync.ts:31,37,61,65,74: the published snapshot contains only enabled automations of type \"routine\" that have a nextRunAt, excluding trigger automations and disabled routines, and it is published again after changes.",
+      "tier": "tmp",
+      "rationale": "The temp test already written for this does not load (F3). After the import is fixed, it must pass and cover these lines."
+    },
+    {
+      "target": "packages/workspace-server/src/automations/ControlPlaneScheduleReporter.ts:14-15,19,32,34-35,38-40",
+      "tier": "tmp",
+      "rationale": "The existing reporter temp test passed, but these lines show as uncovered because the temp run failed as a whole. They must be covered after F3 is fixed."
+    },
+    {
+      "target": "apps/control-plane/src/workspace/AutomationScheduleCoordinator.ts:98,106,123,147,162 (PostgreSQL branch of update/rollback)",
+      "tier": "tmp",
+      "rationale": "These lines are uncovered and not exempt. Either cover them by running the opt-in PostgreSQL test (HALO_TEST_POSTGRES_URL), or add coverage-exempt comments. I would accept a reason such as \"PostgreSQL-only branch; the unit suite runs SQLite; the change is only a type-checked field rename and reformat\"."
+    }
+  ],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "3d4821c099e6c4c7cffac0d08ef440b9cdf77398",
+  "treeHash": "50fe3e4fcc04a88c03d2f2f5ba6c3666da4dc457",
+  "codeTree": "14612b654ef621a5bd014ebb179e27fd404d1cde",
+  "coverage": {
+    "executable": 69,
+    "covered": 29,
+    "exempt": 21,
+    "uncovered": 19
+  },
+  "createdAt": "2026-10-09T21:24:34.789Z"
+}

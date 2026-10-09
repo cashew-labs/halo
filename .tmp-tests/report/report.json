@@ -1,0 +1,627 @@
+{
+  "baseRef": "24b76d9e8a2f1fbca0e097ae5fa770054ba98b5c",
+  "baseSha": "24b76d9e8a2f1fbca0e097ae5fa770054ba98b5c",
+  "headSha": "5c5252e832e5e555298d492b5d8d9b3b4fc7a296",
+  "treeHash": "e2109658977b06ef3b5535a77659d16c420297e1",
+  "generatedAt": "2026-10-09T21:27:38.376Z",
+  "runs": {
+    "durable": {
+      "tier": "durable",
+      "testFiles": [
+        "apps/control-plane/test/ControlPlane.test.ts",
+        "packages/workspace-server/src/automations/AutomationScheduler.test.ts"
+      ],
+      "skipped": false,
+      "runners": [
+        {
+          "runner": "vitest",
+          "dir": ".",
+          "testFiles": [
+            "apps/control-plane/test/ControlPlane.test.ts",
+            "packages/workspace-server/src/automations/AutomationScheduler.test.ts"
+          ],
+          "exitCode": 0
+        }
+      ],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 86670,
+      "log": ".tmp-tests/report/durable.log",
+      "lcovFiles": [
+        "../../../.git/worktrees/worktree6/code-review-agent/coverage/durable-0/vitest-0/lcov.info",
+        "../../../.git/worktrees/worktree6/code-review-agent/coverage/durable-0/vitest-1/lcov.info"
+      ]
+    },
+    "tmp": {
+      "tier": "tmp",
+      "testFiles": [
+        "packages/workspace-server/src/automations/.tmp-tests/AutomationScheduleSync.test.ts",
+        "packages/workspace-server/src/automations/.tmp-tests/ControlPlaneScheduleReporter.test.ts"
+      ],
+      "skipped": false,
+      "runners": [
+        {
+          "runner": "vitest",
+          "dir": ".",
+          "testFiles": [
+            "packages/workspace-server/src/automations/.tmp-tests/AutomationScheduleSync.test.ts",
+            "packages/workspace-server/src/automations/.tmp-tests/ControlPlaneScheduleReporter.test.ts"
+          ],
+          "exitCode": 0
+        }
+      ],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 13551,
+      "log": ".tmp-tests/report/tmp.log",
+      "lcovFiles": [
+        "../../../.git/worktrees/worktree6/code-review-agent/coverage/tmp-0/vitest-0/lcov.info"
+      ]
+    }
+  },
+  "durableTestFiles": [
+    "apps/control-plane/test/ControlPlane.test.ts",
+    "packages/workspace-server/src/automations/AutomationScheduler.test.ts"
+  ],
+  "tmpTestFiles": [
+    "packages/workspace-server/src/automations/.tmp-tests/AutomationScheduleSync.test.ts",
+    "packages/workspace-server/src/automations/.tmp-tests/ControlPlaneScheduleReporter.test.ts"
+  ],
+  "files": [
+    {
+      "path": "apps/control-plane/src/automations/AutomationCoordinator.ts",
+      "loaded": true,
+      "changed": [
+        100,
+        101,
+        102
+      ],
+      "coveredDurable": [
+        100
+      ],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "apps/control-plane/src/automations/automationSnapshotHttp.ts",
+      "loaded": true,
+      "changed": [
+        15
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "apps/control-plane/src/server/ControlPlane.ts",
+      "loaded": true,
+      "changed": [
+        20,
+        38,
+        48,
+        57,
+        160,
+        161,
+        162,
+        163,
+        164,
+        165,
+        199,
+        223,
+        231
+      ],
+      "coveredDurable": [
+        57,
+        160,
+        164,
+        165,
+        231
+      ],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "apps/control-plane/src/server/controlPlaneHttp.ts",
+      "loaded": true,
+      "changed": [
+        54,
+        55,
+        117,
+        160,
+        236,
+        305,
+        306,
+        307,
+        308,
+        309,
+        310,
+        311,
+        312,
+        313,
+        314,
+        315,
+        316
+      ],
+      "coveredDurable": [
+        305,
+        309,
+        315
+      ],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "apps/control-plane/src/workspace/AutomationScheduleCoordinator.ts",
+      "loaded": true,
+      "changed": [
+        14,
+        15,
+        20,
+        21,
+        25,
+        45,
+        60,
+        64,
+        80,
+        90,
+        91,
+        96,
+        100,
+        101,
+        102,
+        103,
+        104,
+        105,
+        106,
+        107,
+        108,
+        109,
+        111,
+        119,
+        120,
+        121,
+        122,
+        123,
+        125,
+        130,
+        131,
+        145,
+        146,
+        147,
+        148,
+        149,
+        151,
+        157,
+        158,
+        159,
+        160,
+        161,
+        162,
+        163,
+        164,
+        165,
+        166,
+        175,
+        176,
+        177,
+        178,
+        179,
+        180,
+        181,
+        182,
+        183,
+        184,
+        254,
+        255,
+        256,
+        257,
+        258,
+        260,
+        269,
+        285,
+        286,
+        287,
+        288,
+        289,
+        292,
+        293,
+        298,
+        311,
+        312,
+        317,
+        321,
+        322,
+        327,
+        331,
+        332,
+        333,
+        334,
+        335,
+        353,
+        354,
+        359,
+        372,
+        373,
+        385,
+        386,
+        391,
+        400,
+        401,
+        402,
+        403,
+        404,
+        406,
+        411,
+        412,
+        417
+      ],
+      "coveredDurable": [
+        45,
+        64,
+        80,
+        269,
+        285
+      ],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": [
+        {
+          "line": 91,
+          "reason": "Rename-only error constructor; unchanged failure path."
+        },
+        {
+          "line": 101,
+          "reason": "Unchanged PostgreSQL transaction statement reformatted by the error-class rename."
+        },
+        {
+          "line": 104,
+          "reason": "Rename-only error constructor; unchanged failure path."
+        },
+        {
+          "line": 111,
+          "reason": "PostgreSQL snapshot field rename; equivalent SQLite replacement is exercised."
+        },
+        {
+          "line": 120,
+          "reason": "Rename-only error constructor; unchanged failure path."
+        },
+        {
+          "line": 131,
+          "reason": "PostgreSQL snapshot field rename; unchanged insert statement, equivalent SQLite replacement is exercised."
+        },
+        {
+          "line": 146,
+          "reason": "Rename-only error constructor; unchanged failure path."
+        },
+        {
+          "line": 158,
+          "reason": "Unchanged PostgreSQL transaction statement reformatted by the error-class rename."
+        },
+        {
+          "line": 161,
+          "reason": "Rename-only error constructor; unchanged failure path."
+        },
+        {
+          "line": 176,
+          "reason": "Unchanged PostgreSQL transaction statement reformatted by the error-class rename."
+        },
+        {
+          "line": 179,
+          "reason": "Rename-only error constructor; unchanged failure path."
+        },
+        {
+          "line": 255,
+          "reason": "Rename-only error constructor; unchanged failure path."
+        },
+        {
+          "line": 293,
+          "reason": "Rename-only error constructor; unchanged failure path."
+        },
+        {
+          "line": 312,
+          "reason": "Rename-only error constructor; unchanged failure path."
+        },
+        {
+          "line": 322,
+          "reason": "Rename-only error constructor; unchanged failure path."
+        },
+        {
+          "line": 332,
+          "reason": "Rename-only error constructor; unchanged failure path."
+        },
+        {
+          "line": 354,
+          "reason": "Rename-only error constructor; unchanged failure path."
+        },
+        {
+          "line": 373,
+          "reason": "Rename-only error constructor; unchanged failure path."
+        },
+        {
+          "line": 386,
+          "reason": "Rename-only error constructor; unchanged failure path."
+        },
+        {
+          "line": 401,
+          "reason": "Rename-only error constructor; unchanged failure path."
+        },
+        {
+          "line": 412,
+          "reason": "Rename-only error constructor; unchanged failure path."
+        }
+      ]
+    },
+    {
+      "path": "apps/control-plane/src/workspace/workspaceAutomationHttp.ts",
+      "loaded": true,
+      "changed": [
+        8,
+        12,
+        26,
+        27,
+        28,
+        31,
+        35,
+        58,
+        66,
+        71
+      ],
+      "coveredDurable": [
+        58,
+        66
+      ],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "apps/control-plane/src/workspace/WorkspaceService.ts",
+      "loaded": true,
+      "changed": [
+        351
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "apps/workspace-server/src/main.ts",
+      "loaded": false,
+      "changed": [
+        18,
+        174,
+        178
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": [
+        {
+          "line": 18,
+          "reason": "Rename-only entrypoint import."
+        },
+        {
+          "line": 174,
+          "reason": "Rename-only host wiring."
+        },
+        {
+          "line": 178,
+          "reason": "Rename-only entrypoint construction."
+        }
+      ]
+    },
+    {
+      "path": "packages/workspace-server/src/automations/AutomationScheduler.ts",
+      "loaded": true,
+      "changed": [
+        2,
+        3,
+        9,
+        16,
+        17,
+        21,
+        22,
+        25,
+        26,
+        34,
+        53,
+        56,
+        57,
+        58,
+        79,
+        83,
+        91,
+        97
+      ],
+      "coveredDurable": [
+        25,
+        26,
+        34,
+        56,
+        79,
+        83
+      ],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "packages/workspace-server/src/automations/AutomationScheduleSync.ts",
+      "loaded": true,
+      "changed": [
+        2,
+        4,
+        5,
+        9,
+        15,
+        17,
+        24,
+        26,
+        31,
+        37,
+        61,
+        62,
+        64,
+        65,
+        66,
+        67,
+        68,
+        74,
+        75,
+        76,
+        77
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [
+        31,
+        37,
+        61,
+        65,
+        74
+      ],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "packages/workspace-server/src/automations/ControlPlaneScheduleReporter.ts",
+      "loaded": true,
+      "changed": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [
+        14,
+        15,
+        19,
+        32,
+        34,
+        35,
+        38,
+        39,
+        40
+      ],
+      "uncovered": [],
+      "exempt": [
+        {
+          "line": 36,
+          "reason": "Rename-only response cleanup error; HTTP cancellation normally resolves."
+        }
+      ]
+    },
+    {
+      "path": "packages/workspace-server/src/index.ts",
+      "loaded": false,
+      "changed": [
+        15
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": [
+        {
+          "line": 15,
+          "reason": "Rename-only public export."
+        }
+      ]
+    },
+    {
+      "path": "packages/workspace-server/src/server/WorkspaceServer.ts",
+      "loaded": true,
+      "changed": [
+        12,
+        14,
+        15,
+        16,
+        82,
+        83,
+        118,
+        119,
+        120,
+        137,
+        154,
+        171,
+        360,
+        361,
+        363,
+        376,
+        377,
+        378,
+        379,
+        380,
+        383,
+        384,
+        385,
+        388,
+        433,
+        444,
+        468
+      ],
+      "coveredDurable": [
+        171,
+        360,
+        363,
+        377,
+        388,
+        433,
+        468
+      ],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    }
+  ],
+  "totals": {
+    "executable": 69,
+    "coveredDurable": 29,
+    "coveredTmpOnly": 14,
+    "uncovered": 0,
+    "exempt": 26
+  },
+  "passed": true
+}
