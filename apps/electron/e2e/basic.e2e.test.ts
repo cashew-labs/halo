@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import nodePath from "node:path";
-import { expect } from "@playwright/test";
+import { expect, type Locator } from "@playwright/test";
 import { m } from "@get-halo/shared/testing";
 import { haloProtocolVersion } from "@get-halo/client";
 import type { DesktopBridge } from "../src/shared/desktop.js";
@@ -504,24 +504,7 @@ e2eTest(
     });
     await app.page.getByRole("link", { name: path, exact: true }).click();
     const editor = app.page.getByLabel(path, { exact: true });
-    const block = editor.getByText("Two", { exact: true });
-    // Keyboard commands read the editor state after native selectionchange.
-    await Promise.all([
-      block.evaluate(
-        async (element) =>
-          await new Promise<void>((resolve) => {
-            const selected = () => {
-              const selection = document.getSelection();
-              if (selection === null || !element.contains(selection.anchorNode))
-                return;
-              document.removeEventListener("selectionchange", selected);
-              resolve();
-            };
-            document.addEventListener("selectionchange", selected);
-          }),
-      ),
-      block.click(),
-    ]);
+    await clickEditorText(editor.getByText("Two", { exact: true }));
     await app.page.keyboard.press("Escape");
     await expect(editor.locator(".halo-selected-block")).toHaveText("Two");
     await app.page.keyboard.press("Shift+ArrowDown");
@@ -563,7 +546,7 @@ e2eTest(
     });
     await app.page.getByRole("link", { name: path, exact: true }).click();
     const editor = app.page.getByLabel(path, { exact: true });
-    await editor.getByText("Other", { exact: true }).click();
+    await clickEditorText(editor.getByText("Other", { exact: true }));
     await app.page.keyboard.press("Alt+ArrowDown");
     await expect(editor.locator(":scope > p").first()).toHaveText("Other");
     await expect(editor.locator("ul:not([data-type])").first()).toContainText(
@@ -573,17 +556,10 @@ e2eTest(
     await expect(editor.locator("ul:not([data-type])").first()).toContainText(
       "Other",
     );
-    await editor.getByText("Next", { exact: true }).click();
-    await expect
-      .poll(
-        async () =>
-          await editor
-            .getByText("Next", { exact: true })
-            .evaluate((element) =>
-              element.contains(window.getSelection()!.anchorNode),
-            ),
-      )
-      .toBe(true);
+    await clickEditorText(editor.getByText("Next", { exact: true }));
+    await expect(
+      editor.and(app.page.locator('[contenteditable="true"]')),
+    ).toBeFocused();
     await app.page.keyboard.press("Tab");
     await expect(
       editor.locator('ul[data-type="taskList"] ul[data-type="taskList"]'),
@@ -770,3 +746,24 @@ e2eTest(
     ).toHaveCount(0);
   },
 );
+
+async function clickEditorText(text: Locator) {
+  // The DOM caret moves before selectionchange updates the editor state read
+  // by block and list commands. Wait for that event, not just the DOM anchor.
+  await Promise.all([
+    text.evaluate(
+      async (element) =>
+        await new Promise<void>((resolve) => {
+          const selected = () => {
+            const selection = document.getSelection();
+            if (selection === null || !element.contains(selection.anchorNode))
+              return;
+            document.removeEventListener("selectionchange", selected);
+            resolve();
+          };
+          document.addEventListener("selectionchange", selected);
+        }),
+    ),
+    text.click(),
+  ]);
+}
