@@ -64,6 +64,7 @@ class WorkspaceHostDriver {
   readonly requests: string[] = [];
   readonly exeAuthorizations: Array<string | undefined> = [];
   readonly scheduledProtocols: string[] = [];
+  readonly eventProtocols: string[] = [];
   private readonly server: http.Server;
 
   private constructor(ctx: { appDataDir: string }) {
@@ -91,6 +92,18 @@ class WorkspaceHostDriver {
         response
           .writeHead(200, { "content-type": "application/json" })
           .end('{"json":null}');
+        return;
+      }
+      if (request.url === "/rpc/automations/acceptEvent") {
+        const protocol = request.headers["x-halo-protocol-version"];
+        if (protocol !== "25") {
+          response.writeHead(400).end();
+          return;
+        }
+        this.eventProtocols.push(protocol);
+        response
+          .writeHead(200, { "content-type": "application/json" })
+          .end('{"json":{"id":"released-workspace-run"}}');
         return;
       }
       if (request.url === "/headers") {
@@ -3472,6 +3485,61 @@ controlPlaneTest(
         })
       ).status,
     ).toBe(404);
+  },
+);
+
+controlPlaneTest(
+  "delivers webhook events to a released protocol-25 workspace during rollout",
+  async ({ plane, authenticatedRpc, appDataDir, workspaceHost }) => {
+    await authenticatedRpc.workspace.ensure();
+    const published = await writeWorkspaceServerConnection({
+      appDataDir,
+      connection: {
+        workspaceRoot: appDataDir,
+        origin: workspaceHost.origin,
+        token: "test-workspace-token",
+      },
+    });
+    if (published instanceof Error) throw published;
+    const runtime = await readRuntimeSettings(appDataDir);
+    const control = new ControlPlaneAutomationClient({
+      origin: plane.origin,
+      token: runtime.token,
+    });
+    const registered = await control.report(
+      {
+        generation: 1,
+        automations: [
+          {
+            id: "released-webhook",
+            revision: 1,
+            name: "Released webhook",
+            enabled: true,
+            activation: { type: "trigger", trigger: { type: "webhook" } },
+          },
+        ],
+      },
+      new AbortController().signal,
+    );
+    if (registered instanceof Error) throw registered;
+    const access = await control.webhookAccess({
+      automationId: "released-webhook",
+    });
+    if (access instanceof Error) throw access;
+    const accepted = await fetch(access.url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ marker: "protocol25" }),
+    });
+    expect(accepted.status).toBe(202);
+    await expect
+      .poll(async () => await control.status("released-webhook"), {
+        timeout: 3000,
+      })
+      .toMatchObject({
+        deliveries: [{ status: "delivered", runId: "released-workspace-run" }],
+      });
+    expect(workspaceHost.eventProtocols).toEqual(["25"]);
   },
 );
 
