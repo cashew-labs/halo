@@ -259,7 +259,7 @@ async function createWindow(
   additionalArguments: string[] = [],
 ): Promise<BrowserWindow> {
   const window = new BrowserWindow({
-    show: applicationConfig.showMainWindow,
+    show: false,
     title: "Halo",
     width: 1100,
     height: 720,
@@ -275,6 +275,10 @@ async function createWindow(
       nodeIntegration: false,
       additionalArguments,
     },
+  });
+  // The first document paint supplies the drag region; do not wait for a server.
+  window.once("ready-to-show", () => {
+    if (applicationConfig.showMainWindow) window.show();
   });
   const hotkeys = new WindowHotkeys();
   hotkeys.attach(window);
