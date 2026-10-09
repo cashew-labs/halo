@@ -1,5 +1,31 @@
 # Releasing Halo
 
+Halo releases to staging first, then promotes the same build to production:
+
+1. `pnpm prerelease <version>` opens a release PR. Merging it deploys the `west`
+   stack (`staging.gethalo.dev`) and publishes the desktop app to
+   `cashew-labs/halo-staging`. Installs with Help > Use Staging update from there.
+2. `pnpm promote <version>` opens a promotion PR that records the version in
+   `releases/production.json` and pins `infra/control-plane/Pulumi.prod.yaml` to
+   the images and exe.dev template staging verified. Merging it runs
+   `promote.yml`: it builds a production transition image from the staged source,
+   deploys the `prod` stack (`gethalo.dev`) with the shared
+   `deploy-stack.yml` workflow, then copies the signed desktop artifacts from the
+   staging release to `cashew-labs/halo` without rebuilding.
+
+Production may skip staging releases. Promotion fails when the release's
+`minimumFrontendVersion` is newer than the version production runs, because the
+new backend would stop serving production's current clients. The staging release
+notes record the source revision (`Source: cashew-labs/halo@<sha>`) that
+promotion deploys and tags.
+
+`releases/production.json` starts at `0.1.68`, the version a one-time
+`pulumi up --stack prod` deploys when production is first created. Adding that
+file does not deploy; every later change to it does.
+
+The rest of this page describes one stack's deployment; staging and production
+follow the same steps.
+
 Run `pnpm prerelease <version>` from clean, current `main`. The release PR records `minimumFrontendVersion` and both API protocol requirements. The validator requires the backend to support every frontend from that minimum through the new release. The minimum carries forward; use `--minimum-frontend <version>` to deliberately retire older frontends. Additive API changes keep their protocol number; a breaking change needs an implemented, tested adapter before its protocol can be advertised.
 
 After merge, the release workflow prepares desktop artifacts and container images in parallel:
@@ -8,7 +34,7 @@ After merge, the release workflow prepares desktop artifacts and container image
 2. Builds a workspace image and two control-plane images concurrently from that source SHA. The transition image serves the previous browser bundle; the final image serves the new bundle and retains the previous hashed assets for open tabs. The previous image and all deployment references are pinned by digest. Deployment waits for all three image builds and the verified desktop artifacts to succeed.
 3. Deploys the transition control plane, then recreates workspace VMs in separate Blacksmith jobs, up to ten at once, with their existing data disks. Checks the public control-plane bootstrap and authenticated, VM-local workspace CLI for the expected supported protocols and source SHA. A health-only response does not pass this gate. Every VM must report readiness before frontend publication starts.
 4. Promotes the prepared browser image, verifies its API identity, and records the published image tags used by the committed Pulumi config.
-5. Creates a draft GitHub release, uploads the previously verified desktop artifacts without rebuilding, and makes the completed release available to the updater.
+5. Creates a draft GitHub release in `cashew-labs/halo-staging`, uploads the previously verified desktop artifacts without rebuilding, and makes the completed release available to the staging updater. The workflow needs a `STAGING_RELEASES_TOKEN` secret with contents write access to that repository.
 
 The browser and desktop share this gated frontend publication phase. They are not an atomic transaction: a desktop publication failure can leave the new browser live while desktop users retain the previous compatible release. The browser remains served by the control-plane process; no additional production service is introduced.
 

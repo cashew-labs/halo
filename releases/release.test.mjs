@@ -4,6 +4,13 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { test } from "node:test";
 import { createReleaseManifest } from "./releaseManifest.mjs";
+import {
+  exeTemplateVmName,
+  pinProductionConfig,
+  stagingReleaseNotes,
+  stagingSourceRevision,
+  validatePromotion,
+} from "./promotion.mjs";
 
 const root = path.resolve(import.meta.dirname, "..");
 const temporary = path.join(root, "tmp", "release-validation");
@@ -402,4 +409,113 @@ test("missing or invalid protocol metadata inside the range cannot bypass valida
       /Invalid workspace protocols/,
     );
   }
+});
+
+test("promotion requires a newer release that still serves production's frontends", () => {
+  const release = { version: "0.1.70", minimumFrontendVersion: "0.1.68" };
+  assert.equal(
+    validatePromotion({ release, production: undefined }),
+    undefined,
+  );
+  assert.equal(
+    validatePromotion({ release, production: { version: "0.1.68" } }),
+    undefined,
+  );
+  assert.match(
+    validatePromotion({ release, production: { version: "0.1.70" } }).message,
+    /must be newer than production 0\.1\.70/,
+  );
+  // Skipping staging releases is fine until it would strand production clients.
+  assert.match(
+    validatePromotion({ release, production: { version: "0.1.67" } }).message,
+    /supports frontends from 0\.1\.68, but production runs 0\.1\.67/,
+  );
+});
+
+test("promotion pins production to the images and template staging verified", () => {
+  const config = [
+    "config:",
+    "  halo-control-plane:controlPlaneImage: example/control-plane:0.1.68",
+    "  halo-control-plane:workspaceImage: example/workspace-server:0.1.68",
+    "  halo-control-plane:exeTemplateVmName: halo-exe-0-1-68",
+    "",
+  ].join("\n");
+  const pinned = pinProductionConfig(config, "0.1.70");
+  assert.equal(
+    pinned,
+    [
+      "config:",
+      "  halo-control-plane:controlPlaneImage: us-west2-docker.pkg.dev/halo-relay/halo-west-workspaces/control-plane:0.1.70",
+      "  halo-control-plane:workspaceImage: us-west2-docker.pkg.dev/halo-relay/halo-west-workspaces/workspace-server:0.1.70",
+      "  halo-control-plane:exeTemplateVmName: halo-exe-0-1-70",
+      "",
+    ].join("\n"),
+  );
+  assert.equal(exeTemplateVmName("0.1.70"), "halo-exe-0-1-70");
+  assert.match(
+    pinProductionConfig("config:\n", "0.1.70").message,
+    /no controlPlaneImage/,
+  );
+});
+
+test("promotion reads the source revision recorded by the staging release", () => {
+  const revision = "b".repeat(40);
+  assert.equal(stagingSourceRevision(stagingReleaseNotes(revision)), revision);
+  assert.equal(
+    stagingSourceRevision(`Notes\n${stagingReleaseNotes(revision)}\n`),
+    revision,
+  );
+  assert(
+    stagingSourceRevision("Source: cashew-labs/halo@main") instanceof Error,
+  );
+});
+
+test("promotion CLI accepts a pinned promotion and rejects stale config", async (t) => {
+  const directory = await fixture(t);
+  await fs.mkdir(path.join(directory, "releases"));
+  await fs.mkdir(path.join(directory, "infra/control-plane"), {
+    recursive: true,
+  });
+  await fs.writeFile(
+    path.join(directory, "releases/0.1.70.json"),
+    JSON.stringify({ version: "0.1.70", minimumFrontendVersion: "0.1.68" }),
+  );
+  await fs.writeFile(
+    path.join(directory, "releases/production.json"),
+    JSON.stringify({ version: "0.1.70" }),
+  );
+  await fs.writeFile(
+    path.join(directory, "previous.json"),
+    JSON.stringify({ version: "0.1.68" }),
+  );
+  const configPath = path.join(
+    directory,
+    "infra/control-plane/Pulumi.prod.yaml",
+  );
+  const stale = [
+    "config:",
+    "  halo-control-plane:controlPlaneImage: example/control-plane:0.1.68",
+    "  halo-control-plane:workspaceImage: example/workspace-server:0.1.68",
+    "  halo-control-plane:exeTemplateVmName: halo-exe-0-1-68",
+    "",
+  ].join("\n");
+  await fs.writeFile(configPath, stale);
+  const args = ["releases/production.json", "previous.json"];
+
+  const rejected = run("validatePromotion.mjs", args, directory);
+  assert.equal(rejected.status, 1);
+  assert.match(rejected.stderr, /must pin the 0\.1\.70 images and template/);
+
+  await fs.writeFile(configPath, pinProductionConfig(stale, "0.1.70"));
+  const accepted = run("validatePromotion.mjs", args, directory);
+  assert.equal(accepted.status, 0, accepted.stderr);
+  assert.equal(accepted.stdout.trim(), "0.1.70");
+
+  // Without a previous production.json the first promotion only records a version.
+  const first = run(
+    "validatePromotion.mjs",
+    ["releases/production.json"],
+    directory,
+  );
+  assert.equal(first.status, 0, first.stderr);
 });

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-: "${PROJECT:?}" "${ZONE:?}" "${INSTANCE:?}" "${TEMPLATE:?}" "${WORKSPACE_IMAGE:?}" "${VERSION:?}" "${GITHUB_SHA:?}" "${RUNNER_TEMP:?}"
+: "${PROJECT:?}" "${ZONE:?}" "${INSTANCE:?}" "${TEMPLATE:?}" "${WORKSPACE_IMAGE:?}" "${VERSION:?}" "${SOURCE_SHA:?}" "${RUNNER_TEMP:?}"
 
 template_details=$(gcloud compute instance-templates describe "${TEMPLATE##*/}" \
   --project="$PROJECT" --format=json)
@@ -99,7 +99,7 @@ output="$RUNNER_TEMP/workspace-update.log"
 gcloud compute ssh "$INSTANCE" "${ssh_args[@]}" \
   --command='sudo google_metadata_script_runner startup' 2>&1 | tee "$output"
 protocols=$(jq -c .protocols.workspace.supported "releases/$VERSION.json")
-ready_marker="HALO_WORKSPACE_READY image=$WORKSPACE_IMAGE protocols=$protocols revision=$GITHUB_SHA"
+ready_marker="HALO_WORKSPACE_READY image=$WORKSPACE_IMAGE protocols=$protocols revision=$SOURCE_SHA"
 if ! grep --fixed-strings --quiet "$ready_marker" "$output"; then
   echo "$INSTANCE did not report readiness for $WORKSPACE_IMAGE" >&2
   exit 1
