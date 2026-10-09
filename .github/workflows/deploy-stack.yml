@@ -1,0 +1,257 @@
+name: Deploy Halo stack
+
+# Deploys prepared release images to one control-plane stack: the backend with
+# the previous browser bundle, then every workspace VM, then the new browser.
+on:
+  workflow_call:
+    inputs:
+      stack:
+        description: Pulumi control-plane stack (west is staging, prod is production)
+        type: string
+        required: true
+      version:
+        type: string
+        required: true
+      source_sha:
+        description: Source revision the images were built from
+        type: string
+        required: true
+      transition_image:
+        description: Digest-pinned control plane serving the previous browser bundle
+        type: string
+        required: true
+      frontend_image:
+        description: Digest-pinned control plane serving the new browser bundle
+        type: string
+        required: true
+      workspace_image:
+        description: Digest-pinned workspace-server image
+        type: string
+        required: true
+      exe_template:
+        description: exe.dev template VM for new workspaces (exe provider only)
+        type: string
+        default: ""
+      record_release_tags:
+        description: Tag the deployed images with the version for later transitions and promotion
+        type: boolean
+        default: false
+      allow_no_workspaces:
+        description: Accept a stack that has no workspace VMs yet
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  PROJECT: halo-relay
+  STACK: ${{ inputs.stack }}
+  VERSION: ${{ inputs.version }}
+  SOURCE_SHA: ${{ inputs.source_sha }}
+  ZONE: us-west2-a
+
+jobs:
+  deploy:
+    name: Deploy ${{ inputs.stack }} backends
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    outputs:
+      instances: ${{ steps.workspaces.outputs.instances }}
+      workspace_template: ${{ steps.provider.outputs.template }}
+      workspace_provider: ${{ steps.provider.outputs.provider }}
+      exe_key_secret: ${{ steps.provider.outputs.key_secret }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Require deployment identity
+        env:
+          PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          SERVICE_ACCOUNT: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+        run: |
+          if [ -z "$PROVIDER" ] || [ -z "$SERVICE_ACCOUNT" ]; then
+            echo "Set GCP_WORKLOAD_IDENTITY_PROVIDER and GCP_DEPLOY_SERVICE_ACCOUNT as repository variables"
+            exit 1
+          fi
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Setup pnpm
+        uses: pnpm/setup@703c52620218391530e48b9e8870d5c0082e1b9b # v2.1.0
+        with:
+          runtime: node@22
+          cache: true
+          install: false
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Select Pulumi backend
+        run: pnpm --filter @get-halo/infra exec pulumi login gs://halo-relay-pulumi-state
+
+      - name: Read workspace provider
+        id: provider
+        env:
+          EXE_TEMPLATE: ${{ inputs.exe_template }}
+        shell: bash
+        run: |
+          settings="$(pnpm --silent --filter @get-halo/infra exec pulumi -C control-plane config --stack "$STACK" --json)"
+          provider="$(jq -r '."halo-control-plane:workspaceProvider".value // "gcp"' <<< "$settings")"
+          echo "provider=$provider" >> "$GITHUB_OUTPUT"
+          if [ "$provider" = exe ]; then
+            if [ -z "$EXE_TEMPLATE" ]; then
+              echo "The exe provider needs an exe_template" >&2
+              exit 1
+            fi
+            key_secret="$(jq -er '."halo-control-plane:exePrivateKeySecretId".value' <<< "$settings")"
+            key_path="$RUNNER_TEMP/exe-account-key"
+            gcloud secrets versions access 1 --secret="$key_secret" --project="$PROJECT" --out-file="$key_path"
+            chmod 600 "$key_path"
+            pnpm --filter @get-halo/infra exec pulumi -C control-plane config set exeTemplateVmName "$EXE_TEMPLATE" --stack "$STACK"
+            echo "template=$EXE_TEMPLATE" >> "$GITHUB_OUTPUT"
+            echo "key_secret=$key_secret" >> "$GITHUB_OUTPUT"
+            echo "EXE_PRIVATE_KEY_PATH=$key_path" >> "$GITHUB_ENV"
+          elif [ "$provider" = gcp ]; then
+            # GCP workspace VMs carry no stack label, so discovery below would
+            # also match another stack's VMs. Only the legacy west stack uses gcp.
+            if [ "$STACK" != west ]; then
+              echo "The gcp workspace provider is only supported for the west stack" >&2
+              exit 1
+            fi
+            template="$(pnpm --silent --filter @get-halo/infra exec pulumi -C control-plane stack output workspaceInstanceTemplate --stack "$STACK")"
+            echo "template=$template" >> "$GITHUB_OUTPUT"
+          else
+            echo "Unsupported workspace provider: $provider" >&2
+            exit 1
+          fi
+
+      - name: Deploy backends with the previous browser bundle
+        env:
+          TRANSITION_IMAGE: ${{ inputs.transition_image }}
+          WORKSPACE_IMAGE: ${{ inputs.workspace_image }}
+        run: |
+          pnpm --filter @get-halo/infra exec pulumi -C control-plane up --stack "$STACK" --yes --non-interactive \
+            --config "halo-control-plane:controlPlaneImage=$TRANSITION_IMAGE" \
+            --config "halo-control-plane:workspaceImage=$WORKSPACE_IMAGE"
+
+      - name: Check control plane
+        shell: bash
+        run: |
+          origin="$(pnpm --silent --filter @get-halo/infra exec pulumi -C control-plane stack output controlPlaneUrl --stack "$STACK")"
+          curl --fail --show-error --silent --retry 12 --retry-all-errors --retry-delay 5 "$origin/health"
+          node apps/control-plane/scripts/verifyRelease.mjs "$origin" "releases/$VERSION.json" "$SOURCE_SHA"
+
+      - name: Discover workspace VMs
+        id: workspaces
+        env:
+          ALLOW_NO_WORKSPACES: ${{ inputs.allow_no_workspaces }}
+        shell: bash
+        run: |
+          if [ "${{ steps.provider.outputs.provider }}" = exe ]; then
+            ssh_args=(-F /dev/null -i "$EXE_PRIVATE_KEY_PATH" -o IdentitiesOnly=yes -o IdentityAgent=none -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=infra/workspace/exe-known-hosts)
+            # Each stack tags its VMs halo-<stack>; both stacks share one exe.dev account.
+            tag="halo-$STACK"
+            instances="$(ssh "${ssh_args[@]}" exe.dev ls --json | jq -c --arg tag "$tag" '[.vms[] | select((.tags // []) | index($tag)) | .vm_name | select(test("^halo-[0-9a-f-]{36}$"))]')"
+          else
+            instances="$(gcloud compute instances list \
+              --project="$PROJECT" \
+              --zones="$ZONE" \
+              --filter='name~"^halo-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"' \
+              --format='json(name)' | jq -c 'map(.name)')"
+          fi
+          if [ "$instances" = "[]" ] && [ "$ALLOW_NO_WORKSPACES" != true ]; then
+            echo "No $STACK workspace VMs found; refusing to publish the desktop"
+            exit 1
+          fi
+          echo "instances=$instances" >> "$GITHUB_OUTPUT"
+
+  rollout-workspaces:
+    name: Update workspace container ${{ matrix.instance }}
+    needs: deploy
+    if: needs.deploy.outputs.instances != '[]'
+    strategy:
+      fail-fast: false
+      max-parallel: 10
+      matrix:
+        instance: ${{ fromJSON(needs.deploy.outputs.instances) }}
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Update and verify workspace container
+        env:
+          INSTANCE: ${{ matrix.instance }}
+          TEMPLATE: ${{ needs.deploy.outputs.workspace_template }}
+          WORKSPACE_IMAGE: ${{ inputs.workspace_image }}
+        shell: bash
+        run: |
+          if [ "${{ needs.deploy.outputs.workspace_provider }}" = exe ]; then
+            export EXE_PRIVATE_KEY_PATH="$RUNNER_TEMP/exe-account-key"
+            gcloud secrets versions access 1 --secret="${{ needs.deploy.outputs.exe_key_secret }}" --project="$PROJECT" --out-file="$EXE_PRIVATE_KEY_PATH"
+            chmod 600 "$EXE_PRIVATE_KEY_PATH"
+            bash infra/workspace/exeRollout.sh update
+          else
+            bash infra/workspace/rollout.sh
+          fi
+
+  promote-browser:
+    name: Promote ${{ inputs.stack }} browser after backend readiness
+    needs: [deploy, rollout-workspaces]
+    # A stack without workspace VMs skips the rollout; any rollout failure blocks promotion.
+    if: always() && needs.deploy.result == 'success' && (needs.rollout-workspaces.result == 'success' || needs.rollout-workspaces.result == 'skipped')
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    env:
+      FRONTEND_IMAGE: ${{ inputs.frontend_image }}
+      WORKSPACE_IMAGE: ${{ inputs.workspace_image }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v3
+      - uses: pnpm/setup@703c52620218391530e48b9e8870d5c0082e1b9b
+        with:
+          runtime: node@22
+          cache: true
+          install: false
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @get-halo/infra exec pulumi login gs://halo-relay-pulumi-state
+      - name: Promote prepared browser image
+        env:
+          RECORD_RELEASE_TAGS: ${{ inputs.record_release_tags }}
+        run: |
+          if [ "${{ needs.deploy.outputs.workspace_provider }}" = exe ]; then
+            pnpm --filter @get-halo/infra exec pulumi -C control-plane config set exeTemplateVmName "${{ needs.deploy.outputs.workspace_template }}" --stack "$STACK"
+          fi
+          pnpm --filter @get-halo/infra exec pulumi -C control-plane up --stack "$STACK" --yes --non-interactive \
+            --config "halo-control-plane:controlPlaneImage=$FRONTEND_IMAGE" \
+            --config "halo-control-plane:workspaceImage=$WORKSPACE_IMAGE"
+          origin="$(pnpm --silent --filter @get-halo/infra exec pulumi -C control-plane stack output controlPlaneUrl --stack "$STACK")"
+          node apps/control-plane/scripts/verifyRelease.mjs "$origin" "releases/$VERSION.json" "$SOURCE_SHA"
+          if [ "$RECORD_RELEASE_TAGS" = true ]; then
+            # The next staging transition and production promotion use the
+            # actual last published images for this version.
+            gcloud artifacts docker tags add "$FRONTEND_IMAGE" \
+              "us-west2-docker.pkg.dev/halo-relay/halo-west-workspaces/control-plane:$VERSION" --project=halo-relay --quiet
+            gcloud artifacts docker tags add "$WORKSPACE_IMAGE" \
+              "us-west2-docker.pkg.dev/halo-relay/halo-west-workspaces/workspace-server:$VERSION" --project=halo-relay --quiet
+          fi
