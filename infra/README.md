@@ -1,17 +1,19 @@
 # Halo infrastructure
 
-Halo production runs in GCP project `halo-relay` with the control plane in
-`us-west2` and user workspace VMs in `us-west2-a`. The active Pulumi
-control-plane stack is `west`.
+Halo runs in GCP project `halo-relay` with the control plane in `us-west2` and
+user workspace VMs in `us-west2-a`. The Pulumi control-plane stack `prod` is
+production and `west` is staging.
 
 The Pulumi state bucket and KMS key remain in `us-central1`. They are bootstrap
 resources outside the application stacks and are not on the application request
-path. Do not delete or move the KMS key: the active `west` stack uses it to
-decrypt Pulumi secrets.
+path. Do not delete or move the KMS key: both stacks use it to decrypt Pulumi
+secrets.
 
-The production control-plane origin is `https://gethalo.dev`, configured through
-`controlPlaneDomain`. A global HTTPS load balancer routes to Cloud Run; HTTP
-redirects to HTTPS and `www.gethalo.dev` redirects to the apex hostname. Vercel
+The production control-plane origin is `https://gethalo.dev` and the staging
+origin is `https://staging.gethalo.dev`, each configured through its stack's
+`controlPlaneDomain`. A global HTTPS load balancer per stack routes to Cloud
+Run; HTTP redirects to HTTPS and `www.gethalo.dev` redirects to the apex
+hostname. Vercel
 remains the registrar and authoritative DNS provider. Production Electron
 builds use the custom origin, while the Cloud Run default URL remains reachable
 for previously released desktop clients.
@@ -44,8 +46,8 @@ Google OAuth clients, and release images.
 Set `redirectWww: false` for a subdomain origin; apex origins also serve and
 redirect `www`.
 
-Until the cutover moves `west` to `staging.gethalo.dev`, `west` still serves
-`gethalo.dev` and `prod` is not deployed.
+`west` serves `staging.gethalo.dev` and `prod` serves `gethalo.dev`. Vercel DNS
+points each hostname at its stack's `controlPlaneDomainIp` output.
 
 ## Production layout
 
@@ -74,19 +76,19 @@ The production control plane uses these locations:
 | GCP project      | `halo-relay`                                                                               |
 | Runtime region   | `us-west2`                                                                                 |
 | Workspace zone   | `us-west2-a`                                                                               |
-| Public origin    | `https://gethalo.dev`                                                                      |
-| Pulumi stack     | `west`                                                                                     |
+| Public origin    | `https://gethalo.dev` (staging: `https://staging.gethalo.dev`)                             |
+| Pulumi stack     | `prod` (staging: `west`)                                                                   |
 | State backend    | `gs://halo-relay-pulumi-state`                                                             |
 | Secrets provider | `gcpkms://projects/halo-relay/locations/us-central1/keyRings/halo-pulumi/cryptoKeys/state` |
 
-## Authenticate and select production
+## Authenticate and select a stack
 
 Install the Google Cloud CLI and Pulumi CLI, then authenticate locally:
 
 ```sh
 gcloud auth login --update-adc --project=halo-relay
 pulumi login gs://halo-relay-pulumi-state
-pulumi -C infra/control-plane stack select west
+pulumi -C infra/control-plane stack select prod   # or west for staging
 ```
 
 Preview and deploy from the repository root:
@@ -168,7 +170,9 @@ runtime identities must not have access to the state bucket or key.
 
 ## Manually build and deploy images
 
-Build the control-plane image with outputs from the `west` stack:
+Release images live in the `west` stack's repository, which `prod` reads. Build
+the control-plane image with outputs from the `west` stack; the `config set`
+commands below deploy to staging, so use `--stack prod` to change production:
 
 ```sh
 image="$(pulumi -C infra/control-plane stack output controlPlaneImageRepository --stack west):$(git rev-parse --short HEAD)"
@@ -244,9 +248,10 @@ https://gethalo.dev/workspace/oauth/callback
 https://staging.gethalo.dev/workspace/oauth/callback
 ```
 
-The public origin is available as the stack output:
+Each stack's public origin is available as a stack output:
 
 ```sh
+pulumi -C infra/control-plane stack output controlPlaneUrl --stack prod
 pulumi -C infra/control-plane stack output controlPlaneUrl --stack west
 ```
 
