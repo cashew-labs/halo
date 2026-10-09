@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "This is the same 0.1.69 release bump as round 1, now rebased onto base 9ee7b0b. On the new base the protocol constants have not changed: workspace client 26 supports [25, 26] and control-plane client 5 supports [3, 5]. The manifest, desktop version, Pulumi image pins and the minimum frontend of 0.1.68 still match releases/README.md and the validateRelease.mjs checks. The change adds no executable lines and nothing blocks the release.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "53a6106688d9d52d310df181eda15553738de1e8",
+  "treeHash": "32b0a70bd0b2c5a82c230e67e2f79f057d309092",
+  "codeTree": "32b0a70bd0b2c5a82c230e67e2f79f057d309092",
+  "coverage": {
+    "executable": 0,
+    "covered": 0,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-09T21:58:43.849Z"
+}

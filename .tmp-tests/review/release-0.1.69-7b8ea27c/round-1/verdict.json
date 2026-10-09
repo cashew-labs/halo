@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "This change is the 0.1.69 release bump. It updates the desktop package version, pins both production images to 0.1.69 in Pulumi.west.yaml and adds releases/0.1.69.json. The manifest's protocols match the code: workspace client 26 supports [25, 26] and control-plane client 5 supports [3, 5]. Its minimum frontend of 0.1.68 follows releases/README.md, which says the routine cleanup release must retire the 0.1.65 frontend (protocol 24). The validateRelease.mjs checks pass by inspection, the change adds no executable lines, and nothing blocks the release.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "24b01e64f791bc12f2cee2923477da956a1ba0ab",
+  "treeHash": "062a2cb41f6b5172a92461b5a19ceb89cb5dc548",
+  "codeTree": "062a2cb41f6b5172a92461b5a19ceb89cb5dc548",
+  "coverage": {
+    "executable": 0,
+    "covered": 0,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-09T21:37:12.051Z"
+}
