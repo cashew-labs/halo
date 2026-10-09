@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change turns off the custom animated caret and the hover-preview caret unless the primary input supports hover with a fine pointer. Touch-first devices then keep the native caret and selection UI. When the media query changes, the existing `scrolled` handler runs again and re-renders the caret. `destroy` removes that listener. The `halo-custom-caret` class is removed through `hide()`, so the native caret becomes visible again. Temp E2Es cover WebKit and Chromium on mobile, Electron touch emulation, and the switch back to the desktop caret and hover preview. All three changed lines are covered, and the change is ready.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "78277a3a9c8c11f215e97ea1ea9b6ac3e97f968a",
+  "treeHash": "58ea84a31553d8a30aab8c61e2534099d4035037",
+  "codeTree": "521b7ddadc7ee9f56b701077871f7327e698a526",
+  "coverage": {
+    "executable": 3,
+    "covered": 3,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-09T18:28:36.018Z"
+}

@@ -1,0 +1,85 @@
+{
+  "baseRef": "origin/main",
+  "baseSha": "78277a3a9c8c11f215e97ea1ea9b6ac3e97f968a",
+  "headSha": "78277a3a9c8c11f215e97ea1ea9b6ac3e97f968a",
+  "treeHash": "1d42f7424aa9d7d38245514f28a2e43fd43add9f",
+  "generatedAt": "2026-10-09T18:29:37.260Z",
+  "runs": {
+    "durable": {
+      "tier": "durable",
+      "testFiles": [],
+      "skipped": true,
+      "runners": [],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 0,
+      "log": ".tmp-tests/report/durable.log",
+      "lcovFiles": []
+    },
+    "tmp": {
+      "tier": "tmp",
+      "testFiles": [
+        "apps/electron/e2e/.tmp-tests/browserCursor.e2e.test.ts",
+        "apps/electron/e2e/.tmp-tests/mobileCursor.e2e.test.ts"
+      ],
+      "skipped": false,
+      "runners": [
+        {
+          "runner": "playwright",
+          "dir": "apps/electron",
+          "testFiles": [
+            "apps/electron/e2e/.tmp-tests/browserCursor.e2e.test.ts",
+            "apps/electron/e2e/.tmp-tests/mobileCursor.e2e.test.ts"
+          ],
+          "exitCode": 0
+        }
+      ],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 39535,
+      "log": ".tmp-tests/report/tmp.log",
+      "lcovFiles": [
+        "../../../.git/worktrees/worktree6/code-review-agent/coverage/tmp-0/lcov/lcov.info"
+      ]
+    }
+  },
+  "durableTestFiles": [],
+  "tmpTestFiles": [
+    "apps/electron/e2e/.tmp-tests/browserCursor.e2e.test.ts",
+    "apps/electron/e2e/.tmp-tests/mobileCursor.e2e.test.ts"
+  ],
+  "files": [
+    {
+      "path": "packages/web/src/main/editor/EditorCursor.ts",
+      "loaded": true,
+      "changed": [
+        37,
+        46,
+        47,
+        48,
+        49,
+        50,
+        51,
+        196,
+        272,
+        345
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [
+        48,
+        51,
+        345
+      ],
+      "uncovered": [],
+      "exempt": []
+    }
+  ],
+  "totals": {
+    "executable": 3,
+    "coveredDurable": 0,
+    "coveredTmpOnly": 3,
+    "uncovered": 0,
+    "exempt": 0
+  },
+  "passed": true
+}
