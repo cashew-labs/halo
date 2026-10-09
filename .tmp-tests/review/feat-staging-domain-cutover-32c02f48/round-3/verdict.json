@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change moves the `west` control-plane stack to `staging.gethalo.dev` with `redirectWww: \"false\"` and updates `infra/README.md` so that `prod` is production and `west` is staging. The new release-flow paragraph agrees with `releases/README.md` and `promote.yml`: prerelease deploys `west`, and promote previews and deploys `prod`. Temp tests pass, there are no changed executable lines, and no findings remain, so it is ready.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 3,
+  "headSha": "1d568add5ddea03ffb25e09fcb70a714860d4d55",
+  "treeHash": "513855f80c7b2bcd8a58ac0c2d5067f551cb286d",
+  "codeTree": "0d73f5e92bacc84935d81456b23915130cef4d3c",
+  "coverage": {
+    "executable": 0,
+    "covered": 0,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-09T21:24:56.408Z"
+}
