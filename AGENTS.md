@@ -27,7 +27,8 @@ integration marks. Download them from [SVGL](https://svgl.app/) into
 - `pnpm review:sync` - Prepare the latest untouched upstream Diffmap and the separately maintained custom viewer.
 - `pnpm review:compare <upstream.md> <custom.md> --root <source-workspace>` - Serve both review versions on ports 4178 and 4179 when a comparison is requested. Use the [diffmap-compare skill](.agents/skills/diffmap-compare/SKILL.md) to author both documents from the same changes.
 - `pnpm spec <file>` / `pnpm walkthrough <file>` / `pnpm exec diffmap <file>` - Serve a spec or code walkthrough as a local Diffmap page.
-- `pnpm prerelease <version>` - Run from a clean, up-to-date `main` branch to create and open a release PR that bumps the desktop version and pins the production images. CI tests the PR and previews Pulumi. Merging deploys the control plane and workspace VMs before publishing the desktop application and matching GitHub tag. Packaged apps check for updates via `update.electronjs.org`.
+- `pnpm prerelease <version>` - Run from a clean, up-to-date `main` branch to create and open a release PR that bumps the desktop version and pins the release images. CI tests the PR and previews Pulumi. Merging deploys the staging stack (`west`, `staging.gethalo.dev`) and publishes the desktop app to `cashew-labs/halo-staging`; it does not touch production.
+- `pnpm promote <version>` - Run from a clean, up-to-date `main` branch after staging looks good. It opens a PR that records the version in `releases/production.json` and pins `infra/control-plane/Pulumi.prod.yaml`. Merging deploys the same images to the `prod` stack (`gethalo.dev`) and copies the signed desktop release to `cashew-labs/halo`. Packaged apps check for updates via `update.electronjs.org`; Help > Use Staging switches an install to the staging channel.
 
 ## Working Style
 
