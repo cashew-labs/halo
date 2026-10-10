@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "I found no problems, so this is ready to merge. This is the release PR for 0.1.70. It bumps the desktop package version, sets both Pulumi image tags to 0.1.70, and adds releases/0.1.70.json. I checked the manifest by reading the code: its protocol values (workspace 26 supporting [25, 26], control plane 5 supporting [3, 5]) match packages/client/src/contract.ts and packages/shared/src/controlPlaneContract.ts. previousVersion and minimumFrontendVersion match what createReleaseManifest would carry forward from 0.1.69, and the rules in validateRelease.mjs hold. No executable lines changed, and the temp tests pass.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "a68ab98c8c0e85d9f1ecdc5c543796e060e88cae",
+  "treeHash": "9909e999edc51a2e967366be4f8fc57bc07dcbbd",
+  "codeTree": "763f803586d6d33053cf9f06c9b8a036b9fde116",
+  "coverage": {
+    "executable": 0,
+    "covered": 0,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-10T01:56:24.396Z"
+}

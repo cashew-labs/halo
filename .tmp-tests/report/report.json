@@ -1,0 +1,97 @@
+{
+  "baseRef": "main",
+  "baseSha": "063ff9fd14873f13ffd0f70bf6adabedac558552",
+  "headSha": "a68ab98c8c0e85d9f1ecdc5c543796e060e88cae",
+  "treeHash": "9909e999edc51a2e967366be4f8fc57bc07dcbbd",
+  "generatedAt": "2026-10-10T01:55:56.249Z",
+  "runs": {
+    "durable": {
+      "tier": "durable",
+      "testFiles": [],
+      "skipped": true,
+      "runners": [],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 0,
+      "log": ".tmp-tests/report/durable.log",
+      "lcovFiles": []
+    },
+    "tmp": {
+      "tier": "tmp",
+      "testFiles": [
+        "apps/control-plane/.tmp-tests/accountChoice.test.ts",
+        "apps/control-plane/.tmp-tests/setupBrowserCookie.test.ts",
+        "apps/electron/.tmp-tests/setupHandoff.test.ts",
+        "apps/web-app/.tmp-tests/WebHost.test.ts",
+        "packages/web/.tmp-tests/ConnectionState.test.ts",
+        "packages/web/.tmp-tests/ExecutorConnectionCard.test.tsx",
+        "packages/web/.tmp-tests/HaloAppRoutes.test.tsx",
+        "packages/web/.tmp-tests/IntegrationSetupPage.test.tsx",
+        "packages/web/.tmp-tests/mountHaloApp.test.tsx",
+        "packages/web/.tmp-tests/setupHandoff.test.ts",
+        "packages/workspace-server/.tmp-tests/connectionCards.test.ts",
+        "packages/workspace-server/.tmp-tests/connectionPlaceholder.test.ts",
+        "packages/workspace-server/.tmp-tests/connectionTools.test.ts"
+      ],
+      "skipped": false,
+      "runners": [
+        {
+          "runner": "vitest",
+          "dir": ".",
+          "testFiles": [
+            "apps/control-plane/.tmp-tests/accountChoice.test.ts",
+            "apps/control-plane/.tmp-tests/setupBrowserCookie.test.ts",
+            "apps/electron/.tmp-tests/setupHandoff.test.ts",
+            "apps/web-app/.tmp-tests/WebHost.test.ts",
+            "packages/web/.tmp-tests/ConnectionState.test.ts",
+            "packages/web/.tmp-tests/ExecutorConnectionCard.test.tsx",
+            "packages/web/.tmp-tests/HaloAppRoutes.test.tsx",
+            "packages/web/.tmp-tests/IntegrationSetupPage.test.tsx",
+            "packages/web/.tmp-tests/mountHaloApp.test.tsx",
+            "packages/web/.tmp-tests/setupHandoff.test.ts",
+            "packages/workspace-server/.tmp-tests/connectionCards.test.ts",
+            "packages/workspace-server/.tmp-tests/connectionPlaceholder.test.ts",
+            "packages/workspace-server/.tmp-tests/connectionTools.test.ts"
+          ],
+          "exitCode": 0
+        }
+      ],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 3209,
+      "log": ".tmp-tests/report/tmp.log",
+      "lcovFiles": [
+        "../halo-v2/.git/worktrees/halo-v2-connections/code-review-agent/coverage/tmp-0/vitest-0/lcov.info",
+        "../halo-v2/.git/worktrees/halo-v2-connections/code-review-agent/coverage/tmp-0/vitest-1/lcov.info",
+        "../halo-v2/.git/worktrees/halo-v2-connections/code-review-agent/coverage/tmp-0/vitest-2/lcov.info",
+        "../halo-v2/.git/worktrees/halo-v2-connections/code-review-agent/coverage/tmp-0/vitest-3/lcov.info",
+        "../halo-v2/.git/worktrees/halo-v2-connections/code-review-agent/coverage/tmp-0/vitest-4/lcov.info"
+      ]
+    }
+  },
+  "durableTestFiles": [],
+  "tmpTestFiles": [
+    "apps/control-plane/.tmp-tests/accountChoice.test.ts",
+    "apps/control-plane/.tmp-tests/setupBrowserCookie.test.ts",
+    "apps/electron/.tmp-tests/setupHandoff.test.ts",
+    "apps/web-app/.tmp-tests/WebHost.test.ts",
+    "packages/web/.tmp-tests/ConnectionState.test.ts",
+    "packages/web/.tmp-tests/ExecutorConnectionCard.test.tsx",
+    "packages/web/.tmp-tests/HaloAppRoutes.test.tsx",
+    "packages/web/.tmp-tests/IntegrationSetupPage.test.tsx",
+    "packages/web/.tmp-tests/mountHaloApp.test.tsx",
+    "packages/web/.tmp-tests/setupHandoff.test.ts",
+    "packages/workspace-server/.tmp-tests/connectionCards.test.ts",
+    "packages/workspace-server/.tmp-tests/connectionPlaceholder.test.ts",
+    "packages/workspace-server/.tmp-tests/connectionTools.test.ts"
+  ],
+  "files": [],
+  "totals": {
+    "executable": 0,
+    "coveredDurable": 0,
+    "coveredTmpOnly": 0,
+    "uncovered": 0,
+    "exempt": 0
+  },
+  "passed": true
+}
