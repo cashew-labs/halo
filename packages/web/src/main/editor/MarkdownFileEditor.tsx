@@ -22,7 +22,6 @@ import {
 import {
   useApi,
   useSessionsQuery,
-  useWorkspacePathsQuery,
   useWorkspaceQuery,
 } from "../../api/ApiProvider.js";
 import { useTabFindSource } from "../../panes/TabFind.js";
@@ -45,18 +44,12 @@ export function MarkdownFileEditor({
   const isActiveTab = useIsActiveTab();
   const api = useApi();
   const workspace = useWorkspaceQuery().data;
-  const paths = useWorkspacePathsQuery(workspace).data;
   const sessions = useSessionsQuery(workspace).data ?? [];
-  const targets: ReferenceTarget[] = [
-    ...(paths ?? [])
-      .filter((candidate) => !candidate.endsWith("/"))
-      .map((candidate) => ({ kind: "file" as const, path: candidate })),
-    ...sessions.map((session) => ({
-      kind: "session" as const,
-      sessionId: session.sessionId,
-      title: session.title ?? session.sessionId,
-    })),
-  ];
+  const targets: ReferenceTarget[] = sessions.map((session) => ({
+    kind: "session" as const,
+    sessionId: session.sessionId,
+    title: session.title ?? session.sessionId,
+  }));
   const apiRef = useRef(api);
   useEffect(() => {
     apiRef.current = api;

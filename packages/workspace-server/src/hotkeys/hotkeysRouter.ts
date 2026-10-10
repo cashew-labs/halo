@@ -6,7 +6,11 @@ import type { HotkeyService } from "./HotkeyService.js";
 export type HotkeysRouterContext = { hotkeys: HotkeyService };
 const os = implement(contract.hotkeys).$context<HotkeysRouterContext>();
 export const hotkeysRouter = os.router({
-  list: os.list.handler(({ context }) => context.hotkeys.list()),
+  list: os.list.handler(async ({ context }) => {
+    const hotkeys = await context.hotkeys.list();
+    if (hotkeys instanceof Error) return orpcErrors.badRequest(hotkeys);
+    return hotkeys;
+  }),
   watch: os.watch.handler(({ context, signal }) =>
     context.hotkeys.watch(signal),
   ),

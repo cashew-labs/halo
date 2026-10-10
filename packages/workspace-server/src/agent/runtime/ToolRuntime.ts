@@ -74,7 +74,7 @@ import {
   removeConnectionResult,
 } from "./connectionTools.js";
 import { createExecutorDatabase } from "./createExecutorDatabase.js";
-import type { DatabaseClient } from "../../storage/DatabaseClient.js";
+import type { NativeConnection } from "../../database/DatabaseService.js";
 import type {
   HaloTool,
   HaloToolContext,
@@ -366,7 +366,7 @@ function toExecutorSchema(schema: TObject) {
 type ToolRuntimeOptions = {
   remoteConnections?: RemoteConnectionBackend;
   remoteIntegrationTools?: RemoteIntegrationTools;
-  database: DatabaseClient;
+  database: NativeConnection;
   workspaceRoot: string;
   userId: string;
   toolPlugins: readonly HaloToolPlugin[];

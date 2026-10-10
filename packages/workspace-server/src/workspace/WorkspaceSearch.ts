@@ -7,7 +7,7 @@ import type {
   WorkspaceSearchResponse,
 } from "@get-halo/client";
 import { SessionProjection } from "../agent/SessionProjection.js";
-import type { ThreadRepoApi } from "../storage/ThreadRepoApi.js";
+import type { ThreadRepoApi } from "../database/ThreadRepoApi.js";
 import type { WorkspaceService } from "./WorkspaceService.js";
 
 const maxFileBytes = 5 * 1024 * 1024;

@@ -25,6 +25,7 @@ export function FileEntryDialog({
   pending,
   error,
   onSubmit,
+  onBrowseFolder,
   onClose,
 }: {
   action: FileEntryAction;
@@ -32,6 +33,7 @@ export function FileEntryDialog({
   pending: boolean;
   error: string | undefined;
   onSubmit(path: string): void;
+  onBrowseFolder(path: string): void;
   onClose(): void;
 }) {
   const originalName = action.path.slice(action.path.lastIndexOf("/") + 1);
@@ -122,7 +124,9 @@ export function FileEntryDialog({
                 selectedKey={folder === "" ? "/" : folder}
                 onSelectionChange={(key) => {
                   if (key === null) return;
-                  setFolder(key === "/" ? "" : String(key));
+                  const path = key === "/" ? "" : String(key);
+                  setFolder(path);
+                  onBrowseFolder(path);
                 }}
                 isDisabled={pending}
                 autoFocus={action.kind === "move"}

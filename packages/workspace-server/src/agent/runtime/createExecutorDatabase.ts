@@ -7,11 +7,11 @@ import {
   type ExecutorFumaDb,
 } from "@executor-js/sdk/host-internal";
 import { drizzle } from "drizzle-orm/better-sqlite3";
-import type { DatabaseClient } from "../../storage/DatabaseClient.js";
-import type { DatabaseError } from "../../storage/DatabaseError.js";
+import type { NativeConnection } from "../../database/DatabaseService.js";
+import type { DatabaseError } from "../../database/DatabaseError.js";
 
 export async function createExecutorDatabase<T extends FumaTables>(
-  client: DatabaseClient,
+  client: NativeConnection,
   tables: T,
 ): Promise<Pick<ExecutorFumaDb<T>, "db"> | DatabaseError> {
   return await client.access((connection) => {
@@ -35,7 +35,7 @@ export async function createExecutorDatabase<T extends FumaTables>(
 }
 
 function coordinateExecutor<S extends AnySchema>(
-  client: DatabaseClient,
+  client: NativeConnection,
   db: AbstractQuery<S>,
 ): AbstractQuery<S> {
   const access = async <T>(run: () => Promise<T>) => {

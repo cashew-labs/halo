@@ -1,6 +1,7 @@
 import { FileSaveErrorsProvider } from "../main/FileSaveErrors.js";
 import { useAuthenticatedUserId } from "../Authentication.js";
 import { WorkspaceUpdatesProvider } from "./WorkspaceUpdatesProvider.js";
+import { WorkspaceDataProvider } from "../database/WorkspaceDataProvider.js";
 import { useQuery, skipToken, useQueryClient } from "@tanstack/react-query";
 import {
   createContext,
@@ -75,7 +76,9 @@ export function ApiProvider({ children }: { children: ReactNode }) {
             key={state.workspace?.workspaceRoot}
             api={state.api}
           >
-            <FileSaveErrorsProvider>{children}</FileSaveErrorsProvider>
+            <WorkspaceDataProvider api={state.api}>
+              <FileSaveErrorsProvider>{children}</FileSaveErrorsProvider>
+            </WorkspaceDataProvider>
           </WorkspaceUpdatesProvider>
         </ApiContext>
       )}
@@ -101,22 +104,6 @@ export function useSessionsQuery(workspace: WorkspaceInfo | undefined) {
   return useQuery<SessionSummary[]>({
     queryKey: ["sessions", workspaceRoot],
     queryFn: skipToken,
-  });
-}
-
-export function workspacePathsQueryKey(workspaceRoot: string | undefined) {
-  return ["workspace-paths", workspaceRoot] as const;
-}
-
-export function useWorkspacePathsQuery(workspace: WorkspaceInfo | undefined) {
-  const api = useApi();
-  const { state } = useConnection();
-  const workspaceRoot = workspace?.workspaceRoot;
-
-  return useQuery({
-    queryKey: workspacePathsQueryKey(workspaceRoot),
-    queryFn: async () => await api.workspace.listPaths(),
-    enabled: workspaceRoot !== undefined && state.status === "connected",
   });
 }
 

@@ -11,11 +11,9 @@ import * as errore from "errore";
 import type {
   ExtensionSummary,
   HaloClient,
-  Hotkey,
-  Automation,
   SessionSummary,
 } from "@get-halo/client";
-import { useWorkspaceQuery, workspacePathsQueryKey } from "./ApiProvider.js";
+import { useWorkspaceQuery } from "./ApiProvider.js";
 import { reconnectStream } from "./reconnectStream.js";
 
 class WorkspaceUpdatesError extends errore.createTaggedError({
@@ -28,14 +26,9 @@ type WorkspaceState = {
     data: ExtensionSummary[] | undefined;
     error: Error | undefined;
   };
-  hotkeys: Hotkey[];
-  // Undefined until the server sends its first snapshot.
-  automations: Automation[] | undefined;
 };
 const empty: WorkspaceState = {
   extensions: { data: undefined, error: undefined },
-  hotkeys: [],
-  automations: undefined,
 };
 const WorkspaceUpdatesContext = createContext<WorkspaceState>(empty);
 
@@ -65,27 +58,20 @@ export function WorkspaceUpdatesProvider({
       signal: controller.signal,
       open: async () =>
         await api.server.watch(
-          { includeAutomations: true },
+          { includeAutomations: false, includeLegacyState: false },
           { signal: controller.signal },
         ),
-      // Filesystem events do not have a snapshot; refetch after every reconnect.
-
-      onItem: async (item) => {
-        if (item.type === "files") {
-          await queryClient.invalidateQueries({
-            queryKey: workspacePathsQueryKey(workspaceRoot),
-          });
+      onItem: (item) => {
+        if (
+          item.type === "hotkeys" ||
+          item.type === "files" ||
+          item.type === "automations"
+        )
           return;
-        }
         if (item.type === "sessions") {
           const update = item.update;
           if (update.type === "snapshot") {
             service.ready(api);
-            void queryClient
-              .invalidateQueries({
-                queryKey: workspacePathsQueryKey(workspaceRoot),
-              })
-              .catch(console.error);
           }
           queryClient.setQueryData<SessionSummary[]>(
             ["sessions", workspaceRoot],
@@ -108,14 +94,6 @@ export function WorkspaceUpdatesProvider({
         setState((current) => {
           const previous =
             current.workspaceRoot === workspaceRoot ? current : empty;
-          if (item.type === "hotkeys")
-            return { ...previous, workspaceRoot, hotkeys: item.hotkeys };
-          if (item.type === "automations")
-            return {
-              ...previous,
-              workspaceRoot,
-              automations: item.automations,
-            };
           if (item.type === "extensions")
             return {
               ...previous,
@@ -149,12 +127,4 @@ export function WorkspaceUpdatesProvider({
 
 export function useExtensions() {
   return useContext(WorkspaceUpdatesContext).extensions;
-}
-
-export function useHotkeys() {
-  return useContext(WorkspaceUpdatesContext).hotkeys;
-}
-
-export function useAutomations() {
-  return useContext(WorkspaceUpdatesContext).automations;
 }

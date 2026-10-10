@@ -14,8 +14,8 @@ import {
 } from "../automations/AutomationScheduleSync.js";
 import { createHotkeysPlugin } from "../hotkeys/createHotkeysPlugin.js";
 import path from "node:path";
-import { TursoThreadRepo } from "../storage/TursoThreadRepo.js";
-import { DatabaseClient } from "../storage/DatabaseClient.js";
+import { TursoThreadRepo } from "../database/TursoThreadRepo.js";
+import { DatabaseService } from "../database/DatabaseService.js";
 import { BrowserService } from "../browser/BrowserService.js";
 import type { Logger } from "@get-halo/logger";
 import * as errore from "errore";
@@ -107,10 +107,11 @@ export class WorkspaceServer {
     return this.idleReporter.idle;
   }
   private readonly filesystem: FilesystemService;
-  private readonly database: DatabaseClient;
+  private readonly db: DatabaseService;
   private readonly sessionRepo: TursoThreadRepo;
   private readonly workspace: WorkspaceService;
   private readonly sessions: ThreadManager;
+  private readonly automations: AutomationService;
   private readonly automationRunner: AutomationRunner;
   private readonly automationSync: AutomationSync | undefined;
   private readonly automationScheduler:
@@ -127,10 +128,11 @@ export class WorkspaceServer {
   private constructor(ctx: {
     idleReporter: WorkspaceIdleReporter;
     filesystem: FilesystemService;
-    database: DatabaseClient;
+    db: DatabaseService;
     sessionRepo: TursoThreadRepo;
     workspace: WorkspaceService;
     sessions: ThreadManager;
+    automations: AutomationService;
     automationRunner: AutomationRunner;
     automationScheduler: AutomationScheduler | AutomationScheduleSync;
     automationSync: AutomationSync | undefined;
@@ -144,10 +146,11 @@ export class WorkspaceServer {
   }) {
     const {
       filesystem,
-      database,
+      db,
       sessionRepo,
       workspace,
       sessions,
+      automations,
       automationRunner,
       automationScheduler,
       automationSync,
@@ -161,10 +164,11 @@ export class WorkspaceServer {
     } = ctx;
     this.idleReporter = ctx.idleReporter;
     this.filesystem = filesystem;
-    this.database = database;
+    this.db = db;
     this.sessionRepo = sessionRepo;
     this.workspace = workspace;
     this.sessions = sessions;
+    this.automations = automations;
     this.automationRunner = automationRunner;
     this.automationScheduler = automationScheduler;
     this.automationSync = automationSync;
@@ -225,7 +229,7 @@ export class WorkspaceServer {
     });
     if (traces instanceof Error) return traces;
     cleanup.defer(async () => await traces.close());
-    const database = await DatabaseClient.open({
+    const db = await DatabaseService.open({
       directory: path.join(workspaceRoot, ".halo"),
       filesystem,
       executorTenantMigration:
@@ -236,16 +240,16 @@ export class WorkspaceServer {
               toTenant: workspaceRoot,
             },
     });
-    if (database instanceof Error) return database;
+    if (db instanceof Error) return db;
     cleanup.defer(async () => {
-      const closed = await database.close();
+      const closed = await db.close();
       if (closed instanceof Error)
         host.logger.warn({
           event: "database-cleanup-failed",
           error: closed,
         });
     });
-    const sessionRepo = new TursoThreadRepo(database);
+    const sessionRepo = new TursoThreadRepo(db.createNativeConnection());
     const search = new WorkspaceSearch({ workspace, repo: sessionRepo });
     cleanup.defer(async () => {
       const closed = await sessionRepo.close();
@@ -255,24 +259,26 @@ export class WorkspaceServer {
           error: closed,
         });
     });
-    const hotkeys = await HotkeyService.open({
-      database,
+    const hotkeys = new HotkeyService({
+      db,
       userId: config.ownerUserId,
     });
-    if (hotkeys instanceof Error) return hotkeys;
-    const automations = await AutomationService.open({ database });
+    const automations = await AutomationService.open({
+      db,
+    });
     if (automations instanceof Error) return automations;
+    cleanup.defer(async () => await automations.close());
     const [initialized, toolRuntime] = await Promise.all([
       workspace.initialize(),
       ToolRuntime.create({
         remoteConnections: host.remoteConnections,
         remoteIntegrationTools: host.remoteIntegrationTools,
-        database,
+        database: db.createNativeConnection(),
         workspaceRoot,
         userId: config.ownerUserId,
         toolPlugins: [
           createWorkspaceFilesPlugin(filesystem),
-          createDatabaseQueryPlugin(database),
+          createDatabaseQueryPlugin(db.createNativeConnection()),
           createHotkeysPlugin(hotkeys),
           createAutomationsPlugin(() => ({
             automations,
@@ -329,6 +335,7 @@ export class WorkspaceServer {
     const sessions = new ThreadManager({
       environment: config.environment,
       repo: sessionRepo,
+      db,
       llmApi: host.llmApi,
       filesystem,
       layout: workspace.layout,
@@ -398,6 +405,7 @@ export class WorkspaceServer {
     const requests = serveHaloHttp({
       ...http,
       context: {
+        db,
         build: config.build,
         hotkeys,
         automations,
@@ -427,10 +435,11 @@ export class WorkspaceServer {
     return new WorkspaceServer({
       idleReporter,
       filesystem,
-      database,
+      db,
       sessionRepo,
       workspace,
       sessions,
+      automations,
       automationRunner,
       automationScheduler,
       automationSync,
@@ -459,13 +468,14 @@ export class WorkspaceServer {
     await this.automationScheduler.stop();
     await this.automationSync?.close();
     await this.automationRunner.stop();
+    await this.automations.close();
     const sessionsClosed = await this.sessions.shutdown();
     await this.traces.close();
     await this.browsers.shutdown();
     await this.extensions.stop();
     const toolsClosed = await this.toolRuntime.close();
     const repoClosed = await this.sessionRepo.close();
-    const databaseClosed = await this.database.close();
+    const databaseClosed = await this.db.close();
     const httpClosed = await closeHaloHttp(this.http);
     this.workspace.close();
     const filesystemClosed = await this.filesystem.close();

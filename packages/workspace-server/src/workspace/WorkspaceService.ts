@@ -205,6 +205,96 @@ export class WorkspaceService {
     return paths;
   }
 
+  async searchPaths(query: string, signal?: AbortSignal) {
+    const matches: string[] = [];
+    const directories = [""];
+    const needle = query.toLowerCase();
+    while (directories.length > 0 && matches.length < 8) {
+      if (signal?.aborted) return matches;
+      const entries = await this.listDirectory(directories.pop()!);
+      if (entries instanceof Error) return entries;
+      for (const entry of entries) {
+        if (entry.endsWith("/")) directories.push(entry.slice(0, -1));
+        else if (entry.toLowerCase().includes(needle)) matches.push(entry);
+        if (matches.length === 8) break;
+      }
+    }
+    return matches;
+  }
+
+  async listDirectory(path: string) {
+    const absolutePath =
+      path === "" ? this.layout.root : await this.resolveEntryPath(path);
+    if (absolutePath instanceof Error) return absolutePath;
+    const metadata = await this.options.filesystem.lstat(absolutePath);
+    if (metadata instanceof Error)
+      return new WorkspaceIoError({ cause: metadata });
+    if (!metadata.isDirectory() || metadata.isSymbolicLink())
+      return new WorkspaceInvalidPathError({ path });
+    const entries = await this.options.filesystem.listDirectory(absolutePath);
+    if (entries instanceof Error)
+      return new WorkspaceIoError({ cause: entries });
+    return entries
+      .filter(
+        (entry) =>
+          !shouldSkipEntryName(entry.name) &&
+          !entry.isSymbolicLink() &&
+          (entry.isDirectory() || entry.isFile()),
+      )
+      .map(
+        (entry) =>
+          `${path === "" ? "" : `${path}/`}${entry.name}${entry.isDirectory() ? "/" : ""}`,
+      )
+      .toSorted();
+  }
+
+  async *watchDirectories(paths: string[], signal?: AbortSignal) {
+    const directories = new Set(paths);
+    const dirty = new Set(directories);
+    const wake = new Stream<void>();
+    using updates = wake.consume({ abortSignal: signal });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    using cleanup = new errore.DisposableStack();
+    cleanup.defer(() => clearTimeout(timer));
+    // Subscribe before reading. Events during a read schedule another snapshot.
+    cleanup.defer(
+      this.treeEvents.subscribe((events) => {
+        for (const event of events) {
+          const path = event.path.replace(/\/$/, "");
+          const parent = path.slice(0, Math.max(0, path.lastIndexOf("/")));
+          for (const directory of directories) {
+            if (
+              directory === parent ||
+              directory === path ||
+              directory.startsWith(`${path}/`)
+            )
+              dirty.add(directory);
+          }
+        }
+        if (dirty.size === 0 || timer !== undefined) return;
+        timer = setTimeout(() => {
+          timer = undefined;
+          wake.append();
+        }, 50);
+      }),
+    );
+    while (true) {
+      if (signal?.aborted) return;
+      const pending = [...dirty];
+      dirty.clear();
+      for (const path of pending) {
+        if (signal?.aborted) return;
+        const entries = await this.listDirectory(path);
+        if (entries instanceof Error) {
+          yield { path, entries: [], error: entries.message };
+          continue;
+        }
+        yield { path, entries };
+      }
+      if ((await updates.next()).done) return;
+    }
+  }
+
   async previewFile(path: string) {
     const absolutePath = await this.resolveEntryPath(path);
     if (absolutePath instanceof Error) return absolutePath;

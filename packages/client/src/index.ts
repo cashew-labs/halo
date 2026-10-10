@@ -1,3 +1,21 @@
+export { createWorkspaceRemote } from "./database/createWorkspaceRemote.js";
+export { automationRunSelect } from "./database/schema/automations.js";
+export {
+  haloSchema,
+  haloSchemaToTandemSchema,
+  haloSchemaToTursoTables,
+  type Field,
+  type Fields,
+  type Schema,
+  type SchemaRecords,
+  type SqlValue,
+  type Table,
+  type TableRecord,
+} from "./database/schema/schema.js";
+export {
+  workspaceSchema,
+  type WorkspaceSchema,
+} from "./database/schema/workspaceSchema.js";
 export {
   AuthenticationRequiredError,
   ConnectionUnavailableError,

@@ -41,10 +41,6 @@ import { ExecutorConnectionCard } from "./ExecutorConnectionCard.tsx";
 import { ToolActivity } from "./ToolActivity.tsx";
 import { useTabFindSource } from "../../panes/TabFind.js";
 import { useConnection } from "../../api/ConnectionContext.js";
-import {
-  useWorkspacePathsQuery,
-  useWorkspaceQuery,
-} from "../../api/ApiProvider.js";
 import { draftReferencesQueryKey } from "../chatReferences.js";
 import {
   clearMessageDraft,
@@ -140,20 +136,13 @@ function ChatPane({
   const [draft, setDraft] = useMessageDraft(draftKey);
   const [references, setReferences] =
     useState<ChatReference[]>(initialReferences);
-  const workspace = useWorkspaceQuery().data;
-  const paths = useWorkspacePathsQuery(workspace).data?.filter(
-    (path) => !path.endsWith("/"),
-  );
-  const referenceTargets: ReferenceTarget[] = [
-    ...(paths ?? []).map((path) => ({ kind: "file" as const, path })),
-    ...sessions
-      .filter((session) => session.sessionId !== sessionId)
-      .map((session) => ({
-        kind: "session" as const,
-        sessionId: session.sessionId,
-        title: session.title ?? session.sessionId,
-      })),
-  ];
+  const referenceTargets: ReferenceTarget[] = sessions
+    .filter((session) => session.sessionId !== sessionId)
+    .map((session) => ({
+      kind: "session" as const,
+      sessionId: session.sessionId,
+      title: session.title ?? session.sessionId,
+    }));
   const [attachments, setAttachments] = useState<{ id: string; file: File }[]>(
     [],
   );

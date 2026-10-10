@@ -1,10 +1,10 @@
-// oxlint-disable unicorn/no-null -- SQL rows and bindings use null for NULL.
 import { createHash, randomUUID } from "node:crypto";
 import { Value } from "@sinclair/typebox/value";
 import { Cron } from "croner";
 import * as errore from "errore";
 import {
   automationEventSchema,
+  automationRunSelect,
   type AutomationEvent,
   type AutomationSnapshot,
   automationActionSchema,
@@ -18,10 +18,11 @@ import {
   type AutomationRun,
   type AutomationRunStatus,
   type AutomationRunTrigger,
+  type WorkspaceSchema,
 } from "@get-halo/client";
 import { SerialQueue } from "@get-halo/shared/SerialQueue";
 import { Stream } from "@get-halo/shared/Stream";
-import type { DatabaseClient } from "../storage/DatabaseClient.js";
+import type { DatabaseService } from "../database/DatabaseService.js";
 
 export class AutomationNotFoundError extends errore.createTaggedError({
   name: "AutomationNotFoundError",
@@ -29,84 +30,96 @@ export class AutomationNotFoundError extends errore.createTaggedError({
     "Automation '$automationId' does not exist. List automations to find its ID.",
 }) {}
 
-type AutomationRow = {
-  id: string;
-  extension_id: string | null;
-  name: string;
-  activation: string;
-  revision: number;
-  action: string;
-  enabled: number;
-  auto_archive_thread: number;
-  next_run_at: number | null;
-  created_at: number;
-  updated_at: number;
-};
+class AutomationStorageError extends errore.createTaggedError({
+  name: "AutomationStorageError",
+  message: "Automation storage failed during $operation",
+}) {}
 
-type AutomationRunRow = {
-  id: string;
-  automation_id: string;
-  revision: number;
-  event_id: string | null;
-  trigger: AutomationRunTrigger;
-  scheduled_for: number;
-  thread_id: string | null;
-  status: AutomationRunStatus;
-  started_at: number;
-  finished_at: number | null;
-  error: string | null;
-  snapshot: string | null;
-  payload: string | null;
-  payload_hash: string | null;
-};
+type Definition = WorkspaceSchema["automations"];
+type Run = WorkspaceSchema["automationRuns"];
+type RunSummary = Omit<Run, "snapshot" | "payload" | "payloadHash">;
+type Transaction = ReturnType<DatabaseService["useTransaction"]>;
 
 const extensionIdPattern = /^[a-z][a-z0-9-]*$/;
+const viewQuery = {
+  collection: "automations",
+  orderBy: { createdAt: "asc", id: "asc" },
+  with: {
+    // Tandem has no not-equal or aggregate predicates. Derive the latest non-skipped
+    // run from ordered metadata; execution data is never part of this view.
+    runs: {
+      select: automationRunSelect,
+      orderBy: { startedAt: "desc", sequence: "desc" },
+    },
+  },
+} as const;
 
 export class AutomationService {
-  // Committed automations with their latest run; one queue orders writes and initial subscriptions.
-  private automations: Automation[];
-  private readonly changes = new Stream<Automation[]>();
+  // A Tandem-derived view preserves synchronous runner/scheduler consumers.
+  // Commands never patch it: subscriptions and commit barriers re-query records.
+  private automations: Automation[] = [];
+  private readonly changes = new Stream<Automation[] | Error>();
   private readonly actionQueue = new SerialQueue();
-  private readonly database: DatabaseClient;
+  private readonly viewQueue = new SerialQueue();
+  private destroySubscription: (() => void) | undefined;
+  private closed = false;
+  private readonly db: DatabaseService;
 
-  private constructor(ctx: {
-    database: DatabaseClient;
-    automations: Automation[];
-  }) {
-    this.database = ctx.database;
-    this.automations = ctx.automations;
+  private constructor(ctx: { db: DatabaseService }) {
+    this.db = ctx.db;
   }
 
-  static async open(ctx: { database: DatabaseClient }) {
-    const stored = await ctx.database.access((connection) => {
-      // SAFETY: The projection matches the halo_automations table.
-      const automations = connection
-        .prepare("SELECT * FROM halo_automations ORDER BY created_at, id")
-        .all() as AutomationRow[];
-      // SAFETY: The projection matches the halo_automation_runs table.
-      const lastRuns = connection
-        .prepare(
-          `SELECT * FROM halo_automation_runs AS run
-           WHERE run.id = (
-             SELECT latest.id FROM halo_automation_runs AS latest
-             WHERE latest.automation_id = run.automation_id AND latest.status != 'skipped'
-             ORDER BY latest.started_at DESC, latest.rowid DESC LIMIT 1
-           )`,
-        )
-        .all() as AutomationRunRow[];
-      return { automations, lastRuns };
-    });
-    if (stored instanceof Error) return stored;
-    const lastRuns = new Map(
-      stored.lastRuns.map((row) => [row.automation_id, runFromRow(row)]),
-    );
-    const automations: Automation[] = [];
-    for (const row of stored.automations) {
-      const automation = automationFromRow(row, lastRuns.get(row.id));
-      if (automation instanceof Error) return automation;
-      automations.push(automation);
+  static async open(ctx: { db: DatabaseService }) {
+    const service = new AutomationService(ctx);
+    const subscription = await ctx.db
+      .subscribe(
+        viewQuery,
+        () => {
+          void service.refresh().then(
+            (result) => {
+              if (result instanceof Error) {
+                console.warn(result);
+                service.changes.append(result);
+              }
+            },
+            (cause) =>
+              console.warn(
+                new AutomationStorageError({
+                  operation: "watch callback",
+                  cause,
+                }),
+              ),
+          );
+        },
+        {
+          onError: (cause) => {
+            const error = new AutomationStorageError({
+              operation: "watch",
+              cause,
+            });
+            console.warn(error);
+            service.changes.append(error);
+          },
+        },
+      )
+      .catch(
+        (cause) => new AutomationStorageError({ operation: "open", cause }),
+      );
+    if (subscription instanceof Error) return subscription;
+    service.destroySubscription = subscription.destroy;
+    const initial = await service.refresh();
+    if (initial instanceof Error) {
+      await service.close();
+      return initial;
     }
-    return new AutomationService({ database: ctx.database, automations });
+    return service;
+  }
+
+  async close() {
+    this.closed = true;
+    this.destroySubscription?.();
+    await this.actionQueue.run(() => undefined);
+    await this.viewQueue.run(() => undefined);
   }
 
   list() {
@@ -115,15 +128,22 @@ export class AutomationService {
 
   get(automationId: string) {
     return (
-      this.automations.find((automation) => automation.id === automationId) ??
+      this.automations.find((item) => item.id === automationId) ??
       new AutomationNotFoundError({ automationId })
     );
   }
 
   subscribe(listener: (automations: Automation[]) => void) {
-    return this.changes.subscribe(listener);
+    return this.changes.subscribe((update) => {
+      if (update instanceof Error) {
+        console.warn(update);
+        return;
+      }
+      listener(update);
+    });
   }
 
+  // Released clients still consume snapshots; current clients use Tandem sync.
   async *watch(signal: AbortSignal | undefined) {
     const initial = await this.actionQueue.run(() => ({
       automations: this.automations,
@@ -132,22 +152,27 @@ export class AutomationService {
     using updates = initial.updates;
     if (signal?.aborted) return;
     yield initial.automations;
-    yield* updates;
+    for await (const update of updates) {
+      if (update instanceof Error) throw update;
+      yield update;
+    }
   }
 
   async registrationSnapshot() {
     return await this.actionQueue.run(async () => {
-      const row = await this.database.access(
-        (connection) =>
-          // SAFETY: The migration creates one generation row with id 1.
-          connection
-            .prepare("SELECT generation FROM halo_automation_sync WHERE id = 1")
-            .get() as { generation: number },
-      );
-      if (row instanceof Error) return row;
+      await using tx = this.db.useTransaction();
+      const sync = await this.readSync(tx);
+      if (sync instanceof Error) return sync;
+      const definitions = await tx
+        .query({ collection: "automations" })
+        .catch(
+          (cause) =>
+            new AutomationStorageError({ operation: "snapshot", cause }),
+        );
+      if (definitions instanceof Error) return definitions;
       const snapshot: AutomationSnapshot = {
-        generation: row.generation,
-        automations: this.automations.map(
+        generation: sync.generation,
+        automations: definitions.map(
           ({ id, revision, name, activation, enabled }) => ({
             id,
             revision,
@@ -157,6 +182,15 @@ export class AutomationService {
           }),
         ),
       };
+      // Validate read dependencies before returning a generation/definition pair.
+      const read = await this.db.commit(tx).catch(
+        (cause) =>
+          new AutomationStorageError({
+            operation: "snapshot consistency",
+            cause,
+          }),
+      );
+      if (read instanceof Error) return read;
       return snapshot;
     });
   }
@@ -165,200 +199,211 @@ export class AutomationService {
     const valid = validateInput(input);
     if (valid instanceof Error) return valid;
     return await this.actionQueue.run(async () => {
-      const existing = this.automations.find(
-        (automation) => automation.id === input.id,
+      await using tx = this.db.useTransaction();
+      const definitions = await tx.query({ collection: "automations" }).catch(
+        (cause) =>
+          new AutomationStorageError({
+            operation: "read before save",
+            cause,
+          }),
       );
+      if (definitions instanceof Error) return definitions;
+      const existing = definitions.find((item) => item.id === input.id);
       if (input.id !== undefined && existing === undefined)
         return new AutomationNotFoundError({ automationId: input.id });
-      if (existing === undefined && this.automations.length >= 1000)
+      if (existing === undefined && definitions.length >= 1000)
         return new InvalidAutomationError({
           reason: "This workspace has reached its 1000 automation limit",
         });
       const now = Date.now();
       const enabled = input.enabled ?? existing?.enabled ?? true;
-      const autoArchiveSession =
-        input.autoArchiveSession ?? existing?.autoArchiveSession ?? false;
       const nextRunAt = enabled
         ? nextActivation({ activation: valid.activation, after: now })
         : undefined;
       if (nextRunAt instanceof Error) return nextRunAt;
-      const automation: Automation = {
+      const definition: Definition = {
         id: existing?.id ?? randomUUID(),
         revision: (existing?.revision ?? 0) + 1,
         ...valid,
         enabled,
-        autoArchiveSession,
-        nextRunAt: isoTime(nextRunAt),
-        createdAt: existing?.createdAt ?? new Date(now).toISOString(),
-        updatedAt: new Date(now).toISOString(),
-        lastRun: cancelQueued(existing?.lastRun, now),
+        autoArchiveSession:
+          input.autoArchiveSession ?? existing?.autoArchiveSession ?? false,
+        nextRunAt,
+        createdAt: existing?.createdAt ?? now,
+        updatedAt: now,
       };
-      const saved = await this.database.access((connection) =>
-        connection.transaction(() => {
-          connection
-            .prepare(
-              "UPDATE halo_automation_sync SET generation = generation + 1 WHERE id = 1",
-            )
-            .run();
-          connection
-            .prepare(
-              `INSERT INTO halo_automations
-               (id, extension_id, name, activation, revision, action, enabled, auto_archive_thread, next_run_at, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-             ON CONFLICT(id) DO UPDATE SET
-               extension_id = excluded.extension_id,
-               name = excluded.name,
-               activation = excluded.activation,
-               revision = excluded.revision,
-               action = excluded.action,
-               enabled = excluded.enabled,
-               auto_archive_thread = excluded.auto_archive_thread,
-               next_run_at = excluded.next_run_at,
-               updated_at = excluded.updated_at`,
-            )
-            .run(
-              automation.id,
-              automation.extensionId ?? null,
-              automation.name,
-              JSON.stringify(automation.activation),
-              automation.revision,
-              JSON.stringify(automation.action),
-              automation.enabled ? 1 : 0,
-              automation.autoArchiveSession ? 1 : 0,
-              nullableTime(nextRunAt),
-              Date.parse(automation.createdAt),
-              now,
-            );
-          connection
-            .prepare(
-              "UPDATE halo_automation_runs SET status = 'cancelled', finished_at = ?, error = 'Automation changed before execution.' WHERE automation_id = ? AND status = 'queued'",
-            )
-            .run(now, automation.id);
-        })(),
-      );
+      const staged = await this.changeDefinition({ tx, definition, now });
+      if (staged instanceof Error) return staged;
+      const saved = await this.commit(tx);
       if (saved instanceof Error) return saved;
-      this.replace(automation);
-      return automation;
+      return this.get(definition.id);
     });
   }
 
   async setEnabled(input: { automationId: string; enabled: boolean }) {
     return await this.actionQueue.run(async () => {
-      const automation = this.get(input.automationId);
-      if (automation instanceof Error) return automation;
-      if (automation.enabled === input.enabled) return automation;
+      await using tx = this.db.useTransaction();
+      const definition = await this.readDefinition({
+        tx,
+        automationId: input.automationId,
+      });
+      if (definition instanceof Error) return definition;
+      if (definition.enabled === input.enabled) {
+        const refreshed = await this.refresh();
+        if (refreshed instanceof Error) return refreshed;
+        return this.get(definition.id);
+      }
       const now = Date.now();
       const nextRunAt = input.enabled
-        ? nextActivation({ activation: automation.activation, after: now })
+        ? nextActivation({ activation: definition.activation, after: now })
         : undefined;
       if (nextRunAt instanceof Error) return nextRunAt;
-      const saved = await this.database.access((connection) =>
-        connection.transaction(() => {
-          connection
-            .prepare(
-              "UPDATE halo_automation_sync SET generation = generation + 1 WHERE id = 1",
-            )
-            .run();
-          connection
-            .prepare(
-              "UPDATE halo_automations SET enabled = ?, next_run_at = ?, updated_at = ?, revision = revision + 1 WHERE id = ?",
-            )
-            .run(
-              input.enabled ? 1 : 0,
-              nullableTime(nextRunAt),
-              now,
-              automation.id,
-            );
-          connection
-            .prepare(
-              "UPDATE halo_automation_runs SET status = 'cancelled', finished_at = ?, error = 'Automation changed before execution.' WHERE automation_id = ? AND status = 'queued'",
-            )
-            .run(now, automation.id);
-        })(),
-      );
+      const staged = await this.changeDefinition({
+        tx,
+        definition: {
+          ...definition,
+          enabled: input.enabled,
+          revision: definition.revision + 1,
+          nextRunAt,
+          updatedAt: now,
+        },
+        now,
+      });
+      if (staged instanceof Error) return staged;
+      const saved = await this.commit(tx);
       if (saved instanceof Error) return saved;
-      const updated: Automation = {
-        ...automation,
-        enabled: input.enabled,
-        revision: automation.revision + 1,
-        lastRun: cancelQueued(automation.lastRun, now),
-        nextRunAt: isoTime(nextRunAt),
-        updatedAt: new Date(now).toISOString(),
-      };
-      this.replace(updated);
-      return updated;
+      return this.get(definition.id);
     });
   }
 
-  // Past run sessions stay in the workspace; only the schedule and run index are removed.
+  private async changeDefinition(input: {
+    tx: Transaction;
+    definition: Definition;
+    now: number;
+  }) {
+    const { tx, definition, now } = input;
+    const sync = await this.readSync(tx);
+    if (sync instanceof Error) return sync;
+    const queued = await tx
+      .query({
+        collection: "automationRuns",
+        where: { automationId: definition.id, status: "queued" },
+      })
+      .catch(
+        (cause) =>
+          new AutomationStorageError({
+            operation: "cancel queued revisions",
+            cause,
+          }),
+      );
+    if (queued instanceof Error) return queued;
+    return errore.try({
+      try: () => {
+        tx.set("automationSync", { ...sync, generation: sync.generation + 1 });
+        tx.set("automations", definition);
+        for (const run of queued)
+          tx.set("automationRuns", {
+            ...run,
+            status: "cancelled",
+            finishedAt: now,
+            error: "Automation changed before execution.",
+          });
+      },
+      catch: (cause) =>
+        new AutomationStorageError({ operation: "stage definition", cause }),
+    });
+  }
+
+  // Sessions stay in the workspace; remove the schedule and run index together.
   async remove(automationId: string) {
     return await this.actionQueue.run(async () => {
-      const automation = this.get(automationId);
-      if (automation instanceof Error) return automation;
-      const removed = await this.database.access((connection) =>
-        connection.transaction(() => {
-          connection
-            .prepare("DELETE FROM halo_automations WHERE id = ?")
-            .run(automationId);
-          connection
-            .prepare(
-              "UPDATE halo_automation_sync SET generation = generation + 1 WHERE id = 1",
-            )
-            .run();
-        })(),
-      );
-      if (removed instanceof Error) return removed;
-      this.publish(this.automations.filter((item) => item.id !== automationId));
+      await using tx = this.db.useTransaction();
+      const definition = await this.readDefinition({ tx, automationId });
+      if (definition instanceof Error) return definition;
+      const sync = await this.readSync(tx);
+      if (sync instanceof Error) return sync;
+      const runs = await tx
+        .query({ collection: "automationRuns", where: { automationId } })
+        .catch(
+          (cause) =>
+            new AutomationStorageError({
+              operation: "read before remove",
+              cause,
+            }),
+        );
+      if (runs instanceof Error) return runs;
+      // Explicit removals keep Tandem subscribers aware of the native cascade.
+      const staged = errore.try({
+        try: () => {
+          for (const run of runs) tx.remove("automationRuns", run.id);
+          tx.remove("automations", automationId);
+          tx.set("automationSync", {
+            ...sync,
+            generation: sync.generation + 1,
+          });
+        },
+        catch: (cause) =>
+          new AutomationStorageError({ operation: "stage remove", cause }),
+      });
+      if (staged instanceof Error) return staged;
+      return await this.commit(tx);
     });
   }
 
   async listRuns(input: { automationId: string; limit?: number }) {
     const automation = this.get(input.automationId);
     if (automation instanceof Error) return automation;
-    const rows = await this.database.access((connection) => {
-      // SAFETY: The projection matches the halo_automation_runs table.
-      return connection
-        .prepare(
-          `SELECT * FROM halo_automation_runs WHERE automation_id = ?
-           ORDER BY started_at DESC, rowid DESC LIMIT ?`,
-        )
-        .all(input.automationId, input.limit ?? 50) as AutomationRunRow[];
-    });
-    if (rows instanceof Error) return rows;
-    return rows.map(runFromRow);
+    const runs = await this.db
+      .query({
+        collection: "automationRuns",
+        where: { automationId: input.automationId },
+        select: automationRunSelect,
+        orderBy: { startedAt: "desc", sequence: "desc" },
+        limit: input.limit ?? 50,
+      })
+      .catch(
+        (cause) =>
+          new AutomationStorageError({ operation: "list runs", cause }),
+      );
+    if (runs instanceof Error) return runs;
+    return runs.map(runFromRecord);
   }
 
   async getRun(runId: string) {
-    const row = await this.database.access(
-      (connection) =>
-        // SAFETY: The query selects a complete automation run row.
-        connection
-          .prepare("SELECT * FROM halo_automation_runs WHERE id = ?")
-          .get(runId) as AutomationRunRow | undefined,
-    );
-    if (row instanceof Error) return row;
-    if (row === undefined)
+    const runs = await this.db
+      .query({
+        collection: "automationRuns",
+        where: { id: runId },
+        select: automationRunSelect,
+      })
+      .catch(
+        (cause) => new AutomationStorageError({ operation: "get run", cause }),
+      );
+    if (runs instanceof Error) return runs;
+    if (runs[0] === undefined)
       return new InvalidAutomationError({
         reason: "Automation run does not exist",
       });
-    return runFromRow(row);
+    return runFromRecord(runs[0]);
   }
 
   async runningSessionIds() {
-    const rows = await this.database.access((connection) => {
-      // SAFETY: The projection matches the halo_automation_runs table.
-      return connection
-        .prepare(
-          `SELECT thread_id FROM halo_automation_runs
-           WHERE status = 'running' AND thread_id IS NOT NULL`,
-        )
-        .all() as { thread_id: string }[];
-    });
-    if (rows instanceof Error) return rows;
-    return rows.map((row) => row.thread_id);
+    const runs = await this.db
+      .query({
+        collection: "automationRuns",
+        where: { status: "running" },
+        select: { sessionId: true },
+      })
+      .catch(
+        (cause) =>
+          new AutomationStorageError({ operation: "running sessions", cause }),
+      );
+    if (runs instanceof Error) return runs;
+    return runs.flatMap((run) =>
+      run.sessionId === undefined ? [] : [run.sessionId],
+    );
   }
 
-  // Claim the occurrence and save the action snapshot in the same transaction.
   async beginRun(input: {
     automationId: string;
     trigger: "manual" | "schedule";
@@ -366,7 +411,13 @@ export class AutomationService {
     samplePayload?: AutomationEvent["payload"];
   }) {
     return await this.actionQueue.run(async () => {
-      const automation = this.get(input.automationId);
+      await using tx = this.db.useTransaction();
+      const definition = await this.readDefinition({
+        tx,
+        automationId: input.automationId,
+      });
+      if (definition instanceof Error) return definition;
+      const automation = automationFromRecord(definition);
       if (automation instanceof Error) return automation;
       const now = Date.now();
       const scheduledFor =
@@ -380,9 +431,7 @@ export class AutomationService {
               activation: automation.activation,
               after: Math.max(scheduledFor, now),
             })
-          : automation.nextRunAt === undefined
-            ? undefined
-            : Date.parse(automation.nextRunAt);
+          : definition.nextRunAt;
       if (nextRunAt instanceof Error) return nextRunAt;
       if (
         input.samplePayload !== undefined &&
@@ -421,9 +470,11 @@ export class AutomationService {
           reason: "Sample input must be a JSON object of at most 256 KiB",
         });
       return await this.enqueueUnqueued({
+        tx,
+        definition,
+        automation,
         event,
         payload,
-        automation,
         trigger: input.trigger,
         scheduledFor,
         nextRunAt,
@@ -433,33 +484,43 @@ export class AutomationService {
   }
 
   async expiredEvents() {
-    return await this.database.access(
-      (connection) =>
-        // SAFETY: The projection includes just the ID and persisted JSON payload.
-        connection
-          .prepare(
-            "SELECT id, payload FROM halo_automation_runs WHERE payload IS NOT NULL AND status NOT IN ('running', 'queued') AND started_at < ? LIMIT 1000",
-          )
-          .all(Date.now() - 7 * 24 * 60 * 60 * 1000) as {
-          id: string;
-          payload: string;
-        }[],
-    );
+    const runs = await this.db
+      .query({
+        collection: "automationRuns",
+        where: { startedAt: { lt: Date.now() - 7 * 24 * 60 * 60 * 1000 } },
+        select: { id: true, payload: true, status: true },
+      })
+      .catch(
+        (cause) =>
+          new AutomationStorageError({ operation: "expired events", cause }),
+      );
+    if (runs instanceof Error) return runs;
+    // No NOT/IS NULL predicates in Tandem; limit only after filtering retained payloads.
+    return runs
+      .flatMap((run) =>
+        run.payload !== undefined &&
+        run.status !== "running" &&
+        run.status !== "queued"
+          ? [{ id: run.id, payload: run.payload }]
+          : [],
+      )
+      .slice(0, 1000);
   }
 
   async forgetEvent(input: { id: string; payload: string }) {
-    return await this.actionQueue.run(async () => {
-      const saved = await this.database.access((connection) => {
-        connection
-          .prepare(
-            "UPDATE halo_automation_runs SET payload_hash = ?, payload = NULL, snapshot = NULL WHERE id = ? AND status NOT IN ('running', 'queued')",
-          )
-          .run(
-            createHash("sha256").update(input.payload).digest("hex"),
-            input.id,
-          );
-      });
-      if (saved instanceof Error) return saved;
+    return await this.updateRun({
+      runId: input.id,
+      apply: (run) =>
+        run.status === "running" || run.status === "queued"
+          ? run
+          : {
+              ...run,
+              payloadHash: createHash("sha256")
+                .update(input.payload)
+                .digest("hex"),
+              payload: undefined,
+              snapshot: undefined,
+            },
     });
   }
 
@@ -483,29 +544,42 @@ export class AutomationService {
         reason: "Event exceeds the payload limit",
       });
     return await this.actionQueue.run(async () => {
-      const existing = await this.database.access(
-        (connection) =>
-          // SAFETY: The query selects a complete automation run row.
-          connection
-            .prepare("SELECT * FROM halo_automation_runs WHERE event_id = ?")
-            .get(event.eventId) as AutomationRunRow | undefined,
-      );
-      if (existing instanceof Error) return existing;
+      await using tx = this.db.useTransaction();
+      const runs = await tx
+        .query({
+          collection: "automationRuns",
+          where: { eventId: event.eventId },
+          limit: 1,
+        })
+        .catch(
+          (cause) =>
+            new AutomationStorageError({
+              operation: "deduplicate event",
+              cause,
+            }),
+        );
+      if (runs instanceof Error) return runs;
+      const existing = runs[0];
       if (existing !== undefined) {
         if (
-          existing.automation_id !== event.automationId ||
+          existing.automationId !== event.automationId ||
           existing.revision !== event.revision ||
-          (existing.payload === null
-            ? existing.payload_hash !==
+          (existing.payload === undefined
+            ? existing.payloadHash !==
               createHash("sha256").update(payload).digest("hex")
             : existing.payload !== payload)
         )
           return new InvalidAutomationError({
             reason: "Event ID already belongs to a different delivery",
           });
-        return runFromRow(existing);
+        return runFromRecord(existing);
       }
-      const automation = this.get(event.automationId);
+      const definition = await this.readDefinition({
+        tx,
+        automationId: event.automationId,
+      });
+      if (definition instanceof Error) return definition;
+      const automation = automationFromRecord(definition);
       if (automation instanceof Error) return automation;
       if (
         !automation.enabled ||
@@ -517,6 +591,8 @@ export class AutomationService {
           reason: "The automation is paused or its activation has changed",
         });
       return await this.enqueueUnqueued({
+        tx,
+        definition,
         automation,
         trigger: "event",
         scheduledFor: Date.parse(event.occurredAt),
@@ -527,6 +603,8 @@ export class AutomationService {
   }
 
   private async enqueueUnqueued(input: {
+    tx: Transaction;
+    definition: Definition;
     automation: Automation;
     trigger: AutomationRunTrigger;
     scheduledFor: number;
@@ -535,257 +613,388 @@ export class AutomationService {
     event?: AutomationEvent;
     payload?: string;
   }) {
-    const { automation } = input;
+    const { tx } = input;
+    const pending = await tx
+      .query({
+        collection: "automationRuns",
+        where: { status: "queued" },
+        select: { id: true },
+        limit: 1000,
+      })
+      .catch(
+        (cause) =>
+          new AutomationStorageError({ operation: "queue capacity", cause }),
+      );
+    if (pending instanceof Error) return pending;
+    if (pending.length >= 1000)
+      return new InvalidAutomationError({
+        reason: "Automation queue is full; retry later",
+      });
+    const sync = await this.readSync(tx);
+    if (sync instanceof Error) return sync;
     const now = Date.now();
-    const run: AutomationRun = {
+    const run: Run = {
       id: randomUUID(),
-      automationId: automation.id,
-      revision: automation.revision,
+      automationId: input.automation.id,
+      revision: input.automation.revision,
       trigger: input.trigger,
       eventId: input.event?.eventId,
-      scheduledFor: new Date(input.scheduledFor).toISOString(),
+      scheduledFor: input.scheduledFor,
       status: input.skipReason === undefined ? "queued" : "skipped",
-      startedAt: new Date(now).toISOString(),
-      finishedAt:
-        input.skipReason === undefined
-          ? undefined
-          : new Date(now).toISOString(),
+      startedAt: now,
+      finishedAt: input.skipReason === undefined ? undefined : now,
       error: input.skipReason,
+      sequence: sync.nextRunSequence,
+      snapshot: { ...input.automation, lastRun: undefined },
+      payload: input.payload,
     };
-    const saved = await this.database.access((connection) =>
-      connection.transaction(() => {
-        // SAFETY: COUNT produces one numeric count row.
-        const pending = connection
-          .prepare(
-            "SELECT count(*) AS count FROM halo_automation_runs WHERE status = 'queued'",
-          )
-          .get() as { count: number };
-        if (pending.count >= 1000)
-          return new InvalidAutomationError({
-            reason: "Automation queue is full; retry later",
-          });
-        connection
-          .prepare(`INSERT INTO halo_automation_runs
-        (id, automation_id, revision, trigger, event_id, scheduled_for, status, started_at, finished_at, error, snapshot, payload)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-          .run(
-            run.id,
-            run.automationId,
-            run.revision,
-            run.trigger,
-            run.eventId ?? null,
-            input.scheduledFor,
-            run.status,
-            now,
-            input.skipReason === undefined ? null : now,
-            input.skipReason ?? null,
-            JSON.stringify({ ...automation, lastRun: undefined }),
-            input.payload ?? null,
-          );
+    const staged = errore.try({
+      try: () => {
+        tx.set("automationRuns", run);
+        tx.set("automationSync", {
+          ...sync,
+          nextRunSequence: sync.nextRunSequence + 1,
+        });
         if (input.trigger === "schedule")
-          connection
-            .prepare("UPDATE halo_automations SET next_run_at = ? WHERE id = ?")
-            .run(nullableTime(input.nextRunAt), automation.id);
-      })(),
-    );
-    if (saved instanceof Error) return saved;
-    this.replace({
-      ...automation,
-      nextRunAt:
-        input.trigger === "schedule"
-          ? isoTime(input.nextRunAt)
-          : automation.nextRunAt,
-      lastRun: run.status === "skipped" ? automation.lastRun : run,
+          tx.set("automations", {
+            ...input.definition,
+            nextRunAt: input.nextRunAt,
+          });
+      },
+      catch: (cause) =>
+        new AutomationStorageError({ operation: "stage enqueue", cause }),
     });
-    return run;
+    if (staged instanceof Error) return staged;
+    const saved = await this.commit(tx);
+    if (saved instanceof Error) return saved;
+    return runFromRecord(run);
   }
 
-  // Called by the single workspace runner. The database claim prevents overlapping actions.
+  // One runner, plus transactional predicate reads, prevents overlapping actions.
   async claimNext() {
     return await this.actionQueue.run(async () => {
-      const claimed = await this.database.access((connection) =>
-        connection.transaction(() => {
-          // SAFETY: The query selects complete run rows; the state predicate excludes active automations.
-          const row = connection
-            .prepare(`SELECT * FROM halo_automation_runs AS candidate
-          WHERE status = 'queued' AND NOT EXISTS (
-            SELECT 1 FROM halo_automation_runs AS active WHERE active.automation_id = candidate.automation_id AND active.status = 'running'
-          ) ORDER BY started_at, rowid LIMIT 1`)
-            .get() as AutomationRunRow | undefined;
-          if (row === undefined) return;
-          const automation = this.get(row.automation_id);
-          if (automation instanceof Error) return automation;
-          if (automation.revision !== row.revision)
-            return new InvalidAutomationError({
-              reason: "Queued automation revision no longer exists",
-            });
-          // All newly queued runs carry a validated snapshot saved by enqueueUnqueued.
-          const snapshot = errore.try({
-            // SAFETY: The snapshot is written only from a validated Automation in enqueueUnqueued.
-            try: () => JSON.parse(row.snapshot!) as Automation,
-            catch: (cause) =>
-              new InvalidAutomationError({
-                reason: "Could not read queued action",
-                cause,
-              }),
-          });
-          if (snapshot instanceof Error) return snapshot;
-          const event =
-            row.payload === null
-              ? undefined
-              : errore.try({
-                  // SAFETY: Payload was validated against automationEventSchema before enqueueing.
-                  try: () => JSON.parse(row.payload!) as AutomationEvent,
-                  catch: (cause) =>
-                    new InvalidAutomationError({
-                      reason: "Could not read queued event",
-                      cause,
-                    }),
-                });
-          if (event instanceof Error) return event;
-          connection
-            .prepare(
-              "UPDATE halo_automation_runs SET status = 'running' WHERE id = ? AND status = 'queued'",
-            )
-            .run(row.id);
-          return {
-            automation: snapshot,
-            run: { ...runFromRow(row), status: "running" as const },
-            event,
-          };
-        })(),
+      await using tx = this.db.useTransaction();
+      const active = await tx
+        .query({
+          collection: "automationRuns",
+          where: { status: "running" },
+          select: { automationId: true },
+        })
+        .catch(
+          (cause) =>
+            new AutomationStorageError({ operation: "active runs", cause }),
+        );
+      if (active instanceof Error) return active;
+      const queued = await tx
+        .query({
+          collection: "automationRuns",
+          where: { status: "queued" },
+          select: automationRunSelect,
+          orderBy: { startedAt: "asc", sequence: "asc" },
+        })
+        .catch(
+          (cause) =>
+            new AutomationStorageError({ operation: "claim queue", cause }),
+        );
+      if (queued instanceof Error) return queued;
+      const activeIds = new Set(active.map((run) => run.automationId));
+      const candidate = queued.find(
+        (item) => !activeIds.has(item.automationId),
       );
-      if (claimed instanceof Error || claimed === undefined) return claimed;
-      const automation = this.get(claimed.automation.id);
-      if (automation instanceof Error) return automation;
-      if (automation.lastRun?.id === claimed.run.id)
-        this.replace({ ...automation, lastRun: claimed.run });
-      return claimed;
+      if (candidate === undefined) return;
+      const run = await tx.get("automationRuns", candidate.id).catch(
+        (cause) =>
+          new AutomationStorageError({
+            operation: "read queued action",
+            cause,
+          }),
+      );
+      if (run instanceof Error) return run;
+      if (run === undefined) return;
+      const definition = await this.readDefinition({
+        tx,
+        automationId: run.automationId,
+      });
+      if (definition instanceof Error) return definition;
+      if (definition.revision !== run.revision)
+        return new InvalidAutomationError({
+          reason: "Queued automation revision no longer exists",
+        });
+      if (run.snapshot === undefined)
+        return new InvalidAutomationError({
+          reason: "Could not read queued action",
+        });
+      const event =
+        run.payload === undefined
+          ? undefined
+          : errore.try({
+              // SAFETY: Deliveries are schema-validated before enqueueing.
+              try: () => JSON.parse(run.payload!) as AutomationEvent,
+              catch: (cause) =>
+                new InvalidAutomationError({
+                  reason: "Could not read queued event",
+                  cause,
+                }),
+            });
+      if (event instanceof Error) return event;
+      const claimed: Run = { ...run, status: "running" };
+      const staged = errore.try({
+        try: () => tx.set("automationRuns", claimed),
+        catch: (cause) =>
+          new AutomationStorageError({ operation: "stage claim", cause }),
+      });
+      if (staged instanceof Error) return staged;
+      const saved = await this.commit(tx);
+      if (saved instanceof Error) return saved;
+      return { automation: run.snapshot, run: runFromRecord(claimed), event };
     });
   }
 
   async attachSession(input: { runId: string; sessionId: string }) {
     return await this.updateRun({
       runId: input.runId,
-      sql: "UPDATE halo_automation_runs SET thread_id = ? WHERE id = ?",
-      params: [input.sessionId, input.runId],
       apply: (run) => ({ ...run, sessionId: input.sessionId }),
     });
   }
 
-  // Only a running run can finish, so a late outcome cannot replace an interruption.
+  // A late outcome cannot replace restart interruption.
   async finishRun(input: {
     runId: string;
     status: Exclude<AutomationRunStatus, "running" | "skipped">;
     error?: string;
   }) {
-    const now = Date.now();
     return await this.updateRun({
       runId: input.runId,
-      sql: `UPDATE halo_automation_runs SET status = ?, finished_at = ?, error = ?
-            WHERE id = ? AND status = 'running'`,
-      params: [input.status, now, input.error ?? null, input.runId],
       apply: (run) =>
         run.status === "running"
           ? {
               ...run,
               status: input.status,
-              finishedAt: new Date(now).toISOString(),
+              finishedAt: Date.now(),
               error: input.error,
             }
           : run,
     });
   }
 
-  // Marks runs left by a stopped process as interrupted. Local scheduling skips missed
-  // occurrences; managed scheduling preserves the due time for the control plane to dispatch.
   async recover(options?: { preserveDue?: boolean }) {
     return await this.actionQueue.run(async () => {
-      const now = Date.now();
-      const nextRuns = new Map<string, number | undefined>();
-      for (const automation of this.automations) {
-        if (!automation.enabled) continue;
-        const nextRunAt =
-          options?.preserveDue && automation.nextRunAt !== undefined
-            ? Date.parse(automation.nextRunAt)
-            : nextActivation({ activation: automation.activation, after: now });
-        // A stored schedule that no longer resolves stays paused until edited.
-        nextRuns.set(
-          automation.id,
-          nextRunAt instanceof Error ? undefined : nextRunAt,
+      await using tx = this.db.useTransaction();
+      const definitions = await tx
+        .query({ collection: "automations", where: { enabled: true } })
+        .catch(
+          (cause) =>
+            new AutomationStorageError({
+              operation: "recover schedules",
+              cause,
+            }),
         );
-      }
-      const saved = await this.database.access((connection) =>
-        connection.transaction(() => {
-          connection
-            .prepare(
-              `UPDATE halo_automation_runs SET status = 'interrupted', finished_at = ?,
-                 error = 'Halo stopped before the run finished.'
-               WHERE status = 'running'`,
-            )
-            .run(now);
-          const update = connection.prepare(
-            "UPDATE halo_automations SET next_run_at = ? WHERE id = ?",
-          );
-          for (const [automationId, nextRunAt] of nextRuns)
-            update.run(nullableTime(nextRunAt), automationId);
-        })(),
-      );
-      if (saved instanceof Error) return saved;
-      this.publish(
-        this.automations.map((automation) => ({
-          ...automation,
-          nextRunAt: nextRuns.has(automation.id)
-            ? isoTime(nextRuns.get(automation.id))
-            : automation.nextRunAt,
-          lastRun:
-            automation.lastRun?.status === "running"
-              ? {
-                  ...automation.lastRun,
-                  status: "interrupted",
-                  finishedAt: new Date(now).toISOString(),
-                  error: "Halo stopped before the run finished.",
-                }
-              : automation.lastRun,
-        })),
-      );
-    });
-  }
-
-  private async updateRun(input: {
-    runId: string;
-    sql: string;
-    params: (string | number | null)[];
-    apply: (run: AutomationRun) => AutomationRun;
-  }) {
-    return await this.actionQueue.run(async () => {
-      const saved = await this.database.access((connection) => {
-        connection.prepare(input.sql).run(...input.params);
+      if (definitions instanceof Error) return definitions;
+      const running = await tx
+        .query({ collection: "automationRuns", where: { status: "running" } })
+        .catch(
+          (cause) =>
+            new AutomationStorageError({ operation: "recover runs", cause }),
+        );
+      if (running instanceof Error) return running;
+      const now = Date.now();
+      const staged = errore.try({
+        try: () => {
+          for (const run of running)
+            tx.set("automationRuns", {
+              ...run,
+              status: "interrupted",
+              finishedAt: now,
+              error: "Halo stopped before the run finished.",
+            });
+          for (const definition of definitions) {
+            const nextRunAt =
+              options?.preserveDue && definition.nextRunAt !== undefined
+                ? definition.nextRunAt
+                : nextActivation({
+                    activation: definition.activation,
+                    after: now,
+                  });
+            // A stored schedule that no longer resolves stays paused until edited.
+            if (nextRunAt instanceof Error) console.warn(nextRunAt);
+            tx.set("automations", {
+              ...definition,
+              nextRunAt: nextRunAt instanceof Error ? undefined : nextRunAt,
+            });
+          }
+        },
+        catch: (cause) =>
+          new AutomationStorageError({ operation: "stage recovery", cause }),
       });
-      if (saved instanceof Error) return saved;
-      const automation = this.automations.find(
-        (item) => item.lastRun?.id === input.runId,
-      );
-      if (automation?.lastRun === undefined) return;
-      this.replace({ ...automation, lastRun: input.apply(automation.lastRun) });
+      if (staged instanceof Error) return staged;
+      return await this.commit(tx);
     });
   }
 
-  private replace(automation: Automation) {
-    const index = this.automations.findIndex(
-      (item) => item.id === automation.id,
-    );
-    this.publish(
-      index === -1
-        ? [...this.automations, automation]
-        : this.automations.with(index, automation),
-    );
+  private async updateRun(input: { runId: string; apply: (run: Run) => Run }) {
+    return await this.actionQueue.run(async () => {
+      await using tx = this.db.useTransaction();
+      const run = await tx.get("automationRuns", input.runId).catch(
+        (cause) =>
+          new AutomationStorageError({
+            operation: "read before update run",
+            cause,
+          }),
+      );
+      if (run instanceof Error) return run;
+      if (run === undefined) return;
+      const updated = input.apply(run);
+      if (updated === run) return;
+      const staged = errore.try({
+        try: () => tx.set("automationRuns", updated),
+        catch: (cause) =>
+          new AutomationStorageError({ operation: "stage run update", cause }),
+      });
+      if (staged instanceof Error) return staged;
+      return await this.commit(tx);
+    });
   }
 
-  private publish(automations: Automation[]) {
-    this.automations = automations;
-    this.changes.append(automations);
+  private async readSync(tx: Transaction) {
+    const sync = await tx
+      .get("automationSync", "1")
+      .catch(
+        (cause) =>
+          new AutomationStorageError({ operation: "read sync", cause }),
+      );
+    if (sync instanceof Error) return sync;
+    if (sync === undefined)
+      return new AutomationStorageError({
+        operation: "missing sync singleton",
+      });
+    return sync;
   }
+
+  private async readDefinition(input: {
+    tx: Transaction;
+    automationId: string;
+  }) {
+    const definition = await input.tx
+      .get("automations", input.automationId)
+      .catch(
+        (cause) =>
+          new AutomationStorageError({ operation: "read definition", cause }),
+      );
+    if (definition instanceof Error) return definition;
+    if (definition === undefined)
+      return new AutomationNotFoundError({ automationId: input.automationId });
+    return definition;
+  }
+
+  private async commit(tx: Transaction) {
+    return await this.viewQueue.run(async () => {
+      // Read staged writes and validate the view before making them durable.
+      // Publication shares this queue with refreshes so an older view cannot win.
+      const records = await tx
+        .query(viewQuery)
+        .catch(
+          (cause) =>
+            new AutomationStorageError({ operation: "refresh view", cause }),
+        );
+      if (records instanceof Error) return records;
+      const automations: Automation[] = [];
+      for (const record of records) {
+        const latest = record.runs.find((run) => run.status !== "skipped");
+        const automation = automationFromRecord(
+          record,
+          latest === undefined ? undefined : runFromRecord(latest),
+        );
+        if (automation instanceof Error) return automation;
+        automations.push(automation);
+      }
+      const saved = await this.db
+        .commit(tx)
+        .catch(
+          (cause) => new AutomationStorageError({ operation: "commit", cause }),
+        );
+      if (saved instanceof Error) return saved;
+      // No fallible database reads remain after a successful commit.
+      if (JSON.stringify(automations) === JSON.stringify(this.automations))
+        return;
+      this.automations = automations;
+      this.changes.append(automations);
+    });
+  }
+
+  private async refresh() {
+    if (this.closed) return;
+    await using tx = this.db.useTransaction();
+    return await this.commit(tx);
+  }
+}
+
+function automationFromRecord(record: Definition, lastRun?: AutomationRun) {
+  if (!Value.Check(automationActionSchema, record.action))
+    return new InvalidAutomationError({
+      reason: `Automation '${record.id}' has an invalid action`,
+    });
+  if (!Value.Check(automationActivationSchema, record.activation))
+    return new InvalidAutomationError({
+      reason: `Automation '${record.id}' has an invalid activation`,
+    });
+  const {
+    id,
+    extensionId,
+    name,
+    activation,
+    revision,
+    action,
+    enabled,
+    autoArchiveSession,
+  } = record;
+  const automation: Automation = {
+    id,
+    extensionId,
+    name,
+    activation,
+    revision,
+    action,
+    enabled,
+    autoArchiveSession,
+    nextRunAt: isoTime(record.nextRunAt),
+    createdAt: new Date(record.createdAt).toISOString(),
+    updatedAt: new Date(record.updatedAt).toISOString(),
+    lastRun,
+  };
+  return automation;
+}
+
+function runFromRecord(record: RunSummary): AutomationRun {
+  const {
+    id,
+    automationId,
+    revision,
+    eventId,
+    trigger,
+    scheduledFor,
+    sessionId,
+    status,
+    startedAt,
+    finishedAt,
+    error,
+  } = record;
+  return {
+    id,
+    automationId,
+    revision,
+    eventId,
+    trigger,
+    sessionId,
+    status,
+    error,
+    scheduledFor: new Date(scheduledFor).toISOString(),
+    startedAt: new Date(startedAt).toISOString(),
+    finishedAt: isoTime(finishedAt),
+  };
+}
+
+function isoTime(time: number | undefined) {
+  return time === undefined ? undefined : new Date(time).toISOString();
 }
 
 // Returns the first occurrence strictly after `after`, in epoch milliseconds.
@@ -796,10 +1005,9 @@ function nextOccurrence(input: {
 }) {
   const next = errore.try({
     try: () =>
-      new Cron(input.cron, {
-        timezone: input.timezone,
-        paused: true,
-      }).nextRun(new Date(input.after)),
+      new Cron(input.cron, { timezone: input.timezone, paused: true }).nextRun(
+        new Date(input.after),
+      ),
     catch: (cause) =>
       new InvalidAutomationError({
         reason: `Invalid schedule: ${cause instanceof Error ? cause.message : String(cause)}`,
@@ -807,6 +1015,7 @@ function nextOccurrence(input: {
       }),
   });
   if (next instanceof Error) return next;
+  // oxlint-disable-next-line unicorn/no-null -- Cron uses null when no occurrence exists.
   if (next === null)
     return new InvalidAutomationError({
       reason: `The schedule '${input.cron}' never runs.`,
@@ -870,92 +1079,12 @@ function isTimeZone(timezone: string) {
   return !(format instanceof Error);
 }
 
-// The due occurrence a timer is firing for, if the automation is still enabled and due.
 function scheduledOccurrence(input: { automation: Automation; now: number }) {
   if (!input.automation.enabled || input.automation.nextRunAt === undefined)
     return;
   const nextRunAt = Date.parse(input.automation.nextRunAt);
   if (nextRunAt > input.now) return;
   return nextRunAt;
-}
-
-function automationFromRow(
-  row: AutomationRow,
-  lastRun: AutomationRun | undefined,
-) {
-  const action = errore.try({
-    // SAFETY: Parsed JSON stays unknown until the schema check below.
-    try: () => JSON.parse(row.action) as unknown,
-    catch: (cause) =>
-      new InvalidAutomationError({
-        reason: `Could not read automation '${row.id}'`,
-        cause,
-      }),
-  });
-  if (action instanceof Error) return action;
-  if (!Value.Check(automationActionSchema, action))
-    return new InvalidAutomationError({
-      reason: `Automation '${row.id}' has an invalid action`,
-    });
-  const activation = errore.try({
-    // SAFETY: Parsed JSON stays unknown until the activation schema check below.
-    try: () => JSON.parse(row.activation) as unknown,
-    catch: (cause) =>
-      new InvalidAutomationError({
-        reason: `Could not read automation '${row.id}'`,
-        cause,
-      }),
-  });
-  if (activation instanceof Error) return activation;
-  if (!Value.Check(automationActivationSchema, activation))
-    return new InvalidAutomationError({
-      reason: `Automation '${row.id}' has an invalid activation`,
-    });
-  const automation: Automation = {
-    id: row.id,
-    extensionId: row.extension_id ?? undefined,
-    name: row.name,
-    activation,
-    revision: row.revision,
-    action,
-    enabled: row.enabled === 1,
-    autoArchiveSession: row.auto_archive_thread === 1,
-    nextRunAt:
-      row.next_run_at === null
-        ? undefined
-        : new Date(row.next_run_at).toISOString(),
-    createdAt: new Date(row.created_at).toISOString(),
-    updatedAt: new Date(row.updated_at).toISOString(),
-    lastRun,
-  };
-  return automation;
-}
-
-function runFromRow(row: AutomationRunRow): AutomationRun {
-  return {
-    id: row.id,
-    automationId: row.automation_id,
-    revision: row.revision,
-    eventId: row.event_id ?? undefined,
-    trigger: row.trigger,
-    scheduledFor: new Date(row.scheduled_for).toISOString(),
-    sessionId: row.thread_id === null ? undefined : row.thread_id,
-    status: row.status,
-    startedAt: new Date(row.started_at).toISOString(),
-    finishedAt:
-      row.finished_at === null
-        ? undefined
-        : new Date(row.finished_at).toISOString(),
-    error: row.error === null ? undefined : row.error,
-  };
-}
-
-function isoTime(time: number | undefined) {
-  return time === undefined ? undefined : new Date(time).toISOString();
-}
-
-function nullableTime(time: number | undefined) {
-  return time ?? null;
 }
 
 function nextActivation(input: {
@@ -1004,17 +1133,4 @@ function validateActivation(activation: AutomationActivation) {
   const next = nextOccurrence({ cron, timezone, after: Date.now() });
   if (next instanceof Error) return next;
   return { ...activation, schedule: { cron, timezone } };
-}
-
-function cancelQueued(
-  run: AutomationRun | undefined,
-  now: number,
-): AutomationRun | undefined {
-  if (run?.status !== "queued") return run;
-  return {
-    ...run,
-    status: "cancelled",
-    finishedAt: new Date(now).toISOString(),
-    error: "Automation changed before execution.",
-  };
 }

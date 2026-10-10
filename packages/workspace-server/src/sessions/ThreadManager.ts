@@ -20,11 +20,21 @@ import {
 } from "../agent/Thread.js";
 import { SessionProjection } from "../agent/SessionProjection.js";
 import type {
-  ThreadProductFields,
   ThreadRepoApi,
   ThreadHandle,
   ThreadMetadata,
-} from "../storage/ThreadRepoApi.js";
+} from "../database/ThreadRepoApi.js";
+import type {
+  DatabaseService,
+  WorkspaceSchema,
+} from "../database/DatabaseService.js";
+
+type SessionProductFields = Omit<WorkspaceSchema["sessionState"], "id">;
+
+class SessionStateError extends errore.createTaggedError({
+  name: "SessionStateError",
+  message: "Session state failed during $operation",
+}) {}
 
 export class SessionNotFoundError extends errore.createTaggedError({
   name: "SessionNotFoundError",
@@ -53,6 +63,7 @@ class ThreadManagerClosedError extends errore.createTaggedError({
 
 type ThreadManagerOptions = ThreadOptions & {
   repo: ThreadRepoApi;
+  db: DatabaseService;
 };
 
 type PiSessionSummary = Omit<
@@ -82,19 +93,19 @@ export class ThreadManager {
   private readonly summaryQueue = new SerialQueue();
   private readonly creationQueue = new SerialQueue();
   private readonly summaries = new Map<string, SessionSummary>();
-  private readonly summaryChanges = new Stream<SessionSummariesUpdate>();
+  private readonly summaryChanges = new Stream<
+    SessionSummariesUpdate | SessionStateError
+  >();
   private readonly summarySubscriptions = new Map<string, () => void>();
+  private stateSubscription: { destroy(): void } | undefined;
   private readonly lifecycleSubscriptions = new Map<string, () => void>();
   private readonly lifecycleQueues = new Map<string, SerialQueue>();
   private readonly closeFailures = new Map<string, Error>();
-  private readonly productFieldsBySession = new Map<
-    string,
-    ThreadProductFields
-  >();
   private readonly pending = new Set<Promise<unknown>>();
   private readonly sessions = new Map<string, Thread>();
   private readonly stored = new Map<string, Promise<ThreadHandle | Error>>();
   private readonly repo: ThreadRepoApi;
+  private readonly db: DatabaseService;
   private readonly environment: ThreadOptions["environment"];
   private readonly llmApi: ThreadOptions["llmApi"];
   private readonly filesystem: ThreadOptions["filesystem"];
@@ -104,6 +115,7 @@ export class ThreadManager {
   constructor(ctx: ThreadManagerOptions) {
     const { repo, environment, llmApi, filesystem, layout, toolRuntime } = ctx;
     this.repo = repo;
+    this.db = ctx.db;
     this.environment = environment;
     this.llmApi = llmApi;
     this.filesystem = filesystem;
@@ -119,6 +131,53 @@ export class ThreadManager {
   }
 
   async start() {
+    const subscription = await this.db
+      .subscribe(
+        { collection: "sessionState" },
+        () => {
+          if (this.closing) return;
+          // Do not await this queue from a commit: the committing command owns it.
+          void this.track(async () => {
+            const refreshed = await this.summaryQueue.run(async () => {
+              // Read current state here instead of applying a stale callback snapshot.
+              const fields = await this.listProductFields();
+              if (fields instanceof Error) return fields;
+              for (const summary of this.summaries.values()) {
+                const current = applyProductFields({
+                  summary,
+                  fields: fields.get(summary.sessionId),
+                });
+                if (
+                  current.markedDone !== summary.markedDone ||
+                  current.readReceiptCursorId !== summary.readReceiptCursorId
+                )
+                  this.publish(current);
+              }
+            });
+            if (refreshed instanceof Error)
+              this.summaryChanges.append(refreshed);
+          }).catch((cause) => {
+            const error = new SessionStateError({
+              operation: "publish",
+              cause,
+            });
+            console.warn(error);
+            this.summaryChanges.append(error);
+          });
+        },
+        {
+          onError: (cause) =>
+            this.summaryChanges.append(
+              new SessionStateError({ operation: "watch", cause }),
+            ),
+        },
+      )
+      .catch(
+        (cause) => new SessionStateError({ operation: "subscribe", cause }),
+      );
+    if (subscription instanceof Error) return subscription;
+    this.stateSubscription = subscription;
+
     const pending = await this.repo.listPendingThreadIds();
     if (pending instanceof Error) return pending;
     for (const sessionId of pending) {
@@ -154,7 +213,10 @@ export class ThreadManager {
     using updates = initial.updates;
     if (abortSignal.aborted) return;
     yield { type: "snapshot", sessions: initial.sessions };
-    yield* updates;
+    for await (const update of updates) {
+      if (update instanceof Error) throw update;
+      yield update;
+    }
   }
 
   async new(input?: { requestId?: string }) {
@@ -344,17 +406,10 @@ export class ThreadManager {
             !isThreadUnread(summary)
           )
             return;
-          const readReceiptCursorId = summary.latestResultId;
-          const saved = await this.repo.setReadReceipt({
-            threadId: sessionId,
-            readReceiptCursorId,
+          return await this.updateProductFields({
+            sessionId,
+            fields: { readReceiptCursorId: summary.latestResultId },
           });
-          if (saved instanceof Error) return saved;
-          this.productFieldsBySession.set(sessionId, {
-            markedDone: summary.markedDone,
-            readReceiptCursorId,
-          });
-          this.publish({ ...summary, readReceiptCursorId });
         }),
     );
   }
@@ -367,14 +422,10 @@ export class ThreadManager {
           if (summary instanceof Error) return summary;
           if (summary.latestResultId === undefined || isThreadUnread(summary))
             return;
-          const saved = await this.repo.setReadReceipt({
-            threadId: sessionId,
+          return await this.updateProductFields({
+            sessionId,
+            fields: { readReceiptCursorId: undefined },
           });
-          if (saved instanceof Error) return saved;
-          this.productFieldsBySession.set(sessionId, {
-            markedDone: summary.markedDone,
-          });
-          this.publish({ ...summary, readReceiptCursorId: undefined });
         }),
     );
   }
@@ -386,15 +437,10 @@ export class ThreadManager {
           const summary = await this.getSummaryUnqueued(sessionId);
           if (summary instanceof Error) return summary;
           if (summary.markedDone) return;
-          const saved = await this.repo.setMarkedDone({
-            threadId: sessionId,
-            markedDone: true,
+          return await this.updateProductFields({
+            sessionId,
+            fields: { markedDone: true },
           });
-          if (saved instanceof Error) return saved;
-          const fields: ThreadProductFields = { markedDone: true };
-          fields.readReceiptCursorId = summary.readReceiptCursorId;
-          this.productFieldsBySession.set(sessionId, fields);
-          this.publish({ ...summary, markedDone: true });
         }),
     );
   }
@@ -406,15 +452,10 @@ export class ThreadManager {
           const summary = await this.getSummaryUnqueued(sessionId);
           if (summary instanceof Error) return summary;
           if (!summary.markedDone) return;
-          const saved = await this.repo.setMarkedDone({
-            threadId: sessionId,
-            markedDone: false,
+          return await this.updateProductFields({
+            sessionId,
+            fields: { markedDone: false },
           });
-          if (saved instanceof Error) return saved;
-          const fields: ThreadProductFields = { markedDone: false };
-          fields.readReceiptCursorId = summary.readReceiptCursorId;
-          this.productFieldsBySession.set(sessionId, fields);
-          this.publish({ ...summary, markedDone: false });
         }),
     );
   }
@@ -437,16 +478,18 @@ export class ThreadManager {
       .list()
       .catch((cause) => new ListAgentSessionsError({ cause }));
     if (metadata instanceof Error) return metadata;
-    const productFields = await this.repo.listProductFields();
+    const productFields = await this.listProductFields();
     if (productFields instanceof Error) return productFields;
-    this.productFieldsBySession.clear();
-    for (const [sessionId, fields] of productFields)
-      this.productFieldsBySession.set(sessionId, fields);
     const summaries: SessionSummary[] = [];
     for (const item of metadata) {
       const fields = productFields.get(item.id);
-      if (fields === undefined)
-        return new SessionNotFoundError({ sessionId: item.id });
+      const cached = this.summaries.get(item.id);
+      if (cached !== undefined) {
+        const current = applyProductFields({ summary: cached, fields });
+        // A list must not consume a change before the subscription publishes it.
+        summaries.push(current);
+        continue;
+      }
       const session = this.sessions.get(item.id);
       let summary = session?.readSummary();
       if (summary === undefined) {
@@ -476,7 +519,11 @@ export class ThreadManager {
 
   private async getSummaryUnqueued(sessionId: string) {
     const cached = this.summaries.get(sessionId);
-    if (cached !== undefined) return cached;
+    if (cached !== undefined) {
+      const fields = await this.getProductFields(sessionId);
+      if (fields instanceof Error) return fields;
+      return applyProductFields({ summary: cached, fields });
+    }
     const summaries = await this.listSessions();
     if (summaries instanceof Error) return summaries;
     return (
@@ -493,14 +540,43 @@ export class ThreadManager {
     return new SessionProjection(data);
   }
 
-  private async getProductFieldsUnqueued(sessionId: string) {
-    const cached = this.productFieldsBySession.get(sessionId);
-    if (cached !== undefined) return cached;
-    const fields = await this.repo.getProductFields(sessionId);
-    if (fields instanceof Error) return fields;
-    if (fields === undefined) return new SessionNotFoundError({ sessionId });
-    this.productFieldsBySession.set(sessionId, fields);
-    return fields;
+  private async listProductFields() {
+    const records = await this.db
+      .query({ collection: "sessionState" })
+      .catch((cause) => new SessionStateError({ operation: "list", cause }));
+    if (records instanceof Error) return records;
+    return new Map(records.map((record) => [record.id, record]));
+  }
+
+  private async getProductFields(sessionId: string) {
+    const records = await this.db
+      .query({ collection: "sessionState", where: { id: sessionId } })
+      .catch((cause) => new SessionStateError({ operation: "get", cause }));
+    if (records instanceof Error) return records;
+    return records[0];
+  }
+
+  private async updateProductFields(input: {
+    sessionId: string;
+    fields: Partial<SessionProductFields>;
+  }) {
+    await using tx = this.db.useTransaction();
+    const current = await tx
+      .get("sessionState", input.sessionId)
+      .catch(
+        (cause) =>
+          new SessionStateError({ operation: "read before update", cause }),
+      );
+    if (current instanceof Error) return current;
+    tx.set("sessionState", {
+      id: input.sessionId,
+      markedDone: false,
+      ...current,
+      ...input.fields,
+    });
+    return await this.db
+      .commit(tx)
+      .catch((cause) => new SessionStateError({ operation: "update", cause }));
   }
 
   private async createSession(sessionId?: string) {
@@ -508,7 +584,6 @@ export class ThreadManager {
       .create({ id: sessionId })
       .catch((cause) => new CreateAgentSessionError({ cause }));
     if (stored instanceof Error) return stored;
-    this.productFieldsBySession.set(stored.metadata.id, { markedDone: false });
     this.stored.set(stored.metadata.id, Promise.resolve(stored));
     return await this.openSession(stored.metadata.id);
   }
@@ -567,6 +642,7 @@ export class ThreadManager {
     this.closing = true;
     this.publishIdle();
     this.closed.abort();
+    this.stateSubscription?.destroy();
     await Promise.all(this.pending);
     for (const unsubscribe of this.summarySubscriptions.values()) unsubscribe();
     this.summarySubscriptions.clear();
@@ -585,7 +661,6 @@ export class ThreadManager {
     this.stored.clear();
     this.lifecycleQueues.clear();
     this.closeFailures.clear();
-    this.productFieldsBySession.clear();
     this.idle[Symbol.dispose]();
     if (sessionError instanceof Error) return sessionError;
   }
@@ -701,7 +776,7 @@ export class ThreadManager {
         await this.summaryQueue.run(async () => {
           const session = this.sessions.get(sessionId);
           if (session === undefined) return;
-          const fields = await this.getProductFieldsUnqueued(sessionId);
+          const fields = await this.getProductFields(sessionId);
           if (fields instanceof Error) return fields;
           const summary = await session.readSummary();
           if (summary instanceof Error) return summary;
@@ -741,7 +816,11 @@ function applyProductFields({
   fields,
 }: {
   summary: PiSessionSummary | SessionSummary;
-  fields: ThreadProductFields;
+  fields: SessionProductFields | undefined;
 }): SessionSummary {
-  return { ...summary, ...fields };
+  return {
+    ...summary,
+    markedDone: fields?.markedDone ?? false,
+    readReceiptCursorId: fields?.readReceiptCursorId,
+  };
 }

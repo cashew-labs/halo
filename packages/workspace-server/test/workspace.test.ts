@@ -3,14 +3,18 @@ import { Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import {
   createHaloClient,
+  createWorkspaceRemote,
+  workspaceSchema,
   connectHaloClient,
   haloProtocolVersion,
+  haloSupportedProtocols,
   emptySessionSnapshot,
   isThreadUnread,
   reduceSessionUpdate,
   sessionMessages,
   sessionToolExecutions,
   type HaloClient,
+  type Hotkey,
   type TraceRecord,
   type SessionSummary,
   type SessionSummariesUpdate,
@@ -23,6 +27,8 @@ import { contentText } from "@earendil-works/pi-ai";
 import { m } from "@get-halo/shared/testing";
 import { messageText } from "@get-halo/workspace-server/testing";
 import { serverTest } from "./serverTest.js";
+import { TandemClient } from "@tanishqkancharla/tandem-core";
+import { haloSchemaToTandemSchema } from "@get-halo/client";
 
 serverTest(
   "recovers a torn active file as one interrupted run",
@@ -329,6 +335,100 @@ serverTest("reads, writes, and lists workspace files", async ({ server }) => {
   );
   expect(await server.rpc.workspace.listPaths()).toEqual(["notes/today.md"]);
 });
+
+serverTest(
+  "searches reference paths with bounded, file-only results",
+  async ({ server }) => {
+    for (let index = 0; index < 10; index++) {
+      await server.harness.files.write({
+        path: path.join(server.workspaceRoot, "notes", `Report-${index}.md`),
+        content: "report",
+      });
+    }
+    await server.harness.files.write({
+      path: path.join(server.workspaceRoot, "elsewhere", "unique.txt"),
+      content: "unique",
+    });
+    expect(await server.rpc.workspace.searchPaths({ query: "REPORT" })).toEqual(
+      Array.from({ length: 8 }, (_, index) => `notes/Report-${index}.md`),
+    );
+    expect(await server.rpc.workspace.searchPaths({ query: "unique" })).toEqual(
+      ["elsewhere/unique.txt"],
+    );
+    expect(
+      await server.rpc.workspace.searchPaths({ query: "missing" }),
+    ).toEqual([]);
+  },
+);
+
+serverTest(
+  "streams only requested directory listings and refreshes after deletion",
+  async ({ server }) => {
+    const setupEvents = await server.rpc.workspace.events();
+    await server.harness.files.write({
+      path: path.join(server.workspaceRoot, "open", "nested", "hidden.txt"),
+      content: "deep",
+    });
+    await server.harness.files.write({
+      path: path.join(server.workspaceRoot, "closed", "other.txt"),
+      content: "other",
+    });
+    for await (const events of setupEvents) {
+      if (events.some((event) => event.path === "closed/other.txt")) break;
+    }
+    const controller = new AbortController();
+    using cleanup = new errore.DisposableStack();
+    cleanup.defer(() => controller.abort());
+    const listings = await server.rendererRpc.workspace.watchDirectories(
+      { paths: ["", "open", "open"] },
+      { signal: controller.signal },
+    );
+    expect((await listings.next()).value).toEqual({
+      path: "",
+      entries: ["closed/", "open/"],
+    });
+    expect((await listings.next()).value).toEqual({
+      path: "open",
+      entries: ["open/nested/"],
+    });
+    await server.harness.files.write({
+      path: path.join(server.workspaceRoot, "closed", "ignored.txt"),
+      content: "ignored",
+    });
+    await server.harness.files.write({
+      path: path.join(server.workspaceRoot, "open", "nested", "ignored.txt"),
+      content: "ignored",
+    });
+    await server.harness.files.write({
+      path: path.join(server.workspaceRoot, "open", "visible.txt"),
+      content: "visible",
+    });
+    expect((await listings.next()).value).toEqual({
+      path: "open",
+      entries: ["open/nested/", "open/visible.txt"],
+    });
+    await server.rpc.workspace.deleteEntry({ path: "open/nested" });
+    expect((await listings.next()).value).toEqual({
+      path: "open",
+      entries: ["open/visible.txt"],
+    });
+    const invalid = await server.rendererRpc.workspace.watchDirectories(
+      { paths: ["../", ".halo", "open/visible.txt", "open"] },
+      { signal: controller.signal },
+    );
+    for (const invalidPath of ["../", ".halo", "open/visible.txt"]) {
+      expect((await invalid.next()).value).toEqual({
+        path: invalidPath,
+        entries: [],
+        error: expect.stringContaining("not a workspace file"),
+      });
+    }
+    expect((await invalid.next()).value).toEqual({
+      path: "open",
+      entries: ["open/visible.txt"],
+    });
+  },
+);
 
 serverTest("rejects files outside the public workspace", async ({ server }) => {
   await expect(
@@ -1562,6 +1662,249 @@ serverTest(
   },
 );
 
+serverTest(
+  "persists session status commands and streams their summaries",
+  async ({ server, llm }) => {
+    using cleanup = new errore.DisposableStack();
+    const firstConnection = new AbortController();
+    cleanup.defer(() => firstConnection.abort());
+    const updates = await server.rpc.thread.watchSummaries(undefined, {
+      signal: firstConnection.signal,
+    });
+    await updates.next();
+    const otherWindow = await server.rpc.thread.watchSummaries(undefined, {
+      signal: firstConnection.signal,
+    });
+    await otherWindow.next();
+
+    await expect(
+      server.rpc.thread.markDone({ sessionId: "missing" }),
+    ).rejects.toThrow();
+    expect(await server.rpc.thread.list()).toEqual([]);
+
+    const first = await server.rpc.thread.new();
+    await nextSummary(
+      updates,
+      (summary) => summary.sessionId === first.sessionId,
+    );
+    const second = await server.rpc.thread.new();
+    await nextSummary(
+      updates,
+      (summary) => summary.sessionId === second.sessionId,
+    );
+    await server.rpc.thread.markUnread(second);
+    const secondSummary = (await server.rpc.thread.list()).find(
+      (summary) => summary.sessionId === second.sessionId,
+    );
+    expect(secondSummary).toMatchObject({
+      ...second,
+      markedDone: false,
+    });
+    expect(secondSummary?.readReceiptCursorId).toBeUndefined();
+
+    // A session without any transcript or product-state row can be marked done.
+    await server.rpc.thread.markDone(second);
+    expect(
+      await nextSummary(
+        updates,
+        (summary) =>
+          summary.sessionId === second.sessionId && summary.markedDone,
+      ),
+    ).toMatchObject({ ...second, markedDone: true });
+    await server.rpc.thread.markUndone(second);
+    await nextSummary(
+      updates,
+      (summary) =>
+        summary.sessionId === second.sessionId && !summary.markedDone,
+    );
+
+    const prompted = server.promptAndWait({
+      ...first,
+      text: "Produce a result for status commands",
+    });
+    await nextSummary(
+      updates,
+      (summary) => summary.sessionId === first.sessionId && summary.isRunning,
+    );
+    await llm.respond(m.assistant("Completed result"));
+    await prompted;
+    const completed = await nextSummary(
+      updates,
+      (summary) =>
+        summary.sessionId === first.sessionId && isThreadUnread(summary),
+    );
+    assert(completed.latestResultId !== undefined);
+
+    await server.rpc.thread.markRead({
+      ...first,
+      observedResultId: completed.latestResultId,
+    });
+    const read = await nextSummary(
+      updates,
+      (summary) =>
+        summary.sessionId === first.sessionId && !isThreadUnread(summary),
+    );
+    expect(read).toMatchObject({
+      ...first,
+      markedDone: false,
+      readReceiptCursorId: read.latestResultId,
+    });
+
+    // Listing/reconnecting must not consume the update owed to existing watchers.
+    await Promise.all([
+      server.rpc.thread.markDone(first),
+      server.rpc.thread.list(),
+    ]);
+    for (const stream of [updates, otherWindow]) {
+      expect(
+        await nextSummary(
+          stream,
+          (summary) =>
+            summary.sessionId === first.sessionId && summary.markedDone,
+        ),
+      ).toMatchObject({
+        markedDone: true,
+        readReceiptCursorId: completed.latestResultId,
+      });
+    }
+
+    await server.rpc.thread.markUnread(first);
+    const unread = await nextSummary(
+      updates,
+      (summary) =>
+        summary.sessionId === first.sessionId && isThreadUnread(summary),
+    );
+    expect(unread).toMatchObject({
+      ...first,
+      markedDone: true,
+    });
+    expect(unread.readReceiptCursorId).toBeUndefined();
+
+    await server.rpc.thread.markUndone(first);
+    await nextSummary(
+      updates,
+      (summary) => summary.sessionId === first.sessionId && !summary.markedDone,
+    );
+
+    const nextPrompt = server.promptAndWait({
+      ...first,
+      text: "Produce another result for status commands",
+    });
+    await nextSummary(
+      updates,
+      (summary) => summary.sessionId === first.sessionId && summary.isRunning,
+    );
+    await llm.respond(m.assistant("New completed result"));
+    await nextPrompt;
+    const nextCompleted = await nextSummary(
+      updates,
+      (summary) =>
+        summary.sessionId === first.sessionId &&
+        summary.latestResultId !== completed.latestResultId &&
+        isThreadUnread(summary),
+    );
+    await server.rpc.thread.markRead({
+      ...first,
+      observedResultId: completed.latestResultId,
+    });
+    const afterStaleRead = (await server.rpc.thread.list()).find(
+      (summary) => summary.sessionId === first.sessionId,
+    );
+    expect(afterStaleRead?.latestResultId).toBe(nextCompleted.latestResultId);
+    expect(afterStaleRead?.readReceiptCursorId).toBeUndefined();
+    assert(afterStaleRead !== undefined);
+    expect(isThreadUnread(afterStaleRead)).toBe(true);
+
+    await server.rpc.thread.markDone(first);
+    const done = await nextSummary(
+      updates,
+      (summary) => summary.sessionId === first.sessionId && summary.markedDone,
+    );
+    expect(done).toMatchObject({
+      ...first,
+      markedDone: true,
+    });
+    expect(done.readReceiptCursorId).toBeUndefined();
+    expect(isThreadUnread(done)).toBe(true);
+
+    firstConnection.abort();
+    await server.stop();
+    await server.start();
+
+    const secondConnection = new AbortController();
+    cleanup.defer(() => secondConnection.abort());
+    const restored = await server.rpc.thread.watchSummaries(undefined, {
+      signal: secondConnection.signal,
+    });
+    const snapshot = await restored.next();
+    if (snapshot.done || snapshot.value.type !== "snapshot")
+      throw new Error("Expected restored session summary snapshot");
+    const restoredFirst = snapshot.value.sessions.find(
+      (summary) => summary.sessionId === first.sessionId,
+    );
+    expect(restoredFirst).toMatchObject({
+      ...first,
+      markedDone: true,
+    });
+    assert(restoredFirst !== undefined);
+    expect(restoredFirst.readReceiptCursorId).toBeUndefined();
+    expect(isThreadUnread(restoredFirst)).toBe(true);
+    expect(
+      snapshot.value.sessions.find(
+        (summary) => summary.sessionId === second.sessionId,
+      ),
+    ).toMatchObject({
+      ...second,
+      markedDone: false,
+    });
+
+    assert(restoredFirst.latestResultId !== undefined);
+    await server.rpc.thread.markRead({
+      ...first,
+      observedResultId: restoredFirst.latestResultId,
+    });
+    const restoredRead = await nextSummary(
+      restored,
+      (summary) =>
+        summary.sessionId === first.sessionId && !isThreadUnread(summary),
+    );
+    expect(restoredRead).toMatchObject({
+      markedDone: true,
+      readReceiptCursorId: restoredRead.latestResultId,
+    });
+
+    await server.rpc.thread.markUndone(first);
+    const restoredUndone = await nextSummary(
+      restored,
+      (summary) => summary.sessionId === first.sessionId && !summary.markedDone,
+    );
+    expect(restoredUndone).toMatchObject({
+      markedDone: false,
+      readReceiptCursorId: restoredUndone.latestResultId,
+    });
+
+    secondConnection.abort();
+    await server.stop();
+    await server.start();
+    const final = await server.rpc.thread.list();
+    const finalFirst = final.find(
+      (summary) => summary.sessionId === first.sessionId,
+    );
+    assert(finalFirst !== undefined);
+    expect(finalFirst).toMatchObject({
+      markedDone: false,
+      readReceiptCursorId: finalFirst.latestResultId,
+    });
+    expect(isThreadUnread(finalFirst)).toBe(false);
+    expect(
+      final.find((summary) => summary.sessionId === second.sessionId),
+    ).toMatchObject({
+      ...second,
+      markedDone: false,
+    });
+  },
+);
+
 async function nextSummary(
   updates: AsyncIterable<SessionSummariesUpdate>,
   matches: (summary: SessionSummary) => boolean,
@@ -1605,13 +1948,407 @@ serverTest(
 );
 
 serverTest(
-  "advertises protocols 25 and 26 and rejects unsupported writes",
+  "configures persistent hotkeys through chat and streams changes to clients",
+  async ({ server, llm }) => {
+    const controller = new AbortController();
+    await using cleanup = new errore.AsyncDisposableStack();
+    const db = new TandemClient({
+      ...haloSchemaToTandemSchema(workspaceSchema),
+      remote: createWorkspaceRemote({
+        api: server.rendererRpc,
+        signal: controller.signal,
+        onDisconnect: console.warn,
+      }),
+      autoConnect: false,
+    });
+    cleanup.defer(async () => await db.disconnect());
+    cleanup.defer(() => controller.abort());
+    const updates: Hotkey[][] = [];
+    const subscription = db.subscribe({ collection: "hotkeys" }, (records) =>
+      updates.push(records),
+    );
+    cleanup.defer(subscription.destroy);
+    await db.ready;
+    await db.connect();
+    expect(db.query({ collection: "hotkeys" })).toEqual([]);
+    const session = await server.rpc.thread.new();
+    const prompt = server.promptAndWait({
+      ...session,
+      text: "Make Cmd+Shift+K open a new chat tab",
+    });
+    await llm.respond(
+      m.tool.start("exec", {
+        id: "save-hotkey",
+        arguments: {
+          js: 'return await tools.hotkeys.save({ label: "Quick chat", accelerator: "Cmd+Shift+K", action: { type: "newTab" } });',
+        },
+      }),
+    );
+    await llm.respond(m.assistant("Your hotkey is ready."));
+    await prompt;
+    const [hotkey] = await server.rpc.hotkeys.list();
+    expect(hotkey).toMatchObject({
+      label: "Quick chat",
+      accelerator: "CmdOrCtrl+Shift+K",
+      action: { type: "newTab" },
+    });
+    await expect
+      .poll(() => db.query({ collection: "hotkeys" }))
+      .toMatchObject([hotkey]);
+    const id = hotkey!.id;
+    await expect(
+      server.rpc.hotkeys.save({
+        label: "Conflict",
+        accelerator: "Shift+Control+K",
+        action: { type: "closeTab" },
+      }),
+    ).rejects.toThrow("already assigned");
+    await expect(
+      server.rpc.hotkeys.save({
+        label: "Reserved",
+        accelerator: "Cmd+T",
+        action: { type: "closeTab" },
+      }),
+    ).rejects.toThrow("reserved");
+    await expect(
+      server.rpc.hotkeys.save({
+        label: "Typing",
+        accelerator: "K",
+        action: { type: "newTab" },
+      }),
+    ).rejects.toThrow("CmdOrCtrl");
+    await expect(
+      server.rpc.hotkeys.save({
+        label: "Escape workspace",
+        accelerator: "Cmd+Shift+L",
+        action: { type: "openFile", path: "../secret.md" },
+      }),
+    ).rejects.toThrow("workspace-relative");
+    await expect(
+      server.rpc.hotkeys.save({
+        label: "Empty task",
+        accelerator: "CmdOrCtrl+Shift+L",
+        action: { type: "runAgent", prompt: "   " },
+      }),
+    ).rejects.toThrow("needs an instruction");
+    const changed = await server.rpc.hotkeys.save({
+      ...hotkey!,
+      label: "Draft daily notes",
+      accelerator: "CmdOrCtrl+Shift+L",
+      action: {
+        type: "runAgent",
+        prompt: "Create daily.md with a summary of the workspace notes.",
+      },
+    });
+    await expect
+      .poll(() => db.query({ collection: "hotkeys" }))
+      .toMatchObject([changed]);
+    await expect.poll(() => updates.at(-1)).toMatchObject([changed]);
+    controller.abort();
+    await db.disconnect();
+    await server.stop();
+    await server.start();
+    expect(await server.rpc.hotkeys.list()).toEqual([changed]);
+    const reconnectedController = new AbortController();
+    const reconnected = new TandemClient({
+      ...haloSchemaToTandemSchema(workspaceSchema),
+      remote: createWorkspaceRemote({
+        api: server.rendererRpc,
+        signal: reconnectedController.signal,
+        onDisconnect: console.warn,
+      }),
+      autoConnect: false,
+    });
+    cleanup.defer(async () => await reconnected.disconnect());
+    cleanup.defer(() => reconnectedController.abort());
+    const reconnectedSubscription = reconnected.subscribe(
+      { collection: "hotkeys" },
+      (records) => updates.push(records),
+    );
+    cleanup.defer(() => reconnectedSubscription.destroy());
+    await reconnected.ready;
+    await reconnected.connect();
+    expect(reconnected.query({ collection: "hotkeys" })).toMatchObject([
+      changed,
+    ]);
+    const listed = await server.rpc.testApi.invokeTool({
+      path: "hotkeys.list",
+      input: {},
+    });
+    expect(listed).toEqual([changed]);
+    await server.rpc.testApi.invokeTool({
+      path: "hotkeys.remove",
+      input: { id },
+    });
+    expect(await server.rendererRpc.hotkeys.list()).toEqual([]);
+    await expect
+      .poll(() => reconnected.query({ collection: "hotkeys" }))
+      .toEqual([]);
+    reconnectedController.abort();
+    await reconnected.disconnect();
+    await server.stop();
+    await server.start();
+    expect(await server.rpc.hotkeys.list()).toEqual([]);
+  },
+);
+
+serverTest(
+  "serializes hotkey conflicts and preserves save order across restart",
+  async ({ server }) => {
+    const outcomes = await Promise.allSettled([
+      server.rpc.hotkeys.save({
+        label: "First contender",
+        accelerator: "Cmd+Shift+K",
+        action: { type: "newTab" },
+      }),
+      server.rpc.hotkeys.save({
+        label: "Second contender",
+        accelerator: "Control+Shift+K",
+        action: { type: "closeTab" },
+      }),
+    ]);
+    expect(outcomes.filter((item) => item.status === "fulfilled")).toHaveLength(
+      1,
+    );
+    expect(outcomes.filter((item) => item.status === "rejected")).toMatchObject(
+      [{ reason: { message: expect.stringContaining("already assigned") } }],
+    );
+    const initial = await server.rpc.hotkeys.list();
+    expect(initial).toHaveLength(1);
+    const first = initial[0]!;
+    const second = await server.rpc.hotkeys.save({
+      label: "Open notes",
+      accelerator: "Cmd+Shift+L",
+      action: { type: "openFile", path: "notes.md" },
+    });
+    expect(await server.rpc.hotkeys.list()).toEqual([first, second]);
+    const updated = await server.rpc.hotkeys.save({
+      ...first,
+      label: "Updated first",
+    });
+    expect(await server.rpc.hotkeys.list()).toEqual([second, updated]);
+    await server.stop();
+    await server.start();
+    expect(await server.rpc.hotkeys.list()).toEqual([second, updated]);
+    await server.rpc.hotkeys.remove({ id: second.id });
+    expect(await server.rpc.hotkeys.list()).toEqual([updated]);
+  },
+);
+
+serverTest(
+  "streams extension snapshots across reload, reconnect, and restart failure",
+  async ({ server }) => {
+    using cleanup = new errore.DisposableStack();
+    const controller = new AbortController();
+    cleanup.defer(() => controller.abort());
+    const first = await server.rpc.extensions.watch(undefined, {
+      signal: controller.signal,
+    });
+    const second = await server.rendererRpc.extensions.watch(undefined, {
+      signal: controller.signal,
+    });
+    expect((await first.next()).value).toEqual([]);
+    expect((await second.next()).value).toEqual([]);
+
+    const directory = path.join(
+      server.workspaceRoot,
+      ".halo/extensions/snapshot-test",
+    );
+    const manifest = path.join(directory, "package.json");
+    const launcher = path.join(directory, "dist/start.mjs");
+    await fs.mkdir(path.dirname(launcher), { recursive: true });
+    await fs.writeFile(manifest, JSON.stringify({ name: "snapshot-test" }));
+    // A real process implements the extension host's readiness and shutdown protocol.
+    await fs.writeFile(
+      launcher,
+      `
+    import http from "node:http";
+    const server = http.createServer((_, response) => response.end("Ready"));
+    server.listen(0, "127.0.0.1", () => {
+      process.send("http://127.0.0.1:" + server.address().port + "/view/");
+    });
+    process.on("message", (message) => {
+      if (message === "shutdown") server.close(() => process.exit(0));
+    });
+  `,
+    );
+    // Opening another watch concurrently must include this reload, either in its
+    // first snapshot or in the next buffered update.
+    const opening = server.rpc.extensions.watch(undefined, {
+      signal: controller.signal,
+    });
+    await Promise.all([
+      server.rpc.extensions.reload(),
+      server.rpc.extensions.reload(),
+    ]);
+    const started = await server.rpc.extensions.list();
+    expect(started).toMatchObject([
+      { id: "snapshot-test", displayName: "snapshot-test" },
+    ]);
+    for (const stream of [first, second]) {
+      expect((await stream.next()).value).toEqual(started);
+      expect((await stream.next()).value).toEqual(started);
+    }
+    const racing = await opening;
+    const initial = await racing.next();
+    if (initial.done) throw new Error("Expected initial extension snapshot");
+    if (initial.value.length === 0)
+      expect((await racing.next()).value).toEqual(started);
+    else expect(initial.value).toEqual(started);
+    await racing.return();
+
+    await fs.writeFile(
+      manifest,
+      JSON.stringify({
+        name: "snapshot-test",
+        halo: { displayName: "Renamed", icon: "Calendar" },
+      }),
+    );
+    await server.rpc.extensions.reload();
+    const renamed = [
+      { ...started[0], displayName: "Renamed", icon: "Calendar" },
+    ];
+    expect((await first.next()).value).toEqual(renamed);
+    expect((await second.next()).value).toEqual(renamed);
+    const reconnect = await server.rpc.extensions.watch(undefined, {
+      signal: controller.signal,
+    });
+    expect((await reconnect.next()).value).toEqual(renamed);
+    await reconnect.return();
+
+    await fs.writeFile(manifest, "{");
+    const failedFirst = expect(first.next()).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+    });
+    const failedSecond = expect(second.next()).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+    });
+    await server.rpc.extensions.reload();
+    await Promise.all([failedFirst, failedSecond]);
+    await fs.writeFile(manifest, JSON.stringify({ name: "snapshot-test" }));
+    const recovered = await server.rpc.extensions.watch(undefined, {
+      signal: controller.signal,
+    });
+    expect((await recovered.next()).value).toEqual(started);
+
+    await server.rpc.extensions.restart({ id: "snapshot-test" });
+    const restartUpdate = await recovered.next();
+    if (restartUpdate.done)
+      throw new Error("Expected restarted extension snapshot");
+    const restarted = restartUpdate.value;
+    expect(restarted).toMatchObject([
+      { id: "snapshot-test", displayName: "snapshot-test" },
+    ]);
+    expect(restarted?.[0]?.url).not.toBe(started[0]?.url);
+    await fs.rename(launcher, launcher + ".saved");
+    await expect(
+      server.rpc.extensions.restart({ id: "snapshot-test" }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect((await recovered.next()).value).toEqual([]);
+    await fs.rename(launcher + ".saved", launcher);
+    await server.rpc.extensions.reload();
+    expect((await recovered.next()).value).toMatchObject([
+      { id: "snapshot-test" },
+    ]);
+    await fs.rm(directory, { recursive: true });
+    await server.rpc.extensions.reload();
+    expect((await recovered.next()).value).toEqual([]);
+
+    const cancelled = new AbortController();
+    const abortable = await server.rpc.extensions.watch(undefined, {
+      signal: cancelled.signal,
+    });
+    await abortable.next();
+    const pending = expect(abortable.next()).rejects.toSatisfy(
+      errore.isAbortError,
+    );
+    cancelled.abort();
+    await pending;
+    // An idle subscription must not hold server shutdown open.
+    await server.stop();
+  },
+);
+
+serverTest(
+  "shares live workspace updates over one cancellable subscription",
+  async ({ server }) => {
+    using cleanup = new errore.DisposableStack();
+    const controller = new AbortController();
+    cleanup.defer(() => controller.abort());
+    const updates = await server.rendererRpc.server.watch(
+      { includeLegacyState: false },
+      { signal: controller.signal },
+    );
+    const initial = new Set<string>();
+    while (initial.size < 2) {
+      const next = await updates.next();
+      assert(!next.done, "Workspace stream ended before initial snapshots");
+      initial.add(next.value.type);
+    }
+    expect(initial).toEqual(new Set(["extensions", "sessions"]));
+    const session = await server.rpc.thread.new();
+    for await (const item of updates) {
+      if (item.type !== "sessions") continue;
+      expect(item.update).toMatchObject({
+        type: "updated",
+        session: { sessionId: session.sessionId },
+      });
+      break;
+    }
+    const reconnected = await server.rendererRpc.server.watch(
+      { includeLegacyState: false },
+      { signal: controller.signal },
+    );
+    for await (const item of reconnected) {
+      if (item.type !== "sessions") continue;
+      expect(item.update).toMatchObject({
+        type: "snapshot",
+        sessions: [expect.objectContaining({ sessionId: session.sessionId })],
+      });
+      break;
+    }
+    // Leaving a for-await loop must cancel every source, including idle ones.
+    await server.stop();
+  },
+);
+
+serverTest(
+  "rejects unsupported protocol versions and writes",
   async ({ server }) => {
     const connected = await connectHaloClient({ transport: server.transport });
     assert(!(connected instanceof Error));
     expect(connected.serverInfo).toEqual({
       protocolVersion: haloProtocolVersion,
-      supportedProtocols: [25, 26],
+      supportedProtocols: haloSupportedProtocols,
+    });
+    for (const version of [18, 19, 21, 22, 23, 24]) {
+      const previousProtocol = createHaloClient({
+        transport: {
+          ...server.transport,
+          headers: {
+            ...server.transport.headers,
+            "x-halo-protocol-version": String(version),
+          },
+        },
+      });
+      await expect(
+        previousProtocol.workspace.writeFile({
+          path: `legacy-${version}.md`,
+          content: "Legacy client",
+        }),
+      ).rejects.toMatchObject({ code: "UNSUPPORTED_PROTOCOL" });
+    }
+    const previousStatusProtocol = createHaloClient({
+      transport: {
+        ...server.transport,
+        headers: {
+          ...server.transport.headers,
+          "x-halo-protocol-version": "20",
+        },
+      },
+    });
+    await expect(previousStatusProtocol.thread.list()).rejects.toMatchObject({
+      code: "UNSUPPORTED_PROTOCOL",
     });
     const unsupported = createHaloClient({
       transport: {
@@ -1623,7 +2360,7 @@ serverTest(
       },
     });
     expect(await unsupported.server.info()).toMatchObject({
-      supportedProtocols: [25, 26],
+      supportedProtocols: haloSupportedProtocols,
     });
     await expect(
       unsupported.workspace.writeFile({

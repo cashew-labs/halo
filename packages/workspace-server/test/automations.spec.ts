@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import {
   createHaloClient,
+  haloSupportedProtocols,
   sessionMessages,
   type WorkspaceUpdate,
   type HaloClient,
@@ -376,7 +377,7 @@ serverTest(
   },
 );
 
-serverTest.for([25, 26])(
+serverTest.for(haloSupportedProtocols)(
   "protocol %i clients keep automation CRUD, execution, and opt-in workspace streams",
   async (protocol, { server }) => {
     const legacy = createHaloClient({
@@ -416,6 +417,30 @@ serverTest.for([25, 26])(
     await expect
       .poll(() => newUpdates.some((update) => update.type === "automations"))
       .toBe(true);
+    const hotkeys = await legacy.hotkeys.watch(undefined, {
+      signal: controller.signal,
+    });
+    expect((await hotkeys.next()).value).toEqual([]);
+    const savedHotkey = await legacy.hotkeys.save({
+      label: "New tab",
+      accelerator: "Control+Shift+K",
+      action: { type: "newTab" },
+    });
+    expect((await hotkeys.next()).value).toEqual([savedHotkey]);
+    await expect
+      .poll(() =>
+        oldUpdates.filter((update) => update.type === "hotkeys").at(-1),
+      )
+      .toMatchObject({ hotkeys: [savedHotkey] });
+    await hotkeys.return();
+    await legacy.workspace.writeFile({ path: "legacy.md", content: "note" });
+    await expect
+      .poll(() =>
+        oldUpdates
+          .filter((update) => update.type === "files")
+          .flatMap((update) => update.events),
+      )
+      .toContainEqual({ type: "create", path: "legacy.md" });
     const routine = await legacy.automations.save({
       ...bookHaircut,
       extensionId: undefined,

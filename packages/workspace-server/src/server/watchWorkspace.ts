@@ -1,5 +1,5 @@
 import * as errore from "errore";
-import type { WorkspaceUpdate } from "@get-halo/client";
+import { type WorkspaceUpdate } from "@get-halo/client";
 import { Stream } from "@get-halo/shared/Stream";
 import { orpcErrors } from "../orpcErrors.js";
 import type { HaloContext } from "./router.js";
@@ -14,10 +14,12 @@ class WorkspaceWatchError extends errore.createTaggedError({
 export async function* watchWorkspace({
   context,
   includeAutomations,
+  includeLegacyState,
   signal,
 }: {
   context: HaloContext;
   includeAutomations?: boolean;
+  includeLegacyState?: boolean;
   signal: AbortSignal | undefined;
 }) {
   const closed = new AbortController();
@@ -27,12 +29,11 @@ export async function* watchWorkspace({
       : AbortSignal.any([signal, closed.signal]);
   const events = new Stream<WorkspaceUpdate | Error>();
   using updates = events.consume({ abortSignal });
-  using files = context.workspace.treeEvents.consume({ abortSignal });
+  using files =
+    includeLegacyState === false
+      ? undefined
+      : context.workspace.treeEvents.consume({ abortSignal });
   const tasks = [
-    forward(context.hotkeys.watch(abortSignal), (hotkeys) => ({
-      type: "hotkeys",
-      hotkeys,
-    })),
     forward(context.extensions.watch(abortSignal), (extensions) =>
       extensions instanceof Error
         ? { type: "extensionsError", message: extensions.message }
@@ -42,9 +43,18 @@ export async function* watchWorkspace({
       type: "sessions",
       update,
     })),
-    forward(files, (batch) => ({ type: "files", events: batch })),
   ];
-  // Preserve protocol 25 opt-in semantics for existing stream consumers.
+  // Protocol 25/26 clients have neither Tandem reads nor scoped folder listings.
+  if (files !== undefined) {
+    tasks.push(
+      forward(context.hotkeys.watch(abortSignal), (hotkeys) => ({
+        type: "hotkeys",
+        hotkeys,
+      })),
+      forward(files, (batch) => ({ type: "files", events: batch })),
+    );
+  }
+  // Automation consumers explicitly opt into these snapshots.
   if (includeAutomations === true) {
     tasks.push(
       forward(context.automations.watch(abortSignal), (automations) => ({
@@ -67,7 +77,7 @@ export async function* watchWorkspace({
   // while the other sources initialize. Rejections terminate this RPC stream.
   async function forward<T>(
     source: AsyncIterable<T>,
-    map: (value: T) => WorkspaceUpdate,
+    map: (value: T) => WorkspaceUpdate | Error,
   ) {
     await (async () => {
       for await (const item of source) events.append(map(item));
