@@ -1,13 +1,14 @@
 import { Text } from "maui";
 import { CalendarTimer, Bolt, Plus } from "maui/icons";
-import { useAutomations } from "../api/WorkspaceUpdatesProvider.js";
+import { useDatabaseQuery } from "../database/useDatabaseQuery.js";
 import { SidebarItem } from "./navigation/SidebarItem.js";
 import { SidebarSection } from "./navigation/SidebarSection.js";
 
 export function AutomationsSection() {
-  const automations = useAutomations()?.filter(
-    (automation) => automation.extensionId === undefined,
-  );
+  const automations = useDatabaseQuery({
+    collection: "automations",
+    orderBy: { createdAt: "asc", id: "asc" },
+  })?.filter((automation) => automation.extensionId === undefined);
 
   return (
     <SidebarSection label="Automations">

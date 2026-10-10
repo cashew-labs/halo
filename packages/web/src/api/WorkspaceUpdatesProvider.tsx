@@ -11,7 +11,6 @@ import * as errore from "errore";
 import type {
   ExtensionSummary,
   HaloClient,
-  Automation,
   SessionSummary,
 } from "@get-halo/client";
 import { useWorkspaceQuery } from "./ApiProvider.js";
@@ -27,12 +26,9 @@ type WorkspaceState = {
     data: ExtensionSummary[] | undefined;
     error: Error | undefined;
   };
-  // Undefined until the server sends its first snapshot.
-  automations: Automation[] | undefined;
 };
 const empty: WorkspaceState = {
   extensions: { data: undefined, error: undefined },
-  automations: undefined,
 };
 const WorkspaceUpdatesContext = createContext<WorkspaceState>(empty);
 
@@ -62,11 +58,16 @@ export function WorkspaceUpdatesProvider({
       signal: controller.signal,
       open: async () =>
         await api.server.watch(
-          { includeAutomations: true, includeLegacyState: false },
+          { includeAutomations: false, includeLegacyState: false },
           { signal: controller.signal },
         ),
       onItem: (item) => {
-        if (item.type === "hotkeys" || item.type === "files") return;
+        if (
+          item.type === "hotkeys" ||
+          item.type === "files" ||
+          item.type === "automations"
+        )
+          return;
         if (item.type === "sessions") {
           const update = item.update;
           if (update.type === "snapshot") {
@@ -93,12 +94,6 @@ export function WorkspaceUpdatesProvider({
         setState((current) => {
           const previous =
             current.workspaceRoot === workspaceRoot ? current : empty;
-          if (item.type === "automations")
-            return {
-              ...previous,
-              workspaceRoot,
-              automations: item.automations,
-            };
           if (item.type === "extensions")
             return {
               ...previous,
@@ -132,8 +127,4 @@ export function WorkspaceUpdatesProvider({
 
 export function useExtensions() {
   return useContext(WorkspaceUpdatesContext).extensions;
-}
-
-export function useAutomations() {
-  return useContext(WorkspaceUpdatesContext).automations;
 }

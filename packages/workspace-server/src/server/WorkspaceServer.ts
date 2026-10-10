@@ -111,6 +111,7 @@ export class WorkspaceServer {
   private readonly sessionRepo: TursoThreadRepo;
   private readonly workspace: WorkspaceService;
   private readonly sessions: ThreadManager;
+  private readonly automations: AutomationService;
   private readonly automationRunner: AutomationRunner;
   private readonly automationSync: AutomationSync | undefined;
   private readonly automationScheduler:
@@ -131,6 +132,7 @@ export class WorkspaceServer {
     sessionRepo: TursoThreadRepo;
     workspace: WorkspaceService;
     sessions: ThreadManager;
+    automations: AutomationService;
     automationRunner: AutomationRunner;
     automationScheduler: AutomationScheduler | AutomationScheduleSync;
     automationSync: AutomationSync | undefined;
@@ -148,6 +150,7 @@ export class WorkspaceServer {
       sessionRepo,
       workspace,
       sessions,
+      automations,
       automationRunner,
       automationScheduler,
       automationSync,
@@ -165,6 +168,7 @@ export class WorkspaceServer {
     this.sessionRepo = sessionRepo;
     this.workspace = workspace;
     this.sessions = sessions;
+    this.automations = automations;
     this.automationRunner = automationRunner;
     this.automationScheduler = automationScheduler;
     this.automationSync = automationSync;
@@ -260,9 +264,10 @@ export class WorkspaceServer {
       userId: config.ownerUserId,
     });
     const automations = await AutomationService.open({
-      database: db.createNativeConnection(),
+      db,
     });
     if (automations instanceof Error) return automations;
+    cleanup.defer(async () => await automations.close());
     const [initialized, toolRuntime] = await Promise.all([
       workspace.initialize(),
       ToolRuntime.create({
@@ -434,6 +439,7 @@ export class WorkspaceServer {
       sessionRepo,
       workspace,
       sessions,
+      automations,
       automationRunner,
       automationScheduler,
       automationSync,
@@ -462,6 +468,7 @@ export class WorkspaceServer {
     await this.automationScheduler.stop();
     await this.automationSync?.close();
     await this.automationRunner.stop();
+    await this.automations.close();
     const sessionsClosed = await this.sessions.shutdown();
     await this.traces.close();
     await this.browsers.shutdown();

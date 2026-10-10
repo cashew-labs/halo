@@ -1,7 +1,11 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { Database } from "@tursodatabase/database/compat";
-import { haloSchema, haloSchemaToTandemSchema } from "@get-halo/client";
+import {
+  haloSchema,
+  haloSchemaToTandemSchema,
+  automationRunSelect,
+} from "@get-halo/client";
 import { TandemServer } from "@tanishqkancharla/tandem-server";
 import { expect, test as baseTest, vi } from "vitest";
 import * as errore from "errore";
@@ -10,6 +14,7 @@ import { syncRouter } from "./syncRouter.js";
 import { createRouterClient } from "@orpc/server";
 import type { ClientId } from "@tanishqkancharla/tandem-core";
 import { FilesystemService } from "../filesystem/FilesystemService.js";
+import { AutomationService } from "../automations/AutomationService.js";
 import { applyMigrations, type Migration } from "./Migration.js";
 import { initialWorkspaceMigration } from "./migrations/20260921130000-initialWorkspace.js";
 import { prepareLegacyThreads } from "./migrations/20261005100000-legacyThreads.js";
@@ -393,6 +398,11 @@ migrationTest(
       VALUES ('z-first', 'automation', 7, 'schedule', 1735776000000, 'thread', 'completed', 1735776000123, 1735776000321, NULL),
       ('a-later', 'automation', 7, 'manual', 1735776000001, 'thread', 'failed', 1735776000123, 1735776000456, 'Exit 7'),
       ('skip', 'automation', 7, 'manual', 1735776000002, NULL, 'skipped', 1735776000789, 1735776000789, 'Busy');
+    UPDATE halo_automation_sync SET generation = 42 WHERE id = 1;
+    UPDATE halo_automation_runs SET event_id = 'retained-event', payload_hash = 'retained-hash' WHERE id = 'a-later';
+    UPDATE halo_automation_runs SET event_id = 'full-event', payload = '{"payload":{"message":"Keep bytes 🦉"}}',
+      snapshot = '{"id":"automation","revision":7,"name":"Original action","enabled":true,"autoArchiveSession":true,"createdAt":"2025-01-01T00:00:00.123Z","updatedAt":"2025-01-02T00:00:00.456Z","activation":{"type":"routine","schedule":{"cron":"0 8 * * *","timezone":"UTC"}},"action":{"type":"runAgent","prompt":"Original prompt"}}'
+      WHERE id = 'z-first';
   `);
     const automations = old
       .prepare("SELECT * FROM halo_automations ORDER BY id")
@@ -461,14 +471,81 @@ migrationTest(
             .prepare("SELECT * FROM halo_automations ORDER BY id")
             .all(),
         ),
-      ).toEqual(automations);
+      ).toMatchObject(automations);
       expect(
         await native.access((connection) =>
           connection
             .prepare("SELECT * FROM halo_automation_runs ORDER BY id")
             .all(),
         ),
-      ).toEqual(runs);
+      ).toMatchObject(runs);
+      expect(await db.query({ collection: "automationSync" })).toEqual([
+        { id: "1", generation: 42, nextRunSequence: 4 },
+      ]);
+      const definitions = await db.query({
+        collection: "automations",
+        with: {
+          runs: {
+            select: automationRunSelect,
+            orderBy: { startedAt: "desc", sequence: "desc" },
+          },
+        },
+      });
+      expect(definitions).toMatchObject([
+        {
+          id: "automation",
+          revision: 7,
+          enabled: true,
+          autoArchiveSession: true,
+          nextRunAt: 1735819200123,
+          createdAt: 1735689600123,
+          updatedAt: 1735776000456,
+          activation: {
+            type: "routine",
+            schedule: { cron: "0 8 * * *", timezone: "UTC" },
+          },
+          action: { type: "runAgent", prompt: "Read mail" },
+          runs: [
+            { id: "skip", sequence: 3 },
+            { id: "a-later", sequence: 2 },
+            { id: "z-first", sequence: 1 },
+          ],
+        },
+      ]);
+      expect(definitions[0]?.runs.map((run) => run.id)).toEqual([
+        "skip",
+        "a-later",
+        "z-first",
+      ]);
+      expect(definitions[0]?.runs[2]).not.toHaveProperty("snapshot");
+      expect(definitions[0]?.runs[2]).not.toHaveProperty("payload");
+      expect(
+        await db.query({
+          collection: "automationRuns",
+          where: { id: "z-first" },
+        }),
+      ).toMatchObject([
+        {
+          payload: '{"payload":{"message":"Keep bytes 🦉"}}',
+          snapshot: {
+            name: "Original action",
+            action: { prompt: "Original prompt" },
+          },
+        },
+      ]);
+      expect(
+        await db.query({
+          collection: "automationRuns",
+          where: { id: "a-later" },
+        }),
+      ).toMatchObject([
+        {
+          eventId: "retained-event",
+          payload: undefined,
+          snapshot: undefined,
+          payloadHash: "retained-hash",
+        },
+      ]);
       expect(
         await native.access((connection) =>
           connection.prepare("SELECT * FROM halo_migrations ORDER BY id").all(),
@@ -601,6 +678,7 @@ migrationTest(
       ],
     });
     expect((await storage.scan()).map(({ value }) => value)).toEqual([
+      { id: "1", generation: 1, nextRunSequence: 1 },
       hotkey,
       session,
     ]);
@@ -650,6 +728,7 @@ migrationTest(
       }),
     ).rejects.toThrow();
     expect((await storage.scan()).map(({ value }) => value)).toEqual([
+      { id: "1", generation: 1, nextRunSequence: 1 },
       hotkey,
       updated,
     ]);
@@ -889,6 +968,65 @@ migrationTest(
     expect(updated.patch.remove).toEqual([
       { collection: "hotkeys", id: ownerHotkey.id },
     ]);
+    const automations = await AutomationService.open({ db });
+    if (automations instanceof Error) throw automations;
+    cleanup.defer(async () => await automations.close());
+    const automation = await automations.save({
+      name: "Private execution data",
+      activation: { type: "trigger", trigger: { type: "webhook" } },
+      action: { type: "runScript", command: "echo private snapshot" },
+    });
+    if (automation instanceof Error) throw automation;
+    const run = await automations.acceptEvent({
+      eventId: "private-event",
+      automationId: automation.id,
+      revision: automation.revision,
+      source: "webhook",
+      occurredAt: new Date().toISOString(),
+      payload: { private: "delivery" },
+    });
+    if (run instanceof Error) throw run;
+    const history = await sync.pull({
+      clientId,
+      cookie: updated.cookie,
+      // Even '*' cannot request server execution data through sync.
+      scanWindow: [
+        {
+          collection: "automationRuns",
+          select: "*",
+          where: [["id", "=", run.id]],
+        },
+      ],
+    });
+    expect(history.patch.set).toMatchObject([
+      {
+        collection: "automationRuns",
+        value: { id: run.id, eventId: "private-event", status: "queued" },
+      },
+    ]);
+    expect(history.patch.set?.[0]?.value).not.toHaveProperty("snapshot");
+    expect(history.patch.set?.[0]?.value).not.toHaveProperty("payload");
+    expect(history.patch.set?.[0]?.value).not.toHaveProperty("payloadHash");
+    expect(
+      await db.query({ collection: "automationRuns", where: { id: run.id } }),
+    ).toMatchObject([
+      {
+        snapshot: { action: { command: "echo private snapshot" } },
+        payload: expect.stringContaining("delivery"),
+      },
+    ]);
+    const unchanged = await sync.pull({
+      clientId,
+      cookie: history.cookie,
+      scanWindow: [
+        {
+          collection: "automationRuns",
+          select: "*",
+          where: [["id", "=", run.id]],
+        },
+      ],
+    });
+    expect(unchanged.patch.set ?? []).toEqual([]);
     controller.abort();
     await events.return();
   },

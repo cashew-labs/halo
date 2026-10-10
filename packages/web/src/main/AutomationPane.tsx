@@ -1,17 +1,19 @@
 import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import cronstrue from "cronstrue";
 import * as errore from "errore";
 import type {
   Automation,
   AutomationRunStatus,
   SessionSummary,
+  WorkspaceSchema,
 } from "@get-halo/client";
+import { automationRunSelect } from "@get-halo/client";
 import { Button } from "maui";
 import { Pencil } from "maui/icons";
 import { useStyles } from "purse-styles";
 import { useApi } from "../api/ApiProvider.js";
-import { useAutomations } from "../api/WorkspaceUpdatesProvider.js";
+import { useDatabaseQuery } from "../database/useDatabaseQuery.js";
 import { useWorkspacePanes } from "../panes/WorkspacePanesProvider.js";
 import { AutomationEditor } from "./AutomationEditor.js";
 import { AutomationSample } from "./AutomationSample.js";
@@ -33,7 +35,10 @@ const statusLabels = {
 } satisfies Record<AutomationRunStatus, string>;
 
 export function AutomationsPane() {
-  const automations = useAutomations();
+  const automations = useDatabaseQuery({
+    collection: "automations",
+    orderBy: { createdAt: "asc", id: "asc" },
+  });
   const workspace = useWorkspacePanes();
   const [creating, setCreating] = useState(false);
   const pane = useStyles(styles.pane);
@@ -107,7 +112,10 @@ export function AutomationPane({
   automationId: string;
   sessions: SessionSummary[];
 }) {
-  const automations = useAutomations();
+  const automations = useDatabaseQuery({
+    collection: "automations",
+    where: { id: automationId },
+  });
   const empty = useStyles(styles.empty);
   const automation = automations?.find((item) => item.id === automationId);
   if (automations === undefined)
@@ -132,30 +140,28 @@ function AutomationView({
   automation,
   sessions,
 }: {
-  automation: Automation;
+  automation: WorkspaceSchema["automations"];
   sessions: SessionSummary[];
 }) {
   const api = useApi();
   const workspace = useWorkspacePanes();
-  const queryClient = useQueryClient();
   const [editing, setEditing] = useState(false);
   const [removing, setRemoving] = useState(false);
-  const runsKey = ["automationRuns", automation.id];
   const sourceKey = [
     "automationSource",
     automation.id,
     automation.revision,
     automation.enabled,
   ];
-  const runs = useQuery({
-    queryKey: [...runsKey, automation.lastRun?.id, automation.lastRun?.status],
-    queryFn: async () =>
-      await api.automations.listRuns({
-        automationId: automation.id,
-        limit: 100,
-      }),
-    refetchInterval: 2000,
+  // Tandem has no not-equal predicate. Keep ordered metadata for this pane so
+  // "Last run" still finds the last non-skipped run beyond the displayed 100.
+  const runs = useDatabaseQuery({
+    collection: "automationRuns",
+    where: { automationId: automation.id },
+    select: automationRunSelect,
+    orderBy: { startedAt: "desc", sequence: "desc" },
   });
+  const lastRun = runs?.find((run) => run.status !== "skipped");
   const source = useQuery({
     queryKey: sourceKey,
     queryFn: async () =>
@@ -166,9 +172,6 @@ function AutomationView({
   const runNow = useMutation({
     mutationFn: async () =>
       await api.automations.runNow({ automationId: automation.id }),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: runsKey });
-    },
   });
   const toggle = useMutation({
     mutationFn: async () =>
@@ -200,10 +203,10 @@ function AutomationView({
       ? automation.activation.schedule.timezone
       : new Intl.DateTimeFormat().resolvedOptions().timeZone;
   const actionError =
-    runNow.error ?? toggle.error ?? remove.error ?? runs.error ?? source.error;
+    runNow.error ?? toggle.error ?? remove.error ?? source.error;
   const pending =
     source.data?.deliveries.filter(
-      (delivery) => !runs.data?.some((run) => run.eventId === delivery.eventId),
+      (delivery) => !runs?.some((run) => run.eventId === delivery.eventId),
     ) ?? [];
   const actionLabel =
     automation.action.type === "runAgent" ? "Agent prompt" : "Script";
@@ -286,9 +289,9 @@ function AutomationView({
             <div>
               <dt>Last run</dt>
               <dd>
-                {automation.lastRun === undefined
+                {lastRun === undefined
                   ? "Never"
-                  : `${statusLabels[automation.lastRun.status]} · ${formatTime(automation.lastRun.startedAt, timezone)}`}
+                  : `${statusLabels[lastRun.status]} · ${formatTime(lastRun.startedAt, timezone)}`}
               </dd>
             </div>
             <div>
@@ -325,9 +328,9 @@ function AutomationView({
         </section>
         <section className={section} aria-label="Run history">
           <h3 className={sectionTitle}>Run history</h3>
-          {runs.data === undefined ? (
+          {runs === undefined ? (
             <p>Loading runs…</p>
-          ) : runs.data.length === 0 && pending.length === 0 ? (
+          ) : runs.length === 0 && pending.length === 0 ? (
             <p>No runs yet. Use Run now to test the saved action.</p>
           ) : (
             <ul className={list}>
@@ -350,7 +353,7 @@ function AutomationView({
                   )}
                 </li>
               ))}
-              {runs.data?.map((run) => {
+              {runs.slice(0, 100).map((run) => {
                 const session = sessions.find(
                   (item) => item.sessionId === run.sessionId,
                 );
@@ -429,7 +432,15 @@ function AutomationView({
       </div>
       {editing && (
         <AutomationEditor
-          automation={automation}
+          automation={{
+            ...automation,
+            createdAt: new Date(automation.createdAt).toISOString(),
+            updatedAt: new Date(automation.updatedAt).toISOString(),
+            nextRunAt:
+              automation.nextRunAt === undefined
+                ? undefined
+                : new Date(automation.nextRunAt).toISOString(),
+          }}
           onClose={() => setEditing(false)}
           onSaved={() => setEditing(false)}
         />
@@ -438,7 +449,7 @@ function AutomationView({
   );
 }
 
-function activationLabel(automation: Automation) {
+function activationLabel(automation: Pick<Automation, "activation">) {
   return automation.activation.type === "routine"
     ? "Routine"
     : automation.activation.trigger.type === "gmail"
@@ -453,7 +464,7 @@ function describeSchedule(cron: string) {
   if (described instanceof Error) return cron;
   return described;
 }
-function formatTime(time: string, timezone: string) {
+function formatTime(time: string | number, timezone: string) {
   return new Intl.DateTimeFormat(undefined, {
     timeZone: timezone,
     month: "short",

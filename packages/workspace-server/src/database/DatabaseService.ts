@@ -47,7 +47,25 @@ export class DatabaseService {
     this.query = this.tandem.query.bind(this.tandem);
     this.subscribe = this.tandem.subscribe.bind(this.tandem);
     this.connect = this.tandem.connect.bind(this.tandem);
-    this.pull = this.tandem.pull.bind(this.tandem);
+    this.pull = async (args) => {
+      const result = await this.tandem.pull(args);
+      // Tandem 0.3 scan windows collect complete records, even with select.
+      // Execution data stays available to server queries, never client sync.
+      return {
+        ...result,
+        patch: {
+          ...result.patch,
+          set: result.patch.set?.map((record) => {
+            if (record.collection !== "automationRuns") return record;
+            const value = { ...record.value };
+            delete value.snapshot;
+            delete value.payload;
+            delete value.payloadHash;
+            return { ...record, value };
+          }),
+        },
+      };
+    };
   }
 
   static async open(input: Parameters<typeof DatabaseClient.open>[0]) {

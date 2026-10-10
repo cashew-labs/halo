@@ -25,8 +25,11 @@ export function haloSchemaToTandemSchema<Definition extends Schema>(
   const relations = Object.fromEntries(
     Object.entries(definitions).map(([name, table]) => [name, table.relations]),
   ) as {
-    [Name in keyof Definition & string]: Definition[Name]["relations"];
-  } & RelationsInput<SchemaRecords<Definition>>;
+    [Name in keyof Definition & string]: Extract<
+      Definition[Name]["relations"],
+      NonNullable<RelationsInput<SchemaRecords<Definition>>[Name]>
+    >;
+  };
   const schema = defineSchema(collections);
   return { schema, relations: defineRelations(schema, () => relations) };
 }

@@ -1,4 +1,5 @@
 export { createWorkspaceRemote } from "./database/createWorkspaceRemote.js";
+export { automationRunSelect } from "./database/schema/automations.js";
 export {
   haloSchema,
   haloSchemaToTandemSchema,
