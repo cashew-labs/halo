@@ -42,6 +42,16 @@ export type IntegrationSetup = IntegrationSetupCatalogEntry & {
   connection?: IntegrationConnection;
   message?: string;
 };
+// What happened to the provider's grant when a connection was removed.
+export type ConnectionRevocation =
+  // The provider no longer grants Halo access to the account.
+  | "revoked"
+  // Another connection uses the same grant, so access was kept for it.
+  | "shared"
+  // Halo cannot revoke access for this kind of connection.
+  | "not_supported"
+  // The provider did not confirm the revocation.
+  | "failed";
 export type IntegrationConnection = {
   address: string;
   integration: string;
@@ -244,6 +254,20 @@ export const controlPlaneContract = publicProcedure.router({
         ),
       )
       .output(type<void>()),
+    // Removes a connection, its tools and its stored credentials.
+    removeConnection: authenticatedProcedure
+      .input(
+        validated(
+          Type.Object(
+            {
+              integration: Type.String({ minLength: 1, maxLength: 256 }),
+              name: Type.String({ minLength: 1, maxLength: 128 }),
+            },
+            { additionalProperties: false },
+          ),
+        ),
+      )
+      .output(type<{ revocation: ConnectionRevocation }>()),
     registerOpenAPI: authenticatedProcedure
       .input(
         validated(

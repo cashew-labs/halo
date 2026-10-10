@@ -168,6 +168,22 @@ async function run() {
                     .cancelSetup(input, { signal: AbortSignal.timeout(10_000) })
                     .then(() => undefined)
                     .catch(failed),
+                // coverage-exempt: host wiring, like catalog and setup above
+                connections: async () =>
+                  await client.integrations
+                    .connections(undefined, {
+                      signal: AbortSignal.timeout(10_000),
+                    })
+                    .catch(failed),
+                removeConnection: async (input: {
+                  integration: string;
+                  name: string;
+                }) =>
+                  await client.integrations
+                    .removeConnection(input, {
+                      signal: AbortSignal.timeout(30_000),
+                    })
+                    .catch(failed),
               };
             })(),
       llmApi,

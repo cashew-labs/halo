@@ -858,6 +858,85 @@ serverTest(
 );
 
 serverTest(
+  "lists connections and removes one only after the person approves",
+  async ({ createServer, llm }) => {
+    const removed: { integration: string; name: string }[] = [];
+    const server = createServer({
+      remoteConnections: {
+        catalog: async () => [],
+        startSetup: async () => new Error("unused"),
+        setup: async () => new Error("unused"),
+        cancelSetup: async () => undefined,
+        connections: async () => [
+          {
+            address: "tools.google_gmail.user.personal",
+            integration: "google_gmail",
+            name: "personal",
+            accountLabel: "me@example.com",
+          },
+        ],
+        removeConnection: async (input) => {
+          removed.push(input);
+          return { revocation: "revoked" as const };
+        },
+      },
+    });
+    await server.start();
+    const session = await server.rpc.thread.new();
+    const prompting = server.promptAndWait({
+      ...session,
+      text: "Remove my personal Gmail",
+    });
+    const js = `const listed = await tools.halo.listConnections({});
+const [connection] = listed.data.connections;
+return await tools.halo.removeConnection({ integration: connection.integration, name: connection.name });`;
+    await llm.respond(
+      m.tool.start("exec", { id: "remove-request", arguments: { js } }),
+    );
+    await llm.respond(m.assistant("Approve the removal."));
+    await prompting;
+    const approval = sessionToolExecutions(
+      await server.rpc.thread.snapshot(session),
+    ).flatMap((execution) =>
+      execution.type === "exec" ? execution.approvals : [],
+    )[0]!;
+    expect(approval).toMatchObject({
+      status: "pending",
+      toolPath: "halo.removeConnection",
+      arguments: { integration: "google_gmail", name: "personal" },
+    });
+    expect(removed).toEqual([]);
+    await server.rpc.thread.respondToToolApproval({
+      ...session,
+      approvalId: approval.id,
+      decision: "allow",
+    });
+    await llm.respond(
+      m.tool.start("exec", { id: "remove-retry", arguments: { js } }),
+    );
+    await llm.respond(m.assistant("Removed."));
+    await expect
+      .poll(async () =>
+        sessionToolExecutions(await server.rpc.thread.snapshot(session)).find(
+          (execution) => execution.id === "remove-retry",
+        ),
+      )
+      .toMatchObject({
+        status: "completed",
+        result: {
+          details: {
+            status: "completed",
+            result: { ok: true, data: { revocation: "revoked" } },
+          },
+        },
+      });
+    expect(removed).toEqual([
+      { integration: "google_gmail", name: "personal" },
+    ]);
+  },
+);
+
+serverTest(
   "shows a remote setup card without per-action approval or a startup catalog",
   async ({ createServer, llm }) => {
     const setup = { cancelled: false };
@@ -873,6 +952,10 @@ serverTest(
         },
         setup: async () => ({
           status: setup.cancelled ? "cancelled" : "awaiting_credentials",
+        }),
+        connections: async () => [],
+        removeConnection: async () => ({
+          revocation: "not_supported" as const,
         }),
         cancelSetup: async () => {
           setup.cancelled = true;
@@ -1711,6 +1794,10 @@ serverTest(
           };
         },
         setup: async () => ({ status }),
+        connections: async () => [],
+        removeConnection: async () => ({
+          revocation: "not_supported" as const,
+        }),
         cancelSetup: async () => undefined,
       },
     });

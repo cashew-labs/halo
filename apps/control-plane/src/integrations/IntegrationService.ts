@@ -42,6 +42,7 @@ import {
   type FirstPartyOAuthClientConfig,
 } from "@executor-js/sdk/core";
 import type {
+  ConnectionRevocation,
   IntegrationConnection,
   IntegrationInvocation,
   IntegrationJson,
@@ -56,6 +57,7 @@ import * as errore from "errore";
 import type { CredentialService } from "../credentials/CredentialService.js";
 import type { DatabaseService, DatabaseClient } from "../DatabaseService.js";
 import { withAccountChoice } from "./accountChoice.js";
+import { GmailApi } from "../automations/GmailApi.js";
 import { createExecutorDatabase } from "./createExecutorDatabase.js";
 
 // Executor 1.6 rewrites Meet's Discovery URL to a legacy endpoint returning 404.
@@ -165,6 +167,7 @@ export class IntegrationService {
   private readonly allowLocalUrls: boolean;
   private readonly gmailTransport = new AsyncLocalStorage<boolean>();
   private readonly gmailApiOrigin: string | undefined;
+  private readonly googleRevokeUrl: string;
 
   private constructor(ctx: {
     database: Exclude<
@@ -178,8 +181,10 @@ export class IntegrationService {
     firstPartyOAuthClients?: readonly FirstPartyOAuthClientConfig[];
     allowLocalUrls?: boolean;
     gmailApiOrigin?: string;
+    googleRevokeUrl?: string;
   }) {
     this.database = ctx.database;
+    this.googleRevokeUrl = ctx.googleRevokeUrl ?? googleRevokeUrl;
     this.credentials = ctx.credentials;
     this.setupDb = ctx.setupDb;
     this.publicOrigin = ctx.publicOrigin;
@@ -240,6 +245,7 @@ export class IntegrationService {
     firstPartyOAuthClients?: readonly FirstPartyOAuthClientConfig[];
     allowLocalUrls?: boolean;
     gmailApiOrigin?: string;
+    googleRevokeUrl?: string;
   }) {
     const database = await createExecutorDatabase(ctx.db);
     if (database instanceof Error) return database;
@@ -252,6 +258,7 @@ export class IntegrationService {
       firstPartyOAuthClients: ctx.firstPartyOAuthClients,
       allowLocalUrls: ctx.allowLocalUrls,
       gmailApiOrigin: ctx.gmailApiOrigin,
+      googleRevokeUrl: ctx.googleRevokeUrl,
     });
     const initialized = await service.sql(
       "CREATE TABLE IF NOT EXISTS halo_integration_setup (setup_id TEXT PRIMARY KEY, user_id TEXT NOT NULL, integration TEXT NOT NULL, connection_name TEXT NOT NULL, data TEXT NOT NULL, status TEXT NOT NULL, expires_at BIGINT NOT NULL, oauth_state TEXT)",
@@ -906,14 +913,131 @@ export class IntegrationService {
       if (saved instanceof Error) return saved;
       return { setupUrl: this.setupUrl(row.setup_id) };
     }
+    const labeled = await this.labelAccount(row.user_id, connection);
+    if (labeled instanceof Error) console.warn(labeled);
     const saved = await this.confirmSetup({
       userId: row.user_id,
       setupId: row.setup_id,
       setup,
-      connection: safeConnection(connection),
+      connection: safeConnection(
+        labeled instanceof Error ? connection : labeled,
+      ),
     });
     if (saved instanceof Error) console.warn(saved);
     return { setupUrl: this.setupUrl(row.setup_id) };
+  }
+
+  // Records the mailbox a Gmail connection reads, so people and agents can tell
+  // connections apart and find one by account.
+  private async labelAccount(userId: string, connection: Connection) {
+    if (connection.integration !== "google_gmail") return connection;
+    const profile = await new GmailApi({ integrations: this }).profile({
+      ownerId: userId,
+      connectionAddress: connection.address,
+    });
+    if (profile instanceof Error) return profile;
+    return await this.withUser(userId, (executor) =>
+      executor.connections.update(
+        {
+          owner: connection.owner,
+          integration: connection.integration,
+          name: connection.name,
+        },
+        { identityLabel: profile.emailAddress.toLowerCase() },
+      ),
+    );
+  }
+
+  // Removes a connection, its tools and its stored OAuth tokens. Google grants
+  // access per Google account and app, not per connection, so access is revoked
+  // only when no other connection may share the grant.
+  async removeConnection(ctx: {
+    userId: string;
+    integration: string;
+    name: string;
+  }) {
+    const ref = {
+      owner: Owner.make("user"),
+      integration: IntegrationSlug.make(ctx.integration),
+      name: ConnectionName.make(ctx.name),
+    };
+    const found = await this.withUser(ctx.userId, (executor) =>
+      Effect.gen(function* () {
+        const connection = yield* executor.connections.get(ref);
+        if (connection === null) return undefined;
+        const clients = yield* executor.oauth.listClients();
+        const client = clients.find(
+          (candidate) =>
+            candidate.slug === connection.oauthClient &&
+            candidate.owner === connection.oauthClientOwner,
+        );
+        const others = yield* executor.connections.list({ owner: ref.owner });
+        const sharesGrant = others.some(
+          (other) =>
+            other.address !== connection.address &&
+            other.oauthClient === connection.oauthClient &&
+            other.oauthClientOwner === connection.oauthClientOwner &&
+            // Without both accounts known, assume they may share the grant.
+            (!other.identityLabel ||
+              !connection.identityLabel ||
+              other.identityLabel === connection.identityLabel),
+        );
+        return {
+          connection,
+          google:
+            client !== undefined &&
+            new URL(client.authorizationUrl).host === "accounts.google.com",
+          sharesGrant,
+        };
+      }),
+    );
+    if (found instanceof Error) return found;
+    if (found === undefined)
+      return new IntegrationSetupError({ detail: "Connection not found" });
+    const tokens = oauthTokenIds(ctx.integration, ctx.name);
+    const revocation: ConnectionRevocation = !found.google
+      ? "not_supported"
+      : found.sharesGrant
+        ? "shared"
+        : await this.revokeGoogleGrant(ctx.userId, tokens);
+    const removed = await this.withUser(ctx.userId, (executor) =>
+      executor.connections.remove(ref),
+    );
+    if (removed instanceof Error) return removed;
+    // Executor removes the connection but leaves its tokens in Halo's store.
+    for (const token of [tokens.access, tokens.refresh]) {
+      const deleted = await this.credentials.delete(ctx.userId, token);
+      if (deleted instanceof Error) return deleted;
+    }
+    return { revocation };
+  }
+
+  private async revokeGoogleGrant(
+    userId: string,
+    tokens: { access: string; refresh: string },
+  ): Promise<ConnectionRevocation> {
+    const refresh = await this.credentials.get(userId, tokens.refresh);
+    if (refresh instanceof Error) return "failed";
+    const access =
+      refresh === undefined
+        ? await this.credentials.get(userId, tokens.access)
+        : undefined;
+    if (access instanceof Error) return "failed";
+    const token = refresh ?? access;
+    if (token === undefined) return "failed";
+    const response = await fetch(this.googleRevokeUrl, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ token }),
+      signal: AbortSignal.timeout(10_000),
+    }).catch(
+      (cause) => new IntegrationServiceError({ detail: "revoke", cause }),
+    );
+    if (response instanceof Error) return "failed";
+    // Google answers invalid_token when the grant is already gone.
+    if (response.ok) return "revoked";
+    const body = await response.text().catch(() => "");
+    return body.includes("invalid_token") ? "revoked" : "failed";
   }
 
   async registerOpenAPI(ctx: {
@@ -1642,6 +1766,15 @@ function setupCatalogEntry(
             ],
     })),
   };
+}
+
+const googleRevokeUrl = "https://oauth2.googleapis.com/revoke";
+
+// Executor stores a user connection's OAuth tokens under these credential IDs
+// (accessItemId and refreshItemIdFor in @executor-js/sdk 1.6).
+function oauthTokenIds(integration: string, name: string) {
+  const access = `oauth:user:${integration}:${name}`;
+  return { access, refresh: `${access}:refresh` };
 }
 
 function safeConnection(connection: Connection): IntegrationConnection {

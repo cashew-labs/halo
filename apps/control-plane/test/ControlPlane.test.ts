@@ -221,6 +221,9 @@ const controlPlaneTest = test.extend<{
     origin: string;
     requests: { url: string | undefined; authorization: string | undefined }[];
     disconnected: string[];
+    revoked: string[];
+    // Status 0 drops the connection instead of answering.
+    revokeResponse: { status: number; body: string };
     gmail: {
       enabled: boolean;
       cursor: number;
@@ -496,6 +499,8 @@ const controlPlaneTest = test.extend<{
       apiKey: string | string[] | undefined;
     }[] = [];
     const disconnected: string[] = [];
+    const revoked: string[] = [];
+    const revokeResponse = { status: 200, body: "" };
     const server = http.createServer((request, response) => {
       requests.push({
         url: request.url,
@@ -671,6 +676,17 @@ const controlPlaneTest = test.extend<{
         );
         return;
       }
+      if (request.url === "/google-revoke") {
+        let body = "";
+        request.on("data", (chunk) => (body += String(chunk)));
+        request.on("end", () => {
+          revoked.push(new URLSearchParams(body).get("token") ?? "");
+          if (revokeResponse.status === 0) request.socket.destroy();
+          else
+            response.writeHead(revokeResponse.status).end(revokeResponse.body);
+        });
+        return;
+      }
       if (request.url === "/oauth/token") {
         response.writeHead(200, { "content-type": "application/json" }).end(
           JSON.stringify({
@@ -748,6 +764,8 @@ const controlPlaneTest = test.extend<{
       origin: `http://127.0.0.1:${address.port}`,
       requests,
       disconnected,
+      revoked,
+      revokeResponse,
       gmail,
     });
   },
@@ -821,6 +839,7 @@ const controlPlaneTest = test.extend<{
       integrationEncryptionKey,
       allowLocalIntegrationUrls,
       gmailApiOrigin: integrationApi.origin,
+      googleRevokeUrl: `${integrationApi.origin}/google-revoke`,
       gmailPushAuth: new OAuth2Client({
         endpoints: {
           oauth2FederatedSignonPemCertsUrl: `${integrationApi.origin}/google-certs`,
@@ -1230,6 +1249,218 @@ controlPlaneTest(
     expect((await opened.integrations.setup({ setupId })).status).toMatch(
       /^(ready|confirming)$/,
     );
+  },
+);
+
+controlPlaneTest(
+  "removes connections and revokes a Google grant only when no other connection shares it",
+  async ({ plane, authenticatedRpc, appDataDir, integrationApi, mcpApi }) => {
+    await authenticatedRpc.workspace.ensure();
+    const runtime = createControlPlaneRpcClient(
+      plane.origin,
+      (await readRuntimeSettings(appDataDir)).token,
+    );
+    const session = await authenticatedRpc.auth.session();
+    if (session.status !== "signed-in") throw new Error("Missing session");
+    const userId = session.session.user.id;
+    const created = await plane.integrations!.withUser(userId, (executor) =>
+      Effect.gen(function* () {
+        yield* executor.mcp.addServer({
+          name: "MCP",
+          slug: "remove_mcp",
+          endpoint: mcpApi.publicEndpoint,
+          auth: { kind: "none" },
+        });
+        yield* executor.connections.create({
+          owner: Owner.make("user"),
+          integration: IntegrationSlug.make("remove_mcp"),
+          name: ConnectionName.make("plain"),
+          template: AuthTemplateSlug.make("none"),
+          values: {},
+        });
+        const client = yield* executor.oauth.createClient({
+          owner: Owner.make("user"),
+          slug: OAuthClientSlug.make("google_remove"),
+          authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+          tokenUrl: `${integrationApi.origin}/oauth/token`,
+          grant: "authorization_code",
+          clientId: "fixture",
+          clientSecret: "fixture-secret",
+        });
+        for (const name of ["personal", "work"]) {
+          const started = yield* executor.oauth.start({
+            client,
+            clientOwner: Owner.make("user"),
+            owner: Owner.make("user"),
+            name: ConnectionName.make(name),
+            integration: IntegrationSlug.make("google_gmail"),
+            template: AuthTemplateSlug.make("googleOAuth2"),
+            redirectUri: `${plane.origin}/api/integrations/oauth/callback`,
+          });
+          if (started.status !== "redirect")
+            throw new Error("Expected Google OAuth redirect");
+          yield* executor.oauth.complete({
+            state: started.state,
+            code: `fixture-code-${name}`,
+          });
+        }
+      }),
+    );
+    if (created instanceof Error) throw created;
+    using database = new DatabaseSync(join(appDataDir, "control-plane.db"));
+    const tokens = () =>
+      database
+        .prepare(
+          "SELECT credential_id FROM credential WHERE credential_id LIKE 'oauth:user:google_gmail:%' ORDER BY credential_id",
+        )
+        .all()
+        .map((row) => row.credential_id);
+    expect(tokens()).toEqual([
+      "oauth:user:google_gmail:personal",
+      "oauth:user:google_gmail:personal:refresh",
+      "oauth:user:google_gmail:work",
+      "oauth:user:google_gmail:work:refresh",
+    ]);
+    // The workspace can list connections so the agent can find one by account.
+    expect(
+      (await runtime.integrations.connections()).map(
+        (connection) => `${connection.integration}.${connection.name}`,
+      ),
+    ).toEqual(
+      expect.arrayContaining([
+        "remove_mcp.plain",
+        "google_gmail.personal",
+        "google_gmail.work",
+      ]),
+    );
+    expect(
+      await runtime.integrations.removeConnection({
+        integration: "remove_mcp",
+        name: "plain",
+      }),
+    ).toEqual({ revocation: "not_supported" });
+    // Another Google connection may share the account's grant, so it stays.
+    expect(
+      await runtime.integrations.removeConnection({
+        integration: "google_gmail",
+        name: "personal",
+      }),
+    ).toEqual({ revocation: "shared" });
+    expect(integrationApi.revoked).toEqual([]);
+    expect(
+      await authenticatedRpc.integrations.removeConnection({
+        integration: "google_gmail",
+        name: "work",
+      }),
+    ).toEqual({ revocation: "revoked" });
+    expect(integrationApi.revoked).toEqual(["fixture-refresh-token"]);
+    expect(tokens()).toEqual([]);
+    expect(
+      (await authenticatedRpc.integrations.connections()).filter(
+        (connection) =>
+          connection.integration === "google_gmail" ||
+          connection.integration === "remove_mcp",
+      ),
+    ).toEqual([]);
+    await expect(
+      authenticatedRpc.integrations.removeConnection({
+        integration: "google_gmail",
+        name: "work",
+      }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+
+    // Connects a Google account through the named client, with an optional
+    // recorded account.
+    const connect = async (name: string, client: string, label?: string) => {
+      const result = await plane.integrations!.withUser(userId, (executor) =>
+        Effect.gen(function* () {
+          const started = yield* executor.oauth.start({
+            client: OAuthClientSlug.make(client),
+            clientOwner: Owner.make("user"),
+            owner: Owner.make("user"),
+            name: ConnectionName.make(name),
+            integration: IntegrationSlug.make("google_gmail"),
+            template: AuthTemplateSlug.make("googleOAuth2"),
+            redirectUri: `${plane.origin}/api/integrations/oauth/callback`,
+          });
+          if (started.status !== "redirect")
+            throw new Error("Expected Google OAuth redirect");
+          yield* executor.oauth.complete({
+            state: started.state,
+            code: `fixture-code-${name}`,
+          });
+          if (label !== undefined)
+            yield* executor.connections.update(
+              {
+                owner: Owner.make("user"),
+                integration: IntegrationSlug.make("google_gmail"),
+                name: ConnectionName.make(name),
+              },
+              { identityLabel: label },
+            );
+        }),
+      );
+      if (result instanceof Error) throw result;
+    };
+    const remove = async (name: string) =>
+      (
+        await authenticatedRpc.integrations.removeConnection({
+          integration: "google_gmail",
+          name,
+        })
+      ).revocation;
+
+    // Connections recorded for different accounts do not share a grant.
+    await connect("alpha", "google_remove", "a@example.com");
+    await connect("beta", "google_remove", "b@example.com");
+    expect(await remove("alpha")).toBe("revoked");
+    // Connections recorded for the same account share it.
+    await connect("gamma", "google_remove", "b@example.com");
+    expect(await remove("beta")).toBe("shared");
+    // A connection made through another OAuth app has its own grant.
+    const otherClient = await plane.integrations!.withUser(userId, (executor) =>
+      executor.oauth.createClient({
+        owner: Owner.make("user"),
+        slug: OAuthClientSlug.make("google_other"),
+        authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+        tokenUrl: `${integrationApi.origin}/oauth/token`,
+        grant: "authorization_code",
+        clientId: "other",
+        clientSecret: "other-secret",
+      }),
+    );
+    if (otherClient instanceof Error) throw otherClient;
+    await connect("delta", "google_other");
+    expect(await remove("gamma")).toBe("revoked");
+
+    // Google reports invalid_token for a grant that is already gone.
+    integrationApi.revokeResponse.status = 400;
+    integrationApi.revokeResponse.body = '{"error":"invalid_token"}';
+    await connect("epsilon", "google_remove");
+    expect(await remove("delta")).toBe("revoked");
+    integrationApi.revokeResponse.body = '{"error":"invalid_request"}';
+    await connect("zeta", "google_other");
+    expect(await remove("epsilon")).toBe("failed");
+    integrationApi.revokeResponse.status = 0;
+    await connect("eta", "google_remove");
+    expect(await remove("zeta")).toBe("failed");
+    integrationApi.revokeResponse.status = 200;
+    integrationApi.revokeResponse.body = "";
+
+    // Without a refresh token, the access token is revoked.
+    integrationApi.revoked.length = 0;
+    database
+      .prepare("DELETE FROM credential WHERE credential_id = ?")
+      .run("oauth:user:google_gmail:eta:refresh");
+    expect(await remove("eta")).toBe("revoked");
+    expect(integrationApi.revoked).toEqual(["fixture-google-token"]);
+    // Without any stored token, nothing can be revoked.
+    await connect("theta", "google_remove");
+    database
+      .prepare("DELETE FROM credential WHERE credential_id LIKE ?")
+      .run("oauth:user:google_gmail:theta%");
+    expect(await remove("theta")).toBe("failed");
+    expect(tokens()).toEqual([]);
   },
 );
 
@@ -2190,9 +2421,17 @@ controlPlaneTest(
     csrfHeaders.set("origin", "https://untrusted.example");
     const csrf = createControlPlaneRpcClient(plane.origin, csrfHeaders);
     expect(await bob.integrations.connections()).toEqual([]);
-    await expect(client.integrations.connections()).rejects.toMatchObject({
-      code: "UNAUTHORIZED",
-    });
+    // The owner's workspace lists only the owner's connections.
+    expect(
+      (await client.integrations.connections()).map(
+        (connection) => `${connection.integration}.${connection.name}`,
+      ),
+    ).toEqual(
+      expect.arrayContaining(["approval_mcp.personal", "approval_api.other"]),
+    );
+    await expect(
+      createControlPlaneRpcClient(plane.origin).integrations.connections(),
+    ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
     await expect(csrf.integrations.connections()).rejects.toMatchObject({
       code: "FORBIDDEN",
     });
@@ -4024,6 +4263,8 @@ controlPlaneTest(
     });
     if (ready.status !== "ready" || ready.connection === undefined)
       throw new Error("Gmail setup did not finish");
+    // The connection records the mailbox it reads.
+    expect(ready.connection.accountLabel).toBe("mailbox@example.net");
     expect(await agent.rpc.automations.gmailConnections()).toMatchObject([
       { address: ready.connection.address },
     ]);

@@ -69,6 +69,10 @@ import type {
   ToolIdentity,
 } from "@get-halo/client";
 import { addConnectionCard } from "./connectionCards.js";
+import {
+  listConnectionsResult,
+  removeConnectionResult,
+} from "./connectionTools.js";
 import { createExecutorDatabase } from "./createExecutorDatabase.js";
 import type { DatabaseClient } from "../../storage/DatabaseClient.js";
 import type {
@@ -111,7 +115,19 @@ export class ToolInputRequiredError extends errore.createTaggedError({
 type HaloToolsPluginOptions = {
   plugins: readonly HaloToolPlugin[];
   executionContext: AsyncLocalStorage<ToolExecutionContext>;
+  connections?: RemoteConnectionBackend;
 };
+
+const removeConnectionInputSchema = Type.Object({
+  integration: Type.String({
+    minLength: 1,
+    description: "The connection's integration from halo.listConnections",
+  }),
+  name: Type.String({
+    minLength: 1,
+    description: "The connection's name from halo.listConnections",
+  }),
+});
 
 const showConnectionCardInputSchema = Type.Object({
   integration: Type.String({
@@ -215,6 +231,36 @@ const haloToolsPlugin = definePlugin((options?: HaloToolsPluginOptions) => {
                   integration: args.integration,
                 });
                 return ToolResult.ok({ status: "shown" });
+              }),
+          }),
+          tool({
+            name: "listConnections",
+            description:
+              "List the accounts connected to Halo's integrations, such as Gmail. Each entry has the integration, the connection name and, when known, the account. Use it to find the connection a person names.",
+            inputSchema: toExecutorSchema(Type.Object({})),
+            execute: () =>
+              Effect.promise(
+                async () => await listConnectionsResult(options.connections),
+              ),
+          }),
+          tool({
+            name: "removeConnection",
+            description:
+              "Remove a connected account, its tools and its stored credentials. Halo also revokes the provider's access when no other connection uses the same account. To replace an account, remove it, then show a connection card for the new account. The person approves each removal.",
+            inputSchema: toExecutorSchema(removeConnectionInputSchema),
+            annotations: {
+              requiresApproval: true,
+              approvalDescription: "Remove this connected account",
+            },
+            execute: (args) =>
+              Effect.promise(async () => {
+                // coverage-exempt: Executor validates the input schema first.
+                if (!Value.Check(removeConnectionInputSchema, args))
+                  return ToolResult.fail({
+                    code: "invalid_tool_arguments",
+                    message: "Expected an integration and a connection name",
+                  });
+                return await removeConnectionResult(options.connections, args);
               }),
           }),
         ],
@@ -870,6 +916,7 @@ async function createToolRuntime(
         haloToolsPlugin({
           plugins: input.toolPlugins,
           executionContext,
+          connections: input.remoteConnections,
         }),
       ] as const,
       providers: [],

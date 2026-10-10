@@ -329,12 +329,24 @@ export const controlPlaneRpcRouter = os.router({
         });
         if (result instanceof Error) return integrationError(result);
       }),
+    // Agents list connections to find the one a person names.
     connections: os.integrations.connections
-      .use(loadIntegrationUser)
+      .use(loadIntegrationOwner)
       .handler(async ({ context }) => {
         const result = await context.integrations.connections(
           context.ownerUserId,
         );
+        if (result instanceof Error) return integrationError(result);
+        return result;
+      }),
+    // The workspace asks the person to approve removal before calling this.
+    removeConnection: os.integrations.removeConnection
+      .use(loadIntegrationOwner)
+      .handler(async ({ context, input }) => {
+        const result = await context.integrations.removeConnection({
+          ...input,
+          userId: context.ownerUserId,
+        });
         if (result instanceof Error) return integrationError(result);
         return result;
       }),

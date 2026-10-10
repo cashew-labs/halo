@@ -9,6 +9,11 @@ import {
   type HaloConnectionState,
 } from "@get-halo/client";
 
+import type {
+  ConnectionRevocation,
+  IntegrationConnection,
+} from "@get-halo/shared/controlPlaneContract";
+
 const setupTtlMs = 15 * 60 * 1_000;
 
 export class ConnectionSessionMismatchError extends errore.createTaggedError({
@@ -55,6 +60,11 @@ export type RemoteConnectionBackend = {
       }
   >;
   cancelSetup(input: { setupId: string }): Promise<Error | undefined>;
+  connections(): Promise<Error | IntegrationConnection[]>;
+  removeConnection(input: {
+    integration: string;
+    name: string;
+  }): Promise<Error | { revocation: ConnectionRevocation }>;
 };
 
 export class ConnectionService {
