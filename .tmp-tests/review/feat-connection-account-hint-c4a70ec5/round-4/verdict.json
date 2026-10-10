@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The scope is now smaller: the account hint is removed. Every Google authorization URL now gets `prompt=select_account consent`, and unnamed connection cards carry `newConnection: true` so that starting them adds a connection without reconnecting the \"default\" placeholder. Durable tests cover the Google prompt through submitSetup and the released-client placeholder path. Temp tests cover the marker, card merging, and reconnecting a connection actually named \"default\". All tests pass, every changed line is covered, and no findings remain.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 4,
+  "headSha": "eae541cb16d4ed332cc3f56cbe3a8a0bf4b73a7a",
+  "treeHash": "7b04e207969f64d1b6bdd1094ef094a13d25da58",
+  "codeTree": "ca3212dc33f1f3da0bc551c9586257afce9d2a0c",
+  "coverage": {
+    "executable": 11,
+    "covered": 11,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-10T01:33:11.982Z"
+}

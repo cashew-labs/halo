@@ -1,0 +1,56 @@
+{
+  "status": "changes_requested",
+  "summary": "The change adds an optional `account` hint to control-plane connection cards. The hint flows through the workspace server and control plane to Google's `login_hint` and `prompt=select_account`, and the card and setup page show it. The change also stops sending the \"default\" placeholder name so that unnamed cards add a connection. It is not ready: the durable workspace suite fails because of the placeholder change, the string-equality mapping of the placeholder also catches explicitly named \"default\" connections, and several changed lines have no tests.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "test",
+      "file": "packages/workspace-server/test/workspace.test.ts",
+      "line": 1816,
+      "severity": "P0",
+      "body": "The durable run fails in \"released protocol 25 clients can connect new and saved integration cards\". ConnectionService now converts the `default` placeholder to `connectionName: undefined`, but this test still expects `{ integration: \"example\", connectionName: \"default\" }` to reach `startSetup`. Change the expectation to match the new contract: an unnamed released-client card must start setup without a connection name, so it adds a connection and does not reconnect `default`. The suite must pass."
+    },
+    {
+      "id": "F2",
+      "kind": "source",
+      "file": "packages/workspace-server/src/agent/runtime/ConnectionService.ts",
+      "line": 100,
+      "severity": "P1",
+      "body": "Comparing the request's `connectionName` to the string \"default\" cannot tell the compatibility placeholder from a name that was actually given. `connectionInput` in ToolRuntime.ts:1083-1087 copies `oauth.start({ name })` directly into `connectionName`. So when the agent calls `oauth.start({ name: \"default\", ... })` to reconnect an existing connection named `default`, the call now silently creates a new randomly named connection, and the broken `default` connection is left in place. Released clients have already created connections named `default` through unnamed cards, and those connections can no longer be reconnected. Mark the placeholder explicitly instead of relying on the string. For example, set `newConnection: true` on the compatibility object in `collectConnectionRequest` (the legacy schema already allows `newConnection`) and drop the name only when that marker is present."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "packages/web/src/IntegrationSetupPage.tsx:98-103 — the account hint appears when `data.account` is set and status is not \"ready\", and does not appear when status is \"ready\" or `account` is absent",
+      "tier": "tmp",
+      "rationale": "No test loads this file, so all six changed lines are uncovered."
+    },
+    {
+      "target": "packages/workspace-server/src/agent/runtime/ToolRuntime.ts:221-232 and :505 — showConnectionCard with `account` collects a request that carries the account; two cards for the same integration with the same account are deduplicated; cards with different accounts stay separate",
+      "tier": "tmp",
+      "rationale": "The coverage report lists these lines as uncovered. The durable server test runs out of process and never checks deduplication of identical account cards."
+    },
+    {
+      "target": "apps/control-plane/src/integrations/IntegrationService.ts:641-645 — the authorization URL for a Google setup started with `account` contains `login_hint=<account>` and `prompt=select_account consent`",
+      "tier": "tmp",
+      "rationale": "The tests check `withAccountChoice` alone but not that IntegrationService passes the stored `setup.account` into it. Nothing checks the startSetup → authorize wiring."
+    },
+    {
+      "target": "apps/workspace-server/src/main.ts:158",
+      "tier": "tmp",
+      "rationale": "This added line is a type-only annotation. Mark it coverage-exempt with that reason, or cover it, so that the coverage gate passes."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "0f0ce19f84e2ce4c4769fc1662aa385fbc4074c7",
+  "treeHash": "78dceb8167b6c87bec94cee1e693e778ff7b7f59",
+  "codeTree": "0f68c933b0fe45e3b90ee257b3944b8eda8579da",
+  "coverage": {
+    "executable": 28,
+    "covered": 17,
+    "exempt": 0,
+    "uncovered": 11
+  },
+  "createdAt": "2026-10-09T22:33:22.329Z"
+}
