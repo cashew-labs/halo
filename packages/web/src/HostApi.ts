@@ -7,6 +7,7 @@ import type {
 import type {
   ControlPlaneWorkspaceStatus,
   ControlPlaneSession,
+  IntegrationSetup,
 } from "@get-halo/shared/controlPlaneContract";
 import type { ShortcutId } from "./shortcuts.js";
 
@@ -25,6 +26,23 @@ export type AppInfo = {
 };
 
 export interface HostApi {
+  integrationSetup?: {
+    read(setupId: string): Promise<IntegrationSetup | Error>;
+    submit(input: {
+      setupId: string;
+      template: string;
+      values: Record<string, string>;
+    }): Promise<{ authorizationUrl?: string } | Error>;
+    cancel(setupId: string): Promise<void | Error>;
+    // Binds this browser to the setup with Halo's single-use handoff.
+    // coverage-exempt: type declarations
+    redeemHandoff(input: {
+      setupId: string;
+      handoff: string;
+    }): Promise<void | Error>;
+    // Signs in to the Halo account that requested the setup.
+    signIn(): Promise<ControlPlaneSession | Error | undefined>;
+  };
   getWorkspaceStatus?(): Promise<
     ControlPlaneWorkspaceStatus | Error | undefined
   >;

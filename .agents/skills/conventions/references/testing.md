@@ -2,11 +2,20 @@
 
 Start with what a consumer can do, drive that behavior through the package's public surface, and check the result they can observe.
 
-Do not write tests unless you are updating existing tests, adding coverage to an existing test file, or the user asks for them. When changing tests, extend the existing canonical test file and fixture where they fit.
+Do not add durable tests unless you are updating existing tests, adding coverage to an existing test file, or the user asks for them. When changing durable tests, extend the existing canonical test file and fixture where they fit. Temp tests are always allowed.
+
+## Choose the tier
+
+Tests belong to one of two tiers:
+
+- **Temp tests are the default.** Put them in a `.tmp-tests/` folder where the package's runner already finds tests, such as `src/.tmp-tests/` for Vitest, and name them like the package's other tests. The folder is gitignored: temp tests verify the current change while it is built and reviewed, and they never merge or run in CI. Cover every changed line with temp tests. Coverage counts only the durable tests the change edits plus every temp test, so when an existing durable test already exercises the change, add a temp test for the new behavior instead of making a no-op edit to the durable test.
+- **Durable tests are the exception.** They live in the locations below, are committed, and run in CI. Add or keep one only when it protects meaningful consumer behavior or a non-obvious invariant that could realistically regress, and state that rationale in the PR.
+
+The review tool (code-review-agent) runs each tier separately and passes the selected files to the runner itself, so a temp test must not import code from a durable test file. Put shared setup in the package's fixtures. Local `pnpm test` runs also pick up temp tests. In `apps/electron`, temp tests are Playwright E2Es in `e2e/.tmp-tests/` named `*.e2e.test.ts` that import `e2eTest` from `../e2eTest.js`; the review tool builds the app with source maps and collects main-process, renderer, and workspace-server coverage.
 
 ## Test value
 
-Prefer a smaller suite of durable tests over broad low-value coverage. Keep a test when it protects meaningful consumer behavior or a non-obvious invariant that could realistically regress. If a test mainly mirrors the implementation or would only fail when intentionally changing nearby code, it probably does not merit permanent coverage. Temporary tests are fine as implementation scaffolding, but should not be checked in.
+Prefer a smaller suite of durable tests over broad low-value coverage. Keep a durable test when it protects meaningful consumer behavior or a non-obvious invariant that could realistically regress. If a test mainly mirrors the implementation or would only fail when intentionally changing nearby code, it belongs in the temp tier, not the durable suite.
 
 ## Choose the consumer boundary
 

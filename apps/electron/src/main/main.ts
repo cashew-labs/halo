@@ -34,10 +34,7 @@ import {
 } from "./DesktopAuthentication.js";
 import { ControlPlaneAuth } from "./auth/ControlPlaneAuth.js";
 import { createAdcDesktopIdentity } from "./auth/createAdcDesktopIdentity.js";
-import {
-  closePendingOAuthCallbacks,
-  registerDesktopApi,
-} from "./api/registerDesktopApi.js";
+import { registerDesktopApi } from "./api/registerDesktopApi.js";
 import type { HaloRpcConnection } from "../shared/HaloRpcConnection.js";
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string;
 declare const MAIN_WINDOW_VITE_NAME: string;
@@ -247,9 +244,6 @@ app.on("window-all-closed", () => {
 
 app.on("will-quit", () => {
   appUpdates.close();
-  void closePendingOAuthCallbacks().catch((cause) => {
-    console.warn("OAuth callback close failed:", cause);
-  });
   logger.destroy();
 });
 
@@ -265,7 +259,7 @@ async function createWindow(
   additionalArguments: string[] = [],
 ): Promise<BrowserWindow> {
   const window = new BrowserWindow({
-    show: applicationConfig.showMainWindow,
+    show: false,
     title: "Halo",
     width: 1100,
     height: 720,
@@ -281,6 +275,10 @@ async function createWindow(
       nodeIntegration: false,
       additionalArguments,
     },
+  });
+  // The first document paint supplies the drag region; do not wait for a server.
+  window.once("ready-to-show", () => {
+    if (applicationConfig.showMainWindow) window.show();
   });
   const hotkeys = new WindowHotkeys();
   hotkeys.attach(window);

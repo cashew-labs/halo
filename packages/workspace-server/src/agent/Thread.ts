@@ -511,13 +511,16 @@ export class Thread {
       );
   }
 
-  async prompt(input: ChatPrompt) {
+  async prompt(
+    input: ChatPrompt,
+    sessionContents?: ReadonlyMap<string, string>,
+  ) {
     const text = input.text.trim();
     const files = input.files ?? [];
     const references = input.references ?? [];
     if (text.length === 0 && files.length === 0 && references.length === 0)
       return new EmptyPromptError();
-    const content = chatPromptContent(text, references);
+    const content = chatPromptContent(text, references, sessionContents);
     if (files.length > 0) {
       const prepared = await prepareChatAttachments({
         files,

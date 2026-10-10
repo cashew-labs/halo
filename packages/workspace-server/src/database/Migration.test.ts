@@ -193,11 +193,26 @@ migrationTest(
           '[{"id":"key","label":"Chat","accelerator":"Ctrl+K","action":{"type":"newTab"}}]',
       },
     ]);
+    expect(
+      upgraded
+        .prepare(
+          "SELECT id, revision, activation, enabled FROM halo_automations",
+        )
+        .all(),
+    ).toEqual([
+      {
+        id: "routine",
+        revision: 1,
+        activation:
+          '{"type":"routine","schedule":{"cron":"0 8 * * *","timezone":"UTC"}}',
+        enabled: 0,
+      },
+    ]);
     // Existing routine history keeps its link to the migrated thread.
     expect(
       upgraded
         .prepare(
-          "SELECT id, status, thread_id FROM halo_routine_runs ORDER BY id",
+          "SELECT id, status, thread_id FROM halo_automation_runs ORDER BY id",
         )
         .all(),
     ).toEqual([
@@ -348,7 +363,7 @@ migrationTest(
 );
 
 migrationTest(
-  "imports app state from main once, preserving order and relationships",
+  "imports app state from main once while preserving native automations",
   async ({ migration }) => {
     const old = migration.open(
       workspaceMigrations.slice(
@@ -370,16 +385,24 @@ migrationTest(
     INSERT INTO halo_threads (id, metadata, marked_done, read_receipt_cursor_id) VALUES
       ('thread', '{"id":"thread","createdAt":1}', 1, 'cursor-🦉'),
       ('unread', '{"id":"unread","createdAt":2}', 0, NULL);
-    INSERT INTO halo_routines
-      (id, extension_id, name, cron, timezone, action, enabled, next_run_at, created_at, updated_at, auto_archive_thread)
-      VALUES ('routine', 'mail', 'Mail', '0 8 * * *', 'UTC', '{"type":"runAgent","prompt":"Read mail"}', 1, 1735819200123, 1735689600123, 1735776000456, 1),
-      ('personal', NULL, 'Personal', '0 9 * * *', 'UTC', '{"type":"runScript","command":"echo ok"}', 0, NULL, 1735689600123, 1735689600123, 0);
-    INSERT INTO halo_routine_runs
-      (id, routine_id, trigger, scheduled_for, thread_id, status, started_at, finished_at, error)
-      VALUES ('z-first', 'routine', 'schedule', 1735776000000, 'thread', 'completed', 1735776000123, 1735776000321, NULL),
-      ('a-later', 'routine', 'manual', 1735776000001, 'thread', 'failed', 1735776000123, 1735776000456, 'Exit 7'),
-      ('skip', 'routine', 'manual', 1735776000002, NULL, 'skipped', 1735776000789, 1735776000789, 'Busy');
+    INSERT INTO halo_automations
+      (id, revision, extension_id, name, activation, action, enabled, next_run_at, created_at, updated_at, auto_archive_thread)
+      VALUES ('automation', 7, 'mail', 'Mail', '{"type":"routine","schedule":{"cron":"0 8 * * *","timezone":"UTC"}}', '{"type":"runAgent","prompt":"Read mail"}', 1, 1735819200123, 1735689600123, 1735776000456, 1);
+    INSERT INTO halo_automation_runs
+      (id, automation_id, revision, trigger, scheduled_for, thread_id, status, started_at, finished_at, error)
+      VALUES ('z-first', 'automation', 7, 'schedule', 1735776000000, 'thread', 'completed', 1735776000123, 1735776000321, NULL),
+      ('a-later', 'automation', 7, 'manual', 1735776000001, 'thread', 'failed', 1735776000123, 1735776000456, 'Exit 7'),
+      ('skip', 'automation', 7, 'manual', 1735776000002, NULL, 'skipped', 1735776000789, 1735776000789, 'Busy');
   `);
+    const automations = old
+      .prepare("SELECT * FROM halo_automations ORDER BY id")
+      .all();
+    const runs = old
+      .prepare("SELECT * FROM halo_automation_runs ORDER BY id")
+      .all();
+    const ledger = old
+      .prepare("SELECT * FROM halo_migrations ORDER BY id")
+      .all();
     migration.close(old);
     await using cleanup = new errore.AsyncDisposableStack();
     const filesystem = new FilesystemService();
@@ -431,63 +454,28 @@ migrationTest(
           action: { type: "runAgent", prompt: "Hello" },
         },
       ]);
+      const native = db.createNativeConnection();
       expect(
-        await db.query({
-          collection: "routines",
-          where: { id: "routine" },
-          with: { lastRun: true },
-        }),
-      ).toMatchObject([
-        {
-          extensionId: "mail",
-          enabled: true,
-          autoArchiveSession: true,
-          action: { type: "runAgent", prompt: "Read mail" },
-          createdAt: "2025-01-01T00:00:00.123Z",
-          updatedAt: "2025-01-02T00:00:00.456Z",
-          nextRunAt: "2025-01-02T12:00:00.123Z",
-          runSequence: 3,
-          lastRunId: "a-later",
-          lastRun: {
-            id: "a-later",
-            status: "failed",
-            error: "Exit 7",
-            sessionId: "thread",
-          },
-        },
-      ]);
+        await native.access((connection) =>
+          connection
+            .prepare("SELECT * FROM halo_automations ORDER BY id")
+            .all(),
+        ),
+      ).toEqual(automations);
       expect(
-        await db.query({ collection: "routines", where: { id: "personal" } }),
-      ).toMatchObject([
-        {
-          enabled: false,
-          autoArchiveSession: false,
-          extensionId: undefined,
-          nextRunAt: undefined,
-          lastRunId: undefined,
-          runSequence: 0,
-        },
-      ]);
+        await native.access((connection) =>
+          connection
+            .prepare("SELECT * FROM halo_automation_runs ORDER BY id")
+            .all(),
+        ),
+      ).toEqual(runs);
       expect(
-        (
-          await db.query({
-            collection: "routineRuns",
-            where: { routineId: "routine" },
-            orderBy: { startedAt: "desc", sequence: "desc" },
-          })
-        ).map(({ id }) => id),
-      ).toEqual(["skip", "a-later", "z-first"]);
-      expect(
-        await db.query({ collection: "routineRuns", where: { id: "z-first" } }),
-      ).toMatchObject([
-        {
-          trigger: "schedule",
-          status: "completed",
-          scheduledFor: "2025-01-02T00:00:00.000Z",
-          startedAt: "2025-01-02T00:00:00.123Z",
-          finishedAt: "2025-01-02T00:00:00.321Z",
-          error: undefined,
-        },
+        await native.access((connection) =>
+          connection.prepare("SELECT * FROM halo_migrations ORDER BY id").all(),
+        ),
+      ).toEqual([
+        ...ledger,
+        expect.objectContaining({ id: "20261010100000-tandem" }),
       ]);
       expect(
         await db.query({ collection: "sessionState", orderBy: { id: "asc" } }),
@@ -601,96 +589,68 @@ migrationTest(
       action: { type: "runAgent", prompt: "Say 'hello'" },
       position: 7,
     };
-    const routine: WorkspaceSchema["routines"] = {
-      id: "routine",
-      name: "Morning",
-      cron: "0 8 * * *",
-      timezone: "UTC",
-      action: { type: "runAgent", prompt: "Read inbox" },
-      enabled: false,
-      autoArchiveSession: true,
-      createdAt: "2026-09-30T00:00:00.000Z",
-      updatedAt: "2026-09-30T01:00:00.000Z",
-      runSequence: 3,
-      lastRunId: "run",
-      extensionId: "mail",
-    };
-    const run: WorkspaceSchema["routineRuns"] = {
-      id: "run",
-      routineId: routine.id,
-      trigger: "manual",
-      status: "failed",
-      scheduledFor: routine.createdAt,
-      startedAt: routine.updatedAt,
-      sequence: 3,
-      sessionId: "session",
-      finishedAt: "2026-09-30T01:01:00.000Z",
-      error: "Exit 1",
+    const session: WorkspaceSchema["sessionState"] = {
+      id: "session",
+      markedDone: false,
+      readReceiptCursorId: "cursor-🦉",
     };
     await storage.commit({
       set: [
-        { key: ["record", "routines", routine.id], value: routine },
         { key: ["record", "hotkeys", hotkey.id], value: hotkey },
-        { key: ["record", "routineRuns", run.id], value: run },
+        { key: ["record", "sessionState", session.id], value: session },
       ],
     });
     expect((await storage.scan()).map(({ value }) => value)).toEqual([
       hotkey,
-      run,
-      routine,
+      session,
     ]);
     // Check the existing SQL layout independently of the generated decoder.
     expect(
       connection
-        .prepare(`SELECT extension_id, action, enabled, auto_archive_session,
-      created_at, updated_at, last_run_id, run_sequence FROM halo_routine_definitions`)
+        .prepare(
+          "SELECT marked_done, read_receipt_cursor_id FROM halo_session_state",
+        )
         .get(),
     ).toEqual({
-      extension_id: "mail",
-      action: '{"type":"runAgent","prompt":"Read inbox"}',
-      enabled: 0,
-      auto_archive_session: 1,
-      created_at: "2026-09-30T00:00:00.000Z",
-      updated_at: "2026-09-30T01:00:00.000Z",
-      last_run_id: "run",
-      run_sequence: 3,
+      marked_done: 0,
+      read_receipt_cursor_id: "cursor-🦉",
     });
     expect(
       (await storage.scan({ reverse: true, limit: 2 })).map(
         ({ value }) => value,
       ),
-    ).toEqual([routine, run]);
+    ).toEqual([session, hotkey]);
     expect(
       (
         await storage.scan({
           gt: ["record", "hotkeys", hotkey.id],
-          lte: ["record", "routineRuns", run.id],
+          lte: ["record", "sessionState", session.id],
         })
       ).map(({ value }) => value),
-    ).toEqual([run]);
+    ).toEqual([session]);
     const updated = {
-      ...routine,
-      enabled: true,
-      autoArchiveSession: false,
-      extensionId: undefined,
-      lastRunId: undefined,
+      ...session,
+      markedDone: true,
+      readReceiptCursorId: undefined,
     };
     await storage.commit({
-      remove: [["record", "routines", routine.id]],
-      set: [{ key: ["record", "routines", routine.id], value: updated }],
+      remove: [["record", "sessionState", session.id]],
+      set: [{ key: ["record", "sessionState", session.id], value: updated }],
     });
     expect(
-      (await storage.scan({ gte: ["record", "routines"], limit: 1 }))[0]?.value,
+      (await storage.scan({ gte: ["record", "sessionState"], limit: 1 }))[0]
+        ?.value,
     ).toEqual(updated);
     await expect(
       storage.commit({
         remove: [["record", "hotkeys", hotkey.id]],
-        set: [{ key: ["record", "routines", "duplicate-id"], value: routine }],
+        set: [
+          { key: ["record", "sessionState", "duplicate-id"], value: session },
+        ],
       }),
     ).rejects.toThrow();
     expect((await storage.scan()).map(({ value }) => value)).toEqual([
       hotkey,
-      run,
       updated,
     ]);
     await storage.close();

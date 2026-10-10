@@ -6,7 +6,7 @@ import {
 } from "@get-halo/client";
 
 export type ConnectionState =
-  | { status: "idle" | "connected" | "cancelled" | "expired" }
+  | { status: "idle" | "connected" | "cancelled" | "expired" | "failed" }
   | { status: "starting"; wasConnected: boolean }
   | {
       status: "connecting";
@@ -55,4 +55,57 @@ export function applyConnectionEvent(
     return { status: "connected" };
   }
   return { status: event.status };
+}
+
+export type StartedConnectionCard = { cardId?: string };
+
+// Names the card that started the latest attempt for a request. Server
+// snapshots replace connection state but never this client-only entry.
+export function connectionCardQueryKey(
+  sessionId: string | undefined,
+  request: ConnectionRequest,
+) {
+  return [
+    "executorConnectionCard",
+    sessionId,
+    connectionRequestKey(request),
+  ] as const;
+}
+
+// Every card for a request shares one attempt while it is in progress. A
+// finished attempt stays on the card that started it; other cards offer a
+// fresh connection. Without a known starting card, every card shows the result.
+export function connectionStateForCard(
+  state: ConnectionState,
+  startedCardId: string | undefined,
+  cardId: string,
+): ConnectionState {
+  if (
+    state.status === "idle" ||
+    state.status === "starting" ||
+    state.status === "connecting"
+  )
+    return state;
+  if (startedCardId === undefined || startedCardId === cardId) return state;
+  return idleConnectionState;
+}
+
+// A failed start keeps an existing connection visible.
+export function connectionStateAfterFailedStart(
+  state: ConnectionState | undefined,
+): ConnectionState {
+  if (
+    (state?.status === "starting" || state?.status === "connecting") &&
+    state.wasConnected
+  )
+    return { status: "connected" };
+  return idleConnectionState;
+}
+
+// Cancelling a reconnect keeps the existing connection.
+export function connectionStateAfterCancel(
+  state: ConnectionState | undefined,
+): ConnectionState | undefined {
+  if (state?.status !== "connecting") return state;
+  return state.wasConnected ? { status: "connected" } : { status: "cancelled" };
 }

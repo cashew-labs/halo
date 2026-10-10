@@ -28,7 +28,6 @@
     "@executor-js/codemode-core": "1.6.0",
     "@executor-js/execution": "1.6.0",
     "@executor-js/fumadb": "1.5.7",
-    "@executor-js/plugin-openapi": "1.6.0",
     "@executor-js/runtime-quickjs": "1.6.0",
     "@executor-js/sdk": "1.6.0",
     "@get-halo/client": "workspace:*",
@@ -66,6 +65,7 @@
     "@get-halo/typescript-config": "workspace:*",
     "@types/heic-convert": "2.1.1",
     "@types/node": "^22.20.1",
+    "@vitest/coverage-v8": "4.1.11",
     "openai": "6.26.0",
     "typescript": "7.0.2",
     "vitest": "^4.1.11"

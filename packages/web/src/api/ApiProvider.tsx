@@ -60,7 +60,7 @@ export function ApiProvider({ children }: { children: ReactNode }) {
       {state.api === undefined ? (
         <main
           style={{
-            height: "100dvh",
+            height: "var(--halo-window-content-height, 100dvh)",
             display: "flex",
             flexDirection: "column",
             justifyContent: "space-between",

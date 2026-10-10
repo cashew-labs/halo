@@ -1,4 +1,6 @@
 import * as errore from "errore";
+import { Type } from "@sinclair/typebox";
+import { Value } from "@sinclair/typebox/value";
 import {
   createHaloClient,
   createWorkspaceRemote,
@@ -20,7 +22,7 @@ import {
 import fs from "node:fs/promises";
 import path from "node:path";
 import { gunzipSync } from "node:zlib";
-import { assert, expect } from "vitest";
+import { assert, expect, vi } from "vitest";
 import { contentText } from "@earendil-works/pi-ai";
 import { m } from "@get-halo/shared/testing";
 import { messageText } from "@get-halo/workspace-server/testing";
@@ -956,6 +958,431 @@ serverTest(
 );
 
 serverTest(
+  "lists connections and removes one only after the person approves",
+  async ({ createServer, llm }) => {
+    const removed: { integration: string; name: string }[] = [];
+    const server = createServer({
+      remoteConnections: {
+        catalog: async () => [],
+        startSetup: async () => new Error("unused"),
+        setup: async () => new Error("unused"),
+        cancelSetup: async () => undefined,
+        connections: async () => [
+          {
+            address: "tools.google_gmail.user.personal",
+            integration: "google_gmail",
+            name: "personal",
+            accountLabel: "me@example.com",
+          },
+        ],
+        removeConnection: async (input) => {
+          removed.push(input);
+          return { revocation: "revoked" as const };
+        },
+      },
+    });
+    await server.start();
+    const session = await server.rpc.thread.new();
+    const prompting = server.promptAndWait({
+      ...session,
+      text: "Remove my personal Gmail",
+    });
+    const js = `const listed = await tools.halo.listConnections({});
+const [connection] = listed.data.connections;
+return await tools.halo.removeConnection({ integration: connection.integration, name: connection.name });`;
+    await llm.respond(
+      m.tool.start("exec", { id: "remove-request", arguments: { js } }),
+    );
+    await llm.respond(m.assistant("Approve the removal."));
+    await prompting;
+    const approval = sessionToolExecutions(
+      await server.rpc.thread.snapshot(session),
+    ).flatMap((execution) =>
+      execution.type === "exec" ? execution.approvals : [],
+    )[0]!;
+    expect(approval).toMatchObject({
+      status: "pending",
+      toolPath: "halo.removeConnection",
+      arguments: { integration: "google_gmail", name: "personal" },
+    });
+    expect(removed).toEqual([]);
+    await server.rpc.thread.respondToToolApproval({
+      ...session,
+      approvalId: approval.id,
+      decision: "allow",
+    });
+    await llm.respond(
+      m.tool.start("exec", { id: "remove-retry", arguments: { js } }),
+    );
+    await llm.respond(m.assistant("Removed."));
+    await expect
+      .poll(async () =>
+        sessionToolExecutions(await server.rpc.thread.snapshot(session)).find(
+          (execution) => execution.id === "remove-retry",
+        ),
+      )
+      .toMatchObject({
+        status: "completed",
+        result: {
+          details: {
+            status: "completed",
+            result: { ok: true, data: { revocation: "revoked" } },
+          },
+        },
+      });
+    expect(removed).toEqual([
+      { integration: "google_gmail", name: "personal" },
+    ]);
+  },
+);
+
+serverTest(
+  "shows a remote setup card without per-action approval or a startup catalog",
+  async ({ createServer, llm }) => {
+    const setup = { cancelled: false };
+    const server = createServer({
+      remoteConnections: {
+        catalog: async () => new Error("Control plane temporarily offline"),
+        startSetup: async ({ integration }) => {
+          expect(integration).toBe("new_mcp");
+          return {
+            setupId: "setup",
+            setupUrl: "https://halo.example/integrations/setup/setup",
+          };
+        },
+        setup: async () => ({
+          status: setup.cancelled ? "cancelled" : "awaiting_credentials",
+        }),
+        connections: async () => [],
+        removeConnection: async () => ({
+          revocation: "not_supported" as const,
+        }),
+        cancelSetup: async () => {
+          setup.cancelled = true;
+        },
+      },
+    });
+    await server.start();
+    const session = await server.rpc.thread.new();
+    const prompting = server.promptAndWait({
+      ...session,
+      text: "Connect the new MCP server",
+    });
+    await llm.respond(
+      m.tool.start("exec", {
+        id: "remote-connection",
+        arguments: {
+          js: `return await Promise.allSettled([
+            tools.halo.showConnectionCard({ integration: "new_mcp" }),
+            tools.executor.coreTools.oauth.start({ client: "google", clientOwner: "org", owner: "user", name: "personal", integration: "google_gmail", template: "googleOAuth2" })
+          ]);`,
+        },
+      }),
+    );
+    await llm.respond(m.assistant("Use the connection card to connect."));
+    await prompting;
+    const executions = sessionToolExecutions(
+      await server.rpc.thread.snapshot(session),
+    );
+    expect(executions).toHaveLength(1);
+    const execution = executions[0]!;
+    assert(execution.type === "exec");
+    expect(execution.approvals).toEqual([]);
+    const request = { kind: "control-plane" as const, integration: "new_mcp" };
+    expect(execution.result?.details).toMatchObject({
+      connectionRequests: expect.arrayContaining([
+        expect.objectContaining(request),
+        expect.objectContaining({
+          kind: "control-plane",
+          integration: "google_gmail",
+          connectionName: "personal",
+        }),
+      ]),
+    });
+    const started = await server.rpc.thread.startConnection({
+      ...session,
+      request,
+    });
+    expect(started).toMatchObject({
+      status: "authorization-required",
+      authorizationUrl: "https://halo.example/integrations/setup/setup",
+    });
+    if (started.status !== "authorization-required")
+      throw new Error("Missing setup");
+    await server.rpc.thread.cancelConnection({
+      ...session,
+      connectionId: started.connectionId,
+    });
+    expect(
+      (await server.rpc.thread.snapshot(session)).connections,
+    ).toMatchObject([{ request, status: "cancelled" }]);
+  },
+);
+
+serverTest(
+  "routes sandbox and extension integration tools while keeping local discovery offline",
+  async ({ createServer, llm }) => {
+    const address = "tools.custom.account.operation";
+    const cancellation = { started: false, cancelled: false };
+    let offline = false;
+    let writes = 0;
+    const schema = {
+      address,
+      integration: "custom",
+      connection: "account",
+      name: "Operation",
+      description: "remote fixture",
+      schemaDefinitions: { Shared: { type: "string" } },
+      inputTypeScript: "{ value: string }",
+    };
+    const catalog = [schema];
+    const server = createServer({
+      remoteIntegrationTools: {
+        search: async ({ limit }) =>
+          offline
+            ? new Error("offline")
+            : {
+                tools: catalog.slice(0, limit),
+                truncated: limit !== undefined && catalog.length > limit,
+              },
+        describe: async ({ address: requested }) => {
+          expect(requested).toBe(address);
+          return schema;
+        },
+        invoke: async ({ address: requested, arguments: args }, signal) => {
+          expect(requested).toBe(address);
+          if (args.mode === "cancel") {
+            cancellation.started = true;
+            await new Promise<void>((resolve) => {
+              signal!.addEventListener(
+                "abort",
+                () => {
+                  cancellation.cancelled = true;
+                  resolve();
+                },
+                { once: true },
+              );
+            });
+            return {
+              status: "failed",
+              code: "outcome_unknown",
+              message: "Cancelled",
+            };
+          }
+          if (args.mode === "missing")
+            return {
+              status: "connection_required",
+              integration: "custom",
+              connectionName: "account",
+            };
+          if (args.mode === "lost") {
+            writes++;
+            return new Error("response lost after write");
+          }
+          return {
+            status: "completed",
+            result: { provider: "remote", arguments: args },
+          };
+        },
+      },
+    });
+    await server.start();
+    const session = await server.rpc.thread.new();
+    const prompting = server.promptAndWait({
+      ...session,
+      text: "Use the remote fixture",
+    });
+    await fs.writeFile(
+      path.join(server.workspaceRoot, "offline.txt"),
+      "local offline data",
+    );
+    await llm.respond(
+      m.tool.start("exec", {
+        id: "remote-routing",
+        arguments: {
+          js: `
+    const search = await tools.search({ query: "fixture", source: "control-plane" });
+    if (!search.ok) throw new Error(JSON.stringify(search));
+    const path = search.data.tools[0].path;
+    const description = await tools.describe.tool({ path });
+    const result = await tools[path]({ value: "sandbox" });
+    const local = await tools.files.read({ path: "offline.txt" });
+    return { search, description, result, local };
+  `,
+        },
+      }),
+    );
+    await llm.respond(m.assistant("Done"));
+    await prompting;
+    const executions = sessionToolExecutions(
+      await server.rpc.thread.snapshot(session),
+    );
+    expect(JSON.stringify(executions)).toContain("sandbox");
+    expect(JSON.stringify(executions)).toContain("Shared");
+    expect(JSON.stringify(executions)).toContain("local offline data");
+    expect(JSON.stringify(executions)).toContain("{ value: string }");
+    expect(JSON.stringify(executions)).toContain(`integrations.${address}`);
+    const directory = path.join(
+      server.workspaceRoot,
+      ".halo/extensions/remote-routing",
+    );
+    await fs.mkdir(path.join(directory, "dist"), { recursive: true });
+    await fs.writeFile(
+      path.join(directory, "package.json"),
+      JSON.stringify({ name: "remote-routing" }),
+    );
+    await fs.writeFile(
+      path.join(directory, "dist/start.mjs"),
+      `
+    import http from "node:http";
+    const server = http.createServer(async (request, response) => {
+      const mode = request.url.split("/").at(-1);
+      if (mode === "") { response.end("ready"); return; }
+      const result = await fetch(process.env.HALO_EXTENSION_TOOLS_ORIGIN + "/extension-tools/invoke", {
+        method: "POST", headers: { "content-type": "application/json", authorization: "Bearer " + process.env.HALO_EXTENSION_TOOLS_TOKEN },
+        body: JSON.stringify({ json: mode === "search" ? { path: "search", input: { query: "fixture", source: "control-plane" } } : mode === "describe" ? { path: "describe.tool", input: { path: ${JSON.stringify(`integrations.${address}`)} } } : { path: ${JSON.stringify(`integrations.${address}`)}, input: { mode } } }),
+      });
+      response.end(await result.text());
+    });
+    server.listen(0, "127.0.0.1", () => process.send("http://127.0.0.1:" + server.address().port + "/view/"));
+    process.on("message", message => { if (message === "shutdown") server.close(() => process.exit(0)); });
+  `,
+    );
+    await server.rpc.extensions.reload();
+    const extension = async (mode: string) =>
+      await fetch(
+        `${server.transport.origin}/extensions/remote-routing/view/${mode}`,
+        { headers: server.transport.headers },
+      ).then(async (response) => await response.json());
+    expect(await extension("success")).toMatchObject({
+      json: { ok: true, data: { provider: "remote" } },
+    });
+    expect(await extension("missing")).toMatchObject({
+      json: { ok: false, error: { code: "connection_required" } },
+    });
+    expect(await extension("search")).toMatchObject({
+      json: {
+        ok: true,
+        data: { tools: [{ path: `integrations.${address}` }] },
+      },
+    });
+    expect(await extension("lost")).toMatchObject({
+      json: { ok: false, error: { code: "outcome_unknown" } },
+    });
+    expect(await extension("describe")).toMatchObject({
+      json: {
+        ok: true,
+        data: {
+          schemaDefinitions: schema.schemaDefinitions,
+          inputTypeScript: schema.inputTypeScript,
+        },
+      },
+    });
+    catalog.push({
+      ...schema,
+      address: "tools.custom.account.added_after_startup",
+    });
+    expect(
+      await server.rpc.testApi.invokeTool({
+        path: "search",
+        input: { query: "fixture", source: "control-plane" },
+      }),
+    ).toMatchObject({
+      tools: [
+        { path: `integrations.${address}` },
+        { path: "integrations.tools.custom.account.added_after_startup" },
+      ],
+    });
+    expect(
+      await server.rpc.testApi.invokeTool({
+        path: "search",
+        input: { query: "fixture", source: "control-plane", limit: 1 },
+      }),
+    ).toMatchObject({
+      tools: [{ path: `integrations.${address}` }],
+      truncated: true,
+    });
+    expect(writes).toBe(1);
+    expect(
+      sessionToolExecutions(await server.rpc.thread.snapshot(session)),
+    ).toEqual(executions);
+    offline = true;
+    expect(
+      JSON.stringify(
+        await server.rpc.testApi.invokeTool({
+          path: "files.read",
+          input: { path: "offline.txt" },
+        }),
+      ),
+    ).toContain("local offline data");
+    expect(
+      await server.rpc.testApi.invokeTool({
+        path: "search",
+        input: { query: "read", source: "workspace" },
+      }),
+    ).toMatchObject({ unavailableSources: [] });
+    expect(
+      await server.rpc.testApi.invokeTool({
+        path: "search",
+        input: { query: "read" },
+      }),
+    ).toMatchObject({ unavailableSources: ["control-plane"] });
+    expect(await extension("search")).toMatchObject({
+      json: { ok: false, error: { code: "discovery_failed" } },
+    });
+    const collecting = server.promptAndWait({
+      ...session,
+      text: "Request the missing connection",
+    });
+    await llm.respond(
+      m.tool.start("exec", {
+        id: "missing-connection",
+        arguments: {
+          js: `await tools[${JSON.stringify(`integrations.${address}`)}]({ mode: "missing" }); await tools[${JSON.stringify(`integrations.${address}`)}]({ mode: "missing" });`,
+        },
+      }),
+    );
+    await llm.respond(m.assistant("Connect using the card"));
+    await collecting;
+    const latest = sessionToolExecutions(
+      await server.rpc.thread.snapshot(session),
+    ).at(-1)!;
+    assert(latest.type === "exec");
+    expect(latest.approvals).toEqual([]);
+    expect(latest.result?.details).toMatchObject({
+      connectionRequests: [
+        {
+          kind: "control-plane",
+          integration: "custom",
+          connectionName: "account",
+        },
+      ],
+    });
+    const controller = new AbortController();
+    const cancelling = server.rpc.testApi.invokeTool(
+      {
+        path: `integrations.${address}`,
+        input: { mode: "cancel" },
+      },
+      { signal: controller.signal },
+    );
+    const rejected = expect(cancelling).rejects.toBeDefined();
+    await vi.waitFor(() => expect(cancellation.started).toBe(true));
+    controller.abort();
+    await rejected;
+    await vi.waitFor(() => expect(cancellation.cancelled).toBe(true));
+    await server.stop();
+    await server.start();
+    expect(
+      await server.rpc.testApi.invokeTool({
+        path: `integrations.${address}`,
+        input: { value: "saved path" },
+      }),
+    ).toMatchObject({ provider: "remote", arguments: { value: "saved path" } });
+  },
+);
+
+serverTest(
   "finishes approval requests and retries only after a thread response",
   async ({ server, llm }) => {
     for (const decision of ["allow", "deny"] as const) {
@@ -1848,9 +2275,10 @@ serverTest(
     using cleanup = new errore.DisposableStack();
     const controller = new AbortController();
     cleanup.defer(() => controller.abort());
-    const updates = await server.rendererRpc.server.watch(undefined, {
-      signal: controller.signal,
-    });
+    const updates = await server.rendererRpc.server.watch(
+      { includeLegacyState: false },
+      { signal: controller.signal },
+    );
     const initial = new Set<string>();
     while (initial.size < 2) {
       const next = await updates.next();
@@ -1867,9 +2295,10 @@ serverTest(
       });
       break;
     }
-    const reconnected = await server.rendererRpc.server.watch(undefined, {
-      signal: controller.signal,
-    });
+    const reconnected = await server.rendererRpc.server.watch(
+      { includeLegacyState: false },
+      { signal: controller.signal },
+    );
     for await (const item of reconnected) {
       if (item.type !== "sessions") continue;
       expect(item.update).toMatchObject({
@@ -1884,7 +2313,7 @@ serverTest(
 );
 
 serverTest(
-  "rejects pre-Tandem protocols and unsupported writes",
+  "rejects unsupported protocol versions and writes",
   async ({ server }) => {
     const connected = await connectHaloClient({ transport: server.transport });
     assert(!(connected instanceof Error));
@@ -1892,7 +2321,7 @@ serverTest(
       protocolVersion: haloProtocolVersion,
       supportedProtocols: haloSupportedProtocols,
     });
-    for (const version of [18, 19, 21, 22, 23]) {
+    for (const version of [18, 19, 21, 22, 23, 24]) {
       const previousProtocol = createHaloClient({
         transport: {
           ...server.transport,
@@ -2083,5 +2512,139 @@ serverTest(
       }),
     ).rejects.toThrow();
     expect(await server.rpc.workspace.listPaths()).not.toContain("race.md");
+  },
+);
+
+serverTest(
+  "released protocol 25 clients can connect new and saved integration cards",
+  async ({ createServer, llm }) => {
+    let status: "authorizing" | "ready" | "failed" = "authorizing";
+    const requested: { integration: string; connectionName?: string }[] = [];
+    const server = createServer({
+      remoteConnections: {
+        catalog: async () => [{ integration: "example", name: "Example" }],
+        startSetup: async (input) => {
+          requested.push(input);
+          return {
+            setupId: "setup",
+            setupUrl: "https://halo.example/integrations/setup/setup",
+          };
+        },
+        setup: async () => ({ status }),
+        connections: async () => [],
+        removeConnection: async () => ({
+          revocation: "not_supported" as const,
+        }),
+        cancelSetup: async () => undefined,
+      },
+    });
+    await server.start();
+    const legacy = createHaloClient({
+      transport: {
+        ...server.transport,
+        headers: {
+          ...server.transport.headers,
+          "x-halo-protocol-version": "25",
+        },
+      },
+    });
+    const session = await legacy.thread.new();
+    const prompting = server.promptAndWait({
+      ...session,
+      text: "Connect Example",
+    });
+    await llm.respond(
+      m.tool.start("exec", {
+        id: "legacy-card",
+        arguments: {
+          js: 'await tools.halo.showConnectionCard({ integration: "example" });',
+        },
+      }),
+    );
+    await llm.respond(m.assistant("Connect Example using this card."));
+    await prompting;
+    const execution = sessionToolExecutions(
+      await legacy.thread.snapshot(session),
+    )[0]!;
+    assert(execution.type === "exec");
+    // Freeze the request schema validated by Halo 0.1.65 renderer and desktop IPC.
+    const legacyRequestSchema = Type.Object({
+      client: Type.String(),
+      clientOwner: Type.Union([Type.Literal("org"), Type.Literal("user")]),
+      owner: Type.Union([Type.Literal("org"), Type.Literal("user")]),
+      connectionName: Type.String(),
+      integration: Type.String(),
+      template: Type.String(),
+    });
+    const details = execution.result?.details;
+    assert(
+      Value.Check(
+        Type.Object({ connectionRequests: Type.Array(legacyRequestSchema) }),
+        details,
+      ),
+    );
+    const request = details.connectionRequests[0];
+    assert(request !== undefined);
+    const completion = {
+      kind: "client-loopback" as const,
+      redirectUri: "http://127.0.0.1:49152/oauth/callback",
+    };
+    const started = await legacy.thread.startConnection({
+      ...session,
+      request,
+      completion,
+    });
+    expect(started).toMatchObject({
+      status: "authorization-required",
+      authorizationUrl: "https://halo.example/integrations/setup/setup",
+    });
+    status = "ready";
+    await llm.respond(m.assistant("Example is connected."));
+    await expect
+      .poll(async () => (await legacy.thread.snapshot(session)).connections)
+      .toMatchObject([{ request, status: "connected" }]);
+    // Old desktop's unused callback timeout cannot cancel a completed setup.
+    assert(started.status === "authorization-required");
+    await legacy.thread.cancelConnection({
+      ...session,
+      connectionId: started.connectionId,
+    });
+    expect((await legacy.thread.snapshot(session)).connections).toMatchObject([
+      { status: "connected" },
+    ]);
+    status = "failed";
+    const savedRequest = {
+      client: "google",
+      clientOwner: "org" as const,
+      owner: "user" as const,
+      connectionName: "personal",
+      integration: "example",
+      template: "googleOAuth2",
+    };
+    const failed = await legacy.thread.startConnection({
+      ...session,
+      request: savedRequest,
+      completion,
+    });
+    assert(failed.status === "authorization-required");
+    await expect
+      .poll(
+        async () =>
+          (await legacy.thread.snapshot(session)).connections.find(
+            (connection) => connection.connectionId === failed.connectionId,
+          )?.status,
+      )
+      .toBe("cancelled");
+    // An unnamed card adds a connection instead of reconnecting "default".
+    expect(requested).toEqual([
+      { integration: "example", connectionName: undefined },
+      { integration: "example", connectionName: "personal" },
+    ]);
+    await expect(
+      legacy.thread.completeOAuth({
+        state: "old-workspace-attempt",
+        code: "old-code",
+      }),
+    ).rejects.toThrow("Connect again");
   },
 );

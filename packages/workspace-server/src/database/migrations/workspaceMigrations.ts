@@ -1,3 +1,5 @@
+import { automationEventRetentionMigration } from "./20261008160000-automationEventRetention.js";
+import { automationSyncMigration } from "./20261008150000-automationSync.js";
 import type { Database } from "@tursodatabase/database/compat";
 import { applyMigrations } from "../Migration.js";
 import type { Migration } from "../Migration.js";
@@ -8,12 +10,14 @@ import { routinesMigration } from "./20260925090000-routines.js";
 import { personalRoutinesMigration } from "./20260928090000-personalRoutines.js";
 import { routineSessionArchiveMigration } from "./20260928100000-routineSessionArchive.js";
 import { durableStorageMigration } from "./20261003100000-durableStorage.js";
-import { prepareTandem, tandemMigration } from "./20261006100000-tandem.js";
+import { prepareTandem, tandemMigration } from "./20261010100000-tandem.js";
 
 import {
   legacyThreadsMigration,
   prepareLegacyThreads,
 } from "./20261005100000-legacyThreads.js";
+
+import { automationsMigration } from "./20261008140000-automations.js";
 
 export const workspaceMigrations = [
   initialWorkspaceMigration,
@@ -24,6 +28,9 @@ export const workspaceMigrations = [
   routineSessionArchiveMigration,
   durableStorageMigration,
   legacyThreadsMigration,
+  automationsMigration,
+  automationSyncMigration,
+  automationEventRetentionMigration,
   tandemMigration,
 ] satisfies readonly Migration[];
 

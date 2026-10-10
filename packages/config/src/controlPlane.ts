@@ -39,12 +39,19 @@ const exeWorkspaceSchema = Type.Object({
   gatewaySecret: Type.String({ minLength: 32 }),
 });
 
+const gmailSchema = Type.Object({
+  topic: Type.String({ pattern: "^projects/[^/]+/topics/[^/]+$" }),
+  audience: Type.String({ minLength: 1 }),
+  serviceAccount: Type.String({ minLength: 1 }),
+});
+
 export const controlPlaneConfigSchema = Type.Union([
   Type.Object({
     deployment: Type.Literal("local"),
     appDataDir: Type.String(),
     port: portSchema,
     auth: authSchema,
+    gmail: Type.Optional(gmailSchema),
     workspace: Type.Union([localWorkspaceSchema, exeWorkspaceSchema]),
   }),
   Type.Object({
@@ -55,6 +62,7 @@ export const controlPlaneConfigSchema = Type.Union([
     traceBucket: Type.String({ minLength: 1 }),
     workspaceServiceAccount: Type.String({ minLength: 1 }),
     auth: authSchema,
+    gmail: Type.Optional(gmailSchema),
     workspace: Type.Union([gcpWorkspaceSchema, exeWorkspaceSchema]),
   }),
 ]);
@@ -65,6 +73,7 @@ export type ControlPlaneApplicationConfig = {
   mode: ApplicationMode;
   server: ControlPlaneConfig;
   inferenceApiKey: string;
+  integrationEncryptionKey: Buffer;
 };
 
 interface AuthSecretIds {
@@ -100,6 +109,9 @@ export async function readControlPlaneConfig(): Promise<
     secretId: "together-ai-api-key",
   });
   if (inferenceApiKey instanceof Error) return inferenceApiKey;
+  const integrationEncryptionKey = await readIntegrationEncryptionKey();
+  if (integrationEncryptionKey instanceof Error)
+    return integrationEncryptionKey;
   return {
     mode:
       configPath === undefined && process.env.K_SERVICE === undefined
@@ -107,7 +119,22 @@ export async function readControlPlaneConfig(): Promise<
         : ApplicationMode.Production,
     server,
     inferenceApiKey,
+    integrationEncryptionKey,
   };
+}
+
+async function readIntegrationEncryptionKey() {
+  const encoded = await readGcpSecret({
+    projectId: secretProjectId,
+    secretId: "halo-control-plane-integration-credential-key",
+  });
+  if (encoded instanceof Error) return encoded;
+  const key = Buffer.from(encoded.trim(), "base64");
+  if (key.length !== 32 || key.toString("base64") !== encoded.trim())
+    return new ControlPlaneConfigError({
+      detail: "integration key must be 32 bytes encoded as base64",
+    });
+  return key;
 }
 
 async function readConfigFile(configPath: string) {
@@ -224,6 +251,14 @@ async function readCloudRunConfig(): Promise<ControlPlaneConfig | Error> {
     origin,
     databaseUrl,
     traceBucket: process.env.TRACE_BUCKET,
+    gmail:
+      process.env.GMAIL_PUBSUB_TOPIC === undefined
+        ? undefined
+        : {
+            topic: process.env.GMAIL_PUBSUB_TOPIC,
+            audience: `${origin}/api/automation-events/gmail`,
+            serviceAccount: process.env.GMAIL_PUSH_SERVICE_ACCOUNT,
+          },
     workspaceServiceAccount: process.env.WORKSPACE_SERVICE_ACCOUNT,
     auth,
     workspace,

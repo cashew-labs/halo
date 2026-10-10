@@ -35,6 +35,7 @@ import {
 import { AssistantMessage } from "./AssistantMessage.tsx";
 import { BashExecution } from "./BashExecution.tsx";
 import { Editor } from "./Editor.tsx";
+import { referenceHref, type ReferenceTarget } from "../ReferencePicker.js";
 import { ExecutorApprovalCard } from "./ExecutorApprovalCard.tsx";
 import { ExecutorConnectionCard } from "./ExecutorConnectionCard.tsx";
 import { ToolActivity } from "./ToolActivity.tsx";
@@ -72,12 +73,19 @@ export function AgentPane({
       sessionId={sessionId}
       draftKey={draftKey}
       title={sessionMeta?.title ?? submittedTitle}
+      sessions={sessions}
       {...session}
     />
   );
 }
 
-export function DraftAgentPane({ draftId }: { draftId: string }) {
+export function DraftAgentPane({
+  draftId,
+  sessions,
+}: {
+  draftId: string;
+  sessions: SessionSummary[];
+}) {
   const [, navigate] = useLocation();
   const queryClient = useQueryClient();
   const initialReferences = queryClient.getQueryData<ChatReference[]>(
@@ -95,6 +103,7 @@ export function DraftAgentPane({ draftId }: { draftId: string }) {
       draftKey={draftKey}
       {...session}
       title={session.title ?? "New session"}
+      sessions={sessions}
     />
   );
 }
@@ -105,6 +114,7 @@ function ChatPane({
   initialReferences = [],
   draftKey,
   title,
+  sessions,
   state,
   error,
   prompt,
@@ -115,6 +125,7 @@ function ChatPane({
   initialReferences?: ChatReference[];
   draftKey: string | undefined;
   title: string | undefined;
+  sessions: SessionSummary[];
   state: SessionSnapshot;
   error: string | undefined;
   prompt: (input: ChatPrompt) => Promise<void | Error>;
@@ -125,6 +136,13 @@ function ChatPane({
   const [draft, setDraft] = useMessageDraft(draftKey);
   const [references, setReferences] =
     useState<ChatReference[]>(initialReferences);
+  const referenceTargets: ReferenceTarget[] = sessions
+    .filter((session) => session.sessionId !== sessionId)
+    .map((session) => ({
+      kind: "session" as const,
+      sessionId: session.sessionId,
+      title: session.title ?? session.sessionId,
+    }));
   const [attachments, setAttachments] = useState<{ id: string; file: File }[]>(
     [],
   );
@@ -360,47 +378,68 @@ function ChatPane({
             aria-label="Message"
             size="sm"
             className={composer}
+            referenceTargets={referenceTargets}
             referencePlacement={
               draftId !== undefined && state.entries.length === 0
                 ? "below"
                 : "above"
             }
-            onAddReference={(path) =>
+            onAddReference={(target) => {
+              const reference =
+                target.kind === "file"
+                  ? { path: target.path }
+                  : { sessionId: target.sessionId, title: target.title };
               setReferences((current) =>
-                current.some((reference) => reference.path === path)
+                current.some((item) =>
+                  target.kind === "file"
+                    ? "path" in item && item.path === target.path
+                    : "sessionId" in item &&
+                      item.sessionId === target.sessionId,
+                )
                   ? current
-                  : [...current, { path }],
-              )
-            }
+                  : [...current, reference],
+              );
+            }}
             header={
               attachments.length === 0 &&
               references.length === 0 ? undefined : (
                 <>
                   {references.length > 0 ? (
-                    <ul
-                      className={attachmentList}
-                      aria-label="Referenced files"
-                    >
+                    <ul className={attachmentList} aria-label="References">
                       {references.map((reference) => (
-                        <li className={attachmentChip} key={reference.path}>
+                        <li
+                          className={attachmentChip}
+                          key={
+                            "sessionId" in reference
+                              ? reference.sessionId
+                              : reference.path
+                          }
+                        >
                           <FileText size="sm" aria-hidden="true" />
                           <span
                             className={attachmentName}
-                            title={reference.path}
+                            title={
+                              "sessionId" in reference
+                                ? reference.title
+                                : reference.path
+                            }
                           >
-                            {reference.path}
+                            {"sessionId" in reference
+                              ? reference.title
+                              : reference.path}
                           </span>
-                          {reference.text === undefined ? undefined : (
+                          {"text" in reference &&
+                          reference.text !== undefined ? (
                             <span
                               className={referenceExcerpt}
                               title={reference.text}
                             >
                               “{reference.text}”
                             </span>
-                          )}
+                          ) : undefined}
                           <Button
                             variant="quiet"
-                            aria-label={`Remove reference ${reference.path}`}
+                            aria-label={`Remove reference ${"sessionId" in reference ? reference.title : reference.path}`}
                             isDisabled={sending}
                             onClick={() =>
                               setReferences((current) =>
@@ -708,22 +747,41 @@ function SessionViewRow({
             </ul>
           ) : undefined}
           {item.references.length > 0 ? (
-            <ul className={attachmentList} aria-label="Referenced files">
+            <ul className={attachmentList} aria-label="References">
               {item.references.map((reference, index) => (
-                <li key={`${reference.path}-${index}`}>
+                <li
+                  key={`${"sessionId" in reference ? reference.sessionId : reference.path}-${index}`}
+                >
                   <Link
-                    href={`/files/${reference.path.split("/").map(encodeURIComponent).join("/")}`}
+                    href={referenceHref(
+                      "sessionId" in reference
+                        ? {
+                            kind: "session",
+                            sessionId: reference.sessionId,
+                            title: reference.title,
+                          }
+                        : { kind: "file", path: reference.path },
+                    )}
                     className={attachmentChip}
                   >
                     <FileText size="sm" aria-hidden="true" />
-                    <span className={attachmentName} title={reference.path}>
-                      {reference.path}
+                    <span
+                      className={attachmentName}
+                      title={
+                        "sessionId" in reference
+                          ? reference.title
+                          : reference.path
+                      }
+                    >
+                      {"sessionId" in reference
+                        ? reference.title
+                        : reference.path}
                     </span>
-                    {reference.text === undefined ? undefined : (
+                    {"text" in reference && reference.text !== undefined ? (
                       <span className={referenceExcerpt} title={reference.text}>
                         “{reference.text}”
                       </span>
-                    )}
+                    ) : undefined}
                   </Link>
                 </li>
               ))}

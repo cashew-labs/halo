@@ -1,22 +1,17 @@
 import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button as AriaButton } from "react-aria-components";
 import {
   background,
   Button,
   colors,
   Flex,
-  focusRing,
   iconSizeValues,
-  Menu,
-  MenuItem,
-  MenuTrigger,
   radius,
   shadow,
   Text,
 } from "maui";
 import { style, useStyles } from "purse-styles";
-import { Check, DotsHorizontal } from "maui/icons";
+import { Check } from "maui/icons";
 import {
   connectionRequestLabel,
   googleIntegrationDisplay,
@@ -24,9 +19,14 @@ import {
 import { useHost } from "../../HostProvider.js";
 import { brands, LogoImage } from "../../BrandLogo.tsx";
 import {
+  connectionCardQueryKey,
+  connectionStateAfterCancel,
+  connectionStateAfterFailedStart,
+  connectionStateForCard,
   connectionStateQueryKey,
   idleConnectionState,
   type ConnectionState,
+  type StartedConnectionCard,
 } from "./ConnectionState.ts";
 import type { SessionViewPart } from "./sessionView.ts";
 
@@ -58,13 +58,28 @@ export function ExecutorConnectionCard({
     () => connectionStateQueryKey(sessionId, part.request),
     [part.request, sessionId],
   );
-  const connection = useQuery<ConnectionState>({
+  const cardKey = useMemo(
+    () => connectionCardQueryKey(sessionId, part.request),
+    [part.request, sessionId],
+  );
+  const shared = useQuery<ConnectionState>({
     queryKey: statusKey,
     queryFn: async () => idleConnectionState,
     initialData: idleConnectionState,
     enabled: false,
   }).data;
-  const wasConnected = connection.status === "connected";
+  const startedCard = useQuery<StartedConnectionCard>({
+    queryKey: cardKey,
+    queryFn: async () => ({}), // coverage-exempt: disabled query; initialData only
+    initialData: {},
+    enabled: false,
+  }).data;
+  const connection = connectionStateForCard(
+    shared,
+    startedCard.cardId,
+    part.id,
+  );
+  const wasConnected = shared.status === "connected";
   const connect = useMutation({
     mutationFn: async () => {
       // SAFETY: the button is disabled until sessionId is a string.
@@ -85,11 +100,17 @@ export function ExecutorConnectionCard({
       return started;
     },
     onMutate: () => {
+      const previousCard =
+        queryClient.getQueryData<StartedConnectionCard>(cardKey) ?? {};
       const starting: ConnectionState = {
         status: "starting",
         wasConnected,
       };
       queryClient.setQueryData(statusKey, starting);
+      queryClient.setQueryData<StartedConnectionCard>(cardKey, {
+        cardId: part.id,
+      });
+      return { previousCard };
     },
     onSuccess: (started) => {
       if (started.status !== "connected") return;
@@ -97,17 +118,15 @@ export function ExecutorConnectionCard({
         status: "connected",
       });
     },
-    onError: (error) => {
-      queryClient.setQueryData<ConnectionState>(statusKey, (current) => {
-        if (
-          (current?.status === "starting" ||
-            current?.status === "connecting") &&
-          current.wasConnected
-        ) {
-          return { status: "connected" };
-        }
-        return idleConnectionState;
-      });
+    onError: (error, _input, context) => {
+      queryClient.setQueryData<ConnectionState>(
+        statusKey,
+        connectionStateAfterFailedStart,
+      );
+      queryClient.setQueryData<StartedConnectionCard>(
+        cardKey,
+        context?.previousCard ?? {},
+      );
       console.warn("Connection failed:", error);
     },
   });
@@ -119,12 +138,10 @@ export function ExecutorConnectionCard({
         connectionId: connection.connectionId,
       });
       if (cancelled instanceof Error) throw cancelled;
-      queryClient.setQueryData<ConnectionState>(statusKey, (current) => {
-        if (current?.status !== "connecting") return current;
-        return current.wasConnected
-          ? { status: "connected" }
-          : { status: "cancelled" };
-      });
+      queryClient.setQueryData<ConnectionState>(
+        statusKey,
+        connectionStateAfterCancel,
+      );
     },
     onError: (error) => {
       console.warn("Connection cancellation failed:", error);
@@ -135,8 +152,14 @@ export function ExecutorConnectionCard({
   const display = googleIntegrationDisplay(part.request.integration);
   const label = connectionRequestLabel(part.request);
   const brand = brands.google;
-  const menuLabel = `${label} actions`;
   const canConnect = sessionId !== undefined;
+  const brandButtonProps =
+    display === undefined
+      ? {}
+      : {
+          variantColor: brand.buttonColor,
+          style: { color: brand.buttonForeground },
+        };
 
   return (
     <section
@@ -148,39 +171,42 @@ export function ExecutorConnectionCard({
     >
       <Flex column gap={1} p={6}>
         <Flex row gap={4} alignItems="center">
-          <LogoImage
-            src={display === undefined ? brand.logoUrl : display.icon}
-            size="xl"
-          />
+          {display !== undefined && <LogoImage src={display.icon} size="xl" />}
           <Text size="md" fontWeight={600} style={{ flex: 1, minWidth: 0 }}>
             {label}
           </Text>
-          {status === "idle" ? (
-            <Button
-              variant="primary"
-              variantColor={brand.buttonColor}
-              style={{ color: brand.buttonForeground }}
-              className={brandButtonClassName}
-              isDisabled={!canConnect}
-              onClick={() => connect.mutate()}
-            >
-              Connect
-            </Button>
-          ) : (
-            <Flex row gap={2} alignItems="center" style={{ flexShrink: 0 }}>
+          <Flex row gap={3} alignItems="center" style={{ flexShrink: 0 }}>
+            {status === "idle" ? undefined : (
               <ConnectionStatusLabel status={status} />
-              {status === "starting" ? undefined : (
-                <ConnectionOverflowMenu
-                  label={menuLabel}
-                  status={status}
-                  canConnect={canConnect}
-                  cancelPending={cancel.isPending}
-                  onCancel={() => cancel.mutate()}
-                  onConnect={() => connect.mutate()}
-                />
-              )}
-            </Flex>
-          )}
+            )}
+            {status === "starting" ? undefined : status === "connecting" ? (
+              <Button
+                variant="quiet"
+                isDisabled={cancel.isPending}
+                onClick={() => cancel.mutate()}
+              >
+                Cancel
+              </Button>
+            ) : status === "connected" ? (
+              <Button
+                variant="default"
+                isDisabled={!canConnect}
+                onClick={() => connect.mutate()}
+              >
+                Add account
+              </Button>
+            ) : (
+              <Button
+                variant="primary"
+                {...brandButtonProps}
+                className={brandButtonClassName}
+                isDisabled={!canConnect}
+                onClick={() => connect.mutate()}
+              >
+                {status === "idle" ? "Connect" : "Connect again"}
+              </Button>
+            )}
+          </Flex>
         </Flex>
         {display === undefined ? undefined : (
           <Flex row gap={4} alignItems="start">
@@ -227,6 +253,7 @@ const connectionStatusColor = {
   connected: colors.green[11],
   cancelled: colors.orange[11],
   expired: colors.red[11],
+  failed: colors.red[11],
 } as const;
 
 const connectionStatusCopy = {
@@ -234,57 +261,5 @@ const connectionStatusCopy = {
   connecting: "Opened in your browser",
   cancelled: "Cancelled",
   expired: "Expired",
+  failed: "Connection failed",
 } as const;
-
-function ConnectionOverflowMenu({
-  label,
-  status,
-  canConnect,
-  cancelPending,
-  onCancel,
-  onConnect,
-}: {
-  label: string;
-  status: Exclude<ConnectionState["status"], "idle" | "starting">;
-  canConnect: boolean;
-  cancelPending: boolean;
-  onCancel(): void;
-  onConnect(): void;
-}) {
-  const buttonClassName = useStyles(menuButton);
-
-  return (
-    <MenuTrigger placement="bottom end">
-      <AriaButton aria-label={label} className={buttonClassName}>
-        <DotsHorizontal size="sm" />
-      </AriaButton>
-      <Menu aria-label={label}>
-        {status === "connecting" ? (
-          <MenuItem onAction={onCancel} isDisabled={cancelPending}>
-            Cancel
-          </MenuItem>
-        ) : (
-          <MenuItem onAction={onConnect} isDisabled={!canConnect}>
-            {status === "connected" ? "Connect different account" : "Connect"}
-          </MenuItem>
-        )}
-      </Menu>
-    </MenuTrigger>
-  );
-}
-
-const menuButton = style(focusRing(), radius.sm, {
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  height: "24px",
-  width: "24px",
-  padding: 0,
-  border: 0,
-  backgroundColor: "transparent",
-  color: colors.gray[11],
-  cursor: "pointer",
-  flexShrink: 0,
-  "&:hover": { backgroundColor: colors.gray[4] },
-  "&[data-disabled]": { opacity: 0.5 },
-});

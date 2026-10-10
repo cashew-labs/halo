@@ -1,13 +1,13 @@
+import {
+  automationsRouter,
+  type AutomationsRouterContext,
+} from "../automations/automationsRouter.js";
 import { watchWorkspace } from "./watchWorkspace.js";
 import { syncRouter, type SyncRouterContext } from "../database/syncRouter.js";
 import {
   hotkeysRouter,
   type HotkeysRouterContext,
 } from "../hotkeys/hotkeysRouter.js";
-import {
-  routinesRouter,
-  type RoutinesRouterContext,
-} from "../routines/routinesRouter.js";
 import {
   browserRouter,
   type BrowserRouterContext,
@@ -43,7 +43,7 @@ import {
 export type HaloContext = RequestHeadersHandlerPluginContext &
   SyncRouterContext &
   HotkeysRouterContext &
-  RoutinesRouterContext &
+  AutomationsRouterContext &
   BrowserRouterContext &
   TracesRouterContext &
   WorkspaceRouterContext &
@@ -59,8 +59,13 @@ const serverRouter = server.router({
     supportedProtocols: haloSupportedProtocols,
     build: context.build,
   })),
-  watch: server.watch.handler(({ context, signal }) =>
-    watchWorkspace({ context, signal }),
+  watch: server.watch.handler(({ context, input, signal }) =>
+    watchWorkspace({
+      context,
+      includeAutomations: input?.includeAutomations,
+      includeLegacyState: input?.includeLegacyState,
+      signal,
+    }),
   ),
 });
 
@@ -68,7 +73,7 @@ export const haloRpcRouter = {
   sync: syncRouter,
   server: serverRouter,
   hotkeys: hotkeysRouter,
-  routines: routinesRouter,
+  automations: automationsRouter,
   browser: browserRouter,
   workspace: workspaceRouter,
   thread: threadRouter,

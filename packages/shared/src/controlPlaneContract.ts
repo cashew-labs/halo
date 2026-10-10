@@ -1,9 +1,112 @@
 import * as errore from "errore";
 import { checkServerCompatibility, type ServerInfo } from "@get-halo/client";
 import { error, oc, type, type RouterContractClient } from "@orpc/contract";
+import { Type, type Static, type TSchema } from "@sinclair/typebox";
+import { Value } from "@sinclair/typebox/value";
 
-export const controlPlaneProtocolVersion = 3 as const;
-export const controlPlaneSupportedProtocols = [controlPlaneProtocolVersion];
+const jsonValueSchema = Type.Recursive((self) =>
+  Type.Union([
+    Type.Null(),
+    Type.Boolean(),
+    Type.Number(),
+    Type.String(),
+    Type.Array(self),
+    Type.Record(Type.String(), self),
+  ]),
+);
+export type IntegrationJson = Static<typeof jsonValueSchema>;
+export type IntegrationSetupMethod = {
+  template: string;
+  label: string;
+  kind: "oauth" | "apikey" | "header" | "none";
+  fields: string[];
+};
+export type IntegrationSetupCatalogEntry = {
+  integration: string;
+  name: string;
+  methods: IntegrationSetupMethod[];
+};
+export type IntegrationSetup = IntegrationSetupCatalogEntry & {
+  setupId: string;
+  connectionName: string;
+  // The Halo account that receives the connection, when Halo opened the page.
+  owner?: string;
+  status:
+    | "awaiting_credentials"
+    | "authorizing"
+    | "confirming"
+    | "ready"
+    | "cancelled"
+    | "expired"
+    | "failed";
+  connection?: IntegrationConnection;
+  message?: string;
+};
+// What happened to the provider's grant when a connection was removed.
+export type ConnectionRevocation =
+  // The provider no longer grants Halo access to the account.
+  | "revoked"
+  // Another connection uses the same grant, so access was kept for it.
+  | "shared"
+  // Halo cannot revoke access for this kind of connection.
+  | "not_supported"
+  // The provider did not confirm the revocation.
+  | "failed";
+export type IntegrationConnection = {
+  address: string;
+  integration: string;
+  name: string;
+  accountLabel?: string;
+};
+export type IntegrationTool = {
+  address: string;
+  integration: string;
+  connection: string;
+  name: string;
+  description: string;
+};
+export type IntegrationToolSchema = IntegrationTool & {
+  inputSchema?: IntegrationJson;
+  outputSchema?: IntegrationJson;
+  schemaDefinitions?: IntegrationJson;
+  inputTypeScript?: string;
+  outputTypeScript?: string;
+  requiresApproval?: boolean;
+};
+export type IntegrationInvocation =
+  | { status: "completed"; result: IntegrationJson }
+  | { status: "blocked" | "approval_required" }
+  | {
+      status: "connection_required";
+      integration: string;
+      connectionName?: string;
+    }
+  | {
+      status: "failed";
+      code: "tool_failed" | "unsupported_interaction" | "outcome_unknown";
+      message: string;
+    };
+
+function validated<T extends TSchema>(schema: T) {
+  return {
+    "~standard": {
+      version: 1 as const,
+      vendor: "halo-typebox",
+      validate: (
+        // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Standard Schema receives untrusted RPC input here.
+        value: unknown,
+      ): { value: Static<T> } | { issues: { message: string }[] } =>
+        Value.Check(schema, value)
+          ? { value }
+          : { issues: [{ message: "Invalid integration request" }] },
+    },
+  };
+}
+
+// Version 5 adds confirming for a saved connection awaiting setup-status repair.
+export const controlPlaneProtocolVersion = 5 as const;
+// Protocol 3 exposes the unchanged auth/workspace APIs, without integrations.
+export const controlPlaneSupportedProtocols = [3, controlPlaneProtocolVersion];
 
 export type ControlPlaneSession = {
   session: {
@@ -68,6 +171,178 @@ export const controlPlaneContract = publicProcedure.router({
     ensure: authenticatedProcedure.output(type<ControlPlaneWorkspace>()),
     rotateRuntimeToken:
       authenticatedProcedure.output(type<ControlPlaneWorkspace>()),
+  },
+  integrations: {
+    catalog:
+      authenticatedProcedure.output(type<IntegrationSetupCatalogEntry[]>()),
+    startSetup: authenticatedProcedure
+      .input(
+        validated(
+          Type.Object(
+            {
+              integration: Type.String({ minLength: 1, maxLength: 256 }),
+              connectionName: Type.Optional(
+                Type.String({ pattern: "^[a-zA-Z][a-zA-Z0-9_-]{0,63}$" }),
+              ),
+            },
+            { additionalProperties: false },
+          ),
+        ),
+      )
+      .output(type<{ setupId: string; setupUrl: string }>()),
+    setup: authenticatedProcedure
+      .input(
+        validated(
+          Type.Object(
+            { setupId: Type.String({ minLength: 1, maxLength: 128 }) },
+            { additionalProperties: false },
+          ),
+        ),
+      )
+      .output(type<IntegrationSetup>()),
+    submitSetup: authenticatedProcedure
+      .input(
+        validated(
+          Type.Object(
+            {
+              setupId: Type.String({ minLength: 1, maxLength: 128 }),
+              template: Type.String({ minLength: 1, maxLength: 256 }),
+              values: Type.Optional(
+                Type.Record(
+                  Type.String({ maxLength: 128 }),
+                  Type.String({ maxLength: 65536 }),
+                ),
+              ),
+            },
+            { additionalProperties: false },
+          ),
+        ),
+      )
+      .output(type<{ authorizationUrl?: string }>()),
+    cancelSetup: authenticatedProcedure
+      .input(
+        validated(
+          Type.Object(
+            { setupId: Type.String({ minLength: 1, maxLength: 128 }) },
+            { additionalProperties: false },
+          ),
+        ),
+      )
+      .output(type<void>()),
+    // Signed-in Halo clients issue a single-use link for the browser they open.
+    createSetupHandoff: authenticatedProcedure
+      .input(
+        validated(
+          Type.Object(
+            { setupId: Type.String({ minLength: 1, maxLength: 128 }) },
+            { additionalProperties: false },
+          ),
+        ),
+      )
+      .output(type<{ url: string }>()),
+    // Binds the redeeming browser to the setup with a cookie.
+    redeemSetupHandoff: publicProcedure
+      .input(
+        validated(
+          Type.Object(
+            {
+              setupId: Type.String({ minLength: 1, maxLength: 128 }),
+              handoff: Type.String({ minLength: 1, maxLength: 128 }),
+            },
+            { additionalProperties: false },
+          ),
+        ),
+      )
+      .output(type<void>()),
+    // Removes a connection, its tools and its stored credentials.
+    removeConnection: authenticatedProcedure
+      .input(
+        validated(
+          Type.Object(
+            {
+              integration: Type.String({ minLength: 1, maxLength: 256 }),
+              name: Type.String({ minLength: 1, maxLength: 128 }),
+            },
+            { additionalProperties: false },
+          ),
+        ),
+      )
+      .output(type<{ revocation: ConnectionRevocation }>()),
+    registerOpenAPI: authenticatedProcedure
+      .input(
+        validated(
+          Type.Object(
+            {
+              name: Type.String({ minLength: 1, maxLength: 256 }),
+              slug: Type.String({ pattern: "^[a-z][a-z0-9_-]{0,63}$" }),
+              url: Type.String({ minLength: 1, maxLength: 2048 }),
+            },
+            { additionalProperties: false },
+          ),
+        ),
+      )
+      .output(type<void>()),
+    registerMcp: authenticatedProcedure
+      .input(
+        validated(
+          Type.Object(
+            {
+              name: Type.String({ minLength: 1, maxLength: 256 }),
+              slug: Type.String({ pattern: "^[a-z][a-z0-9_-]{0,63}$" }),
+              endpoint: Type.String({ minLength: 1, maxLength: 2048 }),
+              auth: Type.Union([
+                Type.Literal("none"),
+                Type.Literal("bearer"),
+                Type.Literal("oauth"),
+              ]),
+            },
+            { additionalProperties: false },
+          ),
+        ),
+      )
+      .output(type<void>()),
+    connections: authenticatedProcedure.output(type<IntegrationConnection[]>()),
+    search: authenticatedProcedure
+      .input(
+        validated(
+          Type.Object(
+            {
+              query: Type.String({ maxLength: 1024 }),
+              integration: Type.Optional(
+                Type.String({ minLength: 1, maxLength: 256 }),
+              ),
+              limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
+            },
+            { additionalProperties: false },
+          ),
+        ),
+      )
+      .output(type<{ tools: IntegrationTool[]; truncated: boolean }>()),
+    describe: authenticatedProcedure
+      .input(
+        validated(
+          Type.Object(
+            {
+              address: Type.String({ minLength: 1, maxLength: 2048 }),
+            },
+            { additionalProperties: false },
+          ),
+        ),
+      )
+      .output(type<IntegrationToolSchema>()),
+    invoke: authenticatedProcedure
+      .input(
+        validated(
+          Type.Object(
+            {
+              address: Type.String({ minLength: 1, maxLength: 2048 }),
+              arguments: Type.Record(Type.String(), jsonValueSchema),
+            },
+            { additionalProperties: false },
+          ),
+        ),
+      )
+      .output(type<IntegrationInvocation>()),
   },
 });
 

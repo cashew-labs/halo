@@ -8,9 +8,11 @@ export {
   workspaceServerReadySchema,
   type WorkspaceServerReady,
 } from "./server/WorkspaceServerReady.js";
-export { FileCredentialVault } from "./agent/runtime/FileCredentialVault.js";
 export type { ExtensionRuntime } from "./extensions/startExtension.js";
-export type { GoogleWebOAuthClient } from "./agent/runtime/ToolRuntime.js";
+export type { RemoteIntegrationTools } from "./agent/runtime/ToolRuntime.js";
 export { ControlPlaneTraceUploader } from "./traces/ControlPlaneTraceUploader.js";
 export { ControlPlaneWorkReporter } from "./server/ControlPlaneWorkReporter.js";
+export { ControlPlaneScheduleReporter } from "./automations/ControlPlaneScheduleReporter.js"; // coverage-exempt: Rename-only public export.
 export type { TraceUploader } from "./traces/TraceService.js";
+
+export { ControlPlaneAutomationClient } from "./automations/ControlPlaneAutomationClient.js";

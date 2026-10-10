@@ -1,7 +1,16 @@
 import { type Static, Type } from "@sinclair/typebox";
 import { googleIntegrationDisplay } from "./GoogleIntegrationDisplay.js";
 
-export const connectionRequestSchema = Type.Object({
+const controlPlaneConnectionRequestSchema = Type.Object({
+  kind: Type.Literal("control-plane"),
+  integration: Type.String(),
+  connectionName: Type.Optional(Type.String()),
+});
+
+// Protocol 24 cards and saved transcripts use the workspace-owned OAuth shape.
+// Only integration/name are used to start a control-plane setup; these fields
+// do not grant client/owner authority over credentials.
+const legacyConnectionRequestSchema = Type.Object({
   client: Type.String(),
   clientOwner: Type.Union([Type.Literal("org"), Type.Literal("user")]),
   owner: Type.Union([Type.Literal("org"), Type.Literal("user")]),
@@ -11,19 +20,16 @@ export const connectionRequestSchema = Type.Object({
   identityLabel: Type.Optional(Type.String()),
   newConnection: Type.Optional(Type.Boolean()),
 });
-
+export const connectionRequestSchema = Type.Union([
+  controlPlaneConnectionRequestSchema,
+  legacyConnectionRequestSchema,
+]);
 export type ConnectionRequest = Static<typeof connectionRequestSchema>;
 
 export function connectionRequestKey(request: ConnectionRequest) {
   return JSON.stringify([
-    request.client,
-    request.clientOwner,
-    request.owner,
-    request.connectionName,
     request.integration,
-    request.template,
-    request.identityLabel,
-    request.newConnection,
+    request.connectionName ?? "default",
   ]);
 }
 

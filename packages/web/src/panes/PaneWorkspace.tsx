@@ -27,8 +27,10 @@ import {
 import { isPaneDrag, paneRouteDragType, paneTabDragType } from "./paneDrag.js";
 import { queryOptions, skipToken, useQueries } from "@tanstack/react-query";
 import { useSidebar } from "../WorkspaceLayout.js";
-import { useExtensions } from "../api/WorkspaceUpdatesProvider.js";
-import { useDatabaseQuery } from "../database/useDatabaseQuery.js";
+import {
+  useExtensions,
+  useAutomations,
+} from "../api/WorkspaceUpdatesProvider.js";
 import { sessionTitleQueryKey } from "../main/agent/useAgentSession.js";
 import { CopyExtensionLinkButton } from "./CopyExtensionLinkButton.js";
 import { tabBarHeight, usePaneStyles } from "./paneStyles.js";
@@ -47,7 +49,7 @@ export function PaneWorkspace({ sessions }: { sessions: SessionSummary[] }) {
   const workspace = useWorkspacePanes();
   const sidebar = useSidebar();
   const extensions = useExtensions().data;
-  const routines = useDatabaseQuery({ collection: "routines" });
+  const automations = useAutomations();
   const state = usePaneState();
   const { leaves, dividers } = paneLayout(state.root);
   const sessionTabs = leaves
@@ -75,9 +77,16 @@ export function PaneWorkspace({ sessions }: { sessions: SessionSummary[] }) {
         "Session"
       );
     }
-    if (tab.path.startsWith("/routines/")) {
-      const id = decodeURIComponent(tab.path.slice(10));
-      return routines?.find((routine) => routine.id === id)?.name ?? "Routine";
+    if (tab.path === "/automations") return "Automations";
+    if (
+      tab.path.startsWith("/routines/") ||
+      tab.path.startsWith("/automations/")
+    ) {
+      const id = decodeURIComponent(tab.path.split("/")[2]!);
+      return (
+        automations?.find((automation) => automation.id === id)?.name ??
+        "Automation"
+      );
     }
     if (tab.path.startsWith("/extensions/")) {
       const id = decodeURIComponent(tab.path.slice(12));
@@ -143,7 +152,11 @@ export function PaneWorkspace({ sessions }: { sessions: SessionSummary[] }) {
 
   const chrome = usePaneStyles();
 
-  function openFileLink(event: MouseEvent, paneId: string, sourcePath: string) {
+  function openWorkspaceLink(
+    event: MouseEvent,
+    paneId: string,
+    sourcePath: string,
+  ) {
     if (event.type === "click" ? event.button !== 0 : event.button !== 1)
       return;
     const link =
@@ -151,15 +164,24 @@ export function PaneWorkspace({ sessions }: { sessions: SessionSummary[] }) {
         ? event.target.closest("a[href]")
         : undefined;
     if (!(link instanceof HTMLAnchorElement)) return;
+    if (
+      link.isContentEditable &&
+      event.button === 0 &&
+      !event.metaKey &&
+      !event.ctrlKey
+    )
+      return;
     const href = link.getAttribute("href")?.trim();
     if (!href) return;
     let path: string;
-    if (href.startsWith("#/files/")) path = href.slice(1);
-    else if (href.startsWith("/files/")) path = href;
+    if (href.startsWith("#/files/") || href.startsWith("#/sessions/"))
+      path = href.slice(1);
+    else if (href.startsWith("/files/") || href.startsWith("/sessions/"))
+      path = href;
     else {
       if (
         /^(?:[a-z][a-z0-9+.-]*:|\/\/|#)/i.test(href) ||
-        /^\/(?:sessions|draft|extensions)\//.test(href)
+        /^\/(?:draft|extensions)\//.test(href)
       )
         return;
       const documentPath = sourcePath.startsWith("/files/")
@@ -294,9 +316,11 @@ export function PaneWorkspace({ sessions }: { sessions: SessionSummary[] }) {
             }}
             onPointerDownCapture={() => workspace.select(pane.id)}
             onFocusCapture={() => workspace.select(pane.id)}
-            onClickCapture={(event) => openFileLink(event, pane.id, tab.path)}
+            onClickCapture={(event) =>
+              openWorkspaceLink(event, pane.id, tab.path)
+            }
             onAuxClickCapture={(event) =>
-              openFileLink(event, pane.id, tab.path)
+              openWorkspaceLink(event, pane.id, tab.path)
             }
           >
             <TabVisibilityContext value={pane.activeTabId === tab.id}>

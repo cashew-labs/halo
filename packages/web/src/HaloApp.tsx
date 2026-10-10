@@ -68,7 +68,7 @@ function WorkspaceShell({
   const errorClassName = useStyles(styles.error);
 
   return (
-    <div className={readyApp}>
+    <div className={readyApp} data-window-shell>
       {alertMessage && (
         <div className={errorClassName} role="alert">
           {alertMessage}

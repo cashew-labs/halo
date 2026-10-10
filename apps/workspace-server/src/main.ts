@@ -1,5 +1,5 @@
 import fs from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import { readWorkspaceServerApplicationConfig } from "@get-halo/config/workspaceServer";
 import { ApplicationMode } from "@get-halo/config/ApplicationMode";
 import { Logger } from "@get-halo/logger";
@@ -15,11 +15,18 @@ import {
 import {
   ControlPlaneTraceUploader,
   ControlPlaneWorkReporter,
-  FileCredentialVault,
+  ControlPlaneScheduleReporter, // coverage-exempt: Rename-only entrypoint import.
+  ControlPlaneAutomationClient,
   WorkspaceServer,
 } from "@get-halo/workspace-server";
 import { createOpenAILLMApi } from "@get-halo/workspace-server/llm";
 import * as errore from "errore";
+import { createORPCClient } from "@orpc/client";
+import { RPCLink } from "@orpc/client/fetch";
+import {
+  controlPlaneProtocolVersion,
+  type ControlPlaneClient,
+} from "@get-halo/shared/controlPlaneContract";
 
 class WorkspaceServerStartupError extends errore.createTaggedError({
   name: "WorkspaceServerStartupError",
@@ -59,6 +66,25 @@ async function run() {
     applicationConfig.server.extensionRuntime === undefined
       ? { executable: process.execPath, electronRunAsNode: false }
       : applicationConfig.server.extensionRuntime;
+  const runtime = applicationConfig.server.runtime;
+  const runtimeClient =
+    runtime === undefined
+      ? undefined
+      : createORPCClient<ControlPlaneClient>(
+          new RPCLink({
+            origin: runtime.origin,
+            url: "/rpc",
+            headers: {
+              authorization: `Bearer ${runtime.token}`,
+              "x-halo-protocol-version": String(controlPlaneProtocolVersion),
+            },
+          }),
+        );
+  const remoteFailure = (cause: unknown) =>
+    new WorkspaceServerStartupError({
+      detail: "control-plane integration RPC",
+      cause,
+    });
   const server = await WorkspaceServer.start({
     config: {
       build:
@@ -88,12 +114,89 @@ async function run() {
       cliNodeExecutable: applicationConfig.server.cliNodeExecutable,
       cliElectronRunAsNode: applicationConfig.server.cliElectronRunAsNode,
       extensionRuntime,
-      integrationsEnabled: applicationConfig.integrationsEnabled,
-      googleWebOAuthClient: applicationConfig.googleWebOAuthClient,
-      oauthTestOrigin: applicationConfig.oauthTestOrigin,
     },
     host: {
+      automationControl:
+        applicationConfig.server.runtime === undefined
+          ? undefined
+          : new ControlPlaneAutomationClient(applicationConfig.server.runtime),
+      remoteIntegrationTools:
+        applicationConfig.server.runtime === undefined
+          ? undefined
+          : {
+              search: async (input, signal) =>
+                await runtimeClient!.integrations
+                  .search(input, { signal })
+                  .catch(remoteFailure),
+              describe: async (input, signal) =>
+                await runtimeClient!.integrations
+                  .describe(input, { signal })
+                  .catch(remoteFailure),
+              invoke: async (input, signal) =>
+                await runtimeClient!.integrations
+                  .invoke(input, { signal })
+                  .catch(remoteFailure),
+            },
+      remoteConnections:
+        applicationConfig.server.runtime === undefined
+          ? undefined
+          : (() => {
+              const client = runtimeClient!;
+              const failed = (cause: unknown) =>
+                new WorkspaceServerStartupError({
+                  detail: "control-plane connection setup",
+                  cause,
+                });
+              return {
+                catalog: async () =>
+                  await client.integrations
+                    .catalog(undefined, { signal: AbortSignal.timeout(10_000) })
+                    .catch(failed),
+                startSetup: async (input: {
+                  integration: string;
+                  connectionName?: string;
+                }) =>
+                  await client.integrations
+                    .startSetup(input, { signal: AbortSignal.timeout(10_000) })
+                    .catch(failed),
+                setup: async (input: { setupId: string }) =>
+                  await client.integrations
+                    .setup(input, { signal: AbortSignal.timeout(10_000) })
+                    .catch(failed),
+                cancelSetup: async (input: { setupId: string }) =>
+                  await client.integrations
+                    .cancelSetup(input, { signal: AbortSignal.timeout(10_000) })
+                    .then(() => undefined)
+                    .catch(failed),
+                // coverage-exempt: host wiring, like catalog and setup above
+                connections: async () =>
+                  await client.integrations
+                    .connections(undefined, {
+                      signal: AbortSignal.timeout(10_000),
+                    })
+                    .catch(failed),
+                removeConnection: async (input: {
+                  integration: string;
+                  name: string;
+                }) =>
+                  await client.integrations
+                    .removeConnection(input, {
+                      signal: AbortSignal.timeout(30_000),
+                    })
+                    .catch(failed),
+              };
+            })(),
       llmApi,
+      reportAutomationSchedule: // coverage-exempt: Rename-only host wiring.
+        applicationConfig.server.runtime === undefined
+          ? undefined
+          : (() => {
+              const reporter = new ControlPlaneScheduleReporter( // coverage-exempt: Rename-only entrypoint construction.
+                applicationConfig.server.runtime,
+              );
+              return async (snapshot, signal) =>
+                await reporter.report(snapshot, signal);
+            })(),
       reportWorkIdle:
         applicationConfig.server.runtime === undefined
           ? undefined
@@ -112,11 +215,6 @@ async function run() {
               token: applicationConfig.server.runtime.token,
             }),
       logger: logger.scope("rpc"),
-      createCredentialVault: ({ filesystem, workspaceRoot }) =>
-        new FileCredentialVault({
-          filesystem,
-          directory: join(workspaceRoot, ".halo", "executor", "credentials"),
-        }),
     },
   });
   if (server instanceof Error) return server;

@@ -22,7 +22,6 @@ import {
 import { anyAbortSignal } from "@orpc/shared";
 import { OAuth2Client } from "google-auth-library";
 import * as errore from "errore";
-import { handleOAuthCallback } from "./oauth.js";
 import { DesktopProxy } from "./DesktopProxy.js";
 import { haloRpcRouter, type HaloContext } from "./router.js";
 import { extensionToolRouter } from "../extensions/extensionsRouter.js";
@@ -169,15 +168,6 @@ export function serveHaloHttp(options: {
       request.url === undefined ? "/" : request.url,
       "http://localhost",
     );
-    if (url.pathname === "/oauth/callback") {
-      await handleOAuthCallback({
-        url,
-        request,
-        response,
-        context: options.context,
-      });
-      return;
-    }
     if (url.pathname.startsWith("/extension-tools/")) {
       const extensionId = options.context.extensions.identifyToolConnection(
         request.headers.authorization,

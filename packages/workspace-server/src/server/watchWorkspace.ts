@@ -13,9 +13,13 @@ class WorkspaceWatchError extends errore.createTaggedError({
 // connections available for transcripts, prompts, cancellation, and file I/O.
 export async function* watchWorkspace({
   context,
+  includeAutomations,
+  includeLegacyState,
   signal,
 }: {
   context: HaloContext;
+  includeAutomations?: boolean;
+  includeLegacyState?: boolean;
   signal: AbortSignal | undefined;
 }) {
   const closed = new AbortController();
@@ -25,6 +29,10 @@ export async function* watchWorkspace({
       : AbortSignal.any([signal, closed.signal]);
   const events = new Stream<WorkspaceUpdate | Error>();
   using updates = events.consume({ abortSignal });
+  using files =
+    includeLegacyState === false
+      ? undefined
+      : context.workspace.treeEvents.consume({ abortSignal });
   const tasks = [
     forward(context.extensions.watch(abortSignal), (extensions) =>
       extensions instanceof Error
@@ -36,6 +44,25 @@ export async function* watchWorkspace({
       update,
     })),
   ];
+  // Protocol 25/26 clients have neither Tandem reads nor scoped folder listings.
+  if (files !== undefined) {
+    tasks.push(
+      forward(context.hotkeys.watch(abortSignal), (hotkeys) => ({
+        type: "hotkeys",
+        hotkeys,
+      })),
+      forward(files, (batch) => ({ type: "files", events: batch })),
+    );
+  }
+  // Automation consumers explicitly opt into these snapshots.
+  if (includeAutomations === true) {
+    tasks.push(
+      forward(context.automations.watch(abortSignal), (automations) => ({
+        type: "automations",
+        automations,
+      })),
+    );
+  }
   await using cleanup = new errore.AsyncDisposableStack();
   cleanup.defer(async () => {
     closed.abort();

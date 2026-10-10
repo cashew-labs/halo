@@ -1,9 +1,17 @@
+import { AutomationService } from "../automations/AutomationService.js";
+import { AutomationSources } from "../automations/AutomationSources.js";
+import type { ControlPlaneAutomationClient } from "../automations/ControlPlaneAutomationClient.js";
+import { AutomationSync } from "../automations/AutomationSync.js";
+import { createAutomationsPlugin } from "../automations/createAutomationsPlugin.js";
+import { AutomationRunner } from "../automations/AutomationRunner.js";
 import { HotkeyService } from "../hotkeys/HotkeyService.js";
 import { WorkspaceIdleReporter } from "./WorkspaceIdleReporter.js";
 import { combineLatest } from "@get-halo/shared/Stream";
-import { RoutineService } from "../routines/RoutineService.js";
-import { RoutineRunner } from "../routines/RoutineRunner.js";
-import { RoutineScheduler } from "../routines/RoutineScheduler.js";
+import { AutomationScheduler } from "../automations/AutomationScheduler.js";
+import {
+  AutomationScheduleSync,
+  type AutomationScheduleSnapshot,
+} from "../automations/AutomationScheduleSync.js";
 import { createHotkeysPlugin } from "../hotkeys/createHotkeysPlugin.js";
 import path from "node:path";
 import { TursoThreadRepo } from "../database/TursoThreadRepo.js";
@@ -19,11 +27,10 @@ import { createThreadPlugin } from "../sessions/createThreadPlugin.js";
 import { WorkspaceService } from "../workspace/WorkspaceService.js";
 import { WorkspaceSearch } from "../workspace/WorkspaceSearch.js";
 import { StaticAgentAuthority } from "../agent/runtime/AgentAuthority.js";
-import type { CredentialVault } from "../agent/runtime/CredentialVault.js";
 import { ConnectionService } from "../agent/runtime/ConnectionService.js";
 import {
   ToolRuntime,
-  type GoogleWebOAuthClient,
+  type RemoteIntegrationTools,
 } from "../agent/runtime/ToolRuntime.js";
 import { workspaceBashPlugin } from "../agent/tools/bash/workspaceBashPlugin.js";
 import { createWorkspaceFilesPlugin } from "../agent/tools/files/createWorkspaceFilesPlugin.js";
@@ -61,12 +68,19 @@ export type WorkspaceServerConfig = {
   cliNodeExecutable?: string;
   cliElectronRunAsNode?: boolean;
   extensionRuntime: ExtensionRuntime;
-  integrationsEnabled?: boolean;
-  googleWebOAuthClient?: GoogleWebOAuthClient;
-  oauthTestOrigin?: string;
 };
 
 export type WorkspaceServerHost = {
+  automationControl?: Pick<
+    ControlPlaneAutomationClient,
+    "report" | "status" | "webhookAccess" | "gmailConnections"
+  >;
+  remoteConnections?: import("../agent/runtime/ConnectionService.js").RemoteConnectionBackend;
+  remoteIntegrationTools?: RemoteIntegrationTools;
+  reportAutomationSchedule?: (
+    snapshot: AutomationScheduleSnapshot,
+    signal: AbortSignal,
+  ) => Promise<void | Error>;
   reportWorkIdle?: (
     idle: boolean,
     signal: AbortSignal,
@@ -79,11 +93,6 @@ export type WorkspaceServerHost = {
   traceUploader?: TraceUploader;
   // Logger the host owns; the server writes through it and does not close the sinks.
   logger: Logger;
-  // Host-owned vault. The server passes its FilesystemService; the host must not close it.
-  createCredentialVault: (input: {
-    filesystem: FilesystemService;
-    workspaceRoot: string;
-  }) => CredentialVault;
 };
 
 export type WorkspaceServerOptions = {
@@ -102,8 +111,11 @@ export class WorkspaceServer {
   private readonly sessionRepo: TursoThreadRepo;
   private readonly workspace: WorkspaceService;
   private readonly sessions: ThreadManager;
-  private readonly routineRunner: RoutineRunner;
-  private readonly routineScheduler: RoutineScheduler;
+  private readonly automationRunner: AutomationRunner;
+  private readonly automationSync: AutomationSync | undefined;
+  private readonly automationScheduler:
+    | AutomationScheduler
+    | AutomationScheduleSync;
   private readonly toolRuntime: ToolRuntime;
   private readonly connectionService: ConnectionService;
   private readonly browsers: BrowserService;
@@ -119,8 +131,9 @@ export class WorkspaceServer {
     sessionRepo: TursoThreadRepo;
     workspace: WorkspaceService;
     sessions: ThreadManager;
-    routineRunner: RoutineRunner;
-    routineScheduler: RoutineScheduler;
+    automationRunner: AutomationRunner;
+    automationScheduler: AutomationScheduler | AutomationScheduleSync;
+    automationSync: AutomationSync | undefined;
     toolRuntime: ToolRuntime;
     connectionService: ConnectionService;
     browsers: BrowserService;
@@ -135,8 +148,9 @@ export class WorkspaceServer {
       sessionRepo,
       workspace,
       sessions,
-      routineRunner,
-      routineScheduler,
+      automationRunner,
+      automationScheduler,
+      automationSync,
       toolRuntime,
       connectionService,
       browsers,
@@ -151,8 +165,9 @@ export class WorkspaceServer {
     this.sessionRepo = sessionRepo;
     this.workspace = workspace;
     this.sessions = sessions;
-    this.routineRunner = routineRunner;
-    this.routineScheduler = routineScheduler;
+    this.automationRunner = automationRunner;
+    this.automationScheduler = automationScheduler;
+    this.automationSync = automationSync;
     this.toolRuntime = toolRuntime;
     this.connectionService = connectionService;
     this.browsers = browsers;
@@ -244,27 +259,27 @@ export class WorkspaceServer {
       db,
       userId: config.ownerUserId,
     });
-    const routines = new RoutineService({
-      db,
+    const automations = await AutomationService.open({
+      database: db.createNativeConnection(),
     });
+    if (automations instanceof Error) return automations;
     const [initialized, toolRuntime] = await Promise.all([
       workspace.initialize(),
       ToolRuntime.create({
+        remoteConnections: host.remoteConnections,
+        remoteIntegrationTools: host.remoteIntegrationTools,
         database: db.createNativeConnection(),
         workspaceRoot,
         userId: config.ownerUserId,
-        integrationsEnabled: config.integrationsEnabled,
-        credentialVault:
-          config.integrationsEnabled === false
-            ? undefined
-            : host.createCredentialVault({ filesystem, workspaceRoot }),
-        oauthRedirectUri: `${http.origin}/oauth/callback`,
-        googleWebOAuthClient: config.googleWebOAuthClient,
-        oauthTestOrigin: config.oauthTestOrigin,
         toolPlugins: [
           createWorkspaceFilesPlugin(filesystem),
           createDatabaseQueryPlugin(db.createNativeConnection()),
           createHotkeysPlugin(hotkeys),
+          createAutomationsPlugin(() => ({
+            automations,
+            runner: automationRunner,
+            sources: automationSources,
+          })),
           createThreadPlugin(() => ({
             threads: sessions,
             connections: connectionService,
@@ -275,6 +290,7 @@ export class WorkspaceServer {
         authority: new StaticAgentAuthority(
           host.agentCapabilities ?? [
             "workspace.hotkeys",
+            "workspace.automations",
             "workspace.files.read",
             "workspace.files.write",
             "workspace.shell.execute",
@@ -297,7 +313,9 @@ export class WorkspaceServer {
     if (initialized instanceof Error) return initialized;
     if (toolRuntime instanceof Error) return toolRuntime;
 
-    const connectionService = new ConnectionService(toolRuntime);
+    const connectionService = new ConnectionService({
+      remote: host.remoteConnections,
+    });
     cleanup.defer(() => connectionService.close());
     const extensions = new ExtensionHost({
       workspaceRoot,
@@ -328,39 +346,68 @@ export class WorkspaceServer {
     });
     const sessionsStarted = await sessions.start();
     if (sessionsStarted instanceof Error) return sessionsStarted;
-    const routineRunner = new RoutineRunner({
-      routines,
+    const automationRunner = new AutomationRunner({
+      automations,
       sessions,
       filesystem,
       workspaceRoot,
       logger: host.logger,
     });
-    cleanup.defer(async () => await routineRunner.stop());
-    const recoveredRoutines = await routineRunner.recover();
-    if (recoveredRoutines instanceof Error) return recoveredRoutines;
+    cleanup.defer(async () => await automationRunner.stop());
+    const recoveredAutomations = await automationRunner.recover({
+      preserveDue: host.reportAutomationSchedule !== undefined,
+    });
+    if (recoveredAutomations instanceof Error) return recoveredAutomations;
     const recovered = await sessions.start();
     if (recovered instanceof Error) return recovered;
+    await automationRunner.startWorker();
     const idleReporter = new WorkspaceIdleReporter({
-      idle: combineLatest([sessions.idle, toolRuntime.idle]).map((states) =>
-        states.every(Boolean),
-      ),
+      idle: combineLatest([
+        sessions.idle,
+        toolRuntime.idle,
+        automationRunner.idle,
+      ]).map((states) => states.every(Boolean)),
       report: host.reportWorkIdle,
     });
     cleanup.defer(async () => await idleReporter.close());
-    const routineScheduler = new RoutineScheduler({
-      routines,
-      runner: routineRunner,
-      logger: host.logger,
+    const automationScheduler =
+      host.reportAutomationSchedule === undefined
+        ? new AutomationScheduler({
+            automations,
+            runner: automationRunner,
+            logger: host.logger,
+          })
+        : new AutomationScheduleSync({
+            automations,
+            report: host.reportAutomationSchedule,
+            logger: host.logger,
+          });
+    cleanup.defer(async () => await automationScheduler.stop());
+    const automationSync =
+      host.automationControl === undefined
+        ? undefined
+        : new AutomationSync({
+            automations,
+            report: async (snapshot, signal) =>
+              await host.automationControl!.report(snapshot, signal),
+            logger: host.logger,
+          });
+    automationSync?.start();
+    cleanup.defer(async () => await automationSync?.close());
+    const automationSources = new AutomationSources({
+      automations,
+      sync: automationSync,
+      control: host.automationControl,
     });
-    cleanup.defer(async () => await routineScheduler.stop());
     const requests = serveHaloHttp({
       ...http,
       context: {
         db,
         build: config.build,
         hotkeys,
-        routines,
-        routineRunner,
+        automations,
+        automationRunner,
+        automationSources,
         traces,
         browsers,
         extensions,
@@ -379,7 +426,7 @@ export class WorkspaceServer {
     });
     cleanup.defer(async () => await requests.close());
     await extensions.reload();
-    const scheduled = await routineScheduler.start();
+    const scheduled = await automationScheduler.start();
     if (scheduled instanceof Error) return scheduled;
     cleanup.move();
     return new WorkspaceServer({
@@ -389,8 +436,9 @@ export class WorkspaceServer {
       sessionRepo,
       workspace,
       sessions,
-      routineRunner,
-      routineScheduler,
+      automationRunner,
+      automationScheduler,
+      automationSync,
       toolRuntime,
       connectionService,
       browsers,
@@ -413,8 +461,9 @@ export class WorkspaceServer {
     await this.requests.close();
     this.connectionService.close();
     // Routine runs record their interruption before their sessions close.
-    await this.routineScheduler.stop();
-    await this.routineRunner.stop();
+    await this.automationScheduler.stop();
+    await this.automationSync?.close();
+    await this.automationRunner.stop();
     const sessionsClosed = await this.sessions.shutdown();
     await this.traces.close();
     await this.browsers.shutdown();

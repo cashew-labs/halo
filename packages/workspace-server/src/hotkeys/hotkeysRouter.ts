@@ -11,6 +11,9 @@ export const hotkeysRouter = os.router({
     if (hotkeys instanceof Error) return orpcErrors.badRequest(hotkeys);
     return hotkeys;
   }),
+  watch: os.watch.handler(({ context, signal }) =>
+    context.hotkeys.watch(signal),
+  ),
   save: os.save.handler(async ({ context, input }) => {
     const saved = await context.hotkeys.save(input);
     if (saved instanceof Error) return orpcErrors.badRequest(saved);

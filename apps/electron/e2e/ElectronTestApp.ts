@@ -1,4 +1,7 @@
 import type { ChildProcess } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { writeFile } from "node:fs/promises";
+import path from "node:path";
 import { readHaloRpcFile, rpcFilePath } from "@get-halo/shared/HaloRpcFile";
 import { createHaloClient, type HaloClient } from "@get-halo/client";
 import * as errore from "errore";
@@ -19,7 +22,10 @@ type RunningApp = {
 
 export class ElectronTestApp {
   private current: RunningApp | undefined;
-  constructor(private readonly artifacts: TestArtifacts) {}
+  constructor(
+    private readonly artifacts: TestArtifacts,
+    private readonly traceSnapshots: boolean,
+  ) {}
 
   get page() {
     return this.running.page;
@@ -62,12 +68,37 @@ export class ElectronTestApp {
     if (captured instanceof Error) throw captured;
     await electronApp
       .context()
-      .tracing.start({ screenshots: true, snapshots: true });
+      .tracing.start({ screenshots: true, snapshots: this.traceSnapshots });
     resources.defer(
       async () =>
         await electronApp.context().tracing.stop({ path: launch.trace }),
     );
     const page = await electronApp.firstWindow();
+    // code-review-agent sets REVIEW_COVERAGE_DIR to collect renderer coverage.
+    // Main-process and server coverage come from NODE_V8_COVERAGE. Windows from
+    // openWindow() are not covered.
+    const coverageDir = process.env.REVIEW_COVERAGE_DIR;
+    if (coverageDir) {
+      // Wait for the first load so the reload, which counts startup code, does not abort it.
+      await page.waitForLoadState("load");
+      await page.coverage.startJSCoverage({ resetOnNavigation: false });
+      await page.reload();
+      resources.defer(async () => {
+        // Flush main-process coverage now: a slow quit can end in SIGKILL, which writes none.
+        await electronApp.evaluate(() =>
+          process.getBuiltinModule("node:v8").takeCoverage(),
+        );
+        if (page.isClosed()) return;
+        const entries = await page.coverage.stopJSCoverage();
+        // The review tool reads each script's source itself.
+        await writeFile(
+          path.join(coverageDir, `${randomUUID()}.json`),
+          JSON.stringify(
+            entries.map((entry) => ({ ...entry, source: undefined })),
+          ),
+        );
+      });
+    }
     const rendererCaptured = await this.artifacts.captureRenderer(page);
     if (rendererCaptured instanceof Error) throw rendererCaptured;
     resources.defer(async () => {

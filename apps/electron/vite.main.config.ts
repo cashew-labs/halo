@@ -10,6 +10,8 @@ const nodeBuiltins = [
 export default defineConfig({
   build: {
     minify: false,
+    // code-review-agent builds with REVIEW_COVERAGE=1 to map coverage back to src/.
+    sourcemap: process.env.REVIEW_COVERAGE === "1",
     // Without platform:node, Rolldown replaces import.meta with {} for CJS
     // (EMPTY_IMPORT_META) and Pi/Halo crash on fileURLToPath({}.url).
     rolldownOptions: {

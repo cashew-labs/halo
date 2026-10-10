@@ -1,3 +1,13 @@
+import type { GmailService } from "../automations/GmailService.js";
+import type { GmailPushReceiver } from "../automations/gmailHttp.js";
+import { serveWebhook } from "../automations/webhookHttp.js";
+import type { WebhookService } from "../automations/WebhookService.js";
+import {
+  serveAutomationState,
+  serveAutomationGmailConnections,
+} from "../automations/automationStateHttp.js";
+import type { AutomationStore } from "../automations/AutomationStore.js";
+import { serveAutomationSnapshot } from "../automations/automationSnapshotHttp.js";
 import { acceptsProtocol, protocolHeader } from "@get-halo/client";
 import {
   controlPlaneProtocolVersion,
@@ -32,6 +42,8 @@ import {
 } from "./controlPlaneRpcRouter.js";
 import type { TraceIngestion } from "../traces/TraceIngestion.js";
 import type { WorkspaceService } from "../workspace/WorkspaceService.js";
+import type { IntegrationService } from "../integrations/IntegrationService.js";
+import { setupBrowserCookies } from "../integrations/setupBrowserCookie.js";
 import {
   isWorkspaceProxyRequest,
   WorkspaceGateway,
@@ -40,6 +52,8 @@ import {
 import { workspaceInferencePath } from "@get-halo/config/inference";
 import { serveWorkspaceInference } from "../inference/workspaceInference.js";
 import { serveWorkspaceIdleReport } from "../workspace/workspaceIdleHttp.js";
+import { serveWorkspaceAutomationSnapshot } from "../workspace/workspaceAutomationHttp.js";
+import type { AutomationScheduleCoordinator } from "../workspace/AutomationScheduleCoordinator.js";
 
 const requestUrlBase = "http://localhost";
 const webContentSecurityPolicy = [
@@ -100,6 +114,12 @@ export function serveControlPlaneHttp(ctx: {
   auth: AuthService;
   publicOrigin: string;
   workspace: WorkspaceService;
+  integrations?: IntegrationService;
+  automationSchedules: AutomationScheduleCoordinator;
+  automationStore: AutomationStore;
+  webhooks: WebhookService;
+  gmail: GmailService;
+  gmailPush: GmailPushReceiver;
   build?: { version: string; revision: string };
   webRoot: string;
   traces?: TraceIngestion;
@@ -138,9 +158,16 @@ export function serveControlPlaneHttp(ctx: {
       response,
       auth,
       workspace,
+      automationSchedules: ctx.automationSchedules,
+      automationStore: ctx.automationStore,
+      webhooks: ctx.webhooks,
+      gmail: ctx.gmail,
+      gmailPush: ctx.gmailPush,
       gateway,
       traces,
       rpc,
+      integrations: ctx.integrations,
+      publicOrigin,
       webRoot,
       build: ctx.build,
       inferenceApiKey: ctx.inferenceApiKey,
@@ -201,10 +228,17 @@ async function routeControlPlaneRequest(ctx: {
   request: IncomingMessage;
   response: ServerResponse;
   auth: AuthService;
+  publicOrigin: string;
   gateway: WorkspaceGateway;
   traces?: TraceIngestion;
   inferenceApiKey?: string;
   workspace: WorkspaceService;
+  integrations?: IntegrationService;
+  automationSchedules: AutomationScheduleCoordinator;
+  automationStore: AutomationStore;
+  webhooks: WebhookService;
+  gmail: GmailService;
+  gmailPush: GmailPushReceiver;
   build?: { version: string; revision: string };
   rpc: RPCHandler<ControlPlaneContext>;
   webRoot: string;
@@ -215,8 +249,102 @@ async function routeControlPlaneRequest(ctx: {
     requestUrlBase,
   );
 
+  if (
+    request.method === "GET" &&
+    url.pathname === "/api/integrations/oauth/callback"
+  ) {
+    const headers = requestHeaders(request);
+    const session = await auth.getSession(headers);
+    const result = await ctx.integrations?.oauthCallback({
+      state: url.searchParams.get("state") ?? "",
+      code: url.searchParams.has("error")
+        ? undefined
+        : (url.searchParams.get("code") ?? undefined),
+      userId: session instanceof Error ? undefined : session?.user.id,
+      browsers: setupBrowserCookies(headers),
+    });
+    response.setHeader("cache-control", "no-store");
+    response.setHeader("referrer-policy", "no-referrer");
+    if (result === undefined || result instanceof Error) {
+      response.writeHead(400, { "content-type": "text/plain" });
+      response.end("Invalid or expired authorization callback.");
+      return;
+    }
+    response.writeHead(303, { location: result.setupUrl });
+    response.end();
+    return;
+  }
+
   if (url.pathname === "/api/workspace-runtime/idle") {
     await serveWorkspaceIdleReport(request, response, workspace);
+    return;
+  }
+
+  if (url.pathname === "/api/automation-events/gmail") {
+    await ctx.gmailPush.serve(request, response);
+    return;
+  }
+
+  const webhook = /^\/api\/webhooks\/([a-zA-Z0-9_-]+)$/.exec(url.pathname);
+  if (webhook?.[1] !== undefined) {
+    await serveWebhook({
+      request,
+      response,
+      url,
+      webhookId: webhook[1],
+      webhooks: ctx.webhooks,
+      store: ctx.automationStore,
+    });
+    return;
+  }
+
+  if (url.pathname === "/api/workspace-runtime/automations/gmail/connections") {
+    await serveAutomationGmailConnections({
+      request,
+      response,
+      workspace,
+      integrations: ctx.integrations,
+    });
+    return;
+  }
+  if (
+    url.pathname === "/api/workspace-runtime/automations/schedules" &&
+    request.method === "POST"
+  ) {
+    await serveWorkspaceAutomationSnapshot(
+      request,
+      response,
+      workspace,
+      ctx.automationSchedules,
+    );
+    return;
+  }
+  const automationState =
+    /^\/api\/workspace-runtime\/automations\/([a-zA-Z0-9_-]+)(?:\/(reveal|rotate))?$/.exec(
+      url.pathname,
+    );
+  if (automationState?.[1] !== undefined) {
+    await serveAutomationState({
+      request,
+      response,
+      automationId: automationState[1],
+      workspace,
+      store: ctx.automationStore,
+      webhooks: ctx.webhooks,
+      secretAction: automationState[2],
+      gmail: ctx.gmail,
+    });
+    return;
+  }
+
+  if (url.pathname === "/api/workspace-runtime/automations") {
+    await serveAutomationSnapshot(
+      request,
+      response,
+      workspace,
+      ctx.automationStore,
+    );
+    ctx.gmail.schedule();
     return;
   }
 
@@ -301,8 +429,10 @@ async function routeControlPlaneRequest(ctx: {
       request,
       response,
       auth,
+      publicOrigin: ctx.publicOrigin,
       workspace,
       rpc,
+      integrations: ctx.integrations,
       build: ctx.build,
     });
     return;
@@ -439,14 +569,22 @@ async function serveControlPlaneRpc(ctx: {
   request: IncomingMessage;
   response: ServerResponse;
   auth: AuthService;
+  publicOrigin: string;
   workspace: WorkspaceService;
+  integrations?: IntegrationService;
   build?: { version: string; revision: string };
   rpc: RPCHandler<ControlPlaneContext>;
 }) {
   const { request, response, auth, workspace, rpc } = ctx;
   const handled = await rpc.handle(request, response, {
     prefix: "/rpc",
-    context: { auth, workspace, build: ctx.build },
+    context: {
+      auth,
+      publicOrigin: ctx.publicOrigin,
+      workspace,
+      integrations: ctx.integrations,
+      build: ctx.build,
+    },
   });
 
   if (handled.matched) return;

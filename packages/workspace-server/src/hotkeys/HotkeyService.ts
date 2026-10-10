@@ -9,6 +9,7 @@ import {
   type HotkeyInput,
 } from "@get-halo/client";
 import { SerialQueue } from "@get-halo/shared/SerialQueue";
+import { Stream } from "@get-halo/shared/Stream";
 import type { DatabaseService } from "../database/DatabaseService.js";
 
 class HotkeyStorageError extends errore.createTaggedError({
@@ -39,6 +40,28 @@ export class HotkeyService {
       .catch((cause) => new HotkeyStorageError({ operation: "list", cause }));
     if (records instanceof Error) return records;
     return records.map(toHotkey);
+  }
+
+  // Released clients still consume snapshots; current clients use Tandem sync.
+  async *watch(signal: AbortSignal | undefined) {
+    const changes = new Stream<Hotkey[] | Error>();
+    using updates = changes.consume({ abortSignal: signal });
+    await using cleanup = new errore.AsyncDisposableStack();
+    const subscription = await this.db.subscribe(
+      this.query,
+      (records) => changes.append(records.map(toHotkey)),
+      {
+        onError: (cause) =>
+          changes.append(new HotkeyStorageError({ operation: "watch", cause })),
+      },
+    );
+    cleanup.defer(subscription.destroy);
+    if (signal?.aborted) return;
+    yield subscription.result.map(toHotkey);
+    for await (const update of updates) {
+      if (update instanceof Error) throw update;
+      yield update;
+    }
   }
 
   async save(input: HotkeyInput) {

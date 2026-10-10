@@ -17,9 +17,17 @@ export type DatabaseClient = DatabaseSync | Pool;
 
 export class DatabaseService {
   private readonly database: DatabaseClient;
+  private readonly integrations: DatabaseClient;
+  readonly automationClient: DatabaseClient;
 
-  private constructor(ctx: { client: DatabaseClient }) {
+  private constructor(ctx: {
+    client: DatabaseClient;
+    integrations: DatabaseClient;
+    automations: DatabaseClient;
+  }) {
     this.database = ctx.client;
+    this.integrations = ctx.integrations;
+    this.automationClient = ctx.automations;
   }
 
   static async start(config: DatabaseConfig) {
@@ -32,7 +40,11 @@ export class DatabaseService {
       });
       if (client instanceof Error) return client;
 
-      return new DatabaseService({ client });
+      return new DatabaseService({
+        client,
+        integrations: client,
+        automations: client,
+      });
     }
 
     const created = await fs
@@ -53,11 +65,39 @@ export class DatabaseService {
     });
     if (client instanceof Error) return client;
 
-    return new DatabaseService({ client });
+    // SQLite has one writer. Keep asynchronous Executor transactions off the
+    // synchronous auth connection (and its file), while owning both lifetimes.
+    const integrations = errore.try({
+      try: () => new DatabaseSync(`${config.path}.integrations`),
+      catch: (cause) =>
+        new DatabaseServiceError({
+          detail: "open integration database",
+          cause,
+        }),
+    });
+    if (integrations instanceof Error) {
+      client.close();
+      return integrations;
+    }
+    const automations = errore.try({
+      try: () => new DatabaseSync(`${config.path}.automations`),
+      catch: (cause) =>
+        new DatabaseServiceError({ detail: "open automation database", cause }),
+    });
+    if (automations instanceof Error) {
+      integrations.close();
+      client.close();
+      return automations;
+    }
+    return new DatabaseService({ client, integrations, automations });
   }
 
   get client() {
     return this.database;
+  }
+
+  get integrationClient() {
+    return this.integrations;
   }
 
   async close() {
@@ -65,7 +105,13 @@ export class DatabaseService {
 
     if (client instanceof DatabaseSync) {
       return errore.try({
-        try: () => client.close(),
+        try: () => {
+          if (this.integrations instanceof DatabaseSync)
+            this.integrations.close();
+          if (this.automationClient instanceof DatabaseSync)
+            this.automationClient.close();
+          client.close();
+        },
         catch: (cause) =>
           new DatabaseServiceError({
             detail: "close SQLite database",

@@ -14,7 +14,7 @@ import { style, useStyles } from "purse-styles";
 import { useWorkspaceFileQuery } from "../api/ApiProvider.tsx";
 import { CodeViewFileEditor } from "./CodeViewFileEditor.tsx";
 import { fileKind } from "./fileKind.ts";
-import { MarkdownFileEditor } from "./MarkdownFileEditor.js";
+import { MarkdownFileEditor } from "./editor/MarkdownFileEditor.js";
 
 export function FilePane({ path }: { path: string }) {
   const api = useApi();
