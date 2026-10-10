@@ -887,21 +887,9 @@ export class AutomationService {
   }
 
   private async commit(tx: Transaction) {
-    const saved = await this.db
-      .commit(tx)
-      .catch(
-        (cause) => new AutomationStorageError({ operation: "commit", cause }),
-      );
-    if (saved instanceof Error) return saved;
-    // Tandem notifications are asynchronous. The barrier makes synchronous
-    // consumers see committed records before a command returns.
-    return await this.refresh();
-  }
-
-  private async refresh() {
     return await this.viewQueue.run(async () => {
-      if (this.closed) return;
-      await using tx = this.db.useTransaction();
+      // Read staged writes and validate the view before making them durable.
+      // Publication shares this queue with refreshes so an older view cannot win.
       const records = await tx
         .query(viewQuery)
         .catch(
@@ -909,33 +897,34 @@ export class AutomationService {
             new AutomationStorageError({ operation: "refresh view", cause }),
         );
       if (records instanceof Error) return records;
-      const read = await this.db.commit(tx).catch(
-        (cause) =>
-          new AutomationStorageError({
-            operation: "view consistency",
-            cause,
-          }),
-      );
-      if (read instanceof Error) return read;
-      return this.applyView(records);
+      const automations: Automation[] = [];
+      for (const record of records) {
+        const latest = record.runs.find((run) => run.status !== "skipped");
+        const automation = automationFromRecord(
+          record,
+          latest === undefined ? undefined : runFromRecord(latest),
+        );
+        if (automation instanceof Error) return automation;
+        automations.push(automation);
+      }
+      const saved = await this.db
+        .commit(tx)
+        .catch(
+          (cause) => new AutomationStorageError({ operation: "commit", cause }),
+        );
+      if (saved instanceof Error) return saved;
+      // No fallible database reads remain after a successful commit.
+      if (JSON.stringify(automations) === JSON.stringify(this.automations))
+        return;
+      this.automations = automations;
+      this.changes.append(automations);
     });
   }
 
-  private applyView(records: (Definition & { runs: RunSummary[] })[]) {
-    const automations: Automation[] = [];
-    for (const record of records) {
-      const latest = record.runs.find((run) => run.status !== "skipped");
-      const automation = automationFromRecord(
-        record,
-        latest === undefined ? undefined : runFromRecord(latest),
-      );
-      if (automation instanceof Error) return automation;
-      automations.push(automation);
-    }
-    if (JSON.stringify(automations) === JSON.stringify(this.automations))
-      return;
-    this.automations = automations;
-    this.changes.append(automations);
+  private async refresh() {
+    if (this.closed) return;
+    await using tx = this.db.useTransaction();
+    return await this.commit(tx);
   }
 }
 

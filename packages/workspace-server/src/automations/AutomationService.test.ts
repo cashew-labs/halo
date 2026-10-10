@@ -161,6 +161,51 @@ automationTest(
 );
 
 automationTest(
+  "a view validation failure cannot leave a run committed behind a failed command",
+  async ({ openAutomations, db }) => {
+    const service = await openAutomations();
+    const saved = await service.save(everyTwoMinutes);
+    const other = await service.save({ ...everyTwoMinutes, name: "Other" });
+    if (saved instanceof Error) throw saved;
+    if (other instanceof Error) throw other;
+    // Simulate a stored definition that cannot be decoded into the service view.
+    await using invalid = db.useTransaction();
+    await invalid.update("automations", other.id, (record) => ({
+      ...record,
+      action: { type: "runScript" as const, command: "" },
+    }));
+    await db.commit(invalid);
+
+    expect(
+      await service.beginRun({ automationId: saved.id, trigger: "manual" }),
+    ).toBeInstanceOf(Error);
+    expect(
+      await db.query({
+        collection: "automationRuns",
+        where: { automationId: saved.id },
+      }),
+    ).toEqual([]);
+
+    await using repaired = db.useTransaction();
+    await repaired.update("automations", other.id, (record) => ({
+      ...record,
+      action: other.action,
+    }));
+    await db.commit(repaired);
+    const retried = await service.beginRun({
+      automationId: saved.id,
+      trigger: "manual",
+    });
+    if (retried instanceof Error || retried === undefined)
+      throw new Error("Expected a queued run");
+    expect(await service.listRuns({ automationId: saved.id })).toEqual([
+      retried,
+    ]);
+    expect(service.get(saved.id)).toMatchObject({ lastRun: retried });
+  },
+);
+
+automationTest(
   "queue-capacity rejection does not advance a due schedule",
   async ({ openAutomations, db }) => {
     const service = await openAutomations();
