@@ -344,8 +344,6 @@ export class WorkspaceServer {
           error: closed,
         });
     });
-    const sessionsStarted = await sessions.start();
-    if (sessionsStarted instanceof Error) return sessionsStarted;
     const automationRunner = new AutomationRunner({
       automations,
       sessions,
