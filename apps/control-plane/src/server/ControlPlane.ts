@@ -76,6 +76,7 @@ export class ControlPlane {
     allowLocalIntegrationUrls?: boolean;
     gmailPushAuth?: OAuth2Client;
     gmailApiOrigin?: string;
+    googleRevokeUrl?: string;
   }) {
     const { config, webRoot } = ctx;
     await using cleanup = new errore.AsyncDisposableStack();
@@ -138,6 +139,8 @@ export class ControlPlane {
             publicOrigin,
             gmailApiOrigin:
               config.deployment === "local" ? ctx.gmailApiOrigin : undefined,
+            googleRevokeUrl:
+              config.deployment === "local" ? ctx.googleRevokeUrl : undefined,
             allowLocalUrls:
               config.deployment === "local" &&
               ctx.allowLocalIntegrationUrls === true,

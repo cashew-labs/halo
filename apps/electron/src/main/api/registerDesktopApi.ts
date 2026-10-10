@@ -91,6 +91,8 @@ async function handleDesktopRequest(args: {
       return await connectIntegration({
         request: args.request,
         getConnection: args.getConnection,
+        createSetupHandoff: async (setupUrl) =>
+          await args.authentication.createSetupHandoff?.(setupUrl),
       });
     case "cancelIntegration":
       return await cancelIntegration({
@@ -105,6 +107,7 @@ async function handleDesktopRequest(args: {
 async function connectIntegration(args: {
   request: ConnectIntegrationRequest;
   getConnection: () => Promise<HaloRpcConnection | Error | undefined>;
+  createSetupHandoff: (setupUrl: string) => Promise<string | Error | undefined>;
 }) {
   const connection = await args.getConnection();
   if (connection instanceof Error) return connection;
@@ -130,7 +133,15 @@ async function connectIntegration(args: {
   if (started instanceof Error) return started;
   if (started.status === "connected") return started;
 
-  const opened = await openExternalUrl(started.authorizationUrl);
+  // Without a handoff, the browser must be signed in to the same Halo account.
+  const handoff = await args.createSetupHandoff(started.authorizationUrl);
+  if (handoff instanceof Error)
+    console.warn("Opening setup without a handoff:", handoff);
+  const setupUrl =
+    handoff === undefined || handoff instanceof Error
+      ? started.authorizationUrl
+      : handoff;
+  const opened = await openExternalUrl(setupUrl);
   if (opened instanceof Error) {
     await cancelPendingConnection({
       client,

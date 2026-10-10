@@ -29,6 +29,8 @@ export type IntegrationSetupCatalogEntry = {
 export type IntegrationSetup = IntegrationSetupCatalogEntry & {
   setupId: string;
   connectionName: string;
+  // The Halo account that receives the connection, when Halo opened the page.
+  owner?: string;
   status:
     | "awaiting_credentials"
     | "authorizing"
@@ -40,6 +42,16 @@ export type IntegrationSetup = IntegrationSetupCatalogEntry & {
   connection?: IntegrationConnection;
   message?: string;
 };
+// What happened to the provider's grant when a connection was removed.
+export type ConnectionRevocation =
+  // The provider no longer grants Halo access to the account.
+  | "revoked"
+  // Another connection uses the same grant, so access was kept for it.
+  | "shared"
+  // Halo cannot revoke access for this kind of connection.
+  | "not_supported"
+  // The provider did not confirm the revocation.
+  | "failed";
 export type IntegrationConnection = {
   address: string;
   integration: string;
@@ -217,6 +229,45 @@ export const controlPlaneContract = publicProcedure.router({
         ),
       )
       .output(type<void>()),
+    // Signed-in Halo clients issue a single-use link for the browser they open.
+    createSetupHandoff: authenticatedProcedure
+      .input(
+        validated(
+          Type.Object(
+            { setupId: Type.String({ minLength: 1, maxLength: 128 }) },
+            { additionalProperties: false },
+          ),
+        ),
+      )
+      .output(type<{ url: string }>()),
+    // Binds the redeeming browser to the setup with a cookie.
+    redeemSetupHandoff: publicProcedure
+      .input(
+        validated(
+          Type.Object(
+            {
+              setupId: Type.String({ minLength: 1, maxLength: 128 }),
+              handoff: Type.String({ minLength: 1, maxLength: 128 }),
+            },
+            { additionalProperties: false },
+          ),
+        ),
+      )
+      .output(type<void>()),
+    // Removes a connection, its tools and its stored credentials.
+    removeConnection: authenticatedProcedure
+      .input(
+        validated(
+          Type.Object(
+            {
+              integration: Type.String({ minLength: 1, maxLength: 256 }),
+              name: Type.String({ minLength: 1, maxLength: 128 }),
+            },
+            { additionalProperties: false },
+          ),
+        ),
+      )
+      .output(type<{ revocation: ConnectionRevocation }>()),
     registerOpenAPI: authenticatedProcedure
       .input(
         validated(

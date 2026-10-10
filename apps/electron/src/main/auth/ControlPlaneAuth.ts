@@ -263,6 +263,31 @@ export class ControlPlaneAuth implements DesktopAuthentication {
     if (workspace instanceof Error) return workspace;
   }
 
+  async createSetupHandoff(setupUrl: string) {
+    const url = new URL(setupUrl);
+    const setupId = /^\/integrations\/setup\/([^/]+)$/.exec(url.pathname)?.[1];
+    if (
+      this.token === undefined ||
+      url.origin !== new URL(this.origin).origin ||
+      setupId === undefined
+    )
+      return setupUrl;
+    const handoff = await this.createClient(this.token)
+      .integrations.createSetupHandoff(
+        { setupId: decodeURIComponent(setupId) },
+        { signal: AbortSignal.timeout(10_000) },
+      )
+      .catch(
+        (cause) =>
+          new ControlPlaneAuthError({
+            operation: "create the connection setup link",
+            cause,
+          }),
+      );
+    if (handoff instanceof Error) return handoff;
+    return handoff.url;
+  }
+
   private createClient(token?: string) {
     return createControlPlaneClient(this.origin, token);
   }
