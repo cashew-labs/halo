@@ -1,0 +1,85 @@
+{
+  "status": "changes_requested",
+  "summary": "The change lets the workspace runtime list and remove integration connections. It adds an agent-facing `halo.listConnections` tool and an approval-gated `halo.removeConnection` tool, revokes a Google grant when no other connection may share it, and labels Gmail connections with the mailbox address. It is not ready to merge: the durable control-plane suite fails because an existing test still expects the runtime token to be refused on `integrations.connections`. Most of the new revocation, labeling and tool-failure logic also has no test.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "test",
+      "file": "apps/control-plane/test/ControlPlane.test.ts",
+      "line": 2325,
+      "severity": "P0",
+      "body": "The durable run fails. \"automatically approves MCP, OpenAPI and Google connections across restart\" still expects `client.integrations.connections()` with the runtime token to reject with UNAUTHORIZED. `controlPlaneRpcRouter.ts:334` now uses `loadIntegrationOwner`, so the call succeeds. The old test guarded a deliberate restriction. Before deciding how to update it, confirm that runtime access is intended: anything that holds the workspace runtime token can now call `removeConnection` and revoke Google grants directly, and the approval only happens in the workspace tool layer. If the change is intended, replace this assertion with one stating the new contract: the runtime sees only its owner's connections, and an unauthenticated client still gets UNAUTHORIZED."
+    },
+    {
+      "id": "F2",
+      "kind": "source",
+      "file": "packages/workspace-server/src/agent/runtime/ToolRuntime.ts",
+      "line": 241,
+      "severity": "P1",
+      "body": "No test covers the failure branches of the new tools: no backend configured (lines 241 and 278), backend returns an Error (lines 246 and 283), and invalid arguments (line 271). Add temp tests that call `halo.listConnections` and `halo.removeConnection` with no `remoteConnections` and with a backend that returns an Error. Assert the `connections_unavailable`, `connections_failed` and `remove_connection_failed` result codes and messages. If the executor's own schema validation makes line 271 unreachable, exempt it with that reason."
+    },
+    {
+      "id": "F3",
+      "kind": "source",
+      "file": "apps/control-plane/src/integrations/IntegrationService.ts",
+      "line": 1020,
+      "severity": "P1",
+      "body": "No test covers the outcomes of `revokeGoogleGrant` other than success: fallback to the access token when there is no refresh token, no stored token (\"failed\"), a fetch error or timeout (\"failed\"), and a non-OK response with and without `invalid_token`. No test covers the `labelAccount` error path at line 917 either. Add temp tests for each case, for example with the integration fixture's `/google-revoke` returning 400 `{\"error\":\"invalid_token\"}` and returning 500, and with a Gmail profile failure during setup, which must still confirm the setup without a label."
+    },
+    {
+      "id": "F4",
+      "kind": "source",
+      "file": "apps/control-plane/src/integrations/IntegrationService.ts",
+      "line": 976,
+      "severity": "P1",
+      "body": "Only one `sharesGrant` case is tested: other connections without `identityLabel`. Nothing checks that two Google connections labeled with different accounts are not treated as sharing, so removing one returns \"revoked\". Nothing checks that two connections with the same label return \"shared\". Nothing checks that a connection on a different OAuth client is ignored. This rule decides whether Halo revokes the person's Google access, so add tests that set `identityLabel` on the fixtures and assert each outcome."
+    },
+    {
+      "id": "F5",
+      "kind": "source",
+      "file": "apps/workspace-server/src/main.ts",
+      "line": 171,
+      "severity": "P1",
+      "body": "No test loads the new `connections` and `removeConnection` host wiring (lines 171-185), and the lines have no exemption. Add a test, or exempt the lines with a reason. A reason based on the existing pattern for the neighboring `catalog`, `startSetup`, `setup` and `cancelSetup` wiring is acceptable."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "apps/control-plane/test/ControlPlane.test.ts:2325 — update the runtime-token assertion on integrations.connections to the new contract",
+      "tier": "durable",
+      "rationale": "The existing durable assertion contradicts the change and makes CI fail."
+    },
+    {
+      "target": "IntegrationService.revokeGoogleGrant (IntegrationService.ts:1012-1040): access-token fallback, missing token, fetch failure, invalid_token 400, other non-OK response",
+      "tier": "tmp",
+      "rationale": "Each outcome maps to a different ConnectionRevocation value reported to the person, and none is tested."
+    },
+    {
+      "target": "IntegrationService.removeConnection sharesGrant (IntegrationService.ts:976-984) with labeled connections: different labels give revoked, same label gives shared, a different OAuth client is ignored",
+      "tier": "tmp",
+      "rationale": "This rule decides whether Halo revokes the person's Google access. Only the unlabeled case is tested."
+    },
+    {
+      "target": "IntegrationService.labelAccount failure (IntegrationService.ts:916-917): a Gmail profile error still confirms the setup without accountLabel",
+      "tier": "tmp",
+      "rationale": "The error branch is untested."
+    },
+    {
+      "target": "ToolRuntime halo.listConnections / halo.removeConnection failure branches (ToolRuntime.ts:241, 246, 271, 278, 283)",
+      "tier": "tmp",
+      "rationale": "These lines are uncovered, and the agent receives these error results."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "bde54ba3bf42dce9a673a3f768b3139f5449ff4f",
+  "treeHash": "de9b6e0f58c1ad12886554d7d27edd55616665f3",
+  "codeTree": "77e32a6fb95ef05d0e2c3f870dd8fe886e051b50",
+  "coverage": {
+    "executable": 142,
+    "covered": 13,
+    "exempt": 0,
+    "uncovered": 129
+  },
+  "createdAt": "2026-10-10T01:39:46.667Z"
+}

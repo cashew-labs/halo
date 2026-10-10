@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change lets the owner's workspace runtime list and remove control-plane connections through an approval-gated `halo.removeConnection` tool, and it revokes a Google grant only when no other connection may share it. All round-1 findings are fixed: the runtime-access assertion now states the new contract, the revocation outcomes, the grant-sharing cases and the tool failure branches are tested, and the host wiring has an acceptable exemption. Both test runs pass, every changed executable line is covered or exempt, and no P0 or P1 finding remains, so the change is ready.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "248f1998092c6e8fb65e7956f130fab1fb7a7ada",
+  "treeHash": "28ec3758b7e82aa31294d8210cc14fb62846151e",
+  "codeTree": "2374a8e7946d355a02196bb484f8c8da0e8d3e89",
+  "coverage": {
+    "executable": 82,
+    "covered": 68,
+    "exempt": 14,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-10T01:43:29.891Z"
+}
