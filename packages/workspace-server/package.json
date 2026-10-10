@@ -28,7 +28,6 @@
     "@executor-js/codemode-core": "1.6.0",
     "@executor-js/execution": "1.6.0",
     "@executor-js/fumadb": "1.5.7",
-    "@executor-js/runtime-quickjs": "1.6.0",
     "@executor-js/sdk": "1.6.0",
     "@get-halo/client": "workspace:*",
     "@get-halo/logger": "workspace:*",
@@ -56,6 +55,7 @@
     "playwright": "1.62.1",
     "quickjs-emscripten": "0.31.0",
     "sharp": "0.34.5",
+    "tsx": "^4.23.13",
     "typebox": "1.3.7"
   },
   "devDependencies": {

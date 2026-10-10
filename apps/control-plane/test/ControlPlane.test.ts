@@ -1523,7 +1523,7 @@ controlPlaneTest(
     });
     expect(integrationApi.requests).toHaveLength(beforeRepair);
     const retried = await agent.run(
-      `return await tools[${JSON.stringify(`integrations.${keyAddress}`)}]({});`,
+      `await tools[${JSON.stringify(`integrations.${keyAddress}`)}]({});`,
     );
     expect(retried).toMatchObject([{ result: { isError: false } }]);
     expect(JSON.stringify(retried[0]?.result)).toContain("fixture-item");

@@ -7,13 +7,25 @@ import { Type as SchemaType } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import { Type } from "typebox";
 import * as errore from "errore";
+import { HaloThreadDoc } from "../SessionProjection.js";
 import {
   ToolInputRequiredError,
   type ToolRuntime,
 } from "../runtime/ToolRuntime.js";
 
 const execParameters = Type.Object({
-  js: Type.String({ description: "JavaScript to run. tools is in scope." }),
+  js: Type.Optional(
+    Type.String({
+      description:
+        "JavaScript cell. tools and console are in scope. The final expression is the result; no top-level return.",
+    }),
+  ),
+  op: Type.Optional(
+    Type.Literal("reset", {
+      description:
+        "Discard this thread's JavaScript session. Supply either js or op, not both.",
+    }),
+  ),
 });
 
 class ToolProgressError extends errore.createTaggedError({
@@ -34,10 +46,69 @@ export function createExecTool(input: {
     parameters: execParameters,
     replay: "unsafe",
     async execute(args, api, context) {
-      const { js } = args;
+      if ((args.js === undefined) === (args.op === undefined)) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: "Supply either js or op: reset, not both.",
+            },
+          ],
+          isError: true,
+        };
+      }
+      if (args.op === "reset") {
+        await input.runtime.codeSessions.reset(input.threadId);
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: "Exec session reset. Previous bindings are unavailable; external actions were not undone.",
+            },
+          ],
+        };
+      }
+      const js = args.js!;
+      await api.commit(async (tx) => {
+        (await tx.doc(HaloThreadDoc, api.conversationId)).execSessionUsed =
+          true;
+      }, context);
+      using cleanup = new errore.DisposableStack();
       const toolCalls = new Map<string, ExecToolCall>();
       const progressQueue = new SerialQueue();
       const progressUpdates: Promise<void | ToolProgressError>[] = [];
+      cleanup.defer(
+        input.runtime.toolActivity.subscribe(
+          ({ threadId, parentToolCallId, event }) => {
+            if (threadId !== input.threadId || parentToolCallId !== api.callId)
+              return;
+            const update = progressQueue
+              .run(async () => {
+                if (event.type === "tool.started") {
+                  toolCalls.set(event.invocation.id, {
+                    ...event.invocation,
+                    status: "running",
+                  });
+                } else {
+                  const call = toolCalls.get(event.invocationId)!;
+                  toolCalls.set(call.id, {
+                    ...call,
+                    status: event.isError ? "failed" : "completed",
+                  });
+                }
+                await api.details(
+                  copyJson(
+                    { toolCalls: [...toolCalls.values()] },
+                    { omitUndefinedProperties: true },
+                  ),
+                  context,
+                );
+              })
+              .catch((cause) => new ToolProgressError({ cause }));
+            progressUpdates.push(update);
+          },
+        ),
+      );
       const result = await input.runtime.executeCode({
         code: js,
         signal: context.abortSignal,
@@ -45,32 +116,6 @@ export function createExecTool(input: {
         parentToolCallId: api.callId,
         threadId: input.threadId,
         consumeApproval: input.consumeApproval,
-        onToolEvent: (event) => {
-          const update = progressQueue
-            .run(async () => {
-              if (event.type === "tool.started") {
-                toolCalls.set(event.invocation.id, {
-                  ...event.invocation,
-                  status: "running",
-                });
-              } else {
-                const call = toolCalls.get(event.invocationId)!;
-                toolCalls.set(call.id, {
-                  ...call,
-                  status: event.isError ? "failed" : "completed",
-                });
-              }
-              await api.details(
-                copyJson(
-                  { toolCalls: [...toolCalls.values()] },
-                  { omitUndefinedProperties: true },
-                ),
-                context,
-              );
-            })
-            .catch((cause) => new ToolProgressError({ cause }));
-          progressUpdates.push(update);
-        },
       });
       const progressResults = await Promise.all(progressUpdates);
       const progressFailure = progressResults.find(
