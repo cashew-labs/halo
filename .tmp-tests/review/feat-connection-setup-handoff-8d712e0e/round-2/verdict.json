@@ -1,0 +1,41 @@
+{
+  "status": "changes_requested",
+  "summary": "This round resolves most of round 1. The temp tests now cover the security branches on the control plane, the error messages and sign-in button on the setup page, the routing outside the sign-in gate, the WebHost wiring, and the ordering of handoff redemption before the setup read. The stray log files are gone, and I accept the coverage exemptions for moved code and type declarations. The coverage gate still fails on 4 changed lines that are neither covered nor exempt: IntegrationSetupPage.tsx:51 and 101, and mountHaloApp.tsx:7 and 30.",
+  "findings": [
+    {
+      "id": "F2",
+      "kind": "test",
+      "file": "packages/web/src/IntegrationSetupPage.tsx",
+      "line": 51,
+      "severity": "P1",
+      "body": "setupHandoff.test.ts now tests setupReader's ordering well. The page's own wiring is still unexercised: the query function that calls `readSetup()` (line 51) never runs. That wiring includes the reader built from the `#handoff=` fragment at lines 39-45. Every page test seeds the query cache, so nothing checks that the page redeems the handoff from the URL before reading. Add a temp test that runs the query function: render with a `#handoff=...` hash and a fresh QueryClient, or call `client.fetchQuery` after mounting. Assert that redeemHandoff runs before read. Line 101 (`await setup.refetch()`) is an unchanged line that was only re-indented. A coverage-exempt marker with that reason is acceptable there."
+    },
+    {
+      "id": "F3",
+      "kind": "test",
+      "file": "packages/web/src/mountHaloApp.tsx",
+      "line": 30,
+      "severity": "P1",
+      "body": "HaloAppRoutes.test.tsx now tests the route tree, which resolves the original concern. Lines 7 (the import) and 30 (`<HaloAppRoutes host={host} />`) are still uncovered and have no exemption, so the gate fails. A coverage-exempt marker is acceptable here, with a reason such as: thin composition shell; HaloAppRoutes is tested directly. Otherwise, add a temp test that mounts the app."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "packages/web/src/IntegrationSetupPage.tsx:39-51 — the page reads the handoff from window.location.hash and its query function redeems it before api.read",
+      "tier": "tmp",
+      "rationale": "This is the only page-level wiring of the handoff-before-read ordering, and no test runs it."
+    }
+  ],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "f4076ad6bb7187e8eff38972b9620438e5fc082a",
+  "treeHash": "243dbc15e6c02fa7b146b325a155f754851250ec",
+  "codeTree": "3c74f4e5190642fb5ea649792aad177a1a972089",
+  "coverage": {
+    "executable": 144,
+    "covered": 129,
+    "exempt": 11,
+    "uncovered": 4
+  },
+  "createdAt": "2026-10-09T22:59:02.041Z"
+}

@@ -1,0 +1,27 @@
+{
+  "status": "changes_requested",
+  "summary": "F2 is resolved. The new page test runs the query function and checks that the page redeems the `#handoff=` fragment before it reads the setup, and removes the fragment from the URL. The coverage gate still fails on two lines in mountHaloApp.tsx (30-31): the exemption marker is a JSX comment on a line of its own, so the report does not apply it to the `<HaloAppRoutes host={host} />` line.",
+  "findings": [
+    {
+      "id": "F3",
+      "kind": "test",
+      "file": "packages/web/src/mountHaloApp.tsx",
+      "line": 31,
+      "severity": "P1",
+      "body": "The coverage-exempt marker is a JSX comment on its own line (line 30). The report therefore counts line 30 and the element line 31, `<HaloAppRoutes host={host} />`, as uncovered, and the gate fails. Put the marker on the same line as the element, for example `<HaloAppRoutes host={host} /> {/* coverage-exempt: mount shell; HaloAppRoutes is tested directly */}`, and remove the separate comment line. The reason is acceptable. Alternatively, add a temp test that calls mountHaloApp."
+    }
+  ],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 3,
+  "headSha": "cc9a32d95fc01d50207bbf60b9055c74ed73df78",
+  "treeHash": "6062b726ff0415e9034babb3d53e07f88a1efba5",
+  "codeTree": "022eee2bd7811cf4cecbc43e5107e2d1aa6d3f37",
+  "coverage": {
+    "executable": 145,
+    "covered": 130,
+    "exempt": 13,
+    "uncovered": 2
+  },
+  "createdAt": "2026-10-09T23:01:15.654Z"
+}

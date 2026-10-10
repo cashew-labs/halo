@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change adds a single-use handoff link. It lets the browser that Halo desktop opens finish an integration setup without a sign-in. It also binds the OAuth callback to that browser's setup cookie or the owner's session. F3 is resolved by a temp test that checks mountHaloApp passes its host to HaloAppRoutes. Both test tiers pass, the coverage gate passes with exemptions I accept, and no findings remain.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 4,
+  "headSha": "31521e23609c5998dd088753b162060a7dbc2db5",
+  "treeHash": "0971741a4bed543825ca9ab32e545d628e4ca7d8",
+  "codeTree": "effb590aa20ab21a033b07a0870b122d021b1ed7",
+  "coverage": {
+    "executable": 142,
+    "covered": 130,
+    "exempt": 12,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-09T23:04:01.495Z"
+}
