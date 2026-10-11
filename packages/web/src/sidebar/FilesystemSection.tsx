@@ -28,13 +28,12 @@ import { useWorkspacePanes } from "../panes/WorkspacePanesProvider.js";
 import { FileEntryDialog, type FileEntryAction } from "./FileEntryDialog.js";
 import { flushFileAutosaves } from "../main/useAutosaveFile.js";
 import { File, Folder, FilePlus, FolderPlus, DotsHorizontal } from "maui/icons";
+import { useApi } from "../api/ApiProvider.tsx";
+import { useDirectoryListings } from "../filesystem/useDirectoryListings.js";
 import {
-  useApi,
-  useWorkspacePathsQuery,
-  useWorkspaceQuery,
-  workspacePathsQueryKey,
-} from "../api/ApiProvider.tsx";
-import { useExpandSidebar } from "./navigation/NavigationSidebar.js";
+  useExpandedSidebar,
+  useExpandSidebar,
+} from "./navigation/NavigationSidebar.js";
 import { SidebarItem } from "./navigation/SidebarItem.js";
 import { SidebarSection } from "./navigation/SidebarSection.js";
 
@@ -63,17 +62,12 @@ type FileOperation =
 const fileDragType = "application/x-halo-workspace-path";
 
 export function FilesystemSection() {
-  const workspace = useWorkspaceQuery().data;
-  const pathsQuery = useWorkspacePathsQuery(workspace);
+  const { paths, error: listingError } =
+    useDirectoryListings(useExpandedSidebar());
   const queryClient = useQueryClient();
   const api = useApi();
   const expand = useExpandSidebar();
-  const files = useMemo(
-    () =>
-      pathsQuery.data === undefined ? [] : buildFileNavigation(pathsQuery.data),
-    [pathsQuery.data],
-  );
-  const workspaceRoot = workspace?.workspaceRoot;
+  const files = useMemo(() => buildFileNavigation(paths), [paths]);
   const [, navigate] = useLocation();
   const workspacePanes = useWorkspacePanes();
   const [action, setAction] = useState<FileAction>();
@@ -126,9 +120,6 @@ export function FilesystemSection() {
             `file:${[...segments.slice(0, index), segment].join("/")}/`,
         ),
       );
-      await queryClient.invalidateQueries({
-        queryKey: workspacePathsQueryKey(workspaceRoot),
-      });
       await queryClient.invalidateQueries({
         queryKey: ["workspace-file"],
         refetchType: "none",
@@ -295,6 +286,11 @@ export function FilesystemSection() {
       label={
         <span>
           Documents
+          {listingError !== undefined && (
+            <span role="alert" className={feedback}>
+              {listingError}
+            </span>
+          )}
           {uploadStatus !== undefined && (
             <span role="status" className={feedback}>
               {uploadStatus}
@@ -342,6 +338,7 @@ export function FilesystemSection() {
                   mutation.error === null ? undefined : mutation.error.message
                 }
                 onClose={() => setAction(undefined)}
+                onBrowseFolder={(path) => expand([`file:${path}/`])}
                 onSubmit={(path) => {
                   if (action.kind === "delete")
                     mutation.mutate({ kind: "delete", path: action.path });

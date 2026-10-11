@@ -8,8 +8,9 @@ import type {
   AutomationRun,
 } from "./automations.js";
 import type { ServerInfo } from "./protocol.js";
+import type { ClientId, RemoteApi } from "@tanishqkancharla/tandem-core";
+import type { WorkspaceSchema } from "./database/schema/workspaceSchema.js";
 import type { Hotkey, HotkeyInput } from "./hotkeys.js";
-import type { Routine, RoutineInput, RoutineRun } from "./routines.js";
 import type { ChatPrompt } from "./chatAttachments.js";
 import type { WorkspaceFilePreview } from "./rpc.js";
 import type { WorkspaceSearchResponse } from "./search.js";
@@ -36,10 +37,9 @@ import type {
   WorkspaceTreeEvent,
 } from "./rpc.js";
 
-// Automation APIs are additive. Existing clients keep the protocol-25 stream
-// unless they explicitly subscribe to automation updates.
-export const haloProtocolVersion = 25 as const;
-export const haloSupportedProtocols = [24, haloProtocolVersion];
+// Tandem-backed clients use a different workspace stream contract.
+export const haloProtocolVersion = 27 as const;
+export const haloSupportedProtocols = [25, 26, haloProtocolVersion];
 
 export const RequestRejectedError = error("BAD_REQUEST", {
   message: "Halo could not complete the request.",
@@ -82,18 +82,34 @@ export type BrowserExecution = {
 
 export type WorkspaceUpdate =
   | { type: "hotkeys"; hotkeys: Hotkey[] }
-  | { type: "routines"; routines: Routine[] }
+  | { type: "files"; events: WorkspaceTreeEvent[] }
   | { type: "automations"; automations: Automation[] }
   | { type: "extensions"; extensions: ExtensionSummary[] }
   | { type: "extensionsError"; message: string }
-  | { type: "sessions"; update: SessionSummariesUpdate }
-  | { type: "files"; events: WorkspaceTreeEvent[] };
+  | { type: "sessions"; update: SessionSummariesUpdate };
 
 export const contract = publicProcedure.router({
+  sync: {
+    connect: oc
+      .input(type<{ clientId: ClientId }>())
+      .output(
+        asyncIteratorObject(
+          type<{ type: "ready"; clientId: ClientId } | { type: "poke" }>(),
+        ),
+      ),
+    pull: oc
+      .input(type<Parameters<RemoteApi<WorkspaceSchema>["pull"]>[0]>())
+      .output(type<Awaited<ReturnType<RemoteApi<WorkspaceSchema>["pull"]>>>()),
+  },
   server: {
     info: oc.output(type<ServerInfo>()),
     watch: oc
-      .input(type<{ includeAutomations?: boolean } | undefined>())
+      .input(
+        type<
+          | { includeAutomations?: boolean; includeLegacyState?: boolean }
+          | undefined
+        >(),
+      )
       .output(asyncIteratorObject(type<WorkspaceUpdate>())),
   },
   browser: {
@@ -125,6 +141,14 @@ export const contract = publicProcedure.router({
   workspace: {
     get: oc.output(type<WorkspaceInfo>()),
     listPaths: oc.output(type<string[]>()),
+    searchPaths: oc.input(type<{ query: string }>()).output(type<string[]>()),
+    watchDirectories: oc
+      .input(type<{ paths: string[] }>())
+      .output(
+        asyncIteratorObject(
+          type<{ path: string; entries: string[]; error?: string }>(),
+        ),
+      ),
     search: oc
       .input(type<{ query: string }>())
       .output(type<WorkspaceSearchResponse>()),
@@ -195,20 +219,6 @@ export const contract = publicProcedure.router({
     listRuns: oc
       .input(type<{ automationId: string; limit?: number }>())
       .output(type<AutomationRun[]>()),
-  },
-  routines: {
-    list: oc.output(type<Routine[]>()),
-    watch: oc.output(asyncIteratorObject(type<Routine[]>())),
-    save: oc.input(type<RoutineInput>()).output(type<Routine>()),
-    remove: oc.input(type<{ routineId: string }>()).output(type<void>()),
-    setEnabled: oc
-      .input(type<{ routineId: string; enabled: boolean }>())
-      .output(type<Routine>()),
-    runNow: oc.input(type<{ routineId: string }>()).output(type<RoutineRun>()),
-    runScheduled: oc.input(type<{ routineId: string }>()).output(type<void>()),
-    listRuns: oc
-      .input(type<{ routineId: string; limit?: number }>())
-      .output(type<RoutineRun[]>()),
   },
   thread: {
     list: oc.output(type<SessionSummary[]>()),

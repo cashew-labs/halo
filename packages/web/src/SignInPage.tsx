@@ -58,7 +58,7 @@ const styles = {
   shell: style(spacing.padding({ all: 12 }), {
     display: "grid",
     placeItems: "center",
-    minHeight: "100vh",
+    minHeight: "var(--halo-window-content-height, 100vh)",
     backgroundColor: colors.gray[2],
   }),
   card: style(shadow.subtle, radius.lg, spacing.padding({ all: 12 }), {

@@ -14,6 +14,11 @@ type NavigationSidebarProps = {
 };
 
 const ExpandContext = createContext<(keys: string[]) => void>(() => {});
+const ExpandedContext = createContext<ReadonlySet<Key>>(new Set());
+
+export function useExpandedSidebar() {
+  return useContext(ExpandedContext);
+}
 
 export function useExpandSidebar() {
   return useContext(ExpandContext);
@@ -56,7 +61,7 @@ export function NavigationSidebar(props: NavigationSidebarProps) {
           expandedKeys={expanded}
           onExpandedChange={setExpanded}
         >
-          {props.children}
+          <ExpandedContext value={expanded}>{props.children}</ExpandedContext>
         </NavigationTree>
       </RouterProvider>
     </ExpandContext>

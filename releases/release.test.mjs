@@ -403,3 +403,45 @@ test("missing or invalid protocol metadata inside the range cannot bypass valida
     );
   }
 });
+
+test("routine API retirement requires the automation frontend minimum", async (t) => {
+  const older = frontend("0.1.65", 24, 3);
+  const unpublished66 = {
+    ...frontend("0.1.66", 25, 5),
+    previousVersion: "0.1.65",
+    minimumFrontendVersion: "0.1.65",
+  };
+  const unpublished67 = {
+    ...frontend("0.1.67", 25, 5),
+    previousVersion: "0.1.65",
+    minimumFrontendVersion: "0.1.65",
+  };
+  const released = {
+    ...frontend("0.1.68", 25, 5),
+    previousVersion: "0.1.65",
+    minimumFrontendVersion: "0.1.65",
+  };
+  const protocols = {
+    workspace: { client: 26, supported: [25, 26] },
+    controlPlane: { client: 5, supported: [3, 5] },
+  };
+  const inherited = createReleaseManifest({
+    version: "0.1.69",
+    previous: released,
+    protocols,
+  });
+  const setup = await releaseFixture(
+    t,
+    [older, unpublished66, unpublished67, released],
+    inherited,
+  );
+  assert.notEqual((await setup.validate()).status, 0);
+  const retired = createReleaseManifest({
+    version: "0.1.69",
+    previous: released,
+    protocols,
+    minimumFrontendVersion: "0.1.68",
+  });
+  const validated = await setup.validate(retired);
+  assert.equal(validated.status, 0, validated.stderr);
+});

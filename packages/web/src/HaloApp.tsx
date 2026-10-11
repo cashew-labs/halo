@@ -2,7 +2,8 @@ import { useAuthenticatedUserId } from "./Authentication.js";
 import { KeyboardShortcuts } from "./KeyboardShortcuts.js";
 import { spacing, text } from "maui";
 import { style, useStyles } from "purse-styles";
-import { skipToken, useQuery } from "@tanstack/react-query";
+import { useCallback } from "react";
+import { useAsyncData } from "./useAsyncData.js";
 import { Router } from "wouter";
 import {
   WorkspacePanesProvider,
@@ -44,18 +45,10 @@ export function HaloApp() {
 
 function useAppInfoQuery() {
   const host = useHost();
-  const getAppInfo = host.getAppInfo?.bind(host);
-  return useQuery({
-    queryKey: ["app-info"],
-    queryFn:
-      getAppInfo === undefined
-        ? skipToken
-        : async () => {
-            const appInfo = await getAppInfo();
-            if (appInfo instanceof Error) throw appInfo;
-            return appInfo;
-          },
-    refetchInterval: 5_000,
+  const read = useCallback(async () => await host.getAppInfo?.(), [host]);
+  return useAsyncData(read, {
+    enabled: host.getAppInfo !== undefined,
+    refreshMs: 5_000,
   });
 }
 
@@ -75,7 +68,7 @@ function WorkspaceShell({
   const errorClassName = useStyles(styles.error);
 
   return (
-    <div className={readyApp}>
+    <div className={readyApp} data-window-shell>
       {alertMessage && (
         <div className={errorClassName} role="alert">
           {alertMessage}

@@ -26,6 +26,7 @@ type E2ETestHarness = TestArtifacts["harness"] & {
 };
 
 type E2EFixtures = {
+  traceSnapshots: boolean;
   llm: LLMDriver;
   http: HttpService;
   server: Exclude<
@@ -54,6 +55,7 @@ class ExtensionSetupError extends errore.createTaggedError({
 }) {}
 
 export const e2eTest = baseTest.extend<E2EFixtures, E2EWorkerFixtures>({
+  traceSnapshots: [true, { option: true }],
   // oxlint-disable-next-line eslint/no-empty-pattern -- Fixture callbacks require destructured parameters.
   http: async ({}, use) => {
     const http = await HttpService.start();
@@ -121,9 +123,9 @@ export const e2eTest = baseTest.extend<E2EFixtures, E2EWorkerFixtures>({
   ],
   app: [
     // The server fixture publishes discovery files before Electron opens.
-    async ({ testArtifacts, server: _server }, use) => {
+    async ({ testArtifacts, server: _server, traceSnapshots }, use) => {
       await using cleanup = new errore.AsyncDisposableStack();
-      const app = new ElectronTestApp(testArtifacts);
+      const app = new ElectronTestApp(testArtifacts, traceSnapshots);
       cleanup.defer(async () => await app.quit());
       await app.open();
       await use(app);

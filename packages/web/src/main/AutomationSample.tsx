@@ -1,7 +1,7 @@
 import { automationEventSchema } from "@get-halo/client";
 import { Value } from "@sinclair/typebox/value";
 import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import * as errore from "errore";
 import { Button } from "maui";
 import { useStyles } from "purse-styles";
@@ -15,7 +15,6 @@ class SampleInputError extends errore.createTaggedError({
 
 export function AutomationSample({ automationId }: { automationId: string }) {
   const api = useApi();
-  const queryClient = useQueryClient();
   const [sample, setSample] = useState("{}");
   const run = useMutation({
     mutationFn: async () => {
@@ -37,11 +36,6 @@ export function AutomationSample({ automationId }: { automationId: string }) {
       return await api.automations.runNow({
         automationId,
         samplePayload: parsed,
-      });
-    },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({
-        queryKey: ["automationRuns", automationId],
       });
     },
   });

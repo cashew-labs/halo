@@ -19,3 +19,28 @@ Use **Re-run failed jobs** on the original workflow run. Its source SHA, image d
 A failed backend gate blocks all frontend promotion. A partial VM rollout is reported as a failed workspace job; inspect that job before retrying it, since a failed VM may be unavailable. The other workspace jobs continue and ready VMs remain on the new image. Do not automatically roll back servers or data migrations. A publication-only retry does not repeat deployment. If the artifact digest, source SHA, protocol list or readiness check differs, stop and investigate.
 
 The first release under this policy sets its own version as the minimum, retiring `0.1.52` (workspace protocol 17, control-plane protocol 3). A brief interruption is accepted until users update the desktop app or refresh the browser after publication. Keeping an old protocol in the advertised list is a claim that its behavior is still implemented, not a substitute for compatibility tests.
+
+## Automation-only workspace API
+
+The routine API cleanup introduces workspace protocol 26 and retains protocol 25
+for Halo 0.1.68's automation UI and automation APIs. Protocol 24 / Halo 0.1.65 is
+retired. The next release containing this cleanup must be created with
+`pnpm prerelease <version> --minimum-frontend 0.1.68`; the validator rejects the
+inherited 0.1.65 minimum. Control-plane protocols 3 and 5 remain implemented.
+
+The legacy `routines` RPC namespace, `halo routine` command and routine update
+variant are removed. Extensions and scripts must use `automations` RPCs or
+`halo automation`; an old routine-command script is not covered by frontend
+compatibility. Protocol 25's `server.watch` opt-in remains: callers that request
+`includeAutomations: true` get automation updates; omitted/false only gets common
+workspace updates. Persisted `/routines/:id` tabs still resolve to the automation
+pane so updating does not lose saved navigation.
+
+Deploy the control plane first. Both scheduled and event dispatch use protocol
+25 and automation RPCs available in 0.1.68, so they reach old workspaces during
+rollout. Workspace schedule snapshots now POST to
+`/api/workspace-runtime/automations/schedules` with an `automations` field.
+The old `/api/workspace-runtime/routines` route is removed without an alias.
+Older workspaces log failed schedule reports until upgraded; reporting does not
+block startup. Existing stored schedules remain available during that window.
+The storage migrations, IDs, run history and session links remain intact.

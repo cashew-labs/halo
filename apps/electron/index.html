@@ -16,9 +16,42 @@
         document.documentElement.style.colorScheme = theme;
       })();
     </script>
+    <style>
+      /* Own the window chrome before JavaScript and until WorkspaceShell mounts. */
+      body {
+        margin: 0;
+        --halo-startup-titlebar-height: 36px;
+        --halo-window-content-height: calc(
+          100dvh - var(--halo-startup-titlebar-height)
+        );
+      }
+
+      #startup-titlebar {
+        position: fixed;
+        inset: 0 0 auto;
+        height: var(--halo-startup-titlebar-height);
+        -webkit-app-region: drag;
+        user-select: none;
+      }
+
+      #root {
+        padding-top: var(--halo-startup-titlebar-height);
+        min-height: 100dvh;
+        box-sizing: border-box;
+      }
+
+      body:has([data-window-shell]) {
+        --halo-startup-titlebar-height: 0px;
+      }
+
+      body:has([data-window-shell]) > #startup-titlebar {
+        display: none;
+      }
+    </style>
     <title>Halo</title>
   </head>
   <body>
+    <div id="startup-titlebar" aria-hidden="true"></div>
     <div id="root"></div>
     <script type="module" src="/src/renderer/main.tsx"></script>
   </body>

@@ -1,3 +1,21 @@
+export { createWorkspaceRemote } from "./database/createWorkspaceRemote.js";
+export { automationRunSelect } from "./database/schema/automations.js";
+export {
+  haloSchema,
+  haloSchemaToTandemSchema,
+  haloSchemaToTursoTables,
+  type Field,
+  type Fields,
+  type Schema,
+  type SchemaRecords,
+  type SqlValue,
+  type Table,
+  type TableRecord,
+} from "./database/schema/schema.js";
+export {
+  workspaceSchema,
+  type WorkspaceSchema,
+} from "./database/schema/workspaceSchema.js";
 export {
   AuthenticationRequiredError,
   ConnectionUnavailableError,
@@ -112,17 +130,6 @@ export {
   type HotkeyInput,
   type HotkeyAction,
 } from "./hotkeys.js";
-export {
-  routineActionSchema,
-  routineInputSchema,
-  InvalidRoutineError,
-  type Routine,
-  type RoutineAction,
-  type RoutineInput,
-  type RoutineRun,
-  type RoutineRunStatus,
-  type RoutineRunTrigger,
-} from "./routines.js";
 
 export {
   automationRegistrationSchema,

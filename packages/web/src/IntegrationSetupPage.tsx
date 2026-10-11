@@ -14,6 +14,7 @@ import {
 import { style, useStyles } from "purse-styles";
 import type { IntegrationSetup } from "@get-halo/shared/controlPlaneContract";
 import type { HostApi } from "./HostApi.js";
+import { SetupUnavailableError, setupReader } from "./setupHandoff.js";
 
 const page = style(proseContainerStyle, {
   width: "100%",
@@ -35,10 +36,19 @@ export function IntegrationSetupPage({
   const className = useStyles(page);
   const queryClient = useQueryClient();
   const queryKey = ["integration-setup", setupId];
+  const [readSetup] = useState(() =>
+    setupReader({
+      setupId,
+      api,
+      handoff:
+        new URLSearchParams(window.location.hash.slice(1)).get("handoff") ??
+        undefined,
+    }),
+  );
   const setup = useQuery({
     queryKey,
     queryFn: async () => {
-      const result = await api.read(setupId);
+      const result = await readSetup();
       if (result instanceof Error) throw result;
       return result;
     },
@@ -77,21 +87,35 @@ export function IntegrationSetupPage({
           <>
             <div role="alert">
               <P>
-                This connection setup is unavailable. Make sure you are signed
-                in to the Halo account that requested it.
+                {setup.error instanceof SetupUnavailableError &&
+                setup.error.handoff === "failed"
+                  ? "This setup link has expired or was already used."
+                  : "This connection setup is unavailable."}{" "}
+                Click Connect in Halo again to open a new setup page, or sign in
+                to the Halo account that requested it.
               </P>
             </div>
-            <Button
-              onClick={async () => {
-                await setup.refetch();
-              }}
-            >
-              Try again
-            </Button>
+            <Flex row gap={4}>
+              <Button
+                onClick={async () => {
+                  await setup.refetch(); // coverage-exempt: unchanged line, re-indented
+                }}
+              >
+                Try again
+              </Button>
+              <Button variant="quiet" onClick={() => void api.signIn()}>
+                Sign in to Halo
+              </Button>
+            </Flex>
           </>
         )}
         {data !== undefined && (
           <>
+            {data.owner !== undefined && (
+              <P>
+                Connecting to the Halo account <strong>{data.owner}</strong>.
+              </P>
+            )}
             <Text size="sm" color="lowContrast">
               Connection: {data.connectionName}
             </Text>

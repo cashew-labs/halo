@@ -45,12 +45,24 @@ const controlPlaneOrigin = `https://${controlPlaneDomain}`;
 // URLs can contain private webhook tokens. Cloud Run request logs are generated
 // before application redaction, so exclude this route at the logging sink.
 // Keep this filter on any additional or inherited export sinks (see README).
-new gcp.logging.ProjectExclusion("webhook-request-secrets", {
-  project,
-  name: `${name}-webhook-request-secrets`,
-  description: "Do not retain webhook URLs containing bearer credentials",
-  filter: 'httpRequest.requestUrl =~ "/api/webhooks/"',
-});
+const deploymentLoggingConfig = new gcp.projects.IAMMember(
+  "deployment-logging-config",
+  {
+    project,
+    role: "roles/logging.configWriter",
+    member: `serviceAccount:${deploymentServiceAccount}`,
+  },
+);
+new gcp.logging.ProjectExclusion(
+  "webhook-request-secrets",
+  {
+    project,
+    name: `${name}-webhook-request-secrets`,
+    description: "Do not retain webhook URLs containing bearer credentials",
+    filter: 'httpRequest.requestUrl =~ "/api/webhooks/"',
+  },
+  { dependsOn: [deploymentLoggingConfig] },
+);
 
 const pubsubApi = new gcp.projects.Service("gmail-pubsub-api", {
   project,
@@ -62,10 +74,18 @@ const gmailApi = new gcp.projects.Service("gmail-api", {
   service: "gmail.googleapis.com",
   disableOnDestroy: false,
 });
+const deploymentPubsubAdmin = new gcp.projects.IAMMember(
+  "deployment-pubsub-admin",
+  {
+    project,
+    role: "roles/pubsub.admin",
+    member: `serviceAccount:${deploymentServiceAccount}`,
+  },
+);
 const gmailTopic = new gcp.pubsub.Topic(
   "gmail-events",
   { project, name: `${name}-gmail-events` },
-  { dependsOn: [pubsubApi, gmailApi] },
+  { dependsOn: [pubsubApi, gmailApi, deploymentPubsubAdmin] },
 );
 new gcp.pubsub.TopicIAMMember("gmail-publisher", {
   project,
@@ -95,11 +115,14 @@ const pubsubTokenCreator = new gcp.serviceaccount.IAMMember(
   },
   { dependsOn: pubsubApi },
 );
-new gcp.serviceaccount.IAMMember("gmail-push-deployer", {
-  serviceAccountId: gmailPushIdentity.name,
-  role: "roles/iam.serviceAccountUser",
-  member: `serviceAccount:${deploymentServiceAccount}`,
-});
+const gmailPushDeployer = new gcp.serviceaccount.IAMMember(
+  "gmail-push-deployer",
+  {
+    serviceAccountId: gmailPushIdentity.name,
+    role: "roles/iam.serviceAccountUser",
+    member: `serviceAccount:${deploymentServiceAccount}`,
+  },
+);
 new gcp.pubsub.Subscription(
   "gmail-events-push",
   {
@@ -118,7 +141,7 @@ new gcp.pubsub.Subscription(
       },
     },
   },
-  { dependsOn: pubsubTokenCreator },
+  { dependsOn: [pubsubTokenCreator, gmailPushDeployer] },
 );
 
 const vertexAi = new gcp.projects.Service("vertex-ai", {

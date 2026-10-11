@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import nodePath from "node:path";
-import { expect } from "@playwright/test";
+import { expect, type Locator } from "@playwright/test";
 import { m } from "@get-halo/shared/testing";
 import { haloProtocolVersion } from "@get-halo/client";
 import type { DesktopBridge } from "../src/shared/desktop.js";
@@ -21,6 +21,112 @@ e2eTest("opens the server-configured workspace", async ({ harness, app }) => {
     workspaceRoot: harness.paths.workspace,
   });
 });
+
+e2eTest(
+  "loads only expanded folders and refreshes them after reconnect",
+  async ({ app }) => {
+    const scopes: string[][] = [];
+    const fullTreeReads: string[] = [];
+    app.page.on("request", (request) => {
+      if (request.url().includes("/workspace/listPaths"))
+        fullTreeReads.push(request.url());
+      if (!request.url().includes("/workspace/watchDirectories")) return;
+      // SAFETY: the workspace watch request encodes the contract's paths input.
+      const body = request.postDataJSON() as { json: { paths: string[] } };
+      scopes.push(body.json.paths);
+    });
+    await app.server.rpc.workspace.writeFile({
+      path: "Open/Nested/deep.md",
+      content: "Deep note",
+    });
+    await app.server.rpc.workspace.writeFile({
+      path: "Closed/Other/hidden.md",
+      content: "Unopened",
+    });
+    await app.page.reload();
+    await expect(
+      app.page.getByRole("button", { name: "Expand Open", exact: true }),
+    ).toBeVisible();
+    await expect.poll(() => scopes.at(-1)).toEqual([""]);
+    await app.page
+      .getByRole("button", { name: "Expand Open", exact: true })
+      .click();
+    await expect(
+      app.page.getByRole("button", { name: "Expand Nested", exact: true }),
+    ).toBeVisible();
+    await expect.poll(() => scopes.at(-1)).toEqual(["", "Open"]);
+    await app.page
+      .getByRole("button", { name: "Expand Nested", exact: true })
+      .click();
+    await expect(
+      app.page.getByRole("link", { name: "deep.md", exact: true }),
+    ).toBeVisible();
+    await expect.poll(() => scopes.at(-1)).toEqual(["", "Open", "Open/Nested"]);
+    const subscriptions = scopes.length;
+    await app.server.rpc.workspace.writeFile({
+      path: "Open/added.md",
+      content: "A listing update without a scope change",
+    });
+    await expect(
+      app.page.getByRole("link", { name: "added.md", exact: true }),
+    ).toBeVisible();
+    await app.server.rpc.workspace.deleteEntry({ path: "Open/added.md" });
+    await expect(
+      app.page.getByRole("link", { name: "added.md", exact: true }),
+    ).toHaveCount(0);
+    expect(scopes).toHaveLength(subscriptions);
+    await app.page.getByRole("link", { name: "deep.md", exact: true }).click();
+    await app.page
+      .getByRole("button", { name: "Collapse Open", exact: true })
+      .click();
+    await expect.poll(() => scopes.at(-1)).toEqual([""]);
+    await expect(
+      app.page.getByRole("main", { name: "Open/Nested/deep.md", exact: true }),
+    ).toContainText("Deep note");
+    await app.server.rpc.workspace.writeFile({
+      path: "Open/new.md",
+      content: "Added while collapsed",
+    });
+    await app.page
+      .getByRole("button", { name: "Expand Open", exact: true })
+      .click();
+    await expect(
+      app.page.getByRole("link", { name: "new.md", exact: true }),
+    ).toBeVisible();
+    await app.page.context().setOffline(true);
+    await app.server.rpc.workspace.writeFile({
+      path: "Open/offline.md",
+      content: "Added while offline",
+    });
+    await app.page.context().setOffline(false);
+    await app.page.evaluate(() => window.dispatchEvent(new Event("online")));
+    await expect(
+      app.page.getByRole("link", { name: "offline.md", exact: true }),
+    ).toBeVisible();
+    expect(fullTreeReads).toEqual([]);
+    expect(scopes.flat().some((path) => path.startsWith("Closed"))).toBe(false);
+    const actions = app.page.getByRole("button", {
+      name: "Actions for deep.md",
+      exact: true,
+      includeHidden: true,
+    });
+    await app.page.getByRole("row").filter({ has: actions }).hover();
+    await actions.click();
+    await app.page
+      .getByRole("menuitem", { name: "Move to…", exact: true })
+      .click();
+    await app.page.getByRole("button", { name: /Move to$/ }).click();
+    await app.page.getByRole("option", { name: "Closed", exact: true }).click();
+    await app.page.getByRole("button", { name: /Move to$/ }).click();
+    await app.page
+      .getByRole("option", { name: "Closed/Other", exact: true })
+      .click();
+    await app.page.getByRole("button", { name: "Move", exact: true }).click();
+    await expect(
+      app.page.getByRole("main", { name: "Closed/Other/deep.md", exact: true }),
+    ).toContainText("Deep note");
+  },
+);
 
 e2eTest(
   "adds file and session links with @ in Markdown",
@@ -467,33 +573,30 @@ e2eTest(
 
     await image.click({ button: "right" });
     await app.page.getByRole("button", { name: "Copy image" }).click();
-    await expect
-      .poll(
-        async () =>
-          await app.page.evaluate(async () => {
-            const items = await navigator.clipboard.read();
-            const png = await items[0]?.getType("image/png");
-            return png !== undefined && png.size > 0;
-          }),
-      )
-      .toBe(true);
+    await expect(async () => {
+      const hasImage = await app.page.evaluate(async () => {
+        const items = await navigator.clipboard.read();
+        if (!items[0]?.types.includes("image/png")) return false;
+        const png = await items[0].getType("image/png");
+        return png.size > 0;
+      });
+      expect(hasImage).toBe(true);
+    }).toPass({ timeout: 10_000 });
 
     await image.click();
     await app.page.evaluate(async () => {
       await navigator.clipboard.writeText("reset");
     });
     await app.page.keyboard.press("ControlOrMeta+c");
-    await expect
-      .poll(
-        async () =>
-          await app.page.evaluate(async () => {
-            const items = await navigator.clipboard.read();
-            if (!items[0]?.types.includes("image/png")) return false;
-            const png = await items[0].getType("image/png");
-            return png !== undefined && png.size > 0;
-          }),
-      )
-      .toBe(true);
+    await expect(async () => {
+      const hasImage = await app.page.evaluate(async () => {
+        const items = await navigator.clipboard.read();
+        if (!items[0]?.types.includes("image/png")) return false;
+        const png = await items[0].getType("image/png");
+        return png.size > 0;
+      });
+      expect(hasImage).toBe(true);
+    }).toPass({ timeout: 10_000 });
   },
 );
 
@@ -507,7 +610,7 @@ e2eTest(
     });
     await app.page.getByRole("link", { name: path, exact: true }).click();
     const editor = app.page.getByLabel(path, { exact: true });
-    await editor.getByText("Two", { exact: true }).click();
+    await clickEditorText(editor.getByText("Two", { exact: true }));
     await app.page.keyboard.press("Escape");
     await expect(editor.locator(".halo-selected-block")).toHaveText("Two");
     await app.page.keyboard.press("Shift+ArrowDown");
@@ -549,7 +652,7 @@ e2eTest(
     });
     await app.page.getByRole("link", { name: path, exact: true }).click();
     const editor = app.page.getByLabel(path, { exact: true });
-    await editor.getByText("Other", { exact: true }).click();
+    await clickEditorText(editor.getByText("Other", { exact: true }));
     await app.page.keyboard.press("Alt+ArrowDown");
     await expect(editor.locator(":scope > p").first()).toHaveText("Other");
     await expect(editor.locator("ul:not([data-type])").first()).toContainText(
@@ -559,17 +662,10 @@ e2eTest(
     await expect(editor.locator("ul:not([data-type])").first()).toContainText(
       "Other",
     );
-    await editor.getByText("Next", { exact: true }).click();
-    await expect
-      .poll(
-        async () =>
-          await editor
-            .getByText("Next", { exact: true })
-            .evaluate((element) =>
-              element.contains(window.getSelection()!.anchorNode),
-            ),
-      )
-      .toBe(true);
+    await clickEditorText(editor.getByText("Next", { exact: true }));
+    await expect(
+      editor.and(app.page.locator('[contenteditable="true"]')),
+    ).toBeFocused();
     await app.page.keyboard.press("Tab");
     await expect(
       editor.locator('ul[data-type="taskList"] ul[data-type="taskList"]'),
@@ -756,3 +852,24 @@ e2eTest(
     ).toHaveCount(0);
   },
 );
+
+async function clickEditorText(text: Locator) {
+  // The DOM caret moves before selectionchange updates the editor state read
+  // by block and list commands. Wait for that event, not just the DOM anchor.
+  await Promise.all([
+    text.evaluate(
+      async (element) =>
+        await new Promise<void>((resolve) => {
+          const selected = () => {
+            const selection = document.getSelection();
+            if (selection === null || !element.contains(selection.anchorNode))
+              return;
+            document.removeEventListener("selectionchange", selected);
+            resolve();
+          };
+          document.addEventListener("selectionchange", selected);
+        }),
+    ),
+    text.click(),
+  ]);
+}

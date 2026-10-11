@@ -43,6 +43,7 @@ import {
 import type { TraceIngestion } from "../traces/TraceIngestion.js";
 import type { WorkspaceService } from "../workspace/WorkspaceService.js";
 import type { IntegrationService } from "../integrations/IntegrationService.js";
+import { setupBrowserCookies } from "../integrations/setupBrowserCookie.js";
 import {
   isWorkspaceProxyRequest,
   WorkspaceGateway,
@@ -51,8 +52,8 @@ import {
 import { workspaceInferencePath } from "@get-halo/config/inference";
 import { serveWorkspaceInference } from "../inference/workspaceInference.js";
 import { serveWorkspaceIdleReport } from "../workspace/workspaceIdleHttp.js";
-import { serveWorkspaceRoutineSnapshot } from "../workspace/workspaceRoutineHttp.js";
-import type { RoutineCoordinator } from "../workspace/RoutineCoordinator.js";
+import { serveWorkspaceAutomationSnapshot } from "../workspace/workspaceAutomationHttp.js";
+import type { AutomationScheduleCoordinator } from "../workspace/AutomationScheduleCoordinator.js";
 
 const requestUrlBase = "http://localhost";
 const webContentSecurityPolicy = [
@@ -114,7 +115,7 @@ export function serveControlPlaneHttp(ctx: {
   publicOrigin: string;
   workspace: WorkspaceService;
   integrations?: IntegrationService;
-  routines: RoutineCoordinator;
+  automationSchedules: AutomationScheduleCoordinator;
   automationStore: AutomationStore;
   webhooks: WebhookService;
   gmail: GmailService;
@@ -157,7 +158,7 @@ export function serveControlPlaneHttp(ctx: {
       response,
       auth,
       workspace,
-      routines: ctx.routines,
+      automationSchedules: ctx.automationSchedules,
       automationStore: ctx.automationStore,
       webhooks: ctx.webhooks,
       gmail: ctx.gmail,
@@ -233,7 +234,7 @@ async function routeControlPlaneRequest(ctx: {
   inferenceApiKey?: string;
   workspace: WorkspaceService;
   integrations?: IntegrationService;
-  routines: RoutineCoordinator;
+  automationSchedules: AutomationScheduleCoordinator;
   automationStore: AutomationStore;
   webhooks: WebhookService;
   gmail: GmailService;
@@ -252,11 +253,15 @@ async function routeControlPlaneRequest(ctx: {
     request.method === "GET" &&
     url.pathname === "/api/integrations/oauth/callback"
   ) {
+    const headers = requestHeaders(request);
+    const session = await auth.getSession(headers);
     const result = await ctx.integrations?.oauthCallback({
       state: url.searchParams.get("state") ?? "",
       code: url.searchParams.has("error")
         ? undefined
         : (url.searchParams.get("code") ?? undefined),
+      userId: session instanceof Error ? undefined : session?.user.id,
+      browsers: setupBrowserCookies(headers),
     });
     response.setHeader("cache-control", "no-store");
     response.setHeader("referrer-policy", "no-referrer");
@@ -302,6 +307,18 @@ async function routeControlPlaneRequest(ctx: {
     });
     return;
   }
+  if (
+    url.pathname === "/api/workspace-runtime/automations/schedules" &&
+    request.method === "POST"
+  ) {
+    await serveWorkspaceAutomationSnapshot(
+      request,
+      response,
+      workspace,
+      ctx.automationSchedules,
+    );
+    return;
+  }
   const automationState =
     /^\/api\/workspace-runtime\/automations\/([a-zA-Z0-9_-]+)(?:\/(reveal|rotate))?$/.exec(
       url.pathname,
@@ -328,16 +345,6 @@ async function routeControlPlaneRequest(ctx: {
       ctx.automationStore,
     );
     ctx.gmail.schedule();
-    return;
-  }
-
-  if (url.pathname === "/api/workspace-runtime/routines") {
-    await serveWorkspaceRoutineSnapshot(
-      request,
-      response,
-      workspace,
-      ctx.routines,
-    );
     return;
   }
 

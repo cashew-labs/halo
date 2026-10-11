@@ -56,7 +56,12 @@ e2eTest(
   },
 );
 
-e2eTest(
+// Chromium's nested PDF frame can stall Playwright DOM snapshot evaluation on
+// macOS before an assertion starts. Keep screenshots and action logs without
+// injecting snapshot scripts into the native PDF viewer for this test.
+const attachmentTest = e2eTest.extend({ traceSnapshots: false });
+
+attachmentTest(
   "drops images, PDFs, and Word files into chat and keeps their model context after reload",
   async ({ app, llm }, testInfo) => {
     await app.page

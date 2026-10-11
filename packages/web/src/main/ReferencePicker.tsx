@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { skipToken, useQuery } from "@tanstack/react-query";
+import { useApi, useWorkspaceQuery } from "../api/ApiProvider.js";
 import type { Editor } from "@tiptap/core";
 import { backgroundColor, colors, flex, radius, shadow, spacing } from "maui";
 import { style, useStyles } from "purse-styles";
@@ -13,10 +15,12 @@ export function useReferencePicker({
   targets,
   onSelect,
   placement = "above",
+  enabled = true,
 }: {
   targets: ReferenceTarget[] | undefined;
   onSelect: (target: ReferenceTarget, query: Query) => void;
   placement?: "above" | "below" | "cursor";
+  enabled?: boolean;
 }) {
   const resultsClassName = useStyles(resultsClass);
   const placementClassName = useStyles(
@@ -31,10 +35,28 @@ export function useReferencePicker({
   const [query, setQuery] = useState<Query>();
   const [anchor, setAnchor] = useState<{ left: number; top: number }>();
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const api = useApi();
+  const workspaceRoot = useWorkspaceQuery().data?.workspaceRoot;
+  const search = query?.query;
+  const {
+    data: paths,
+    isPending,
+    error,
+  } = useQuery({
+    queryKey: ["reference-paths", workspaceRoot, search],
+    queryFn:
+      !enabled || search === undefined
+        ? skipToken
+        : async ({ signal }) =>
+            await api.workspace.searchPaths({ query: search }, { signal }),
+  });
   const matches =
     query === undefined
       ? []
-      : (targets ?? [])
+      : [
+          ...(paths ?? []).map((path) => ({ kind: "file" as const, path })),
+          ...(targets ?? []),
+        ]
           .filter((target) =>
             (target.kind === "file" ? target.path : target.title)
               .toLowerCase()
@@ -50,6 +72,7 @@ export function useReferencePicker({
 
   return {
     onSelectionUpdate(editor: Editor) {
+      if (!enabled) return;
       const next = activeReferenceQuery(editor);
       setQuery(next);
       if (next !== undefined && placement === "cursor") {
@@ -108,9 +131,11 @@ export function useReferencePicker({
         >
           {matches.length === 0 ? (
             <div className={resultClassName}>
-              {targets === undefined
-                ? "Loading references…"
-                : "No matching references"}
+              {error !== null
+                ? error.message
+                : isPending
+                  ? "Loading references…"
+                  : "No matching references"}
             </div>
           ) : (
             matches.map((target, index) => (

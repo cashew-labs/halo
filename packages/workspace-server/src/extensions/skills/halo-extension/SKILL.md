@@ -18,7 +18,7 @@ Read each reference that applies to the task:
 - For schemas, queries, shared data, or transactions, read [references/storage.md](references/storage.md).
 - For workspace tools or connected services, read [references/tools.md](references/tools.md).
 - For scaffolding, package metadata, builds, hosting, reloads, updates, or removal, read [references/lifecycle.md](references/lifecycle.md).
-- For automations (scheduled routines, Gmail triggers, or private webhooks), read [references/routines.md](references/routines.md).
+- For automations (scheduled routines, Gmail triggers, or private webhooks), read [references/automations.md](references/automations.md).
 - Whenever a task requires opening, observing, interacting with, debugging, or verifying an extension, read [references/access.md](references/access.md).
 
 The references document the SDK bundled with this Halo workspace. For an existing extension, inspect its installed declarations under `node_modules/@get-halo/extension-sdk/` when its dependency version differs. In a development build, run `halo extension update <id>` after Halo's source changes. It installs the current local SDK and build tools, typechecks, builds, and restarts the extension.
@@ -60,7 +60,7 @@ Never put provider credentials in extension source, browser code, or shared reco
 
 ## Current product boundaries
 
-Halo provides one sidebar entry and one view per extension, with the extension's routines listed beneath it. Personal automations appear in the Automations sidebar section. The extension owns routing within its view. Declarative sidebar contributions, app-header actions, and named panes are not implemented. Automations are managed with `tools.automations` or `halo automation`; `halo routine` remains available for schedules. They are not declared in `package.json`.
+Halo provides one sidebar entry and one view per extension, with the extension's automations listed beneath it. Personal automations appear in the Automations sidebar section. The extension owns routing within its view. Declarative sidebar contributions, app-header actions, and named panes are not implemented. Automations are managed with `tools.automations` or `halo automation`. They are not declared in `package.json`.
 
 Workspace extensions are trusted. A hosted API can call any tool available to Halo without a manifest permission declaration. Tool availability and account connectivity remain runtime concerns.
 

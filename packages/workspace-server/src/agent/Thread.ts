@@ -17,7 +17,7 @@ import {
   type CommitPublication,
   type SubmissionId,
 } from "@earendil-works/pi-durable";
-import type { ThreadHandle, ThreadData } from "../storage/ThreadRepoApi.js";
+import type { ThreadHandle, ThreadData } from "../database/ThreadRepoApi.js";
 import type { LLMApi } from "../llm/LLMApi.js";
 import { createPiModelRuntime } from "../llm/createPiModelRuntime.js";
 import * as errore from "errore";

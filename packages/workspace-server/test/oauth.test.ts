@@ -33,6 +33,10 @@ const test = baseTest.extend<{
           setupUrl: "https://halo.example/integrations/setup/setup",
         }),
         setup: async () => state.status,
+        connections: async () => [],
+        removeConnection: async () => ({
+          revocation: "not_supported" as const,
+        }),
         cancelSetup: async () => {
           state.cancellations++;
           if (state.cancellationError !== undefined)

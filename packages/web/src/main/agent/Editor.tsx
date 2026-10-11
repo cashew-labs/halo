@@ -67,6 +67,7 @@ export function Editor({
   const inlineCodeClassName = useStyles(proseInlineCode);
   const picker = useReferencePicker({
     targets: onAddReference === undefined ? undefined : referenceTargets,
+    enabled: onAddReference !== undefined,
     placement: referencePlacement,
     onSelect: (target, query) => {
       if (editor === null) return;

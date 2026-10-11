@@ -50,7 +50,7 @@ export function ExtensionView({ extensionId }: { extensionId: string }) {
 const styles = {
   view: style(flex({ direction: "column" }), {
     width: "100%",
-    height: "100dvh",
+    height: "var(--halo-window-content-height, 100dvh)",
     minWidth: 0,
     minHeight: 0,
     overflow: "hidden",

@@ -34,6 +34,14 @@ export interface HostApi {
       values: Record<string, string>;
     }): Promise<{ authorizationUrl?: string } | Error>;
     cancel(setupId: string): Promise<void | Error>;
+    // Binds this browser to the setup with Halo's single-use handoff.
+    // coverage-exempt: type declarations
+    redeemHandoff(input: {
+      setupId: string;
+      handoff: string;
+    }): Promise<void | Error>;
+    // Signs in to the Halo account that requested the setup.
+    signIn(): Promise<ControlPlaneSession | Error | undefined>;
   };
   getWorkspaceStatus?(): Promise<
     ControlPlaneWorkspaceStatus | Error | undefined

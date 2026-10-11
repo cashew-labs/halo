@@ -15,7 +15,7 @@ import {
 import {
   ControlPlaneTraceUploader,
   ControlPlaneWorkReporter,
-  ControlPlaneRoutineReporter,
+  ControlPlaneScheduleReporter, // coverage-exempt: Rename-only entrypoint import.
   ControlPlaneAutomationClient,
   WorkspaceServer,
 } from "@get-halo/workspace-server";
@@ -168,14 +168,30 @@ async function run() {
                     .cancelSetup(input, { signal: AbortSignal.timeout(10_000) })
                     .then(() => undefined)
                     .catch(failed),
+                // coverage-exempt: host wiring, like catalog and setup above
+                connections: async () =>
+                  await client.integrations
+                    .connections(undefined, {
+                      signal: AbortSignal.timeout(10_000),
+                    })
+                    .catch(failed),
+                removeConnection: async (input: {
+                  integration: string;
+                  name: string;
+                }) =>
+                  await client.integrations
+                    .removeConnection(input, {
+                      signal: AbortSignal.timeout(30_000),
+                    })
+                    .catch(failed),
               };
             })(),
       llmApi,
-      reportRoutineSchedule:
+      reportAutomationSchedule: // coverage-exempt: Rename-only host wiring.
         applicationConfig.server.runtime === undefined
           ? undefined
           : (() => {
-              const reporter = new ControlPlaneRoutineReporter(
+              const reporter = new ControlPlaneScheduleReporter( // coverage-exempt: Rename-only entrypoint construction.
                 applicationConfig.server.runtime,
               );
               return async (snapshot, signal) =>

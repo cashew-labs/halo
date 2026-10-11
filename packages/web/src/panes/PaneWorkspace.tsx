@@ -27,10 +27,8 @@ import {
 import { isPaneDrag, paneRouteDragType, paneTabDragType } from "./paneDrag.js";
 import { queryOptions, skipToken, useQueries } from "@tanstack/react-query";
 import { useSidebar } from "../WorkspaceLayout.js";
-import {
-  useExtensions,
-  useAutomations,
-} from "../api/WorkspaceUpdatesProvider.js";
+import { useExtensions } from "../api/WorkspaceUpdatesProvider.js";
+import { useDatabaseQuery } from "../database/useDatabaseQuery.js";
 import { sessionTitleQueryKey } from "../main/agent/useAgentSession.js";
 import { CopyExtensionLinkButton } from "./CopyExtensionLinkButton.js";
 import { tabBarHeight, usePaneStyles } from "./paneStyles.js";
@@ -49,7 +47,7 @@ export function PaneWorkspace({ sessions }: { sessions: SessionSummary[] }) {
   const workspace = useWorkspacePanes();
   const sidebar = useSidebar();
   const extensions = useExtensions().data;
-  const automations = useAutomations();
+  const automations = useDatabaseQuery({ collection: "automations" });
   const state = usePaneState();
   const { leaves, dividers } = paneLayout(state.root);
   const sessionTabs = leaves

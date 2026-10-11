@@ -17,7 +17,11 @@ export function createHotkeysPlugin(hotkeys: HotkeyService): HaloToolPlugin {
           "List the user's saved Halo hotkeys and their IDs. Built-in shortcuts are CmdOrCtrl+T (new chat tab), CmdOrCtrl+N (replace current tab with a new chat), and CmdOrCtrl+P (show shortcuts). Custom hotkeys work while Halo is focused and persist in this workspace.",
         inputSchema: Type.Object({}),
         requiredCapabilities: ["workspace.hotkeys"],
-        execute: async () => ({ value: hotkeys.list() }),
+        execute: async () => {
+          const listed = await hotkeys.list();
+          if (listed instanceof Error) return listed;
+          return { value: listed };
+        },
       }),
       defineHaloTool({
         name: "save",

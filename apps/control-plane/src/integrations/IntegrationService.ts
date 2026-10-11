@@ -42,6 +42,7 @@ import {
   type FirstPartyOAuthClientConfig,
 } from "@executor-js/sdk/core";
 import type {
+  ConnectionRevocation,
   IntegrationConnection,
   IntegrationInvocation,
   IntegrationJson,
@@ -55,6 +56,8 @@ import { FetchHttpClient } from "effect/unstable/http";
 import * as errore from "errore";
 import type { CredentialService } from "../credentials/CredentialService.js";
 import type { DatabaseService, DatabaseClient } from "../DatabaseService.js";
+import { withAccountChoice } from "./accountChoice.js";
+import { GmailApi } from "../automations/GmailApi.js";
 import { createExecutorDatabase } from "./createExecutorDatabase.js";
 
 // Executor 1.6 rewrites Meet's Discovery URL to a legacy endpoint returning 404.
@@ -123,7 +126,15 @@ type SetupRow = {
   status: IntegrationSetup["status"];
   expires_at: number;
   oauth_state?: string;
+  owner_label?: string | null;
 };
+
+// A handoff link lets the browser that Halo opened act for the setup owner.
+const handoffTtlMs = 2 * 60 * 1_000;
+
+function secretHash(secret: string) {
+  return crypto.createHash("sha256").update(secret).digest("base64url");
+}
 
 // Persist only identity/bindings, never credentials; reconnect is fixed at start.
 type StoredSetup = IntegrationSetup & {
@@ -156,6 +167,7 @@ export class IntegrationService {
   private readonly allowLocalUrls: boolean;
   private readonly gmailTransport = new AsyncLocalStorage<boolean>();
   private readonly gmailApiOrigin: string | undefined;
+  private readonly googleRevokeUrl: string;
 
   private constructor(ctx: {
     database: Exclude<
@@ -169,8 +181,10 @@ export class IntegrationService {
     firstPartyOAuthClients?: readonly FirstPartyOAuthClientConfig[];
     allowLocalUrls?: boolean;
     gmailApiOrigin?: string;
+    googleRevokeUrl?: string;
   }) {
     this.database = ctx.database;
+    this.googleRevokeUrl = ctx.googleRevokeUrl ?? googleRevokeUrl;
     this.credentials = ctx.credentials;
     this.setupDb = ctx.setupDb;
     this.publicOrigin = ctx.publicOrigin;
@@ -231,6 +245,7 @@ export class IntegrationService {
     firstPartyOAuthClients?: readonly FirstPartyOAuthClientConfig[];
     allowLocalUrls?: boolean;
     gmailApiOrigin?: string;
+    googleRevokeUrl?: string;
   }) {
     const database = await createExecutorDatabase(ctx.db);
     if (database instanceof Error) return database;
@@ -243,6 +258,7 @@ export class IntegrationService {
       firstPartyOAuthClients: ctx.firstPartyOAuthClients,
       allowLocalUrls: ctx.allowLocalUrls,
       gmailApiOrigin: ctx.gmailApiOrigin,
+      googleRevokeUrl: ctx.googleRevokeUrl,
     });
     const initialized = await service.sql(
       "CREATE TABLE IF NOT EXISTS halo_integration_setup (setup_id TEXT PRIMARY KEY, user_id TEXT NOT NULL, integration TEXT NOT NULL, connection_name TEXT NOT NULL, data TEXT NOT NULL, status TEXT NOT NULL, expires_at BIGINT NOT NULL, oauth_state TEXT)",
@@ -260,6 +276,11 @@ export class IntegrationService {
       "DROP INDEX IF EXISTS halo_integration_setup_name",
     );
     if (dropped instanceof Error) return dropped;
+    // Stores only hashes of the handoff and browser secrets.
+    const browsers = await service.sql(
+      "CREATE TABLE IF NOT EXISTS halo_integration_setup_browser (setup_id TEXT PRIMARY KEY, handoff_hash TEXT, handoff_expires_at BIGINT, browser_hash TEXT, owner_label TEXT)",
+    );
+    if (browsers instanceof Error) return browsers;
     return service;
   }
 
@@ -353,7 +374,9 @@ export class IntegrationService {
   async setup(ctx: { userId: string; setupId: string }) {
     const setup = await this.readSetup(ctx);
     if (setup instanceof Error) return setup;
-    const { reconnect: _reconnect, ...publicSetup } = setup;
+    const { reconnect: _reconnect, ownerLabel, ...stored } = setup;
+    const publicSetup: IntegrationSetup =
+      ownerLabel === undefined ? stored : { ...stored, owner: ownerLabel };
     if (setup.status === "ready") return publicSetup;
     const receipt = await this.withUser(ctx.userId, (executor) =>
       executor.haloSetups.get(ctx.setupId),
@@ -383,7 +406,7 @@ export class IntegrationService {
     );
     if (expired instanceof Error) return expired;
     const rows = await this.sql(
-      "SELECT * FROM halo_integration_setup WHERE setup_id=$1 AND user_id=$2",
+      "SELECT s.*, b.owner_label FROM halo_integration_setup s LEFT JOIN halo_integration_setup_browser b ON b.setup_id=s.setup_id WHERE s.setup_id=$1 AND s.user_id=$2",
       [ctx.setupId, ctx.userId],
     );
     if (rows instanceof Error) return rows;
@@ -397,7 +420,65 @@ export class IntegrationService {
         new IntegrationServiceError({ detail: "read setup", cause }),
     });
     if (parsed instanceof Error) return parsed;
-    return { ...parsed, status: row.status };
+    return {
+      ...parsed,
+      status: row.status,
+      ownerLabel: row.owner_label ?? undefined,
+    };
+  }
+
+  // Issues a single-use link that binds the browser opening it to this setup.
+  async createSetupHandoff(ctx: {
+    userId: string;
+    setupId: string;
+    ownerLabel: string;
+  }) {
+    const setup = await this.readSetup(ctx);
+    if (setup instanceof Error) return setup;
+    if (setup.status !== "awaiting_credentials")
+      return new IntegrationSetupError({
+        detail: "Setup is no longer awaiting credentials",
+      });
+    const handoff = crypto.randomBytes(32).toString("base64url");
+    const saved = await this.sql(
+      "INSERT INTO halo_integration_setup_browser (setup_id,handoff_hash,handoff_expires_at,owner_label) VALUES ($1,$2,$3,$4) ON CONFLICT (setup_id) DO UPDATE SET handoff_hash=excluded.handoff_hash, handoff_expires_at=excluded.handoff_expires_at, owner_label=excluded.owner_label",
+      [
+        ctx.setupId,
+        secretHash(handoff),
+        Date.now() + handoffTtlMs,
+        ctx.ownerLabel,
+      ],
+    );
+    if (saved instanceof Error) return saved;
+    // The fragment keeps the handoff out of request URLs and logs.
+    return {
+      url: `${this.setupUrl(ctx.setupId)}#handoff=${encodeURIComponent(handoff)}`,
+    };
+  }
+
+  // Consumes a handoff once and returns the secret for that browser's cookie.
+  async redeemSetupHandoff(ctx: { setupId: string; handoff: string }) {
+    const browser = crypto.randomBytes(32).toString("base64url");
+    const rows = await this.sql(
+      "UPDATE halo_integration_setup_browser SET handoff_hash=NULL, browser_hash=$1 WHERE setup_id=$2 AND handoff_hash=$3 AND handoff_expires_at > $4 RETURNING *",
+      [secretHash(browser), ctx.setupId, secretHash(ctx.handoff), Date.now()],
+    );
+    if (rows instanceof Error) return rows;
+    if (rows.length === 0)
+      return new IntegrationSetupError({
+        detail: "This setup link has expired or was already used",
+      });
+    return { browser };
+  }
+
+  // Returns the setup owner when the browser secret belongs to this setup.
+  async setupOwnerForBrowser(ctx: { setupId: string; browser: string }) {
+    const rows = await this.sql(
+      "SELECT s.user_id FROM halo_integration_setup s JOIN halo_integration_setup_browser b ON b.setup_id=s.setup_id WHERE s.setup_id=$1 AND b.browser_hash=$2",
+      [ctx.setupId, secretHash(ctx.browser)],
+    );
+    if (rows instanceof Error) return rows;
+    return rows[0]?.user_id;
   }
 
   async submitSetup(ctx: {
@@ -635,7 +716,9 @@ export class IntegrationService {
               "Setup is no longer authorizing. Restart setup to try again.",
           });
     }
-    return { authorizationUrl: result.authorizationUrl };
+    return {
+      authorizationUrl: withAccountChoice(result.authorizationUrl),
+    };
   }
 
   // Runs on every exit after a claim. Success clears/replaces the marker, making
@@ -739,7 +822,38 @@ export class IntegrationService {
       );
   }
 
-  async oauthCallback(ctx: { state: string; code?: string }) {
+  async oauthCallback(ctx: {
+    state: string;
+    code?: string;
+    // The Halo user signed in to this browser, if any.
+    userId?: string;
+    // Setup browser secrets read from this browser's cookies.
+    browsers: ReadonlyMap<string, string>;
+  }) {
+    // Only the browser that started the setup, or its owner, may finish it.
+    const pending = await this.sql(
+      "SELECT setup_id, user_id FROM halo_integration_setup WHERE oauth_state=$1",
+      [ctx.state],
+    );
+    if (pending instanceof Error) return pending;
+    const owner = pending[0];
+    if (owner === undefined)
+      return new IntegrationSetupError({
+        detail: "Invalid or already consumed OAuth state",
+      });
+    const browser = ctx.browsers.get(owner.setup_id);
+    const browserOwner =
+      browser === undefined
+        ? undefined
+        : await this.setupOwnerForBrowser({
+            setupId: owner.setup_id,
+            browser,
+          });
+    if (browserOwner instanceof Error) return browserOwner;
+    if (ctx.userId !== owner.user_id && browserOwner !== owner.user_id)
+      return new IntegrationSetupError({
+        detail: "This browser did not start the setup",
+      });
     // Atomic durable claim provides single consumption even with multiple control-plane replicas.
     const rows = await this.sql(
       "UPDATE halo_integration_setup SET oauth_state='consuming' WHERE oauth_state=$1 AND oauth_state NOT IN ('submitting','consuming') AND status='authorizing' AND expires_at > $2 RETURNING *",
@@ -799,14 +913,131 @@ export class IntegrationService {
       if (saved instanceof Error) return saved;
       return { setupUrl: this.setupUrl(row.setup_id) };
     }
+    const labeled = await this.labelAccount(row.user_id, connection);
+    if (labeled instanceof Error) console.warn(labeled);
     const saved = await this.confirmSetup({
       userId: row.user_id,
       setupId: row.setup_id,
       setup,
-      connection: safeConnection(connection),
+      connection: safeConnection(
+        labeled instanceof Error ? connection : labeled,
+      ),
     });
     if (saved instanceof Error) console.warn(saved);
     return { setupUrl: this.setupUrl(row.setup_id) };
+  }
+
+  // Records the mailbox a Gmail connection reads, so people and agents can tell
+  // connections apart and find one by account.
+  private async labelAccount(userId: string, connection: Connection) {
+    if (connection.integration !== "google_gmail") return connection;
+    const profile = await new GmailApi({ integrations: this }).profile({
+      ownerId: userId,
+      connectionAddress: connection.address,
+    });
+    if (profile instanceof Error) return profile;
+    return await this.withUser(userId, (executor) =>
+      executor.connections.update(
+        {
+          owner: connection.owner,
+          integration: connection.integration,
+          name: connection.name,
+        },
+        { identityLabel: profile.emailAddress.toLowerCase() },
+      ),
+    );
+  }
+
+  // Removes a connection, its tools and its stored OAuth tokens. Google grants
+  // access per Google account and app, not per connection, so access is revoked
+  // only when no other connection may share the grant.
+  async removeConnection(ctx: {
+    userId: string;
+    integration: string;
+    name: string;
+  }) {
+    const ref = {
+      owner: Owner.make("user"),
+      integration: IntegrationSlug.make(ctx.integration),
+      name: ConnectionName.make(ctx.name),
+    };
+    const found = await this.withUser(ctx.userId, (executor) =>
+      Effect.gen(function* () {
+        const connection = yield* executor.connections.get(ref);
+        if (connection === null) return undefined;
+        const clients = yield* executor.oauth.listClients();
+        const client = clients.find(
+          (candidate) =>
+            candidate.slug === connection.oauthClient &&
+            candidate.owner === connection.oauthClientOwner,
+        );
+        const others = yield* executor.connections.list({ owner: ref.owner });
+        const sharesGrant = others.some(
+          (other) =>
+            other.address !== connection.address &&
+            other.oauthClient === connection.oauthClient &&
+            other.oauthClientOwner === connection.oauthClientOwner &&
+            // Without both accounts known, assume they may share the grant.
+            (!other.identityLabel ||
+              !connection.identityLabel ||
+              other.identityLabel === connection.identityLabel),
+        );
+        return {
+          connection,
+          google:
+            client !== undefined &&
+            new URL(client.authorizationUrl).host === "accounts.google.com",
+          sharesGrant,
+        };
+      }),
+    );
+    if (found instanceof Error) return found;
+    if (found === undefined)
+      return new IntegrationSetupError({ detail: "Connection not found" });
+    const tokens = oauthTokenIds(ctx.integration, ctx.name);
+    const revocation: ConnectionRevocation = !found.google
+      ? "not_supported"
+      : found.sharesGrant
+        ? "shared"
+        : await this.revokeGoogleGrant(ctx.userId, tokens);
+    const removed = await this.withUser(ctx.userId, (executor) =>
+      executor.connections.remove(ref),
+    );
+    if (removed instanceof Error) return removed;
+    // Executor removes the connection but leaves its tokens in Halo's store.
+    for (const token of [tokens.access, tokens.refresh]) {
+      const deleted = await this.credentials.delete(ctx.userId, token);
+      if (deleted instanceof Error) return deleted;
+    }
+    return { revocation };
+  }
+
+  private async revokeGoogleGrant(
+    userId: string,
+    tokens: { access: string; refresh: string },
+  ): Promise<ConnectionRevocation> {
+    const refresh = await this.credentials.get(userId, tokens.refresh);
+    if (refresh instanceof Error) return "failed";
+    const access =
+      refresh === undefined
+        ? await this.credentials.get(userId, tokens.access)
+        : undefined;
+    if (access instanceof Error) return "failed";
+    const token = refresh ?? access;
+    if (token === undefined) return "failed";
+    const response = await fetch(this.googleRevokeUrl, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ token }),
+      signal: AbortSignal.timeout(10_000),
+    }).catch(
+      (cause) => new IntegrationServiceError({ detail: "revoke", cause }),
+    );
+    if (response instanceof Error) return "failed";
+    // Google answers invalid_token when the grant is already gone.
+    if (response.ok) return "revoked";
+    const body = await response.text().catch(() => "");
+    return body.includes("invalid_token") ? "revoked" : "failed";
   }
 
   async registerOpenAPI(ctx: {
@@ -1535,6 +1766,15 @@ function setupCatalogEntry(
             ],
     })),
   };
+}
+
+const googleRevokeUrl = "https://oauth2.googleapis.com/revoke";
+
+// Executor stores a user connection's OAuth tokens under these credential IDs
+// (accessItemId and refreshItemIdFor in @executor-js/sdk 1.6).
+function oauthTokenIds(integration: string, name: string) {
+  const access = `oauth:user:${integration}:${name}`;
+  return { access, refresh: `${access}:refresh` };
 }
 
 function safeConnection(connection: Connection): IntegrationConnection {

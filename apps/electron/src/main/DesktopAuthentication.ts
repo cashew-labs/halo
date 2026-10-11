@@ -13,6 +13,9 @@ export type DesktopAuthentication = {
   getWorkspaceConnection: () => Promise<HaloRpcConnection | Error | undefined>;
   getSession: () => Promise<ControlPlaneSession | Error | undefined>;
   signIn: () => Promise<ControlPlaneSession | Error>;
+  // Returns a single-use link that lets the opened browser finish the setup
+  // without a Halo sign-in, or the setup URL when it is not a Halo setup.
+  createSetupHandoff?: (setupUrl: string) => Promise<string | Error>; // coverage-exempt: type declaration
 };
 
 export type DesktopIdentity = Pick<

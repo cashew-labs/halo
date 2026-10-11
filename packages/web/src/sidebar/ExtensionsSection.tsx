@@ -4,10 +4,8 @@ import * as MauiIcons from "maui/icons";
 import { CalendarTimer, Puzzle, Bolt } from "maui/icons";
 import { useLocation } from "wouter";
 
-import {
-  useExtensions,
-  useAutomations,
-} from "../api/WorkspaceUpdatesProvider.js";
+import { useExtensions } from "../api/WorkspaceUpdatesProvider.js";
+import { useDatabaseQuery } from "../database/useDatabaseQuery.js";
 import { useExpandSidebar } from "./navigation/NavigationSidebar.js";
 import { SidebarItem } from "./navigation/SidebarItem.js";
 import { SidebarSection } from "./navigation/SidebarSection.js";
@@ -16,7 +14,10 @@ const icons = new Map(Object.entries(MauiIcons));
 
 export function ExtensionsSection() {
   const extensions = useExtensions();
-  const automations = useAutomations();
+  const automations = useDatabaseQuery({
+    collection: "automations",
+    orderBy: { createdAt: "asc", id: "asc" },
+  });
   const expand = useExpandSidebar();
   const [location] = useLocation();
   // Extensions with automations stay listed while their process is not running.

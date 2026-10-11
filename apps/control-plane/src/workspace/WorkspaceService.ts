@@ -348,7 +348,7 @@ export class WorkspaceService {
   }
 
   /** Activity from a due schedule wakes the VM before dispatching its routine. */
-  async wakeForRoutine(workspaceId: string) {
+  async wakeForAutomation(workspaceId: string) {
     const client = this.db.client;
     const owner =
       client instanceof DatabaseSync

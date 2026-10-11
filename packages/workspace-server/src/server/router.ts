@@ -3,14 +3,11 @@ import {
   type AutomationsRouterContext,
 } from "../automations/automationsRouter.js";
 import { watchWorkspace } from "./watchWorkspace.js";
+import { syncRouter, type SyncRouterContext } from "../database/syncRouter.js";
 import {
   hotkeysRouter,
   type HotkeysRouterContext,
 } from "../hotkeys/hotkeysRouter.js";
-import {
-  routinesRouter,
-  type RoutinesRouterContext,
-} from "../routines/routinesRouter.js";
 import {
   browserRouter,
   type BrowserRouterContext,
@@ -44,8 +41,8 @@ import {
 } from "../testing/testApiRouter.js";
 
 export type HaloContext = RequestHeadersHandlerPluginContext &
+  SyncRouterContext &
   HotkeysRouterContext &
-  RoutinesRouterContext &
   AutomationsRouterContext &
   BrowserRouterContext &
   TracesRouterContext &
@@ -66,15 +63,16 @@ const serverRouter = server.router({
     watchWorkspace({
       context,
       includeAutomations: input?.includeAutomations,
+      includeLegacyState: input?.includeLegacyState,
       signal,
     }),
   ),
 });
 
 export const haloRpcRouter = {
+  sync: syncRouter,
   server: serverRouter,
   hotkeys: hotkeysRouter,
-  routines: routinesRouter,
   automations: automationsRouter,
   browser: browserRouter,
   workspace: workspaceRouter,

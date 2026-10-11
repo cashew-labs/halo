@@ -1,7 +1,7 @@
 import { Button, Tooltip, flex, spacing, text } from "maui";
 import { ArrowUpCircle } from "maui/icons";
 import { style, useStyles } from "purse-styles";
-import { useMutation } from "@tanstack/react-query";
+import { useAsyncAction } from "../useAsyncAction.js";
 import { ConnectionStatus } from "../ConnectionStatus.js";
 import { confirmRestart } from "../confirmRestart.js";
 import type { AppInfo } from "../HostApi.js";
@@ -31,12 +31,9 @@ export function SidebarFooter({ appInfo }: { appInfo?: AppInfo }) {
 function UpgradeIcon({ appInfo }: { appInfo: AppInfo }) {
   const host = useHost();
   const icon = useStyles(iconStyle);
-  const install = useMutation({
-    mutationFn: async () => {
-      if (host.installAppUpdate === undefined || !confirmRestart()) return;
-      const result = await host.installAppUpdate();
-      if (result instanceof Error) throw result;
-    },
+  const install = useAsyncAction(async () => {
+    if (host.installAppUpdate === undefined || !confirmRestart()) return;
+    return await host.installAppUpdate();
   });
   if (
     appInfo.update.state !== "available" &&
@@ -53,9 +50,9 @@ function UpgradeIcon({ appInfo }: { appInfo: AppInfo }) {
         aria-label={label}
         data-testid="app-update-restart"
         isDisabled={
-          !ready || host.installAppUpdate === undefined || install.isPending
+          !ready || host.installAppUpdate === undefined || install.pending
         }
-        onClick={() => install.mutate()}
+        onClick={() => void install.run()}
       >
         <ArrowUpCircle size="xs" />
       </Button>
