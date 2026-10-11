@@ -23,6 +23,7 @@ export interface RemoteIntegrationTools {
 }
 import { randomUUID } from "node:crypto";
 import { Stream } from "@get-halo/shared/Stream";
+import { WorkerCodeExecutor } from "./WorkerCodeExecutor.js";
 import * as Cause from "effect/Cause";
 import * as Exit from "effect/Exit";
 import {
@@ -35,10 +36,6 @@ import type {
   CodeExecutor,
   SandboxToolInvoker,
 } from "@executor-js/codemode-core";
-import {
-  makeQuickJsExecutor,
-  setQuickJSModule,
-} from "@executor-js/runtime-quickjs";
 import {
   createExecutor,
   definePlugin,
@@ -55,13 +52,8 @@ import {
   ToolResult,
   isToolResult,
 } from "@executor-js/sdk/core";
-import quickJsVariant from "@jitl/quickjs-singlefile-cjs-release-sync";
 import { type Static, type TObject, Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
-import {
-  newQuickJSWASMModule,
-  type QuickJSWASMModule,
-} from "quickjs-emscripten";
 import * as errore from "errore";
 import type {
   ConnectionRequest,
@@ -189,7 +181,6 @@ type ToolExecutionContext = Pick<
   "signal" | "modelId" | "runtime" | "threadId"
 > & {
   parentToolCallId?: string;
-  onToolEvent?: (event: ExecActivityUpdate) => void;
   collectConnectionRequest?: (request: ConnectionRequest) => void;
 };
 
@@ -280,8 +271,6 @@ const haloToolsPlugin = definePlugin((options?: HaloToolsPluginOptions) => {
     ],
   };
 });
-
-let quickJsModulePromise: Promise<QuickJSWASMModule> | undefined;
 
 const oauthStartAddress = "executor.coreTools.oauth.start";
 const oauthStartInputSchema = Type.Object({
@@ -374,6 +363,12 @@ type ToolRuntimeOptions = {
 };
 
 export class ToolRuntime {
+  readonly toolActivity = new Stream<{
+    threadId: string | undefined;
+    parentToolCallId: string;
+    event: ExecActivityUpdate;
+  }>();
+  readonly codeSessions: WorkerCodeExecutor;
   // Display metadata only; routing never depends on a discovery cache.
   private readonly remoteToolIdentities = new Map<string, ToolIdentity>();
   private readonly executionChanges = new Stream<number>();
@@ -405,6 +400,7 @@ export class ToolRuntime {
   private readonly integrationNames: ReadonlyMap<string, string>;
 
   constructor(input: {
+    codeSessions: WorkerCodeExecutor;
     executor: Executor<HaloRuntimePlugins>;
     engine: ExecutionEngine<Cause.YieldableError>;
     toolInvoker: SandboxToolInvoker;
@@ -417,6 +413,7 @@ export class ToolRuntime {
     remoteConnectionBackend?: RemoteConnectionBackend;
     integrationNames: ReadonlyMap<string, string>;
   }) {
+    this.codeSessions = input.codeSessions;
     this.executor = input.executor;
     this.engine = input.engine;
     this.toolInvoker = input.toolInvoker;
@@ -486,8 +483,8 @@ export class ToolRuntime {
     if (executorDescription instanceof Error) return executorDescription;
 
     const prefix = [
-      "Execute JavaScript. tools and console are in scope.",
-      'Return the value you need next, for example `return await tools.search({ query: "send email" })`, `return await tools.files.read({ path: "notes.md" })`, or `return await tools[path](args)`. Without return, exec reports (no result), even when a tool failed.',
+      "Execute JavaScript in a persistent, thread-owned session. tools and console are in scope. Variables and functions survive calls until reset or thread unload. Native let/const redeclarations error; use var for reusable bindings. Use exec({ op: 'reset' }) to discard bindings. Reset does not undo external actions.",
+      'The final expression is the result: `await tools.search({ query: "send email" })`, `await tools.files.read({ path: "notes.md" })`, or `await tools[path](args)`. Top-level return is not supported. Await tool calls; detached work cannot outlive an evaluation.',
       "Runtime tools do not throw for expected failures. They return { ok: true, data } or { ok: false, error }. Check result.ok.",
       ...(this.remoteConnections
         ? [
@@ -508,7 +505,6 @@ export class ToolRuntime {
     modelId?: string;
     parentToolCallId: string;
     threadId?: string;
-    onToolEvent?: (event: ExecActivityUpdate) => void;
     consumeApproval: (input: {
       toolPath: string;
       arguments: unknown;
@@ -527,7 +523,6 @@ export class ToolRuntime {
         runtime: this,
         parentToolCallId: input.parentToolCallId,
         threadId: input.threadId,
-        onToolEvent: input.onToolEvent,
         collectConnectionRequest,
       },
       async () =>
@@ -864,6 +859,7 @@ export class ToolRuntime {
   }
 
   async close() {
+    await this.codeSessions.close();
     const [executorClosed, pluginResults] = await Promise.all([
       Effect.runPromise(this.executor.close()).catch(
         (cause) => new ToolRuntimeError({ operation: "close", cause }),
@@ -897,16 +893,6 @@ async function createToolRuntime(
     return new ToolRuntimeError({
       operation: "reserved integrations namespace",
     });
-  if (quickJsModulePromise === undefined) {
-    quickJsModulePromise = newQuickJSWASMModule(quickJsVariant);
-  }
-  const quickJsModule = await quickJsModulePromise.catch(
-    (cause) =>
-      new ToolRuntimeError({ operation: "QuickJS initialization", cause }),
-  );
-  if (quickJsModule instanceof Error) return quickJsModule;
-  setQuickJSModule(quickJsModule);
-
   const executionContext = new AsyncLocalStorage<ToolExecutionContext>();
   const executor = await Effect.runPromise(
     createExecutor({
@@ -964,19 +950,35 @@ async function createToolRuntime(
     ),
   );
 
+  const codeSessions = new WorkerCodeExecutor();
   const engine = createExecutionEngine({
     executor,
     codeExecutor: withToolActivity({
-      codeExecutor: makeQuickJsExecutor({
-        timeoutMs: 2_000,
-        memoryLimitBytes: 32 * 1024 * 1024,
-        maxStackSizeBytes: 1024 * 1024,
-      }),
+      codeExecutor: {
+        execute: (code, invoker) => {
+          const context = executionContext.getStore();
+          if (!context?.threadId)
+            return Effect.succeed({
+              result: undefined,
+              error: "Code evaluation requires a thread",
+            });
+          return Effect.promise(
+            async () =>
+              await codeSessions.evaluate({
+                threadId: context.threadId!,
+                code,
+                invoker,
+                signal: context.signal,
+              }),
+          );
+        },
+      },
       executionContext,
       integrationNames,
     }),
   });
   const runtime = new ToolRuntime({
+    codeSessions,
     executor,
     engine,
     toolInvoker: makeExecutorToolInvoker(executor, { invokeOptions: {} }),
@@ -1014,15 +1016,21 @@ function withToolActivity<E extends Cause.YieldableError>(input: {
             context?.runtime.getToolIdentity(invocation.path) ??
             toolIdentity(invocation.path, input.integrationNames);
           if (
-            context?.onToolEvent === undefined ||
-            context.parentToolCallId === undefined ||
+            context?.parentToolCallId === undefined ||
             identity === undefined
           ) {
             return routed.invoke(invocation);
           }
 
           const invocationId = randomUUID();
-          context.onToolEvent({
+          const publish = (event: ExecActivityUpdate) => {
+            context.runtime.toolActivity.append({
+              threadId: context.threadId,
+              parentToolCallId: context.parentToolCallId!,
+              event,
+            });
+          };
+          publish({
             type: "tool.started",
             invocation: {
               id: invocationId,
@@ -1031,25 +1039,27 @@ function withToolActivity<E extends Cause.YieldableError>(input: {
               arguments: invocation.args,
             },
           });
-          return Effect.gen(function* () {
-            const result = yield* Effect.exit(routed.invoke(invocation));
-            if (Exit.isSuccess(result)) {
-              context.onToolEvent?.({
-                type: "tool.finished",
-                invocationId,
-                isError: isToolResult(result.value) && !result.value.ok,
-                result: result.value,
-              });
-              return result.value;
-            }
-            context.onToolEvent?.({
-              type: "tool.finished",
-              invocationId,
-              isError: true,
-              result: Cause.pretty(result.cause),
-            });
-            return yield* Effect.failCause(result.cause);
-          });
+          return routed.invoke(invocation).pipe(
+            Effect.onExit((result) =>
+              Effect.sync(() => {
+                publish(
+                  Exit.isSuccess(result)
+                    ? {
+                        type: "tool.finished",
+                        invocationId,
+                        isError: isToolResult(result.value) && !result.value.ok,
+                        result: result.value,
+                      }
+                    : {
+                        type: "tool.finished",
+                        invocationId,
+                        isError: true,
+                        result: Cause.pretty(result.cause),
+                      },
+                );
+              }),
+            ),
+          );
         },
       });
     },

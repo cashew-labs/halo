@@ -880,9 +880,6 @@ importers:
       '@executor-js/fumadb':
         specifier: 1.5.7
         version: 1.5.7(drizzle-orm@0.45.0(@cloudflare/workers-types@5.20260804.1)(@electric-sql/pglite@0.3.15)(@libsql/client@0.17.3)(@opentelemetry/api@1.9.0)(@types/pg@8.23.1)(better-sqlite3@12.11.1)(kysely@0.28.17)(pg@8.23.0))(typeorm@0.3.31(better-sqlite3@12.11.1)(ioredis@5.11.1(supports-color@8.1.1))(pg@8.23.0)(supports-color@8.1.1))
-      '@executor-js/runtime-quickjs':
-        specifier: 1.6.0
-        version: 1.6.0(effect@4.0.0-beta.103)
       '@executor-js/sdk':
         specifier: 1.6.0
         version: 1.6.0(@effect/platform-node@4.0.0-beta.103(effect@4.0.0-beta.103)(ioredis@5.11.1(supports-color@8.1.1)))(drizzle-orm@0.45.0(@cloudflare/workers-types@5.20260804.1)(@electric-sql/pglite@0.3.15)(@libsql/client@0.17.3)(@opentelemetry/api@1.9.0)(@types/pg@8.23.1)(better-sqlite3@12.11.1)(kysely@0.28.17)(pg@8.23.0))(effect@4.0.0-beta.103)(react@19.2.8)(typeorm@0.3.31(better-sqlite3@12.11.1)(ioredis@5.11.1(supports-color@8.1.1))(pg@8.23.0)(supports-color@8.1.1))
@@ -970,6 +967,9 @@ importers:
       sharp:
         specifier: 0.34.5
         version: 0.34.5
+      tsx:
+        specifier: ^4.23.13
+        version: 4.23.13
       tuple-database:
         specifier: 2.2.4
         version: 2.2.4(react@19.2.8)
@@ -1701,11 +1701,6 @@ packages:
         optional: true
       react:
         optional: true
-
-  '@executor-js/runtime-quickjs@1.6.0':
-    resolution: {integrity: sha512-4n7kfIyr25l3xUR+TSsp+UHinQlDgHSWFYta5p690dMEOJ57HemanU9dtzjTXUZE4d/UfX6r6uNQy80GaD7JrA==}
-    peerDependencies:
-      effect: 4.0.0-beta.103
 
   '@executor-js/sdk@1.6.0':
     resolution: {integrity: sha512-psVi/dSnRiOlgT0sQabFpOkfHczZImjh4uK2tjj9AWBClVFLeyE0o1MztPDZenGPS28KcCW+hxYI/UlYfgJ31g==}
@@ -10042,12 +10037,6 @@ snapshots:
       - ioredis
       - typeorm
       - utf-8-validate
-
-  '@executor-js/runtime-quickjs@1.6.0(effect@4.0.0-beta.103)':
-    dependencies:
-      '@executor-js/codemode-core': 1.6.0(effect@4.0.0-beta.103)
-      effect: 4.0.0-beta.103
-      quickjs-emscripten: 0.31.0
 
   '@executor-js/sdk@1.6.0(@effect/platform-node@4.0.0-beta.103(effect@4.0.0-beta.103)(ioredis@5.11.1(supports-color@8.1.1)))(drizzle-orm@0.45.0(@cloudflare/workers-types@5.20260804.1)(@electric-sql/pglite@0.3.15)(@libsql/client@0.17.3)(@opentelemetry/api@1.9.0)(@types/pg@8.23.1)(better-sqlite3@12.11.1)(kysely@0.28.17)(pg@8.23.0))(effect@4.0.0-beta.103)(react@19.2.8)(typeorm@0.3.31(better-sqlite3@12.11.1)(ioredis@5.11.1(supports-color@8.1.1))(pg@8.23.0)(supports-color@8.1.1))':
     dependencies:

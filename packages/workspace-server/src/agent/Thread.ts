@@ -131,6 +131,7 @@ export class Thread {
   private readonly filesystem: FilesystemService;
   private readonly workspaceRoot: string;
   private readonly approvals: ToolApprovalService;
+  private readonly toolRuntime: ToolRuntime;
 
   private constructor(ctx: {
     harness: Harness;
@@ -140,6 +141,7 @@ export class Thread {
     filesystem: FilesystemService;
     workspaceRoot: string;
     approvals: ToolApprovalService;
+    toolRuntime: ToolRuntime;
   }) {
     const { harness, conversation, stored, data, filesystem, workspaceRoot } =
       ctx;
@@ -150,6 +152,7 @@ export class Thread {
     this.filesystem = filesystem;
     this.workspaceRoot = workspaceRoot;
     this.approvals = ctx.approvals;
+    this.toolRuntime = ctx.toolRuntime;
     this.projection = new SessionProjection(data);
     this.snapshot = this.events.project(
       this.projection.snapshot(),
@@ -270,6 +273,25 @@ export class Thread {
       })
       .catch((cause) => new CreateAgentSessionError({ cause }));
     if (conversation instanceof Error) return conversation;
+    const resetNotice = await conversation
+      .commit(async (tx) => {
+        const state = await tx.doc(HaloThreadDoc, conversation.id);
+        if (!state.execSessionUsed) return;
+        await tx.appendEntry(
+          conversation.id,
+          messageDraft({
+            role: "custom",
+            customType: "exec-session-reset",
+            content:
+              "Your exec JavaScript session was reset when this thread unloaded or the server restarted. Previous variables and functions are unavailable. External actions and workspace files were not rolled back.",
+            display: false,
+            timestamp: Date.now(),
+          }),
+        );
+        state.execSessionUsed = false;
+      }, BACKGROUND_CONTEXT)
+      .catch((cause) => new CreateAgentSessionError({ cause }));
+    if (resetNotice instanceof Error) return resetNotice;
     const configured = await conversation
       .configure(
         {
@@ -291,6 +313,7 @@ export class Thread {
             filesystem: options.filesystem,
             workspaceRoot: layout.root,
             approvals,
+            toolRuntime: runtime,
           }),
         BACKGROUND_CONTEXT,
       )
@@ -659,12 +682,14 @@ export class Thread {
     this.closed.abort();
     this.approvals.close();
     clearTimeout(this.idleTimer);
-    const closed = await this.harness
+    const closing = this.harness
       .close(BACKGROUND_CONTEXT)
       .catch(
         (cause) =>
           new AbortFailedError({ reason: "Session close failed", cause }),
       );
+    await this.toolRuntime.codeSessions.reset(this.sessionId);
+    const closed = await closing;
     this.detach();
     this.detachStorage();
     this.snapshot[Symbol.dispose]();

@@ -21,6 +21,7 @@ export type MessagePresentation =
 
 export const HaloThreadDoc = defineDoc<{
   name?: string;
+  execSessionUsed?: boolean;
   inputs: Record<string, JsonRepresentation<MessagePresentation>>;
 }>({
   kind: "halo.thread",

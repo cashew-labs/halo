@@ -31,6 +31,148 @@ import { TandemClient } from "@tanishqkancharla/tandem-core";
 import { haloSchemaToTandemSchema } from "@get-halo/client";
 
 serverTest(
+  "retains exec bindings across turns, resets explicitly, and notifies after reload",
+  async ({ server, llm }) => {
+    const session = await server.rpc.thread.new();
+    const first = server.promptAndWait({
+      ...session,
+      text: "Remember a number",
+    });
+    await llm.respond(
+      m.tool.start("exec", {
+        id: "remember",
+        arguments: { js: "var count = 17; count" },
+      }),
+    );
+    for (const [index, js] of ["1n", "Symbol('x')", "(() => 7)"].entries()) {
+      await llm.respond(
+        m.tool.start("exec", {
+          id: `unserializable-${index}`,
+          arguments: { js },
+        }),
+      );
+      await llm.respond(({ messages }) => {
+        expect(messages).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              role: "tool",
+              tool_call_id: `unserializable-${index}`,
+              content:
+                index === 2
+                  ? "() => 7"
+                  : expect.stringContaining("bindings were retained"),
+            }),
+          ]),
+        );
+        return m.tool.start("exec", {
+          id: `normalized-${index}`,
+          arguments: { js: "({ count, method() {} })" },
+        });
+      });
+      await llm.respond(({ messages }) => {
+        expect(messages).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              role: "tool",
+              tool_call_id: `normalized-${index}`,
+              content: JSON.stringify({ count: 17 }, undefined, 2),
+            }),
+          ]),
+        );
+        return m.tool.start("exec", {
+          id: `retained-${index}`,
+          arguments: { js: "count" },
+        });
+      });
+    }
+    await llm.respond(({ messages }) => {
+      expect(messages).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            role: "tool",
+            tool_call_id: "retained-2",
+            content: "17",
+          }),
+        ]),
+      );
+      return m.assistant("Remembered");
+    });
+    await first;
+
+    const next = server.promptAndWait({ ...session, text: "Increase it" });
+    await llm.respond(
+      m.tool.start("exec", {
+        id: "increase",
+        arguments: { js: "count += 6; count" },
+      }),
+    );
+    await llm.respond(({ messages }) => {
+      expect(messages).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            role: "tool",
+            tool_call_id: "increase",
+            content: "23",
+          }),
+        ]),
+      );
+      return m.tool.start("exec", { id: "reset", arguments: { op: "reset" } });
+    });
+    await llm.respond(
+      m.tool.start("exec", {
+        id: "after-reset",
+        arguments: { js: "typeof count" },
+      }),
+    );
+    await llm.respond(({ messages }) => {
+      expect(messages).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            role: "tool",
+            tool_call_id: "after-reset",
+            content: "undefined",
+          }),
+        ]),
+      );
+      return m.assistant("Reset");
+    });
+    await next;
+    await server.stop();
+    await server.start();
+    expect(
+      (await server.rpc.thread.snapshot(session)).activeRun,
+    ).toBeUndefined();
+    const resumed = server.promptAndWait({ ...session, text: "Continue" });
+    await llm.respond(({ messages }) => {
+      expect(
+        messages.filter(
+          (message) =>
+            message.content ===
+            "Your exec JavaScript session was reset when this thread unloaded or the server restarted. Previous variables and functions are unavailable. External actions and workspace files were not rolled back.",
+        ),
+      ).toHaveLength(1);
+      return m.tool.start("exec", {
+        id: "after-reload",
+        arguments: { js: "typeof count" },
+      });
+    });
+    await llm.respond(({ messages }) => {
+      expect(messages).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            role: "tool",
+            tool_call_id: "after-reload",
+            content: "undefined",
+          }),
+        ]),
+      );
+      return m.assistant("Fresh session");
+    });
+    await resumed;
+  },
+);
+
+serverTest(
   "recovers a torn active file as one interrupted run",
   async ({ server }) => {
     const run = await server.rpc.traces.start({
@@ -261,7 +403,7 @@ serverTest(
       m.tool.start("exec", {
         id: "pending-report",
         arguments: {
-          js: `return await tools.bash.run({ command: ${JSON.stringify(command)} });`,
+          js: `await tools.bash.run({ command: ${JSON.stringify(command)} });`,
         },
       }),
     );
@@ -511,7 +653,7 @@ serverTest(
               surface === "direct"
                 ? operation.args
                 : {
-                    js: `return await tools.${operation.path}(${JSON.stringify(operation.args)});`,
+                    js: `await tools.${operation.path}(${JSON.stringify(operation.args)});`,
                   },
           }),
         );
@@ -621,7 +763,7 @@ serverTest(
         m.tool.start("exec", {
           id: `exec-${operation.name}`,
           arguments: {
-            js: `return await tools.${operation.path}(${JSON.stringify(operation.args)});`,
+            js: `await tools.${operation.path}(${JSON.stringify(operation.args)});`,
           },
         }),
       ]),
@@ -987,9 +1129,9 @@ serverTest(
       ...session,
       text: "Remove my personal Gmail",
     });
-    const js = `const listed = await tools.halo.listConnections({});
-const [connection] = listed.data.connections;
-return await tools.halo.removeConnection({ integration: connection.integration, name: connection.name });`;
+    const js = `var listed = await tools.halo.listConnections({});
+var [connection] = listed.data.connections;
+await tools.halo.removeConnection({ integration: connection.integration, name: connection.name });`;
     await llm.respond(
       m.tool.start("exec", { id: "remove-request", arguments: { js } }),
     );
@@ -1072,7 +1214,7 @@ serverTest(
       m.tool.start("exec", {
         id: "remote-connection",
         arguments: {
-          js: `return await Promise.allSettled([
+          js: `await Promise.allSettled([
             tools.halo.showConnectionCard({ integration: "new_mcp" }),
             tools.executor.coreTools.oauth.start({ client: "google", clientOwner: "org", owner: "user", name: "personal", integration: "google_gmail", template: "googleOAuth2" })
           ]);`,
@@ -1207,7 +1349,7 @@ serverTest(
     const description = await tools.describe.tool({ path });
     const result = await tools[path]({ value: "sandbox" });
     const local = await tools.files.read({ path: "offline.txt" });
-    return { search, description, result, local };
+    ({ search, description, result, local });
   `,
         },
       }),
@@ -1391,7 +1533,7 @@ serverTest(
         ...session,
         text: `${decision} the policy`,
       });
-      const js = `return await tools.executor.coreTools.policies.create({ owner: "user", pattern: "approval-test-${decision}.*", action: "block" });`;
+      const js = `await tools.executor.coreTools.policies.create({ owner: "user", pattern: "approval-test-${decision}.*", action: "block" });`;
       await llm.respond(
         m.tool.start("exec", {
           id: `approval-request-${decision}`,
@@ -1485,7 +1627,7 @@ serverTest(
   async ({ server, llm }) => {
     const session = await server.rpc.thread.new();
     const originalJs =
-      'return await tools.executor.coreTools.policies.create({ owner: "user", pattern: "approval-original.*", action: "block" });';
+      'await tools.executor.coreTools.policies.create({ owner: "user", pattern: "approval-original.*", action: "block" });';
     const prompting = server.promptAndWait({
       ...session,
       text: "Create the policy",
@@ -1509,7 +1651,7 @@ serverTest(
       decision: "allow",
     });
     const changedJs =
-      'return await tools.executor.coreTools.policies.create({ owner: "user", pattern: "approval-changed.*", action: "block" });';
+      'await tools.executor.coreTools.policies.create({ owner: "user", pattern: "approval-changed.*", action: "block" });';
     await llm.respond(
       m.tool.start("exec", {
         id: "approval-changed",
@@ -1980,7 +2122,7 @@ serverTest(
       m.tool.start("exec", {
         id: "save-hotkey",
         arguments: {
-          js: 'return await tools.hotkeys.save({ label: "Quick chat", accelerator: "Cmd+Shift+K", action: { type: "newTab" } });',
+          js: 'await tools.hotkeys.save({ label: "Quick chat", accelerator: "Cmd+Shift+K", action: { type: "newTab" } });',
         },
       }),
     );

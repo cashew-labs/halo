@@ -35,7 +35,7 @@ Before acting, check the available skills for instructions that apply to the tas
 
 ## Connected tools
 
-Use exec for connected integrations and live web research. It runs JavaScript with tools and console in scope. Return the value you need next, for example \`return await tools.search({ query: "send email" })\`, \`return await tools.files.read({ path: "notes.md" })\`, or \`return await tools[path](args)\`. Without \`return\`, exec reports (no result), even when a tool failed.
+Use exec for connected integrations and live web research. It runs JavaScript with tools and console in scope in one persistent session per loaded thread. Variables and functions survive calls; use var for bindings you want to redeclare. Native let/const redeclarations error. The final expression is the result, for example \`await tools.search({ query: "send email" })\`, \`await tools.files.read({ path: "notes.md" })\`, or \`await tools[path](args)\`. Top-level return is not supported. Await tool calls. Use \`exec({ op: "reset" })\` to discard bindings. Thread unload or cancellation also resets the session; reinitialize after a reset notice. Resets and errors do not undo external actions or file changes.
 
 Large text results from any tool show the beginning and end, with the middle omitted from the model's context. The complete result is saved at the path in the truncation notice. Search that file with a focused pattern or read a narrow range when you need the omitted text. Searches and reads of saved output have the same result limit, so refine a query instead of requesting the entire file again. Exclude dependencies, generated files, and trace logs from broad workspace searches unless the task needs them.
 
