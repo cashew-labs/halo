@@ -44,33 +44,53 @@ serverTest(
         arguments: { js: "var count = 17; count" },
       }),
     );
-    await llm.respond(
-      m.tool.start("exec", {
-        id: "unserializable",
-        arguments: { js: "1n" },
-      }),
-    );
-    await llm.respond(({ messages }) => {
-      expect(messages).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            role: "tool",
-            tool_call_id: "unserializable",
-            content: expect.stringContaining("bindings were retained"),
-          }),
-        ]),
+    for (const [index, js] of ["1n", "Symbol('x')", "(() => 7)"].entries()) {
+      await llm.respond(
+        m.tool.start("exec", {
+          id: `unserializable-${index}`,
+          arguments: { js },
+        }),
       );
-      return m.tool.start("exec", {
-        id: "retained",
-        arguments: { js: "count" },
+      await llm.respond(({ messages }) => {
+        expect(messages).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              role: "tool",
+              tool_call_id: `unserializable-${index}`,
+              content:
+                index === 2
+                  ? "() => 7"
+                  : expect.stringContaining("bindings were retained"),
+            }),
+          ]),
+        );
+        return m.tool.start("exec", {
+          id: `normalized-${index}`,
+          arguments: { js: "({ count, method() {} })" },
+        });
       });
-    });
+      await llm.respond(({ messages }) => {
+        expect(messages).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              role: "tool",
+              tool_call_id: `normalized-${index}`,
+              content: JSON.stringify({ count: 17 }, undefined, 2),
+            }),
+          ]),
+        );
+        return m.tool.start("exec", {
+          id: `retained-${index}`,
+          arguments: { js: "count" },
+        });
+      });
+    }
     await llm.respond(({ messages }) => {
       expect(messages).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
             role: "tool",
-            tool_call_id: "retained",
+            tool_call_id: "retained-2",
             content: "17",
           }),
         ]),

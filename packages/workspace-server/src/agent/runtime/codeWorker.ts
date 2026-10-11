@@ -185,9 +185,14 @@ port.on("message", async (message: CodeWorkerRequest) => {
     current.result =
       text instanceof Error
         ? { result: undefined, error: text.message }
-        : text && text.length > 1024 * 1024
-          ? { result: undefined, error: "Exec result exceeded 1 MiB" }
-          : { result: value };
+        : text === undefined && value !== undefined
+          ? {
+              result: undefined,
+              error: new ResultSerializationError({}).message,
+            }
+          : text && text.length > 1024 * 1024
+            ? { result: undefined, error: "Exec result exceeded 1 MiB" }
+            : { result: text === undefined ? undefined : JSON.parse(text) };
   }
   finish();
 });
