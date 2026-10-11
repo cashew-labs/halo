@@ -44,7 +44,39 @@ serverTest(
         arguments: { js: "var count = 17; count" },
       }),
     );
-    await llm.respond(m.assistant("Remembered"));
+    await llm.respond(
+      m.tool.start("exec", {
+        id: "unserializable",
+        arguments: { js: "1n" },
+      }),
+    );
+    await llm.respond(({ messages }) => {
+      expect(messages).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            role: "tool",
+            tool_call_id: "unserializable",
+            content: expect.stringContaining("bindings were retained"),
+          }),
+        ]),
+      );
+      return m.tool.start("exec", {
+        id: "retained",
+        arguments: { js: "count" },
+      });
+    });
+    await llm.respond(({ messages }) => {
+      expect(messages).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            role: "tool",
+            tool_call_id: "retained",
+            content: "17",
+          }),
+        ]),
+      );
+      return m.assistant("Remembered");
+    });
     await first;
 
     const next = server.promptAndWait({ ...session, text: "Increase it" });
@@ -1077,9 +1109,9 @@ serverTest(
       ...session,
       text: "Remove my personal Gmail",
     });
-    const js = `const listed = await tools.halo.listConnections({});
-const [connection] = listed.data.connections;
-return await tools.halo.removeConnection({ integration: connection.integration, name: connection.name });`;
+    const js = `var listed = await tools.halo.listConnections({});
+var [connection] = listed.data.connections;
+await tools.halo.removeConnection({ integration: connection.integration, name: connection.name });`;
     await llm.respond(
       m.tool.start("exec", { id: "remove-request", arguments: { js } }),
     );
@@ -2070,7 +2102,7 @@ serverTest(
       m.tool.start("exec", {
         id: "save-hotkey",
         arguments: {
-          js: 'return await tools.hotkeys.save({ label: "Quick chat", accelerator: "Cmd+Shift+K", action: { type: "newTab" } });',
+          js: 'await tools.hotkeys.save({ label: "Quick chat", accelerator: "Cmd+Shift+K", action: { type: "newTab" } });',
         },
       }),
     );

@@ -80,9 +80,14 @@ export class WorkerCodeExecutor {
   private create(threadId: string) {
     // tsImport supports the same source-based deployment as workspace-server.
     const worker = new Worker(
-      `import('tsx/esm/api').then(({ tsImport }) => tsImport(${JSON.stringify(new URL("./codeWorker.ts", import.meta.url).href)}, ${JSON.stringify(import.meta.url)}));`,
+      `const { workerData } = require('node:worker_threads');
+import('tsx/esm/api').then(({ tsImport }) => tsImport(workerData.moduleUrl, workerData.parentUrl));`,
       {
         eval: true,
+        workerData: {
+          moduleUrl: new URL("./codeWorker.ts", import.meta.url).href,
+          parentUrl: import.meta.url,
+        },
         execArgv: [],
         resourceLimits: { maxOldGenerationSizeMb: 128 },
       },

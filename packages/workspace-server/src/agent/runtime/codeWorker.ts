@@ -5,6 +5,7 @@ import {
   type QuickJSDeferredPromise,
 } from "quickjs-emscripten";
 import variant from "@jitl/quickjs-singlefile-cjs-release-sync";
+import * as errore from "errore";
 import type { ExecuteResult } from "@executor-js/codemode-core";
 import type {
   CodeWorkerRequest,
@@ -12,6 +13,11 @@ import type {
 } from "./codeWorkerProtocol.js";
 
 // This module only runs in a worker. Guest code never receives Node objects.
+class ResultSerializationError extends errore.createTaggedError({
+  name: "ResultSerializationError",
+  message: "Exec result is not JSON serializable; bindings were retained",
+}) {}
+
 const port = parentPort!;
 const module = await newQuickJSWASMModule(variant);
 const runtime = module.newRuntime();
@@ -167,14 +173,21 @@ port.on("message", async (message: CodeWorkerRequest) => {
     };
     current.reset = error?.name === "InternalError";
   } else {
-    // SAFETY: async global evaluation resolves its completion as { value }.
-    const value = vm.dump(settled.value) as { value?: unknown };
+    // Async global evaluation resolves its completion as { value }.
+    const handle = vm.getProp(settled.value, "value");
+    const value: unknown = vm.dump(handle);
+    handle.dispose();
     settled.value.dispose();
-    const text = JSON.stringify(value);
+    const text = errore.try({
+      try: () => JSON.stringify(value),
+      catch: (cause) => new ResultSerializationError({ cause }),
+    });
     current.result =
-      text && text.length > 1024 * 1024
-        ? { result: undefined, error: "Exec result exceeded 1 MiB" }
-        : { result: value.value };
+      text instanceof Error
+        ? { result: undefined, error: text.message }
+        : text && text.length > 1024 * 1024
+          ? { result: undefined, error: "Exec result exceeded 1 MiB" }
+          : { result: value };
   }
   finish();
 });
