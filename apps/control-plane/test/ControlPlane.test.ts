@@ -2462,15 +2462,15 @@ controlPlaneTest(
       expect(write).toBeDefined();
       const args = integration === "approval_mcp" ? { marker: "allowed" } : {};
       const routed = await agent.run(`
-        const found = await tools.search({ query: ${JSON.stringify(read.name)}, source: "control-plane" });
+        var found = await tools.search({ query: ${JSON.stringify(read.name)}, source: "control-plane" });
         if (!found.ok) throw new Error(JSON.stringify(found));
-        const path = ${JSON.stringify(`integrations.${read.address}`)};
+        var path = ${JSON.stringify(`integrations.${read.address}`)};
         if (!found.data.tools.some(tool => tool.path === path)) throw new Error("Tool not discovered");
-        const schema = await tools.describe.tool({ path });
+        var schema = await tools.describe.tool({ path });
         if (!schema.ok) throw new Error(JSON.stringify(schema));
-        const result = await tools[path](${JSON.stringify(args)});
+        var result = await tools[path](${JSON.stringify(args)});
         if (!result.ok) throw new Error(JSON.stringify(result));
-        return { provider: ${JSON.stringify(integration)}, result: result.data };
+        ({ provider: ${JSON.stringify(integration)}, result: result.data });
       `);
       expect(routed).toMatchObject([{ result: { isError: false } }]);
       expect(JSON.stringify(routed[0]?.result)).toContain(
