@@ -1,0 +1,169 @@
+{
+  "baseRef": "feat/staging-domain-cutover",
+  "baseSha": "1d568add5ddea03ffb25e09fcb70a714860d4d55",
+  "headSha": "0bf5950361c8bd368b73fe236f52c94e7da4565f",
+  "treeHash": "5bebbc3849934c784c4b31977a58766874cbcb0c",
+  "generatedAt": "2026-10-12T22:56:54.084Z",
+  "runs": {
+    "durable": {
+      "tier": "durable",
+      "testFiles": [
+        "releases/release.test.mjs"
+      ],
+      "skipped": false,
+      "runners": [
+        {
+          "runner": "command",
+          "dir": ".",
+          "testFiles": [
+            "releases/release.test.mjs"
+          ],
+          "exitCode": 0
+        }
+      ],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 4061,
+      "log": ".tmp-tests/report/durable.log",
+      "lcovFiles": [
+        "../../../.git/worktrees/repo/code-review-agent/coverage/durable-0/lcov/lcov.info"
+      ]
+    },
+    "tmp": {
+      "tier": "tmp",
+      "testFiles": [
+        "apps/electron/.tmp-tests/AppUpdates.test.ts",
+        "apps/electron/.tmp-tests/ControlPlaneAuth.test.ts",
+        "infra/.tmp-tests/controlPlaneStack.test.ts",
+        "packages/config/.tmp-tests/electron.test.ts",
+        "packages/config/.tmp-tests/releaseChannel.test.ts",
+        "releases/.tmp-tests/promoteRelease.test.mjs"
+      ],
+      "skipped": false,
+      "runners": [
+        {
+          "runner": "vitest",
+          "dir": ".",
+          "testFiles": [
+            "apps/electron/.tmp-tests/AppUpdates.test.ts",
+            "apps/electron/.tmp-tests/ControlPlaneAuth.test.ts",
+            "infra/.tmp-tests/controlPlaneStack.test.ts",
+            "packages/config/.tmp-tests/electron.test.ts",
+            "packages/config/.tmp-tests/releaseChannel.test.ts"
+          ],
+          "exitCode": 0
+        },
+        {
+          "runner": "command",
+          "dir": ".",
+          "testFiles": [
+            "releases/.tmp-tests/promoteRelease.test.mjs"
+          ],
+          "exitCode": 0
+        }
+      ],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 8695,
+      "log": ".tmp-tests/report/tmp.log",
+      "lcovFiles": [
+        "../../../.git/worktrees/repo/code-review-agent/coverage/tmp-0/vitest-0/lcov.info",
+        "../../../.git/worktrees/repo/code-review-agent/coverage/tmp-0/vitest-1/lcov.info",
+        "../../../.git/worktrees/repo/code-review-agent/coverage/tmp-0/vitest-2/lcov.info",
+        "../../../.git/worktrees/repo/code-review-agent/coverage/tmp-1/lcov/lcov.info"
+      ]
+    }
+  },
+  "durableTestFiles": [
+    "releases/release.test.mjs"
+  ],
+  "tmpTestFiles": [
+    "apps/electron/.tmp-tests/AppUpdates.test.ts",
+    "apps/electron/.tmp-tests/ControlPlaneAuth.test.ts",
+    "infra/.tmp-tests/controlPlaneStack.test.ts",
+    "packages/config/.tmp-tests/electron.test.ts",
+    "packages/config/.tmp-tests/releaseChannel.test.ts",
+    "releases/.tmp-tests/promoteRelease.test.mjs"
+  ],
+  "files": [
+    {
+      "path": "releases/promotion.mjs",
+      "loaded": true,
+      "changed": [
+        56,
+        57,
+        58,
+        59,
+        60,
+        61,
+        62,
+        63,
+        64,
+        65,
+        66,
+        67,
+        68,
+        69
+      ],
+      "coveredDurable": [
+        62,
+        63,
+        64,
+        65,
+        66,
+        67
+      ],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "releases/staleExeTemplates.mjs",
+      "loaded": true,
+      "changed": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19
+      ],
+      "coveredDurable": [
+        1,
+        2,
+        3,
+        7,
+        8,
+        9,
+        12,
+        14,
+        15,
+        19
+      ],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    }
+  ],
+  "totals": {
+    "executable": 16,
+    "coveredDurable": 16,
+    "coveredTmpOnly": 0,
+    "uncovered": 0,
+    "exempt": 0
+  },
+  "passed": true
+}
