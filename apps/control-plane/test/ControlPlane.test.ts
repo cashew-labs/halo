@@ -4554,7 +4554,13 @@ controlPlaneTest(
     const updates = await first.api.thread.events(session);
     expect((await updates.next()).value).toMatchObject({ type: "snapshot" });
     const duplicate = open(ticket.ticket);
-    await expect.poll(() => duplicate.socket.readyState).toBe(WebSocket.CLOSED);
+    // Older Node WebSocket clients report failed upgrades via error while
+    // leaving readyState at CONNECTING; observe the rejection itself.
+    await new Promise<void>((complete) =>
+      duplicate.socket.addEventListener("error", () => complete(), {
+        once: true,
+      }),
+    );
     const pending = expect(updates.next()).rejects.toThrow();
     const second = open((await issue()).ticket);
     expect(await second.api.thread.snapshot(session)).toMatchObject({});
@@ -4640,7 +4646,9 @@ controlPlaneTest(
       ["halo-rpc", `halo-ticket.${ticket}`],
     );
     cleanup.defer(() => socket.close());
-    await expect.poll(() => socket.readyState).toBe(WebSocket.CLOSED);
+    await new Promise<void>((complete) =>
+      socket.addEventListener("error", () => complete(), { once: true }),
+    );
     expect((await fetch(endpoint, { method: "POST", headers })).status).toBe(
       200,
     );
@@ -4650,6 +4658,7 @@ controlPlaneTest(
 controlPlaneTest(
   "a ticket cannot reconnect a signed-out session",
   async ({ plane, browserHeaders }) => {
+    await using cleanup = new errore.AsyncDisposableStack();
     const headers = new Headers(browserHeaders);
     headers.set("x-halo-client-id", crypto.randomUUID());
     const response = await fetch(`${plane.origin}/workspace/rpc/connect`, {
@@ -4668,6 +4677,9 @@ controlPlaneTest(
       `${plane.origin.replace("http:", "ws:")}/workspace/rpc/socket`,
       ["halo-rpc", `halo-ticket.${ticket}`],
     );
-    await expect.poll(() => socket.readyState).toBe(WebSocket.CLOSED);
+    cleanup.defer(() => socket.close());
+    await new Promise<void>((complete) =>
+      socket.addEventListener("error", () => complete(), { once: true }),
+    );
   },
 );
