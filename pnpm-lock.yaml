@@ -339,6 +339,9 @@ importers:
       '@playwright/test':
         specifier: 1.62.1
         version: 1.62.1
+      '@standardserver/peer':
+        specifier: 0.8.0
+        version: 0.8.0
       '@types/electron-squirrel-startup':
         specifier: ^1.0.2
         version: 1.0.2
@@ -976,6 +979,9 @@ importers:
       typebox:
         specifier: 1.3.7
         version: 1.3.7
+      ws:
+        specifier: 8.21.1
+        version: 8.21.1
     devDependencies:
       '@get-halo/typescript-config':
         specifier: workspace:*
@@ -986,6 +992,9 @@ importers:
       '@types/node':
         specifier: ^22.20.1
         version: 22.20.1
+      '@types/ws':
+        specifier: 8.18.1
+        version: 8.18.1
       '@vitest/coverage-v8':
         specifier: 4.1.11
         version: 4.1.11(vitest@4.1.11)

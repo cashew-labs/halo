@@ -1,3 +1,5 @@
+import { Type } from "@sinclair/typebox";
+import { Value } from "@sinclair/typebox/value";
 import {
   acceptsProtocol,
   protocolHeader,
@@ -22,6 +24,8 @@ import {
 import { anyAbortSignal } from "@orpc/shared";
 import { OAuth2Client } from "google-auth-library";
 import * as errore from "errore";
+import { RPCHandler as WebSocketRPCHandler } from "@orpc/server/websocket";
+import { WorkspaceSockets } from "./WorkspaceSockets.js";
 import { DesktopProxy } from "./DesktopProxy.js";
 import { haloRpcRouter, type HaloContext } from "./router.js";
 import { extensionToolRouter } from "../extensions/extensionsRouter.js";
@@ -131,8 +135,7 @@ export function serveHaloHttp(options: {
         },
       }),
   ];
-  const handler = new RPCHandler<HaloContext>(haloRpcRouter, {
-    interceptors,
+  const rpcOptions = {
     clientInterceptors: [
       async ({ path, context, next }) => {
         if (
@@ -156,6 +159,14 @@ export function serveHaloHttp(options: {
         allowHeaders: ["authorization", "content-type", protocolHeader],
       }),
     ],
+  } satisfies RPCHandlerOptions<HaloContext>;
+  const handler = new RPCHandler<HaloContext>(haloRpcRouter, {
+    ...rpcOptions,
+    interceptors,
+  });
+  const sockets = new WorkspaceSockets({
+    context: options.context,
+    handler: new WebSocketRPCHandler<HaloContext>(haloRpcRouter, rpcOptions),
   });
   const extensionHandler = new RPCHandler(extensionToolRouter, {
     interceptors,
@@ -207,6 +218,43 @@ export function serveHaloHttp(options: {
     if (request.method !== "OPTIONS" && authorization === undefined) {
       response.statusCode = 401;
       response.end();
+      return;
+    }
+
+    if (url.pathname === "/rpc/connect") {
+      const clientId = request.headers["x-halo-client-id"];
+      const cors =
+        request.headers.origin !== undefined &&
+        options.corsOrigins.includes(request.headers.origin)
+          ? {
+              "access-control-allow-origin": request.headers.origin,
+              "access-control-allow-headers":
+                "authorization, content-type, x-halo-client-id",
+              "access-control-allow-methods": "POST, OPTIONS",
+            }
+          : {};
+      if (request.method === "OPTIONS") {
+        response.writeHead(204, cors).end();
+        return;
+      }
+      if (
+        request.method !== "POST" ||
+        !Value.Check(Type.String({ pattern: "^[a-f0-9-]{36}$" }), clientId)
+      ) {
+        response.writeHead(400, cors).end();
+        return;
+      }
+      response
+        .writeHead(200, {
+          ...cors,
+          "content-type": "application/json",
+          "cache-control": "no-store",
+        })
+        .end(
+          JSON.stringify(
+            sockets.issueTicket(clientId, authorization === "cli"),
+          ),
+        );
       return;
     }
 
@@ -262,6 +310,14 @@ export function serveHaloHttp(options: {
       respondToUpgrade(socket, 503);
       return;
     }
+    const url = new URL(request.url ?? "/", "http://localhost");
+    if (url.pathname === "/rpc/socket") {
+      const identity = sockets.consumeTicket(request);
+      if (identity !== undefined) {
+        sockets.upgrade(request, socket, head, identity);
+        return;
+      }
+    }
     const authorization = await authorizeWorkspaceRequest({
       authorization: request.headers.authorization,
       cliToken,
@@ -281,10 +337,24 @@ export function serveHaloHttp(options: {
       respondToUpgrade(socket, 401);
       return;
     }
-    const url = new URL(
-      request.url === undefined ? "/" : request.url,
-      "http://localhost",
-    );
+    if (url.pathname === "/rpc/socket") {
+      const clientId = request.headers["x-halo-client-id"];
+      const expiresAt = Number(request.headers["x-halo-session-expires"]);
+      if (
+        !Value.Check(Type.String({ pattern: "^[a-f0-9-]{36}$" }), clientId) ||
+        !Number.isFinite(expiresAt) ||
+        expiresAt <= Date.now()
+      ) {
+        respondToUpgrade(socket, 401);
+        return;
+      }
+      sockets.upgrade(request, socket, head, {
+        clientId,
+        expiresAt,
+        browserControlAllowed: false,
+      });
+      return;
+    }
     if (url.pathname === "/desktop/stream") {
       await desktop.upgrade(request, socket, head);
       return;
@@ -314,6 +384,7 @@ export function serveHaloHttp(options: {
   return {
     async close() {
       shutdown.abort(new HaloRequestsClosedError());
+      sockets.close();
       for (const socket of upgradeSockets) socket.destroy();
       await Promise.all([...pendingRequests, ...pendingUpgrades]);
     },

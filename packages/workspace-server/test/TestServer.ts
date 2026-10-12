@@ -74,6 +74,15 @@ export class TestServer {
     };
   }
 
+  get rendererTransport() {
+    const connection = this.running.server.ready.connections.renderer;
+    return {
+      origin: `http://127.0.0.1:${connection.port}`,
+      path: "/rpc" as const,
+      headers: { authorization: `Bearer ${connection.token}` },
+    };
+  }
+
   get rpc() {
     return this.running.rpc;
   }

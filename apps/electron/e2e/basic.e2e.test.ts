@@ -1,3 +1,6 @@
+import { routeWorkspaceRpc } from "./workspaceSocket.js";
+import { Type } from "@sinclair/typebox";
+import { Value } from "@sinclair/typebox/value";
 import fs from "node:fs/promises";
 import nodePath from "node:path";
 import { expect, type Locator } from "@playwright/test";
@@ -27,13 +30,19 @@ e2eTest(
   async ({ app }) => {
     const scopes: string[][] = [];
     const fullTreeReads: string[] = [];
-    app.page.on("request", (request) => {
-      if (request.url().includes("/workspace/listPaths"))
-        fullTreeReads.push(request.url());
-      if (!request.url().includes("/workspace/watchDirectories")) return;
-      // SAFETY: the workspace watch request encodes the contract's paths input.
-      const body = request.postDataJSON() as { json: { paths: string[] } };
-      scopes.push(body.json.paths);
+    await routeWorkspaceRpc(app.page, (request) => {
+      if (request.path === "/workspace/listPaths")
+        fullTreeReads.push(request.path);
+      if (request.path === "/workspace/watchDirectories") {
+        const body = Value.Parse(
+          Type.Object({
+            json: Type.Object({ paths: Type.Array(Type.String()) }),
+          }),
+          request.body,
+        );
+        scopes.push(body.json.paths);
+      }
+      request.continue();
     });
     await app.server.rpc.workspace.writeFile({
       path: "Open/Nested/deep.md",
@@ -407,16 +416,31 @@ e2eTest(
 e2eTest(
   "accepts an explicitly supported protocol and reports an older server",
   async ({ app }) => {
+    let supportedProtocols: number[] | undefined = [
+      haloProtocolVersion - 1,
+      haloProtocolVersion,
+    ];
     await app.page.route("**/rpc/server/info", async (route) => {
+      if (supportedProtocols === undefined) {
+        await route.continue();
+        return;
+      }
       await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
+        json: {
           json: {
             protocolVersion: haloProtocolVersion - 1,
-            supportedProtocols: [haloProtocolVersion - 1, haloProtocolVersion],
+            supportedProtocols,
           },
-        }),
+        },
+      });
+    });
+    await routeWorkspaceRpc(app.page, async (request) => {
+      if (request.path !== "/server/info" || supportedProtocols === undefined) {
+        request.continue();
+        return;
+      }
+      await request.fulfill({
+        json: { protocolVersion: haloProtocolVersion - 1, supportedProtocols },
       });
     });
     await app.page.reload();
@@ -426,19 +450,7 @@ e2eTest(
         exact: true,
       }),
     ).toBeVisible();
-    await app.page.unroute("**/rpc/server/info");
-    await app.page.route("**/rpc/server/info", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          json: {
-            protocolVersion: haloProtocolVersion - 1,
-            supportedProtocols: [haloProtocolVersion - 1],
-          },
-        }),
-      });
-    });
+    supportedProtocols = [haloProtocolVersion - 1];
     await app.page.evaluate(() =>
       document.dispatchEvent(new Event("visibilitychange")),
     );
@@ -448,7 +460,7 @@ e2eTest(
         exact: true,
       }),
     ).toBeVisible();
-    await app.page.unroute("**/rpc/server/info");
+    supportedProtocols = undefined;
     await app.page
       .getByRole("button", {
         name: "Connection: Server update required",
