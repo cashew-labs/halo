@@ -1,0 +1,24 @@
+{
+  "status": "changes_requested",
+  "summary": "The change creates the Cloud NAT router and RouterNat only when `workspaceProvider` is `gcp`, and updates the infra README to match. The source logic is sound. Production `west` uses `exe`, Cloud Run's VPC egress is `PRIVATE_RANGES_ONLY`, and no other VM uses the subnet. The change is not ready because the coverage gate failed: all 13 changed lines in infra/control-plane/index.ts are uncovered, and there is no test and no exemption.",
+  "findings": [],
+  "testRequests": [
+    {
+      "target": "infra/control-plane/index.ts:165-178: Router `router` and RouterNat `nat` are registered when workspaceProvider is `gcp` (or unset) and are absent when it is `exe`",
+      "tier": "tmp",
+      "rationale": "These changed lines have no coverage. A temp test can call `pulumi.runtime.setMocks` and record the type and name of each `newResource` call. Set the required stack config (cloud region/zone, controlPlaneImage, workspaceImage, deploymentServiceAccount, the exe* keys for the exe case) through `PULUMI_CONFIG` or `pulumi.runtime.setAllConfig`. Then import the program once per provider value and check that `gcp:compute/router:Router` and `gcp:compute/routerNat:RouterNat` exist only for `gcp`. If a mock test is truly impractical for this top-level program, add `coverage-exempt` comments instead. Each must give a concrete reason, such as `pulumi preview` output for the `west` stack showing that only `halo-west-router` and `halo-west-nat` are deleted."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "ff18644f1396f4cc20211ecfa822349b5ee6f754",
+  "treeHash": "3e1c9d0e7cb21956bba9763f50472c00cd72d0f6",
+  "codeTree": "3e1c9d0e7cb21956bba9763f50472c00cd72d0f6",
+  "coverage": {
+    "executable": 13,
+    "covered": 0,
+    "exempt": 0,
+    "uncovered": 13
+  },
+  "createdAt": "2026-10-12T18:54:15.670Z"
+}

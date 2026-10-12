@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change creates the Cloud NAT router and RouterNat only when `workspaceProvider` is `gcp` (the default), and updates the infra README to match. A new temp test runs the program with Pulumi mocks for `gcp`, `exe`, and an unset provider. It checks that the router and NAT exist only for GCP, that the NAT targets the subnet, and that Cloud Run egress stays `PRIVATE_RANGES_ONLY`. The temp tests pass, the coverage gate passes, and no findings remain.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "ff18644f1396f4cc20211ecfa822349b5ee6f754",
+  "treeHash": "3c372e19f9a9f93b1fc450df9707c30621c8b5c2",
+  "codeTree": "3e1c9d0e7cb21956bba9763f50472c00cd72d0f6",
+  "coverage": {
+    "executable": 3,
+    "covered": 3,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-12T18:56:55.791Z"
+}

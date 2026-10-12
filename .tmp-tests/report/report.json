@@ -1,0 +1,89 @@
+{
+  "baseRef": "origin/main",
+  "baseSha": "ff18644f1396f4cc20211ecfa822349b5ee6f754",
+  "headSha": "ff18644f1396f4cc20211ecfa822349b5ee6f754",
+  "treeHash": "3c372e19f9a9f93b1fc450df9707c30621c8b5c2",
+  "generatedAt": "2026-10-12T18:56:45.576Z",
+  "runs": {
+    "durable": {
+      "tier": "durable",
+      "testFiles": [],
+      "skipped": true,
+      "runners": [],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 0,
+      "log": ".tmp-tests/report/durable.log",
+      "lcovFiles": []
+    },
+    "tmp": {
+      "tier": "tmp",
+      "testFiles": [
+        "infra/control-plane/.tmp-tests/Nat.test.ts"
+      ],
+      "skipped": false,
+      "runners": [
+        {
+          "runner": "vitest",
+          "dir": ".",
+          "testFiles": [
+            "infra/control-plane/.tmp-tests/Nat.test.ts"
+          ],
+          "exitCode": 0
+        }
+      ],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 2376,
+      "log": ".tmp-tests/report/tmp.log",
+      "lcovFiles": [
+        "../../../repos/halo/.git/worktrees/port-moresby/code-review-agent/coverage/tmp-0/vitest-0/lcov.info"
+      ]
+    }
+  },
+  "durableTestFiles": [],
+  "tmpTestFiles": [
+    "infra/control-plane/.tmp-tests/Nat.test.ts"
+  ],
+  "files": [
+    {
+      "path": "infra/control-plane/index.ts",
+      "loaded": true,
+      "changed": [
+        164,
+        165,
+        166,
+        167,
+        168,
+        169,
+        170,
+        171,
+        172,
+        173,
+        174,
+        175,
+        176,
+        177,
+        178,
+        179,
+        180
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [
+        165,
+        166,
+        171
+      ],
+      "uncovered": [],
+      "exempt": []
+    }
+  ],
+  "totals": {
+    "executable": 3,
+    "coveredDurable": 0,
+    "coveredTmpOnly": 3,
+    "uncovered": 0,
+    "exempt": 0
+  },
+  "passed": true
+}
