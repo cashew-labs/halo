@@ -1,0 +1,317 @@
+{
+  "baseRef": "Mochael/gcp-billing-costs",
+  "baseSha": "59377e2fec926dc6977d42e6e0fe01c250d87286",
+  "headSha": "59377e2fec926dc6977d42e6e0fe01c250d87286",
+  "treeHash": "3f1c8997b8d5c10f0167c7d52da92e3b8fe7c06c",
+  "generatedAt": "2026-10-12T19:12:41.010Z",
+  "runs": {
+    "durable": {
+      "tier": "durable",
+      "testFiles": [],
+      "skipped": true,
+      "runners": [],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 0,
+      "log": ".tmp-tests/report/durable.log",
+      "lcovFiles": []
+    },
+    "tmp": {
+      "tier": "tmp",
+      "testFiles": [
+        "apps/control-plane/src/traces/.tmp-tests/TraceIngestion.test.ts",
+        "infra/control-plane/.tmp-tests/Nat.test.ts",
+        "packages/workspace-server/src/traces/.tmp-tests/TraceUpload.test.ts"
+      ],
+      "skipped": false,
+      "runners": [
+        {
+          "runner": "vitest",
+          "dir": ".",
+          "testFiles": [
+            "apps/control-plane/src/traces/.tmp-tests/TraceIngestion.test.ts",
+            "infra/control-plane/.tmp-tests/Nat.test.ts",
+            "packages/workspace-server/src/traces/.tmp-tests/TraceUpload.test.ts"
+          ],
+          "exitCode": 0
+        }
+      ],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 12120,
+      "log": ".tmp-tests/report/tmp.log",
+      "lcovFiles": [
+        "../../../repos/halo/.git/worktrees/port-moresby/code-review-agent/coverage/tmp-0/vitest-0/lcov.info",
+        "../../../repos/halo/.git/worktrees/port-moresby/code-review-agent/coverage/tmp-0/vitest-1/lcov.info",
+        "../../../repos/halo/.git/worktrees/port-moresby/code-review-agent/coverage/tmp-0/vitest-2/lcov.info"
+      ]
+    }
+  },
+  "durableTestFiles": [],
+  "tmpTestFiles": [
+    "apps/control-plane/src/traces/.tmp-tests/TraceIngestion.test.ts",
+    "infra/control-plane/.tmp-tests/Nat.test.ts",
+    "packages/workspace-server/src/traces/.tmp-tests/TraceUpload.test.ts"
+  ],
+  "files": [
+    {
+      "path": "apps/control-plane/src/traces/TraceIngestion.ts",
+      "loaded": true,
+      "changed": [
+        9,
+        110,
+        132
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [
+        110
+      ],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "packages/client/src/index.ts",
+      "loaded": false,
+      "changed": [
+        95,
+        96,
+        97,
+        98,
+        99,
+        100,
+        101
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": [
+        {
+          "line": 96,
+          "reason": "Public barrel re-exports; behavior is exercised through the defining modules."
+        },
+        {
+          "line": 97,
+          "reason": "Public barrel re-exports; behavior is exercised through the defining modules."
+        },
+        {
+          "line": 98,
+          "reason": "Public barrel re-exports; behavior is exercised through the defining modules."
+        },
+        {
+          "line": 99,
+          "reason": "Public barrel re-exports; behavior is exercised through the defining modules."
+        },
+        {
+          "line": 100,
+          "reason": "Public barrel re-exports; behavior is exercised through the defining modules."
+        },
+        {
+          "line": 101,
+          "reason": "Public barrel re-exports; behavior is exercised through the defining modules."
+        }
+      ]
+    },
+    {
+      "path": "packages/client/src/traces.ts",
+      "loaded": true,
+      "changed": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [
+        1
+      ],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "packages/workspace-server/src/index.ts",
+      "loaded": false,
+      "changed": [
+        16,
+        17,
+        18,
+        19,
+        20
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": [
+        {
+          "line": 17,
+          "reason": "Public barrel re-exports; behavior is exercised through the defining modules."
+        },
+        {
+          "line": 18,
+          "reason": "Public barrel re-exports; behavior is exercised through the defining modules."
+        },
+        {
+          "line": 19,
+          "reason": "Public barrel re-exports; behavior is exercised through the defining modules."
+        },
+        {
+          "line": 20,
+          "reason": "Public barrel re-exports; behavior is exercised through the defining modules."
+        }
+      ]
+    },
+    {
+      "path": "packages/workspace-server/src/traces/ControlPlaneTraceUploader.ts",
+      "loaded": true,
+      "changed": [
+        3,
+        4,
+        5,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        34,
+        35,
+        36,
+        37,
+        38,
+        44,
+        45,
+        46,
+        47,
+        48,
+        49,
+        50,
+        51,
+        52,
+        53,
+        54,
+        55,
+        56,
+        57,
+        58,
+        59,
+        60,
+        61,
+        62,
+        63,
+        64,
+        65,
+        66,
+        67,
+        68,
+        69,
+        70,
+        72,
+        79,
+        96,
+        97,
+        98,
+        99,
+        100
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [
+        12,
+        34,
+        35,
+        44,
+        48,
+        49,
+        50,
+        54,
+        56,
+        57,
+        58,
+        61,
+        64,
+        70,
+        72,
+        96,
+        97
+      ],
+      "uncovered": [],
+      "exempt": [
+        {
+          "line": 47,
+          "reason": "An already-open immutable archive handle rarely fails stat; exercising this requires mocking fs internals."
+        }
+      ]
+    },
+    {
+      "path": "packages/workspace-server/src/traces/TraceService.ts",
+      "loaded": true,
+      "changed": [
+        17,
+        18,
+        19,
+        20,
+        21,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        297,
+        298,
+        299,
+        302,
+        317,
+        318,
+        324,
+        325,
+        326,
+        327,
+        328,
+        329,
+        330,
+        331,
+        332,
+        333,
+        334,
+        335,
+        336,
+        337,
+        338,
+        339,
+        340,
+        358
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [
+        28,
+        30,
+        297,
+        298,
+        299,
+        302,
+        317,
+        318,
+        324,
+        325,
+        326,
+        328,
+        331,
+        335,
+        339,
+        340,
+        358
+      ],
+      "uncovered": [],
+      "exempt": []
+    }
+  ],
+  "totals": {
+    "executable": 47,
+    "coveredDurable": 0,
+    "coveredTmpOnly": 36,
+    "uncovered": 0,
+    "exempt": 11
+  },
+  "passed": true
+}

@@ -1,0 +1,43 @@
+{
+  "status": "changes_requested",
+  "summary": "The change shares the trace size limits between client and server. It validates archives on the workspace before upload and moves permanent failures (bad gzip, oversized archives, bad keys, HTTP 400/413/415/422) to `rejected/`. It also adds per-file backoff and coalesces upload notifications. The rejection and backoff logic is sound and the temp tests check it well. Two things block approval: the coalescing flag drops completion notifications that arrive while an upload pass is running, and 15 changed lines are neither covered nor exempt.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "source",
+      "file": "packages/workspace-server/src/traces/TraceService.ts",
+      "line": 303,
+      "severity": "P1",
+      "body": "`uploadScheduled` is cleared only when the queued task finishes (the `cleanup.defer` at lines 302-305), so it stays true for the whole `uploadPending()` pass. `uploadPending()` lists `pending/` once at the start. If `finish()` archives a new run during a pass (an upload can take up to 60 s), its `scheduleUpload()` call returns early at line 297-298. The new archive then waits for the next 30 s timer tick. Before this change, every completion queued its own pass. This contradicts the README text \"Uploads happen in the background after completion\" and the stated intent to coalesce notifications only \"while upload work is already scheduled\". Fix: clear `uploadScheduled` at the start of the queued task, before `uploadPending()` lists files. A notification that arrives during a running pass then queues exactly one follow-up pass, and duplicate queued passes are still coalesced."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "packages/workspace-server/src/traces/TraceService.ts:297-298 (coalescing) together with F1: a run that finishes while an upload pass is in flight is uploaded right after that pass, without waiting for the 30 s timer. Repeated notifications while a pass is queued do not cause extra passes.",
+      "tier": "tmp",
+      "rationale": "Line 298 is uncovered, and no test checks the coalescing behavior or the regression described in F1. Use an uploader that blocks on a promise to hold a pass open, finish a run, then release the uploader and assert the new archive reaches archive/ without advancing timers."
+    },
+    {
+      "target": "apps/control-plane/src/traces/TraceIngestion.ts:9,110,132: the ingestion endpoint returns 400 for a body over traceUploadLimits.compressedBytes and for a gzip that expands past traceUploadLimits.expandedBytes, and accepts a valid archive",
+      "tier": "tmp",
+      "rationale": "No test loaded this file, so the switch to the shared limits is uncovered. A temp test can call TraceIngestion.serve with a stubbed WorkspaceService and TraceCloud, or start the ControlPlane test harness. Alternatively, exempt these lines with a reason, but they are executable limit checks, so a test is preferred."
+    },
+    {
+      "target": "packages/client/src/index.ts:95-100, packages/workspace-server/src/index.ts:16-19, packages/workspace-server/src/traces/ControlPlaneTraceUploader.ts:46",
+      "tier": "tmp",
+      "rationale": "These lines are uncovered and have no exemption. The two index.ts changes only re-export existing names, and line 46 is the handle.stat() failure path, which is hard to trigger. A coverage-exempt comment with that reason is acceptable for each. Otherwise, import `traceUploadLimits` and `TraceUploadRejectedError` from the package entry points in a temp test."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "59377e2fec926dc6977d42e6e0fe01c250d87286",
+  "treeHash": "fbef0731eb948cf3a6a7beeaba6edfa9d9d3bd49",
+  "codeTree": "1d1bae47d40cce1f07f7c314254e558e026a48e1",
+  "coverage": {
+    "executable": 51,
+    "covered": 36,
+    "exempt": 0,
+    "uncovered": 15
+  },
+  "createdAt": "2026-10-12T19:09:08.085Z"
+}

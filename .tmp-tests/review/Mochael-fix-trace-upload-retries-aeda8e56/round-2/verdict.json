@@ -1,0 +1,33 @@
+{
+  "status": "changes_requested",
+  "summary": "F1 is fixed. `scheduleUpload` now clears `uploadScheduled` at the start of the queued task, and a new temp test shows that a run finished during a blocked upload pass is uploaded right after that pass, with repeated notifications merged. The barrel-export and stat-failure exemptions are acceptable. The change is not ready: the new control-plane temp test `TraceIngestion.test.ts` fails at import, so the temp run fails and `TraceIngestion.ts` lines 9, 110 and 132 are still uncovered.",
+  "findings": [
+    {
+      "id": "F2",
+      "kind": "test",
+      "file": "apps/control-plane/src/traces/.tmp-tests/TraceIngestion.test.ts",
+      "line": 7,
+      "severity": "P1",
+      "body": "The suite fails before any test runs. The error is `Cannot find module .../node_modules/@tanishqkancharla/tandem-core/dist/TandemClient imported from .../tandem-core/dist/index.js` (see .tmp-tests/report/tmp.log). The test imports `WorkspaceService` at runtime only so that it can call `Object.create(WorkspaceService.prototype)` and spy on `authenticateRuntime`. That runtime import loads WorkspaceService's dependency graph, which reaches tandem-core, and tandem-core's dist does not resolve under vitest. `TraceIngestion` needs only `authenticateRuntime`. Fix: use `import type { WorkspaceService }` and pass a plain stub such as `{ authenticateRuntime: vi.fn(async () => ({ workspaceId })) } as unknown as WorkspaceService`. If `TraceCloud` causes the same problem, stub it the same way. Then confirm the suite passes, so that the shared-limit checks at TraceIngestion.ts:110 and :132 are actually covered."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "apps/control-plane/src/traces/TraceIngestion.ts:9,110,132: the ingestion endpoint returns 400 for a body over traceUploadLimits.compressedBytes and for a gzip that expands past traceUploadLimits.expandedBytes, and returns 204 for a valid archive",
+      "tier": "tmp",
+      "rationale": "The existing temp test is designed correctly but fails to load (F2), so these changed limit checks are still uncovered and the temp run fails."
+    }
+  ],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "59377e2fec926dc6977d42e6e0fe01c250d87286",
+  "treeHash": "f7d9db01631065e249cce2600aabfab12c87700f",
+  "codeTree": "c899b54c21b1fcd8f09b09b258f97a50f682500e",
+  "coverage": {
+    "executable": 49,
+    "covered": 35,
+    "exempt": 11,
+    "uncovered": 3
+  },
+  "createdAt": "2026-10-12T19:11:41.810Z"
+}
