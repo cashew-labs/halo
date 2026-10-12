@@ -1,8 +1,10 @@
 # Agent run archives
 
-Halo records one immutable gzip-compressed JSONL file per run. A session can
-contain many runs, including requests made after a server restart. Capture is
-owned by the workspace server and does not require a chat watcher.
+The trace API records one immutable gzip-compressed JSONL file per explicitly
+recorded run. A session can contain many runs, including requests made after a
+server restart. The main Pi Durable agent does not currently feed this API.
+The normal workspace application does not configure an uploader, so recording
+through the API stays local and starts no upload timer.
 
 `TraceRecord` in `@get-halo/client` is the versioned envelope. Every record has
 `schemaVersion`, `workspaceId`, `sessionId`, `traceId`, `spanId`, `sequence`,
@@ -48,25 +50,38 @@ Pending files use this object key:
 v1/workspaces/<workspaceId>/sessions/<sessionId>/<traceId>.jsonl.gz
 ```
 
-The host can supply
-`WorkspaceServer.start({ config, host: { traceUploader, ... } })`. Uploads
-happen in the background after completion, on startup, and every 30 seconds
-while there is pending data. Transient failures remain pending with per-file
-exponential backoff, from 30 seconds up to 30 minutes. An unsuccessful file does
-not block other pending archives, and completion/timer notifications coalesce
-while upload work is already scheduled.
+An embedding host can explicitly supply
+`WorkspaceServer.start({ config, host: { traceUploader, ... } })`. Only then do
+uploads happen after recorded-run completion, on startup, and on a 30-second
+pending-file check. The normal workspace application supplies no transport.
 
-The control-plane uploader checks the shared 16 MiB compressed and 64 MiB
-expanded limits before sending any bytes. Invalid gzip, oversized archives,
-invalid keys, and HTTP 400/413/415/422 responses are permanent failures. Their
-local files move from `pending/` to `rejected/` and are not retried, including
-after a restart. Authentication failures and transient HTTP responses remain
-retryable. Hosts can return `TraceUploadRejectedError` to mark a permanent
-failure through the `TraceUploader` interface.
+Each archive has **at most two uploader attempts total**. Its attempt count is
+flushed to a `.attempts` sidecar before calling the uploader, so restarts and
+crashes cannot reset the budget. After a transient first failure, one retry is
+eligible after 30 seconds; there is no exponential backoff. A second transient
+failure moves the original file to `failed/`. A file does not block later ones.
+An unreadable or invalid counter prevents sending that file rather than resetting
+its budget. Completion/timer notifications coalesce while work is queued.
 
-Successful uploads move the local copy from `pending/` to `archive/`; local,
-rejected, and remote archives have no automatic expiry. Hosts without an
-uploader retain pending files locally.
+The control-plane uploader checks shared 16 MiB compressed / 64 MiB expanded
+limits locally. An oversized archive is replaced **for transmission only** by a
+small gzip JSONL report. It contains synthetic `run.started` / `run.finished`
+report boundaries and an `archive.truncated` event, explicitly stating that the
+full archive was not uploaded. Its data includes the reason, original compressed
+size, limits, and up to 64 KiB of complete beginning JSONL lines as preview text.
+A line crossing the preview boundary is omitted; the report does not claim to
+be the original complete agent run. If the beginning cannot be decompressed, a
+metadata-only report identifies the preview failure.
+
+A successfully uploaded preview leaves the complete original in `rejected/`.
+Invalid keys/gzip and HTTP 400/413/415/422 are permanent failures and also move
+there without retry. A transient preview-upload failure consumes an attempt and
+uses the same two-attempt budget. Authentication failures remain transient; no
+credential refresh is performed by the uploader.
+
+Successful full uploads move their local copies to `archive/`. Attempt sidecars
+move alongside terminal archives. Local, rejected, failed, and remote files have
+no automatic expiry. Hosts without a transport retain pending files locally.
 
 Restart recovery discards an incomplete final JSON line and adds an `interrupted`
 outcome to unfinished runs. A complete terminal record is preserved if shutdown
@@ -107,52 +122,21 @@ To inspect a downloaded run:
 gzip -dc <traceId>.jsonl.gz | jq .
 ```
 
-## GCP upload boundary
+## Control-plane upload boundary
 
-Managed workspace VMs configure `traceUpload: { origin, workspaceId }`. The
-control plane provisions both values in VM metadata; the startup script writes
-them into the workspace-server configuration. Local development and standalone
-VMs retain traces locally unless configured as a registered managed workspace.
+When explicitly configured by an embedding host, `ControlPlaneTraceUploader`
+sends an archive or preview report to `POST /api/traces/<sessionId>/<traceId>`
+using that host's workspace runtime bearer token. Each request has a 60-second
+timeout. The normal managed workspace application leaves this uploader disabled.
 
-`ControlPlaneTraceUploader` sends a finished archive to
-`POST /api/traces/<sessionId>/<traceId>` on the control plane. It obtains a
-Google-signed full Compute Engine identity token for the `/api/traces` audience
-using Application Default Credentials. Uploads remain asynchronous; failures
-leave the file pending for retry. The client waits up to 60 seconds per upload.
-
-The control plane verifies the token's signature, issuer, audience, expiry,
-service account, project and zone. It requires signed VM claims, checks the
-instance ID against the current Compute Engine instance, and checks that the
-workspace named by that VM is registered in its database. A token identifying
-only the shared workspace service account is insufficient. This authenticates
-the VM's registered workspace/owner without storing the user's login session
-on the VM. See [Google's VM identity documentation](https://docs.cloud.google.com/compute/docs/instances/verifying-instance-identity).
-
-The endpoint constructs the destination using that verified workspace UUID;
-it never accepts a caller-selected workspace path or bucket. It validates the
-gzip JSONL envelope against the verified workspace and requested session/run,
-including record ordering and start/end boundaries. Uploads are limited to
-16 MiB compressed and 64 MiB expanded. Invalid or oversized archives are
-rejected and remain local. Event content is still agent-supplied data, not an
-independent attestation of what happened.
-
-Only the control-plane service account has `roles/storage.objectCreator` on
-the trace bucket. Workspace service accounts have no trace-bucket grant. The
-control plane uploads with `ifGenerationMatch=0`; an existing object's `412`
-response acknowledges an immutable retry without overwriting its bytes.
-Other storage failures return an error to the VM, preserving its pending file.
+The control plane authenticates the runtime credential against the registered
+workspace, derives its destination prefix from that identity, and validates gzip
+JSONL identities, ordering, and report/run boundaries. It uploads with
+`ifGenerationMatch=0`; an existing object's `412` response acknowledges a retry
+without overwriting its bytes. Other storage failures return an error to the host.
 Archives use `application/gzip` without HTTP content encoding.
 
-Pulumi creates `halo-relay-halo-west-traces` in `us-west2` on the production
-`west` stack. The bucket blocks public access, has no lifecycle expiry, retains
-soft-deleted objects for 30 days, and is protected from Pulumi deletion.
-Readers use separately authorized operator credentials.
-
-Deploy the control-plane endpoint and IAM change before replacing workspace
-VMs with the new uploader/configuration. The standalone development VM has no
-production workspace registration and therefore keeps local archives only.
-
-```sh
-gcloud storage ls --recursive gs://halo-relay-halo-west-traces/v1/workspaces/
-gcloud storage cp gs://halo-relay-halo-west-traces/v1/workspaces/WORKSPACE/sessions/SESSION/TRACE.jsonl.gz ./
-```
+The workspace does not get direct access to the trace bucket. Only the
+control-plane service account has object-creation access. The uploader never
+exports or queries the conversation database and does not restore automatic
+main-agent trace capture.
