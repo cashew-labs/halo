@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change moves renderer workspace RPC to a shared, ticket-authenticated WebSocket. It keeps HTTP for file transfers, prompt submission and the initial compatibility probe, and it adds a per-window client ID and a heartbeat deadline. F1 and F2 from round 1 stay fixed. The round-2 coverage problem on createHaloClient.ts:75, 116, 133 and HaloSocket.ts:17 is now handled by coverage-exempt annotations for the mapping artifact, which I accept. Both test tiers pass and the coverage gate passes, so the change is ready.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 3,
+  "headSha": "5467ed18909bec0123c3141e6139b7e7a723365d",
+  "treeHash": "7bbd95e3261a7ad89aee38d0c7f47e2efa570565",
+  "codeTree": "1e771c631e73dfca2e0176b6faa3bad573fe78fd",
+  "coverage": {
+    "executable": 87,
+    "covered": 85,
+    "exempt": 2,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-12T19:56:09.268Z"
+}

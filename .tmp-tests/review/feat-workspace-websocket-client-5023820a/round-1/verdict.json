@@ -1,0 +1,46 @@
+{
+  "status": "changes_requested",
+  "summary": "The change moves renderer RPC to a shared, ticket-authenticated WebSocket. It adds a per-window client ID, a heartbeat deadline and an HTTP fallback for file transfers, and it ports the E2Es to intercept socket traffic. The socket logic is sound in the normal case, but the change is not ready. The coverage gate fails on WebHost.ts:26 and :165. Review-harness coverage plumbing was committed into a durable E2E and the Vite config. A socket-less older server is now reported as a generic HTTP failure instead of \"Server update required\".",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "test",
+      "file": "apps/electron/e2e/webStandaloneExtension.e2e.test.ts",
+      "line": 388,
+      "severity": "P1",
+      "body": "This durable E2E now contains review-tool coverage plumbing: the `REVIEW_COVERAGE_DIR` branch, JS coverage collection, source-map rewriting and writing UUID-named JSON files. A matching `sourcemap: process.env.REVIEW_COVERAGE === \"1\"` toggle was added to apps/web-app/vite.config.ts:18. The product never needs this code, so CI carries dead code and a coupling to the review harness. It also failed to get coverage for WebHost.ts, which the report lists as \"no test loaded this file\". Remove the coverage block, the `randomUUID`, `writeFile`/`readFile` and `pathToFileURL` imports it needs, and the Vite sourcemap toggle. Keep the legitimate change: install the route before `page.goto`. Cover WebHost with a temp test instead."
+    },
+    {
+      "id": "F2",
+      "kind": "source",
+      "file": "packages/client/src/HaloSocket.ts",
+      "line": 56,
+      "severity": "P1",
+      "body": "`connectHaloClient` sends its `server.info` compatibility probe through the socket link. A workspace server built before the socket endpoints existed returns 404 for `<path>/connect`, or fails the upgrade behind the control-plane proxy. The client then raises a `ConnectionHttpError`/`HaloSocketError` and keeps retrying with a generic error. It never reaches `checkServerCompatibility`, so the \"Server update required\" state is never shown. `haloProtocolVersion` is not bumped, so a protocol-27 server without sockets is treated as compatible but cannot be reached. The basic.e2e test \"reports an older server\" only fakes `server.info` over the socket, which hides the problem. Possible fixes: send the compatibility probe (`server.info` in `connectHaloClient`) over HTTP; fall back to HTTP when the ticket endpoint returns 404; or bump the protocol so the HTTP probe reports the server as incompatible."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "apps/web-app/src/WebHost.ts:26 and :165: WebHost.connectHalo passes `websocket: { clientId, signal }` to connectHaloClient, and the clientId stays the same across retries",
+      "tier": "tmp",
+      "rationale": "Both changed lines are uncovered (no test loaded the file), so the coverage gate fails. A temp test with mocked fetch, WebSocket or connectHaloClient can call connectHalo twice on one WebHost and check that the same UUID is sent in `x-halo-client-id`. It should also check that a second WebHost instance sends a different UUID."
+    },
+    {
+      "target": "packages/client/src/createHaloClient.ts connectHaloClient against a server whose `/rpc/connect` returns 404 while its HTTP `/rpc/server/info` reports an incompatible protocol",
+      "tier": "tmp",
+      "rationale": "After F2 is fixed, this checks that an older server without sockets is reported as IncompatibleServerError rather than a generic HTTP or socket error."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "5467ed18909bec0123c3141e6139b7e7a723365d",
+  "treeHash": "b76a9523d3902bb3ad84116ed6ce4c282bf1e5b9",
+  "codeTree": "561295a0e6946dcb9226a1f229b98c23360e02f9",
+  "coverage": {
+    "executable": 87,
+    "covered": 83,
+    "exempt": 2,
+    "uncovered": 2
+  },
+  "createdAt": "2026-10-12T19:42:22.691Z"
+}

@@ -1,0 +1,10 @@
+[
+  {
+    "findingId": "F1",
+    "reply": "Removed review coverage plumbing from the durable browser E2E and reverted the Vite config. A temporary WebHost test drives the real control plane and workspace with browser URL/cookie semantics; it verifies a stable identity across reconnects and different identities for different host instances, without mocking internal services."
+  },
+  {
+    "findingId": "F2",
+    "reply": "Moved the initial workspace compatibility probe to HTTP before requiring a socket endpoint. An incompatible older protocol now produces IncompatibleServerError even when its connect route returns 404. Added a temporary real HTTP server regression. Updated the existing UI protocol test to cover the initial HTTP probe as well as subsequent socket checks. As requested by the user, the new transport itself does not fall back to old-server subscriptions; deployment still requires updating workspace servers before clients."
+  }
+]

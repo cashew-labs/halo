@@ -1,0 +1,24 @@
+{
+  "status": "changes_requested",
+  "summary": "The change moves renderer workspace RPC to a shared, ticket-authenticated WebSocket. It keeps HTTP for file transfers, for prompt submission and, after the round-1 fix, for the initial compatibility probe. F1 is fixed: the review coverage plumbing and the Vite toggle are gone. F2 is fixed: the HTTP probe reports older servers as incompatible, and a temp regression with a real HTTP server covers it. The only blocker is the coverage gate: createHaloClient.ts:75, 116, 133 and HaloSocket.ts:17 are reported as uncovered, although the temp tests clearly run them.",
+  "findings": [],
+  "testRequests": [
+    {
+      "target": "packages/client/src/createHaloClient.ts:75, :116, :133 and packages/client/src/HaloSocket.ts:17 (reported uncovered; the coverage gate fails)",
+      "tier": "tmp",
+      "rationale": "These lines run in every WebSocket client test. Line 75 constructs the HaloSocket, line 116 is inside the socket-link interceptor, line 133 closes the link object, and line 17 is the `socket` field of HaloSocket. Round 1 did not list them as executable. They appeared only after the Playwright temp test webHost.e2e.test.ts was added; its Node-side transform probably maps zero-count ranges onto these lines. Resolve this in one of two ways. Preferred: move the WebHost temp test into a vitest temp test, such as packages/workspace-server/test/.tmp-tests/, using the same real control plane and workspace, and rerun so these lines are counted as covered. Otherwise, add `coverage-exempt` reasons that name this mapping artifact and the tests that run the lines. I will accept those reasons."
+    }
+  ],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "5467ed18909bec0123c3141e6139b7e7a723365d",
+  "treeHash": "2e962d148d55a1dadff6ce132bfcde6a96e24803",
+  "codeTree": "d4bb4fe4aeecdaed07ccba5823dea41750f61dc2",
+  "coverage": {
+    "executable": 91,
+    "covered": 85,
+    "exempt": 2,
+    "uncovered": 4
+  },
+  "createdAt": "2026-10-12T19:51:10.692Z"
+}
