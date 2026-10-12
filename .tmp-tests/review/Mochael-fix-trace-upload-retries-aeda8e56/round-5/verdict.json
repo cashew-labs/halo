@@ -1,0 +1,27 @@
+{
+  "status": "changes_requested",
+  "summary": "The source is unchanged since round 4, where the logic was sound. This round adds temp tests for the attempt-file write failure and the three moveUpload failure paths. All four new tests fail because they read the log event from the wrong field of the log entry. The temp run therefore fails and the coverage gate reports TraceService.ts and parts of ControlPlaneTraceUploader.ts as uncovered.",
+  "findings": [
+    {
+      "id": "F3",
+      "kind": "test",
+      "file": "packages/workspace-server/src/traces/.tmp-tests/TraceUpload.test.ts",
+      "line": 681,
+      "severity": "P1",
+      "body": "The four new failure-path tests check `entry.event === \"trace-storage-failed\"` at lines 681 and 732. `LoggerEntry` puts the fields of the logged object under `entry.data` (see `PrettyConsoleLoggerSink.ts:47`, which reads `entry.data.event`), so `entry.event` is always undefined. As a result, `does not send an unrecorded attempt when its directory is read-only…` fails at 681 (`expected false to be true`), and all three `reports ${failure} failure…` cases fail at 733 (`expected 0 to be greater than or equal to 2`). The source already reports these errors through `TraceService.report`, which logs `{ event: \"trace-storage-failed\", error }`. Use `entry.data.event` in both places. Ideally, also check that the reported error's `operation` matches the path under test: `record upload attempt`, `create upload destination`, `settle upload`, or `preserve upload attempt count`. That proves each test exercises the intended branch and not some other failure. Then confirm that the whole file passes, so that TraceService.ts lines 344-345, 387, 396 and 404 are covered."
+    }
+  ],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 5,
+  "headSha": "8715568f05cb865f6057af6bdcf01452e26697ce",
+  "treeHash": "b857c9a7f37878237e4f9740844746e6d90dc69a",
+  "codeTree": "c35fb09e292279fa4369b2848820c20bf5e069ce",
+  "coverage": {
+    "executable": 111,
+    "covered": 43,
+    "exempt": 13,
+    "uncovered": 55
+  },
+  "createdAt": "2026-10-12T21:40:05.048Z"
+}

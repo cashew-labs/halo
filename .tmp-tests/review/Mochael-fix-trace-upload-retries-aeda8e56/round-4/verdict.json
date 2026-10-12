@@ -1,0 +1,29 @@
+{
+  "status": "changes_requested",
+  "summary": "This round removes the uploader from the workspace-server host, so production uploads are off. It caps each archive at two upload attempts, using an `.attempts` sidecar file that survives restarts. Oversized archives are no longer rejected outright: the uploader sends a small gzip report with a preview of their first complete lines and keeps the original in `rejected/`. The logic is sound and the temp tests check it well, including a real-HTTP test showing the report passes control-plane validation. The change is not ready because the coverage gate fails: five new error-handling lines in TraceService.ts (344-345, 387, 396, 404) are neither covered nor exempt.",
+  "findings": [],
+  "testRequests": [
+    {
+      "target": "packages/workspace-server/src/traces/TraceService.ts:343-346: when the `.attempts` sidecar cannot be written (for example, the pending session directory is made read-only after the archive is created), the uploader is not called, the warning is reported, and later archives in the same pass are still uploaded",
+      "tier": "tmp",
+      "rationale": "Lines 344-345 are uncovered. This path enforces the rule that no attempt is sent without first being recorded durably, which is central to the two-attempt budget."
+    },
+    {
+      "target": "packages/workspace-server/src/traces/TraceService.ts:386-404 (moveUpload failures): (a) mkdir of the destination fails (for example, `archive` exists as a regular file); (b) the rename of the archive fails (for example, the destination path exists as a non-empty directory); (c) the sidecar rename fails after the archive moved (for example, `${destination}.attempts` exists as a non-empty directory). In each case, assert that the error is reported, the pass continues to later archives, and the archive stays in pending/ for (a) and (b) or reaches its destination for (c)",
+      "tier": "tmp",
+      "rationale": "Lines 387, 396 and 404 are uncovered. These failure paths decide whether an archive stays in pending/ or is lost from it. Alternatively, add coverage-exempt comments with a specific reason, but these paths can be triggered with ordinary filesystem fixtures, so tests are preferred."
+    }
+  ],
+  "tierChanges": [],
+  "round": 4,
+  "headSha": "8715568f05cb865f6057af6bdcf01452e26697ce",
+  "treeHash": "9b2586f6b7c66e4a4ec59fb33b4a1d3b0a59208f",
+  "codeTree": "c35fb09e292279fa4369b2848820c20bf5e069ce",
+  "coverage": {
+    "executable": 111,
+    "covered": 94,
+    "exempt": 12,
+    "uncovered": 5
+  },
+  "createdAt": "2026-10-12T21:38:26.249Z"
+}

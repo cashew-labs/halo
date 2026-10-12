@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "F2 is fixed. The control-plane temp test now uses a type-only `WorkspaceService` import with a plain stub, and `TraceIngestion.ts` and `ControlPlaneTraceUploader.ts` import the limits from a new `@get-halo/client/traces` subpath export, which resolves through tsx exactly like the existing \".\" export. The ingestion test now runs and checks 400 for over-limit compressed and expanded bodies and 204 with a cloud write for a valid archive. All temp runs pass, the coverage gate passes with acceptable exemptions, and no P0 or P1 findings remain.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 3,
+  "headSha": "59377e2fec926dc6977d42e6e0fe01c250d87286",
+  "treeHash": "3f1c8997b8d5c10f0167c7d52da92e3b8fe7c06c",
+  "codeTree": "f77dde4a5158d19503f33f57f15431544035b79d",
+  "coverage": {
+    "executable": 47,
+    "covered": 36,
+    "exempt": 11,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-12T19:13:08.147Z"
+}
