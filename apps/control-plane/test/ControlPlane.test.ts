@@ -887,7 +887,15 @@ const controlPlaneTest = test.extend<{
 
 controlPlaneTest(
   "creates human-only connections through durable setup RPC",
-  async ({ plane, authenticatedRpc, browserHeaders, appDataDir, mcpApi }) => {
+  async ({
+    plane,
+    authenticatedRpc,
+    browserHeaders,
+    appDataDir,
+    mcpApi,
+    integrationApi,
+    rpc,
+  }) => {
     const human = authenticatedRpc;
     await human.workspace.ensure();
     const runtime = createControlPlaneRpcClient(
@@ -924,6 +932,51 @@ controlPlaneTest(
     );
     bobHeaders.set("origin", plane.origin);
     const bob = createControlPlaneRpcClient(plane.origin, bobHeaders);
+    // Registration saves catalogs for the authenticated runtime's owner. It
+    // grants no connection and never lets the runtime submit credentials.
+    const registrations = {
+      mcp: {
+        name: "Runtime MCP",
+        slug: "runtime-mcp",
+        endpoint: mcpApi.publicEndpoint,
+        auth: "none" as const,
+      },
+      openapi: {
+        name: "Runtime API",
+        slug: "runtime-api",
+        url: new URL("/key-spec", integrationApi.origin).href,
+      },
+    };
+    await runtime.integrations.registerMcp(registrations.mcp);
+    await runtime.integrations.registerOpenAPI(registrations.openapi);
+    expect(await runtime.integrations.catalog()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ integration: "runtime-mcp" }),
+        expect.objectContaining({ integration: "runtime-api" }),
+      ]),
+    );
+    expect(await runtime.integrations.connections()).toEqual([]);
+    const bobCatalog = await bob.integrations.catalog();
+    for (const integration of ["runtime-mcp", "runtime-api"])
+      expect(bobCatalog).not.toEqual(
+        expect.arrayContaining([expect.objectContaining({ integration })]),
+      );
+    await expect(
+      rpc.integrations.registerMcp(registrations.mcp),
+    ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    await expect(
+      rpc.integrations.registerOpenAPI(registrations.openapi),
+    ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    const forged = { ...registrations.mcp, userId: "foreign" };
+    await expect(
+      runtime.integrations.registerMcp(forged),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(
+      runtime.integrations.registerOpenAPI({
+        ...registrations.openapi,
+        url: "file:///etc/passwd",
+      }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
     for (const integration of ["setup-public", "setup-private"]) {
       const started = await runtime.integrations.startSetup({
         integration,
@@ -953,14 +1006,6 @@ controlPlaneTest(
         runtime.integrations.submitSetup({
           setupId: started.setupId,
           template: "none",
-        }),
-      ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
-      await expect(
-        runtime.integrations.registerMcp({
-          name: "Bad",
-          slug: "bad",
-          endpoint: mcpApi.publicEndpoint,
-          auth: "none",
         }),
       ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
       const method = catalog.find((entry) => entry.integration === integration)!
