@@ -13,6 +13,8 @@ class ElectronHostError extends errore.createTaggedError({
 }) {}
 
 export class ElectronHost implements HostApi {
+  // Stable across retries, distinct for each window or browser tab.
+  private readonly clientId = crypto.randomUUID();
   async getWorkspaceStatus() {
     return await this.desktopBridge
       .getWorkspaceStatus()
@@ -87,6 +89,7 @@ export class ElectronHost implements HostApi {
     if (connection === undefined) return undefined;
 
     const connected = await connectHaloClient({
+      websocket: { clientId: this.clientId, signal },
       transport: {
         origin: connection.origin,
         path: connection.path,

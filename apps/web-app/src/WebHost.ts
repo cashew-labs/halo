@@ -22,6 +22,8 @@ class WebHostError extends errore.createTaggedError({
 }) {}
 
 export class WebHost implements HostApi {
+  // Stable across retries, distinct for each window or browser tab.
+  private readonly clientId = crypto.randomUUID();
   async getAppInfo(): Promise<AppInfo> {
     return {
       version: import.meta.env.VITE_HALO_VERSION,
@@ -160,6 +162,7 @@ export class WebHost implements HostApi {
       });
 
     const connected = await connectHaloClient({
+      websocket: { clientId: this.clientId, signal },
       transport: {
         origin: window.location.origin,
         path: "/workspace/rpc",

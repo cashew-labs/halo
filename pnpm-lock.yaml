@@ -339,6 +339,9 @@ importers:
       '@playwright/test':
         specifier: 1.62.1
         version: 1.62.1
+      '@standardserver/peer':
+        specifier: 0.8.0
+        version: 0.8.0
       '@types/electron-squirrel-startup':
         specifier: ^1.0.2
         version: 1.0.2

@@ -1,3 +1,4 @@
+import { routeWorkspaceRpc } from "./workspaceSocket.js";
 import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
 import http from "node:http";
@@ -381,17 +382,18 @@ e2eTest(
     });
     cleanup.defer(async () => await context.close());
     const page = await context.newPage();
-    await page.goto(`${plane.origin}/#/sessions/${session.sessionId}`);
-
     const card = page.getByRole("region", {
       name: "Google Drive connection",
     });
-    await expect(card).toBeVisible({ timeout: 10_000 });
     const setupUrl = `${plane.origin}/integrations/setup/browser-launch`;
     // This browser-host scenario controls the remote launch response at the
     // transport boundary; control-plane tests cover setup and OAuth completion.
-    await page.route("**/rpc/thread/startConnection", async (route) => {
-      expect(route.request().postDataJSON()).toMatchObject({
+    await routeWorkspaceRpc(page, async (route) => {
+      if (route.path !== "/thread/startConnection") {
+        route.continue();
+        return;
+      }
+      expect(route.body).toMatchObject({
         json: {
           sessionId: session.sessionId,
           request: {
@@ -403,16 +405,16 @@ e2eTest(
       });
       await route.fulfill({
         json: {
-          json: {
-            status: "authorization-required",
-            authorizationUrl: setupUrl,
-            connectionId: "browser-launch",
-            expiresAt: Date.now() + 60_000,
-            wasConnected: false,
-          },
+          status: "authorization-required",
+          authorizationUrl: setupUrl,
+          connectionId: "browser-launch",
+          expiresAt: Date.now() + 60_000,
+          wasConnected: false,
         },
       });
     });
+    await page.goto(`${plane.origin}/#/sessions/${session.sessionId}`);
+    await expect(card).toBeVisible({ timeout: 10_000 });
     await context.route(setupUrl, async (route) => {
       await route.fulfill({
         body: "<main><h1>Set up Google Drive</h1></main>",
