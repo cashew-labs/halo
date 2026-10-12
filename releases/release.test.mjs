@@ -8,6 +8,7 @@ import {
   exeTemplateVmName,
   pinProductionConfig,
   stagingReleaseNotes,
+  staleExeTemplates,
   stagingSourceRevision,
   validatePromotion,
 } from "./promotion.mjs";
@@ -518,4 +519,45 @@ test("promotion CLI accepts a pinned promotion and rejects stale config", async 
     directory,
   );
   assert.equal(first.status, 0, first.stderr);
+});
+
+test("template cleanup removes only exe.dev templates older than production", () => {
+  assert.deepEqual(
+    staleExeTemplates(
+      [
+        "halo-exe-0-1-9",
+        "halo-exe-0-1-68",
+        "halo-exe-0-1-69",
+        "halo-exe-0-1-70",
+        "halo-exe-0-2-0",
+        "halo-exe-0-1-68-old",
+        "halo-11111111-2222-3333-4444-555555555555",
+        "michael-dev",
+      ],
+      "0.1.69",
+    ),
+    // Versions compare numerically: 0.1.9 is older than 0.1.69.
+    ["halo-exe-0-1-9", "halo-exe-0-1-68"],
+  );
+});
+
+test("template cleanup CLI reads exe.dev ls output", () => {
+  const vms = JSON.stringify({
+    vms: [{ vm_name: "halo-exe-0-1-68" }, { vm_name: "halo-exe-0-1-70" }],
+  });
+  const result = spawnSync(
+    process.execPath,
+    [path.join(root, "releases/staleExeTemplates.mjs"), "0.1.70"],
+    { input: vms, encoding: "utf8" },
+  );
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, "halo-exe-0-1-68\n");
+
+  const usage = spawnSync(
+    process.execPath,
+    [path.join(root, "releases/staleExeTemplates.mjs")],
+    { input: vms, encoding: "utf8" },
+  );
+  assert.equal(usage.status, 1);
+  assert.match(usage.stderr, /Usage:/);
 });
