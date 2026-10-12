@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "This release PR bumps the desktop version to 0.1.71, pins the control-plane and workspace-server images to 0.1.71, and adds releases/0.1.71.json. The manifest's protocols match the source: haloProtocolVersion 27, supported [25, 26, 27], and control plane 5, supported [3, 5]. The minimumFrontendVersion 0.1.68 carries forward from 0.1.70 and needs protocol 25, which is still supported. No other 0.1.70 references remain outside releases/, and there are no executable changes that need tests.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "2419fac25d35eb568ff00bee437ba8555fb74376",
+  "treeHash": "4c72020875a054ce3d53c4c1d7bfac1b34d6fae5",
+  "codeTree": "4c72020875a054ce3d53c4c1d7bfac1b34d6fae5",
+  "coverage": {
+    "executable": 0,
+    "covered": 0,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-12T22:49:36.923Z"
+}
