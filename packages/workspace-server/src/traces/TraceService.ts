@@ -11,14 +11,26 @@ import * as errore from "errore";
 import { RunTrace, TraceStorageError } from "./RunTrace.js";
 
 export type TraceUploader = {
-  upload(input: { key: string; filePath: string }): Promise<void | Error>;
+  upload(input: {
+    key: string;
+    filePath: string;
+  }): Promise<void | { partial: true; reason: string } | Error>;
 };
+
+export class TraceUploadRejectedError extends errore.createTaggedError({
+  name: "TraceUploadRejectedError",
+  message: "Trace '$key' cannot be uploaded: $reason",
+}) {}
 
 export class TraceService {
   // Owns runs until their final records are committed locally.
   private readonly runs = new Map<string, RunTrace>();
   // Serializes uploads without holding any agent operation queue.
   private readonly actionQueue = new SerialQueue();
+  // Coalesces completion and timer notifications while upload work is pending.
+  private uploadScheduled = false;
+  // Allows one retry after 30 seconds without delaying other archives.
+  private readonly uploadRetries = new Map<string, number>();
   // Retries durable pending uploads while the server is running.
   private timer: NodeJS.Timeout | undefined;
   // Stops new uploads and runs during shutdown.
@@ -282,9 +294,12 @@ export class TraceService {
   }
 
   private scheduleUpload() {
-    if (this.closed || this.uploader === undefined) return;
+    if (this.closed || this.uploader === undefined || this.uploadScheduled)
+      return;
+    this.uploadScheduled = true;
     // oxlint-disable-next-line typescript/no-floating-promises -- The queue owns background uploads; close() drains it and failures remain in the spool.
     this.actionQueue.run(async () => {
+      this.uploadScheduled = false;
       if (this.closed) return;
       const uploaded = await this.uploadPending();
       if (uploaded instanceof Error) this.report(uploaded);
@@ -299,31 +314,98 @@ export class TraceService {
     if (files instanceof Error) return files;
     for (const key of files.filter((file) => file.endsWith(".jsonl.gz"))) {
       if (this.closed) return;
+      const retryAt = this.uploadRetries.get(key);
+      if (retryAt !== undefined && Date.now() < retryAt) continue;
       const filePath = path.join(pending, key);
+      const attempts = await readAttempts(filePath);
+      if (attempts instanceof Error) {
+        this.report(attempts);
+        continue;
+      }
+      if (attempts >= 2) {
+        const moved = await this.moveUpload(key, "failed");
+        if (moved instanceof Error) this.report(moved);
+        continue;
+      }
+      // Persist before calling the uploader: a crash or restart must not reset the budget.
+      const recorded = await fs
+        .writeFile(`${filePath}.attempts`, String(attempts + 1), {
+          mode: 0o600,
+          flush: true,
+        })
+        .catch(
+          (cause) =>
+            new TraceStorageError({
+              operation: "record upload attempt",
+              cause,
+            }),
+        );
+      if (recorded instanceof Error) {
+        this.report(recorded);
+        continue;
+      }
       const uploaded = await uploader.upload({
         key: key.split(path.sep).join("/"),
         filePath,
       });
-      if (uploaded instanceof Error) return uploaded;
-      const destination = path.join(this.directory, "archive", key);
-      const created = await fs
-        .mkdir(path.dirname(destination), { recursive: true, mode: 0o700 })
-        .catch(
-          (cause) =>
-            new TraceStorageError({
-              operation: "create uploaded directory",
-              cause,
-            }),
-        );
-      if (created instanceof Error) return created;
-      const moved = await fs
-        .rename(filePath, destination)
-        .catch(
-          (cause) =>
-            new TraceStorageError({ operation: "acknowledge upload", cause }),
-        );
-      if (moved instanceof Error) return moved;
+      if (uploaded instanceof Error) {
+        this.report(uploaded);
+        if (!(uploaded instanceof TraceUploadRejectedError) && attempts === 0) {
+          this.uploadRetries.set(key, Date.now() + 30_000);
+          continue;
+        }
+      }
+      if (uploaded !== undefined && !(uploaded instanceof Error))
+        this.logger.info({
+          event: "trace-upload-partial",
+          key,
+          reason: uploaded.reason,
+        });
+      const state =
+        uploaded instanceof TraceUploadRejectedError
+          ? "rejected"
+          : uploaded instanceof Error
+            ? "failed"
+            : uploaded === undefined
+              ? "archive"
+              : "rejected";
+      const moved = await this.moveUpload(key, state);
+      if (moved instanceof Error) this.report(moved);
     }
+  }
+
+  private async moveUpload(
+    key: string,
+    state: "archive" | "rejected" | "failed",
+  ) {
+    const filePath = path.join(this.directory, "pending", key);
+    const destination = path.join(this.directory, state, key);
+    const created = await fs
+      .mkdir(path.dirname(destination), { recursive: true, mode: 0o700 })
+      .catch(
+        (cause) =>
+          new TraceStorageError({
+            operation: "create upload destination",
+            cause,
+          }),
+      );
+    if (created instanceof Error) return created;
+    const moved = await fs
+      .rename(filePath, destination)
+      .catch(
+        (cause) => new TraceStorageError({ operation: "settle upload", cause }),
+      );
+    if (moved instanceof Error) return moved;
+    this.uploadRetries.delete(key);
+    return await fs
+      .rename(`${filePath}.attempts`, `${destination}.attempts`)
+      .catch(
+        (cause) =>
+          new TraceStorageError({
+            operation: "preserve upload attempt count",
+            cause,
+          }),
+      );
   }
 }
 
@@ -341,4 +423,22 @@ async function traceFiles(directory: string) {
     .map((entry) =>
       path.relative(directory, path.join(entry.parentPath, entry.name)),
     );
+}
+
+async function readAttempts(filePath: string) {
+  const saved = await fs
+    .readFile(`${filePath}.attempts`, "utf8")
+    .catch((cause: NodeJS.ErrnoException) =>
+      cause.code === "ENOENT"
+        ? undefined
+        : new TraceStorageError({
+            operation: "read upload attempt count",
+            cause,
+          }),
+    );
+  if (saved instanceof Error) return saved;
+  if (saved === undefined) return 0;
+  if (saved === "1" || saved === "2") return Number(saved);
+  // Fail closed rather than resetting a corrupt counter and sending more requests.
+  return new TraceStorageError({ operation: "invalid upload attempt count" });
 }

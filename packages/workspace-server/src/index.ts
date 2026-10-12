@@ -13,6 +13,10 @@ export type { RemoteIntegrationTools } from "./agent/runtime/ToolRuntime.js";
 export { ControlPlaneTraceUploader } from "./traces/ControlPlaneTraceUploader.js";
 export { ControlPlaneWorkReporter } from "./server/ControlPlaneWorkReporter.js";
 export { ControlPlaneScheduleReporter } from "./automations/ControlPlaneScheduleReporter.js"; // coverage-exempt: Rename-only public export.
-export type { TraceUploader } from "./traces/TraceService.js";
+// coverage-exempt: Public barrel re-exports; behavior is exercised through the defining modules.
+export {
+  TraceUploadRejectedError,
+  type TraceUploader,
+} from "./traces/TraceService.js";
 
 export { ControlPlaneAutomationClient } from "./automations/ControlPlaneAutomationClient.js";

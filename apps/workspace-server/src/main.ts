@@ -13,7 +13,6 @@ import {
   removeHaloRpcFile,
 } from "@get-halo/shared/HaloRpcFile";
 import {
-  ControlPlaneTraceUploader,
   ControlPlaneWorkReporter,
   ControlPlaneScheduleReporter, // coverage-exempt: Rename-only entrypoint import.
   ControlPlaneAutomationClient,
@@ -207,13 +206,7 @@ async function run() {
               return async (idle: boolean, signal: AbortSignal) =>
                 await reporter.report(idle, signal);
             })(),
-      traceUploader:
-        applicationConfig.server.runtime === undefined
-          ? undefined
-          : new ControlPlaneTraceUploader({
-              origin: applicationConfig.server.runtime.origin,
-              token: applicationConfig.server.runtime.token,
-            }),
+      // Trace uploads stay disabled in this host; explicit trace recording remains local.
       logger: logger.scope("rpc"),
     },
   });

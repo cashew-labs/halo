@@ -92,11 +92,13 @@ export {
   type SessionEvent,
   type SessionWatchItem,
 } from "./sessionState.js";
-export type {
-  TraceAgent,
-  TraceEvent,
-  TraceOutcome,
-  TraceRecord,
+// coverage-exempt: Public barrel re-exports; behavior is exercised through the defining modules.
+export {
+  traceUploadLimits,
+  type TraceAgent,
+  type TraceEvent,
+  type TraceOutcome,
+  type TraceRecord,
 } from "./traces.js";
 export type {
   WorkspaceInfo,
