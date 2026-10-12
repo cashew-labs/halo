@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change touches three WebSocket rejection checks in ControlPlane.test.ts. Instead of polling until `readyState` is CLOSED, each test now waits for the socket's `error` event, and the signed-out test now closes its socket when it finishes. This makes the check stricter, not weaker: if the server accepted a socket and later closed it cleanly, no `error` event would fire and the test would fail. The durable run passes, and the change contains no changed executable source lines, so the change is ready.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "2419fac25d35eb568ff00bee437ba8555fb74376",
+  "treeHash": "51f7445676f8887600fc2be70ef2bbb8a1a38ba8",
+  "codeTree": "51f7445676f8887600fc2be70ef2bbb8a1a38ba8",
+  "coverage": {
+    "executable": 0,
+    "covered": 0,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-12T23:04:05.510Z"
+}

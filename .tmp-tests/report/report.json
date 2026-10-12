@@ -1,0 +1,57 @@
+{
+  "baseRef": "origin/main",
+  "baseSha": "2419fac25d35eb568ff00bee437ba8555fb74376",
+  "headSha": "2419fac25d35eb568ff00bee437ba8555fb74376",
+  "treeHash": "51f7445676f8887600fc2be70ef2bbb8a1a38ba8",
+  "generatedAt": "2026-10-12T23:03:32.133Z",
+  "runs": {
+    "durable": {
+      "tier": "durable",
+      "testFiles": [
+        "apps/control-plane/test/ControlPlane.test.ts"
+      ],
+      "skipped": false,
+      "runners": [
+        {
+          "runner": "vitest",
+          "dir": ".",
+          "testFiles": [
+            "apps/control-plane/test/ControlPlane.test.ts"
+          ],
+          "exitCode": 0
+        }
+      ],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 84601,
+      "log": ".tmp-tests/report/durable.log",
+      "lcovFiles": [
+        ".git/code-review-agent/coverage/durable-0/vitest-0/lcov.info"
+      ]
+    },
+    "tmp": {
+      "tier": "tmp",
+      "testFiles": [],
+      "skipped": true,
+      "runners": [],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 0,
+      "log": ".tmp-tests/report/tmp.log",
+      "lcovFiles": []
+    }
+  },
+  "durableTestFiles": [
+    "apps/control-plane/test/ControlPlane.test.ts"
+  ],
+  "tmpTestFiles": [],
+  "files": [],
+  "totals": {
+    "executable": 0,
+    "coveredDurable": 0,
+    "coveredTmpOnly": 0,
+    "uncovered": 0,
+    "exempt": 0
+  },
+  "passed": true
+}
