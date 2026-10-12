@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change adds WebSocket RPC authenticated by one-use tickets. It covers both paths: the control-plane gateway and local development on the workspace server. Each workspace socket is replaced when its client reconnects, and is closed on a missed heartbeat, on expiry, or when too much data is waiting to send. Round 1's gaps are now closed: temp tests cover local ticket issue, a newer ticket cancelling an older unused one, expiry, reuse, CORS, and validation; the 401 rejections for missing or bad identity headers; the periodic sweep; malformed frames; and shutdown. New durable tests cover ticket expiry and sign-out. All runs pass, and the coverage gate passes with acceptable exemptions for the outage-only error handlers.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "ff18644f1396f4cc20211ecfa822349b5ee6f754",
+  "treeHash": "971cb6187c9ed75d1ea7bba9ff16939e1c34043d",
+  "codeTree": "3cbb5348e62a3b785c9c7e7bf3b190e687c00d92",
+  "coverage": {
+    "executable": 140,
+    "covered": 133,
+    "exempt": 7,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-12T19:16:49.275Z"
+}

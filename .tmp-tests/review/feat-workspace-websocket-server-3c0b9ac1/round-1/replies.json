@@ -1,0 +1,10 @@
+[
+  {
+    "findingId": "F1",
+    "reply": "Added temporary tests through the canonical full workspace fixture for ticket issuance, replacement, expiry, reuse, CORS, validation, subscription cancellation, and shutdown. Packaged Electron startup and offline recovery also passed."
+  },
+  {
+    "findingId": "F2",
+    "reply": "Added authenticated raw WebSocket upgrade tests for missing, non-finite, and expired identity headers; all reject with HTTP 401."
+  }
+]

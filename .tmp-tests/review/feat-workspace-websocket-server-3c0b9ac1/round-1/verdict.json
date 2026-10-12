@@ -1,0 +1,61 @@
+{
+  "status": "changes_requested",
+  "summary": "The change adds ticket-authenticated WebSocket RPC. The control plane issues one-use tickets at /workspace/rpc/connect and proxies /workspace/rpc/socket. The workspace server gets a WorkspaceSockets owner that handles per-client replacement, a heartbeat deadline, and a lifetime cap, plus a local-development ticket flow at /rpc/connect. The durable tests pass, and I found no blocking logic defect in the gateway path. The coverage gate fails, though: 39 changed lines are uncovered, including the whole local-development ticket flow and several security-relevant rejection branches.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "test",
+      "file": "packages/workspace-server/src/server/http.ts",
+      "line": 224,
+      "severity": "P1",
+      "body": "No test covers the local-development socket flow. That flow is POST /rpc/connect (http.ts 225-258), then a ticketed upgrade on /rpc/socket (http.ts 317-318), backed by WorkspaceSockets.issueTicket/consumeTicket (WorkspaceSockets.ts 56-66, 79). Nothing checks that a renderer or CLI token can get a ticket, that the ticket opens a socket only once, that a second ticket for the same clientId supersedes the first pending ticket, that OPTIONS returns CORS headers only for configured origins, or that a bad clientId or a GET returns 400. This is new behavior and has no test. Add temp tests against serveHaloHttp directly."
+    },
+    {
+      "id": "F2",
+      "kind": "test",
+      "file": "packages/workspace-server/src/server/http.ts",
+      "line": 348,
+      "severity": "P1",
+      "body": "No test covers the rejection path for a gateway-authenticated /rpc/socket upgrade that has no valid x-halo-client-id, no finite x-halo-session-expires, or an expired x-halo-session-expires (lines 348-349). This branch stops a holder of a gateway, renderer, or CLI token from opening an unbounded socket without identity. Add a temp test that sends a bearer-authorized upgrade with missing, malformed, and past-expiry headers and expects 401."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "packages/workspace-server/src/server/http.ts:224-258 and WorkspaceSockets.ts:56-66,79 — local /rpc/connect issues a ticket (renderer and CLI tokens); OPTIONS returns 204 with CORS only for an allowed origin; GET or a malformed x-halo-client-id returns 400; the ticket opens /rpc/socket once (http.ts:317-318) and a reused ticket is rejected; a second issueTicket for the same clientId invalidates the first pending ticket",
+      "tier": "tmp",
+      "rationale": "The local-development ticket path is entirely uncovered."
+    },
+    {
+      "target": "packages/workspace-server/src/server/http.ts:340-349 — a bearer-authorized /rpc/socket upgrade with a missing or invalid client id, or a non-finite or past x-halo-session-expires, gets 401",
+      "tier": "tmp",
+      "rationale": "This security-relevant rejection branch is uncovered."
+    },
+    {
+      "target": "apps/control-plane/src/workspace/proxy.ts:79-96 — /workspace/rpc/connect returns 400 for GET or a malformed client id, 401 when createWorkspaceSocketTicket returns undefined, and 500 when it returns an error (stub AuthService)",
+      "tier": "tmp",
+      "rationale": "These status branches are uncovered."
+    },
+    {
+      "target": "apps/control-plane/src/auth/AuthService.ts:292,312,326,339,356 — the error-wrapping branches, plus consumeWorkspaceSocketTicket returning undefined when the session behind the ticket was revoked or has expired between issue and upgrade",
+      "tier": "tmp",
+      "rationale": "Line 356 is a real authorization outcome (a revoked session must not open a socket), and the catch branches are uncovered."
+    },
+    {
+      "target": "packages/workspace-server/src/server/WorkspaceSockets.ts:41,104-105,111-112,127 — the sweep drops expired tickets; a socket error terminates the connection; a ping is answered by terminating the socket when bufferedAmount exceeds 8 MiB; close() terminates open connections",
+      "tier": "tmp",
+      "rationale": "The lifecycle and backpressure branches of the new socket owner are uncovered."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "ff18644f1396f4cc20211ecfa822349b5ee6f754",
+  "treeHash": "ceb3b3d0eede38c4d86a52a0645092f44f274691",
+  "codeTree": "ceb3b3d0eede38c4d86a52a0645092f44f274691",
+  "coverage": {
+    "executable": 143,
+    "covered": 104,
+    "exempt": 0,
+    "uncovered": 39
+  },
+  "createdAt": "2026-10-12T19:08:07.592Z"
+}
