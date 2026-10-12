@@ -219,9 +219,57 @@ jobs:
           echo "frontend_image=$(pin_image "$image_root/control-plane:$VERSION")" >> "$GITHUB_OUTPUT"
           echo "workspace_image=$(pin_image "$image_root/workspace-server:$VERSION")" >> "$GITHUB_OUTPUT"
 
+  prepare-template:
+    name: Ensure the production workspace template
+    needs: [prepare, build-transition]
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+      WORKSPACE_IMAGE: ${{ needs.build-transition.outputs.workspace_image }}
+      EXE_TEMPLATE_VM_NAME: ${{ needs.prepare.outputs.exe_template }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Read the exe.dev account key
+        id: exe
+        shell: bash
+        run: |
+          config=infra/control-plane/Pulumi.prod.yaml
+          provider="$(sed -n 's/^  halo-control-plane:workspaceProvider: //p' "$config")"
+          if [ "$provider" != exe ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          key_secret="$(sed -n 's/^  halo-control-plane:exePrivateKeySecretId: //p' "$config")"
+          key_path="$RUNNER_TEMP/exe-account-key"
+          gcloud secrets versions access 1 --secret="$key_secret" --project="$PROJECT" --out-file="$key_path"
+          chmod 600 "$key_path"
+          echo "EXE_PRIVATE_KEY_PATH=$key_path" >> "$GITHUB_ENV"
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+
+      - name: Rebuild the template if cleanup removed it
+        if: steps.exe.outputs.enabled == 'true'
+        # Template mode is idempotent: an existing template with this image is
+        # kept, and a missing one is rebuilt from the same registry digest.
+        run: bash infra/workspace/exeRollout.sh template
+
   deploy-production:
     name: Deploy production
-    needs: [prepare, build-transition]
+    needs: [prepare, build-transition, prepare-template]
     permissions:
       contents: read
       id-token: write
@@ -267,3 +315,57 @@ jobs:
           fi
           gh release upload "$VERSION" "$assets"/* --repo cashew-labs/halo --clobber
           gh release edit "$VERSION" --repo cashew-labs/halo --draft=false --latest
+
+  cleanup-templates:
+    name: Remove workspace templates older than production
+    needs: [prepare, deploy-production]
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Read the exe.dev account key
+        id: exe
+        shell: bash
+        run: |
+          config=infra/control-plane/Pulumi.prod.yaml
+          provider="$(sed -n 's/^  halo-control-plane:workspaceProvider: //p' "$config")"
+          if [ "$provider" != exe ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          key_secret="$(sed -n 's/^  halo-control-plane:exePrivateKeySecretId: //p' "$config")"
+          key_path="$RUNNER_TEMP/exe-account-key"
+          gcloud secrets versions access 1 --secret="$key_secret" --project="$PROJECT" --out-file="$key_path"
+          chmod 600 "$key_path"
+          echo "EXE_PRIVATE_KEY_PATH=$key_path" >> "$GITHUB_ENV"
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+
+      - name: Remove stale templates
+        if: steps.exe.outputs.enabled == 'true'
+        shell: bash
+        run: |
+          ssh_args=(-F /dev/null -i "$EXE_PRIVATE_KEY_PATH" -o IdentitiesOnly=yes -o IdentityAgent=none -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=infra/workspace/exe-known-hosts)
+          # Workspace VMs are independent copies; neither stack creates new
+          # workspaces from a template older than production.
+          ssh "${ssh_args[@]}" exe.dev ls --json > "$RUNNER_TEMP/vms.json"
+          node releases/staleExeTemplates.mjs "$VERSION" < "$RUNNER_TEMP/vms.json" > "$RUNNER_TEMP/stale.txt"
+          while read -r vm; do
+            echo "Removing $vm"
+            # -n keeps ssh from reading the remaining names from the loop's stdin.
+            ssh -n "${ssh_args[@]}" exe.dev rm "$vm"
+          done < "$RUNNER_TEMP/stale.txt"

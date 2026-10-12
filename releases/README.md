@@ -19,6 +19,13 @@ new backend would stop serving production's current clients. The staging release
 notes record the source revision (`Source: cashew-labs/halo@<sha>`) that
 promotion deploys and tags.
 
+Each staging release creates a paused exe.dev template VM, `halo-exe-<version>`,
+that new workspaces are copied from. After a successful promotion,
+`promote.yml` removes every template older than the new production version, so
+paused templates do not accumulate disk use or count against the exe.dev VM
+limit. Promotion first re-runs the template step for the version it deploys,
+which rebuilds a missing template from that version's image digest.
+
 `releases/production.json` starts at `0.1.71`, the version a one-time
 `pulumi up --stack prod` deploys when production is first created. Adding that
 file does not deploy; every later change to it does.
