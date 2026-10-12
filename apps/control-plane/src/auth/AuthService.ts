@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { betterAuth, type Auth, type BetterAuthOptions } from "better-auth";
 import { isAPIError } from "better-auth/api";
@@ -283,6 +284,76 @@ export class AuthService {
     } satisfies AuthSession;
   }
 
+  async createWorkspaceSocketTicket(headers: Headers, clientId: string) {
+    const session = await this.auth.api.getSession({ headers }).catch(
+      (cause) => new AuthServiceError({ detail: "read socket session", cause }), // coverage-exempt: External auth/database outage wrapper; success and authorization failures use the real database in integration tests.
+    );
+    if (session instanceof Error) return session;
+    if (session === null) return undefined;
+    const ticket = crypto.randomBytes(32).toString("base64url");
+    const context = await this.auth.$context;
+    const cleaned = await context.adapter
+      .deleteMany({
+        model: "verification",
+        where: [
+          {
+            field: "identifier",
+            operator: "starts_with",
+            value: "workspace-socket:",
+          },
+          { field: "expiresAt", operator: "lt", value: new Date() },
+        ],
+      })
+      .catch(
+        (cause) =>
+          new AuthServiceError({ detail: "expire socket tickets", cause }), // coverage-exempt: External auth/database outage wrapper; success and authorization failures use the real database in integration tests.
+      );
+    if (cleaned instanceof Error) return cleaned;
+    const stored = await context.internalAdapter
+      .createVerificationValue({
+        identifier: socketTicketIdentifier(ticket),
+        value: JSON.stringify({
+          sessionToken: session.session.token,
+          clientId,
+        }),
+        expiresAt: new Date(Date.now() + 60_000),
+      })
+      .catch(
+        (cause) =>
+          new AuthServiceError({ detail: "issue socket ticket", cause }), // coverage-exempt: External auth/database outage wrapper; success and authorization failures use the real database in integration tests.
+      );
+    if (stored instanceof Error) return stored;
+    return { ticket };
+  }
+
+  async consumeWorkspaceSocketTicket(ticket: string) {
+    if (!/^[A-Za-z0-9_-]{43}$/u.test(ticket)) return undefined;
+    const context = await this.auth.$context;
+    const stored = await context.internalAdapter
+      .consumeVerificationValue(socketTicketIdentifier(ticket))
+      .catch(
+        (cause) =>
+          new AuthServiceError({ detail: "consume socket ticket", cause }), // coverage-exempt: External auth/database outage wrapper; success and authorization failures use the real database in integration tests.
+      );
+    if (stored instanceof Error) return stored;
+    if (stored === null) return undefined;
+    // SAFETY: Only createWorkspaceSocketTicket writes this namespaced value.
+    const value = JSON.parse(stored.value) as {
+      sessionToken: string;
+      clientId: string;
+    };
+    const session = await this.getSession(
+      new Headers({ authorization: `Bearer ${value.sessionToken}` }),
+    );
+    if (session instanceof Error) return session;
+    if (
+      session === undefined ||
+      session.session.expiresAt.getTime() <= Date.now()
+    )
+      return undefined;
+    return { ...session, clientId: value.clientId };
+  }
+
   async createWorkspaceCredential(ctx: {
     userId: string;
     workspaceId: string;
@@ -405,4 +476,8 @@ function parseDesktopSignInRequest(request: DesktopSignInRequest) {
   }
 
   return { callback, state: request.state };
+}
+
+function socketTicketIdentifier(ticket: string) {
+  return `workspace-socket:${crypto.createHash("sha256").update(ticket).digest("hex")}`;
 }

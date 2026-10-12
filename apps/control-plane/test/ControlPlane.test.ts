@@ -26,6 +26,8 @@ import { join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
+import { RPCLink as SocketRPCLink } from "@orpc/client/websocket";
+import { haloProtocolVersion, type HaloClient } from "@get-halo/client";
 import { writeWorkspaceServerConnection } from "@get-halo/shared/WorkspaceServerConnection";
 import { type ControlPlaneClient } from "@get-halo/shared/controlPlaneContract";
 import { betterAuth } from "better-auth";
@@ -4510,5 +4512,162 @@ controlPlaneTest(
     await expect(unsupported.workspace.ensure()).rejects.toMatchObject({
       code: "UNSUPPORTED_PROTOCOL",
     });
+  },
+);
+
+// Durable regression: reconnects must replace abandoned streams instead of
+// accumulating the requests that exhausted the production gateway.
+controlPlaneTest(
+  "authenticates one-use WebSocket tickets and replaces abandoned subscriptions",
+  { timeout: 30_000 },
+  async ({ plane, browserHeaders, agent }) => {
+    await using cleanup = new errore.AsyncDisposableStack();
+    const clientId = crypto.randomUUID();
+    const url = new URL("/workspace/rpc/socket", plane.origin);
+    url.protocol = "ws:";
+    const headers = new Headers(browserHeaders);
+    headers.set("x-halo-client-id", clientId);
+    const issue = async () => {
+      const response = await fetch(`${plane.origin}/workspace/rpc/connect`, {
+        method: "POST",
+        headers,
+      });
+      expect(response.status).toBe(200);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      // SAFETY: Successful response from the product ticket endpoint.
+      return (await response.json()) as { ticket: string };
+    };
+    const open = (ticket: string) => {
+      const socket = new WebSocket(url, ["halo-rpc", `halo-ticket.${ticket}`]);
+      cleanup.defer(() => socket.close());
+      const api = createORPCClient<HaloClient>(
+        new SocketRPCLink({
+          connect: () => socket,
+          headers: { "x-halo-protocol-version": String(haloProtocolVersion) },
+        }),
+      );
+      return { socket, api };
+    };
+    const session = await agent.rpc.thread.new();
+    const ticket = await issue();
+    const first = open(ticket.ticket);
+    const updates = await first.api.thread.events(session);
+    expect((await updates.next()).value).toMatchObject({ type: "snapshot" });
+    const duplicate = open(ticket.ticket);
+    await expect.poll(() => duplicate.socket.readyState).toBe(WebSocket.CLOSED);
+    const pending = expect(updates.next()).rejects.toThrow();
+    const second = open((await issue()).ticket);
+    expect(await second.api.thread.snapshot(session)).toMatchObject({});
+    await pending;
+    await expect.poll(() => first.socket.readyState).toBe(WebSocket.CLOSED);
+    expect(second.socket.protocol).toBe("halo-rpc");
+    const heartbeat = new Promise<string>((complete) =>
+      second.socket.addEventListener("message", (event) => {
+        if (event.data === "halo:pong") complete(event.data);
+      }),
+    );
+    second.socket.send("halo:ping");
+    expect(await heartbeat).toBe("halo:pong");
+    let previous = second;
+    for (let attempt = 0; attempt < 85; attempt++) {
+      const replacement = open((await issue()).ticket);
+      const watch = await replacement.api.server.watch();
+      expect((await watch.next()).done).toBe(false);
+      expect(await replacement.api.thread.snapshot(session)).toMatchObject({});
+      await expect
+        .poll(() => previous.socket.readyState)
+        .toBe(WebSocket.CLOSED);
+      previous = replacement;
+    }
+    // A black-holed connection never reports close. Advance only wall time;
+    // the real server deadline sweep must terminate it without client help.
+    using clock = vi.spyOn(Date, "now");
+    clock.mockReturnValue(Date.now() + 91_000);
+    await expect
+      .poll(() => previous.socket.readyState, { timeout: 7_000 })
+      .toBe(WebSocket.CLOSED);
+
+    expect((await fetch(`${plane.origin}/health`)).status).toBe(200);
+  },
+);
+
+controlPlaneTest(
+  "rejects unauthenticated and foreign-origin socket ticket requests",
+  async ({ plane, browserHeaders }) => {
+    const headers = new Headers({ "x-halo-client-id": crypto.randomUUID() });
+    expect(
+      (
+        await fetch(`${plane.origin}/workspace/rpc/connect`, {
+          method: "POST",
+          headers,
+        })
+      ).status,
+    ).toBe(401);
+    for (const [name, value] of browserHeaders) headers.set(name, value);
+    headers.set("origin", "https://untrusted.example");
+    expect(
+      (
+        await fetch(`${plane.origin}/workspace/rpc/connect`, {
+          method: "POST",
+          headers,
+        })
+      ).status,
+    ).toBe(403);
+  },
+);
+
+controlPlaneTest(
+  "expires socket tickets and validates the connection request",
+  async ({ plane, browserHeaders }) => {
+    await using cleanup = new errore.AsyncDisposableStack();
+    const headers = new Headers(browserHeaders);
+    const endpoint = `${plane.origin}/workspace/rpc/connect`;
+    expect((await fetch(endpoint, { method: "POST", headers })).status).toBe(
+      400,
+    );
+    headers.set("x-halo-client-id", crypto.randomUUID());
+    const response = await fetch(endpoint, { method: "POST", headers });
+    expect(response.status).toBe(200);
+    // SAFETY: Successful response from the product ticket endpoint.
+    const { ticket } = (await response.json()) as { ticket: string };
+    vi.useFakeTimers({ toFake: ["Date"] });
+    cleanup.defer(() => {
+      vi.useRealTimers();
+    });
+    vi.setSystemTime(Date.now() + 61_000);
+    const socket = new WebSocket(
+      `${plane.origin.replace("http:", "ws:")}/workspace/rpc/socket`,
+      ["halo-rpc", `halo-ticket.${ticket}`],
+    );
+    cleanup.defer(() => socket.close());
+    await expect.poll(() => socket.readyState).toBe(WebSocket.CLOSED);
+    expect((await fetch(endpoint, { method: "POST", headers })).status).toBe(
+      200,
+    );
+  },
+);
+
+controlPlaneTest(
+  "a ticket cannot reconnect a signed-out session",
+  async ({ plane, browserHeaders }) => {
+    const headers = new Headers(browserHeaders);
+    headers.set("x-halo-client-id", crypto.randomUUID());
+    const response = await fetch(`${plane.origin}/workspace/rpc/connect`, {
+      method: "POST",
+      headers,
+    });
+    expect(response.status).toBe(200);
+    // SAFETY: Successful response from the product ticket endpoint.
+    const { ticket } = (await response.json()) as { ticket: string };
+    const signedOut = await fetch(`${plane.origin}/api/auth/sign-out`, {
+      method: "POST",
+      headers: browserHeaders,
+    });
+    expect(signedOut.status).toBe(200);
+    const socket = new WebSocket(
+      `${plane.origin.replace("http:", "ws:")}/workspace/rpc/socket`,
+      ["halo-rpc", `halo-ticket.${ticket}`],
+    );
+    await expect.poll(() => socket.readyState).toBe(WebSocket.CLOSED);
   },
 );

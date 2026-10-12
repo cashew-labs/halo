@@ -1,3 +1,5 @@
+import { Type } from "@sinclair/typebox";
+import { Value } from "@sinclair/typebox/value";
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import type { Duplex } from "node:stream";
 import { GoogleAuth, type IdTokenClient } from "google-auth-library";
@@ -48,6 +50,51 @@ export class WorkspaceGateway {
       return;
     }
 
+    const url = new URL(request.url ?? "/", this.publicOrigin);
+    if (url.pathname === "/workspace/rpc/connect") {
+      if (
+        request.headers.origin !== undefined &&
+        request.headers.origin !== this.publicOrigin.origin &&
+        !(
+          request.headers.origin === "null" &&
+          request.headers.authorization !== undefined
+        )
+      ) {
+        respond(request, response, 403);
+        return;
+      }
+      const clientId = request.headers["x-halo-client-id"];
+      if (
+        request.method !== "POST" ||
+        !Value.Check(Type.String({ pattern: "^[a-f0-9-]{36}$" }), clientId)
+      ) {
+        respond(request, response, 400);
+        return;
+      }
+      const ticket = await this.auth.createWorkspaceSocketTicket(
+        requestHeaders(request),
+        clientId,
+      );
+      if (ticket instanceof Error) {
+        // coverage-exempt: Response to an external auth/database outage; no service mocks in the full gateway fixture.
+        console.error(ticket);
+        respond(request, response, 500);
+        return;
+      }
+      if (ticket === undefined) {
+        respond(request, response, 401);
+        return;
+      }
+      response
+        .writeHead(200, {
+          ...corsHeaders(request),
+          "content-type": "application/json",
+          "cache-control": "no-store",
+        })
+        .end(JSON.stringify(ticket));
+      return;
+    }
+
     const session = await this.auth.getSession(requestHeaders(request));
     if (session instanceof Error) {
       console.error(session);
@@ -87,7 +134,18 @@ export class WorkspaceGateway {
   }
 
   async upgrade(request: IncomingMessage, socket: Duplex, head: Buffer) {
-    const session = await this.auth.getSession(requestHeaders(request));
+    const url = new URL(request.url ?? "/", this.publicOrigin);
+    const rpcSocket = url.pathname === "/workspace/rpc/socket";
+    const protocols =
+      request.headers["sec-websocket-protocol"]
+        ?.split(",")
+        .map((value) => value.trim()) ?? [];
+    const ticket = protocols
+      .find((value) => value.startsWith("halo-ticket."))
+      ?.slice("halo-ticket.".length);
+    const session = rpcSocket
+      ? await this.auth.consumeWorkspaceSocketTicket(ticket ?? "")
+      : await this.auth.getSession(requestHeaders(request));
     if (session instanceof Error) {
       console.error(session);
       respondToUpgrade(socket, 500);
@@ -116,8 +174,20 @@ export class WorkspaceGateway {
       return;
     }
 
+    if (socket.destroyed) return;
     const target = workspaceTarget(request, connection.origin);
     prepareWorkspaceRequest(request, target, authorization, this.publicOrigin);
+    if (
+      rpcSocket &&
+      "clientId" in session &&
+      Value.Check(Type.String(), session.clientId)
+    ) {
+      request.headers["sec-websocket-protocol"] = "halo-rpc";
+      request.headers["x-halo-client-id"] = session.clientId;
+      request.headers["x-halo-session-expires"] = String(
+        session.session.expiresAt.getTime(),
+      );
+    }
     const proxied = await proxyUpgrade(target.origin, request, socket, head, {
       xfwd: false,
     }).catch(
@@ -207,6 +277,8 @@ function prepareWorkspaceRequest(
   authorization: Readonly<Record<string, string>>,
   publicOrigin: URL,
 ) {
+  delete request.headers["x-halo-client-id"];
+  delete request.headers["x-halo-session-expires"];
   delete request.headers.authorization;
   delete request.headers.cookie;
   delete request.headers.forwarded;
@@ -268,7 +340,7 @@ function respondToPreflight(
     .writeHead(204, {
       ...corsHeaders(request),
       "access-control-allow-headers":
-        "authorization, content-type, x-halo-protocol-version",
+        "authorization, content-type, x-halo-protocol-version, x-halo-client-id",
       "access-control-allow-methods": "GET, POST, OPTIONS",
       "access-control-max-age": "3600",
     })
