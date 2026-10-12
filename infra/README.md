@@ -1,8 +1,9 @@
 # Halo infrastructure
 
-Halo production runs in GCP project `halo-relay` with the control plane in
-`us-west2` and user workspace VMs in `us-west2-a`. The active Pulumi
-control-plane stack is `west`.
+Halo's production control plane runs in GCP project `halo-relay` in `us-west2`.
+User workspace VMs run on Exe with `workspaceProvider: exe`. The active Pulumi
+control-plane stack is `west`; the optional GCP workspace provider uses
+`us-west2-a`.
 
 The Pulumi state bucket and KMS key remain in `us-central1`. They are bootstrap
 resources outside the application stacks and are not on the application request
@@ -18,10 +19,12 @@ for previously released desktop clients.
 
 ## Production layout
 
-- `control-plane/` owns the `halo-west` network, Cloud NAT, Artifact Registry,
+- `control-plane/` owns the `halo-west` network, Artifact Registry,
   build-source bucket, Cloud SQL database, runtime secrets, service accounts,
   Cloud Run service, HTTPS load balancer, managed certificate, and workspace
-  instance template.
+  instance template. It creates Cloud NAT and its router only when
+  `workspaceProvider` is `gcp`. Exe workspaces do not use the GCP VPC, and Cloud
+  Run's `PRIVATE_RANGES_ONLY` egress does not route internet traffic through NAT.
 - The private agent-trace bucket stores one immutable `.jsonl.gz` object per
   completed, failed, cancelled, or interrupted run. It has no expiry rules and
   a 30-day soft-delete recovery window. Only the control-plane identity has
@@ -30,11 +33,14 @@ for previously released desktop clients.
   path. Template/provisioning metadata supplies the control-plane origin and
   registered workspace ID for the server's `traceUpload` configuration. See the
   [trace archive documentation](../packages/workspace-server/src/traces/README.md).
-- The control plane creates one workspace VM and durable workspace disk per
-  user from that template. Production user workspaces are not managed by the
+- The control plane creates one Exe workspace VM per user from the selected Exe
+  template. With the optional GCP provider, it creates a GCP workspace VM and
+  durable disk instead. Production user workspaces are not managed by the
   standalone `workspace/` Pulumi program.
 - `workspace/` remains available for an explicitly configured standalone
-  development workspace. There is no active production stack in that program.
+  GCP development workspace. Its referenced control-plane stack must use the
+  GCP provider so Cloud NAT supplies internet access. There is no active
+  production stack in that program.
 
 The production control plane uses these locations:
 
