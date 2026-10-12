@@ -161,20 +161,23 @@ const subnet = new gcp.compute.Subnetwork("subnet", {
   ipCidrRange: "10.42.0.0/20",
   privateIpGoogleAccess: true,
 });
-const router = new gcp.compute.Router("router", {
-  name: `${name}-router`,
-  network: network.id,
-  region,
-});
-new gcp.compute.RouterNat("nat", {
-  name: `${name}-nat`,
-  router: router.name,
-  region,
-  natIpAllocateOption: "AUTO_ONLY",
-  sourceSubnetworkIpRangesToNat: "LIST_OF_SUBNETWORKS",
-  subnetworks: [{ name: subnet.id, sourceIpRangesToNats: ["ALL_IP_RANGES"] }],
-  logConfig: { enable: true, filter: "ERRORS_ONLY" },
-});
+// Exe workspaces do not use this VPC; Cloud Run sends only private traffic into it.
+if (workspaceProvider === "gcp") {
+  const router = new gcp.compute.Router("router", {
+    name: `${name}-router`,
+    network: network.id,
+    region,
+  });
+  new gcp.compute.RouterNat("nat", {
+    name: `${name}-nat`,
+    router: router.name,
+    region,
+    natIpAllocateOption: "AUTO_ONLY",
+    sourceSubnetworkIpRangesToNat: "LIST_OF_SUBNETWORKS",
+    subnetworks: [{ name: subnet.id, sourceIpRangesToNats: ["ALL_IP_RANGES"] }],
+    logConfig: { enable: true, filter: "ERRORS_ONLY" },
+  });
+}
 new gcp.compute.Firewall("ssh", {
   name: `${name}-iap-ssh`,
   network: network.id,
