@@ -51,10 +51,22 @@ v1/workspaces/<workspaceId>/sessions/<sessionId>/<traceId>.jsonl.gz
 The host can supply
 `WorkspaceServer.start({ config, host: { traceUploader, ... } })`. Uploads
 happen in the background after completion, on startup, and every 30 seconds
-while there is pending data. Failed uploads remain pending. Successful uploads
-move the local copy from `pending/` to `archive/`; local and remote archives
-have no automatic expiry. Hosts without an uploader retain pending files
-locally.
+while there is pending data. Transient failures remain pending with per-file
+exponential backoff, from 30 seconds up to 30 minutes. An unsuccessful file does
+not block other pending archives, and completion/timer notifications coalesce
+while upload work is already scheduled.
+
+The control-plane uploader checks the shared 16 MiB compressed and 64 MiB
+expanded limits before sending any bytes. Invalid gzip, oversized archives,
+invalid keys, and HTTP 400/413/415/422 responses are permanent failures. Their
+local files move from `pending/` to `rejected/` and are not retried, including
+after a restart. Authentication failures and transient HTTP responses remain
+retryable. Hosts can return `TraceUploadRejectedError` to mark a permanent
+failure through the `TraceUploader` interface.
+
+Successful uploads move the local copy from `pending/` to `archive/`; local,
+rejected, and remote archives have no automatic expiry. Hosts without an
+uploader retain pending files locally.
 
 Restart recovery discards an incomplete final JSON line and adds an `interrupted`
 outcome to unfinished runs. A complete terminal record is preserved if shutdown

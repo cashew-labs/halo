@@ -14,11 +14,23 @@ export type TraceUploader = {
   upload(input: { key: string; filePath: string }): Promise<void | Error>;
 };
 
+export class TraceUploadRejectedError extends errore.createTaggedError({
+  name: "TraceUploadRejectedError",
+  message: "Trace '$key' cannot be uploaded: $reason",
+}) {}
+
 export class TraceService {
   // Owns runs until their final records are committed locally.
   private readonly runs = new Map<string, RunTrace>();
   // Serializes uploads without holding any agent operation queue.
   private readonly actionQueue = new SerialQueue();
+  // Coalesces completion and timer notifications while upload work is pending.
+  private uploadScheduled = false;
+  // Gives transient failures per-file backoff without delaying other archives.
+  private readonly uploadRetries = new Map<
+    string,
+    { delayMs: number; nextAttemptAt: number }
+  >();
   // Retries durable pending uploads while the server is running.
   private timer: NodeJS.Timeout | undefined;
   // Stops new uploads and runs during shutdown.
@@ -282,9 +294,12 @@ export class TraceService {
   }
 
   private scheduleUpload() {
-    if (this.closed || this.uploader === undefined) return;
+    if (this.closed || this.uploader === undefined || this.uploadScheduled)
+      return;
+    this.uploadScheduled = true;
     // oxlint-disable-next-line typescript/no-floating-promises -- The queue owns background uploads; close() drains it and failures remain in the spool.
     this.actionQueue.run(async () => {
+      this.uploadScheduled = false;
       if (this.closed) return;
       const uploaded = await this.uploadPending();
       if (uploaded instanceof Error) this.report(uploaded);
@@ -299,13 +314,30 @@ export class TraceService {
     if (files instanceof Error) return files;
     for (const key of files.filter((file) => file.endsWith(".jsonl.gz"))) {
       if (this.closed) return;
+      const retry = this.uploadRetries.get(key);
+      if (retry !== undefined && Date.now() < retry.nextAttemptAt) continue;
       const filePath = path.join(pending, key);
       const uploaded = await uploader.upload({
         key: key.split(path.sep).join("/"),
         filePath,
       });
-      if (uploaded instanceof Error) return uploaded;
-      const destination = path.join(this.directory, "archive", key);
+      if (uploaded instanceof Error) {
+        this.report(uploaded);
+        if (!(uploaded instanceof TraceUploadRejectedError)) {
+          const delayMs =
+            retry === undefined
+              ? 30_000
+              : Math.min(retry.delayMs * 2, 30 * 60_000);
+          this.uploadRetries.set(key, {
+            delayMs,
+            nextAttemptAt: Date.now() + delayMs,
+          });
+          continue;
+        }
+      }
+      const state =
+        uploaded instanceof TraceUploadRejectedError ? "rejected" : "archive";
+      const destination = path.join(this.directory, state, key);
       const created = await fs
         .mkdir(path.dirname(destination), { recursive: true, mode: 0o700 })
         .catch(
@@ -323,6 +355,7 @@ export class TraceService {
             new TraceStorageError({ operation: "acknowledge upload", cause }),
         );
       if (moved instanceof Error) return moved;
+      this.uploadRetries.delete(key);
     }
   }
 }

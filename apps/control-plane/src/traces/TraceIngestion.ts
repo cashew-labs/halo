@@ -6,13 +6,12 @@ import { gunzip } from "node:zlib";
 import { Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import * as errore from "errore";
+import { traceUploadLimits } from "@get-halo/client/traces";
 import type { WorkspaceService } from "../workspace/WorkspaceService.js";
 import { TraceCloud } from "./TraceCloud.js";
 import { WorkspaceAuthenticationRequiredError } from "../auth/AuthService.js";
 
 const decompress = promisify(gunzip);
-const maxCompressedBytes = 16 * 1024 * 1024;
-const maxExpandedBytes = 64 * 1024 * 1024;
 const recordSchema = Type.Object({
   schemaVersion: Type.Literal(1),
   workspaceId: Type.String(),
@@ -108,7 +107,7 @@ async function readArchive(request: IncomingMessage) {
     new Writable({
       write(chunk: Buffer, _encoding, callback) {
         size += chunk.byteLength;
-        if (size > maxCompressedBytes) {
+        if (size > traceUploadLimits.compressedBytes) {
           callback(
             new TraceArchiveError({ detail: "compressed size limit exceeded" }),
           );
@@ -130,7 +129,7 @@ async function validateArchive(input: {
   traceId: string;
 }) {
   const expanded = await decompress(input.body, {
-    maxOutputLength: maxExpandedBytes,
+    maxOutputLength: traceUploadLimits.expandedBytes,
   }).catch(
     (cause) => new TraceArchiveError({ detail: "decompress upload", cause }),
   );
