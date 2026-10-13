@@ -18,9 +18,12 @@ source_digest=$(docker image inspect --format '{{index .RepoDigests 0}}' "$WORKS
 image="halo-workspace:${source_digest##*:}"
 docker tag "$WORKSPACE_IMAGE" "$image"
 restore_paused=false
+clean_images_on_exit=false
 restore_sleep_on_exit() {
   result=$?
   trap - EXIT
+  # A failed update must not leave its image behind to fill the next attempt's disk.
+  if [ "$clean_images_on_exit" = true ]; then remove_unused_images; fi
   if [ "$restore_paused" = true ]; then
     if ! ssh "${ssh_args[@]}" exe.dev pause "$vm"; then
       echo "Failed to restore $vm to its paused state" >&2
@@ -30,6 +33,36 @@ restore_sleep_on_exit() {
   exit "$result"
 }
 trap restore_sleep_on_exit EXIT
+
+# Keep only the image the halo service is configured to run and any image a
+# container uses; everything else is an earlier release or a failed install.
+remove_unused_images() {
+  ssh "${ssh_args[@]}" "$vm.exe.xyz" 'sudo bash -s' <<'CLEAN' || echo "Could not remove unused workspace images on $vm" >&2
+set -euo pipefail
+keep=$(cat /etc/halo/image 2>/dev/null || true)
+in_use=$(docker ps -aq | xargs -r docker inspect --format '{{.Config.Image}}')
+for image in $(docker images --format '{{.Repository}}:{{.Tag}}' halo-workspace); do
+  if [ "$image" = "$keep" ] || grep -qxF "$image" <<< "$in_use"; then continue; fi
+  docker rmi "$image" >/dev/null
+done
+docker image prune -f >/dev/null
+CLEAN
+}
+
+# A full disk also stops the running workspace, so refuse the transfer when the
+# new image would not fit. containerd keeps the compressed layers and their
+# unpacked snapshot, so loading needs about twice the image's size.
+require_free_space() {
+  local image_gib needed_gib free_gib
+  image_gib=$(( ($(docker image inspect --format '{{.Size}}' "$image") + 1073741823) / 1073741824 ))
+  needed_gib=$(( image_gib * 2 + 5 ))
+  free_gib=$(ssh "${ssh_args[@]}" "$vm.exe.xyz" "df --block-size=1G --output=avail /var/lib | tail -n 1" | tr -d ' ')
+  if [ "$free_gib" -lt "$needed_gib" ]; then
+    echo "$vm has ${free_gib}GB free but needs ${needed_gib}GB to load $image; leaving the running workspace unchanged" >&2
+    exit 1
+  fi
+}
+
 case "$mode" in
   template)
     : "${EXE_TEMPLATE_VM_NAME:?}"
@@ -81,6 +114,9 @@ ACTIVITY
       # A crashed or stopped old container must still receive the repair image.
       echo 'Could not report release activity; continuing with the workspace update' >&2
     fi
+    clean_images_on_exit=true
+    remove_unused_images
+    require_free_space
     docker save "$image" | gzip -1 | ssh "${ssh_args[@]}" "$vm.exe.xyz" 'gzip -d | sudo docker load'
     scp "${ssh_args[@]}" "$root/infra/workspace/exeTemplate.sh" "$root/infra/workspace/desktop-seccomp.json" "$vm.exe.xyz:/tmp/"
     ssh "${ssh_args[@]}" "$vm.exe.xyz" "sudo bash /tmp/exeTemplate.sh '$image' update-host && sudo /usr/local/bin/halo-workspace-upgrade '$image'"
@@ -92,6 +128,9 @@ ACTIVITY
       sleep 5
     done
     if [ "$ready" != true ]; then cat "$RUNNER_TEMP/exe-status-error.log" >&2; echo "$vm did not become ready for $image" >&2; exit 1; fi
+    # Cleanup must run while the guest is awake, before it is paused again.
+    clean_images_on_exit=false
+    remove_unused_images
     if [ "$status" = paused ] || [ "$status" = suspended ]; then ssh "${ssh_args[@]}" exe.dev pause "$vm"; fi
     restore_paused=false
     echo "HALO_WORKSPACE_READY image=$image revision=$SOURCE_SHA"
