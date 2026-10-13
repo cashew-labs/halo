@@ -142,6 +142,33 @@ protocols, and revision before browser or desktop publishing. A container startu
 or health failure blocks publishing; automatic rollback and draining active agent
 runs are not implemented. The restart still briefly interrupts active work.
 
+Exe workspaces update through `infra/workspace/exeRollout.sh update`. The guest
+pulls the release image by digest from `halo-west-workspaces`, so only layers it
+lacks cross the network. The runner mints a 30-minute access token for
+`halo-west-image-puller`, a service account that can only read that repository,
+and passes it on standard input into a throwaway Docker config that is removed
+after the pull. The `west` stack owns the puller and its grants; they must exist
+before the first release that uses them, so apply them once with
+`pulumi -C infra/control-plane up --stack west --target <urns>` for
+`image-puller`, `image-puller-reader`, and `deployment-image-puller-token`. Each update keeps only the
+image the `halo` service is configured to run (`/etc/halo/image`) and any image a
+container uses. It removes every other `halo-workspace` image before the
+transfer, after the new container reports ready, and when the update fails, so
+earlier releases and failed installs do not fill the disk. A full disk also stops
+the running workspace, so the update refuses the transfer when the guest lacks
+room to pull the image and leaves the running workspace unchanged. The estimate
+is four times the image's compressed layers plus 1 GiB, because containerd keeps
+the compressed layers and unpacked they measured about 2.7 times larger.
+
+To keep that space free, each successful update and each new template set ext4's
+reserved blocks (`tune2fs -r`) to the next update's estimate, about 7 GiB today.
+Only root can write into reserved blocks: Docker, which runs as root, can use
+them, but user files written by the workspace's non-root user cannot. If a guest
+already has less free space, the reserve leaves the user 1 GiB and the update
+logs a warning. Writes inside the container's own filesystem, outside
+`/home/node`, go through root-owned overlay storage and can still use the
+reserve.
+
 The `deploymentServiceAccount` stack setting must match
 `GCP_DEPLOY_SERVICE_ACCOUNT` in GitHub. Pulumi manages OS Admin Login, IAP access
 restricted to SSH, and access to the workspace runtime service account. Existing

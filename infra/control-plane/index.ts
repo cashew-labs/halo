@@ -228,6 +228,7 @@ const imageBuild =
         repositoryId: sharedImageRepositoryId,
         sources: undefined,
         builder: undefined,
+        imagePuller: undefined,
       };
 const imageRepositoryId = imageBuild.repositoryId;
 
@@ -265,7 +266,31 @@ function createImageBuild() {
     role: "roles/logging.logWriter",
     member: pulumi.interpolate`serviceAccount:${builder.email}`,
   });
-  return { repositoryId: repository.repositoryId, sources, builder };
+  // exe.dev workspaces pull release images with a short-lived token minted for
+  // this account by the release runner (infra/workspace/exeRollout.sh). It can
+  // only read this repository, so a token leaked from a guest grants nothing else.
+  const imagePuller = new gcp.serviceaccount.Account("image-puller", {
+    accountId: `${name}-image-puller`,
+    displayName: "Halo workspace image puller",
+  });
+  new gcp.artifactregistry.RepositoryIamMember("image-puller-reader", {
+    project,
+    location: region,
+    repository: repository.repositoryId,
+    role: "roles/artifactregistry.reader",
+    member: pulumi.interpolate`serviceAccount:${imagePuller.email}`,
+  });
+  new gcp.serviceaccount.IAMMember("deployment-image-puller-token", {
+    serviceAccountId: imagePuller.name,
+    role: "roles/iam.serviceAccountTokenCreator",
+    member: `serviceAccount:${deploymentServiceAccount}`,
+  });
+  return {
+    repositoryId: repository.repositoryId,
+    sources,
+    builder,
+    imagePuller,
+  };
 }
 
 const runtime = new gcp.serviceaccount.Account("control-plane-runtime", {
@@ -932,6 +957,7 @@ export const imageRepository = pulumi.interpolate`${region}-docker.pkg.dev/${pro
 export const controlPlaneImageRepository = pulumi.interpolate`${region}-docker.pkg.dev/${project}/${imageRepositoryId}/control-plane`;
 export const buildSourceBucket = imageBuild.sources?.name;
 export const buildServiceAccount = imageBuild.builder?.name;
+export const imagePullerServiceAccount = imageBuild.imagePuller?.email;
 export const controlPlaneServiceAccount = runtime.email;
 export const workspaceServiceAccount = workspaceRuntime.email;
 export const traceBucket = traces.name;

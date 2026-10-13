@@ -1,4 +1,17 @@
-FROM node:22-bookworm
+# Layers are ordered from least to most often changed. A changed layer rebuilds
+# every layer after it, and each rebuilt layer is downloaded by every workspace.
+
+# Pinned so the 1 GB base, and everything above it, changes only when a commit
+# updates this digest (node:22-bookworm).
+ARG BASE_IMAGE=node:22-bookworm@sha256:0e5f906573693feaa1e21057ebdcfdb5bd5021f050b2dc7c9deceb629c7da2a8
+
+# The browser install depends only on the pinned Playwright version, not on the
+# whole workspace manifest.
+FROM ${BASE_IMAGE} AS playwright-version
+COPY packages/workspace-server/package.json /tmp/package.json
+RUN node -p "require('/tmp/package.json').dependencies.playwright" > /tmp/playwright-version
+
+FROM ${BASE_IMAGE}
 
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright
 ENV ELECTRON_SKIP_BINARY_DOWNLOAD=1
@@ -10,12 +23,27 @@ RUN apt-get update \
        xfce4-settings thunar xfce4-terminal x11-utils x11-xserver-utils \
        adwaita-icon-theme fonts-dejavu xdg-utils \
     && rm -rf /var/lib/apt/lists/*
-RUN npm install --global pnpm@12.1.0
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-COPY patches ./patches
+RUN npm install --global pnpm@12.1.0 && npm cache clean --force
 COPY apps/workspace-server/pdf-requirements.txt ./apps/workspace-server/pdf-requirements.txt
 RUN python3 -m venv /opt/halo/.venv \
     && /opt/halo/.venv/bin/pip install --no-cache-dir --requirement apps/workspace-server/pdf-requirements.txt
+# BrowserService launches Playwright's Chromium.
+COPY --from=playwright-version /tmp/playwright-version /opt/halo/.playwright-version
+RUN npx --yes "playwright@$(cat /opt/halo/.playwright-version)" install --with-deps chromium --no-shell \
+    && rm -rf /var/lib/apt/lists/* /root/.npm
+# The desktop uses Google Chrome. CI passes the ISO week, so Chrome refreshes
+# weekly instead of with every commit.
+ARG CHROME_REFRESH=local
+RUN echo "Chrome refresh: ${CHROME_REFRESH}" \
+    && curl --fail --location --silent --show-error \
+      "https://dl.google.com/linux/direct/google-chrome-stable_current_$(dpkg --print-architecture).deb" \
+      --output /tmp/google-chrome-stable.deb \
+    && apt-get update \
+    && apt-get install --yes --no-install-recommends /tmp/google-chrome-stable.deb \
+    && rm -f /tmp/google-chrome-stable.deb \
+    && rm -rf /var/lib/apt/lists/*
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY patches ./patches
 # Keep workspace manifests in the dependency layer; copy sources after installation.
 COPY packages/app-control/package.json ./packages/app-control/package.json
 COPY packages/client/package.json ./packages/client/package.json
@@ -33,7 +61,6 @@ COPY packages/workspace-server/package.json ./packages/workspace-server/package.
 COPY apps/workspace-server/package.json ./apps/workspace-server/package.json
 RUN pnpm install --frozen-lockfile
 ARG PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false
-RUN pnpm exec playwright install --with-deps chromium --no-shell
 COPY packages ./packages
 COPY apps/workspace-server ./apps/workspace-server
 RUN cp apps/workspace-server/desktop/index.html apps/workspace-server/desktop/*.js /usr/share/novnc/ \
@@ -44,17 +71,6 @@ RUN pnpm --filter @get-halo/workspace-server run build \
     && pnpm --filter @get-halo/extension-tools run build
 # The workspace CLI builds and packs the local SDK when authoring extensions.
 RUN chown -R node:node /opt/halo/packages
-
-# Refresh Chrome for each release revision without invalidating dependency layers.
-ARG REVISION=local
-# The desktop uses Google Chrome; BrowserService keeps Playwright's Chromium.
-RUN curl --fail --location --silent --show-error \
-      "https://dl.google.com/linux/direct/google-chrome-stable_current_$(dpkg --print-architecture).deb" \
-      --output /tmp/google-chrome-stable.deb \
-    && apt-get update \
-    && apt-get install --yes --no-install-recommends /tmp/google-chrome-stable.deb \
-    && rm -f /tmp/google-chrome-stable.deb \
-    && rm -rf /var/lib/apt/lists/*
 
 ENV HOME=/home/node \
     DISPLAY=:1 \
@@ -78,6 +94,8 @@ HEALTHCHECK --interval=30s --start-period=120s --timeout=15s \
 ENTRYPOINT ["bash", "/opt/halo/apps/workspace-server/desktop/start.sh"]
 CMD ["/opt/halo/apps/workspace-server/container.json"]
 
+# Per-release metadata comes last so it never invalidates a large layer.
 ARG VERSION=dev
+ARG REVISION=local
 ENV HALO_BUILD_VERSION=$VERSION HALO_BUILD_REVISION=$REVISION
 LABEL org.opencontainers.image.revision=$REVISION
