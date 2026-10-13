@@ -24,17 +24,20 @@ export class AppUpdates {
   private manualCheckPending = false;
   private macUpdater: MacAppUpdater | undefined;
   private readonly config: ElectronConfig["updates"];
+  private readonly releaseChannel: ElectronConfig["releaseChannel"];
   private readonly getWindow: () => BrowserWindow | undefined;
   private readonly logger: LoggerApi;
   private readonly onInstallCancelled: () => void;
 
   constructor(ctx: {
     config: ElectronConfig["updates"];
+    releaseChannel: ElectronConfig["releaseChannel"];
     getWindow: () => BrowserWindow | undefined;
     logger: LoggerApi;
     onInstallCancelled(): void;
   }) {
     this.config = ctx.config;
+    this.releaseChannel = ctx.releaseChannel;
     this.getWindow = ctx.getWindow;
     this.logger = ctx.logger;
     this.onInstallCancelled = ctx.onInstallCancelled;
@@ -48,6 +51,7 @@ export class AppUpdates {
     return {
       version: app.getVersion(),
       development: !app.isPackaged,
+      releaseChannel: this.releaseChannel,
       update: this.updateStatus,
     };
   }

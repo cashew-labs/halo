@@ -10,6 +10,7 @@ import { useHost } from "../HostProvider.js";
 export function SidebarFooter({ appInfo }: { appInfo?: AppInfo }) {
   const row = useStyles(rowStyle);
   const version = useStyles(versionStyle);
+  const staging = useStyles(stagingStyle);
   const connection = useStyles(connectionStyle);
   return (
     <div className={row}>
@@ -18,6 +19,13 @@ export function SidebarFooter({ appInfo }: { appInfo?: AppInfo }) {
           <span className={version}>
             {appInfo.development ? "DEV" : appInfo.version}
           </span>
+          {appInfo.releaseChannel === "staging" && (
+            <Tooltip content="Connected to staging.gethalo.dev" placement="top">
+              <span className={staging} data-testid="app-release-channel">
+                Staging
+              </span>
+            </Tooltip>
+          )}
           <UpgradeIcon appInfo={appInfo} />
         </>
       )}
@@ -66,6 +74,10 @@ const rowStyle = style(flex({ alignItems: "center", gap: 3 }), {
 const versionStyle = style(text({ size: "xs", color: "lowContrast" }), {
   flexShrink: 0,
 });
+const stagingStyle = style(
+  text({ size: "xs", color: "accent", fontWeight: 600 }),
+  { flexShrink: 0 },
+);
 const connectionStyle = style({ marginLeft: "auto", whiteSpace: "nowrap" });
 const iconStyle = style({
   minWidth: 24,

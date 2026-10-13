@@ -91,6 +91,7 @@ const windows = new Set<BrowserWindow>();
 let isQuitting = false;
 const appUpdates = new AppUpdates({
   config: applicationConfig.updates,
+  releaseChannel: applicationConfig.releaseChannel,
   getWindow: () => mainWindow,
   logger: logger.scope("updates"),
   onInstallCancelled: () => {

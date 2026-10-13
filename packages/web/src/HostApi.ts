@@ -22,6 +22,8 @@ export type AppUpdateStatus =
 export type AppInfo = {
   version: string;
   development?: boolean;
+  /** Which deployment a packaged desktop follows; absent means production. */
+  releaseChannel?: "production" | "staging"; // coverage-exempt: a type declaration emits no runtime code
   update: AppUpdateStatus;
 };
 
