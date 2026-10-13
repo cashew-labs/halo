@@ -40,15 +40,36 @@ export function ToolActivity({ part }: { part: ToolActivityPart }) {
   const summaryClassName = useStyles(styles.summary);
   const thinkingClassName = useStyles(styles.thinking);
   const markClassName = useStyles(styles.mark);
-  const activeToolsClassName = useStyles(styles.activeTools);
-  const activeToolClassName = useStyles(styles.activeTool);
-  const activeShellToolClassName = useStyles(styles.activeTool, styles.shell);
+  const labelClassName = useStyles(styles.label);
+  const shellLabelClassName = useStyles(styles.label, styles.shell);
+  const additionalToolsClassName = useStyles(styles.additionalTools);
   const interactive = calls.length > 0;
   const visibleCalls = expanded ? calls : [];
   const completedLabel = joinSummary(summary.completed);
   if (completedLabel === undefined && !part.live) return undefined;
-  const headerLabel = completedLabel === undefined ? "Working" : completedLabel;
-  const activeTools = expanded ? [] : summary.active;
+  const activeTool = summary.active.at(-1);
+  const activeLabel =
+    activeTool?.label.kind === "shell"
+      ? `$ ${activeTool.label.text}`
+      : activeTool?.label.text;
+  const headerLabel = activeLabel ?? completedLabel ?? "Working";
+  const additionalTools = Math.max(0, summary.active.length - 1);
+  const accessibleLabel =
+    additionalTools === 0
+      ? headerLabel
+      : `${headerLabel} (+${String(additionalTools)} more)`;
+  const headerClassName =
+    activeTool?.label.kind === "shell" ? shellLabelClassName : labelClassName;
+  const header = (
+    <>
+      <span className={headerClassName}>{headerLabel}</span>
+      {additionalTools === 0 ? undefined : (
+        <span className={additionalToolsClassName}>
+          {` (+${String(additionalTools)} more)`}
+        </span>
+      )}
+    </>
+  );
 
   return (
     <div className={activityClassName} aria-label="Tool activity">
@@ -56,7 +77,8 @@ export function ToolActivity({ part }: { part: ToolActivityPart }) {
         <button
           type="button"
           className={summaryClassName}
-          aria-label={headerLabel}
+          aria-label={accessibleLabel}
+          title={accessibleLabel}
           aria-expanded={expanded}
           data-active={part.live ? "" : undefined}
           onClick={() => setExpanded(!expanded)}
@@ -73,7 +95,7 @@ export function ToolActivity({ part }: { part: ToolActivityPart }) {
               <ChevronRightLarge width={chevronSize} height={chevronSize} />
             </span>
           </span>
-          {headerLabel}
+          {header}
         </button>
       ) : (
         <div className={thinkingClassName}>
@@ -86,23 +108,7 @@ export function ToolActivity({ part }: { part: ToolActivityPart }) {
               />
             </span>
           ) : undefined}
-          {headerLabel}
-        </div>
-      )}
-      {activeTools.length === 0 ? undefined : (
-        <div className={activeToolsClassName} aria-label="Active tools">
-          {activeTools.map(({ id, label }) => (
-            <div
-              key={id}
-              className={
-                label.kind === "shell"
-                  ? activeShellToolClassName
-                  : activeToolClassName
-              }
-            >
-              {label.kind === "shell" ? `$ ${label.text}` : label.text}
-            </div>
-          ))}
+          {header}
         </div>
       )}
       <AnimatedToolCalls calls={visibleCalls} />
@@ -216,7 +222,7 @@ const styles = {
     flexShrink: 0,
   }),
   summary: style(summaryRow, {
-    width: "fit-content",
+    width: "100%",
     maxWidth: "100%",
     minWidth: 0,
     padding: 0,
@@ -277,20 +283,13 @@ const styles = {
       opacity: 0,
     },
   }),
-  activeTools: style(flex({ direction: "column", gap: 2 }), nestedIndent, {
+  label: style({
     minWidth: 0,
-    marginTop: spacing.value(3),
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
   }),
-  activeTool: style(
-    text({ size: "md", fontWeight: 400, color: "lowContrast" }),
-    {
-      minWidth: 0,
-      overflow: "hidden",
-      textOverflow: "ellipsis",
-      whiteSpace: "nowrap",
-      color: colors.gray[11],
-    },
-  ),
+  additionalTools: style({ flexShrink: 0, whiteSpace: "nowrap" }),
   shell: style(monospace, { fontFeatureSettings: '"calt" 1' }),
   calls: style(flex({ direction: "column", gap: 2 }), nestedIndent, {
     minWidth: 0,
