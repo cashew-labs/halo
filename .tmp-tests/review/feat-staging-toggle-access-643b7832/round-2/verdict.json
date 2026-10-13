@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The review base is now `feat/staging-sign-in-allowlist`. The sign-in allowlist (hooks, `stillAllowed`, `SignInAllowlist`) belongs to that base, so this diff only adds the production staging-testers flag and the desktop menu toggle. The base already fixes F1 and F2: a read failure now returns an error instead of signing users out, and refreshes are shared, time out after 5 s and back off after failures. F3 is out of scope here, and the e2e test now covers the `signIn` branch from F4. All temp tests pass, every changed line is covered, and no P0 or P1 issue remains.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "d3843adf7793a8b17c6664bcf95327836571896f",
+  "treeHash": "4b103fb7e20d10bb569d1603180b701b44fb7eac",
+  "codeTree": "2a73068bf593b16e016e00872f7b35d56880ec3f",
+  "coverage": {
+    "executable": 23,
+    "covered": 23,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-13T20:10:37.876Z"
+}
