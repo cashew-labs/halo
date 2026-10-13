@@ -3,6 +3,7 @@ import { contract } from "@get-halo/client";
 import { orpcErrors } from "../orpcErrors.js";
 import type { ExtensionHost } from "./ExtensionHost.js";
 import type { ToolRuntime } from "../agent/runtime/ToolRuntime.js";
+import { authorizeExtensionTool } from "./extensionToolPolicy.js";
 
 export type ExtensionsRouterContext = {
   extensions: ExtensionHost;
@@ -35,6 +36,8 @@ export const extensionToolRouter = {
   invoke: toolOs
     .input(type<{ path: string; input: unknown }>())
     .handler(async ({ input, context, signal }) => {
+      const denied = authorizeExtensionTool(input.path);
+      if (denied instanceof Error) throw orpcErrors.badRequest(denied);
       const result = await context.toolRuntime.invokePath({
         path: input.path,
         args: input.input,

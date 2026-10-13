@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./extensionSharing": "./src/extensionSharing.ts",
     "./controlPlaneContract": "./src/controlPlaneContract.ts",
     "./isCallable": "./src/isCallable.ts",
     "./SerialQueue": "./src/SerialQueue.ts",
