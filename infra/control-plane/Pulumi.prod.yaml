@@ -14,4 +14,5 @@ config:
   halo-control-plane:googleClientIdSecretId: halo-west-control-plane-google-client-id
   halo-control-plane:googleClientSecretId: halo-west-control-plane-google-client-secret
   halo-control-plane:ownsDeploymentAccess: "false"
+  halo-control-plane:stagingTestersSecretId: halo-west-sign-in-allowlist
 encryptedkey: CiQAdv4E5q8tNTMDHoTlCGd/fFHniKg+4N9ypkKeS6g1Ea+3N/ASSQBYrJ1d+hjHKn6WKmquQNyeYD/EKausLEvkDTIXzDO5/b5EuIFJ2A39gC2e5bXoipE3CD8w4ds8R/0yoEgMcP4nwO0bTjwbzkA=

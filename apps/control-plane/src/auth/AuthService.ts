@@ -52,6 +52,8 @@ type AuthServiceOptions = {
   googleClientSecret: string;
   /** Restricts who can sign in; staging sets it, production leaves it open. */
   signInAllowlist?: SignInAllowlist;
+  /** Users offered the desktop staging toggle; production sets it. */
+  stagingTesters?: SignInAllowlist;
 };
 
 type DesktopSignInRequest = {
@@ -73,6 +75,8 @@ export type AuthSession = {
     expiresAt: Date;
   };
   user: AuthUser;
+  /** Whether the desktop app offers this user its staging toggle. */
+  stagingAccess: boolean;
 };
 
 type DesktopAuthSession = AuthSession & {
@@ -173,6 +177,7 @@ export class AuthService {
   private readonly origin: string;
   private readonly workspaceEncryptionKey: string;
   private readonly signInAllowlist: SignInAllowlist | undefined;
+  private readonly stagingTesters: SignInAllowlist | undefined;
 
   private constructor(ctx: {
     auth: BetterAuth;
@@ -180,8 +185,10 @@ export class AuthService {
     origin: string;
     workspaceEncryptionKey: string;
     signInAllowlist: SignInAllowlist | undefined;
+    stagingTesters: SignInAllowlist | undefined;
   }) {
     this.signInAllowlist = ctx.signInAllowlist;
+    this.stagingTesters = ctx.stagingTesters;
     this.auth = ctx.auth;
     this.nodeHandler = ctx.nodeHandler;
     this.origin = ctx.origin;
@@ -210,6 +217,7 @@ export class AuthService {
       origin: options.origin,
       workspaceEncryptionKey: `workspace-runtime:${options.secret}`,
       signInAllowlist: options.signInAllowlist,
+      stagingTesters: options.stagingTesters,
     });
   }
 
@@ -310,6 +318,7 @@ export class AuthService {
         name: result.user.name,
         image: result.user.image === null ? undefined : result.user.image,
       },
+      stagingAccess: await this.hasStagingAccess(result.user.email),
     } satisfies DesktopAuthSession;
   }
 
@@ -335,7 +344,16 @@ export class AuthService {
         name: result.user.name,
         image: result.user.image === null ? undefined : result.user.image,
       },
+      stagingAccess: await this.hasStagingAccess(result.user.email),
     } satisfies AuthSession;
+  }
+
+  // An unreadable list hides the toggle; it never affects sign-in.
+  private async hasStagingAccess(email: string) {
+    if (this.stagingTesters === undefined) return false;
+    const allowed = await this.stagingTesters.allows(email);
+    if (allowed instanceof Error) console.error(allowed);
+    return allowed === true;
   }
 
   // Sessions from before an email left the allowlist, or from before the

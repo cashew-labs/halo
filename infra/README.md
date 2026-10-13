@@ -245,7 +245,10 @@ Production Google OAuth credentials live in Secret Manager as:
 `signInAllowlistSecretId: halo-west-sign-in-allowlist`: only the emails listed in
 that secret (one per line, or comma-separated) can sign in to staging. The value
 lives only in Secret Manager; a new version takes effect within a minute. Unset,
-as on `prod`, anyone can sign in. The control plane loads its
+as on `prod`, anyone can sign in. `prod` sets
+`stagingTestersSecretId` to the same secret instead: it never limits production
+sign-in, but the desktop app shows Help > Use Staging only to those emails (and
+on installs already using staging). The control plane loads its
 sign-in client through its runtime service account.
 Every workspace-server app loads the canonical web integration client through
 ADC; IAM grants each local or cloud runtime access to those two secrets. The

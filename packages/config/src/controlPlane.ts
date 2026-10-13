@@ -20,6 +20,8 @@ const authSchema = Type.Object({
   googleClientSecret: Type.String({ minLength: 1 }),
   // Secret Manager secret listing the emails that may sign in; unset allows all.
   signInAllowlistSecretId: Type.Optional(Type.String({ minLength: 1 })),
+  // Secret Manager secret listing the emails offered the desktop staging toggle.
+  stagingTestersSecretId: Type.Optional(Type.String({ minLength: 1 })),
 });
 const portSchema = Type.Integer({ minimum: 0, maximum: 65_535 });
 const localWorkspaceSchema = Type.Object({
@@ -265,6 +267,7 @@ async function readCloudRunConfig(): Promise<ControlPlaneConfig | Error> {
     auth: {
       ...auth,
       signInAllowlistSecretId: process.env.SIGN_IN_ALLOWLIST_SECRET_ID,
+      stagingTestersSecretId: process.env.STAGING_TESTERS_SECRET_ID,
     },
     workspace,
   };

@@ -14,6 +14,7 @@ import {
   type DesktopRequest,
 } from "../../shared/desktop.js";
 import type { AppUpdates } from "../app/AppUpdates.js";
+import type { StagingToggle } from "../app/StagingToggle.js";
 import type { DesktopAuthentication } from "../DesktopAuthentication.js";
 import type { HaloRpcConnection } from "../../shared/HaloRpcConnection.js";
 import { openExternalUrl } from "../openExternalUrl.js";
@@ -31,6 +32,7 @@ class DesktopOperationError extends errore.createTaggedError({
 export function registerDesktopApi(args: {
   authentication: DesktopAuthentication;
   appUpdates: AppUpdates;
+  stagingToggle: StagingToggle;
   getConnection: () => Promise<HaloRpcConnection | Error | undefined>;
   ownsWindow: (window: BrowserWindow) => boolean;
 }): void {
@@ -42,6 +44,7 @@ export function registerDesktopApi(args: {
       request: validated,
       authentication: args.authentication,
       appUpdates: args.appUpdates,
+      stagingToggle: args.stagingToggle,
       getConnection: args.getConnection,
     });
     if (
@@ -65,6 +68,7 @@ async function handleDesktopRequest(args: {
   request: DesktopRequest;
   authentication: DesktopAuthentication;
   appUpdates: AppUpdates;
+  stagingToggle: StagingToggle;
   getConnection: () => Promise<HaloRpcConnection | Error | undefined>;
 }) {
   switch (args.request.type) {
@@ -75,10 +79,16 @@ async function handleDesktopRequest(args: {
     case "getConnection": {
       return await args.getConnection();
     }
-    case "getAuthSession":
-      return await args.authentication.getSession();
-    case "signIn":
-      return await args.authentication.signIn();
+    case "getAuthSession": {
+      const session = await args.authentication.getSession();
+      args.stagingToggle.observe(session);
+      return session;
+    }
+    case "signIn": {
+      const session = await args.authentication.signIn();
+      args.stagingToggle.observe(session);
+      return session;
+    }
     case "getAppInfo":
       return args.appUpdates.getAppInfo();
     case "checkForAppUpdate":

@@ -114,6 +114,7 @@ export class ControlPlane {
       googleClientId: config.auth.googleClientId,
       googleClientSecret: config.auth.googleClientSecret,
       signInAllowlist: signInAllowlist(config.auth.signInAllowlistSecretId),
+      stagingTesters: signInAllowlist(config.auth.stagingTestersSecretId),
     });
     if (auth instanceof Error) return auth;
 
