@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "Before an Exe workspace update streams the image, `exeRollout.sh update` now checks the guest disk. It makes sure the disk is at least `EXE_WORKSPACE_DISK_GB` (100 GB by default) with room for twice the image plus 5 GiB, and grows it with `exe.dev resize` when needed. If the space still does not appear, it stops before the transfer; after the new container is ready, it removes older `halo-workspace` images, and new templates use the same 100 GB default. The sizing arithmetic, error exits, pause restore, and non-fatal cleanup are correct, the temp test covers the no-resize, grow-to-default, grow-by-shortfall, and no-room-after-resize paths, and all tests pass.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 3,
+  "headSha": "5785357fe13b3375f391ee64b671068c1044ddbd",
+  "treeHash": "1e73a949e3e3de30c5a4c58a4b42749012567a15",
+  "codeTree": "5d7ecca95d45e684571479f898ad7a4336047613",
+  "coverage": {
+    "executable": 0,
+    "covered": 0,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-13T16:57:32.680Z"
+}

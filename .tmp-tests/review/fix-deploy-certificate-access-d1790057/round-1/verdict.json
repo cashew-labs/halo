@@ -1,0 +1,41 @@
+{
+  "status": "changes_requested",
+  "summary": "The change grants the shared deploy service account a project-wide Certificate Manager role, but only in the stack that owns deployment access. The goal is to let the deploy identity delete the old certificate when `controlPlaneDomain` changes. The role chosen, `roles/certificatemanager.editor`, cannot delete Certificate Manager resources, so the stated goal is not met, and the temp test only checks the binding name, so it does not catch the wrong role.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "source",
+      "file": "infra/control-plane/index.ts",
+      "line": 763,
+      "severity": "P0",
+      "body": "The comment above this grant (lines 757-758) says the deploy identity must be able to delete the certificate when `controlPlaneDomain` changes. `roles/certificatemanager.editor` cannot do that. Its permissions cover create, get, list, update, and use for certs, certmaps, and certmapentries, with no `*.delete`. Only `roles/certificatemanager.owner` includes `certificatemanager.certs.delete` and `certificatemanager.certmapentries.delete`. A domain change also replaces the `CertificateMapEntry` resources, because their `hostname` is immutable, and that needs `certmapentries.delete` too. With this grant, the replacement that motivated the change still fails with a permission error. Use `roles/certificatemanager.owner`, or a custom role that includes the needed delete permissions. Then update the README line that calls this grant 'Certificate Manager editor'."
+    },
+    {
+      "id": "F2",
+      "kind": "test",
+      "file": "infra/.tmp-tests/controlPlaneStack.test.ts",
+      "line": 175,
+      "severity": "P1",
+      "body": "The test adds 'deployment-certificate-manager' to `deploymentBindings` and only checks that a resource with that name exists in west and is absent in prod. It never checks the role, the member, or that the certificate depends on the grant. So it passes with the wrong role (see F1). Assert that the binding's `inputs.role` grants delete (for example `roles/certificatemanager.owner`) and that `inputs.member` is the deploy service account."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "infra/control-plane/index.ts:759-767: the deployment-certificate-manager binding's role and member",
+      "tier": "tmp",
+      "rationale": "The current temp test checks only the resource name, so it does not show that the deploy identity can delete certificates and certificate map entries."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "081897fec9203b84092980c26482d1954470e9a8",
+  "treeHash": "5230a03b35dbf5b0ae8f2d34e53877f33a36c852",
+  "codeTree": "8f40f5757e17d282e930539f4e539ba52ccfc3fd",
+  "coverage": {
+    "executable": 1,
+    "covered": 1,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-13T04:31:14.241Z"
+}
