@@ -1,0 +1,10 @@
+[
+  {
+    "findingId": "F1",
+    "reply": "won't fix: verified against GCP: 'gcloud iam roles describe roles/certificatemanager.editor' includes certificatemanager.certs.delete, certificatemanager.certmapentries.delete and certificatemanager.certmaps.delete (also certissuanceconfigs/dnsauthorizations/trustconfigs/operations .delete). The same grant, applied by hand, is what the staging release re-run is using now."
+  },
+  {
+    "findingId": "F2",
+    "reply": "fixed: new temp test asserts the deployment-certificate-manager binding's role is roles/certificatemanager.editor and its member is the deploy service account"
+  }
+]

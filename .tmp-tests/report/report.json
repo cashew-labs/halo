@@ -1,0 +1,107 @@
+{
+  "baseRef": "origin/main",
+  "baseSha": "3d85eba5e420a5e35323363d66ee8ae134a96666",
+  "headSha": "081897fec9203b84092980c26482d1954470e9a8",
+  "treeHash": "f34b5369239fd92947117f7dd8b172e6e7ab4c0e",
+  "generatedAt": "2026-10-13T04:31:42.122Z",
+  "runs": {
+    "durable": {
+      "tier": "durable",
+      "testFiles": [],
+      "skipped": true,
+      "runners": [],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 0,
+      "log": ".tmp-tests/report/durable.log",
+      "lcovFiles": []
+    },
+    "tmp": {
+      "tier": "tmp",
+      "testFiles": [
+        "apps/electron/.tmp-tests/AppUpdates.test.ts",
+        "apps/electron/.tmp-tests/ControlPlaneAuth.test.ts",
+        "infra/.tmp-tests/controlPlaneStack.test.ts",
+        "packages/config/.tmp-tests/electron.test.ts",
+        "packages/config/.tmp-tests/releaseChannel.test.ts",
+        "releases/.tmp-tests/promoteRelease.test.mjs"
+      ],
+      "skipped": false,
+      "runners": [
+        {
+          "runner": "vitest",
+          "dir": ".",
+          "testFiles": [
+            "apps/electron/.tmp-tests/AppUpdates.test.ts",
+            "apps/electron/.tmp-tests/ControlPlaneAuth.test.ts",
+            "infra/.tmp-tests/controlPlaneStack.test.ts",
+            "packages/config/.tmp-tests/electron.test.ts",
+            "packages/config/.tmp-tests/releaseChannel.test.ts"
+          ],
+          "exitCode": 0
+        },
+        {
+          "runner": "command",
+          "dir": ".",
+          "testFiles": [
+            "releases/.tmp-tests/promoteRelease.test.mjs"
+          ],
+          "exitCode": 0
+        }
+      ],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 9040,
+      "log": ".tmp-tests/report/tmp.log",
+      "lcovFiles": [
+        "../../../.git/worktrees/repo/code-review-agent/coverage/tmp-0/vitest-0/lcov.info",
+        "../../../.git/worktrees/repo/code-review-agent/coverage/tmp-0/vitest-1/lcov.info",
+        "../../../.git/worktrees/repo/code-review-agent/coverage/tmp-0/vitest-2/lcov.info",
+        "../../../.git/worktrees/repo/code-review-agent/coverage/tmp-1/lcov/lcov.info"
+      ]
+    }
+  },
+  "durableTestFiles": [],
+  "tmpTestFiles": [
+    "apps/electron/.tmp-tests/AppUpdates.test.ts",
+    "apps/electron/.tmp-tests/ControlPlaneAuth.test.ts",
+    "infra/.tmp-tests/controlPlaneStack.test.ts",
+    "packages/config/.tmp-tests/electron.test.ts",
+    "packages/config/.tmp-tests/releaseChannel.test.ts",
+    "releases/.tmp-tests/promoteRelease.test.mjs"
+  ],
+  "files": [
+    {
+      "path": "infra/control-plane/index.ts",
+      "loaded": true,
+      "changed": [
+        757,
+        758,
+        759,
+        760,
+        761,
+        762,
+        763,
+        764,
+        765,
+        766,
+        767,
+        786
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [
+        759
+      ],
+      "uncovered": [],
+      "exempt": []
+    }
+  ],
+  "totals": {
+    "executable": 1,
+    "coveredDurable": 0,
+    "coveredTmpOnly": 1,
+    "uncovered": 0,
+    "exempt": 0
+  },
+  "passed": true
+}

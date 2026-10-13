@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change gives the shared deploy service account `roles/certificatemanager.editor` in the stack that owns deployment access, and the control-plane certificate now depends on that grant. This lets a `controlPlaneDomain` change replace the certificate and its map entries. I accept the reply to F1: the agent ran `gcloud iam roles describe` and reports that the editor role includes the needed `.delete` permissions. F2 is fixed by a temp test that asserts the binding's role and member. All tests pass and the changed line is covered.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "081897fec9203b84092980c26482d1954470e9a8",
+  "treeHash": "f34b5369239fd92947117f7dd8b172e6e7ab4c0e",
+  "codeTree": "8f40f5757e17d282e930539f4e539ba52ccfc3fd",
+  "coverage": {
+    "executable": 1,
+    "covered": 1,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-13T04:31:56.359Z"
+}
