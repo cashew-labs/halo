@@ -1,0 +1,82 @@
+{
+  "status": "changes_requested",
+  "summary": "The change adds a per-extension host token that the workspace proxy injects and the SDK checks. It also adds viewer identity headers, sync access gating, a denylist for extension tool calls, and app-sharing validators. It is not ready. The workspace proxy now sets a header to `undefined` on every owner request. That makes Node's `http.request` throw, so local extension HTTP requests and WebSocket upgrades fail. None of the workspace-server or control-plane changes are covered by any test.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "source",
+      "file": "packages/workspace-server/src/extensions/extensionProxy.ts",
+      "line": 158,
+      "severity": "P0",
+      "body": "`request.headers[\"x-halo-viewer-email\"] = viewerEmail;` assigns `undefined` for every non-gateway request (line 153 yields `undefined` when `fromGateway` is false) and for any gateway request without an email header. httpxy copies `req.headers` with `outgoing.headers = { ...req.headers }` (node_modules/httpxy/dist/index.mjs:60) and passes the result to `http.request`. Node's ClientRequest calls `setHeader` for each key, and `validateHeaderValue` throws ERR_HTTP_INVALID_HEADER_VALUE when the value is `undefined`. As a result, every local Electron extension request becomes a 502, and `proxyUpgrade` WebSocket upgrades fail the same way. Lines 118 and 72-74 have the same problem when `getHostToken` returns `undefined`, for example during a restart window. Set these headers only when the value is defined, and delete them otherwise. When the host token is missing, return an error status rather than forwarding the request."
+    },
+    {
+      "id": "F2",
+      "kind": "test",
+      "file": "packages/workspace-server/src/extensions/extensionProxy.ts",
+      "line": 146,
+      "severity": "P1",
+      "body": "No test loads extensionProxy.ts, ExtensionHost.ts, startExtension.ts, extensionsRouter.ts, or apps/control-plane/src/workspace/proxy.ts, so 41 changed lines are uncovered. These are the security-relevant parts of the change: token injection, stripping spoofed viewer headers from non-gateway requests, and generating and rotating the host token. A test that proxies a real request through `serveExtensionRequest` to a local HTTP server would have caught F1. Add tests that check: the token header reaches the target; client-supplied `x-halo-viewer-*` and `x-halo-extension-token` headers are replaced or stripped when `fromGateway` is false; the email header is absent when no email exists; and the WebSocket upgrade path works."
+    },
+    {
+      "id": "F3",
+      "kind": "test",
+      "file": "packages/workspace-server/src/extensions/extensionsRouter.ts",
+      "line": 39,
+      "severity": "P1",
+      "body": "The denylist is tested only as a pure function. Nothing checks that `extensionToolRouter.invoke` rejects a denied path with badRequest and never calls `toolRuntime.invokePath`, or that allowed paths still reach the runtime. Add a router-level test with a stub `toolRuntime`."
+    },
+    {
+      "id": "F4",
+      "kind": "test",
+      "file": "packages/extension-sdk/src/.tmp-tests/serverSecurity.test.ts",
+      "line": 33,
+      "severity": "P1",
+      "body": "The SDK test checks only `syncAccess: \"actions\"` with a public viewer. It does not check that `read-only` blocks `/sync/push` but allows `/sync/pull`, that `shared` allows push, or that the owner role bypasses the gate. The `viewer` procedure is defined in the router, but the test never calls it with a valid token. Nothing checks that viewer headers are parsed into `context.viewer`, for example that an unknown role falls back to owner, that a member keeps its email, or that `/api/viewer` returns the expected viewer."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "packages/workspace-server/src/extensions/extensionProxy.ts:146-158 and 111-118 (serveExtensionRequest end-to-end to a stub HTTP server, fromGateway false and true)",
+      "tier": "tmp",
+      "rationale": "Would catch F1. It must check that the request succeeds, that the host token is injected, that spoofed viewer headers are replaced, and that no undefined header is sent."
+    },
+    {
+      "target": "packages/workspace-server/src/extensions/extensionProxy.ts:72-74 (serveExtensionUpgrade forwards the token and succeeds)",
+      "tier": "tmp",
+      "rationale": "The WebSocket path has the same undefined-header risk and is currently uncovered."
+    },
+    {
+      "target": "packages/workspace-server/src/extensions/extensionsRouter.ts:39-40 (denied path returns badRequest and does not invoke the runtime)",
+      "tier": "tmp",
+      "rationale": "The policy must be enforced at the RPC boundary, not only in the helper."
+    },
+    {
+      "target": "packages/workspace-server/src/extensions/ExtensionHost.ts:124-125,229-230,249 and startExtension.ts:49 (a host token is created, passed to the child environment, rotated on restart, and cleared on removal)",
+      "tier": "tmp",
+      "rationale": "Token lifecycle wiring is currently uncovered."
+    },
+    {
+      "target": "apps/control-plane/src/workspace/proxy.ts:280-283 (client-supplied viewer and extension-token headers are stripped before forwarding)",
+      "tier": "durable",
+      "rationale": "This guards an anti-spoofing invariant. A future edit to the header handling could silently let visitors claim the owner role or forge the host token."
+    },
+    {
+      "target": "packages/extension-sdk/src/server.ts:137-151 (viewer parsing and the read-only, shared, and owner sync gate)",
+      "tier": "tmp",
+      "rationale": "Only actions mode is exercised now, and viewer parsing is never asserted."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "fa151dd71de33813deeab8543063dac8ccfe7b19",
+  "treeHash": "4ff528c7d2cce9eb8dc4030f6d855046c139a06f",
+  "codeTree": "3fe8acb33782e9deea50fe5ffd7de30a8d4c1e2e",
+  "coverage": {
+    "executable": 78,
+    "covered": 37,
+    "exempt": 0,
+    "uncovered": 41
+  },
+  "createdAt": "2026-10-13T22:37:01.357Z"
+}
