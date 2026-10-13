@@ -10,6 +10,7 @@ import {
 import {
   CUSTOM_SHORTCUTS_CHANNEL,
   SHORTCUT_CHANNEL,
+  shortcuts,
 } from "../shared/shortcuts.js";
 
 export class WindowHotkeys {
@@ -37,11 +38,20 @@ export class WindowHotkeys {
     window.webContents.on(
       "did-start-navigation",
       (_event, _url, isInPlace, isMainFrame) => {
-        if (isMainFrame && !isInPlace) this.hotkeys = [];
+        if (isMainFrame && !isInPlace) {
+          this.hotkeys = [];
+          window.webContents.setIgnoreMenuShortcuts(false);
+        }
       },
     );
     window.webContents.on("before-input-event", (event, input) => {
-      if (input.type !== "keyDown" || input.isComposing) return;
+      // Read actual frame focus on each event, including the first key after
+      // returning to Halo. This also disables native Edit/View accelerators.
+      const desktopFocused =
+        window.webContents.focusedFrame?.name === "halo-desktop";
+      window.webContents.setIgnoreMenuShortcuts(desktopFocused);
+      if (desktopFocused || input.type !== "keyDown" || input.isComposing)
+        return;
       const hotkey = this.hotkeys.find((item) =>
         matchesHotkey({
           accelerator: item.accelerator,
@@ -49,10 +59,19 @@ export class WindowHotkeys {
           isMac: process.platform === "darwin",
         }),
       );
-      if (hotkey === undefined) return;
+      const builtin = Object.entries(shortcuts).find(([, item]) =>
+        matchesHotkey({
+          accelerator: item.accelerator,
+          ...input,
+          isMac: process.platform === "darwin",
+        }),
+      );
+      const shortcut =
+        hotkey === undefined ? builtin?.[0] : `custom:${hotkey.id}`;
+      if (shortcut === undefined) return;
       event.preventDefault();
       if (!input.isAutoRepeat)
-        window.webContents.send(SHORTCUT_CHANNEL, `custom:${hotkey.id}`);
+        window.webContents.send(SHORTCUT_CHANNEL, shortcut);
     });
   }
 }

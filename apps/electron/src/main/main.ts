@@ -289,23 +289,6 @@ async function createWindow(
   });
   const hotkeys = new WindowHotkeys();
   hotkeys.attach(window);
-  // Route app shortcuts through the originating window, including embedded frames.
-  window.webContents.on("before-input-event", (event, input) => {
-    if (input.type !== "keyDown" || input.isComposing || input.alt) return;
-    const primaryModifier =
-      process.platform === "darwin"
-        ? input.meta && !input.control
-        : input.control && !input.meta;
-    if (!primaryModifier) return;
-    const shortcut = Object.entries(shortcuts).find(
-      ([, item]) =>
-        item.key === `${input.shift ? "Shift+" : ""}${input.key.toUpperCase()}`,
-    );
-    if (shortcut === undefined) return;
-    event.preventDefault();
-    if (!input.isAutoRepeat)
-      window.webContents.send(SHORTCUT_CHANNEL, shortcut[0]);
-  });
   windows.add(window);
   window.once("closed", () => windows.delete(window));
   if (process.platform === "darwin") {
