@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change replaces the separate \"Active tools\" list with a single collapsed header that shows the latest active tool's label, with a \"(+N more)\" suffix. The header's aria-label and title match that text. The temp test now checks the exact header text, aria-label and title, both with two running shell commands and with one, where no suffix appears. That resolves F1. The temp test passes, every changed line is covered, and no findings remain.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "2c27816bb63e4be6f980514b07cdca6a220c71c7",
+  "treeHash": "025a24d972a9efc76e5a71a1816129b9ce42f8cb",
+  "codeTree": "51bdb2b8e4e7f28b018933a719a1c75e9efe43be",
+  "coverage": {
+    "executable": 9,
+    "covered": 9,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-13T01:11:25.199Z"
+}

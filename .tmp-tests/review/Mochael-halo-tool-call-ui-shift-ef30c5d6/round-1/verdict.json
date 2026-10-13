@@ -1,0 +1,33 @@
+{
+  "status": "changes_requested",
+  "summary": "The change removes the separate \"Active tools\" list. The collapsed header now shows the most recent active tool's label, with a `$ ` prefix and monospace style for shell commands, a \"(+N more)\" suffix for other running tools, and a matching title and aria-label. When no tool is running, it falls back to the completed summary or \"Working\". The source logic looks correct, but the temp test never checks the main new behavior, which is the active tool's label in the header, so the change is not ready.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "test",
+      "file": "apps/electron/e2e/.tmp-tests/toolActivity.e2e.test.ts",
+      "line": 36,
+      "severity": "P1",
+      "body": "The only assertion about the active-state header is `toContainText(\"(+1 more)\")`. It would still pass if the header showed \"Working (+1 more)\", the completed summary, the wrong tool, or a shell command without the `$ ` prefix. So the behavior this change exists to add, the latest active tool's label in the collapsed header (ToolActivity.tsx:50-55), is not verified. Assert the exact header text, for example `toHaveText(\"$ <expected command> (+1 more)\")` or the button's accessible name via `getByRole(\"button\", { name: ... })`. Also add a case with exactly one active tool to show that no \"(+N more)\" suffix appears (lines 56-60 and 65-69). A good candidate is a non-shell tool such as `read` blocked while active, which also covers the non-shell label branch."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "packages/web/src/main/agent/ToolActivity.tsx:50-60 — the collapsed header shows the exact latest active tool label (`$ ` prefix for shell) plus \" (+N more)\" only when more than one tool is active. The aria-label and title should match.",
+      "tier": "tmp",
+      "rationale": "The current temp test checks only the presence of the \"(+1 more)\" substring. It never checks the active label, the shell prefix, or the single-active case without a suffix."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "2c27816bb63e4be6f980514b07cdca6a220c71c7",
+  "treeHash": "8fa26a3f102bcdbd9540295ddeb9b27250caa7b7",
+  "codeTree": "51bdb2b8e4e7f28b018933a719a1c75e9efe43be",
+  "coverage": {
+    "executable": 9,
+    "covered": 9,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-13T01:09:41.431Z"
+}
