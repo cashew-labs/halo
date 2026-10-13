@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change passes the saved release channel through AppUpdates.getAppInfo() to SidebarFooter, which shows a \"Staging\" label with a tooltip next to the version. F1 is resolved: the stale temp tests are gone, and the temp run now has only this change's tests, all passing, including the staging indicator E2E. Coverage passes with one accepted type-only exemption, and there are no findings, so the change is ready.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 4,
+  "headSha": "f089af970035c27d4411fe1ba171cd693ccb973e",
+  "treeHash": "d07ac1da5e07decf4b466d15ea3a39a0e4ca7c13",
+  "codeTree": "86ab19d23380fe0bc27ee47126b262da061e00bc",
+  "coverage": {
+    "executable": 7,
+    "covered": 6,
+    "exempt": 1,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-13T19:55:15.830Z"
+}

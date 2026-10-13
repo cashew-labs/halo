@@ -1,0 +1,18 @@
+{
+  "status": "changes_requested",
+  "summary": "The change passes the saved release channel from ElectronConfig through AppUpdates.getAppInfo() to the renderer. When the channel is staging, SidebarFooter shows a \"Staging\" label next to the version, with a tooltip. The temp Playwright E2E checks both cases: no label on production, and the label after `release-channel` is set to `staging` and the app restarts, on desktop and in the mobile drawer. The only line reported as uncovered is HostApi.ts:26, an optional property in a type declaration that emits no runtime code. I accept it as non-executable, and I found no defects.\n\nNot approved: 1 changed line(s) are uncovered.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "be3f89ec25215280ff4fbbce75a610e2181352f4",
+  "treeHash": "dda449c9a7bc40989a893197c47b0c0bc8862474",
+  "codeTree": "64c5f38b5455e19673cfd6ab5531fc07c7573244",
+  "coverage": {
+    "executable": 4,
+    "covered": 3,
+    "exempt": 0,
+    "uncovered": 1
+  },
+  "createdAt": "2026-10-13T19:39:35.624Z"
+}

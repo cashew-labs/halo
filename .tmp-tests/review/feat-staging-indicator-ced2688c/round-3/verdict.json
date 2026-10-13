@@ -1,0 +1,27 @@
+{
+  "status": "changes_requested",
+  "summary": "This round puts the version and the \"Staging\" label inside one inline text span, so the Tooltip's inline-block wrapper shares the version's line box and the label sits beside it with a left margin. The logic is still correct, and the staging indicator E2E passes on desktop and in the mobile drawer. The temp test run fails, though, because the change now carries stale temp tests for code outside this diff, so it cannot be approved yet.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "test",
+      "file": "apps/control-plane/.tmp-tests/signInAllowlist.test.ts",
+      "line": 1,
+      "severity": "P1",
+      "body": "The temp run fails (exit 1, see .tmp-tests/report/tmp.log), and the failures are in temp tests that do not belong to this change. They test code that is not in this diff (sign-in allowlist, control plane stack, workspace rollout, release promotion). signInAllowlist.test.ts imports '../src/auth/SignInAllowlist.js', which does not exist. controlPlaneAllowlist.test.ts expects 401 but receives 503. infra/.tmp-tests/controlPlaneStack.test.ts has 2 failures and infra/.tmp-tests/exeRollout.test.ts has 16. releases/.tmp-tests/promoteRelease.test.mjs fails in its git helper (line 92). packages/config/.tmp-tests/controlPlaneAllowlistConfig.test.ts also tests code outside this diff. Delete these leftover temp tests, or move them to the change that they cover, so the temp run contains only tests for this diff and passes. The staging tests (stagingIndicator.e2e.test.ts, AppUpdates, electron config, releaseChannel) can stay."
+    }
+  ],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 3,
+  "headSha": "f089af970035c27d4411fe1ba171cd693ccb973e",
+  "treeHash": "04687607bff348b301dbaedf72ca7128b1ef2fe0",
+  "codeTree": "86ab19d23380fe0bc27ee47126b262da061e00bc",
+  "coverage": {
+    "executable": 7,
+    "covered": 6,
+    "exempt": 1,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-13T19:54:24.047Z"
+}
