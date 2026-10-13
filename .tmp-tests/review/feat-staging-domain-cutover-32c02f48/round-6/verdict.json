@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change is rebased onto the new base and its content is unchanged. It moves the `west` control-plane stack to `staging.gethalo.dev` with `redirectWww: \"false\"` and updates `infra/README.md` so that `prod` is production and `west` is staging. No README section still presents `west` as production; the GCP-to-Exe cutover section is historical. All temp test runs pass, there are no changed executable lines, and no findings remain, so the change is ready.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 6,
+  "headSha": "b3fa01040f039618e392e6dd663d91bf471f83ff",
+  "treeHash": "dc1bfb0fc73773f872fecd3da02df10ed38811ae",
+  "codeTree": "9120b8579c34d8752f7c881b892c6d5135509f86",
+  "coverage": {
+    "executable": 0,
+    "covered": 0,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-13T00:50:15.810Z"
+}
