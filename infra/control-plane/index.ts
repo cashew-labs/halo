@@ -754,6 +754,17 @@ const controlPlane = new gcp.cloudrunv2.Service(
   },
 );
 
+// Changing controlPlaneDomain replaces the certificate, which the deploy
+// identity must be able to delete.
+const deploymentCertificateAccess = ownsDeploymentAccess
+  ? [
+      new gcp.projects.IAMMember("deployment-certificate-manager", {
+        project,
+        role: "roles/certificatemanager.editor",
+        member: `serviceAccount:${deploymentServiceAccount}`,
+      }),
+    ]
+  : [];
 const certificateManager = new gcp.projects.Service("certificate-manager", {
   project,
   service: "certificatemanager.googleapis.com",
@@ -772,7 +783,7 @@ const controlPlaneCertificate = new gcp.certificatemanager.Certificate(
     scope: "DEFAULT",
     managed: { domains: controlPlaneHostnames },
   },
-  { dependsOn: [certificateManager] },
+  { dependsOn: [certificateManager, ...deploymentCertificateAccess] },
 );
 const controlPlaneCertificateMap = new gcp.certificatemanager.CertificateMap(
   "control-plane-certificate-map",

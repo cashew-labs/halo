@@ -42,8 +42,9 @@ images.
 - `googleClientIdSecretId` and `googleClientSecretId` reuse the
   `halo-west-control-plane-google-client-*` sign-in client.
 - `ownsDeploymentAccess: false` leaves the project-wide grants to the deployment
-  service account (logging config, Pub/Sub admin, OS Login, IAP, and the exe.dev
-  key) to `west`. Do not destroy `west` without first moving that ownership.
+  service account (logging config, Pub/Sub admin, Certificate Manager editor,
+  OS Login, IAP, and the exe.dev key) to `west`. Do not destroy `west` without
+  first moving that ownership.
 - Without `exeGatewaySecretId`, the stack generates `halo-<stack>-exe-gateway-seed`.
 
 Set `redirectWww: false` for a subdomain origin; apex origins also serve and
