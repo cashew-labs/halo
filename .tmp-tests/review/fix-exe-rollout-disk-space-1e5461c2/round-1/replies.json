@@ -1,0 +1,10 @@
+[
+  {
+    "findingId": "F1",
+    "reply": "fixed: ensure_workspace_disk now compares against exe.dev's provisioned disk_capacity_bytes from 'exe.dev ls --json' (100 GB reports exactly 107374182400), skips the resize when the disk is already at the target, and sizes the shortfall growth for ext4's ~5% reserved blocks plus 1 GiB"
+  },
+  {
+    "findingId": "F2",
+    "reply": "fixed: the stub now reports provisioned size via disk_capacity_bytes, rejects non-growing resizes, and adds only 95% of growth to df avail; new test asserts a 100 GB VM with room is not resized, and the shortfall test asserts load and upgrade proceed after one resize"
+  }
+]
