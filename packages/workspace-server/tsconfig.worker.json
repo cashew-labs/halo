@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "noEmitOnError": true,
+    "declaration": false,
+    "declarationMap": false,
+    "allowImportingTsExtensions": false,
+    "rootDir": "src/agent/runtime",
+    "outDir": "dist",
+    "types": ["node"]
+  },
+  "include": ["src/agent/runtime/codeExecutor.worker.ts"]
+}

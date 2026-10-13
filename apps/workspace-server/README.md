@@ -14,7 +14,10 @@ pnpm dev
 ```
 
 Turbo starts the control plane, workspace server, and Electron as separate
-development services. They share `<repo>/tmp/workspace` as the workspace and
+development services. The workspace-server package first compiles
+`codeExecutor.worker.ts` with `tsconfig.worker.json`, then watches that target.
+The Node host watches the emitted worker and restarts when it changes. The services
+share `<repo>/tmp/workspace` as the workspace and
 `<repo>/tmp/workspace/.halo` as application data. The services read development
 secrets from GCP Secret Manager through Application Default Credentials.
 
@@ -58,6 +61,11 @@ from this workspace root. User-installed packages and binaries remain in the
 home directory. Workspace files and agent state live under `documents`;
 application data lives under `/home/node/.halo/runtime`. `/tmp`, `/run`, running
 processes, and image system paths remain ephemeral.
+
+The image compiles the exec worker during its build. The workspace server starts
+that emitted JavaScript file through Node's `worker_threads`; the worker does
+not need a TypeScript loader at runtime. Tests and local development use the
+same compiled entry.
 
 The image configures npm, Python, and Go user installations beneath
 `/home/node`. `/home/node/.local/bin` and `/home/node/documents/.halo/bin` are
@@ -139,6 +147,7 @@ Electron's fixture launches the same `src/main.ts` as normal runs. The app enabl
 pnpm dev
 ├── control-plane: tsx watch src/main.ts
 │   └── publish local connection information
+├── exec worker: tsc --project tsconfig.worker.json --watch
 ├── workspace-server: tsx watch src/main.ts
 │   ├── readWorkspaceServerApplicationConfig()
 │   ├── WorkspaceServer.start({ config, host })

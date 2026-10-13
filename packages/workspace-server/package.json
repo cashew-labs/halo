@@ -3,6 +3,9 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "imports": {
+    "#code-executor-worker": "./dist/codeExecutor.worker.js"
+  },
   "exports": {
     ".": "./src/index.ts",
     "./filesystem": "./src/filesystem.ts",
@@ -14,10 +17,12 @@
     "format:check": "oxfmt --check .",
     "lint": "NODE_OPTIONS=--experimental-strip-types oxlint --deny-warnings src test",
     "lint:fix": "NODE_OPTIONS=--experimental-strip-types oxlint --fix src test",
-    "test": "vitest run --exclude '**/fixtures.test.ts' --reporter=agent",
-    "test:unit": "vitest run --dir src --exclude '**/fixtures.test.ts' --reporter=agent",
-    "test:e2e": "vitest run --dir test --reporter=agent",
-    "typecheck": "tsc --noEmit"
+    "test": "pnpm run build && vitest run --exclude '**/fixtures.test.ts' --reporter=agent",
+    "test:unit": "pnpm run build && vitest run --dir src --exclude '**/fixtures.test.ts' --reporter=agent",
+    "test:e2e": "pnpm run build && vitest run --dir test --reporter=agent",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc --project tsconfig.worker.json",
+    "dev": "tsc --project tsconfig.worker.json --watch"
   },
   "dependencies": {
     "@earendil-works/chord": "1.0.0",

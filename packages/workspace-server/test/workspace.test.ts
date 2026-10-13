@@ -21,6 +21,7 @@ import {
 } from "@get-halo/client";
 import fs from "node:fs/promises";
 import path from "node:path";
+import os from "node:os";
 import { gunzipSync } from "node:zlib";
 import { assert, expect, vi } from "vitest";
 import { contentText } from "@earendil-works/pi-ai";
@@ -31,8 +32,13 @@ import { TandemClient } from "@tanishqkancharla/tandem-core";
 import { haloSchemaToTandemSchema } from "@get-halo/client";
 
 serverTest(
-  "retains exec bindings across turns, resets explicitly, and notifies after reload",
+  "retains exec bindings outside the repository, resets explicitly, and notifies after reload",
   async ({ server, llm }) => {
+    await using cleanup = new errore.AsyncDisposableStack();
+    const workingDirectory = process.cwd();
+    cleanup.defer(() => process.chdir(workingDirectory));
+    // Production starts outside the source tree and its node_modules.
+    process.chdir(os.tmpdir());
     const session = await server.rpc.thread.new();
     const first = server.promptAndWait({
       ...session,

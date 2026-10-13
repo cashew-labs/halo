@@ -39,7 +39,8 @@ COPY apps/workspace-server ./apps/workspace-server
 RUN cp apps/workspace-server/desktop/index.html /usr/share/novnc/index.html \
     && cp apps/workspace-server/desktop/chrome.sh /usr/local/bin/halo-chrome \
     && chmod +x /usr/local/bin/halo-chrome
-RUN pnpm --filter @get-halo/extension-sdk run build \
+RUN pnpm --filter @get-halo/workspace-server run build \
+    && pnpm --filter @get-halo/extension-sdk run build \
     && pnpm --filter @get-halo/extension-tools run build
 # The workspace CLI builds and packs the local SDK when authoring extensions.
 RUN chown -R node:node /opt/halo/packages
