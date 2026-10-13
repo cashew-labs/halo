@@ -1,0 +1,41 @@
+{
+  "status": "changes_requested",
+  "summary": "Before an Exe update streams the image, the change checks free space on the guest disk and grows the disk with `exe.dev resize` when needed. It removes older halo-workspace images after the new container reports ready, and new templates now get a 100 GB disk. The resize math compares the filesystem size reported by df with the provisioned disk size that exe.dev uses, so it resizes on every update and does not grow the disk enough when space is short. The temp test's stub hides this.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "source",
+      "file": "infra/workspace/exeRollout.sh",
+      "line": 50,
+      "severity": "P1",
+      "body": "`size_gib` and `free_gib` come from `df --block-size=1G` on the filesystem, but `exe.dev resize --disk=NGB` and `EXE_WORKSPACE_DISK_GB` describe the provisioned block device. A filesystem always reports less than its device because of the partition table, ext4 metadata, the journal, and reserved blocks. If exe.dev's \"GB\" means 10^9 bytes, a 100 GB disk is also only about 93 GiB. This mismatch causes two problems. (1) On a VM that already has the default 100 GB disk, df reports about 92–98, so line 52 raises `target_gib` to 100 and line 58 calls `exe.dev resize --disk=100GB` on every update. It also logs a misleading message such as \"Growing from 98GB to 100GB\". If exe.dev rejects a resize to the current size or a smaller one, `set -e` aborts every update. (2) On the shortfall path (line 54), `target = size_fs + needed - free` grows the device by `needed - free`, but the filesystem gains that amount minus the overhead. `free_gib` therefore stays below `needed_gib`. The loop waits 150 s and the update fails after the resize has already happened. Fix: read the provisioned disk size from exe.dev (for example from `exe.dev ls --json`, if it reports it) and use it as the base for the minimum and the shortfall. Alternatively, add a safety margin and compare against the provisioned size, then skip the resize when the device is already at least the target."
+    },
+    {
+      "id": "F2",
+      "kind": "test",
+      "file": "infra/.tmp-tests/exeRollout.test.ts",
+      "line": 58,
+      "severity": "P1",
+      "body": "The stub treats filesystem size as equal to the provisioned disk size, and its resize adds exactly `target - sizeGib` to free space. This model hides F1. The '100 GB default' and 'grows by the shortfall' tests pass only because of it. Make the stub report a df size smaller than the disk, as a real ext4 filesystem does. Then assert two things: no resize happens when the disk is already at the default size, and the shortfall path ends with enough free space to load the image."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "infra/workspace/exeRollout.sh:45-70 ensure_workspace_disk",
+      "tier": "tmp",
+      "rationale": "Model filesystem overhead in the stub: df size and avail below the provisioned size, and less filesystem growth than the device growth. Verify that a 100 GB VM with room is not resized, and that a nearly full VM ends with free_gib >= needed_gib after one resize."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "5785357fe13b3375f391ee64b671068c1044ddbd",
+  "treeHash": "1e73a949e3e3de30c5a4c58a4b42749012567a15",
+  "codeTree": "5d7ecca95d45e684571479f898ad7a4336047613",
+  "coverage": {
+    "executable": 0,
+    "covered": 0,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-13T16:59:37.928Z"
+}

@@ -1,0 +1,6 @@
+[
+  {
+    "findingId": "F3",
+    "reply": "fixed: the ssh stub now runs the script's real CLEAN heredoc with bash, substituting a temp file for /etc/halo/image, against a docker stub that models images, running and stopped containers (ps lists stopped ones only with -a) and refuses rmi of in-use images. New tests: keeps configured + stopped-container images while removing a failed install and a leftover; keeps the new configured image when readiness fails after the switch. Verified a mutation (ps -q instead of -aq) fails the stopped-container test."
+  }
+]

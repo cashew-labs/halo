@@ -1,0 +1,27 @@
+{
+  "status": "changes_requested",
+  "summary": "The source is unchanged from round 3. F3 is fixed: the ssh stub now runs the script's real CLEAN heredoc against a docker stub that models running and stopped containers, and new tests check that the configured image and in-use images are kept. However, the temp test run fails. The new readiness-failure test goes through all 60 status polls and times out at vitest's 5 s default, so the coverage gate fails.",
+  "findings": [
+    {
+      "id": "F4",
+      "kind": "test",
+      "file": "infra/.tmp-tests/exeRollout.test.ts",
+      "line": 227,
+      "severity": "P1",
+      "body": "\"when readiness fails after the switch, the new configured image is kept\" fails with \"Test timed out in 5000ms\" (see .tmp-tests/report/tmp.log). With `neverReady`, exeRollout.sh runs all 60 iterations of the readiness loop, and each iteration starts a node-based `ssh` stub and a `sleep` stub. That is about 120 node process starts, which takes longer than vitest's default 5 s timeout. Give this test (or the whole file) a longer timeout, for example `test(..., 30_000)`. Alternatively, make the poll count injectable or the stubs cheaper. The temp run must pass."
+    }
+  ],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 4,
+  "headSha": "98a3665120a3873a3440a671ef00f683e917188f",
+  "treeHash": "d0987d930f9804de8a03c9479c700dd92638550f",
+  "codeTree": "c88a1e726b6c567153669fad938d3b469a60f2f9",
+  "coverage": {
+    "executable": 0,
+    "covered": 0,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-13T17:27:20.772Z"
+}

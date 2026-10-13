@@ -1,0 +1,6 @@
+[
+  {
+    "findingId": "F4",
+    "reply": "fixed: the readiness-failure test now has a 60 s timeout; the script's 60-poll loop starts two stub processes per poll"
+  }
+]

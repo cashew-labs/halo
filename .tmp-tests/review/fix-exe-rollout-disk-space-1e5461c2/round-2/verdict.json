@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "Before streaming the image, the update now reads the provisioned disk size from `exe.dev ls --json` (`disk_capacity_bytes`). It resizes only when the disk is below the 100 GB default or lacks room, and the shortfall growth now allows for ext4's reserved blocks. It removes older halo-workspace images after the new container reports ready. F1 and F2 are fixed: the stub now models filesystem overhead and rejects resizes that do not grow the disk. A new test confirms that a 100 GB VM with enough room is not resized, and the shortfall test confirms that the load and upgrade go ahead after one resize. The temp tests pass and no findings remain.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "cf0a8eb05e5595ee8dfe4b35b65dc1cb9e8eae9e",
+  "treeHash": "ef48c8af32de1cea786d71adf2ba2ef4cf56f06e",
+  "codeTree": "e215ccc8c6380256db669bb1d9ff64540ac244c9",
+  "coverage": {
+    "executable": 0,
+    "covered": 0,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-13T17:01:15.548Z"
+}

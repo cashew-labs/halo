@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "Exe updates now remove every halo-workspace image except the configured one and any image a container uses. Cleanup runs before the transfer, after the new container reports ready, and from the exit trap when the update fails. The update also refuses the transfer when the guest lacks room for about twice the image. F4 is fixed: the readiness-failure test now has a 60 s timeout, and the temp run passes. The tests run the real guest cleanup script against a docker stub, and no findings remain.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 5,
+  "headSha": "98a3665120a3873a3440a671ef00f683e917188f",
+  "treeHash": "3514d88bd55771bffe19f3bbc12025686935769d",
+  "codeTree": "c88a1e726b6c567153669fad938d3b469a60f2f9",
+  "coverage": {
+    "executable": 0,
+    "covered": 0,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-13T17:28:10.420Z"
+}

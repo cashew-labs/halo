@@ -1,0 +1,33 @@
+{
+  "status": "changes_requested",
+  "summary": "This round removes the disk-resize approach. The update now deletes every halo-workspace image except the one named in /etc/halo/image and any image a container uses. It does this before the transfer, after the new container reports ready, and from the exit trap when the update fails. The update also refuses the transfer when the guest lacks room. The source logic looks sound, but the temp test stub reimplements the cleanup instead of running the guest script, so the tests never exercise the decision about which images to delete.",
+  "findings": [
+    {
+      "id": "F3",
+      "kind": "test",
+      "file": "infra/.tmp-tests/exeRollout.test.ts",
+      "line": 62,
+      "severity": "P1",
+      "body": "The stub's `bash -s` branch only checks that stdin contains \"/etc/halo/image\". It then applies its own rule (\"remove everything except `guest.configured`\") and never runs the heredoc in `remove_unused_images` (infra/workspace/exeRollout.sh:40-49). As a result, the tests named \"an image that fails to install is removed and the running release is kept\", \"clears leftovers first\" and the paused-cleanup tests check the stub's behavior, not the script's. The guest-side logic deletes images on production workspaces and is never exercised. That logic covers: reading /etc/halo/image, keeping images that any container uses (`docker ps -aq | xargs docker inspect --format '{{.Config.Image}}'`), the `grep -qxF` match, `docker rmi`, and `set -e` stopping the loop when an rmi fails. Changing the heredoc to keep only running containers (`-q`) or to ignore /etc/halo/image would still pass every test. Add a temp test that extracts the CLEAN heredoc and runs it with bash against a stubbed `docker` (and `cat` or a substituted path for /etc/halo/image). Assert that the configured image and an image a container uses are kept and that the other halo-workspace images are removed. Include the failure case where the readiness check fails after the upgrade: the new image is configured and a new container exists, so the new image is kept."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "infra/workspace/exeRollout.sh:40-49 remove_unused_images guest script (CLEAN heredoc)",
+      "tier": "tmp",
+      "rationale": "The script decides which images to delete on live workspaces. Run the real heredoc against a stubbed docker. Verify that it keeps the /etc/halo/image image and every image a container uses, including a stopped container, and that it removes the other halo-workspace tags."
+    }
+  ],
+  "tierChanges": [],
+  "round": 3,
+  "headSha": "98a3665120a3873a3440a671ef00f683e917188f",
+  "treeHash": "9ac00ba2170f9643e5fd2d71f6686c84ba7cdadc",
+  "codeTree": "c88a1e726b6c567153669fad938d3b469a60f2f9",
+  "coverage": {
+    "executable": 0,
+    "covered": 0,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-13T17:24:38.109Z"
+}
