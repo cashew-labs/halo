@@ -5015,3 +5015,32 @@ controlPlaneTest(
     );
   },
 );
+
+// Durable: prevent browser-controlled identity from crossing the owner gateway.
+controlPlaneTest.extend({
+  workspaceProvider: async ({ workspaceHost }, use) =>
+    await use(workspaceHost.provider),
+})(
+  "workspace gateway strips forged extension authority",
+  async ({ plane, authenticatedRpc, browserHeaders, workspaceHost }) => {
+    await authenticatedRpc.workspace.ensure();
+    const headers = new Headers(browserHeaders);
+    headers.set("x-halo-viewer-id", "attacker");
+    headers.set("x-halo-viewer-role", "owner");
+    headers.set("x-halo-viewer-email", "attacker@example.com");
+    headers.set("x-halo-extension-token", "attacker");
+    const response = await fetch(`${plane.origin}/workspace/headers`, {
+      headers,
+    });
+    expect(response.status).toBe(200);
+    const forwarded = await response.json();
+    for (const header of [
+      "x-halo-viewer-id",
+      "x-halo-viewer-role",
+      "x-halo-viewer-email",
+      "x-halo-extension-token",
+    ])
+      expect(forwarded).not.toHaveProperty(header);
+    expect(workspaceHost.requests).toContain("/headers");
+  },
+);

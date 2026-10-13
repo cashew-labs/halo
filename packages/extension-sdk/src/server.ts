@@ -1,4 +1,5 @@
 import { parseArgs } from "node:util";
+import { timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { readFile, readdir } from "node:fs/promises";
@@ -16,7 +17,7 @@ import {
 } from "@tanishqkancharla/tandem-server";
 import * as errore from "errore";
 import { syncRouter } from "./sync.js";
-import { createExtensionTools } from "./tools.js";
+import { createExtensionTools, type ExtensionViewer } from "./tools.js";
 
 class ExtensionServerError extends errore.createTaggedError({
   name: "ExtensionServerError",
@@ -59,6 +60,9 @@ export async function serveExtension<
   publicDirectory: string;
   dataDirectory: string;
   port: number;
+  hostToken?: string;
+  host?: string;
+  syncAccess?: "read-only" | "shared" | "actions";
 }) {
   const files = await readdir(args.publicDirectory).catch(
     (cause) => new ExtensionServerError({ operation: "read assets", cause }),
@@ -102,14 +106,52 @@ export async function serveExtension<
   const tools = createExtensionTools();
   const syncHandler = new RPCHandler(syncRouter(tandem));
   const server = createServer(async (request, response) => {
+    if (args.hostToken !== undefined) {
+      const supplied = request.headers["x-halo-extension-token"];
+      const actual = Buffer.from(
+        Array.isArray(supplied) ? "" : (supplied ?? ""),
+      );
+      const expected = Buffer.from(args.hostToken);
+      if (
+        actual.length !== expected.length ||
+        !timingSafeEqual(actual, expected)
+      ) {
+        response.writeHead(401).end();
+        return;
+      }
+    }
+    const viewer: ExtensionViewer = {
+      viewerId: Array.isArray(request.headers["x-halo-viewer-id"])
+        ? "owner"
+        : (request.headers["x-halo-viewer-id"] ?? "owner"),
+      role:
+        request.headers["x-halo-viewer-role"] === "member"
+          ? "member"
+          : request.headers["x-halo-viewer-role"] === "public"
+            ? "public"
+            : "owner",
+      email: Array.isArray(request.headers["x-halo-viewer-email"])
+        ? undefined
+        : request.headers["x-halo-viewer-email"],
+    };
+    if (request.url === "/__halo/ready") {
+      response
+        .writeHead(200, { "content-type": "application/json" })
+        .end(JSON.stringify({ protocol: 1 }));
+      return;
+    }
+    const syncAccess = args.syncAccess;
     const handled = await apiHandler.handle(request, response, {
       prefix: "/api",
-      context: { tools },
+      context: { tools, viewer, storage: tandem },
     });
     if (handled.matched) return;
     const synced = await syncHandler.handle(request, response, {
       prefix: "/sync",
-      context: {},
+      context: {
+        canRead: viewer.role === "owner" || syncAccess !== "actions",
+        canWrite: viewer.role === "owner" || syncAccess === "shared",
+      },
     });
     if (synced.matched) return;
     const pathname = new URL(request.url!, "http://localhost").pathname;
@@ -128,7 +170,9 @@ export async function serveExtension<
       server.once("error", (cause) =>
         resolve(new ExtensionServerError({ operation: "listen", cause })),
       );
-      server.listen(args.port, "127.0.0.1", () => resolve(undefined));
+      server.listen(args.port, args.host ?? "127.0.0.1", () =>
+        resolve(undefined),
+      );
     },
   );
   if (started instanceof Error) return started;
@@ -179,6 +223,14 @@ export async function runExtension<
     ...args,
     port: Number(values.port),
     dataDirectory: values["data-dir"],
+    hostToken: process.env.HALO_EXTENSION_HOST_TOKEN,
+    host: process.env.HALO_EXTENSION_LISTEN_HOST,
+    syncAccess:
+      process.env.HALO_EXTENSION_SYNC_ACCESS === "shared"
+        ? "shared"
+        : process.env.HALO_EXTENSION_SYNC_ACCESS === "actions"
+          ? "actions"
+          : "read-only",
   });
   if (running instanceof Error) {
     console.error(running);
