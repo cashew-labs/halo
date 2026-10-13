@@ -5,9 +5,23 @@ import type {
   IntegrationTool,
   IntegrationToolSchema,
   IntegrationInvocation,
+  McpRegistration,
+  OpenAPIRegistration,
+} from "@get-halo/shared/controlPlaneContract";
+import {
+  registerMcpInputSchema,
+  registerOpenAPIInputSchema,
 } from "@get-halo/shared/controlPlaneContract";
 
 export interface RemoteIntegrationTools {
+  registerMcp(
+    input: McpRegistration,
+    signal?: AbortSignal,
+  ): Promise<void | Error>;
+  registerOpenAPI(
+    input: OpenAPIRegistration,
+    signal?: AbortSignal,
+  ): Promise<void | Error>;
   search(
     input: { query: string; integration?: string; limit?: number },
     signal?: AbortSignal,
@@ -108,6 +122,7 @@ type HaloToolsPluginOptions = {
   plugins: readonly HaloToolPlugin[];
   executionContext: AsyncLocalStorage<ToolExecutionContext>;
   connections?: RemoteConnectionBackend;
+  integrations?: RemoteIntegrationTools;
 };
 
 const removeConnectionInputSchema = Type.Object({
@@ -197,6 +212,72 @@ const haloToolsPlugin = definePlugin((options?: HaloToolsPluginOptions) => {
         kind: "halo",
         name: "Halo",
         tools: [
+          tool({
+            name: "registerMcp",
+            description:
+              "Register a custom remote MCP server from its public HTTPS endpoint. Choose auth none, bearer, or oauth; never pass credentials here. Returns the integration id. Then use halo.showConnectionCard so the user can finish connecting. Local stdio/command servers are not supported.",
+            inputSchema: toExecutorSchema(registerMcpInputSchema),
+            execute: (args) =>
+              Effect.promise(async () => {
+                // coverage-exempt: Executor validates the shared schema before calling execute.
+                if (!Value.Check(registerMcpInputSchema, args))
+                  return ToolResult.fail({
+                    code: "invalid_tool_arguments",
+                    message: "Expected an MCP name, slug, endpoint and auth",
+                  });
+                if (options.integrations === undefined)
+                  return ToolResult.fail({
+                    code: "integrations_unavailable",
+                    message: "This workspace has no control-plane integrations",
+                  });
+                const registered = await options.integrations.registerMcp(
+                  args,
+                  options.executionContext.getStore()?.signal,
+                );
+                if (registered instanceof Error)
+                  return ToolResult.fail({
+                    code: "registration_failed",
+                    message: registered.message,
+                  });
+                return ToolResult.ok({
+                  status: "registered",
+                  integration: args.slug,
+                });
+              }),
+          }),
+          tool({
+            name: "registerOpenAPI",
+            description:
+              "Register a custom API from a public HTTPS OpenAPI spec URL. Never pass API keys or other credentials here. Returns the integration id. Then use halo.showConnectionCard so the user can finish connecting.",
+            inputSchema: toExecutorSchema(registerOpenAPIInputSchema),
+            execute: (args) =>
+              Effect.promise(async () => {
+                // coverage-exempt: Executor validates the shared schema before calling execute.
+                if (!Value.Check(registerOpenAPIInputSchema, args))
+                  return ToolResult.fail({
+                    code: "invalid_tool_arguments",
+                    message: "Expected an API name, slug and spec URL",
+                  });
+                if (options.integrations === undefined)
+                  return ToolResult.fail({
+                    code: "integrations_unavailable",
+                    message: "This workspace has no control-plane integrations",
+                  });
+                const registered = await options.integrations.registerOpenAPI(
+                  args,
+                  options.executionContext.getStore()?.signal,
+                );
+                if (registered instanceof Error)
+                  return ToolResult.fail({
+                    code: "registration_failed",
+                    message: registered.message,
+                  });
+                return ToolResult.ok({
+                  status: "registered",
+                  integration: args.slug,
+                });
+              }),
+          }),
           tool({
             name: "showConnectionCard",
             description:
@@ -488,7 +569,7 @@ export class ToolRuntime {
       "Runtime tools do not throw for expected failures. They return { ok: true, data } or { ok: false, error }. Check result.ok.",
       ...(this.remoteConnections
         ? [
-            `Discover with tools.search({ query, source: "control-plane" }); results contain tools, truncated and unavailableSources. Describe with tools.describe.tool({ path }). Remote paths start with integrations.; invoke the complete saved path with tools[path](args). Request account setup with tools.halo.showConnectionCard({ integration }); list current integrations with tools.executor.integrations.list({}). Credentials are entered in the control plane, never in tool arguments.`,
+            `Discover with tools.search({ query, source: "control-plane" }); results contain tools, truncated and unavailableSources. Describe with tools.describe.tool({ path }). Remote paths start with integrations.; invoke the complete saved path with tools[path](args). Register custom remote MCP servers with tools.halo.registerMcp({ name, slug, endpoint, auth }) and OpenAPI spec URLs with tools.halo.registerOpenAPI({ name, slug, url }). Registration returns an integration id; request account setup with tools.halo.showConnectionCard({ integration }). List current integrations with tools.executor.integrations.list({}). Credentials are entered in the control plane, never in tool arguments.`,
           ]
         : []),
     ].join("\n");
@@ -903,6 +984,7 @@ async function createToolRuntime(
           plugins: input.toolPlugins,
           executionContext,
           connections: input.remoteConnections,
+          integrations: input.remoteIntegrationTools,
         }),
       ] as const,
       providers: [],
