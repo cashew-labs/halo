@@ -438,9 +438,25 @@ function toExecutorSchema(schema: TObject) {
     "~standard": {
       version: 1 as const,
       vendor: "halo",
-      // ToolRuntime.invoke validates Halo inputs after capability authorization.
+      // Standard Schema validation is the Executor input boundary.
       // oxlint-disable-next-line anti-slop/no-unknown-parameters
-      validate: (value: unknown) => ({ value }),
+      validate: (value: unknown) => {
+        if (Value.Check(schema, value)) return { value };
+        return {
+          issues: [...Value.Errors(schema, value)].map((issue) => ({
+            message: issue.message,
+            path:
+              issue.path === ""
+                ? []
+                : issue.path
+                    .slice(1)
+                    .split("/")
+                    .map((part) =>
+                      part.replaceAll("~1", "/").replaceAll("~0", "~"),
+                    ),
+          })),
+        };
+      },
       jsonSchema: {
         input: () => jsonSchema,
         output: () => jsonSchema,

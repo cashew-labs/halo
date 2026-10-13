@@ -153,7 +153,8 @@ serverTest(
             description: await tools.describe.tool({ path: "notes.org.main.inspect" }),
             numberDescription: await tools.describe.tool({ path: "numbers.ping" }),
             search: await tools.search({ query: "identifying prefix", source: "workspace" }),
-            denied: await tools.notes.locked({ prefix: "x" }),
+            denied: await tools.notes.locked({ prefix: "locked" }),
+            invalidDenied: await tools.notes.locked({ prefix: "x" }),
             invalid: await tools.notes.org.main.inspect({ prefix: "x" }),
             hostServicesVisible: typeof services !== "undefined"
           })`,
@@ -204,11 +205,23 @@ serverTest(
         },
         numberDescription: { ok: true, data: { path: "numbers.ping" } },
         denied: { ok: false, error: { code: "AgentCapabilityDeniedError" } },
+        invalidDenied: {
+          ok: false,
+          error: { code: "invalid_tool_arguments" },
+        },
         invalid: {
           ok: false,
           error: {
-            code: "HaloToolInputError",
-            message: 'Invalid input for Halo tool "notes.org.main.inspect"',
+            code: "invalid_tool_arguments",
+            message: "Tool arguments did not match the input schema.",
+            details: {
+              issues: [
+                {
+                  path: ["prefix"],
+                  message: "Expected string length greater or equal to 2",
+                },
+              ],
+            },
           },
         },
         hostServicesVisible: false,
