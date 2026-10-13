@@ -1,0 +1,82 @@
+{
+  "status": "changes_requested",
+  "summary": "The change adds a Secret Manager–backed email allowlist. It limits sign-in on the staging control plane and marks production sessions with `stagingAccess`, and the desktop app uses that flag to decide whether to show Help > Use Staging. The plumbing for the staging-testers flag is sound and tested. Changes are still needed for three reasons: the sign-in allowlist turns a failed list read into a signed-out session, which deletes saved desktop tokens; list refreshes add an untimed Secret Manager call to every authenticated request in production; and the allowlist enforcement has no tests (21 changed lines are uncovered).",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "source",
+      "file": "apps/control-plane/src/auth/AuthService.ts",
+      "line": 363,
+      "severity": "P1",
+      "body": "`stillAllowed` treats a failed allowlist read the same as \"not allowed\". In `SignInAllowlist.allows`, a failed read with no cached list returns an Error, which happens on every new Cloud Run instance until the first read succeeds. `getSession` then returns `undefined`, and `auth.session` answers `{ status: \"signed-out\" }`. When the desktop app sees that answer, `ControlPlaneAuth.getSessionUnqueued` calls `sessionStore.remove()` and clears the token. As a result, one transient Secret Manager failure on a cold staging instance signs out every staging user who connects during that window, and their saved session is lost. A read failure must surface as an error (for example, `getSession` returns the Error so the RPC fails with a 500), not as a signed-out session. Revoking access for users removed from the list should only happen when the list was actually read."
+    },
+    {
+      "id": "F2",
+      "kind": "source",
+      "file": "apps/control-plane/src/auth/SignInAllowlist.ts",
+      "line": 36,
+      "severity": "P1",
+      "body": "The list refresh runs inside the request. Every caller of `getSession` (each RPC, each workspace proxy request, each socket ticket) can end up waiting for `readGcpSecret`. That function has no timeout, and production now calls it through `hasStagingAccess` just to show a menu item. There are three problems:\n1. Concurrent calls after the list expires each start their own read; nothing shares the in-flight refresh.\n2. When a refresh fails but a cached list exists, `readAt` is not updated, so during a Secret Manager outage every request makes a new read instead of backing off.\n3. A slow or hung read stalls production authentication for a cosmetic feature.\nFix: share a single in-flight refresh, and once a list exists, serve it while refreshing in the background. Also record the time of failed attempts so retries back off, and put a timeout on the read."
+    },
+    {
+      "id": "F3",
+      "kind": "test",
+      "file": "apps/control-plane/src/auth/signInHooks.ts",
+      "line": 13,
+      "severity": "P1",
+      "body": "The staging sign-in restriction is a security control, and none of it is exercised: the `signInHooks` user and session create hooks (`signInHooks.ts` lines 13, 17, 24, 38–47), `findUserEmail` (`AuthService.ts` lines 116 and 145–155), `stillAllowed` (lines 361–363), and the check in `createWorkspaceSocketTicket` (line 372). Every temp test starts the control plane without `signInAllowlistSecretId`. The coverage-exempt note on the Postgres branch says the SQLite branch is \"tested with the hooks\", but no such test exists. Add tests that configure `signInAllowlistSecretId` and verify that the allowlist enforces access."
+    },
+    {
+      "id": "F4",
+      "kind": "test",
+      "file": "apps/electron/src/main/api/registerDesktopApi.ts",
+      "line": 88,
+      "severity": "P1",
+      "body": "These changed lines are uncovered:\n- The `signIn` branch that passes the session to `StagingToggle` (`registerDesktopApi.ts` lines 88–90).\n- `readControlPlaneSecret` (`packages/config/src/controlPlane.ts` line 326), which every temp test mocks out.\n\nThe e2e test `stagingToggleMenu.e2e.test.ts` only asserts `visible: false` in a test build. The item was already hidden there before this change because the mode is not Production, so the test cannot show that `observe` changes the menu. Cover these paths with tests that would fail if the wiring broke."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "apps/control-plane/src/auth/signInHooks.ts + AuthService.ts:116,145-155 — with signInAllowlistSecretId set, creating a user or session for an unlisted email fails with NOT_INVITED, and a listed email (mixed case) succeeds",
+      "tier": "tmp",
+      "rationale": "The hooks that enforce staging sign-in have no test, and neither does the SQLite `findUserEmail` query they call."
+    },
+    {
+      "target": "AuthService.getSession / createWorkspaceSocketTicket (AuthService.ts:331, 361-363, 372) — after an email is removed from the list and the list refreshes, `auth.session` returns signed-out and no socket ticket is issued; a listed user still gets a session",
+      "tier": "tmp",
+      "rationale": "Checks that sessions are revoked when an email leaves the list. This is currently uncovered."
+    },
+    {
+      "target": "AuthService.getSession when the allowlist read fails with no cached list — must not report signed-out (see F1)",
+      "tier": "tmp",
+      "rationale": "Guards against desktop users being signed out by a transient Secret Manager error."
+    },
+    {
+      "target": "SignInAllowlist.allows — a failed refresh keeps the last good list, and a later successful refresh replaces it (use the injected `now`)",
+      "tier": "tmp",
+      "rationale": "The keep-last-good branch and the refresh timing have no direct test."
+    },
+    {
+      "target": "registerDesktopApi signIn branch (lines 88-90) — a session returned by signIn reaches StagingToggle.observe",
+      "tier": "tmp",
+      "rationale": "These changed lines are uncovered."
+    },
+    {
+      "target": "packages/config/src/controlPlane.ts:326 readControlPlaneSecret — calls readGcpSecret with projectId 'halo-relay' and the given secretId",
+      "tier": "tmp",
+      "rationale": "This changed line is uncovered because every test mocks the function."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "28151b320a405a05ecbfbe36eb350a194b60267e",
+  "treeHash": "e707ad728a8b35c3b60206d3ec1170f97fe75d81",
+  "codeTree": "ebd779c328b2d50328a6cd4156d458aed6898683",
+  "coverage": {
+    "executable": 72,
+    "covered": 47,
+    "exempt": 4,
+    "uncovered": 21
+  },
+  "createdAt": "2026-10-13T20:04:10.813Z"
+}

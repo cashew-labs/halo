@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change is now rebased onto `origin/main`, which already contains the sign-in allowlist and the desktop sign-out action. The diff adds the production `stagingTestersSecretId`, which `prod` points at the west allowlist, the `stagingAccess` session flag, and the desktop \"Use Staging\" toggle; it now also hides the toggle after a successful sign-out. The logic, infra and README all match prod keeping its own `halo-prod-sign-in-allowlist`. All temp tests pass, every changed line is covered, and no P0 or P1 issue remains.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 3,
+  "headSha": "e6096be6fcccb9e27cb2e5bd304c7ff5d9bb0348",
+  "treeHash": "4571dd30c697c9669aca8b664dd8dcd900527bd8",
+  "codeTree": "e44ef20c7586584553d8efb9482541a4416b7569",
+  "coverage": {
+    "executable": 26,
+    "covered": 26,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-13T20:36:35.575Z"
+}
