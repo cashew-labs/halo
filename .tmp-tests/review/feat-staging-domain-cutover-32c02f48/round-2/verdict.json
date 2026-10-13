@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change moves the `west` control-plane stack to `staging.gethalo.dev` with `redirectWww: \"false\"` and updates `infra/README.md` so that `prod` is production and `west` is staging throughout: intro, KMS note, origin paragraph, location table, stack selection, image build note, and origin outputs. F1 is fixed, the temp tests pass, and there are no changed executable lines, so it is ready. One stale sentence remains outside this change: README lines 104-108 still say `pnpm prerelease` ships production changes, but the base branch introduced that inaccuracy.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "602956bbce8621ec02ade9120174aac7e13f909b",
+  "treeHash": "445b298029eab9afe0c4fface93734e04ddb1445",
+  "codeTree": "cb63837ecc627802d65ea76ea097eed539ce6f1d",
+  "coverage": {
+    "executable": 0,
+    "covered": 0,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-09T21:24:22.249Z"
+}

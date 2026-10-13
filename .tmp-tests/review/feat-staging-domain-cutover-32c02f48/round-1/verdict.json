@@ -1,0 +1,27 @@
+{
+  "status": "changes_requested",
+  "summary": "I'm requesting changes because the README still documents `west` as production. The change moves the `west` control-plane stack to `staging.gethalo.dev` with `redirectWww: \"false\"` and updates one README paragraph. The config is correct: `getBoolean` parses \"false\", the temp stack test covers the subdomain-only certificate, map entry and URL map, and Electron's staging origin already matches.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "source",
+      "file": "infra/README.md",
+      "line": 82,
+      "severity": "P1",
+      "body": "After this change, `west` is staging. The same README still documents `west` as production in several places:\n\n- Lines 3-5: \"Halo production runs ... The active Pulumi control-plane stack is `west`.\"\n- Lines 12-17: the production origin paragraph.\n- Lines 72-80: the production table pairs Public origin `https://gethalo.dev` with Pulumi stack `west`.\n- Lines 82-89: \"Authenticate and select production\" runs `pulumi ... stack select west`.\n\nAn operator who follows the production runbook will now preview and apply against staging. The earlier wording was accurate only before the cutover, which the removed \"Until the cutover...\" paragraph made explicit. Update these sections in this change so that production steps select `prod`, or say which stack to select for each environment."
+    }
+  ],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "a5c59edb9c0eeb37e268b4916ba772bbe5536a1b",
+  "treeHash": "2622c7ae0ca32f28c2834db36d234aff5bfb6a32",
+  "codeTree": "587c2fbec7629f008ec3973cafcb2b6f42e960f8",
+  "coverage": {
+    "executable": 0,
+    "covered": 0,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-09T21:23:43.531Z"
+}

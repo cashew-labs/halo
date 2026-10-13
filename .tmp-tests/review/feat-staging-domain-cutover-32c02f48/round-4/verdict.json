@@ -1,0 +1,27 @@
+{
+  "status": "changes_requested",
+  "summary": "The change, now rebased onto the new base, still moves `west` to `staging.gethalo.dev` with `redirectWww: \"false\"` and updates `infra/README.md` so that `prod` is production and `west` is staging. The source and README remain correct. The temp test run failed, because `apps/electron/.tmp-tests/ControlPlaneAuth.test.ts` cannot be imported, so the change cannot be approved until every temp test run passes.",
+  "findings": [
+    {
+      "id": "F2",
+      "kind": "test",
+      "file": "apps/electron/.tmp-tests/ControlPlaneAuth.test.ts",
+      "line": 17,
+      "severity": "P1",
+      "body": "The temp suite fails to load. The test fails before any test runs, at line 17 (`await import(\"../src/main/auth/ControlPlaneAuth.js\")`). The error is `Cannot find module .../@tanishqkancharla/tandem-core/dist/TandemClient` (see `.tmp-tests/report/tmp.log`). The cause is in the dependency, not in this change: `tandem-core/dist/index.js` line 1 has the extensionless ESM import `export { TandemClient } from \"./TandemClient\"`, and Node cannot resolve it.\n\nThis change touches only `infra/README.md` and `Pulumi.west.yaml`, so this Electron temp test does not exercise anything in the diff. Fix it in one of these ways so that the temp run passes:\n\n- Remove it from this change's temp tests.\n- Mock the module chain that pulls in `tandem-core`.\n- Repair the dependency install or build after the rebase."
+    }
+  ],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 4,
+  "headSha": "9a3cb30ce96c00a456e38e3451d26d26eb12ec83",
+  "treeHash": "e74dfbe0612217beaeb7314627a5d04dc6981432",
+  "codeTree": "c2b131e1a771634385fe60849ff6cb574c3bb5a6",
+  "coverage": {
+    "executable": 0,
+    "covered": 0,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-13T00:12:35.228Z"
+}

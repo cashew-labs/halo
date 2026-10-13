@@ -1,0 +1,6 @@
+[
+  {
+    "findingId": "F1",
+    "reply": "fixed: the README intro, KMS note, origin paragraph, location table, stack selection, manual image build note, and origin outputs now name prod as production and west as staging."
+  }
+]

@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change is rebased onto a new base, and its diff is identical to round 7 (same blobs: README 7cf017454..a43c3f05e, Pulumi.west.yaml 9aac0e9ce..682905cde). It moves the `west` control-plane stack to `staging.gethalo.dev` with `redirectWww: \"false\"` and updates `infra/README.md` so that `prod` is production and `west` is staging. All temp test runs pass, there are no changed executable lines, and no findings remain, so the change is ready.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 8,
+  "headSha": "631aa78b8aebf00808018e68db82a6b6508ea57a",
+  "treeHash": "6ec71272b75b3f2a7bcdfe53ea0386e54bab7bb8",
+  "codeTree": "81328e14c8aa87d8e26c941b180f61c75e22dafe",
+  "coverage": {
+    "executable": 0,
+    "covered": 0,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-13T01:14:11.806Z"
+}
