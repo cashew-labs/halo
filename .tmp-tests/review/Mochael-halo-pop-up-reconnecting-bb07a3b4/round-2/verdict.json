@@ -1,0 +1,33 @@
+{
+  "status": "changes_requested",
+  "summary": "F1 is fixed. A connection in the \"authentication\" state now probes again on focus, online and wake without dropping the Sign in action, and the temp e2e test shows recovery with the draft kept. The new carry-over in `failed()` adds a regression: a transient failure on the first connection attempt after a successful sign-in falls back to \"Sign in required\" with the old error and no retry timer. I accept the coverage-exempt reason on controlPlaneHttp.ts:561.",
+  "findings": [
+    {
+      "id": "F2",
+      "kind": "source",
+      "file": "packages/web/src/api/ConnectionService.ts",
+      "line": 286,
+      "severity": "P1",
+      "body": "`failed()` now keeps any failure in the \"authentication\" state when the previous state was \"authentication\": `?? (this.state.status === \"authentication\" ? this.state.error : undefined)`. Because `connect()` (lines 191-196) also no longer publishes \"connecting\" or \"reconnecting\" from that state, this also applies to the `service.retry()` that ConnectionStatus.tsx calls after a *successful* `reauthenticate()`.\n\nIf that first attempt after sign-in fails for an ordinary reason, the UI goes back to \"Sign in required\" with the old AuthenticationRequiredError. Ordinary reasons include `getWorkspaceConnection` returning `undefined` on 502/503 while `workspace.ensure()` is still starting the workspace, a 10 s ConnectionTimeoutError, or a transport error. Because the status is \"authentication\", `failed()` returns before it schedules the backoff timer. The dialog is already closed, so the user is invited to start another unnecessary browser OAuth flow. Recovery then depends on the status poll (and only in hosts that have `getWorkspaceStatus`). In the local desktop authentication, which has no `getWorkspaceStatus`, it stays stuck until the next focus event.\n\nKeep the carry-over only for probes that start in the authentication state without new credentials. For example, after a successful sign-in, publish \"connecting\"/\"reconnecting\" (as the removed `resumeAfterSignIn` did) or set a flag so `failed()` classifies the error normally and schedules backoff."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "packages/web/src/ConnectionStatus.tsx Sign in onClick → service.retry() followed by a transient connection failure (packages/web/src/api/ConnectionService.ts:280-286)",
+      "tier": "tmp",
+      "rationale": "Test that after a successful sign-in, a first getConnection that returns undefined (workspace starting) or a transport error leaves the status at Reconnecting… rather than Sign in required, and that the automatic backoff retry then connects without another sign-in."
+    }
+  ],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "fa151dd71de33813deeab8543063dac8ccfe7b19",
+  "treeHash": "ded680523928929c972278e428d549ffef0e4ce5",
+  "codeTree": "1087e8a4785a445c6423bf45b20a468832523e28",
+  "coverage": {
+    "executable": 72,
+    "covered": 71,
+    "exempt": 0,
+    "uncovered": 1
+  },
+  "createdAt": "2026-10-13T17:12:29.551Z"
+}

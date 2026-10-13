@@ -1,0 +1,43 @@
+{
+  "status": "changes_requested",
+  "summary": "The change sends Google sign-in cancellations and failures back to the desktop loopback callback, and it moves desktop sign-in out of the auth queue. It also blocks connection retries while sign-in is required and replaces the connection dialog with an accessible react-aria modal. It is not ready to merge. The coverage gate fails with 21 uncovered lines. A retry guard also leaves the \"authentication\" state with no automatic way out, so a tab whose credentials became valid elsewhere no longer recovers on focus or reconnect.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "source",
+      "file": "packages/web/src/api/ConnectionService.ts",
+      "line": 110,
+      "severity": "P1",
+      "body": "The new `this.state.status === \"authentication\"` guards in `retry` (line 110) and `reportActivity` (line 444) leave the authentication state with no automatic way out. The `online`, `focus`, `visibilitychange` and worker-`running` events all go through these two paths, so after `failed()` publishes \"authentication\" the service never calls `connect()` again unless the user clicks Sign in. Before this change, a focus or visibility event re-ran `connect()`. That recovered a tab whose credentials became valid somewhere else, for example a second browser tab that signed in again, where WebHost.signIn redirects the whole page, or a stale UNAUTHORIZED in local development. Now the only way out in the web app is a full-page Google redirect, which discards in-memory UI state that a focus event used to keep. The goal seems to be keeping the dialog from flickering while sign-in is in progress. Limit the guard to that case: skip retries only while a sign-in is running (for example a `signingIn` flag that the dialog sets or `resumeAfterSignIn` clears). Or keep focus and online retries in the authentication state but have `connect()` leave the published status alone until it succeeds. Add a test showing that a tab in the authentication state reconnects on focus once `getConnection` returns a valid connection again."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "apps/electron/src/main/auth/ControlPlaneAuth.ts:98-99,102,104,109,243-248,434,437,440,504,516,522,527,531-532",
+      "tier": "tmp",
+      "rationale": "These lines are reported as uncovered. The e2e test runs some of them (concurrent signIn, final token write, error and empty-code callbacks), but the coverage collected from the esbuild bundle inside Electron main is mapped only in part. Add a reliable temp Vitest test for ControlPlaneAuth with `electron` mocked (safeStorage, openExternalUrl), or fix the bundle's source-map coverage collection. The test must assert these behaviors: a second signIn() call while one is pending returns the same promise and opens only one URL; getWorkspaceConnection() with no token returns AuthenticationRequiredError and stays responsive during a pending sign-in; an `error=access_denied` callback resolves to DesktopSignInCancelledError and other errors resolve to ControlPlaneAuthError; a wrong state, path or method, or a missing or empty code, gets 400 and leaves the promise pending; a successful exchange writes the token through the queue and getSession() then returns the session."
+    },
+    {
+      "target": "apps/control-plane/src/server/controlPlaneHttp.ts:561",
+      "tier": "tmp",
+      "rationale": "The coverage report lists this line as uncovered. Find out which branch it maps to; it may be the fall-through where callback or state is missing, or the case where only one of the two is present. Cover it with a request that asserts the response: for example `callback` without `state` should fall through to the 200 plain-text page and must not redirect."
+    },
+    {
+      "target": "packages/web/src/api/ConnectionService.ts retry/reportActivity in authentication state",
+      "tier": "tmp",
+      "rationale": "F1 needs a regression test: in the authentication state, a focus or online event either reconnects once the host returns a valid connection, or is deliberately skipped only while a sign-in is in progress."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "fa151dd71de33813deeab8543063dac8ccfe7b19",
+  "treeHash": "e3735cff5c092c31375e536d393fb9703abcc1a5",
+  "codeTree": "6441fdd3b07783ff60b16f7ab3680643fb33d121",
+  "coverage": {
+    "executable": 78,
+    "covered": 57,
+    "exempt": 0,
+    "uncovered": 21
+  },
+  "createdAt": "2026-10-13T17:04:19.276Z"
+}

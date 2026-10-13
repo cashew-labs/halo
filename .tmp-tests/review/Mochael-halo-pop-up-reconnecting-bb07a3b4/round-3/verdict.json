@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "F2 is fixed. After a successful sign-in, `resumeAfterSignIn` cancels any probe still in flight, publishes connecting or reconnecting, and retries. A first attempt that fails afterwards is treated as an ordinary failure and retried with backoff, instead of falling back to \"Sign in required\". The temp e2e test holds a stale focus probe across the sign-in, makes the first attempt after sign-in return undefined, and checks that the UI shows \"Reconnecting…\", ignores the stale probe, and then connects. Both test runs pass, the coverage gate passes with one accepted exemption, and no P0 or P1 findings remain.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 3,
+  "headSha": "fa151dd71de33813deeab8543063dac8ccfe7b19",
+  "treeHash": "6ef7afd6b9516459fa5b69a37f9173692ea4728b",
+  "codeTree": "47723591b7b935e7c3eb99d4eb46c9e186a5538c",
+  "coverage": {
+    "executable": 78,
+    "covered": 77,
+    "exempt": 1,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-13T17:20:31.870Z"
+}
