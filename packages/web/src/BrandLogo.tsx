@@ -1,5 +1,3 @@
-import { iconSizeValues, type IconSize } from "maui";
-import { style, useStyles } from "purse-styles";
 import googleLogoUrl from "./assets/google.svg";
 
 type BrandDefinition = {
@@ -15,24 +13,3 @@ export const brands = {
     buttonForeground: "#FFFFFF",
   },
 } satisfies Record<string, BrandDefinition>;
-
-export function LogoImage(props: { src: string; size: IconSize }) {
-  const className = useStyles(logo);
-  const box = iconSizeValues[props.size];
-
-  return (
-    <img
-      src={props.src}
-      alt=""
-      aria-hidden="true"
-      className={className}
-      style={{ width: box, height: box }}
-    />
-  );
-}
-
-const logo = style({
-  display: "block",
-  objectFit: "contain",
-  flexShrink: 0,
-});

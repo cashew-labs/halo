@@ -90,5 +90,6 @@ minimumReleaseAgeExclude:
   - react-aria@3.52.0
   - react-stately@3.50.0
 patchedDependencies:
+  '@tanishqkancharla/maui@0.0.45': patches/@tanishqkancharla__maui@0.0.45.patch
   # React Aria 1.21 omits hasChildItems when calling useTreeItem for empty folders.
   react-aria-components@1.21.0: patches/react-aria-components@1.21.0.patch

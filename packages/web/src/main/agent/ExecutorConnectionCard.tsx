@@ -6,6 +6,7 @@ import {
   colors,
   Flex,
   iconSizeValues,
+  LogoIcon,
   radius,
   shadow,
   Text,
@@ -17,7 +18,7 @@ import {
   googleIntegrationDisplay,
 } from "@get-halo/client";
 import { useHost } from "../../HostProvider.js";
-import { brands, LogoImage } from "../../BrandLogo.tsx";
+import { brands } from "../../BrandLogo.tsx";
 import {
   connectionCardQueryKey,
   connectionStateAfterCancel,
@@ -171,7 +172,7 @@ export function ExecutorConnectionCard({
     >
       <Flex column gap={1} p={6}>
         <Flex row gap={4} alignItems="center">
-          {display !== undefined && <LogoImage src={display.icon} size="xl" />}
+          {display !== undefined && <LogoIcon src={display.icon} size="xl" />}
           <Text size="md" fontWeight={600} style={{ flex: 1, minWidth: 0 }}>
             {label}
           </Text>
