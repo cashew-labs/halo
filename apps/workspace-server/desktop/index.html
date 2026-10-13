@@ -18,6 +18,18 @@
         color: white;
         font: 14px system-ui;
       }
+      #clipboard-status {
+        position: absolute;
+        top: 12px;
+        left: 12px;
+        padding: 8px 12px;
+        border-radius: 4px;
+        background: #303640;
+        color: #ffd18a;
+      }
+      #clipboard-status:empty {
+        display: none;
+      }
       #status {
         position: absolute;
         inset: 0;
@@ -32,20 +44,48 @@
   </head>
   <body>
     <div id="desktop" aria-label="Workspace desktop"></div>
+    <div id="clipboard-status" role="status"></div>
     <div id="status" role="status">Connecting to desktop…</div>
     <script type="module">
       import RFB from "./core/rfb.js";
+      import { DesktopKeyboard } from "./DesktopKeyboard.js";
       const display = document.getElementById("desktop");
       const status = document.getElementById("status");
+      const clipboardStatus = document.getElementById("clipboard-status");
       const endpoint = new URL("stream", location.href);
       endpoint.protocol = location.protocol === "https:" ? "wss:" : "ws:";
       let connection;
+      let keyboard;
       let retry;
       let mode;
       let active = false;
       let connected = false;
       let closed = false;
       let lastActivity = 0;
+      function reportFocus() {
+        window.parent.postMessage(
+          {
+            type: "halo:desktop-focus",
+            focused:
+              connected &&
+              document.hasFocus() &&
+              display.contains(document.activeElement),
+          },
+          "*",
+        );
+      }
+      display.addEventListener("focusin", reportFocus);
+      display.addEventListener("focusout", reportFocus);
+      window.addEventListener("focus", reportFocus);
+      window.addEventListener("blur", reportFocus);
+      function releaseKeyboard() {
+        keyboard?.release();
+        connection?.blur();
+        window.parent.postMessage(
+          { type: "halo:desktop-release-keyboard" },
+          "*",
+        );
+      }
       function activity() {
         if (Date.now() - lastActivity < 1000) return;
         lastActivity = Date.now();
@@ -70,11 +110,14 @@
       function disconnect() {
         clearTimeout(retry);
         retry = undefined;
+        keyboard?.dispose();
+        keyboard = undefined;
         const previous = connection;
         connection = undefined;
         connected = false;
         // Ignore the old socket's disconnect event before it can queue a retry.
         previous?.disconnect();
+        reportFocus();
       }
       function setMode(nextMode) {
         if (closed) return;
@@ -108,12 +151,25 @@
         socket.addEventListener("connect", () => {
           if (socket !== connection) return;
           connected = true;
+          keyboard = new DesktopKeyboard({
+            connection: socket,
+            target: display,
+            onRelease: releaseKeyboard,
+            onStatus: (message) => {
+              clipboardStatus.textContent = message;
+            },
+          });
+          // Connecting or reconnecting must not steal focus from Halo inputs.
+          reportFocus();
           renderStatus();
         });
         socket.addEventListener("disconnect", () => {
           if (socket !== connection) return;
+          keyboard?.dispose();
+          keyboard = undefined;
           connection = undefined;
           connected = false;
+          reportFocus();
           renderStatus();
           if (closed || !active) return;
           clearTimeout(retry);

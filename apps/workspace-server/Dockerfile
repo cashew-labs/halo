@@ -36,7 +36,7 @@ ARG PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false
 RUN pnpm exec playwright install --with-deps chromium --no-shell
 COPY packages ./packages
 COPY apps/workspace-server ./apps/workspace-server
-RUN cp apps/workspace-server/desktop/index.html /usr/share/novnc/index.html \
+RUN cp apps/workspace-server/desktop/index.html apps/workspace-server/desktop/*.js /usr/share/novnc/ \
     && cp apps/workspace-server/desktop/chrome.sh /usr/local/bin/halo-chrome \
     && chmod +x /usr/local/bin/halo-chrome
 RUN pnpm --filter @get-halo/extension-sdk run build \

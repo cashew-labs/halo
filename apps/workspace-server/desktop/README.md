@@ -6,10 +6,15 @@ and headed Google Chrome. All processes share the workspace user, home directory
 display, and D-Bus session. Files, terminal working directories, and new Chrome
 downloads use `/home/node/documents`.
 
-Halo's Desktop sidebar entry embeds the viewer at `/desktop/` (or
-`/workspace/desktop/` through the control plane). The viewer resizes the remote
-display to its pane and reconnects to the same desktop after a lost connection.
-Closing the pane does not close desktop applications. There is no fullscreen UI.
+Halo's Desktop sidebar entry embeds the live desktop at `/desktop/` (or
+`/workspace/desktop/` through the control plane). Clicking the desktop gives it
+keyboard control; connecting or reconnecting does not take focus from Halo.
+While focused, a banner shows **Capturing keyboard shortcuts.** and an
+**Unfocus Ctrl+Esc** button (**⌃Esc** on Mac) to return keyboard control to Halo without
+reloading the iframe or restarting the stream. The banner is hidden and inert
+when unfocused, with its space reserved so focus never resizes the stream. The
+remote display resizes with the pane. The viewer reconnects to the same desktop
+after a lost connection. Closing the pane does not close desktop applications.
 
 The container entrypoint owns the processes for this spike. A critical child
 exiting stops the container; its existing VM supervisor can restart it. Container
@@ -52,11 +57,36 @@ to the workspace container, not only Chrome; refresh the profile when upgrading
 the host Docker policy. A previously healthy container without the profile is
 restarted when startup applies this configuration.
 
+## Keyboard and clipboard
+
+While the desktop iframe has focus, Electron yields Halo's built-in, custom, and
+menu shortcuts to it. Click **Unfocus**, press **Ctrl+Esc**, or focus another
+Halo control to restore Halo shortcuts. Losing focus or disconnecting releases
+tracked modifiers and cancels pending clipboard reads.
+Windows reserves Ctrl+Esc for Start and may intercept it before Halo receives it;
+the Unfocus button remains available.
+
+The viewer uses application shortcuts only, with no shortcut-mode selector or
+embedded footer. Mac Command shortcuts translate to Linux Control shortcuts; Windows and
+Linux Control shortcuts go to the remote application. There are no terminal-specific
+copy/paste mappings.
+
+Application shortcuts include select-all, copy, cut, paste, undo/redo, save, find,
+new/close tab or window, print, address bar, reload, and zoom. Mac Command+arrows
+map to line/document navigation, including Shift for selection. Unsupported Mac
+Command chords are consumed rather than inserting stray text into the remote app.
+Ordinary typing, composition, and other remote keys remain noVNC's responsibility.
+
+`shortcuts.js` declares the mappings. `DesktopKeyboard.js` owns shortcut dispatch,
+modifier handling, and text clipboard transfer. Clipboard reads happen only on
+paste; host clipboard writes happen only after an explicit remote copy or cut.
+Clipboard access requires a secure context and browser permission; failures appear
+as a notice over the desktop. Images/files are not bridged. OS-reserved shortcuts, and some
+browser-reserved shortcuts in the browser-hosted viewer, cannot be intercepted.
+
 Before promoting this spike, validate interaction over a deployed connection,
-native clipboard integration, macOS-to-Linux shortcuts, multiple viewers resizing
-the same display, and desktop failure recovery. The current viewer does not bridge
-the host clipboard; copying between applications inside the remote desktop works
-through the Linux session.
+macOS-to-Linux shortcuts, multiple viewers resizing the same display, and desktop
+failure recovery.
 
 ## Spike validation
 
