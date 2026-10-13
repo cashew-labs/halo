@@ -75,7 +75,6 @@ export function PaneWorkspace({ sessions }: { sessions: SessionSummary[] }) {
         "Session"
       );
     }
-    if (tab.path === "/automations") return "Automations";
     if (
       tab.path.startsWith("/routines/") ||
       tab.path.startsWith("/automations/")

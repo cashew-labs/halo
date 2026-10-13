@@ -77,8 +77,12 @@ export function FileEntryInput({
               onClose();
               return;
             }
+            const filename =
+              action.kind === "file" && !/\.[^.]+$/.test(value)
+                ? `${value.replace(/\.$/, "")}.md`
+                : value;
             onSubmit(
-              action.parent === "" ? value : `${action.parent}/${value}`,
+              action.parent === "" ? filename : `${action.parent}/${filename}`,
             );
           }}
         />

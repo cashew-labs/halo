@@ -34,77 +34,6 @@ const statusLabels = {
   skipped: "Skipped",
 } satisfies Record<AutomationRunStatus, string>;
 
-export function AutomationsPane() {
-  const automations = useDatabaseQuery({
-    collection: "automations",
-    orderBy: { createdAt: "asc", id: "asc" },
-  });
-  const workspace = useWorkspacePanes();
-  const [creating, setCreating] = useState(false);
-  const pane = useStyles(styles.pane);
-  const content = useStyles(styles.content);
-  const titleRow = useStyles(styles.titleRow);
-  const title = useStyles(styles.title);
-  const list = useStyles(styles.list);
-  const link = useStyles(styles.runLink);
-  const info = useStyles(styles.runInfo);
-  return (
-    <div className={pane} role="region" aria-label="Automations">
-      <div className={content}>
-        <header className={titleRow}>
-          <h2 className={title}>Automations</h2>
-          <Button onClick={() => setCreating(true)}>New automation</Button>
-        </header>
-        <p>
-          Run an agent or script on a schedule, when email arrives, or when a
-          service calls your private webhook. You can also ask Halo to set one
-          up.
-        </p>
-        {automations === undefined ? (
-          <p>Loading automations…</p>
-        ) : automations.length === 0 ? (
-          <p>No automations yet.</p>
-        ) : (
-          <ul className={list}>
-            {automations.map((automation) => (
-              <li key={automation.id}>
-                <a
-                  className={link}
-                  href={`/automations/${encodeURIComponent(automation.id)}`}
-                  onClick={(event) => {
-                    event.preventDefault();
-                    workspace.open({
-                      path: `/automations/${encodeURIComponent(automation.id)}`,
-                      newTab: event.metaKey || event.ctrlKey,
-                    });
-                  }}
-                >
-                  <span>{automation.name}</span>
-                  <span className={info}>
-                    {activationLabel(automation)} ·{" "}
-                    {automation.enabled ? "Active" : "Paused"}
-                  </span>
-                </a>
-              </li>
-            ))}
-          </ul>
-        )}
-        {creating && (
-          <AutomationEditor
-            onClose={() => setCreating(false)}
-            onSaved={(automation) => {
-              setCreating(false);
-              workspace.open({
-                path: `/automations/${encodeURIComponent(automation.id)}`,
-              });
-            }}
-          />
-        )}
-      </div>
-    </div>
-  );
-}
-
 export function AutomationPane({
   automationId,
   sessions,
@@ -183,7 +112,6 @@ function AutomationView({
   const remove = useMutation({
     mutationFn: async () =>
       await api.automations.remove({ automationId: automation.id }),
-    onSuccess: () => workspace.open({ path: "/automations" }),
   });
   const pane = useStyles(styles.pane);
   const content = useStyles(styles.content);
