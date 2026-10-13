@@ -142,6 +142,17 @@ protocols, and revision before browser or desktop publishing. A container startu
 or health failure blocks publishing; automatic rollback and draining active agent
 runs are not implemented. The restart still briefly interrupts active work.
 
+Exe workspaces update through `infra/workspace/exeRollout.sh update`, which
+streams the image to the guest instead of pulling it. A full disk also stops the
+running workspace, so before the transfer the script makes sure the guest disk
+is at least `EXE_WORKSPACE_DISK_GB` (default 100 GB) and has room for twice the
+image: containerd keeps both the compressed layers and their unpacked snapshot.
+It grows the disk with `exe.dev resize --disk` when needed; exe.dev bills disk by
+usage, not size. If the filesystem still lacks room, the update stops before the
+transfer and the running workspace is unchanged. After the new container reports
+ready, older `halo-workspace` images are removed. New templates use the same
+default disk size.
+
 The `deploymentServiceAccount` stack setting must match
 `GCP_DEPLOY_SERVICE_ACCOUNT` in GitHub. Pulumi manages OS Admin Login, IAP access
 restricted to SSH, and access to the workspace runtime service account. Existing
