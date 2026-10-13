@@ -126,6 +126,19 @@ export class ConnectionService {
     void this.connect().catch(console.error);
   };
 
+  resumeAfterSignIn() {
+    this.generation++;
+    this.attempting = false;
+    this.controller?.abort(new ConnectionInterruptedError());
+    this.probe?.abort(new ConnectionInterruptedError());
+    this.publish({
+      ...this.state,
+      status: this.state.api === undefined ? "connecting" : "reconnecting",
+      error: undefined,
+    });
+    this.retry();
+  }
+
   private offline = () => {
     clearTimeout(this.timer);
     this.generation++;
@@ -186,11 +199,14 @@ export class ConnectionService {
     const controller = new AbortController();
     this.controller = controller;
     const generation = ++this.generation;
-    this.publish({
-      ...this.state,
-      status: this.state.api === undefined ? "connecting" : "reconnecting",
-      error: undefined,
-    });
+    // A focus retry may discover credentials renewed in another window. Keep
+    // the sign-in action available until that probe actually connects.
+    if (this.state.status !== "authentication")
+      this.publish({
+        ...this.state,
+        status: this.state.api === undefined ? "connecting" : "reconnecting",
+        error: undefined,
+      });
     const timeout = setTimeout(
       () => controller.abort(new ConnectionTimeoutError()),
       10_000,
@@ -274,12 +290,13 @@ export class ConnectionService {
     const rpcError =
       error === undefined ? undefined : errore.findCause(error, ORPCError);
     const authentication =
-      error === undefined
+      (error === undefined
         ? undefined
         : (errore.findCause(error, AuthenticationRequiredError) ??
           (rpcError?.code === "UNAUTHORIZED"
             ? new AuthenticationRequiredError({ cause: error })
-            : undefined));
+            : undefined))) ??
+      (this.state.status === "authentication" ? this.state.error : undefined);
     const status =
       incompatible !== undefined
         ? "incompatible"
@@ -444,8 +461,12 @@ export class ConnectionService {
       this.publish({
         ...this.state,
         power: "waking",
-        status: "reconnecting",
-        error: undefined,
+        status:
+          this.state.status === "authentication"
+            ? "authentication"
+            : "reconnecting",
+        error:
+          this.state.status === "authentication" ? this.state.error : undefined,
       });
     // oxlint-disable-next-line typescript/no-floating-promises -- The host reports errors; retries resume after the activity request finishes.
     this.recordActivity().then(() => {

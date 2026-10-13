@@ -31,6 +31,10 @@ export class ElectronTestApp {
     return this.running.page;
   }
 
+  get electron() {
+    return this.running.electron;
+  }
+
   get server() {
     return this.running.server;
   }

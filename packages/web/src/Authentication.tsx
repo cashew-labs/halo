@@ -24,8 +24,8 @@ type AuthenticationState =
 
 const AuthenticatedUserContext = createContext<string | undefined>(undefined);
 
-const ReauthenticateContext = createContext<() => Promise<void | Error>>(
-  async () => undefined,
+const ReauthenticateContext = createContext<() => Promise<boolean | Error>>(
+  async () => false,
 );
 export function useReauthenticate() {
   return useReactContext(ReauthenticateContext);
@@ -72,8 +72,9 @@ export function Authentication({ children }: { children: ReactElement }) {
   const reauthenticate = async () => {
     const session = await host.signIn();
     if (session instanceof Error) return session;
-    if (session !== undefined)
-      setState({ status: "signedIn", userId: session.user.id });
+    if (session === undefined) return false;
+    setState({ status: "signedIn", userId: session.user.id });
+    return true;
   };
   if (host.showLandingPage === true) {
     if (window.location.pathname === "/newsletter/check-email")
@@ -124,7 +125,10 @@ export function Authentication({ children }: { children: ReactElement }) {
       });
       return;
     }
-    if (session === undefined) return;
+    if (session === undefined) {
+      setState({ status: "signedOut" });
+      return;
+    }
 
     setState({ status: "signedIn", userId: session.user.id });
   };
