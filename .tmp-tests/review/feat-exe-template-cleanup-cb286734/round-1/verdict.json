@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "This change adds two jobs to the promotion workflow. The first re-runs the idempotent exe.dev template step for the version being promoted, before production deploys. The second removes every `halo-exe-<version>` template older than the new production version, after the deploy succeeds. The filter is a pure function, `staleExeTemplates`, with a small command-line wrapper. Promotions must be strictly newer than production, and staging always runs a version at least as new as production, so cleanup never removes a template that either stack still uses. The durable tests check the filter (numeric version comparison, keeping the equal and newer versions, ignoring workspace and other names) and the command-line parsing and usage error. Every changed line is covered and both test runs pass, so the change is ready.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "0bf5950361c8bd368b73fe236f52c94e7da4565f",
+  "treeHash": "5bebbc3849934c784c4b31977a58766874cbcb0c",
+  "codeTree": "5b6ea085d781731dbfebe5144301a7ef071c10dc",
+  "coverage": {
+    "executable": 16,
+    "covered": 16,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-12T22:58:56.209Z"
+}

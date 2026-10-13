@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The source and durable tests are unchanged since round 1, which I approved. A promotion job ensures the production exe.dev template exists, and after a successful deploy a cleanup job removes templates older than production. F1 is fixed: `ControlPlaneAuth.test.ts` now mocks `@get-halo/client` with its leaf modules, loads, and runs its 2 tests. Both test tiers pass and every changed line is covered, so the change is ready.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 3,
+  "headSha": "5c37249e58060a30ddf0a7b2099b8cfd15864355",
+  "treeHash": "2b95eea1f10bc894fb875d6433226a5ab3c8bec3",
+  "codeTree": "96e0f00abd98ea5ef2a844eaa9e15908e44e3096",
+  "coverage": {
+    "executable": 16,
+    "covered": 16,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-13T00:15:43.953Z"
+}

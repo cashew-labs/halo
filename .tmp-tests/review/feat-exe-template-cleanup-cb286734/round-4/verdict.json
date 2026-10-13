@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change was rebased onto a new base, and the diff is unchanged from the version I approved in rounds 1 and 3; the blob hashes for promote.yml and promotion.mjs match. Promotion ensures the exe.dev template exists for the version it deploys, and after a successful deploy it removes templates older than production. Both test tiers pass and all 16 changed lines are covered by durable tests, so the change is ready.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 4,
+  "headSha": "a5a3f37eaf19b0ff72cfa365f458e35b5fb1560c",
+  "treeHash": "09cd268b513634834a0fc8f80e9ddb3a6ca5864d",
+  "codeTree": "8a00210ce3e19446c3285cd163aae1800dd0796c",
+  "coverage": {
+    "executable": 16,
+    "covered": 16,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-13T00:50:41.047Z"
+}
