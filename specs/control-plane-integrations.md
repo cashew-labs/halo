@@ -767,6 +767,127 @@ Remove workspace integration initialization, credential access and OAuth handlin
 
 Removed workspace credential vaults, Google/OpenAPI integration initialization, OAuth routes, Electron loopback listeners and obsolete configuration. `ConnectionRequest` now describes only control-plane setup; workspace protocol is 25 and control-plane protocol is 4. Ship compatible clients and servers together. Existing local tools, approvals and Executor QuickJS are retained. Background extensions do not open connection cards. Browser launch is tested at the UI transport boundary; canonical server tests cover setup state and provider execution.
 
+### ✅ Follow-up: Validate explicit cards against the live catalog
+
+**Today**
+
+The migration deferred membership validation until the person clicked Connect. `showConnectionCard` could therefore display an unsupported integration or a card while catalog discovery was unavailable.
+
+**Proposed**
+
+Fetch the authenticated control-plane catalog when `showConnectionCard` runs. Emit a card only for an exact integration ID match. Return checked failures for an absent backend, catalog outage or unknown integration. This keeps registrations made after workspace startup discoverable without a startup snapshot. Setup still revalidates membership at click time. Catalog query filtering is addressed in the next follow-up.
+
+```callstack
+ tools.halo.showConnectionCard
+-└── collect any requested integration; validate only when Connect is clicked
++├── fetch live catalog [[card-membership:new:219]]
++├── reject unavailable discovery or unknown integration [[card-membership:new:220-238]]
++└── collect the validated integration into the exec result [[card-membership:new:239-241]]
+```
+
+The regression in [[packages/workspace-server/test/workspace.test.ts]] exercises agent exec through the real WorkspaceServer protocol. It reproduced the offline-card failure before the fix, then passed with outage/unsupported rejection, post-start registration, setup and cancellation.
+
+```source-diff:card-membership:packages/workspace-server/src/agent/runtime/ToolRuntime.ts
+diff --git a/packages/workspace-server/src/agent/runtime/ToolRuntime.ts b/packages/workspace-server/src/agent/runtime/ToolRuntime.ts
+index 25c7f28a..3a960ad4 100644
+--- a/packages/workspace-server/src/agent/runtime/ToolRuntime.ts
++++ b/packages/workspace-server/src/agent/runtime/ToolRuntime.ts
+@@ -203,7 +203,7 @@ const haloToolsPlugin = definePlugin((options?: HaloToolsPluginOptions) => {
+               "Show the user a card where they can choose whether to connect an integration. This does not connect an account or grant access by itself. Use it proactively when the task needs an integration that has no connection; do not ask for confirmation first.",
+             inputSchema: toExecutorSchema(showConnectionCardInputSchema),
+             execute: (args) =>
+-              Effect.sync(() => {
++              Effect.promise(async () => {
+                 if (!Value.Check(showConnectionCardInputSchema, args))
+                   return ToolResult.fail({
+                     code: "invalid_tool_arguments",
+@@ -216,7 +216,26 @@ const haloToolsPlugin = definePlugin((options?: HaloToolsPluginOptions) => {
+                     message:
+                       "Connection cards must be requested from a thread's exec tool",
+                   });
+-                // Resolve catalog membership on the control plane at setup time.
++                const catalog = await options.connections?.catalog();
++                if (catalog === undefined)
++                  return ToolResult.fail({
++                    code: "connections_unavailable",
++                    message: "This workspace has no control-plane connections",
++                  });
++                if (catalog instanceof Error)
++                  return ToolResult.fail({
++                    code: "discovery_failed",
++                    message: catalog.message,
++                  });
++                if (
++                  !catalog.some(
++                    (entry) => entry.integration === args.integration,
++                  )
++                )
++                  return ToolResult.fail({
++                    code: "integration_unavailable",
++                    message: `Integration '${args.integration}' is not in the control-plane catalog. No connection card was shown.`,
++                  });
+                 context.collectConnectionRequest({
+                   kind: "control-plane",
+                   integration: args.integration,
+```
+
+### ✅ Follow-up: Make integration availability discoverable
+
+**Today**
+
+The agent prompt recommends `executor.integrations.list({ query })`, but the remote catalog adapter ignores its arguments. The instructions also leave catalog membership, operation availability and discovery failures ambiguous.
+
+**Proposed**
+
+Validate the optional string query and filter live catalog entries by a case-insensitive substring of the integration ID or name, ignoring surrounding query whitespace. An omitted or blank query lists every entry. Keep agent guidance brief: use the integration list to find available integrations, search/describe to discover operations, and returned integration IDs for optional connection cards. Tool results explain failures when they occur. Cards remain allowed for availability questions; no fixed account-lookup order or scenario-specific response wording is imposed.
+
+```callstack
+ tools.executor.integrations.list({ query })
++├── validate optional string query [[catalog-query:new:835-839]]
+ ├── fetch authenticated live catalog [[catalog-query:new:840]]
++├── propagate discovery failure [[catalog-query:new:841-842]]
++└── filter IDs and names, returning the matching entries [[catalog-query:new:843-850]]
+```
+
+The canonical workspace test verifies name-only and ID-only matches, mixed case, surrounding whitespace, missing matches, unfiltered/blank queries, invalid arguments and an outage. It failed on the unfiltered adapter and passed after the fix. Provider support itself is unchanged; catalog lookup reports available integrations.
+
+**Earlier live-agent verification:** real DeepSeek V4.1 Flash inference ran through the canonical WorkspaceServer harness with controlled integration backends and disposable fixture accounts. Ten scenarios passed tool/card routing checks under the earlier, more prescriptive prompt. That evidence is historical: the prompt was subsequently simplified on review, removing availability-only card restrictions and case-specific workflow instructions. The query-filtering and live card-membership checks remain unchanged. No live provider access, consent completion, deployment or UI rendering is claimed.
+
+**Simplified-prompt verification:** four fresh live-model threads checked GitHub, Vercel and Gmail availability, then requested a Gmail connection. All four used the integration list. GitHub/Vercel emitted no cards; the Gmail availability question and explicit connection request both emitted `google_gmail` cards. Availability cards were allowed rather than prohibited by the check. The controlled backend had Gmail/Drive available and no accounts connected. Replies and tool results are saved in `.amp/in/artifacts/simplified-agent-flow-verification.json` in this orb. Both focused regressions and all 42 affected-package checks passed.
+
+```source-diff:catalog-query:packages/workspace-server/src/agent/runtime/ToolRuntime.ts
+diff --git a/packages/workspace-server/src/agent/runtime/ToolRuntime.ts b/packages/workspace-server/src/agent/runtime/ToolRuntime.ts
+index 25c7f28a..2cead108 100644
+--- a/packages/workspace-server/src/agent/runtime/ToolRuntime.ts
++++ b/packages/workspace-server/src/agent/runtime/ToolRuntime.ts
+@@ -809,10 +832,22 @@ export class ToolRuntime {
+           input.path === "executor.integrations.list" &&
+           this.remoteConnectionBackend !== undefined
+         ) {
++          if (!Value.Check(integrationListInputSchema, input.args))
++            return failure(
++              "invalid_tool_arguments",
++              "Expected an optional integration query string",
++            );
+           const catalog = await this.remoteConnectionBackend.catalog();
+-          return catalog instanceof Error
+-            ? failure("discovery_failed", catalog.message)
+-            : ToolResult.ok(catalog);
++          if (catalog instanceof Error)
++            return failure("discovery_failed", catalog.message);
++          const query = input.args.query?.trim().toLowerCase() ?? "";
++          return ToolResult.ok(
++            catalog.filter(
++              (entry) =>
++                entry.integration.toLowerCase().includes(query) ||
++                entry.name.toLowerCase().includes(query),
++            ),
++          );
+         }
+         if (this.remoteIntegrationTools === undefined)
+           return failure("unavailable", "Remote integrations unavailable");
+```
+
 ### ✅ Phase 8: Verify the complete path and prepare rollout
 
 **Today**
