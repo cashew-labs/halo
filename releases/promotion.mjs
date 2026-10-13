@@ -53,3 +53,17 @@ export function stagingSourceRevision(notes) {
 export function stagingReleaseNotes(revision) {
   return `Source: cashew-labs/halo@${revision}`;
 }
+
+/**
+ * exe.dev template VMs older than production. Staging only moves forward from
+ * production, so neither deployment creates workspaces from these; a rollback
+ * or later promotion rebuilds its template from the version's image.
+ */
+export function staleExeTemplates(vmNames, productionVersion) {
+  return vmNames.filter((vmName) => {
+    const match = /^halo-exe-(\d+)-(\d+)-(\d+)$/.exec(vmName);
+    if (match === null) return false;
+    const version = match.slice(1).join(".");
+    return compareVersions(version, productionVersion) < 0;
+  });
+}
