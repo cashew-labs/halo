@@ -1,0 +1,148 @@
+{
+  "baseRef": "origin/main",
+  "baseSha": "5213a9babb57a33663041f243a2c528ea74fe77b",
+  "headSha": "f089af970035c27d4411fe1ba171cd693ccb973e",
+  "treeHash": "0b4f72b9ff03ee8e6e52b002231445fab51d7a26",
+  "generatedAt": "2026-10-13T19:40:21.679Z",
+  "runs": {
+    "durable": {
+      "tier": "durable",
+      "testFiles": [],
+      "skipped": true,
+      "runners": [],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 0,
+      "log": ".tmp-tests/report/durable.log",
+      "lcovFiles": []
+    },
+    "tmp": {
+      "tier": "tmp",
+      "testFiles": [
+        "apps/electron/.tmp-tests/AppUpdates.test.ts",
+        "apps/electron/.tmp-tests/ControlPlaneAuth.test.ts",
+        "apps/electron/e2e/.tmp-tests/stagingIndicator.e2e.test.ts",
+        "packages/config/.tmp-tests/electron.test.ts",
+        "packages/config/.tmp-tests/releaseChannel.test.ts"
+      ],
+      "skipped": false,
+      "runners": [
+        {
+          "runner": "vitest",
+          "dir": ".",
+          "testFiles": [
+            "apps/electron/.tmp-tests/AppUpdates.test.ts",
+            "apps/electron/.tmp-tests/ControlPlaneAuth.test.ts",
+            "packages/config/.tmp-tests/electron.test.ts",
+            "packages/config/.tmp-tests/releaseChannel.test.ts"
+          ],
+          "exitCode": 0
+        },
+        {
+          "runner": "playwright",
+          "dir": "apps/electron",
+          "testFiles": [
+            "apps/electron/e2e/.tmp-tests/stagingIndicator.e2e.test.ts"
+          ],
+          "exitCode": 0
+        }
+      ],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 35308,
+      "log": ".tmp-tests/report/tmp.log",
+      "lcovFiles": [
+        "../../../.git/worktrees/repo/code-review-agent/coverage/tmp-0/vitest-0/lcov.info",
+        "../../../.git/worktrees/repo/code-review-agent/coverage/tmp-0/vitest-1/lcov.info",
+        "../../../.git/worktrees/repo/code-review-agent/coverage/tmp-1/lcov/lcov.info"
+      ]
+    }
+  },
+  "durableTestFiles": [],
+  "tmpTestFiles": [
+    "apps/electron/.tmp-tests/AppUpdates.test.ts",
+    "apps/electron/.tmp-tests/ControlPlaneAuth.test.ts",
+    "apps/electron/e2e/.tmp-tests/stagingIndicator.e2e.test.ts",
+    "packages/config/.tmp-tests/electron.test.ts",
+    "packages/config/.tmp-tests/releaseChannel.test.ts"
+  ],
+  "files": [
+    {
+      "path": "apps/electron/src/main/app/AppUpdates.ts",
+      "loaded": true,
+      "changed": [
+        27,
+        34,
+        40,
+        54
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [
+        40
+      ],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "apps/electron/src/main/main.ts",
+      "loaded": true,
+      "changed": [
+        94
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "packages/web/src/HostApi.ts",
+      "loaded": false,
+      "changed": [
+        25,
+        26
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": [
+        {
+          "line": 26,
+          "reason": "a type declaration emits no runtime code"
+        }
+      ]
+    },
+    {
+      "path": "packages/web/src/sidebar/SidebarFooter.tsx",
+      "loaded": true,
+      "changed": [
+        13,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        77,
+        78,
+        79,
+        80
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [
+        13,
+        77
+      ],
+      "uncovered": [],
+      "exempt": []
+    }
+  ],
+  "totals": {
+    "executable": 4,
+    "coveredDurable": 0,
+    "coveredTmpOnly": 3,
+    "uncovered": 0,
+    "exempt": 1
+  },
+  "passed": true
+}
