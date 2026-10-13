@@ -6,6 +6,78 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 e2eTest(
+  "renders user Markdown links and formatting after sending and reloading",
+  async ({ app, llm }, testInfo) => {
+    await app.page
+      .getByRole("button", { name: "New tab", exact: true })
+      .click();
+    const pane = app.page.getByRole("main");
+    const editor = pane.getByLabel("Message", { exact: true });
+    await editor.focus();
+    await editor.evaluate((element) => {
+      const clipboardData = new DataTransfer();
+      clipboardData.setData(
+        "text/html",
+        '<p>Can you connect <a href="https://mobbin.com/mcp">https://mobbin.com/mcp</a>?</p>' +
+          '<p>Read <a href="https://mobbin.com/browse/ios/apps">Mobbin apps</a> and keep <code>[literal](https://example.com)</code> as code.</p>' +
+          "<ul><li><strong>iOS</strong> screens</li><li>Web flows</li></ul>",
+      );
+      element.dispatchEvent(
+        new ClipboardEvent("paste", {
+          clipboardData,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    await expect(
+      editor.getByRole("link", { name: "Mobbin apps" }),
+    ).toHaveAttribute("href", "https://mobbin.com/browse/ios/apps");
+    await pane.getByRole("button", { name: "Send", exact: true }).click();
+    const sent = pane.getByRole("article", { name: "You message" });
+    const urlLink = sent.getByRole("link", {
+      name: "https://mobbin.com/mcp",
+      exact: true,
+    });
+    await expect(urlLink).toHaveCount(1);
+    await expect(urlLink).toHaveAttribute("href", "https://mobbin.com/mcp");
+    await expect(
+      sent.getByRole("link", { name: "Mobbin apps" }),
+    ).toHaveAttribute("href", "https://mobbin.com/browse/ios/apps");
+    await expect(sent.locator("code")).toHaveText(
+      "[literal](https://example.com)",
+    );
+    await expect(sent.getByRole("link")).toHaveCount(2);
+    await expect(sent.getByRole("listitem")).toHaveText([
+      "iOS screens",
+      "Web flows",
+    ]);
+    await expect(sent.locator("strong")).toHaveText("iOS");
+    await expect(sent).not.toContainText("[https://mobbin.com/mcp]");
+    await llm.respond(
+      m.assistant("See [Mobbin docs](https://mobbin.com/mcp)."),
+    );
+    await expect(
+      pane.getByRole("link", { name: "Mobbin docs" }),
+    ).toHaveAttribute("href", "https://mobbin.com/mcp");
+    const externalUrls = await app.observeExternalUrls();
+    await urlLink.click();
+    await expect
+      .poll(async () => await externalUrls.jsonValue())
+      .toEqual(["https://mobbin.com/mcp"]);
+    await app.page.reload();
+    await expect(urlLink).toBeVisible();
+    await expect(
+      sent.getByRole("link", { name: "Mobbin apps" }),
+    ).toHaveAttribute("href", "https://mobbin.com/browse/ios/apps");
+    await expect(sent.locator("code")).toHaveText(
+      "[literal](https://example.com)",
+    );
+    await sent.screenshot({ path: testInfo.outputPath("user-markdown.png") });
+  },
+);
+
+e2eTest(
   "references files and sessions from a message",
   async ({ app, harness, llm }) => {
     await harness.loadSession({
