@@ -1,0 +1,6 @@
+[
+  {
+    "findingId": "F5",
+    "reply": "fixed: prepare now sets deploy only when production.json changed (git diff --quiet BASE HEAD), and a separate preview output runs the Pulumi preview for any prod change once production.json exists. An infra-only PR validates that Pulumi.prod.yaml still pins the current version and skips the staging lookup. Simulated the step for bootstrap, infra-only, and promotion cases. Added a temp test for a failing command (promoteRelease.mjs:97)."
+  }
+]

@@ -1,0 +1,27 @@
+{
+  "status": "changes_requested",
+  "summary": "After the rebase, the source is still correct. production.json bootstraps at 0.1.71, which matches the 0.1.71 images and template now pinned in Pulumi.prod.yaml on the base, and F1–F5 stay fixed. The change cannot be approved because the temp test run fails: apps/electron/.tmp-tests/ControlPlaneAuth.test.ts does not load. The durable run passes, and coverage of the changed lines is complete.",
+  "findings": [
+    {
+      "id": "F6",
+      "kind": "test",
+      "file": "apps/electron/.tmp-tests/ControlPlaneAuth.test.ts",
+      "line": 17,
+      "severity": "P1",
+      "body": "The temp run fails because this suite cannot load. Importing `../src/main/auth/ControlPlaneAuth.js` resolves `@tanishqkancharla/tandem-core/dist/TandemClient`, which is missing from node_modules. This change does not touch ControlPlaneAuth, so the file appears to be a stale temp test from other work. Either delete it from `.tmp-tests/`, or rebuild the workspace dependencies (`pnpm install` plus the tandem-core build) so that it loads and passes. The temp run has to pass before approval."
+    }
+  ],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 4,
+  "headSha": "90fd7ad8e93bccbc94edc80af89d5474748acfef",
+  "treeHash": "59935c1419596e605fe570a22c55c1e0bb53e18b",
+  "codeTree": "513f872fb81ea3ab66e938d4cefb7511fd3fdf05",
+  "coverage": {
+    "executable": 103,
+    "covered": 103,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-13T00:11:57.231Z"
+}

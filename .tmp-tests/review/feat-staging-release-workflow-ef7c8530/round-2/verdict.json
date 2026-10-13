@@ -1,0 +1,33 @@
+{
+  "status": "changes_requested",
+  "summary": "F1–F4 are fixed. The rollout scripts now check against SOURCE_SHA, production.json bootstraps at 0.1.68, gcp discovery is limited to the west stack, and the temp tests run the real scripts. One new P1 remains: a PR that edits only Pulumi.prod.yaml always fails promote.yml validation. The coverage gate also still fails on promoteRelease.mjs:97.",
+  "findings": [
+    {
+      "id": "F5",
+      "kind": "source",
+      "file": ".github/workflows/promote.yml",
+      "line": 54,
+      "severity": "P1",
+      "body": "promote.yml runs on pull requests that touch `infra/control-plane/Pulumi.prod.yaml`, even when `releases/production.json` is unchanged. In that case the base and head production.json hold the same version. This step still sets `deploy=true` and passes the base file as `previous`, so `validatePromotion` returns `0.1.68 must be newer than production 0.1.68`. The `Find the staging release` step also looks up a halo-staging release for the current production version, which may not exist (0.1.68 does not). As a result, every ordinary prod infrastructure change, such as a new secret ID or domain setting, fails this check, and the Pulumi preview is skipped. Decide `deploy` and the version comparison by whether production.json changed between BASE_SHA and HEAD, for example with `git diff --quiet \"$BASE_SHA\" HEAD -- releases/production.json`. When it is unchanged, check only that Pulumi.prod.yaml still pins the current version, and still run the preview."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "releases/promoteRelease.mjs:97: a `run` subprocess exits non-zero, for example the gh stub fails `pr create` or `git push` is rejected. Assert exit status 1 and the message `<command> exited with status N`.",
+      "tier": "tmp",
+      "rationale": "This line is the only changed executable line still uncovered, so the coverage gate fails. The failure path also matters, because it leaves the user on the promote branch."
+    }
+  ],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "e67636ef3d015e7830cedb316c9e8640f846fa2b",
+  "treeHash": "ea8e0da420ab7c898a896bd8f9b2483e32ec8c10",
+  "codeTree": "26e721cea0d26564892ce3cce6606863185aab83",
+  "coverage": {
+    "executable": 103,
+    "covered": 102,
+    "exempt": 0,
+    "uncovered": 1
+  },
+  "createdAt": "2026-10-09T21:20:45.651Z"
+}
