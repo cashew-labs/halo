@@ -2,7 +2,7 @@
 
 A Halo-hosted API handler receives `context.tools`. This calls the same workspace tools and connected integrations available to the Halo agent. Keep every tool call in `api.ts`; the browser view calls a typed API procedure.
 
-Workspace extensions are trusted and can call any available tool. There is no extension permission manifest or per-call approval layer. This authority does not connect accounts and does not expand the user's requested task.
+Workspace extensions use the owner's available workspace tools and connected operations. They cannot call Halo or Executor connection, integration, credential, OAuth or policy management tools. There is no per-call approval layer. This authority does not expand the user's requested task.
 
 ## Tool result contract
 

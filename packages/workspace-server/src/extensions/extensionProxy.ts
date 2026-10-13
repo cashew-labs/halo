@@ -33,14 +33,18 @@ export async function serveExtensionRequest(ctx: {
     return;
   }
 
-  const origin = ctx.extensions.getOrigin(route.id);
-  if (origin === undefined) {
+  const connection = ctx.extensions.getConnection(route.id);
+  if (connection === undefined) {
     ctx.response.writeHead(404).end();
     return;
   }
 
-  const target = new URL(`${route.path}${ctx.url.search}`, origin);
-  await forwardExtensionRequest({ ...ctx, target });
+  const target = new URL(`${route.path}${ctx.url.search}`, connection.origin);
+  await forwardExtensionRequest({
+    ...ctx,
+    target,
+    hostToken: connection.hostToken,
+  });
 }
 
 export async function serveExtensionUpgrade(ctx: {
@@ -57,14 +61,15 @@ export async function serveExtensionUpgrade(ctx: {
     return;
   }
 
-  const origin = ctx.extensions.getOrigin(route.id);
-  if (origin === undefined) {
+  const connection = ctx.extensions.getConnection(route.id);
+  if (connection === undefined) {
     respondToUpgrade(ctx.socket, 404);
     return;
   }
 
-  const target = new URL(`${route.path}${ctx.url.search}`, origin);
+  const target = new URL(`${route.path}${ctx.url.search}`, connection.origin);
   prepareRequest({ ...ctx, target });
+  ctx.request.headers["x-halo-extension-token"] = connection.hostToken;
   const proxied = await proxyUpgrade(
     target.origin,
     ctx.request,
@@ -101,12 +106,14 @@ function parseExtensionRoute(url: URL) {
 }
 
 async function forwardExtensionRequest(ctx: {
+  hostToken: string;
   fromGateway: boolean;
   request: IncomingMessage;
   response: ServerResponse;
   target: URL;
 }) {
   prepareRequest(ctx);
+  ctx.request.headers["x-halo-extension-token"] = ctx.hostToken;
   const proxied = await extensionProxy
     .web(ctx.request, ctx.response, {
       target: ctx.target.origin,
@@ -134,7 +141,20 @@ function prepareRequest(ctx: {
   const forwardedProtocol = fromGateway
     ? firstHeader(request.headers["x-halo-public-proto"])
     : undefined;
+  const viewerId = fromGateway
+    ? firstHeader(request.headers["x-halo-viewer-id"])
+    : "owner";
+  const viewerRole = fromGateway
+    ? firstHeader(request.headers["x-halo-viewer-role"])
+    : "owner";
+  const viewerEmail = fromGateway
+    ? firstHeader(request.headers["x-halo-viewer-email"])
+    : undefined;
   removePrivateHeaders(request.headers);
+  request.headers["x-halo-viewer-id"] = viewerId ?? "owner";
+  request.headers["x-halo-viewer-role"] = viewerRole ?? "owner";
+  if (viewerEmail !== undefined)
+    request.headers["x-halo-viewer-email"] = viewerEmail;
   request.headers.host = target.host;
   request.headers["x-forwarded-host"] = publicHost;
   request.headers["x-forwarded-proto"] =
@@ -143,6 +163,10 @@ function prepareRequest(ctx: {
 }
 
 function removePrivateHeaders(headers: IncomingHttpHeaders) {
+  delete headers["x-halo-extension-token"];
+  delete headers["x-halo-viewer-id"];
+  delete headers["x-halo-viewer-role"];
+  delete headers["x-halo-viewer-email"];
   delete headers.authorization;
   delete headers.cookie;
   delete headers.forwarded;

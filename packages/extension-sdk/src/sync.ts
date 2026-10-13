@@ -1,5 +1,5 @@
 import { EventEmitter, on } from "node:events";
-import { os, type } from "@orpc/server";
+import { os as baseOs, type, ORPCError } from "@orpc/server";
 import type {
   ClientId,
   RemoteApi,
@@ -15,6 +15,13 @@ class ExtensionSyncError extends errore.createTaggedError({
 export function syncRouter<Schema extends AnySchema>(
   remote: RemoteApi<Schema>,
 ) {
+  const os = baseOs
+    .$context<{ canRead: boolean; canWrite: boolean }>()
+    .use(({ context, path, next }) => {
+      if (path[0] === "push" ? !context.canWrite : !context.canRead)
+        throw new ORPCError("FORBIDDEN");
+      return next();
+    });
   return {
     push: os
       .input(type<Parameters<typeof remote.push>[0]>())
