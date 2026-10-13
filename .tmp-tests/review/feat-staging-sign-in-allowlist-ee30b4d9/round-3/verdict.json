@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change limits staging sign-in to emails in a Secret Manager allowlist. It checks the list when Better Auth creates a user or session and again when the control plane reads a session. A refused sign-in carries the NOT_INVITED code so the OAuth callback redirects to its error page. Every changed line is now covered or exempt for a reason I accept, the temp tests pass, and earlier findings F1 to F4 are resolved, so the change is ready.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 3,
+  "headSha": "21785dede6a04a490c3df62ce06de94ef193ba9e",
+  "treeHash": "a15f9b539e0dc7ef510e4eece6d86295920e3b58",
+  "codeTree": "d6cb229515435ee1ec48ede2e971b244c71712cc",
+  "coverage": {
+    "executable": 49,
+    "covered": 45,
+    "exempt": 4,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-13T19:33:04.437Z"
+}

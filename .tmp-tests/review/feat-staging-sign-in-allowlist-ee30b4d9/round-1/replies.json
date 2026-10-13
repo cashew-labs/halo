@@ -1,0 +1,14 @@
+[
+  {
+    "findingId": "F1",
+    "reply": "fixed: the hook throws APIError.from('FORBIDDEN', { code: 'NOT_INVITED', message }); better-auth's callback (callback.mjs lines 169-170 and 239-240) redirects to the error URL when body.code is set. Temp tests assert body.code NOT_INVITED for both user and session creation through AuthService's real Better Auth instance"
+  },
+  {
+    "findingId": "F2",
+    "reply": "fixed: AuthService.getSession and createWorkspaceSocketTicket now also check the allowlist (stillAllowed), so existing sessions, including ones from before the allowlist, stop working within a refresh (60s) after an email is removed. Temp tests: AuthService drops a bearer session after the email leaves the list; a started ControlPlane with the allowlist answers 401 on /workspace/health for a pre-existing session not on the list"
+  },
+  {
+    "findingId": "F3",
+    "reply": "fixed: temp tests now use AuthService's own Better Auth context (real findUserEmail SQLite branch and line-112 wiring), start a real ControlPlane with signInAllowlistSecretId and a mocked readControlPlaneSecret (asserting the secret id read and the 401), cover the no-allowlist plane, and test config plumbing (env var to auth config, unset case, readControlPlaneSecret uses halo-relay). The Postgres branch is exempted: no repo test runs Postgres; it mirrors the tested SQLite query."
+  }
+]

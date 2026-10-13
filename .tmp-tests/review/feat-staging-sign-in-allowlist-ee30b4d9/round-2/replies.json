@@ -1,0 +1,6 @@
+[
+  {
+    "findingId": "F4",
+    "reply": "fixed: a temp test renames the user table under AuthService's SQLite database, then createSession through AuthService's Better Auth instance is refused with NOT_INVITED, exercising the real findUserEmail catch"
+  }
+]

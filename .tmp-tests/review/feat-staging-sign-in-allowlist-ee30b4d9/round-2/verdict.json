@@ -1,0 +1,33 @@
+{
+  "status": "changes_requested",
+  "summary": "The change limits staging sign-in to emails in a Secret Manager allowlist. It checks the list when Better Auth creates a user or session, and again in AuthService.getSession and createWorkspaceSocketTicket. All three round-1 findings are resolved, and I accept the Postgres coverage exemption. Changes are still requested for one reason: line 151 of AuthService.ts, the SQLite error wrapper in findUserEmail, is uncovered and not exempt, so the coverage gate fails.",
+  "findings": [
+    {
+      "id": "F4",
+      "kind": "test",
+      "file": "apps/control-plane/src/auth/AuthService.ts",
+      "line": 151,
+      "severity": "P1",
+      "body": "No test runs the SQLite `catch` in findUserEmail (line 151), and the coverage-exempt comment on line 154 covers only the Postgres lines after it. This path decides what happens when the lookup fails: it returns an Error, the hook logs it, and the session is refused. The current \"failed user lookup\" test uses the stand-in `authWith` hooks, not this function. Add a temp test that makes the real SQLite query throw, for example by dropping or renaming the `user` table through AuthService's database before calling `internalAdapter.createSession`. It should assert the NOT_INVITED refusal. Alternatively, exempt the line with a reason I can accept."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "apps/control-plane/src/auth/AuthService.ts:151 — real findUserEmail SQLite failure leads to a NOT_INVITED session refusal",
+      "tier": "tmp",
+      "rationale": "This is the only uncovered changed line, and it carries the fail-closed behavior for a broken user lookup."
+    }
+  ],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "21785dede6a04a490c3df62ce06de94ef193ba9e",
+  "treeHash": "1109be669730186c3cba3d8d2d7efdf68cb04875",
+  "codeTree": "d6cb229515435ee1ec48ede2e971b244c71712cc",
+  "coverage": {
+    "executable": 49,
+    "covered": 44,
+    "exempt": 4,
+    "uncovered": 1
+  },
+  "createdAt": "2026-10-13T19:32:34.958Z"
+}

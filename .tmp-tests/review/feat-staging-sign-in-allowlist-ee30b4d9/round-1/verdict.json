@@ -1,0 +1,64 @@
+{
+  "status": "changes_requested",
+  "summary": "The change adds an email allowlist, read from Secret Manager, that gates Better Auth user and session creation on the staging control plane. It also adds the Pulumi wiring and config plumbing. It is not ready: a refused sign-in returns raw JSON instead of going to the error redirect, so the desktop sign-in hangs. Existing sessions also keep working after the allowlist changes. The real AuthService lookup and the ControlPlane and config wiring are untested, and the coverage gate fails.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "source",
+      "file": "apps/control-plane/src/auth/signInHooks.ts",
+      "line": 46,
+      "severity": "P1",
+      "body": "The comment on line 44 says Better Auth turns a thrown APIError into its sign-in error response. That holds only if the error body has a `code`. In better-auth/dist/api/routes/callback.mjs the OAuth callback handles a thrown error like this: `if (isAPIError(e) && e.body?.code) redirectOnError(e.body.code, ...); throw e;`. handleOAuthUserInfo also re-throws APIErrors from user creation (link-account.mjs `if (isAPIError(e)) throw e`). The session hook is not wrapped at all. `new APIError(\"FORBIDDEN\", { message })` has no `code`, so the callback re-throws it and the router answers the browser's GET /callback/google with a raw JSON 403. The request never reaches the `errorCallbackURL` (/api/desktop-auth/error), so failDesktopSignIn never redirects to the desktop loopback with `error=...`. The desktop sign-in waits until it times out, and web users see a JSON body. Fix: add a `code` (for example `code: \"NOT_INVITED\"`) so the callback redirects to the error URL. Add a test that checks the redirect or the error's `body.code`."
+    },
+    {
+      "id": "F2",
+      "kind": "source",
+      "file": "infra/README.md",
+      "line": 245,
+      "severity": "P1",
+      "body": "The check runs only when a user or session is created. Sessions that already exist are never re-checked, and Better Auth extends a session's expiry on use (updateAge). An account removed from the allowlist therefore keeps access to staging for as long as it stays active. The same applies to anyone who signed in to staging before this deploy. The README says a new secret version \"takes effect within a minute\" and that only listed emails can sign in, which does not hold for these sessions. Either enforce the allowlist where sessions are read (for example in AuthService.getSession, or revoke the user's sessions when a check fails), or state in the README that removing an email does not end existing sessions and describe how to revoke them."
+    },
+    {
+      "id": "F3",
+      "kind": "test",
+      "file": "apps/control-plane/src/auth/AuthService.ts",
+      "line": 140,
+      "severity": "P1",
+      "body": "The production `findUserEmail` (SQLite and Postgres branches, lines 140-164) and the closure on line 112 never run. The temp test's `authWith` builds its own `signInHooks` with a copied SELECT, so it tests a stand-in rather than the AuthService wiring. The test \"AuthService starts with an allowlist\" checks only that startup succeeds. Add a temp test that starts AuthService with an allowlist on SQLite and calls `createSession` through its Better Auth context (for example `(auth as any).auth.$context.internalAdapter`). It should check that an allowed user gets a session and that a removed user is refused. Cover the Postgres branch the same way the repo's other Postgres paths are tested, or exempt it with a reason."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "apps/control-plane/src/auth/AuthService.ts:140-164 (real findUserEmail via AuthService-configured hooks)",
+      "tier": "tmp",
+      "rationale": "The current tests copy the query into a fake. The production lookup and its wiring on line 112 are uncovered."
+    },
+    {
+      "target": "apps/control-plane/src/server/ControlPlane.ts:270-275 signInAllowlist() and import lines",
+      "tier": "tmp",
+      "rationale": "Uncovered. Check that an unset secret id gives no allowlist and that a set id builds one reading readControlPlaneSecret with a 60s refresh (mock @get-halo/config/controlPlane)."
+    },
+    {
+      "target": "packages/config/src/controlPlane.ts:22, 265-267, 322-323 (SIGN_IN_ALLOWLIST_SECRET_ID passes into auth config and the schema accepts or rejects it; readControlPlaneSecret delegates to readGcpSecret with project halo-relay)",
+      "tier": "tmp",
+      "rationale": "Uncovered config plumbing. If this breaks, the allowlist is silently disabled in staging."
+    },
+    {
+      "target": "OAuth callback with a non-allowlisted user redirects to errorCallbackURL with an error param (F1)",
+      "tier": "tmp",
+      "rationale": "Shows that a refused desktop sign-in reaches the desktop as an error and does not stop at a JSON 403."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "0f8ef255ffb014a44ba425beed3d0a30b7d5ee20",
+  "treeHash": "51ced200d40a606dc48aaa95e854d12ad452d99e",
+  "codeTree": "aec9b33a3c11cd6ef6de5092b156b53c75099b83",
+  "coverage": {
+    "executable": 55,
+    "covered": 29,
+    "exempt": 0,
+    "uncovered": 26
+  },
+  "createdAt": "2026-10-13T19:29:05.200Z"
+}
