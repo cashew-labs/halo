@@ -58,7 +58,9 @@ const pinned = pinProductionConfig(
 );
 if (pinned instanceof Error) fail(pinned.message);
 
-const branch = `promote/${version}`;
+// The GCP Workload Identity provider admits pull_request runs only from
+// release/* branches, so the promotion PR's Pulumi preview must use one.
+const branch = `release/promote-${version}`;
 run("git", ["switch", "-c", branch]);
 fs.writeFileSync(productionConfigPath, pinned);
 fs.writeFileSync(

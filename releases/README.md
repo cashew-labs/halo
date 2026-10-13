@@ -5,7 +5,7 @@ Halo releases to staging first, then promotes the same build to production:
 1. `pnpm prerelease <version>` opens a release PR. Merging it deploys the `west`
    stack (`staging.gethalo.dev`) and publishes the desktop app to
    `cashew-labs/halo-staging`. Installs with Help > Use Staging update from there.
-2. `pnpm promote <version>` opens a promotion PR that records the version in
+2. `pnpm promote <version>` opens a promotion PR from `release/promote-<version>` that records the version in
    `releases/production.json` and pins `infra/control-plane/Pulumi.prod.yaml` to
    the images and exe.dev template staging verified. Merging it runs
    `promote.yml`: it builds a production transition image from the staged source,
