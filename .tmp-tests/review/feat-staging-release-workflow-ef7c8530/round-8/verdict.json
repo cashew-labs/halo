@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The only change since round 7 is that the formatting-only rewrites of releases/0.1.53–0.1.68.json have been dropped. This also stops the merge from triggering release.yml on edits to existing manifests. The rest of the diff is unchanged: production.json (0.1.71) still matches the pinned Pulumi.prod.yaml, and F1–F6 stay resolved. Both test tiers pass, and the coverage gate passes with no uncovered lines.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 8,
+  "headSha": "2aa51e0d6d8810bb9ae298c39c1092c8c1402416",
+  "treeHash": "c682b6ff5b305cf08e258c3fe9ea021553c49690",
+  "codeTree": "670fd460be5fbc88e75f97cf0ff44de9fb859146",
+  "coverage": {
+    "executable": 103,
+    "covered": 103,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-13T01:13:49.480Z"
+}

@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "After the rebase onto fc076666ba56, the diff is unchanged. production.json (0.1.71) still matches the 0.1.71 images and halo-exe-0-1-71 template that the base pins in Pulumi.prod.yaml, and F1–F6 stay resolved. Both test tiers pass, and the coverage gate passes with no uncovered lines.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 6,
+  "headSha": "671260911a839d955922654224f3214e1f02a3ad",
+  "treeHash": "7d58c1831cc08844295ce33c8accd0fbe23f0b0f",
+  "codeTree": "0c0bc940e13a1b5d617bdb60786835cb945502ae",
+  "coverage": {
+    "executable": 103,
+    "covered": 103,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-13T00:49:46.902Z"
+}
