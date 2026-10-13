@@ -156,8 +156,18 @@ container uses. It removes every other `halo-workspace` image before the
 transfer, after the new container reports ready, and when the update fails, so
 earlier releases and failed installs do not fill the disk. A full disk also stops
 the running workspace, so the update refuses the transfer when the guest lacks
-room for twice the image (containerd keeps both the compressed layers and their
-unpacked snapshot) and leaves the running workspace unchanged.
+room to pull the image and leaves the running workspace unchanged. The estimate
+is four times the image's compressed layers plus 1 GiB, because containerd keeps
+the compressed layers and unpacked they measured about 2.7 times larger.
+
+To keep that space free, each successful update and each new template set ext4's
+reserved blocks (`tune2fs -r`) to the next update's estimate, about 7 GiB today.
+Only root can write into reserved blocks: Docker, which runs as root, can use
+them, but user files written by the workspace's non-root user cannot. If a guest
+already has less free space, the reserve leaves the user 1 GiB and the update
+logs a warning. Writes inside the container's own filesystem, outside
+`/home/node`, go through root-owned overlay storage and can still use the
+reserve.
 
 The `deploymentServiceAccount` stack setting must match
 `GCP_DEPLOY_SERVICE_ACCOUNT` in GitHub. Pulumi manages OS Admin Login, IAP access
