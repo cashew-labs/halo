@@ -1,0 +1,10 @@
+[
+  {
+    "findingId": "F1",
+    "reply": "fixed: set_update_reserve now resolves the device, checks it is a block device ('test -b'), and treats any failure as a logged warning, like the image cleanup, because the workspace already runs the new release; decision recorded in the comment. Verified on an exe.dev guest (same exeuntu base): findmnt --target /var/lib -> /dev/vda (block device, ext4), and 'tune2fs -r <current>' succeeded live on the mounted root"
+  },
+  {
+    "findingId": "F2",
+    "reply": "fixed: new temp test with 0.5 GiB free after the upgrade asserts 'reserve 0 blocks' and the 0MiB warning; another asserts a failed tune2fs warns while the update still reports ready"
+  }
+]

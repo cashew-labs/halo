@@ -1,0 +1,41 @@
+{
+  "status": "changes_requested",
+  "summary": "This change sizes the pre-pull space check from the registry's compressed layer sizes (×4 + 1 GiB) and counts root-usable free blocks. After each successful update and on each new template, it sets ext4 reserved blocks to that estimate so non-root user files cannot use up the space the next update needs. The sizing, capping, and ordering logic is sound and the temp tests check it well. However, the new tune2fs step assumes the guest's root device without any check, and a failure there fails a workspace update that already succeeded. The warning branch for a guest with less than 1 GiB free also has no test.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "source",
+      "file": "infra/workspace/exeRollout.sh",
+      "line": 126,
+      "severity": "P1",
+      "body": "`set_update_reserve` runs `sudo tune2fs -r N \"$(findmnt -no SOURCE --target /var/lib)\"` under `set -e`. Nothing checks that this source is a device node that tune2fs can open on an exe.dev guest. On VMs that boot the kernel directly without an initramfs, mountinfo reports the root as `/dev/root`, and that path usually does not exist, so tune2fs fails. The step also fails if the root is not ext4. In update mode, this step runs after the new container reported ready and the old image was removed (line 199). Any failure therefore exits 1 without printing `HALO_WORKSPACE_READY`, fails `rollout-workspaces`, and blocks `promote-browser`, even though the workspace already runs the new release. In template mode, the same failure stops the template from being published, which blocks the release. The stubbed tests cannot detect this problem. Either resolve the device without depending on the mount source name (for example, `dev=$(mountpoint -d /var/lib)` and `/dev/$(basename \"$(readlink -f /sys/dev/block/$dev)\")`), or check that the source is a block device and fall back. Also record that tune2fs -r was checked on a real exe guest. Then decide whether a reserve failure after a successful switch should fail the rollout or only log a warning, as the image cleanup does, and write that decision down."
+    },
+    {
+      "id": "F2",
+      "kind": "test",
+      "file": "infra/.tmp-tests/exeRollout.test.ts",
+      "line": 359,
+      "severity": "P1",
+      "body": "The warning test covers only a capped reserve that is still positive (4 GiB free). The branch where free space is below 1 GiB has no test. In that branch `cap` is negative, and the code must clamp it to `tune2fs -r 0` and print 0MiB in the warning. A mistake in the ternaries would pass a negative count to tune2fs or abort the run. Add a temp case that sets availAfterUpgradeGib below 1, for example 0.5, and assert `reserve 0 blocks` plus the 0MiB warning text."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "infra/workspace/exeRollout.sh:122-124 — guest with under 1 GiB free after the upgrade reserves 0 blocks and warns with 0MiB",
+      "tier": "tmp",
+      "rationale": "The clamp-to-zero branch has no test. Without the clamp, the code would call tune2fs with a negative block count or fail a successful update."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "d7b7ad102f2a6458b5eff4335d02fbe7a3181524",
+  "treeHash": "fd99296e668d4ce97a585f258cc211ef03e0b79e",
+  "codeTree": "5b064f1b8d7cabb2abdce99f728ef97655d09cc4",
+  "coverage": {
+    "executable": 0,
+    "covered": 0,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-13T18:16:27.735Z"
+}
