@@ -54,6 +54,9 @@ const togetherApiKeySecretId = "together-ai-api-key";
 const integrationCredentialKeySecretId =
   "halo-control-plane-integration-credential-key";
 const controlPlaneDomain = configuration.require("controlPlaneDomain");
+// Staging limits sign-in to the emails in this secret; its value is set
+// outside Pulumi so the list never appears in code. Unset allows anyone.
+const signInAllowlistSecretId = configuration.get("signInAllowlistSecretId");
 const controlPlaneOrigin = `https://${controlPlaneDomain}`;
 // Apex domains also serve www and redirect it; subdomains such as staging do not.
 const redirectWww = configuration.getBoolean("redirectWww") ?? true;
@@ -595,6 +598,18 @@ const controlPlaneIntegrationKeyAccess = new gcp.secretmanager.SecretIamMember(
   },
 );
 
+const signInAllowlistAccess =
+  signInAllowlistSecretId === undefined
+    ? []
+    : [
+        new gcp.secretmanager.SecretIamMember("sign-in-allowlist-access", {
+          project,
+          secretId: signInAllowlistSecretId,
+          role: "roles/secretmanager.secretAccessor",
+          member: pulumi.interpolate`serviceAccount:${runtime.email}`,
+        }),
+      ];
+
 const exeSecretAccess = [exePrivateKeySecretId, exeGatewaySecretId].flatMap(
   (secretId, index) =>
     secretId === undefined
@@ -722,6 +737,14 @@ const controlPlane = new gcp.cloudrunv2.Service(
               value: googleClientSecretId,
             },
             { name: "TRACE_BUCKET", value: traces.name },
+            ...(signInAllowlistSecretId === undefined
+              ? []
+              : [
+                  {
+                    name: "SIGN_IN_ALLOWLIST_SECRET_ID",
+                    value: signInAllowlistSecretId,
+                  },
+                ]),
             {
               name: "WORKSPACE_SERVICE_ACCOUNT",
               value: workspaceRuntime.email,
@@ -744,6 +767,7 @@ const controlPlane = new gcp.cloudrunv2.Service(
       controlPlaneComputeAccess,
       controlPlaneIntegrationKeyAccess,
       controlPlaneTogetherApiKeyAccess,
+      ...signInAllowlistAccess,
       controlPlaneTraceAccess,
       databaseUrlAccess,
       googleClientIdAccess,

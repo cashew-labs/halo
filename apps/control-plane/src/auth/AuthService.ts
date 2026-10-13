@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { DatabaseSync } from "node:sqlite";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { betterAuth, type Auth, type BetterAuthOptions } from "better-auth";
 import { isAPIError } from "better-auth/api";
@@ -9,6 +10,8 @@ import { symmetricDecrypt, symmetricEncrypt } from "better-auth/crypto";
 import { apiKey } from "@better-auth/api-key";
 import * as errore from "errore";
 import type { DatabaseClient, DatabaseService } from "../DatabaseService.js";
+import type { SignInAllowlist } from "./SignInAllowlist.js";
+import { signInHooks } from "./signInHooks.js";
 
 const loopbackHost = "127.0.0.1";
 const desktopAuthStatePattern = /^[A-Za-z0-9_-]{32,128}$/u;
@@ -47,6 +50,8 @@ type AuthServiceOptions = {
   secret: string;
   googleClientId: string;
   googleClientSecret: string;
+  /** Restricts who can sign in; staging sets it, production leaves it open. */
+  signInAllowlist?: SignInAllowlist;
 };
 
 type DesktopSignInRequest = {
@@ -102,6 +107,10 @@ function authOptions(options: AuthServiceOptions, database: DatabaseClient) {
     onAPIError: {
       errorURL: new URL("/api/desktop-auth/error", options.origin).toString(),
     },
+    databaseHooks: signInHooks({
+      allowlist: options.signInAllowlist,
+      findUserEmail: async (userId) => await findUserEmail(database, userId),
+    }),
     socialProviders: {
       google: {
         clientId: options.googleClientId,
@@ -128,6 +137,33 @@ function authOptions(options: AuthServiceOptions, database: DatabaseClient) {
   } satisfies BetterAuthOptions;
 }
 
+async function findUserEmail(database: DatabaseClient, userId: string) {
+  if (database instanceof DatabaseSync) {
+    return errore.try({
+      // SAFETY: The query selects only the user's email text column.
+      try: () =>
+        (
+          database
+            .prepare('SELECT email FROM "user" WHERE id = ?')
+            .get(userId) as { email: string } | undefined
+        )?.email,
+      catch: (cause) =>
+        new AuthServiceError({ detail: "load the signing-in user", cause }),
+    });
+  }
+  // coverage-exempt: Postgres runs only in deployed stacks; the SQLite branch above is the same query, tested with the hooks.
+  const selected = await database
+    .query<{ email: string }>('SELECT email FROM "user" WHERE id = $1', [
+      userId,
+    ])
+    .catch(
+      (cause) =>
+        new AuthServiceError({ detail: "load the signing-in user", cause }),
+    );
+  if (selected instanceof Error) return selected;
+  return selected.rows[0]?.email;
+}
+
 type AuthOptions = ReturnType<typeof authOptions>;
 type BetterAuth = Auth<AuthOptions>;
 
@@ -136,13 +172,16 @@ export class AuthService {
   private readonly nodeHandler: NodeHandler;
   private readonly origin: string;
   private readonly workspaceEncryptionKey: string;
+  private readonly signInAllowlist: SignInAllowlist | undefined;
 
   private constructor(ctx: {
     auth: BetterAuth;
     nodeHandler: NodeHandler;
     origin: string;
     workspaceEncryptionKey: string;
+    signInAllowlist: SignInAllowlist | undefined;
   }) {
+    this.signInAllowlist = ctx.signInAllowlist;
     this.auth = ctx.auth;
     this.nodeHandler = ctx.nodeHandler;
     this.origin = ctx.origin;
@@ -170,6 +209,7 @@ export class AuthService {
       nodeHandler: toNodeHandler(auth),
       origin: options.origin,
       workspaceEncryptionKey: `workspace-runtime:${options.secret}`,
+      signInAllowlist: options.signInAllowlist,
     });
   }
 
@@ -279,6 +319,7 @@ export class AuthService {
       .catch((cause) => new AuthServiceError({ detail: "get session", cause }));
     if (result instanceof Error) return result;
     if (result === null) return undefined;
+    if (!(await this.stillAllowed(result.user.email))) return undefined;
 
     return {
       session: {
@@ -295,12 +336,22 @@ export class AuthService {
     } satisfies AuthSession;
   }
 
+  // Sessions from before an email left the allowlist, or from before the
+  // allowlist existed, stop working at the next refresh of the list.
+  private async stillAllowed(email: string) {
+    if (this.signInAllowlist === undefined) return true;
+    const allowed = await this.signInAllowlist.allows(email);
+    if (allowed instanceof Error) console.error(allowed);
+    return allowed === true;
+  }
+
   async createWorkspaceSocketTicket(headers: Headers, clientId: string) {
     const session = await this.auth.api.getSession({ headers }).catch(
       (cause) => new AuthServiceError({ detail: "read socket session", cause }), // coverage-exempt: External auth/database outage wrapper; success and authorization failures use the real database in integration tests.
     );
     if (session instanceof Error) return session;
     if (session === null) return undefined;
+    if (!(await this.stillAllowed(session.user.email))) return undefined;
     const ticket = crypto.randomBytes(32).toString("base64url");
     const context = await this.auth.$context;
     const cleaned = await context.adapter
