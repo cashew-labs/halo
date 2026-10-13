@@ -1,0 +1,27 @@
+{
+  "status": "changes_requested",
+  "summary": "This round's source change is correct: each stack's control-plane runtime now gets read access to the shared `halo-control-plane-integration-credential-key`, and the Cloud Run service depends on that grant. A temp test checks the grant for both `west` and `prod`, and every changed line is covered. The change cannot be approved because `releases/.tmp-tests/promoteRelease.test.mjs` is back in the temp run, and all 10 of its tests fail.",
+  "findings": [
+    {
+      "id": "F3",
+      "kind": "test",
+      "file": "releases/.tmp-tests/promoteRelease.test.mjs",
+      "line": 43,
+      "severity": "P1",
+      "body": "The temp test run fails again. `releases/.tmp-tests/promoteRelease.test.mjs` is back in this change's temp run, and all 10 tests fail with ENOENT at line 43 (`promoteFixture`) when copying `releases/promotion.mjs`. That file and the `pnpm promote` feature are not in this branch. The round 3 reply said these tests belong to PR 422. While the file is present in this worktree, it still runs and fails the gate. Remove `releases/.tmp-tests/promoteRelease.test.mjs` from this branch's worktree, or keep it only where PR 422's `releases/promotion.mjs` exists. The other suites pass: electron 4/4, infra 7/7, and config 11/11."
+    }
+  ],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 5,
+  "headSha": "fc076666ba56bcc1bc724aead1631f81bd6f37f2",
+  "treeHash": "0af9fd782bf3a21b2eb13b540f2f373ba03e8aba",
+  "codeTree": "c25a6d15d61cdb9c99b35b96588bd1eedbadcb33",
+  "coverage": {
+    "executable": 34,
+    "covered": 34,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-13T00:49:20.895Z"
+}

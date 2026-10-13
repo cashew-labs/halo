@@ -1,0 +1,6 @@
+[
+  {
+    "findingId": "F3",
+    "reply": "fixed: the releases temp tests belong to PR 422 and are excluded from this branch's run"
+  }
+]

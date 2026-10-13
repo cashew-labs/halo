@@ -1,0 +1,27 @@
+{
+  "status": "changes_requested",
+  "summary": "The infra source change is the round 2 code plus three updates: the `prod` stack file now has its `encryptedkey`, image pins move to 0.1.71 with the matching exe template, and the README lists the integrations OAuth callback URIs. I found no new source defects, and every changed line in `infra/control-plane/index.ts` is covered. The temp test run fails in two unrelated temp test files, so the approval gate fails until those files are fixed or removed.",
+  "findings": [
+    {
+      "id": "F3",
+      "kind": "test",
+      "file": "releases/.tmp-tests/promoteRelease.test.mjs",
+      "line": 43,
+      "severity": "P1",
+      "body": "The temp test run fails, so this change cannot be approved. All 10 tests in `releases/.tmp-tests/promoteRelease.test.mjs` fail with ENOENT when copying `releases/promotion.mjs` (line 43, `promoteFixture`). That file and the `pnpm promote` feature are not in this branch. `apps/electron/.tmp-tests/ControlPlaneAuth.test.ts` also fails to load: its import of `../src/main/auth/ControlPlaneAuth.js` (line 17) pulls in `@tanishqkancharla/tandem-core`, whose `dist/TandemClient` is missing. Neither file tests the code this change touches (`infra/control-plane/index.ts`). They appear to be stale temp tests from other work. Delete these temp tests from this change's `.tmp-tests/` folders, or fix them so they pass against this branch (for example, build or install the missing tandem-core dist). The relevant suite, `infra/.tmp-tests/controlPlaneStack.test.ts`, passes all 6 tests."
+    }
+  ],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 3,
+  "headSha": "180f66701528bf2795842417e9c4a10704881f27",
+  "treeHash": "9d5a1a5993a877dc911795d03815620e5b5463f3",
+  "codeTree": "db20c4ee39354d94a9355f0b8ffda0e37cf6177c",
+  "coverage": {
+    "executable": 32,
+    "covered": 32,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-13T00:11:17.010Z"
+}

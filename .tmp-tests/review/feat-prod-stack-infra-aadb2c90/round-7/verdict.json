@@ -1,0 +1,27 @@
+{
+  "status": "changes_requested",
+  "summary": "Since round 6, the only change is clearer README wording about the cutover: `prod` receives no traffic until DNS points `gethalo.dev` at it. That wording is accurate, the infra source is unchanged, and every changed line is covered. The change cannot be approved because `releases/.tmp-tests/promoteRelease.test.mjs` is back in the temp run for the third time, and all 10 of its tests fail.",
+  "findings": [
+    {
+      "id": "F3",
+      "kind": "test",
+      "file": "releases/.tmp-tests/promoteRelease.test.mjs",
+      "line": 43,
+      "severity": "P1",
+      "body": "The temp test run fails for the third time. `releases/.tmp-tests/promoteRelease.test.mjs` has reappeared in this branch's worktree, and all 10 tests fail with ENOENT at line 43 (`promoteFixture`) when copying `releases/promotion.mjs`. That file is not in this branch. The test belongs to PR 422. The other suites pass: electron 4/4, infra 7/7, and config 11/11. Removing the file only from the run has not held, because it keeps coming back into this worktree. Delete `releases/.tmp-tests/` from this worktree and keep it only in PR 422's worktree, so later rounds do not pick it up again."
+    }
+  ],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 7,
+  "headSha": "d402824142ee2aea620dc6fb9f006b93dc9e8fbd",
+  "treeHash": "a84540f3683e0f34212f6a018061d56a43492e9e",
+  "codeTree": "c4993209805b0df4e52734f5c17f16d0fcd56611",
+  "coverage": {
+    "executable": 34,
+    "covered": 34,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-13T01:00:23.564Z"
+}

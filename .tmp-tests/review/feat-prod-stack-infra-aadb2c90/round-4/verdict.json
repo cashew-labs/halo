@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The source is unchanged from round 3: a `prod` control-plane stack that shares `west`'s images, sign-in client, and deployment grants. It also adds a generated gateway seed and the `redirectWww` option. F3 is fixed: the unrelated release-promotion temp tests are no longer in the run, the `ControlPlaneAuth` temp test now loads, and all temp tests pass. Every changed line is covered, and no findings remain.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 4,
+  "headSha": "180f66701528bf2795842417e9c4a10704881f27",
+  "treeHash": "4c2af3f299a338d4342023f3ee264fef4e0b9c9e",
+  "codeTree": "db20c4ee39354d94a9355f0b8ffda0e37cf6177c",
+  "coverage": {
+    "executable": 32,
+    "covered": 32,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-13T00:14:19.391Z"
+}
