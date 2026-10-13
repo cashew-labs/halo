@@ -18,6 +18,8 @@ const authSchema = Type.Object({
   secret: Type.String({ minLength: 32 }),
   googleClientId: Type.String({ minLength: 1 }),
   googleClientSecret: Type.String({ minLength: 1 }),
+  // Secret Manager secret listing the emails that may sign in; unset allows all.
+  signInAllowlistSecretId: Type.Optional(Type.String({ minLength: 1 })),
 });
 const portSchema = Type.Integer({ minimum: 0, maximum: 65_535 });
 const localWorkspaceSchema = Type.Object({
@@ -260,7 +262,10 @@ async function readCloudRunConfig(): Promise<ControlPlaneConfig | Error> {
             serviceAccount: process.env.GMAIL_PUSH_SERVICE_ACCOUNT,
           },
     workspaceServiceAccount: process.env.WORKSPACE_SERVICE_ACCOUNT,
-    auth,
+    auth: {
+      ...auth,
+      signInAllowlistSecretId: process.env.SIGN_IN_ALLOWLIST_SECRET_ID,
+    },
     workspace,
   };
   if (!Value.Check(controlPlaneConfigSchema, server))
@@ -311,4 +316,9 @@ async function readCloudWorkspaceConfig() {
       detail: "validate GCP workspace configuration",
     });
   return workspace;
+}
+
+/** Reads a control-plane secret from the Halo project's Secret Manager. */
+export async function readControlPlaneSecret(secretId: string) {
+  return await readGcpSecret({ projectId: secretProjectId, secretId });
 }

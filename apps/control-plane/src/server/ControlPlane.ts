@@ -5,9 +5,13 @@ import { WebhookService } from "../automations/WebhookService.js";
 import { AutomationStore } from "../automations/AutomationStore.js";
 import { AutomationCoordinator } from "../automations/AutomationCoordinator.js";
 import { join } from "node:path";
-import type { ControlPlaneConfig } from "@get-halo/config/controlPlane";
+import {
+  readControlPlaneSecret,
+  type ControlPlaneConfig,
+} from "@get-halo/config/controlPlane";
 import * as errore from "errore";
 import { AuthService } from "../auth/AuthService.js";
+import { SignInAllowlist } from "../auth/SignInAllowlist.js";
 import {
   closeControlPlaneHttp,
   type ListeningControlPlaneHttp,
@@ -109,6 +113,7 @@ export class ControlPlane {
       secret: config.auth.secret,
       googleClientId: config.auth.googleClientId,
       googleClientSecret: config.auth.googleClientSecret,
+      signInAllowlist: signInAllowlist(config.auth.signInAllowlistSecretId),
     });
     if (auth instanceof Error) return auth;
 
@@ -260,4 +265,13 @@ function databaseConfig(config: ControlPlaneConfig): DatabaseConfig {
     type: "postgres",
     connectionString: config.databaseUrl,
   };
+}
+
+function signInAllowlist(secretId: string | undefined) {
+  if (secretId === undefined) return undefined;
+  // A new secret version takes effect within a minute, without a redeploy.
+  return new SignInAllowlist({
+    read: async () => await readControlPlaneSecret(secretId),
+    refreshMs: 60_000,
+  });
 }
