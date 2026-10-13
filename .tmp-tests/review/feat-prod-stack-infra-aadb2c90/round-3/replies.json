@@ -1,0 +1,6 @@
+[
+  {
+    "findingId": "F3",
+    "reply": "fixed: ControlPlaneAuth temp test now loads (client package mocked with its leaf modules); the releases temp tests belong to PR 422 and are not present for this branch"
+  }
+]
