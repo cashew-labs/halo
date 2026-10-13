@@ -43,6 +43,23 @@
     "dev": {
       "cache": false,
       "persistent": true
+    },
+    "@get-halo/control-plane#test:e2e": {
+      "dependsOn": ["^build"]
+    },
+    "@get-halo/workspace-server#build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**"]
+    },
+    "@get-halo/workspace-server#dev": {
+      "dependsOn": ["build"],
+      "cache": false,
+      "persistent": true
+    },
+    "@get-halo/workspace-server-app#dev": {
+      "dependsOn": ["^build"],
+      "cache": false,
+      "persistent": true
     }
   }
 }

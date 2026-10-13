@@ -9,8 +9,8 @@
     "lint": "NODE_OPTIONS=--experimental-strip-types oxlint --deny-warnings src desktop",
     "lint:fix": "NODE_OPTIONS=--experimental-strip-types oxlint --fix src desktop",
     "typecheck": "tsc --noEmit",
-    "dev": "tsx watch src/main.ts",
-    "start": "tsx src/main.ts"
+    "dev": "tsx watch --include '../../packages/workspace-server/dist/**/*.js' src/main.ts",
+    "start": "pnpm --filter @get-halo/workspace-server build && tsx src/main.ts"
   },
   "dependencies": {
     "@get-halo/config": "workspace:*",

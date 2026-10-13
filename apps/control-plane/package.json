@@ -12,7 +12,7 @@
     "format": "oxfmt .",
     "format:check": "oxfmt --check .",
     "test": "pnpm run test:e2e",
-    "test:e2e": "vitest run",
+    "test:e2e": "pnpm --filter @get-halo/workspace-server build && vitest run",
     "test:exe": "vitest run src/workspace/provider/exe/ExeWorkspaceProvider.test.ts"
   },
   "dependencies": {
