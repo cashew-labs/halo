@@ -29,6 +29,7 @@ import started from "electron-squirrel-startup";
 import { LOG_CHANNELS } from "../shared/channels.js";
 import { SHORTCUT_CHANNEL, shortcuts } from "../shared/shortcuts.js";
 import { AppUpdates } from "./app/AppUpdates.js";
+import { StagingToggle } from "./app/StagingToggle.js";
 import {
   createLocalDesktopAuthentication,
   type DesktopAuthentication,
@@ -89,6 +90,7 @@ let mainWindow: BrowserWindow | undefined;
 const windows = new Set<BrowserWindow>();
 // True after Quit / quitAndInstall so Close and Cmd+W destroy windows instead of hiding them.
 let isQuitting = false;
+const stagingToggle = new StagingToggle({ onChange: () => installMenu() });
 const appUpdates = new AppUpdates({
   config: applicationConfig.updates,
   releaseChannel: applicationConfig.releaseChannel,
@@ -112,6 +114,7 @@ app.whenReady().then(async () => {
   registerDesktopApi({
     authentication,
     appUpdates,
+    stagingToggle,
     getConnection: async () => await getWorkspaceConnection(authentication),
     ownsWindow: (window) => windows.has(window),
   });
@@ -372,7 +375,9 @@ function installMenu(): void {
     label: "Use Staging",
     type: "checkbox",
     checked: applicationConfig.releaseChannel === "staging",
-    visible: applicationConfig.mode === ApplicationMode.Production,
+    visible:
+      applicationConfig.mode === ApplicationMode.Production &&
+      stagingToggle.isOffered(applicationConfig.releaseChannel),
     click: () => {
       // oxlint-disable-next-line typescript/no-floating-promises -- Electron menu callbacks cannot await command work.
       void switchReleaseChannel();

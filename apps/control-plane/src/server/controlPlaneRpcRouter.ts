@@ -430,6 +430,7 @@ function serializeSession(session: AuthSession): ControlPlaneSession {
       expiresAt: session.session.expiresAt.toISOString(),
     },
     user: session.user,
+    stagingAccess: session.stagingAccess,
   };
 }
 
