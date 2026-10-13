@@ -32,7 +32,7 @@ import {
   type ChatReference,
   validateChatFiles,
 } from "@get-halo/client";
-import { AssistantMessage } from "./AssistantMessage.tsx";
+import { MessageContent } from "./MessageContent.js";
 import { BashExecution } from "./BashExecution.tsx";
 import { Editor } from "./Editor.tsx";
 import { referenceHref, type ReferenceTarget } from "../ReferencePicker.js";
@@ -717,7 +717,7 @@ function SessionViewRow({
         >
           {item.text.length > 0 ? (
             <div className={body} data-find-segment={item.id}>
-              {item.text}
+              <MessageContent>{item.text}</MessageContent>
             </div>
           ) : undefined}
           {item.attachments.length > 0 ? (
@@ -818,13 +818,14 @@ function SessionViewRow({
         }
         return (
           <div key={part.id} data-find-segment={part.id}>
-            <AssistantMessage
+            <MessageContent
+              mode="streaming"
               size="sm"
               className={assistantMessage}
               isAnimating={part.streaming}
             >
               {part.text}
-            </AssistantMessage>
+            </MessageContent>
           </div>
         );
       })}

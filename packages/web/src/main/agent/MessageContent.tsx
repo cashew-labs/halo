@@ -23,8 +23,9 @@ import { style, useStyles } from "purse-styles";
 // Streamdown ships required markdown chrome as a CSS file.
 import "streamdown/styles.css";
 
-type AssistantMessageProps = {
+type MessageContentProps = {
   children: string;
+  mode?: "static" | "streaming";
   /** When true, Streamdown treats the markdown as actively streaming. */
   isAnimating?: boolean;
   size?: ProseSize;
@@ -121,17 +122,15 @@ function InlineCode({
   return <Code {...props}>{children}</Code>;
 }
 
-/**
- * Streaming-friendly assistant message. Renders markdown with Streamdown and
- * Maui prose type styles (same reading scale as `Prose`).
- */
-export function AssistantMessage({
+/** Markdown for user bubbles and streaming assistant replies, styled with Maui. */
+export function MessageContent({
   children,
+  mode = "static",
   isAnimating = false,
   size = "md",
   className,
-}: AssistantMessageProps) {
-  const rootClassName = useStyles(assistantMessageClass);
+}: MessageContentProps) {
+  const rootClassName = useStyles(messageContentClass);
   const streamdownClassName = useStyles(
     proseHtml(size),
     streamdownRootClass,
@@ -151,9 +150,9 @@ export function AssistantMessage({
         // `animated` must stay stably enabled; only `isAnimating` toggles.
         // Flipping `animated`/`mode` with the stream resets stagger state and
         // makes new blocks (blockquotes, lists) pop in out of order.
-        animated={streamdownAnimate}
+        animated={mode === "streaming" ? streamdownAnimate : false}
         isAnimating={isAnimating}
-        mode="streaming"
+        mode={mode}
         controls={false}
         lineNumbers={false}
       >
@@ -172,7 +171,7 @@ const streamdownAnimate = {
   stagger: 16,
 };
 
-const assistantMessageClass = style(proseContainerStyle, {
+const messageContentClass = style(proseContainerStyle, {
   minWidth: 0,
 });
 
