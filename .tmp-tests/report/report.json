@@ -1,0 +1,94 @@
+{
+  "baseRef": "origin/main",
+  "baseSha": "d2058654d14ef0143c64bfdc058193372b19baf5",
+  "headSha": "8ff947d175a1b019156186938f45abf7b611e2d3",
+  "treeHash": "a00c2db9208715e0c3378447934acb5d2b081a7c",
+  "generatedAt": "2026-10-13T18:27:53.169Z",
+  "runs": {
+    "durable": {
+      "tier": "durable",
+      "testFiles": [],
+      "skipped": true,
+      "runners": [],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 0,
+      "log": ".tmp-tests/report/durable.log",
+      "lcovFiles": []
+    },
+    "tmp": {
+      "tier": "tmp",
+      "testFiles": [
+        "apps/electron/.tmp-tests/AppUpdates.test.ts",
+        "apps/electron/.tmp-tests/ControlPlaneAuth.test.ts",
+        "packages/config/.tmp-tests/electron.test.ts",
+        "packages/config/.tmp-tests/releaseChannel.test.ts",
+        "releases/.tmp-tests/promoteRelease.test.mjs"
+      ],
+      "skipped": false,
+      "runners": [
+        {
+          "runner": "vitest",
+          "dir": ".",
+          "testFiles": [
+            "apps/electron/.tmp-tests/AppUpdates.test.ts",
+            "apps/electron/.tmp-tests/ControlPlaneAuth.test.ts",
+            "packages/config/.tmp-tests/electron.test.ts",
+            "packages/config/.tmp-tests/releaseChannel.test.ts"
+          ],
+          "exitCode": 0
+        },
+        {
+          "runner": "command",
+          "dir": ".",
+          "testFiles": [
+            "releases/.tmp-tests/promoteRelease.test.mjs"
+          ],
+          "exitCode": 0
+        }
+      ],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 8909,
+      "log": ".tmp-tests/report/tmp.log",
+      "lcovFiles": [
+        "../../../.git/worktrees/repo/code-review-agent/coverage/tmp-0/vitest-0/lcov.info",
+        "../../../.git/worktrees/repo/code-review-agent/coverage/tmp-0/vitest-1/lcov.info",
+        "../../../.git/worktrees/repo/code-review-agent/coverage/tmp-1/lcov/lcov.info"
+      ]
+    }
+  },
+  "durableTestFiles": [],
+  "tmpTestFiles": [
+    "apps/electron/.tmp-tests/AppUpdates.test.ts",
+    "apps/electron/.tmp-tests/ControlPlaneAuth.test.ts",
+    "packages/config/.tmp-tests/electron.test.ts",
+    "packages/config/.tmp-tests/releaseChannel.test.ts",
+    "releases/.tmp-tests/promoteRelease.test.mjs"
+  ],
+  "files": [
+    {
+      "path": "releases/promoteRelease.mjs",
+      "loaded": true,
+      "changed": [
+        61,
+        62,
+        63
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [
+        63
+      ],
+      "uncovered": [],
+      "exempt": []
+    }
+  ],
+  "totals": {
+    "executable": 1,
+    "coveredDurable": 0,
+    "coveredTmpOnly": 1,
+    "uncovered": 0,
+    "exempt": 0
+  },
+  "passed": true
+}

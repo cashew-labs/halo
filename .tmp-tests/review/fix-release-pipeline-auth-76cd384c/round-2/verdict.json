@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "Same change as round 1, without the release manifest reformatting. The promotion branch is now `release/promote-<version>`, so the Workload Identity provider accepts the Pulumi preview. Both workflows publish releases with REST `gh api` calls instead of `gh release edit`. The temp test covers the branch rename, the one changed executable line is covered, and there are no findings.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "8ff947d175a1b019156186938f45abf7b611e2d3",
+  "treeHash": "a00c2db9208715e0c3378447934acb5d2b081a7c",
+  "codeTree": "717a9436d7945829659202346ac3ec3229af8f73",
+  "coverage": {
+    "executable": 1,
+    "covered": 1,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-13T18:28:00.076Z"
+}
