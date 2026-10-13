@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change is rebased onto the new base and its content is unchanged. It moves the `west` control-plane stack to `staging.gethalo.dev` with `redirectWww: \"false\"` and updates `infra/README.md` so that `prod` is production and `west` is staging. The README now replaces the base's new pre-cutover DNS note with a statement of the post-cutover state, which is consistent with the stacks table. All temp test runs pass, there are no changed executable lines, and no findings remain, so the change is ready.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 7,
+  "headSha": "1b67321ecb7bc4e0f02ec16858572f28cf0272a0",
+  "treeHash": "dc1bfb0fc73773f872fecd3da02df10ed38811ae",
+  "codeTree": "9120b8579c34d8752f7c881b892c6d5135509f86",
+  "coverage": {
+    "executable": 0,
+    "covered": 0,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-13T01:01:10.672Z"
+}
