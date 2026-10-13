@@ -16,10 +16,33 @@
 
 import { resolve, dirname } from "node:path";
 import * as errore from "errore";
+import { Type } from "@sinclair/typebox";
+import { haloTool } from "../HaloTool.js";
 import type {
   FilesystemError,
   FilesystemService,
 } from "../../../filesystem/FilesystemService.js";
+
+export const patchTool = haloTool({
+  description: "Apply an apply_patch patch to files in the active workspace.",
+  inputSchema: Type.Object({
+    patchText: Type.String({ description: "Patch in apply_patch format." }),
+  }),
+  requiredCapabilities: ["workspace.files.write"],
+  execute: async (input, context) => {
+    const result = await patchFiles({
+      filesystem: context.services.filesystem,
+      cwd: context.workspaceRoot,
+      input,
+    });
+    if (result instanceof Error) return result;
+    return { result };
+  },
+  modelTool: {
+    name: "patch",
+    replay: "unsafe",
+  },
+});
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -549,7 +572,7 @@ export class FilesPatchError extends errore.createTaggedError({
   message: "Failed to apply patch",
 }) {}
 
-export async function patchFiles(args: {
+async function patchFiles(args: {
   filesystem: FilesystemService;
   cwd: string;
   input: { patchText: string };

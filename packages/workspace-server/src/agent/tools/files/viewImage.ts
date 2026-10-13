@@ -1,6 +1,8 @@
 import path from "node:path";
 import { resizeImage } from "@earendil-works/pi-coding-agent";
 import * as errore from "errore";
+import { Type } from "@sinclair/typebox";
+import { haloTool } from "../HaloTool.js";
 import type { FilesystemService } from "../../../filesystem/FilesystemService.js";
 
 const maximumSourceImageSizeBytes = 20 * 1024 * 1024;
@@ -36,7 +38,40 @@ export class FilesViewImageError extends errore.createTaggedError({
   message: "Failed to view image $path: $reason",
 }) {}
 
-export async function viewImage(args: {
+export const viewImageTool = haloTool({
+  description:
+    "View a PNG, JPEG, or WebP image from the active workspace. Source images must be 20 MiB or smaller.",
+  inputSchema: Type.Object({ path: Type.String() }),
+  requiredCapabilities: ["workspace.files.read"],
+  execute: async (input, context) => {
+    const result = await viewImage({
+      filesystem: context.services.filesystem,
+      cwd: context.workspaceRoot,
+      input,
+    });
+    if (result instanceof Error) return result;
+    return {
+      result,
+      modelResult: {
+        content: [
+          { type: "text", text: `Viewed image ${result.path}.` },
+          { type: "image", data: result.data, mimeType: result.mimeType },
+        ],
+        details: {
+          path: result.path,
+          mimeType: result.mimeType,
+          sizeBytes: result.sizeBytes,
+        },
+      },
+    };
+  },
+  modelTool: {
+    name: "viewImage",
+    replay: "safe",
+  },
+});
+
+async function viewImage(args: {
   filesystem: FilesystemService;
   cwd: string;
   input: { path: string };

@@ -21,6 +21,7 @@ export class TestServer {
   private readonly artifacts: TestArtifacts;
   private readonly llmApi: WorkspaceServerOptions["host"]["llmApi"];
   private readonly agentCapabilities: WorkspaceServerOptions["host"]["agentCapabilities"];
+  private readonly tools: WorkspaceServerOptions["host"]["tools"];
   private readonly testApiEnabled: boolean;
   private readonly traceWorkspaceId: WorkspaceServerOptions["config"]["traceWorkspaceId"];
   private readonly traceUploader: WorkspaceServerOptions["host"]["traceUploader"];
@@ -33,6 +34,7 @@ export class TestServer {
     workspaceRoot: string;
     llmApi: WorkspaceServerOptions["host"]["llmApi"];
     agentCapabilities?: WorkspaceServerOptions["host"]["agentCapabilities"];
+    tools?: WorkspaceServerOptions["host"]["tools"];
     testApiEnabled?: boolean;
     traceUploader?: WorkspaceServerOptions["host"]["traceUploader"];
     remoteConnections?: WorkspaceServerOptions["host"]["remoteConnections"];
@@ -53,6 +55,7 @@ export class TestServer {
     this.workspaceRoot = workspaceRoot;
     this.llmApi = llmApi;
     this.agentCapabilities = ctx.agentCapabilities;
+    this.tools = ctx.tools;
     this.testApiEnabled = testApiEnabled === undefined ? false : testApiEnabled;
     this.traceUploader = traceUploader;
     this.remoteConnections = ctx.remoteConnections;
@@ -129,6 +132,7 @@ export class TestServer {
         remoteConnections: this.remoteConnections,
         remoteIntegrationTools: this.remoteIntegrationTools,
         agentCapabilities: this.agentCapabilities,
+        tools: this.tools,
         traceUploader: this.traceUploader,
         logger: this.artifacts.logger,
       },

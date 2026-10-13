@@ -2,7 +2,7 @@ import { AutomationService } from "../automations/AutomationService.js";
 import { AutomationSources } from "../automations/AutomationSources.js";
 import type { ControlPlaneAutomationClient } from "../automations/ControlPlaneAutomationClient.js";
 import { AutomationSync } from "../automations/AutomationSync.js";
-import { createAutomationsPlugin } from "../automations/createAutomationsPlugin.js";
+import { automationTools } from "../automations/automationTools.js";
 import { AutomationRunner } from "../automations/AutomationRunner.js";
 import { HotkeyService } from "../hotkeys/HotkeyService.js";
 import { WorkspaceIdleReporter } from "./WorkspaceIdleReporter.js";
@@ -12,7 +12,7 @@ import {
   AutomationScheduleSync,
   type AutomationScheduleSnapshot,
 } from "../automations/AutomationScheduleSync.js";
-import { createHotkeysPlugin } from "../hotkeys/createHotkeysPlugin.js";
+import { hotkeyTools } from "../hotkeys/hotkeyTools.js";
 import path from "node:path";
 import { TursoThreadRepo } from "../database/TursoThreadRepo.js";
 import { DatabaseService } from "../database/DatabaseService.js";
@@ -23,7 +23,7 @@ import { FilesystemService } from "../filesystem/FilesystemService.js";
 import { ExtensionHost } from "../extensions/ExtensionHost.js";
 import type { ExtensionRuntime } from "../extensions/startExtension.js";
 import { ThreadManager } from "../sessions/ThreadManager.js";
-import { createThreadPlugin } from "../sessions/createThreadPlugin.js";
+import { threadTools } from "../sessions/threadTools.js";
 import { WorkspaceService } from "../workspace/WorkspaceService.js";
 import { WorkspaceSearch } from "../workspace/WorkspaceSearch.js";
 import { StaticAgentAuthority } from "../agent/runtime/AgentAuthority.js";
@@ -32,10 +32,19 @@ import {
   ToolRuntime,
   type RemoteIntegrationTools,
 } from "../agent/runtime/ToolRuntime.js";
-import { workspaceBashPlugin } from "../agent/tools/bash/workspaceBashPlugin.js";
-import { createWorkspaceFilesPlugin } from "../agent/tools/files/createWorkspaceFilesPlugin.js";
-import { createDatabaseQueryPlugin } from "../agent/tools/database/createDatabaseQueryPlugin.js";
-import { parallelSearchPlugin } from "../agent/tools/web/parallelSearchPlugin.js";
+import { bashTool } from "../agent/tools/bash/bash.js";
+import { readTool } from "../agent/tools/files/read.js";
+import { viewImageTool } from "../agent/tools/files/viewImage.js";
+import { editTool } from "../agent/tools/files/edit.js";
+import { writeTool } from "../agent/tools/files/write.js";
+import { patchTool } from "../agent/tools/files/patch.js";
+import { deleteTool } from "../agent/tools/files/delete.js";
+import { queryTool } from "../agent/tools/database/query.js";
+import {
+  webTools,
+  ParallelSearchService,
+} from "../agent/tools/web/parallelSearch.js";
+import type { HaloTools } from "../agent/tools/HaloTool.js";
 import type { LLMApi } from "../llm/LLMApi.js";
 import { TraceService, type TraceUploader } from "../traces/TraceService.js";
 import type { HaloEnvironment } from "../agent/workspacePrompt.js";
@@ -89,6 +98,8 @@ export type WorkspaceServerHost = {
   llmApi: LLMApi;
   // Host-granted tool capabilities; omitted uses the standard workspace grants.
   agentCapabilities?: readonly string[];
+  // Top-level keys are namespaces; omitted uses Halo's base tool registry.
+  tools?: Readonly<Record<string, HaloTools>>;
   // Optional upload transport the host owns; the server submits completed traces through it.
   traceUploader?: TraceUploader;
   // Logger the host owns; the server writes through it and does not close the sinks.
@@ -118,6 +129,7 @@ export class WorkspaceServer {
     | AutomationScheduler
     | AutomationScheduleSync;
   private readonly toolRuntime: ToolRuntime;
+  private readonly web: ParallelSearchService;
   private readonly connectionService: ConnectionService;
   private readonly browsers: BrowserService;
   private readonly extensions: ExtensionHost;
@@ -137,6 +149,7 @@ export class WorkspaceServer {
     automationScheduler: AutomationScheduler | AutomationScheduleSync;
     automationSync: AutomationSync | undefined;
     toolRuntime: ToolRuntime;
+    web: ParallelSearchService;
     connectionService: ConnectionService;
     browsers: BrowserService;
     extensions: ExtensionHost;
@@ -173,6 +186,7 @@ export class WorkspaceServer {
     this.automationScheduler = automationScheduler;
     this.automationSync = automationSync;
     this.toolRuntime = toolRuntime;
+    this.web = ctx.web;
     this.connectionService = connectionService;
     this.browsers = browsers;
     this.extensions = extensions;
@@ -268,30 +282,55 @@ export class WorkspaceServer {
     });
     if (automations instanceof Error) return automations;
     cleanup.defer(async () => await automations.close());
+    const web = new ParallelSearchService();
+    cleanup.defer(async () => {
+      const closed = await web.close();
+      if (closed instanceof Error)
+        host.logger.warn({ event: "web-cleanup-failed", error: closed });
+    });
     const [initialized, toolRuntime] = await Promise.all([
       workspace.initialize(),
       ToolRuntime.create({
         remoteConnections: host.remoteConnections,
         remoteIntegrationTools: host.remoteIntegrationTools,
-        database: db.createNativeConnection(),
         workspaceRoot,
         userId: config.ownerUserId,
-        toolPlugins: [
-          createWorkspaceFilesPlugin(filesystem),
-          createDatabaseQueryPlugin(db.createNativeConnection()),
-          createHotkeysPlugin(hotkeys),
-          createAutomationsPlugin(() => ({
-            automations,
-            runner: automationRunner,
-            sources: automationSources,
-          })),
-          createThreadPlugin(() => ({
-            threads: sessions,
-            connections: connectionService,
-          })),
-          workspaceBashPlugin,
-          parallelSearchPlugin,
-        ],
+        tools: host.tools ?? {
+          files: {
+            read: readTool,
+            viewImage: viewImageTool,
+            edit: editTool,
+            write: writeTool,
+            patch: patchTool,
+            delete: deleteTool,
+          },
+          database: { query: queryTool },
+          hotkeys: hotkeyTools,
+          automations: automationTools,
+          thread: threadTools,
+          bash: { run: bashTool },
+          web: webTools,
+        },
+        services: {
+          filesystem,
+          database: db.createNativeConnection(),
+          hotkeys,
+          automations,
+          web,
+          // Threads and automation services borrow the runtime during startup.
+          get threads() {
+            return sessions;
+          },
+          get connections() {
+            return connectionService;
+          },
+          get automationRunner() {
+            return automationRunner;
+          },
+          get automationSources() {
+            return automationSources;
+          },
+        },
         authority: new StaticAgentAuthority(
           host.agentCapabilities ?? [
             "workspace.hotkeys",
@@ -444,6 +483,7 @@ export class WorkspaceServer {
       automationScheduler,
       automationSync,
       toolRuntime,
+      web,
       connectionService,
       browsers,
       extensions,
@@ -474,6 +514,7 @@ export class WorkspaceServer {
     await this.browsers.shutdown();
     await this.extensions.stop();
     const toolsClosed = await this.toolRuntime.close();
+    const webClosed = await this.web.close();
     const repoClosed = await this.sessionRepo.close();
     const databaseClosed = await this.db.close();
     const httpClosed = await closeHaloHttp(this.http);
@@ -483,6 +524,7 @@ export class WorkspaceServer {
     if (httpClosed instanceof Error) return httpClosed;
     if (sessionsClosed instanceof Error) return sessionsClosed;
     if (toolsClosed instanceof Error) return toolsClosed;
+    if (webClosed instanceof Error) return webClosed;
     if (repoClosed instanceof Error) return repoClosed;
     if (databaseClosed instanceof Error) return databaseClosed;
     if (filesystemClosed instanceof Error) return filesystemClosed;

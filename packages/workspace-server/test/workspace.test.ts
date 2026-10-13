@@ -27,9 +27,322 @@ import { assert, expect, vi } from "vitest";
 import { contentText } from "@earendil-works/pi-ai";
 import { m } from "@get-halo/shared/testing";
 import { messageText } from "@get-halo/workspace-server/testing";
+import { haloTool } from "@get-halo/workspace-server";
 import { serverTest } from "./serverTest.js";
 import { TandemClient } from "@tanishqkancharla/tandem-core";
 import { haloSchemaToTandemSchema } from "@get-halo/client";
+
+serverTest(
+  "requires a namespace for every Halo tool",
+  async ({ createServer }) => {
+    const server = createServer({
+      tools: {
+        // @ts-expect-error A root key must contain a HaloTools group, not a leaf.
+        erase: haloTool({
+          description: "Erase a file.",
+          inputSchema: Type.Object({ path: Type.String() }),
+          requiredCapabilities: [],
+          execute: async () => ({ result: "erased" }),
+        }),
+      },
+    });
+    await expect(server.start()).rejects.toThrow("requires a namespace");
+  },
+);
+
+serverTest(
+  "derives deep exec paths and model aliases from one Halo tool tree",
+  async ({ createServer, llm }) => {
+    const inspectNote = haloTool({
+      description: "Inspect a note with an identifying prefix.",
+      inputSchema: Type.Object({ prefix: Type.String({ minLength: 2 }) }),
+      requiredCapabilities: ["workspace.files.read"],
+      execute: async ({ prefix }, ctx) => {
+        const text = await ctx.services.filesystem.readFile(
+          path.join(ctx.workspaceRoot, "note.txt"),
+          "utf8",
+        );
+        if (text instanceof Error) return text;
+        return {
+          result: {
+            text: `${prefix}:${text}`,
+            threadId: ctx.threadId,
+            modelId: ctx.modelId,
+            userId: ctx.userId,
+            toolPath: ctx.toolPath,
+          },
+          modelResult: {
+            content: [{ type: "text", text: `${prefix}:${text}` }],
+          },
+        };
+      },
+      modelTool: {
+        name: "inspectNote",
+        replay: "safe",
+      },
+    });
+    const server = createServer({
+      tools: {
+        notes: {
+          org: { main: { inspect: inspectNote } },
+          user: {
+            named: {
+              deep: { inspect: { ...inspectNote, modelTool: undefined } },
+            },
+          },
+          locked: {
+            ...inspectNote,
+            requiredCapabilities: ["custom.denied"],
+            modelTool: { ...inspectNote.modelTool!, name: "lockedNote" },
+          },
+        },
+        numbers: {
+          ping: haloTool({
+            description: "Return the input number plus eleven.",
+            inputSchema: Type.Object({ value: Type.Number() }),
+            requiredCapabilities: [],
+            execute: async ({ value }) => ({ result: value + 11 }),
+          }),
+        },
+      },
+    });
+    await server.start();
+    await server.rpc.workspace.writeFile({
+      path: "note.txt",
+      content: "delta",
+    });
+    const session = await server.rpc.thread.new();
+    const prompt = server.promptAndWait({
+      ...session,
+      text: "Inspect through both surfaces",
+    });
+    await llm.respond(({ tools }) => {
+      expect(
+        tools?.map((entry) =>
+          entry.type === "function" ? entry.function.name : "",
+        ),
+      ).toEqual(["inspectNote", "lockedNote", "exec"]);
+      expect(tools).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            function: expect.objectContaining({
+              name: "inspectNote",
+              parameters: expect.objectContaining({
+                properties: { prefix: { type: "string", minLength: 2 } },
+              }),
+            }),
+          }),
+        ]),
+      );
+      return [
+        m.tool.start("inspectNote", {
+          id: "alias",
+          arguments: { prefix: "native" },
+        }),
+        m.tool.start("lockedNote", {
+          id: "denied-alias",
+          arguments: { prefix: "locked" },
+        }),
+        m.tool.start("exec", {
+          id: "nested",
+          arguments: {
+            js: `({
+            deep: await tools.notes.org.main.inspect({ prefix: "exec" }),
+            deeper: await tools.notes.user.named.deep.inspect({ prefix: "hidden" }),
+            number: await tools.numbers.ping({ value: 7 }),
+            description: await tools.describe.tool({ path: "notes.org.main.inspect" }),
+            numberDescription: await tools.describe.tool({ path: "numbers.ping" }),
+            search: await tools.search({ query: "identifying prefix", source: "workspace" }),
+            denied: await tools.notes.locked({ prefix: "x" }),
+            invalid: await tools.notes.org.main.inspect({ prefix: "x" }),
+            hostServicesVisible: typeof services !== "undefined"
+          })`,
+          },
+        }),
+      ];
+    });
+    await llm.respond(({ messages }) => {
+      const output = (toolCallId: string) =>
+        messageText(
+          messages.find(
+            (message) =>
+              message.role === "tool" && message.tool_call_id === toolCallId,
+          )!,
+        );
+      expect(output("alias")).toBe("native:delta");
+      expect(output("denied-alias")).toContain(
+        'Agent capability "custom.denied" is not granted',
+      );
+      const result = JSON.parse(output("nested"));
+      expect(result).toMatchObject({
+        deep: {
+          ok: true,
+          data: {
+            text: "exec:delta",
+            threadId: session.sessionId,
+            modelId: "scripted",
+            userId: "server-test-user",
+            toolPath: "notes.org.main.inspect",
+          },
+        },
+        deeper: {
+          ok: true,
+          data: {
+            text: "hidden:delta",
+            toolPath: "notes.user.named.deep.inspect",
+          },
+        },
+        number: { ok: true, data: 18 },
+        description: {
+          ok: true,
+          data: {
+            path: "notes.org.main.inspect",
+            inputSchema: {
+              properties: { prefix: { type: "string", minLength: 2 } },
+            },
+          },
+        },
+        numberDescription: { ok: true, data: { path: "numbers.ping" } },
+        denied: { ok: false, error: { code: "AgentCapabilityDeniedError" } },
+        invalid: {
+          ok: false,
+          error: {
+            code: "HaloToolInputError",
+            message: 'Invalid input for Halo tool "notes.org.main.inspect"',
+          },
+        },
+        hostServicesVisible: false,
+      });
+      expect(
+        result.search.data.tools.map((entry: { path: string }) => entry.path),
+      ).toEqual([
+        "notes.locked",
+        "notes.org.main.inspect",
+        "notes.user.named.deep.inspect",
+      ]);
+      return m.assistant("Inspected.");
+    });
+    await prompt;
+    expect(
+      sessionToolExecutions(await server.rpc.thread.snapshot(session)).find(
+        (execution) => execution.id === "alias",
+      )?.result?.details,
+    ).toBeUndefined();
+  },
+);
+
+serverTest.for([
+  {
+    name: "default JSON output",
+    presentation: {},
+    expectedText: '{\n  "answer": 23,\n  "raw": "private data"\n}',
+    expectedDetails: { answer: 23, raw: "private data" },
+    expectedIsError: false,
+  },
+  {
+    name: "custom error content and redacted details",
+    presentation: {
+      modelResult: {
+        content: [{ type: "text" as const, text: "Twenty-three." }],
+        details: { answer: 23 },
+        isError: true,
+      },
+    },
+    expectedText: "Twenty-three.",
+    expectedDetails: { answer: 23 },
+    expectedIsError: true,
+  },
+  {
+    name: "explicit JSON null details",
+    presentation: {
+      modelResult: {
+        content: [{ type: "text" as const, text: "Twenty-three." }],
+        // oxlint-disable-next-line unicorn/no-null -- Null is an explicit JSON metadata value.
+        details: null,
+      },
+    },
+    expectedText: "Twenty-three.",
+    // oxlint-disable-next-line unicorn/no-null -- The protocol must preserve JSON null.
+    expectedDetails: null,
+    expectedIsError: false,
+  },
+])(
+  "keeps exec data separate from $name",
+  async (
+    { presentation, expectedText, expectedDetails, expectedIsError },
+    { createServer, llm },
+  ) => {
+    const server = createServer({
+      tools: {
+        answers: {
+          inspect: haloTool({
+            description: "Return an answer and optional model presentation.",
+            inputSchema: Type.Object({}),
+            requiredCapabilities: [],
+            execute: async () => ({
+              result: { answer: 23, raw: "private data" },
+              ...presentation,
+            }),
+            modelTool: { name: "inspect", replay: "safe" },
+          }),
+        },
+      },
+    });
+    await server.start();
+    const session = await server.rpc.thread.new();
+    const prompt = server.promptAndWait({
+      ...session,
+      text: "Inspect both outputs",
+    });
+    await llm.respond([
+      m.tool.start("inspect", { id: "native", arguments: {} }),
+      m.tool.start("exec", {
+        id: "script",
+        arguments: { js: "await tools.answers.inspect({})" },
+      }),
+    ]);
+    await llm.respond(({ messages }) => {
+      const output = (toolCallId: string) =>
+        messageText(
+          messages.find(
+            (message) =>
+              message.role === "tool" && message.tool_call_id === toolCallId,
+          )!,
+        );
+      expect(output("native")).toBe(expectedText);
+      expect(JSON.parse(output("script"))).toEqual({
+        ok: true,
+        data: { answer: 23, raw: "private data" },
+      });
+      return m.assistant("Inspected.");
+    });
+    await prompt;
+    const native = sessionToolExecutions(
+      await server.rpc.thread.snapshot(session),
+    ).find((execution) => execution.id === "native");
+    expect(native?.result?.details).toEqual(expectedDetails);
+    expect(native?.status).toBe(expectedIsError ? "failed" : "completed");
+  },
+);
+
+serverTest(
+  "rejects colliding model names before registering Halo tools",
+  async ({ createServer }) => {
+    const tool = haloTool({
+      description: "Return a marker.",
+      inputSchema: Type.Object({}),
+      requiredCapabilities: [],
+      execute: async () => ({ result: "marker" }),
+      modelTool: { name: "inspect", replay: "safe" },
+    });
+    const server = createServer({
+      tools: { first: { inspect: tool }, second: { inspect: tool } },
+    });
+    await expect(server.start()).rejects.toThrow(
+      "duplicate model tool name inspect",
+    );
+  },
+);
 
 serverTest(
   "retains exec bindings outside the repository, resets explicitly, and notifies after reload",
@@ -1738,6 +2051,103 @@ serverTest(
         }),
       ).rejects.toThrow("no longer pending");
     }
+  },
+);
+
+serverTest(
+  "enforces saved block and approval policies before workspace tool effects",
+  async ({ server, llm }) => {
+    await server.rpc.workspace.writeFile({
+      path: "policy.txt",
+      content: "original",
+    });
+    for (const [pattern, action] of [
+      ["files.write", "block"],
+      ["files.edit", "require_approval"],
+    ]) {
+      await server.rpc.testApi.invokeTool({
+        path: "executor.coreTools.policies.create",
+        input: { owner: "user", pattern, action },
+      });
+    }
+    const session = await server.rpc.thread.new();
+    const blocked = server.promptAndWait({
+      ...session,
+      text: "Attempt a blocked write",
+    });
+    await llm.respond(
+      m.tool.start("exec", {
+        id: "blocked-write",
+        arguments: {
+          js: 'await tools.files.write({ path: "policy.txt", content: "blocked" })',
+        },
+      }),
+    );
+    await llm.respond(({ messages }) => {
+      const output = messageText(
+        messages.find(
+          (message) =>
+            message.role === "tool" && message.tool_call_id === "blocked-write",
+        )!,
+      );
+      expect(JSON.parse(output)).toMatchObject({
+        ok: false,
+        error: { code: "tool_blocked" },
+      });
+      return m.assistant("Blocked.");
+    });
+    await blocked;
+    await expect(
+      server.rpc.testApi.invokeTool({
+        path: "files.write",
+        input: { path: "policy.txt", content: "also blocked" },
+      }),
+    ).rejects.toThrow("blocked");
+    expect(await server.rpc.workspace.readFile({ path: "policy.txt" })).toBe(
+      "original",
+    );
+
+    const js =
+      'await tools.files.edit({ path: "policy.txt", oldText: "original", newText: "approved" })';
+    const editing = server.promptAndWait({
+      ...session,
+      text: "Request an edit",
+    });
+    await llm.respond(
+      m.tool.start("exec", { id: "edit-request", arguments: { js } }),
+    );
+    await llm.respond(m.assistant("Waiting for approval."));
+    await editing;
+    const approval = sessionToolExecutions(
+      await server.rpc.thread.snapshot(session),
+    ).flatMap((execution) =>
+      execution.type === "exec" ? execution.approvals : [],
+    )[0]!;
+    expect(approval).toMatchObject({
+      toolPath: "files.edit",
+      status: "pending",
+    });
+    expect(await server.rpc.workspace.readFile({ path: "policy.txt" })).toBe(
+      "original",
+    );
+
+    await server.rpc.thread.respondToToolApproval({
+      ...session,
+      approvalId: approval.id,
+      decision: "allow",
+    });
+    await llm.respond(
+      m.tool.start("exec", { id: "edit-retry", arguments: { js } }),
+    );
+    await llm.respond(m.assistant("Edited."));
+    await expect
+      .poll(
+        async () => await server.rpc.workspace.readFile({ path: "policy.txt" }),
+      )
+      .toBe("approved");
+    await expect
+      .poll(async () => (await server.rpc.thread.snapshot(session)).activeRun)
+      .toBeUndefined();
   },
 );
 
