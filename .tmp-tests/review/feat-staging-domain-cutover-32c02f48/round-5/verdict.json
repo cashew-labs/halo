@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change moves the `west` control-plane stack to `staging.gethalo.dev` with `redirectWww: \"false\"` and updates `infra/README.md` so that `prod` is production and `west` is staging. F2 is fixed: the `ControlPlaneAuth` temp test now mocks `@get-halo/client` with its leaf modules, so it loads and passes. All temp runs pass, there are no changed executable lines, and no findings remain, so the change is ready.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 5,
+  "headSha": "9a3cb30ce96c00a456e38e3451d26d26eb12ec83",
+  "treeHash": "b750594732c99aae5dd17a97c8322e446d61c261",
+  "codeTree": "c2b131e1a771634385fe60849ff6cb574c3bb5a6",
+  "coverage": {
+    "executable": 0,
+    "covered": 0,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-13T00:15:13.662Z"
+}
