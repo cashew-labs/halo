@@ -1,0 +1,80 @@
+{
+  "baseRef": "origin/feat/staging-sign-in-allowlist",
+  "baseSha": "357c97cc7e3e364b17e91cb0406a6e783a35f0a4",
+  "headSha": "f7db06a8d2a5ad63f5eaeb8c181cb3503b0bb6b1",
+  "treeHash": "151458e906bc72a01a29e2f43047b8a1be0f34ea",
+  "generatedAt": "2026-10-13T20:20:41.397Z",
+  "runs": {
+    "durable": {
+      "tier": "durable",
+      "testFiles": [],
+      "skipped": true,
+      "runners": [],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 0,
+      "log": ".tmp-tests/report/durable.log",
+      "lcovFiles": []
+    },
+    "tmp": {
+      "tier": "tmp",
+      "testFiles": [
+        "infra/.tmp-tests/prodSignInAllowlist.test.ts"
+      ],
+      "skipped": false,
+      "runners": [
+        {
+          "runner": "vitest",
+          "dir": ".",
+          "testFiles": [
+            "infra/.tmp-tests/prodSignInAllowlist.test.ts"
+          ],
+          "exitCode": 0
+        }
+      ],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 1180,
+      "log": ".tmp-tests/report/tmp.log",
+      "lcovFiles": [
+        "../../.git/worktrees/prod-allowlist/code-review-agent/coverage/tmp-0/vitest-0/lcov.info"
+      ]
+    }
+  },
+  "durableTestFiles": [],
+  "tmpTestFiles": [
+    "infra/.tmp-tests/prodSignInAllowlist.test.ts"
+  ],
+  "files": [
+    {
+      "path": "apps/control-plane/src/auth/AuthService.ts",
+      "loaded": false,
+      "changed": [
+        53
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "infra/control-plane/index.ts",
+      "loaded": true,
+      "changed": [
+        57
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    }
+  ],
+  "totals": {
+    "executable": 0,
+    "coveredDurable": 0,
+    "coveredTmpOnly": 0,
+    "uncovered": 0,
+    "exempt": 0
+  },
+  "passed": true
+}

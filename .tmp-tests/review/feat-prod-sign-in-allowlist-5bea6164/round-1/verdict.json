@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change turns on the existing sign-in allowlist for the `prod` stack. It sets `signInAllowlistSecretId: halo-prod-sign-in-allowlist` in `Pulumi.prod.yaml` and makes the comments and README describe the setting for every stack, not just staging. The temp test runs both stacks through Pulumi mocks and checks that each one grants the runtime service account access to its own secret and passes that secret to Cloud Run as `SIGN_IN_ALLOWLIST_SECRET_ID`. The test passes, the change touches no executable lines, and I found no defects, so it is ready. Two operational points to note: (1) the `halo-prod-sign-in-allowlist` secret must exist in Secret Manager before the next production deploy; (2) once the list is enforced, existing users who are not on it lose access.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "f7db06a8d2a5ad63f5eaeb8c181cb3503b0bb6b1",
+  "treeHash": "151458e906bc72a01a29e2f43047b8a1be0f34ea",
+  "codeTree": "4264a7815ee526cc5a14b172a4b3ea4b2902f668",
+  "coverage": {
+    "executable": 0,
+    "covered": 0,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-13T20:21:19.014Z"
+}
