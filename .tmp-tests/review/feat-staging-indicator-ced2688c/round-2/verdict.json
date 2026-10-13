@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change passes the saved release channel from ElectronConfig through AppUpdates.getAppInfo() to SidebarFooter, which shows a \"Staging\" label when the channel is staging. Since round 1, the only change is a coverage exemption on HostApi.ts:26, a type-only property, and I accept it. All temp tests pass, the coverage gate passes, and there are no findings, so the change is ready.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "f089af970035c27d4411fe1ba171cd693ccb973e",
+  "treeHash": "0b4f72b9ff03ee8e6e52b002231445fab51d7a26",
+  "codeTree": "660a3cf89ebc75d6ab10507ebdb40edd7193e484",
+  "coverage": {
+    "executable": 4,
+    "covered": 3,
+    "exempt": 1,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-13T19:40:27.481Z"
+}

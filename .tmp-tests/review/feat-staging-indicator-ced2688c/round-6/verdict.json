@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change adds a \"Staging\" label to the footer, plus an account button and modal with sign-out on desktop (ControlPlaneAuth bearer revocation and token removal, with local identities hidden) and on the web (Better Auth signOut). F2 is fixed: the E2E now opens the drawer through the \"Open sidebar\" button. F3 is fixed: a new E2E makes the sign-out IPC fail and checks that the alert appears, the buttons stay enabled and the user stays signed in. New temp tests cover WebHost and the reauthenticate path, the preload exemption is acceptable, and all temp tests and the coverage gate pass, so the change is ready.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 6,
+  "headSha": "0fc500432c3a02960b53d67f1368082f99c2492d",
+  "treeHash": "8eb41b3a0055af03c3bb871565af633d659781b7",
+  "codeTree": "418ab0b87ad09e836aab4ee088c71c3b0911caf9",
+  "coverage": {
+    "executable": 67,
+    "covered": 62,
+    "exempt": 5,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-13T20:25:09.729Z"
+}
