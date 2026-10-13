@@ -79,6 +79,8 @@ async function handleDesktopRequest(args: {
       return await args.authentication.getSession();
     case "signIn":
       return await args.authentication.signIn();
+    case "signOut":
+      return await args.authentication.signOut();
     case "getAppInfo":
       return args.appUpdates.getAppInfo();
     case "checkForAppUpdate":

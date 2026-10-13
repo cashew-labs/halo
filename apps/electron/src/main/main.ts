@@ -91,6 +91,12 @@ const windows = new Set<BrowserWindow>();
 let isQuitting = false;
 const appUpdates = new AppUpdates({
   config: applicationConfig.updates,
+  releaseChannel: applicationConfig.releaseChannel,
+  // Development and test builds use a local identity, not a deployment.
+  deployment:
+    applicationConfig.mode === ApplicationMode.Production
+      ? new URL(applicationConfig.controlPlaneOrigin).host
+      : undefined,
   getWindow: () => mainWindow,
   logger: logger.scope("updates"),
   onInstallCancelled: () => {

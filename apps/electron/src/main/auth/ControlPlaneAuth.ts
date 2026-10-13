@@ -104,6 +104,34 @@ export class ControlPlaneAuth implements DesktopAuthentication {
     return await signingIn;
   }
 
+  async signOut() {
+    return await this.actionQueue.run(async () => {
+      const token = this.token;
+      if (token === undefined) return;
+      // Revocation is best effort: removing the saved token signs this install
+      // out even when the control plane cannot be reached.
+      const revoked = await fetch(`${this.origin}/api/auth/sign-out`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(10_000),
+      }).catch(
+        (cause) =>
+          new ControlPlaneAuthError({ operation: "revoke the session", cause }),
+      );
+      if (revoked instanceof Error) console.warn(revoked);
+      else if (!revoked.ok)
+        console.warn(
+          new ControlPlaneAuthError({
+            operation: `revoke the session (HTTP ${revoked.status})`,
+          }),
+        );
+
+      const removed = await this.sessionStore.remove();
+      if (removed instanceof Error) return removed;
+      this.token = undefined;
+    });
+  }
+
   async getWorkspaceConnection() {
     return await this.actionQueue.run(async () => {
       if (this.token === undefined) return new AuthenticationRequiredError();
@@ -397,7 +425,7 @@ class ControlPlaneSessionStore {
     return await fs.rm(this.path, { force: true }).catch(
       (cause) =>
         new ControlPlaneAuthError({
-          operation: "remove the expired session",
+          operation: "remove the saved session",
           cause,
         }),
     );

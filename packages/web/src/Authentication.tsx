@@ -1,5 +1,6 @@
 import { useContext as useReactContext } from "react";
 import { IncompatibleServerError } from "@get-halo/client";
+import type { ControlPlaneSession } from "@get-halo/shared/controlPlaneContract";
 import { ConnectionPage } from "./ConnectionPage.js";
 import { Button } from "maui";
 import {
@@ -20,9 +21,14 @@ type AuthenticationState =
   | { status: "unavailable"; error: Error }
   | { status: "signedOut"; error?: string }
   | { status: "signingIn" }
-  | { status: "signedIn"; userId: string };
+  | { status: "signedIn"; session: ControlPlaneSession };
 
-const AuthenticatedUserContext = createContext<string | undefined>(undefined);
+type Account = {
+  session: ControlPlaneSession;
+  signOut: () => Promise<void | Error>;
+};
+
+const AccountContext = createContext<Account | undefined>(undefined);
 
 const ReauthenticateContext = createContext<() => Promise<boolean | Error>>(
   async () => false,
@@ -32,7 +38,12 @@ export function useReauthenticate() {
 }
 
 export function useAuthenticatedUserId() {
-  return useContext(AuthenticatedUserContext)!;
+  return useContext(AccountContext)!.session.user.id;
+}
+
+/** The signed-in account, and sign out back to the signed-out screen. */
+export function useAccount() {
+  return useContext(AccountContext)!;
 }
 
 export function Authentication({ children }: { children: ReactElement }) {
@@ -54,7 +65,7 @@ export function Authentication({ children }: { children: ReactElement }) {
       setState(
         session === undefined
           ? { status: "signedOut" }
-          : { status: "signedIn", userId: session.user.id },
+          : { status: "signedIn", session },
       );
     };
     void check().catch(console.error);
@@ -73,8 +84,13 @@ export function Authentication({ children }: { children: ReactElement }) {
     const session = await host.signIn();
     if (session instanceof Error) return session;
     if (session === undefined) return false;
-    setState({ status: "signedIn", userId: session.user.id });
+    setState({ status: "signedIn", session });
     return true;
+  };
+  const signOut = async () => {
+    const result = await host.signOut();
+    if (result instanceof Error) return result;
+    setState({ status: "signedOut" });
   };
   if (host.showLandingPage === true) {
     if (window.location.pathname === "/newsletter/check-email")
@@ -98,11 +114,14 @@ export function Authentication({ children }: { children: ReactElement }) {
     );
   if (state.status === "signedIn")
     return (
-      <AuthenticatedUserContext key={state.userId} value={state.userId}>
+      <AccountContext
+        key={state.session.user.id}
+        value={{ session: state.session, signOut }}
+      >
         <ReauthenticateContext value={reauthenticate}>
           {children}
         </ReauthenticateContext>
-      </AuthenticatedUserContext>
+      </AccountContext>
     );
 
   if (
@@ -130,7 +149,7 @@ export function Authentication({ children }: { children: ReactElement }) {
       return;
     }
 
-    setState({ status: "signedIn", userId: session.user.id });
+    setState({ status: "signedIn", session });
   };
 
   return (

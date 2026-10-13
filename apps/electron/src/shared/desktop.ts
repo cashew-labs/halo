@@ -38,6 +38,10 @@ export const desktopRequestSchema = Type.Union([
     { additionalProperties: false },
   ),
   Type.Object(
+    { type: Type.Literal("signOut") },
+    { additionalProperties: false },
+  ),
+  Type.Object(
     { type: Type.Literal("getAppInfo") },
     { additionalProperties: false },
   ),
@@ -96,6 +100,7 @@ export type DesktopBridge = {
     ControlPlaneSession | ConnectionFailureData | undefined
   >;
   signIn: () => Promise<ControlPlaneSession | ConnectionFailureData>;
+  signOut: () => Promise<void>;
   getAppInfo: () => Promise<AppInfo>;
   checkForAppUpdate: () => Promise<void>;
   installAppUpdate: () => Promise<void>;

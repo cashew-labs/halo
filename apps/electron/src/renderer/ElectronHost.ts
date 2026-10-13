@@ -70,6 +70,14 @@ export class ElectronHost implements HostApi {
     return result instanceof Error ? result : restoreConnectionFailure(result);
   }
 
+  async signOut() {
+    return await this.desktopBridge
+      .signOut()
+      .catch(
+        (cause) => new ElectronHostError({ operation: "sign out", cause }),
+      );
+  }
+
   async connectHalo({
     onDisconnect,
     signal,

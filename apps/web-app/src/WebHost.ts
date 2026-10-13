@@ -28,6 +28,7 @@ export class WebHost implements HostApi {
     return {
       version: import.meta.env.VITE_HALO_VERSION,
       development: import.meta.env.VITE_HALO_DEVELOPMENT,
+      deployment: window.location.host,
       update: { state: "disabled", reason: "Browser updates arrive on reload" },
     };
   }
@@ -134,6 +135,15 @@ export class WebHost implements HostApi {
       return new WebHostError({ operation: "sign in", cause: result.error });
     }
     return undefined;
+  }
+
+  async signOut() {
+    const result = await this.authClient
+      .signOut()
+      .catch((cause) => new WebHostError({ operation: "sign out", cause }));
+    if (result instanceof Error) return result;
+    if (result.error !== null)
+      return new WebHostError({ operation: "sign out", cause: result.error });
   }
 
   async connectHalo({

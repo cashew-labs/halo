@@ -6,25 +6,44 @@ import { ConnectionStatus } from "../ConnectionStatus.js";
 import { confirmRestart } from "../confirmRestart.js";
 import type { AppInfo } from "../HostApi.js";
 import { useHost } from "../HostProvider.js";
+import { AccountButton } from "./AccountButton.js";
 
 export function SidebarFooter({ appInfo }: { appInfo?: AppInfo }) {
   const row = useStyles(rowStyle);
+  const label = useStyles(labelStyle);
   const version = useStyles(versionStyle);
+  const staging = useStyles(stagingStyle);
   const connection = useStyles(connectionStyle);
   return (
-    <div className={row}>
-      {appInfo !== undefined && (
-        <>
-          <span className={version}>
-            {appInfo.development ? "DEV" : appInfo.version}
-          </span>
-          <UpgradeIcon appInfo={appInfo} />
-        </>
-      )}
-      <div className={connection}>
-        <ConnectionStatus />
+    <>
+      <AccountButton appInfo={appInfo} />
+      <div className={row}>
+        {appInfo !== undefined && (
+          <>
+            {/* Tooltip's inline-block wrapper shares the version's line box. */}
+            <span className={label}>
+              <span className={version}>
+                {appInfo.development ? "DEV" : appInfo.version}
+              </span>
+              {appInfo.releaseChannel === "staging" && (
+                <Tooltip
+                  content="Connected to staging.gethalo.dev"
+                  placement="top"
+                >
+                  <span className={staging} data-testid="app-release-channel">
+                    Staging
+                  </span>
+                </Tooltip>
+              )}
+            </span>
+            <UpgradeIcon appInfo={appInfo} />
+          </>
+        )}
+        <div className={connection}>
+          <ConnectionStatus />
+        </div>
       </div>
-    </div>
+    </>
   );
 }
 
@@ -63,9 +82,12 @@ function UpgradeIcon({ appInfo }: { appInfo: AppInfo }) {
 const rowStyle = style(flex({ alignItems: "center", gap: 3 }), {
   minWidth: 0,
 });
-const versionStyle = style(text({ size: "xs", color: "lowContrast" }), {
-  flexShrink: 0,
-});
+const labelStyle = style(text({ size: "xs" }), { flexShrink: 0 });
+const versionStyle = style(text({ size: "xs", color: "lowContrast" }));
+const stagingStyle = style(
+  text({ size: "xs", color: "accent", fontWeight: 600 }),
+  { marginLeft: spacing.value(3) },
+);
 const connectionStyle = style({ marginLeft: "auto", whiteSpace: "nowrap" });
 const iconStyle = style({
   minWidth: 24,
