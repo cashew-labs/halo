@@ -1,0 +1,41 @@
+{
+  "status": "changes_requested",
+  "summary": "The source diff matches round 4, which I approved, but after the rebase onto ff825b8a5f12 the temp test run fails, so the change is not ready. The ControlPlaneAuth temp test no longer loads. Two temp test files from other work were added to this run and fail against code that this change does not contain. Because the apps/electron vitest run failed, the coverage report also lists AppUpdates.ts and ControlPlaneAuth.ts lines as uncovered.",
+  "findings": [
+    {
+      "id": "F3",
+      "kind": "test",
+      "file": "apps/electron/.tmp-tests/ControlPlaneAuth.test.ts",
+      "line": 17,
+      "severity": "P1",
+      "body": "After the rebase, this suite no longer loads. `ControlPlaneAuth.ts` imports `@get-halo/client` at line 1, and that package now pulls in `@tanishqkancharla/tandem-core`. tandem-core's `dist/index.js` uses extensionless ESM imports, so the load fails with \"Cannot find module .../tandem-core/dist/TandemClient\". `packages/client/vitest.config.ts` inlines tandem-core for exactly this reason. Because the apps/electron vitest run fails, coverage is lost for both `ControlPlaneAuth.ts:67,69` and `AppUpdates.ts:8,77,154-156`, even though the AppUpdates tests pass. Fix the test so it loads. Either mock `@get-halo/client` (only `protocolHeader`, `AuthenticationRequiredError`, and `ConnectionHttpError` are used), or run with `server.deps.inline: [\"@tanishqkancharla/tandem-core\"]`. Keep the existing assertions on the bearer token and the session path."
+    },
+    {
+      "id": "F4",
+      "kind": "test",
+      "file": "infra/.tmp-tests/controlPlaneStack.test.ts",
+      "line": 53,
+      "severity": "P1",
+      "body": "This temp test, and `releases/.tmp-tests/promoteRelease.test.mjs`, test code that is not in this change. The infra test expects `imageRepositoryId`, `redirectWww`, a staging-only certificate, and an optional `exeGatewaySecretId` from `infra/control-plane/index.ts`, but this diff does not change that file, so 4 of its 6 tests fail. The release test copies `releases/promotion.mjs`, `validatePromotion.mjs`, and `releaseManifest.mjs`, which do not exist in this tree, so all 10 of its tests fail with ENOENT (promoteRelease.test.mjs:43). Either remove these two files from this branch's `.tmp-tests`, or restore the infra and release source they cover and include it in this change, where it must then be reviewed."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "apps/electron/.tmp-tests/ControlPlaneAuth.test.ts must load and pass, covering ControlPlaneAuth.ts:67,69; the apps/electron run must then also report AppUpdates.ts:8,77,154-156 as covered",
+      "tier": "tmp",
+      "rationale": "The suite stopped loading after the rebase, so these changed lines are now reported as uncovered."
+    }
+  ],
+  "tierChanges": [],
+  "round": 5,
+  "headSha": "b52ba3f24b792aeb001c6abbbc91996797ede03c",
+  "treeHash": "063791e178e1381f082dd3e64331ad791398ab60",
+  "codeTree": "cf141defcf8d26a8a710ab261a12419552d81b98",
+  "coverage": {
+    "executable": 73,
+    "covered": 18,
+    "exempt": 48,
+    "uncovered": 7
+  },
+  "createdAt": "2026-10-13T00:10:40.962Z"
+}

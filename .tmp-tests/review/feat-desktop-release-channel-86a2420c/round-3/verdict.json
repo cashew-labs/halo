@@ -1,0 +1,18 @@
+{
+  "status": "changes_requested",
+  "summary": "The change adds a saved production/staging release channel. The channel selects the control-plane origin, the session file, and the update repository, and a \"Use Staging\" menu item switches it and relaunches the app. F2 is fixed: the new ControlPlaneAuth temp test checks that `start` reads the token from `sessionPath`, sends it as the bearer header, and ignores the default session file. The only uncovered lines are in main.ts; I accepted their exemption in round 2 because importing main.ts starts the app. All temp tests pass, and no findings remain.\n\nNot approved: 48 changed line(s) are uncovered.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 3,
+  "headSha": "5c10da719ad67b61534227a900a1905883d75db5",
+  "treeHash": "9c514f8bc32801da12131dd3e153a21a2485f4f6",
+  "codeTree": "4baec4e162aa6af55abf0f4ca7d28eb8da9b07df",
+  "coverage": {
+    "executable": 66,
+    "covered": 18,
+    "exempt": 0,
+    "uncovered": 48
+  },
+  "createdAt": "2026-10-09T21:01:45.221Z"
+}

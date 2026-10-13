@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change adds a saved production/staging release channel. The channel selects the control-plane origin, the session file, and the update repository, and a \"Use Staging\" menu item switches it and relaunches the app. F3 is fixed: the ControlPlaneAuth temp test mocks `@get-halo/client` with that package's own protocol and error modules, so it loads and keeps its session-path and bearer-token assertions. F4 is fixed: the unrelated infra and releases temp tests are gone, all four temp test files pass, and the coverage gate passes with only the accepted main.ts exemptions.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 6,
+  "headSha": "b52ba3f24b792aeb001c6abbbc91996797ede03c",
+  "treeHash": "76971e27ed3a5878355df8406ad85d07be5da7fd",
+  "codeTree": "cf141defcf8d26a8a710ab261a12419552d81b98",
+  "coverage": {
+    "executable": 66,
+    "covered": 18,
+    "exempt": 48,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-13T00:14:01.793Z"
+}

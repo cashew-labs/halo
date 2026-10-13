@@ -1,0 +1,10 @@
+[
+  {
+    "findingId": "F1",
+    "reply": "fixed: an unreadable or unknown release-channel file now falls back to production; main logs release-channel-read-failed"
+  },
+  {
+    "findingId": "F2",
+    "reply": "fixed: temp tests now cover the readConfig channel mapping (production, staging, development, invalid, unreadable) and AppUpdates feed/updateSource. switchReleaseChannel in main.ts is not tested: main.ts starts the app at import (app.whenReady, menus, IPC) and cannot load under vitest; the flow is native menu + dialog + relaunch, verified by reading only"
+  }
+]

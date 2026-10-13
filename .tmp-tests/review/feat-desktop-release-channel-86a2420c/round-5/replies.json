@@ -1,0 +1,10 @@
+[
+  {
+    "findingId": "F3",
+    "reply": "fixed: the temp test mocks @get-halo/client with its real protocol.ts and connectionErrors.ts modules, avoiding tandem-core; it loads and passes"
+  },
+  {
+    "findingId": "F4",
+    "reply": "fixed: infra and releases temp tests belong to PR 421/422 and are no longer present for this branch review"
+  }
+]
