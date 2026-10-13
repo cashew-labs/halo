@@ -1,0 +1,38 @@
+{
+  "status": "changes_requested",
+  "summary": "F1 and F2 are resolved. `IntegrationRegistrationError` keeps the RPC rejection message, duplicate slugs and parse errors become actionable BAD_REQUEST responses, and the duplicate test now tries to point the slug at a different endpoint and verifies that bearer requests still go to the private endpoint. The change is not ready because the durable control-plane run fails: the new OpenApiParseError mapping turns an existing assertion's expected INTERNAL_SERVER_ERROR into BAD_REQUEST. Because of that failure, the control-plane coverage is missing, and the import at main.ts:27 is uncovered and has no exemption.",
+  "findings": [
+    {
+      "id": "F3",
+      "kind": "test",
+      "file": "apps/control-plane/test/ControlPlane.test.ts",
+      "line": 1976,
+      "severity": "P1",
+      "body": "The durable run fails here. The test \"redeems OAuth setup state once and preserves setups across restart\" expects `registerOpenAPI` with `/redirect-spec` to reject with `INTERNAL_SERVER_ERROR`. The new `OpenApiParseError` mapping in IntegrationService.registerOpenAPI (IntegrationService.ts:1065-1071) turns the redirect-blocked fetch failure into an `IntegrationSetupError`, so the RPC now returns BAD_REQUEST (\"Failed to fetch OpenAPI document…\"). If an actionable BAD_REQUEST is the intended behavior, update this assertion to `{ code: \"BAD_REQUEST\" }` and check that the message reports the fetch or redirect failure. Otherwise, narrow the mapping so fetch and redirect failures keep their earlier classification. The control-plane coverage for this round is incomplete while this run fails; the IntegrationService.ts lines report as \"no test loaded this file\"."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "apps/control-plane/src/integrations/IntegrationService.ts:1058-1071 and 1112-1118 (duplicate-slug and OpenApiParseError mapping)",
+      "tier": "durable",
+      "rationale": "The new agent-registration durable test already exercises these lines through duplicate and invalid-spec registration. Coverage is missing only because the durable control-plane run failed (F3). Fix F3 so the run passes and records coverage."
+    },
+    {
+      "target": "apps/workspace-server/src/main.ts:27 (IntegrationRegistrationError import)",
+      "tier": "tmp",
+      "rationale": "No test loads main.ts. Add a coverage-exempt reason for this import line, consistent with the accepted exemptions for the host wiring at lines 128-139, or cover it."
+    }
+  ],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "21d46044fb9393bfbea2df86a5b85d6b216ad899",
+  "treeHash": "0b7ac1fe26c5611319427a5b9d7ff9b2fa0dafbb",
+  "codeTree": "d116b1cc2b93cb4f003cfec3b5efe8dfdf555fde",
+  "coverage": {
+    "executable": 51,
+    "covered": 17,
+    "exempt": 14,
+    "uncovered": 20
+  },
+  "createdAt": "2026-10-13T00:11:23.967Z"
+}

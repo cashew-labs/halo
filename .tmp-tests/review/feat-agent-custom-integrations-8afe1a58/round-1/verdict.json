@@ -1,0 +1,46 @@
+{
+  "status": "changes_requested",
+  "summary": "The change adds agent tools `tools.halo.registerMcp` and `tools.halo.registerOpenAPI`. They share the RPC input schemas and are wired through the workspace host to the owner-authenticated control-plane registration RPCs, and the prompt and spec are updated. Both test runs pass and coverage is complete. It is not ready: the agent cannot see why a registration failed, and the durable duplicate-registration check cannot detect the redirect it claims to guard.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "source",
+      "file": "apps/workspace-server/src/main.ts",
+      "line": 127,
+      "severity": "P1",
+      "body": "Registration failures lose the actionable reason. The control plane rejects inputs with specific BAD_REQUEST messages from `IntegrationSetupError`, such as \"Remote integrations require HTTPS\", \"Unsafe remote URL\" or the private-network rejection. A duplicate slug fails inside Executor. Here `registerMcp`/`registerOpenAPI` wrap every rejection in `remoteFailure`, a `WorkspaceServerStartupError` whose message is always \"Workspace server startup failed: control-plane integration RPC\". ToolRuntime.ts:237-241 and 270-274 then pass only `registered.message` to the agent. In production the agent therefore receives a misleading \"startup failed\" message and cannot tell a slug collision from a rejected URL or an invalid spec. The new prompt asks it to \"Choose an unused slug\" and fix endpoints, but it gets no information to act on. Map registration RPC errors to a dedicated error that keeps the control plane's message, for example the ORPCError's `message`/`data.message` for BAD_REQUEST, and give duplicate slugs a distinguishable message or code. Return that message in the `registration_failed` result. The durable test fixture (ControlPlane.test.ts:286-298) has the same flaw: `IntegrationRegistrationTestError` uses a fixed message, so tests cannot detect the loss."
+    },
+    {
+      "id": "F2",
+      "kind": "test",
+      "file": "apps/control-plane/test/ControlPlane.test.ts",
+      "line": 1038,
+      "severity": "P1",
+      "body": "The duplicate-registration check cannot detect what its comment claims to guard (\"cannot redirect an existing connection's credentials\"). It re-registers `agent-private-mcp` with exactly the same input as the original, `integrations[1]!.input`, including the same `privateEndpoint`. If a duplicate overwrote the catalog, nothing observable would change, so the test would still pass. It also checks only the connection count and the string \"registration_failed\". Register the duplicate slug with a different endpoint, such as `mcpApi.publicEndpoint` or another fixture URL with `auth: \"none\"`. Then assert that the stored catalog or endpoint for `agent-private-mcp` is unchanged, or that invoking its tool still reaches the private endpoint with the bearer credential and does not send the credential elsewhere."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "ToolRuntime.ts:237-241 / 270-274 together with the main.ts registration wiring: a control-plane rejection reason (for example an http:// endpoint, a private-network URL, or a duplicate slug) reaches the agent in the registration_failed message",
+      "tier": "tmp",
+      "rationale": "Shows that the F1 fix passes the specific rejection reason to the agent, not a generic startup-failure message."
+    },
+    {
+      "target": "ControlPlane.test.ts duplicate registration (line ~1038): re-register an existing slug with a different endpoint and verify the original catalog/endpoint and credential routing are unchanged",
+      "tier": "durable",
+      "rationale": "This is the security invariant the durable test claims to guard. The current assertion cannot fail if a duplicate overwrites the catalog."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "21d46044fb9393bfbea2df86a5b85d6b216ad899",
+  "treeHash": "a06c88003913f277fbe4838d1745c7e1fe55491f",
+  "codeTree": "369f1993239edc05e94638807c2db636d3718cca",
+  "coverage": {
+    "executable": 28,
+    "covered": 18,
+    "exempt": 10,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-13T00:05:05.343Z"
+}

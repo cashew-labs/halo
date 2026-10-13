@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "This change adds agent tools `tools.halo.registerMcp` and `tools.halo.registerOpenAPI`. They use the shared schemas and owner-authenticated RPC, keep the control plane's rejection messages, and report duplicate slugs and malformed specs as actionable BAD_REQUEST errors. F3 is resolved: the redirect assertion now expects BAD_REQUEST with the fetch-failure message. Both test runs pass and coverage is complete with acceptable exemptions, so the change is ready.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 3,
+  "headSha": "21d46044fb9393bfbea2df86a5b85d6b216ad899",
+  "treeHash": "6895675c04f5a4524a0ff9e4566f724af86f88ba",
+  "codeTree": "039ab59e0368858c27f6b72953e6a714f48112c4",
+  "coverage": {
+    "executable": 35,
+    "covered": 22,
+    "exempt": 13,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-13T00:13:57.855Z"
+}

@@ -1,0 +1,376 @@
+{
+  "baseRef": "Mochael/arbitrary-mcp-servers-investigate",
+  "baseSha": "21d46044fb9393bfbea2df86a5b85d6b216ad899",
+  "headSha": "21d46044fb9393bfbea2df86a5b85d6b216ad899",
+  "treeHash": "6895675c04f5a4524a0ff9e4566f724af86f88ba",
+  "generatedAt": "2026-10-13T00:13:49.689Z",
+  "runs": {
+    "durable": {
+      "tier": "durable",
+      "testFiles": [
+        "apps/control-plane/test/ControlPlane.test.ts",
+        "packages/workspace-server/test/workspace.test.ts"
+      ],
+      "skipped": false,
+      "runners": [
+        {
+          "runner": "vitest",
+          "dir": ".",
+          "testFiles": [
+            "apps/control-plane/test/ControlPlane.test.ts",
+            "packages/workspace-server/test/workspace.test.ts"
+          ],
+          "exitCode": 0
+        }
+      ],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 106428,
+      "log": ".tmp-tests/report/durable.log",
+      "lcovFiles": [
+        "../../../repos/halo/.git/worktrees/biarritz/code-review-agent/coverage/durable-0/vitest-0/lcov.info",
+        "../../../repos/halo/.git/worktrees/biarritz/code-review-agent/coverage/durable-0/vitest-1/lcov.info"
+      ]
+    },
+    "tmp": {
+      "tier": "tmp",
+      "testFiles": [
+        "packages/workspace-server/test/.tmp-tests/customIntegrations.spec.ts"
+      ],
+      "skipped": false,
+      "runners": [
+        {
+          "runner": "vitest",
+          "dir": ".",
+          "testFiles": [
+            "packages/workspace-server/test/.tmp-tests/customIntegrations.spec.ts"
+          ],
+          "exitCode": 0
+        }
+      ],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 5773,
+      "log": ".tmp-tests/report/tmp.log",
+      "lcovFiles": [
+        "../../../repos/halo/.git/worktrees/biarritz/code-review-agent/coverage/tmp-0/vitest-0/lcov.info"
+      ]
+    }
+  },
+  "durableTestFiles": [
+    "apps/control-plane/test/ControlPlane.test.ts",
+    "packages/workspace-server/test/workspace.test.ts"
+  ],
+  "tmpTestFiles": [
+    "packages/workspace-server/test/.tmp-tests/customIntegrations.spec.ts"
+  ],
+  "files": [
+    {
+      "path": "apps/control-plane/src/integrations/IntegrationService.ts",
+      "loaded": true,
+      "changed": [
+        1058,
+        1059,
+        1060,
+        1061,
+        1062,
+        1063,
+        1064,
+        1065,
+        1066,
+        1067,
+        1068,
+        1069,
+        1070,
+        1071,
+        1072,
+        1073,
+        1074,
+        1112,
+        1113,
+        1114,
+        1115,
+        1116,
+        1117,
+        1118,
+        1119,
+        1120,
+        1121
+      ],
+      "coveredDurable": [
+        1061,
+        1068,
+        1115
+      ],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "apps/workspace-server/src/main.ts",
+      "loaded": false,
+      "changed": [
+        27,
+        127,
+        128,
+        129,
+        130,
+        131,
+        132,
+        133,
+        134,
+        135,
+        136,
+        137,
+        138,
+        139,
+        140
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": [
+        {
+          "line": 27,
+          "reason": "bootstrap RPC adapter import; the workspace fixture exercises registration errors."
+        },
+        {
+          "line": 128,
+          "reason": "host RPC wiring, exercised through the workspace host fixture."
+        },
+        {
+          "line": 129,
+          "reason": "host RPC wiring, exercised through the workspace host fixture."
+        },
+        {
+          "line": 130,
+          "reason": "host RPC wiring, exercised through the workspace host fixture."
+        },
+        {
+          "line": 131,
+          "reason": "host RPC wiring, exercised through the workspace host fixture."
+        },
+        {
+          "line": 132,
+          "reason": "host RPC wiring, exercised through the workspace host fixture."
+        },
+        {
+          "line": 135,
+          "reason": "host RPC wiring, exercised through the workspace host fixture."
+        },
+        {
+          "line": 136,
+          "reason": "host RPC wiring, exercised through the workspace host fixture."
+        },
+        {
+          "line": 137,
+          "reason": "host RPC wiring, exercised through the workspace host fixture."
+        },
+        {
+          "line": 138,
+          "reason": "host RPC wiring, exercised through the workspace host fixture."
+        },
+        {
+          "line": 139,
+          "reason": "host RPC wiring, exercised through the workspace host fixture."
+        }
+      ]
+    },
+    {
+      "path": "packages/shared/src/controlPlaneContract.ts",
+      "loaded": true,
+      "changed": [
+        90,
+        91,
+        92,
+        93,
+        94,
+        95,
+        96,
+        97,
+        98,
+        99,
+        100,
+        101,
+        102,
+        103,
+        104,
+        105,
+        106,
+        107,
+        108,
+        109,
+        110,
+        111,
+        112,
+        113,
+        114,
+        115,
+        116,
+        117,
+        118,
+        119,
+        120,
+        121,
+        122,
+        123,
+        124,
+        125,
+        126,
+        127,
+        128,
+        129,
+        312,
+        315
+      ],
+      "coveredDurable": [
+        90,
+        100,
+        120
+      ],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "packages/workspace-server/src/agent/runtime/ToolRuntime.ts",
+      "loaded": true,
+      "changed": [
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        125,
+        215,
+        216,
+        217,
+        218,
+        219,
+        220,
+        221,
+        222,
+        223,
+        224,
+        225,
+        226,
+        227,
+        228,
+        229,
+        230,
+        231,
+        232,
+        233,
+        234,
+        235,
+        236,
+        237,
+        238,
+        239,
+        240,
+        241,
+        242,
+        243,
+        244,
+        245,
+        246,
+        247,
+        248,
+        249,
+        250,
+        251,
+        252,
+        253,
+        254,
+        255,
+        256,
+        257,
+        258,
+        259,
+        260,
+        261,
+        262,
+        263,
+        264,
+        265,
+        266,
+        267,
+        268,
+        269,
+        270,
+        271,
+        272,
+        273,
+        274,
+        275,
+        276,
+        277,
+        278,
+        279,
+        280,
+        572,
+        987
+      ],
+      "coveredDurable": [
+        221,
+        223,
+        228,
+        233,
+        237,
+        238,
+        242,
+        254,
+        256,
+        261,
+        266,
+        270,
+        271,
+        275
+      ],
+      "coveredTmpOnly": [
+        229,
+        262
+      ],
+      "uncovered": [],
+      "exempt": [
+        {
+          "line": 224,
+          "reason": "Executor validates the shared schema before calling execute."
+        },
+        {
+          "line": 257,
+          "reason": "Executor validates the shared schema before calling execute."
+        }
+      ]
+    },
+    {
+      "path": "packages/workspace-server/src/agent/workspacePrompt.ts",
+      "loaded": true,
+      "changed": [
+        60,
+        61
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    }
+  ],
+  "totals": {
+    "executable": 35,
+    "coveredDurable": 20,
+    "coveredTmpOnly": 2,
+    "uncovered": 0,
+    "exempt": 13
+  },
+  "passed": true
+}
