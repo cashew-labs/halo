@@ -1,0 +1,62 @@
+{
+  "status": "changes_requested",
+  "summary": "This change splits releases into a staging deployment (release.yml to the west stack and cashew-labs/halo-staging) and a production promotion (promote.yml through the shared deploy-stack.yml). It is not ready. In a promotion run, the workspace rollout checks VMs against the wrong revision, so it always fails. The repository has no production.json for the bootstrap, so the first promotion will not deploy. Most of the promotion CLI is also uncovered.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "source",
+      "file": ".github/workflows/deploy-stack.yml",
+      "line": 204,
+      "severity": "P0",
+      "body": "Both rollout scripts check each VM against `$GITHUB_SHA`: exeRollout.sh line 90 compares it with `.build.revision`, and rollout.sh line 102 puts it in the ready marker. When promote.yml calls this workflow on push, `GITHUB_SHA` is the promotion merge commit on main. The workspace image was built at the staged `source_sha`, so no VM ever passes the check. Every production rollout times out, `promote-browser` is skipped, and the desktop app is never copied to cashew-labs/halo. Pass `inputs.source_sha` to the scripts. One option is `GITHUB_SHA=\"$SOURCE_SHA\" bash infra/workspace/exeRollout.sh update`; the same change is needed for rollout.sh. Another option is to make both scripts read `SOURCE_SHA`. Overriding `GITHUB_*` through `env:` is not reliable."
+    },
+    {
+      "id": "F2",
+      "kind": "source",
+      "file": ".github/workflows/promote.yml",
+      "line": 54,
+      "severity": "P1",
+      "body": "`releases/production.json` does not exist in the repository. This causes three problems. (1) The pull_request trigger includes `infra/control-plane/Pulumi.prod.yaml`, which this change edits. The prepare step then runs `validatePromotion.mjs releases/production.json`, and `readJson` throws ENOENT, so this PR fails, and so does any other PR that edits the prod config before the bootstrap. (2) The bootstrap that the comments describe cannot go through `pnpm promote 0.1.68`. promoteRelease.mjs requires a published 0.1.68 release in cashew-labs/halo-staging, but 0.1.68 was published to cashew-labs/halo. (3) The first real `pnpm promote 0.1.69` therefore creates production.json, gets `deploy=false`, and deploys nothing. Production stays on 0.1.68 while the repository records 0.1.69, and the next promotion's minimumFrontendVersion check compares against the wrong version. The fix is to commit `releases/production.json` with `{\"version\": \"0.1.68\"}` in this change, which matches the already pinned Pulumi.prod.yaml. Alternatively, make a missing production.json a hard error instead of a silent no-deploy."
+    },
+    {
+      "id": "F3",
+      "kind": "source",
+      "file": ".github/workflows/deploy-stack.yml",
+      "line": 158,
+      "severity": "P1",
+      "body": "deploy-stack.yml is now shared by the west and prod stacks, and both run in project halo-relay. The exe branch filters VMs by the `halo-$STACK` tag, but the gcp branch lists every `halo-<uuid>` instance in the project and zone. If a stack uses the gcp provider, a prod promotion would roll the prod image onto staging VMs, and a staging release would roll onto prod VMs. Scope the gcp discovery to the stack, for example with a stack label, or reject the gcp provider for multi-stack use."
+    },
+    {
+      "id": "F4",
+      "kind": "test",
+      "file": "releases/.tmp-tests/promoteRelease.test.mjs",
+      "line": 96,
+      "severity": "P1",
+      "body": "The temp test copies promoteRelease.mjs into a fixture directory and runs the copy. Coverage cannot attribute that run to `releases/promoteRelease.mjs`, so all of its changed lines are reported as uncovered. The script calls `git rev-parse --show-toplevel` and `chdir`s to the result, so the test can run `path.join(root, 'releases/promoteRelease.mjs')` with `cwd` set to the fixture repository. Its imports still resolve to the real promotion.mjs. The test should also cover the usage error and the case where `production.json` is missing."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "releases/promoteRelease.mjs (all changed lines): run the real script, not a copy, against the fixture git repository",
+      "tier": "tmp",
+      "rationale": "The coverage gate fails because no test loads this file; the current temp test runs a copied script."
+    },
+    {
+      "target": "releases/validatePromotion.mjs:13,19,21: the usage error with no arguments, a production version that is not major.minor.patch, and a missing releases/<version>.json",
+      "tier": "tmp",
+      "rationale": "These failure paths are uncovered and they gate the promote workflow."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "940732b670bfd9d53558a1c910bf2a1cee523c4d",
+  "treeHash": "c411a0bc47a7c2a1c968da0c7e43f62ffb380a2d",
+  "codeTree": "2fb577fd3b48692a4045a0262bb82e7b3c0df1d7",
+  "coverage": {
+    "executable": 137,
+    "covered": 51,
+    "exempt": 0,
+    "uncovered": 86
+  },
+  "createdAt": "2026-10-09T21:18:51.664Z"
+}
