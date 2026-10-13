@@ -631,7 +631,7 @@ const controlPlane = new gcp.cloudrunv2.Service(
       executionEnvironment: "EXECUTION_ENVIRONMENT_GEN2",
       serviceAccount: runtime.email,
       timeout: "3600s",
-      maxInstanceRequestConcurrency: 80,
+      maxInstanceRequestConcurrency: 500,
       scaling: { minInstanceCount: 1, maxInstanceCount: 1 },
       vpcAccess: {
         egress: "PRIVATE_RANGES_ONLY",
