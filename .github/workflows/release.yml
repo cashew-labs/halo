@@ -617,4 +617,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.STAGING_RELEASES_TOKEN }}
           VERSION: ${{ needs.prepare.outputs.version }}
-        run: gh release edit "$VERSION" --repo cashew-labs/halo-staging --draft=false --latest
+        # REST, not `gh release edit`: its GraphQL lookup hit the staging token's
+        # rate limit during the 0.1.72 release.
+        run: |
+          id=$(gh api --paginate repos/cashew-labs/halo-staging/releases --jq ".[] | select(.tag_name == \"$VERSION\") | .id")
+          gh api -X PATCH "repos/cashew-labs/halo-staging/releases/$id" -F draft=false -f make_latest=true --silent
