@@ -87,6 +87,46 @@ export type IntegrationInvocation =
       message: string;
     };
 
+export const registerOpenAPIInputSchema = Type.Object(
+  {
+    name: Type.String({ minLength: 1, maxLength: 256 }),
+    slug: Type.String({ pattern: "^[a-z][a-z0-9_-]{0,63}$" }),
+    url: Type.String({ minLength: 1, maxLength: 2048 }),
+  },
+  { additionalProperties: false },
+);
+export type OpenAPIRegistration = Static<typeof registerOpenAPIInputSchema>;
+
+export const registerMcpInputSchema = Type.Object(
+  {
+    name: Type.String({ minLength: 1, maxLength: 256 }),
+    slug: Type.String({ pattern: "^[a-z][a-z0-9_-]{0,63}$" }),
+    endpoint: Type.String({ minLength: 1, maxLength: 2048 }),
+    auth: Type.Union([
+      Type.Literal("none"),
+      Type.Literal("bearer"),
+      Type.Literal("oauth"),
+    ]),
+  },
+  { additionalProperties: false },
+);
+export type McpRegistration = Static<typeof registerMcpInputSchema>;
+
+export class IntegrationRegistrationError extends errore.createTaggedError({
+  name: "IntegrationRegistrationError",
+  message: "$reason",
+}) {
+  constructor(ctx: { cause: unknown }) {
+    super({
+      reason:
+        ctx.cause instanceof Error
+          ? ctx.cause.message
+          : "Integration registration failed",
+      cause: ctx.cause,
+    });
+  }
+}
+
 function validated<T extends TSchema>(schema: T) {
   return {
     "~standard": {
@@ -269,37 +309,10 @@ export const controlPlaneContract = publicProcedure.router({
       )
       .output(type<{ revocation: ConnectionRevocation }>()),
     registerOpenAPI: authenticatedProcedure
-      .input(
-        validated(
-          Type.Object(
-            {
-              name: Type.String({ minLength: 1, maxLength: 256 }),
-              slug: Type.String({ pattern: "^[a-z][a-z0-9_-]{0,63}$" }),
-              url: Type.String({ minLength: 1, maxLength: 2048 }),
-            },
-            { additionalProperties: false },
-          ),
-        ),
-      )
+      .input(validated(registerOpenAPIInputSchema))
       .output(type<void>()),
     registerMcp: authenticatedProcedure
-      .input(
-        validated(
-          Type.Object(
-            {
-              name: Type.String({ minLength: 1, maxLength: 256 }),
-              slug: Type.String({ pattern: "^[a-z][a-z0-9_-]{0,63}$" }),
-              endpoint: Type.String({ minLength: 1, maxLength: 2048 }),
-              auth: Type.Union([
-                Type.Literal("none"),
-                Type.Literal("bearer"),
-                Type.Literal("oauth"),
-              ]),
-            },
-            { additionalProperties: false },
-          ),
-        ),
-      )
+      .input(validated(registerMcpInputSchema))
       .output(type<void>()),
     connections: authenticatedProcedure.output(type<IntegrationConnection[]>()),
     search: authenticatedProcedure

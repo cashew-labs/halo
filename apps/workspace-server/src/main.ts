@@ -24,6 +24,7 @@ import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
 import {
   controlPlaneProtocolVersion,
+  IntegrationRegistrationError, // coverage-exempt: bootstrap RPC adapter import; the workspace fixture exercises registration errors.
   type ControlPlaneClient,
 } from "@get-halo/shared/controlPlaneContract";
 
@@ -123,6 +124,20 @@ async function run() {
         applicationConfig.server.runtime === undefined
           ? undefined
           : {
+              // coverage-exempt: host RPC wiring, exercised through the workspace host fixture.
+              registerMcp: async (input, signal) =>
+                await runtimeClient!.integrations
+                  .registerMcp(input, { signal })
+                  .catch(
+                    (cause) => new IntegrationRegistrationError({ cause }),
+                  ),
+              // coverage-exempt: host RPC wiring, exercised through the workspace host fixture.
+              registerOpenAPI: async (input, signal) =>
+                await runtimeClient!.integrations
+                  .registerOpenAPI(input, { signal })
+                  .catch(
+                    (cause) => new IntegrationRegistrationError({ cause }),
+                  ),
               search: async (input, signal) =>
                 await runtimeClient!.integrations
                   .search(input, { signal })

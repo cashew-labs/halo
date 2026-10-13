@@ -29,7 +29,10 @@ import { RPCLink } from "@orpc/client/fetch";
 import { RPCLink as SocketRPCLink } from "@orpc/client/websocket";
 import { haloProtocolVersion, type HaloClient } from "@get-halo/client";
 import { writeWorkspaceServerConnection } from "@get-halo/shared/WorkspaceServerConnection";
-import { type ControlPlaneClient } from "@get-halo/shared/controlPlaneContract";
+import {
+  IntegrationRegistrationError,
+  type ControlPlaneClient,
+} from "@get-halo/shared/controlPlaneContract";
 import { betterAuth } from "better-auth";
 import { testUtils } from "better-auth/plugins";
 import * as errore from "errore";
@@ -218,7 +221,15 @@ const controlPlaneTest = test.extend<{
     workspaceRoot: string;
     run: (code: string) => Promise<ReturnType<typeof sessionToolExecutions>>;
   };
-  mcpApi: { publicEndpoint: string; privateEndpoint: string; calls: string[] };
+  mcpApi: {
+    publicEndpoint: string;
+    privateEndpoint: string;
+    calls: string[];
+    requests: {
+      endpoint: string | undefined;
+      authorization: string | undefined;
+    }[];
+  };
   integrationApi: {
     origin: string;
     requests: { url: string | undefined; authorization: string | undefined }[];
@@ -280,12 +291,31 @@ const controlPlaneTest = test.extend<{
           token: (await readRuntimeSettings(appDataDir)).token,
         }),
         remoteIntegrationTools: {
+          registerMcp: async (input, signal) =>
+            await runtime.integrations
+              .registerMcp(input, { signal })
+              .catch((cause) => new IntegrationRegistrationError({ cause })),
+          registerOpenAPI: async (input, signal) =>
+            await runtime.integrations
+              .registerOpenAPI(input, { signal })
+              .catch((cause) => new IntegrationRegistrationError({ cause })),
           search: async (input, signal) =>
             await runtime.integrations.search(input, { signal }),
           describe: async (input, signal) =>
             await runtime.integrations.describe(input, { signal }),
           invoke: async (input, signal) =>
             await runtime.integrations.invoke(input, { signal }),
+        },
+        remoteConnections: {
+          catalog: async () => await runtime.integrations.catalog(),
+          startSetup: async (input) =>
+            await runtime.integrations.startSetup(input),
+          setup: async (input) => await runtime.integrations.setup(input),
+          cancelSetup: async (input) =>
+            await runtime.integrations.cancelSetup(input).then(() => undefined),
+          connections: async () => await runtime.integrations.connections(),
+          removeConnection: async (input) =>
+            await runtime.integrations.removeConnection(input),
         },
       },
     });
@@ -336,8 +366,16 @@ const controlPlaneTest = test.extend<{
   // oxlint-disable-next-line eslint/no-empty-pattern -- Native fixture signature.
   mcpApi: async ({}, use) => {
     const calls: string[] = [];
+    const requests: {
+      endpoint: string | undefined;
+      authorization: string | undefined;
+    }[] = [];
     const inputSchema = Type.Object({ marker: Type.String() });
     const server = http.createServer(async (request, response) => {
+      requests.push({
+        endpoint: request.url,
+        authorization: request.headers.authorization,
+      });
       if (request.url === "/events" || request.url === "/oversized-event") {
         if (request.method !== "POST") {
           response.writeHead(405).end();
@@ -453,6 +491,7 @@ const controlPlaneTest = test.extend<{
       publicEndpoint: `${origin}/public`,
       privateEndpoint: `${origin}/private`,
       calls,
+      requests,
     });
   },
   // oxlint-disable-next-line eslint/no-empty-pattern -- Native fixture signature.
@@ -630,6 +669,12 @@ const controlPlaneTest = test.extend<{
             location: "http://169.254.169.254/computeMetadata/v1/",
           })
           .end();
+        return;
+      }
+      if (request.url === "/invalid-spec") {
+        response
+          .writeHead(200, { "content-type": "application/json" })
+          .end("not an OpenAPI document");
         return;
       }
       if (request.url === "/setup-spec" || request.url === "/key-spec") {
@@ -886,8 +931,194 @@ const controlPlaneTest = test.extend<{
 });
 
 controlPlaneTest(
+  "registers custom MCP and OpenAPI through agent exec before connecting and invoking",
+  async ({
+    agent,
+    authenticatedRpc,
+    mcpApi,
+    integrationApi,
+    plane,
+    appDataDir,
+  }) => {
+    const runtime = createControlPlaneRpcClient(
+      plane.origin,
+      (await readRuntimeSettings(appDataDir)).token,
+    );
+    const integrations = [
+      {
+        slug: "agent-public-mcp",
+        tool: "registerMcp",
+        input: {
+          name: "Agent public MCP",
+          slug: "agent-public-mcp",
+          endpoint: mcpApi.publicEndpoint,
+          auth: "none",
+        },
+        secret: "",
+        query: "echo_marker",
+        args: { marker: "agent-public-mcp" },
+        expected: "MCP received: agent-public-mcp",
+      },
+      {
+        slug: "agent-private-mcp",
+        tool: "registerMcp",
+        input: {
+          name: "Agent private MCP",
+          slug: "agent-private-mcp",
+          endpoint: mcpApi.privateEndpoint,
+          auth: "bearer",
+        },
+        secret: "fixture-mcp-key",
+        query: "echo_marker",
+        args: { marker: "agent-private-mcp" },
+        expected: "MCP received: agent-private-mcp",
+      },
+      {
+        slug: "agent-api",
+        tool: "registerOpenAPI",
+        input: {
+          name: "Agent API",
+          slug: "agent-api",
+          url: new URL("/key-spec", integrationApi.origin).href,
+        },
+        secret: "fixture-api-key",
+        query: "listItems",
+        args: {},
+        expected: "fixture-item",
+      },
+    ];
+    for (const integration of integrations) {
+      const registered = await agent.run(`
+        var registration = await tools.halo[${JSON.stringify(integration.tool)}](${JSON.stringify(integration.input)});
+        if (!registration.ok) throw new Error(JSON.stringify(registration));
+        await tools.halo.showConnectionCard({ integration: registration.data.integration });
+      `);
+      expect(registered[0]?.result?.details).toMatchObject({
+        connectionRequests: [
+          { kind: "control-plane", integration: integration.slug },
+        ],
+      });
+      expect(await authenticatedRpc.integrations.connections()).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ integration: integration.slug }),
+        ]),
+      );
+      expect(
+        await runtime.integrations.search({
+          query: integration.query,
+          integration: integration.slug,
+        }),
+      ).toEqual({ tools: [], truncated: false });
+      const catalog = await authenticatedRpc.integrations.catalog();
+      const method = catalog.find(
+        (entry) => entry.integration === integration.slug,
+      )!.methods[0]!;
+      const started = await authenticatedRpc.integrations.startSetup({
+        integration: integration.slug,
+        connectionName: "personal",
+      });
+      await authenticatedRpc.integrations.submitSetup({
+        setupId: started.setupId,
+        template: method.template,
+        values: Object.fromEntries(
+          method.fields.map((field) => [field, integration.secret]),
+        ),
+      });
+      expect(
+        await authenticatedRpc.integrations.setup({ setupId: started.setupId }),
+      ).toMatchObject({ status: "ready" });
+      const found = await runtime.integrations.search({
+        query: integration.query,
+        integration: integration.slug,
+      });
+      expect(found.tools).toHaveLength(1);
+      const address = found.tools[0]!.address;
+      const invoked = await agent.run(`
+        var found = await tools.search({ query: ${JSON.stringify(integration.query)}, source: "control-plane" });
+        if (!found.ok) throw new Error(JSON.stringify(found));
+        var path = ${JSON.stringify(`integrations.${address}`)};
+        if (!found.data.tools.some(tool => tool.path === path)) throw new Error("Tool not discovered");
+        var schema = await tools.describe.tool({ path });
+        if (!schema.ok) throw new Error(JSON.stringify(schema));
+        var result = await tools[path](${JSON.stringify(integration.args)});
+        if (!result.ok) throw new Error(JSON.stringify(result));
+        result.data;
+      `);
+      expect(invoked).toMatchObject([{ result: { isError: false } }]);
+      expect(JSON.stringify(invoked[0]?.result)).toContain(
+        integration.expected,
+      );
+      if (integration.secret) {
+        expect(JSON.stringify(registered)).not.toContain(integration.secret);
+        expect(JSON.stringify(invoked)).not.toContain(integration.secret);
+      }
+    }
+    // Duplicate registration cannot redirect an existing connection's credentials.
+    const duplicate = await agent.run(
+      `await tools.halo.registerMcp(${JSON.stringify({ ...integrations[1]!.input, endpoint: mcpApi.publicEndpoint, auth: "none" })});`,
+    );
+    expect(JSON.stringify(duplicate)).toContain("registration_failed");
+    expect(JSON.stringify(duplicate)).toContain(
+      "already exists; choose a new slug",
+    );
+    expect(await authenticatedRpc.integrations.connections()).toHaveLength(3);
+    const privateCatalog = (await authenticatedRpc.integrations.catalog()).find(
+      (entry) => entry.integration === "agent-private-mcp",
+    );
+    expect(privateCatalog?.methods).toMatchObject([
+      { kind: "apikey", fields: ["token"] },
+    ]);
+    const beforeInvoke = mcpApi.requests.length;
+    const original = await runtime.integrations.search({
+      query: "echo_marker",
+      integration: "agent-private-mcp",
+    });
+    const invokedAfterDuplicate = await agent.run(
+      `await tools[${JSON.stringify(`integrations.${original.tools[0]!.address}`)}]({ marker: "after-duplicate" });`,
+    );
+    expect(JSON.stringify(invokedAfterDuplicate)).toContain(
+      "MCP received: after-duplicate",
+    );
+    const privateRequests = mcpApi.requests.slice(beforeInvoke);
+    expect(privateRequests.length).toBeGreaterThan(0);
+    expect(
+      privateRequests.every(
+        (request) =>
+          request.endpoint === "/private" &&
+          request.authorization === "Bearer fixture-mcp-key",
+      ),
+    ).toBe(true);
+
+    const badUrl = await agent.run(
+      `await tools.halo.registerMcp({ name: "Unsafe", slug: "unsafe", endpoint: "file:///etc/passwd", auth: "none" });`,
+    );
+    expect(JSON.stringify(badUrl)).toContain("Unsafe remote URL");
+    const badSpec = await agent.run(
+      `await tools.halo.registerOpenAPI({ name: "Invalid", slug: "invalid-spec", url: ${JSON.stringify(new URL("/invalid-spec", integrationApi.origin).href)} });`,
+    );
+    expect(JSON.stringify(badSpec)).toContain("registration_failed");
+    expect(JSON.stringify(badSpec)).not.toContain("Internal Server Error");
+    const duplicateApi = await agent.run(
+      `await tools.halo.registerOpenAPI(${JSON.stringify(integrations[2]!.input)});`,
+    );
+    expect(JSON.stringify(duplicateApi)).toContain(
+      "already exists; choose a new slug",
+    );
+  },
+  20_000,
+);
+
+controlPlaneTest(
   "creates human-only connections through durable setup RPC",
-  async ({ plane, authenticatedRpc, browserHeaders, appDataDir, mcpApi }) => {
+  async ({
+    plane,
+    authenticatedRpc,
+    browserHeaders,
+    appDataDir,
+    mcpApi,
+    integrationApi,
+    rpc,
+  }) => {
     const human = authenticatedRpc;
     await human.workspace.ensure();
     const runtime = createControlPlaneRpcClient(
@@ -924,6 +1155,51 @@ controlPlaneTest(
     );
     bobHeaders.set("origin", plane.origin);
     const bob = createControlPlaneRpcClient(plane.origin, bobHeaders);
+    // Registration saves catalogs for the authenticated runtime's owner. It
+    // grants no connection and never lets the runtime submit credentials.
+    const registrations = {
+      mcp: {
+        name: "Runtime MCP",
+        slug: "runtime-mcp",
+        endpoint: mcpApi.publicEndpoint,
+        auth: "none" as const,
+      },
+      openapi: {
+        name: "Runtime API",
+        slug: "runtime-api",
+        url: new URL("/key-spec", integrationApi.origin).href,
+      },
+    };
+    await runtime.integrations.registerMcp(registrations.mcp);
+    await runtime.integrations.registerOpenAPI(registrations.openapi);
+    expect(await runtime.integrations.catalog()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ integration: "runtime-mcp" }),
+        expect.objectContaining({ integration: "runtime-api" }),
+      ]),
+    );
+    expect(await runtime.integrations.connections()).toEqual([]);
+    const bobCatalog = await bob.integrations.catalog();
+    for (const integration of ["runtime-mcp", "runtime-api"])
+      expect(bobCatalog).not.toEqual(
+        expect.arrayContaining([expect.objectContaining({ integration })]),
+      );
+    await expect(
+      rpc.integrations.registerMcp(registrations.mcp),
+    ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    await expect(
+      rpc.integrations.registerOpenAPI(registrations.openapi),
+    ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    const forged = { ...registrations.mcp, userId: "foreign" };
+    await expect(
+      runtime.integrations.registerMcp(forged),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(
+      runtime.integrations.registerOpenAPI({
+        ...registrations.openapi,
+        url: "file:///etc/passwd",
+      }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
     for (const integration of ["setup-public", "setup-private"]) {
       const started = await runtime.integrations.startSetup({
         integration,
@@ -953,14 +1229,6 @@ controlPlaneTest(
         runtime.integrations.submitSetup({
           setupId: started.setupId,
           template: "none",
-        }),
-      ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
-      await expect(
-        runtime.integrations.registerMcp({
-          name: "Bad",
-          slug: "bad",
-          endpoint: mcpApi.publicEndpoint,
-          auth: "none",
         }),
       ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
       const method = catalog.find((entry) => entry.integration === integration)!
@@ -1705,7 +1973,10 @@ controlPlaneTest(
         slug: "redirect",
         url: `${integrationApi.origin}/redirect-spec`,
       }),
-    ).rejects.toMatchObject({ code: "INTERNAL_SERVER_ERROR" });
+    ).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: expect.stringContaining("Failed to fetch OpenAPI document"),
+    });
     await authenticatedRpc.integrations.registerOpenAPI({
       name: "Local OAuth",
       slug: "setup-oauth",

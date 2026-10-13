@@ -1055,6 +1055,23 @@ export class IntegrationService {
           slug: ctx.slug,
           spec: { kind: "url", url: ctx.url },
         }),
+      ).pipe(
+        Effect.catchTags({
+          IntegrationAlreadyExistsError: (error) =>
+            Effect.succeed(
+              new IntegrationSetupError({
+                detail: `Integration '${ctx.slug}' already exists; choose a new slug.`,
+                cause: error,
+              }),
+            ),
+          OpenApiParseError: (error) =>
+            Effect.succeed(
+              new IntegrationSetupError({
+                detail: error.message,
+                cause: error,
+              }),
+            ),
+        }),
       ),
     );
   }
@@ -1091,6 +1108,16 @@ export class IntegrationService {
                       },
                     },
                   ],
+        }),
+      ).pipe(
+        Effect.catchTags({
+          IntegrationAlreadyExistsError: (error) =>
+            Effect.succeed(
+              new IntegrationSetupError({
+                detail: `Integration '${ctx.slug}' already exists; choose a new slug.`,
+                cause: error,
+              }),
+            ),
         }),
       ),
     );

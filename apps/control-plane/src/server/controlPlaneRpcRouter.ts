@@ -312,7 +312,7 @@ export const controlPlaneRpcRouter = os.router({
       },
     ),
     registerOpenAPI: os.integrations.registerOpenAPI
-      .use(loadIntegrationUser)
+      .use(loadIntegrationOwner)
       .handler(async ({ context, input }) => {
         const result = await context.integrations.registerOpenAPI({
           ...input,
@@ -321,7 +321,7 @@ export const controlPlaneRpcRouter = os.router({
         if (result instanceof Error) return integrationError(result);
       }),
     registerMcp: os.integrations.registerMcp
-      .use(loadIntegrationUser)
+      .use(loadIntegrationOwner)
       .handler(async ({ context, input }) => {
         const result = await context.integrations.registerMcp({
           ...input,
