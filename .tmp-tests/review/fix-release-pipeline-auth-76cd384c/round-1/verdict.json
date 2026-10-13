@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change renames the promotion branch to `release/promote-<version>`, which is the `release/*` pattern the Workload Identity provider accepts for PR Pulumi previews. It also replaces `gh release edit --latest` with REST `gh api` calls to look up the release and PATCH it, in both the staging and production publish steps, and reformats the release manifests. Both new workflow conditions are safe: promotion PRs add no release manifest, so `is_release` stays false and the release-PR jobs gated on `release/` do not run for them. The temp test checks that the new branch is pushed and that the PR is opened from it, the one changed executable line is covered, and the change is ready.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "d596f5075174ef6283645a31d73b178ac9e63996",
+  "treeHash": "420c638e40569d0c9d42f46c47bffa32b56e3b1b",
+  "codeTree": "fe9c79eb33c6aefa02ba47a741814af9beae5427",
+  "coverage": {
+    "executable": 1,
+    "covered": 1,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-13T18:25:10.516Z"
+}
