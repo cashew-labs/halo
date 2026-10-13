@@ -319,7 +319,9 @@ export class AuthService {
       .catch((cause) => new AuthServiceError({ detail: "get session", cause }));
     if (result instanceof Error) return result;
     if (result === null) return undefined;
-    if (!(await this.stillAllowed(result.user.email))) return undefined;
+    const allowed = await this.stillAllowed(result.user.email);
+    if (allowed instanceof Error) return allowed;
+    if (!allowed) return undefined;
 
     return {
       session: {
@@ -337,12 +339,11 @@ export class AuthService {
   }
 
   // Sessions from before an email left the allowlist, or from before the
-  // allowlist existed, stop working at the next refresh of the list.
+  // allowlist existed, stop working at the next refresh of the list. An
+  // unreadable list is an outage, not a sign-out, so clients keep their token.
   private async stillAllowed(email: string) {
     if (this.signInAllowlist === undefined) return true;
-    const allowed = await this.signInAllowlist.allows(email);
-    if (allowed instanceof Error) console.error(allowed);
-    return allowed === true;
+    return await this.signInAllowlist.allows(email);
   }
 
   async createWorkspaceSocketTicket(headers: Headers, clientId: string) {
@@ -351,7 +352,9 @@ export class AuthService {
     );
     if (session instanceof Error) return session;
     if (session === null) return undefined;
-    if (!(await this.stillAllowed(session.user.email))) return undefined;
+    const allowed = await this.stillAllowed(session.user.email);
+    if (allowed instanceof Error) return allowed;
+    if (!allowed) return undefined;
     const ticket = crypto.randomBytes(32).toString("base64url");
     const context = await this.auth.$context;
     const cleaned = await context.adapter
