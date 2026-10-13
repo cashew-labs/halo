@@ -410,7 +410,7 @@ async function routeControlPlaneRequest(ctx: {
   }
 
   if (request.method === "GET" && url.pathname === "/api/desktop-auth/error") {
-    serveDesktopAuthError(response, url);
+    serveDesktopAuthError(response, auth, url);
     return;
   }
 
@@ -533,8 +533,32 @@ async function serveDesktopAuthCompletion(
     .end();
 }
 
-function serveDesktopAuthError(response: ServerResponse, url: URL) {
+function serveDesktopAuthError(
+  response: ServerResponse,
+  auth: AuthService,
+  url: URL,
+) {
   const error = url.searchParams.get("error");
+  const callback = url.searchParams.get("callback");
+  const state = url.searchParams.get("state");
+  if (callback !== null && state !== null) {
+    const location = auth.failDesktopSignIn(
+      { callback, state },
+      error === null || error === "" ? "sign_in_failed" : error,
+    );
+    if (location instanceof Error) {
+      response.writeHead(400).end("Invalid desktop sign-in request.");
+      return;
+    }
+    response
+      .writeHead(302, {
+        "cache-control": "no-store",
+        location: location.toString(),
+        "referrer-policy": "no-referrer",
+      })
+      .end();
+    return;
+  } // coverage-exempt: non-executable branch terminator; redirect and fallback responses are tested
   const detail =
     error === null || error === ""
       ? "Halo could not finish signing in. Return to the app and try again."

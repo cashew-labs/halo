@@ -3637,6 +3637,67 @@ controlPlaneTest(
 );
 
 controlPlaneTest(
+  "returns cancelled Google sign-in to the validated desktop callback",
+  async ({ plane, rpc }) => {
+    const callback = "http://127.0.0.1:49152/auth/callback";
+    const started = await rpc.auth.start({ callback, state: desktopAuthState });
+    const oauthState = new URL(started.authorizationUrl).searchParams.get(
+      "state",
+    );
+    if (oauthState === null) throw new Error("OAuth state was not returned");
+    const denied = new URL("/api/auth/callback/google", plane.origin);
+    denied.searchParams.set("state", oauthState);
+    denied.searchParams.set("error", "access_denied");
+    const response = await fetch(denied, { redirect: "manual" });
+    expect(response.status).toBe(302);
+    const errorLocation = response.headers.get("location");
+    if (errorLocation === null)
+      throw new Error("OAuth cancellation did not redirect");
+    const failure = await fetch(errorLocation, { redirect: "manual" });
+    expect(failure.status).toBe(302);
+    const location = failure.headers.get("location");
+    if (location === null)
+      throw new Error("Desktop cancellation did not redirect");
+    const redirected = new URL(location);
+    expect(redirected.origin + redirected.pathname).toBe(callback);
+    expect(redirected.searchParams.get("state")).toBe(desktopAuthState);
+    expect(redirected.searchParams.get("error")).toBe("access_denied");
+    expect(redirected.searchParams.has("code")).toBe(false);
+    expect(await rpc.auth.session()).toEqual({ status: "signed-out" });
+  },
+);
+
+controlPlaneTest(
+  "rejects non-loopback callbacks on the desktop error route",
+  async ({ plane }) => {
+    const failure = new URL("/api/desktop-auth/error", plane.origin);
+    failure.searchParams.set(
+      "callback",
+      "https://attacker.example/auth/callback",
+    );
+    failure.searchParams.set("state", desktopAuthState);
+    failure.searchParams.set("error", "access_denied");
+    const response = await fetch(failure, { redirect: "manual" });
+    expect(response.status).toBe(400);
+    expect(response.headers.get("location")).toBeNull();
+    failure.searchParams.delete("state");
+    const incomplete = await fetch(failure, { redirect: "manual" });
+    expect(incomplete.status).toBe(200);
+    expect(incomplete.headers.get("location")).toBeNull();
+    expect(await incomplete.text()).toContain(
+      "Return to the app and try again",
+    );
+    const uncorrelated = await fetch(
+      `${plane.origin}/api/desktop-auth/error?error=state_not_found`,
+    );
+    expect(uncorrelated.status).toBe(200);
+    expect(await uncorrelated.text()).toContain(
+      "Return to the app and try again",
+    );
+  },
+);
+
+controlPlaneTest(
   "exchanges a one-time code for a bearer session",
   async ({ appDataDir, plane, rpc }) => {
     const browserHeaders = await createAuthenticatedHeaders(

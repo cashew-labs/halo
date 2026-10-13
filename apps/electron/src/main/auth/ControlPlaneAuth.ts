@@ -18,6 +18,7 @@ import {
   controlPlaneProtocolVersion,
   checkControlPlaneCompatibility,
   type ControlPlaneClient,
+  type ControlPlaneSession,
 } from "@get-halo/shared/controlPlaneContract";
 import { SerialQueue } from "@get-halo/shared/SerialQueue";
 import { safeStorage } from "electron";
@@ -35,9 +36,15 @@ class ControlPlaneAuthError extends errore.createTaggedError({
   message: "Halo authentication failed while trying to $operation",
 }) {}
 
+class DesktopSignInCancelledError extends errore.createTaggedError({
+  name: "DesktopSignInCancelledError",
+  message: "Sign-in was cancelled. You can try again when you're ready.",
+  extends: errore.AbortError,
+}) {}
+
 type ListeningDesktopAuthCallback = {
   callbackUrl: string;
-  code: Promise<string | ControlPlaneAuthError>;
+  code: Promise<string | ControlPlaneAuthError | DesktopSignInCancelledError>;
   close: () => Promise<undefined | ControlPlaneAuthError>;
 };
 
@@ -51,6 +58,8 @@ export class ControlPlaneAuth implements DesktopAuthentication {
   private restoreError: Error | undefined;
   // Holds the bearer token in the main process after secure storage is loaded.
   private token: string | undefined;
+  // Browser sign-in must not block session discovery or workspace connections.
+  private signingIn: Promise<ControlPlaneSession | Error> | undefined;
 
   private constructor(ctx: {
     origin: string;
@@ -85,12 +94,19 @@ export class ControlPlaneAuth implements DesktopAuthentication {
   }
 
   async signIn() {
-    return await this.actionQueue.run(async () => await this.signInUnqueued());
+    if (this.signingIn !== undefined) return await this.signingIn;
+    const signingIn = this.signInThroughBrowser();
+    this.signingIn = signingIn;
+    using cleanup = new errore.DisposableStack();
+    cleanup.defer(() => {
+      this.signingIn = undefined;
+    });
+    return await signingIn;
   }
 
   async getWorkspaceConnection() {
     return await this.actionQueue.run(async () => {
-      if (this.token === undefined) return undefined;
+      if (this.token === undefined) return new AuthenticationRequiredError();
 
       const compatible = await checkControlPlaneCompatibility(
         this.createClient(this.token),
@@ -163,7 +179,7 @@ export class ControlPlaneAuth implements DesktopAuthentication {
     return undefined;
   }
 
-  private async signInUnqueued() {
+  private async signInThroughBrowser() {
     const client = this.createClient();
     const compatible = await checkControlPlaneCompatibility(
       client,
@@ -223,14 +239,14 @@ export class ControlPlaneAuth implements DesktopAuthentication {
       );
     if (workspace instanceof Error) return workspace;
 
-    const saved = await this.sessionStore.write(exchanged.token);
-    if (saved instanceof Error) return saved;
-
-    this.token = exchanged.token;
-    this.restoreError = undefined;
-
-    const { token: _token, ...session } = exchanged;
-    return session;
+    return await this.actionQueue.run(async () => {
+      const saved = await this.sessionStore.write(exchanged.token);
+      if (saved instanceof Error) return saved;
+      this.token = exchanged.token;
+      this.restoreError = undefined;
+      const { token: _token, ...session } = exchanged;
+      return session;
+    });
   }
 
   async getWorkspaceStatus() {
@@ -415,12 +431,14 @@ async function listenForDesktopAuthCallback(state: string) {
   return await new Promise<
     ListeningDesktopAuthCallback | ControlPlaneAuthError
   >((resolve) => {
-    let resolveCode!: (result: string | ControlPlaneAuthError) => void;
-    const code = new Promise<string | ControlPlaneAuthError>(
-      (resolveResult) => {
-        resolveCode = resolveResult;
-      },
-    );
+    let resolveCode!: (
+      result: string | ControlPlaneAuthError | DesktopSignInCancelledError,
+    ) => void;
+    const code = new Promise<
+      string | ControlPlaneAuthError | DesktopSignInCancelledError
+    >((resolveResult) => {
+      resolveCode = resolveResult;
+    });
     let timeout: NodeJS.Timeout | undefined;
 
     const server = createServer((request, response) => {
@@ -473,7 +491,9 @@ function receiveDesktopAuthCallback(ctx: {
   request: IncomingMessage;
   response: ServerResponse;
   state: string;
-  resolveCode: (result: string | ControlPlaneAuthError) => void;
+  resolveCode: (
+    result: string | ControlPlaneAuthError | DesktopSignInCancelledError,
+  ) => void;
 }) {
   const url = new URL(
     ctx.request.url === undefined ? "/" : ctx.request.url,
@@ -481,13 +501,33 @@ function receiveDesktopAuthCallback(ctx: {
   );
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
+  const error = url.searchParams.get("error");
 
   if (
     ctx.request.method !== "GET" ||
     url.pathname !== callbackPath ||
-    code === null ||
     state !== ctx.state
   ) {
+    ctx.response.writeHead(400).end("Halo could not finish signing in.");
+    return;
+  }
+
+  if (error !== null && error !== "") {
+    ctx.response
+      .writeHead(200, {
+        "cache-control": "no-store",
+        "content-type": "text/plain; charset=utf-8",
+      })
+      .end("Sign-in did not complete. You can return to Halo and try again.");
+    ctx.resolveCode(
+      error === "access_denied"
+        ? new DesktopSignInCancelledError()
+        : new ControlPlaneAuthError({ operation: "finish Google sign-in" }),
+    );
+    return;
+  }
+
+  if (code === null || code === "") {
     ctx.response.writeHead(400).end("Halo could not finish signing in.");
     return;
   }

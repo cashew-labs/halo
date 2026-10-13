@@ -194,6 +194,8 @@ export class AuthService {
     const completion = new URL("/api/desktop-auth/complete", this.origin);
     completion.searchParams.set("callback", signIn.callback.toString());
     completion.searchParams.set("state", signIn.state);
+    const failure = new URL(completion);
+    failure.pathname = "/api/desktop-auth/error";
 
     const result = await this.auth.api
       .signInSocial({
@@ -201,6 +203,7 @@ export class AuthService {
         body: {
           provider: "google",
           callbackURL: completion.toString(),
+          errorCallbackURL: failure.toString(),
         },
       })
       .catch(
@@ -228,6 +231,14 @@ export class AuthService {
     if (code instanceof Error) return code;
 
     signIn.callback.searchParams.set("code", code);
+    signIn.callback.searchParams.set("state", signIn.state);
+    return signIn.callback;
+  }
+
+  failDesktopSignIn(request: DesktopSignInRequest, error: string) {
+    const signIn = parseDesktopSignInRequest(request);
+    if (signIn instanceof Error) return signIn;
+    signIn.callback.searchParams.set("error", error);
     signIn.callback.searchParams.set("state", signIn.state);
     return signIn.callback;
   }
