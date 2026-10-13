@@ -142,6 +142,10 @@ const showConnectionCardInputSchema = Type.Object({
   }),
 });
 
+const integrationListInputSchema = Type.Object({
+  query: Type.Optional(Type.String()),
+});
+
 const searchInputSchema = Type.Object({
   query: Type.String(),
   limit: Type.Optional(Type.Integer({ minimum: 1 })),
@@ -281,10 +285,10 @@ const haloToolsPlugin = definePlugin((options?: HaloToolsPluginOptions) => {
           tool({
             name: "showConnectionCard",
             description:
-              "Show the user a card where they can choose whether to connect an integration. This does not connect an account or grant access by itself. Use it proactively when the task needs an integration that has no connection; do not ask for confirmation first.",
+              "Show an optional connection card for an available integration. Use an integration ID from executor.integrations.list. This does not connect an account or grant access; do not ask for confirmation first.",
             inputSchema: toExecutorSchema(showConnectionCardInputSchema),
             execute: (args) =>
-              Effect.sync(() => {
+              Effect.promise(async () => {
                 if (!Value.Check(showConnectionCardInputSchema, args))
                   return ToolResult.fail({
                     code: "invalid_tool_arguments",
@@ -297,7 +301,26 @@ const haloToolsPlugin = definePlugin((options?: HaloToolsPluginOptions) => {
                     message:
                       "Connection cards must be requested from a thread's exec tool",
                   });
-                // Resolve catalog membership on the control plane at setup time.
+                const catalog = await options.connections?.catalog();
+                if (catalog === undefined)
+                  return ToolResult.fail({
+                    code: "connections_unavailable",
+                    message: "This workspace has no control-plane connections",
+                  });
+                if (catalog instanceof Error)
+                  return ToolResult.fail({
+                    code: "discovery_failed",
+                    message: catalog.message,
+                  });
+                if (
+                  !catalog.some(
+                    (entry) => entry.integration === args.integration,
+                  )
+                )
+                  return ToolResult.fail({
+                    code: "integration_unavailable",
+                    message: `Integration '${args.integration}' is not available. Use executor.integrations.list to find available integrations. No connection card was shown.`,
+                  });
                 context.collectConnectionRequest({
                   kind: "control-plane",
                   integration: args.integration,
@@ -569,7 +592,7 @@ export class ToolRuntime {
       "Runtime tools do not throw for expected failures. They return { ok: true, data } or { ok: false, error }. Check result.ok.",
       ...(this.remoteConnections
         ? [
-            `Discover with tools.search({ query, source: "control-plane" }); results contain tools, truncated and unavailableSources. Describe with tools.describe.tool({ path }). Remote paths start with integrations.; invoke the complete saved path with tools[path](args). Register custom remote MCP servers with tools.halo.registerMcp({ name, slug, endpoint, auth }) and OpenAPI spec URLs with tools.halo.registerOpenAPI({ name, slug, url }). Registration returns an integration id; request account setup with tools.halo.showConnectionCard({ integration }). List current integrations with tools.executor.integrations.list({}). Credentials are entered in the control plane, never in tool arguments.`,
+            `Find available integrations with tools.executor.integrations.list({ query: "integration name" }); omit query to list them all. Register custom remote MCP servers with tools.halo.registerMcp({ name, slug, endpoint, auth }) and OpenAPI spec URLs with tools.halo.registerOpenAPI({ name, slug, url }). Show an optional connection card with tools.halo.showConnectionCard({ integration }) using an integration ID returned by listing or registration. Discover operations with tools.search({ query, source: "control-plane" }); results contain tools, truncated and unavailableSources. Describe with tools.describe.tool({ path }). Remote paths start with integrations.; invoke the complete saved path with tools[path](args). Credentials are entered in the control plane, never in tool arguments.`,
           ]
         : []),
     ].join("\n");
@@ -890,10 +913,22 @@ export class ToolRuntime {
           input.path === "executor.integrations.list" &&
           this.remoteConnectionBackend !== undefined
         ) {
+          if (!Value.Check(integrationListInputSchema, input.args))
+            return failure(
+              "invalid_tool_arguments",
+              "Expected an optional integration query string",
+            );
           const catalog = await this.remoteConnectionBackend.catalog();
-          return catalog instanceof Error
-            ? failure("discovery_failed", catalog.message)
-            : ToolResult.ok(catalog);
+          if (catalog instanceof Error)
+            return failure("discovery_failed", catalog.message);
+          const query = input.args.query?.trim().toLowerCase() ?? "";
+          return ToolResult.ok(
+            catalog.filter(
+              (entry) =>
+                entry.integration.toLowerCase().includes(query) ||
+                entry.name.toLowerCase().includes(query),
+            ),
+          );
         }
         if (this.remoteIntegrationTools === undefined)
           return failure("unavailable", "Remote integrations unavailable");

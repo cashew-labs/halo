@@ -1179,12 +1179,93 @@ await tools.halo.removeConnection({ integration: connection.integration, name: c
 );
 
 serverTest(
-  "shows a remote setup card without per-action approval or a startup catalog",
+  "filters the remote integration catalog without confusing misses and outages",
   async ({ createServer, llm }) => {
-    const setup = { cancelled: false };
+    const catalog = [
+      { integration: "source_control", name: "GitHub" },
+      { integration: "vercel", name: "Deployment platform" },
+      { integration: "google_gmail", name: "Gmail" },
+    ];
+    const availability = { offline: false };
     const server = createServer({
       remoteConnections: {
-        catalog: async () => new Error("Control plane temporarily offline"),
+        catalog: async () =>
+          availability.offline ? new Error("Catalog unavailable") : catalog,
+        startSetup: async () => new Error("unused"),
+        setup: async () => new Error("unused"),
+        cancelSetup: async () => undefined,
+        connections: async () => [],
+        removeConnection: async () => ({
+          revocation: "not_supported" as const,
+        }),
+      },
+    });
+    await server.start();
+    const session = await server.rpc.thread.new();
+    const prompting = server.promptAndWait({
+      ...session,
+      text: "Check which integrations are supported",
+    });
+    await llm.respond(
+      m.tool.start("exec", {
+        id: "catalog",
+        arguments: {
+          js: `await Promise.all([
+            tools.executor.integrations.list({}),
+            tools.executor.integrations.list({ query: "  gItHuB  " }),
+            tools.executor.integrations.list({ query: "VERC" }),
+            tools.executor.integrations.list({ query: "missing" }),
+            tools.executor.integrations.list({ query: "   " }),
+            tools.executor.integrations.list({ query: 42 })
+          ]);`,
+        },
+      }),
+    );
+    await llm.respond(() => {
+      availability.offline = true;
+      return m.tool.start("exec", {
+        id: "offline-catalog",
+        arguments: {
+          js: 'await tools.executor.integrations.list({ query: "github" });',
+        },
+      });
+    });
+    await llm.respond(m.assistant("Discovery is currently unavailable."));
+    await prompting;
+    const [listed, offline] = sessionToolExecutions(
+      await server.rpc.thread.snapshot(session),
+    );
+    assert(listed?.type === "exec" && offline?.type === "exec");
+    expect(listed.result?.details).toMatchObject({
+      status: "completed",
+      result: [
+        { ok: true, data: catalog },
+        { ok: true, data: [catalog[0]] },
+        { ok: true, data: [catalog[1]] },
+        { ok: true, data: [] },
+        { ok: true, data: catalog },
+        { ok: false, error: { code: "invalid_tool_arguments" } },
+      ],
+    });
+    expect(offline.result?.details).toMatchObject({
+      status: "completed",
+      result: { ok: false, error: { code: "discovery_failed" } },
+    });
+  },
+);
+
+serverTest(
+  "shows remote setup cards only for integrations in the live catalog",
+  async ({ createServer, llm }) => {
+    const setup = { cancelled: false };
+    const catalog: { integration: string; name: string }[] = [];
+    const availability = { offline: true };
+    const server = createServer({
+      remoteConnections: {
+        catalog: async () =>
+          availability.offline
+            ? new Error("Control plane temporarily offline")
+            : catalog,
         startSetup: async ({ integration }) => {
           expect(integration).toBe("new_mcp");
           return {
@@ -1212,6 +1293,24 @@ serverTest(
     });
     await llm.respond(
       m.tool.start("exec", {
+        id: "offline-card",
+        arguments: {
+          js: 'await tools.halo.showConnectionCard({ integration: "new_mcp" });',
+        },
+      }),
+    );
+    await llm.respond(() => {
+      availability.offline = false;
+      return m.tool.start("exec", {
+        id: "unsupported-card",
+        arguments: {
+          js: 'await tools.halo.showConnectionCard({ integration: "github" });',
+        },
+      });
+    });
+    await llm.respond(() => {
+      catalog.push({ integration: "new_mcp", name: "New MCP" });
+      return m.tool.start("exec", {
         id: "remote-connection",
         arguments: {
           js: `await Promise.allSettled([
@@ -1219,15 +1318,27 @@ serverTest(
             tools.executor.coreTools.oauth.start({ client: "google", clientOwner: "org", owner: "user", name: "personal", integration: "google_gmail", template: "googleOAuth2" })
           ]);`,
         },
-      }),
-    );
+      });
+    });
     await llm.respond(m.assistant("Use the connection card to connect."));
     await prompting;
     const executions = sessionToolExecutions(
       await server.rpc.thread.snapshot(session),
     );
-    expect(executions).toHaveLength(1);
-    const execution = executions[0]!;
+    expect(executions).toHaveLength(3);
+    for (const [index, code] of [
+      "discovery_failed",
+      "integration_unavailable",
+    ].entries()) {
+      const rejected = executions[index]!;
+      assert(rejected.type === "exec");
+      expect(rejected.result?.details).toMatchObject({
+        status: "completed",
+        result: { ok: false, error: { code } },
+      });
+      expect(rejected.result?.details).not.toHaveProperty("connectionRequests");
+    }
+    const execution = executions[2]!;
     assert(execution.type === "exec");
     expect(execution.approvals).toEqual([]);
     const request = { kind: "control-plane" as const, integration: "new_mcp" };
