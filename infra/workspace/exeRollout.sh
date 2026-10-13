@@ -7,16 +7,17 @@ release_manifest=${RELEASE_MANIFEST:-"$root/releases/$VERSION.json"}
 ssh_args=(-F /dev/null -i "$EXE_PRIVATE_KEY_PATH" -o IdentitiesOnly=yes -o IdentityAgent=none
   -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$root/infra/workspace/exe-known-hosts"
   -o ConnectTimeout=10 -o ServerAliveInterval=30 -o ServerAliveCountMax=10)
-# Registry credentials are used only by this trusted runner; guests receive image bytes.
+# Guests pull release images themselves with a token for this read-only account
+# (infra/control-plane/index.ts), so only layers they lack cross the network.
+image_puller=${EXE_IMAGE_PULLER:-halo-west-image-puller@halo-relay.iam.gserviceaccount.com}
+# The runner pulls too, to resolve the digest and measure the image.
 export DOCKER_CONFIG="$RUNNER_TEMP/exe-registry"
 mkdir -p "$DOCKER_CONFIG"
 gcloud auth print-access-token | docker login -u oauth2accesstoken --password-stdin "${WORKSPACE_IMAGE%%/*}"
 docker pull --platform linux/amd64 "$WORKSPACE_IMAGE"
-# A daemon's image ID can change across save/load storage backends. Transfer a
-# tag derived from the immutable registry digest so both daemons resolve it.
+# Name the image by its immutable registry digest on the runner and every guest.
 source_digest=$(docker image inspect --format '{{index .RepoDigests 0}}' "$WORKSPACE_IMAGE")
 image="halo-workspace:${source_digest##*:}"
-docker tag "$WORKSPACE_IMAGE" "$image"
 restore_paused=false
 clean_images_on_exit=false
 restore_sleep_on_exit() {
@@ -49,12 +50,39 @@ docker image prune -f >/dev/null
 CLEAN
 }
 
+# Pulls $source_digest on the guest and tags it $image. The token expires after
+# 30 minutes and lives only in a throwaway Docker config removed after the pull.
+pull_on_guest() {
+  local remote
+  remote=$(cat <<'PULL'
+set -euo pipefail
+read -r token
+config=$(mktemp -d)
+trap 'rm -rf "$config"' EXIT
+printf '%s' "$token" | DOCKER_CONFIG=$config docker login -u oauth2accesstoken --password-stdin "$1" >/dev/null
+DOCKER_CONFIG=$config docker pull --quiet --platform linux/amd64 "$2" >/dev/null
+docker tag "$2" "$3"
+# Keep only the halo-workspace name, which the image cleanup tracks.
+docker rmi "$2" >/dev/null
+PULL
+  )
+  local token
+  # A new token-creator grant can take a few minutes to propagate.
+  for attempt in $(seq 1 12); do
+    if token=$(gcloud auth print-access-token --impersonate-service-account="$image_puller" --lifetime=1800); then break; fi
+    if [ "$attempt" = 12 ]; then echo "Could not mint a pull token for $image_puller" >&2; exit 1; fi
+    sleep 10
+  done
+  printf '%s\n' "$token" |
+    ssh "${ssh_args[@]}" "$vm.exe.xyz" "sudo bash -c $(printf %q "$remote") pull $(printf %q "${source_digest%%/*}") $(printf %q "$source_digest") $(printf %q "$image")"
+}
+
 # A full disk also stops the running workspace, so refuse the transfer when the
 # new image would not fit. containerd keeps the compressed layers and their
 # unpacked snapshot, so loading needs about twice the image's size.
 require_free_space() {
   local image_gib needed_gib free_gib
-  image_gib=$(( ($(docker image inspect --format '{{.Size}}' "$image") + 1073741823) / 1073741824 ))
+  image_gib=$(( ($(docker image inspect --format '{{.Size}}' "$WORKSPACE_IMAGE") + 1073741823) / 1073741824 ))
   needed_gib=$(( image_gib * 2 + 5 ))
   free_gib=$(ssh "${ssh_args[@]}" "$vm.exe.xyz" "df --block-size=1G --output=avail /var/lib | tail -n 1" | tr -d ' ')
   if [ "$free_gib" -lt "$needed_gib" ]; then
@@ -82,7 +110,7 @@ case "$mode" in
     if [ -z "$published" ]; then
       ssh "${ssh_args[@]}" "$vm.exe.xyz" 'sudo test ! -f /etc/halo/assignment.json && { sudo test ! -d /var/lib/halo/home || sudo test -z "$(sudo find /var/lib/halo/home -type f -print -quit)"; }'
       ssh "${ssh_args[@]}" "$vm.exe.xyz" "sudo date -s '@$(date +%s)' >/dev/null; sudo apt-get update >/dev/null && sudo apt-get install -y docker.io >/dev/null && sudo systemctl enable --now docker"
-      docker save "$image" | gzip -1 | ssh "${ssh_args[@]}" "$vm.exe.xyz" 'gzip -d | sudo docker load'
+      pull_on_guest
       scp "${ssh_args[@]}" "$root/infra/workspace/exeTemplate.sh" "$root/infra/workspace/desktop-seccomp.json" "$vm.exe.xyz:/tmp/"
       ssh "${ssh_args[@]}" "$vm.exe.xyz" "sudo bash /tmp/exeTemplate.sh '$image'"
     fi
@@ -117,7 +145,7 @@ ACTIVITY
     clean_images_on_exit=true
     remove_unused_images
     require_free_space
-    docker save "$image" | gzip -1 | ssh "${ssh_args[@]}" "$vm.exe.xyz" 'gzip -d | sudo docker load'
+    pull_on_guest
     scp "${ssh_args[@]}" "$root/infra/workspace/exeTemplate.sh" "$root/infra/workspace/desktop-seccomp.json" "$vm.exe.xyz:/tmp/"
     ssh "${ssh_args[@]}" "$vm.exe.xyz" "sudo bash /tmp/exeTemplate.sh '$image' update-host && sudo /usr/local/bin/halo-workspace-upgrade '$image'"
     ready=false

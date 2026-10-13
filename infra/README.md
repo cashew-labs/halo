@@ -142,8 +142,15 @@ protocols, and revision before browser or desktop publishing. A container startu
 or health failure blocks publishing; automatic rollback and draining active agent
 runs are not implemented. The restart still briefly interrupts active work.
 
-Exe workspaces update through `infra/workspace/exeRollout.sh update`, which
-streams the image to the guest instead of pulling it. Each update keeps only the
+Exe workspaces update through `infra/workspace/exeRollout.sh update`. The guest
+pulls the release image by digest from `halo-west-workspaces`, so only layers it
+lacks cross the network. The runner mints a 30-minute access token for
+`halo-west-image-puller`, a service account that can only read that repository,
+and passes it on standard input into a throwaway Docker config that is removed
+after the pull. The `west` stack owns the puller and its grants; they must exist
+before the first release that uses them, so apply them once with
+`pulumi -C infra/control-plane up --stack west --target <urns>` for
+`image-puller`, `image-puller-reader`, and `deployment-image-puller-token`. Each update keeps only the
 image the `halo` service is configured to run (`/etc/halo/image`) and any image a
 container uses. It removes every other `halo-workspace` image before the
 transfer, after the new container reports ready, and when the update fails, so
