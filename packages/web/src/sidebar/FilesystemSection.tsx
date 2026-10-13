@@ -38,6 +38,7 @@ import { SidebarItem } from "./navigation/SidebarItem.js";
 import { SidebarSection } from "./navigation/SidebarSection.js";
 
 import { FileEntryInput, type FileCreationAction } from "./FileEntryInput.js";
+import { SidebarEmptyState } from "./SidebarEmptyState.js";
 
 type FileAction = FileEntryAction | FileCreationAction;
 type FileCreationRow = { parent: string; content: ReactNode };
@@ -355,6 +356,9 @@ export function FilesystemSection() {
       }
     >
       {creation?.parent === "" && creation.content}
+      {files.length === 0 &&
+        action === undefined &&
+        listingError === undefined && <SidebarEmptyState kind="documents" />}
       {files.map((node) => (
         <FileNavigationItem
           key={node.path}

@@ -1,17 +1,41 @@
 import { SessionActivity } from "./SessionActivity.js";
 import type { SessionSummary } from "@get-halo/client";
 import { useMutation } from "@tanstack/react-query";
-import { Button } from "maui";
-import { Check } from "maui/icons";
+import { Button, Tooltip } from "maui";
+import { Check, Plus } from "maui/icons";
 import { useApi } from "../api/ApiProvider.js";
+import { useWorkspacePanes } from "../panes/WorkspacePanesProvider.js";
+import { useSidebar } from "../WorkspaceLayout.js";
+import { SidebarEmptyState } from "./SidebarEmptyState.js";
 import { SidebarItem } from "./navigation/SidebarItem.js";
 import { SidebarSection } from "./navigation/SidebarSection.js";
 
 export function SessionsSection({ sessions }: { sessions: SessionSummary[] }) {
+  const workspace = useWorkspacePanes();
+  const sidebar = useSidebar();
   const visibleSessions = sessions.filter((session) => !isDone(session));
-  if (visibleSessions.length === 0) return undefined;
   return (
-    <SidebarSection label="Sessions">
+    <SidebarSection
+      label="Sessions"
+      actions={
+        <Tooltip content="New session">
+          <Button
+            variant="quiet"
+            aria-label="New session"
+            onPress={() => {
+              workspace.open({
+                path: `/draft/${crypto.randomUUID()}`,
+                newTab: true,
+              });
+              sidebar.close();
+            }}
+          >
+            <Plus size="sm" />
+          </Button>
+        </Tooltip>
+      }
+    >
+      {visibleSessions.length === 0 && <SidebarEmptyState kind="sessions" />}
       {visibleSessions.map((session) => (
         <SessionRow key={session.sessionId} session={session} />
       ))}

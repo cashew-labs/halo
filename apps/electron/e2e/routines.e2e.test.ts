@@ -137,15 +137,27 @@ e2eTest(
 );
 
 e2eTest(
-  "creates a trigger, shows event runs, and edits its activation",
+  "configures a trigger, shows event runs, and edits its activation",
   async ({ app }, testInfo) => {
     const sidebar = app.page.getByRole("navigation", { name: "Workspace" });
-    await sidebar.getByRole("link", { name: "All automations" }).click();
-    await app.page.getByRole("button", { name: "New automation" }).click();
-    const editor = app.page.getByRole("dialog", { name: "New automation" });
-    await editor
-      .getByRole("textbox", { name: "Name", exact: true })
-      .fill("Incoming order");
+    await app.server.rpc.automations.save({
+      name: "Incoming order",
+      activation: {
+        type: "routine",
+        schedule: { cron: "0 9 * * *", timezone: "UTC" },
+      },
+      action: { type: "runAgent", prompt: "Check incoming orders" },
+    });
+    await sidebar
+      .getByRole("link", { name: "Incoming order", exact: true })
+      .click();
+    const pane = app.page.getByRole("region", {
+      name: "Automation Incoming order",
+    });
+    await pane.getByRole("button", { name: "Edit automation" }).click();
+    const editor = app.page.getByRole("dialog", {
+      name: "Edit Incoming order",
+    });
     await editor.getByRole("button", { name: /Activation$/ }).click();
     await app.page
       .getByRole("option", { name: "Trigger", exact: true })
@@ -158,10 +170,7 @@ e2eTest(
     await editor
       .getByRole("textbox", { name: "Script", exact: true })
       .fill('cat "$HALO_AUTOMATION_EVENT_FILE"');
-    await editor.getByRole("button", { name: "Create", exact: true }).click();
-    const pane = app.page.getByRole("region", {
-      name: "Automation Incoming order",
-    });
+    await editor.getByRole("button", { name: "Save", exact: true }).click();
     await expect(pane).toContainText("Trigger · Webhook");
     await expect(pane).toContainText("Needs attention");
     await testInfo.attach("Webhook automation", {
