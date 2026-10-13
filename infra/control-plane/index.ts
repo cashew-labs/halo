@@ -57,6 +57,9 @@ const controlPlaneDomain = configuration.require("controlPlaneDomain");
 // Limits sign-in to the emails in this secret; its value is set
 // outside Pulumi so the list never appears in code. Unset allows anyone.
 const signInAllowlistSecretId = configuration.get("signInAllowlistSecretId");
+// Production offers the desktop staging toggle to the emails in this secret,
+// usually the staging allowlist. It never limits production sign-in.
+const stagingTestersSecretId = configuration.get("stagingTestersSecretId");
 const controlPlaneOrigin = `https://${controlPlaneDomain}`;
 // Apex domains also serve www and redirect it; subdomains such as staging do not.
 const redirectWww = configuration.getBoolean("redirectWww") ?? true;
@@ -610,6 +613,18 @@ const signInAllowlistAccess =
         }),
       ];
 
+const stagingTestersAccess =
+  stagingTestersSecretId === undefined
+    ? []
+    : [
+        new gcp.secretmanager.SecretIamMember("staging-testers-access", {
+          project,
+          secretId: stagingTestersSecretId,
+          role: "roles/secretmanager.secretAccessor",
+          member: pulumi.interpolate`serviceAccount:${runtime.email}`,
+        }),
+      ];
+
 const exeSecretAccess = [exePrivateKeySecretId, exeGatewaySecretId].flatMap(
   (secretId, index) =>
     secretId === undefined
@@ -745,6 +760,14 @@ const controlPlane = new gcp.cloudrunv2.Service(
                     value: signInAllowlistSecretId,
                   },
                 ]),
+            ...(stagingTestersSecretId === undefined
+              ? []
+              : [
+                  {
+                    name: "STAGING_TESTERS_SECRET_ID",
+                    value: stagingTestersSecretId,
+                  },
+                ]),
             {
               name: "WORKSPACE_SERVICE_ACCOUNT",
               value: workspaceRuntime.email,
@@ -768,6 +791,7 @@ const controlPlane = new gcp.cloudrunv2.Service(
       controlPlaneIntegrationKeyAccess,
       controlPlaneTogetherApiKeyAccess,
       ...signInAllowlistAccess,
+      ...stagingTestersAccess,
       controlPlaneTraceAccess,
       databaseUrlAccess,
       googleClientIdAccess,

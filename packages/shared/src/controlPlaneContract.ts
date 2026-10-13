@@ -160,6 +160,8 @@ export type ControlPlaneSession = {
     name: string;
     image?: string;
   };
+  /** Offers the desktop staging toggle; older control planes omit it. */
+  stagingAccess?: boolean;
 };
 
 export type DesktopAuthSession = ControlPlaneSession & {
