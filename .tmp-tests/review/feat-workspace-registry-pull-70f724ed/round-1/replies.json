@@ -1,0 +1,14 @@
+[
+  {
+    "findingId": "F1",
+    "reply": "fixed: pull_on_guest retries the token mint for up to 2 minutes to cover IAM propagation, and the README documents the one-time targeted 'pulumi up --stack west --target' of image-puller, image-puller-reader and deployment-image-puller-token before the first release; I will apply that targeted up before merging this PR"
+  },
+  {
+    "findingId": "F2",
+    "reply": "fixed: controlPlaneStack temp tests assert west's image-puller accountId, the reader binding (role, repository, member), the token-creator binding for the deploy SA, the imagePullerServiceAccount output, that exeRollout.sh's default matches, and that prod creates none of them"
+  },
+  {
+    "findingId": "F3",
+    "reply": "fixed: the ssh stub now runs the real pull_on_guest script (printf %q decoded by bash) against a guest docker stub; tests assert login host + stdin token + temp DOCKER_CONFIG, pull by digest, tag halo-workspace:abc123, untag of the digest ref, config dir removed, token absent from command lines; new template-mode test covers the template path end to end"
+  }
+]

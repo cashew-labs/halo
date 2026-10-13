@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "Exe.dev guests now pull the release image by digest with a 30-minute token for a read-only puller account that the west stack owns. They no longer receive a streamed docker save. All earlier findings are resolved: F4's retry tests cover transient mint failures and the 12-attempt failure path, including the exit-handler cleanup and the pause restore. The temp tests pass, and all changed lines are covered.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 3,
+  "headSha": "809fd47ee74272bfaba2904e016a0d5a6afec425",
+  "treeHash": "e9b711db6fa3a44037e8948bf6bea1cb76108652",
+  "codeTree": "4d6e87de8786c242a99061d5e29b91c4c17c9eba",
+  "coverage": {
+    "executable": 5,
+    "covered": 5,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-13T18:05:55.653Z"
+}

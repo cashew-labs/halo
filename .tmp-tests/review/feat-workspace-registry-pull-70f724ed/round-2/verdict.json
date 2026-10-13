@@ -1,0 +1,33 @@
+{
+  "status": "changes_requested",
+  "summary": "Guests now pull the release image by digest with a short-lived token for a read-only puller account. F1, F2 and F3 from round 1 are resolved: the README documents the one-time targeted west apply, token minting retries to cover IAM propagation, the stack tests assert the IAM resources, and the rollout tests run the real guest pull script and template mode. One gap remains: no test covers the new token-mint retry loop. It is a small temp-test addition.",
+  "findings": [
+    {
+      "id": "F4",
+      "kind": "test",
+      "file": "infra/workspace/exeRollout.sh",
+      "line": 71,
+      "severity": "P1",
+      "body": "No test covers the token-mint retry loop added in this round (lines 71-76). The `gcloud` stub in `infra/.tmp-tests/exeRollout.test.ts` always succeeds, so two behaviors are never checked. First, a mint that fails at first and then succeeds should retry and continue. Second, a mint that fails all 12 times should exit nonzero with 'Could not mint a pull token', run no guest pull, and still run the EXIT-trap image cleanup and pause restore in update mode. Make the impersonated mint fail a configurable number of times, for example with a counter in the guest state file, and assert both cases. `sleep` is already stubbed."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "infra/workspace/exeRollout.sh:71-76: the mint retries after transient failures; after 12 failures the script exits nonzero, runs no guest pull, and restores the paused state",
+      "tier": "tmp",
+      "rationale": "This new failure-handling path has no test, and it decides whether a release fails cleanly or leaves a guest half-updated."
+    }
+  ],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "809fd47ee74272bfaba2904e016a0d5a6afec425",
+  "treeHash": "f549c022f4c2e498579a13bd80a2dabf5271e4db",
+  "codeTree": "4d6e87de8786c242a99061d5e29b91c4c17c9eba",
+  "coverage": {
+    "executable": 5,
+    "covered": 5,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-13T18:04:48.493Z"
+}

@@ -1,0 +1,59 @@
+{
+  "status": "changes_requested",
+  "summary": "The change stops streaming `docker save` output to exe.dev guests. Instead, each guest pulls the release image by digest, using a 30-minute token for a new read-only `halo-west-image-puller` service account that Pulumi creates in the west stack. The design is sound, but it is not ready. The first release after merge will fail because the template step runs before Pulumi creates the account and grant. The tests also do not check the new IAM resources or the script that runs on the guest.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "source",
+      "file": "infra/workspace/exeRollout.sh",
+      "line": 68,
+      "severity": "P1",
+      "body": "Bootstrap ordering breaks the first release after merge. In `release.yml`, the `prepare-staging` job (around line 365) runs `exeRollout.sh template` before `deploy-stack.yml` runs `pulumi -C control-plane up --stack west` (`deploy-stack.yml:141`). Only that `up` creates `halo-west-image-puller` and the `deployment-image-puller-token` grant (`infra/control-plane/index.ts:269-285`). So the first push to main after this merges reaches `gcloud auth print-access-token --impersonate-service-account=halo-west-image-puller@...`, gets an error for the missing account or a permission denial, and fails the template step. The staging release never deploys. Even when the `up` runs first, IAM token-creator grants can take minutes to propagate, so the rollouts that start right after `up` can also fail. Fix it in one of these ways: (a) apply the west stack before merging and record that prerequisite as a one-time migration step in `infra/README.md` and the PR; or (b) create the puller resources in a step that runs before `prepare-staging`. Also consider retrying the token mint or the guest pull for a short time to cover IAM propagation."
+    },
+    {
+      "id": "F2",
+      "kind": "test",
+      "file": "infra/control-plane/index.ts",
+      "line": 269,
+      "severity": "P1",
+      "body": "The new IAM resources are covered only incidentally. `infra/.tmp-tests/controlPlaneStack.test.ts` executes lines 269-285 and 936 but makes no assertions about them. Add assertions for the `west` stack (no `imageRepositoryId`): an `image-puller` Account with `accountId` `halo-west-image-puller`; an `image-puller-reader` RepositoryIamMember with role `roles/artifactregistry.reader` on that repository; and a `deployment-image-puller-token` IAMMember that grants `roles/iam.serviceAccountTokenCreator` to the deployment service account. For the `prod` stack (shared repository), assert that none of these exist and that `imagePullerServiceAccount` is undefined. The account ID must also match the default hard-coded at `exeRollout.sh:12`, and a test should guard that link."
+    },
+    {
+      "id": "F3",
+      "kind": "test",
+      "file": "infra/workspace/exeRollout.sh",
+      "line": 55,
+      "severity": "P1",
+      "body": "The script that `pull_on_guest` runs on the guest is never executed. The ssh stub in `infra/.tmp-tests/exeRollout.test.ts` only looks for the substring `docker pull` in the command line and the expected digest, then appends the image. As a result, these behaviors are untested: reading the token from stdin; `docker login` against the registry host (`$1`) with a temporary `DOCKER_CONFIG`; pulling `$2`; tagging it as `$3`; running `rmi` on the digest reference; and removing the temporary config on exit. The `printf %q` argument quoting that passes through ssh and `sudo bash -c` is also untested. The cleanup test already runs the real `bash -s` body against the stubbed docker; do the same here. Decode the quoted command with bash, run it with a stub docker, and assert that login used the stdin token and the correct host, that the pull used the digest, that the tag is `halo-workspace:abc123`, that the digest reference was removed, and that the config dir no longer exists. Also, no test covers template mode, so the changed call at line 106 never runs. Add a template-mode case."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "infra/control-plane/index.ts:269-285,936: puller SA, reader binding, token-creator binding exist on west and are absent on prod",
+      "tier": "tmp",
+      "rationale": "These lines are covered, but no test asserts the IAM grants that the new rollout path depends on."
+    },
+    {
+      "target": "infra/workspace/exeRollout.sh:55-69 guest pull script executed for real (stdin token, temp DOCKER_CONFIG removed, pull by digest, tag, rmi digest ref)",
+      "tier": "tmp",
+      "rationale": "The current stub only matches a substring, so the remote script and its quoting are never checked."
+    },
+    {
+      "target": "infra/workspace/exeRollout.sh:106 template mode pulls on the guest and the template check passes with no leftover Docker config",
+      "tier": "tmp",
+      "rationale": "No test runs the changed template-mode path."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "060a175fb66be91fa2d6c643512fc3e63f6c5dcc",
+  "treeHash": "95681b3f61fc22d2337af37b6957c6308f79da36",
+  "codeTree": "98af46ad262037039d441a879bbaed67255ea894",
+  "coverage": {
+    "executable": 5,
+    "covered": 5,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-13T18:01:36.119Z"
+}

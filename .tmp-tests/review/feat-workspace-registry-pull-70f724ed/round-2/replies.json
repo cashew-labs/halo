@@ -1,0 +1,6 @@
+[
+  {
+    "findingId": "F4",
+    "reply": "fixed: the gcloud stub fails impersonated mints a configurable number of times; tests cover 3 failures then success (4 mints, update completes) and 99 failures (12 mints, exit with 'Could not mint a pull token', no guest pull, exit-handler cleanup ran and the paused guest is paused again)"
+  }
+]
