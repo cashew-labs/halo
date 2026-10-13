@@ -314,7 +314,9 @@ jobs:
               --draft
           fi
           gh release upload "$VERSION" "$assets"/* --repo cashew-labs/halo --clobber
-          gh release edit "$VERSION" --repo cashew-labs/halo --draft=false --latest
+          # REST, like the staging publish in release.yml.
+          id=$(gh api --paginate repos/cashew-labs/halo/releases --jq ".[] | select(.tag_name == \"$VERSION\") | .id")
+          gh api -X PATCH "repos/cashew-labs/halo/releases/$id" -F draft=false -f make_latest=true --silent
 
   cleanup-templates:
     name: Remove workspace templates older than production
