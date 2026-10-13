@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The source is unchanged from round 5: a `prod` control-plane stack that shares `west`'s images, sign-in client, and deployment grants. It also adds a generated gateway seed, the `redirectWww` option, and per-stack read access to the shared integration credential key. F3 is fixed: the unrelated release-promotion temp tests are no longer in the run, all five temp test files pass, and every changed line is covered. No findings remain.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 6,
+  "headSha": "fc076666ba56bcc1bc724aead1631f81bd6f37f2",
+  "treeHash": "bf2656787d1de35f553b94303b19f4a00f0b9853",
+  "codeTree": "c25a6d15d61cdb9c99b35b96588bd1eedbadcb33",
+  "coverage": {
+    "executable": 34,
+    "covered": 34,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-13T00:51:02.250Z"
+}
