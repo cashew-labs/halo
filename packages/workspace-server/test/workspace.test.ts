@@ -338,6 +338,70 @@ serverTest.for([
   },
 );
 
+serverTest.for([
+  {
+    name: "void",
+    result: () => undefined,
+    expectedText: /^undefined$/,
+  },
+  {
+    name: "BigInt",
+    result: () => 23n,
+    expectedText: /^23n$/,
+  },
+  {
+    name: "cyclic object",
+    result: () => {
+      const value = { answer: 23 };
+      return Object.assign(value, { self: value });
+    },
+    expectedText: /answer: 23[\s\S]*Circular/,
+  },
+])(
+  "presents a successful native $name result without invalid metadata",
+  async ({ result, expectedText }, { createServer, llm }) => {
+    const server = createServer({
+      tools: {
+        answers: {
+          inspect: haloTool({
+            description: "Return a native result that is not JSON.",
+            inputSchema: Type.Object({}),
+            requiredCapabilities: [],
+            execute: async () => ({ result: result() }),
+            modelTool: { name: "inspect", replay: "safe" },
+          }),
+        },
+      },
+    });
+    await server.start();
+    const session = await server.rpc.thread.new();
+    const prompt = server.promptAndWait({
+      ...session,
+      text: "Inspect the result",
+    });
+    await llm.respond(m.tool.start("inspect", { id: "native", arguments: {} }));
+    await llm.respond(({ messages }) => {
+      const output = messages.find(
+        (message) =>
+          message.role === "tool" && message.tool_call_id === "native",
+      )!;
+      expect(messageText(output)).toMatch(expectedText);
+      return m.assistant("Inspected.");
+    });
+    await prompt;
+    const native = sessionToolExecutions(
+      await server.rpc.thread.snapshot(session),
+    ).find((execution) => execution.id === "native");
+    expect(native?.status).toBe("completed");
+    expect(native?.result?.details).toBeUndefined();
+    await server.rpc.thread.close(session);
+    const restored = sessionToolExecutions(
+      await server.rpc.thread.snapshot(session),
+    ).find((execution) => execution.id === "native");
+    expect(restored).toEqual(native);
+  },
+);
+
 serverTest(
   "rejects colliding model names before registering Halo tools",
   async ({ createServer }) => {

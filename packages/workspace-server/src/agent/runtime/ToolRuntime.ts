@@ -37,6 +37,7 @@ export interface RemoteIntegrationTools {
 }
 import { randomUUID } from "node:crypto";
 import nodePath from "node:path";
+import nodeUtil from "node:util";
 import { copyJson } from "@earendil-works/chord";
 import type { ToolRegistration } from "@earendil-works/pi-durable";
 import { Stream } from "@get-halo/shared/Stream";
@@ -591,19 +592,43 @@ export class ToolRuntime {
                 },
               });
               if (result instanceof Error) throw result;
-              return (
-                result.modelResult ?? {
+              if (result.modelResult !== undefined) return result.modelResult;
+              const details =
+                result.result === undefined
+                  ? undefined
+                  : errore.try({
+                      try: () =>
+                        copyJson(result.result, {
+                          omitUndefinedProperties: true,
+                        }),
+                      catch: (cause) =>
+                        new ToolRuntimeError({
+                          operation: "native tool result serialization",
+                          cause,
+                        }),
+                    });
+              if (details instanceof Error) {
+                console.warn("Using text-only Halo tool output:", details);
+                return {
                   content: [
                     {
                       type: "text",
-                      text: JSON.stringify(result.result, undefined, 2),
+                      text: nodeUtil.inspect(result.result, {
+                        customInspect: false,
+                      }),
                     },
                   ],
-                  details: copyJson(result.result, {
-                    omitUndefinedProperties: true,
-                  }),
-                }
-              );
+                };
+              }
+              return {
+                content: [
+                  {
+                    type: "text",
+                    text: JSON.stringify(details, undefined, 2) ?? "undefined",
+                  },
+                ],
+                details,
+              };
             },
           } satisfies ToolRegistration,
         ];
