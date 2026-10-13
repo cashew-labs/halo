@@ -1,0 +1,27 @@
+{
+  "status": "changes_requested",
+  "summary": "The source and durable tests are unchanged since round 1, which I approved: a promotion job ensures the production exe.dev template exists, a cleanup job removes templates older than production after a successful deploy, and the durable tests for `staleExeTemplates` and its CLI pass. The temp test run now fails because `apps/electron/.tmp-tests/ControlPlaneAuth.test.ts` cannot load and runs zero tests. A failing test run blocks approval, so the change is not ready.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "test",
+      "file": "apps/electron/.tmp-tests/ControlPlaneAuth.test.ts",
+      "line": 17,
+      "severity": "P1",
+      "body": "The temp run fails (see .tmp-tests/report/tmp.log). The suite collects 0 tests because the dynamic import of `../src/main/auth/ControlPlaneAuth.js` fails with `Cannot find module .../node_modules/@tanishqkancharla/tandem-core/dist/TandemClient imported from .../tandem-core/dist/index.js`. `dist/TandemClient.js` exists. The failure comes from the extensionless ESM import inside the externalized tandem-core package. Node's ESM resolver rejects that import when vitest does not inline the dependency. This test does not exercise the change under review, which touches only promote.yml and releases/*. Make the temp run pass in one of two ways: (a) remove this temp test from this change's temp set, or (b) make it load, for example with `server.deps.inline: [/tandem-core/]` in the vitest config the temp run uses, or by mocking the module that imports tandem-core. Then re-run the temp tier."
+    }
+  ],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "5c37249e58060a30ddf0a7b2099b8cfd15864355",
+  "treeHash": "f9dcf6a9e8d749c3b9204240b35f9cc01c626a5e",
+  "codeTree": "96e0f00abd98ea5ef2a844eaa9e15908e44e3096",
+  "coverage": {
+    "executable": 16,
+    "covered": 16,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-13T00:13:12.001Z"
+}

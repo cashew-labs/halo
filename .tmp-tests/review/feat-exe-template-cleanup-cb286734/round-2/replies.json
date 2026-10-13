@@ -1,0 +1,6 @@
+[
+  {
+    "findingId": "F1",
+    "reply": "fixed: ControlPlaneAuth temp test now loads (client package mocked with its leaf modules)"
+  }
+]

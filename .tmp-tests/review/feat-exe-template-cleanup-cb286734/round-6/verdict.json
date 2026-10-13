@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change was rebased again and its diff is unchanged from the version approved in rounds 1, 3, 4, and 5; the blob hashes are identical. The new base still provides template mode in exeRollout.sh and the same `halo-exe-<version>` naming in release.yml and promote.yml. Both test tiers pass and all 16 changed lines are covered by durable tests, so the change is ready.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 6,
+  "headSha": "1bfac579f3b762336811174687cd3f9570d7863c",
+  "treeHash": "5edb28f9f1d8ce4e7865d0cf61cf206521e4e156",
+  "codeTree": "23bbd3519acccde50f0ec704da0497294e90e159",
+  "coverage": {
+    "executable": 16,
+    "covered": 16,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-13T01:14:37.455Z"
+}
