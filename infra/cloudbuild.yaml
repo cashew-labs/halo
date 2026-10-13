@@ -19,6 +19,7 @@ steps:
           --tag "$${image}" \
           --build-arg "VERSION=${_VERSION}" \
           --build-arg "REVISION=${_REVISION}" \
+          --build-arg "CHROME_REFRESH=$$(date -u +%G-W%V)" \
           .
 options:
   logging: CLOUD_LOGGING_ONLY
