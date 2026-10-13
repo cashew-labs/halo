@@ -7,8 +7,7 @@ export class AgentCapabilityDeniedError extends errore.createTaggedError({
 
 export interface AgentAuthority {
   authorize(input: {
-    pluginId: string;
-    toolName: string;
+    path: string;
     requiredCapabilities: readonly string[];
   }): Promise<void | AgentCapabilityDeniedError>;
 }
@@ -21,8 +20,7 @@ export class StaticAgentAuthority implements AgentAuthority {
   }
 
   async authorize(input: {
-    pluginId: string;
-    toolName: string;
+    path: string;
     requiredCapabilities: readonly string[];
   }) {
     const denied = input.requiredCapabilities.find(

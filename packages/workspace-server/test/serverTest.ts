@@ -11,6 +11,7 @@ vi.setConfig({ testTimeout: 20_000 });
 
 type ServerOptions = {
   agentCapabilities?: WorkspaceServerOptions["host"]["agentCapabilities"];
+  tools?: WorkspaceServerOptions["host"]["tools"];
   gateway?: WorkspaceServerOptions["config"]["gateway"];
   workspaceRoot?: string;
   testApiEnabled?: boolean;
@@ -59,6 +60,7 @@ export const serverTest = baseTest.extend<{
         artifacts,
         llmApi: createOpenAILLMApi(llm.configuration),
         agentCapabilities: options.agentCapabilities,
+        tools: options.tools,
         traceUploader: options.traceUploader,
         remoteConnections: options.remoteConnections,
         remoteIntegrationTools: options.remoteIntegrationTools,

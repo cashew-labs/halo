@@ -1,11 +1,43 @@
 import path from "node:path";
 import * as errore from "errore";
+import { Type } from "@sinclair/typebox";
+import { haloTool } from "../HaloTool.js";
 import type { FilesystemService } from "../../../filesystem/FilesystemService.js";
 
 export class FilesEditError extends errore.createTaggedError({
   name: "FilesEditError",
   message: "Failed to edit $path",
 }) {}
+
+export const editTool = haloTool({
+  description: "Replace exact text in a workspace file.",
+  inputSchema: Type.Object({
+    path: Type.String(),
+    oldText: Type.String(),
+    newText: Type.String(),
+    replaceAll: Type.Optional(Type.Boolean()),
+  }),
+  requiredCapabilities: ["workspace.files.write"],
+  execute: async (input, context) => {
+    const result = await editFile({
+      filesystem: context.services.filesystem,
+      cwd: context.workspaceRoot,
+      input,
+    });
+    if (result instanceof Error) return result;
+    return {
+      result,
+      modelResult: {
+        content: [{ type: "text", text: JSON.stringify(result) }],
+        details: result,
+      },
+    };
+  },
+  modelTool: {
+    name: "edit",
+    replay: "unsafe",
+  },
+});
 
 function stripBom(content: string) {
   return content.startsWith("\uFEFF")
@@ -29,7 +61,7 @@ function restoreLineEndings(text: string, ending: "\r\n" | "\n") {
   return ending === "\r\n" ? text.replace(/\n/g, "\r\n") : text;
 }
 
-export async function editFile(args: {
+async function editFile(args: {
   filesystem: FilesystemService;
   cwd: string;
   input: {

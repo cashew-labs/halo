@@ -36,6 +36,10 @@ export interface RemoteIntegrationTools {
   ): Promise<IntegrationInvocation | Error>;
 }
 import { randomUUID } from "node:crypto";
+import nodePath from "node:path";
+import nodeUtil from "node:util";
+import { copyJson } from "@earendil-works/chord";
+import type { ToolRegistration } from "@earendil-works/pi-durable";
 import { Stream } from "@get-halo/shared/Stream";
 import { WorkerCodeExecutor } from "./WorkerCodeExecutor.js";
 import * as Cause from "effect/Cause";
@@ -80,14 +84,19 @@ import {
   removeConnectionResult,
 } from "./connectionTools.js";
 import { createExecutorDatabase } from "./createExecutorDatabase.js";
-import type { NativeConnection } from "../../database/DatabaseService.js";
 import type {
   HaloTool,
   HaloToolContext,
   HaloToolExecution,
-  HaloToolPlugin,
-} from "../tools/HaloToolPlugin.js";
+  HaloTools,
+  HaloToolServices,
+} from "../tools/HaloTool.js";
 import type { AgentAuthority } from "./AgentAuthority.js";
+
+export class HaloToolInputError extends errore.createTaggedError({
+  name: "HaloToolInputError",
+  message: 'Invalid input for Halo tool "$tool"',
+}) {}
 
 export class ToolRuntimeError extends errore.createTaggedError({
   name: "ToolRuntimeError",
@@ -119,7 +128,7 @@ export class ToolInputRequiredError extends errore.createTaggedError({
 }
 
 type HaloToolsPluginOptions = {
-  plugins: readonly HaloToolPlugin[];
+  tools: readonly RegisteredHaloTool[];
   executionContext: AsyncLocalStorage<ToolExecutionContext>;
   connections?: RemoteConnectionBackend;
   integrations?: RemoteIntegrationTools;
@@ -360,18 +369,21 @@ const haloToolsPlugin = definePlugin((options?: HaloToolsPluginOptions) => {
           }),
         ],
       },
-      ...options.plugins.map((plugin) => ({
-        id: plugin.id,
-        kind: "halo",
-        name: plugin.name,
-        tools: plugin.tools.map((haloTool) =>
-          toExecutorTool({
-            pluginId: plugin.id,
-            haloTool,
-            executionContext: options.executionContext,
-          }),
-        ),
-      })),
+      ...[...new Set(options.tools.map((entry) => entry.namespace))].map(
+        (namespace) => ({
+          id: namespace,
+          kind: "halo",
+          name: namespaceNames.get(namespace) ?? namespace,
+          tools: options.tools
+            .filter((entry) => entry.namespace === namespace)
+            .map((entry) =>
+              toExecutorTool({
+                entry,
+                executionContext: options.executionContext,
+              }),
+            ),
+        }),
+      ),
     ],
   };
 });
@@ -391,22 +403,20 @@ const oauthStartInputSchema = Type.Object({
 type HaloRuntimePlugins = readonly [Plugin<"halo-tools", object>];
 
 function toExecutorTool(input: {
-  pluginId: string;
-  haloTool: HaloTool;
+  entry: RegisteredHaloTool;
   executionContext: AsyncLocalStorage<ToolExecutionContext>;
 }) {
   return tool({
-    name: input.haloTool.name,
-    description: input.haloTool.description,
-    inputSchema: toExecutorSchema(input.haloTool.inputSchema),
+    name: input.entry.name,
+    description: input.entry.tool.description,
+    inputSchema: toExecutorSchema(input.entry.tool.inputSchema),
     execute: (args) =>
       Effect.promise(async () => {
         // SAFETY: ToolRuntime runs every Executor invocation inside executionContext.
         const context =
           input.executionContext.getStore() as ToolExecutionContext;
         return await context.runtime.invoke({
-          pluginId: input.pluginId,
-          toolName: input.haloTool.name,
+          path: input.entry.path,
           args,
           signal: context.signal,
           modelId: context.modelId,
@@ -417,7 +427,7 @@ function toExecutorTool(input: {
         Effect.map((result) =>
           result instanceof Error
             ? ToolResult.fail({ code: result.name, message: result.message })
-            : result.value,
+            : result.result,
         ),
       ),
   });
@@ -459,10 +469,10 @@ function toExecutorSchema(schema: TObject) {
 type ToolRuntimeOptions = {
   remoteConnections?: RemoteConnectionBackend;
   remoteIntegrationTools?: RemoteIntegrationTools;
-  database: NativeConnection;
   workspaceRoot: string;
   userId: string;
-  toolPlugins: readonly HaloToolPlugin[];
+  tools: Readonly<Record<string, HaloTools>>;
+  services: HaloToolServices;
   authority: AgentAuthority;
 };
 
@@ -495,9 +505,12 @@ export class ToolRuntime {
   private readonly engine: ExecutionEngine<Cause.YieldableError>;
   private readonly toolInvoker: SandboxToolInvoker;
   private readonly executionContext: AsyncLocalStorage<ToolExecutionContext>;
-  private readonly toolPlugins: readonly HaloToolPlugin[];
+  private readonly tools: ReadonlyMap<string, RegisteredHaloTool>;
   private readonly authority: AgentAuthority;
-  private readonly context: Pick<HaloToolContext, "workspaceRoot" | "userId">;
+  private readonly context: Pick<
+    HaloToolContext,
+    "workspaceRoot" | "userId" | "services"
+  >;
   private readonly remoteConnections: boolean;
   private readonly remoteIntegrationTools: RemoteIntegrationTools | undefined;
   private readonly remoteConnectionBackend: RemoteConnectionBackend | undefined;
@@ -509,9 +522,9 @@ export class ToolRuntime {
     engine: ExecutionEngine<Cause.YieldableError>;
     toolInvoker: SandboxToolInvoker;
     executionContext: AsyncLocalStorage<ToolExecutionContext>;
-    toolPlugins: readonly HaloToolPlugin[];
+    tools: readonly RegisteredHaloTool[];
     authority: AgentAuthority;
-    context: Pick<HaloToolContext, "workspaceRoot" | "userId">;
+    context: Pick<HaloToolContext, "workspaceRoot" | "userId" | "services">;
     remoteConnections: boolean;
     remoteIntegrationTools?: RemoteIntegrationTools;
     remoteConnectionBackend?: RemoteConnectionBackend;
@@ -522,7 +535,7 @@ export class ToolRuntime {
     this.engine = input.engine;
     this.toolInvoker = input.toolInvoker;
     this.executionContext = input.executionContext;
-    this.toolPlugins = input.toolPlugins;
+    this.tools = new Map(input.tools.map((entry) => [entry.path, entry]));
     this.authority = input.authority;
     this.context = input.context;
     this.remoteConnections = input.remoteConnections;
@@ -532,39 +545,123 @@ export class ToolRuntime {
   }
 
   getToolIdentity(path: string) {
+    const registered = this.tools.get(path);
+    if (registered !== undefined)
+      return {
+        path,
+        displayName:
+          namespaceNames.get(registered.namespace) ?? registered.namespace,
+        integrationId: registered.namespace,
+      };
     return (
       this.remoteToolIdentities.get(path) ??
       toolIdentity(path, this.integrationNames)
     );
   }
 
-  async invoke<T = unknown>(input: {
-    pluginId: string;
-    toolName: string;
+  createModelTools(input: {
+    threadId: string;
+    modelId: string;
+  }): ToolRegistration[] {
+    return [...this.tools.values()].flatMap(
+      ({ path: toolPath, tool: haloTool }) => {
+        const modelTool = haloTool.modelTool;
+        if (modelTool === undefined) return [];
+        return [
+          {
+            name: modelTool.name,
+            description: haloTool.description,
+            parameters: haloTool.inputSchema,
+            replay: modelTool.replay,
+            execute: async (args, api, context) => {
+              const result = await this.invoke({
+                path: toolPath,
+                args,
+                ...input,
+                toolCallId: api.callId,
+                signal: context.abortSignal,
+                bashOutput: {
+                  directory: nodePath.join(
+                    this.context.workspaceRoot,
+                    ".halo",
+                    "tool-outputs",
+                    input.threadId,
+                  ),
+                  headChars: 8_000,
+                  tailChars: 32_000,
+                },
+              });
+              if (result instanceof Error) throw result;
+              if (result.modelResult !== undefined) return result.modelResult;
+              const details =
+                result.result === undefined
+                  ? undefined
+                  : errore.try({
+                      try: () =>
+                        copyJson(result.result, {
+                          omitUndefinedProperties: true,
+                        }),
+                      catch: (cause) =>
+                        new ToolRuntimeError({
+                          operation: "native tool result serialization",
+                          cause,
+                        }),
+                    });
+              if (details instanceof Error) {
+                console.warn("Using text-only Halo tool output:", details);
+                return {
+                  content: [
+                    {
+                      type: "text",
+                      text: nodeUtil.inspect(result.result, {
+                        customInspect: false,
+                      }),
+                    },
+                  ],
+                };
+              }
+              return {
+                content: [
+                  {
+                    type: "text",
+                    text: JSON.stringify(details, undefined, 2) ?? "undefined",
+                  },
+                ],
+                details,
+              };
+            },
+          } satisfies ToolRegistration,
+        ];
+      },
+    );
+  }
+
+  async invoke(input: {
+    path: string;
     args: unknown;
     signal?: AbortSignal;
     modelId?: string;
     threadId?: string;
     toolCallId?: string;
     bashOutput?: HaloToolContext["bashOutput"];
-  }): Promise<HaloToolExecution<T> | Error> {
+  }): Promise<HaloToolExecution | Error> {
     using cleanup = new errore.DisposableStack();
     cleanup.use(this.retainExecution());
-    const registered = this.toolPlugins
-      .find((plugin) => plugin.id === input.pluginId)
-      ?.tools.find((candidate) => candidate.name === input.toolName);
+    const registered = this.tools.get(input.path)?.tool;
     if (registered === undefined)
       return new ToolRuntimeToolNotFoundError({
-        path: `${input.pluginId}.${input.toolName}`,
+        path: input.path,
       });
     const denied = await this.authority.authorize({
-      pluginId: input.pluginId,
-      toolName: registered.name,
+      path: input.path,
       requiredCapabilities: registered.requiredCapabilities,
     });
     if (denied instanceof Error) return denied;
+    if (!Value.Check(registered.inputSchema, input.args))
+      return new HaloToolInputError({ tool: input.path });
     const result = await registered.execute(input.args, {
       ...this.context,
+      toolPath: input.path,
       runtime: this,
       signal: input.signal,
       modelId: input.modelId,
@@ -573,8 +670,7 @@ export class ToolRuntime {
       bashOutput: input.bashOutput,
     });
     if (result instanceof Error) return result;
-    // SAFETY: Typed host adapters name the registered plugin's output; dynamic callers retain unknown.
-    return result as HaloToolExecution<T>;
+    return result;
   }
 
   async getAgentDescription() {
@@ -849,7 +945,7 @@ export class ToolRuntime {
       return new ToolRuntimeToolNotFoundError({ path: input.path });
     }
     return {
-      path: description.address,
+      path: sandboxPath(String(description.address)),
       name: description.name,
       description: description.description,
       inputSchema: description.inputSchema,
@@ -866,6 +962,18 @@ export class ToolRuntime {
   ): ReturnType<SandboxToolInvoker["invoke"]> {
     const context = this.executionContext.getStore();
     const signal = input.signal ?? context?.signal;
+    // Exact local lookup precedes Executor's remote-address normalization.
+    const registered = this.tools.get(input.path);
+    if (registered !== undefined) {
+      if (signal?.aborted)
+        return Effect.succeed(
+          toolFailure(
+            "outcome_unknown",
+            "Execution cancelled; external effects may have completed",
+          ),
+        );
+      return local.invoke(input);
+    }
     if (
       input.path === "search" ||
       input.path === "describe.tool" ||
@@ -976,39 +1084,17 @@ export class ToolRuntime {
 
   async close() {
     await this.codeSessions.close();
-    const [executorClosed, pluginResults] = await Promise.all([
-      Effect.runPromise(this.executor.close()).catch(
-        (cause) => new ToolRuntimeError({ operation: "close", cause }),
-      ),
-      Promise.all(
-        this.toolPlugins.map(async (plugin) =>
-          plugin.close === undefined ? undefined : await plugin.close(),
-        ),
-      ),
-    ]);
-    if (executorClosed instanceof Error) return executorClosed;
-    const pluginError = pluginResults.find((result) => result instanceof Error);
-    if (pluginError instanceof Error) {
-      return new ToolRuntimeError({
-        operation: "tool shutdown",
-        cause: pluginError,
-      });
-    }
+    return await Effect.runPromise(this.executor.close()).catch(
+      (cause) => new ToolRuntimeError({ operation: "close", cause }),
+    );
   }
 }
 
 async function createToolRuntime(
   input: ToolRuntimeOptions,
 ): Promise<ToolRuntime | ToolRuntimeError> {
-  if (
-    input.toolPlugins.some(
-      (plugin) =>
-        plugin.id === "integrations" || plugin.id.startsWith("integrations."),
-    )
-  )
-    return new ToolRuntimeError({
-      operation: "reserved integrations namespace",
-    });
+  const tools = registerHaloTools(input.tools);
+  if (tools instanceof Error) return tools;
   const executionContext = new AsyncLocalStorage<ToolExecutionContext>();
   const executor = await Effect.runPromise(
     createExecutor({
@@ -1016,7 +1102,7 @@ async function createToolRuntime(
       subject: Subject.make(input.userId),
       plugins: [
         haloToolsPlugin({
-          plugins: input.toolPlugins,
+          tools,
           executionContext,
           connections: input.remoteConnections,
           integrations: input.remoteIntegrationTools,
@@ -1026,7 +1112,8 @@ async function createToolRuntime(
       coreTools: { includeProviders: false },
       db: ({ tables }) =>
         Effect.promise(
-          async () => await createExecutorDatabase(input.database, tables),
+          async () =>
+            await createExecutorDatabase(input.services.database, tables),
         ).pipe(
           Effect.flatMap((database) => {
             if (database instanceof Error) {
@@ -1067,9 +1154,25 @@ async function createToolRuntime(
     ),
   );
 
+  // Executor's sandbox invoker prefixes org/user-shaped paths with "tools.".
+  // Restore exact static addresses at execute so its policy and elicitation gates still run.
+  const staticAddresses = new Map(
+    tools.map((entry) => [`tools.${entry.path}`, entry.path]),
+  );
+  const toolExecutor: typeof executor = {
+    ...executor,
+    execute: (address, args, options) =>
+      executor.execute(
+        ToolAddress.make(
+          staticAddresses.get(String(address)) ?? String(address),
+        ),
+        args,
+        options,
+      ),
+  };
   const codeSessions = new WorkerCodeExecutor();
   const engine = createExecutionEngine({
-    executor,
+    executor: toolExecutor,
     codeExecutor: withToolActivity({
       codeExecutor: {
         execute: (code, invoker) => {
@@ -1098,11 +1201,15 @@ async function createToolRuntime(
     codeSessions,
     executor,
     engine,
-    toolInvoker: makeExecutorToolInvoker(executor, { invokeOptions: {} }),
+    toolInvoker: makeExecutorToolInvoker(toolExecutor, { invokeOptions: {} }),
     executionContext,
-    toolPlugins: input.toolPlugins,
+    tools,
     authority: input.authority,
-    context: { workspaceRoot: input.workspaceRoot, userId: input.userId },
+    context: {
+      workspaceRoot: input.workspaceRoot,
+      userId: input.userId,
+      services: input.services,
+    },
     remoteConnections: input.remoteConnections !== undefined,
     remoteIntegrationTools: input.remoteIntegrationTools,
     remoteConnectionBackend: input.remoteConnections,
@@ -1110,6 +1217,83 @@ async function createToolRuntime(
   });
   cleanup.move();
   return runtime;
+}
+
+type RegisteredHaloTool = {
+  path: string;
+  namespace: string;
+  name: string;
+  tool: HaloTool;
+};
+
+const namespaceNames = new Map([
+  ["files", "Workspace files"],
+  ["database", "Workspace database"],
+  ["hotkeys", "Keyboard shortcuts"],
+  ["automations", "Automations"],
+  ["thread", "Workspace threads"],
+  ["bash", "Workspace shell"],
+  ["web", "Web Search"],
+]);
+
+function isHaloTool(value: HaloTool | HaloTools): value is HaloTool {
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Trusted definitions have execute functions; namespace children are objects.
+  return typeof value.execute === "function";
+}
+
+function registerHaloTools(tools: Readonly<Record<string, HaloTools>>) {
+  const registered: RegisteredHaloTool[] = [];
+  const modelNames = new Set(["exec"]);
+  const visit = (
+    group: HaloTools,
+    segments: readonly string[],
+  ): ToolRuntimeError | undefined => {
+    for (const [key, value] of Object.entries(group)) {
+      if (key.length === 0 || key.includes(".") || key === "then")
+        return new ToolRuntimeError({
+          operation: `invalid tool key ${[...segments, key].join(".")}`,
+        });
+      if (
+        segments.length === 0 &&
+        [
+          "integrations",
+          "executor",
+          "halo",
+          "search",
+          "describe",
+          "tools",
+        ].includes(key)
+      )
+        return new ToolRuntimeError({
+          operation: `reserved tool namespace ${key}`,
+        });
+      const path = [...segments, key];
+      if (!isHaloTool(value)) {
+        const error = visit(value, path);
+        if (error instanceof Error) return error;
+        continue;
+      }
+      if (segments.length === 0)
+        return new ToolRuntimeError({
+          operation: `tool ${key} requires a namespace`,
+        });
+      const modelName = value.modelTool?.name;
+      if (modelName !== undefined && modelNames.has(modelName))
+        return new ToolRuntimeError({
+          operation: `duplicate model tool name ${modelName}`,
+        });
+      if (modelName !== undefined) modelNames.add(modelName);
+      registered.push({
+        path: path.join("."),
+        namespace: path[0]!,
+        name: path.slice(1).join("."),
+        tool: value,
+      });
+    }
+  };
+  const error = visit(tools, []);
+  if (error instanceof Error) return error;
+  return registered;
 }
 
 function withToolActivity<E extends Cause.YieldableError>(input: {

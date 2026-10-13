@@ -1,5 +1,7 @@
 import path from "node:path";
 import * as errore from "errore";
+import { Type } from "@sinclair/typebox";
+import { haloTool } from "../HaloTool.js";
 import type { FilesystemService } from "../../../filesystem/FilesystemService.js";
 
 export class FilesDeleteError extends errore.createTaggedError({
@@ -7,7 +9,22 @@ export class FilesDeleteError extends errore.createTaggedError({
   message: "Failed to delete $path",
 }) {}
 
-export async function deleteFile(args: {
+export const deleteTool = haloTool({
+  description: "Delete a workspace file.",
+  inputSchema: Type.Object({ path: Type.String() }),
+  requiredCapabilities: ["workspace.files.write"],
+  execute: async (input, context) => {
+    const result = await deleteFile({
+      filesystem: context.services.filesystem,
+      cwd: context.workspaceRoot,
+      input,
+    });
+    if (result instanceof Error) return result;
+    return { result };
+  },
+});
+
+async function deleteFile(args: {
   filesystem: FilesystemService;
   cwd: string;
   input: { path: string };

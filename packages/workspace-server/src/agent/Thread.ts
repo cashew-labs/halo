@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import type { Message } from "@earendil-works/pi-ai";
-import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { copyJson, type JsonRepresentation } from "@earendil-works/chord";
 import {
   BACKGROUND_CONTEXT,
@@ -48,7 +47,6 @@ import { prepareChatAttachments } from "./chatAttachments.js";
 import type { WorkspaceLayout } from "../workspace/WorkspaceService.js";
 import type { FilesystemService } from "../filesystem/FilesystemService.js";
 import type { ToolRuntime } from "./runtime/ToolRuntime.js";
-import { createCodingTools } from "./tools/codingTools.js";
 import { createExecTool } from "./tools/execTool.js";
 import { limitToolOutput } from "./tools/limitToolOutput.js";
 import { WorkspaceResourceLoader } from "./WorkspaceResourceLoader.js";
@@ -207,31 +205,10 @@ export class Thread {
     const approvals = new ToolApprovalService();
     cleanup.defer(() => approvals.close());
     const tools: ToolRegistration[] = [
-      ...createCodingTools({
-        cwd: layout.root,
+      ...runtime.createModelTools({
         threadId: stored.metadata.id,
         modelId: llmApi.model.id,
-        runtime,
-      }).map((tool: AgentTool): ToolRegistration => ({
-        name: tool.name,
-        description: tool.description,
-        parameters: tool.parameters,
-        replay:
-          tool.name === "read" || tool.name === "viewImage" ? "safe" : "unsafe",
-        execute: async (params, api, context) => {
-          const result = await tool.execute(
-            api.callId,
-            params,
-            context.abortSignal,
-          );
-          return {
-            ...result,
-            details: copyJson(result.details, {
-              omitUndefinedProperties: true,
-            }),
-          };
-        },
-      })),
+      }),
       createExecTool({
         runtime,
         runtimeDescription,

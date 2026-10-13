@@ -10,6 +10,12 @@ export {
 } from "./server/WorkspaceServerReady.js";
 export type { ExtensionRuntime } from "./extensions/startExtension.js";
 export type { RemoteIntegrationTools } from "./agent/runtime/ToolRuntime.js";
+export {
+  haloTool,
+  type HaloTool,
+  type HaloTools,
+  type HaloToolContext,
+} from "./agent/tools/HaloTool.js";
 export { ControlPlaneTraceUploader } from "./traces/ControlPlaneTraceUploader.js";
 export { ControlPlaneWorkReporter } from "./server/ControlPlaneWorkReporter.js";
 export { ControlPlaneScheduleReporter } from "./automations/ControlPlaneScheduleReporter.js"; // coverage-exempt: Rename-only public export.
