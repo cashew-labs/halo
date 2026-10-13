@@ -50,7 +50,7 @@ type AuthServiceOptions = {
   secret: string;
   googleClientId: string;
   googleClientSecret: string;
-  /** Restricts who can sign in; staging sets it, production leaves it open. */
+  /** Restricts who can sign in; unset lets anyone sign in. */
   signInAllowlist?: SignInAllowlist;
 };
 

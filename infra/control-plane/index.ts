@@ -54,7 +54,7 @@ const togetherApiKeySecretId = "together-ai-api-key";
 const integrationCredentialKeySecretId =
   "halo-control-plane-integration-credential-key";
 const controlPlaneDomain = configuration.require("controlPlaneDomain");
-// Staging limits sign-in to the emails in this secret; its value is set
+// Limits sign-in to the emails in this secret; its value is set
 // outside Pulumi so the list never appears in code. Unset allows anyone.
 const signInAllowlistSecretId = configuration.get("signInAllowlistSecretId");
 const controlPlaneOrigin = `https://${controlPlaneDomain}`;

@@ -241,11 +241,12 @@ Production Google OAuth credentials live in Secret Manager as:
 - `halo-workspace-google-web-client-id`
 - `halo-workspace-google-web-client-secret`
 
-`prod` reads the same sign-in client secrets. `west` also sets
-`signInAllowlistSecretId: halo-west-sign-in-allowlist`: only the emails listed in
-that secret (one per line, or comma-separated) can sign in to staging. The value
-lives only in Secret Manager; a new version takes effect within a minute. Unset,
-as on `prod`, anyone can sign in. The control plane loads its
+`prod` reads the same sign-in client secrets. Each stack also sets
+`signInAllowlistSecretId`: `halo-west-sign-in-allowlist` on `west` and
+`halo-prod-sign-in-allowlist` on `prod`. Only the emails listed in that secret
+(one per line, or comma-separated) can sign up or sign in. The value lives only
+in Secret Manager; a new version takes effect within a minute. A stack that
+leaves the setting unset lets anyone sign in. The control plane loads its
 sign-in client through its runtime service account.
 Every workspace-server app loads the canonical web integration client through
 ADC; IAM grants each local or cloud runtime access to those two secrets. The
