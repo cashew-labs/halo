@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change limits staging sign-in to an email allowlist kept in a Secret Manager secret. Better Auth hooks check the list when an account or session is created, and AuthService.getSession and the workspace socket tickets check it again on each use. Pulumi wires up the secret's IAM access and passes its ID as an environment variable. This round's only addition is a temp Pulumi-mocks test in `infra/.tmp-tests/signInAllowlistStack.test.ts`. With the setting present, it checks that the `sign-in-allowlist-access` IAM binding exists with the right secret and role and that `SIGN_IN_ALLOWLIST_SECRET_ID` is passed. With the setting absent, it checks that neither appears. That resolves F1, all temp tests pass, the coverage gate passes, and no findings remain.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "357c97cc7e3e364b17e91cb0406a6e783a35f0a4",
+  "treeHash": "c5af64de1ec749798846c9121fa5519565c21cca",
+  "codeTree": "2bbca99a23db0578fa55c04a38ead16c56db7d2f",
+  "coverage": {
+    "executable": 63,
+    "covered": 59,
+    "exempt": 4,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-13T20:09:03.302Z"
+}

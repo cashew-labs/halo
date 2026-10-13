@@ -1,0 +1,33 @@
+{
+  "status": "changes_requested",
+  "summary": "The change adds an email allowlist for staging sign-in, read from Secret Manager and refreshed every minute. It is enforced through Better Auth user and session create hooks, and also through AuthService.getSession and createWorkspaceSocketTicket. The Pulumi config passes the secret ID to the control plane and grants the runtime service account read access. The application logic is sound and well tested: I traced the OAuth callback, and an APIError carrying `code` redirects to the error URL; the session is created after the user transaction commits, so the Postgres lookup can see the new user. However, the coverage gate fails because the changed lines in infra/control-plane/index.ts have no test and no exemption.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "test",
+      "file": "infra/control-plane/index.ts",
+      "line": 601,
+      "severity": "P1",
+      "body": "No test covers the changed Pulumi lines (59, 601-609, 740-745, 770), and they carry no coverage-exempt reason, so the coverage gate fails. Either add a temp test that loads the program with `pulumi.runtime.setMocks` and checks two things: (a) with `signInAllowlistSecretId` set, a `sign-in-allowlist-access` SecretIamMember is created for the runtime service account, and the Cloud Run env includes `SIGN_IN_ALLOWLIST_SECRET_ID`; (b) with it unset, neither appears. Or annotate the lines with `coverage-exempt` and a concrete reason. I would accept a reason like: no test harness exists for infra/, and the change is checked with `pnpm infra:control-plane:preview` on `west`."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "infra/control-plane/index.ts:59,601-609,740-745,770 (allowlist IAM binding and SIGN_IN_ALLOWLIST_SECRET_ID env var, conditional on config)",
+      "tier": "tmp",
+      "rationale": "These are the only uncovered changed lines. A Pulumi-mocks temp test or an accepted coverage-exempt reason is needed for the gate to pass."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "357c97cc7e3e364b17e91cb0406a6e783a35f0a4",
+  "treeHash": "70a4b485d315e038a29d2e62adc03b666e5bf085",
+  "codeTree": "2bbca99a23db0578fa55c04a38ead16c56db7d2f",
+  "coverage": {
+    "executable": 77,
+    "covered": 57,
+    "exempt": 4,
+    "uncovered": 16
+  },
+  "createdAt": "2026-10-13T20:08:34.390Z"
+}
