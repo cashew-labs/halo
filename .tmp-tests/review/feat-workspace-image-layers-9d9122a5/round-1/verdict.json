@@ -1,0 +1,35 @@
+{
+  "status": "changes_requested",
+  "summary": "The change reorders the workspace Dockerfile so that large layers stay cached. It pins the base image by digest, installs Playwright's Chromium from the exact pinned version before the manifests are copied, refreshes Chrome weekly through a CHROME_REFRESH build argument, and moves the per-release VERSION/REVISION arguments to the end. The Dockerfile and cloudbuild logic look correct: playwright is pinned exactly at 1.62.1 in the package and the lockfile, `$$(date -u +%G-W%V)` escapes correctly for Cloud Build, and the per-release metadata no longer invalidates large layers. The change cannot be approved because the temp test run fails: 8 temp tests fail, and they test registry-pull rollout features that this change does not contain.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "test",
+      "file": "infra/.tmp-tests/exeRollout.test.ts",
+      "line": 167,
+      "severity": "P1",
+      "body": "The temp test run fails. 7 of the 11 tests in this file fail. They check behavior that is not in the source: `guest pull registry`, puller tokens minted with `--impersonate-service-account`, and 'Could not mint a pull token'. infra/workspace/exeRollout.sh still uses `docker save | ssh docker load` (lines 85 and 120). These tests belong to a different change, not to this Dockerfile/cloudbuild layer reorder. Remove them, or make them match the code on this branch, so that the temp run passes."
+    },
+    {
+      "id": "F2",
+      "kind": "test",
+      "file": "infra/.tmp-tests/controlPlaneStack.test.ts",
+      "line": 294,
+      "severity": "P1",
+      "body": "The test 'west creates a read-only image puller that the deploy identity can mint tokens for' fails because the stack has no `image-puller` resource. No infra source in this change creates one, so this temp test does not belong to this change and blocks the temp run. Remove it or align it with this branch."
+    }
+  ],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "e40cfebaa6a182f71ea82a7c9721e5b2695f736c",
+  "treeHash": "cca7e9dfbc05245cb71299e316787d78c8fc167a",
+  "codeTree": "f7a9f4e66e62dd9e0a11db79899503bd93dd6973",
+  "coverage": {
+    "executable": 0,
+    "covered": 0,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-13T18:10:26.386Z"
+}

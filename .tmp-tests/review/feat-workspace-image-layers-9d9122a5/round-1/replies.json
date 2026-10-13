@@ -1,0 +1,10 @@
+[
+  {
+    "findingId": "F1",
+    "reply": "fixed: those exeRollout temp tests belong to the next branch (registry pull) and are excluded from this branch's run"
+  },
+  {
+    "findingId": "F2",
+    "reply": "fixed: the image-puller temp test belongs to the next branch and is excluded from this branch's run"
+  }
+]
