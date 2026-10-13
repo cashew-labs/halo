@@ -6,6 +6,7 @@ import { ConnectionStatus } from "../ConnectionStatus.js";
 import { confirmRestart } from "../confirmRestart.js";
 import type { AppInfo } from "../HostApi.js";
 import { useHost } from "../HostProvider.js";
+import { AccountButton } from "./AccountButton.js";
 
 export function SidebarFooter({ appInfo }: { appInfo?: AppInfo }) {
   const row = useStyles(rowStyle);
@@ -14,32 +15,35 @@ export function SidebarFooter({ appInfo }: { appInfo?: AppInfo }) {
   const staging = useStyles(stagingStyle);
   const connection = useStyles(connectionStyle);
   return (
-    <div className={row}>
-      {appInfo !== undefined && (
-        <>
-          {/* Tooltip's inline-block wrapper shares the version's line box. */}
-          <span className={label}>
-            <span className={version}>
-              {appInfo.development ? "DEV" : appInfo.version}
+    <>
+      <AccountButton appInfo={appInfo} />
+      <div className={row}>
+        {appInfo !== undefined && (
+          <>
+            {/* Tooltip's inline-block wrapper shares the version's line box. */}
+            <span className={label}>
+              <span className={version}>
+                {appInfo.development ? "DEV" : appInfo.version}
+              </span>
+              {appInfo.releaseChannel === "staging" && (
+                <Tooltip
+                  content="Connected to staging.gethalo.dev"
+                  placement="top"
+                >
+                  <span className={staging} data-testid="app-release-channel">
+                    Staging
+                  </span>
+                </Tooltip>
+              )}
             </span>
-            {appInfo.releaseChannel === "staging" && (
-              <Tooltip
-                content="Connected to staging.gethalo.dev"
-                placement="top"
-              >
-                <span className={staging} data-testid="app-release-channel">
-                  Staging
-                </span>
-              </Tooltip>
-            )}
-          </span>
-          <UpgradeIcon appInfo={appInfo} />
-        </>
-      )}
-      <div className={connection}>
-        <ConnectionStatus />
+            <UpgradeIcon appInfo={appInfo} />
+          </>
+        )}
+        <div className={connection}>
+          <ConnectionStatus />
+        </div>
       </div>
-    </div>
+    </>
   );
 }
 

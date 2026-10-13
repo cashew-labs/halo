@@ -24,6 +24,8 @@ export type AppInfo = {
   development?: boolean;
   /** Which deployment a packaged desktop follows; absent means production. */
   releaseChannel?: "production" | "staging"; // coverage-exempt: a type declaration emits no runtime code
+  /** Host name of the deployment this app signs in to; absent for a local identity. */
+  deployment?: string; // coverage-exempt: a type declaration emits no runtime code
   update: AppUpdateStatus;
 };
 
@@ -55,6 +57,8 @@ export interface HostApi {
   closeWindow?(): void;
   getAuthSession(): Promise<ControlPlaneSession | Error | undefined>;
   signIn(): Promise<ControlPlaneSession | Error | undefined>;
+  /** Ends the saved session; the app then shows its signed-out screen. */
+  signOut(): Promise<void | Error>; // coverage-exempt: a type declaration emits no runtime code
   connectHalo(options: {
     onDisconnect: (error: Error) => void;
     signal: AbortSignal;

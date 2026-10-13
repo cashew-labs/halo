@@ -45,6 +45,9 @@ const desktopBridge: DesktopBridge = {
     await ipcRenderer.invoke(DESKTOP_CHANNEL, { type: "getAuthSession" }),
   signIn: async () =>
     await ipcRenderer.invoke(DESKTOP_CHANNEL, { type: "signIn" }),
+  // coverage-exempt: preload runs only inside Electron, where coverage is not collected; the account E2E signs out through it
+  signOut: async () =>
+    await ipcRenderer.invoke(DESKTOP_CHANNEL, { type: "signOut" }),
   getAppInfo: async () =>
     await ipcRenderer.invoke(DESKTOP_CHANNEL, { type: "getAppInfo" }),
   checkForAppUpdate: async () =>

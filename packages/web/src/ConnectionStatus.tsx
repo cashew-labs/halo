@@ -205,7 +205,7 @@ const statusStyle = style(
   },
 );
 const asleepStyle = style({ color: colors.blue[12] });
-const overlayStyle = style({
+export const overlayStyle = style({
   position: "fixed",
   inset: 0,
   // The mobile sidebar drawer uses layer 1100.
@@ -216,7 +216,7 @@ const overlayStyle = style({
   placeItems: "center",
   padding: "24px",
 });
-const modalStyle = style(
+export const modalStyle = style(
   shadow.strong,
   radius.lg,
   spacing.padding({ all: 8 }),
