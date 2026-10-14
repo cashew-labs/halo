@@ -284,6 +284,15 @@ export class AuthService {
     } satisfies AuthSession;
   }
 
+  async findUserEmail(userId: string) {
+    const context = await this.auth.$context;
+    const user = await context.internalAdapter
+      .findUserById(userId)
+      .catch((cause) => new AuthServiceError({ detail: "find user", cause })); // coverage-exempt: Auth database outage wrapper; the found and missing user paths run through the owner's agent in temp tests.
+    if (user instanceof Error) return user;
+    return user?.email;
+  }
+
   async createWorkspaceSocketTicket(headers: Headers, clientId: string) {
     const session = await this.auth.api.getSession({ headers }).catch(
       (cause) => new AuthServiceError({ detail: "read socket session", cause }), // coverage-exempt: External auth/database outage wrapper; success and authorization failures use the real database in integration tests.
