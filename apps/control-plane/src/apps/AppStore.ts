@@ -71,6 +71,12 @@ const reservedHandles = new Set([
   "www",
 ]);
 
+const viewerSessionMs = 7 * 24 * 60 * 60_000;
+
+function hash(secret: string) {
+  return crypto.createHash("sha256").update(secret).digest("hex");
+}
+
 const appColumns = `a.app_id, a.owner_user_id, c.handle, a.extension_id, a.slug,
   a.display_name, a.visibility, a.published, a.stage, a.sync_access,
   a.credential_generation, a.install_id`;
@@ -96,6 +102,19 @@ export class AppStore {
         UNIQUE (owner_user_id, slug), UNIQUE (owner_user_id, extension_id))`,
       `CREATE TABLE IF NOT EXISTS app_members (
         app_id TEXT NOT NULL, email TEXT NOT NULL, PRIMARY KEY (app_id, email))`,
+      // Creator-host browser sessions and single-use sign-in handoffs. Only
+      // SHA-256 hashes of the random secrets are stored.
+      `CREATE TABLE IF NOT EXISTS app_viewer_sessions (
+        token_hash TEXT PRIMARY KEY, handle TEXT NOT NULL, user_id TEXT NOT NULL,
+        email TEXT NOT NULL, expires_at BIGINT NOT NULL)`,
+      // state_hash binds a code to the browser that started sign-in.
+      `CREATE TABLE IF NOT EXISTS app_handoffs (
+        code_hash TEXT PRIMARY KEY, handle TEXT NOT NULL, state_hash TEXT NOT NULL,
+        user_id TEXT NOT NULL, email TEXT NOT NULL, expires_at BIGINT NOT NULL)`,
+      // Fixed-window counters shared by every control-plane instance.
+      `CREATE TABLE IF NOT EXISTS app_usage (
+        app_id TEXT NOT NULL, kind TEXT NOT NULL, window_start BIGINT NOT NULL,
+        count INTEGER NOT NULL, PRIMARY KEY (app_id, kind, window_start))`,
       `CREATE TABLE IF NOT EXISTS app_actions (
         app_id TEXT NOT NULL, name TEXT NOT NULL, description TEXT NOT NULL,
         address TEXT NOT NULL, arguments TEXT NOT NULL, sample_result TEXT,
@@ -210,11 +229,146 @@ export class AppStore {
     });
   }
 
+  async findByAddress(ctx: { handle: string; slug: string }) {
+    return await this.database.transaction(async (sql) => {
+      const apps = await this.selectApps(sql, "c.handle = $1 AND a.slug = $2", [
+        ctx.handle,
+        ctx.slug,
+      ]);
+      if (apps instanceof Error) return apps;
+      return apps[0];
+    });
+  }
+
   async list(ownerUserId: string) {
     return await this.database.transaction(
       async (sql) =>
         await this.selectApps(sql, "a.owner_user_id = $1", [ownerUserId]),
     );
+  }
+
+  async hasHandle(handle: string) {
+    return await this.database.transaction(async (sql) => {
+      const found = await sql.query(
+        "SELECT user_id FROM app_creators WHERE handle = $1",
+        [handle],
+      );
+      if (found instanceof Error) return found;
+      return found.length > 0;
+    });
+  }
+
+  /**
+   * Issues a 60-second code that signs the user in to one creator host, in
+   * the browser whose sign-in state hashes to `state`.
+   */
+  async createHandoff(ctx: {
+    handle: string;
+    state: string;
+    userId: string;
+    email: string;
+  }) {
+    const code = crypto.randomBytes(32).toString("base64url");
+    const now = Date.now();
+    return await this.database.transaction(async (sql) => {
+      const expired = await sql.query(
+        "DELETE FROM app_handoffs WHERE expires_at < $1",
+        [now],
+      );
+      if (expired instanceof Error) return expired;
+      const inserted = await sql.query(
+        `INSERT INTO app_handoffs (code_hash, handle, state_hash, user_id, email, expires_at)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [
+          hash(code),
+          ctx.handle,
+          hash(ctx.state),
+          ctx.userId,
+          ctx.email,
+          now + 60_000,
+        ],
+      );
+      if (inserted instanceof Error) return inserted;
+      return code;
+    });
+  }
+
+  /**
+   * Redeems a handoff once, on the host and in the browser it was issued for,
+   * as a session. The DELETE claims the code, so concurrent redemptions on
+   * any database get at most one session.
+   */
+  async redeemHandoff(ctx: { handle: string; code: string; state: string }) {
+    const token = crypto.randomBytes(32).toString("base64url");
+    const now = Date.now();
+    return await this.database.transaction(async (sql) => {
+      const claimed = await sql.query<{ user_id: string; email: string }>(
+        `DELETE FROM app_handoffs
+         WHERE code_hash = $1 AND handle = $2 AND state_hash = $3 AND expires_at >= $4
+         RETURNING user_id, email`,
+        [hash(ctx.code), ctx.handle, hash(ctx.state), now],
+      );
+      if (claimed instanceof Error) return claimed;
+      const handoff = claimed[0];
+      if (handoff === undefined) return undefined;
+      const inserted = await sql.query(
+        `INSERT INTO app_viewer_sessions (token_hash, handle, user_id, email, expires_at)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [
+          hash(token),
+          ctx.handle,
+          handoff.user_id,
+          handoff.email,
+          now + viewerSessionMs,
+        ],
+      );
+      if (inserted instanceof Error) return inserted;
+      return token;
+    });
+  }
+
+  async findViewerSession(ctx: { handle: string; token: string }) {
+    return await this.database.transaction(async (sql) => {
+      const found = await sql.query<{ user_id: string; email: string }>(
+        `SELECT user_id, email FROM app_viewer_sessions
+         WHERE token_hash = $1 AND handle = $2 AND expires_at >= $3`,
+        [hash(ctx.token), ctx.handle, Date.now()],
+      );
+      if (found instanceof Error) return found;
+      const session = found[0];
+      if (session === undefined) return undefined;
+      return { userId: session.user_id, email: session.email };
+    });
+  }
+
+  async deleteViewerSession(token: string) {
+    return await this.database.transaction(async (sql) => {
+      const deleted = await sql.query(
+        "DELETE FROM app_viewer_sessions WHERE token_hash = $1",
+        [hash(token)],
+      );
+      if (deleted instanceof Error) return deleted;
+    });
+  }
+
+  /** Counts one use; returns false once the window's limit is exceeded. */
+  async consume(ctx: {
+    appId: string;
+    kind: string;
+    limit: number;
+    windowMs: number;
+  }) {
+    const windowStart = Math.floor(Date.now() / ctx.windowMs) * ctx.windowMs;
+    return await this.database.transaction(async (sql) => {
+      const counted = await sql.query<{ count: number }>(
+        `INSERT INTO app_usage (app_id, kind, window_start, count) VALUES ($1, $2, $3, 1)
+         ON CONFLICT (app_id, kind, window_start) DO UPDATE SET count = app_usage.count + 1
+         RETURNING count`,
+        [ctx.appId, ctx.kind, windowStart],
+      );
+      if (counted instanceof Error) return counted;
+      return (counted[0]?.count ?? Number.POSITIVE_INFINITY) <= ctx.limit;
+    });
   }
 
   /** Advances one publication step only from the stage the caller observed. */
