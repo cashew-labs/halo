@@ -26,6 +26,7 @@ import {
   setupBrowserCookie,
   setupBrowserCookies,
 } from "../integrations/setupBrowserCookie.js";
+import { isAppRequestError, type AppService } from "../apps/AppService.js";
 
 export type ControlPlaneContext = RequestHeadersHandlerPluginContext &
   ResponseHeadersHandlerPluginContext & {
@@ -34,6 +35,7 @@ export type ControlPlaneContext = RequestHeadersHandlerPluginContext &
     auth: AuthService;
     workspace: WorkspaceService;
     integrations?: IntegrationService;
+    apps: AppService;
   };
 
 const implementer =
@@ -117,6 +119,34 @@ async function integrationOwner(context: ControlPlaneContext) {
     ownerUserId: session?.user.id ?? runtime!.ownerUserId,
     integrations: context.integrations,
   };
+}
+
+// The signed-in owner, or the owner's own workspace runtime acting for its agent.
+// App VM tokens never authenticate here.
+async function appOwner(context: ControlPlaneContext) {
+  const headers = context.reqHeaders ?? new Headers();
+  const origin = headers.get("origin");
+  if (origin !== null && origin !== context.publicOrigin)
+    throw new ORPCError("FORBIDDEN");
+  if (origin === null && !headers.get("authorization")?.startsWith("Bearer "))
+    throw new ORPCError("FORBIDDEN");
+  const session = await context.auth.getSession(headers);
+  if (session instanceof Error) throw internalError(session);
+  if (session !== undefined)
+    return { ownerUserId: session.user.id, ownerEmail: session.user.email };
+  const runtime = await context.workspace.authenticateRuntimeOwner(headers);
+  if (runtime instanceof WorkspaceAuthenticationRequiredError)
+    throw new ORPCError("UNAUTHORIZED");
+  if (runtime instanceof Error) throw internalError(runtime);
+  const email = await context.auth.findUserEmail(runtime.ownerUserId);
+  if (email instanceof Error) throw internalError(email);
+  if (email === undefined) throw new ORPCError("UNAUTHORIZED");
+  return { ownerUserId: runtime.ownerUserId, ownerEmail: email };
+}
+
+function appError(result: Error): never {
+  if (isAppRequestError(result)) throw badRequest(result);
+  throw internalError(result);
 }
 
 // The browser that redeemed a setup's handoff acts for the setup owner, without
@@ -391,6 +421,59 @@ export const controlPlaneRpcRouter = os.router({
     start: startDesktopSignIn,
     exchange: exchangeDesktopAuthCode,
     session: getAuthSession,
+  }),
+  apps: os.apps.router({
+    list: os.apps.list.handler(async ({ context }) => {
+      const owner = await appOwner(context);
+      const apps = await context.apps.list(owner.ownerUserId);
+      if (apps instanceof Error) return appError(apps);
+      return apps;
+    }),
+    publish: os.apps.publish.handler(async ({ context, input }) => {
+      const owner = await appOwner(context);
+      const published = await context.apps.publish({ ...owner, ...input });
+      if (published instanceof Error) return appError(published);
+      return published;
+    }),
+    update: os.apps.update.handler(async ({ context, input }) => {
+      const owner = await appOwner(context);
+      const updated = await context.apps.update({ ...owner, ...input });
+      if (updated instanceof Error) return appError(updated);
+      return updated;
+    }),
+    cancel: os.apps.cancel.handler(async ({ context, input }) => {
+      const owner = await appOwner(context);
+      const cancelled = await context.apps.cancel({ ...owner, ...input });
+      if (cancelled instanceof Error) return appError(cancelled);
+    }),
+    bindActions: os.apps.bindActions.handler(async ({ context, input }) => {
+      const owner = await appOwner(context);
+      const bound = await context.apps.bindActions({ ...owner, ...input });
+      if (bound instanceof Error) return appError(bound);
+      return bound;
+    }),
+    readSource: os.apps.readSource.handler(async ({ context, input }) => {
+      const owner = await appOwner(context);
+      const source = await context.apps.readSource({ ...owner, ...input });
+      if (source instanceof Error) return appError(source);
+      return source;
+    }),
+    writeSource: os.apps.writeSource.handler(async ({ context, input }) => {
+      const owner = await appOwner(context);
+      const written = await context.apps.writeSource({ ...owner, ...input });
+      if (written instanceof Error) return appError(written);
+    }),
+    execSource: os.apps.execSource.handler(async ({ context, input }) => {
+      const owner = await appOwner(context);
+      const executed = await context.apps.execSource({ ...owner, ...input });
+      if (executed instanceof Error) return appError(executed);
+      return executed;
+    }),
+    restart: os.apps.restart.handler(async ({ context, input }) => {
+      const owner = await appOwner(context);
+      const restarted = await context.apps.restart({ ...owner, ...input });
+      if (restarted instanceof Error) return appError(restarted);
+    }),
   }),
   workspace: os.workspace.router({
     status: os.workspace.status

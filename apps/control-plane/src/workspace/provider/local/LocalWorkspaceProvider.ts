@@ -15,6 +15,12 @@ class LocalWorkspaceProviderError extends errore.createTaggedError({
   message: "Could not assign local workspace service settings",
 }) {}
 
+// Local development runs one workspace server, so it never doubles as an app VM.
+class LocalAppVmUnsupportedError extends errore.createTaggedError({
+  name: "LocalAppVmUnsupportedError",
+  message: "Shared apps need a dedicated sandboxed app VM",
+}) {}
+
 export class LocalWorkspaceProvider implements WorkspaceProviderApi {
   private readonly appDataDir: string;
 
@@ -23,6 +29,7 @@ export class LocalWorkspaceProvider implements WorkspaceProviderApi {
   }
 
   async ensure(input: WorkspaceProviderAssignment) {
+    if (input.sharedApp !== undefined) return new LocalAppVmUnsupportedError();
     await using cleanup = new errore.AsyncDisposableStack();
     // The development host owns the workspace server's lifetime.
     const directory = await fs

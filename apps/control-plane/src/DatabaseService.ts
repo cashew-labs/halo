@@ -19,15 +19,18 @@ export class DatabaseService {
   private readonly database: DatabaseClient;
   private readonly integrations: DatabaseClient;
   readonly automationClient: DatabaseClient;
+  readonly appClient: DatabaseClient;
 
   private constructor(ctx: {
     client: DatabaseClient;
     integrations: DatabaseClient;
     automations: DatabaseClient;
+    apps: DatabaseClient;
   }) {
     this.database = ctx.client;
     this.integrations = ctx.integrations;
     this.automationClient = ctx.automations;
+    this.appClient = ctx.apps;
   }
 
   static async start(config: DatabaseConfig) {
@@ -44,6 +47,7 @@ export class DatabaseService {
         client,
         integrations: client,
         automations: client,
+        apps: client,
       });
     }
 
@@ -89,7 +93,19 @@ export class DatabaseService {
       client.close();
       return automations;
     }
-    return new DatabaseService({ client, integrations, automations });
+    const apps = errore.try({
+      try: () => new DatabaseSync(`${config.path}.apps`),
+      catch: (cause) =>
+        new DatabaseServiceError({ detail: "open app database", cause }), // coverage-exempt: SQLite open failure of a file next to the main database.
+    });
+    // coverage-exempt: SQLite open failure cleanup, matching the integration and automation databases above.
+    if (apps instanceof Error) {
+      automations.close();
+      integrations.close();
+      client.close();
+      return apps;
+    }
+    return new DatabaseService({ client, integrations, automations, apps });
   }
 
   get client() {
@@ -110,6 +126,7 @@ export class DatabaseService {
             this.integrations.close();
           if (this.automationClient instanceof DatabaseSync)
             this.automationClient.close();
+          if (this.appClient instanceof DatabaseSync) this.appClient.close();
           client.close();
         },
         catch: (cause) =>
