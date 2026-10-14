@@ -61,6 +61,7 @@ import {
   isAppRuntimeRequest,
   serveAppRuntime,
 } from "../apps/appRuntimeHttp.js";
+import { isTemplateRequest, serveTemplate } from "../apps/templateHttp.js";
 
 import { workspaceInferencePath } from "@get-halo/config/inference";
 import { serveWorkspaceInference } from "../inference/workspaceInference.js";
@@ -336,6 +337,19 @@ async function routeControlPlaneRequest(ctx: {
       url,
       auth,
       store: ctx.appStore,
+      publicOrigin: ctx.publicOrigin,
+    });
+    return;
+  }
+
+  if (isTemplateRequest(url)) {
+    await serveTemplate({
+      request,
+      response,
+      url,
+      auth,
+      store: ctx.appStore,
+      apps: ctx.apps,
       publicOrigin: ctx.publicOrigin,
     });
     return;

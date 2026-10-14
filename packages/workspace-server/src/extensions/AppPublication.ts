@@ -120,6 +120,38 @@ export class AppPublication {
       .catch((cause) => new AppPublicationError({ detail: "release", cause })); // coverage-exempt: Filesystem failure removing a marker this process just read.
   }
 
+  /** References an app that never existed locally; idempotent per app. */
+  async addRemote(ctx: {
+    extensionId: string;
+    appId: string;
+    url: string;
+    displayName: string;
+  }) {
+    const current = await this.read(ctx.extensionId);
+    if (current instanceof Error) return current;
+    if (current !== undefined)
+      return current.appId === ctx.appId && current.state === "remote"
+        ? undefined
+        : new AppPublicationError({ detail: "extension ID is in use" });
+    const local = await fs
+      .stat(this.sourcePath(ctx.extensionId))
+      .then(() => true)
+      .catch((cause: NodeJS.ErrnoException) =>
+        cause.code === "ENOENT"
+          ? false
+          : new AppPublicationError({ detail: "find project", cause }),
+      );
+    if (local instanceof Error) return local;
+    if (local)
+      return new AppPublicationError({ detail: "extension ID is in use" });
+    return await this.write(ctx.extensionId, {
+      state: "remote",
+      appId: ctx.appId,
+      url: ctx.url,
+      displayName: ctx.displayName,
+    });
+  }
+
   /** Persist the reference first, then retire local copies; both steps retry. */
   async complete(ctx: {
     extensionId: string;

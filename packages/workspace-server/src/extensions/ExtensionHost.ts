@@ -14,6 +14,7 @@ import { startExtension, type ExtensionRuntime } from "./startExtension.js";
 import { AppSandbox, AppSandboxError } from "./AppSandbox.js";
 import { AppProject, AppProjectError } from "./AppProject.js";
 import { AppPublication } from "./AppPublication.js";
+import { DemoInstances } from "./DemoInstances.js";
 import type { ExtensionArtifact } from "@get-halo/client";
 import { Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
@@ -22,6 +23,7 @@ export type SharedAppRuntime = {
   appId: string;
   extensionId: string;
   syncAccess: "read-only" | "shared" | "actions";
+  demo?: boolean;
 };
 
 type RunningExtension = {
@@ -66,6 +68,7 @@ export class ExtensionHost {
   private readonly sharedApp: SharedAppRuntime | undefined;
   private readonly sandbox: AppSandbox | undefined;
   private readonly publication: AppPublication;
+  private readonly demo: DemoInstances | undefined;
 
   constructor(ctx: {
     workspaceRoot: string;
@@ -87,6 +90,17 @@ export class ExtensionHost {
         ? undefined
         : new AppSandbox(runtime.sandbox);
     this.publication = new AppPublication({ workspaceRoot });
+    this.demo =
+      this.sandbox === undefined ||
+      ctx.sharedApp === undefined ||
+      ctx.sharedApp.demo !== true
+        ? undefined
+        : new DemoInstances({
+            sandbox: this.sandbox,
+            extensionId: ctx.sharedApp.extensionId,
+            brokerPort: Number(new URL(toolsOrigin).port),
+            syncAccess: ctx.sharedApp.syncAccess,
+          });
   }
 
   async list() {
@@ -172,8 +186,22 @@ export class ExtensionHost {
       .digest("base64url");
   }
 
+  /** The backend serving one viewer: the app, or that visitor's demo instance. */
+  async connectViewer(ctx: { id: string; viewerId: string }) {
+    if (this.demo === undefined || !this.isSharedApp(ctx.id))
+      return this.getConnection(ctx.id);
+    const instance = await this.demo.connect(ctx.viewerId);
+    if (instance instanceof Error) {
+      this.logger.warn({ event: "demo-start-failed", error: instance });
+      return undefined;
+    }
+    return { origin: instance.origin, hostToken: instance.hostToken };
+  }
+
   identifyToolConnection(authorization: string | undefined) {
     if (authorization === undefined) return undefined;
+    if (this.demo?.identify(authorization) === true)
+      return this.sharedApp!.extensionId;
     const id = this.toolTokens.get(authorization);
     if (id === undefined || !this.processes.get(id)?.isRunning())
       return undefined;
@@ -184,7 +212,10 @@ export class ExtensionHost {
     return this.sharedApp?.extensionId === extensionId;
   }
 
-  async snapshotProject(extensionId: string) {
+  async snapshotProject(
+    extensionId: string,
+    options: { data: boolean } = { data: true },
+  ) {
     return await this.actionQueue.run(async () => {
       const project = this.project(extensionId);
       if (project instanceof Error) return project;
@@ -193,15 +224,18 @@ export class ExtensionHost {
       if (stopped instanceof Error) return stopped;
       this.processes.delete(extensionId);
       this.removeToolConnection(extensionId);
+      // Without data, nothing reads the live store at all.
       const captured =
-        this.isSharedApp(extensionId) && this.sandbox !== undefined
+        options.data &&
+        this.isSharedApp(extensionId) &&
+        this.sandbox !== undefined
           ? await this.sandbox.snapshot(extensionId)
           : undefined;
       const snapshot =
         captured instanceof Error
           ? captured
           : await project.snapshot(
-              this.isSharedApp(extensionId)
+              !options.data || this.isSharedApp(extensionId)
                 ? { contents: captured }
                 : undefined,
             );
@@ -284,6 +318,22 @@ export class ExtensionHost {
     });
   }
 
+  /** Links an app installed elsewhere, such as a template copy, by reference. */
+  async addRemoteApp(ctx: {
+    extensionId: string;
+    appId: string;
+    url: string;
+    displayName: string;
+  }) {
+    return await this.actionQueue.run(async () => {
+      if (this.sharedApp !== undefined)
+        return new AppProjectError({ detail: "app VMs cannot link apps" });
+      const added = await this.publication.addRemote(ctx);
+      await this.publishUnqueued();
+      return added;
+    });
+  }
+
   async readSource(ctx: { extensionId: string; name: string }) {
     return await this.actionQueue.run(async () => {
       if (!this.isSharedApp(ctx.extensionId))
@@ -355,6 +405,7 @@ export class ExtensionHost {
 
   async stop() {
     this.closed.abort(new ExtensionsClosedError());
+    await this.demo?.stop();
     return await this.actionQueue.run(async () => {
       const processes = [...this.processes.values()];
       this.processes.clear();
@@ -472,6 +523,8 @@ export class ExtensionHost {
   }
 
   private async startUnqueued(id: string) {
+    // Demo instances start per visitor, on their first request.
+    if (this.demo !== undefined) return;
     this.removeToolConnection(id);
     const token = randomUUID();
     this.toolTokens.set(`Bearer ${token}`, id);
