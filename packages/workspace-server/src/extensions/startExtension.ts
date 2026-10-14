@@ -9,10 +9,12 @@ import { Value } from "@sinclair/typebox/value";
 import type { Logger } from "@get-halo/logger";
 import { workspaceExecutablePath } from "../workspace/installHaloCli.js";
 import * as errore from "errore";
+import type { AppSandboxConfig } from "./AppSandbox.js";
 
 export type ExtensionRuntime = {
   executable: string;
   electronRunAsNode: boolean;
+  sandbox?: AppSandboxConfig;
 };
 
 class ExtensionProcessError extends errore.createTaggedError({

@@ -27,6 +27,7 @@ esac
 
 script_dir=$(cd -- "$(dirname -- "$0")" && pwd)
 cp "$script_dir/desktop-seccomp.json" /etc/halo/desktop-seccomp.json
+bash "$script_dir/appSandboxSetup.sh" "$image"
 
 cat > /usr/local/bin/halo-workspace-assign.tmp <<'ASSIGN'
 #!/usr/bin/env python3
@@ -41,6 +42,8 @@ with open('/run/halo-workspace-assign.lock', 'w') as lock:
     previous = json.loads(path.read_text()) if path.exists() else None
     if previous is not None and any(previous.get(key) != assignment.get(key) for key in ['workspaceId', 'ownerUserId', 'gatewayToken']):
         sys.exit('Workspace is already assigned to another identity or gateway credential')
+    if previous is not None and previous.get('sharedApp', {}).get('extensionId') != assignment.get('sharedApp', {}).get('extensionId'):
+        sys.exit('VM cannot switch between personal workspace and shared app roles')
     if previous is not None and previous.get('runtime', {}).get('generation', 0) > assignment['runtime']['generation']:
         print('HALO_WORKSPACE_ASSIGNED')
         sys.exit(0)
@@ -48,6 +51,9 @@ with open('/run/halo-workspace-assign.lock', 'w') as lock:
     config['ownerUserId'] = assignment['ownerUserId']
     config['gateway'] = {'token': assignment['gatewayToken']}
     config['runtime'] = assignment['runtime']
+    if 'sharedApp' in assignment:
+        config['sharedApp'] = assignment['sharedApp']
+        config['extensionRuntime']['sandbox'] = {'socketPath': '/run/halo-apps/control.sock'}
     config.pop('traceUpload', None)
     config_path = pathlib.Path('/etc/halo/workspace-server.json')
     changed = previous != assignment or not config_path.exists() or json.loads(config_path.read_text()) != config
@@ -74,10 +80,17 @@ cat > /usr/local/bin/halo-workspace-run.tmp <<'RUN'
 #!/usr/bin/env bash
 set -euo pipefail
 image=$(cat /etc/halo/image)
+app_vm=$(python3 -c "import json; print('1' if 'sharedApp' in json.load(open('/etc/halo/workspace-server.json')) else '0')")
+sandbox_mount=()
+if [[ "$app_vm" == 1 ]]; then
+  sandbox_mount+=(--volume /run/halo-apps:/run/halo-apps:ro)
+fi
 exec docker run --rm --name halo-workspace --network host --init --shm-size=1g \
   --security-opt seccomp=/etc/halo/desktop-seccomp.json \
   --env-file /etc/halo/workspace.env \
+  --env "HALO_APP_VM=$app_vm" \
   --volume /var/lib/halo/home:/home/node \
+  "${sandbox_mount[@]}" \
   --volume /etc/halo/workspace-server.json:/etc/halo/workspace-server.json:ro \
   "$image" /etc/halo/workspace-server.json
 RUN

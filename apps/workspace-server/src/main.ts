@@ -114,6 +114,7 @@ async function run() {
       cliNodeExecutable: applicationConfig.server.cliNodeExecutable,
       cliElectronRunAsNode: applicationConfig.server.cliElectronRunAsNode,
       extensionRuntime,
+      sharedApp: applicationConfig.server.sharedApp, // coverage-exempt: Host config wiring; canonical WorkspaceServer fixture exercises the app role, without live VM provisioning.
     },
     host: {
       automationControl:
