@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The source changes are the same as the approved round 3 head; only the base moved, which shifted the PaneWorkspace exemption to line 289. The `remote` field on ExtensionSummary, the AppSummary stages, and the global external-link handler are all still in place. All temp tests pass, every changed line is covered or validly exempt, and no findings remain.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 4,
+  "headSha": "f464c33d45b52904c21c2180b4809cb1b81d7134",
+  "treeHash": "ed34fab6ec21c320b9c40edcbdba14aefbfe9623",
+  "codeTree": "df848b460aebb6b318cc08c2093bd3627eae30a7",
+  "coverage": {
+    "executable": 64,
+    "covered": 62,
+    "exempt": 2,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-14T18:33:13.665Z"
+}
