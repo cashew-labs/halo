@@ -45,10 +45,22 @@ def cgroup_parent():
     return group
 
 
-def app_name(extension_id):
+def app_name(extension_id, instance=None):
     if not isinstance(extension_id, str) or not re.fullmatch(r'[a-zA-Z0-9_-]{1,80}', extension_id):
         raise ValueError('Invalid extension ID')
-    return 'halo-app-' + extension_id
+    if instance is None:
+        return 'halo-app-' + extension_id
+    # Template demos run one instance per visitor.
+    if not isinstance(instance, str) or not re.fullmatch(r'[a-f0-9]{12}', instance):
+        raise ValueError('Invalid demo instance')
+    return 'halo-app-' + extension_id + '--' + instance
+
+
+def slot(extension_id, instance=None):
+    """The container name and private state directory of an app or demo instance."""
+    name = app_name(extension_id, instance)
+    directory = appPaths.under(DATA, extension_id) if instance is None else appPaths.under(DATA, extension_id, 'instances', instance)
+    return name, directory
 
 
 # coverage-exempt: Linux root/Docker adapter; user explicitly deferred live gVisor provisioning tests. IPC and editing boundaries are tested locally.
@@ -60,9 +72,8 @@ def stop(name):
 
 
 # coverage-exempt: Linux root/Docker adapter; user explicitly deferred live gVisor provisioning tests. IPC and editing boundaries are tested locally.
-def volume(extension_id, create=True):
+def volume(directory, create=True, size='128M'):
     # A filesystem-backed quota also bounds writes from arbitrary bash programs.
-    directory = appPaths.under(DATA, extension_id)
     image = directory / 'data.ext4'
     if not create and not image.exists():
         return None
@@ -70,7 +81,7 @@ def volume(extension_id, create=True):
     mount = directory / 'data'
     mount.mkdir(mode=0o700, exist_ok=True)
     if not image.exists():
-        command(['fallocate', '-l', '128M', str(image)])
+        command(['fallocate', '-l', size, str(image)])
         command(['mkfs.ext4', '-q', '-F', '-m', '0', str(image)])
     if not os.path.ismount(mount):
         command(['mount', '-o', 'loop,nosuid,nodev', str(image), str(mount)])
@@ -96,7 +107,7 @@ def source_mount(extension_id):
 
 
 def start_input(body):
-    name = app_name(body.get('extensionId'))
+    name = app_name(body.get('extensionId'), body.get('instance'))
     broker_port = body.get('brokerPort')
     if type(broker_port) is not int or not 1 <= broker_port <= 65535:
         raise ValueError('Invalid broker port')
@@ -117,9 +128,38 @@ def read_limited(source):
     return contents
 
 
-def import_data(extension_id, data):
+def instances(extension_id):
+    """Demo instances of an extension with a container or state directory."""
+    prefix = app_name(extension_id) + '--'
+    names = command(['docker', 'ps', '-a', '--format', '{{.Names}}', '--filter', 'name=^/' + prefix]).splitlines()
+    found = {name[len(prefix):] for name in names if name.startswith(prefix)}
+    root = appPaths.under(DATA, extension_id, 'instances')
+    if root.is_dir() and not root.is_symlink():
+        found.update(entry.name for entry in root.iterdir())
+    return sorted(instance for instance in found if re.fullmatch(r'[a-f0-9]{12}', instance))
+
+
+def reset(extension_id):
+    """Stops and discards every demo instance, including ones a crashed server left."""
+    for instance in instances(extension_id):
+        name, directory = slot(extension_id, instance)
+        stop(name)
+        discard(directory)
+    return {'reset': True}
+
+
+# coverage-exempt: Linux root unmount adapter; instance naming and selection are tested.
+def discard(directory):
+    """Resets a demo instance: its data volume and directory are removed."""
+    mount = directory / 'data'
+    if os.path.ismount(mount):
+        command(['umount', str(mount)])
+    command(['rm', '-rf', '--one-file-system', str(directory)])
+
+
+def import_data(extension_id, directory, data):
     """Copies workspace data into the app volume once, never through a symlink."""
-    imported = appPaths.under(DATA, extension_id, 'imported')
+    imported = directory / 'imported'
     if imported.exists():
         return
     original = appPaths.under(WORKSPACE / '.halo/extension-data', extension_id, 'tandem.json')
@@ -138,9 +178,9 @@ def import_data(extension_id, data):
 
 
 def snapshot(extension_id):
-    app_name(extension_id)
+    _name, directory = slot(extension_id)
     # Mounting first distinguishes an unmounted volume from an app without data.
-    data = volume(extension_id, create=False)
+    data = volume(directory, create=False)
     # Until the first start imports it, the workspace copy is the app's data.
     source = (appPaths.under(WORKSPACE / '.halo/extension-data', extension_id, 'tandem.json')
               if data is None else data / 'tandem.json')
@@ -164,8 +204,10 @@ def start(body):
     running = command(['docker', 'ps', '-q', '--filter', 'label=' + LABEL]).splitlines()
     if len(running) >= 4:
         raise ValueError('This VM supports four running shared apps')
-    data = volume(extension_id)
-    import_data(extension_id, data)
+    _name, directory = slot(extension_id, body.get('instance'))
+    # A demo instance starts from the installed sample data in a small volume.
+    data = volume(directory, size='128M' if body.get('instance') is None else '32M')
+    import_data(extension_id, directory, data)
     return run_app(name=name, source=source, data=data, broker_port=broker_port, access=access, body=body)
 
 
@@ -278,15 +320,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
             body = json.loads(self.rfile.read(length))
             if not isinstance(body, dict):
                 raise ValueError('Invalid request')
-            name = app_name(body.get('extensionId'))
+            name, directory = slot(body.get('extensionId'), body.get('instance'))
             with lock:
                 if self.path == '/start':
                     result = start(body)
                 elif self.path == '/stop':
                     stop(name)
+                    if body.get('instance') is not None:
+                        discard(directory)
                     result = {'stopped': True}
                 elif self.path == '/exec':
                     result = execute(body)
+                elif self.path == '/reset':
+                    result = reset(body['extensionId'])
                 elif self.path == '/snapshot':
                     result = snapshot(body['extensionId'])
                 elif self.path == '/status':

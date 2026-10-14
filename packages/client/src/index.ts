@@ -51,6 +51,7 @@ export {
   type AppSummary, // coverage-exempt: Type-only public export.
   type AppAccessList, // coverage-exempt: Type-only public export.
   type AppActionBinding, // coverage-exempt: Type-only public export.
+  type TemplateSummary, // coverage-exempt: Type-only public export.
   type WorkspaceUpdate,
   type BrowserSnapshot,
   type BrowserExecution,
