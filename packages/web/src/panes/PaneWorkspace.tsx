@@ -30,7 +30,7 @@ import { useSidebar } from "../WorkspaceLayout.js";
 import { useExtensions } from "../api/WorkspaceUpdatesProvider.js";
 import { useDatabaseQuery } from "../database/useDatabaseQuery.js";
 import { sessionTitleQueryKey } from "../main/agent/useAgentSession.js";
-import { CopyExtensionLinkButton } from "./CopyExtensionLinkButton.js";
+import { ShareAppButton } from "./ShareAppButton.js"; // coverage-exempt: Tab-bar button swap; ShareAppButton is tested directly.
 import { tabBarHeight, usePaneStyles } from "./paneStyles.js";
 import { TabFind } from "./TabFind.js";
 import { PaneTabBar } from "./PaneTabBar.js";
@@ -286,7 +286,8 @@ export function PaneWorkspace({ sessions }: { sessions: SessionSummary[] }) {
                   tab.path.startsWith("/extensions/"),
               )
               .map((tab) => (
-                <CopyExtensionLinkButton
+                // coverage-exempt: Tab-bar button swap; ShareAppButton is tested directly.
+                <ShareAppButton
                   key={tab.id}
                   extensionId={decodeURIComponent(tab.path.slice(12))}
                 />
