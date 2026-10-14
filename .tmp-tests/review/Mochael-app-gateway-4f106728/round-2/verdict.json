@@ -1,0 +1,41 @@
+{
+  "status": "changes_requested",
+  "summary": "F1 and F2 are fixed. Login CSRF is closed: a host-only `handoff` state cookie on the creator host is stored as `state_hash` and must match on redeem. Double redemption is closed: `DELETE … RETURNING` now claims the code. Temp tests cover both. Not ready: the durable run fails, because two existing ControlPlane tests now get UNAUTHORIZED instead of FORBIDDEN after the new cookie stripping, and AppGateway.ts:305 is uncovered.",
+  "findings": [
+    {
+      "id": "F3",
+      "kind": "test",
+      "file": "apps/control-plane/src/apps/AppGateway.ts",
+      "line": 305,
+      "severity": "P1",
+      "body": "This line was 289 in round 1. Its inapplicable exemption is gone, but the line (`else if (!ctx.response.writableEnded) ctx.response.end();`) is now uncovered, so the coverage gate fails. Add a temp test in which the fake app origin writes response headers and then destroys the socket. Assert that the visitor's response ends, without hanging or crashing the gateway."
+    },
+    {
+      "id": "F4",
+      "kind": "test",
+      "file": "apps/control-plane/test/ControlPlane.test.ts",
+      "line": 1491,
+      "severity": "P1",
+      "body": "The durable run fails. `stripCrossOriginCookies` (controlPlaneHttp.ts:257-264) now deletes cookies on cross-origin requests before RPC handling. Two existing tests now receive UNAUTHORIZED where they expect FORBIDDEN: 'lets only the browser that Halo opened finish a setup without a sign-in' (line 1491) and 'automatically approves MCP, OpenAPI and Google connections across restart' (line 2711). The request is still refused, but this change caused the regression and CI will fail. Either update both expectations to the new status, with a comment that cross-origin cookies are now stripped before RPC, or keep FORBIDDEN by having the router see the cross-origin request before the cookie is removed. Then rerun both durable files."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "AppGateway.forward mid-stream upstream failure (AppGateway.ts:304-305)",
+      "tier": "tmp",
+      "rationale": "This branch is uncovered and has no exemption. A fake VM that sends headers and then drops the socket exercises it."
+    }
+  ],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "b942ce041b97f1d5bd07fe3ec0fb505ecb32fc8f",
+  "treeHash": "9d6822dc02dd761564e1e59f78181d0ed5d33ab5",
+  "codeTree": "0a7816eeafc34e0ea9ff7fef4d9a7c2e75a63e9a",
+  "coverage": {
+    "executable": 431,
+    "covered": 365,
+    "exempt": 64,
+    "uncovered": 2
+  },
+  "createdAt": "2026-10-14T16:11:33.929Z"
+}

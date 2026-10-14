@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The branch was rebased onto a new merge base (7b127d87395d). The diff is the same as the head approved in round 3: creator-host app gateway, a sign-in handoff bound to the browser that started it and redeemed once, `__Host-` auth cookies, stripping of Halo's cookies from cross-origin requests, and owner-fixed app actions with a per-app limit. Durable and temp tests pass, the coverage gate passes with acceptable exemptions, and no findings remain.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 4,
+  "headSha": "06bec78771248c91e78677e842bf26bf558c19e5",
+  "treeHash": "e97310abf226f237f29bfcc355ac66bee15babce",
+  "codeTree": "643b4a70462edf57cebf442bec1e95577202394c",
+  "coverage": {
+    "executable": 430,
+    "covered": 366,
+    "exempt": 64,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-14T17:25:28.137Z"
+}

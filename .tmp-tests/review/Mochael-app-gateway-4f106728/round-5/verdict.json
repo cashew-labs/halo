@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The branch was rebased onto merge base 6a25d6ce629d. The diff matches the content approved in rounds 3 and 4; only line numbers moved in AuthService, infra, WorkspaceServer and the workspace-server index. I checked that `authOptions` still sets `advanced` only once after the rebase. Durable and temp tests pass, the coverage gate passes with the same accepted exemptions, and no findings remain.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 5,
+  "headSha": "f9a71e3aff59f01eddd998a450f980804950a946",
+  "treeHash": "8939aeb0e791ff12c7088093a7ba1b9e624f6f93",
+  "codeTree": "a24c8ec1ea5a9278565f8e0f3a151ba4f92bdf3f",
+  "coverage": {
+    "executable": 430,
+    "covered": 366,
+    "exempt": 64,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-14T18:28:55.774Z"
+}
