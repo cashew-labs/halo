@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "This is the standard 0.1.73 prerelease bump. It changes the desktop package version, pins the staging (west) control-plane and workspace-server images to 0.1.73, and adds releases/0.1.73.json. That manifest correctly chains from 0.1.72, keeps minimumFrontendVersion at 0.1.68, and its protocol values match the current contracts (workspace 27 with [25, 26, 27], control plane 5 with [3, 5]). No executable lines changed, and I found no defects.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "963b0369c71d3d6f0efafcc0308787f9324e7c85",
+  "treeHash": "a592b3300076c0ad47078f3e8884b3737ea1ede8",
+  "codeTree": "a592b3300076c0ad47078f3e8884b3737ea1ede8",
+  "coverage": {
+    "executable": 0,
+    "covered": 0,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-14T00:50:16.893Z"
+}
