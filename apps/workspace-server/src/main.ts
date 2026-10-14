@@ -16,6 +16,7 @@ import {
   ControlPlaneWorkReporter,
   ControlPlaneScheduleReporter, // coverage-exempt: Rename-only entrypoint import.
   ControlPlaneAutomationClient,
+  AppActionsClient, // coverage-exempt: Process entry import; temp test VMs construct the same client.
   WorkspaceServer,
 } from "@get-halo/workspace-server";
 import { createOpenAILLMApi } from "@get-halo/workspace-server/llm";
@@ -126,6 +127,10 @@ async function run() {
           ? undefined
           : new ControlPlaneAutomationClient(runtime),
       remoteApps: runtimeClient?.apps,
+      appActions:
+        appVm && applicationConfig.server.runtime !== undefined
+          ? new AppActionsClient(applicationConfig.server.runtime)
+          : undefined,
       remoteIntegrationTools: // coverage-exempt: Rename-only process entry wiring.
         runtime === undefined
           ? undefined
