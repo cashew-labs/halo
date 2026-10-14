@@ -466,7 +466,9 @@ export class WorkspaceServer {
         remoteApps: host.remoteApps,
         appActions: host.appActions,
         appConversations:
-          config.sharedApp === undefined || host.appActions === undefined
+          config.sharedApp === undefined ||
+          config.sharedApp.demo === true ||
+          host.appActions === undefined
             ? undefined
             : new AppConversations({
                 llmApi: host.llmApi,

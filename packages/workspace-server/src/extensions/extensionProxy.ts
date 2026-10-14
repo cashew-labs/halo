@@ -33,7 +33,13 @@ export async function serveExtensionRequest(ctx: {
     return;
   }
 
-  const connection = ctx.extensions.getConnection(route.id);
+  const viewerId = ctx.fromGateway
+    ? (firstHeader(ctx.request.headers["x-halo-viewer-id"]) ?? "owner")
+    : "owner";
+  const connection = await ctx.extensions.connectViewer({
+    id: route.id,
+    viewerId,
+  });
   if (connection === undefined) {
     ctx.response.writeHead(404).end();
     return;
