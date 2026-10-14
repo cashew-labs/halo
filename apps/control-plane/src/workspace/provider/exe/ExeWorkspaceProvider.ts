@@ -34,6 +34,7 @@ export class ExeWorkspaceProvider implements WorkspaceProviderApi {
     {
       ownerUserId: string;
       runtime: WorkspaceProviderAssignment["runtime"];
+      sharedApp: WorkspaceProviderAssignment["sharedApp"];
       operation: Promise<void | Error>;
     }
   >();
@@ -57,6 +58,15 @@ export class ExeWorkspaceProvider implements WorkspaceProviderApi {
   }
 
   async ensure(input: WorkspaceProviderAssignment): Promise<void | Error> {
+    if (
+      input.sharedApp !== undefined &&
+      (input.sharedApp.appId !== input.workspaceId ||
+        input.runtime.workspaceId !== input.sharedApp.appId)
+    )
+      return new ExeWorkspaceProviderError({
+        workspaceId: input.workspaceId,
+        detail: "app assignment must use its own VM and runtime identity",
+      });
     const pending = this.pendingEnsures.get(input.workspaceId);
     if (pending !== undefined) {
       if (pending.ownerUserId !== input.ownerUserId)
@@ -64,7 +74,10 @@ export class ExeWorkspaceProvider implements WorkspaceProviderApi {
           workspaceId: input.workspaceId,
           detail: "workspace is being assigned to another owner",
         });
-      if (JSON.stringify(pending.runtime) !== JSON.stringify(input.runtime)) {
+      if (
+        JSON.stringify([pending.runtime, pending.sharedApp]) !==
+        JSON.stringify([input.runtime, input.sharedApp])
+      ) {
         const completed = await pending.operation;
         if (completed instanceof Error) return completed;
         return await this.ensure(input);
@@ -75,6 +88,7 @@ export class ExeWorkspaceProvider implements WorkspaceProviderApi {
     this.pendingEnsures.set(input.workspaceId, {
       ownerUserId: input.ownerUserId,
       runtime: input.runtime,
+      sharedApp: input.sharedApp,
       operation,
     });
     const result = await operation;

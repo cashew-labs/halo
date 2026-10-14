@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Dedicated app VMs need the authenticated editor service, not a desktop.
+if [[ ${HALO_APP_VM:-0} == 1 ]]; then
+  exec node --import /opt/halo/node_modules/tsx/dist/loader.mjs \
+    /opt/halo/apps/workspace-server/src/main.ts "$@"
+fi
+
 desktop_dir=/opt/halo/apps/workspace-server/desktop
 export XDG_RUNTIME_DIR=/tmp/halo-desktop-runtime
 mkdir -p "$XDG_RUNTIME_DIR" "$HOME/.config/xfce4/xfconf/xfce-perchannel-xml" \

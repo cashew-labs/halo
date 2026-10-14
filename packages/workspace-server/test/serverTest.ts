@@ -10,6 +10,9 @@ import type { WorkspaceServerOptions } from "@get-halo/workspace-server";
 vi.setConfig({ testTimeout: 20_000 });
 
 type ServerOptions = {
+  sharedApp?: WorkspaceServerOptions["config"]["sharedApp"];
+  extensionRuntime?: WorkspaceServerOptions["config"]["extensionRuntime"];
+  appDataDir?: string;
   agentCapabilities?: WorkspaceServerOptions["host"]["agentCapabilities"];
   tools?: WorkspaceServerOptions["host"]["tools"];
   gateway?: WorkspaceServerOptions["config"]["gateway"];
@@ -56,6 +59,9 @@ export const serverTest = baseTest.extend<{
     await using cleanup = new errore.AsyncDisposableStack();
     await use((options = {}) => {
       const server = new TestServer({
+        sharedApp: options.sharedApp,
+        extensionRuntime: options.extensionRuntime,
+        appDataDir: options.appDataDir,
         gateway: options.gateway,
         artifacts,
         llmApi: createOpenAILLMApi(llm.configuration),

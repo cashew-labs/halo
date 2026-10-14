@@ -40,6 +40,7 @@ yarn-debug.log*
 yarn-error.log*
 
 # Misc
+__pycache__/
 .DS_Store
 *.pem
 
