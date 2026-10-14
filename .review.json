@@ -1,6 +1,12 @@
 {
   "tests": [
     {
+      "runner": "command",
+      "match": "infra/workspace/**/*.test.py",
+      "run": "python3 infra/workspace/pythonTestRunner.py {files}",
+      "lcov": "tmp/python-tests/lcov.info"
+    },
+    {
       "runner": "playwright",
       "dir": "apps/electron",
       "match": "e2e/**/*.e2e.test.ts",
