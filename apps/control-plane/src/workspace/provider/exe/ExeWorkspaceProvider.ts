@@ -28,6 +28,7 @@ const listSchema = Type.Object({ vms: Type.Array(vmSchema) });
 const cloneSchema = Type.Object({ name: Type.String() });
 
 export class ExeWorkspaceProvider implements WorkspaceProviderApi {
+  readonly hostsSharedApps = true;
   // Coalesce same-workspace provisioning within this control-plane instance.
   private readonly pendingEnsures = new Map<
     string,

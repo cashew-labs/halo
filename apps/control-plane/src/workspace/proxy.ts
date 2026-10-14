@@ -24,22 +24,65 @@ export function isWorkspaceProxyRequest(url: URL) {
   );
 }
 
-export class WorkspaceGateway {
+/** Server-side credentials for reaching a workspace or app VM. */
+export class WorkspaceAuthorization {
   // Reuses Google ID tokens until the auth library refreshes them near expiry.
   private readonly identityClients = new Map<string, IdTokenClient>();
+  private readonly googleAuth = new GoogleAuth();
 
+  // coverage-exempt: Moved unchanged from WorkspaceGateway.getAuthorization; header and Google identity providers are Exe and Cloud Run ingress.
+  async headers(connection: WorkspaceProviderConnection) {
+    if (connection.authorization.type === "headers") {
+      return connection.authorization.value;
+    }
+    if (connection.authorization.type === "bearer") {
+      return { authorization: connection.authorization.value };
+    }
+    const audience = connection.origin;
+    const cached = this.identityClients.get(audience);
+    const client =
+      cached === undefined
+        ? await this.googleAuth.getIdTokenClient(audience).catch(
+            (cause) =>
+              new WorkspaceGatewayError({
+                detail: "create identity client",
+                cause,
+              }),
+          )
+        : cached;
+    if (client instanceof Error) return client;
+    this.identityClients.set(audience, client);
+    const headers = await client
+      .getRequestHeaders()
+      .catch(
+        (cause) =>
+          new WorkspaceGatewayError({ detail: "get identity token", cause }),
+      );
+    if (headers instanceof Error) return headers;
+    const authorization = headers.get("authorization");
+    if (authorization === null) {
+      return new WorkspaceGatewayError({
+        detail: "identity token response has no authorization header",
+      });
+    }
+    return { authorization };
+  }
+}
+
+export class WorkspaceGateway {
   private readonly auth: AuthService;
-  private readonly googleAuth: GoogleAuth;
+  private readonly authorization: WorkspaceAuthorization;
   private readonly publicOrigin: URL;
   private readonly workspace: WorkspaceService;
 
   constructor(ctx: {
     auth: AuthService;
+    authorization: WorkspaceAuthorization;
     publicOrigin: string;
     workspace: WorkspaceService;
   }) {
     this.auth = ctx.auth;
-    this.googleAuth = new GoogleAuth();
+    this.authorization = ctx.authorization;
     this.publicOrigin = new URL(ctx.publicOrigin);
     this.workspace = ctx.workspace;
   }
@@ -117,7 +160,7 @@ export class WorkspaceGateway {
       return;
     }
 
-    const authorization = await this.getAuthorization(connection);
+    const authorization = await this.authorization.headers(connection);
     if (authorization instanceof Error) {
       console.error(authorization);
       respond(request, response, 502);
@@ -167,7 +210,7 @@ export class WorkspaceGateway {
       return;
     }
 
-    const authorization = await this.getAuthorization(connection);
+    const authorization = await this.authorization.headers(connection);
     if (authorization instanceof Error) {
       console.error(authorization);
       respondToUpgrade(socket, 502);
@@ -198,47 +241,6 @@ export class WorkspaceGateway {
         }),
     );
     if (proxied instanceof Error) console.error(proxied);
-  }
-
-  private async getAuthorization(connection: WorkspaceProviderConnection) {
-    if (connection.authorization.type === "headers") {
-      return connection.authorization.value;
-    }
-    if (connection.authorization.type === "bearer") {
-      return { authorization: connection.authorization.value };
-    }
-
-    const audience = connection.origin;
-    const cached = this.identityClients.get(audience);
-    const client =
-      cached === undefined
-        ? await this.googleAuth.getIdTokenClient(audience).catch(
-            (cause) =>
-              new WorkspaceGatewayError({
-                detail: "create identity client",
-                cause,
-              }),
-          )
-        : cached;
-    if (client instanceof Error) return client;
-
-    this.identityClients.set(audience, client);
-    const headers = await client
-      .getRequestHeaders()
-      .catch(
-        (cause) =>
-          new WorkspaceGatewayError({ detail: "get identity token", cause }),
-      );
-    if (headers instanceof Error) return headers;
-
-    const authorization = headers.get("authorization");
-    if (authorization === null) {
-      return new WorkspaceGatewayError({
-        detail: "identity token response has no authorization header",
-      });
-    }
-
-    return { authorization };
   }
 }
 

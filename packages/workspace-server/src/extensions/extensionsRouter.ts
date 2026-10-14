@@ -44,9 +44,35 @@ export const extensionsRouter = os.router({
     const installed = await context.extensions.installProject({
       extensionId: input.id,
       artifact: input.artifact,
+      installId: input.installId,
     });
     if (installed instanceof Error) return orpcErrors.badRequest(installed);
   }),
+  freeze: os.freeze.handler(async ({ context, input }) => {
+    const frozen = await context.extensions.freezeForPublication({
+      extensionId: input.id,
+      appId: input.appId,
+    });
+    if (frozen instanceof Error) return orpcErrors.badRequest(frozen);
+  }),
+  release: os.release.handler(async ({ context, input }) => {
+    const released = await context.extensions.releasePublication({
+      extensionId: input.id,
+      appId: input.appId,
+    });
+    if (released instanceof Error) return orpcErrors.badRequest(released);
+  }),
+  completePublication: os.completePublication.handler(
+    async ({ context, input }) => {
+      const completed = await context.extensions.completePublication({
+        extensionId: input.id,
+        appId: input.appId,
+        url: input.url,
+        displayName: input.displayName,
+      });
+      if (completed instanceof Error) return orpcErrors.badRequest(completed);
+    },
+  ),
   readSource: os.readSource.handler(async ({ context, input }) => {
     const source = await context.extensions.readSource({
       extensionId: input.id,

@@ -8,10 +8,7 @@ import type {
   AutomationSnapshot,
   AutomationSourceState,
 } from "@get-halo/client";
-import {
-  AutomationDatabase,
-  type AutomationSql,
-} from "./AutomationDatabase.js";
+import { SqlDatabase, type SqlTransaction } from "../database/SqlDatabase.js";
 import type { DatabaseService } from "../DatabaseService.js";
 
 export class AutomationRegistrationError extends errore.createTaggedError({
@@ -58,9 +55,9 @@ type DeliveryRow = {
 };
 
 export class AutomationStore {
-  readonly database: AutomationDatabase;
+  readonly database: SqlDatabase;
   constructor(ctx: { db: DatabaseService }) {
-    this.database = new AutomationDatabase({ client: ctx.db.automationClient });
+    this.database = new SqlDatabase({ client: ctx.db.automationClient });
   }
 
   async initialize() {
@@ -170,7 +167,7 @@ export class AutomationStore {
 
   // Gmail commits matched deliveries and its cursor within the same transaction.
   async enqueueInTransaction(
-    sql: AutomationSql,
+    sql: SqlTransaction,
     input: {
       registration: TriggerRegistration;
       eventId?: string;

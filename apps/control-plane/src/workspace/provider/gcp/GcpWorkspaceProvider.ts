@@ -1,3 +1,4 @@
+import * as errore from "errore";
 import { provisionGcpWorkspace } from "./gcpProvisioning.js";
 import type {
   WorkspaceProviderApi,
@@ -5,6 +6,11 @@ import type {
   WorkspaceProviderInput,
   WorkspaceProviderAssignment,
 } from "../WorkspaceProviderApi.js";
+
+class GcpAppVmUnsupportedError extends errore.createTaggedError({
+  name: "GcpAppVmUnsupportedError",
+  message: "Shared apps require the exe.dev provider's sandboxed app VMs",
+}) {}
 
 export class GcpWorkspaceProvider implements WorkspaceProviderApi {
   // GCP has no explicit pause/resume capability in Halo yet.
@@ -26,6 +32,7 @@ export class GcpWorkspaceProvider implements WorkspaceProviderApi {
   }
 
   async ensure(input: WorkspaceProviderAssignment) {
+    if (input.sharedApp !== undefined) return new GcpAppVmUnsupportedError();
     return await provisionGcpWorkspace({
       ...input,
       config: {

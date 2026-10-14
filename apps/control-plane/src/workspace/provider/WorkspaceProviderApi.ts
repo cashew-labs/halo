@@ -39,6 +39,9 @@ export type WorkspaceProviderConnection = {
  * Implementations return expected failures as Error values.
  */
 export interface WorkspaceProviderApi {
+  /** True when ensure() can provision dedicated app VMs for `sharedApp`. */
+  readonly hostsSharedApps?: true; // coverage-exempt: Type-only capability flag, read by AppService.publish.
+
   /**
    * Idempotently provision or reuse the workspace and bring it online.
    * Concurrent calls for the same identity must not create separate workspaces.
