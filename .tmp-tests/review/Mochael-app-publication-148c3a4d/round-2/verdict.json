@@ -1,0 +1,33 @@
+{
+  "status": "changes_requested",
+  "summary": "Round 1 is resolved. Publishing now checks for app-VM support before freezing. A refused freeze or snapshot no longer strands the extension. `halo app cancel` exists and sharing.md documents it. Cancel is refused once the stage is `ready`. Publications queue per owner. The durable test now passes with a longer timeout. One regression remains from the F1 fix. When the extension process does not stop cleanly, freezeForPublication returns an error after it has already written the \"publishing\" marker. AppService treats that as \"nothing changed\" and deletes the record, so the extension is hidden for good and neither cancel nor a new publish can recover it.",
+  "findings": [
+    {
+      "id": "F5",
+      "kind": "source",
+      "file": "apps/control-plane/src/apps/AppService.ts",
+      "line": 279,
+      "severity": "P1",
+      "body": "This branch assumes \"a refused freeze changed nothing locally\" and deletes the store record whenever `freeze` returns BAD_REQUEST. That is not true. ExtensionHost.freezeForPublication (packages/workspace-server/src/extensions/ExtensionHost.ts:215-222) writes the `publishing` marker first, then calls `running.stop()`, and returns any stop error, which extensionsRouter turns into BAD_REQUEST.\n\n`stop()` returns an ExtensionProcessError whenever the process did not exit with code 0. Realistic causes:\n- An extension that crashed earlier and is still in `processes`.\n- An extension that took longer than 5 s to shut down and was killed with SIGKILL.\n\nIn those cases the marker stays `publishing` while the record that names its appId is deleted. reload then hides the extension, because publishedIds includes `publishing` markers. `halo app cancel` cannot find a record. A new `halo app publish` creates a new appId, freeze fails with \"already published elsewhere\", and that record is deleted too. The extension is lost until someone removes `.halo/app-publication/<id>.json` by hand.\n\nFix it in one of two ways:\n- In freezeForPublication, log the stop error instead of returning it. The process is gone either way and the marker is valid.\n- On a refused freeze, call `abandon` (release, then delete) instead of deleting only the record. Release is a no-op when no marker exists.\n\nAdd a temp test with a non-zero exit, for example an extension whose server has crashed before publish, and assert that the extension can still be published or cancelled afterwards."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "Publishing an extension whose process exits non-zero on stop (or has already crashed) leaves no orphan `publishing` marker: AppService.ts:279 with ExtensionHost.ts:215-222",
+      "tier": "tmp",
+      "rationale": "No current test covers the path where freeze writes the marker and then fails, which strands the extension (F5)."
+    }
+  ],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "06c2f87793a8b4ceeee9fe998b788191dfe4bad0",
+  "treeHash": "c0fff579fa8f3d5b90326e97c0d1a6fe2ecb7922",
+  "codeTree": "636ad946c6f784f9a7993e5db8583645db3d1a6b",
+  "coverage": {
+    "executable": 640,
+    "covered": 595,
+    "exempt": 45,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-14T15:52:18.769Z"
+}

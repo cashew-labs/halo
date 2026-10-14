@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "F5 is resolved. freezeForPublication now logs a stop failure instead of returning it, so a frozen marker never outlives its store record. A new temp test SIGKILLs the extension's process, freezes, then releases, and checks that the extension returns. Both test runs pass, every changed line is covered or has an accepted exemption, and no findings remain.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 3,
+  "headSha": "3d745554caa675f212e61f16797e6985cc2eb4d2",
+  "treeHash": "0b3935f999e82d2a9bd72e968ad1f4a84eb627d0",
+  "codeTree": "4a97ed3fd9ea60ce9970fcea26daedc36185fd14",
+  "coverage": {
+    "executable": 641,
+    "covered": 596,
+    "exempt": 45,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-14T15:56:36.278Z"
+}
