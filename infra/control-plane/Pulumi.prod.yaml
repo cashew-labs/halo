@@ -6,11 +6,11 @@ config:
   halo-control-plane:deploymentServiceAccount: halo-github-deploy@halo-relay.iam.gserviceaccount.com
   halo-control-plane:controlPlaneDomain: gethalo.dev
   halo-control-plane:signInAllowlistSecretId: halo-prod-sign-in-allowlist
-  halo-control-plane:controlPlaneImage: us-west2-docker.pkg.dev/halo-relay/halo-west-workspaces/control-plane:0.1.72
-  halo-control-plane:workspaceImage: us-west2-docker.pkg.dev/halo-relay/halo-west-workspaces/workspace-server:0.1.72
+  halo-control-plane:controlPlaneImage: us-west2-docker.pkg.dev/halo-relay/halo-west-workspaces/control-plane:0.1.73
+  halo-control-plane:workspaceImage: us-west2-docker.pkg.dev/halo-relay/halo-west-workspaces/workspace-server:0.1.73
   halo-control-plane:imageRepositoryId: halo-west-workspaces
   halo-control-plane:workspaceProvider: exe
-  halo-control-plane:exeTemplateVmName: halo-exe-0-1-72
+  halo-control-plane:exeTemplateVmName: halo-exe-0-1-73
   halo-control-plane:exePrivateKeySecretId: halo-west-exe-account-key
   halo-control-plane:googleClientIdSecretId: halo-west-control-plane-google-client-id
   halo-control-plane:googleClientSecretId: halo-west-control-plane-google-client-secret
