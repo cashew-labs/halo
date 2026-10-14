@@ -1,0 +1,46 @@
+{
+  "status": "changes_requested",
+  "summary": "The change replaces the copy-link tab button with a Share dialog (publish, choose who can open, invite people, stop or resume sharing, copy the link). It also points ExtensionView at the creator-host URL for published apps. The dialog logic and its temp tests are mostly sound. However, neither Halo host can actually show the owner's published app in the embedded tab, and the dialog can be closed during a publish, which hides the publish result.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "source",
+      "file": "packages/web/src/main/ExtensionView.tsx",
+      "line": 17,
+      "severity": "P1",
+      "body": "For published apps, the tab iframe now loads `extension.url` (https://<handle>.gethalo.dev/<slug>/view/). Neither host can use this URL for the owner.\n\n1. Browser: the web app is served with `frame-src 'self'` (apps/control-plane/src/server/controlPlaneHttp.ts:79, applied at :707). The creator subdomain is a different origin, so the browser blocks the frame entirely.\n\n2. Electron: the packaged renderer is a file:// page (apps/electron/src/main/main.ts:322), so the creator host is cross-site. The gateway's session cookie is `SameSite=Lax` (apps/control-plane/src/apps/AppGateway.ts:329), and the browser neither sends nor stores it inside a cross-site iframe. The owner is therefore never recognized (AppGateway.ts:178-196):\n   - After \"Stop sharing\", the owner gets a 404 (`hidden`), although the dialog says \"Only you can open this app.\"\n   - For an invited app, the frame redirects to /__halo/signin and then to the handoff page, which sends `frame-ancestors 'none'` (appHandoffHttp.ts:198), so the frame is blocked.\n   - For a public app, the owner appears as an anonymous visitor whose visitor cookie cannot persist.\n\nThe owner's main scenario (opening their own published app in Halo) is broken. Make the embedded view work for the owner: allow creator origins in the web CSP, and authenticate the owner in the frame (for example, a frame-safe owner handoff or a workspace-proxied view). Alternatively, open published apps outside the iframe until that works."
+    },
+    {
+      "id": "F2",
+      "kind": "source",
+      "file": "packages/web/src/panes/ShareAppButton.tsx",
+      "line": 305,
+      "severity": "P1",
+      "body": "`isDismissable={!save.isPending}` (line 137) shows the dialog should not close while a publish is in flight. But the \"Done\" button (line 305) is never disabled, and Escape still closes the modal: `isKeyboardDismissDisabled` is not set, and `isDismissable` only covers outside clicks.\n\nPublishing can take minutes (AppService readyTimeoutMs). If the owner closes the dialog meanwhile, `save.error` lives only in the unmounted dialog, so a failure is silently dropped. Early rejections also leave no record that the reopened dialog could show, so the user sees nothing. Examples: \"This Halo deployment cannot host shared apps\" and the `demo-` slug check.\n\nDisable Done and keyboard dismissal while `save.isPending`. Alternatively, keep the mutation and its error outside the dialog, so the user still sees the result after closing it."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "Published app view in the browser host: web CSP (controlPlaneHttp.ts webContentSecurityPolicy) permits framing the creator-host URL used by ExtensionView, and the owner is recognized in the embedded frame (unpublished app does not 404 for the owner)",
+      "tier": "tmp",
+      "rationale": "extensionView.test.tsx only checks the iframe src attribute, so it cannot catch that the frame is blocked or that the owner is treated as a visitor in the real hosts."
+    },
+    {
+      "target": "ShareAppButton: while a publish is pending, Done and Escape do not close the dialog (or the result is still shown after closing)",
+      "tier": "tmp",
+      "rationale": "No test covers dismissing the dialog during a pending publish, which is the scenario where publish failures are lost."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "737f44b51f5be7a121d806722734c0e7c4df2d7a",
+  "treeHash": "f0add4495a2e31ec0b82aaeb7372b7b044f1c74b",
+  "codeTree": "a6363ad0fcaf3e1dfe6557811d6ca2a4a6cdb51c",
+  "coverage": {
+    "executable": 61,
+    "covered": 59,
+    "exempt": 2,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-14T16:30:04.504Z"
+}

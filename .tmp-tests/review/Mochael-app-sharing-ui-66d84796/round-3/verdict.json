@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The source changes are identical to the approved round 2 head; only the base moved. I re-checked what this change depends on, and all of it is still in place: the `remote` field on ExtensionSummary, the AppSummary stages, and the global external-link handler in HostProvider. All temp tests pass and every changed line is covered or validly exempt. The change is ready.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 3,
+  "headSha": "e38cbae8b381b0f0fca9bfce2aa6f24c0e5d7c35",
+  "treeHash": "56d1ca53422bb03750f84e11435e262301d08342",
+  "codeTree": "4ae9cb539d3ca1c22ed91bce9ef37a1d118dba9c",
+  "coverage": {
+    "executable": 64,
+    "covered": 62,
+    "exempt": 2,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-14T17:29:53.225Z"
+}

@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "Both round 1 findings are fixed. F1: published apps no longer load in the tab's frame; the tab shows a notice with an \"Open\" link, and Halo's link handler (useExternalLinks) opens it in the system browser, where the creator host's cookies work. F2: Done and Escape are now disabled while a save is pending, and a new temp test shows the dialog stays open during publishing and then shows the failure. All temp tests pass, every changed line is covered or validly exempt, and no findings remain.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "06b9281d6b366c74f10f56ddfdf8400077b9d679",
+  "treeHash": "fb752095b053cfc6c9921f095c51d4d2c8a2a4d5",
+  "codeTree": "0e9383937730ae492ce2b7138fc0d4e45cfa0271",
+  "coverage": {
+    "executable": 64,
+    "covered": 62,
+    "exempt": 2,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-14T16:34:38.709Z"
+}
