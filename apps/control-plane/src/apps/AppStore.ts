@@ -28,6 +28,7 @@ export type AppRecord = {
   syncAccess: SyncAccess;
   credentialGeneration: number;
   installId: string;
+  origin: { kind: "demo" | "template"; templateId: string } | undefined;
 };
 
 type AppRow = {
@@ -43,6 +44,8 @@ type AppRow = {
   sync_access: SyncAccess;
   credential_generation: number;
   install_id: string;
+  origin_kind: "demo" | "template" | null;
+  template_id: string | null;
 };
 
 type ActionRow = {
@@ -79,7 +82,7 @@ function hash(secret: string) {
 
 const appColumns = `a.app_id, a.owner_user_id, c.handle, a.extension_id, a.slug,
   a.display_name, a.visibility, a.published, a.stage, a.sync_access,
-  a.credential_generation, a.install_id`;
+  a.credential_generation, a.install_id, o.kind AS origin_kind, o.template_id`;
 
 /** Durable app ownership, access and fixed action bindings. */
 export class AppStore {
@@ -118,6 +121,18 @@ export class AppStore {
       // The app's assistant instructions, as declared when it was published.
       `CREATE TABLE IF NOT EXISTS app_instructions (
         app_id TEXT PRIMARY KEY, instructions TEXT NOT NULL)`,
+      // Template demos and installed copies; ordinary apps have no row.
+      `CREATE TABLE IF NOT EXISTS app_origins (
+        app_id TEXT PRIMARY KEY, kind TEXT NOT NULL, template_id TEXT NOT NULL)`,
+      // Published templates: source, assets and sample data, never live data.
+      // A template is stored before its demo is copied, so a retry installs
+      // the same artifact; it is listed once the demo is live (ready = 1).
+      `CREATE TABLE IF NOT EXISTS templates (
+        template_id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL,
+        source_app_id TEXT NOT NULL, slug TEXT NOT NULL UNIQUE,
+        display_name TEXT NOT NULL, description TEXT NOT NULL,
+        artifact TEXT NOT NULL, demo_app_id TEXT NOT NULL,
+        ready INTEGER NOT NULL, created_at BIGINT NOT NULL)`,
       `CREATE TABLE IF NOT EXISTS app_actions (
         app_id TEXT NOT NULL, name TEXT NOT NULL, description TEXT NOT NULL,
         address TEXT NOT NULL, arguments TEXT NOT NULL, sample_result TEXT,
@@ -177,6 +192,8 @@ export class AppStore {
     members: string[];
     syncAccess: SyncAccess;
     actions: AppAction[];
+    published?: boolean;
+    origin?: { kind: "demo" | "template"; templateId: string };
   }) {
     return await this.database.transaction(async (sql) => {
       const existing = await this.selectApps(
@@ -200,7 +217,7 @@ export class AppStore {
         `INSERT INTO apps (app_id, owner_user_id, extension_id, slug, display_name,
           visibility, published, stage, sync_access, credential_generation,
           install_id, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, 1, 'frozen', $7, 1, $8, $9)`,
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 'frozen', $8, 1, $9, $10)`,
         [
           appId,
           ctx.ownerUserId,
@@ -208,12 +225,20 @@ export class AppStore {
           ctx.slug,
           ctx.displayName,
           ctx.visibility,
+          ctx.published === false ? 0 : 1,
           ctx.syncAccess,
           crypto.randomUUID(),
           Date.now(),
         ],
       );
       if (inserted instanceof Error) return inserted;
+      if (ctx.origin !== undefined) {
+        const origin = await sql.query(
+          "INSERT INTO app_origins (app_id, kind, template_id) VALUES ($1, $2, $3)",
+          [appId, ctx.origin.kind, ctx.origin.templateId],
+        );
+        if (origin instanceof Error) return origin;
+      }
       const members = await this.replaceMembers(sql, appId, ctx.members);
       if (members instanceof Error) return members;
       const actions = await this.replaceActionRows(sql, appId, ctx.actions);
@@ -491,6 +516,98 @@ export class AppStore {
     });
   }
 
+  async createTemplate(ctx: {
+    templateId: string;
+    ownerUserId: string;
+    sourceAppId: string;
+    slug: string;
+    displayName: string;
+    description: string;
+    artifact: string;
+    demoAppId: string;
+  }) {
+    return await this.database.transaction(async (sql) => {
+      const taken = await sql.query<{ owner_user_id: string }>(
+        "SELECT owner_user_id FROM templates WHERE slug = $1",
+        [ctx.slug],
+      );
+      if (taken instanceof Error) return taken;
+      // coverage-exempt: Concurrent publication race; publishTemplate checks the name first and that check is tested.
+      if (taken[0] !== undefined)
+        return new AppConflictError({
+          reason: "Another template already uses this name",
+        });
+      const templateId = ctx.templateId;
+      const inserted = await sql.query(
+        `INSERT INTO templates (template_id, owner_user_id, source_app_id, slug,
+          display_name, description, artifact, demo_app_id, ready, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, $9)`,
+        [
+          templateId,
+          ctx.ownerUserId,
+          ctx.sourceAppId,
+          ctx.slug,
+          ctx.displayName,
+          ctx.description,
+          ctx.artifact,
+          ctx.demoAppId,
+          Date.now(),
+        ],
+      );
+      if (inserted instanceof Error) return inserted;
+      return templateId;
+    });
+  }
+
+  /** Lists a template once its demo is live. */
+  async markTemplateReady(templateId: string) {
+    return await this.database.transaction(async (sql) => {
+      const updated = await sql.query(
+        "UPDATE templates SET ready = 1 WHERE template_id = $1",
+        [templateId],
+      );
+      if (updated instanceof Error) return updated;
+    });
+  }
+
+  async findTemplate(slug: string) {
+    return await this.database.transaction(async (sql) => {
+      const found = await sql.query<{
+        template_id: string;
+        owner_user_id: string;
+        handle: string;
+        slug: string;
+        display_name: string;
+        description: string;
+        artifact: string;
+        demo_app_id: string;
+        source_app_id: string;
+        ready: number;
+      }>(
+        `SELECT t.template_id, t.owner_user_id, c.handle, t.slug, t.display_name,
+           t.description, t.artifact, t.demo_app_id, t.source_app_id, t.ready
+         FROM templates t JOIN app_creators c ON c.user_id = t.owner_user_id
+         WHERE t.slug = $1`,
+        [slug],
+      );
+      if (found instanceof Error) return found;
+      const row = found[0];
+      if (row === undefined) return undefined;
+      return {
+        templateId: row.template_id,
+        ownerUserId: row.owner_user_id,
+        handle: row.handle,
+        slug: row.slug,
+        displayName: row.display_name,
+        description: row.description,
+        artifact: row.artifact,
+        demoAppId: row.demo_app_id,
+        sourceAppId: row.source_app_id,
+        ready: Number(row.ready) === 1,
+      };
+    });
+  }
+
   async instructions(appId: string) {
     return await this.database.transaction(async (sql) => {
       const found = await sql.query<{ instructions: string }>(
@@ -514,6 +631,7 @@ export class AppStore {
         "app_actions",
         "app_members",
         "app_instructions",
+        "app_origins",
         "apps",
       ]) {
         const deleted = await sql.query(
@@ -581,6 +699,7 @@ export class AppStore {
     const rows = await sql.query<AppRow>(
       `SELECT ${appColumns} FROM apps a
        JOIN app_creators c ON c.user_id = a.owner_user_id
+       LEFT JOIN app_origins o ON o.app_id = a.app_id
        WHERE ${where} ORDER BY a.created_at`,
       parameters,
     );
@@ -606,6 +725,10 @@ export class AppStore {
         syncAccess: row.sync_access,
         credentialGeneration: row.credential_generation,
         installId: row.install_id,
+        origin:
+          row.origin_kind === null || row.template_id === null
+            ? undefined
+            : { kind: row.origin_kind, templateId: row.template_id },
       });
     }
     return records;

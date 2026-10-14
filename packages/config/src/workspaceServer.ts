@@ -80,6 +80,8 @@ export const workspaceServerConfigSchema = Type.Object({
         Type.Literal("shared"),
         Type.Literal("actions"),
       ]),
+      // A template demo: one sample-data instance per visitor, no assistant.
+      demo: Type.Optional(Type.Boolean()),
     }),
   ),
 });

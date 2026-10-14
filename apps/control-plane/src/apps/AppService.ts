@@ -1,6 +1,7 @@
 import { Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import * as errore from "errore";
+import crypto from "node:crypto";
 import { ORPCError } from "@orpc/client";
 import { isDeepStrictEqual } from "node:util";
 import {
@@ -102,6 +103,7 @@ export class AppService {
     if (apps instanceof Error) return apps;
     const summaries: AppSummary[] = [];
     for (const app of apps) {
+      if (app.origin?.kind === "demo") continue;
       const summary = await this.summarize(app);
       if (summary instanceof Error) return summary;
       summaries.push(summary);
@@ -289,6 +291,13 @@ export class AppService {
     });
     if (allowed instanceof Error) return allowed;
     if (!allowed) return new AppLimitError();
+    // Demos never reach anyone's connections; they replay the sample result.
+    if (ctx.app.origin?.kind === "demo")
+      return {
+        status: "completed" as const,
+        // oxlint-disable-next-line unicorn/no-null -- A missing sample result is JSON null.
+        result: action.sampleResult ?? null,
+      };
     // coverage-exempt: Actions can be bound only when integrations are configured.
     if (this.integrations === undefined)
       return new AppRequestError({
@@ -326,6 +335,268 @@ export class AppService {
       limit: inferenceLimit,
       windowMs: usageWindowMs,
     });
+  }
+
+  /**
+   * Publishes a live app as a template: its source, assets and build with the
+   * package's sample data, never live data or the owner's fixed arguments.
+   * The demo runs on its own VM, one instance per visitor.
+   */
+  async publishTemplate(ctx: {
+    ownerUserId: string;
+    appId: string;
+    slug: string;
+    description: string;
+  }) {
+    // The demo's path is demo-<slug>, and app paths have at most 63 characters.
+    if (ctx.slug.length > 58)
+      return new AppRequestError({
+        reason: "Template names can have at most 58 characters",
+      });
+    return await this.serialize(ctx.ownerUserId, async () => {
+      const app = await this.owned(ctx);
+      if (app instanceof Error) return app;
+      if (app.stage !== "live" || app.origin !== undefined)
+        return new AppRequestError({
+          reason: "Only your own live apps can become templates",
+        });
+      const existing = await this.store.findTemplate(ctx.slug);
+      if (existing instanceof Error) return existing;
+      // Only a retry of the same app's publication may continue a template.
+      if (
+        existing !== undefined &&
+        (existing.ownerUserId !== ctx.ownerUserId ||
+          existing.sourceAppId !== ctx.appId)
+      )
+        return new AppRequestError({
+          reason: "Another template already uses this name",
+        });
+      const template = existing ?? (await this.createTemplate({ ...ctx, app }));
+      if (template instanceof Error) return template;
+      const demo = await this.store.get(template.demoAppId);
+      if (demo instanceof Error) return demo;
+      // coverage-exempt: Demo records are never deleted once a template names them.
+      if (demo === undefined)
+        return new AppRequestError({ reason: "Template demo is missing" });
+      const artifact = errore.try({
+        // SAFETY: Written by createTemplate from a validated artifact.
+        try: () => JSON.parse(template.artifact) as ExtensionArtifact,
+        catch: (cause) =>
+          new AppRequestError({ reason: "Template is unreadable", cause }), // coverage-exempt: Stored templates are written only by createTemplate as JSON.
+      });
+      if (artifact instanceof Error) return artifact;
+      // The stored artifact, not a new snapshot, so a retry installs the same code.
+      const live = await this.continueCopy({ app: demo, artifact });
+      if (live instanceof Error) return live;
+      const ready = await this.store.markTemplateReady(template.templateId);
+      if (ready instanceof Error) return ready;
+      return this.templateSummary(template);
+    });
+  }
+
+  /** Stores a new template and its demo record; nothing is provisioned yet. */
+  private async createTemplate(ctx: {
+    app: AppRecord;
+    slug: string;
+    description: string;
+  }) {
+    const { app } = ctx;
+    const source = await this.appClient(app);
+    if (source instanceof Error) return source;
+    if (source === undefined)
+      return new AppRequestError({ reason: "App VM is not reachable" });
+    const snapshot = await source.extensions
+      .snapshot({ id: app.extensionId, data: false })
+      .catch(remoteFailure("snapshot"));
+    if (snapshot instanceof Error) return snapshot;
+    const artifact = templateArtifact(snapshot);
+    if (artifact instanceof Error) return artifact;
+    const demo = await this.store.create({
+      ownerUserId: app.ownerUserId,
+      extensionId: `demo-${ctx.slug}`,
+      slug: `demo-${ctx.slug}`,
+      displayName: app.displayName,
+      visibility: "public",
+      members: [],
+      syncAccess: app.syncAccess,
+      actions: [],
+      origin: { kind: "demo", templateId: crypto.randomUUID() },
+    });
+    if (demo instanceof Error) return demo;
+    // An existing record is adopted only if it is an unprovisioned demo: one
+    // left by an attempt that stopped before storing its template.
+    if (demo.origin?.kind !== "demo" || demo.stage !== "frozen")
+      return new AppRequestError({
+        reason: `Another app already uses demo-${ctx.slug}`,
+      });
+    const created = await this.store.createTemplate({
+      templateId: demo.origin.templateId,
+      ownerUserId: app.ownerUserId,
+      sourceAppId: app.appId,
+      slug: ctx.slug,
+      displayName: app.displayName,
+      description: ctx.description,
+      artifact: JSON.stringify(artifact),
+      demoAppId: demo.appId,
+    });
+    if (created instanceof Error) return created;
+    const template = await this.store.findTemplate(ctx.slug);
+    if (template instanceof Error) return template;
+    // coverage-exempt: The row was stored by this call under the owner's queue.
+    if (template === undefined)
+      return new AppRequestError({ reason: "Template was not stored" });
+    return template;
+  }
+
+  /** Installs a template as a new private app on the recipient's own VM. */
+  async installTemplate(ctx: {
+    ownerUserId: string;
+    ownerEmail: string;
+    slug: string;
+  }) {
+    if (this.provider.hostsSharedApps !== true)
+      return new AppRequestError({
+        reason: "This Halo deployment cannot host shared apps",
+      });
+    return await this.serialize(ctx.ownerUserId, async () => {
+      const template = await this.store.findTemplate(ctx.slug);
+      if (template instanceof Error) return template;
+      // coverage-exempt: Templates are never deleted and the install route looks them up first.
+      if (template === undefined || !template.ready)
+        return new AppRequestError({ reason: "Template not found" });
+      const artifact = errore.try({
+        // SAFETY: Written only by publishTemplate from a validated artifact.
+        try: () => JSON.parse(template.artifact) as ExtensionArtifact,
+        catch: (cause) =>
+          new AppRequestError({ reason: "Template is unreadable", cause }), // coverage-exempt: Stored templates are written only by publishTemplate as JSON.
+      });
+      if (artifact instanceof Error) return artifact;
+      const handle = await this.store.ensureHandle({
+        userId: ctx.ownerUserId,
+        email: ctx.ownerEmail,
+      });
+      if (handle instanceof Error) return handle;
+      const app = await this.store.create({
+        ownerUserId: ctx.ownerUserId,
+        extensionId: template.slug,
+        slug: template.slug,
+        displayName: template.displayName,
+        visibility: "invited",
+        members: [],
+        published: false,
+        syncAccess: "read-only",
+        actions: [],
+        origin: { kind: "template", templateId: template.templateId },
+      });
+      if (app instanceof Error) return app;
+      if (app.origin?.templateId !== template.templateId)
+        return new AppRequestError({
+          reason: `You already have an app named ${template.slug}`,
+        });
+      const live = await this.continueCopy({ app, artifact });
+      if (live instanceof Error) return live;
+      return await this.summarize(live);
+    });
+  }
+
+  /** Demos and installed copies: install, build, then reference; resumable. */
+  private async continueCopy(ctx: {
+    app: AppRecord;
+    artifact: ExtensionArtifact;
+  }) {
+    const demo = ctx.app.origin?.kind === "demo";
+    const ready =
+      ctx.app.stage === "frozen"
+        ? await (async () => {
+            // Refuse a name the recipient already uses before provisioning.
+            if (!demo) {
+              const owner = await this.ownerClient(ctx.app.ownerUserId);
+              if (owner instanceof Error) return owner;
+              const existing = await owner.extensions
+                .list()
+                .catch(remoteFailure("list extensions"));
+              if (existing instanceof Error) return existing;
+              if (
+                existing.some(
+                  (extension) =>
+                    extension.id === ctx.app.extensionId &&
+                    extension.remote?.appId !== ctx.app.appId,
+                )
+              )
+                return new AppRequestError({
+                  reason: `You already have an extension named ${ctx.app.extensionId}`,
+                });
+            }
+            const defined = await this.define({
+              app: ctx.app,
+              artifact: ctx.artifact,
+              actions: demo ? "samples" : "none",
+            });
+            if (defined instanceof Error) return defined;
+            const target = await this.provisionAndInstall({
+              app: defined,
+              artifact: ctx.artifact,
+            });
+            if (target instanceof Error) return target;
+            // The template's compiled output is replaced by a build in the
+            // copy's own build sandbox, with no access to anyone's secrets.
+            // `npm install`, not `npm ci`: the sandbox points the Halo SDK
+            // dependencies at its bundled packages before running commands.
+            if (!demo) {
+              const built = await target.extensions
+                .execSource({
+                  id: defined.extensionId,
+                  command: "npm install --no-audit --no-fund && npm run build",
+                })
+                .catch(remoteFailure("build"));
+              if (built instanceof Error) return built;
+              if (built.exitCode !== 0)
+                return new AppRequestError({
+                  reason: `The template did not build: ${built.output.slice(-500)}`,
+                });
+            }
+            return await this.store.advance({
+              appId: defined.appId,
+              from: "frozen",
+              to: "ready",
+            });
+          })()
+        : ctx.app;
+    if (ready instanceof Error) return ready;
+    if (ready.stage !== "ready") return ready;
+    if (!demo) {
+      const owner = await this.ownerClient(ready.ownerUserId);
+      if (owner instanceof Error) return owner;
+      const referenced = await owner.extensions
+        .addRemote({
+          id: ready.extensionId,
+          appId: ready.appId,
+          url: `${this.url(ready)}view/`,
+          displayName: ready.displayName,
+        })
+        .catch(remoteFailure("store reference"));
+      if (referenced instanceof Error) return referenced;
+    }
+    return await this.store.advance({
+      appId: ready.appId,
+      from: "ready",
+      to: "live",
+    });
+  }
+
+  private templateSummary(template: {
+    slug: string;
+    handle: string;
+    displayName: string;
+    description: string;
+  }) {
+    return {
+      slug: template.slug,
+      displayName: template.displayName,
+      description: template.description,
+      url: new URL(`/templates/${template.slug}`, this.publicOrigin).toString(),
+      demoUrl: `${creatorOrigin({ publicOrigin: this.publicOrigin, handle: template.handle })}/demo-${template.slug}/view/`,
+    };
   }
 
   /** Verifies an app VM's own runtime token; it never grants owner authority. */
@@ -391,34 +662,10 @@ export class AppService {
       return defined;
     }
     if (defined instanceof Error || artifact instanceof Error) return defined;
-    const provisioned = await this.provider.ensure({
-      workspaceId: defined.appId,
-      ownerUserId: defined.ownerUserId,
-      runtime: {
-        origin: this.publicOrigin,
-        workspaceId: defined.appId,
-        token: this.credentials.issue({
-          appId: defined.appId,
-          generation: defined.credentialGeneration,
-        }),
-        generation: defined.credentialGeneration,
-      },
-      sharedApp: {
-        appId: defined.appId,
-        extensionId: defined.extensionId,
-        syncAccess: defined.syncAccess,
-      },
+    const installed = await this.provisionAndInstall({
+      app: defined,
+      artifact,
     });
-    if (provisioned instanceof Error) return provisioned;
-    const target = await this.waitForApp(defined);
-    if (target instanceof Error) return target;
-    const installed = await target.extensions
-      .install({
-        id: defined.extensionId,
-        artifact,
-        installId: defined.installId,
-      })
-      .catch(remoteFailure("install"));
     if (installed instanceof Error) return installed;
     return await this.store.advance({
       appId: defined.appId,
@@ -427,8 +674,56 @@ export class AppService {
     });
   }
 
+  /** Provisions the app's own VM and installs the copy once. */
+  private async provisionAndInstall(ctx: {
+    app: AppRecord;
+    artifact: ExtensionArtifact;
+  }) {
+    const { app } = ctx;
+    const sharedApp: NonNullable<
+      Parameters<WorkspaceProviderApi["ensure"]>[0]["sharedApp"]
+    > = {
+      appId: app.appId,
+      extensionId: app.extensionId,
+      syncAccess: app.syncAccess,
+    };
+    if (app.origin?.kind === "demo") sharedApp.demo = true;
+    const provisioned = await this.provider.ensure({
+      workspaceId: app.appId,
+      ownerUserId: app.ownerUserId,
+      runtime: {
+        origin: this.publicOrigin,
+        workspaceId: app.appId,
+        token: this.credentials.issue({
+          appId: app.appId,
+          generation: app.credentialGeneration,
+        }),
+        generation: app.credentialGeneration,
+      },
+      sharedApp,
+    });
+    if (provisioned instanceof Error) return provisioned;
+    const target = await this.waitForApp(app);
+    if (target instanceof Error) return target;
+    const installed = await target.extensions
+      .install({
+        id: app.extensionId,
+        artifact: ctx.artifact,
+        installId: app.installId,
+      })
+      .catch(remoteFailure("install"));
+    if (installed instanceof Error) return installed;
+    return target;
+  }
+
   /** Reads the app definition from the frozen package, with safe defaults. */
-  private async define(ctx: { app: AppRecord; artifact: ExtensionArtifact }) {
+  private async define(ctx: {
+    app: AppRecord;
+    artifact: ExtensionArtifact;
+    // Owner apps bind checked requests; demos keep only sample results;
+    // installed copies start unbound until their new owner binds actions.
+    actions?: "owner" | "samples" | "none";
+  }) {
     const manifest = errore.try({
       // SAFETY: manifestSchema validates the decoded JSON below.
       try: () =>
@@ -449,10 +744,16 @@ export class AppService {
         reason: definition.message,
         cause: definition,
       });
-    const actions = await this.validateActions({
-      ownerUserId: ctx.app.ownerUserId,
-      actions: definition.actions,
-    });
+    const mode = ctx.actions ?? "owner";
+    const actions =
+      mode === "owner"
+        ? await this.validateActions({
+            ownerUserId: ctx.app.ownerUserId,
+            actions: definition.actions,
+          })
+        : mode === "samples"
+          ? definition.actions.map((action) => ({ ...action, arguments: {} }))
+          : [];
     if (actions instanceof Error) return actions;
     return await this.store.define({
       appId: ctx.app.appId,
@@ -623,4 +924,45 @@ function remoteFailure(operation: string) {
 
 export function isAppRequestError(error: Error) {
   return error instanceof AppRequestError || error instanceof AppConflictError;
+}
+
+/**
+ * A template carries the app's files and build with sample data from
+ * `sample-data.json`, and drops the owner's fixed action arguments, which
+ * name the owner's own resources.
+ */
+function templateArtifact(snapshot: ExtensionArtifact) {
+  const manifest = errore.try({
+    // SAFETY: Only the halo.app.actions shape is changed; the rest is kept.
+    try: () =>
+      JSON.parse(snapshot.files["package.json"] ?? "") as {
+        halo?: { app?: { actions?: { arguments?: unknown }[] } };
+      },
+    catch: (cause) =>
+      new AppRequestError({ reason: "package.json is invalid", cause }),
+  });
+  if (manifest instanceof Error) return manifest;
+  for (const action of manifest.halo?.app?.actions ?? []) action.arguments = {};
+  const sample = snapshot.files["sample-data.json"];
+  const sampleData =
+    sample === undefined
+      ? undefined
+      : errore.try({
+          try: () => JSON.stringify(JSON.parse(sample)),
+          catch: (cause) =>
+            new AppRequestError({
+              reason: "sample-data.json is not JSON",
+              cause,
+            }),
+        });
+  if (sampleData instanceof Error) return sampleData;
+  return {
+    files: {
+      ...snapshot.files,
+      "package.json": `${JSON.stringify(manifest, undefined, 2)}\n`,
+    },
+    assets: snapshot.assets,
+    build: snapshot.build,
+    data: sampleData,
+  } satisfies ExtensionArtifact;
 }
