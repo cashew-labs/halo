@@ -8,6 +8,7 @@ import {
   appActionSchema,
   appSlugSchema,
   type AppSummary,
+  type TemplateSummary,
 } from "./extensionSharing.js";
 
 const jsonValueSchema = Type.Recursive((self) =>
@@ -474,6 +475,21 @@ export const controlPlaneContract = publicProcedure.router({
         ),
       )
       .output(type<void>()),
+    // Publishes a template with sample data and a per-visitor demo.
+    publishTemplate: authenticatedProcedure
+      .input(
+        validated(
+          Type.Object(
+            {
+              appId: appIdSchema,
+              slug: appSlugSchema,
+              description: Type.String({ minLength: 1, maxLength: 2000 }),
+            },
+            { additionalProperties: false },
+          ),
+        ),
+      )
+      .output(type<TemplateSummary>()),
   },
 });
 

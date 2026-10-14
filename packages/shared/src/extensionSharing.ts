@@ -65,7 +65,7 @@ export type AppPublication = AppAccess & {
   url: string;
   definition: AppDefinition;
 };
-export type { AppSummary } from "@get-halo/client";
+export type { AppSummary, TemplateSummary } from "@get-halo/client";
 
 export const appSlugSchema = Type.String({
   pattern: "^[a-z][a-z0-9-]{0,62}$",

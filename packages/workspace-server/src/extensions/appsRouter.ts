@@ -63,6 +63,10 @@ export const appsRouter = os.router({
     async ({ context, input }) =>
       await forward(context, async (apps) => await apps.execSource(input)),
   ),
+  publishTemplate: os.publishTemplate.handler(
+    async ({ context, input }) =>
+      await forward(context, async (apps) => await apps.publishTemplate(input)),
+  ),
   restart: os.restart.handler(
     async ({ context, input }) =>
       await forward(context, async (apps) => await apps.restart(input)),

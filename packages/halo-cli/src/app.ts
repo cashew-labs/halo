@@ -184,6 +184,30 @@ export const app = Cli.create("app", {
       return c.ok({ restarted: c.args.appId });
     },
   })
+  .command("template", {
+    description:
+      "Publish a live app as a template with its sample-data.json and a demo",
+    args: z.object({ appId }),
+    options: z.object({
+      slug: z.string().describe("Template name in its link"),
+      description: z.string().describe("One or two sentences for the listing"),
+    }),
+    env,
+    async run(c) {
+      const template = await request(
+        c.env,
+        async (client) =>
+          await client.apps.publishTemplate({
+            appId: c.args.appId,
+            slug: c.options.slug,
+            description: c.options.description,
+          }),
+      );
+      if (template instanceof Error)
+        return c.error({ code: "APP", message: template.message });
+      return c.ok(template);
+    },
+  })
   .command("bind-actions", {
     description:
       "Replace the app's fixed integration requests from a JSON array of actions",
