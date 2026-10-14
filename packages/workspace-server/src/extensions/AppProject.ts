@@ -130,8 +130,21 @@ export class AppProject {
     });
   }
 
-  async install(artifact: ExtensionArtifact) {
+  /** Installs once; retrying the same install ID after a lost reply succeeds. */
+  async install(artifact: ExtensionArtifact, installId: string) {
     return await this.actionQueue.run(async () => {
+      if (!Value.Check(buildIdSchema, installId))
+        return new AppProjectError({ detail: "invalid install ID" });
+      const marker = path.join(this.directory, ".install-id");
+      const previous = await fs
+        .readFile(marker, "utf8")
+        .catch((cause: NodeJS.ErrnoException) =>
+          cause.code === "ENOENT"
+            ? undefined
+            : new AppProjectError({ detail: "read install ID", cause }),
+        );
+      if (previous instanceof Error) return previous;
+      if (previous === installId) return;
       if (!Value.Check(artifactSchema, artifact))
         return new AppProjectError({ detail: "invalid project artifact" });
       if (Buffer.byteLength(JSON.stringify(artifact)) > maxBytes)
@@ -229,6 +242,13 @@ export class AppProject {
           );
         if (written instanceof Error) return written;
       }
+      const recorded = await fs
+        .writeFile(marker, installId, { flag: "wx", mode: 0o600 })
+        .catch(
+          (cause) =>
+            new AppProjectError({ detail: "record install ID", cause }), // coverage-exempt: Filesystem failure right after writing the project; rollback of failed installs is tested.
+        );
+      if (recorded instanceof Error) return recorded;
       installed = true;
     });
   }

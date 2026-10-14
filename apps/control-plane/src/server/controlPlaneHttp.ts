@@ -47,7 +47,9 @@ import { setupBrowserCookies } from "../integrations/setupBrowserCookie.js";
 import {
   isWorkspaceProxyRequest,
   WorkspaceGateway,
+  type WorkspaceAuthorization,
 } from "../workspace/proxy.js";
+import type { AppService } from "../apps/AppService.js";
 
 import { workspaceInferencePath } from "@get-halo/config/inference";
 import {
@@ -115,6 +117,8 @@ export async function listenControlPlaneHttp(host: string, port: number) {
 export function serveControlPlaneHttp(ctx: {
   server: HttpServer;
   auth: AuthService;
+  authorization: WorkspaceAuthorization;
+  apps: AppService;
   publicOrigin: string;
   workspace: WorkspaceService;
   integrations?: IntegrationService;
@@ -152,7 +156,12 @@ export function serveControlPlaneHttp(ctx: {
       new ResponseHeadersHandlerPlugin(),
     ],
   });
-  const gateway = new WorkspaceGateway({ auth, publicOrigin, workspace });
+  const gateway = new WorkspaceGateway({
+    auth,
+    authorization: ctx.authorization,
+    publicOrigin,
+    workspace,
+  });
 
   server.removeListener("request", respondStarting);
   server.on("request", async (request, response) => {
@@ -169,6 +178,7 @@ export function serveControlPlaneHttp(ctx: {
       gateway,
       traces,
       rpc,
+      apps: ctx.apps,
       integrations: ctx.integrations,
       publicOrigin,
       webRoot,
@@ -231,6 +241,7 @@ async function routeControlPlaneRequest(ctx: {
   request: IncomingMessage;
   response: ServerResponse;
   auth: AuthService;
+  apps: AppService;
   publicOrigin: string;
   gateway: WorkspaceGateway;
   traces?: TraceIngestion;
@@ -435,6 +446,7 @@ async function routeControlPlaneRequest(ctx: {
       publicOrigin: ctx.publicOrigin,
       workspace,
       rpc,
+      apps: ctx.apps,
       integrations: ctx.integrations,
       build: ctx.build,
     });
@@ -596,6 +608,7 @@ async function serveControlPlaneRpc(ctx: {
   request: IncomingMessage;
   response: ServerResponse;
   auth: AuthService;
+  apps: AppService;
   publicOrigin: string;
   workspace: WorkspaceService;
   integrations?: IntegrationService;
@@ -610,6 +623,7 @@ async function serveControlPlaneRpc(ctx: {
       publicOrigin: ctx.publicOrigin,
       workspace,
       integrations: ctx.integrations,
+      apps: ctx.apps,
       build: ctx.build,
     },
   });

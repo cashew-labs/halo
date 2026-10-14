@@ -66,7 +66,10 @@ async function run() {
     applicationConfig.server.extensionRuntime === undefined
       ? { executable: process.execPath, electronRunAsNode: false }
       : applicationConfig.server.extensionRuntime;
-  const runtime = applicationConfig.server.runtime;
+  // An app VM's runtime token names only its app; owner services stay absent.
+  // coverage-exempt: Process entry wiring; the temp test VM provider wires app and owner VMs the same way.
+  const appVm = applicationConfig.server.sharedApp !== undefined;
+  const runtime = appVm ? undefined : applicationConfig.server.runtime;
   const runtimeClient =
     runtime === undefined
       ? undefined
@@ -117,12 +120,14 @@ async function run() {
       sharedApp: applicationConfig.server.sharedApp, // coverage-exempt: Host config wiring; canonical WorkspaceServer fixture exercises the app role, without live VM provisioning.
     },
     host: {
+      // coverage-exempt: Process entry wiring; the temp test VM provider wires remoteApps from the runtime client.
       automationControl:
-        applicationConfig.server.runtime === undefined
+        runtime === undefined
           ? undefined
-          : new ControlPlaneAutomationClient(applicationConfig.server.runtime),
-      remoteIntegrationTools:
-        applicationConfig.server.runtime === undefined
+          : new ControlPlaneAutomationClient(runtime),
+      remoteApps: runtimeClient?.apps,
+      remoteIntegrationTools: // coverage-exempt: Rename-only process entry wiring.
+        runtime === undefined
           ? undefined
           : {
               // coverage-exempt: host RPC wiring, exercised through the workspace host fixture.
@@ -153,7 +158,7 @@ async function run() {
                   .catch(remoteFailure),
             },
       remoteConnections:
-        applicationConfig.server.runtime === undefined
+        runtime === undefined
           ? undefined
           : (() => {
               const client = runtimeClient!;
@@ -203,22 +208,18 @@ async function run() {
             })(),
       llmApi,
       reportAutomationSchedule: // coverage-exempt: Rename-only host wiring.
-        applicationConfig.server.runtime === undefined
+        runtime === undefined
           ? undefined
           : (() => {
-              const reporter = new ControlPlaneScheduleReporter( // coverage-exempt: Rename-only entrypoint construction.
-                applicationConfig.server.runtime,
-              );
+              const reporter = new ControlPlaneScheduleReporter(runtime); // coverage-exempt: Rename-only entrypoint construction.
               return async (snapshot, signal) =>
                 await reporter.report(snapshot, signal);
             })(),
       reportWorkIdle:
-        applicationConfig.server.runtime === undefined
+        runtime === undefined
           ? undefined
           : (() => {
-              const reporter = new ControlPlaneWorkReporter(
-                applicationConfig.server.runtime,
-              );
+              const reporter = new ControlPlaneWorkReporter(runtime);
               return async (idle: boolean, signal: AbortSignal) =>
                 await reporter.report(idle, signal);
             })(),

@@ -3,6 +3,12 @@ import { checkServerCompatibility, type ServerInfo } from "@get-halo/client";
 import { error, oc, type, type RouterContractClient } from "@orpc/contract";
 import { Type, type Static, type TSchema } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
+import {
+  appAccessSchema,
+  appActionSchema,
+  appSlugSchema,
+  type AppSummary,
+} from "./extensionSharing.js";
 
 const jsonValueSchema = Type.Recursive((self) =>
   Type.Union([
@@ -143,10 +149,15 @@ function validated<T extends TSchema>(schema: T) {
   };
 }
 
-// Version 5 adds confirming for a saved connection awaiting setup-status repair.
-export const controlPlaneProtocolVersion = 5 as const;
-// Protocol 3 exposes the unchanged auth/workspace APIs, without integrations.
-export const controlPlaneSupportedProtocols = [3, controlPlaneProtocolVersion];
+// Version 6 adds published apps.
+export const controlPlaneProtocolVersion = 6 as const;
+// Protocol 3 exposes the unchanged auth/workspace APIs, without integrations;
+// protocol 5 clients predate published apps.
+export const controlPlaneSupportedProtocols = [
+  3,
+  5,
+  controlPlaneProtocolVersion,
+];
 
 export type ControlPlaneSession = {
   session: {
@@ -194,6 +205,11 @@ const publicProcedure = oc.errors({
 const authenticatedProcedure = publicProcedure.errors({
   UNAUTHORIZED: {},
 });
+
+const appIdSchema = Type.String({
+  pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+});
+const appSourceNameSchema = Type.String({ minLength: 1, maxLength: 1024 });
 
 export const controlPlaneContract = publicProcedure.router({
   server: {
@@ -358,6 +374,106 @@ export const controlPlaneContract = publicProcedure.router({
         ),
       )
       .output(type<IntegrationInvocation>()),
+  },
+  // Owner operations. Visitors reach apps only through the creator host.
+  apps: {
+    list: authenticatedProcedure.output(type<AppSummary[]>()),
+    // Starts or resumes publication; the app VM becomes the only live copy.
+    publish: authenticatedProcedure
+      .input(
+        validated(
+          Type.Object(
+            {
+              extensionId: Type.String({ pattern: "^[a-z][a-z0-9-]{0,79}$" }),
+              slug: Type.Optional(appSlugSchema),
+              access: appAccessSchema,
+            },
+            { additionalProperties: false },
+          ),
+        ),
+      )
+      .output(type<AppSummary>()),
+    update: authenticatedProcedure
+      .input(
+        validated(
+          Type.Object(
+            {
+              appId: appIdSchema,
+              access: Type.Optional(appAccessSchema),
+              published: Type.Optional(Type.Boolean()),
+            },
+            { additionalProperties: false },
+          ),
+        ),
+      )
+      .output(type<AppSummary>()),
+    // Abandons a publication that has not completed; the local app resumes.
+    cancel: authenticatedProcedure
+      .input(
+        validated(
+          Type.Object({ appId: appIdSchema }, { additionalProperties: false }),
+        ),
+      )
+      .output(type<void>()),
+    // Replaces fixed integration requests. Only the owner, never app code.
+    bindActions: authenticatedProcedure
+      .input(
+        validated(
+          Type.Object(
+            {
+              appId: appIdSchema,
+              actions: Type.Array(appActionSchema, { maxItems: 32 }),
+            },
+            { additionalProperties: false },
+          ),
+        ),
+      )
+      .output(type<AppSummary>()),
+    readSource: authenticatedProcedure
+      .input(
+        validated(
+          Type.Object(
+            { appId: appIdSchema, name: appSourceNameSchema },
+            { additionalProperties: false },
+          ),
+        ),
+      )
+      .output(type<string>()),
+    writeSource: authenticatedProcedure
+      .input(
+        validated(
+          Type.Object(
+            {
+              appId: appIdSchema,
+              name: appSourceNameSchema,
+              contents: Type.String({ maxLength: 16 * 1024 * 1024 }),
+            },
+            { additionalProperties: false },
+          ),
+        ),
+      )
+      .output(type<void>()),
+    // Runs in the app VM's build container: source is writable, data is absent.
+    execSource: authenticatedProcedure
+      .input(
+        validated(
+          Type.Object(
+            {
+              appId: appIdSchema,
+              command: Type.String({ minLength: 1, maxLength: 8192 }),
+            },
+            { additionalProperties: false },
+          ),
+        ),
+      )
+      .output(type<{ output: string; exitCode: number }>()),
+    restart: authenticatedProcedure
+      .input(
+        validated(
+          Type.Object({ appId: appIdSchema }, { additionalProperties: false }),
+        ),
+      )
+      .output(type<void>()),
   },
 });
 
