@@ -1,0 +1,46 @@
+{
+  "status": "changes_requested",
+  "summary": "The earlier findings are fixed. The proxy no longer sets undefined headers, and the host token now comes from the running process. The new temp tests cover token injection, forged-header stripping for HTTP and WebSocket, the tool denylist through the router, and every sync access mode. The change is not ready: the new durable control-plane test fails with 503 instead of 200, and the reindented `connect` sync handler has no test.",
+  "findings": [
+    {
+      "id": "F5",
+      "kind": "test",
+      "file": "apps/control-plane/test/ControlPlane.test.ts",
+      "line": 4971,
+      "severity": "P1",
+      "body": "The new durable test \"workspace gateway strips forged extension authority\" fails: `expected 503 to be 200` (.tmp-tests/report/durable.log). The gateway returns 503 when `this.workspace.getConnection(session.user.id)` is undefined or an error (apps/control-plane/src/workspace/proxy.ts:109-117). The workspace connection is therefore not ready after `authenticatedRpc.workspace.ensure()`, or this fixture does not set it up. As a result, the test never reaches the header-stripping code, and proxy.ts:280-283 stays uncovered. Wait for the workspace to become ready, or follow the setup of the other gateway tests that pass (for example the `/workspace/rpc/connect` tests near line 4900), so the forwarded `/headers` response is actually checked."
+    },
+    {
+      "id": "F6",
+      "kind": "test",
+      "file": "packages/extension-sdk/src/sync.ts",
+      "line": 46,
+      "severity": "P1",
+      "body": "The `connect` procedure now goes through the new access middleware, but no test calls it successfully, so lines 46-72 are uncovered. The only check of `/sync/connect` expects 403 for an actions-only visitor. Add a temp test where an allowed caller (a read-only public visitor and/or the owner) opens `connect` and receives the `{ type: \"ready\" }` event. That proves the middleware lets reads through and the moved handler still works."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "apps/control-plane/test/ControlPlane.test.ts:4960-4981 must pass and must exercise apps/control-plane/src/workspace/proxy.ts:280-283",
+      "tier": "durable",
+      "rationale": "This is an anti-spoofing invariant at the public gateway. It needs a durable guard, and that guard must actually pass."
+    },
+    {
+      "target": "packages/extension-sdk/src/sync.ts:43-74 (connect yields ready for the owner and for a read-only visitor)",
+      "tier": "tmp",
+      "rationale": "This covers the reindented handler and the middleware's read-allowed branch for streaming procedures."
+    }
+  ],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "fa151dd71de33813deeab8543063dac8ccfe7b19",
+  "treeHash": "bfe210502249738969d7aa3750362221d74156fc",
+  "codeTree": "494610d1ef51b8f3cdddf2efc219079eaf205e73",
+  "coverage": {
+    "executable": 84,
+    "covered": 62,
+    "exempt": 0,
+    "uncovered": 22
+  },
+  "createdAt": "2026-10-13T22:43:14.706Z"
+}

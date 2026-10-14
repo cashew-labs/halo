@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change adds a per-extension host token that the workspace proxy injects and the SDK checks. It also adds viewer identity headers that are trusted only from the gateway, sync read and write gating, a denylist for extension tool calls, and app-sharing validators. The durable gateway test now passes. `sync.ts` no longer reindents the `connect` handler, so its only changed lines are the access middleware, and temp tests cover it. Every changed line is covered, both test runs pass, and no findings remain.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 3,
+  "headSha": "fa151dd71de33813deeab8543063dac8ccfe7b19",
+  "treeHash": "54c103484a1eca4e01b728af8b0cf3fa19704641",
+  "codeTree": "c5bbb30489de23af4a64205293d0e3e29fdb7cd3",
+  "coverage": {
+    "executable": 66,
+    "covered": 66,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-13T23:10:06.840Z"
+}

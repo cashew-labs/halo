@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change adds a per-extension host token that the workspace proxy injects and the SDK checks. It also adds viewer identity headers that are trusted only from the gateway, sync read and write gating, a denylist for extension tool calls (it still covers the upstream `halo.listConnections` and `halo.removeConnection` tools), and app-sharing validators. With the corrected base (origin/main), the diff is limited to these 15 files and matches the version approved in round 3. The Python bytecode files from F7 came from upstream and are no longer in the diff. Both test runs pass, every changed line is covered, and no findings remain.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 5,
+  "headSha": "21822a7fc42502cb75abe5b375c9aceb4907f91a",
+  "treeHash": "ca4021ed29fec951401f219e30b6d91b278612dc",
+  "codeTree": "dddaa718e2fb00fc41b0e63835e1e5118f032814",
+  "coverage": {
+    "executable": 66,
+    "covered": 66,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-14T18:20:34.992Z"
+}

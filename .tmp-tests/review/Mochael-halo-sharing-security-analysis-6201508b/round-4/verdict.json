@@ -1,0 +1,27 @@
+{
+  "status": "changes_requested",
+  "summary": "The extension-sharing code has not changed since round 3, which I approved: the host token, viewer headers, sync access gating and tool denylist. The denylist still blocks the new upstream connection tools (`halo.listConnections`, `halo.removeConnection`) through the `halo.` prefix. I can't approve this round for two reasons. First, the head now includes about five releases of upstream main (desktop 0.1.68→0.1.73, 241 files), but the review base is still the old merge-base 618c591f, so 2,344 upstream lines fall under the coverage gate. Second, all 35 Electron E2Es failed to launch with \"Missing X server or $DISPLAY\", which is an environment problem, not a test failure. Please re-run the review against an updated base (current main) with a display (Xvfb, plus `HALO_USE_SWIFTSHADER=1`). Also remove the stray Python bytecode files from the diff.",
+  "findings": [
+    {
+      "id": "F7",
+      "kind": "source",
+      "file": "infra/workspace/__pycache__/appHost.cpython-312.pyc",
+      "line": 1,
+      "severity": "P1",
+      "body": "The diff adds compiled CPython bytecode: `infra/workspace/__pycache__/appHost.cpython-312.pyc` and `appPaths.cpython-312.pyc`. No `appHost.py` or `appPaths.py` source exists, and nothing in the repository refers to these modules. These are local build artifacts, not reviewable source. Delete both files and add `__pycache__/` (or `*.pyc`) to `.gitignore`. If they came from the upstream merge, not from this branch, the correct review base (see summary) will drop them from this change."
+    }
+  ],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 4,
+  "headSha": "89876df462f82e04036c70e3d340b79cb115b12f",
+  "treeHash": "74261bfb83207aa69e3be51ef1c210dc9105c393",
+  "codeTree": "a04a58468bb380f0ff632060647240c1863fa5d2",
+  "coverage": {
+    "executable": 3768,
+    "covered": 1339,
+    "exempt": 85,
+    "uncovered": 2344
+  },
+  "createdAt": "2026-10-14T18:17:46.548Z"
+}
