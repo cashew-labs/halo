@@ -25,6 +25,7 @@ import { AutomationScheduleCoordinator } from "../workspace/AutomationScheduleCo
 import type { WorkspaceProviderApi } from "../workspace/provider/WorkspaceProviderApi.js";
 
 import { TraceIngestion } from "../traces/TraceIngestion.js";
+import type { WorkspaceInference } from "../inference/workspaceInference.js";
 import type { TraceCloud } from "../traces/TraceCloud.js";
 import { CredentialService } from "../credentials/CredentialService.js";
 import { IntegrationService } from "../integrations/IntegrationService.js";
@@ -73,7 +74,7 @@ export class ControlPlane {
     workspaceProvider: WorkspaceProviderApi;
     build?: { version: string; revision: string };
     traceCloud?: TraceCloud;
-    inferenceApiKey?: string;
+    inference?: WorkspaceInference;
     workspaceIdleTimeoutMs?: number;
     integrationEncryptionKey?: Buffer;
     getOpenAPISpec?: (url: string) => Promise<string | Error>;
@@ -212,7 +213,7 @@ export class ControlPlane {
       gmailPush,
       webRoot,
       build: ctx.build,
-      inferenceApiKey: ctx.inferenceApiKey,
+      inference: ctx.inference,
       traces:
         ctx.traceCloud === undefined
           ? undefined
