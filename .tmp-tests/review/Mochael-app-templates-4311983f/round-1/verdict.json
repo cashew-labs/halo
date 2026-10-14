@@ -1,0 +1,59 @@
+{
+  "status": "changes_requested",
+  "summary": "This change adds app templates. A live app can be published as a template, and the template gets a trusted listing page and a public demo that runs one sandboxed instance per visitor. Signed-in users can install a private copy, which is rebuilt in the build sandbox with no actions bound. The temp tests are broad and pass, and the coverage exemptions are acceptable. It is not ready: three defects remain. Long template slugs give an unreachable demo. A template can silently reuse an app or demo that already has the same extension ID. Demo containers left running after a host crash take capacity the instance pool does not count.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "source",
+      "file": "apps/control-plane/src/apps/AppService.ts",
+      "line": 380,
+      "severity": "P1",
+      "body": "The demo's slug and extension ID are `demo-${ctx.slug}`. The template slug is validated with `appSlugSchema` (controlPlaneContract.ts:483), which allows up to 63 characters, so a demo slug can be up to 68 characters. The creator-host gateway accepts only `^/([a-z][a-z0-9-]{0,62})...` (AppGateway.ts:17). For any template slug of 59 to 63 characters, publication succeeds and creates a demo VM, but the demo URL and the listing iframe always return 404. Limit template slugs to 58 characters with a dedicated schema, or reject them in publishTemplate before any VM is provisioned."
+    },
+    {
+      "id": "F2",
+      "kind": "source",
+      "file": "apps/control-plane/src/apps/AppService.ts",
+      "line": 378,
+      "severity": "P1",
+      "body": "`store.create` returns any existing app with the same owner and extension ID (\"retries return the record\"), and publishTemplate uses that record without checking it. installTemplate does check the origin (line ~446); publishTemplate does not. Two failures follow. (a) If the owner already has an ordinary published app whose extension ID is `demo-<slug>` (allowed when it was published with a custom slug), that live app becomes the template's `demoAppId`. `continueCopy` sees `origin === undefined` and stage `live` and returns it unchanged, so the template is recorded against the wrong app and its demo URL returns 404. (b) If an earlier attempt from another source app (or an older snapshot) created and installed the demo before failing, the retry reuses that demo. `AppProject.install` is idempotent per installId, so the new artifact is silently ignored, and the demo runs code that differs from the stored template artifact. In the same way, an existing template with the same owner and slug is returned as success even when `ctx.appId` is a different app. Check that `demo.origin?.kind === \"demo\"` and that the demo matches this attempt and source app, and refuse otherwise."
+    },
+    {
+      "id": "F3",
+      "kind": "source",
+      "file": "packages/workspace-server/src/extensions/DemoInstances.ts",
+      "line": 59,
+      "severity": "P1",
+      "body": "Eviction counts only the in-memory `instances` map. The app host caps all labeled containers at four (appHost.py:177-179) and never removes orphaned `halo-app-<id>--<instance>` containers. If the workspace server exits without `stop()` (crash, OOM kill, forced restart), up to three demo containers keep running. The new process starts with an empty map, so after one new visitor every further `connect` fails with \"This VM supports four running shared apps\" and the demo returns 404. This lasts until those exact visitors return. Their data directories are also never discarded. On startup, stop and discard any existing demo instances (for example with a host operation that removes the extension's instance containers and directories), or count the host's running containers when choosing which instance to evict."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "AppService.publishTemplate with a 59-63 character slug (AppService.ts:380)",
+      "tier": "tmp",
+      "rationale": "Show that the demo URL is reachable, or that publication is refused before any VM is provisioned."
+    },
+    {
+      "target": "publishTemplate when the owner already has an app with extension ID demo-<slug>, and a retry after a partial failure from a different source app (AppService.ts:378)",
+      "tier": "tmp",
+      "rationale": "Show that a non-demo or mismatched record is never adopted as the template's demo."
+    },
+    {
+      "target": "DemoInstances / appHost: restart the workspace server with orphaned demo containers still running",
+      "tier": "tmp",
+      "rationale": "Show that new visitors still get instances and that orphaned instance data is discarded."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "c71e53a0772c240112bb527ed98e5bcd8a8e71c0",
+  "treeHash": "01cebd4901c16229da3c0a20d390434bbfbc2d52",
+  "codeTree": "861274a96493db85aa8ad6bf03896c129f7efd63",
+  "coverage": {
+    "executable": 297,
+    "covered": 275,
+    "exempt": 22,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-14T16:40:35.976Z"
+}
