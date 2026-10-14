@@ -13,7 +13,8 @@ Declare the app in `package.json` under `halo.app`. Without a declaration, visit
     "app": {
       "description": "Books I am reading",
       "sync": "read-only",
-      "actions": []
+      "actions": [],
+      "instructions": "Recommend books from the list."
     }
   }
 }
@@ -34,6 +35,21 @@ if (!result.ok) return { error: result.error.message };
 Pass no arguments, or exactly the fixed ones. A different value fails with `invalid_action`, and other tools such as `context.tools.files` or `context.tools.integrations` are unavailable. Each app shares a limit of 120 action calls every 10 minutes across all visitors.
 
 Handlers see who is calling in `context.viewer`. `role` is `owner`, `member` (an invited Halo account, with `email`), or `public` (a pseudonymous visitor ID, with no email).
+
+## Add an assistant
+
+Declare `instructions` in `halo.app` to give a published app an assistant. A handler starts or continues a visitor's conversation:
+
+```ts
+chat: os.handler(async ({ input, context }) =>
+  await context.tools.conversation.send({
+    viewerToken: context.viewer.token,
+    message: input.message,
+    conversationId: input.conversationId, // omit to start a new one
+  })),
+```
+
+`send` returns `{ conversationId, reply }`; `conversation.history({ viewerToken, conversationId })` returns the visible messages. A conversation belongs to the viewer whose request carried the token, so another visitor cannot read it. The assistant can call only the app's bound actions, gets at most 4 model steps and 1024 output tokens per message, and conversations never appear in your Halo sessions. Each app shares 60 model requests every 10 minutes.
 
 ## Publish and edit
 

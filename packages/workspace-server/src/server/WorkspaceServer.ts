@@ -60,6 +60,7 @@ import type { WorkspaceServerReady } from "./WorkspaceServerReady.js";
 import type { SharedAppRuntime } from "../extensions/ExtensionHost.js";
 import type { RemoteApps } from "../extensions/appsRouter.js";
 import type { AppActions } from "../extensions/AppActionsClient.js";
+import { AppConversations } from "../extensions/AppConversations.js";
 
 export type WorkspaceServerConfig = {
   environment: HaloEnvironment;
@@ -466,6 +467,14 @@ export class WorkspaceServer {
         extensions,
         remoteApps: host.remoteApps,
         appActions: host.appActions,
+        appConversations:
+          config.sharedApp === undefined || host.appActions === undefined
+            ? undefined
+            : new AppConversations({
+                llmApi: host.llmApi,
+                actions: host.appActions,
+                directory: path.join(config.appDataDir, "app-conversations"),
+              }),
         workspace,
         search,
         sessions,

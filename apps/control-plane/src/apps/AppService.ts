@@ -35,9 +35,11 @@ export class AppLimitError extends errore.createTaggedError({
   message: "This app reached its usage limit; try again later",
 }) {}
 
-// Every app shares these per-app fixed windows across visitors.
+// Every app shares these per-app fixed windows across visitors. Each model
+// step of an app conversation is one inference request.
 const usageWindowMs = 10 * 60_000;
 const actionLimit = 120;
+const inferenceLimit = 60;
 
 export class AppRemoteError extends errore.createTaggedError({
   name: "AppRemoteError",
@@ -300,6 +302,32 @@ export class AppService {
     });
   }
 
+  /** What an app VM may offer in conversations: stored, not read from app code. */
+  async runtimeDefinition(app: AppRecord) {
+    const actions = await this.store.actions(app.appId);
+    if (actions instanceof Error) return actions;
+    const instructions = await this.store.instructions(app.appId);
+    if (instructions instanceof Error) return instructions;
+    return {
+      displayName: app.displayName,
+      instructions: instructions ?? "",
+      actions: actions.map((action) => ({
+        name: action.name,
+        description: action.description,
+      })),
+    };
+  }
+
+  /** Counts one model request for an app; false once its window is spent. */
+  async consumeInference(app: AppRecord) {
+    return await this.store.consume({
+      appId: app.appId,
+      kind: "inference",
+      limit: inferenceLimit,
+      windowMs: usageWindowMs,
+    });
+  }
+
   /** Verifies an app VM's own runtime token; it never grants owner authority. */
   async authenticateRuntime(authorization: string | undefined) {
     const claimed = this.credentials.read(authorization);
@@ -430,6 +458,7 @@ export class AppService {
       appId: ctx.app.appId,
       displayName: manifest.halo?.displayName ?? ctx.app.extensionId,
       syncAccess: definition.sync,
+      instructions: definition.instructions,
       actions,
     });
   }
