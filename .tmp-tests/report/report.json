@@ -1,0 +1,42 @@
+{
+  "baseRef": "origin/main",
+  "baseSha": "1405e4f79cc8558eeab0061029b58f140a8eccba",
+  "headSha": "1405e4f79cc8558eeab0061029b58f140a8eccba",
+  "treeHash": "4f1caba374f36a43ed4c9bdb6a6c4e2b6a632786",
+  "generatedAt": "2026-10-14T03:57:00.236Z",
+  "runs": {
+    "durable": {
+      "tier": "durable",
+      "testFiles": [],
+      "skipped": true,
+      "runners": [],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 0,
+      "log": ".tmp-tests/report/durable.log",
+      "lcovFiles": []
+    },
+    "tmp": {
+      "tier": "tmp",
+      "testFiles": [],
+      "skipped": true,
+      "runners": [],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 0,
+      "log": ".tmp-tests/report/tmp.log",
+      "lcovFiles": []
+    }
+  },
+  "durableTestFiles": [],
+  "tmpTestFiles": [],
+  "files": [],
+  "totals": {
+    "executable": 0,
+    "coveredDurable": 0,
+    "coveredTmpOnly": 0,
+    "uncovered": 0,
+    "exempt": 0
+  },
+  "passed": true
+}

@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "This is a production promotion to 0.1.73. It updates releases/production.json and pins the prod Pulumi control-plane image, the workspace-server image and the exe template VM name (halo-exe-0-1-73). The values match the format in releases/promotion.mjs, the staging (west) images and the desktop package version (0.1.73). No executable code changed, so I have no findings and the change is ready to merge.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "1405e4f79cc8558eeab0061029b58f140a8eccba",
+  "treeHash": "4f1caba374f36a43ed4c9bdb6a6c4e2b6a632786",
+  "codeTree": "4f1caba374f36a43ed4c9bdb6a6c4e2b6a632786",
+  "coverage": {
+    "executable": 0,
+    "covered": 0,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-14T03:57:43.641Z"
+}
