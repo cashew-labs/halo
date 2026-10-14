@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change sends workspace inference to Together first and falls back to Vertex Gemini on 429/5xx or a connection failure that happens before streaming starts. Gemini requests get adapted tool history, and provider headers stay private. All 55 durable tests pass, and the coverage gate passes: every changed line is covered, or exempt with a reason I accept (process entry point, declarative Pulumi, best-effort body cancel). F1 (stream failure not logged) and F2 (failing durable test) are both resolved.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 3,
+  "headSha": "d34eaebbd3e10ec06e6aaef6bacc6af1cf6c848e",
+  "treeHash": "75bd2dac22d471c86218eab93d9efe9b554a1b1e",
+  "codeTree": "75bd2dac22d471c86218eab93d9efe9b554a1b1e",
+  "coverage": {
+    "executable": 66,
+    "covered": 53,
+    "exempt": 13,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-14T22:45:04.260Z"
+}

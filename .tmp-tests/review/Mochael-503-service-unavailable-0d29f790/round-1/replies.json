@@ -1,0 +1,6 @@
+[
+  {
+    "findingId": "F1",
+    "reply": "Fixed: pipeline failures are logged without gating on response.destroyed, cancellation abort errors return separately, and the public HTTP broken-stream test now verifies the error is logged. Added connection/ADC/bodyless-response cases, moved provider assembly into the tested createWorkspaceInference factory, and documented bootstrap/Pulumi/best-effort cleanup coverage exemptions."
+  }
+]

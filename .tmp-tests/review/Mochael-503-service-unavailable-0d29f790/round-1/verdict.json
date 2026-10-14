@@ -1,0 +1,53 @@
+{
+  "status": "changes_requested",
+  "summary": "The change replaces the httpxy Together proxy with a fetch-based transport. Together is tried first, and Vertex Gemini takes over on 429/5xx or a connection failure that happens before streaming starts. Vertex requests get adapted tool history, and IAM access is granted. The main paths work and are tested, but the coverage gate fails with 27 uncovered lines. The log for a stream that breaks mid-response can never run, and several failure paths have no tests.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "source",
+      "file": "apps/control-plane/src/inference/workspaceInference.ts",
+      "line": 163,
+      "severity": "P1",
+      "body": "`stream.pipeline` destroys every stream in the chain when it fails, and that includes `response`. So every time `forwarded` is an Error, `response.destroyed` is already true, and the function returns before `console.error(forwarded)` runs. Lines 164-165 can never run, and a provider stream that breaks mid-response (the case the comment at lines 152-153 describes) is never logged. Decide whether to log by checking `controller.signal.aborted`, which means the client disconnected, not by checking `response.destroyed`. Then log the failure and destroy the response if it is not already destroyed."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "apps/control-plane/src/inference/workspaceInference.ts:137-140: both providers fail at the connection level (primary status 0 and fallback status 0). The client should get 502 and the provider should see two requests.",
+      "tier": "tmp",
+      "rationale": "When both providers have a network failure, the code returns 502. No test runs this path, and the coverage report lists these lines as uncovered."
+    },
+    {
+      "target": "apps/control-plane/src/inference/vertexInference.ts:40: GoogleAuth fails to get headers after a temporary primary failure. The client should get 502, only the primary request should reach the provider, and the error should be a VertexAuthenticationError.",
+      "tier": "tmp",
+      "rationale": "An ADC failure on the fallback is a realistic production failure. It is uncovered and has no test."
+    },
+    {
+      "target": "apps/control-plane/src/inference/workspaceInference.ts:163-165: after the F1 fix, a primary stream that breaks mid-response is logged and the client connection is destroyed.",
+      "tier": "tmp",
+      "rationale": "These lines are uncovered, and right now no test can reach them."
+    },
+    {
+      "target": "apps/control-plane/src/main.ts:39-49 and infra/control-plane/index.ts:303-310",
+      "tier": "tmp",
+      "rationale": "Either move the Together provider construction into a function the tests can import, then cover it with a temp test (Bearer header from the configured key, URL `${togetherModel.baseUrl}/chat/completions`, identity prepare), or give coverage-exempt reasons for the entry-point wiring and the Pulumi IAM resource. Right now these lines are uncovered with no exemption."
+    },
+    {
+      "target": "apps/control-plane/src/inference/workspaceInference.ts:149-150 and 193",
+      "tier": "tmp",
+      "rationale": "Cover the null-body response path and the failure to cancel the failed response's body, or give exemption reasons. For example, fetch gives a non-null body for every status the fixture sends."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "d34eaebbd3e10ec06e6aaef6bacc6af1cf6c848e",
+  "treeHash": "4b46c7ba271ac7833adea374661ab99323f4f800",
+  "codeTree": "8c9c9f234a82c3f92b20a24087e70c4dbc2c0267",
+  "coverage": {
+    "executable": 68,
+    "covered": 41,
+    "exempt": 0,
+    "uncovered": 27
+  },
+  "createdAt": "2026-10-14T22:39:20.518Z"
+}

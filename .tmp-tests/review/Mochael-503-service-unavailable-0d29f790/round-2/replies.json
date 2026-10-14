@@ -1,0 +1,6 @@
+[
+  {
+    "findingId": "F2",
+    "reply": "Fixed before this verdict completed: replaced test.onTestFinished with Vitest's imported onTestFinished helper. The focused broken-stream test passes and check-affected passes. Also added the accepted declarative Pulumi exemption on the service dependsOn entry. Rerunning the full durable suite and coverage now."
+  }
+]

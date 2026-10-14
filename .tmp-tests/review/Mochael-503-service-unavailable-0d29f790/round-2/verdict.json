@@ -1,0 +1,38 @@
+{
+  "status": "changes_requested",
+  "summary": "The source fix for F1 is correct: stream failures that are not aborts are now logged, and client disconnects are skipped through the abort-cause check. Provider assembly moved into the tested `createWorkspaceInference` factory, and the requested connection, ADC and bodyless-response cases were added. The change is not ready: the durable run fails (\"test.onTestFinished is not a function\" in the broken-stream test). Because of that failure the coverage gate recorded no covered lines.",
+  "findings": [
+    {
+      "id": "F2",
+      "kind": "test",
+      "file": "apps/control-plane/test/ControlPlane.test.ts",
+      "line": 4343,
+      "severity": "P0",
+      "body": "The durable run fails here. `durable.log` reports `TypeError: test.onTestFinished is not a function` for \"does not switch providers after response streaming has started\". Because of this failure, coverage was not recorded for any changed file, and the gate reports 173 uncovered lines. Use the fixture-scoped `onTestFinished` from the test context, for example `async ({ plane, ..., onTestFinished }) => ...`, or restore the spy in a `try/finally`. Then remove the unused import on line 40 and confirm the file passes."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "infra/control-plane/index.ts:826 (the `controlPlaneInferenceAccess` entry in the Cloud Run `dependsOn`)",
+      "tier": "tmp",
+      "rationale": "This line is uncovered and has no exemption. The Pulumi exemption on line 303 covers only the IAMMember block. Add the same declarative-Pulumi exemption to this line. I accept that reason."
+    },
+    {
+      "target": "Rerun ControlPlane.test.ts after the F2 fix and confirm that all changed lines in workspaceInference.ts, createWorkspaceInference.ts, controlPlaneHttp.ts, ControlPlane.ts and config/inference.ts are reported as covered.",
+      "tier": "durable",
+      "rationale": "The failing run collected no coverage, so I cannot yet confirm the new tests cover the paths requested in round 1."
+    }
+  ],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "d34eaebbd3e10ec06e6aaef6bacc6af1cf6c848e",
+  "treeHash": "a7a9a1c9ae1f9ea16a0e0f684c770c5f7a0a71b1",
+  "codeTree": "1809e37b33fea9fdea7a969899a04c8c49c642e8",
+  "coverage": {
+    "executable": 191,
+    "covered": 0,
+    "exempt": 18,
+    "uncovered": 173
+  },
+  "createdAt": "2026-10-14T22:42:42.265Z"
+}
