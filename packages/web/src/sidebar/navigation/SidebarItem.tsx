@@ -180,9 +180,10 @@ const sidebarItem = style(navigationItem, sidebarPadding, {
     color: colors.accent[11],
     fontWeight: 500,
   },
-  "&:has([data-sidebar-hover-action]):is(:hover, :focus-within)": {
-    paddingRight: 0,
-  },
+  "&:has([data-sidebar-hover-action]):is(:hover, :focus-within), &:has([data-sidebar-hover-action] [aria-expanded='true'])":
+    {
+      paddingRight: 0,
+    },
   "&:hover [data-sidebar-hover-action], &:focus-within [data-sidebar-hover-action]":
     {
       display: "grid",
@@ -218,6 +219,7 @@ const hoverTrailing = style({
   display: "none",
   placeItems: "center",
   flexShrink: 0,
+  "&:has([aria-expanded='true'])": { display: "grid" },
   "@media (max-width: 700px)": { display: "grid" },
   "@media (hover: none)": { display: "grid" },
 });
