@@ -283,6 +283,7 @@ function prepareWorkspaceRequest(
   delete request.headers["x-halo-viewer-role"];
   delete request.headers["x-halo-viewer-email"];
   delete request.headers["x-halo-extension-token"];
+  delete request.headers["x-halo-viewer-token"];
   delete request.headers["x-halo-client-id"];
   delete request.headers["x-halo-session-expires"];
   delete request.headers.authorization;

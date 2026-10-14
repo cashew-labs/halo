@@ -115,6 +115,9 @@ export class AppStore {
       `CREATE TABLE IF NOT EXISTS app_usage (
         app_id TEXT NOT NULL, kind TEXT NOT NULL, window_start BIGINT NOT NULL,
         count INTEGER NOT NULL, PRIMARY KEY (app_id, kind, window_start))`,
+      // The app's assistant instructions, as declared when it was published.
+      `CREATE TABLE IF NOT EXISTS app_instructions (
+        app_id TEXT PRIMARY KEY, instructions TEXT NOT NULL)`,
       `CREATE TABLE IF NOT EXISTS app_actions (
         app_id TEXT NOT NULL, name TEXT NOT NULL, description TEXT NOT NULL,
         address TEXT NOT NULL, arguments TEXT NOT NULL, sample_result TEXT,
@@ -456,9 +459,22 @@ export class AppStore {
     appId: string;
     displayName: string;
     syncAccess: SyncAccess;
+    instructions: string | undefined;
     actions: AppAction[];
   }) {
     return await this.database.transaction(async (sql) => {
+      const cleared = await sql.query(
+        "DELETE FROM app_instructions WHERE app_id = $1",
+        [ctx.appId],
+      );
+      if (cleared instanceof Error) return cleared;
+      if (ctx.instructions !== undefined) {
+        const stored = await sql.query(
+          "INSERT INTO app_instructions (app_id, instructions) VALUES ($1, $2)",
+          [ctx.appId, ctx.instructions],
+        );
+        if (stored instanceof Error) return stored;
+      }
       const updated = await sql.query(
         `UPDATE apps SET display_name = $1, sync_access = $2
          WHERE app_id = $3 AND stage = 'frozen'`,
@@ -475,6 +491,17 @@ export class AppStore {
     });
   }
 
+  async instructions(appId: string) {
+    return await this.database.transaction(async (sql) => {
+      const found = await sql.query<{ instructions: string }>(
+        "SELECT instructions FROM app_instructions WHERE app_id = $1",
+        [appId],
+      );
+      if (found instanceof Error) return found;
+      return found[0]?.instructions;
+    });
+  }
+
   async replaceActions(ctx: { appId: string; actions: AppAction[] }) {
     return await this.database.transaction(
       async (sql) => await this.replaceActionRows(sql, ctx.appId, ctx.actions),
@@ -483,7 +510,12 @@ export class AppStore {
 
   async delete(appId: string) {
     return await this.database.transaction(async (sql) => {
-      for (const table of ["app_actions", "app_members", "apps"]) {
+      for (const table of [
+        "app_actions",
+        "app_members",
+        "app_instructions",
+        "apps",
+      ]) {
         const deleted = await sql.query(
           `DELETE FROM ${table} WHERE app_id = $1`,
           [appId],
