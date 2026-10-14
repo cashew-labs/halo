@@ -1,0 +1,72 @@
+{
+  "status": "changes_requested",
+  "summary": "This change adds published apps. The control plane gets AppStore and AppService, the owner workspace gets freeze, release and completePublication, and the CLI gets a `halo app` command group. It is not ready. The durable run failed: ControlPlane.test.ts \"automatically approves MCP, OpenAPI and Google connections across restart\" timed out at 5055 ms, and it must pass on a rerun or be investigated. Publication can also leave an extension stopped and hidden when a step fails before the copy. On Local and GCP providers this happens every time, and the CLI has no command to recover. Cancelling a publication that has reached \"ready\" leaves the copy on the app VM running. A single queue serializes publications for all users.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "source",
+      "file": "apps/control-plane/src/apps/AppService.ts",
+      "line": 259,
+      "severity": "P1",
+      "body": "installFrozen freezes the owner's extension (it stops the process and hides it from discovery, because reload filters every marked ID) before it checks anything that can fail for certain. If a later step fails, the store record stays `frozen` and the extension stays stopped. Only the `define` AppRequestError path releases the extension. Failures that leave it stuck:\n(a) `freeze` is rejected because the extension does not exist, for example `halo app publish missing`. publish has already called `store.create`, so an orphan \"publishing\" record now holds the slug.\n(b) `snapshot` is rejected because the project has no `dist/current.json` or is over the 16 MiB or 256-file limit.\n(c) `provider.ensure` returns LocalAppVmUnsupportedError or GcpAppVmUnsupportedError (line 284). This happens every time with the Local provider used by `pnpm dev` and with GCP.\n\nThe owner's extension disappears and the error does not say how to recover. Before freezing, check that the provider supports app VMs. Release the extension and delete the record when freeze or snapshot is rejected with BAD_REQUEST, as you already do for definition errors."
+    },
+    {
+      "id": "F2",
+      "kind": "source",
+      "file": "packages/halo-cli/src/app.ts",
+      "line": 35,
+      "severity": "P1",
+      "body": "`apps.cancel` is the only way to restore an extension after an interrupted or failed publication, but the `halo app` group has no `cancel` command and references/sharing.md does not mention recovery. The agent, which is the main consumer of this flow, cannot undo a stuck publication (see F1). Add `halo app cancel <appId>` and document it in sharing.md."
+    },
+    {
+      "id": "F3",
+      "kind": "source",
+      "file": "apps/control-plane/src/apps/AppService.ts",
+      "line": 163,
+      "severity": "P1",
+      "body": "`cancel` is allowed in the `ready` stage. By then installFrozen has provisioned the app VM, and `installProject` has started the app there (ExtensionHost.installProject calls startUnqueued). Cancel then restarts the owner's local copy and deletes the store record, so two copies run. The app VM also leaks: no record points to it and nothing reclaims it. This contradicts the comment \"The app VM keeps the abandoned copy stopped until it is reclaimed\". Either refuse to cancel once the stage is `ready` (the next publish completes the cutover), or stop and reclaim the app VM before deleting the record. No test cancels in the `ready` stage."
+    },
+    {
+      "id": "F4",
+      "kind": "source",
+      "file": "apps/control-plane/src/apps/AppService.ts",
+      "line": 49,
+      "severity": "P1",
+      "body": "A single SerialQueue serializes every `publish` and `cancel` for all users on the control plane. Each `publish` holds the queue through provider.ensure (VM clone and assignment) and waitForApp, which can poll for up to 10 minutes. One user's slow or unreachable app VM therefore blocks every other user's publish and cancel for that time. Use a queue per owner or per app. The store transactions already guard against concurrent stage changes."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "AppService.installFrozen failure before the copy (apps/control-plane/src/apps/AppService.ts:259-284): publish a nonexistent extension, an unbuilt extension, and use a provider that refuses app VMs",
+      "tier": "tmp",
+      "rationale": "Shows that the extension is restored to the owner's list and running, and that no orphan publishing record or held slug remains after these failures (F1)."
+    },
+    {
+      "target": "AppService.cancel when the store stage is `ready` (the app VM install succeeded but completePublication failed)",
+      "tier": "tmp",
+      "rationale": "Shows that cancel is either refused or stops and reclaims the app VM copy, so two live copies never exist (F3)."
+    },
+    {
+      "target": "`halo app cancel` restores a frozen extension",
+      "tier": "tmp",
+      "rationale": "Covers the new CLI recovery path (F2)."
+    },
+    {
+      "target": "Rerun or fix apps/control-plane/test/ControlPlane.test.ts \"automatically approves MCP, OpenAPI and Google connections across restart\" (timed out at 5055 ms in the durable run)",
+      "tier": "durable",
+      "rationale": "The durable run must pass before approval. Confirm that the timeout is not caused by the extra app database or AppStore initialization added during startup."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "fa43dbba3a47f5f3645681235ba3df237baedccb",
+  "treeHash": "eef6102db53a6ac79ec5e6d51ac382cb47aada45",
+  "codeTree": "d27706a9af9b63bd0bf8fb674b9506fbc624798b",
+  "coverage": {
+    "executable": 619,
+    "covered": 575,
+    "exempt": 44,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-14T15:41:27.923Z"
+}
