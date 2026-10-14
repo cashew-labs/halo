@@ -8,6 +8,7 @@ import getRawBody from "raw-body";
 import * as errore from "errore";
 import { WorkspaceAuthenticationRequiredError } from "../auth/AuthService.js";
 import type { WorkspaceService } from "../workspace/WorkspaceService.js";
+import type { AppService } from "../apps/AppService.js";
 
 const maxRequestBytes = 16 * 1024 * 1024;
 const completionSchema = Type.Object({
@@ -21,6 +22,22 @@ const completionSchema = Type.Object({
     Type.Integer({ minimum: 1, maximum: togetherModel.maxTokens }),
   ),
 });
+
+// App conversations are public; bound every request they can make.
+const appOutputTokens = Type.Integer({ minimum: 1, maximum: 2048 });
+const appCompletionSchema = Type.Union([
+  Type.Object({
+    messages: Type.Array(Type.Unknown(), { minItems: 1, maxItems: 64 }),
+    max_tokens: appOutputTokens,
+    max_completion_tokens: Type.Optional(appOutputTokens),
+  }),
+  Type.Object({
+    messages: Type.Array(Type.Unknown(), { minItems: 1, maxItems: 64 }),
+    max_completion_tokens: appOutputTokens,
+    max_tokens: Type.Optional(appOutputTokens),
+  }),
+]);
+const maxAppRequestBytes = 256 * 1024;
 
 class WorkspaceInferenceError extends errore.createTaggedError({
   name: "WorkspaceInferenceError",
@@ -60,6 +77,7 @@ export async function serveWorkspaceInference(ctx: {
   request: IncomingMessage;
   response: ServerResponse;
   workspace: WorkspaceService;
+  apps: AppService;
   inference: WorkspaceInference | undefined;
 }) {
   const { request, response, workspace, inference } = ctx;
@@ -72,11 +90,22 @@ export async function serveWorkspaceInference(ctx: {
   if (request.headers.authorization !== undefined)
     headers.set("authorization", request.headers.authorization);
   const identity = await workspace.authenticateRuntime(headers);
-  if (identity instanceof WorkspaceAuthenticationRequiredError) {
+  // An app VM's credential works here too, but only under its app's budget.
+  const app =
+    identity instanceof WorkspaceAuthenticationRequiredError
+      ? await ctx.apps.authenticateRuntime(request.headers.authorization)
+      : undefined;
+  // coverage-exempt: App database outage; no service mocks in the real control-plane fixture.
+  if (app instanceof Error) {
+    console.error(app);
+    response.writeHead(500).end();
+    return;
+  }
+  if (identity instanceof WorkspaceAuthenticationRequiredError && !app) {
     response.writeHead(401).end();
     return;
   }
-  if (identity instanceof Error) {
+  if (identity instanceof Error && !app) {
     console.error(identity);
     response.writeHead(500).end();
     return;
@@ -116,6 +145,27 @@ export async function serveWorkspaceInference(ctx: {
   if (body instanceof Error || !Value.Check(completionSchema, body)) {
     response.writeHead(400).end();
     return;
+  }
+  if (
+    app !== undefined &&
+    (Buffer.byteLength(raw) > maxAppRequestBytes ||
+      !Value.Check(appCompletionSchema, body))
+  ) {
+    response.writeHead(400).end();
+    return;
+  }
+  if (app !== undefined) {
+    const allowed = await ctx.apps.consumeInference(app);
+    // coverage-exempt: App database outage while counting the request.
+    if (allowed instanceof Error) {
+      console.error(allowed);
+      response.writeHead(500).end();
+      return;
+    }
+    if (!allowed) {
+      response.writeHead(429, { "retry-after": "600" }).end();
+      return;
+    }
   }
   if (inference === undefined) {
     response.writeHead(503).end();

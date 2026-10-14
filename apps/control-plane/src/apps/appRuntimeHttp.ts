@@ -36,7 +36,10 @@ export async function serveAppRuntime(ctx: {
   const { request, response } = ctx;
   response.setHeader("cache-control", "no-store");
   const action = actionPathPattern.exec(ctx.url.pathname);
-  if (action === null || request.method !== "POST") {
+  const definition =
+    ctx.url.pathname === "/api/app-runtime/definition" &&
+    request.method === "GET";
+  if (!definition && (action === null || request.method !== "POST")) {
     response.writeHead(404).end();
     return;
   }
@@ -49,6 +52,18 @@ export async function serveAppRuntime(ctx: {
   }
   if (app === undefined) {
     response.writeHead(401).end();
+    return;
+  }
+  if (action === null) {
+    const runtime = await ctx.apps.runtimeDefinition(app);
+    if (runtime instanceof Error) {
+      console.error(runtime);
+      response.writeHead(500).end();
+      return;
+    }
+    response
+      .writeHead(200, { "content-type": "application/json" })
+      .end(JSON.stringify(runtime));
     return;
   }
   const raw = await getRawBody(request, {

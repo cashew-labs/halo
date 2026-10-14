@@ -138,6 +138,9 @@ export async function serveExtension<
       email: Array.isArray(request.headers["x-halo-viewer-email"])
         ? undefined
         : request.headers["x-halo-viewer-email"],
+      token: Array.isArray(request.headers["x-halo-viewer-token"])
+        ? undefined
+        : request.headers["x-halo-viewer-token"],
     };
     if (request.url === "/__halo/ready") {
       response
