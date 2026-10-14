@@ -469,6 +469,17 @@ export const controlPlaneRpcRouter = os.router({
       if (executed instanceof Error) return appError(executed);
       return executed;
     }),
+    publishTemplate: os.apps.publishTemplate.handler(
+      async ({ context, input }) => {
+        const owner = await appOwner(context);
+        const published = await context.apps.publishTemplate({
+          ownerUserId: owner.ownerUserId,
+          ...input,
+        });
+        if (published instanceof Error) return appError(published);
+        return published;
+      },
+    ),
     restart: os.apps.restart.handler(async ({ context, input }) => {
       const owner = await appOwner(context);
       const restarted = await context.apps.restart({ ...owner, ...input });
