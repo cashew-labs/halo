@@ -192,6 +192,7 @@ export function serveHaloHttp(options: {
         context: {
           toolRuntime: options.context.toolRuntime,
           sharedApp: options.context.extensions.isSharedApp(extensionId),
+          appActions: options.context.appActions,
         },
       });
       if (!handled.matched) response.writeHead(404).end();

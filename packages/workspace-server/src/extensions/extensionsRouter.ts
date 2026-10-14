@@ -5,14 +5,16 @@ import type { ExtensionHost } from "./ExtensionHost.js";
 import type { ToolRuntime } from "../agent/runtime/ToolRuntime.js";
 import { authorizeExtensionTool } from "./extensionToolPolicy.js";
 import * as errore from "errore";
+import type { AppActions } from "./AppActionsClient.js";
 
 class SharedAppToolDeniedError extends errore.createTaggedError({
   name: "SharedAppToolDeniedError",
-  message: "Shared apps cannot access ordinary workspace tools",
+  message: "Shared apps can call only their declared actions",
 }) {}
 
 export type ExtensionsRouterContext = {
   extensions: ExtensionHost;
+  appActions?: AppActions;
 };
 const os = implement(contract.extensions).$context<ExtensionsRouterContext>();
 
@@ -102,15 +104,27 @@ export const extensionsRouter = os.router({
 const toolOs = baseOs.$context<{
   toolRuntime: ToolRuntime;
   sharedApp: boolean;
+  appActions: AppActions | undefined;
 }>();
+const appActionPath = /^actions\.([a-zA-Z][a-zA-Z0-9_]{0,63})$/;
 export const extensionToolRouter = {
   invoke: toolOs
     .input(type<{ path: string; input: unknown }>())
     .handler(async ({ input, context, signal }) => {
-      // Shared app authority is supplied by the app service, never the owner's
-      // ordinary tool runtime. Until that bridge is installed, deny every call.
-      if (context.sharedApp)
-        throw orpcErrors.badRequest(new SharedAppToolDeniedError());
+      // A shared app reaches only its owner-fixed actions through the control
+      // plane, never the workspace's ordinary tool runtime.
+      if (context.sharedApp) {
+        const action = appActionPath.exec(input.path);
+        if (action === null || context.appActions === undefined)
+          throw orpcErrors.badRequest(new SharedAppToolDeniedError());
+        const result = await context.appActions.invoke({
+          name: action[1]!,
+          arguments: input.input,
+          signal,
+        });
+        if (result instanceof Error) throw orpcErrors.badRequest(result);
+        return result;
+      }
       const denied = authorizeExtensionTool(input.path);
       if (denied instanceof Error) throw orpcErrors.badRequest(denied);
       const result = await context.toolRuntime.invokePath({

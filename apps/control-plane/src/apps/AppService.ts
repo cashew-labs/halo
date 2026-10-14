@@ -2,6 +2,7 @@ import { Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import * as errore from "errore";
 import { ORPCError } from "@orpc/client";
+import { isDeepStrictEqual } from "node:util";
 import {
   createHaloClient,
   type ExtensionArtifact,
@@ -12,6 +13,7 @@ import {
   validateAppDefinition,
   type AppAction,
   type AppAccess,
+  type AppJson,
   type AppDefinition,
   type AppSummary,
 } from "@get-halo/shared/extensionSharing";
@@ -27,6 +29,15 @@ export class AppRequestError extends errore.createTaggedError({
   name: "AppRequestError",
   message: "$reason",
 }) {}
+
+export class AppLimitError extends errore.createTaggedError({
+  name: "AppLimitError",
+  message: "This app reached its usage limit; try again later",
+}) {}
+
+// Every app shares these per-app fixed windows across visitors.
+const usageWindowMs = 10 * 60_000;
+const actionLimit = 120;
 
 export class AppRemoteError extends errore.createTaggedError({
   name: "AppRemoteError",
@@ -246,6 +257,60 @@ export class AppService {
     return await target.client.extensions
       .restart({ id: target.app.extensionId })
       .catch(remoteFailure("restart"));
+  }
+
+  /**
+   * Runs one owner-bound request for an app VM. The caller names the action;
+   * it may repeat the fixed arguments but never change or add to them.
+   */
+  async invokeAction(ctx: {
+    app: AppRecord;
+    name: string;
+    arguments: Record<string, AppJson> | undefined;
+    signal?: AbortSignal;
+  }) {
+    const actions = await this.store.actions(ctx.app.appId);
+    if (actions instanceof Error) return actions;
+    const action = actions.find((candidate) => candidate.name === ctx.name);
+    if (action === undefined)
+      return new AppRequestError({ reason: "Unknown app action" });
+    if (
+      ctx.arguments !== undefined &&
+      !isDeepStrictEqual(ctx.arguments, action.arguments)
+    )
+      return new AppRequestError({
+        reason: "App actions run only their fixed request",
+      });
+    const allowed = await this.store.consume({
+      appId: ctx.app.appId,
+      kind: "action",
+      limit: actionLimit,
+      windowMs: usageWindowMs,
+    });
+    if (allowed instanceof Error) return allowed;
+    if (!allowed) return new AppLimitError();
+    // coverage-exempt: Actions can be bound only when integrations are configured.
+    if (this.integrations === undefined)
+      return new AppRequestError({
+        reason: "Integration actions are unavailable",
+      });
+    return await this.integrations.invoke({
+      userId: ctx.app.ownerUserId,
+      address: action.address,
+      arguments: action.arguments,
+      signal: ctx.signal,
+    });
+  }
+
+  /** Verifies an app VM's own runtime token; it never grants owner authority. */
+  async authenticateRuntime(authorization: string | undefined) {
+    const claimed = this.credentials.read(authorization);
+    if (claimed === undefined) return undefined;
+    const app = await this.store.get(claimed.appId);
+    if (app instanceof Error) return app;
+    if (app === undefined || app.credentialGeneration !== claimed.generation)
+      return undefined;
+    return app;
   }
 
   private async continuePublication(app: AppRecord) {
