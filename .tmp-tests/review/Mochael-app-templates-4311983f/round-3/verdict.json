@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "Since round 2, the only change is in `AppStore.findTemplate`, which now reads the ready flag with `row.ready === 1`. That matches how the existing `published` column is read at AppStore.ts:723. The round 1 fixes are still in place. All temp test runs pass, every changed line is covered or has an exemption I accept, and no P0 or P1 findings remain.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 3,
+  "headSha": "c346cf02090098eb3bd2546648c3cfac9f6df53d",
+  "treeHash": "e53dc56f979e0f369bd79c0a2992c0227c872bf8",
+  "codeTree": "c8b5e2fa8d312b33580bf0dcae029824d5dd26c5",
+  "coverage": {
+    "executable": 345,
+    "covered": 320,
+    "exempt": 25,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-14T16:51:18.500Z"
+}

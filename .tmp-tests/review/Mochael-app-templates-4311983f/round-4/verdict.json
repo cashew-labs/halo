@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The branch was rebased onto a base that builds app-host paths with `appPaths.under`. The template changes now use it for the instance directories in `slot()` and `instances()`, after `app_name` has checked the extension ID and instance key. All other logic matches the round 3 version, so the round 1 fixes are still in place. All temp test runs pass, every changed line is covered or has an exemption I accept, and no P0 or P1 findings remain.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 4,
+  "headSha": "e649b9f6278e5b380f9a9185d177e19661f89174",
+  "treeHash": "eae98fdefe6af881bdd342b7255d20bba0cb86f6",
+  "codeTree": "7f211b0d0bfd1d769b060a84b99e0ff9cba96451",
+  "coverage": {
+    "executable": 345,
+    "covered": 320,
+    "exempt": 25,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-14T17:32:26.290Z"
+}
