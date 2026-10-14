@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The diff is unchanged since the round 2 approval; only the base moved, which shifted line offsets in WorkspaceServer.ts. The `path` import and `host.llmApi` that the new code uses are still in place. The change adds shared-app visitor conversations: stored instructions, the app-runtime definition route, budgeted app inference, viewer tokens signed by the host, and history trimming that keeps whole turns. Temp tests pass, every changed line is covered or has an accepted exemption, and no findings remain.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 4,
+  "headSha": "9642be53b12ac2e170f4206fcb89cec940fbe1a1",
+  "treeHash": "392bfb72ba1adb63863dcbce4adb0bc30a68f3ea",
+  "codeTree": "265922b51d1eff4d5046e1d3047eed0888dc7d75",
+  "coverage": {
+    "executable": 178,
+    "covered": 163,
+    "exempt": 15,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-14T18:30:54.973Z"
+}

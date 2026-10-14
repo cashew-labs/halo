@@ -1,0 +1,33 @@
+{
+  "status": "changes_requested",
+  "summary": "The change adds visitor conversations to shared apps. Instructions are stored at publish time and served through a new app-runtime definition route. App VMs can now call the control-plane inference endpoint, but under a bounded schema and a per-app budget. Viewer tokens signed by the host keep each visitor's conversations private, and the router exposes `conversation.send` and `conversation.history`. Auth, budgeting and viewer isolation look sound and the temp tests check them well. One blocking defect remains: trimming stored history can permanently break a conversation that used tools, and no test covers that trimming.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "source",
+      "file": "packages/workspace-server/src/extensions/AppConversations.ts",
+      "line": 155,
+      "severity": "P1",
+      "body": "Stored history is trimmed with `.slice(-limits.storedMessages)`, which can cut at any message. Turns without tools add 2 messages and turns with tools add 4 or more, so in a longer conversation the cut can fall just after an assistant `toolCall` message. The saved history then starts with an orphaned `toolResult` (or a partial set of parallel results). pi-ai's `transformMessages` only adds synthetic results for orphaned tool *calls*. It passes orphaned tool *results* through unchanged, and `openai-completions` sends them as `role: \"tool\"` messages with no matching `tool_calls`. OpenAI-compatible providers such as Together reject that request, so every later message in the conversation fails with \"The assistant could not reply\". The history is never rewritten after a failure, so the conversation stays broken. Fix: trim at a turn boundary, for example by dropping leading messages until the first `user` message, or by never keeping a `toolResult` whose assistant `toolCall` was cut."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "packages/workspace-server/src/extensions/AppConversations.ts:151-156 — stored-history trimming once a conversation with tool calls grows past 24 messages",
+      "tier": "tmp",
+      "rationale": "No test sends enough messages to reach the trimming limit. A temp test should continue a conversation that mixes tool and non-tool turns until it passes 24 stored messages. It should then assert that the stored history never starts with a toolResult and that the next model request has no tool message without a preceding tool_calls message."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "3f7a39c3a2af7cf7ca0982b38e29466c8731149a",
+  "treeHash": "3dd21e6a2dd65e44808b915087f2c96151ade9bc",
+  "codeTree": "9d454bc70cb5c44c9a3f97248fe00fa42462a945",
+  "coverage": {
+    "executable": 176,
+    "covered": 161,
+    "exempt": 15,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-14T16:22:27.060Z"
+}

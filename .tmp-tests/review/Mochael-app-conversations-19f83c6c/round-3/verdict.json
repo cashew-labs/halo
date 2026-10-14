@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The diff is unchanged since the round 2 approval; only the base moved. The change adds shared-app visitor conversations, covering stored instructions, the app-runtime definition route, budgeted app inference, viewer tokens signed by the host, and the conversation tool routes. History trimming keeps whole turns (F1, fixed in round 2). Temp tests pass, every changed line is covered or has an accepted exemption, and no findings remain.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 3,
+  "headSha": "d7bcdb0a62371473d3eb414d44f54f88da296334",
+  "treeHash": "1596c89733761ad1de8906fdcfc1e63d97479f83",
+  "codeTree": "17053a3554d9b48fe190f4dea52659a0196ccc5e",
+  "coverage": {
+    "executable": 178,
+    "covered": 163,
+    "exempt": 15,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-14T17:27:31.351Z"
+}
