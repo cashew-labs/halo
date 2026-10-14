@@ -4,6 +4,12 @@ import { orpcErrors } from "../orpcErrors.js";
 import type { ExtensionHost } from "./ExtensionHost.js";
 import type { ToolRuntime } from "../agent/runtime/ToolRuntime.js";
 import { authorizeExtensionTool } from "./extensionToolPolicy.js";
+import * as errore from "errore";
+
+class SharedAppToolDeniedError extends errore.createTaggedError({
+  name: "SharedAppToolDeniedError",
+  message: "Shared apps cannot access ordinary workspace tools",
+}) {}
 
 export type ExtensionsRouterContext = {
   extensions: ExtensionHost;
@@ -29,13 +35,56 @@ export const extensionsRouter = os.router({
     const restarted = await context.extensions.restart(input.id);
     if (restarted instanceof Error) return orpcErrors.badRequest(restarted);
   }),
+  snapshot: os.snapshot.handler(async ({ context, input }) => {
+    const snapshot = await context.extensions.snapshotProject(input.id);
+    if (snapshot instanceof Error) return orpcErrors.badRequest(snapshot);
+    return snapshot;
+  }),
+  install: os.install.handler(async ({ context, input }) => {
+    const installed = await context.extensions.installProject({
+      extensionId: input.id,
+      artifact: input.artifact,
+    });
+    if (installed instanceof Error) return orpcErrors.badRequest(installed);
+  }),
+  readSource: os.readSource.handler(async ({ context, input }) => {
+    const source = await context.extensions.readSource({
+      extensionId: input.id,
+      name: input.name,
+    });
+    if (source instanceof Error) return orpcErrors.badRequest(source);
+    return source;
+  }),
+  writeSource: os.writeSource.handler(async ({ context, input }) => {
+    const written = await context.extensions.writeSource({
+      extensionId: input.id,
+      name: input.name,
+      contents: input.contents,
+    });
+    if (written instanceof Error) return orpcErrors.badRequest(written);
+  }),
+  execSource: os.execSource.handler(async ({ context, input }) => {
+    const executed = await context.extensions.executeProject({
+      extensionId: input.id,
+      command: input.command,
+    });
+    if (executed instanceof Error) return orpcErrors.badRequest(executed);
+    return executed;
+  }),
 });
 
-const toolOs = baseOs.$context<{ toolRuntime: ToolRuntime }>();
+const toolOs = baseOs.$context<{
+  toolRuntime: ToolRuntime;
+  sharedApp: boolean;
+}>();
 export const extensionToolRouter = {
   invoke: toolOs
     .input(type<{ path: string; input: unknown }>())
     .handler(async ({ input, context, signal }) => {
+      // Shared app authority is supplied by the app service, never the owner's
+      // ordinary tool runtime. Until that bridge is installed, deny every call.
+      if (context.sharedApp)
+        throw orpcErrors.badRequest(new SharedAppToolDeniedError());
       const denied = authorizeExtensionTool(input.path);
       if (denied instanceof Error) throw orpcErrors.badRequest(denied);
       const result = await context.toolRuntime.invokePath({

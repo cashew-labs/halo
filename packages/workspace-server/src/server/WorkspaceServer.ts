@@ -48,6 +48,7 @@ import {
   type WorkspaceGatewayIdentity,
 } from "./http.js";
 import type { WorkspaceServerReady } from "./WorkspaceServerReady.js";
+import type { SharedAppRuntime } from "../extensions/ExtensionHost.js";
 
 export type WorkspaceServerConfig = {
   environment: HaloEnvironment;
@@ -68,6 +69,7 @@ export type WorkspaceServerConfig = {
   cliNodeExecutable?: string;
   cliElectronRunAsNode?: boolean;
   extensionRuntime: ExtensionRuntime;
+  sharedApp?: SharedAppRuntime;
 };
 
 export type WorkspaceServerHost = {
@@ -328,6 +330,7 @@ export class WorkspaceServer {
       filesystem,
       logger: host.logger,
       runtime: config.extensionRuntime,
+      sharedApp: config.sharedApp,
     });
     cleanup.defer(async () => await extensions.stop());
     const browsers = new BrowserService();

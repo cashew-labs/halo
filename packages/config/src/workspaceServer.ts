@@ -63,6 +63,23 @@ export const workspaceServerConfigSchema = Type.Object({
     Type.Object({
       executable: Type.String(),
       electronRunAsNode: Type.Boolean(),
+      sandbox: Type.Optional(
+        Type.Object({ socketPath: Type.String({ minLength: 1 }) }),
+      ),
+    }),
+  ),
+  sharedApp: Type.Optional(
+    Type.Object({
+      appId: Type.String({
+        pattern:
+          "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      }),
+      extensionId: Type.String({ pattern: "^[a-z][a-z0-9-]{0,79}$" }),
+      syncAccess: Type.Union([
+        Type.Literal("read-only"),
+        Type.Literal("shared"),
+        Type.Literal("actions"),
+      ]),
     }),
   ),
 });

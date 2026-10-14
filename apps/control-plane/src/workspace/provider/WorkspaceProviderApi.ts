@@ -8,6 +8,12 @@ export type WorkspaceProviderInput = {
 
 export type WorkspaceProviderAssignment = WorkspaceProviderInput & {
   runtime: WorkspaceRuntimeConfig;
+  // coverage-exempt: Type-only VM assignment metadata, validated through the provider and app-service consumers.
+  sharedApp?: {
+    appId: string;
+    extensionId: string;
+    syncAccess: "read-only" | "shared" | "actions";
+  };
 };
 
 /** Server-side connection details. Credentials must not be sent to clients. */
