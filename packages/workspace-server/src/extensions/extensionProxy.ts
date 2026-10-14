@@ -106,6 +106,7 @@ function parseExtensionRoute(url: URL) {
 }
 
 async function forwardExtensionRequest(ctx: {
+  extensions: ExtensionHost;
   hostToken: string;
   fromGateway: boolean;
   request: IncomingMessage;
@@ -114,6 +115,9 @@ async function forwardExtensionRequest(ctx: {
 }) {
   prepareRequest(ctx);
   ctx.request.headers["x-halo-extension-token"] = ctx.hostToken;
+  ctx.request.headers["x-halo-viewer-token"] = ctx.extensions.issueViewerToken(
+    firstHeader(ctx.request.headers["x-halo-viewer-id"]) ?? "owner",
+  );
   const proxied = await extensionProxy
     .web(ctx.request, ctx.response, {
       target: ctx.target.origin,
@@ -164,6 +168,7 @@ function prepareRequest(ctx: {
 
 function removePrivateHeaders(headers: IncomingHttpHeaders) {
   delete headers["x-halo-extension-token"];
+  delete headers["x-halo-viewer-token"];
   delete headers["x-halo-viewer-id"];
   delete headers["x-halo-viewer-role"];
   delete headers["x-halo-viewer-email"];
