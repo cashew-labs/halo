@@ -99,6 +99,13 @@ export type AppSummary = AppAccessList & {
   stage: "publishing" | "live";
   actions: { name: string; description: string }[];
 };
+export type TemplateSummary = {
+  slug: string;
+  displayName: string;
+  description: string;
+  url: string;
+  demoUrl: string;
+};
 export type ExtensionArtifact = {
   files: Record<string, string>;
   assets: Record<string, string>;
@@ -177,8 +184,13 @@ export const contract = publicProcedure.router({
     reload: oc.output(type<void>()),
     restart: oc.input(type<{ id: string }>()).output(type<void>()),
     snapshot: oc
-      .input(type<{ id: string }>())
+      .input(type<{ id: string; data?: boolean }>())
       .output(type<ExtensionArtifact>()),
+    addRemote: oc
+      .input(
+        type<{ id: string; appId: string; url: string; displayName: string }>(),
+      )
+      .output(type<void>()),
     install: oc
       .input(
         type<{ id: string; artifact: ExtensionArtifact; installId: string }>(),
@@ -233,6 +245,9 @@ export const contract = publicProcedure.router({
       .input(type<{ appId: string; command: string }>())
       .output(type<{ output: string; exitCode: number }>()),
     restart: oc.input(type<{ appId: string }>()).output(type<void>()),
+    publishTemplate: oc
+      .input(type<{ appId: string; slug: string; description: string }>())
+      .output(type<TemplateSummary>()),
   },
   workspace: {
     get: oc.output(type<WorkspaceInfo>()),
