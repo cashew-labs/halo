@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { randomUUID } from "node:crypto";
+import crypto, { randomUUID } from "node:crypto";
 import type { Logger } from "@get-halo/logger";
 import * as errore from "errore";
 import {
@@ -54,6 +54,9 @@ export class ExtensionHost {
   private readonly actionQueue = new SerialQueue();
   // Maps bearer tokens to the extensions allowed to use them.
   private readonly toolTokens = new Map<string, string>();
+  // Signs viewer tokens stamped on proxied requests, so app code can act for a
+  // viewer only while serving that viewer's request.
+  private readonly viewerKey = crypto.randomBytes(32);
 
   private readonly workspaceRoot: string;
   private readonly toolsOrigin: string;
@@ -139,6 +142,34 @@ export class ExtensionHost {
       });
     }
     return extensions;
+  }
+
+  issueViewerToken(viewerId: string) {
+    const payload = `${Date.now() + 60 * 60_000}.${Buffer.from(viewerId).toString("base64url")}`;
+    return `${payload}.${this.signViewer(payload)}`;
+  }
+
+  /** The viewer a token was issued for, while it is unexpired. */
+  readViewerToken(token: string) {
+    const parts = token.split(".");
+    if (parts.length !== 3) return undefined;
+    const payload = `${parts[0]}.${parts[1]}`;
+    const expected = Buffer.from(this.signViewer(payload));
+    const actual = Buffer.from(parts[2]!);
+    if (
+      actual.length !== expected.length ||
+      !crypto.timingSafeEqual(actual, expected) ||
+      Number(parts[0]) < Date.now()
+    )
+      return undefined;
+    return Buffer.from(parts[1]!, "base64url").toString();
+  }
+
+  private signViewer(payload: string) {
+    return crypto
+      .createHmac("sha256", this.viewerKey)
+      .update(payload)
+      .digest("base64url");
   }
 
   identifyToolConnection(authorization: string | undefined) {

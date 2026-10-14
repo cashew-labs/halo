@@ -424,6 +424,7 @@ async function routeControlPlaneRequest(ctx: {
       request,
       response,
       workspace,
+      apps: ctx.apps,
       apiKey: ctx.inferenceApiKey,
     });
     return;

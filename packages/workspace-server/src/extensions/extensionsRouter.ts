@@ -6,6 +6,13 @@ import type { ToolRuntime } from "../agent/runtime/ToolRuntime.js";
 import { authorizeExtensionTool } from "./extensionToolPolicy.js";
 import * as errore from "errore";
 import type { AppActions } from "./AppActionsClient.js";
+import {
+  AppConversationError,
+  appConversationInputSchema,
+  type AppConversations,
+} from "./AppConversations.js";
+import { Type } from "@sinclair/typebox";
+import { Value } from "@sinclair/typebox/value";
 
 class SharedAppToolDeniedError extends errore.createTaggedError({
   name: "SharedAppToolDeniedError",
@@ -15,6 +22,7 @@ class SharedAppToolDeniedError extends errore.createTaggedError({
 export type ExtensionsRouterContext = {
   extensions: ExtensionHost;
   appActions?: AppActions;
+  appConversations?: AppConversations;
 };
 const os = implement(contract.extensions).$context<ExtensionsRouterContext>();
 
@@ -103,9 +111,18 @@ export const extensionsRouter = os.router({
 
 const toolOs = baseOs.$context<{
   toolRuntime: ToolRuntime;
+  extensions: ExtensionHost;
   sharedApp: boolean;
   appActions: AppActions | undefined;
+  appConversations: AppConversations | undefined;
 }>();
+const historyInputSchema = Type.Object(
+  {
+    viewerToken: Type.String({ minLength: 1, maxLength: 512 }),
+    conversationId: Type.String({ maxLength: 64 }),
+  },
+  { additionalProperties: false },
+);
 const appActionPath = /^actions\.([a-zA-Z][a-zA-Z0-9_]{0,63})$/;
 export const extensionToolRouter = {
   invoke: toolOs
@@ -113,6 +130,56 @@ export const extensionToolRouter = {
     .handler(async ({ input, context, signal }) => {
       // A shared app reaches only its owner-fixed actions through the control
       // plane, never the workspace's ordinary tool runtime.
+      if (context.sharedApp && input.path.startsWith("conversation.")) {
+        const conversations = context.appConversations;
+        if (conversations === undefined)
+          throw orpcErrors.badRequest(new SharedAppToolDeniedError());
+        // The viewer comes from a token the host signed for a live request,
+        // never from an ID the app supplies.
+        if (
+          input.path === "conversation.send" &&
+          Value.Check(appConversationInputSchema, input.input)
+        ) {
+          const viewerId = context.extensions.readViewerToken(
+            input.input.viewerToken,
+          );
+          if (viewerId === undefined)
+            return toolError(
+              new AppConversationError({ reason: "Viewer token expired" }),
+            );
+          const sent = await conversations.send({
+            viewerId,
+            conversationId: input.input.conversationId,
+            message: input.input.message,
+            signal,
+          });
+          return sent instanceof Error
+            ? toolError(sent)
+            : { ok: true, data: sent };
+        }
+        if (
+          input.path === "conversation.history" &&
+          Value.Check(historyInputSchema, input.input)
+        ) {
+          const viewerId = context.extensions.readViewerToken(
+            input.input.viewerToken,
+          );
+          if (viewerId === undefined)
+            return toolError(
+              new AppConversationError({ reason: "Viewer token expired" }),
+            );
+          const history = await conversations.history({
+            viewerId,
+            conversationId: input.input.conversationId,
+          });
+          return history instanceof Error
+            ? toolError(history)
+            : { ok: true, data: history };
+        }
+        return toolError(
+          new AppConversationError({ reason: "Invalid conversation request" }),
+        );
+      }
       if (context.sharedApp) {
         const action = appActionPath.exec(input.path);
         if (action === null || context.appActions === undefined)
@@ -136,3 +203,16 @@ export const extensionToolRouter = {
       return result;
     }),
 };
+
+function toolError(error: Error) {
+  return {
+    ok: false as const,
+    error: {
+      code: "conversation_failed",
+      message:
+        error instanceof AppConversationError
+          ? error.message
+          : "The assistant is unavailable",
+    },
+  };
+}
