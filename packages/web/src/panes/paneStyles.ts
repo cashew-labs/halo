@@ -29,6 +29,9 @@ export const paneStyles = {
     backgroundColor: backgroundColor.app,
   }),
   tabBar: style(flex({ alignItems: "center" }), {
+    // Mark the opaque tab bar as pinned chrome for iOS scroll-edge sampling.
+    position: "sticky",
+    top: 0,
     height: tabBarHeight,
     paddingInline: 8,
     backgroundColor: backgroundColor.app,
