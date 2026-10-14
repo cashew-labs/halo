@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "Since round 3, the only change is a new `appPaths.under()` helper in `appPaths.py`. It normalizes a path built from request values and refuses any result outside its root. `appHost.py` now uses it to build every path from the extension ID under DATA and WORKSPACE. This is defense in depth on top of the existing `app_name` check. The temp tests run the escape-refusal branch. All temp tests pass, every changed line is covered or has an accepted exemption, and no P0 or P1 finding remains.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 4,
+  "headSha": "d2faf2846b049d11420d7faf97d4672566dd7413",
+  "treeHash": "acb0325623282db465075254fbf5d86cc611ed86",
+  "codeTree": "ac89e60467fadaddb6c53b344eedd9c5dd0b6293",
+  "coverage": {
+    "executable": 645,
+    "covered": 506,
+    "exempt": 139,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-14T17:18:02.361Z"
+}

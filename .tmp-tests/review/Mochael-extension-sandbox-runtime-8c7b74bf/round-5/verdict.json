@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "This round rebases the change onto a new merge-base without changing its content. `exeRollout.sh` now calls `pull_on_guest` instead of `docker save`/`docker load`, and it still copies the app-sandbox scripts before `exeTemplate.sh` runs. The image is on the guest before `appSandboxSetup.sh` uses it to pack the SDK, and `remove_unused_images` only removes `halo-workspace` repository tags and dangling images, so it does not touch the pinned node image. The other files only have shifted offsets; all temp tests pass, every changed line is covered or has an accepted exemption, and no P0 or P1 finding remains.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 5,
+  "headSha": "469e43787f099e2db7570c20e0201d3fa2f84493",
+  "treeHash": "a2602a091d87c7f141993a887b2f61c70d5a75ab",
+  "codeTree": "e678dfef56e975586d6283be36dedfe9eb0634f8",
+  "coverage": {
+    "executable": 645,
+    "covered": 506,
+    "exempt": 139,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-14T18:21:47.275Z"
+}

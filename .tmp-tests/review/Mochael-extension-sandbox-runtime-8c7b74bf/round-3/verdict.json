@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "F5 is fixed: `AppProject.snapshot` now applies the same 256-entry total that `install` applies, counting source, assets and build together, including the two `dist/` entry files. A new temp test checks that a 262-entry project is refused and that a 252-entry snapshot installs into a fresh project. The round-1 fixes are unchanged, all temp tests pass, every changed line is covered or has an accepted exemption, and no P0 or P1 finding remains.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 3,
+  "headSha": "e8394be06d516cecad0c53f3e570227c59a14ab3",
+  "treeHash": "b0d4eb452ff3b8289fac69c6ae74bc7d65d45d32",
+  "codeTree": "3d0df0298bd509321a55fdde6c364be8b7447eb5",
+  "coverage": {
+    "executable": 639,
+    "covered": 500,
+    "exempt": 139,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-14T15:32:02.928Z"
+}
