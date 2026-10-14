@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "All three findings from round 1 are fixed and covered by temp tests. publishTemplate now refuses slugs over 58 characters before anything is created (F1). Each template is stored before its demo is provisioned and stays tied to its source app; only an unprovisioned demo record is adopted, and retries install the stored artifact (F2). DemoInstances clears any demo instances a previous server process left behind through the new host `reset` operation before it counts capacity (F3). All temp test runs pass, every changed line is covered or has an exemption I accept, and no P0 or P1 findings remain.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "4584046b133bdbe65eee9f4f5318c5ca852e524d",
+  "treeHash": "cb0ec76365e8cdd3667240864d804d630a99623c",
+  "codeTree": "de02a5de92bcb14c4e5527a9ff81079e9d9c35e4",
+  "coverage": {
+    "executable": 345,
+    "covered": 320,
+    "exempt": 25,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-14T16:47:54.711Z"
+}

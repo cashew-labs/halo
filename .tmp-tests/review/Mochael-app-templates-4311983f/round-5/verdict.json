@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The branch was rebased again. The template diff is the same as in round 4; only the surrounding context in controlPlaneHttp, controlPlaneRpcRouter, controlPlaneContract and WorkspaceServer moved. The round 1 fixes are still in place. All temp test runs pass, every changed line is covered or has an exemption I accept, and no P0 or P1 findings remain.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 5,
+  "headSha": "ee01ec18c9cf6962b9f86c120aac9c2a5150d76a",
+  "treeHash": "e4b7d00f0eb5ccca15120b60a739bbf9dcb6c81f",
+  "codeTree": "3c9469887d3dd8521289b9d225f133101d828537",
+  "coverage": {
+    "executable": 345,
+    "covered": 320,
+    "exempt": 25,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-14T18:35:37.316Z"
+}
