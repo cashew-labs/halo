@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change adds visitor conversations to shared apps. It covers stored instructions, the app-runtime definition route, budgeted app inference, viewer tokens signed by the host, and the conversation tool routes. F1 is fixed: trimmed history now starts at the first user message, so it never starts with a tool result whose call was cut. A new temp test checks this through the stored file and the next model request. Temp tests pass, every changed line is covered or has an accepted exemption, and no findings remain.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "68cdbf10d6d3f6fe6681f9c6fedd5c4d5060aed2",
+  "treeHash": "5d4dd976c0d0dd01a940d5a060e066ed4305e422",
+  "codeTree": "719c7f15b7b53f7e265957e8067fdc4165605f75",
+  "coverage": {
+    "executable": 178,
+    "covered": 163,
+    "exempt": 15,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-14T16:25:28.903Z"
+}
