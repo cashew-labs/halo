@@ -46,7 +46,9 @@ export const extensionsRouter = os.router({
     if (restarted instanceof Error) return orpcErrors.badRequest(restarted);
   }),
   snapshot: os.snapshot.handler(async ({ context, input }) => {
-    const snapshot = await context.extensions.snapshotProject(input.id);
+    const snapshot = await context.extensions.snapshotProject(input.id, {
+      data: input.data !== false,
+    });
     if (snapshot instanceof Error) return orpcErrors.badRequest(snapshot);
     return snapshot;
   }),
@@ -57,6 +59,15 @@ export const extensionsRouter = os.router({
       installId: input.installId,
     });
     if (installed instanceof Error) return orpcErrors.badRequest(installed);
+  }),
+  addRemote: os.addRemote.handler(async ({ context, input }) => {
+    const added = await context.extensions.addRemoteApp({
+      extensionId: input.id,
+      appId: input.appId,
+      url: input.url,
+      displayName: input.displayName,
+    });
+    if (added instanceof Error) return orpcErrors.badRequest(added);
   }),
   freeze: os.freeze.handler(async ({ context, input }) => {
     const frozen = await context.extensions.freezeForPublication({

@@ -79,3 +79,16 @@ halo app bind-actions <appId> --file actions.json # replace fixed requests
 ```
 
 `exec` runs in a container that can write source but cannot read app data or Halo credentials. The public backend runs read-only code in a separate sandbox.
+
+## Publish a template
+
+A template lets others try the app with sample data and install their own copy. First add `sample-data.json` to the app's source: a copy of the app's `tandem.json` holding only made-up records. Then publish:
+
+```sh
+halo app write <appId> sample-data.json --file ./sample-data.json
+halo app template <appId> --slug reading-list --description "Track what you read"
+```
+
+The listing is `https://gethalo.dev/templates/<slug>` and the demo is `https://<handle>.gethalo.dev/demo-<slug>/`. Each demo visitor gets a separate copy that starts from the sample data and is discarded later. In the demo, actions return their `sampleResult` and the assistant is off. A template never includes live data, and fixed action arguments are removed.
+
+Installing a template creates a private app for the installer on its own VM, rebuilt in the build sandbox, with no actions bound. The installer's agent binds their own resources with `halo app bind-actions`.
