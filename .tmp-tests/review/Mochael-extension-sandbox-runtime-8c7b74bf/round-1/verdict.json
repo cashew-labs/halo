@@ -1,0 +1,62 @@
+{
+  "status": "changes_requested",
+  "summary": "The change adds a dedicated \"shared app\" VM role. It includes a root-owned gVisor/Docker supervisor (appHost.py), owner-only RPCs for remote install, edit, build and snapshot, and control-plane and VM assignment wiring. The workspace-side TypeScript is well tested with temp tests. The root supervisor, however, follows symlinks in a directory the workspace user controls, and its socket is mounted into every workspace container. This exposes root file reads. The update path and the snapshot/export path also have correctness defects.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "source",
+      "file": "infra/workspace/appHost.py",
+      "line": 111,
+      "severity": "P0",
+      "body": "The supervisor runs as root but trusts paths under /var/lib/halo/home/documents. The workspace container's uid 1000 owns that directory. The `/run/halo-apps` socket is root:1000 0660, and exeTemplate.sh mounts it into every workspace container, personal VMs included (`--volume /run/halo-apps:/run/halo-apps:ro`). So any agent or bash process in a workspace can POST to it directly.\n\nAt line 106, `original.is_file()`/`stat()` follows symlinks, and at line 111, `original.open('rb')` does the same. A uid-1000 process can therefore create `.halo/extensions/x/dist/start.mjs` and symlink `.halo/extension-data/x/tandem.json -> /etc/shadow` (or any root-only file). It then calls `/start` and `/snapshot` for `x`. The supervisor copies the file into the app volume as root and returns its contents.\n\nThe same applies at lines 94-96 and in `execute`: `(WORKSPACE / '.halo/extensions').resolve()` is computed after following a user-controlled symlink. The `source.parent != root` check therefore passes for any host directory, which is then bind-mounted, read-write in `/exec`, into a container.\n\nThe fix needs all of these:\n- Open every component under WORKSPACE with O_NOFOLLOW (or openat/dir_fd), and reject symlinks for `.halo`, `.halo/extensions`, `.halo/extension-data` and the per-extension directories.\n- Check that the opened file is a regular file with fstat.\n- Mount the socket only on app VMs (or restrict which caller may use it)."
+    },
+    {
+      "id": "F2",
+      "kind": "source",
+      "file": "infra/workspace/appSandboxSetup.sh",
+      "line": 89,
+      "severity": "P1",
+      "body": "exeRollout `update` copies a new appHost.py and runs `exeTemplate.sh ... update-host`, which reinstalls `/usr/local/bin/halo-app-host` and the unit file. However, `systemctl enable --now halo-app-host` does not restart a service that is already active. The old supervisor keeps running, so supervisor fixes, including security fixes, never take effect until a reboot. Use `systemctl enable halo-app-host && systemctl restart halo-app-host` (or `reload-or-restart`) after `daemon-reload`."
+    },
+    {
+      "id": "F3",
+      "kind": "source",
+      "file": "infra/workspace/appHost.py",
+      "line": 238,
+      "severity": "P1",
+      "body": "`/snapshot` returns `{}` (no data) whenever `DATA/<id>/data/tandem.json` is missing. The loop-mounted ext4 volume is mounted only inside `start()` (via `volume()`), and nothing remounts it after a VM reboot. If `start` fails before `volume()` runs (for example, `dist/start.mjs` is missing after a bad `execSource`), the mountpoint is an empty directory. `snapshotProject` then exports the project with `data: undefined`, silently dropping all visitor data. Mount the volume before reading it (or fail when the image exists but is not mounted), so that missing data is distinguished from an unmounted volume."
+    },
+    {
+      "id": "F4",
+      "kind": "source",
+      "file": "packages/workspace-server/src/extensions/AppProject.ts",
+      "line": 372,
+      "severity": "P1",
+      "body": "`capture` silently skips any file whose extension is not in the allow-lists (`if (valid instanceof Error) continue;`). This is also true for the compiled build directory (`compiled: true`). Common build outputs such as `.ico`, `.gif`, `.ttf`, `.otf`, `.wasm`, `.cjs` and `.webmanifest` are therefore dropped from `artifact.build` without an error. The shared or reinstalled app then serves 404s or fails at runtime. Build output is already transferred as base64, so either capture all regular files under `dist/<buildId>` or return an error that names the unsupported file instead of dropping it silently."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "infra/workspace/appHost.py start()/snapshot and execute(): symlinked .halo/extensions, .halo/extension-data/<id>, and tandem.json must be rejected",
+      "tier": "tmp",
+      "rationale": "The path-handling fix for F1 is pure Python and can be unit-tested without Docker by stubbing `command` and pointing WORKSPACE/DATA at a temp directory. The blanket gVisor exemption should not cover the symlink validation."
+    },
+    {
+      "target": "AppProject.snapshot with a build directory containing an unsupported extension (e.g. dist/<buildId>/public/favicon.ico)",
+      "tier": "tmp",
+      "rationale": "The test must show that compiled assets are either preserved through snapshot/install or rejected with an error, not silently dropped (F4)."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "e23489caf2f8847043eea8dee39a4a54cff3142f",
+  "treeHash": "95e021c34574d0c0f33c192973d92e80e3c5970c",
+  "codeTree": "b3cd2212cdcf59578b623202756e9a471bc1e587",
+  "coverage": {
+    "executable": 534,
+    "covered": 298,
+    "exempt": 236,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-14T00:59:59.209Z"
+}

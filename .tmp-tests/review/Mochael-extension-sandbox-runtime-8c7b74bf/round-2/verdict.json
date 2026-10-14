@@ -1,0 +1,33 @@
+{
+  "status": "changes_requested",
+  "summary": "All four round-1 findings are fixed. The supervisor now opens paths through O_NOFOLLOW descriptor walks, bind-mounts a pinned descriptor, and mounts the socket only on app VMs (F1). Setup now restarts the supervisor (F2). The snapshot mounts the volume before reading it (F3). Capture now keeps compiled files of every type (F4). One new defect remains: `snapshot` and `install` apply different limits on the number of files, so some projects export successfully but cannot be installed.",
+  "findings": [
+    {
+      "id": "F5",
+      "kind": "source",
+      "file": "packages/workspace-server/src/extensions/AppProject.ts",
+      "line": 403,
+      "severity": "P1",
+      "body": "`snapshot` and `install` disagree on the 256-entry limit. `snapshot` checks the cap separately for each `capture` call: line 403 applies `ctx.files.length + ctx.assets.length >= 256` once to the source pass and once to the `dist/<buildId>` pass, which starts with `files: []`. Lines 101-105 then append `dist/start.mjs` and `dist/current.json` with no check at all. `install` (line 152) rejects artifacts whose combined source, asset and build total is over 256 entries. As a result, a project with 200 source files and 60 built chunks, or a build directory with 255 files, gives a valid `snapshot` that `install` always refuses with \"invalid project artifact\". The share and reinstall round trip then fails on an artifact the server produced itself. Apply one limit across the whole artifact in both directions: count source, assets and build together in `snapshot`, including the two `dist/` entry files. Alternatively, raise or split the `install` limit so that it accepts everything `snapshot` can produce."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "AppProject.snapshot/install entry-count contract (AppProject.ts:152 and :403)",
+      "tier": "tmp",
+      "rationale": "Create a project whose source files plus build files together exceed 256 while each part stays under 256. Assert one of two outcomes: `snapshot` returns an error, or the snapshot installs into a fresh AppProject. Either outcome shows that the producer and consumer limits agree."
+    }
+  ],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "06773a6c37cd77560f1479ff9e7619513b8ce165",
+  "treeHash": "5a91a100e50c714e725ce2193ba218bd728a14d5",
+  "codeTree": "4e0f39010064bd04127c746ee5986ef82b24e1b0",
+  "coverage": {
+    "executable": 636,
+    "covered": 497,
+    "exempt": 139,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-14T15:30:28.023Z"
+}
