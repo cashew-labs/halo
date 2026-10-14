@@ -58,6 +58,7 @@ import {
 } from "./http.js";
 import type { WorkspaceServerReady } from "./WorkspaceServerReady.js";
 import type { SharedAppRuntime } from "../extensions/ExtensionHost.js";
+import type { RemoteApps } from "../extensions/appsRouter.js";
 
 export type WorkspaceServerConfig = {
   environment: HaloEnvironment;
@@ -88,6 +89,8 @@ export type WorkspaceServerHost = {
   >;
   remoteConnections?: import("../agent/runtime/ConnectionService.js").RemoteConnectionBackend;
   remoteIntegrationTools?: RemoteIntegrationTools;
+  // The owner's published apps; absent on app VMs and local-only hosts.
+  remoteApps?: RemoteApps;
   reportAutomationSchedule?: (
     snapshot: AutomationScheduleSnapshot,
     signal: AbortSignal,
@@ -458,6 +461,7 @@ export class WorkspaceServer {
         traces,
         browsers,
         extensions,
+        remoteApps: host.remoteApps,
         workspace,
         search,
         sessions,

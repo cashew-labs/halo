@@ -28,6 +28,10 @@ import {
   type ExtensionsRouterContext,
 } from "../extensions/extensionsRouter.js";
 import {
+  appsRouter,
+  type AppsRouterContext,
+} from "../extensions/appsRouter.js";
+import {
   threadRouter,
   type ThreadRouterContext,
 } from "../sessions/threadRouter.js";
@@ -48,6 +52,7 @@ export type HaloContext = RequestHeadersHandlerPluginContext &
   TracesRouterContext &
   WorkspaceRouterContext &
   ExtensionsRouterContext &
+  AppsRouterContext &
   ThreadRouterContext &
   TestApiRouterContext & { build?: { version: string; revision: string } };
 
@@ -78,6 +83,7 @@ export const haloRpcRouter = {
   workspace: workspaceRouter,
   thread: threadRouter,
   traces: tracesRouter,
+  apps: appsRouter,
   extensions: extensionsRouter,
   testApi: testApiRouter,
 };

@@ -3,6 +3,7 @@
 import { Cli, z } from "incur";
 import { browser } from "./browser.js";
 import { extension } from "./extension.js";
+import { app } from "./app.js"; // coverage-exempt: CLI entry registration; the app command group is tested in process.
 import { automation } from "./automation.js";
 import { cliVersion, connectHalo } from "./connectHalo.js";
 import { HaloRpcFileError } from "@get-halo/shared/HaloRpcFile";
@@ -70,6 +71,7 @@ async function main() {
       },
     })
     .command(extension)
+    .command(app) // coverage-exempt: CLI entry registration; the app command group is tested in process.
     .command(automation)
     .command(browser)
     .serve();
