@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change adds creator-host app serving, a sign-in handoff bound to the browser that started it and redeemed once, `__Host-` auth cookies, stripping of Halo's cookies from cross-origin requests, and owner-fixed integration actions for app VMs with a per-app rate limit. F3 is resolved: the dead fallback is gone, and a temp test shows that a VM failing mid-response aborts the visitor's response without hanging. F4 is resolved: both durable expectations now use UNAUTHORIZED, with a comment. Durable and temp tests pass, and the coverage gate passes with acceptable exemptions.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 3,
+  "headSha": "25445c040ac6dc8d43dad78aa5cec158d14db6a4",
+  "treeHash": "a1936d1cc7c2944e203ae8cd725b3f67fd374de4",
+  "codeTree": "5194cbae3ebb5903a72b1a689a74cc99d41bb7b2",
+  "coverage": {
+    "executable": 430,
+    "covered": 366,
+    "exempt": 64,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-14T16:18:14.836Z"
+}

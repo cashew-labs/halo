@@ -1,0 +1,70 @@
+{
+  "status": "changes_requested",
+  "summary": "The change adds creator-host app serving through AppGateway, a confirmed handoff sign-in from Halo's origin, `__Host-` auth cookies, stripping of cross-origin cookies, and owner-fixed integration actions for app VMs with a per-app rate limit. The isolation and action-binding logic is careful and well tested. It is not ready: the handoff can be redeemed in any browser, which allows login CSRF; on Postgres the \"single-use\" code can be redeemed twice in a race; and one exemption gives a reason that does not apply to its line.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "source",
+      "file": "apps/control-plane/src/apps/AppGateway.ts",
+      "line": 203,
+      "severity": "P1",
+      "body": "Login CSRF on creator hosts. Nothing binds the handoff code to the browser that started sign-in. `/__halo/signin` (line 78) sets no state, and `redeem` accepts any valid code for the host. An attacker with any Halo account can POST `/api/apps/handoff` with their own session (Origin is trivial to set outside a browser), take the `code` from the 303 Location without following it, and send the victim to `https://<handle>.<host>/__halo/handoff?code=…` within 60 seconds. The victim's browser is then signed in to that creator host as the attacker, which overwrites any existing session. Data the victim enters is attributed to, and visible to, the attacker's identity (owner or member). Fix: at `/__halo/signin`, set a short-lived host-only nonce cookie on the creator host. Carry the nonce, or its hash, through `/api/apps/handoff` and store it with the code in `app_handoffs`. In `redeem`, require the cookie to match, then clear it."
+    },
+    {
+      "id": "F2",
+      "kind": "source",
+      "file": "apps/control-plane/src/apps/AppStore.ts",
+      "line": 285,
+      "severity": "P1",
+      "body": "`redeemHandoff` is not single-use under concurrency. It runs SELECT and then DELETE inside a plain `BEGIN` (READ COMMITTED on Postgres, SqlDatabase.ts:47). Two concurrent redemptions can both see the row, both run DELETE (the second deletes 0 rows), and both insert a viewer session. This breaks the documented 'Redeems a handoff once' contract. Use a single `DELETE FROM app_handoffs WHERE code_hash = $1 AND handle = $2 AND expires_at >= $3 RETURNING user_id, email`, or check the deleted row count, so only one redemption can claim the code."
+    },
+    {
+      "id": "F3",
+      "kind": "test",
+      "file": "apps/control-plane/src/apps/AppGateway.ts",
+      "line": 289,
+      "severity": "P1",
+      "body": "Line 289 (`else if (!ctx.response.writableEnded) ctx.response.end();`) is exempt with the reason 'Only Google identity tokens fail here; tests use gateway bearer tokens.' That reason belongs to the authorization-header branch at lines 249-252, not to this line. Line 289 handles an app VM that fails after it has started its response, and it can be tested. Add a temp test in which the fake app origin sends headers and then destroys the socket. Assert that the gateway ends the response without hanging or crashing. Alternatively, give this line an accurate exemption reason."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "AppGateway handoff redemption (AppGateway.ts:197-226): a code issued for user A cannot sign in a browser that did not start the sign-in on that creator host",
+      "tier": "tmp",
+      "rationale": "Verifies the F1 fix: redeeming without the matching nonce cookie must fail (400), and the originating browser must still succeed."
+    },
+    {
+      "target": "AppStore.redeemHandoff (AppStore.ts:281-312): concurrent redemptions of one code produce exactly one session",
+      "tier": "tmp",
+      "rationale": "Verifies the F2 fix. Run several redemptions in parallel with Promise.all and assert that exactly one returns a token."
+    },
+    {
+      "target": "AppGateway.forward mid-stream upstream failure (AppGateway.ts:288-289)",
+      "tier": "tmp",
+      "rationale": "Covers the else-branch that is currently exempt with an inapplicable reason. Assert that the client sees a terminated response rather than a hang."
+    }
+  ],
+  "tierChanges": [
+    {
+      "file": "apps/control-plane/src/apps/.tmp-tests/hostCookies.test.ts",
+      "to": "durable",
+      "rationale": "Guards a security invariant that a future Better Auth upgrade or config edit could silently break: HTTPS auth cookies must use the `__Host-` prefix with no Domain attribute, and same-named cookies set by a sibling subdomain must not authenticate. The test is self-contained."
+    },
+    {
+      "file": "apps/control-plane/src/apps/.tmp-tests/gateway.test.ts",
+      "to": "durable",
+      "rationale": "The checks that creator hosts never reach Halo routes (encoded and dot-segment paths, upgrades) and that Halo ignores its cookies on cross-origin requests are core isolation invariants. Later routing changes in controlPlaneHttp could break them. Move the appWorld and browser fixtures it needs with it."
+    }
+  ],
+  "round": 1,
+  "headSha": "e5390c7264996560fcc23f067a4ac65248fca529",
+  "treeHash": "057ebd0acaae303ea7bce0de62567e49d75c8f95",
+  "codeTree": "4b08becb6c1a5df7a520d285fd1a629d2c8e99e1",
+  "coverage": {
+    "executable": 427,
+    "covered": 362,
+    "exempt": 65,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-14T16:02:26.458Z"
+}
