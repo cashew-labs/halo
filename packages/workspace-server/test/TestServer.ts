@@ -27,8 +27,14 @@ export class TestServer {
   private readonly remoteConnections: WorkspaceServerOptions["host"]["remoteConnections"];
   private readonly remoteIntegrationTools: WorkspaceServerOptions["host"]["remoteIntegrationTools"];
   private readonly gateway: WorkspaceServerOptions["config"]["gateway"];
+  private readonly sharedApp: WorkspaceServerOptions["config"]["sharedApp"];
+  private readonly extensionRuntime: WorkspaceServerOptions["config"]["extensionRuntime"];
+  private readonly appDataDir: string;
 
   constructor(ctx: {
+    sharedApp?: WorkspaceServerOptions["config"]["sharedApp"];
+    extensionRuntime?: WorkspaceServerOptions["config"]["extensionRuntime"];
+    appDataDir?: string;
     artifacts: TestArtifacts;
     workspaceRoot: string;
     llmApi: WorkspaceServerOptions["host"]["llmApi"];
@@ -59,6 +65,12 @@ export class TestServer {
     this.remoteIntegrationTools = ctx.remoteIntegrationTools;
     this.traceWorkspaceId = traceWorkspaceId;
     this.gateway = gateway;
+    this.sharedApp = ctx.sharedApp;
+    this.extensionRuntime = ctx.extensionRuntime ?? {
+      executable: process.execPath,
+      electronRunAsNode: false,
+    };
+    this.appDataDir = ctx.appDataDir ?? this.artifacts.paths.userData;
   }
 
   get harness() {
@@ -110,7 +122,7 @@ export class TestServer {
       config: {
         environment: "local",
         workspaceRoot: this.workspaceRoot,
-        appDataDir: this.artifacts.paths.userData,
+        appDataDir: this.appDataDir,
         appVersion: "0.0.0-test",
         ownerUserId: "server-test-user",
         host: "127.0.0.1",
@@ -119,10 +131,8 @@ export class TestServer {
         testApiEnabled: this.testApiEnabled,
         traceWorkspaceId: this.traceWorkspaceId,
         gateway: this.gateway,
-        extensionRuntime: {
-          executable: process.execPath,
-          electronRunAsNode: false,
-        },
+        sharedApp: this.sharedApp,
+        extensionRuntime: this.extensionRuntime,
       },
       host: {
         llmApi: this.llmApi,
