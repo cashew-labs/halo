@@ -1,5 +1,5 @@
 /* oxlint-disable react/iframe-missing-sandbox -- Extension views need their origin identity for API and storage access. */
-import { backgroundColor, Flex, flex, Text } from "maui";
+import { backgroundColor, Flex, flex, Text, text } from "maui";
 import { style, useStyles } from "purse-styles";
 import { useHost } from "../HostProvider.js";
 import { useExtensions } from "../api/WorkspaceUpdatesProvider.js";
@@ -8,14 +8,18 @@ export function ExtensionView({ extensionId }: { extensionId: string }) {
   const host = useHost();
   const extensions = useExtensions();
   const extension = extensions.data?.find((entry) => entry.id === extensionId);
+  // A published app runs on its creator host. Halo's tab cannot sign the
+  // owner in to that origin, so the app opens in the browser instead.
   const extensionUrl =
-    extension === undefined
+    extension === undefined || extension.remote !== undefined
       ? undefined
       : host.getExtensionFrameUrl(extension.id);
   const displayName =
     extension === undefined ? extensionId : extension.displayName;
   const view = useStyles(styles.view);
   const frame = useStyles(styles.frame);
+  const notice = useStyles(styles.notice);
+  const link = useStyles(styles.link);
 
   return (
     <main className={view} aria-label={displayName}>
@@ -33,6 +37,22 @@ export function ExtensionView({ extensionId }: { extensionId: string }) {
         <Flex column p={8}>
           <Text>Extension '{extensionId}' is not running.</Text>
         </Flex>
+      )}
+      {extension?.remote !== undefined && (
+        <div className={notice}>
+          <Text>
+            {displayName} is shared from its own server. It opens in your
+            browser, where you sign in to Halo once.
+          </Text>
+          <a
+            className={link}
+            href={extension.url}
+            target="_blank"
+            rel="noreferrer"
+          >
+            Open {displayName}
+          </a>
+        </div>
       )}
       {extension !== undefined && extensionUrl !== undefined && (
         <iframe
@@ -56,6 +76,11 @@ const styles = {
     overflow: "hidden",
     backgroundColor: backgroundColor.app,
   }),
+  notice: style(flex({ direction: "column", gap: 3 }), {
+    padding: 32,
+    maxWidth: 480,
+  }),
+  link: style(text({ size: "sm" }), { width: "fit-content" }),
   frame: style({
     flex: "1 1 auto",
     width: "100%",
