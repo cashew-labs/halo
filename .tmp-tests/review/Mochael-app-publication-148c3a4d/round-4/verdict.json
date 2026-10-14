@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "Only the base moved, to d2faf2846b04. The published-apps diff matches the version approved in round 3: the same 33 files and line counts. Earlier findings F1 to F5 remain fixed. Both test runs pass and the coverage gate passes with no uncovered lines and only accepted exemptions. No new problems.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 4,
+  "headSha": "7b127d87395df25ba46aef47e23ddecabdda369f",
+  "treeHash": "391060c2d908ab75fc80d9742e986b960b485d01",
+  "codeTree": "a491dc9f66a65d51acbb60c7e77ece5b0d46acf9",
+  "coverage": {
+    "executable": 641,
+    "covered": 596,
+    "exempt": 45,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-14T17:21:47.203Z"
+}

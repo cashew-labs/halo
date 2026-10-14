@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "This round is another rebase, now onto 469e43787f09. Only the surrounding context and line numbers moved in AuthService, ControlPlane, controlPlaneHttp, controlPlaneContract and WorkspaceServer; the published-apps code itself is unchanged since the approved round 3. Both test runs pass, the coverage gate passes with no uncovered lines and accepted exemptions, and no findings remain.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 5,
+  "headSha": "6a25d6ce629d7cd7c4569072f72b9bacb8a4db64",
+  "treeHash": "cbb8121bc6347638897bc7491f0eed1235551957",
+  "codeTree": "c41b00c10094b2cc426faf3bb1ad35f7a0d03f88",
+  "coverage": {
+    "executable": 641,
+    "covered": 596,
+    "exempt": 45,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-14T18:25:13.416Z"
+}
