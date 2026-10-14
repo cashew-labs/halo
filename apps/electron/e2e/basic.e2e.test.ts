@@ -314,6 +314,67 @@ e2eTest(
   },
 );
 
+for (const level of [1, 2, 4]) {
+  e2eTest(
+    `formats the first level ${level} heading typed into a new Markdown file`,
+    async ({ app }) => {
+      const path = "new-heading.md";
+      const prefix = "#".repeat(level);
+      await app.page
+        .getByRole("button", { name: "New file", exact: true })
+        .click();
+      const filename = app.page.getByRole("textbox", {
+        name: "New file name",
+      });
+      await filename.fill(path);
+      await filename.press("Enter");
+      const editor = app.page
+        .getByRole("main", { name: path, exact: true })
+        .getByLabel(path, { exact: true });
+      await expect(editor).toBeEmpty();
+      await editor.click();
+      await app.page.keyboard.type(prefix, { delay: 50 });
+      await expect(editor).toHaveText(prefix);
+      await app.page.keyboard.type(" ");
+      const syntax = editor.getByRole("textbox", {
+        name: "Markdown syntax",
+        exact: true,
+      });
+      await expect(syntax).toHaveText(`${prefix} `);
+      // Pausing at the shortcut must preserve the heading through autosave.
+      await expect
+        .poll(async () =>
+          (await app.server.rpc.workspace.readFile({ path })).trimEnd(),
+        )
+        .toBe(prefix);
+      await app.page.keyboard.type("First heading", { delay: 50 });
+      await app.page
+        .getByRole("button", { name: "New tab", exact: true })
+        .focus();
+      await expect(
+        editor.getByRole("heading", {
+          name: "First heading",
+          exact: true,
+          level,
+        }),
+      ).toBeVisible();
+      await expect
+        .poll(async () =>
+          (await app.server.rpc.workspace.readFile({ path })).trimEnd(),
+        )
+        .toBe(`${prefix} First heading`);
+      await app.page.reload();
+      await expect(
+        editor.getByRole("heading", {
+          name: "First heading",
+          exact: true,
+          level,
+        }),
+      ).toBeVisible();
+    },
+  );
+}
+
 e2eTest(
   "Tiptap edits Markdown delimiters with undo and persists rich formatting",
   async ({ app }) => {

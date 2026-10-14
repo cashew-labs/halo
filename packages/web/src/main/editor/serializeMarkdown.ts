@@ -14,6 +14,10 @@ export function serializeMarkdown({
   const prefix = `HALOCODE${crypto.randomUUID().replaceAll("-", "")}X`;
   const codeSpans = new Map<string, string>();
   const prepare = (node: JSONContent): JSONContent => {
+    // ProseMirror omits content on empty headings. Tiptap drops their prefix
+    // unless content is present, so keep it while the user starts a heading.
+    if (node.type === "heading" && node.content === undefined)
+      return { ...node, content: [] };
     if (
       node.type === "text" &&
       node.marks?.some((mark) => mark.type === "code")
