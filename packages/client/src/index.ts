@@ -48,6 +48,9 @@ export {
   type ConnectionStarted,
   type ExtensionSummary,
   type ExtensionArtifact, // coverage-exempt: Type-only public export; behavior is covered through the workspace RPC.
+  type AppSummary, // coverage-exempt: Type-only public export.
+  type AppAccessList, // coverage-exempt: Type-only public export.
+  type AppActionBinding, // coverage-exempt: Type-only public export.
   type WorkspaceUpdate,
   type BrowserSnapshot,
   type BrowserExecution,

@@ -65,6 +65,39 @@ export type ExtensionSummary = {
   url: string;
   displayName: string;
   icon?: string;
+  // A published app lives on its own VM; the URL is its creator-host view.
+  remote?: { appId: string };
+};
+type AppJsonValue =
+  | null
+  | boolean
+  | number
+  | string
+  | AppJsonValue[]
+  | { [key: string]: AppJsonValue };
+/** A named integration request with every argument fixed by the owner. */
+export type AppActionBinding = {
+  name: string;
+  description: string;
+  address: string;
+  arguments: Record<string, AppJsonValue>;
+  sampleResult?: AppJsonValue;
+};
+export type AppAccessList = {
+  visibility: "public" | "invited";
+  members: string[];
+};
+/** What the owner sees and manages; never contains credentials. */
+export type AppSummary = AppAccessList & {
+  appId: string;
+  extensionId: string;
+  displayName: string;
+  handle: string;
+  slug: string;
+  url: string;
+  published: boolean;
+  stage: "publishing" | "live";
+  actions: { name: string; description: string }[];
 };
 export type ExtensionArtifact = {
   files: Record<string, string>;
@@ -147,7 +180,20 @@ export const contract = publicProcedure.router({
       .input(type<{ id: string }>())
       .output(type<ExtensionArtifact>()),
     install: oc
-      .input(type<{ id: string; artifact: ExtensionArtifact }>())
+      .input(
+        type<{ id: string; artifact: ExtensionArtifact; installId: string }>(),
+      )
+      .output(type<void>()),
+    freeze: oc
+      .input(type<{ id: string; appId: string }>())
+      .output(type<void>()),
+    release: oc
+      .input(type<{ id: string; appId: string }>())
+      .output(type<void>()),
+    completePublication: oc
+      .input(
+        type<{ id: string; appId: string; url: string; displayName: string }>(),
+      )
       .output(type<void>()),
     readSource: oc
       .input(type<{ id: string; name: string }>())
@@ -158,6 +204,35 @@ export const contract = publicProcedure.router({
     execSource: oc
       .input(type<{ id: string; command: string }>())
       .output(type<{ output: string; exitCode: number }>()),
+  },
+  // Published apps, forwarded to the control plane with this workspace's owner
+  // credential. Only the owner's workspace has them; app VMs do not.
+  apps: {
+    list: oc.output(type<AppSummary[]>()),
+    publish: oc
+      .input(
+        type<{ extensionId: string; slug?: string; access: AppAccessList }>(),
+      )
+      .output(type<AppSummary>()),
+    update: oc
+      .input(
+        type<{ appId: string; access?: AppAccessList; published?: boolean }>(),
+      )
+      .output(type<AppSummary>()),
+    cancel: oc.input(type<{ appId: string }>()).output(type<void>()),
+    bindActions: oc
+      .input(type<{ appId: string; actions: AppActionBinding[] }>())
+      .output(type<AppSummary>()),
+    readSource: oc
+      .input(type<{ appId: string; name: string }>())
+      .output(type<string>()),
+    writeSource: oc
+      .input(type<{ appId: string; name: string; contents: string }>())
+      .output(type<void>()),
+    execSource: oc
+      .input(type<{ appId: string; command: string }>())
+      .output(type<{ output: string; exitCode: number }>()),
+    restart: oc.input(type<{ appId: string }>()).output(type<void>()),
   },
   workspace: {
     get: oc.output(type<WorkspaceInfo>()),
