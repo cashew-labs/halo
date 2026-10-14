@@ -301,11 +301,20 @@ const runtime = new gcp.serviceaccount.Account("control-plane-runtime", {
   displayName: `Halo control plane ${pulumi.getStack()}`,
 });
 // coverage-exempt: Declarative Pulumi IAM resources require cloud credentials and are validated by infra typecheck; no cloud mutation occurs in tests.
+const modelCaller = new gcp.projects.IAMCustomRole("model-caller", {
+  project,
+  // Stacks share the project, and role IDs allow only letters, digits, `_`, and `.`.
+  roleId: `${name.replaceAll("-", "_")}_model_caller`,
+  title: `Halo ${pulumi.getStack()} model caller`,
+  description: "Call Vertex AI models without managing Vertex AI resources.",
+  permissions: ["aiplatform.endpoints.predict"],
+});
+// coverage-exempt: Declarative Pulumi IAM resources require cloud credentials and are validated by infra typecheck; no cloud mutation occurs in tests.
 const controlPlaneInferenceAccess = new gcp.projects.IAMMember(
   "control-plane-inference",
   {
     project,
-    role: "roles/aiplatform.user",
+    role: modelCaller.name,
     member: pulumi.interpolate`serviceAccount:${runtime.email}`,
   },
   { dependsOn: [vertexAi] },
