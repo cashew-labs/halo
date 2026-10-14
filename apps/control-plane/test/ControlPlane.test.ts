@@ -18,6 +18,7 @@ import {
   ToolAddress,
 } from "@executor-js/sdk/core";
 import { TraceCloudDriver } from "./TraceCloudDriver.js";
+import { InferenceDriver } from "./InferenceDriver.js";
 import fs from "node:fs/promises";
 import http from "node:http";
 import events from "node:events";
@@ -36,7 +37,7 @@ import {
 import { betterAuth } from "better-auth";
 import { testUtils } from "better-auth/plugins";
 import * as errore from "errore";
-import { expect, test, vi } from "vitest";
+import { expect, onTestFinished, test, vi } from "vitest";
 import {
   type AutomationDelivery,
   createHaloClient,
@@ -206,7 +207,7 @@ const getOpenAPISpec = async (
 
 const controlPlaneTest = test.extend<{
   traceCloud: TraceCloudDriver;
-  inferenceApiKey: string | undefined;
+  inferenceApi: InferenceDriver;
   appDataDir: string;
   authenticatedRpc: ControlPlaneClient;
   browserHeaders: Headers;
@@ -817,8 +818,11 @@ const controlPlaneTest = test.extend<{
     });
   },
   // oxlint-disable-next-line eslint/no-empty-pattern -- Native fixture signature.
-  inferenceApiKey: async ({}, use) => {
-    await use(process.env.HALO_TEST_TOGETHER_API_KEY);
+  inferenceApi: async ({}, use) => {
+    const driver = new InferenceDriver();
+    await driver.start();
+    await use(driver);
+    await driver.close();
   },
   workspaceProvider: async ({ appDataDir }, use) => {
     await use(new LocalWorkspaceProvider({ appDataDir }));
@@ -859,7 +863,7 @@ const controlPlaneTest = test.extend<{
       webRoot,
       traceCloud,
       workspaceProvider,
-      inferenceApiKey,
+      inferenceApi,
       integrationApi,
       allowLocalIntegrationUrls,
     },
@@ -882,7 +886,7 @@ const controlPlaneTest = test.extend<{
       webRoot,
       workspaceProvider,
       traceCloud: traceCloud.cloud(),
-      inferenceApiKey,
+      inference: inferenceApi.configuration(),
       integrationEncryptionKey,
       allowLocalIntegrationUrls,
       gmailApiOrigin: integrationApi.origin,
@@ -4080,6 +4084,332 @@ controlPlaneTest(
     });
     expect(wrongType.status).toBe(415);
     expect((await fetch(endpoint, { headers })).status).toBe(405);
+  },
+);
+
+const inferenceReply = (content: string) =>
+  `data: ${JSON.stringify({ choices: [{ index: 0, delta: { role: "assistant", content }, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`;
+
+controlPlaneTest(
+  "streams the primary response without calling Gemini or exposing provider headers",
+  async ({ plane, authenticatedRpc, appDataDir, inferenceApi }) => {
+    await authenticatedRpc.workspace.ensure();
+    const { token } = await readRuntimeSettings(appDataDir);
+    inferenceApi.primary.push({
+      status: 200,
+      body: inferenceReply("Primary answer"),
+    });
+    const response = await fetch(
+      `${plane.origin}${workspaceInferencePath}/chat/completions`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+          "x-private-workspace": "private",
+        },
+        body: JSON.stringify({
+          model: togetherModel.id,
+          stream: true,
+          messages: [{ role: "user", content: "Hello" }],
+        }),
+      },
+    );
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain("Primary answer");
+    expect(response.headers.get("set-cookie")).toBeNull();
+    expect(response.headers.get("x-provider-secret")).toBeNull();
+    expect(inferenceApi.requests).toHaveLength(1);
+    expect(inferenceApi.requests[0]?.headers.authorization).toBe(
+      "Bearer together-test",
+    );
+    expect(
+      inferenceApi.requests[0]?.headers["x-private-workspace"],
+    ).toBeUndefined();
+  },
+);
+
+controlPlaneTest.for([429, 500, 502, 503, 504, 0])(
+  "continues on Gemini after temporary primary failure %s with completed tool history",
+  async (status, { plane, authenticatedRpc, appDataDir, inferenceApi }) => {
+    await authenticatedRpc.workspace.ensure();
+    const { token } = await readRuntimeSettings(appDataDir);
+    inferenceApi.primary.push({
+      status,
+      body: '{"message":"Service unavailable"}',
+    });
+    inferenceApi.fallback.push({
+      status: 200,
+      body: inferenceReply("Continue with the remaining emails"),
+    });
+    const messages = [
+      { role: "user", content: "Clean my inbox" },
+      {
+        role: "assistant",
+        content: "",
+        tool_calls: [
+          {
+            id: "archived-127",
+            type: "function",
+            function: { name: "exec", arguments: "{}" },
+          },
+        ],
+      },
+      {
+        role: "tool",
+        tool_call_id: "archived-127",
+        content: "127 alerts already archived",
+      },
+    ];
+    const response = await fetch(
+      `${plane.origin}${workspaceInferencePath}/chat/completions`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          model: togetherModel.id,
+          stream: true,
+          max_tokens: 384_000,
+          reasoning: { enabled: true },
+          messages,
+        }),
+      },
+    );
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain(
+      "Continue with the remaining emails",
+    );
+    expect(inferenceApi.requests.map((request) => request.path)).toEqual([
+      "/primary",
+      "/fallback",
+    ]);
+    expect(inferenceApi.requests[0]?.body.messages).toEqual(messages);
+    const fallback = inferenceApi.requests[1];
+    expect(fallback?.headers.authorization).toBe("Bearer vertex-test");
+    expect(fallback?.body).toMatchObject({
+      model: "google/gemini-3.8-flash",
+      max_tokens: 65_536,
+      reasoning_effort: "low",
+      messages: [
+        messages[0],
+        {
+          ...messages[1],
+          tool_calls: [
+            {
+              ...messages[1]!.tool_calls![0],
+              extra_content: {
+                google: {
+                  thought_signature: "skip_thought_signature_validator",
+                },
+              },
+            },
+          ],
+        },
+        messages[2],
+      ],
+    });
+    expect(fallback?.body.reasoning).toBeUndefined();
+  },
+);
+
+controlPlaneTest.for([400, 401, 402, 403, 404])(
+  "keeps permanent primary failure %s visible without calling Gemini",
+  async (status, { plane, authenticatedRpc, appDataDir, inferenceApi }) => {
+    await authenticatedRpc.workspace.ensure();
+    const { token } = await readRuntimeSettings(appDataDir);
+    inferenceApi.primary.push({
+      status,
+      body: '{"message":"Permanent failure"}',
+    });
+    const response = await fetch(
+      `${plane.origin}${workspaceInferencePath}/chat/completions`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          model: togetherModel.id,
+          stream: true,
+          messages: [{ role: "user", content: "Hello" }],
+        }),
+      },
+    );
+    expect(response.status).toBe(status);
+    expect(await response.json()).toEqual({ message: "Permanent failure" });
+    expect(inferenceApi.requests).toHaveLength(1);
+  },
+);
+
+controlPlaneTest(
+  "exposes the fallback failure when both providers are unavailable",
+  async ({ plane, authenticatedRpc, appDataDir, inferenceApi }) => {
+    await authenticatedRpc.workspace.ensure();
+    const { token } = await readRuntimeSettings(appDataDir);
+    inferenceApi.primary.push({ status: 503, body: "Together unavailable" });
+    inferenceApi.fallback.push({ status: 503, body: "Gemini unavailable" });
+    const response = await fetch(
+      `${plane.origin}${workspaceInferencePath}/chat/completions`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          model: togetherModel.id,
+          stream: true,
+          messages: [{ role: "user", content: "Hello" }],
+        }),
+      },
+    );
+    expect(response.status).toBe(503);
+    expect(await response.text()).toBe("Gemini unavailable");
+    expect(inferenceApi.requests).toHaveLength(2);
+  },
+);
+
+controlPlaneTest.for(["connection", "both-connections", "credentials"])(
+  "ends the request cleanly when Gemini fails at the %s boundary",
+  async (failure, { plane, authenticatedRpc, appDataDir, inferenceApi }) => {
+    await authenticatedRpc.workspace.ensure();
+    const { token } = await readRuntimeSettings(appDataDir);
+    inferenceApi.primary.push({
+      status: failure === "both-connections" ? 0 : 503,
+      body: "Together unavailable",
+    });
+    inferenceApi.fallback.push({ status: 0, body: "" });
+    if (failure === "credentials") inferenceApi.vertexAuth.setCredentials({});
+    const response = await fetch(
+      `${plane.origin}${workspaceInferencePath}/chat/completions`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          model: togetherModel.id,
+          stream: true,
+          messages: [{ role: "user", content: "Hello" }],
+        }),
+      },
+    );
+    expect(response.status).toBe(502);
+    expect(await response.text()).toBe("");
+    expect(inferenceApi.requests).toHaveLength(
+      failure === "credentials" ? 1 : 2,
+    );
+  },
+);
+
+controlPlaneTest(
+  "finishes a bodyless provider response without hanging or calling Gemini",
+  async ({ plane, authenticatedRpc, appDataDir, inferenceApi }) => {
+    await authenticatedRpc.workspace.ensure();
+    const { token } = await readRuntimeSettings(appDataDir);
+    inferenceApi.primary.push({ status: 204, body: "" });
+    const response = await fetch(
+      `${plane.origin}${workspaceInferencePath}/chat/completions`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          model: togetherModel.id,
+          stream: true,
+          messages: [{ role: "user", content: "Hello" }],
+        }),
+      },
+    );
+    expect(response.status).toBe(204);
+    expect(await response.text()).toBe("");
+    expect(inferenceApi.requests).toHaveLength(1);
+  },
+);
+
+controlPlaneTest(
+  "does not switch providers after response streaming has started",
+  async ({ plane, authenticatedRpc, appDataDir, inferenceApi }) => {
+    const logged = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    onTestFinished(() => logged.mockRestore());
+    await authenticatedRpc.workspace.ensure();
+    const { token } = await readRuntimeSettings(appDataDir);
+    inferenceApi.primary.push({
+      status: 200,
+      body: "data: partial answer\n\n",
+      breakStream: true,
+    });
+    const response = await fetch(
+      `${plane.origin}${workspaceInferencePath}/chat/completions`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          model: togetherModel.id,
+          stream: true,
+          messages: [{ role: "user", content: "Hello" }],
+        }),
+      },
+    );
+    await expect(response.text()).rejects.toThrow();
+    expect(inferenceApi.requests).toHaveLength(1);
+    await expect
+      .poll(() =>
+        logged.mock.calls
+          .flat()
+          .some(
+            (error) =>
+              error instanceof Error &&
+              error.message.includes("stream provider response"),
+          ),
+      )
+      .toBe(true);
+  },
+);
+
+controlPlaneTest(
+  "cancels a pending model request without starting the fallback",
+  async ({ plane, authenticatedRpc, appDataDir, inferenceApi }) => {
+    await authenticatedRpc.workspace.ensure();
+    const { token } = await readRuntimeSettings(appDataDir);
+    inferenceApi.primary.push({ status: 200, body: "", hold: true });
+    const received = events.once(inferenceApi.events, "request");
+    const closed = events.once(inferenceApi.events, "closed");
+    const controller = new AbortController();
+    const pending = fetch(
+      `${plane.origin}${workspaceInferencePath}/chat/completions`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        signal: controller.signal,
+        body: JSON.stringify({
+          model: togetherModel.id,
+          stream: true,
+          messages: [{ role: "user", content: "Hello" }],
+        }),
+      },
+    );
+    const rejected = expect(pending).rejects.toThrow();
+    await received;
+    controller.abort();
+    await rejected;
+    await closed;
+    expect(inferenceApi.requests).toHaveLength(1);
   },
 );
 

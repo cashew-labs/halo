@@ -7,6 +7,8 @@ import { ControlPlane } from "./server/ControlPlane.js";
 import { GcpWorkspaceProvider } from "./workspace/provider/gcp/GcpWorkspaceProvider.js";
 import { LocalWorkspaceProvider } from "./workspace/provider/local/LocalWorkspaceProvider.js";
 import { ExeWorkspaceProvider } from "./workspace/provider/exe/ExeWorkspaceProvider.js";
+// coverage-exempt: Process entry point is not imported by tests; its provider factory is covered through the public server.
+import { createWorkspaceInference } from "./inference/createWorkspaceInference.js";
 
 async function run() {
   const stopping = new Promise<void>((stop) => {
@@ -34,7 +36,13 @@ async function run() {
             revision: process.env.HALO_BUILD_REVISION,
           },
     config: config.server,
-    inferenceApiKey: config.inferenceApiKey,
+    // coverage-exempt: Process bootstrap uses live credentials; the same provider factory is exercised through ControlPlane.start in the HTTP tests.
+    inference: createWorkspaceInference({
+      apiKey: config.inferenceApiKey,
+      auth: new GoogleAuth({
+        scopes: ["https://www.googleapis.com/auth/cloud-platform"],
+      }),
+    }),
     integrationEncryptionKey: config.integrationEncryptionKey,
     workspaceProvider,
     traceCloud:

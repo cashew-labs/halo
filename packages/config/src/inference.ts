@@ -2,6 +2,13 @@ import type { Model } from "@earendil-works/pi-ai";
 
 export const workspaceInferencePath = "/api/workspace-runtime/llm/v1";
 
+// Halo's previous primary model, on infrastructure independent of Together.
+export const vertexFallback = {
+  model: "google/gemini-3.8-flash",
+  url: "https://aiplatform.googleapis.com/v1/projects/halo-relay/locations/global/endpoints/openapi/chat/completions",
+  maxTokens: 65_536,
+};
+
 // The installed Pi catalog predates this model; retain its published metadata.
 export const togetherModel = {
   id: "deepseek-ai/DeepSeek-V4.1-Flash",

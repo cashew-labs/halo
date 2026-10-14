@@ -50,7 +50,10 @@ import {
 } from "../workspace/proxy.js";
 
 import { workspaceInferencePath } from "@get-halo/config/inference";
-import { serveWorkspaceInference } from "../inference/workspaceInference.js";
+import {
+  type WorkspaceInference,
+  serveWorkspaceInference,
+} from "../inference/workspaceInference.js";
 import { serveWorkspaceIdleReport } from "../workspace/workspaceIdleHttp.js";
 import { serveWorkspaceAutomationSnapshot } from "../workspace/workspaceAutomationHttp.js";
 import type { AutomationScheduleCoordinator } from "../workspace/AutomationScheduleCoordinator.js";
@@ -123,7 +126,7 @@ export function serveControlPlaneHttp(ctx: {
   build?: { version: string; revision: string };
   webRoot: string;
   traces?: TraceIngestion;
-  inferenceApiKey?: string;
+  inference?: WorkspaceInference;
 }) {
   const { server, auth, publicOrigin, workspace, webRoot, traces } = ctx;
   const upgradeSockets = new Set<Duplex>();
@@ -170,7 +173,7 @@ export function serveControlPlaneHttp(ctx: {
       publicOrigin,
       webRoot,
       build: ctx.build,
-      inferenceApiKey: ctx.inferenceApiKey,
+      inference: ctx.inference,
     });
   });
   server.on("upgrade", async (request, socket, head) => {
@@ -231,7 +234,7 @@ async function routeControlPlaneRequest(ctx: {
   publicOrigin: string;
   gateway: WorkspaceGateway;
   traces?: TraceIngestion;
-  inferenceApiKey?: string;
+  inference?: WorkspaceInference;
   workspace: WorkspaceService;
   integrations?: IntegrationService;
   automationSchedules: AutomationScheduleCoordinator;
@@ -353,7 +356,7 @@ async function routeControlPlaneRequest(ctx: {
       request,
       response,
       workspace,
-      apiKey: ctx.inferenceApiKey,
+      inference: ctx.inference,
     });
     return;
   }
