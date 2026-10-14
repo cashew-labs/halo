@@ -38,6 +38,8 @@ export type ExtensionViewer = {
   viewerId: string;
   role: "owner" | "member" | "public";
   email?: string;
+  // Lets a shared app's handlers act for this viewer, e.g. in app conversations.
+  token?: string;
 };
 export type ExtensionContext = {
   tools: ExtensionTools;
