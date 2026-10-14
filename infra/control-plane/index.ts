@@ -918,6 +918,40 @@ if (redirectWww)
       hostname: `www.${controlPlaneDomain}`,
     },
   );
+// coverage-exempt: Pulumi resource declarations; checked by typecheck and `pnpm infra:control-plane:preview`, not unit tests.
+// Creator hosts (`handle.<domain>`) serve shared apps from the same service.
+// A wildcard certificate needs DNS authorization; the DNS records to create are
+// exported below because the domain's DNS is managed outside this stack.
+const creatorDnsAuthorization = new gcp.certificatemanager.DnsAuthorization(
+  "creator-dns-authorization",
+  {
+    name: `${controlPlaneServiceName}-creators`,
+    project,
+    domain: controlPlaneDomain,
+  },
+  { dependsOn: [certificateManager] },
+);
+const creatorCertificate = new gcp.certificatemanager.Certificate(
+  "creator-certificate",
+  {
+    name: `${controlPlaneServiceName}-creators`,
+    project,
+    scope: "DEFAULT",
+    managed: {
+      domains: [`*.${controlPlaneDomain}`],
+      dnsAuthorizations: [creatorDnsAuthorization.id],
+    },
+  },
+  { dependsOn: [certificateManager, ...deploymentCertificateAccess] },
+);
+// Exact entries such as www take precedence over the wildcard.
+new gcp.certificatemanager.CertificateMapEntry("creator-certificate-wildcard", {
+  name: `${controlPlaneServiceName}-creators`,
+  project,
+  map: controlPlaneCertificateMap.name,
+  certificates: [creatorCertificate.id],
+  hostname: `*.${controlPlaneDomain}`,
+});
 const controlPlaneEndpoint = new gcp.compute.RegionNetworkEndpointGroup(
   "control-plane-endpoint",
   {
@@ -1019,6 +1053,16 @@ export const imagePullerServiceAccount = imageBuild.imagePuller?.email;
 export const controlPlaneServiceAccount = runtime.email;
 export const workspaceServiceAccount = workspaceRuntime.email;
 export const traceBucket = traces.name;
+// coverage-exempt: Pulumi stack output; checked by typecheck and preview.
+// Create these at the DNS provider so creator hosts resolve and get TLS.
+export const creatorDnsRecords = {
+  hosts: {
+    name: `*.${controlPlaneDomain}`,
+    type: "A",
+    data: controlPlaneAddress.address,
+  },
+  certificate: creatorDnsAuthorization.dnsResourceRecords,
+};
 export const workspaceInstanceTemplate = workspaceTemplate.selfLink;
 export const workspaceZone = zone;
 export const controlPlaneDatabaseConnectionName =
