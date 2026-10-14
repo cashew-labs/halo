@@ -44,7 +44,7 @@ export const appDefinitionSchema = Type.Object(
 export type AppDefinition = Static<typeof appDefinitionSchema>;
 
 export type AppAccess = { visibility: "public" | "invited"; members: string[] };
-const appAccessSchema = Type.Object(
+export const appAccessSchema = Type.Object(
   {
     visibility: Type.Union([Type.Literal("public"), Type.Literal("invited")]),
     members: Type.Array(
@@ -65,6 +65,12 @@ export type AppPublication = AppAccess & {
   url: string;
   definition: AppDefinition;
 };
+export type { AppSummary } from "@get-halo/client";
+
+export const appSlugSchema = Type.String({
+  pattern: "^[a-z][a-z0-9-]{0,62}$",
+});
+
 export type AppViewer = {
   viewerId: string;
   role: "owner" | "member" | "public";

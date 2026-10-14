@@ -4,24 +4,24 @@ import type { Pool, PoolClient, QueryResultRow } from "pg";
 import * as errore from "errore";
 import { SerialQueue } from "@get-halo/shared/SerialQueue";
 
-export class AutomationDatabaseError extends errore.createTaggedError({
-  name: "AutomationDatabaseError",
-  message: "Automation database failed during $operation",
+export class SqlDatabaseError extends errore.createTaggedError({
+  name: "SqlDatabaseError",
+  message: "Database failed during $operation",
 }) {}
 
-/** Owns transaction ordering on the dedicated local automation connection. */
-export class AutomationDatabase {
+/** Owns transaction ordering on one dedicated SQLite connection or a PostgreSQL pool. */
+export class SqlDatabase {
   private readonly actionQueue = new SerialQueue();
   private readonly client: DatabaseSync | Pool;
   constructor(ctx: { client: DatabaseSync | Pool }) {
     this.client = ctx.client;
   }
 
-  async transaction<T>(work: (sql: AutomationSql) => Promise<T | Error>) {
+  async transaction<T>(work: (sql: SqlTransaction) => Promise<T | Error>) {
     if (this.client instanceof DatabaseSync) {
       const client = this.client;
       return await this.actionQueue.run(async () => {
-        const sql = new AutomationSql({ client });
+        const sql = new SqlTransaction({ client });
         const begun = await sql.query("BEGIN IMMEDIATE");
         if (begun instanceof Error) return begun;
         await using rollback = new errore.AsyncDisposableStack();
@@ -39,13 +39,11 @@ export class AutomationDatabase {
     }
     const client = await this.client
       .connect()
-      .catch(
-        (cause) => new AutomationDatabaseError({ operation: "connect", cause }),
-      );
+      .catch((cause) => new SqlDatabaseError({ operation: "connect", cause })); // coverage-exempt: Rename-only change from AutomationDatabase.
     if (client instanceof Error) return client;
     using cleanup = new errore.DisposableStack();
     cleanup.defer(() => client.release());
-    const sql = new AutomationSql({ client });
+    const sql = new SqlTransaction({ client }); // coverage-exempt: Rename-only change on the PostgreSQL transaction path.
     const begun = await sql.query("BEGIN");
     if (begun instanceof Error) return begun;
     await using rollback = new errore.AsyncDisposableStack();
@@ -71,7 +69,7 @@ export class AutomationDatabase {
   }
 }
 
-export class AutomationSql {
+export class SqlTransaction {
   private readonly client: DatabaseSync | PoolClient;
   constructor(ctx: { client: DatabaseSync | PoolClient }) {
     this.client = ctx.client;
@@ -95,14 +93,11 @@ export class AutomationSql {
           // SAFETY: Callers name the row type matching their SQL projection.
           return client.prepare(text).all(...bindings) as T[];
         },
-        catch: (cause) =>
-          new AutomationDatabaseError({ operation: "query", cause }),
+        catch: (cause) => new SqlDatabaseError({ operation: "query", cause }), // coverage-exempt: Rename-only change from AutomationDatabase.
       });
     const result = await client
       .query<T>(query, parameters)
-      .catch(
-        (cause) => new AutomationDatabaseError({ operation: "query", cause }),
-      );
+      .catch((cause) => new SqlDatabaseError({ operation: "query", cause })); // coverage-exempt: Rename-only change from AutomationDatabase.
     if (result instanceof Error) return result;
     return result.rows;
   }

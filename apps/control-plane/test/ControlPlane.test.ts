@@ -2585,6 +2585,9 @@ controlPlaneTest.extend({ allowLocalIntegrationUrls: false })(
 
 controlPlaneTest(
   "automatically approves MCP, OpenAPI and Google connections across restart",
+  // Two control-plane starts and three connection flows take about 5 s on
+  // smaller machines.
+  { timeout: 15_000 },
   async ({
     agent,
     plane,
@@ -4825,8 +4828,8 @@ controlPlaneTest(
     headers.set("x-halo-protocol-version", "3");
     const legacy = createControlPlaneRpcClient(plane.origin, headers);
     expect(await legacy.server.info()).toMatchObject({
-      protocolVersion: 5,
-      supportedProtocols: [3, 5],
+      protocolVersion: 6,
+      supportedProtocols: [3, 5, 6],
     });
     expect(await legacy.auth.session()).toMatchObject({ status: "signed-in" });
     const workspace = await legacy.workspace.ensure();
