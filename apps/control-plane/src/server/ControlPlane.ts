@@ -27,6 +27,7 @@ import { IntegrationService } from "../integrations/IntegrationService.js";
 import { AppStore } from "../apps/AppStore.js";
 import { AppService } from "../apps/AppService.js";
 import { AppCredentials } from "../apps/AppCredentials.js";
+import { AppGateway } from "../apps/AppGateway.js";
 import { WorkspaceAuthorization } from "../workspace/proxy.js";
 
 const loopbackHost = "127.0.0.1";
@@ -218,6 +219,13 @@ export class ControlPlane {
       auth,
       authorization,
       apps,
+      appStore,
+      appGateway: new AppGateway({
+        store: appStore,
+        provider: ctx.workspaceProvider,
+        authorization,
+        publicOrigin,
+      }),
       publicOrigin,
       workspace,
       integrations,
