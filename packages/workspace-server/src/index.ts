@@ -26,3 +26,4 @@ export {
 } from "./traces/TraceService.js";
 
 export { ControlPlaneAutomationClient } from "./automations/ControlPlaneAutomationClient.js";
+export { AppActionsClient } from "./extensions/AppActionsClient.js"; // coverage-exempt: Public barrel re-export; tests import it.

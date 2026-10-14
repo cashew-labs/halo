@@ -1487,12 +1487,13 @@ controlPlaneTest(
       code: "UNAUTHORIZED",
     });
     for (const [name, value] of reused) cookies.set(name, value);
-    // The cookie is only accepted from the control-plane origin.
+    // The cookie is only accepted from the control-plane origin; cookies on
+    // cross-origin requests are dropped before RPC handling.
     await expect(
       browser({ origin: "https://attacker.example" }).integrations.setup({
         setupId,
       }),
-    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
     expect(await opened.integrations.setup({ setupId })).toMatchObject({
       status: "awaiting_credentials",
       owner: "desktop@example.com",
@@ -2712,8 +2713,9 @@ controlPlaneTest(
     await expect(
       createControlPlaneRpcClient(plane.origin).integrations.connections(),
     ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    // Cookies on cross-origin requests are dropped before RPC handling.
     await expect(csrf.integrations.connections()).rejects.toMatchObject({
-      code: "FORBIDDEN",
+      code: "UNAUTHORIZED",
     });
     for (const integration of [
       "approval_mcp",
@@ -5375,5 +5377,78 @@ controlPlaneTest.extend({
     ])
       expect(forwarded).not.toHaveProperty(header);
     expect(workspaceHost.requests).toContain("/headers");
+  },
+);
+
+controlPlaneTest(
+  "creator hosts never reach Halo routes, and Halo ignores its cookies from other origins",
+  async ({ plane, browserHeaders }) => {
+    const port = new URL(plane.origin).port;
+    // Raw requests, so dot segments and encodings reach the server unnormalized.
+    const status = async (ctx: {
+      host: string;
+      path: string;
+      headers?: Record<string, string>;
+    }) =>
+      await new Promise<number>((settle, reject) => {
+        const request = http.request(
+          {
+            host: "127.0.0.1",
+            port: Number(port),
+            path: ctx.path,
+            headers: { host: ctx.host, ...ctx.headers },
+          },
+          (response) => {
+            response.resume();
+            settle(response.statusCode!);
+          },
+        );
+        request.on("error", reject);
+        request.end();
+      });
+    const creator = `creator.localhost:${port}`;
+    for (const path of [
+      "/rpc/server/info",
+      "/api/auth/get-session",
+      "/workspace/health",
+      "/api/apps/handoff",
+      "/health",
+      "/",
+      "//books/view/",
+      "/books/view/..%2f..%2frpc",
+      "/books/%2e%2e/rpc",
+      "/books/view/../../rpc",
+      "/books\\view/",
+    ])
+      expect([path, await status({ host: creator, path })]).toEqual([
+        path,
+        404,
+      ]);
+    expect(
+      await status({
+        host: creator,
+        path: "/books/view/",
+        headers: { connection: "upgrade", upgrade: "websocket" },
+      }),
+    ).toBe(404);
+    expect(await status({ host: `127.0.0.1:${port}`, path: "/health" })).toBe(
+      200,
+    );
+
+    const headers = new Headers(browserHeaders);
+    headers.set("x-halo-protocol-version", "6");
+    expect(
+      await createControlPlaneRpcClient(plane.origin, headers).auth.session(),
+    ).toMatchObject({ status: "signed-in" });
+    for (const origin of [
+      `http://${creator}`,
+      "null",
+      "https://evil.example",
+    ]) {
+      headers.set("origin", origin);
+      expect(
+        await createControlPlaneRpcClient(plane.origin, headers).auth.session(),
+      ).toEqual({ status: "signed-out" });
+    }
   },
 );
