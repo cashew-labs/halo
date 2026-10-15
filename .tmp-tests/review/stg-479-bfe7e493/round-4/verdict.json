@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "Since round 3, the only changes are in workspaceInference. App credentials are now checked after any workspace authentication error, not only \"authentication required\". The app message cap rises to 128. The budget is now counted only after the provider check, so only requests that can reach a model count against the budget. An app token is accepted only when AppService.authenticateRuntime verifies it, so the wider fallback grants no new access. The updated temp test checks the 129-message rejection, 1,000 successful requests followed by a 429, and a 401 for a tampered token. All temp tests pass, every changed line is covered or exempt with an acceptable reason, and no findings remain.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 4,
+  "headSha": "f463832be6039c8a55dc273c7db653f1f71f0413",
+  "treeHash": "2c8717b8004ebefe282f94fcc4b99f5267787b60",
+  "codeTree": "82ba8c9a5fcf2034a10265892aeb136ed5bacfba",
+  "coverage": {
+    "executable": 187,
+    "covered": 172,
+    "exempt": 15,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-15T08:16:05.850Z"
+}
