@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "This round adds one change: the template page's `referrer-policy` goes from `no-referrer` to `same-origin`. With `no-referrer`, the browser sends `Origin: null` when the page's own install form posts, and the origin check at templateHttp.ts:74 refuses it with a 403. With `same-origin`, the real origin is sent, and nothing leaks to other origins: the demo iframe keeps its own `referrerpolicy=\"no-referrer\"`, and the sign-in redirect to Google also uses `no-referrer`. The temp Playwright test checks the header, the Origin of the install POST, and the finished install, and it passed. The `ExtensionHost` retry is unchanged since the approval in round 1.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "e624d4ef818d0e70861a6afccb4375861207e6d7",
+  "treeHash": "cbc8ae2346362e7646ec79f0bdf67ed0b8b3e3ee",
+  "codeTree": "80ba7ded1711e2123298dbbf688a1ca4b80de751",
+  "coverage": {
+    "executable": 5,
+    "covered": 5,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-15T17:04:20.410Z"
+}

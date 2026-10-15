@@ -1,0 +1,104 @@
+{
+  "baseRef": "origin/main",
+  "baseSha": "c1a061317fcd737526e087491280270b9ea5fb2f",
+  "headSha": "e624d4ef818d0e70861a6afccb4375861207e6d7",
+  "treeHash": "cbc8ae2346362e7646ec79f0bdf67ed0b8b3e3ee",
+  "generatedAt": "2026-10-15T17:03:55.803Z",
+  "runs": {
+    "durable": {
+      "tier": "durable",
+      "testFiles": [],
+      "skipped": true,
+      "runners": [],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 0,
+      "log": ".tmp-tests/report/durable.log",
+      "lcovFiles": []
+    },
+    "tmp": {
+      "tier": "tmp",
+      "testFiles": [
+        "apps/control-plane/src/apps/.tmp-tests/templateBrowser.test.ts",
+        "packages/workspace-server/src/extensions/.tmp-tests/firstStart.test.ts"
+      ],
+      "skipped": false,
+      "runners": [
+        {
+          "runner": "vitest",
+          "dir": ".",
+          "testFiles": [
+            "apps/control-plane/src/apps/.tmp-tests/templateBrowser.test.ts",
+            "packages/workspace-server/src/extensions/.tmp-tests/firstStart.test.ts"
+          ],
+          "exitCode": 0
+        }
+      ],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 14645,
+      "log": ".tmp-tests/report/tmp.log",
+      "lcovFiles": [
+        "../../../halo/.git/worktrees/ess-fix-start/code-review-agent/coverage/tmp-0/vitest-0/lcov.info",
+        "../../../halo/.git/worktrees/ess-fix-start/code-review-agent/coverage/tmp-0/vitest-1/lcov.info"
+      ]
+    }
+  },
+  "durableTestFiles": [],
+  "tmpTestFiles": [
+    "apps/control-plane/src/apps/.tmp-tests/templateBrowser.test.ts",
+    "packages/workspace-server/src/extensions/.tmp-tests/firstStart.test.ts"
+  ],
+  "files": [
+    {
+      "path": "apps/control-plane/src/apps/templateHttp.ts",
+      "loaded": true,
+      "changed": [
+        143,
+        144,
+        145
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "packages/workspace-server/src/extensions/ExtensionHost.ts",
+      "loaded": true,
+      "changed": [
+        360,
+        662,
+        663,
+        664,
+        665,
+        666,
+        667,
+        668,
+        669,
+        670,
+        671,
+        672,
+        673
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [
+        360,
+        668,
+        669,
+        670,
+        671
+      ],
+      "uncovered": [],
+      "exempt": []
+    }
+  ],
+  "totals": {
+    "executable": 5,
+    "coveredDurable": 0,
+    "coveredTmpOnly": 5,
+    "uncovered": 0,
+    "exempt": 0
+  },
+  "passed": true
+}
