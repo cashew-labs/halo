@@ -1,21 +1,14 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useIsFetching,
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query";
 import type { AppSummary } from "@get-halo/client";
 import { flex, radius, spacing, text } from "maui";
 import { WarningTriangle } from "maui/icons";
 import { style, useStyles } from "purse-styles";
 import { useApi } from "../api/ApiProvider.js";
-
-export const appsQueryKey = ["apps"] as const;
-
-/** The owner's apps, shared by the Share dialog, the extension tab and the sidebar. */
-export function useApps(ctx: { enabled?: boolean } = {}) {
-  const api = useApi();
-  return useQuery({
-    queryKey: appsQueryKey,
-    queryFn: async () => await api.apps.list(),
-    enabled: ctx.enabled ?? true,
-  });
-}
+import { appsQueryKey } from "./useApps.js";
 
 /**
  * Finishing or abandoning a publish that stopped part-way. Publishing again
@@ -46,12 +39,16 @@ export function usePublishRecovery(app: AppSummary | undefined) {
     onSettled: refresh,
   });
   const failed = app !== undefined && app.stage !== "live";
+  const refreshing = useIsFetching({ queryKey: appsQueryKey }) > 0;
   return {
     pending: publishAgain.isPending || keepLocal.isPending,
     publishing: publishAgain.isPending,
     error:
       keepLocal.error ??
-      (recorded || publishAgain.isPending ? undefined : publishAgain.error) ??
+      // Until the list reloads, a new recorded failure is not known yet.
+      (recorded || publishAgain.isPending || refreshing
+        ? undefined
+        : publishAgain.error) ??
       undefined,
     publishAgain: () => {
       if (failed) publishAgain.mutate(app);

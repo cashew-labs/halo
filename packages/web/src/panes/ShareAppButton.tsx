@@ -20,12 +20,8 @@ import { Share } from "maui/icons";
 import { style, useStyles } from "purse-styles";
 import { useApi } from "../api/ApiProvider.js";
 import { useExtensions } from "../api/WorkspaceUpdatesProvider.js";
-import {
-  PublishFailureNotice,
-  appsQueryKey,
-  useApps,
-  usePublishRecovery,
-} from "./PublishFailure.js";
+import { PublishFailureNotice, usePublishRecovery } from "./PublishRecovery.js";
+import { appsQueryKey, useApps } from "./useApps.js";
 import { paneStyles } from "./paneStyles.js";
 
 class ShareLinkCopyError extends errore.createTaggedError({
@@ -284,7 +280,7 @@ function ShareAppDialog({
                     Not shared. Only you can open this app.
                   </p>
                 )}
-                {save.isPending && (
+                {save.isPending && !live && (
                   <p className={detail} role="status">
                     Publishing {displayName}. This can take a minute.
                   </p>

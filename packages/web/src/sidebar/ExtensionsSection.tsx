@@ -6,7 +6,7 @@ import { useLocation } from "wouter";
 
 import { useExtensions } from "../api/WorkspaceUpdatesProvider.js";
 import { useDatabaseQuery } from "../database/useDatabaseQuery.js";
-import { useApps } from "../panes/PublishFailure.js";
+import { useApps } from "../panes/useApps.js";
 import { useExpandSidebar } from "./navigation/NavigationSidebar.js";
 import { SidebarItem } from "./navigation/SidebarItem.js";
 import { SidebarSection } from "./navigation/SidebarSection.js";

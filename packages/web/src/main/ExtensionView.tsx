@@ -5,9 +5,9 @@ import { useHost } from "../HostProvider.js";
 import { useExtensions } from "../api/WorkspaceUpdatesProvider.js";
 import {
   PublishFailureNotice,
-  useApps,
   usePublishRecovery,
-} from "../panes/PublishFailure.js";
+} from "../panes/PublishRecovery.js";
+import { useApps } from "../panes/useApps.js";
 
 export function ExtensionView({ extensionId }: { extensionId: string }) {
   const host = useHost();
