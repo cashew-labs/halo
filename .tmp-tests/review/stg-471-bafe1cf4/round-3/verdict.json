@@ -1,0 +1,27 @@
+{
+  "status": "changes_requested",
+  "summary": "F5 and F6 are fixed. Gateway traffic that carries no viewer identity is the owner's own traffic and now maps to owner, while a named gateway viewer with an unknown or missing role gets public. A standalone server with no host token now serves its owner and accepts sync pushes. Temp tests cover both fixes, every changed line is now covered, and I accept the BrowserService exemption. The durable Electron E2E test still fails because of a real defect in the edited test: it calls `app.server` after `app.quit()`.",
+  "findings": [
+    {
+      "id": "F7",
+      "kind": "test",
+      "file": "apps/electron/e2e/extensions.e2e.test.ts",
+      "line": 20,
+      "severity": "P1",
+      "body": "After `await app.quit()`, the test calls `app.server.rpc.browser.open(...)`. `ElectronTestApp.server` reads `this.running`, which throws 'Halo is closed. Call app.open() before using it.' (`ElectronTestApp.ts:211`). The durable run fails at this line, so the test no longer checks that the extension keeps running after Electron quits. Take the `server` fixture from `e2eTest` (`e2eTest.ts:82-120`), which runs independently of Electron, and call `server.rpc.browser.open({ url: extension.url })` and `server.rpc.browser.snapshot(...)` after the quit. Close the browser session too."
+    }
+  ],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 3,
+  "headSha": "6939ca8fd87b367c9bdbe94289e3c4b5c772c6cf",
+  "treeHash": "61d7c142c36e19e210637c87006da8c6dc26d27c",
+  "codeTree": "5972c26476c0d981416c87ccad7f559e593f713e",
+  "coverage": {
+    "executable": 91,
+    "covered": 90,
+    "exempt": 1,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-15T05:49:34.796Z"
+}

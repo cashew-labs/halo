@@ -1,0 +1,10 @@
+[
+  {
+    "findingId": "F5",
+    "reply": "fixed: a gateway request without viewer headers is the owner's own workspace traffic (the control plane strips viewer headers and forwards only the session user's requests to their own workspace), so it maps to owner; only an app-gateway request that names a viewer gets a known role or public. A temp test in hostSecurity covers gateway requests with no headers (owner), an unknown role and an id without a role (public). The control-plane stripping is existing behaviour outside this diff; a durable ControlPlane case would need a full extension behind the gateway, so I kept this as a temp test."
+  },
+  {
+    "findingId": "F6",
+    "reply": "fixed: without a host token (standalone preview, no Halo proxy) a request with no role header is the owner; with a host token anything unrecognised is public. Temp test: standalone serveExtension reports owner and accepts a sync push."
+  }
+]
