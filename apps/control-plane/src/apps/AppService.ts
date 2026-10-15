@@ -98,6 +98,37 @@ export class AppService {
     this.readyTimeoutMs = ctx.readyTimeoutMs ?? 10 * 60_000;
   }
 
+  async publisher(ctx: { ownerUserId: string; ownerEmail: string }) {
+    const handle = await this.store.ensureHandle({
+      userId: ctx.ownerUserId,
+      email: ctx.ownerEmail,
+    });
+    if (handle instanceof Error) return handle;
+    return {
+      handle,
+      origin: creatorOrigin({ publicOrigin: this.publicOrigin, handle }),
+    };
+  }
+
+  async checkPublisherHandle(ctx: { ownerUserId: string; handle: string }) {
+    return await this.store.checkHandle({
+      userId: ctx.ownerUserId,
+      handle: ctx.handle,
+    });
+  }
+
+  async renamePublisher(ctx: { ownerUserId: string; handle: string }) {
+    const handle = await this.store.renameHandle({
+      userId: ctx.ownerUserId,
+      handle: ctx.handle,
+    });
+    if (handle instanceof Error) return handle;
+    return {
+      handle,
+      origin: creatorOrigin({ publicOrigin: this.publicOrigin, handle }),
+    };
+  }
+
   async list(ownerUserId: string) {
     const apps = await this.store.list(ownerUserId);
     if (apps instanceof Error) return apps;

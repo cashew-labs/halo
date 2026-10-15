@@ -5452,3 +5452,80 @@ controlPlaneTest(
     }
   },
 );
+
+controlPlaneTest(
+  "publisher settings authenticate the owner and reject invalid or competing handles",
+  async ({ plane, authenticatedRpc: alice, rpc, appDataDir }) => {
+    await expect(rpc.apps.publisher()).rejects.toMatchObject({
+      code: "FORBIDDEN",
+    });
+    await expect(
+      rpc.apps.checkPublisherHandle({ handle: "unused" }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(
+      rpc.apps.renamePublisher({ handle: "unused" }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    const original = await alice.apps.publisher();
+    expect(original.origin).toBe(
+      `http://${original.handle}.localhost:${new URL(plane.origin).port}`,
+    );
+    expect(
+      await alice.apps.checkPublisherHandle({ handle: original.handle }),
+    ).toMatchObject({ available: true });
+    for (const handle of [
+      "",
+      "Upper",
+      "-first",
+      "last-",
+      "a.b",
+      "https://evil.test",
+      "a".repeat(42),
+      "admin",
+      "www",
+    ]) {
+      expect(await alice.apps.checkPublisherHandle({ handle })).toMatchObject({
+        available: false,
+      });
+      await expect(
+        alice.apps.renamePublisher({ handle }),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    }
+    const bobHeaders = await createAuthenticatedHeaders(
+      appDataDir,
+      plane.origin,
+      "publisher-bob@example.com",
+    );
+    bobHeaders.set("origin", plane.origin);
+    const bob = createControlPlaneRpcClient(plane.origin, bobHeaders);
+    const bobOriginal = await bob.apps.publisher();
+    expect(
+      await alice.apps.checkPublisherHandle({ handle: bobOriginal.handle }),
+    ).toMatchObject({ available: false });
+    const results = await Promise.allSettled([
+      alice.apps.renamePublisher({ handle: "contested" }),
+      bob.apps.renamePublisher({ handle: "contested" }),
+    ]);
+    expect(
+      results.filter((result) => result.status === "fulfilled"),
+    ).toHaveLength(1);
+    expect(
+      results.filter((result) => result.status === "rejected"),
+    ).toHaveLength(1);
+    const renamed = await alice.apps.renamePublisher({
+      handle: "alice-renamed",
+    });
+    expect(renamed.handle).toBe("alice-renamed");
+    expect(await alice.apps.publisher()).toEqual(renamed);
+    expect(
+      await alice.apps.renamePublisher({ handle: "alice-renamed" }),
+    ).toEqual(renamed);
+    expect((await bob.apps.publisher()).handle).not.toBe("alice-renamed");
+    bobHeaders.set("origin", "https://visitor.example");
+    await expect(
+      createControlPlaneRpcClient(
+        plane.origin,
+        bobHeaders,
+      ).apps.renamePublisher({ handle: "forbidden" }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+  },
+);
