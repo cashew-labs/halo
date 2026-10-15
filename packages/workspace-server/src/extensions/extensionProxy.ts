@@ -68,7 +68,14 @@ export async function serveExtensionUpgrade(ctx: {
     return;
   }
 
-  const connection = ctx.extensions.getConnection(route.id);
+  // Demo visitors sync with their own instance, as their HTTP requests do.
+  const viewerId = ctx.fromGateway
+    ? (firstHeader(ctx.request.headers["x-halo-viewer-id"]) ?? "owner")
+    : "owner";
+  const connection = await ctx.extensions.connectViewer({
+    id: route.id,
+    viewerId,
+  });
   if (connection === undefined) {
     respondToUpgrade(ctx.socket, 404);
     return;
