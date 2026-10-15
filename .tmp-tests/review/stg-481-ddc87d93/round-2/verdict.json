@@ -1,0 +1,27 @@
+{
+  "status": "changes_requested",
+  "summary": "F1 and F2 are fixed. A full demo VM now refuses new visitors with 503, instead of evicting active ones. Running instances answer before the queue. `publish` refuses template demo records. Both fixes are tested. The change is not ready, because the temp run fails: one control-plane temp test still expects the old 404 when a demo instance fails to start. Because that run failed, coverage for the control-plane files was lost and the coverage gate failed.",
+  "findings": [
+    {
+      "id": "F3",
+      "kind": "test",
+      "file": "apps/control-plane/src/apps/.tmp-tests/templateEdges.test.ts",
+      "line": 95,
+      "severity": "P1",
+      "body": "The test \"demo instances restart after a crash and report capacity failures\" fails: `expected 503 to be 404`.\n\nCause: `connectViewer` now returns the start error, and `serveExtensionRequest` answers 503 \"This demo is busy…\" (extensionProxy.ts:49-56).\n\nFix: update the test so that, when the instance fails to start, it expects 503 with that body and the `retry-after` header.\n\nBecause this file fails, the control-plane vitest run reported no coverage. Every changed line in AppService.ts, AppStore.ts, templateHttp.ts, controlPlaneHttp.ts, controlPlaneRpcRouter.ts and halo-cli app.ts, plus several workspace-server lines, is now reported uncovered. Rerun the tests after the fix and confirm that the coverage gate passes. Also remove the stray `infra/workspace/.tmp-tests/__pycache__/*.pyc` files from the temp test folder."
+    }
+  ],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "ca10299b5fda1ced23c9e5784606fc3ffc89cc88",
+  "treeHash": "3ad4e6f08d3cbd5771dd7e036b73893a2e1402ea",
+  "codeTree": "a8dc2d5acceb0347ebefacd4088aeacd2f75b1bd",
+  "coverage": {
+    "executable": 686,
+    "covered": 122,
+    "exempt": 139,
+    "uncovered": 425
+  },
+  "createdAt": "2026-10-15T06:23:04.042Z"
+}
