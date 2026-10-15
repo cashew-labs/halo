@@ -1,0 +1,6 @@
+[
+  {
+    "findingId": "F5",
+    "reply": "fixed: both the gateway and appHandoffHttp use creatorHost.appReturnPath (URL-safe ASCII, view with or without a slash). The handoff also accepts the gateway's root fallback, and redeeming without an app path answers 200 'Signed in.' on the creator host. Temp tests: an anonymous visit to /books/view redirects to sign-in with that return; full handoffs for /books/view and / complete; the handoff refuses a return with quote/angle characters."
+  }
+]

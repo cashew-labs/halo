@@ -1,0 +1,14 @@
+[
+  {
+    "findingId": "F1",
+    "reply": "fixed: returnPathPattern now allows only URL-safe ASCII after the slug, so control, CR/LF and non-Latin-1 characters fall back to the sign-out page; the creator-host listener also catches a rejected gateway request and answers 500. Temp test: %01, %7F, %E2%82%AC and an encoded CRLF all get 200 and /health still answers."
+  },
+  {
+    "findingId": "F2",
+    "reply": "fixed: on HTTPS the setup browser cookie is __Host-halo_setup_<id> and only that name is read, so an unprefixed cookie planted with Domain= from a creator host is ignored; HTTP development keeps the old name. Temp unit test covers issuing and parsing on both origins (the full OAuth callback runs on HTTP in the control-plane fixture)."
+  },
+  {
+    "findingId": "F3",
+    "reply": "fixed: the branch was based on an earlier #471 revision whose proxy and SDK treated owner traffic as public; it is now rebased on the current #471, where gateway traffic without a viewer and standalone previews are the owner. The workspace-server dist worker is built for the durable run."
+  }
+]
