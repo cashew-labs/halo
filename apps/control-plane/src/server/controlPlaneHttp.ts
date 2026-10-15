@@ -181,7 +181,17 @@ export function serveControlPlaneHttp(ctx: {
     // Creator hosts serve apps only; no Halo route is reachable from them.
     const handle = creatorHandle({ publicOrigin, host: request.headers.host });
     if (handle !== undefined) {
-      await ctx.appGateway.serve({ request, response, handle });
+      const served = await ctx.appGateway
+        .serve({ request, response, handle })
+        .catch(
+          (cause) =>
+            new ControlPlaneHttpError({ detail: "serve app request", cause }),
+        );
+      if (served instanceof Error) {
+        console.error(served);
+        if (!response.headersSent) response.writeHead(500);
+        response.end();
+      }
       return;
     }
     stripCrossOriginCookies(request, publicOrigin);
@@ -318,7 +328,7 @@ async function routeControlPlaneRequest(ctx: {
         ? undefined
         : (url.searchParams.get("code") ?? undefined),
       userId: session instanceof Error ? undefined : session?.user.id,
-      browsers: setupBrowserCookies(headers),
+      browsers: setupBrowserCookies(headers, ctx.publicOrigin),
     });
     response.setHeader("cache-control", "no-store");
     response.setHeader("referrer-policy", "no-referrer");
