@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "This change wraps public app view pages in a waitlist banner page and adds a same-origin, rate-limited signup route. F1 is resolved: the gateway now sends same-origin `Sec-Fetch-Dest: iframe` requests straight to the app, so navigation inside the frame no longer nests the banner page, and the iframe now delegates fullscreen, geolocation, camera, microphone and clipboard permissions. F2 is resolved: durable tests now cover the 429 response with `retry-after` and both database-failure 500 paths, a temp Playwright test checks the banner page's signup states in a browser, and all changed lines are covered.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "7c7aec99b2d1b66b9a1353e1969867a4a00e1014",
+  "treeHash": "db279b866e88445d2640e1944182e4a61ba06521",
+  "codeTree": "c7b49cd2d1429f29c7e150656b952ffffbccc603",
+  "coverage": {
+    "executable": 62,
+    "covered": 62,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-15T19:50:43.820Z"
+}

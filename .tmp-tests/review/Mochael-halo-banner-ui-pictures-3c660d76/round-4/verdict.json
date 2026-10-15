@@ -1,0 +1,24 @@
+{
+  "status": "changes_requested",
+  "summary": "The code is the same as in round 3, which I approved, now rebased onto the new base 5c6590cb. I found no new source or test defects. I still cannot approve, because the durable suite never ran: `test/ControlPlane.test.ts` failed at import with `Cannot find module 'lodash'`, which `node_modules/tuple-database/helpers/randomId.js` requires. This points to a stale install after the rebase, not to this change. Because nothing ran, `AppGateway.ts` 9 and `publicAppPage.ts` 22-23 show as uncovered. The report also exempts `AppGateway.ts` 190-209 using the database-outage exemption comment from line 168, which belongs to the viewer-error branch, so I don't accept those exemptions. Run `pnpm install` so the workspace dependencies are complete, then rerun the durable suite; the existing durable tests (the banner page, iframe routing, HEAD request and visibility checks) should cover these lines.",
+  "findings": [],
+  "testRequests": [
+    {
+      "target": "apps/control-plane/test/ControlPlane.test.ts: rerun the durable suite after reinstalling dependencies, so the publicAppTest cases load and cover AppGateway.ts:9, the banner-page branch at AppGateway.ts:190-209, and the HEAD branch at publicAppPage.ts:22-23",
+      "tier": "durable",
+      "rationale": "The durable run failed at import (missing lodash, required by tuple-database), so no test covered these changed lines. The exemption reason applied to 190-209 is for database-outage error branches, not for the banner-page branch."
+    }
+  ],
+  "tierChanges": [],
+  "round": 4,
+  "headSha": "a2a91024f4440695c93a638b2a8c9837073e90e7",
+  "treeHash": "c328b51d4d97776d1b091577bf0c9eb3434bd4e2",
+  "codeTree": "2d1eab88ec8ba2ecfbb61511e97958e18ac6ca6f",
+  "coverage": {
+    "executable": 25,
+    "covered": 6,
+    "exempt": 16,
+    "uncovered": 3
+  },
+  "createdAt": "2026-10-15T21:14:03.075Z"
+}

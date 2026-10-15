@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "This change wraps public app view pages in a gateway banner page whose waitlist form posts to Buttondown in a new tab. Same-origin iframe requests still go straight to the app. The code is the same as in round 3, which I approved. After the dependency reinstall, the durable and temp runs both pass, and the durable tests cover every changed line, so it is ready to merge.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 5,
+  "headSha": "a2a91024f4440695c93a638b2a8c9837073e90e7",
+  "treeHash": "c328b51d4d97776d1b091577bf0c9eb3434bd4e2",
+  "codeTree": "2d1eab88ec8ba2ecfbb61511e97958e18ac6ca6f",
+  "coverage": {
+    "executable": 11,
+    "covered": 11,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-15T21:16:32.015Z"
+}

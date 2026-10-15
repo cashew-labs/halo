@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "This change wraps public app view pages in a gateway banner page. The local waitlist route and table are removed, and the banner form now posts to the existing Buttondown list (the same one LandingPage uses) in a new tab. The in-frame routing fix from round 2 is kept. Durable tests cover the banner page, content routing and visibility rules, a temp Playwright test checks the new-tab Buttondown post and that the app keeps working, all tests pass, and every changed line is covered.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 3,
+  "headSha": "7c7aec99b2d1b66b9a1353e1969867a4a00e1014",
+  "treeHash": "2397bfa40eeb98c62acb320fe51c14a9f35027fa",
+  "codeTree": "18d4c2e89f60f241b99baad5ccce40233baef599",
+  "coverage": {
+    "executable": 11,
+    "covered": 11,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-15T20:07:31.976Z"
+}

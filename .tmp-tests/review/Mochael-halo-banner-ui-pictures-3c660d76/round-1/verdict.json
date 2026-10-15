@@ -1,0 +1,51 @@
+{
+  "status": "changes_requested",
+  "summary": "This change wraps GET and HEAD view pages of public apps in a gateway page that shows a \"private alpha\" banner and an iframe. It also adds a same-origin, rate-limited POST /<slug>/waitlist route backed by a new app_waitlist table. It is not ready to merge. If the app navigates inside the iframe, the gateway serves the banner page again inside the frame, and the coverage gate fails because the 429 and 500 branches in appWaitlistHttp.ts are never run.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "source",
+      "file": "apps/control-plane/src/apps/AppGateway.ts",
+      "line": 212,
+      "severity": "P1",
+      "body": "The gateway decides whether to serve the banner page or the real content by checking only the `__halo_content=1` query parameter. The SDK serves index.html for every `/view/*` path, so public apps can have client-side routes. The iframe loses the marker whenever the app navigates inside it: a plain `<a href=\"/slug/view/other\">`, a GET form, `location.assign`, or a reload after `history.pushState` to a URL without the query. On each of these navigations the gateway returns the banner page again, so the iframe shows a second banner with its own iframe, and this can repeat. The app also sees `__halo_content=1` in its own `location.search`.\n\nThe gateway should decide from the request itself rather than from a query marker that users and apps can drop. For example, serve the banner page only for a top-level navigation (`Sec-Fetch-Dest: document`, or the header is missing) and send `Sec-Fetch-Dest: iframe` requests straight to the app. Alternatively, keep the marker but never serve the banner page to a request that comes from inside the frame.\n\nThe iframe also has only `allow=\"clipboard-write\"`. Existing publications that worked as top-level pages and used fullscreen, geolocation, camera, or clipboard-read stop working. This contradicts the comment that the banner page \"works for existing publications without rebuilding them\"."
+    },
+    {
+      "id": "F2",
+      "kind": "test",
+      "file": "apps/control-plane/src/apps/appWaitlistHttp.ts",
+      "line": 57,
+      "severity": "P1",
+      "body": "No test covers the rate-limit branch (lines 58-60, with `retry-after: 600` and status 429) or the two database-failure branches (lines 53-55 and 71-73). The coverage gate fails. The 429 path is behavior this change adds, and the page's script shows its own message for it, so it needs a test. The 500 paths need either a test or a `coverage-exempt` comment with the same \"App database outage\" reason that AppGateway.ts already uses."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "apps/control-plane/src/apps/appWaitlistHttp.ts:57-60: after 100 waitlist POSTs for one app in a window, the next POST returns 429 with retry-after 600 and adds no row",
+      "tier": "tmp",
+      "rationale": "This rate-limit behavior is new and no test checks it."
+    },
+    {
+      "target": "apps/control-plane/src/apps/appWaitlistHttp.ts:52-55 and 70-73: when consume or joinWaitlist returns an Error, the route returns 500 (for example, call serveAppWaitlist with a stub store); otherwise add an accepted coverage-exempt comment",
+      "tier": "tmp",
+      "rationale": "These changed lines are uncovered and have no exemption."
+    },
+    {
+      "target": "AppGateway public view: a navigation from inside the iframe to /<slug>/view/<other> without __halo_content (or with Sec-Fetch-Dest: iframe, after the fix) is sent to the app and does not return the banner page",
+      "tier": "tmp",
+      "rationale": "The test should show that the fix for F1 prevents a second banner page inside the iframe."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "7c7aec99b2d1b66b9a1353e1969867a4a00e1014",
+  "treeHash": "692612f5564a7403e1502fb2b3b21c9e8cc73921",
+  "codeTree": "692612f5564a7403e1502fb2b3b21c9e8cc73921",
+  "coverage": {
+    "executable": 66,
+    "covered": 57,
+    "exempt": 0,
+    "uncovered": 9
+  },
+  "createdAt": "2026-10-15T19:46:27.751Z"
+}
