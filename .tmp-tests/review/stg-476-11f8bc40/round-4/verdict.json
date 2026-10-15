@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "This change adds dedicated shared-app VMs, which run a root-owned gVisor supervisor, and the owner RPCs to install, edit, build and snapshot the app project. F5 is fixed: the stale hostSecurity temp test now matches the rebased stg/471 viewer contract. The source has not changed since round 3, and the import_data temp-then-rename update from that round is sound. All test runs pass, the coverage gate passes with acceptable exemptions, and no findings remain.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 4,
+  "headSha": "c926fc8dd2112907d437dc90b1fd493a4b76475e",
+  "treeHash": "9deaf72bad7ae0c8ffe1192fe0cffd0de39c4fe1",
+  "codeTree": "b0f586d6dcf9c49095c7c2159fba3920d251a90e",
+  "coverage": {
+    "executable": 655,
+    "covered": 573,
+    "exempt": 82,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-15T07:05:49.086Z"
+}

@@ -1,0 +1,27 @@
+{
+  "status": "changes_requested",
+  "summary": "The only source change since round 2 is in appHost.import_data: it now writes to a temporary file and renames it into place. That code is sound and covered by the Python temp tests. The temp vitest run fails at hostSecurity.test.ts:89, because the rebased stg/471 extensionProxy now treats gateway traffic without a viewer ID as the owner. That failure also left the workspace-server files without coverage data, so the gate reports 663 uncovered lines. Update the stale temp test and rerun.",
+  "findings": [
+    {
+      "id": "F5",
+      "kind": "test",
+      "file": "packages/workspace-server/src/extensions/.tmp-tests/hostSecurity.test.ts",
+      "line": 89,
+      "severity": "P1",
+      "body": "This temp test fails, so the temp run fails. The run then produces no coverage for AppProject, AppSandbox, ExtensionHost, extensionsRouter and the other files, and the gate reports 663 uncovered lines. The failing case sends gateway-authenticated traffic with `x-halo-viewer-role: owner` and no viewer ID, and expects `{ role: 'public', viewerId: 'anonymous' }`. The rebased base (extensionProxy.ts:159-161, not part of this change) now maps that traffic to `{ role: 'owner', viewerId: 'owner' }`, with the comment that the control plane strips viewer headers from the owner's own traffic. The test checks base behavior that has changed. Update the expectation to match the current base, or remove the assertion, because this change does not own that logic. Then rerun the temp suite so that the workspace-server coverage is produced again."
+    }
+  ],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 3,
+  "headSha": "416e0900895dca285b3e10f73b58e9b383d05f21",
+  "treeHash": "5246e8bcbcb39771f711bab5ccfc9dd2ee6fbabc",
+  "codeTree": "48e13641b89695a173ebde3473a41e36a9fd6dd5",
+  "coverage": {
+    "executable": 1004,
+    "covered": 259,
+    "exempt": 82,
+    "uncovered": 663
+  },
+  "createdAt": "2026-10-15T06:56:16.087Z"
+}
