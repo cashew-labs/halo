@@ -20,6 +20,9 @@ NETWORK = 'halo-apps'
 GATEWAY = '172.30.0.1'
 LABEL = 'halo.shared=true'
 IMAGE = 'node:24.21.0-bookworm-slim'
+# gVisor cannot reach Docker's embedded resolver (127.0.0.11), so containers
+# get public resolvers, which the egress rules allow.
+RESOLV_CONF = '/etc/halo/app-resolv.conf'
 MAX_DATA = 16 * 1024 * 1024
 lock = threading.Lock()
 
@@ -247,6 +250,7 @@ def run_app(name, source, data, broker_port, access, body):
             '--tmpfs=/tmp:rw,nosuid,nodev,size=32m,mode=1777',
             '--mount', f'type=bind,src={source},dst=/app,readonly',
             '--mount', f'type=bind,src={data},dst=/data',
+            '--mount', f'type=bind,src={RESOLV_CONF},dst=/etc/resolv.conf,readonly',
             '--workdir=/app', '--publish', '127.0.0.1::3000']
     for key in env:
         args.extend(['--env', key])
@@ -303,6 +307,7 @@ fs.writeFileSync("package.json", JSON.stringify(p, null, 2) + "\\n");
             '--tmpfs=/tmp:rw,nosuid,nodev,size=32m,mode=1777',
             '--env=HOME=/tmp', '--mount', f'type=bind,src={source},dst=/app',
             '--mount', 'type=bind,src=/var/lib/halo/app-sdk,dst=/halo-sdk,readonly',
+            '--mount', f'type=bind,src={RESOLV_CONF},dst=/etc/resolv.conf,readonly',
             '--workdir=/app', IMAGE, 'timeout', '--signal=KILL', '120', 'bash', '-l']
     with contextlib.ExitStack() as cleanup:
         cleanup.callback(stop, name)
