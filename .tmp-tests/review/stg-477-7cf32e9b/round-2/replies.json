@@ -1,0 +1,6 @@
+[
+  {
+    "findingId": "F4",
+    "reply": "fixed: added a coverage-exempt reason on the type-only remove? member, like hostsSharedApps."
+  }
+]
