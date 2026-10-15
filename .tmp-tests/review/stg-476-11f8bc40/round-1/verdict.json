@@ -1,0 +1,72 @@
+{
+  "status": "changes_requested",
+  "summary": "This change adds dedicated shared-app VMs. Each VM runs a root-owned gVisor supervisor that the workspace server reaches over a Unix socket, and the owner gets new RPCs to install, edit, build and snapshot the app project. Validation and path safety are mostly sound and well tested, but the coverage gate fails: ExtensionHost.ts:170 is uncovered. There are also two source defects: a single failed status poll leaves the app marked dead, and a snapshot taken before the first successful start drops installed data. Two coverage gaps also need tests: the app-VM reload filter and the run_app/run_build Docker argument builders.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "test",
+      "file": "packages/workspace-server/src/extensions/ExtensionHost.ts",
+      "line": 170,
+      "severity": "P1",
+      "body": "Line 170 is uncovered, so the coverage gate fails. This is the branch where snapshotProject stops a running app, captures it, and then fails to restart it. No test covers it. The appVm test reaches snapshot only after the app is already down, so `running` is undefined. Add a temp test with these steps: start the app with the supervisor fixture, make the next /start fail (for example by writing a failing dist/start.mjs), then call snapshot. Check that the snapshot is still returned, that the `extension-snapshot-restart-failed` warning is logged, and that list() no longer reports the app as running."
+    },
+    {
+      "id": "F2",
+      "kind": "source",
+      "file": "packages/workspace-server/src/extensions/AppSandbox.ts",
+      "line": 55,
+      "severity": "P1",
+      "body": "One failed or slow /status request permanently sets `state.running = false` and clears the monitor, but the container keeps running. After that, getConnection returns undefined and ExtensionHost.restart refuses with ExtensionNotRunningError, because restart requires isRunning(). Two expected scenarios trigger this. (1) update-host runs `systemctl restart halo-app-host` (appSandboxSetup.sh) while the workspace server keeps running, and halo-workspace-upgrade exits early when the image is unchanged. (2) halo.service has no `After=`/`Wants=halo-app-host.service`, so after a reboot the workspace server's initial reload() can call the socket before it exists, and the start is never retried. Treat transport errors as transient (retry or tolerate N consecutive failures), and order halo.service after halo-app-host on app VMs."
+    },
+    {
+      "id": "F3",
+      "kind": "source",
+      "file": "packages/workspace-server/src/extensions/ExtensionHost.ts",
+      "line": 160,
+      "severity": "P1",
+      "body": "On an app VM, snapshotProject always overrides the data with the sandbox result (`{ contents: captured }`). appHost.snapshot returns `{}` when no data volume exists yet, which is the case when installProject wrote extension-data/books/tandem.json but the first start failed (for example, a broken build). The snapshot then reports `data: undefined`, and the installed data is lost from the exported artifact. Because import_data has not run when no volume exists, the workspace file is still the authoritative copy. Fall back to the workspace data file when the supervisor reports no volume (or reports no data before import), and test this path."
+    },
+    {
+      "id": "F4",
+      "kind": "test",
+      "file": "packages/workspace-server/src/extensions/ExtensionHost.ts",
+      "line": 311,
+      "severity": "P1",
+      "body": "The reload filter that limits an app VM to its shared extension is a security boundary: any other extension directory would be started unsandboxed through startExtension. No test covers the case where the filter excludes something. The app VM in appVm.test.ts contains only `books`. Add a temp test that places a second valid extension under .halo/extensions on the app VM, calls reload, and checks that list() contains only the shared app and that no unsandboxed process was started."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "packages/workspace-server/src/extensions/ExtensionHost.ts:170 — snapshot of a running shared app whose restart fails",
+      "tier": "tmp",
+      "rationale": "This line is uncovered and fails the coverage gate. The test must show that the snapshot survives the failed restart and that the warning is logged."
+    },
+    {
+      "target": "packages/workspace-server/src/extensions/ExtensionHost.ts:311 — app-VM reload ignores extensions other than sharedApp.extensionId",
+      "tier": "tmp",
+      "rationale": "Only the true branch of the filter is exercised. The excluding branch is what keeps other extensions from running unsandboxed."
+    },
+    {
+      "target": "infra/workspace/appHost.py:172-215 run_app and :234-256 run_build, with command/subprocess.run/urllib.request.urlopen mocked",
+      "tier": "tmp",
+      "rationale": "I do not accept the exemption. Deferring live gVisor provisioning does not stop mock-based tests of the argument builders and control flow. The tests should check five things: tokens reach Docker only through env, never argv; --runtime=runsc, --read-only, --cap-drop=ALL and the read-only /app mount are present; the iptables rule is inserted only when `-C` fails; the container is stopped when readiness times out or inspect fails; and run_build passes the script on stdin and always removes the build container."
+    },
+    {
+      "target": "ExtensionHost.snapshotProject on an app VM after install succeeded but the first sandbox start failed",
+      "tier": "tmp",
+      "rationale": "This covers the F3 fix: the installed data must appear in the snapshot when the supervisor has no data volume yet."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "1d8ecb3602abee91a2bc7fe40491587e71a3206a",
+  "treeHash": "096fd2524e8aef599f8172045d8bb43913f6bcaf",
+  "codeTree": "31d2ab0b7acbd85d440aa522d154d01f0daa8555",
+  "coverage": {
+    "executable": 653,
+    "covered": 514,
+    "exempt": 138,
+    "uncovered": 1
+  },
+  "createdAt": "2026-10-15T05:34:58.993Z"
+}
