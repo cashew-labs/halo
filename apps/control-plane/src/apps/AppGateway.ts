@@ -17,7 +17,9 @@ const appPathPattern =
   /^\/([a-z][a-z0-9-]{0,62})(?:\/(view|api|sync)(\/[A-Za-z0-9._~!$&'()*+,;=:@%/-]*)?)?\/?$/;
 // Rejects encoded separators and dot segments before any routing decision.
 const unsafePathPattern = /%(?:2f|5c|2e|00)|\\|\/\/|(?:^|\/)\.{1,2}(?:\/|$)/i;
-const returnPathPattern = /^\/[a-z][a-z0-9-]{0,62}\/(?:view\/[^\s]*)?$/;
+// Only URL-safe ASCII: the decoded value becomes a Location header.
+const returnPathPattern =
+  /^\/[a-z][a-z0-9-]{0,62}\/(?:view\/[A-Za-z0-9._~!$&'()*+,;=:@%/?-]*)?$/;
 const visitorPattern = /^[A-Za-z0-9_-]{22}$/;
 
 const appProxy = createProxyServer();

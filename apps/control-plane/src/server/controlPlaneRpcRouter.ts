@@ -156,7 +156,9 @@ async function setupBrowserOwner(
   setupId: string,
 ) {
   const headers = context.reqHeaders ?? new Headers();
-  const browser = setupBrowserCookies(headers).get(setupId);
+  const browser = setupBrowserCookies(headers, context.publicOrigin).get(
+    setupId,
+  );
   if (browser === undefined || context.integrations === undefined) return;
   if (headers.get("origin") !== context.publicOrigin)
     throw new ORPCError("FORBIDDEN");
