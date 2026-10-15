@@ -6,6 +6,7 @@ import type { WorkspaceProviderApi } from "../workspace/provider/WorkspaceProvid
 import type { WorkspaceAuthorization } from "../workspace/proxy.js";
 import type { AppRecord, AppStore } from "./AppStore.js";
 import { appReturnPath, creatorOrigin } from "./creatorHost.js";
+import { publicAppPage } from "./publicAppPage.js";
 
 class AppGatewayError extends errore.createTaggedError({
   name: "AppGatewayError",
@@ -184,6 +185,27 @@ export class AppGateway {
     }
     if (viewer === "forbidden") {
       respond(response, 403);
+      return;
+    }
+    if (
+      kind === "view" &&
+      !rest?.startsWith("/assets/") &&
+      (request.method === "GET" || request.method === "HEAD") &&
+      app.published &&
+      app.visibility === "public" &&
+      // Keep in-frame navigation inside the app; external embeds get the banner.
+      !(
+        request.headers["sec-fetch-dest"] === "iframe" &&
+        request.headers["sec-fetch-site"] === "same-origin"
+      )
+    ) {
+      publicAppPage({
+        response,
+        url,
+        displayName: app.displayName,
+        publicOrigin: this.publicOrigin.origin,
+        head: request.method === "HEAD",
+      });
       return;
     }
     // Visitor cookies ride along on cross-site requests; writes need this origin.
