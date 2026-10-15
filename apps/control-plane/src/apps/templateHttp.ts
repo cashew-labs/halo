@@ -140,7 +140,9 @@ function page(ctx: {
       "content-type": "text/html; charset=utf-8",
       "cache-control": "no-store",
       "x-content-type-options": "nosniff",
-      "referrer-policy": "no-referrer",
+      // no-referrer would make the browser send "Origin: null" with this
+      // page's own install form, which the origin check refuses.
+      "referrer-policy": "same-origin",
       "content-security-policy": `default-src 'none'; style-src 'unsafe-inline'; frame-src ${ctx.demoOrigin}; form-action 'self' https://accounts.google.com; frame-ancestors 'none'; base-uri 'none'`,
     })
     .end(

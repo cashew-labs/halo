@@ -357,7 +357,7 @@ export class ExtensionHost {
       const installed = await project.install(ctx.artifact, ctx.installId);
       if (installed instanceof Error) return installed;
       if (this.processes.get(ctx.extensionId)?.isRunning()) return;
-      const started = await this.startUnqueued(ctx.extensionId);
+      const started = await this.startInstalled(ctx.extensionId);
       await this.publishUnqueued();
       return started;
     });
@@ -657,6 +657,18 @@ export class ExtensionHost {
       return extension;
     }
     this.processes.set(id, extension);
+  }
+
+  /**
+   * A newly assigned app VM is still settling when the first copy arrives:
+   * on staging the first start missed its 30 s readiness window on every
+   * fresh VM while a second start answered in seconds.
+   */
+  private async startInstalled(id: string) {
+    const started = await this.startUnqueued(id);
+    if (!(started instanceof AppSandboxError)) return started;
+    this.logger.warn({ event: "app-first-start-retry", error: started });
+    return await this.startUnqueued(id);
   }
 
   private removeToolConnection(id: string) {
