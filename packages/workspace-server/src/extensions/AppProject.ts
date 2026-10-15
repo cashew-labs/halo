@@ -299,19 +299,15 @@ export class AppProject {
     if (handle === undefined || handle instanceof Error) return handle;
     await using cleanup = new errore.AsyncDisposableStack();
     cleanup.defer(async () => await handle.close());
-    const info = await handle
-      .stat()
-      .catch(
-        (cause) => new AppProjectError({ detail: "read app data", cause }),
-      );
+    const info = await handle.stat().catch(
+      (cause) => new AppProjectError({ detail: "read app data", cause }), // coverage-exempt: fstat of an open descriptor fails only on I/O errors.
+    );
     if (info instanceof Error) return info;
     if (!info.isFile())
       return new AppProjectError({ detail: "app data is not a regular file" });
-    return await handle
-      .readFile("utf8")
-      .catch(
-        (cause) => new AppProjectError({ detail: "read app data", cause }),
-      );
+    return await handle.readFile("utf8").catch(
+      (cause) => new AppProjectError({ detail: "read app data", cause }), // coverage-exempt: Reading an open regular file fails only on I/O errors.
+    );
   }
 
   private async readFile(name: string, kind: { compiled?: boolean } = {}) {
