@@ -133,6 +133,9 @@ function ShareAppDialog({
     });
     setEmail("");
   };
+  // An invited app needs at least one person besides the owner.
+  const emptyInvite =
+    current.visibility === "invited" && current.members.length === 0;
   const error = save.error ?? apps.error ?? copy.error;
 
   return (
@@ -151,7 +154,8 @@ function ShareAppDialog({
           <div className={body}>
             <h2 className={heading}>Share app</h2>
             {apps.isPending && <p role="status">Loading…</p>}
-            {!apps.isPending && (
+            {/* Without the app list, publishing could overwrite existing access. */}
+            {apps.isSuccess && (
               <>
                 {!live && (
                   <p className={detail}>
@@ -269,10 +273,18 @@ function ShareAppDialog({
               </p>
             )}
             <div className={buttons}>
+              {apps.isError && (
+                <Button
+                  isDisabled={apps.isFetching}
+                  onPress={() => void apps.refetch()}
+                >
+                  Retry
+                </Button>
+              )}
               {live && (
                 <Button
                   variant="quiet"
-                  isDisabled={save.isPending}
+                  isDisabled={save.isPending || (!app.published && emptyInvite)}
                   onPress={() =>
                     save.mutate({ access: current, published: !app.published })
                   }
@@ -280,14 +292,9 @@ function ShareAppDialog({
                   {app.published ? "Stop sharing" : "Share again"}
                 </Button>
               )}
-              {!live && (
+              {apps.isSuccess && !live && (
                 <Button
-                  isDisabled={
-                    save.isPending ||
-                    apps.isPending ||
-                    (current.visibility === "invited" &&
-                      current.members.length === 0)
-                  }
+                  isDisabled={save.isPending || emptyInvite}
                   onPress={() => save.mutate({ access: current })}
                 >
                   {save.isPending ? "Publishing…" : "Publish"}
@@ -295,7 +302,7 @@ function ShareAppDialog({
               )}
               {live && changed && (
                 <Button
-                  isDisabled={save.isPending}
+                  isDisabled={save.isPending || emptyInvite}
                   onPress={() => save.mutate({ access: current })}
                 >
                   Save
