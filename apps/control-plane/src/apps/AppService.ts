@@ -287,6 +287,15 @@ export class AppService {
     const action = actions.find((candidate) => candidate.name === ctx.name);
     if (action === undefined)
       return new AppRequestError({ reason: "Unknown app action" });
+    // Demos never reach anyone's connections; they replay the sample result
+    // without spending the action budget. Their code is the author's, which
+    // may still pass the author's fixed arguments that the demo dropped.
+    if (ctx.app.origin?.kind === "demo")
+      return {
+        status: "completed" as const,
+        // oxlint-disable-next-line unicorn/no-null -- A missing sample result is JSON null.
+        result: action.sampleResult ?? null,
+      };
     if (
       ctx.arguments !== undefined &&
       !isDeepStrictEqual(ctx.arguments, action.arguments)
@@ -294,14 +303,6 @@ export class AppService {
       return new AppRequestError({
         reason: "App actions run only their fixed request",
       });
-    // Demos never reach anyone's connections; they replay the sample result
-    // without spending the action budget.
-    if (ctx.app.origin?.kind === "demo")
-      return {
-        status: "completed" as const,
-        // oxlint-disable-next-line unicorn/no-null -- A missing sample result is JSON null.
-        result: action.sampleResult ?? null,
-      };
     const allowed = await this.store.consume({
       appId: ctx.app.appId,
       kind: "action",
