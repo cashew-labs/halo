@@ -1,0 +1,33 @@
+{
+  "status": "changes_requested",
+  "summary": "The change gives each bash run an environment identity and uses a `ps eww` snapshot to signal descendants that escaped the process group. After the SIGKILL pass it destroys the stdout and stderr pipes, so a stop can no longer hang. The temp tests pass and cover the new escape cases. One problem blocks approval: once the shell has exited, its original process group is no longer signalled. A descendant that stays in that group but has no run identity (for example, one started with `env -i`) now leaks, and the old code killed it.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "source",
+      "file": "packages/workspace-server/src/agent/tools/bash/run.ts",
+      "line": 143,
+      "severity": "P1",
+      "body": "Both passes now set `pid` only while `running.exitCode === null && running.signalCode === null` (lines 134-135 and 143-144). After the shell exits, nothing signals the shell's process group `-running.pid` any more. Only processes that still carry `HALO_BASH_RUN_ID` are found.\n\nThe old code always signalled `-pid`, so this is a regression in two cases:\n1. `bash -c 'env -i sleep 1000 &'`. The shell exits at once, and `sleep` stays in its process group and holds the stdout pipe. On timeout or abort, `ps` finds no marker and `pid` is undefined, so nothing is signalled. The streams are destroyed after 250 ms, the tool returns, and `sleep` runs forever. Before this change, `kill(-pid, SIGTERM)` killed it.\n2. A same-group child that ignores SIGTERM and has a cleared or sanitized environment (`env -i`, `sudo`, and many daemons do this). The SIGTERM pass kills the shell. In the SIGKILL pass `pid` is now undefined, so the child is never SIGKILLed.\n\nKeep signalling the original group. A PGID cannot be reused while the group has any member, so `kill(-running.pid)` reaches only our processes while they exist. Alternatively, have `ps` also output `pgid` and add every process whose PGID equals the shell's PID. Positive-PID signalling of the reaped shell can stay guarded as it is now."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "run.ts:134-144: a background descendant in the shell's process group, with HALO_BASH_RUN_ID removed (e.g. `env -i <node> -e '<ignore SIGTERM; write pid; setInterval>' &` with the shell then exiting), is gone after abort or timeout",
+      "tier": "tmp",
+      "rationale": "No current test covers a same-group, untagged descendant after the shell has exited. That is the case where this change dropped process-group signalling."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "b6deb709029590763d5d3ab2ed868bc042b44c67",
+  "treeHash": "dbabb81e6cdb34bc1b8265ff8dd5f98d51e32517",
+  "codeTree": "686469bb3240383b5ecbc9dcf86e4a4be87c9448",
+  "coverage": {
+    "executable": 31,
+    "covered": 31,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-15T18:20:32.225Z"
+}
