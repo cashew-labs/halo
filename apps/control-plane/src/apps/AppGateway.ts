@@ -105,8 +105,22 @@ export class AppGateway {
         const deleted = await this.store.deleteViewerSession(token);
         if (deleted instanceof Error) console.error(deleted);
       }
+      // Creator hosts serve only app paths, so return to the visitor's app.
+      const location = safeReturnPath(url.searchParams.get("return"));
+      if (location === "/") {
+        respond(
+          response,
+          200,
+          {
+            "content-type": "text/plain; charset=utf-8",
+            "set-cookie": this.clearCookie("session"),
+          },
+          "Signed out.",
+        );
+        return;
+      }
       respond(response, 302, {
-        location: "/",
+        location,
         "set-cookie": this.clearCookie("session"),
       });
       return;
@@ -342,6 +356,7 @@ function respond(
   response: ServerResponse,
   status: number,
   headers: Record<string, string | string[]> = {},
+  body?: string,
 ) {
   response
     .writeHead(status, {
@@ -349,5 +364,5 @@ function respond(
       "x-content-type-options": "nosniff",
       ...headers,
     })
-    .end();
+    .end(body);
 }
