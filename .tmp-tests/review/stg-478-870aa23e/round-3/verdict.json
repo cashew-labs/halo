@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "This change adds creator-host app serving: a gateway, a sign-in handoff on Halo's origin, fixed integration actions for apps, and `__Host-` cookies on HTTPS. F4 is fixed: a temp test makes the provider throw inside `AppGateway.serve`, then checks that the visitor gets 500 and `/health` still answers. Both test runs pass, the coverage gate passes, and no findings remain open.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 3,
+  "headSha": "457c4e3b75def6ca402220c79c839b55b1bf9394",
+  "treeHash": "f5c41af80233c3b6edc23da27d8822e0a1bc489a",
+  "codeTree": "e15160b55e90619cdb5cfd3ec09706c674e2078f",
+  "coverage": {
+    "executable": 444,
+    "covered": 380,
+    "exempt": 64,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-15T06:04:08.532Z"
+}
