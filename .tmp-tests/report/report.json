@@ -1,0 +1,210 @@
+{
+  "baseRef": "origin/main",
+  "baseSha": "15eea8565a2812edb1bde91946bce4cae4250de2",
+  "headSha": "168caa1cef76231f380aa995aaa687f351a38238",
+  "treeHash": "89eaace59df00028b85038aeed362fae97d1f7ee",
+  "generatedAt": "2026-10-15T14:35:32.023Z",
+  "runs": {
+    "durable": {
+      "tier": "durable",
+      "testFiles": [],
+      "skipped": true,
+      "runners": [],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 0,
+      "log": ".tmp-tests/report/durable.log",
+      "lcovFiles": []
+    },
+    "tmp": {
+      "tier": "tmp",
+      "testFiles": [
+        "apps/control-plane/src/apps/.tmp-tests/signinBrowser.test.ts",
+        "infra/workspace/.tmp-tests/__pycache__/appHostRun.test.cpython-312.pyc",
+        "infra/workspace/.tmp-tests/appHostRun.test.py",
+        "packages/web/src/panes/.tmp-tests/extensionView.test.tsx",
+        "packages/workspace-server/src/extensions/.tmp-tests/sandboxProtocol.test.ts"
+      ],
+      "skipped": false,
+      "runners": [
+        {
+          "runner": "vitest",
+          "dir": ".",
+          "testFiles": [
+            "apps/control-plane/src/apps/.tmp-tests/signinBrowser.test.ts",
+            "packages/web/src/panes/.tmp-tests/extensionView.test.tsx",
+            "packages/workspace-server/src/extensions/.tmp-tests/sandboxProtocol.test.ts"
+          ],
+          "exitCode": 0
+        },
+        {
+          "runner": "command",
+          "dir": ".",
+          "testFiles": [
+            "infra/workspace/.tmp-tests/appHostRun.test.py"
+          ],
+          "exitCode": 0
+        }
+      ],
+      "unmatched": [
+        "infra/workspace/.tmp-tests/__pycache__/appHostRun.test.cpython-312.pyc"
+      ],
+      "exitCode": 0,
+      "durationMs": 56713,
+      "log": ".tmp-tests/report/tmp.log",
+      "lcovFiles": [
+        "../../../halo/.git/worktrees/ess-fix-dns/code-review-agent/coverage/tmp-0/vitest-0/lcov.info",
+        "../../../halo/.git/worktrees/ess-fix-dns/code-review-agent/coverage/tmp-0/vitest-1/lcov.info",
+        "../../../halo/.git/worktrees/ess-fix-dns/code-review-agent/coverage/tmp-0/vitest-2/lcov.info",
+        "tmp/python-tests/lcov.info"
+      ]
+    }
+  },
+  "durableTestFiles": [],
+  "tmpTestFiles": [
+    "apps/control-plane/src/apps/.tmp-tests/signinBrowser.test.ts",
+    "infra/workspace/.tmp-tests/__pycache__/appHostRun.test.cpython-312.pyc",
+    "infra/workspace/.tmp-tests/appHostRun.test.py",
+    "packages/web/src/panes/.tmp-tests/extensionView.test.tsx",
+    "packages/workspace-server/src/extensions/.tmp-tests/sandboxProtocol.test.ts"
+  ],
+  "files": [
+    {
+      "path": "apps/control-plane/src/apps/AppGateway.ts",
+      "loaded": true,
+      "changed": [
+        82,
+        83,
+        84,
+        85,
+        86,
+        87,
+        88,
+        89,
+        90,
+        91,
+        92,
+        93,
+        94,
+        95,
+        96,
+        97,
+        98,
+        99,
+        105
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [
+        82,
+        85,
+        87,
+        91,
+        96,
+        97,
+        98,
+        105
+      ],
+      "uncovered": [],
+      "exempt": [
+        {
+          "line": 92,
+          "reason": "App database outage; no service mocks in the real control-plane fixture."
+        },
+        {
+          "line": 93,
+          "reason": "App database outage; no service mocks in the real control-plane fixture."
+        },
+        {
+          "line": 94,
+          "reason": "App database outage; no service mocks in the real control-plane fixture."
+        }
+      ]
+    },
+    {
+      "path": "apps/control-plane/src/apps/appHandoffHttp.ts",
+      "loaded": true,
+      "changed": [
+        203,
+        204,
+        205
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "infra/workspace/appHost.py",
+      "loaded": true,
+      "changed": [
+        23,
+        24,
+        25,
+        253,
+        310
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [
+        25,
+        253,
+        310
+      ],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "packages/web/src/main/ExtensionView.tsx",
+      "loaded": true,
+      "changed": [
+        49,
+        92,
+        93,
+        94,
+        95,
+        96,
+        97,
+        98,
+        99
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [
+        96,
+        97,
+        98
+      ],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "packages/workspace-server/src/extensions/AppSandbox.ts",
+      "loaded": true,
+      "changed": [
+        23,
+        173,
+        175,
+        176,
+        177,
+        178,
+        179,
+        180,
+        181,
+        182
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [
+        23,
+        175
+      ],
+      "uncovered": [],
+      "exempt": []
+    }
+  ],
+  "totals": {
+    "executable": 19,
+    "coveredDurable": 0,
+    "coveredTmpOnly": 16,
+    "uncovered": 0,
+    "exempt": 3
+  },
+  "passed": true
+}
