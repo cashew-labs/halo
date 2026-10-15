@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "F1 is fixed. `ps` now reports each process's process group, so processes still in the shell's group are found and signalled after the shell exits, even without a run identity. New abort and timeout temp tests check that a SIGTERM-ignoring child with an empty environment is killed after the shell exits. All temp tests pass, every changed line is covered, and no P0 or P1 findings remain.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "b6deb709029590763d5d3ab2ed868bc042b44c67",
+  "treeHash": "f2ea59befc74d9e4f8d9911b4d1c8217852b0d30",
+  "codeTree": "fff3267e80247616f7bf143d3d739cbf927a4a33",
+  "coverage": {
+    "executable": 32,
+    "covered": 32,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-15T18:23:20.955Z"
+}

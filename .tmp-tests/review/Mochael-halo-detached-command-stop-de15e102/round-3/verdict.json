@@ -1,0 +1,33 @@
+{
+  "status": "changes_requested",
+  "summary": "This round wraps each command in a bash supervisor. The supervisor ignores SIGTERM and stays alive until Node closes a lifetime stdin pipe, so the command's process group ID stays reserved until cancellation escalates. That is a sound way to block PID reuse, and the temp tests pass with full coverage. However, the supervisor starts the command as a background job (`&`) in a non-interactive shell. Bash therefore sets SIGINT and SIGQUIT to ignored for the command and everything it starts, so commands now behave differently from before.",
+  "findings": [
+    {
+      "id": "F2",
+      "kind": "source",
+      "file": "packages/workspace-server/src/agent/tools/bash/run.ts",
+      "line": 54,
+      "severity": "P1",
+      "body": "`bash -c \"$1\" </dev/null &` starts the user command as a background job in a non-interactive shell without job control. Bash and POSIX set SIGINT and SIGQUIT to SIG_IGN for such jobs. The ignored state is inherited through exec, and bash cannot reset or trap a signal that was ignored when it started. So in every command and all its descendants:\n- `trap cleanup INT` silently does nothing.\n- `kill -INT $$; echo survived` prints `survived`.\n- `timeout -s INT …` and `kill -INT <pid>` no longer stop children.\n- Python leaves SIGINT ignored, so KeyboardInterrupt never fires.\n\nThe old `spawn(\"bash\", [\"-c\", command])` did not ignore these signals, so this is a regression.\n\nSuggested fix: run the command in the foreground (`bash -c \"$1\" </dev/null; status=$?`) and drop `wait`. A foreground child keeps the default SIGINT and SIGQUIT handling. The supervisor's TERM trap only delays the supervisor itself until the child exits, and the SIGKILL pass still kills the whole group. Alternatively, restore the signals before running the command with a helper that is not a shell (for example, a short Node helper)."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "run.ts:54: a command such as `kill -INT $$; echo survived` (or `trap 'echo trapped' INT; kill -INT $$`) receives SIGINT normally, so `survived` is not printed (or `trapped` is printed)",
+      "tier": "tmp",
+      "rationale": "No test checks that the supervisor wrapper keeps the command's default signal handling. The current `&` launch ignores SIGINT and SIGQUIT."
+    }
+  ],
+  "tierChanges": [],
+  "round": 3,
+  "headSha": "198eafcfbfd1d7241b2d86be9b2b4e877b049380",
+  "treeHash": "5589ed5f12f58bcb490f3477a3e801d5532ad826",
+  "codeTree": "b59739e5333e61352da5983db517b5d1f74349dc",
+  "coverage": {
+    "executable": 41,
+    "covered": 41,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-15T18:32:02.860Z"
+}

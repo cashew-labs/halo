@@ -1,0 +1,6 @@
+[
+  {
+    "findingId": "F2",
+    "reply": "Fixed: run the user bash command in the foreground, capture its exit status, then close the supervisor output descriptors and wait on its lifetime pipe. Added default SIGINT plus user INT/QUIT trap regressions."
+  }
+]

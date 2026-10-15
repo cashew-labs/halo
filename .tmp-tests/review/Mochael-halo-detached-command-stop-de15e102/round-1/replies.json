@@ -1,0 +1,6 @@
+[
+  {
+    "findingId": "F1",
+    "reply": "Fixed: inspect PGIDs alongside run identities, so untagged same-group descendants remain discoverable after the shell exits. Positive-PID fallback still excludes the reaped shell. Added abort and timeout regressions for a SIGTERM-ignoring child with an empty environment."
+  }
+]

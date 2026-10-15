@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "F2 is fixed. The supervisor now runs the user command in the foreground, so SIGINT and SIGQUIT keep their default handling. It closes its own output only after the command exits, then waits on the lifetime stdin pipe. This keeps the process-group ID reserved until cancellation escalates. A new temp test checks default SIGINT termination (exit code 130, no output) and user-installed INT and QUIT traps. All temp tests pass, every changed line is covered, and no P0 or P1 findings remain.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 4,
+  "headSha": "198eafcfbfd1d7241b2d86be9b2b4e877b049380",
+  "treeHash": "1fc5ab6c4efb7b21ca9ac47f0e10ea43e4d0cabe",
+  "codeTree": "5774bfbbb9588a661902418506cd9f85a3560a49",
+  "coverage": {
+    "executable": 41,
+    "covered": 41,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-15T18:32:57.860Z"
+}
