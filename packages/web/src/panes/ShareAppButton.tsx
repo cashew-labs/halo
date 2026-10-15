@@ -286,9 +286,22 @@ function ShareAppDialog({
               {live && (
                 <Button
                   variant="quiet"
-                  isDisabled={changing || (!app.published && emptyInvite)}
+                  isDisabled={
+                    changing ||
+                    (!app.published &&
+                      app.visibility === "invited" &&
+                      app.members.length === 0)
+                  }
+                  // Sharing on or off keeps the saved access; unsaved edits
+                  // are applied only by Save.
                   onPress={() =>
-                    save.mutate({ access: current, published: !app.published })
+                    save.mutate({
+                      access: {
+                        visibility: app.visibility,
+                        members: app.members,
+                      },
+                      published: !app.published,
+                    })
                   }
                 >
                   {app.published ? "Stop sharing" : "Share again"}
