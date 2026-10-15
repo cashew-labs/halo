@@ -10,8 +10,27 @@ export function creatorOrigin(ctx: { publicOrigin: string; handle: string }) {
   return url.origin;
 }
 
+/**
+ * Whether a Host header names a subdomain of Halo's host. The wildcard DNS
+ * and certificate serve every such name; only Halo's own www may reach Halo.
+ */
+export function isCreatorHost(ctx: {
+  publicOrigin: string;
+  host: string | undefined;
+}) {
+  return subdomainLabel(ctx) !== undefined;
+}
+
 /** The creator handle a Host header names, or undefined for every other host. */
 export function creatorHandle(ctx: {
+  publicOrigin: string;
+  host: string | undefined;
+}) {
+  const label = subdomainLabel(ctx);
+  return label !== undefined && handlePattern.test(label) ? label : undefined;
+}
+
+function subdomainLabel(ctx: {
   publicOrigin: string;
   host: string | undefined;
 }) {
@@ -21,8 +40,8 @@ export function creatorHandle(ctx: {
   const suffix = `.${baseHostname(url.hostname)}${port}`;
   const host = ctx.host.toLowerCase();
   if (!host.endsWith(suffix)) return undefined;
-  const handle = host.slice(0, -suffix.length);
-  return handlePattern.test(handle) ? handle : undefined;
+  const label = host.slice(0, -suffix.length);
+  return label === "" || label === "www" ? undefined : label;
 }
 
 function baseHostname(hostname: string) {

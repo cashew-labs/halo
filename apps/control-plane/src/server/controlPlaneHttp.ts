@@ -52,7 +52,7 @@ import {
 import type { AppService } from "../apps/AppService.js";
 import type { AppGateway } from "../apps/AppGateway.js";
 import type { AppStore } from "../apps/AppStore.js";
-import { creatorHandle } from "../apps/creatorHost.js";
+import { creatorHandle, isCreatorHost } from "../apps/creatorHost.js";
 import {
   isAppHandoffRequest,
   serveAppHandoff,
@@ -180,6 +180,14 @@ export function serveControlPlaneHttp(ctx: {
   server.on("request", async (request, response) => {
     // Creator hosts serve apps only; no Halo route is reachable from them.
     const handle = creatorHandle({ publicOrigin, host: request.headers.host });
+    // A subdomain that cannot be a handle is not Halo either.
+    if (
+      handle === undefined &&
+      isCreatorHost({ publicOrigin, host: request.headers.host })
+    ) {
+      response.writeHead(404, { "cache-control": "no-store" }).end();
+      return;
+    }
     if (handle !== undefined) {
       const served = await ctx.appGateway
         .serve({ request, response, handle })
@@ -220,9 +228,7 @@ export function serveControlPlaneHttp(ctx: {
   server.on("upgrade", async (request, socket, head) => {
     upgradeSockets.add(socket);
     socket.once("close", () => upgradeSockets.delete(socket));
-    if (
-      creatorHandle({ publicOrigin, host: request.headers.host }) !== undefined
-    ) {
+    if (isCreatorHost({ publicOrigin, host: request.headers.host })) {
       respondToUpgrade(socket, 404);
       return;
     }
