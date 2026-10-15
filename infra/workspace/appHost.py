@@ -283,10 +283,12 @@ def execute(body):
         raise ValueError('Invalid remote command')
     stop(name)
     source = source_mount(extension_id)
-    return run_build(name=name, source=source, script=script)
+    # npm's cache outgrows the small /tmp; a quota volume keeps it across builds.
+    cache = volume(appPaths.under(DATA, extension_id, 'build-cache'), size='512M')
+    return run_build(name=name, source=source, script=script, cache=cache)
 
 
-def run_build(name, source, script):
+def run_build(name, source, script, cache):
     # The owner's command can edit source, but receives neither live data nor
     # privileged credentials. npm scripts and dependencies remain untrusted.
     # bash reads the script from stdin inside the sandbox; it is never a host argument.
@@ -305,14 +307,15 @@ fs.writeFileSync("package.json", JSON.stringify(p, null, 2) + "\\n");
             '--memory=256m', '--memory-swap=256m', '--cpus=0.5', '--pids-limit=64',
             '--cgroup-parent=' + cgroup_parent(), '--log-opt=max-size=2m', '--log-opt=max-file=2',
             '--tmpfs=/tmp:rw,nosuid,nodev,size=32m,mode=1777',
-            '--env=HOME=/tmp', '--mount', f'type=bind,src={source},dst=/app',
+            '--env=HOME=/tmp', '--env=npm_config_cache=/cache', '--mount', f'type=bind,src={source},dst=/app',
+            '--mount', f'type=bind,src={cache},dst=/cache',
             '--mount', 'type=bind,src=/var/lib/halo/app-sdk,dst=/halo-sdk,readonly',
             '--mount', f'type=bind,src={RESOLV_CONF},dst=/etc/resolv.conf,readonly',
-            '--workdir=/app', IMAGE, 'timeout', '--signal=KILL', '120', 'bash', '-l']
+            '--workdir=/app', IMAGE, 'timeout', '--signal=KILL', '240', 'bash', '-l']
     with contextlib.ExitStack() as cleanup:
         cleanup.callback(stop, name)
         result = subprocess.run(args, input=prepare + script, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                text=True, timeout=130)
+                                text=True, timeout=250)
         return {'exitCode': result.returncode, 'output': result.stdout[-8192:]}
 
 
