@@ -1,0 +1,10 @@
+[
+  {
+    "findingId": "F4",
+    "reply": "fixed: temp test calls connect('same') twice concurrently on a fresh DemoInstances; both return the same instance and one container runs."
+  },
+  {
+    "findingId": "F5",
+    "reply": "fixed: the demo WebSocket temp test makes instance starts fail and opens a sync upgrade for a new viewer; it gets 503 and no instance is started."
+  }
+]
