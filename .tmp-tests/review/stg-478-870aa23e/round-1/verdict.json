@@ -1,0 +1,54 @@
+{
+  "status": "changes_requested",
+  "summary": "This change adds creator-host app serving: a gateway, a Halo-origin sign-in handoff, owner-fixed app actions, and `__Host-` auth cookies. It is not ready. An unauthenticated request to any creator host can crash the control-plane process. Creator-host JavaScript can plant integration-setup cookies on Halo's origin. Both test runs failed: the temp run has 2 failures, and the 3 durable failures come from the missing build file `packages/workspace-server/dist/codeExecutor.worker.js`, so the durable run must be repeated after a build.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "source",
+      "file": "apps/control-plane/src/apps/AppGateway.ts",
+      "line": 122,
+      "severity": "P0",
+      "body": "`safeReturnPath` accepts any return value that matches `returnPathPattern` (line 20, `/^\\/[a-z][a-z0-9-]{0,62}\\/(?:view\\/[^\\s]*)?$/`). `[^\\s]` allows control characters such as `\\x01` and `\\x7f`, and non-Latin-1 characters such as `€`. `url.searchParams.get` decodes percent-escapes, so `GET /__halo/signout?return=/a/view/%01` on any creator host reaches `respond(response, 302, { location, ... })` at line 122. There `writeHead` throws `ERR_INVALID_CHAR` because Node rejects those characters in header values. The throw rejects `serve()`. The `request` listener in `controlPlaneHttp.ts` (around line 180) awaits `serve()` without a catch, and the control plane has no `unhandledRejection` handler. On Node 15 and later, that unhandled rejection exits the whole control-plane process, so one unauthenticated request crashes it. `redeem()` puts the same decoded value in `location` (around line 252), so a valid handoff code followed by `return=/x/view/%E2%82%AC` crashes it too. Fix: limit the return path to printable ASCII (for example, `[\\x21-\\x7e]*`, without `\\s` or control characters) in both `AppGateway` and `appHandoffHttp`, or percent-encode it before you write the header. Also consider catching failures in the request listener as a backstop."
+    },
+    {
+      "id": "F2",
+      "kind": "source",
+      "file": "apps/control-plane/src/integrations/setupBrowserCookie.ts",
+      "line": 13,
+      "severity": "P1",
+      "body": "This change serves owner-authored JavaScript from sibling subdomains (`handle.gethalo.dev`). It moves only Better Auth's cookies to `__Host-` (`AuthService.authCookieOptions`). The integration-setup browser binding still uses a cookie without a prefix, `halo_setup_<setupId>`. Script on a creator host can set `document.cookie = 'halo_setup_<id>=<secret>; Domain=gethalo.dev; Path=/; Secure'`, and the browser then sends that cookie to Halo's origin. `IntegrationService.oauthCallback` (lines 844-855) accepts the callback if the browser cookie maps to the setup owner, even if a different user is signed in. Attack: an attacker starts a setup and redeems its handoff, which gives the attacker the browser secret. The attacker's app then plants that cookie in a victim's browser and navigates the victim to the provider's consent URL for the attacker's setup. The callback then links the victim's provider account into the attacker's Halo account, which is the attack the browser binding exists to stop. `stripCrossOriginCookies` does not help, because the OAuth callback is a top-level GET without an `Origin` header. Fix: name the setup cookie `__Host-halo_setup_<id>` on HTTPS origins, with `Secure` and `Path=/`, and read only that name. Add a test that a planted `halo_setup_<id>` cookie without the prefix does not authorize the callback."
+    },
+    {
+      "id": "F3",
+      "kind": "test",
+      "file": "packages/workspace-server/src/extensions/.tmp-tests/hostSecurity.test.ts",
+      "line": 100,
+      "severity": "P1",
+      "body": "The temp run fails. Here, a WebSocket that carries the workspace's own bearer token gets `{ role: 'public', viewerId: 'anonymous' }` instead of `{ role: 'owner', viewerId: 'owner' }`. `packages/extension-sdk/src/.tmp-tests/serverSecurity.test.ts:119` also fails: a standalone preview reports role `public` instead of `owner`. This diff does not change the viewer-defaulting code (`extensionProxy.ts` `prepareRequest` and the SDK server), so either these temp tests are stale for this stack, or the base has a real regression where owner traffic is treated as a public visitor. Find out which one applies. Then fix the code or update the expectations so they match the intended contract, and make the temp run pass."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "apps/control-plane/src/apps/AppGateway.ts:122 and the redeem location (around line 252): GET /__halo/signout?return=/books/view/%01 and ?return=/books/view/%E2%82%AC on a creator host",
+      "tier": "tmp",
+      "rationale": "Prove that a return value with control or non-Latin-1 characters gets a normal response (an allowed redirect, or the 200 sign-out page) and that the control plane still answers a later /health request."
+    },
+    {
+      "target": "apps/control-plane/src/integrations/setupBrowserCookie.ts: OAuth callback with a sibling-planted `halo_setup_<id>` cookie on an HTTPS origin",
+      "tier": "tmp",
+      "rationale": "Verify that only the `__Host-` setup cookie authorizes completing a setup from a browser."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "fe292207c08170d37450b49d4ca6e084b2a41334",
+  "treeHash": "42cb45219df3ddaac882229c276e73713fa87126",
+  "codeTree": "6c1bcc31c18d0b680add2c9ff92d73f015b6b1b5",
+  "coverage": {
+    "executable": 434,
+    "covered": 369,
+    "exempt": 64,
+    "uncovered": 1
+  },
+  "createdAt": "2026-10-15T05:54:04.400Z"
+}

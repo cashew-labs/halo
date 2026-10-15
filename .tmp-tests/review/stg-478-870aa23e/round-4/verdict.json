@@ -1,0 +1,33 @@
+{
+  "status": "changes_requested",
+  "summary": "Since round 3, the gateway's `returnPathPattern` also accepts `/<slug>/view` without a trailing slash, and both runs and the coverage gate pass. The Halo-origin handoff still uses the old, stricter pattern, so the two patterns now disagree. An invited visitor who opens `/<slug>/view` gets a 400 on Halo's sign-in page instead of a sign-in prompt.",
+  "findings": [
+    {
+      "id": "F5",
+      "kind": "source",
+      "file": "apps/control-plane/src/apps/appHandoffHttp.ts",
+      "line": 14,
+      "severity": "P1",
+      "body": "The creator gateway and the Halo-origin handoff validate the same `return` value with different patterns. `AppGateway.appPathPattern` routes `/books/view` (no trailing slash) as a view request. For an invited app with no session, the gateway redirects to `/__halo/signin?return=%2Fbooks%2Fview` (AppGateway.ts around line 165). `safeReturnPath` now accepts `/books/view` (AppGateway.ts:21-22), so the gateway forwards it to `/api/apps/handoff?return=/books/view`. `appHandoffHttp.returnPathPattern` (line 14, `/^\\/[a-z][a-z0-9-]{0,62}\\/(?:view\\/[^\\s]*)?$/`) does not accept `view` without a slash, so `serveAppHandoff` answers 400 (lines 51-57). The visitor never reaches the sign-in page. The same 400 happens for `/__halo/signin` without a `return`, because the gateway's fallback value `/` also fails the handoff pattern. Fix: share one return-path validator between both files, with the same URL-safe ASCII character set (which also removes the looser `[^\\s]*`). Alternatively, normalize `/slug/view` to `/slug/view/` in the gateway before it builds the handoff URL. Then make the handoff accept, or substitute a safe default for, the gateway's fallback."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "Invited app: an anonymous browser GETs `${creator}/books/view` (no trailing slash), follows the redirect to /__halo/signin and on to /api/apps/handoff, and gets the 200 confirmation page; after it confirms and redeems the code, it lands on a /books/view path",
+      "tier": "tmp",
+      "rationale": "Checks that the gateway and handoff return-path validators agree for every path the gateway can generate, which the current tests do not exercise."
+    }
+  ],
+  "tierChanges": [],
+  "round": 4,
+  "headSha": "591ddf0434fb036a26db1fcd4277eff63107225b",
+  "treeHash": "ea2cb60e8bdac583cf8828e366fd223f1c9a2a66",
+  "codeTree": "8d552d4117dbde5e7e6d0a1da706f8fea5ee5db5",
+  "coverage": {
+    "executable": 444,
+    "covered": 380,
+    "exempt": 64,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-15T07:17:47.452Z"
+}

@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "Since round 5, any subdomain of Halo's host other than `www` is routed away from Halo. Labels that cannot be handles, such as `1app`, `a.b` and `-x`, get 404 for requests and upgrades. Proxied app responses now carry `cache-control: private, no-store`, so shared caches do not reuse viewer-specific pages. Temp tests cover non-handle subdomains, `www` still reaching Halo, and the cache header. Both runs and the coverage gate pass, and no findings remain open.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 6,
+  "headSha": "ea4539168b896c36e92ae7be5f227479a5af60ea",
+  "treeHash": "e8e0b4db2c19f7f1eb902219c8d55d8adbba4c65",
+  "codeTree": "0bc16cebb2b07b042b0e931e93a66b65ca8dae7e",
+  "coverage": {
+    "executable": 456,
+    "covered": 392,
+    "exempt": 64,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-15T08:17:41.942Z"
+}
