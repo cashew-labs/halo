@@ -53,6 +53,10 @@ NETWORK
 chmod 0755 /usr/local/bin/halo-app-network
 /usr/local/bin/halo-app-network
 mkdir -p /var/lib/halo/apps /var/lib/halo/app-sdk /run/halo-apps
+# Docker's embedded resolver is unreachable from gVisor's network stack.
+mkdir -p /etc/halo
+printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' > /etc/halo/app-resolv.conf
+chmod 0644 /etc/halo/app-resolv.conf
 packer="halo-app-sdk-packer-$$"
 trap 'docker rm -f "$packer" >/dev/null 2>&1 || true' EXIT
 docker run --name "$packer" --network none --entrypoint bash "$app_image" -c \

@@ -79,15 +79,30 @@ export class AppGateway {
       return;
     }
     if (url.pathname === "/__halo/signin") {
+      const returnPath = safeReturnPath(url.searchParams.get("return"));
+      // Halo's Open link always signs in; a browser that already holds a
+      // session for this host goes straight to the app.
+      const token = this.cookie(request, "session");
+      const session =
+        token === undefined
+          ? undefined
+          : await this.store.findViewerSession({ handle, token });
+      // coverage-exempt: App database outage; no service mocks in the real control-plane fixture.
+      if (session instanceof Error) {
+        console.error(session);
+        respond(response, 500);
+        return;
+      }
+      if (session !== undefined) {
+        respond(response, 302, { location: returnPath });
+        return;
+      }
       // Only this browser holds the state, so a code another browser obtained
       // cannot sign it in (login CSRF).
       const state = crypto.randomBytes(32).toString("base64url");
       const target = new URL("/api/apps/handoff", this.publicOrigin);
       target.searchParams.set("host", handle);
-      target.searchParams.set(
-        "return",
-        safeReturnPath(url.searchParams.get("return")),
-      );
+      target.searchParams.set("return", returnPath);
       target.searchParams.set("state", state);
       respond(response, 302, {
         location: target.toString(),

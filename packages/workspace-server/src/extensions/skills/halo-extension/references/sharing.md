@@ -73,12 +73,12 @@ After publishing, edit the app on its VM, not in `.halo/extensions/`:
 ```sh
 halo app read <appId> view.tsx
 halo app write <appId> view.tsx --file ./view.tsx
-halo app exec <appId> "npm run build"             # build sandbox: source only, no app data
+halo app exec <appId> "npm install --no-audit --no-fund && npm run build"  # build sandbox: source only, no app data
 halo app restart <appId>
 halo app bind-actions <appId> --file actions.json # replace fixed requests
 ```
 
-`exec` runs in a container that can write source but cannot read app data or Halo credentials. The public backend runs read-only code in a separate sandbox.
+`exec` runs in a container that can write source but cannot read app data or Halo credentials. Published source has no `node_modules`, so install dependencies before the first build. The public backend runs read-only code in a separate sandbox.
 
 ## Publish a template
 

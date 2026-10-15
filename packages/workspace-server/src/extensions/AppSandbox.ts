@@ -20,6 +20,7 @@ const snapshotSchema = Type.Object(
   { data: Type.Optional(Type.String()) },
   { additionalProperties: false },
 );
+const failureSchema = Type.Object({ error: Type.String() });
 const executionSchema = Type.Object({
   output: Type.String(),
   exitCode: Type.Integer(),
@@ -169,8 +170,16 @@ export class AppSandbox {
               catch: (cause) => new AppSandboxError({ operation, cause }),
             });
             if (parsed instanceof Error) return settle(parsed);
+            // The supervisor's reason reaches the owner, who runs this VM.
             if (response.statusCode !== 200)
-              return settle(new AppSandboxError({ operation, cause: parsed }));
+              return settle(
+                new AppSandboxError({
+                  operation: Value.Check(failureSchema, parsed)
+                    ? `${operation}: ${parsed.error}`
+                    : operation,
+                  cause: parsed,
+                }),
+              );
             settle(parsed);
           });
         },
