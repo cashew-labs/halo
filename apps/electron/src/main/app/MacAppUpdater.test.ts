@@ -60,6 +60,66 @@ describe.runIf(process.platform === "darwin")("macOS update recovery", () => {
     expect(fixture.native.liveVersion).toBe("0.1.55");
   });
 
+  test.each(["manual", "automatic"] as const)(
+    "retries a timed-out download on the next %s check after native failure",
+    async (retry) => {
+      fixture.updater.close();
+      vi.useFakeTimers();
+      fixture.native.hold = true;
+      fixture.native.downloadFailure = "error";
+      fixture.relaunch("0.1.53");
+      const check = fixture.updater.check();
+      await vi.waitFor(() => expect(fixture.status.state).toBe("available"));
+
+      await vi.advanceTimersByTimeAsync(21 * 60_000);
+      expect(fixture.status.state).toBe("error");
+      // Manual checks and scheduled polls must not overlap the native download.
+      const repeatedCheck = fixture.updater.check();
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+      expect(fixture.native.downloadCalls).toBe(1);
+
+      fixture.native.releaseDownload();
+      expect(await check).toBeInstanceOf(Error);
+      await repeatedCheck;
+      fixture.native.downloadFailure = undefined;
+      fixture.native.hold = false;
+      if (retry === "automatic") await vi.advanceTimersByTimeAsync(10 * 60_000);
+      else await fixture.updater.check();
+
+      await vi.waitFor(() =>
+        expect(fixture.status).toEqual({
+          state: "downloaded",
+          version: "0.1.54",
+        }),
+      );
+      expect(await fixture.updater.install()).toBeUndefined();
+      expect(fixture.native.liveVersion).toBe("0.1.54");
+    },
+  );
+
+  test("keeps a late native download usable after reporting a timeout", async () => {
+    fixture.updater.close();
+    vi.useFakeTimers();
+    fixture.native.hold = true;
+    fixture.relaunch("0.1.53");
+    const check = fixture.updater.check();
+    await vi.waitFor(() => expect(fixture.status.state).toBe("available"));
+    await vi.advanceTimersByTimeAsync(21 * 60_000);
+    expect(fixture.status.state).toBe("error");
+
+    fixture.native.releaseDownload();
+    await check;
+    await vi.waitFor(() =>
+      expect(fixture.status).toEqual({
+        state: "downloaded",
+        version: "0.1.54",
+      }),
+    );
+    expect(fixture.readyVersions).toEqual(["0.1.54"]);
+    expect(await fixture.updater.install()).toBeUndefined();
+    expect(fixture.native.liveVersion).toBe("0.1.54");
+  });
+
   test("retries after the installer exits unsuccessfully and the old application is relaunched", async () => {
     await fixture.updater.check();
     fixture.native.installFailure = "veto";
@@ -185,6 +245,7 @@ class NativeDriver extends EventEmitter {
   downloadFailure: "error" | "throw" | "not available" | undefined;
   installFailure: "error" | "throw" | "veto" | "delayed" | undefined;
   installCalls = 0;
+  downloadCalls = 0;
   advanceDuringDownload: string | undefined;
   rejectAdditionalDownloads = false;
   hold = false;
@@ -210,6 +271,7 @@ class NativeDriver extends EventEmitter {
     this.etag = undefined;
   }
   checkForUpdates() {
+    this.downloadCalls += 1;
     if (this.downloadFailure === "throw")
       throw new Error("Native start failed");
     void this.download().catch((error) => this.emit("error", error));

@@ -41,7 +41,6 @@ export class MacAppUpdater {
   private pending: Release | undefined;
   private checking: Promise<void | Error> | undefined;
   private downloading = false;
-  private downloadTimedOut = false;
   private installing = false;
   private installTimeoutError: Error | undefined;
   private closed = false;
@@ -101,7 +100,7 @@ export class MacAppUpdater {
   }
 
   async check() {
-    if (this.closed || this.installing || this.downloadTimedOut) return;
+    if (this.closed || this.installing) return;
     if (this.checking !== undefined) return await this.checking;
     this.checking = this.checkUnqueued().finally(() => {
       this.checking = undefined;
@@ -223,13 +222,14 @@ export class MacAppUpdater {
         finish(new MacUpdateError({ operation: "download the update", cause }));
       // Squirrel has a 20-minute download timeout. Never start overlapping downloads.
       const timeout = setTimeout(() => {
-        const error = new MacUpdateError({
-          operation: "finish downloading the update; restart Halo to retry",
-        });
-        this.downloadTimedOut = true;
-        finish(error);
-        // Native cancellation is not exposed. Do not race another download in this process.
-        // Keep the lifetime error listener until app exit to absorb late native failures.
+        this.failed(
+          new MacUpdateError({
+            operation:
+              "finish downloading the update in time; Halo will retry if this attempt fails",
+          }),
+        );
+        // Electron cannot cancel a native download. Keep this check pending until
+        // its terminal event, then let the next poll or manual check retry safely.
       }, 21 * 60_000);
       timeout.unref();
       this.cancelDownload = () =>
@@ -311,10 +311,6 @@ export class MacAppUpdater {
 
   private nativeError = (cause: Error) => {
     if (this.downloading || this.closed) return;
-    if (this.downloadTimedOut) {
-      this.logger.warn({ event: "update-download-timed-out", error: cause });
-      return;
-    }
     const error = new MacUpdateError({
       operation: "install the downloaded update",
       cause,
