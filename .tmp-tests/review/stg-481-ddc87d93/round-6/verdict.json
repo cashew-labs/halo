@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "This round adds two changes. Installing a template now abandons the copy when the recipient's workspace refuses its reference, for example because a stopped local project already uses the name: it removes the copy's VM and deletes the record, so a later retry starts clean. A snapshot without data now reads source and build without stopping the running app, so the author's live app keeps serving while a template is published. The abandon path is tested (error text, empty app list, one VM removed, retry succeeds); all temp tests pass, every changed line is covered or validly exempt, and no findings remain.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 6,
+  "headSha": "6e8f522e562b4c9b61baf17192d2471a014ebbfb",
+  "treeHash": "59e1aa31b7e3900b641ce0846eaf1b1e789fe06c",
+  "codeTree": "f5f8a02c71f5aea92a623f64241622ae046b7a90",
+  "coverage": {
+    "executable": 369,
+    "covered": 344,
+    "exempt": 25,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-15T08:21:23.550Z"
+}

@@ -1,0 +1,6 @@
+[
+  {
+    "findingId": "F3",
+    "reply": "fixed: the test now expects a 503 with Retry-After 60 and the generic busy text when an instance fails to start; removed the stray __pycache__ (reviews now run with PYTHONDONTWRITEBYTECODE=1)."
+  }
+]

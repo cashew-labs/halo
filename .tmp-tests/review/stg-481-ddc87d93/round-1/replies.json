@@ -1,0 +1,10 @@
+[
+  {
+    "findingId": "F1",
+    "reply": "fixed: a full demo VM now replaces only a stopped instance or one idle for at least 10 minutes (idleMs); otherwise connect returns DemoBusyError and the proxy answers 503 'This demo is busy…' with Retry-After, so a burst of cookieless requests cannot wipe demos in use (an attacker can at most occupy free slots until they go idle). A running instance is returned before the actionQueue, so it never waits behind another visitor's container start. Temp tests: a burst gets DemoBusyError and leaves two instances running; after idling one is replaced while the other answers first; the template E2E's fourth visitor gets 503 and Alice's demo data survives."
+  },
+  {
+    "findingId": "F2",
+    "reply": "fixed: publish refuses when the (owner, extensionId) record is a template demo (origin kind demo), before any access update. Template E2E: publishing demo-reading with slug reading-app after the template exists is BAD_REQUEST and the owner's app list is unchanged."
+  }
+]

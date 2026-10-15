@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "This round adds two small changes. Demo actions now return their sample result before the usage budget is consumed, so demo visitors cannot use up the shared action limit. `publishTemplate` refuses names that start with `demo-`, which keeps template names, installed-copy links and demo paths apart. Both are tested: the `app_usage` table has no action rows after a demo action, and the `demo-reading` template name is refused. All temp tests pass, every changed line is covered or validly exempt, and no findings remain.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 7,
+  "headSha": "bb7e897d2e4e2b760bc8927c54765842de9316c1",
+  "treeHash": "0a8e35ca7d349195d151ee9cc9bcc46ee61b2045",
+  "codeTree": "46ec245b644eb8d88ea986ca5b2fc7f04ddc2e94",
+  "coverage": {
+    "executable": 371,
+    "covered": 346,
+    "exempt": 25,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-15T09:01:59.281Z"
+}
