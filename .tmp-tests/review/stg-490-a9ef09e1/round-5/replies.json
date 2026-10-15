@@ -1,0 +1,6 @@
+[
+  {
+    "findingId": "F8",
+    "reply": "fixed: the first link check polls until the background refresh lands, and the overtaken-lookup test waits until the slow lookup has returned (plus a few event-loop turns) instead of a fixed timeout. Ran the file three times; all pass."
+  }
+]

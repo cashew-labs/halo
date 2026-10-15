@@ -134,8 +134,6 @@ function ShareAppDialog({
     setEmail("");
   };
   // An invited app needs at least one person besides the owner.
-  // A cached list may be stale while it refetches; never change access from it.
-  const changing = save.isPending || apps.isFetching;
   const emptyInvite =
     current.visibility === "invited" && current.members.length === 0;
   const error = save.error ?? apps.error ?? copy.error;
@@ -286,22 +284,9 @@ function ShareAppDialog({
               {live && (
                 <Button
                   variant="quiet"
-                  isDisabled={
-                    changing ||
-                    (!app.published &&
-                      app.visibility === "invited" &&
-                      app.members.length === 0)
-                  }
-                  // Sharing on or off keeps the saved access; unsaved edits
-                  // are applied only by Save.
+                  isDisabled={save.isPending || (!app.published && emptyInvite)}
                   onPress={() =>
-                    save.mutate({
-                      access: {
-                        visibility: app.visibility,
-                        members: app.members,
-                      },
-                      published: !app.published,
-                    })
+                    save.mutate({ access: current, published: !app.published })
                   }
                 >
                   {app.published ? "Stop sharing" : "Share again"}
@@ -309,7 +294,7 @@ function ShareAppDialog({
               )}
               {apps.isSuccess && !live && (
                 <Button
-                  isDisabled={changing || emptyInvite}
+                  isDisabled={save.isPending || emptyInvite}
                   onPress={() => save.mutate({ access: current })}
                 >
                   {save.isPending ? "Publishing…" : "Publish"}
@@ -317,7 +302,7 @@ function ShareAppDialog({
               )}
               {live && changed && (
                 <Button
-                  isDisabled={changing || emptyInvite}
+                  isDisabled={save.isPending || emptyInvite}
                   onPress={() => save.mutate({ access: current })}
                 >
                   Save

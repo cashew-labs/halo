@@ -1,0 +1,33 @@
+{
+  "status": "changes_requested",
+  "summary": "Since round 4, ExtensionHost now numbers its link lookups, so a slower, older lookup cannot overwrite links from a newer one. It also logs an unexpected rejection of the background refresh; I accept the coverage exemption for that line. The source logic is sound, but a workspace-server temp test now fails. It assumes the background link refresh has finished before the first `extensions.list()` call returns, which is a race. Because that run fails, the coverage gate also counts the appsRouter lines and ExtensionHost lines 118-122 and 126 as uncovered.",
+  "findings": [
+    {
+      "id": "F8",
+      "kind": "test",
+      "file": "packages/workspace-server/test/.tmp-tests/Publisher.test.ts",
+      "line": 49,
+      "severity": "P1",
+      "body": "The test assumes a background lookup has already finished. Since the F4 fix, `list()` starts `refreshRemoteLinks()` without waiting for it and answers from the links it already has. So the first `extensions.list()` after `addRemote` can still return the stored `https://stale.gethalo.dev/notes/view/`, and that happened in this run. This test failed, the workspace-server temp run exited 1, and the coverage gate counted appsRouter.ts lines 40, 44, 46, 50, 52 and 54-55 and ExtensionHost.ts lines 118-122 and 126 as uncovered. Make the test wait for the refresh. Either use `await expect.poll(async () => (await server.rpc.extensions.list())[0]?.url).toBe(\"https://old.gethalo.dev/notes/view/\")`, or open the watch first and wait for the snapshot that carries the refreshed link. The fixed `setTimeout(50)` in the third test (line ~148) has the same timing problem and should poll too."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "packages/workspace-server/test/.tmp-tests/Publisher.test.ts:49 and the setTimeout wait near the end of the third test",
+      "tier": "tmp",
+      "rationale": "Replace the race with expect.poll or a watch snapshot. Then the workspace-server temp run passes reliably and covers appsRouter.ts:40-55 and ExtensionHost.ts:118-126."
+    }
+  ],
+  "tierChanges": [],
+  "round": 5,
+  "headSha": "96afb43f937401dc6656ac22cce93de8bb887187",
+  "treeHash": "4697371ea2fd4695befcc810dd196d202876079e",
+  "codeTree": "2b96fb88a843fd4f0cda76fe81df2ab3e99350a5",
+  "coverage": {
+    "executable": 157,
+    "covered": 137,
+    "exempt": 7,
+    "uncovered": 13
+  },
+  "createdAt": "2026-10-15T08:26:56.560Z"
+}
