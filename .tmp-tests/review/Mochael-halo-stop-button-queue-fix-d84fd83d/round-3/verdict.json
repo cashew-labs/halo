@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change adds several queued messages that can each be withdrawn into the draft, and a persistent \"Interrupted by user\" entry when the user stops a run. It also makes bash cancellation kill detached descendants through a run-ID scan. The earlier findings F1–F3 are resolved. The new temp tests cover the remaining changed lines: harness withdraw and save failures mapped to BAD_REQUEST, an ESRCH-tolerant group signal with no warning, a transport abort with no error banner, and the submit guard. All test runs pass and the coverage gate passes, so the change is ready.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 3,
+  "headSha": "a2d8fe788ed5ed8410e9d5738bf914f4249fcf06",
+  "treeHash": "f9a838d9e6b9d13ce64ac447bda354efd866268c",
+  "codeTree": "b4975a667c122e9e95dfae622279b74aa2d75bb2",
+  "coverage": {
+    "executable": 129,
+    "covered": 129,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-15T18:16:36.240Z"
+}

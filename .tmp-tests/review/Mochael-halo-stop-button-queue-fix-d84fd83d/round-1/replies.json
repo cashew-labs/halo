@@ -1,0 +1,14 @@
+[
+  {
+    "findingId": "F1",
+    "reply": "Fixed the test synchronization: Playwright toBeEditable throws immediately for a temporarily contenteditable=false element instead of retrying that transition. The test now waits for contenteditable=true. The full rich-message withdrawal, merge, focus, remaining-message delivery, and resend flow passes (tmp/stop-queue/focused-queue.log)."
+  },
+  {
+    "findingId": "F2",
+    "reply": "Fixed: signal the original shell PID/group only while both exitCode and signalCode are null. Escalation finds remaining descendants through their run identity instead of reusing a reaped shell PID."
+  },
+  {
+    "findingId": "F3",
+    "reply": "Added a server-level temporary test that aborts an active run concurrently, verifies exactly one persisted marker, verifies no marker for idle abort, verifies the next model context excludes the marker, and verifies history after another turn and server restart. Both queuedMessages.spec.ts tests pass."
+  }
+]

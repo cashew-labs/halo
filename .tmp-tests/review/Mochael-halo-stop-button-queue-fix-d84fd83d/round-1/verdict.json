@@ -1,0 +1,64 @@
+{
+  "status": "changes_requested",
+  "summary": "The change adds a queue of several optimistic messages. Each queued message can be withdrawn back into the draft through a new `thread.withdraw` RPC. Stop now records a persistent \"Interrupted by user\" entry. Bash cancellation also kills detached descendants, tracked by a per-run environment marker. The change is not ready: the durable E2E for the withdraw flow fails because the composer stays non-editable after a queued send that has an attachment and a reference. Most of the withdraw and Stop code paths are uncovered, and bash termination now signals a stale shell PID after the shell has exited.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "source",
+      "file": "packages/web/src/main/agent/AgentPane.tsx",
+      "line": 485,
+      "severity": "P0",
+      "body": "The durable test `moves one queued message and its attachments and references into the existing draft` fails at apps/electron/e2e/sessionView.e2e.test.ts:194. The user queues a message with a file attachment and an `@brief.md` reference while a run is active. After that, the composer (`aria-label=\"Message\"`) is no longer contenteditable. Playwright reports that the element is not `[contenteditable]` and times out after 10 s. In the failure snapshot the Stop button is visible and the progress status is empty, so `composerBusy` is false and `editable={!composerBusy}` should be true. The queued row also shows an enabled \"Move queued message to draft\" button. The editor is therefore stuck read-only while the UI state says it is idle. The text-only queue test passes, so the defect is specific to queued sends that carry attachments or references. Possible causes include the attachment/reference header unmount, the reference-picker focus chain, and the interaction between `setEditable` and TipTap's option refresh. Find the root cause and fix it so the composer becomes editable again after every queued send; the existing E2E must pass."
+    },
+    {
+      "id": "F2",
+      "kind": "source",
+      "file": "packages/workspace-server/src/agent/tools/bash/run.ts",
+      "line": 135,
+      "severity": "P1",
+      "body": "Before this change, `finish()` cleared the 250 ms `forceKill` timer when the shell closed. A shell that exited on SIGTERM was therefore never sent SIGKILL. Now `terminate()` always waits 250 ms and then calls `signalBashProcesses` with `pid: running.pid`. That function sends SIGKILL to both `running.pid` and `-running.pid`, even after Node has reaped the shell. By then the PID and process-group ID can belong to an unrelated process. Other detached bash runs from this same server are process-group leaders, so `kill(-pid)` could hit one of them. Only signal `running.pid` and its group while the shell has not exited (`running.exitCode === null && running.signalCode === null`). Rely on the run-ID process scan for descendants that are still alive, or check that the group still contains tagged processes before signalling it."
+    },
+    {
+      "id": "F3",
+      "kind": "test",
+      "file": "packages/workspace-server/src/agent/Thread.ts",
+      "line": 666,
+      "severity": "P1",
+      "body": "The new `Thread.abort` logic in lines 667-711 has no test coverage. This logic reads the active run ID, checks `lastRun.status === \"aborted\"`, writes the `halo.user.interruption` entry with `model: []`, deduplicates writes by `halo.interrupted:<runId>`, and maps save failures to `AbortFailedError`. The Electron E2E exercises it only indirectly, and the coverage report does not count server code there. Add a server-level temp test, for example in packages/workspace-server/test/.tmp-tests/. Abort an active run and assert that exactly one interruption entry is persisted, including after a restart. Assert that the entry is absent from the next model request. Assert that two concurrent aborts produce one entry. Assert that abort with no active run records nothing."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "packages/web/src/main/agent/AgentPane.tsx:266-334 (withdrawMessage and stop)",
+      "tier": "durable",
+      "rationale": "These lines are uncovered only because the durable withdraw E2E fails before it reaches them (F1). Once F1 is fixed, that E2E must pass and cover the withdraw path: file validation, `withdrawn: false`, error handling, draft merge and focus. Cover the `!result.withdrawn` branch and the withdraw RPC failure branch with a temp test, or add a reasoned exemption."
+    },
+    {
+      "target": "packages/web/src/main/agent/AgentPane.tsx:346,389 and useAgentSession.ts:151,163,178,283",
+      "tier": "tmp",
+      "rationale": "These lines cover the submit guard during withdraw or stop, removal of the optimistic message when a queued prompt fails, and the new return and abort-error paths in useAgentSession and useDraftAgentSession. A failed queued prompt must remove only its own optimistic row and restore the draft."
+    },
+    {
+      "target": "Thread.abort interruption recording (Thread.ts:667-711), ThreadManager.withdraw (343), threadRouter.withdraw (86)",
+      "tier": "tmp",
+      "rationale": "These server paths are uncovered: interruption persistence and deduplication, abort with no active run, and the router and manager wiring for withdraw. See F3."
+    },
+    {
+      "target": "run.ts:224,248 (ps failure fallback and non-ESRCH kill warning)",
+      "tier": "tmp",
+      "rationale": "If `ps` fails, termination must still kill the process group and finish. Mock `childProcess.execFile` to fail and assert that abort still resolves and kills the group."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "a2d8fe788ed5ed8410e9d5738bf914f4249fcf06",
+  "treeHash": "7cea8562bf537a7120a754203e5c0cbceee7fbf1",
+  "codeTree": "af338ef81a9cb1712342cd33516846834a4c1bb9",
+  "coverage": {
+    "executable": 136,
+    "covered": 78,
+    "exempt": 0,
+    "uncovered": 58
+  },
+  "createdAt": "2026-10-15T18:03:20.912Z"
+}
