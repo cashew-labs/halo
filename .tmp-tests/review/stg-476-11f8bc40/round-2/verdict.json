@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "This change adds dedicated shared-app VMs, which run a root-owned gVisor supervisor, and the owner RPCs to install, edit, build and snapshot the app project. All four round-1 findings are resolved: F2 (status monitor tolerates supervisor outages; supervisor unit is ordered before halo.service), F3 (snapshot falls back to the workspace data file), and F1 and F4 (temp tests for the snapshot restart failure and the reload filter). The requested mock-based tests for run_app and run_build were also added. Every test run passes, the coverage gate passes with acceptable exemptions, and no findings remain.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "397be552224692440b0a81d91ec420c79c0d2c22",
+  "treeHash": "f9af2781ab10dea1126bc91188bbecaecebd5426",
+  "codeTree": "f2b3c45b6891310e1131420913b1cf39f5f071b0",
+  "coverage": {
+    "executable": 651,
+    "covered": 569,
+    "exempt": 82,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-15T05:43:10.151Z"
+}
