@@ -25,6 +25,8 @@ appProxy.on("proxyRes", (upstream) => {
   delete upstream.headers["set-cookie"];
   upstream.headers["x-content-type-options"] = "nosniff";
   upstream.headers["referrer-policy"] = "same-origin";
+  // Responses are rendered for one viewer; shared caches must not reuse them.
+  upstream.headers["cache-control"] = "private, no-store";
 });
 
 type CookieName = "session" | "visitor" | "handoff";
