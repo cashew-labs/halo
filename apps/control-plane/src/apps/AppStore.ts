@@ -185,7 +185,7 @@ export class AppStore {
         );
         if (inserted instanceof Error) return inserted;
         if (inserted[0] !== undefined) return inserted[0].handle;
-        // A concurrent call created this account's creator first.
+        // coverage-exempt: Only a concurrent ensureHandle for the same account on PostgreSQL reaches this; SQLite serializes transactions.
         const claimed = await sql.query<{ handle: string }>(
           "SELECT handle FROM app_creators WHERE user_id = $1",
           [ctx.userId],
@@ -268,6 +268,7 @@ export class AppStore {
     });
     if (result instanceof Error) {
       const cause = result.cause;
+      // coverage-exempt: Only an older instance writing app_creators without a claim during a deploy can still violate the handle constraint.
       if (
         cause instanceof Error &&
         (("code" in cause && cause.code === "23505") ||
@@ -853,6 +854,14 @@ async function claimHandle(
   sql: SqlTransaction,
   ctx: { userId: string; handle: string },
 ) {
+  // A creator row without a claim (written before claims existed, or by an
+  // older instance during a deploy) still holds its handle.
+  const holder = await sql.query<{ user_id: string }>(
+    "SELECT user_id FROM app_creators WHERE handle = $1",
+    [ctx.handle],
+  );
+  if (holder instanceof Error) return holder;
+  if (holder[0] !== undefined && holder[0].user_id !== ctx.userId) return false;
   const inserted = await sql.query(
     `INSERT INTO app_handle_claims (handle, user_id) VALUES ($1, $2)
      ON CONFLICT DO NOTHING`,
