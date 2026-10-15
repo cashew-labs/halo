@@ -46,7 +46,7 @@ export function ExtensionView({ extensionId }: { extensionId: string }) {
           </Text>
           <a
             className={link}
-            href={extension.url}
+            href={signInUrl(extension.url)}
             target="_blank"
             rel="noreferrer"
           >
@@ -89,3 +89,11 @@ const styles = {
     border: 0,
   }),
 };
+
+/** The creator host signs the owner in before opening the app, so the owner
+ * is recognized even on public or unshared apps. */
+function signInUrl(appUrl: string) {
+  const url = new URL("/__halo/signin", appUrl);
+  url.searchParams.set("return", new URL(appUrl).pathname);
+  return url.toString();
+}
