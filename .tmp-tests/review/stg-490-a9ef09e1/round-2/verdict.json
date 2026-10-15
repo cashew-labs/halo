@@ -1,0 +1,41 @@
+{
+  "status": "changes_requested",
+  "summary": "The change adds viewing, checking and renaming of creator handles. Round 1's four findings are fixed: the store fixture now creates its directory, released handles are reserved for their previous owner, unknown creators get 400/404 instead of 500, and extension list/watch refresh links in the background. It is still not ready: two control-plane gateway temp tests fail, so the temp tier fails and its AppStore coverage is not recorded. The new retired-handle reservation can also be bypassed by a concurrent rename on PostgreSQL.",
+  "findings": [
+    {
+      "id": "F5",
+      "kind": "test",
+      "file": "apps/control-plane/src/apps/.tmp-tests/gateway.test.ts",
+      "line": 117,
+      "severity": "P1",
+      "body": "The control-plane temp run fails (exit 1), so the temp tier fails. Its AppStore coverage is also lost: lines 185, 189-190, 222, 237, 394, 398, 400, 432, 436 and 438 are reported uncovered, although Publisher.test.ts exercises them. Two tests fail. (1) gateway.test.ts:117 expects the Halo handoff page to accept the return paths `/books/view` and `/`. appHandoffHttp.ts:14 `returnPathPattern` rejects both and answers 400. (2) gatewayEdges.test.ts:46 expects a return path containing `\"<x>` to be refused, but the handoff pattern `[^\\s]*` accepts it and answers 200. Both tests passed in round 1 and assert behavior this change does not implement. Either align the handoff return-path rule with AppGateway.ts:21-22 in this change, or remove these assertions from this change's temp tests. Then rerun so the temp tier passes and the AppStore lines are counted."
+    },
+    {
+      "id": "F6",
+      "kind": "source",
+      "file": "apps/control-plane/src/apps/AppStore.ts",
+      "line": 216,
+      "severity": "P1",
+      "body": "On PostgreSQL the retired-handle reservation can be bypassed by a concurrent rename. Example: Bob's renameHandle reads `app_retired_handles` (line 216) before Alice's rename to a new handle commits, so the read finds nothing. Bob's `UPDATE app_creators SET handle = 'alice'` then waits on Alice's uncommitted index entry. When Alice commits, her old row version is dead, so Bob's update succeeds and he takes the origin the reservation was meant to protect. The same check-then-claim pattern in ensureHandle (lines 172-177) has this gap. The comment at line 241 is only true for `app_creators.handle`; no constraint covers retired handles. One fix is to keep every claimed handle, current or retired, in one table keyed by handle (`handle PK, user_id`), so its primary key decides the race. A rename then inserts the new claim and never deletes the old one. Also consider limiting how many handles one account can retire, because each rename now reserves another handle permanently."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "apps/control-plane/src/apps/.tmp-tests/gateway.test.ts:117 and gatewayEdges.test.ts:46",
+      "tier": "tmp",
+      "rationale": "These temp tests must pass, or be dropped if they belong to other work, so the temp tier passes and the AppStore lines covered by Publisher.test.ts are counted."
+    }
+  ],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "d08e17fe1bc045637d7055e50a2f7ece298dbbcd",
+  "treeHash": "2eb51d514d44bb1ccc62f918e7e4433ae3c6a8da",
+  "codeTree": "5af869cef422c310d7929c91210f278ab137f15d",
+  "coverage": {
+    "executable": 138,
+    "covered": 124,
+    "exempt": 3,
+    "uncovered": 11
+  },
+  "createdAt": "2026-10-15T07:37:34.751Z"
+}

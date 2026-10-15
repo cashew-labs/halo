@@ -1,0 +1,6 @@
+[
+  {
+    "findingId": "F7",
+    "reply": "fixed: claimHandle now refuses a handle that another account's app_creators row holds, so ensureHandle skips such a handle without claiming it and renameHandle reports it taken. Temp test: a creator row from before claims existed is back-filled by initialize (checkHandle reports it taken); a row written without a claim during a deploy keeps its handle against renameHandle (already taken) and ensureHandle (returns fresh-2). The two remaining paths (ensureHandle's fallback after a concurrent same-account insert, and the unique-violation mapping) are reachable only through concurrent PostgreSQL writers and carry coverage-exempt reasons."
+  }
+]
