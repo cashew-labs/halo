@@ -1,0 +1,59 @@
+{
+  "status": "changes_requested",
+  "summary": "This change adds published apps: an AppStore and AppService in the control plane, owner-side publication markers, idempotent installs on app VMs, an `apps` RPC namespace, and a `halo app` CLI. It is not ready. Binding integration actions rejects every real tool address, so two temp tests fail. Cancel cannot recover a publication whose app VM never answered. The coverage gate also fails: most new lines show as uncovered, likely because the failing control-plane temp run left no coverage for them.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "source",
+      "file": "apps/control-plane/src/apps/AppService.ts",
+      "line": 381,
+      "severity": "P0",
+      "body": "`validateActions` passes owner actions through `validateAppDefinition`. That function rejects any address whose first segment is in `reservedActionNamespaces`, and that set includes `tools`. Every real integration address starts with `tools.`, for example `tools.private-mcp.user.personal.echo_marker` in ControlPlane.test.ts:2990, and `connectPages` returns the same form. As a result, `apps.bindActions` and the `halo app bind-actions` command always fail with \"actions must name connected integration operations\". Both failing temp tests show this: publicationEdges.test.ts \"owners bind fixed actions…\" and cli.test.ts. The same check runs in `define()` (line ~359), so any package that declares `halo.app.actions` with a real tool is abandoned at publication. Fix the address check so it accepts the executor's real `tools.<integration>.<owner>.<connection>.<tool>` form and still rejects Halo's own namespaces (for example `tools.halo.*` and `tools.executor.*`). Rely on `integrations.describe` for the ownership check."
+    },
+    {
+      "id": "F2",
+      "kind": "source",
+      "file": "apps/control-plane/src/apps/AppService.ts",
+      "line": 515,
+      "severity": "P1",
+      "body": "`cancel` handles a `frozen` app by calling `installedOnVm`. That function treats only a missing connection (`undefined`) as \"not installed\". `ExeWorkspaceProvider.getConnection` returns a connection as soon as the VM exists, whether or not its server listens. Take the case that cancel exists for: `waitForApp` timed out, or the app VM's server crashed. Then `client.extensions.list()` fails, `remoteFailure(\"probe\")` returns an opaque `AppRemoteError`, and cancel always fails with an internal error. The owner's extension stays frozen. The only way out is a publish that also cannot succeed. Treat a failed probe as \"not installed\", or decide by whether the install-ID marker exists. In both cases, make sure the app VM cannot later receive the install. Also add a temp test for cancelling after the app VM is provisioned but unreachable, for example with `brokenOrigins`."
+    },
+    {
+      "id": "F3",
+      "kind": "source",
+      "file": "apps/control-plane/src/apps/AppService.ts",
+      "line": 184,
+      "severity": "P1",
+      "body": "When `ensure()` has already provisioned an app VM but the install did not run (for example a timeout or a later failure), `cancel` → `abandon` deletes the app record. Nothing removes the provisioned VM, and `WorkspaceProviderApi` has no delete operation. The VM, named by the deleted `appId`, keeps running with no record that refers to it. Every publish-fail-cancel cycle leaks one VM, because the next attempt gets a new `appId`. Either deprovision the app VM on abandon (add a provider operation for it), or keep a tombstone so the orphaned VM can be found and removed."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "AppService.define with a package.json whose halo.app.actions names a real connected tool (tools.… address) publishes live and lists the action",
+      "tier": "tmp",
+      "rationale": "No passing test covers a declared action that validates successfully. The only declared-action test (publication.test.ts:89) checks rejection, and after the F1 fix it may pass for the wrong reason."
+    },
+    {
+      "target": "AppService.cancel for a frozen app whose app VM exists but does not answer (getConnection returns an origin whose server is down)",
+      "tier": "tmp",
+      "rationale": "Covers the recovery path in F2. The current tests only cancel after `ensure` itself failed, when the VM has no connection."
+    },
+    {
+      "target": "Coverage for packages/halo-cli/src/app.ts, AppService.ts, AppStore.ts, controlPlaneRpcRouter.ts apps handlers, creatorHost.ts, AppCredentials.ts, the Gcp and Exe provider changes, and appsRouter.ts forwarding",
+      "tier": "tmp",
+      "rationale": "These lines show as uncovered because the control-plane temp run failed. After F1 is fixed, rerun the run and confirm coverage. Add tests or accepted exemptions for any lines that are still uncovered, for example appsRouter.ts:26-29 (passing BAD_REQUEST through and rethrowing other errors)."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "9a642aa19ff81e21713002b2f52521c9691adcfa",
+  "treeHash": "42f1723572702bca7a417572c56aace68ed2a83e",
+  "codeTree": "94fc6468366eeafbb79a9c1196c28837d3b9ec78",
+  "coverage": {
+    "executable": 754,
+    "covered": 181,
+    "exempt": 45,
+    "uncovered": 528
+  },
+  "createdAt": "2026-10-15T07:01:22.510Z"
+}
