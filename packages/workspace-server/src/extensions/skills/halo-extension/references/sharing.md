@@ -49,7 +49,7 @@ chat: os.handler(async ({ input, context }) =>
   })),
 ```
 
-`send` returns `{ conversationId, reply }`; `conversation.history({ viewerToken, conversationId })` returns the visible messages. A conversation belongs to the viewer whose request carried the token, so another visitor cannot read it. The assistant can call only the app's bound actions, gets at most 4 model steps and 1024 output tokens per message, and conversations never appear in your Halo sessions. Each app shares 60 model requests every 10 minutes.
+`send` returns `{ conversationId, reply }`; `conversation.history({ viewerToken, conversationId })` returns the visible messages. A conversation belongs to the viewer whose request carried the token, so another visitor cannot read it. The assistant can call only the app's bound actions, gets at most 4 model steps and 1024 output tokens per message, and conversations never appear in your Halo sessions. Each app shares 1,000 model requests every 10 minutes across all visitors.
 
 ## Publish and edit
 
