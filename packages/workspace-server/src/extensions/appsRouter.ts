@@ -1,3 +1,4 @@
+import type { ExtensionHost } from "./ExtensionHost.js";
 import { implement, ORPCError } from "@orpc/server";
 import type { RouterContractClient } from "@orpc/contract";
 import { contract } from "@get-halo/client";
@@ -11,7 +12,10 @@ class RemoteAppsUnavailableError extends errore.createTaggedError({
 /** Control-plane app operations, authenticated as this workspace's owner. */
 export type RemoteApps = RouterContractClient<typeof contract.apps>;
 
-export type AppsRouterContext = { remoteApps: RemoteApps | undefined };
+export type AppsRouterContext = {
+  remoteApps: RemoteApps | undefined;
+  extensions: ExtensionHost;
+};
 const os = implement(contract.apps).$context<AppsRouterContext>();
 
 // Forwards the control plane's validation messages; other failures stay opaque.
@@ -31,6 +35,25 @@ async function forward<T>(
 }
 
 export const appsRouter = os.router({
+  publisher: os.publisher.handler(
+    async ({ context }) =>
+      await forward(context, async (apps) => await apps.publisher()),
+  ),
+  checkPublisherHandle: os.checkPublisherHandle.handler(
+    async ({ context, input }) =>
+      await forward(
+        context,
+        async (apps) => await apps.checkPublisherHandle(input),
+      ),
+  ),
+  renamePublisher: os.renamePublisher.handler(async ({ context, input }) => {
+    const saved = await forward(
+      context,
+      async (apps) => await apps.renamePublisher(input),
+    );
+    await context.extensions.refresh();
+    return saved;
+  }),
   list: os.list.handler(
     async ({ context }) =>
       await forward(context, async (apps) => await apps.list()),

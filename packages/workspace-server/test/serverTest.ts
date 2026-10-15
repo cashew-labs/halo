@@ -19,6 +19,7 @@ type ServerOptions = {
   workspaceRoot?: string;
   testApiEnabled?: boolean;
   traceUploader?: WorkspaceServerOptions["host"]["traceUploader"];
+  remoteApps?: WorkspaceServerOptions["host"]["remoteApps"];
   remoteConnections?: WorkspaceServerOptions["host"]["remoteConnections"];
   remoteIntegrationTools?: WorkspaceServerOptions["host"]["remoteIntegrationTools"];
   traceWorkspaceId?: string;
@@ -69,6 +70,7 @@ export const serverTest = baseTest.extend<{
         tools: options.tools,
         traceUploader: options.traceUploader,
         remoteConnections: options.remoteConnections,
+        remoteApps: options.remoteApps,
         remoteIntegrationTools: options.remoteIntegrationTools,
         traceWorkspaceId: options.traceWorkspaceId,
         workspaceRoot:

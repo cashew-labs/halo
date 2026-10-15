@@ -13,6 +13,7 @@ import { readExtensionManifest } from "./readExtensionManifest.js";
 import { startExtension, type ExtensionRuntime } from "./startExtension.js";
 import { AppSandbox, AppSandboxError } from "./AppSandbox.js";
 import { AppProject, AppProjectError } from "./AppProject.js";
+import type { RemoteApps } from "./appsRouter.js";
 import { AppPublication } from "./AppPublication.js";
 import { DemoBusyError, DemoInstances } from "./DemoInstances.js";
 import type { ExtensionArtifact } from "@get-halo/client";
@@ -68,6 +69,7 @@ export class ExtensionHost {
   private readonly sharedApp: SharedAppRuntime | undefined;
   private readonly sandbox: AppSandbox | undefined;
   private readonly publication: AppPublication;
+  private readonly remoteApps: RemoteApps | undefined;
   private readonly demo: DemoInstances | undefined;
 
   constructor(ctx: {
@@ -77,6 +79,7 @@ export class ExtensionHost {
     logger: Logger;
     runtime: ExtensionRuntime;
     sharedApp?: SharedAppRuntime;
+    remoteApps?: RemoteApps;
   }) {
     const { workspaceRoot, toolsOrigin, filesystem, logger, runtime } = ctx;
     this.workspaceRoot = workspaceRoot;
@@ -85,6 +88,7 @@ export class ExtensionHost {
     this.logger = logger;
     this.runtime = runtime;
     this.sharedApp = ctx.sharedApp;
+    this.remoteApps = ctx.remoteApps;
     this.sandbox =
       runtime.sandbox === undefined
         ? undefined
@@ -101,6 +105,18 @@ export class ExtensionHost {
             brokerPort: Number(new URL(toolsOrigin).port),
             syncAccess: ctx.sharedApp.syncAccess,
           });
+  }
+
+  async refresh() {
+    return await this.actionQueue.run(async () => {
+      const snapshot = await this.listUnqueued();
+      if (snapshot instanceof Error)
+        this.logger.warn({
+          event: "extension-links-refresh-failed",
+          error: snapshot,
+        });
+      this.changes.append(snapshot);
+    });
   }
 
   async list() {
@@ -146,11 +162,30 @@ export class ExtensionHost {
     }
     const published = await this.publication.list();
     if (published instanceof Error) return published;
+    const remote =
+      published.some((app) => app.state === "remote") &&
+      this.remoteApps !== undefined
+        ? await this.remoteApps
+            .list(undefined, { signal: AbortSignal.timeout(5000) })
+            .catch(
+              (cause) =>
+                new AppProjectError({
+                  detail: "read published app links",
+                  cause,
+                }),
+            )
+        : undefined;
+    if (remote instanceof Error)
+      this.logger.warn({ event: "extension-links-unavailable", error: remote });
     for (const app of published) {
       if (app.state !== "remote") continue;
+      const current =
+        remote instanceof Error
+          ? undefined
+          : remote?.find((entry) => entry.appId === app.appId);
       extensions.push({
         id: app.extensionId,
-        url: app.url,
+        url: current === undefined ? app.url : `${current.url}view/`,
         displayName: app.displayName,
         remote: { appId: app.appId },
       });
