@@ -13,6 +13,7 @@ import { readExtensionManifest } from "./readExtensionManifest.js";
 import { startExtension, type ExtensionRuntime } from "./startExtension.js";
 import { AppSandbox, AppSandboxError } from "./AppSandbox.js";
 import { AppProject, AppProjectError } from "./AppProject.js";
+import type { RemoteApps } from "./appsRouter.js";
 import { AppPublication } from "./AppPublication.js";
 import { DemoBusyError, DemoInstances } from "./DemoInstances.js";
 import type { ExtensionArtifact } from "@get-halo/client";
@@ -56,6 +57,13 @@ export class ExtensionHost {
   private readonly actionQueue = new SerialQueue();
   // Maps bearer tokens to the extensions allowed to use them.
   private readonly toolTokens = new Map<string, string>();
+  // Current view URLs of this workspace's published apps, by app ID. They are
+  // looked up outside the queue, so a slow control plane never blocks it.
+  private readonly remoteLinks = new Map<string, string>();
+  // Lookups started, and the newest one applied, so a slow older lookup
+  // cannot replace links a newer one already stored.
+  private linkLookups = 0;
+  private appliedLookup = 0;
   // Signs viewer tokens stamped on proxied requests, so app code can act for a
   // viewer only while serving that viewer's request.
   private readonly viewerKey = crypto.randomBytes(32);
@@ -68,6 +76,7 @@ export class ExtensionHost {
   private readonly sharedApp: SharedAppRuntime | undefined;
   private readonly sandbox: AppSandbox | undefined;
   private readonly publication: AppPublication;
+  private readonly remoteApps: RemoteApps | undefined;
   private readonly demo: DemoInstances | undefined;
 
   constructor(ctx: {
@@ -77,6 +86,7 @@ export class ExtensionHost {
     logger: Logger;
     runtime: ExtensionRuntime;
     sharedApp?: SharedAppRuntime;
+    remoteApps?: RemoteApps;
   }) {
     const { workspaceRoot, toolsOrigin, filesystem, logger, runtime } = ctx;
     this.workspaceRoot = workspaceRoot;
@@ -85,6 +95,7 @@ export class ExtensionHost {
     this.logger = logger;
     this.runtime = runtime;
     this.sharedApp = ctx.sharedApp;
+    this.remoteApps = ctx.remoteApps;
     this.sandbox =
       runtime.sandbox === undefined
         ? undefined
@@ -103,7 +114,21 @@ export class ExtensionHost {
           });
   }
 
+  async refresh() {
+    await this.loadRemoteLinks();
+    return await this.actionQueue.run(async () => {
+      const snapshot = await this.listUnqueued();
+      if (snapshot instanceof Error)
+        this.logger.warn({
+          event: "extension-links-refresh-failed",
+          error: snapshot,
+        });
+      this.changes.append(snapshot);
+    });
+  }
+
   async list() {
+    this.refreshRemoteLinks();
     return await this.actionQueue.run(async () => await this.listUnqueued());
   }
 
@@ -112,6 +137,7 @@ export class ExtensionHost {
       signal === undefined
         ? this.closed.signal
         : AbortSignal.any([signal, this.closed.signal]);
+    this.refreshRemoteLinks();
     const initial = await this.actionQueue.run(async () => ({
       snapshot: await this.listUnqueued(),
       // Register in the snapshot's queue turn so later changes are buffered.
@@ -121,6 +147,52 @@ export class ExtensionHost {
     if (abortSignal.aborted) return;
     yield initial.snapshot;
     yield* updates;
+  }
+
+  /** Looks links up without waiting; a changed link publishes a new snapshot. */
+  private refreshRemoteLinks() {
+    void this.loadRemoteLinks().then(
+      async (changed) => {
+        if (changed)
+          await this.actionQueue.run(async () => await this.publishUnqueued());
+      },
+      // coverage-exempt: loadRemoteLinks returns its failures; this only guards an unexpected rejection.
+      (cause) =>
+        this.logger.warn({
+          event: "extension-links-unavailable",
+          error: cause,
+        }),
+    );
+  }
+
+  /** Refreshes published apps' current links; failures keep the last known ones. */
+  private async loadRemoteLinks() {
+    if (this.remoteApps === undefined) return false;
+    const published = await this.publication.list();
+    if (published instanceof Error) return false;
+    if (!published.some((app) => app.state === "remote")) return false;
+    this.linkLookups += 1;
+    const lookup = this.linkLookups;
+    const remote = await this.remoteApps
+      .list(undefined, { signal: AbortSignal.timeout(5000) })
+      .catch(
+        (cause) =>
+          new AppProjectError({ detail: "read published app links", cause }),
+      );
+    if (remote instanceof Error) {
+      this.logger.warn({ event: "extension-links-unavailable", error: remote });
+      return false;
+    }
+    if (lookup < this.appliedLookup) return false;
+    this.appliedLookup = lookup;
+    let changed = false;
+    for (const app of remote) {
+      const url = `${app.url}view/`;
+      if (this.remoteLinks.get(app.appId) === url) continue;
+      this.remoteLinks.set(app.appId, url);
+      changed = true;
+    }
+    return changed;
   }
 
   private async listUnqueued() {
@@ -148,9 +220,10 @@ export class ExtensionHost {
     if (published instanceof Error) return published;
     for (const app of published) {
       if (app.state !== "remote") continue;
+      const current = this.remoteLinks.get(app.appId);
       extensions.push({
         id: app.extensionId,
-        url: app.url,
+        url: current ?? app.url,
         displayName: app.displayName,
         remote: { appId: app.appId },
       });

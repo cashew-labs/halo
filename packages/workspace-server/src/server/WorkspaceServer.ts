@@ -377,6 +377,7 @@ export class WorkspaceServer {
       logger: host.logger,
       runtime: config.extensionRuntime,
       sharedApp: config.sharedApp,
+      remoteApps: host.remoteApps,
     });
     cleanup.defer(async () => await extensions.stop());
     const browsers = new BrowserService({
