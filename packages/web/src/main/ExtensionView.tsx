@@ -1,8 +1,13 @@
 /* oxlint-disable react/iframe-missing-sandbox -- Extension views need their origin identity for API and storage access. */
-import { backgroundColor, Flex, flex, Text, text } from "maui";
+import { backgroundColor, Button, Flex, flex, Text, text } from "maui";
 import { style, useStyles } from "purse-styles";
 import { useHost } from "../HostProvider.js";
 import { useExtensions } from "../api/WorkspaceUpdatesProvider.js";
+import {
+  PublishFailureNotice,
+  useApps,
+  usePublishRecovery,
+} from "../panes/PublishFailure.js";
 
 export function ExtensionView({ extensionId }: { extensionId: string }) {
   const host = useHost();
@@ -11,7 +16,9 @@ export function ExtensionView({ extensionId }: { extensionId: string }) {
   // A published app runs on its creator host. Halo's tab cannot sign the
   // owner in to that origin, so the app opens in the browser instead.
   const extensionUrl =
-    extension === undefined || extension.remote !== undefined
+    extension === undefined ||
+    extension.remote !== undefined ||
+    extension.publishing !== undefined
       ? undefined
       : host.getExtensionFrameUrl(extension.id);
   const displayName =
@@ -54,6 +61,9 @@ export function ExtensionView({ extensionId }: { extensionId: string }) {
           </a>
         </div>
       )}
+      {extension?.publishing !== undefined && (
+        <PublishingNotice extensionId={extensionId} displayName={displayName} />
+      )}
       {extension !== undefined && extensionUrl !== undefined && (
         <iframe
           key={extension.id}
@@ -64,6 +74,56 @@ export function ExtensionView({ extensionId }: { extensionId: string }) {
         />
       )}
     </main>
+  );
+}
+
+/** A project stopped while it moves to its own server, or stuck part-way. */
+function PublishingNotice({
+  extensionId,
+  displayName,
+}: {
+  extensionId: string;
+  displayName: string;
+}) {
+  const apps = useApps();
+  const app = apps.data?.find((entry) => entry.extensionId === extensionId);
+  const recovery = usePublishRecovery(app);
+  const notice = useStyles(styles.notice);
+  const actions = useStyles(styles.actions);
+  const failure = app?.stage === "live" ? undefined : app?.publishFailure;
+  return (
+    <div className={notice}>
+      {failure === undefined || recovery.publishing ? (
+        <Text role="status">
+          {displayName} is being published to its own server. It is paused in
+          this workspace until publishing finishes.
+        </Text>
+      ) : (
+        <>
+          <PublishFailureNotice displayName={displayName} failure={failure} />
+          {recovery.error !== null && (
+            <Text size="sm" role="alert">
+              {recovery.error.message}
+            </Text>
+          )}
+          <div className={actions}>
+            <Button
+              isDisabled={recovery.pending}
+              onPress={recovery.publishAgain}
+            >
+              Publish again
+            </Button>
+            <Button
+              variant="quiet"
+              isDisabled={recovery.pending}
+              onPress={recovery.keepLocal}
+            >
+              Keep it local
+            </Button>
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -81,6 +141,7 @@ const styles = {
     maxWidth: 480,
   }),
   link: style(text({ size: "sm" }), { width: "fit-content" }),
+  actions: style(flex({ gap: 3, wrap: true })),
   frame: style({
     flex: "1 1 auto",
     width: "100%",

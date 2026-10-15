@@ -67,6 +67,8 @@ export type ExtensionSummary = {
   icon?: string;
   // A published app lives on its own VM; the URL is its creator-host view.
   remote?: { appId: string };
+  // Stopped while it moves to its own VM; it has no URL until publishing finishes.
+  publishing?: { appId: string };
 };
 type AppJsonValue =
   | null
@@ -98,6 +100,14 @@ export type AppSummary = AppAccessList & {
   published: boolean;
   stage: "publishing" | "live";
   actions: { name: string; description: string }[];
+  /** The last publish attempt that did not finish; cleared once the app is live. */
+  publishFailure?: {
+    /** Written for the owner, without host details. */
+    message: string;
+    /** The underlying error, for agents and support. */
+    detail: string;
+    failedAt: number;
+  };
 };
 export type TemplateSummary = {
   slug: string;

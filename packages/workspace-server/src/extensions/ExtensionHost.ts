@@ -219,7 +219,27 @@ export class ExtensionHost {
     const published = await this.publication.list();
     if (published instanceof Error) return published;
     for (const app of published) {
-      if (app.state !== "remote") continue;
+      // A stopped project that is moving to its app VM stays listed, so its
+      // owner can see where publishing stands.
+      if (app.state === "publishing") {
+        const manifest = await readExtensionManifest({
+          filesystem: this.filesystem,
+          workspaceRoot,
+          id: app.extensionId,
+        });
+        extensions.push({
+          id: app.extensionId,
+          url: "",
+          displayName:
+            manifest instanceof Error ||
+            manifest.halo?.displayName === undefined
+              ? app.extensionId
+              : manifest.halo.displayName,
+          icon: manifest instanceof Error ? undefined : manifest.halo?.icon,
+          publishing: { appId: app.appId },
+        });
+        continue;
+      }
       const current = this.remoteLinks.get(app.appId);
       extensions.push({
         id: app.extensionId,

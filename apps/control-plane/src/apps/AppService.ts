@@ -194,7 +194,20 @@ export class AppService {
       });
       if (app instanceof Error) return app;
       const live = await this.continuePublication(app);
-      if (live instanceof Error) return live;
+      if (live instanceof Error) {
+        // The owner sees a plain reason; the error itself stays for agents.
+        const recorded = await this.store.recordPublishFailure({
+          appId: app.appId,
+          message: publishFailureMessage(live),
+          detail: live.message.slice(0, 500),
+        });
+        // coverage-exempt: App database outage while recording a failure; the publish error is still returned.
+        if (recorded instanceof Error) console.error(recorded);
+        return live;
+      }
+      const cleared = await this.store.clearPublishFailure(app.appId);
+      // coverage-exempt: App database outage after the app went live.
+      if (cleared instanceof Error) return cleared;
       return await this.summarize(live);
     });
   }
@@ -229,7 +242,8 @@ export class AppService {
       // recorded, so a frozen app is abandoned only if its VM lacks it.
       if (app.stage === "ready" || (await this.installedOnVm(app)))
         return new AppRequestError({
-          reason: "The app already runs on its VM; publish it again to finish",
+          reason:
+            "It is already on its own server, so it can't be kept local. Publish again to finish.",
         });
       const owner = await this.ownerClient(app.ownerUserId);
       if (owner instanceof Error) return owner;
@@ -913,7 +927,7 @@ export class AppService {
   private async summarize(app: AppRecord) {
     const actions = await this.store.actions(app.appId);
     if (actions instanceof Error) return actions;
-    return {
+    const summary: AppSummary = {
       appId: app.appId,
       extensionId: app.extensionId,
       displayName: app.displayName,
@@ -928,7 +942,10 @@ export class AppService {
         name: action.name,
         description: action.description,
       })),
-    } satisfies AppSummary;
+    };
+    if (app.stage !== "live" && app.publishFailure !== undefined)
+      summary.publishFailure = app.publishFailure;
+    return summary;
   }
 
   private url(app: AppRecord) {
@@ -1001,6 +1018,15 @@ function remoteFailure(operation: string) {
     cause instanceof ORPCError && cause.code === "BAD_REQUEST"
       ? new AppRequestError({ reason: cause.message, cause })
       : new AppRemoteError({ operation, cause });
+}
+
+/** Why publishing stopped, in words for the owner rather than host details. */
+function publishFailureMessage(error: Error) {
+  // The app VM reports a failed start as a refused request.
+  if (error.message.includes("App sandbox failed: start"))
+    return "Its new server could not start the app.";
+  if (isAppRequestError(error)) return error.message;
+  return "Something went wrong while moving it to its own server.";
 }
 
 export function isAppRequestError(error: Error) {
