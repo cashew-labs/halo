@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "This round moves the demo short-circuit in `invokeAction` ahead of the fixed-arguments check. A demo runs the author's code, which may still pass the author's original fixed arguments; those calls now replay the sample result instead of failing, and still never reach any connection. The new temp test calls the action with the author's arguments and gets the sample result, and the test also checks that no connection call and no budget use happen. All temp tests pass, every changed line is covered or validly exempt, and no findings remain.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 8,
+  "headSha": "6f3dfdd137894f00eea2f75bc3e51c1fe0755c05",
+  "treeHash": "1c9cd7af9abd4846f41d37953895d044b8e9a220",
+  "codeTree": "cb2dc5bf4979c1dae71be627032ae9ba6e4501ea",
+  "coverage": {
+    "executable": 371,
+    "covered": 346,
+    "exempt": 25,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-15T09:19:32.947Z"
+}
