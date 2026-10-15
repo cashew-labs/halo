@@ -1,0 +1,46 @@
+{
+  "status": "changes_requested",
+  "summary": "Since round 3, bash termination also signals every process whose process-group ID equals the original shell PID, even after the shell has exited. Two temp bash tests now fail on a timeout, and the coverage gate fails on ten lines. The new group-ID match can also signal an unrelated process group after the shell's PID is reused. The change is not ready.",
+  "findings": [
+    {
+      "id": "F4",
+      "kind": "source",
+      "file": "packages/workspace-server/src/agent/tools/bash/run.ts",
+      "line": 241,
+      "severity": "P1",
+      "body": "`signalBashProcesses` now adds every process with `pgid === input.processGroupId`. `terminate()` always passes `processGroupId: running.pid`, even after the shell has exited and Node has reaped it (lines 137 and 147). Consider the scenario covered by the durable E2E: a setsid descendant keeps the stdout/stderr pipes open, the shell exits, and the run continues until timeout or Stop. If no process remains in the shell's original group, the kernel can reuse that PID. A new process with that PID becomes leader of a group with the same number. Other detached bash runs from this server are such leaders. On Stop or timeout the `ps` scan then matches the unrelated group, and the function sends SIGTERM and SIGKILL to both `-pid` and `pid`. This reintroduces the stale-ID hazard fixed under F2. Match by process group only while the group is known to be ours. For example, match only while the shell has not exited (`exitCode`/`signalCode` null). Alternatively, match only when the same scan finds a process carrying `HALO_BASH_RUN_ID=<runId>` in that group, or another proof that the group is still ours. Rely on the run-ID marker and the pipe destruction otherwise."
+    },
+    {
+      "id": "F5",
+      "kind": "test",
+      "file": "packages/workspace-server/src/agent/tools/bash/.tmp-tests/run.test.ts",
+      "line": 26,
+      "severity": "P1",
+      "body": "The temp run fails. 'kills an orphaned setsid child ignoring SIGTERM on timeout' (line 18) and 'kills an untagged same-group child after the shell exits on timeout' (line 106) set `timeoutMs: 5000` for the bash command. Vitest's default test timeout is also 5000 ms, so each test times out before `runBash` resolves (the log shows 'Test timed out in 5000ms'). Use a short command timeout, as before (for example 1500 ms), or pass a larger per-test timeout. The failed vitest run also seems to have dropped server coverage, so the Thread.ts and threadRouter.ts lines covered in round 3 now show as uncovered. Re-run so that both temp vitest files pass and the gate reports them as covered."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "run.ts process-group matching after the shell exits (line 241)",
+      "tier": "tmp",
+      "rationale": "After the F4 fix, add a test showing that a process in a group whose ID equals the exited shell's PID is not signalled unless the group is proven to belong to this run. Stub the `ps` output, or mock `process.kill` and `childProcess.execFile`, to simulate PID reuse. Keep the same-group untagged-child test passing."
+    },
+    {
+      "target": "Thread.ts:40,644,660,662,673,680,711; threadRouter.ts:88; run.ts:169,246",
+      "tier": "tmp",
+      "rationale": "These lines were covered by temp tests in round 3 and are uncovered now because the temp vitest run failed. They must show as covered again after the bash tests are fixed."
+    }
+  ],
+  "tierChanges": [],
+  "round": 4,
+  "headSha": "9dd0d435f8ca12aed4395fd0d7457f31d00a533e",
+  "treeHash": "b960344d18eb84a276b828ba3211a4a173a78d21",
+  "codeTree": "46dc7fdfa36c0d9fa359d8b29bc7b30eff617739",
+  "coverage": {
+    "executable": 101,
+    "covered": 91,
+    "exempt": 0,
+    "uncovered": 10
+  },
+  "createdAt": "2026-10-15T18:28:10.763Z"
+}

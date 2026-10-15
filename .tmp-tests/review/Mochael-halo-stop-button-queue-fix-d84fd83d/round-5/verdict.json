@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "F4 is resolved. A small bash supervisor now owns the process group: it ignores SIGTERM and stays alive until the output pipes close or cancellation reaches SIGKILL. Termination matches the group only while that supervisor PID is live, so a reused PID can no longer name an unrelated group, and a temp test covers this with a simulated reaped PID. F5 is resolved: the temp shell tests now have explicit time budgets. Durable and temp runs pass, and the coverage gate passes with no uncovered lines. The change is ready.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 5,
+  "headSha": "f5178d8c1080e95495df035978bfa1e4d4552f3a",
+  "treeHash": "b6e17d980b2f1f986ca1b1c4f22b04100aed48be",
+  "codeTree": "5ead81329ed6c86e4a8c803d98d7e6eecdf463a7",
+  "coverage": {
+    "executable": 139,
+    "covered": 139,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-15T18:39:14.552Z"
+}

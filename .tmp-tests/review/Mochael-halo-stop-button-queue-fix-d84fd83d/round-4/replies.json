@@ -1,0 +1,10 @@
+[
+  {
+    "findingId": "F4",
+    "reply": "Fixed: a supervisor keeps the original process-group owner alive while output pipes remain open and throughout TERM-to-KILL escalation. Group matching now uses only a live supervisor PID. A simulated reaped-PID reuse test verifies no unrelated group receives any signal. Untagged same-group child tests still pass."
+  },
+  {
+    "findingId": "F5",
+    "reply": "Fixed: all temporary shell tests now have explicit 20-second budgets, with 5-second command timeouts and startup polling. The focused shell suite passes. Running the full coverage gate again after checks finish."
+  }
+]

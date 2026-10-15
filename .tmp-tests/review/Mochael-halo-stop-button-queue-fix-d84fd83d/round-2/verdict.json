@@ -1,0 +1,39 @@
+{
+  "status": "changes_requested",
+  "summary": "All earlier findings are resolved. F1 was a test synchronization problem: the test now waits for contenteditable=true, and the full withdraw flow passes. F2 is fixed: the shell PID and its group are signalled only while the shell is still running. F3 is fixed: a server temp test now covers interruption persistence, deduplication, the idle abort, model-context exclusion, and restart. All test runs pass. The coverage gate still fails on six changed lines that have neither a test nor an exemption, so the change is not yet approvable.",
+  "findings": [],
+  "testRequests": [
+    {
+      "target": "packages/web/src/main/agent/AgentPane.tsx:346 (submit guard while withdrawing or stopping)",
+      "tier": "tmp",
+      "rationale": "The `ControlOrMeta+Enter` press in apps/electron/e2e/.tmp-tests/queueWithdrawal.e2e.test.ts ('does not restore a message the agent picked up while withdrawal was in transit') never reaches this guard: the line is still uncovered. Make the test actually call submit while a withdraw or Stop request is held, for example with focus inside the editor or through the onSubmit path. Assert that no prompt RPC is sent. Alternatively, give a reasoned exemption."
+    },
+    {
+      "target": "packages/web/src/main/agent/useAgentSession.ts:151 and :283 (abort-error early return in prompt)",
+      "tier": "tmp",
+      "rationale": "These lines rewrite the transport-abort check as `result instanceof Error && isAbortError(result.cause)`, and no test covers them. Add a temp test where the prompt RPC fails with an abort error and assert that no local error banner is set. Alternatively, give a reasoned exemption."
+    },
+    {
+      "target": "packages/workspace-server/src/agent/Thread.ts:655 (withdraw harness failure) and :706 (interruption save failure)",
+      "tier": "tmp",
+      "rationale": "No test covers the mapping of these failures to PromptFailedError and AbortFailedError. In a server temp test, stub `Harness.prototype.abortSubmission` and the conversation write `submit` so they reject. Assert that the RPC returns BAD_REQUEST with the expected reason."
+    },
+    {
+      "target": "packages/workspace-server/src/agent/tools/bash/run.ts:253 (ESRCH is ignored silently)",
+      "tier": "tmp",
+      "rationale": "The existing mock throws EPERM, which covers the warning path only. Add a case where process.kill throws `{ code: 'ESRCH' }` for one target. Assert that termination still completes and that no 'Could not stop bash process' warning is logged."
+    }
+  ],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "a2d8fe788ed5ed8410e9d5738bf914f4249fcf06",
+  "treeHash": "c95e9b110bfa3db0e5e445bf8633bb761ec480e5",
+  "codeTree": "b4975a667c122e9e95dfae622279b74aa2d75bb2",
+  "coverage": {
+    "executable": 129,
+    "covered": 123,
+    "exempt": 0,
+    "uncovered": 6
+  },
+  "createdAt": "2026-10-15T18:10:17.913Z"
+}
