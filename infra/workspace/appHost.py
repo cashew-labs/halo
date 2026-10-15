@@ -282,7 +282,9 @@ def diagnose(name):
     state = subprocess.run(['docker', 'inspect', '--format', '{{.State.Status}} exit {{.State.ExitCode}}', name],
                            capture_output=True, text=True, timeout=10)
     logs = subprocess.run(['docker', 'logs', '--tail', '20', name], capture_output=True, text=True, timeout=10)
-    return (state.stdout.strip() + '; ' + (logs.stdout + logs.stderr).strip())[-900:]
+    status = state.stdout.strip()[:100]
+    # Keep the state; only the log tail is shortened.
+    return status + '; ' + (logs.stdout + logs.stderr).strip()[-(898 - len(status)):]
 
 
 def execute(body):
