@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "Since round 1, the dialog disables Publish, Save, Stop sharing and Share again while the app list refetches (`changing = save.isPending || apps.isFetching`). This stops a stale cached list from triggering a publish that would overwrite the access settings of an app that is already live. A new temp test seeds a stale empty cache and holds the refetch open. It checks that Publish is disabled until the fresh list arrives, that the live app's controls replace it, and that no API call is made. All changed lines are covered, except the PaneWorkspace swap, whose exemption I accepted earlier. The change is ready.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "582adce072fc761d0b1f174602d5e827d021866d",
+  "treeHash": "7830cdeb590d3541374d02d384bd1216dc1a55a4",
+  "codeTree": "5ef15c3b4effe3ab192792e08a36089592563d31",
+  "coverage": {
+    "executable": 67,
+    "covered": 65,
+    "exempt": 2,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-15T09:01:39.621Z"
+}
