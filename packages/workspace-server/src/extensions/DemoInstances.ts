@@ -18,7 +18,7 @@ type Instance = {
  */
 export class DemoInstances {
   private readonly instances = new Map<string, Instance>();
-  private readonly queue = new SerialQueue();
+  private readonly actionQueue = new SerialQueue();
   private readonly sandbox: AppSandbox;
   private readonly extensionId: string;
   private readonly brokerPort: number;
@@ -43,7 +43,7 @@ export class DemoInstances {
   }
 
   async connect(viewerId: string) {
-    return await this.queue.run(async () => {
+    return await this.actionQueue.run(async () => {
       if (!this.reclaimed) {
         const reset = await this.sandbox.resetInstances(this.extensionId);
         if (reset instanceof Error) return reset;
@@ -106,7 +106,7 @@ export class DemoInstances {
   }
 
   async stop() {
-    return await this.queue.run(async () => {
+    return await this.actionQueue.run(async () => {
       const instances = [...this.instances.values()];
       this.instances.clear();
       for (const instance of instances) {
