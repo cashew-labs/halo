@@ -124,10 +124,12 @@ export class AppConversations {
       streamFn: (model, context, options) => {
         steps.count += 1;
         // The last step may not call tools, so the model must answer in text.
+        const toolChoice =
+          steps.count >= limits.modelSteps ? ("none" as const) : undefined;
         return models.streamSimple(model, context, {
           ...options,
           maxTokens: limits.outputTokens,
-          ...(steps.count >= limits.modelSteps ? { toolChoice: "none" } : {}),
+          toolChoice,
         });
       },
       // Stop before a further model request once the step budget is spent.
