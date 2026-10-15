@@ -1,3 +1,4 @@
+import type { ThinkingLevel } from "@earendil-works/pi-ai";
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -126,8 +127,13 @@ export class AppConversations {
         // The last step may not call tools, so the model must answer in text.
         const toolChoice =
           steps.count >= limits.modelSteps ? ("none" as const) : undefined;
+        // Agent's thinkingLevel "off" sends no reasoning setting, which would
+        // fall back to the host's default and spend the token cap on thinking.
         return models.streamSimple(model, context, {
           ...options,
+          // SAFETY: pi-ai's streamSimple maps "off" to no reasoning effort; its
+          // option type lists only the enabled levels.
+          reasoning: "off" as ThinkingLevel,
           maxTokens: limits.outputTokens,
           toolChoice,
         });
