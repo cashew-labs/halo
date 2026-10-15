@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "This change adds published apps: control-plane AppStore and AppService, owner-side publication markers, idempotent app VM installs, owner RPCs, and the `halo app` CLI. All earlier findings are resolved: F1 action addresses, F2 cancel when the app VM does not answer, F3 removing the app VM on abandon, and F4 the coverage exemption. Both test tiers pass and every changed line is covered or validly exempt, so the change is ready.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 3,
+  "headSha": "6cfa5151204ff142269e09bff7b88ade7667451c",
+  "treeHash": "abbaab7ac25114229751b0de7f67a6bdeb46933d",
+  "codeTree": "d4b9e1deb6f3ba5956aa03a38b29d6b9d08d4e46",
+  "coverage": {
+    "executable": 654,
+    "covered": 608,
+    "exempt": 46,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-15T07:13:02.789Z"
+}

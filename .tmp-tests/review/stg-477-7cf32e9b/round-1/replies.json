@@ -1,0 +1,14 @@
+[
+  {
+    "findingId": "F1",
+    "reply": "fixed in #471 (ced52b74): the validator strips the tools. prefix that connected tool addresses carry and refuses only Halo's own namespaces (executor, halo, connections, policies, oauth); integrations.describe remains the ownership check. This branch is rebased on it; publicationEdges 'owners bind fixed actions' and cli.test pass again, and #471's temp test accepts tools.private-mcp.user.personal.echo_marker."
+  },
+  {
+    "findingId": "F2",
+    "reply": "fixed: installedOnVm treats a VM whose server does not answer (probe failure or no connection) as not serving the copy, and abandon now deletes the app VM before forgetting the record, so it can never receive the install later. Temp test: appsBroken provider, publish fails, cancel succeeds, the VM is removed and the local app is restored."
+  },
+  {
+    "findingId": "F3",
+    "reply": "fixed: WorkspaceProviderApi gains optional remove(); ExeWorkspaceProvider runs exe.dev rm on an existing VM (same command as the release workflow's template cleanup); abandon calls it first. Temp tests: Exe provider removes only an existing VM; cancel removes the app VM."
+  }
+]
