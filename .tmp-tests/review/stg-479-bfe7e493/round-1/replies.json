@@ -1,0 +1,14 @@
+[
+  {
+    "findingId": "F1",
+    "reply": "fixed: the last model step is sent with toolChoice none (pi passes it as tool_choice), and any run whose final assistant message has no text returns AppConversationError instead of an empty success. Temp test: the 4th request carries tool_choice none and the reply is the model's text; a model that still calls a tool on its last step yields ok:false with 'could not reply'."
+  },
+  {
+    "findingId": "F2",
+    "reply": "fixed: the example declares its input type, throws when context.viewer.token is missing, and spreads conversationId only when set; the text now says every published app can hold conversations and instructions describe the app. Checked the snippet with tsc --strict --noUncheckedIndexedAccess against the SDK: the only remaining diagnostics are 'context.tools.<name> is possibly undefined', which comes from ExtensionTools' index-signature type and equally affects the existing context.tools.files example in tools.md and the Electron workspaceNotes fixture on main; changing the SDK tool typing is outside this layer."
+  },
+  {
+    "findingId": "F3",
+    "reply": "fixed: temp unit test issues a real token, reads it back, rejects a swapped viewer segment and a changed expiry under the original signature, rejects another host's token, accepts it at 59 minutes and rejects it after 61 minutes with fake Date."
+  }
+]
