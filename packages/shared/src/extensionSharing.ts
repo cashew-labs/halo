@@ -95,12 +95,18 @@ export class AppDefinitionError extends errore.createTaggedError({
 const reservedActionNamespaces = new Set([
   "executor",
   "halo",
-  "tools",
   "connections",
   "policies",
   "oauth",
-  "integrations",
 ]);
+
+// Connected tools are addressed as tools.<integration>.…; Executor resolves
+// any number of leading `tools.` the same way.
+function actionNamespace(address: string) {
+  let rest = address;
+  while (rest.startsWith("tools.")) rest = rest.slice("tools.".length);
+  return rest.split(".")[0]!;
+}
 
 // oxlint-disable-next-line anti-slop/no-unknown-parameters -- App manifests are untrusted JSON at this validation boundary.
 export function validateAppDefinition(input: unknown) {
@@ -114,7 +120,7 @@ export function validateAppDefinition(input: unknown) {
       (action) =>
         !/^[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_.-]+$/.test(
           action.address,
-        ) || reservedActionNamespaces.has(action.address.split(".")[0]!),
+        ) || reservedActionNamespaces.has(actionNamespace(action.address)),
     )
   )
     return new AppDefinitionError({
