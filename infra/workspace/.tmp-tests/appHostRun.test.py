@@ -1,0 +1,243 @@
+import json
+import pathlib
+import subprocess
+import sys
+import tempfile
+import unittest
+from unittest import mock
+
+ROOT = pathlib.Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(ROOT / 'infra/workspace'))
+import appHost
+
+TOKENS = {'hostToken': 'h' * 40, 'toolToken': 't' * 40}
+
+
+class Ready:
+    status = 200
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        return False
+
+
+class RunAppTests(unittest.TestCase):
+    """The Docker argument builders and control flow, with the host commands mocked."""
+
+    def setUp(self):
+        self.commands = []
+        self.stopped = []
+        patches = [
+            mock.patch.object(appHost, 'cgroup_parent', return_value='halo-apps.slice'),
+            mock.patch.object(appHost, 'stop', side_effect=lambda name: self.stopped.append(name)),
+            mock.patch.object(appHost.time, 'sleep'),
+        ]
+        for patch in patches:
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def command(self, inspect='{"3000/tcp":[{"HostPort":"40001"}]}'):
+        def run(args, timeout=30, env=None):
+            self.commands.append((args, env))
+            if args[:2] == ['docker', 'inspect']:
+                if isinstance(inspect, Exception):
+                    raise inspect
+                return inspect
+            return 'container'
+        return run
+
+    def run_app(self, iptables_present=False, **command):
+        checked = subprocess.CompletedProcess([], 0 if iptables_present else 1)
+        with mock.patch.object(appHost, 'command', side_effect=self.command(**command)), \
+                mock.patch.object(appHost.subprocess, 'run', return_value=checked):
+            return appHost.run_app(name='halo-app-books', source=pathlib.Path('/src'), data=pathlib.Path('/data-volume'),
+                                   broker_port=8788, access='actions', body=TOKENS)
+
+    def test_tokens_reach_docker_only_through_the_environment(self):
+        with mock.patch.object(appHost.urllib.request, 'urlopen', return_value=Ready()):
+            self.assertEqual(self.run_app(), {'url': 'http://127.0.0.1:40001/view/'})
+        run_args, run_env = next((args, env) for args, env in self.commands if args[:2] == ['docker', 'run'])
+        flat = ' '.join(arg for args, _ in self.commands for arg in args)
+        self.assertNotIn(TOKENS['hostToken'], flat)
+        self.assertNotIn(TOKENS['toolToken'], flat)
+        self.assertEqual(run_env['HALO_EXTENSION_HOST_TOKEN'], TOKENS['hostToken'])
+        self.assertEqual(run_env['HALO_EXTENSION_TOOLS_TOKEN'], TOKENS['toolToken'])
+        self.assertIn('HALO_EXTENSION_HOST_TOKEN', run_args)
+        for flag in ['--runtime=runsc', '--read-only', '--cap-drop=ALL', '--security-opt=no-new-privileges',
+                     'type=bind,src=/src,dst=/app,readonly', 'type=bind,src=/data-volume,dst=/data',
+                     'type=bind,src=/etc/halo/app-resolv.conf,dst=/etc/resolv.conf,readonly']:
+            self.assertIn(flag, run_args)
+        self.assertEqual(self.stopped, [])
+
+    def test_the_broker_rule_is_inserted_only_when_missing(self):
+        with mock.patch.object(appHost.urllib.request, 'urlopen', return_value=Ready()):
+            self.run_app(iptables_present=False)
+            inserted = [args for args, _ in self.commands if args[:2] == ['iptables', '-I']]
+            self.assertEqual(len(inserted), 1)
+            self.commands.clear()
+            self.run_app(iptables_present=True)
+            self.assertEqual([args for args, _ in self.commands if args[0] == 'iptables'], [])
+
+    def test_a_cold_app_that_answers_within_thirty_seconds_starts(self):
+        clock = iter(range(0, 1000, 5))
+        calls = []
+
+        def probe(request, timeout):
+            calls.append(timeout)
+            if len(calls) < 5:
+                raise OSError('timed out')
+            return Ready()
+
+        with mock.patch.object(appHost.urllib.request, 'urlopen', side_effect=probe), \
+                mock.patch.object(appHost.time, 'monotonic', side_effect=lambda: next(clock)):
+            self.assertEqual(self.run_app(), {'url': 'http://127.0.0.1:40001/view/'})
+        self.assertEqual(calls, [5] * 5)
+        self.assertEqual(self.stopped, [])
+
+    def test_failed_readiness_or_inspection_stops_the_container(self):
+        clock = iter(range(0, 1000, 5))
+        with mock.patch.object(appHost.urllib.request, 'urlopen', side_effect=OSError('refused')), \
+                mock.patch.object(appHost.time, 'monotonic', side_effect=lambda: next(clock)), \
+                mock.patch.object(appHost, 'diagnose', return_value='exited exit 1; Error: boom'):
+            with self.assertRaisesRegex(ValueError, 'did not become ready: exited exit 1; Error: boom'):
+                self.run_app()
+        self.assertEqual(self.stopped, ['halo-app-books'])
+        with self.assertRaises(RuntimeError):
+            self.run_app(inspect=RuntimeError('inspect failed'))
+        self.assertEqual(self.stopped, ['halo-app-books', 'halo-app-books'])
+
+
+class RunBuildTests(unittest.TestCase):
+    def test_the_script_reaches_sandboxed_bash_on_stdin_without_live_data(self):
+        calls = []
+
+        def run(args, **options):
+            calls.append((args, options))
+            return subprocess.CompletedProcess(args, 3, stdout='x' * 9000 + 'built')
+
+        stopped = []
+        with mock.patch.object(appHost, 'cgroup_parent', return_value='halo-apps.slice'), \
+                mock.patch.object(appHost, 'stop', side_effect=lambda name: stopped.append(name)), \
+                mock.patch.object(appHost.subprocess, 'run', side_effect=run):
+            result = appHost.run_build(name='halo-app-books-build', source=pathlib.Path('/src'),
+                                       script='npm run build # $(secret)', cache=pathlib.Path('/cache-volume'))
+        self.assertEqual(result['exitCode'], 3)
+        self.assertEqual(len(result['output']), 8192)
+        self.assertTrue(result['output'].endswith('built'))
+        args, options = calls[0]
+        self.assertTrue(options['input'].endswith('npm run build # $(secret)'))
+        self.assertNotIn('npm run build', ' '.join(args))
+        self.assertEqual(args[-2:], ['bash', '-l'])
+        for flag in ['--runtime=runsc', '--read-only', '--cap-drop=ALL', 'type=bind,src=/src,dst=/app',
+                     'type=bind,src=/var/lib/halo/app-sdk,dst=/halo-sdk,readonly',
+                     'type=bind,src=/etc/halo/app-resolv.conf,dst=/etc/resolv.conf,readonly',
+                     'type=bind,src=/cache-volume,dst=/cache', '--env=npm_config_cache=/cache',
+                     '--memory=512m', '--memory-swap=512m', '--cpus=1']:
+            self.assertIn(flag, args)
+        self.assertFalse(any('dst=/data' in arg for arg in args))
+        self.assertIn('/halo-sdk/get-halo-extension-sdk.tgz', options['input'])
+        self.assertEqual(stopped, ['halo-app-books-build'])
+        self.assertEqual(args[args.index('timeout') + 2], '150')
+        self.assertEqual(options['timeout'], 160)
+
+
+class SnapshotFallbackTests(unittest.TestCase):
+    def test_before_the_first_start_the_workspace_copy_is_exported(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            original = root / 'workspace/.halo/extension-data/books'
+            original.mkdir(parents=True)
+            (original / 'tandem.json').write_text('{"installed":true}')
+            with mock.patch.object(appHost, 'WORKSPACE', root / 'workspace'), \
+                    mock.patch.object(appHost, 'DATA', root / 'data'), \
+                    mock.patch.object(appHost, 'volume', return_value=None):
+                self.assertEqual(appHost.snapshot('books'), {'data': '{"installed":true}'})
+                (original / 'tandem.json').unlink()
+                self.assertEqual(appHost.snapshot('books'), {})
+
+
+if __name__ == '__main__':
+    unittest.main()
+
+
+class ResolverTests(unittest.TestCase):
+    """The setup script writes the resolver file that both containers mount."""
+
+    def test_setup_writes_public_resolvers_at_the_mounted_path(self):
+        setup = (ROOT / 'infra/workspace/appSandboxSetup.sh').read_text()
+        self.assertIn(f"> {appHost.RESOLV_CONF}", setup)
+        self.assertIn("nameserver 1.1.1.1", setup)
+        # A running app (128 MB) and a build (512 MB) fit in the aggregate slice together.
+        self.assertIn("MemoryMax=768M", setup)
+
+
+class ExecuteTests(unittest.TestCase):
+    """A build gets the app's own npm cache volume, outside the source and the small /tmp."""
+
+    def test_the_build_mounts_a_quota_cache_volume(self):
+        built = {}
+        with mock.patch.object(appHost, 'stop'), \
+                mock.patch.object(appHost, 'source_mount', return_value=pathlib.Path('/source')), \
+                mock.patch.object(appHost, 'volume', return_value=pathlib.Path('/cache-volume')) as volume, \
+                mock.patch.object(appHost, 'trim_cache') as trim, \
+                mock.patch.object(appHost, 'run_build', side_effect=lambda **ctx: built.update(ctx) or {'exitCode': 0, 'output': ''}):
+            self.assertEqual(appHost.execute({'extensionId': 'books', 'command': 'npm run build'}), {'exitCode': 0, 'output': ''})
+        directory, = volume.call_args.args
+        self.assertEqual(directory, appHost.appPaths.under(appHost.DATA, 'books', 'build-cache'))
+        self.assertEqual(volume.call_args.kwargs, {'size': '512M'})
+        self.assertEqual(built['cache'], pathlib.Path('/cache-volume'))
+        trim.assert_called_once_with(pathlib.Path('/cache-volume'))
+        self.assertEqual(built['source'], pathlib.Path('/source'))
+
+
+class TrimCacheTests(unittest.TestCase):
+    """A cache volume with under a quarter free is emptied; links out of it are removed, never followed."""
+
+    def setUp(self):
+        self.root = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: subprocess.run(['rm', '-rf', str(self.root)]))
+        self.cache = self.root / 'cache'
+        (self.cache / '_cacache' / 'content').mkdir(parents=True)
+        (self.cache / '_cacache' / 'content' / 'blob').write_text('x')
+        (self.cache / 'index.json').write_text('{}')
+        self.outside = self.root / 'outside'
+        self.outside.mkdir()
+        (self.outside / 'keep').write_text('owner data')
+        (self.cache / 'escape').symlink_to(self.outside, target_is_directory=True)
+
+    def usage(self, free):
+        return mock.patch.object(appHost.os, 'statvfs', return_value=mock.Mock(f_blocks=1000, f_bavail=free))
+
+    def test_a_nearly_full_cache_is_emptied_without_following_links(self):
+        with self.usage(free=249):
+            appHost.trim_cache(self.cache)
+        self.assertEqual(list(self.cache.iterdir()), [])
+        self.assertEqual((self.outside / 'keep').read_text(), 'owner data')
+
+    def test_a_cache_with_room_is_kept(self):
+        with self.usage(free=250):
+            appHost.trim_cache(self.cache)
+        self.assertEqual(sorted(entry.name for entry in self.cache.iterdir()), ['_cacache', 'escape', 'index.json'])
+
+
+class DiagnoseTests(unittest.TestCase):
+    """A failed start reports the container's state and its last output, bounded for the error reply."""
+
+    def test_state_and_tail_of_the_logs(self):
+        calls = []
+
+        def run(args, **options):
+            calls.append(args)
+            if args[1] == 'inspect':
+                return subprocess.CompletedProcess(args, 0, stdout='exited exit 1\n', stderr='')
+            return subprocess.CompletedProcess(args, 0, stdout='listening\n', stderr='x' * 2000 + 'Error: cannot find module')
+
+        with mock.patch.object(appHost.subprocess, 'run', side_effect=run):
+            report = appHost.diagnose('halo-app-books')
+        self.assertEqual(calls[1], ['docker', 'logs', '--tail', '20', 'halo-app-books'])
+        self.assertEqual(len(report), 900)
+        self.assertTrue(report.endswith('Error: cannot find module'))
+        with mock.patch.object(appHost.subprocess, 'run', side_effect=lambda args, **options: subprocess.CompletedProcess(args, 0, stdout='running exit 0' if args[1] == 'inspect' else '', stderr='')):
+            self.assertEqual(appHost.diagnose('halo-app-books'), 'running exit 0; ')

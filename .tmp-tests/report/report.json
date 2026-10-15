@@ -1,0 +1,91 @@
+{
+  "baseRef": "origin/main",
+  "baseSha": "f0a197b0cd4eacbf05b9f8942487647b5fcfe480",
+  "headSha": "37cf0f866f6c72368499570b3818a98a8ef58490",
+  "treeHash": "9076567b7a7bc5811c03e34fe38a2aa6998f04d9",
+  "generatedAt": "2026-10-15T16:24:24.316Z",
+  "runs": {
+    "durable": {
+      "tier": "durable",
+      "testFiles": [],
+      "skipped": true,
+      "runners": [],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 0,
+      "log": ".tmp-tests/report/durable.log",
+      "lcovFiles": []
+    },
+    "tmp": {
+      "tier": "tmp",
+      "testFiles": [
+        "infra/workspace/.tmp-tests/__pycache__/appHostRun.test.cpython-312.pyc",
+        "infra/workspace/.tmp-tests/appHostRun.test.py"
+      ],
+      "skipped": false,
+      "runners": [
+        {
+          "runner": "command",
+          "dir": ".",
+          "testFiles": [
+            "infra/workspace/.tmp-tests/appHostRun.test.py"
+          ],
+          "exitCode": 0
+        }
+      ],
+      "unmatched": [
+        "infra/workspace/.tmp-tests/__pycache__/appHostRun.test.cpython-312.pyc"
+      ],
+      "exitCode": 0,
+      "durationMs": 548,
+      "log": ".tmp-tests/report/tmp.log",
+      "lcovFiles": [
+        "tmp/python-tests/lcov.info"
+      ]
+    }
+  },
+  "durableTestFiles": [],
+  "tmpTestFiles": [
+    "infra/workspace/.tmp-tests/__pycache__/appHostRun.test.cpython-312.pyc",
+    "infra/workspace/.tmp-tests/appHostRun.test.py"
+  ],
+  "files": [
+    {
+      "path": "infra/workspace/appHost.py",
+      "loaded": true,
+      "changed": [
+        277,
+        278,
+        279,
+        280,
+        281,
+        282,
+        283,
+        284,
+        285,
+        331,
+        332
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [
+        277,
+        280,
+        282,
+        283,
+        284,
+        285,
+        332
+      ],
+      "uncovered": [],
+      "exempt": []
+    }
+  ],
+  "totals": {
+    "executable": 7,
+    "coveredDurable": 0,
+    "coveredTmpOnly": 7,
+    "uncovered": 0,
+    "exempt": 0
+  },
+  "passed": true
+}
