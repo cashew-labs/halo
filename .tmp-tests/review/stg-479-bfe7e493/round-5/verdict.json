@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "Since round 4, the only change is in AppConversations' streamFn: it now passes `reasoning: \"off\"`, so app conversations no longer inherit the host's default thinking level and spend the 1024-token cap on reasoning. I checked the path. createOpenAILLMApi forwards the \"off\" value instead of the host default, and pi-ai's openai-completions streamSimple turns \"off\" into no reasoning effort, which for the Together format sends `reasoning: { enabled: false }`. The updated temp test runs with a host default of \"low\" and a reasoning-capable Together model, and checks that every app request has reasoning not enabled and no reasoning_effort. All temp tests pass, every changed line is covered or exempt with an acceptable reason, and no findings remain.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 5,
+  "headSha": "67f0f488f29de5a75bade3425c8c1aee387160fd",
+  "treeHash": "fea4f5e21d11f0a0de26bd76f78640222dfe652d",
+  "codeTree": "611b7494a7eb029ccdf13f364c4b9197bc678ef2",
+  "coverage": {
+    "executable": 187,
+    "covered": 172,
+    "exempt": 15,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-15T09:01:13.088Z"
+}
