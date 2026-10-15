@@ -79,6 +79,7 @@ cat > /etc/systemd/system/halo-app-host.service <<'APPHOST'
 Description=Halo app sandbox supervisor
 Requires=docker.service halo-apps.slice
 After=docker.service halo-apps.slice network-online.target
+Before=halo.service
 [Service]
 ExecStartPre=/usr/local/bin/halo-app-network
 ExecStart=/usr/local/bin/halo-app-host
