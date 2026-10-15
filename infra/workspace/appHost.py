@@ -25,8 +25,10 @@ lock = threading.Lock()
 
 
 # coverage-exempt: Linux root/Docker adapter; user explicitly deferred live gVisor provisioning tests. IPC and editing boundaries are tested locally.
-def command(args, timeout=30):
-    result = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
+def command(args, timeout=30, env=None):
+    # Secrets travel in the child environment, never in argv.
+    result = subprocess.run(args, capture_output=True, text=True, timeout=timeout,
+                            env=None if env is None else {**os.environ, **env})
     if result.returncode:
         raise RuntimeError('Host command failed: ' + result.stderr[:1024])
     return result.stdout.strip()
@@ -83,6 +85,9 @@ def source_mount(extension_id):
     target.mkdir(mode=0o700, parents=True, exist_ok=True)
     with appPaths.directory(appPaths.under(WORKSPACE / '.halo/extensions', extension_id)) as descriptor:
         if os.path.ismount(target):
+            current, mounted = os.fstat(descriptor), os.stat(target)
+            if (current.st_dev, current.st_ino) == (mounted.st_dev, mounted.st_ino):
+                return target
             command(['umount', str(target)])
         # The mount source is a pinned descriptor, not a pathname the user can
         # replace between validation and the privileged mount syscall.
@@ -150,10 +155,11 @@ def start(body):
     extension_id = body['extensionId']
     broker_port = body['brokerPort']
     access = body['syncAccess']
+    # A running container keeps the old source mount busy.
+    stop(name)
     source = source_mount(extension_id)
     with appPaths.regular_file(appPaths.under(WORKSPACE / '.halo/extensions', extension_id, 'dist/start.mjs')):
         pass
-    stop(name)
     running = command(['docker', 'ps', '-q', '--filter', 'label=' + LABEL]).splitlines()
     if len(running) >= 4:
         raise ValueError('This VM supports four running shared apps')
@@ -186,11 +192,11 @@ def run_app(name, source, data, broker_port, access, body):
             '--mount', f'type=bind,src={source},dst=/app,readonly',
             '--mount', f'type=bind,src={data},dst=/data',
             '--workdir=/app', '--publish', '127.0.0.1::3000']
-    for key, value in env.items():
-        args.extend(['--env', key + '=' + value])
+    for key in env:
+        args.extend(['--env', key])
     args.extend([IMAGE, 'node', 'dist/start.mjs', '--port', '3000', '--data-dir', '/data'])
     with contextlib.ExitStack() as cleanup:
-        command(args)
+        command(args, env=env)
         cleanup.callback(stop, name)
         binding = json.loads(command(['docker', 'inspect', '--format', '{{json .NetworkSettings.Ports}}', name]))
         port = binding['3000/tcp'][0]['HostPort']
@@ -215,25 +221,26 @@ def execute(body):
     script = body.get('command')
     if not isinstance(script, str) or len(script) > 8192:
         raise ValueError('Invalid remote command')
+    stop(name)
     source = source_mount(extension_id)
     return run_build(name=name, source=source, script=script)
 
 
 # coverage-exempt: Linux root/Docker adapter; user explicitly deferred live gVisor provisioning tests. Inputs are validated by execute.
 def run_build(name, source, script):
-    stop(name)
     # The owner's command can edit source, but receives neither live data nor
     # privileged credentials. npm scripts and dependencies remain untrusted.
+    # bash reads the script from stdin inside the sandbox; it is never a host argument.
     prepare = """node --input-type=module -e '
 import fs from "node:fs";
 const p = JSON.parse(fs.readFileSync("package.json", "utf8"));
 p.dependencies ??= {};
 p.devDependencies ??= {};
-p.dependencies["@get-halo/extension-sdk"] = "file:/halo-sdk/get-halo-extension-sdk-0.0.0.tgz";
-p.devDependencies["@get-halo/extension-tools"] = "file:/halo-sdk/get-halo-extension-tools-0.0.0.tgz";
+p.dependencies["@get-halo/extension-sdk"] = "file:/halo-sdk/get-halo-extension-sdk.tgz";
+p.devDependencies["@get-halo/extension-tools"] = "file:/halo-sdk/get-halo-extension-tools.tgz";
 fs.writeFileSync("package.json", JSON.stringify(p, null, 2) + "\\n");
 ' && """
-    args = ['docker', 'run', '-d', '--name', name, '--label', LABEL,
+    args = ['docker', 'run', '-i', '--name', name, '--label', LABEL,
             '--runtime=runsc', '--network', NETWORK, '--init', '--user', '1000:1000',
             '--read-only', '--cap-drop=ALL', '--security-opt=no-new-privileges',
             '--memory=256m', '--memory-swap=256m', '--cpus=0.5', '--pids-limit=64',
@@ -241,13 +248,12 @@ fs.writeFileSync("package.json", JSON.stringify(p, null, 2) + "\\n");
             '--tmpfs=/tmp:rw,nosuid,nodev,size=32m,mode=1777',
             '--env=HOME=/tmp', '--mount', f'type=bind,src={source},dst=/app',
             '--mount', 'type=bind,src=/var/lib/halo/app-sdk,dst=/halo-sdk,readonly',
-            '--workdir=/app', IMAGE, 'timeout', '--signal=KILL', '120', 'bash', '-lc', prepare + script]
+            '--workdir=/app', IMAGE, 'timeout', '--signal=KILL', '120', 'bash', '-l']
     with contextlib.ExitStack() as cleanup:
-        command(args)
         cleanup.callback(stop, name)
-        exit_code = command(['docker', 'wait', name], timeout=130)
-        logs = subprocess.run(['docker', 'logs', '--tail', '64', name], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=30)
-        return {'exitCode': int(exit_code), 'output': logs.stdout[-8192:]}
+        result = subprocess.run(args, input=prepare + script, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                text=True, timeout=130)
+        return {'exitCode': result.returncode, 'output': result.stdout[-8192:]}
 
 
 class Server(http.server.ThreadingHTTPServer):

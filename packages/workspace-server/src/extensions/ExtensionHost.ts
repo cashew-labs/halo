@@ -173,14 +173,18 @@ export class ExtensionHost {
                 ? { contents: captured }
                 : undefined,
             );
-      if (running !== undefined) {
-        const restarted = await this.startUnqueued(extensionId);
-        if (restarted instanceof Error) {
-          await this.publishUnqueued();
-          return restarted;
-        }
-      }
+      // A failed restart must not discard the captured project.
+      const restarted =
+        running === undefined
+          ? undefined
+          : await this.startUnqueued(extensionId);
       await this.publishUnqueued();
+      if (restarted instanceof Error)
+        this.logger.warn({
+          event: "extension-snapshot-restart-failed",
+          extensionId,
+          error: restarted,
+        });
       return snapshot;
     });
   }
@@ -248,8 +252,13 @@ export class ExtensionHost {
       const executed = await this.sandbox.execute(ctx);
       const restarted = await this.startUnqueued(ctx.extensionId);
       await this.publishUnqueued();
-      if (restarted instanceof Error) return restarted;
-      return executed;
+      // Build output explains most restart failures, so keep it.
+      if (executed instanceof Error || !(restarted instanceof Error))
+        return executed;
+      return {
+        ...executed,
+        output: `${executed.output}\nThe app did not restart: ${restarted.message}`,
+      };
     });
   }
 

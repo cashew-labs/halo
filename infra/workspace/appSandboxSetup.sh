@@ -56,7 +56,9 @@ mkdir -p /var/lib/halo/apps /var/lib/halo/app-sdk /run/halo-apps
 packer="halo-app-sdk-packer-$$"
 trap 'docker rm -f "$packer" >/dev/null 2>&1 || true' EXIT
 docker run --name "$packer" --network none --entrypoint bash "$app_image" -c \
-  'mkdir -p /tmp/sdk && npm pack --ignore-scripts --pack-destination /tmp/sdk /opt/halo/packages/extension-sdk /opt/halo/packages/extension-tools'
+  'mkdir -p /tmp/sdk && npm pack --ignore-scripts --pack-destination /tmp/sdk /opt/halo/packages/extension-sdk /opt/halo/packages/extension-tools &&
+   mv /tmp/sdk/get-halo-extension-sdk-*.tgz /tmp/sdk/get-halo-extension-sdk.tgz &&
+   mv /tmp/sdk/get-halo-extension-tools-*.tgz /tmp/sdk/get-halo-extension-tools.tgz'
 docker cp "$packer:/tmp/sdk/." /var/lib/halo/app-sdk/
 docker rm "$packer" >/dev/null
 trap - EXIT

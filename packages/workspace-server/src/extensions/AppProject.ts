@@ -48,7 +48,7 @@ const artifactSchema = Type.Object(
 
 /** Source is writable only through owner operations, outside the public runtime. */
 export class AppProject {
-  private readonly edits = new SerialQueue();
+  private readonly actionQueue = new SerialQueue();
   private readonly directory: string;
   private readonly dataDirectory: string;
 
@@ -66,7 +66,7 @@ export class AppProject {
   }
 
   async snapshot(dataOverride?: { contents: string | undefined }) {
-    return await this.edits.run(async () => {
+    return await this.actionQueue.run(async () => {
       const files: [string, string][] = [];
       const assets: [string, string][] = [];
       const captured = await this.capture({
@@ -137,7 +137,7 @@ export class AppProject {
   }
 
   async install(artifact: ExtensionArtifact) {
-    return await this.edits.run(async () => {
+    return await this.actionQueue.run(async () => {
       if (!Value.Check(artifactSchema, artifact))
         return new AppProjectError({ detail: "invalid project artifact" });
       if (Buffer.byteLength(JSON.stringify(artifact)) > maxBytes)
@@ -184,15 +184,21 @@ export class AppProject {
       );
       if (created instanceof Error) return created;
       let installed = false;
+      let createdData = false;
       await using cleanup = new errore.AsyncDisposableStack();
       cleanup.defer(async () => {
         if (installed) return;
-        const removed = await fs
-          .rm(this.directory, { recursive: true, force: true })
-          .catch(
-            (cause) =>
-              new AppProjectError({ detail: "remove failed install", cause }), // coverage-exempt: Last-resort cleanup failure; successful rollback is exercised with partial imports.
-          );
+        const removed = await Promise.all([
+          fs.rm(this.directory, { recursive: true, force: true }),
+          createdData
+            ? fs.rm(path.join(this.dataDirectory, "tandem.json"), {
+                force: true,
+              })
+            : undefined,
+        ]).catch(
+          (cause) =>
+            new AppProjectError({ detail: "remove failed install", cause }), // coverage-exempt: Last-resort cleanup failure; successful rollback is exercised with partial imports.
+        );
         if (removed instanceof Error) console.warn(removed);
       });
       for (const [name, contents, kind] of entries) {
@@ -200,7 +206,7 @@ export class AppProject {
         if (written instanceof Error) return written;
       }
       if (artifact.data !== undefined) {
-        const createdData = await fs
+        const dataDirectory = await fs
           .mkdir(this.dataDirectory, { recursive: true, mode: 0o700 })
           .catch(
             (cause) =>
@@ -209,13 +215,20 @@ export class AppProject {
                 cause,
               }),
           );
-        if (createdData instanceof Error) return createdData;
-        const written = await fs
-          .writeFile(
-            path.join(this.dataDirectory, "tandem.json"),
-            artifact.data,
-            { flag: "wx", mode: 0o600 },
-          )
+        if (dataDirectory instanceof Error) return dataDirectory;
+        // Exclusive open keeps existing data; only a file this install created
+        // is removed on rollback.
+        const file = await fs
+          .open(path.join(this.dataDirectory, "tandem.json"), "wx", 0o600)
+          .catch(
+            (cause) =>
+              new AppProjectError({ detail: "import app data", cause }),
+          );
+        if (file instanceof Error) return file;
+        createdData = true;
+        const written = await file
+          .writeFile(artifact.data)
+          .finally(async () => await file.close())
           .catch(
             (cause) =>
               new AppProjectError({ detail: "import app data", cause }),
@@ -227,7 +240,7 @@ export class AppProject {
   }
 
   async read(name: string) {
-    return await this.edits.run(async () => {
+    return await this.actionQueue.run(async () => {
       const contents = await this.readFile(name);
       if (contents instanceof Error) return contents;
       if (!sourceTypes.has(path.extname(name)))
@@ -237,7 +250,7 @@ export class AppProject {
   }
 
   async write(ctx: { name: string; contents: string }) {
-    return await this.edits.run(async () => {
+    return await this.actionQueue.run(async () => {
       if (!Value.Check(textSchema, ctx.contents))
         return new AppProjectError({ detail: "invalid source text" });
       if (Buffer.byteLength(ctx.contents) > maxBytes)
