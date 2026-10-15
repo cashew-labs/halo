@@ -52,10 +52,10 @@ export class AppSandbox {
       });
       if (state.stopped) return;
       state.checking = false;
+      // An unreachable supervisor (for example while it restarts) says
+      // nothing about the container; keep the last state and poll again.
       if (status instanceof Error || !Value.Check(statusSchema, status)) {
         console.warn(status);
-        state.running = false;
-        clearInterval(monitor);
         return;
       }
       state.running = status.running;

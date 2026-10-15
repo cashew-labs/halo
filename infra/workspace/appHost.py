@@ -141,10 +141,11 @@ def snapshot(extension_id):
     app_name(extension_id)
     # Mounting first distinguishes an unmounted volume from an app without data.
     data = volume(extension_id, create=False)
-    if data is None:
-        return {}
+    # Until the first start imports it, the workspace copy is the app's data.
+    source = (appPaths.under(WORKSPACE / '.halo/extension-data', extension_id, 'tandem.json')
+              if data is None else data / 'tandem.json')
     try:
-        with appPaths.regular_file(data / 'tandem.json') as data_file:
+        with appPaths.regular_file(source) as data_file:
             return {'data': read_limited(data_file).decode('utf8')}
     except FileNotFoundError:
         return {}
@@ -168,7 +169,6 @@ def start(body):
     return run_app(name=name, source=source, data=data, broker_port=broker_port, access=access, body=body)
 
 
-# coverage-exempt: Linux root/Docker adapter; user explicitly deferred live gVisor provisioning tests. Inputs are validated by start_input.
 def run_app(name, source, data, broker_port, access, body):
     # Host-bound bridge traffic uses INPUT, while forwarded egress uses DOCKER-USER.
     rule = ['-s', '172.30.0.0/24', '-d', GATEWAY, '-p', 'tcp', '--dport', str(broker_port), '-j', 'ACCEPT']
@@ -226,7 +226,6 @@ def execute(body):
     return run_build(name=name, source=source, script=script)
 
 
-# coverage-exempt: Linux root/Docker adapter; user explicitly deferred live gVisor provisioning tests. Inputs are validated by execute.
 def run_build(name, source, script):
     # The owner's command can edit source, but receives neither live data nor
     # privileged credentials. npm scripts and dependencies remain untrusted.
