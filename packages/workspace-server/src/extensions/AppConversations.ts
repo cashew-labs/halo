@@ -124,12 +124,10 @@ export class AppConversations {
       streamFn: (model, context, options) => {
         steps.count += 1;
         // The last step may not call tools, so the model must answer in text.
-        const toolChoice =
-          steps.count >= limits.modelSteps ? ("none" as const) : undefined;
         return models.streamSimple(model, context, {
           ...options,
           maxTokens: limits.outputTokens,
-          toolChoice,
+          ...(steps.count >= limits.modelSteps ? { toolChoice: "none" } : {}),
         });
       },
       // Stop before a further model request once the step budget is spent.
@@ -145,20 +143,12 @@ export class AppConversations {
     );
     if (prompted instanceof Error) return prompted;
     const messages = agent.state.messages;
-    // Only this turn's answer counts; a failed model request must not resurface
-    // an earlier reply.
-    const last = messages
-      .slice(history?.length ?? 0)
-      .findLast((message) => message.role === "assistant");
+    const last = messages.findLast((message) => message.role === "assistant");
     const reply = (last?.role === "assistant" ? last.content : [])
       .flatMap((part) => (part.type === "text" ? [part.text] : []))
       .join("")
       .slice(0, limits.replyCharacters);
-    if (
-      agent.state.errorMessage !== undefined ||
-      last?.role !== "assistant" ||
-      reply === ""
-    )
+    if (reply === "")
       return new AppConversationError({
         reason: "The assistant could not reply",
       });
@@ -166,24 +156,14 @@ export class AppConversations {
       (message) => message.role !== "system",
     );
     // Keep whole turns: a tool result whose call was trimmed away would make
-    // every later model request invalid. A turn longer than the bound keeps
-    // only its question and final answer, so the next request still fits.
+    // every later model request invalid. The latest turn is always kept, even
+    // when its tool calls alone exceed the bound.
     const turns = conversation.flatMap((message, index) =>
       message.role === "user" ? [index] : [],
     );
-    const latest = turns.at(-1) ?? 0;
     const bound = conversation.length - limits.storedMessages;
-    const kept =
-      latest < bound
-        ? [
-            conversation[latest]!,
-            {
-              ...last,
-              content: last.content.filter((part) => part.type === "text"),
-            },
-          ]
-        : conversation.slice(turns.find((index) => index >= bound) ?? latest);
-    const saved = await this.write(file, kept);
+    const start = turns.find((index) => index >= bound) ?? turns.at(-1) ?? 0;
+    const saved = await this.write(file, conversation.slice(start));
     if (saved instanceof Error) return saved;
     return { conversationId, reply };
   }

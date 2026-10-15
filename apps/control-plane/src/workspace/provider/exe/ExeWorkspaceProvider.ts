@@ -138,13 +138,6 @@ export class ExeWorkspaceProvider implements WorkspaceProviderApi {
     return await this.synchronizeClock(input);
   }
 
-  async remove(input: WorkspaceProviderInput) {
-    const vm = await this.findVm(input);
-    if (vm === undefined || vm instanceof Error) return vm;
-    const removed = await this.api.execute(["rm", vm.vm_name]);
-    if (removed instanceof Error) return removed;
-  }
-
   async synchronizeClock(input: WorkspaceProviderInput) {
     const vmName = this.vmName(input);
     if (vmName instanceof Error) return vmName;

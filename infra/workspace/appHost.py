@@ -129,17 +129,11 @@ def import_data(extension_id, data):
     except FileNotFoundError:
         contents = None
     if contents is not None:
-        # Write a temporary file and rename it, so a crash before the marker
-        # leaves nothing that blocks the next start's import.
         with appPaths.directory(data) as parent:
-            with contextlib.suppress(FileNotFoundError):
-                os.unlink('tandem.json.import', dir_fd=parent)
-            descriptor = os.open('tandem.json.import', os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600,
-                                 dir_fd=parent)
-            with os.fdopen(descriptor, 'wb') as output:
-                output.write(contents)
-                os.fchown(output.fileno(), 1000, 1000)
-            os.replace('tandem.json.import', 'tandem.json', src_dir_fd=parent, dst_dir_fd=parent)
+            descriptor = os.open('tandem.json', os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=parent)
+        with os.fdopen(descriptor, 'wb') as output:
+            output.write(contents)
+            os.fchown(output.fileno(), 1000, 1000)
     imported.touch(mode=0o600)
 
 

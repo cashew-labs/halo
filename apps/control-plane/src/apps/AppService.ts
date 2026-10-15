@@ -183,9 +183,7 @@ export class AppService {
         return new AppRequestError({
           reason: "Published apps are unpublished, not cancelled",
         });
-      // A lost install reply leaves the copy running before `ready` is
-      // recorded, so a frozen app is abandoned only if its VM lacks it.
-      if (app.stage === "ready" || (await this.installedOnVm(app)))
+      if (app.stage === "ready")
         return new AppRequestError({
           reason: "The app already runs on its VM; publish it again to finish",
         });
@@ -500,12 +498,6 @@ export class AppService {
 
   /** Restarts the frozen local project and forgets the publication. */
   private async abandon(ctx: { app: AppRecord; owner: HaloClient }) {
-    // Delete the app VM first, so it can never receive the copy later.
-    const removed = await this.provider.remove?.({
-      workspaceId: ctx.app.appId,
-      ownerUserId: ctx.app.ownerUserId,
-    });
-    if (removed instanceof Error) return removed;
     const released = await ctx.owner.extensions
       .release({ id: ctx.app.extensionId, appId: ctx.app.appId })
       .catch(remoteFailure("release"));
@@ -520,12 +512,12 @@ export class AppService {
     };
     this.publications.set(ownerUserId, entry);
     entry.pending += 1;
-    using cleanup = new errore.DisposableStack();
-    cleanup.defer(() => {
+    try {
+      return await entry.queue.run(run);
+    } finally {
       entry.pending -= 1;
       if (entry.pending === 0) this.publications.delete(ownerUserId);
-    });
-    return await entry.queue.run(run);
+    }
   }
 
   private async owned(ctx: { ownerUserId: string; appId: string }) {
@@ -604,18 +596,6 @@ export class AppService {
   }
 
   /** Provisioning returns before the server listens; poll its RPC endpoint. */
-  /**
-   * Whether the app's VM answers with its project. A VM that does not answer
-   * serves no visitor; abandoning the publication deletes it.
-   */
-  private async installedOnVm(app: AppRecord) {
-    const client = await this.appClient(app);
-    if (client === undefined || client instanceof Error) return false;
-    const listed = await client.extensions.list().catch(remoteFailure("probe"));
-    if (listed instanceof Error) return false;
-    return listed.some((extension) => extension.id === app.extensionId);
-  }
-
   private async waitForApp(app: AppRecord) {
     const deadline = Date.now() + this.readyTimeoutMs;
     for (;;) {

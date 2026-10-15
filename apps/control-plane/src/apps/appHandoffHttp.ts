@@ -3,7 +3,7 @@ import getRawBody from "raw-body";
 import * as errore from "errore";
 import type { AuthService } from "../auth/AuthService.js";
 import type { AppStore } from "./AppStore.js";
-import { appReturnPath, creatorOrigin } from "./creatorHost.js";
+import { creatorOrigin } from "./creatorHost.js";
 
 class AppHandoffError extends errore.createTaggedError({
   name: "AppHandoffError",
@@ -11,6 +11,7 @@ class AppHandoffError extends errore.createTaggedError({
 }) {}
 
 const handlePattern = /^[a-z][a-z0-9-]{0,40}$/;
+const returnPathPattern = /^\/[a-z][a-z0-9-]{0,62}\/(?:view\/[^\s]*)?$/;
 // The creator host's random sign-in state, carried through Google sign-in.
 const statePattern = /^[A-Za-z0-9_-]{43}$/;
 
@@ -49,8 +50,7 @@ export async function serveAppHandoff(ctx: {
   const state = input.get("state") ?? "";
   if (
     !handlePattern.test(handle) ||
-    // The same paths the creator host accepts, or its root.
-    (returnPath !== "/" && appReturnPath(returnPath) === undefined) ||
+    !returnPathPattern.test(returnPath) ||
     !statePattern.test(state)
   ) {
     respond(response, 400);
