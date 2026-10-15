@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "I found no P0 or P1 issues, so this is ready to merge. The change makes `installProject` retry once when the app VM's first start fails with an `AppSandboxError`, which covers fresh VMs that miss the 30 s readiness window. The retry is safe: the supervisor's `start` stops any existing container first and runs under a global lock, and a failed `run_app` cleans up its own container. The temp test fails without the change and checks both cases: one failure is retried and leaves the app running, and two failures still fail the install with the supervisor's reason. All 5 changed lines are covered.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "9093f9c233bea02f266990873f668af712be7c58",
+  "treeHash": "e01f43a74c6a4cf246db2bac715746587fc78793",
+  "codeTree": "9088efb30a076af057ff8b7406433ec117d4c731",
+  "coverage": {
+    "executable": 5,
+    "covered": 5,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-15T17:01:51.583Z"
+}

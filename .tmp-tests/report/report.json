@@ -1,0 +1,87 @@
+{
+  "baseRef": "origin/main",
+  "baseSha": "c1a061317fcd737526e087491280270b9ea5fb2f",
+  "headSha": "9093f9c233bea02f266990873f668af712be7c58",
+  "treeHash": "e01f43a74c6a4cf246db2bac715746587fc78793",
+  "generatedAt": "2026-10-15T17:00:43.921Z",
+  "runs": {
+    "durable": {
+      "tier": "durable",
+      "testFiles": [],
+      "skipped": true,
+      "runners": [],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 0,
+      "log": ".tmp-tests/report/durable.log",
+      "lcovFiles": []
+    },
+    "tmp": {
+      "tier": "tmp",
+      "testFiles": [
+        "packages/workspace-server/src/extensions/.tmp-tests/firstStart.test.ts"
+      ],
+      "skipped": false,
+      "runners": [
+        {
+          "runner": "vitest",
+          "dir": ".",
+          "testFiles": [
+            "packages/workspace-server/src/extensions/.tmp-tests/firstStart.test.ts"
+          ],
+          "exitCode": 0
+        }
+      ],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 5861,
+      "log": ".tmp-tests/report/tmp.log",
+      "lcovFiles": [
+        "../../../halo/.git/worktrees/ess-fix-start/code-review-agent/coverage/tmp-0/vitest-0/lcov.info"
+      ]
+    }
+  },
+  "durableTestFiles": [],
+  "tmpTestFiles": [
+    "packages/workspace-server/src/extensions/.tmp-tests/firstStart.test.ts"
+  ],
+  "files": [
+    {
+      "path": "packages/workspace-server/src/extensions/ExtensionHost.ts",
+      "loaded": true,
+      "changed": [
+        360,
+        662,
+        663,
+        664,
+        665,
+        666,
+        667,
+        668,
+        669,
+        670,
+        671,
+        672,
+        673
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [
+        360,
+        668,
+        669,
+        670,
+        671
+      ],
+      "uncovered": [],
+      "exempt": []
+    }
+  ],
+  "totals": {
+    "executable": 5,
+    "coveredDurable": 0,
+    "coveredTmpOnly": 5,
+    "uncovered": 0,
+    "exempt": 0
+  },
+  "passed": true
+}
