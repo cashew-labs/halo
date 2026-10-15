@@ -1,0 +1,6 @@
+[
+  {
+    "findingId": "F7",
+    "reply": "fixed: the test now installs a real project first, then replaces tandem.json with a symlink to a secret (snapshot fails at 'read app data' without the secret), removes it (snapshot data is undefined), and puts a directory in its place ('not a regular file')."
+  }
+]
