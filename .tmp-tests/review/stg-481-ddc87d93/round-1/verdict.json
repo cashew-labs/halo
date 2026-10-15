@@ -1,0 +1,46 @@
+{
+  "status": "changes_requested",
+  "summary": "The change adds app templates: a stored artifact with sample data, a demo VM with one sandboxed instance per visitor, a trusted listing page, and installation of private copies. The temp tests pass, every changed line is covered or validly exempt, and the main flows are well tested. It is not ready to merge: the per-visitor demo design lets any anonymous client evict other visitors' demos and stall the demo VM, and a publication with an explicit link can adopt a demo record.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "source",
+      "file": "packages/workspace-server/src/extensions/DemoInstances.ts",
+      "line": 67,
+      "severity": "P1",
+      "body": "Any anonymous client can evict other visitors' demos and stall the demo VM.\n\nHow it happens:\n- The demo is a public app.\n- AppGateway.viewer creates a new `visitor-<random>` viewer ID for every request that has no visitor cookie.\n- connect() starts a new gVisor container for each new viewer ID.\n- When the limit of 3 is reached, connect() stops the least recently used instance and discards its data.\n\nSo a client that sends a few requests without cookies evicts every real visitor and wipes their demo state. Each request also costs a docker start with a readiness poll of up to 15 s.\n\nOrdinary traffic triggers the same behavior. With a fourth concurrent visitor on a public template page, instances evict each other repeatedly.\n\nEvery HTTP request and WebSocket upgrade from every visitor also waits on one `actionQueue`. While one container starts, requests to already-running instances are blocked too.\n\nNeeded:\n- Limit instance creation, for example per IP address or with a minimum instance lifetime before eviction, or refuse new visitors when the VM is full instead of evicting active ones.\n- Do not serialize lookups of already-running instances behind container starts."
+    },
+    {
+      "id": "F2",
+      "kind": "source",
+      "file": "apps/control-plane/src/apps/AppService.ts",
+      "line": 138,
+      "severity": "P1",
+      "body": "`publish` can adopt and change a template's demo record.\n\n- Demo records take the owner's `(owner, extensionId)` key `demo-<slug>`, and `AppStore.create` returns any existing record for that key.\n- The new guard rejects only slugs that start with `demo-`. An owner can still publish a local extension `demo-reading` with an explicit slug, for example `--slug reading-app`, after the template `reading` exists.\n- In that case `store.create` returns the demo record, and `updateAccess` changes the demo's visibility and members, for example to `invited`, which breaks the public demo.\n- `continuePublication` returns early because the record is live, so the owner gets the demo's summary and their local extension is never frozen or published.\n\n`createTemplate` guards only the opposite order. Needed: in `publish`, refuse extension IDs that start with `demo-` (or records whose `origin` is set), the same way the slug is refused."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "apps/control-plane/src/apps/AppService.ts publish: publishing a local extension named demo-<slug> with an explicit slug after the template exists is refused and leaves the demo's access unchanged",
+      "tier": "tmp",
+      "rationale": "Shows that the F2 fix prevents publish from adopting a demo record."
+    },
+    {
+      "target": "packages/workspace-server/src/extensions/DemoInstances.ts connect: a burst of new viewer IDs does not evict an active visitor's instance or its data, and a running instance is returned while another instance is starting",
+      "tier": "tmp",
+      "rationale": "Shows that the F1 fix bounds eviction and stops the queue from blocking running instances."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "1d7bdce34c7b097ef9ff596e40c4627e8794c273",
+  "treeHash": "cdfb573a8698b6e74bd7f03b95cfc85689dde35f",
+  "codeTree": "8b5cf35f190f0203508d50433d340173c57c4032",
+  "coverage": {
+    "executable": 347,
+    "covered": 322,
+    "exempt": 25,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-15T06:17:21.377Z"
+}

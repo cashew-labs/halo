@@ -1,0 +1,46 @@
+{
+  "status": "changes_requested",
+  "summary": "F3 is fixed: the temp test now expects 503, the `retry-after` header and the busy text, and all temp test runs pass. The change is still not ready, because the coverage gate fails on four uncovered changed lines. DemoInstances.ts:75-76 returns an instance that started while the request waited in the queue. extensionProxy.ts:94-95 answers a WebSocket upgrade with 503 when the demo is busy. Add temp tests for both, then the change can be approved.",
+  "findings": [
+    {
+      "id": "F4",
+      "kind": "test",
+      "file": "packages/workspace-server/src/extensions/DemoInstances.ts",
+      "line": 75,
+      "severity": "P1",
+      "body": "Lines 75-76 have no test. They are the path inside the queue that returns an instance which started while this request waited for the queue.\n\nThis path happens on a visitor's first page load, when several requests for the same viewer arrive at the same time. It decides whether that visitor gets one container or several.\n\nAdd a temp test in demoInstances.test.ts:\n- Call `connect(\"same\")` twice at the same time on a fresh DemoInstances.\n- Check that both calls return the same instance.\n- Check that `supervisor.running()` has length 1."
+    },
+    {
+      "id": "F5",
+      "kind": "test",
+      "file": "packages/workspace-server/src/extensions/extensionProxy.ts",
+      "line": 94,
+      "severity": "P1",
+      "body": "Lines 94-95 have no test. They answer a WebSocket upgrade with 503 when `connectViewer` returns an error, such as `DemoBusyError` or a failed start.\n\nTandem sync for demo visitors goes through this upgrade path.\n\nAdd a temp test that opens a sync WebSocket to the demo for a new visitor while the demo VM is full, or while instance starts fail. Check that the upgrade is refused with 503 and that no instance is started."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "packages/workspace-server/src/extensions/DemoInstances.ts:75-76: two concurrent connect() calls for the same viewer return one instance and start one container",
+      "tier": "tmp",
+      "rationale": "Covers the in-queue path for a running instance and shows that concurrent first requests do not start duplicate containers."
+    },
+    {
+      "target": "packages/workspace-server/src/extensions/extensionProxy.ts:94-95: a WebSocket upgrade to a full or failing demo is answered with 503",
+      "tier": "tmp",
+      "rationale": "Covers the error path for upgrades, which demo sync uses."
+    }
+  ],
+  "tierChanges": [],
+  "round": 3,
+  "headSha": "ca10299b5fda1ced23c9e5784606fc3ffc89cc88",
+  "treeHash": "4b220d7bd7ab077573c4882fa15dc0dd9a864523",
+  "codeTree": "a8dc2d5acceb0347ebefacd4088aeacd2f75b1bd",
+  "coverage": {
+    "executable": 363,
+    "covered": 334,
+    "exempt": 25,
+    "uncovered": 4
+  },
+  "createdAt": "2026-10-15T06:26:37.827Z"
+}
