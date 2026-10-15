@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "This round rebases the change onto a new base. The only logic change is that `publish` now refuses any app record that came from a template: a demo or an installed copy. Owners still share an installed copy through `update`. Both refusals are tested, including that the app list and the copy's `published: false` are unchanged afterwards. All temp tests pass, every changed line is covered or validly exempt, and no findings remain.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 5,
+  "headSha": "1a79443b49c6c9372e1be6a003b5b95b81c26cb3",
+  "treeHash": "236a6fe2a212156bc7b8f5d3e94d8a321f7f874a",
+  "codeTree": "2a2ed6e146bb031c7e5493a23173b2eb65fd3d1a",
+  "coverage": {
+    "executable": 363,
+    "covered": 338,
+    "exempt": 25,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-15T07:42:30.160Z"
+}
