@@ -75,7 +75,7 @@ cat > /etc/systemd/system/halo-apps.slice <<'SLICE'
 Description=Aggregate Halo app and build limits
 [Slice]
 CPUQuota=100%
-MemoryMax=512M
+MemoryMax=768M
 TasksMax=256
 SLICE
 cat > /etc/systemd/system/halo-app-host.service <<'APPHOST'
