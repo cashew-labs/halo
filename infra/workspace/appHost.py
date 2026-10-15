@@ -79,19 +79,27 @@ def volume(extension_id, create=True):
     return mount
 
 
+def mounted(path):
+    """Whether path is a mount point, including a bind from the same filesystem."""
+    with open('/proc/self/mountinfo', encoding='utf8') as mountinfo:
+        points = {line.split()[4].replace('\\040', ' ') for line in mountinfo}
+    return str(path) in points
+
+
 def source_mount(extension_id):
     app_name(extension_id)
     target = appPaths.under(DATA, extension_id, 'source')
     target.mkdir(mode=0o700, parents=True, exist_ok=True)
     with appPaths.directory(appPaths.under(WORKSPACE / '.halo/extensions', extension_id)) as descriptor:
-        if os.path.ismount(target):
-            current, mounted = os.fstat(descriptor), os.stat(target)
-            if (current.st_dev, current.st_ino) == (mounted.st_dev, mounted.st_ino):
+        if mounted(target):
+            current, existing = os.fstat(descriptor), os.stat(target)
+            if (current.st_dev, current.st_ino) == (existing.st_dev, existing.st_ino):
                 return target
             command(['umount', str(target)])
         # The mount source is a pinned descriptor, not a pathname the user can
-        # replace between validation and the privileged mount syscall.
-        command(['mount', '--bind', f'/proc/{os.getpid()}/fd/{descriptor}', str(target)])
+        # replace between validation and the privileged mount syscall. Without
+        # --no-canonicalize, mount(8) would resolve it back to a pathname.
+        command(['mount', '--no-canonicalize', '--bind', f'/proc/{os.getpid()}/fd/{descriptor}', str(target)])
     return target
 
 
