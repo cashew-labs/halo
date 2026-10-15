@@ -378,6 +378,28 @@ export const controlPlaneContract = publicProcedure.router({
   },
   // Owner operations. Visitors reach apps only through the creator host.
   apps: {
+    publisher:
+      authenticatedProcedure.output(type<{ handle: string; origin: string }>()),
+    checkPublisherHandle: authenticatedProcedure
+      .input(
+        validated(
+          Type.Object(
+            { handle: Type.String({ maxLength: 256 }) },
+            { additionalProperties: false },
+          ),
+        ),
+      )
+      .output(type<{ available: boolean; reason?: string }>()),
+    renamePublisher: authenticatedProcedure
+      .input(
+        validated(
+          Type.Object(
+            { handle: Type.String({ maxLength: 256 }) },
+            { additionalProperties: false },
+          ),
+        ),
+      )
+      .output(type<{ handle: string; origin: string }>()),
     list: authenticatedProcedure.output(type<AppSummary[]>()),
     // Starts or resumes publication; the app VM becomes the only live copy.
     publish: authenticatedProcedure

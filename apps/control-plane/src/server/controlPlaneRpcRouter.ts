@@ -423,6 +423,34 @@ export const controlPlaneRpcRouter = os.router({
     session: getAuthSession,
   }),
   apps: os.apps.router({
+    publisher: os.apps.publisher.handler(async ({ context }) => {
+      const owner = await appOwner(context);
+      const result = await context.apps.publisher(owner);
+      if (result instanceof Error) return appError(result);
+      return result;
+    }),
+    checkPublisherHandle: os.apps.checkPublisherHandle.handler(
+      async ({ context, input }) => {
+        const owner = await appOwner(context);
+        const result = await context.apps.checkPublisherHandle({
+          ...owner,
+          ...input,
+        });
+        if (result instanceof Error) return appError(result);
+        return result;
+      },
+    ),
+    renamePublisher: os.apps.renamePublisher.handler(
+      async ({ context, input }) => {
+        const owner = await appOwner(context);
+        const result = await context.apps.renamePublisher({
+          ...owner,
+          ...input,
+        });
+        if (result instanceof Error) return appError(result);
+        return result;
+      },
+    ),
     list: os.apps.list.handler(async ({ context }) => {
       const owner = await appOwner(context);
       const apps = await context.apps.list(owner.ownerUserId);
