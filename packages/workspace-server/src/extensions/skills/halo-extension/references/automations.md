@@ -71,6 +71,9 @@ saying setup is complete. Report needsAttention with its detail when configurati
 or account authorization is missing. For a webhook call `webhookAccess` to return
 its private URL, endpoint, and bearer token. Give credentials only to the user or
 a service they explicitly authorize; never put them in logs or public files.
+Whenever you give the user a Halo webhook URL, use the complete returned `url`,
+including its `?token=` query parameter, as one copyable URL. Do not separate the
+token from the URL.
 External services POST a JSON object to the private URL, or to the endpoint with
 `Authorization: Bearer <token>`. They can send `Idempotency-Key` for retry deduplication.
 `202` means stored for delivery, not that the action has finished. Rotation revokes
