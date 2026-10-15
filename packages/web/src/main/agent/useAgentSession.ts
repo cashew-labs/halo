@@ -36,7 +36,9 @@ class AbortFailedError extends errore.createTaggedError({
 type UseAgentSessionResult = {
   state: SessionSnapshot;
   error: string | undefined;
-  prompt: (input: ChatPrompt) => Promise<void | PromptFailedError>;
+  prompt: (
+    input: ChatPrompt,
+  ) => Promise<{ submissionId: number } | PromptFailedError>;
   abort: () => Promise<void | AbortFailedError>;
 };
 
@@ -133,7 +135,6 @@ export function useAgentSession(
     setLocalError(undefined);
     const result = await api.thread
       .prompt({ sessionId: readySessionId, ...input })
-      .then(() => undefined)
       .catch(
         (e) =>
           new PromptFailedError({
@@ -146,17 +147,20 @@ export function useAgentSession(
       );
     // The connection banner owns transport recovery. The server may still be
     // running this prompt; reconnect the session stream without resending it.
-    if (errore.isAbortError(result?.cause)) return result;
+    if (result instanceof Error && errore.isAbortError(result.cause))
+      return result;
     if (result instanceof PromptFailedError) {
       if (service.getSnapshot().status !== "connected") return result;
       console.warn("Failed to send message:", result);
       setLocalError(result.message);
       return result;
     }
+    return result;
   }
 
   async function abort() {
     if (readySessionId === undefined) return;
+    setLocalError(undefined);
     const result = await api.thread
       .abort({ sessionId: readySessionId })
       .then(() => undefined)
@@ -171,6 +175,7 @@ export function useAgentSession(
       console.warn("Failed to stop session:", result);
       return result;
     }
+    return result;
   }
 
   return {
@@ -186,7 +191,9 @@ type UseDraftAgentSessionResult = {
   error: string | undefined;
   sessionId: string | undefined;
   title: string | undefined;
-  prompt: (input: ChatPrompt) => Promise<void | PromptFailedError>;
+  prompt: (
+    input: ChatPrompt,
+  ) => Promise<{ submissionId: number } | PromptFailedError>;
   abort: () => Promise<void | AbortFailedError>;
 };
 
@@ -262,7 +269,6 @@ export function useDraftAgentSession(
     );
     const result = await api.thread
       .prompt({ sessionId: sessionIdRef.current, ...input })
-      .then(() => undefined)
       .catch(
         (e) =>
           new PromptFailedError({
@@ -273,7 +279,8 @@ export function useDraftAgentSession(
             cause: e,
           }),
       );
-    if (errore.isAbortError(result?.cause)) return result;
+    if (result instanceof Error && errore.isAbortError(result.cause))
+      return result;
     if (result instanceof PromptFailedError) {
       if (service.getSnapshot().status !== "connected") return result;
       console.warn("Failed to send message:", result);
@@ -281,6 +288,7 @@ export function useDraftAgentSession(
       setTitle(undefined);
       return result;
     }
+    return result;
   }
 
   return {

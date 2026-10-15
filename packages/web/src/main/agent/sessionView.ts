@@ -5,6 +5,7 @@ import {
   type HaloMessage,
   sessionMessages,
   sessionToolExecutions,
+  userInterruptionCustomType,
   type SessionSnapshot,
   type ToolExecution,
   type ToolApproval,
@@ -16,6 +17,7 @@ import {
 } from "@get-halo/client";
 
 export type SessionViewItem =
+  | { kind: "interruption"; id: string }
   | {
       kind: "user";
       id: string;
@@ -210,6 +212,14 @@ export function sessionViewItems(state: SessionSnapshot): SessionViewItem[] {
   for (const entry of state.entries) {
     if (entry.type !== "message") continue;
     const message = entry.message;
+    if (
+      message.role === "custom" &&
+      message.customType === userInterruptionCustomType
+    ) {
+      flush(false);
+      items.push({ kind: "interruption", id: entry.id });
+      continue;
+    }
     if (message.role === "user") {
       flush(false);
       items.push({
@@ -739,18 +749,6 @@ function userText(message: HaloMessage): string {
   return message.content;
 }
 
-/** True when the latest user turn ended in a user abort. */
-export function lastAssistantTurnWasAborted(messages: HaloMessage[]): boolean {
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    const message = messages[i];
-    if (message === undefined) continue;
-    if (message.role === "toolResult") continue;
-    if (message.role === "user") return false;
-    if (message.role === "assistant") return message.stopReason === "aborted";
-  }
-  return false;
-}
-
 /** Readable alert text when an assistant turn failed. */
 function assistantTurnError(message: HaloMessage): string | undefined {
   if (message.role !== "assistant") return undefined;
@@ -842,6 +840,7 @@ function humanMessageFromJson(args: { value: unknown }): string | undefined {
 export function sessionError(state: SessionSnapshot): string | undefined {
   if (state.fault !== undefined) return state.fault;
   if (state.activeRun !== undefined) return undefined;
+  if (state.lastRun?.status === "aborted") return undefined;
   const messages = sessionMessages(state);
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index]!;

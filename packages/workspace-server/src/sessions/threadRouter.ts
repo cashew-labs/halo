@@ -83,6 +83,11 @@ export const threadRouter = os.router({
     if (prompted instanceof Error) return orpcErrors.badRequest(prompted);
     return prompted;
   }),
+  withdraw: os.withdraw.handler(async ({ input, context }) => {
+    const withdrawn = await context.sessions.withdraw(input);
+    if (withdrawn instanceof Error) return orpcErrors.badRequest(withdrawn);
+    return withdrawn;
+  }),
   wait: os.wait.handler(async ({ input, context, signal }) => {
     const settled = await context.sessions.wait(input, signal);
     if (settled instanceof Error) return orpcErrors.badRequest(settled);
