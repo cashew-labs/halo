@@ -53,15 +53,17 @@ const guard = [
  * belongs to. The agent gets the app's stored actions and nothing else.
  */
 export class AppConversations {
+  /** Viewer and conversation keys with a reply in progress. */
+  private readonly running = new Set<string>();
   private readonly llmApi: LLMApi;
   private readonly actions: AppActions;
   private readonly directory: string;
-  private readonly running = new Set<string>();
 
   constructor(ctx: { llmApi: LLMApi; actions: AppActions; directory: string }) {
-    this.llmApi = ctx.llmApi;
-    this.actions = ctx.actions;
-    this.directory = ctx.directory;
+    const { llmApi, actions, directory } = ctx;
+    this.llmApi = llmApi;
+    this.actions = actions;
+    this.directory = directory;
   }
 
   async send(ctx: {
@@ -148,16 +150,18 @@ export class AppConversations {
       return new AppConversationError({
         reason: "The assistant could not reply",
       });
-    const recent = messages
-      .filter((message) => message.role !== "system")
-      .slice(-limits.storedMessages);
-    // Keep whole turns: a tool result whose call was trimmed away would make
-    // every later model request invalid.
-    const start = recent.findIndex((message) => message.role === "user");
-    const saved = await this.write(
-      file,
-      start === -1 ? [] : recent.slice(start),
+    const conversation = messages.filter(
+      (message) => message.role !== "system",
     );
+    // Keep whole turns: a tool result whose call was trimmed away would make
+    // every later model request invalid. The latest turn is always kept, even
+    // when its tool calls alone exceed the bound.
+    const turns = conversation.flatMap((message, index) =>
+      message.role === "user" ? [index] : [],
+    );
+    const bound = conversation.length - limits.storedMessages;
+    const start = turns.find((index) => index >= bound) ?? turns.at(-1) ?? 0;
+    const saved = await this.write(file, conversation.slice(start));
     if (saved instanceof Error) return saved;
     return { conversationId, reply };
   }
