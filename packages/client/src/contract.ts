@@ -220,6 +220,13 @@ export const contract = publicProcedure.router({
   // Published apps, forwarded to the control plane with this workspace's owner
   // credential. Only the owner's workspace has them; app VMs do not.
   apps: {
+    publisher: oc.output(type<{ handle: string; origin: string }>()),
+    checkPublisherHandle: oc
+      .input(type<{ handle: string }>())
+      .output(type<{ available: boolean; reason?: string }>()),
+    renamePublisher: oc
+      .input(type<{ handle: string }>())
+      .output(type<{ handle: string; origin: string }>()),
     list: oc.output(type<AppSummary[]>()),
     publish: oc
       .input(
