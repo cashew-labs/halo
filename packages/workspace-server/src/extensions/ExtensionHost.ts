@@ -113,6 +113,19 @@ export class ExtensionHost {
     return id;
   }
 
+  /** Owner headers for the workspace's own browser on a running extension's direct URL. */
+  ownerHeadersFor(origin: string) {
+    for (const extension of this.processes.values()) {
+      if (!extension.isRunning() || new URL(extension.url).origin !== origin)
+        continue;
+      return {
+        "x-halo-extension-token": extension.hostToken,
+        "x-halo-viewer-id": "owner",
+        "x-halo-viewer-role": "owner",
+      };
+    }
+  }
+
   getConnection(id: string) {
     const extension = this.processes.get(id);
     if (extension === undefined || !extension.isRunning()) return undefined;

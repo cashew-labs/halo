@@ -10,6 +10,7 @@ import type { ExtensionHost } from "./ExtensionHost.js";
 
 const extensionPathPrefix = "/extensions/";
 const extensionProxy = createProxyServer();
+const viewerRoles = ["owner", "member", "public"] as const;
 
 class ExtensionProxyError extends errore.createTaggedError({
   name: "ExtensionProxyError",
@@ -145,14 +146,18 @@ function prepareRequest(ctx: {
     ? firstHeader(request.headers["x-halo-viewer-id"])
     : "owner";
   const viewerRole = fromGateway
-    ? firstHeader(request.headers["x-halo-viewer-role"])
+    ? viewerRoles.find(
+        (role) => role === firstHeader(request.headers["x-halo-viewer-role"]),
+      )
     : "owner";
   const viewerEmail = fromGateway
     ? firstHeader(request.headers["x-halo-viewer-email"])
     : undefined;
   removePrivateHeaders(request.headers);
-  request.headers["x-halo-viewer-id"] = viewerId ?? "owner";
-  request.headers["x-halo-viewer-role"] = viewerRole ?? "owner";
+  // A gateway request without a verified identity is an anonymous visitor.
+  request.headers["x-halo-viewer-id"] = viewerId ?? "anonymous";
+  request.headers["x-halo-viewer-role"] =
+    viewerId === undefined ? "public" : (viewerRole ?? "public");
   if (viewerEmail !== undefined)
     request.headers["x-halo-viewer-email"] = viewerEmail;
   request.headers.host = target.host;

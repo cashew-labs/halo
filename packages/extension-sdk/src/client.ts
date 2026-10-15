@@ -79,6 +79,24 @@ export async function connectExtension<
   const connected = await storage
     .connect()
     .catch((cause) => new ExtensionConnectionError({ cause }));
-  if (connected instanceof Error) return connected;
+  if (connected instanceof Error) {
+    if (!isForbidden(connected)) return connected;
+    // Actions-mode apps deny visitors sync; their views use the API, with
+    // empty local storage.
+    return {
+      api,
+      storage: new TandemClient({
+        schema: args.schema,
+        relations: args.relations,
+        autoConnect: false,
+      }),
+    };
+  }
   return { api, storage };
+}
+
+function isForbidden(error: Error) {
+  for (let cause: unknown = error; cause instanceof Error; cause = cause.cause)
+    if ("code" in cause && cause.code === "FORBIDDEN") return true;
+  return false;
 }

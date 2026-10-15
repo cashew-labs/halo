@@ -32,6 +32,18 @@ export class BrowserService {
   private readonly sessions = new Map<string, BrowserSession>();
   // Shares the Chromium installation attempt across browser opens.
   private installation: Promise<void | BrowserError> | undefined;
+  private readonly headersFor: (
+    origin: string,
+  ) => Record<string, string> | undefined;
+
+  constructor(
+    ctx: {
+      headersFor?: (origin: string) => Record<string, string> | undefined;
+    } = {},
+  ) {
+    const { headersFor = () => undefined } = ctx;
+    this.headersFor = headersFor;
+  }
 
   private async install() {
     if (existsSync(chromium.executablePath())) return;
@@ -70,6 +82,19 @@ export class BrowserService {
     if (page instanceof Error) return page;
 
     page.setDefaultTimeout(10_000);
+    // Hosted extensions accept only authenticated requests; this browser acts
+    // as the workspace owner on their direct URLs.
+    const routed = await page
+      .route("**/*", async (route) => {
+        const headers = this.headersFor(new URL(route.request().url()).origin);
+        await (headers === undefined
+          ? route.continue()
+          : route.continue({
+              headers: { ...route.request().headers(), ...headers },
+            }));
+      })
+      .catch((cause) => new BrowserError({ detail: "route requests", cause }));
+    if (routed instanceof Error) return routed;
     const toolkit = createBrowserToolsForPage(page);
     cleanup.defer(async () => await toolkit.dispose());
 
