@@ -137,8 +137,16 @@ export class AppSandbox {
           socketPath: this.socketPath,
           path: `/${operation}`,
           method: "POST",
-          // A build runs up to 240 s; stay under fetch's 300 s header timeout upstream.
-          timeout: operation === "exec" ? 270_000 : 40_000,
+          // A remote build is stop (40 s) + exec + start, and its callers
+          // wait on fetch's 300 s header timeout. Builds are killed at 150 s;
+          // the rest covers waiting for the supervisor. A first start may
+          // wait 30 s for a cold app to answer.
+          timeout:
+            operation === "exec"
+              ? 180_000
+              : operation === "start"
+                ? 60_000
+                : 40_000,
           headers: {
             "content-type": "application/json",
             "content-length": Buffer.byteLength(body),
