@@ -93,7 +93,9 @@ export class BrowserService {
               headers: { ...route.request().headers(), ...headers },
             }));
       })
-      .catch((cause) => new BrowserError({ detail: "route requests", cause }));
+      .catch(
+        (cause) => new BrowserError({ detail: "route requests", cause }), // coverage-exempt: Playwright rejects route registration only for a closed page; this page was just opened.
+      );
     if (routed instanceof Error) return routed;
     const toolkit = createBrowserToolsForPage(page);
     cleanup.defer(async () => await toolkit.dispose());

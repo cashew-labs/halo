@@ -154,10 +154,11 @@ function prepareRequest(ctx: {
     ? firstHeader(request.headers["x-halo-viewer-email"])
     : undefined;
   removePrivateHeaders(request.headers);
-  // A gateway request without a verified identity is an anonymous visitor.
-  request.headers["x-halo-viewer-id"] = viewerId ?? "anonymous";
+  // The control plane strips viewer headers from the owner's own workspace
+  // traffic; only the app gateway names a visitor, with a known role.
+  request.headers["x-halo-viewer-id"] = viewerId ?? "owner";
   request.headers["x-halo-viewer-role"] =
-    viewerId === undefined ? "public" : (viewerRole ?? "public");
+    viewerId === undefined ? "owner" : (viewerRole ?? "public");
   if (viewerEmail !== undefined)
     request.headers["x-halo-viewer-email"] = viewerEmail;
   request.headers.host = target.host;

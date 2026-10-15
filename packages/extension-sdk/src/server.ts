@@ -124,13 +124,17 @@ export async function serveExtension<
       viewerId: Array.isArray(request.headers["x-halo-viewer-id"])
         ? "owner"
         : (request.headers["x-halo-viewer-id"] ?? "owner"),
-      // The workspace proxy always names the role; anything else is public.
+      // Behind Halo's proxy every request names its role, so anything else is
+      // public. A standalone preview has no proxy and serves its owner.
       role:
         request.headers["x-halo-viewer-role"] === "owner"
           ? "owner"
           : request.headers["x-halo-viewer-role"] === "member"
             ? "member"
-            : "public",
+            : request.headers["x-halo-viewer-role"] === "public" ||
+                args.hostToken !== undefined
+              ? "public"
+              : "owner",
       email: Array.isArray(request.headers["x-halo-viewer-email"])
         ? undefined
         : request.headers["x-halo-viewer-email"],
