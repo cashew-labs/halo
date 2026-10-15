@@ -60,6 +60,10 @@ export class ExtensionHost {
   // Current view URLs of this workspace's published apps, by app ID. They are
   // looked up outside the queue, so a slow control plane never blocks it.
   private readonly remoteLinks = new Map<string, string>();
+  // Lookups started, and the newest one applied, so a slow older lookup
+  // cannot replace links a newer one already stored.
+  private linkLookups = 0;
+  private appliedLookup = 0;
   // Signs viewer tokens stamped on proxied requests, so app code can act for a
   // viewer only while serving that viewer's request.
   private readonly viewerKey = crypto.randomBytes(32);
@@ -167,6 +171,8 @@ export class ExtensionHost {
     const published = await this.publication.list();
     if (published instanceof Error) return false;
     if (!published.some((app) => app.state === "remote")) return false;
+    this.linkLookups += 1;
+    const lookup = this.linkLookups;
     const remote = await this.remoteApps
       .list(undefined, { signal: AbortSignal.timeout(5000) })
       .catch(
@@ -177,6 +183,8 @@ export class ExtensionHost {
       this.logger.warn({ event: "extension-links-unavailable", error: remote });
       return false;
     }
+    if (lookup < this.appliedLookup) return false;
+    this.appliedLookup = lookup;
     let changed = false;
     for (const app of remote) {
       const url = `${app.url}view/`;
