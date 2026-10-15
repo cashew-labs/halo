@@ -350,7 +350,7 @@ export class ExtensionHost {
       const restarted =
         running === undefined
           ? undefined
-          : await this.startUnqueued(extensionId);
+          : await this.startUnqueued({ id: extensionId });
       await this.publishUnqueued();
       if (restarted instanceof Error)
         this.logger.warn({
@@ -409,7 +409,7 @@ export class ExtensionHost {
       if (this.processes.get(ctx.extensionId)?.isRunning()) return;
       // The extension is the owner's again even if it cannot start, for
       // example before its first build; reload reports the same way.
-      const started = await this.startUnqueued(ctx.extensionId);
+      const started = await this.startUnqueued({ id: ctx.extensionId });
       if (started instanceof Error)
         this.logger.warn({ event: "extension-start-failed", error: started });
       await this.publishUnqueued();
@@ -487,7 +487,7 @@ export class ExtensionHost {
       this.processes.delete(ctx.extensionId);
       this.removeToolConnection(ctx.extensionId);
       const executed = await this.sandbox.execute(ctx);
-      const restarted = await this.startUnqueued(ctx.extensionId);
+      const restarted = await this.startUnqueued({ id: ctx.extensionId });
       await this.publishUnqueued();
       // Build output explains most restart failures, so keep it.
       if (executed instanceof Error || !(restarted instanceof Error))
@@ -602,7 +602,7 @@ export class ExtensionHost {
         a.name.localeCompare(b.name),
       )) {
         if (this.processes.get(entry.name)?.isRunning()) continue;
-        const started = await this.startUnqueued(entry.name);
+        const started = await this.startUnqueued({ id: entry.name });
         if (started instanceof Error) {
           this.logger.warn({
             event: "extension-start-failed",
@@ -628,7 +628,7 @@ export class ExtensionHost {
         return stopped;
       }
 
-      const started = await this.startUnqueued(id);
+      const started = await this.startUnqueued({ id });
       await this.publishUnqueued();
       return started;
     });
@@ -638,7 +638,13 @@ export class ExtensionHost {
     this.changes.append(await this.listUnqueued());
   }
 
-  private async startUnqueued(id: string) {
+  private async startUnqueued({
+    id,
+    installing,
+  }: {
+    id: string;
+    installing?: boolean;
+  }) {
     // Demo instances start per visitor, on their first request.
     if (this.demo !== undefined) return;
     this.removeToolConnection(id);
@@ -652,6 +658,7 @@ export class ExtensionHost {
           })
         : await this.sandbox.start({
             extensionId: id,
+            installing,
             brokerPort: Number(new URL(this.toolsOrigin).port),
             toolToken: token,
             hostToken,
@@ -679,16 +686,13 @@ export class ExtensionHost {
     this.processes.set(id, extension);
   }
 
-  /**
-   * A newly assigned app VM is still settling when the first copy arrives:
-   * on staging the first start missed its 30 s readiness window on every
-   * fresh VM while a second start answered in seconds.
-   */
   private async startInstalled(id: string) {
-    const started = await this.startUnqueued(id);
+    const started = await this.startUnqueued({ id, installing: true });
     if (!(started instanceof AppSandboxError)) return started;
+    // Staging recovered on a second start. Retain that fallback after the
+    // longer cold-start window; the retry uses the ordinary 30 s budget.
     this.logger.warn({ event: "app-first-start-retry", error: started });
-    return await this.startUnqueued(id);
+    return await this.startUnqueued({ id });
   }
 
   private removeToolConnection(id: string) {

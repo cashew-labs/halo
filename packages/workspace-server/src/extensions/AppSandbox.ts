@@ -36,6 +36,8 @@ export class AppSandbox {
 
   async start(ctx: {
     extensionId: string;
+    // Publication may arrive while the freshly cloned VM is still starting.
+    installing?: boolean;
     // A template demo runs one instance per visitor.
     instance?: string;
     brokerPort: number;
@@ -115,7 +117,7 @@ export class AppSandbox {
 
   private async request(
     operation: "start" | "stop" | "status" | "exec" | "snapshot" | "reset",
-    input: { extensionId: string; instance?: string },
+    input: { extensionId: string; instance?: string; installing?: boolean },
   ): Promise<object | AppSandboxError> {
     return await new Promise((resolve) => {
       const body = JSON.stringify(input);
@@ -139,13 +141,15 @@ export class AppSandbox {
           method: "POST",
           // A remote build is stop (40 s) + exec + start, and its callers
           // wait on fetch's 300 s header timeout. Builds are killed at 150 s;
-          // the rest covers waiting for the supervisor. A first start may
-          // wait 30 s for a cold app to answer.
+          // the rest covers waiting for the supervisor. Installation has no
+          // build in this request and allows 120 s for cold app readiness.
           timeout:
             operation === "exec"
               ? 180_000
               : operation === "start"
-                ? 60_000
+                ? input.installing
+                  ? 180_000
+                  : 60_000
                 : 40_000,
           headers: {
             "content-type": "application/json",
