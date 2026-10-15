@@ -25,6 +25,7 @@ export class TestServer {
   private readonly testApiEnabled: boolean;
   private readonly traceWorkspaceId: WorkspaceServerOptions["config"]["traceWorkspaceId"];
   private readonly traceUploader: WorkspaceServerOptions["host"]["traceUploader"];
+  private readonly remoteApps: WorkspaceServerOptions["host"]["remoteApps"];
   private readonly remoteConnections: WorkspaceServerOptions["host"]["remoteConnections"];
   private readonly remoteIntegrationTools: WorkspaceServerOptions["host"]["remoteIntegrationTools"];
   private readonly gateway: WorkspaceServerOptions["config"]["gateway"];
@@ -43,6 +44,7 @@ export class TestServer {
     tools?: WorkspaceServerOptions["host"]["tools"];
     testApiEnabled?: boolean;
     traceUploader?: WorkspaceServerOptions["host"]["traceUploader"];
+    remoteApps?: WorkspaceServerOptions["host"]["remoteApps"];
     remoteConnections?: WorkspaceServerOptions["host"]["remoteConnections"];
     remoteIntegrationTools?: WorkspaceServerOptions["host"]["remoteIntegrationTools"];
     traceWorkspaceId?: string;
@@ -65,6 +67,7 @@ export class TestServer {
     this.testApiEnabled = testApiEnabled === undefined ? false : testApiEnabled;
     this.traceUploader = traceUploader;
     this.remoteConnections = ctx.remoteConnections;
+    this.remoteApps = ctx.remoteApps;
     this.remoteIntegrationTools = ctx.remoteIntegrationTools;
     this.traceWorkspaceId = traceWorkspaceId;
     this.gateway = gateway;
@@ -140,6 +143,7 @@ export class TestServer {
       host: {
         llmApi: this.llmApi,
         remoteConnections: this.remoteConnections,
+        remoteApps: this.remoteApps,
         remoteIntegrationTools: this.remoteIntegrationTools,
         agentCapabilities: this.agentCapabilities,
         tools: this.tools,

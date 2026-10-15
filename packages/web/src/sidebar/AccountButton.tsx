@@ -1,3 +1,4 @@
+import { PublisherSettings } from "./PublisherSettings.js";
 import { useState } from "react";
 import { Dialog, Modal, ModalOverlay } from "react-aria-components";
 import { Avatar, Button, Flex, H3, P, spacing, text } from "maui";
@@ -10,6 +11,7 @@ import { useAsyncAction } from "../useAsyncAction.js";
 export function AccountButton({ appInfo }: { appInfo?: AppInfo }) {
   const { session, signOut } = useAccount();
   const [open, setOpen] = useState(false);
+  const [savingPublisher, setSavingPublisher] = useState(false);
   const signingOut = useAsyncAction(signOut);
   const trigger = useStyles(triggerStyle);
   const email = useStyles(emailStyle);
@@ -36,8 +38,8 @@ export function AccountButton({ appInfo }: { appInfo?: AppInfo }) {
       <ModalOverlay
         isOpen={open}
         onOpenChange={setOpen}
-        isDismissable={!signingOut.pending}
-        isKeyboardDismissDisabled={signingOut.pending}
+        isDismissable={!signingOut.pending && !savingPublisher}
+        isKeyboardDismissDisabled={signingOut.pending || savingPublisher}
         className={overlay}
       >
         <Modal className={modal}>
@@ -58,6 +60,7 @@ export function AccountButton({ appInfo }: { appInfo?: AppInfo }) {
                     : `Signed in to ${appInfo.deployment}.`}
                 </P>
               )}
+              {open && <PublisherSettings onSaving={setSavingPublisher} />}
               {signingOut.error !== undefined && (
                 <div role="alert">
                   <P>{signingOut.error.message}</P>
@@ -66,13 +69,14 @@ export function AccountButton({ appInfo }: { appInfo?: AppInfo }) {
               <Flex row gap={3}>
                 <Button
                   isPending={signingOut.pending}
+                  isDisabled={savingPublisher}
                   onClick={() => void signingOut.run()}
                 >
                   {signingOut.pending ? "Signing out…" : "Sign out"}
                 </Button>
                 <Button
                   variant="quiet"
-                  isDisabled={signingOut.pending}
+                  isDisabled={signingOut.pending || savingPublisher}
                   onClick={() => setOpen(false)}
                 >
                   Close
