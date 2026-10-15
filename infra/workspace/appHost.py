@@ -274,7 +274,15 @@ def run_app(name, source, data, broker_port, access, body):
             except OSError:
                 pass
             time.sleep(0.1)
-        raise ValueError('Sandboxed extension did not become ready')
+        raise ValueError('Sandboxed extension did not become ready: ' + diagnose(name))
+
+
+def diagnose(name):
+    """The container's state and last output, for the owner who started it."""
+    state = subprocess.run(['docker', 'inspect', '--format', '{{.State.Status}} exit {{.State.ExitCode}}', name],
+                           capture_output=True, text=True, timeout=10)
+    logs = subprocess.run(['docker', 'logs', '--tail', '20', name], capture_output=True, text=True, timeout=10)
+    return (state.stdout.strip() + '; ' + (logs.stdout + logs.stderr).strip())[-900:]
 
 
 def execute(body):
