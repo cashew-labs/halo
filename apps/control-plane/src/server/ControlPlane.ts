@@ -29,6 +29,10 @@ import type { WorkspaceInference } from "../inference/workspaceInference.js";
 import type { TraceCloud } from "../traces/TraceCloud.js";
 import { CredentialService } from "../credentials/CredentialService.js";
 import { IntegrationService } from "../integrations/IntegrationService.js";
+import { AppStore } from "../apps/AppStore.js";
+import { AppService } from "../apps/AppService.js";
+import { AppCredentials } from "../apps/AppCredentials.js";
+import { WorkspaceAuthorization } from "../workspace/proxy.js";
 
 const loopbackHost = "127.0.0.1";
 const cloudRunHost = "0.0.0.0";
@@ -82,6 +86,7 @@ export class ControlPlane {
     gmailPushAuth?: OAuth2Client;
     gmailApiOrigin?: string;
     googleRevokeUrl?: string;
+    appReadyTimeoutMs?: number;
   }) {
     const { config, webRoot } = ctx;
     await using cleanup = new errore.AsyncDisposableStack();
@@ -200,9 +205,26 @@ export class ControlPlane {
     automationCoordinator.start();
     cleanup.defer(async () => await automationCoordinator.close());
 
+    const appStore = new AppStore({ db });
+    const initializedApps = await appStore.initialize();
+    if (initializedApps instanceof Error) return initializedApps;
+    const authorization = new WorkspaceAuthorization();
+    const apps = new AppService({
+      store: appStore,
+      credentials: new AppCredentials({ secret: config.auth.secret }),
+      workspace,
+      provider: ctx.workspaceProvider,
+      authorization,
+      integrations,
+      publicOrigin,
+      readyTimeoutMs: ctx.appReadyTimeoutMs,
+    });
+
     const requests = serveControlPlaneHttp({
       server: http.server,
       auth,
+      authorization,
+      apps,
       publicOrigin,
       workspace,
       integrations,

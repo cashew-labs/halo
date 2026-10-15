@@ -28,6 +28,7 @@ const listSchema = Type.Object({ vms: Type.Array(vmSchema) });
 const cloneSchema = Type.Object({ name: Type.String() });
 
 export class ExeWorkspaceProvider implements WorkspaceProviderApi {
+  readonly hostsSharedApps = true;
   // Coalesce same-workspace provisioning within this control-plane instance.
   private readonly pendingEnsures = new Map<
     string,
@@ -135,6 +136,13 @@ export class ExeWorkspaceProvider implements WorkspaceProviderApi {
     const result = await this.api.execute(["resume", vmName]);
     if (result instanceof Error) return result;
     return await this.synchronizeClock(input);
+  }
+
+  async remove(input: WorkspaceProviderInput) {
+    const vm = await this.findVm(input);
+    if (vm === undefined || vm instanceof Error) return vm;
+    const removed = await this.api.execute(["rm", vm.vm_name]);
+    if (removed instanceof Error) return removed;
   }
 
   async synchronizeClock(input: WorkspaceProviderInput) {

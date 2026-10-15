@@ -39,6 +39,9 @@ export type WorkspaceProviderConnection = {
  * Implementations return expected failures as Error values.
  */
 export interface WorkspaceProviderApi {
+  /** True when ensure() can provision dedicated app VMs for `sharedApp`. */
+  readonly hostsSharedApps?: true; // coverage-exempt: Type-only capability flag, read by AppService.publish.
+
   /**
    * Idempotently provision or reuse the workspace and bring it online.
    * Concurrent calls for the same identity must not create separate workspaces.
@@ -67,6 +70,9 @@ export interface WorkspaceProviderApi {
 
   /** Wake a paused workspace; absent when unsupported. Does not imply server readiness. */
   resume?: (input: WorkspaceProviderInput) => Promise<void | Error>;
+
+  /** Delete an app VM that never went live; absent when unsupported. */
+  remove?: (input: WorkspaceProviderInput) => Promise<void | Error>; // coverage-exempt: Type-only optional provider operation, called by AppService.abandon and implemented by ExeWorkspaceProvider.remove.
 
   /** Repair a running workspace's guest clock before time-sensitive work. */
   synchronizeClock?: (input: WorkspaceProviderInput) => Promise<void | Error>;

@@ -13,6 +13,7 @@ import { readExtensionManifest } from "./readExtensionManifest.js";
 import { startExtension, type ExtensionRuntime } from "./startExtension.js";
 import { AppSandbox, AppSandboxError } from "./AppSandbox.js";
 import { AppProject, AppProjectError } from "./AppProject.js";
+import { AppPublication } from "./AppPublication.js";
 import type { ExtensionArtifact } from "@get-halo/client";
 import { Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
@@ -61,6 +62,7 @@ export class ExtensionHost {
   private readonly runtime: ExtensionRuntime;
   private readonly sharedApp: SharedAppRuntime | undefined;
   private readonly sandbox: AppSandbox | undefined;
+  private readonly publication: AppPublication;
 
   constructor(ctx: {
     workspaceRoot: string;
@@ -81,6 +83,7 @@ export class ExtensionHost {
       runtime.sandbox === undefined
         ? undefined
         : new AppSandbox(runtime.sandbox);
+    this.publication = new AppPublication({ workspaceRoot });
   }
 
   async list() {
@@ -122,6 +125,17 @@ export class ExtensionHost {
             ? id
             : manifest.halo.displayName,
         icon: manifest.halo?.icon,
+      });
+    }
+    const published = await this.publication.list();
+    if (published instanceof Error) return published;
+    for (const app of published) {
+      if (app.state !== "remote") continue;
+      extensions.push({
+        id: app.extensionId,
+        url: app.url,
+        displayName: app.displayName,
+        remote: { appId: app.appId },
       });
     }
     return extensions;
@@ -192,6 +206,7 @@ export class ExtensionHost {
   async installProject(ctx: {
     extensionId: string;
     artifact: ExtensionArtifact;
+    installId: string;
   }) {
     return await this.actionQueue.run(async () => {
       if (!this.isSharedApp(ctx.extensionId))
@@ -200,11 +215,58 @@ export class ExtensionHost {
         });
       const project = this.project(ctx.extensionId);
       if (project instanceof Error) return project;
-      const installed = await project.install(ctx.artifact);
+      const installed = await project.install(ctx.artifact, ctx.installId);
       if (installed instanceof Error) return installed;
+      if (this.processes.get(ctx.extensionId)?.isRunning()) return;
       const started = await this.startUnqueued(ctx.extensionId);
       await this.publishUnqueued();
       return started;
+    });
+  }
+
+  /** Stop the local project and keep it stopped while it is copied. */
+  async freezeForPublication(ctx: { extensionId: string; appId: string }) {
+    return await this.actionQueue.run(async () => {
+      if (this.sharedApp !== undefined)
+        return new AppProjectError({ detail: "app VMs cannot publish apps" });
+      const frozen = await this.publication.freeze(ctx);
+      if (frozen instanceof Error) return frozen;
+      const running = this.processes.get(ctx.extensionId);
+      this.processes.delete(ctx.extensionId);
+      this.removeToolConnection(ctx.extensionId);
+      // The marker is written and the process is gone either way; a crash or
+      // forced shutdown must not report a freeze the caller would undo.
+      const stopped = await running?.stop();
+      if (stopped instanceof Error)
+        this.logger.warn({ event: "extension-stop-failed", error: stopped });
+      await this.publishUnqueued();
+    });
+  }
+
+  async releasePublication(ctx: { extensionId: string; appId: string }) {
+    return await this.actionQueue.run(async () => {
+      const released = await this.publication.release(ctx);
+      if (released instanceof Error) return released;
+      if (this.processes.get(ctx.extensionId)?.isRunning()) return;
+      // The extension is the owner's again even if it cannot start, for
+      // example before its first build; reload reports the same way.
+      const started = await this.startUnqueued(ctx.extensionId);
+      if (started instanceof Error)
+        this.logger.warn({ event: "extension-start-failed", error: started });
+      await this.publishUnqueued();
+    });
+  }
+
+  async completePublication(ctx: {
+    extensionId: string;
+    appId: string;
+    url: string;
+    displayName: string;
+  }) {
+    return await this.actionQueue.run(async () => {
+      const completed = await this.publication.complete(ctx);
+      await this.publishUnqueued();
+      return completed;
     });
   }
 
@@ -315,12 +377,32 @@ export class ExtensionHost {
         });
         return;
       }
+      const published = await this.publication.list();
+      if (published instanceof Error) {
+        this.logger.warn({
+          event: "extension-discovery-failed",
+          error: published,
+        });
+        return;
+      }
+      for (const app of published) {
+        if (app.state !== "remote") continue;
+        // Finish a cutover interrupted after its reference was persisted.
+        const retired = await this.publication.retireLocalCopies(app);
+        if (retired instanceof Error)
+          this.logger.warn({
+            event: "extension-retire-failed",
+            error: retired,
+          });
+      }
+      const publishedIds = new Set(published.map((app) => app.extensionId));
       const discovered =
         entries instanceof FilesystemPathNotFoundError
           ? []
           : entries.filter(
               (item) =>
                 item.isDirectory() &&
+                !publishedIds.has(item.name) &&
                 (this.sharedApp === undefined ||
                   item.name === this.sharedApp.extensionId) &&
                 !item.name.startsWith(".") &&
