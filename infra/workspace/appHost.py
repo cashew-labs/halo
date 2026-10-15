@@ -120,6 +120,8 @@ def source_mount(extension_id):
 
 def start_input(body):
     name = app_name(body.get('extensionId'), body.get('instance'))
+    if type(body.get('installing', False)) is not bool:
+        raise ValueError('Invalid installation flag')
     broker_port = body.get('brokerPort')
     if type(broker_port) is not int or not 1 <= broker_port <= 65535:
         raise ValueError('Invalid broker port')
@@ -210,6 +212,7 @@ def snapshot(extension_id):
 
 
 def start(body):
+    started_at = time.monotonic()
     name = start_input(body)
     extension_id = body['extensionId']
     broker_port = body['brokerPort']
@@ -226,10 +229,13 @@ def start(body):
     # A demo instance starts from the installed sample data in a small volume.
     data = volume(directory, size='128M' if body.get('instance') is None else '32M')
     import_data(extension_id, directory, data)
+    print(json.dumps({'event': 'app-start-prepared', 'container': name,
+                      'elapsedSeconds': round(time.monotonic() - started_at, 3)}), flush=True)
     return run_app(name=name, source=source, data=data, broker_port=broker_port, access=access, body=body)
 
 
 def run_app(name, source, data, broker_port, access, body):
+    started_at = time.monotonic()
     # Host-bound bridge traffic uses INPUT, while forwarded egress uses DOCKER-USER.
     rule = ['-s', '172.30.0.0/24', '-d', GATEWAY, '-p', 'tcp', '--dport', str(broker_port), '-j', 'ACCEPT']
     existing = subprocess.run(['iptables', '-C', 'HALO-APPS-HOST', *rule], capture_output=True)
@@ -246,7 +252,10 @@ def run_app(name, source, data, broker_port, access, body):
     args = ['docker', 'run', '-d', '--name', name, '--label', LABEL,
             '--runtime=runsc', '--network', NETWORK, '--init', '--user', '1000:1000',
             '--read-only', '--cap-drop=ALL', '--security-opt=no-new-privileges',
-            '--memory=128m', '--memory-swap=128m', '--cpus=0.5', '--pids-limit=64',
+            # Cold gVisor/Node file pages count against this limit too. The
+            # published-app reproduction peaked at 213 MiB; 128 MiB spent
+            # most of startup reclaiming those pages before Node could listen.
+            '--memory=256m', '--memory-swap=256m', '--cpus=0.5', '--pids-limit=64',
             '--cgroup-parent=' + cgroup_parent(), '--log-opt=max-size=2m', '--log-opt=max-file=2',
             '--tmpfs=/tmp:rw,nosuid,nodev,size=32m,mode=1777',
             '--mount', f'type=bind,src={source},dst=/app,readonly',
@@ -263,18 +272,33 @@ def run_app(name, source, data, broker_port, access, body):
         port = binding['3000/tcp'][0]['HostPort']
         origin = f'http://127.0.0.1:{port}'
         ready = urllib.request.Request(origin + '/__halo/ready', headers={'x-halo-extension-token': body['hostToken']})
-        # A freshly cloned VM's first gVisor start answers its first request slowly.
-        deadline = time.monotonic() + 30
-        while time.monotonic() < deadline:
+        # Keep the cold process alive during publication instead of throwing
+        # away its startup work at 30 s. Builds retain their shorter restart
+        # budget so stop + build + restart fits the upstream 300 s timeout.
+        ready_seconds = 120 if body.get('installing', False) else 30
+        print(json.dumps({'event': 'app-container-started', 'container': name,
+                          'elapsedSeconds': round(time.monotonic() - started_at, 3),
+                          'readyTimeoutSeconds': ready_seconds}), flush=True)
+        deadline = time.monotonic() + ready_seconds
+        while (remaining := deadline - time.monotonic()) > 0:
+            # A crash or OOM is not a cold start. Do not spend the whole
+            # readiness window probing a container that has already exited.
+            if command(['docker', 'inspect', '--format', '{{.State.Running}}', name], timeout=min(10, remaining)) != 'true':
+                raise ValueError('Sandboxed extension exited before becoming ready: ' + diagnose(name))
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
             try:
-                with urllib.request.urlopen(ready, timeout=5) as response:
+                with urllib.request.urlopen(ready, timeout=min(5, remaining)) as response:
                     if response.status == 200:
+                        print(json.dumps({'event': 'app-ready', 'container': name,
+                                          'elapsedSeconds': round(time.monotonic() - started_at, 3)}), flush=True)
                         cleanup.pop_all()
                         return {'url': origin + '/view/'}
             except OSError:
                 pass
-            time.sleep(0.1)
-        raise ValueError('Sandboxed extension did not become ready: ' + diagnose(name))
+            time.sleep(min(0.5, max(0, deadline - time.monotonic())))
+        raise ValueError(f'Sandboxed extension did not become ready within {ready_seconds} seconds: ' + diagnose(name))
 
 
 def diagnose(name):
