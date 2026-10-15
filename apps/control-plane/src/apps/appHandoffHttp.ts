@@ -146,6 +146,12 @@ export async function serveAppHandoff(ctx: {
     respond(response, 500);
     return;
   }
+  // The creator renamed their handle after this sign-in started.
+  // coverage-exempt: Race with a rename between hasHandle and createHandoff; the store's result is tested directly.
+  if (code === undefined) {
+    respond(response, 404);
+    return;
+  }
   const redeem = new URL("/__halo/handoff", target);
   redeem.searchParams.set("code", code);
   redeem.searchParams.set("return", returnPath);
