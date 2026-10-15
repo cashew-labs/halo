@@ -34,9 +34,25 @@ export async function serveExtensionRequest(ctx: {
     return;
   }
 
-  const connection = ctx.extensions.getConnection(route.id);
+  const viewerId = ctx.fromGateway
+    ? (firstHeader(ctx.request.headers["x-halo-viewer-id"]) ?? "owner")
+    : "owner";
+  const connection = await ctx.extensions.connectViewer({
+    id: route.id,
+    viewerId,
+  });
   if (connection === undefined) {
     ctx.response.writeHead(404).end();
+    return;
+  }
+  // A full demo VM or a failed instance start; details stay in the host log.
+  if (connection instanceof Error) {
+    ctx.response
+      .writeHead(503, {
+        "content-type": "text/plain; charset=utf-8",
+        "retry-after": "60",
+      })
+      .end("This demo is busy. Try again in a few minutes.");
     return;
   }
 
@@ -62,9 +78,20 @@ export async function serveExtensionUpgrade(ctx: {
     return;
   }
 
-  const connection = ctx.extensions.getConnection(route.id);
+  // Demo visitors sync with their own instance, as their HTTP requests do.
+  const viewerId = ctx.fromGateway
+    ? (firstHeader(ctx.request.headers["x-halo-viewer-id"]) ?? "owner")
+    : "owner";
+  const connection = await ctx.extensions.connectViewer({
+    id: route.id,
+    viewerId,
+  });
   if (connection === undefined) {
     respondToUpgrade(ctx.socket, 404);
+    return;
+  }
+  if (connection instanceof Error) {
+    respondToUpgrade(ctx.socket, 503);
     return;
   }
 

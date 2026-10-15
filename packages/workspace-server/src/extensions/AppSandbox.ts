@@ -15,6 +15,7 @@ const startedSchema = Type.Object({
 });
 const statusSchema = Type.Object({ running: Type.Boolean() });
 const stoppedSchema = Type.Object({ stopped: Type.Literal(true) });
+const resetSchema = Type.Object({ reset: Type.Literal(true) });
 const snapshotSchema = Type.Object(
   { data: Type.Optional(Type.String()) },
   { additionalProperties: false },
@@ -34,6 +35,8 @@ export class AppSandbox {
 
   async start(ctx: {
     extensionId: string;
+    // A template demo runs one instance per visitor.
+    instance?: string;
     brokerPort: number;
     toolToken: string;
     hostToken: string;
@@ -49,6 +52,7 @@ export class AppSandbox {
       state.checking = true;
       const status = await this.request("status", {
         extensionId: ctx.extensionId,
+        instance: ctx.instance,
       });
       if (state.stopped) return;
       state.checking = false;
@@ -73,6 +77,7 @@ export class AppSandbox {
         state.running = false;
         const stopped = await this.request("stop", {
           extensionId: ctx.extensionId,
+          instance: ctx.instance,
         });
         if (stopped instanceof Error) return stopped;
         if (!Value.Check(stoppedSchema, stopped))
@@ -81,6 +86,14 @@ export class AppSandbox {
           });
       },
     };
+  }
+
+  /** Stops every demo instance of an extension and discards their data. */
+  async resetInstances(extensionId: string) {
+    const reset = await this.request("reset", { extensionId });
+    if (reset instanceof Error) return reset;
+    if (!Value.Check(resetSchema, reset))
+      return new AppSandboxError({ operation: "invalid reset response" });
   }
 
   async snapshot(extensionId: string) {
@@ -100,8 +113,8 @@ export class AppSandbox {
   }
 
   private async request(
-    operation: "start" | "stop" | "status" | "exec" | "snapshot",
-    input: { extensionId: string },
+    operation: "start" | "stop" | "status" | "exec" | "snapshot" | "reset",
+    input: { extensionId: string; instance?: string },
   ): Promise<object | AppSandboxError> {
     return await new Promise((resolve) => {
       const body = JSON.stringify(input);

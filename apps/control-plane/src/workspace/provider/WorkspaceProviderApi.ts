@@ -13,6 +13,7 @@ export type WorkspaceProviderAssignment = WorkspaceProviderInput & {
     appId: string;
     extensionId: string;
     syncAccess: "read-only" | "shared" | "actions";
+    demo?: boolean;
   };
 };
 
