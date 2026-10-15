@@ -1,0 +1,76 @@
+{
+  "baseRef": "origin/main",
+  "baseSha": "f0a197b0cd4eacbf05b9f8942487647b5fcfe480",
+  "headSha": "1c6ca1bd15a4fbaa4ab3723c8aaf500d8549f640",
+  "treeHash": "58f95d914660d46fec5dc09b585a1d7f7cad9183",
+  "generatedAt": "2026-10-15T16:21:24.883Z",
+  "runs": {
+    "durable": {
+      "tier": "durable",
+      "testFiles": [],
+      "skipped": true,
+      "runners": [],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 0,
+      "log": ".tmp-tests/report/durable.log",
+      "lcovFiles": []
+    },
+    "tmp": {
+      "tier": "tmp",
+      "testFiles": [
+        "infra/workspace/.tmp-tests/__pycache__/appHostRun.test.cpython-312.pyc",
+        "infra/workspace/.tmp-tests/appHostRun.test.py"
+      ],
+      "skipped": false,
+      "runners": [
+        {
+          "runner": "command",
+          "dir": ".",
+          "testFiles": [
+            "infra/workspace/.tmp-tests/appHostRun.test.py"
+          ],
+          "exitCode": 0
+        }
+      ],
+      "unmatched": [
+        "infra/workspace/.tmp-tests/__pycache__/appHostRun.test.cpython-312.pyc"
+      ],
+      "exitCode": 0,
+      "durationMs": 500,
+      "log": ".tmp-tests/report/tmp.log",
+      "lcovFiles": [
+        "tmp/python-tests/lcov.info"
+      ]
+    }
+  },
+  "durableTestFiles": [],
+  "tmpTestFiles": [
+    "infra/workspace/.tmp-tests/__pycache__/appHostRun.test.cpython-312.pyc",
+    "infra/workspace/.tmp-tests/appHostRun.test.py"
+  ],
+  "files": [
+    {
+      "path": "infra/workspace/appHost.py",
+      "loaded": true,
+      "changed": [
+        323,
+        324
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [
+        324
+      ],
+      "uncovered": [],
+      "exempt": []
+    }
+  ],
+  "totals": {
+    "executable": 1,
+    "coveredDurable": 0,
+    "coveredTmpOnly": 1,
+    "uncovered": 0,
+    "exempt": 0
+  },
+  "passed": true
+}
