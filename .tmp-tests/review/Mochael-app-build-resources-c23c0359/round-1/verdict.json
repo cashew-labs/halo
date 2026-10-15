@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change gives the sandboxed build container 512 MB of memory and 1 CPU, up from 256 MB and 0.5 CPU. It also raises the halo-apps.slice memory cap to 768 MB, so one running app (128 MB) and one build (512 MB) fit together. Both files are deployed together by exeRollout.sh and exeTemplate.sh, and the e2-standard-2 host has enough memory for this. The temp test checks the new docker flags and the slice value and passes, and the changed line is covered, so the change is ready.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "1c6ca1bd15a4fbaa4ab3723c8aaf500d8549f640",
+  "treeHash": "58f95d914660d46fec5dc09b585a1d7f7cad9183",
+  "codeTree": "f99ebcecd6b49d61ea57d442df89d43a1223040c",
+  "coverage": {
+    "executable": 1,
+    "covered": 1,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-15T16:22:00.735Z"
+}
