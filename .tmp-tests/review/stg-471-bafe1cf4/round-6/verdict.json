@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The head is unchanged from round 5. The rerun of the durable suite passes: the round-5 timeout in 'automatically approves MCP, OpenAPI and Google connections across restart' did not recur, and that test is unrelated to this change. Durable and temp runs pass, every changed line is covered or validly exempt, and no finding remains open, so the change is ready.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 6,
+  "headSha": "ced52b745ff354be5db83c18cfa001b3ae8e2f39",
+  "treeHash": "410c4bd8ea00e28662f5101cc9084fe08aec2474",
+  "codeTree": "22cac1dc555ba6c2aef06222aa9d22b70375f650",
+  "coverage": {
+    "executable": 95,
+    "covered": 94,
+    "exempt": 1,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-15T07:12:45.258Z"
+}
