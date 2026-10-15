@@ -6,6 +6,7 @@ import json
 import os
 import pathlib
 import re
+import shutil
 import socket
 import subprocess
 import threading
@@ -262,10 +263,11 @@ def run_app(name, source, data, broker_port, access, body):
         port = binding['3000/tcp'][0]['HostPort']
         origin = f'http://127.0.0.1:{port}'
         ready = urllib.request.Request(origin + '/__halo/ready', headers={'x-halo-extension-token': body['hostToken']})
-        deadline = time.monotonic() + 15
+        # A freshly cloned VM's first gVisor start answers its first request slowly.
+        deadline = time.monotonic() + 30
         while time.monotonic() < deadline:
             try:
-                with urllib.request.urlopen(ready, timeout=0.5) as response:
+                with urllib.request.urlopen(ready, timeout=5) as response:
                     if response.status == 200:
                         cleanup.pop_all()
                         return {'url': origin + '/view/'}
@@ -283,10 +285,26 @@ def execute(body):
         raise ValueError('Invalid remote command')
     stop(name)
     source = source_mount(extension_id)
-    return run_build(name=name, source=source, script=script)
+    # npm's cache outgrows the small /tmp; a quota volume keeps it across builds.
+    cache = volume(appPaths.under(DATA, extension_id, 'build-cache'), size='512M')
+    trim_cache(cache)
+    return run_build(name=name, source=source, script=script, cache=cache)
 
 
-def run_build(name, source, script):
+def trim_cache(cache):
+    """npm never evicts its cache, so a nearly full volume is emptied before it blocks builds."""
+    usage = os.statvfs(cache)
+    if usage.f_bavail >= usage.f_blocks // 4:
+        return
+    for entry in os.scandir(cache):
+        # The build owns these files; never follow a link out of the volume.
+        if entry.is_dir(follow_symlinks=False):
+            shutil.rmtree(entry.path)
+        else:
+            os.unlink(entry.path)
+
+
+def run_build(name, source, script, cache):
     # The owner's command can edit source, but receives neither live data nor
     # privileged credentials. npm scripts and dependencies remain untrusted.
     # bash reads the script from stdin inside the sandbox; it is never a host argument.
@@ -305,14 +323,15 @@ fs.writeFileSync("package.json", JSON.stringify(p, null, 2) + "\\n");
             '--memory=256m', '--memory-swap=256m', '--cpus=0.5', '--pids-limit=64',
             '--cgroup-parent=' + cgroup_parent(), '--log-opt=max-size=2m', '--log-opt=max-file=2',
             '--tmpfs=/tmp:rw,nosuid,nodev,size=32m,mode=1777',
-            '--env=HOME=/tmp', '--mount', f'type=bind,src={source},dst=/app',
+            '--env=HOME=/tmp', '--env=npm_config_cache=/cache', '--mount', f'type=bind,src={source},dst=/app',
+            '--mount', f'type=bind,src={cache},dst=/cache',
             '--mount', 'type=bind,src=/var/lib/halo/app-sdk,dst=/halo-sdk,readonly',
             '--mount', f'type=bind,src={RESOLV_CONF},dst=/etc/resolv.conf,readonly',
-            '--workdir=/app', IMAGE, 'timeout', '--signal=KILL', '120', 'bash', '-l']
+            '--workdir=/app', IMAGE, 'timeout', '--signal=KILL', '150', 'bash', '-l']
     with contextlib.ExitStack() as cleanup:
         cleanup.callback(stop, name)
         result = subprocess.run(args, input=prepare + script, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                text=True, timeout=130)
+                                text=True, timeout=160)
         return {'exitCode': result.returncode, 'output': result.stdout[-8192:]}
 
 
