@@ -320,7 +320,8 @@ fs.writeFileSync("package.json", JSON.stringify(p, null, 2) + "\\n");
     args = ['docker', 'run', '-i', '--name', name, '--label', LABEL,
             '--runtime=runsc', '--network', NETWORK, '--init', '--user', '1000:1000',
             '--read-only', '--cap-drop=ALL', '--security-opt=no-new-privileges',
-            '--memory=256m', '--memory-swap=256m', '--cpus=0.5', '--pids-limit=64',
+            # npm install and esbuild for a standard extension peak near 400 MB.
+            '--memory=512m', '--memory-swap=512m', '--cpus=1', '--pids-limit=64',
             '--cgroup-parent=' + cgroup_parent(), '--log-opt=max-size=2m', '--log-opt=max-file=2',
             '--tmpfs=/tmp:rw,nosuid,nodev,size=32m,mode=1777',
             '--env=HOME=/tmp', '--env=npm_config_cache=/cache', '--mount', f'type=bind,src={source},dst=/app',
