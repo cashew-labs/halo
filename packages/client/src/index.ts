@@ -72,6 +72,7 @@ export {
   execToolCallSchema,
   toolApprovalSchema,
   toolApprovalDecisionCustomType,
+  userInterruptionCustomType,
   directToolIdentity,
   emptySessionSnapshot,
   reduceSessionUpdate,

@@ -182,6 +182,7 @@ export const toolApprovalSchema = Type.Object({
 export type ToolApproval = Static<typeof toolApprovalSchema>;
 export type ToolApprovalDecision = "allow" | "deny";
 export const toolApprovalDecisionCustomType = "halo.tool.approval.decision";
+export const userInterruptionCustomType = "halo.user.interruption";
 
 const toolApprovalDecisionDetailsSchema = Type.Object({
   approvalId: Type.String(),

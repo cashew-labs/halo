@@ -37,6 +37,7 @@ import {
   applySessionEvent,
   sessionToolExecutions,
   toolApprovalDecisionCustomType,
+  userInterruptionCustomType,
   type ToolApprovalDecision,
 } from "@get-halo/client";
 import {
@@ -638,12 +639,76 @@ export class Thread {
     };
   }
 
-  async abort() {
-    return await this.conversation
+  async withdraw(submissionId: number) {
+    if (!Number.isSafeInteger(submissionId) || submissionId < 1)
+      return new PromptFailedError({ reason: "Invalid submission ID" });
+    // SAFETY: Pi requires a positive safe integer, checked above. Withdrawal
+    // checks conversation ownership and queued status in the same commit.
+    const withdrawn = await this.harness
+      .abortSubmission(
+        submissionId as SubmissionId,
+        BACKGROUND_CONTEXT,
+        this.conversation.id,
+      )
+      .catch(
+        (cause) =>
+          new PromptFailedError({
+            reason: "Could not withdraw queued message",
+            cause,
+          }),
+      );
+    if (withdrawn instanceof Error) return withdrawn;
+    if (withdrawn === "not_found")
+      return new PromptFailedError({ reason: "Unknown thread submission" });
+    return { withdrawn: withdrawn === "aborted" };
+  }
+
+  async abort(): Promise<void | AbortFailedError> {
+    const runId = this.readSnapshot([]).activeRun?.id;
+    const aborted = await this.conversation
       .abort(BACKGROUND_CONTEXT)
       .catch(
         (cause) => new AbortFailedError({ reason: "Abort failed", cause }),
       );
+    if (aborted instanceof Error) return aborted;
+    const lastRun = this.readSnapshot([]).lastRun;
+    if (
+      runId === undefined ||
+      lastRun?.id !== runId ||
+      lastRun.status !== "aborted"
+    )
+      return;
+    // A passive entry survives later turns and reloads without entering model
+    // context. The request ID deduplicates simultaneous Stop requests.
+    const recorded = await this.conversation
+      .submit(
+        {
+          type: "write",
+          requestId: `halo.interrupted:${runId}`,
+          entry: {
+            kind: "halo.message",
+            model: [],
+            data: {
+              message: {
+                role: "custom",
+                customType: userInterruptionCustomType,
+                content: "Interrupted by user",
+                display: true,
+                timestamp: Date.now(),
+              },
+            },
+          },
+        },
+        BACKGROUND_CONTEXT,
+      )
+      .catch(
+        (cause) =>
+          new AbortFailedError({
+            reason: "Could not save interruption",
+            cause,
+          }),
+      );
+    if (recorded instanceof Error) return recorded;
   }
   async notify(input: SessionNotification) {
     return await this.send({

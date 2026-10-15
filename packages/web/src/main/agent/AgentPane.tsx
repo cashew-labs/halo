@@ -1,12 +1,12 @@
 import { useRestartWarning } from "../../confirmRestart.js";
 import { useIsActiveTab } from "../../panes/WorkspacePanesProvider.js";
 import { useMarkSessionRead } from "./useMarkSessionRead.js";
-import { lastAssistantTurnWasAborted } from "./sessionView.js";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { skipToken, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import {
   Button,
+  Tooltip,
   backgroundColor,
   colors,
   flex,
@@ -25,7 +25,6 @@ import {
 } from "./useAgentSession.ts";
 import { sessionViewItems, type SessionViewItem } from "./sessionView.ts";
 import {
-  sessionMessages,
   type SessionSnapshot,
   type SessionSummary,
   type ChatPrompt,
@@ -41,12 +40,24 @@ import { ExecutorConnectionCard } from "./ExecutorConnectionCard.tsx";
 import { ToolActivity } from "./ToolActivity.tsx";
 import { useTabFindSource } from "../../panes/TabFind.js";
 import { useConnection } from "../../api/ConnectionContext.js";
+import { useApi } from "../../api/ApiProvider.js";
+import * as errore from "errore";
 import { draftReferencesQueryKey } from "../chatReferences.js";
 import {
   clearMessageDraft,
   useMessageDraft,
   useMessageDraftKey,
 } from "./useMessageDraft.js";
+
+class WithdrawMessageError extends errore.createTaggedError({
+  name: "WithdrawMessageError",
+  message: "Couldn't remove your queued message. Please try again.",
+}) {}
+
+type QueuedMessage = Extract<SessionViewItem, { kind: "user" }> & {
+  draft: ChatPrompt;
+  submissionId?: number;
+};
 
 export function AgentPane({
   sessionId,
@@ -128,10 +139,11 @@ function ChatPane({
   sessions: SessionSummary[];
   state: SessionSnapshot;
   error: string | undefined;
-  prompt: (input: ChatPrompt) => Promise<void | Error>;
+  prompt: (input: ChatPrompt) => Promise<{ submissionId: number } | Error>;
   abort: () => Promise<void | Error>;
 }) {
   const isActiveTab = useIsActiveTab();
+  const api = useApi();
   const { state: connection } = useConnection();
   const [draft, setDraft] = useMessageDraft(draftKey);
   const [references, setReferences] =
@@ -148,9 +160,12 @@ function ChatPane({
   );
   const [localError, setLocalError] = useState<string>();
   const [sending, setSending] = useState(false);
-  const [optimisticMessage, setOptimisticMessage] = useState<
-    Extract<SessionViewItem, { kind: "user" }> | undefined
-  >();
+  const [withdrawing, setWithdrawing] = useState<string>();
+  const [stopping, setStopping] = useState(false);
+  const [focusRequest, setFocusRequest] = useState(0);
+  const [optimisticMessages, setOptimisticMessages] = useState<QueuedMessage[]>(
+    [],
+  );
   const submitting = useRef<string | undefined>(undefined);
   const mounted = useRef(true);
   const [dragging, setDragging] = useState(false);
@@ -188,19 +203,25 @@ function ChatPane({
   const hasContent =
     draft.trim().length > 0 || attachments.length > 0 || references.length > 0;
   useRestartWarning(attachments.length > 0 || references.length > 0);
-  const showStop = state.activeRun !== undefined && !hasContent && !sending;
+  const composerBusy = sending || withdrawing !== undefined || stopping;
+  const showStop =
+    state.activeRun !== undefined && !hasContent && !composerBusy;
   const displayError = localError ?? error;
   const bannerMessage = connectionMessage ?? displayError;
-  const visibleOptimisticMessage =
-    optimisticMessage !== undefined &&
-    state.entries.some(
-      (entry) =>
-        entry.type === "message" &&
-        entry.message.role === "user" &&
-        entry.message.clientMessageId === optimisticMessage.id,
-    )
-      ? undefined
-      : optimisticMessage;
+  const committedMessageIds = useMemo(
+    () =>
+      new Set(
+        state.entries.flatMap((entry) =>
+          entry.type === "message" && entry.message.role === "user"
+            ? [entry.message.clientMessageId]
+            : [],
+        ),
+      ),
+    [state.entries],
+  );
+  const visibleOptimisticMessages = optimisticMessages.filter(
+    (message) => !committedMessageIds.has(message.id),
+  );
 
   useEffect(() => {
     mounted.current = true;
@@ -210,29 +231,18 @@ function ChatPane({
   }, []);
 
   useEffect(() => {
-    // The prompt RPC stays open for the model's whole turn. Release the composer
-    // when our message is committed, so Stop and follow-up drafts remain usable.
+    // A committed message can arrive before its acceptance RPC returns.
     const id = submitting.current;
-    if (
-      id === undefined ||
-      !state.entries.some(
-        (entry) =>
-          entry.type === "message" &&
-          entry.message.role === "user" &&
-          entry.message.clientMessageId === id,
-      )
-    )
-      return;
+    if (id === undefined || !committedMessageIds.has(id)) return;
     submitting.current = undefined;
     setSending(false);
-    setOptimisticMessage(undefined);
     setDraft("");
     setAttachments([]);
     setReferences([]);
-  }, [state.entries, setDraft]);
+  }, [committedMessageIds, setDraft]);
 
   function addFiles(files: File[]) {
-    if (submitting.current) {
+    if (submitting.current || withdrawing !== undefined) {
       setLocalError(
         "Wait for the current message to send before adding files.",
       );
@@ -253,8 +263,87 @@ function ChatPane({
     ]);
   }
 
+  async function withdrawMessage(messageId: string) {
+    if (composerBusy || sessionId === undefined) return;
+    const message = optimisticMessages.find(
+      (candidate) => candidate.id === messageId,
+    );
+    if (message?.submissionId === undefined) return;
+    const restoredFiles = message.draft.files ?? [];
+    const invalid = validateChatFiles([
+      ...attachments.map(({ file }) => file),
+      ...restoredFiles,
+    ]);
+    if (invalid !== undefined) {
+      setLocalError(invalid);
+      return;
+    }
+    setWithdrawing(messageId);
+    setLocalError(undefined);
+    const result = await api.thread
+      .withdraw({ sessionId, submissionId: message.submissionId })
+      .catch((cause) => new WithdrawMessageError({ cause }));
+    setWithdrawing(undefined);
+    if (result instanceof Error) {
+      console.warn("Failed to withdraw queued message:", result);
+      setLocalError(result.message);
+      return;
+    }
+    if (!result.withdrawn) {
+      setLocalError(
+        "This message has already been picked up and can no longer be removed from the queue.",
+      );
+      return;
+    }
+    setOptimisticMessages((messages) =>
+      messages.filter((candidate) => candidate.id !== messageId),
+    );
+    setDraft(
+      [draft, message.draft.text]
+        .filter((content) => content.length > 0)
+        .join("\n\n"),
+    );
+    setAttachments((current) => [
+      ...current,
+      ...restoredFiles.map((file) => ({ id: crypto.randomUUID(), file })),
+    ]);
+    setReferences([
+      ...new Map(
+        [...references, ...(message.draft.references ?? [])].map(
+          (reference) => [JSON.stringify(reference), reference],
+        ),
+      ).values(),
+    ]);
+    setFocusRequest((current) => current + 1);
+  }
+
+  async function stop() {
+    if (stopping) return;
+    setStopping(true);
+    setLocalError(undefined);
+    const cancelledMessageIds = new Set(
+      optimisticMessages.map((message) => message.id),
+    );
+    const result = await abort();
+    setStopping(false);
+    if (result instanceof Error) {
+      setLocalError(result.message);
+      return;
+    }
+    // Stop withdraws queued inputs as well as aborting the active turn.
+    setOptimisticMessages((messages) =>
+      messages.filter((message) => !cancelledMessageIds.has(message.id)),
+    );
+  }
+
   async function submit() {
-    if (!hasContent || submitting.current) return;
+    if (
+      !hasContent ||
+      submitting.current ||
+      withdrawing !== undefined ||
+      stopping
+    )
+      return;
     const clientMessageId = crypto.randomUUID();
     const submittedDraft = draft;
     const submittedAttachments = attachments;
@@ -264,16 +353,24 @@ function ChatPane({
     setSending(true);
     setLocalError(undefined);
     if (state.activeRun !== undefined) {
-      setOptimisticMessage({
-        kind: "user",
-        id: clientMessageId,
-        text: submittedDraft.trim(),
-        attachments: submittedAttachments.map(({ file }) => ({
-          name: file.name,
-        })),
-        references: submittedReferences,
-        pending: true,
-      });
+      setOptimisticMessages((messages) => [
+        ...messages.filter((message) => !committedMessageIds.has(message.id)),
+        {
+          kind: "user",
+          id: clientMessageId,
+          text: submittedDraft.trim(),
+          attachments: submittedAttachments.map(({ file }) => ({
+            name: file.name,
+          })),
+          references: submittedReferences,
+          pending: true,
+          draft: {
+            text: submittedDraft,
+            files: submittedAttachments.map(({ file }) => file),
+            references: submittedReferences,
+          },
+        },
+      ]);
       setDraft("");
       setAttachments([]);
       setReferences([]);
@@ -289,13 +386,22 @@ function ChatPane({
     setSending(false);
     if (result instanceof Error) {
       if (mounted.current) {
-        setOptimisticMessage(undefined);
+        setOptimisticMessages((messages) =>
+          messages.filter((message) => message.id !== clientMessageId),
+        );
         setDraft(submittedDraft);
         setAttachments(submittedAttachments);
         setReferences(submittedReferences);
       }
       return;
     }
+    setOptimisticMessages((messages) =>
+      messages.map((message) =>
+        message.id === clientMessageId
+          ? { ...message, submissionId: result.submissionId }
+          : message,
+      ),
+    );
     setDraft("");
     setAttachments([]);
     setReferences([]);
@@ -365,15 +471,18 @@ function ChatPane({
             <SessionView
               state={state}
               sessionId={sessionId}
-              optimisticMessage={visibleOptimisticMessage}
+              optimisticMessages={visibleOptimisticMessages}
+              onWithdraw={withdrawMessage}
+              queueDisabled={composerBusy}
             />
           ) : undefined}
           <Editor
             autoFocus={isActiveTab}
+            focusRequest={focusRequest}
             content={draft}
             onChange={setDraft}
             onSubmit={submit}
-            editable={!sending}
+            editable={!composerBusy}
             placeholder="Message Halo"
             aria-label="Message"
             size="sm"
@@ -409,11 +518,7 @@ function ChatPane({
                       {references.map((reference) => (
                         <li
                           className={attachmentChip}
-                          key={
-                            "sessionId" in reference
-                              ? reference.sessionId
-                              : reference.path
-                          }
+                          key={JSON.stringify(reference)}
                         >
                           <FileText size="sm" aria-hidden="true" />
                           <span
@@ -440,7 +545,7 @@ function ChatPane({
                           <Button
                             variant="quiet"
                             aria-label={`Remove reference ${"sessionId" in reference ? reference.title : reference.path}`}
-                            isDisabled={sending}
+                            isDisabled={composerBusy}
                             onClick={() =>
                               setReferences((current) =>
                                 current.filter((item) => item !== reference),
@@ -464,7 +569,7 @@ function ChatPane({
                           <Button
                             variant="quiet"
                             aria-label={`Remove ${file.name}`}
-                            isDisabled={sending}
+                            isDisabled={composerBusy}
                             onClick={() => {
                               setAttachments((current) =>
                                 current.filter((item) => item.id !== id),
@@ -497,7 +602,7 @@ function ChatPane({
                 <Button
                   variant="quiet"
                   aria-label="Add attachments"
-                  isDisabled={sending}
+                  isDisabled={composerBusy}
                   onClick={() => picker.current?.click()}
                 >
                   <Paperclip size="sm" aria-hidden="true" />
@@ -507,13 +612,17 @@ function ChatPane({
                     ? attachments.length > 0
                       ? "Preparing attachments…"
                       : "Sending…"
-                    : ""}
+                    : stopping
+                      ? "Interrupting…"
+                      : withdrawing !== undefined
+                        ? "Removing queued message…"
+                        : ""}
                 </span>
                 <Button
                   aria-label={showStop ? "Stop" : "Send"}
                   className={sendButton}
-                  isDisabled={sending || (!showStop && !hasContent)}
-                  onClick={showStop ? abort : submit}
+                  isDisabled={composerBusy || (!showStop && !hasContent)}
+                  onClick={showStop ? stop : submit}
                 >
                   {showStop ? (
                     <Stop size="sm" />
@@ -533,11 +642,15 @@ function ChatPane({
 function SessionView({
   state,
   sessionId,
-  optimisticMessage,
+  optimisticMessages,
+  onWithdraw,
+  queueDisabled,
 }: {
   state: SessionSnapshot;
   sessionId: string | undefined;
-  optimisticMessage: Extract<SessionViewItem, { kind: "user" }> | undefined;
+  optimisticMessages: QueuedMessage[];
+  onWithdraw: (messageId: string) => Promise<void>;
+  queueDisabled: boolean;
 }) {
   const viewRef = useRef<HTMLDivElement>(null);
   const activeFindRange = useRef<Range | undefined>(undefined);
@@ -552,7 +665,6 @@ function SessionView({
   const followLatest = useRef(true);
   const viewedSessionId = useRef(sessionId);
   const view = useStyles(styles.view);
-  const stopped = useStyles(styles.stopped);
   const items = useMemo(() => sessionViewItems(state), [state]);
   // Publish the Find source after paint. A layout effect schedules a sync
   // re-render on every session event; when events arrive faster than this
@@ -628,10 +740,6 @@ function SessionView({
     });
     return clearHighlight;
   }, [state]);
-  const showStopped =
-    state.activeRun === undefined &&
-    lastAssistantTurnWasAborted(sessionMessages(state));
-
   useLayoutEffect(() => {
     if (viewedSessionId.current !== sessionId) {
       viewedSessionId.current = sessionId;
@@ -666,18 +774,15 @@ function SessionView({
       {items.map((item) => (
         <SessionViewRow key={item.id} item={item} sessionId={sessionId} />
       ))}
-      {optimisticMessage === undefined ? undefined : (
+      {optimisticMessages.map((message) => (
         <SessionViewRow
-          key={optimisticMessage.id}
-          item={optimisticMessage}
+          key={message.id}
+          item={message}
           sessionId={sessionId}
+          onWithdraw={async () => await onWithdraw(message.id)}
+          queueDisabled={queueDisabled || message.submissionId === undefined}
         />
-      )}
-      {showStopped ? (
-        <span className={stopped} role="status">
-          Stopped
-        </span>
-      ) : undefined}
+      ))}
     </div>
   );
 }
@@ -685,9 +790,13 @@ function SessionView({
 function SessionViewRow({
   item,
   sessionId,
+  onWithdraw,
+  queueDisabled,
 }: {
   item: SessionViewItem;
   sessionId: string | undefined;
+  onWithdraw?: () => Promise<void>;
+  queueDisabled?: boolean;
 }) {
   const userRow = useStyles(styles.userRow);
   const userMessage = useStyles(
@@ -703,6 +812,14 @@ function SessionViewRow({
   const attachmentChip = useStyles(styles.attachmentChip);
   const attachmentName = useStyles(styles.attachmentName);
   const referenceExcerpt = useStyles(styles.referenceExcerpt);
+  const interruption = useStyles(styles.interruption);
+
+  if (item.kind === "interruption")
+    return (
+      <span className={interruption} role="status">
+        Interrupted by user
+      </span>
+    );
 
   if (item.kind === "bashExecution")
     return <BashExecution message={item.message} />;
@@ -710,6 +827,18 @@ function SessionViewRow({
   if (item.kind === "user") {
     return (
       <div className={userRow}>
+        {onWithdraw === undefined ? undefined : (
+          <Tooltip content="Remove from queue and move to draft">
+            <Button
+              variant="quiet"
+              aria-label="Move queued message to draft"
+              isDisabled={queueDisabled}
+              onClick={onWithdraw}
+            >
+              <Close size="sm" aria-hidden="true" />
+            </Button>
+          </Tooltip>
+        )}
         <article
           className={userMessage}
           aria-label="You message"
@@ -946,6 +1075,11 @@ const styles = {
     zIndex: 1,
     overflow: "visible",
     marginTop: spacing.value(2),
+    "& .ProseMirror": {
+      maxHeight: "min(40dvh, 24rem)",
+      overflowY: "auto",
+      overscrollBehavior: "contain",
+    },
     "&:focus-within": {
       outline: "none",
       boxShadow: shadowVars.subtle,
@@ -977,13 +1111,17 @@ const styles = {
     color: colors.red[11],
     backgroundColor: colors.red[3],
   }),
-  userRow: style(flex({ justifyContent: "end" }), spacing.padding({ top: 3 }), {
-    // position: "sticky",
-    // top: 0,
-    // zIndex: 1,
-    minWidth: 0,
-    backgroundColor: backgroundColor.app,
-  }),
+  userRow: style(
+    flex({ justifyContent: "end", alignItems: "start", gap: 2 }),
+    spacing.padding({ top: 3 }),
+    {
+      // position: "sticky",
+      // top: 0,
+      // zIndex: 1,
+      minWidth: 0,
+      backgroundColor: backgroundColor.app,
+    },
+  ),
   userMessage: style(radius.xl, spacing.padding({ x: 6, y: 3 }), {
     width: "fit-content",
     maxWidth: "80%",
@@ -1000,7 +1138,7 @@ const styles = {
     maxWidth: "none",
     width: "100%",
   }),
-  stopped: style(text({ size: "md", fontWeight: 500, color: "highContrast" }), {
+  interruption: style(text({ size: "sm", color: "lowContrast" }), {
     alignSelf: "flex-end",
   }),
   messageBody: style(

@@ -340,6 +340,13 @@ export class ThreadManager {
     yield* acquired.thread.watch(options);
   }
 
+  async withdraw(input: { sessionId: string; submissionId: number }) {
+    return await this.withThread(
+      input.sessionId,
+      async (thread) => await thread.withdraw(input.submissionId),
+    );
+  }
+
   async abort(sessionId: string) {
     return await this.withThread(
       sessionId,

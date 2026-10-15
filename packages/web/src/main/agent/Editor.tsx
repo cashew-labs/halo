@@ -1,4 +1,5 @@
 import type React from "react";
+import { useEffect } from "react";
 import {
   backgroundColor,
   colors,
@@ -24,6 +25,8 @@ type EditorProps = {
   /** Initial markdown content. Updates are applied when this value changes. */
   content?: string;
   autoFocus?: boolean;
+  /** Increment to focus the end after restoring content into the composer. */
+  focusRequest?: number;
   /** Called with the current markdown whenever the document changes. */
   onChange?: (markdown: string) => void;
   placeholder?: string;
@@ -48,6 +51,7 @@ type EditorProps = {
 export function Editor({
   content = "",
   autoFocus = false,
+  focusRequest = 0,
   onChange,
   placeholder = "Write a message…",
   size = "md",
@@ -92,6 +96,11 @@ export function Editor({
     onKeyDown: onAddReference === undefined ? undefined : picker.onKeyDown,
     inlineCodeClassName,
   });
+
+  useEffect(() => {
+    if (focusRequest === 0) return;
+    editor?.commands.focus("end");
+  }, [editor, focusRequest]);
 
   return (
     <div
