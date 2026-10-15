@@ -1,0 +1,33 @@
+{
+  "status": "changes_requested",
+  "summary": "The fixes for F1–F4 are acceptable. A failed or slow remote link lookup now falls back to the stored URLs after a five-second timeout, and the new temp tests cover the forwarding, the link refresh, the account editor UI, and the handoff guards. One changed line is still uncovered: the warning in `ExtensionHost.refresh` when a refresh fails (line 114). The coverage gate fails until it is tested or exempted.",
+  "findings": [
+    {
+      "id": "F5",
+      "kind": "test",
+      "file": "packages/workspace-server/src/extensions/ExtensionHost.ts",
+      "line": 114,
+      "severity": "P1",
+      "body": "The coverage report lists the `extension-links-refresh-failed` warning in `refresh()` as uncovered. This branch runs only when the local part of `listUnqueued` fails, meaning a manifest read or `publication.list()` error, because remote failures now fall back without an error. Add a temp test that makes a refresh fail, for example by corrupting the stored publication file or a running extension's manifest before `renamePublisher`. It should assert that the rename still succeeds and that watchers receive the error snapshot. Alternatively, add a `coverage-exempt` comment that explains that this is a logging-only path for local filesystem failures."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "packages/workspace-server/src/extensions/ExtensionHost.ts:113-115 — refresh after rename when the local listing fails",
+      "tier": "tmp",
+      "rationale": "This is the only changed executable line that is still uncovered, and the coverage gate fails on it."
+    }
+  ],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "ee01ec18c9cf6962b9f86c120aac9c2a5150d76a",
+  "treeHash": "bcc0c0ec3871f64fd176476d4be705116cbf1634",
+  "codeTree": "305837ff3c7108e9d9603b56da6daa8e96112bd7",
+  "coverage": {
+    "executable": 110,
+    "covered": 109,
+    "exempt": 0,
+    "uncovered": 1
+  },
+  "createdAt": "2026-10-15T04:49:59.522Z"
+}

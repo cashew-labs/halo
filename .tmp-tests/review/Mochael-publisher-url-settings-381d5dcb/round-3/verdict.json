@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change adds viewing, checking, and renaming of the publisher handle, from the control-plane store and RPC through workspace forwarding and link refresh to the account dialog. F5 is fixed: a temp test corrupts the local publication state, checks that the rename still succeeds, and checks that watchers receive the listing error. All tests pass, every changed line is covered, and no findings remain.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 3,
+  "headSha": "ee01ec18c9cf6962b9f86c120aac9c2a5150d76a",
+  "treeHash": "f18d92e482d74b80c040e272d4b48752efd04152",
+  "codeTree": "305837ff3c7108e9d9603b56da6daa8e96112bd7",
+  "coverage": {
+    "executable": 110,
+    "covered": 110,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-15T04:52:59.303Z"
+}

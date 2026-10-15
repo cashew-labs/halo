@@ -1,0 +1,67 @@
+{
+  "status": "changes_requested",
+  "summary": "This change lets a publisher view, check, and rename their creator handle. It adds control-plane store, service, and RPC support, workspace forwarding, a link refresh in the extension list, and an account-dialog editor. The store and RPC logic looks correct, and the durable and temp tests cover it well. The change is not ready: listing extensions now depends on a network call that can break the whole sidebar, and the workspace-server and web paths have no tests.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "source",
+      "file": "packages/workspace-server/src/extensions/ExtensionHost.ts",
+      "line": 162,
+      "severity": "P1",
+      "body": "`listUnqueued` now calls `this.remoteApps.list()` on the control plane whenever any published app is in the `remote` state. If that call fails (control plane down, network error, auth hiccup), line 172 returns the error for the whole listing. Local extensions then disappear from `list()`, `watch()`, `reload()`, `restart()`, and `refresh()` too. Before this change, listing was purely local and could not fail this way. The call also has no timeout and runs inside `actionQueue`, so a slow or hung control plane blocks every queued extension operation (start, restart, reload, and the initial `watch` snapshot), including during `WorkspaceServer.start` → `extensions.reload()`. Fix: treat a failed remote lookup as non-fatal. Log it and fall back to the stored `app.url` without hiding entries. Preferably also bound the call with a timeout or fetch it outside the queue. Better still, resolve URLs once after a rename (for example, have `refresh` fetch and persist the new URLs) instead of calling the control plane on every listing."
+    },
+    {
+      "id": "F2",
+      "kind": "test",
+      "file": "packages/workspace-server/src/extensions/appsRouter.ts",
+      "line": 49,
+      "severity": "P1",
+      "body": "No test covers the new workspace paths. These are the forwarding of `publisher`, `checkPublisherHandle`, and `renamePublisher`; the `extensions.refresh()` after a rename; and the remote URL resolution in `ExtensionHost.listUnqueued`, including the `${current.url}view/` rewrite and hiding references the control plane no longer lists (ExtensionHost.ts lines 110-116, 162-181). The coverage report lists all of these lines as uncovered. Add a temp test with a fake `RemoteApps` that checks three things: after a rename, watchers get a snapshot whose remote extension URL uses the new handle; references missing from the remote list are handled as intended; and a failing remote list behaves as intended (see F1)."
+    },
+    {
+      "id": "F3",
+      "kind": "test",
+      "file": "packages/web/src/sidebar/PublisherSettings.tsx",
+      "line": 8,
+      "severity": "P1",
+      "body": "No test loads the new `PublisherSettings` component or the `AccountButton` changes; every changed line is uncovered. Untested behavior includes: Save stays disabled until the availability check confirms the handle; the dialog cannot be dismissed and Sign out is disabled while saving; the publisher query cache is updated after a successful save; and the error and retry states. Add a temp test, for example a focused Electron E2E against the account dialog with a stubbed control plane, or a jsdom render test. Alternatively, give coverage exemptions with reasons that can be accepted."
+    },
+    {
+      "id": "F4",
+      "kind": "test",
+      "file": "apps/control-plane/src/apps/AppStore.ts",
+      "line": 374,
+      "severity": "P1",
+      "body": "The new `Creator not found` branches in `createHandoff` (line 374) and `redeemHandoff` (line 412) are never run (the coverage report lists them as uncovered). These branches are what stop handoffs and sessions from being created for a handle that was just renamed away. Add a temp store test that calls `createHandoff` and `redeemHandoff` with an unclaimed handle (for example, the old handle right after a rename, before anyone reclaims it) and asserts an `AppConflictError`."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "packages/workspace-server/src/extensions/ExtensionHost.ts:162-181 and appsRouter.ts:49-56 — after renamePublisher, extension watchers receive remote extension URLs on the new handle; a failing remote list is handled",
+      "tier": "tmp",
+      "rationale": "The new link-refresh and URL-resolution logic is entirely uncovered and contains the F1 failure mode."
+    },
+    {
+      "target": "packages/web/src/sidebar/PublisherSettings.tsx and AccountButton.tsx — save gating on availability, dismiss/sign-out disabled while saving, cache update after save",
+      "tier": "tmp",
+      "rationale": "The new UI has no coverage."
+    },
+    {
+      "target": "apps/control-plane/src/apps/AppStore.ts:374 and :412 — createHandoff and redeemHandoff reject an unclaimed handle",
+      "tier": "tmp",
+      "rationale": "These guards prevent credentials being created for a renamed-away handle; they are currently uncovered."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "ee01ec18c9cf6962b9f86c120aac9c2a5150d76a",
+  "treeHash": "4891a6d6af0a1093be900afac4334252a08eab65",
+  "codeTree": "5d5d911577f87e8b6f4e81db9c3e1b2637b1e570",
+  "coverage": {
+    "executable": 195,
+    "covered": 73,
+    "exempt": 0,
+    "uncovered": 122
+  },
+  "createdAt": "2026-10-15T04:45:28.768Z"
+}

@@ -1,0 +1,6 @@
+[
+  {
+    "findingId": "F5",
+    "reply": "Correction to setup detail: the filesystem error is injected with the existing server.harness.files driver (workspace.writeFile correctly protects .halo). The public rename and watcher assertions pass. Product code is unchanged."
+  }
+]

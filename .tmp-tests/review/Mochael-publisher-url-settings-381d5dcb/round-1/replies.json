@@ -1,0 +1,18 @@
+[
+  {
+    "findingId": "F1",
+    "reply": "Fixed: remote list has a five-second AbortSignal timeout; failures are logged and listings retain stored URLs. Missing remote rows retain references. Local extensions remain available."
+  },
+  {
+    "findingId": "F2",
+    "reply": "Added native serverTest temp coverage for all three owner operations, watcher update after rename, dynamic URL, missing rows, failure fallback, and local-only unavailable state."
+  },
+  {
+    "findingId": "F3",
+    "reply": "Added jsdom production AccountButton/PublisherSettings tests for availability, stale responses, duplicate submit, save lock, URL/cache update, load retry and check/save errors. Chromium/Xvfb production component screenshots also captured; full dev attempt blocked by invalid_rapt ADC."
+  },
+  {
+    "findingId": "F4",
+    "reply": "Added store assertions that both handoff issuance and redemption reject the old unclaimed handle immediately after rename."
+  }
+]
