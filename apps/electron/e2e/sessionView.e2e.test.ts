@@ -6,6 +6,342 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 e2eTest(
+  "keeps multiple queued messages visible and delivers each in order",
+  async ({ app, harness, llm }, testInfo) => {
+    await harness.loadSession({
+      title: "Queued messages",
+      messages: [m.user("Hello"), m.assistant("Ready.")],
+    });
+    const pane = app.page.getByRole("main", { name: "Queued messages" });
+    const editor = pane.getByLabel("Message", { exact: true });
+    await editor.fill("Start working");
+    await pane.getByRole("button", { name: "Send", exact: true }).click();
+    await llm.waitForRequest();
+    for (const text of ["First queued message", "Second queued message"]) {
+      await expect(editor).toHaveAttribute("contenteditable", "true");
+      await editor.fill(text);
+      await pane.getByRole("button", { name: "Send", exact: true }).click();
+      await expect(editor).toHaveAttribute("contenteditable", "true");
+      await expect(editor).toBeEmpty();
+    }
+    const userMessages = pane.getByRole("article", { name: "You message" });
+    for (const text of ["First queued message", "Second queued message"])
+      await expect(userMessages.filter({ hasText: text })).toHaveCount(1);
+    await app.page.setViewportSize({ width: 1280, height: 800 });
+    await app.page.screenshot({
+      path: testInfo.outputPath("queue-desktop-1280x800.png"),
+    });
+    await app.page.setViewportSize({ width: 390, height: 844 });
+    await app.page.screenshot({
+      path: testInfo.outputPath("queue-mobile-390x844.png"),
+    });
+    await app.page.setViewportSize({ width: 1280, height: 800 });
+
+    await llm.respond(m.assistant("Initial work finished."));
+    await llm.respond(({ messages }) => {
+      expect(
+        messages.filter((message) => message.role === "user").map(messageText),
+      ).toEqual(["Hello", "Start working", "First queued message"]);
+      return m.assistant("First follow-up received.");
+    });
+    await llm.respond(({ messages }) => {
+      expect(
+        messages.filter((message) => message.role === "user").map(messageText),
+      ).toEqual([
+        "Hello",
+        "Start working",
+        "First queued message",
+        "Second queued message",
+      ]);
+      return m.assistant("Both follow-ups received.");
+    });
+    await expect(pane.getByRole("log")).toContainText(
+      "Both follow-ups received.",
+    );
+    await app.page.reload();
+    for (const text of ["First queued message", "Second queued message"])
+      await expect(userMessages.filter({ hasText: text })).toHaveCount(1);
+  },
+);
+
+for (const toolName of ["bash", "exec"] as const)
+  e2eTest(
+    `stops a detached command through ${toolName} and can send another message`,
+    async ({ app, harness, llm }, testInfo) => {
+      await harness.loadSession({
+        title: "Stop command",
+        messages: [m.user("Hello"), m.assistant("Ready.")],
+      });
+      const pane = app.page.getByRole("main", { name: "Stop command" });
+      await pane.getByLabel("Message", { exact: true }).fill("Run a command");
+      await pane.getByRole("button", { name: "Send", exact: true }).click();
+      // Node's detached spawn uses setsid on POSIX, including macOS where the
+      // setsid command is not installed. The child retains the output pipes.
+      const script = `require('node:child_process').spawn(process.execPath, ['-e', ${JSON.stringify("process.on('SIGTERM', () => {}); require('node:fs').writeFileSync('detached.pid', String(process.pid)); setInterval(() => {}, 1000)")}], { detached: true, stdio: ['ignore', 1, 2] }).unref()`;
+      const bashInput = {
+        command: `node -e '${script.replaceAll("'", "'\\''")}'`,
+        timeoutMs: 60_000,
+      };
+      await llm.respond(
+        m.tool.start(toolName, {
+          id: "detached-command",
+          arguments:
+            toolName === "bash"
+              ? bashInput
+              : { js: `await tools.bash.run(${JSON.stringify(bashInput)})` },
+        }),
+      );
+      await expect
+        .poll(async () => {
+          const result = await harness.tools.bash.run({
+            command: "test -f detached.pid",
+          });
+          return result.code;
+        })
+        .toBe(0);
+      await pane
+        .getByLabel("Message", { exact: true })
+        .fill("Withdraw this queued message");
+      await pane.getByRole("button", { name: "Send", exact: true }).click();
+      await expect(
+        pane
+          .getByRole("article", { name: "You message" })
+          .filter({ hasText: "Withdraw this queued message" }),
+      ).toBeVisible();
+      await pane.getByRole("button", { name: "Stop", exact: true }).click();
+      await expect(
+        pane
+          .getByRole("status", { name: "", exact: true })
+          .filter({ hasText: "Interrupted by user" }),
+      ).toBeVisible();
+      await expect(pane.getByRole("alert")).not.toBeVisible();
+      await expect(
+        pane.getByText("Withdraw this queued message", { exact: true }),
+      ).not.toBeVisible();
+      await expect
+        .poll(async () => {
+          const state = await harness.tools.bash.run({
+            command: 'ps -p "$(cat detached.pid)" -o stat=',
+          });
+          return state.stdout.trim();
+        })
+        .toMatch(/^(?:Z.*)?$/u);
+      await app.page.setViewportSize({ width: 1280, height: 800 });
+      await app.page.screenshot({
+        path: testInfo.outputPath("stopped-desktop-1280x800.png"),
+      });
+      await app.page.setViewportSize({ width: 390, height: 844 });
+      await app.page.screenshot({
+        path: testInfo.outputPath("stopped-mobile-390x844.png"),
+      });
+      await app.page.setViewportSize({ width: 1280, height: 800 });
+      await pane
+        .getByLabel("Message", { exact: true })
+        .fill("Continue after stopping");
+      await pane.getByRole("button", { name: "Send", exact: true }).click();
+      await llm.respond(({ messages }) => {
+        expect(messages.map(messageText).join("\n")).not.toContain(
+          "Withdraw this queued message",
+        );
+        expect(messages.map(messageText).join("\n")).not.toContain(
+          "Interrupted by user",
+        );
+        return m.assistant("Ready to continue.");
+      });
+      await expect(pane.getByRole("log")).toContainText("Ready to continue.");
+      await expect(
+        pane.getByText("Interrupted by user", { exact: true }),
+      ).toHaveCount(1);
+      await app.page.reload();
+      await expect(
+        pane.getByText("Interrupted by user", { exact: true }),
+      ).toHaveCount(1);
+      await expect(pane.getByRole("alert")).not.toBeVisible();
+      await app.page.screenshot({
+        path: testInfo.outputPath("interruption-retained-desktop-1280x800.png"),
+      });
+      await app.page.setViewportSize({ width: 390, height: 844 });
+      await app.page.screenshot({
+        path: testInfo.outputPath("interruption-retained-mobile-390x844.png"),
+      });
+    },
+  );
+
+e2eTest(
+  "moves one queued message and its attachments and references into the existing draft",
+  async ({ app, harness, llm }, testInfo) => {
+    await harness.loadSession({
+      title: "Edit queued message",
+      messages: [m.user("Hello"), m.assistant("Ready.")],
+    });
+    await app.server.rpc.workspace.writeFile({
+      path: "brief.md",
+      content: "Release on Friday.",
+    });
+    const pane = app.page.getByRole("main", { name: "Edit queued message" });
+    const editor = pane.getByLabel("Message", { exact: true });
+    await editor.fill("Start working");
+    await pane.getByRole("button", { name: "Send", exact: true }).click();
+    await llm.waitForRequest();
+    await editor.fill("Remove this message @brief");
+    await pane.getByRole("option", { name: /brief.md/ }).click();
+    await pane.getByLabel("Attach files", { exact: true }).setInputFiles({
+      name: "queued.txt",
+      mimeType: "text/plain",
+      buffer: Buffer.from("scarlet robin"),
+    });
+    await pane.getByRole("button", { name: "Send", exact: true }).click();
+    await expect(editor).toHaveAttribute("contenteditable", "true");
+    await editor.fill("Keep this message queued");
+    await pane.getByRole("button", { name: "Send", exact: true }).click();
+    await expect(editor).toHaveAttribute("contenteditable", "true");
+    await editor.fill("Keep my draft");
+    await pane.getByLabel("Attach files", { exact: true }).setInputFiles({
+      name: "draft.txt",
+      mimeType: "text/plain",
+      buffer: Buffer.from("blue bicycle"),
+    });
+    const remove = pane.getByRole("button", {
+      name: "Move queued message to draft",
+      exact: true,
+    });
+    await expect(remove).toHaveCount(2);
+    await app.page.setViewportSize({ width: 1280, height: 800 });
+    await app.page.screenshot({
+      path: testInfo.outputPath("queue-actions-desktop-1280x800.png"),
+    });
+    await app.page.setViewportSize({ width: 390, height: 844 });
+    await app.page.screenshot({
+      path: testInfo.outputPath("queue-actions-mobile-390x844.png"),
+    });
+    await app.page.setViewportSize({ width: 1280, height: 800 });
+    await remove.first().click();
+    await expect(remove).toHaveCount(1);
+    await expect(editor).toContainText("Keep my draft");
+    await expect(editor).toContainText("Remove this message");
+    await expect(editor).toBeFocused();
+    await expect(
+      pane
+        .getByRole("list", { name: "Attachments", exact: true })
+        .getByRole("listitem"),
+    ).toHaveCount(2);
+    await expect(
+      pane.getByRole("list", { name: "References", exact: true }),
+    ).toContainText("brief.md");
+    const transcript = pane.getByRole("log");
+    await expect(transcript).not.toContainText("Remove this message");
+    await expect(transcript).toContainText("Keep this message queued");
+    await app.page.screenshot({
+      path: testInfo.outputPath("restored-draft-desktop-1280x800.png"),
+    });
+    await app.page.setViewportSize({ width: 390, height: 844 });
+    await app.page.screenshot({
+      path: testInfo.outputPath("restored-draft-mobile-390x844.png"),
+    });
+    await app.page.setViewportSize({ width: 1280, height: 800 });
+    await llm.respond(m.assistant("Initial work finished."));
+    await llm.respond(({ messages }) => {
+      expect(
+        messages.filter((message) => message.role === "user").map(messageText),
+      ).toEqual(["Hello", "Start working", "Keep this message queued"]);
+      return m.assistant("Only the remaining queued message ran.");
+    });
+    await expect(transcript).toContainText(
+      "Only the remaining queued message ran.",
+    );
+    await expect(editor).toContainText("Keep my draft");
+    await expect(
+      pane.getByText("Interrupted by user", { exact: true }),
+    ).not.toBeVisible();
+    await pane.getByRole("button", { name: "Send", exact: true }).click();
+    await llm.respond(({ messages }) => {
+      const text = messageText(
+        messages.findLast((message) => message.role === "user")!,
+      );
+      for (const part of [
+        "Keep my draft",
+        "Remove this message",
+        "scarlet robin",
+        "blue bicycle",
+        "brief.md",
+      ])
+        expect(text).toContain(part);
+      return m.assistant("Edited message received with both files.");
+    });
+    await expect(transcript).toContainText(
+      "Edited message received with both files.",
+    );
+  },
+);
+
+e2eTest(
+  "scrolls a long input draft while keeping Send available",
+  async ({ app, harness }, testInfo) => {
+    await harness.loadSession({
+      title: "Long input draft",
+      messages: [m.user("Hello"), m.assistant("Ready.")],
+    });
+    const pane = app.page.getByRole("main", { name: "Long input draft" });
+    const editor = pane.getByLabel("Message", { exact: true });
+    await editor.focus();
+    await editor.evaluate((element) => {
+      const clipboardData = new DataTransfer();
+      clipboardData.setData(
+        "text/html",
+        [
+          "<p>Start of long draft</p>",
+          ...Array.from(
+            { length: 150 },
+            (_, index) =>
+              `<p>Paragraph ${index}: This draft needs its own scrolling area.</p>`,
+          ),
+          "<p>End of long draft</p>",
+        ].join(""),
+      );
+      element.dispatchEvent(
+        new ClipboardEvent("paste", {
+          clipboardData,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    for (const viewport of [
+      { width: 1280, height: 800 },
+      { width: 390, height: 844 },
+    ]) {
+      await app.page.setViewportSize(viewport);
+      await editor.hover();
+      await app.page.mouse.wheel(0, -100_000);
+      await expect(
+        editor.getByText("Start of long draft", { exact: true }),
+      ).toBeInViewport();
+      await expect(
+        editor.getByText("End of long draft", { exact: true }),
+      ).not.toBeInViewport();
+      await expect(
+        pane.getByRole("button", { name: "Send", exact: true }),
+      ).toBeInViewport();
+      await app.page.mouse.wheel(0, 100_000);
+      await expect(
+        editor.getByText("End of long draft", { exact: true }),
+      ).toBeInViewport();
+      await expect(
+        editor.getByText("Start of long draft", { exact: true }),
+      ).not.toBeInViewport();
+      await expect(
+        pane.getByRole("button", { name: "Send", exact: true }),
+      ).toBeInViewport();
+      await app.page.screenshot({
+        path: testInfo.outputPath(
+          `long-input-${viewport.width}x${viewport.height}.png`,
+        ),
+      });
+    }
+  },
+);
+
+e2eTest(
   "renders user Markdown links and formatting after sending and reloading",
   async ({ app, llm }, testInfo) => {
     await app.page
