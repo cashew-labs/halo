@@ -24,7 +24,7 @@ export const automationTools = {
   }),
   webhookAccess: haloTool({
     description:
-      "Reveal the private URL and bearer token for a webhook automation. Set rotate:true to revoke the old token immediately. Treat the URL and token as credentials: give them only to the user or the service they authorize. Call after saving a webhook trigger to finish setup.",
+      "Reveal the private URL and bearer token for a webhook automation. When giving the user the webhook URL, use the complete returned url, including its ?token= query parameter, as one copyable URL; do not separate the token from the URL. Set rotate:true to revoke the old token immediately. Treat the URL and token as credentials: give them only to the user or the service they authorize. Call after saving a webhook trigger to finish setup.",
     inputSchema: Type.Object({
       automationId: Type.String({ minLength: 1 }),
       rotate: Type.Optional(Type.Boolean()),
