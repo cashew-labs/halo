@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "This change adds dedicated shared-app VMs, which run a root-owned gVisor supervisor, and the owner RPCs to install, edit, build and snapshot the app project. F7 is now resolved: the temp test installs a real project first, so readData itself refuses the symlinked tandem.json at open ('read app data', no secret in the error). The test also checks that a missing file gives undefined data and that a directory is refused. All test runs pass, the coverage gate passes with acceptable exemptions, and no findings remain.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 7,
+  "headSha": "85cec7e972bdb6a8024e61cbf75896e353c51c99",
+  "treeHash": "49dd3642aadba477afeaab58c45e38967178c188",
+  "codeTree": "34df6caebe0fbe36a66d9e39cdf8917bf6f00a4d",
+  "coverage": {
+    "executable": 669,
+    "covered": 585,
+    "exempt": 84,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-15T08:22:43.209Z"
+}

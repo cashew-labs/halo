@@ -1,0 +1,41 @@
+{
+  "status": "changes_requested",
+  "summary": "This round adds three source changes. appHost now detects mounts from /proc/self/mountinfo and binds with `mount --no-canonicalize`, and AppProject.readData opens the local data file with O_NOFOLLOW. All three changes look correct. The temp run fails, however: appAssignment.test.ts calls `provider.remove`, which ExeWorkspaceProvider does not implement. That failure also leaves ExeWorkspaceProvider without coverage, and the error paths of the new readData (AppProject.ts:295, 305, 313) are not covered either.",
+  "findings": [
+    {
+      "id": "F6",
+      "kind": "test",
+      "file": "apps/control-plane/src/workspace/provider/exe/.tmp-tests/appAssignment.test.ts",
+      "line": 58,
+      "severity": "P1",
+      "body": "The new temp test \"remove deletes an existing app VM and removes only an existing app VM\" fails with `TypeError: provider.remove is not a function`. ExeWorkspaceProvider (and WorkspaceProviderApi) has no `remove` method in this change. This failure fails the temp run, and the coverage report loses ExeWorkspaceProvider.ts completely (lines 37, 61-68, 77-79, 91 are now uncovered). If app-VM removal belongs to this change, implement `remove` in the provider and its API, with the expected rule: delete only an existing VM, and do nothing when the VM is absent. Otherwise, move this test to the change that adds `remove`. Then rerun the suite."
+    },
+    {
+      "id": "F7",
+      "kind": "test",
+      "file": "packages/workspace-server/src/extensions/AppProject.ts",
+      "line": 295,
+      "severity": "P1",
+      "body": "The new readData helper opens tandem.json with O_NOFOLLOW so that a snapshot never exports another file through a link. No test exercises its error-handling callback (line 295), so neither the symlink refusal (ELOOP to error) nor the missing-file case (ENOENT to `data: undefined`) is checked. Lines 305 (stat failure) and 313 (read failure) are also uncovered. Add temp cases to projectSafety.test.ts with these steps: replace `.halo/extension-data/books/tandem.json` with a symlink to a secret file, call `project.snapshot()`, and check that it returns an error and does not contain the secret; then remove the file and check that `snapshot().data` is undefined. Either cover 305 and 313, for example by mocking the FileHandle, or give them a coverage-exempt reason."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "AppProject.readData (AppProject.ts:288-315): a symlinked tandem.json is refused, and a missing tandem.json gives undefined data",
+      "tier": "tmp",
+      "rationale": "The no-follow behavior is the security purpose of this round's change, and its error branch at line 295 is uncovered."
+    }
+  ],
+  "tierChanges": [],
+  "round": 5,
+  "headSha": "c04a798cf772535d4530f010ede2e13ba0b7911d",
+  "treeHash": "23b8d80490400ef582856722fa70443db0e2d8de",
+  "codeTree": "c0dc7c2bbb973b60f40f5aa0363359efe1bab929",
+  "coverage": {
+    "executable": 678,
+    "covered": 581,
+    "exempt": 82,
+    "uncovered": 15
+  },
+  "createdAt": "2026-10-15T08:15:04.440Z"
+}

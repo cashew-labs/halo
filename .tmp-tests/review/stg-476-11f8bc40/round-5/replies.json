@@ -1,0 +1,10 @@
+[
+  {
+    "findingId": "F6",
+    "reply": "fixed: that temp test belongs to #477, which adds provider.remove; the test is no longer applied to this layer's temp suite (its exe temp test file is the one this layer published)."
+  },
+  {
+    "findingId": "F7",
+    "reply": "fixed: projectSafety has 'linked app data is never exported' (symlinked tandem.json to a secret: snapshot errors without the secret; a directory in its place errors too); missing data gives undefined in the existing snapshot tests. The fstat/readFile failures of an already-open descriptor carry coverage-exempt reasons."
+  }
+]

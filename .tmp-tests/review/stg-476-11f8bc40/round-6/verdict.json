@@ -1,0 +1,33 @@
+{
+  "status": "changes_requested",
+  "summary": "F6 is resolved: the stale remove() temp test belongs to #477 and has left this layer's suite. The readData stat and read exemptions are acceptable. F7 remains open: the new \"linked app data is never exported\" test fails snapshot before readData runs, so AppProject.ts:295 is still uncovered and the coverage gate fails.",
+  "findings": [
+    {
+      "id": "F7",
+      "kind": "test",
+      "file": "packages/workspace-server/.tmp-tests/../src/extensions/.tmp-tests/projectSafety.test.ts",
+      "line": 93,
+      "severity": "P1",
+      "body": "The test 'linked app data is never exported' (projectSafety.test.ts:87-100) creates only an empty `.halo/extensions/books` directory. `project.snapshot()` therefore fails at 'read current build' (AppProject.ts:80-86), because dist/current.json is missing, before `readData()` runs. Both `toBeInstanceOf(Error)` assertions pass for that unrelated reason, and the coverage report confirms it: the open error callback at AppProject.ts:295 never runs, so the gate fails. The missing-file case (ENOENT to `data: undefined`) is not exercised either, despite the reply. Fix: call `project.install(artifact)` first, so that the project has a valid build and a data file. Then replace `.halo/extension-data/books/tandem.json` with a symlink to the secret, and check that the error's detail is 'read app data' (or check for ELOOP) and that the secret does not appear. Next, remove the file and check `(await project.snapshot()).data` is undefined. Finally, keep the directory case, asserting 'app data is not a regular file'."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "packages/workspace-server/src/extensions/AppProject.ts:288-311 readData on an installed project: symlinked tandem.json errors at open (ELOOP), and a missing tandem.json gives data undefined",
+      "tier": "tmp",
+      "rationale": "The current test never reaches readData, so line 295 is uncovered and the no-follow refusal is not verified."
+    }
+  ],
+  "tierChanges": [],
+  "round": 6,
+  "headSha": "85cec7e972bdb6a8024e61cbf75896e353c51c99",
+  "treeHash": "c4251f7a43094c2e5e03fb94280b5b4974209a27",
+  "codeTree": "34df6caebe0fbe36a66d9e39cdf8917bf6f00a4d",
+  "coverage": {
+    "executable": 669,
+    "covered": 584,
+    "exempt": 84,
+    "uncovered": 1
+  },
+  "createdAt": "2026-10-15T08:19:31.750Z"
+}
