@@ -53,6 +53,8 @@ import { LLMDriver } from "@get-halo/workspace-server/testing";
 import { m } from "@get-halo/shared/testing";
 import { ControlPlane } from "../src/server/ControlPlane.js";
 import { LocalWorkspaceProvider } from "../src/workspace/provider/local/LocalWorkspaceProvider.js";
+import { DatabaseService } from "../src/DatabaseService.js";
+import { AppStore } from "../src/apps/AppStore.js";
 import type { WorkspaceProviderApi } from "../src/workspace/provider/WorkspaceProviderApi.js";
 import {
   workspaceRuntimeConfigFileName,
@@ -5527,5 +5529,184 @@ controlPlaneTest(
         bobHeaders,
       ).apps.renamePublisher({ handle: "forbidden" }),
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
+  },
+);
+
+const publicAppTest = controlPlaneTest.extend<{
+  workspaceProvider: WorkspaceProviderApi;
+  publicApps: {
+    store: AppStore;
+    appId: string;
+    request: (input: {
+      path: string;
+      method?: string;
+      headers?: Record<string, string>;
+    }) => Promise<{
+      status: number;
+      body: string;
+      headers: http.IncomingHttpHeaders;
+    }>;
+  };
+}>({
+  workspaceProvider: async ({ workspaceHost }, use) =>
+    await use(workspaceHost.provider),
+  publicApps: async ({ plane, appDataDir }, use) => {
+    const db = await DatabaseService.start({
+      type: "sqlite",
+      path: join(appDataDir, "control-plane.db"),
+    });
+    if (db instanceof Error) throw db;
+    await using cleanup = new errore.AsyncDisposableStack();
+    cleanup.defer(async () => {
+      const closed = await db.close();
+      if (closed instanceof Error) throw closed;
+    });
+    const store = new AppStore({ db });
+    const handle = await store.ensureHandle({
+      userId: "public-app-owner",
+      email: "creator@example.com",
+    });
+    if (handle instanceof Error) throw handle;
+    const records: { appId: string }[] = [];
+    for (const syncAccess of ["read-only", "shared", "actions"] as const) {
+      const app = await store.create({
+        ownerUserId: "public-app-owner",
+        extensionId: syncAccess,
+        slug: syncAccess,
+        displayName: '<Reading & "list">',
+        visibility: "public",
+        members: [],
+        syncAccess,
+        actions: [],
+      });
+      if (app instanceof Error) throw app;
+      const live = await store.advance({
+        appId: app.appId,
+        from: "frozen",
+        to: "live",
+      });
+      if (live instanceof Error) throw live;
+      records.push(live);
+    }
+    const port = Number(new URL(plane.origin).port);
+    const host = `${handle}.localhost:${port}`;
+    await use({
+      store,
+      appId: records[0]!.appId,
+      request: async (input) =>
+        await new Promise((complete, reject) => {
+          const request = http.request(
+            {
+              host: "127.0.0.1",
+              port,
+              path: input.path,
+              method: input.method ?? "GET",
+              headers: { host, ...input.headers },
+            },
+            (response) => {
+              const chunks: Buffer[] = [];
+              response.on("data", (chunk: Buffer) => chunks.push(chunk));
+              response.on("end", () =>
+                complete({
+                  status: response.statusCode!,
+                  body: Buffer.concat(chunks).toString(),
+                  headers: response.headers,
+                }),
+              );
+            },
+          );
+          request.on("error", reject);
+          request.end();
+        }),
+    });
+  },
+});
+
+// Durable: every public sync mode gets gateway chrome, with no changes to the app's assets or API.
+publicAppTest(
+  "public extension waitlist banner wraps every sync mode and preserves content routes",
+  async ({ publicApps, workspaceHost }) => {
+    for (const mode of ["read-only", "shared", "actions"]) {
+      const response = await publicApps.request({
+        path: `/${mode}/view/details?filter=one%26two`,
+      });
+      expect(response.status).toBe(200);
+      expect(response.body).toContain("Halo is in private alpha.");
+      expect(response.body).toContain("/halo-donut-transparent.png");
+      expect(response.body).toContain(
+        'title="&lt;Reading &amp; &quot;list&quot;&gt;"',
+      );
+      expect(response.body).toContain(
+        `src="/${mode}/view/details?filter=one%26two"`,
+      );
+      expect(response.headers["content-security-policy"]).toContain(
+        "form-action https://buttondown.com https://gethalo.dev",
+      );
+      const inner = await publicApps.request({
+        path: `/${mode}/view/details?filter=one%26two`,
+        headers: {
+          "sec-fetch-dest": "iframe",
+          "sec-fetch-site": "same-origin",
+        },
+      });
+      expect(inner.status).toBe(200);
+      expect(inner.body).not.toContain("Halo is in private alpha.");
+      const navigation = await publicApps.request({
+        path: `/${mode}/view/next`,
+        headers: {
+          "sec-fetch-dest": "iframe",
+          "sec-fetch-site": "same-origin",
+        },
+      });
+      expect(navigation.status).toBe(200);
+      expect(navigation.body).not.toContain("Halo is in private alpha.");
+      const embedded = await publicApps.request({
+        path: `/${mode}/view/`,
+        headers: { "sec-fetch-dest": "iframe", "sec-fetch-site": "cross-site" },
+      });
+      expect(embedded.body).toContain("Halo is in private alpha.");
+      expect(workspaceHost.requests).toContain(
+        `/extensions/${mode}/view/details?filter=one%26two`,
+      );
+      expect(
+        (await publicApps.request({ path: `/${mode}/view/assets/view.js` }))
+          .body,
+      ).not.toContain("Halo is in private alpha.");
+      expect(
+        (await publicApps.request({ path: `/${mode}/api/items` })).body,
+      ).not.toContain("Halo is in private alpha.");
+    }
+    const head = await publicApps.request({
+      path: "/read-only/view/",
+      method: "HEAD",
+    });
+    expect(head.status).toBe(200);
+    expect(head.body).toBe("");
+    const root = await publicApps.request({ path: "/read-only/" });
+    expect(root.status).toBe(302);
+    expect(root.headers.location).toBe("/read-only/view/");
+  },
+);
+
+// Durable: sharing visibility still controls whether a visitor can open a banner or app.
+publicAppTest(
+  "public extension waitlist banner follows the app's sharing visibility",
+  async ({ publicApps }) => {
+    const privateApp = await publicApps.store.updateAccess({
+      appId: publicApps.appId,
+      access: { visibility: "invited", members: ["member@example.com"] },
+    });
+    if (privateApp instanceof Error) throw privateApp;
+    const invited = await publicApps.request({ path: "/read-only/view/" });
+    expect(invited.status).toBe(302);
+    expect(invited.body).not.toContain("Halo is in private alpha.");
+    const hidden = await publicApps.store.updateAccess({
+      appId: publicApps.appId,
+      published: false,
+    });
+    if (hidden instanceof Error) throw hidden;
+    const unpublished = await publicApps.request({ path: "/read-only/view/" });
+    expect(unpublished.status).toBe(404);
+    expect(unpublished.body).not.toContain("Halo is in private alpha.");
   },
 );
