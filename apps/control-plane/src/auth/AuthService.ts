@@ -88,9 +88,24 @@ type NodeHandler = (
   response: ServerResponse,
 ) => Promise<void>;
 
+/**
+ * HTTPS deployments name Halo's cookies with `__Host-`, so a creator host on a
+ * sibling subdomain cannot plant a Domain cookie that shadows Halo's session.
+ * Better Auth would otherwise use `__Secure-`, which allows a Domain attribute.
+ */
+export function authCookieOptions(origin: string) {
+  if (!origin.startsWith("https://")) return {};
+  return {
+    useSecureCookies: false,
+    cookiePrefix: "__Host-halo",
+    defaultCookieAttributes: { secure: true, path: "/" },
+  };
+}
+
 function authOptions(options: AuthServiceOptions, database: DatabaseClient) {
   return {
     baseURL: options.origin,
+    advanced: authCookieOptions(options.origin),
     secret: options.secret,
     database,
     trustedOrigins: [options.origin],
@@ -269,6 +284,23 @@ export class AuthService {
       authorizationUrl,
       headers: result.headers,
     };
+  }
+
+  /** Starts Google sign-in that returns to an app handoff page on Halo's origin. */
+  async startAppSignIn(callbackURL: string) {
+    const result = await this.auth.api
+      .signInSocial({
+        returnHeaders: true,
+        body: { provider: "google", callbackURL },
+      })
+      .catch(
+        (cause) => new AuthServiceError({ detail: "start app sign-in", cause }), // coverage-exempt: Better Auth failure wrapper; the success path is tested.
+      );
+    if (result instanceof Error) return result;
+    const authorizationUrl = result.response.url;
+    if (authorizationUrl === undefined || authorizationUrl === "")
+      return new AuthServiceError({ detail: "start app sign-in" }); // coverage-exempt: Better Auth returned no authorization URL for a configured provider.
+    return { authorizationUrl, headers: result.headers };
   }
 
   async completeDesktopSignIn(headers: Headers, request: DesktopSignInRequest) {

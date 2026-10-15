@@ -50,6 +50,17 @@ import {
   type WorkspaceAuthorization,
 } from "../workspace/proxy.js";
 import type { AppService } from "../apps/AppService.js";
+import type { AppGateway } from "../apps/AppGateway.js";
+import type { AppStore } from "../apps/AppStore.js";
+import { creatorHandle, isCreatorHost } from "../apps/creatorHost.js";
+import {
+  isAppHandoffRequest,
+  serveAppHandoff,
+} from "../apps/appHandoffHttp.js";
+import {
+  isAppRuntimeRequest,
+  serveAppRuntime,
+} from "../apps/appRuntimeHttp.js";
 
 import { workspaceInferencePath } from "@get-halo/config/inference";
 import {
@@ -119,6 +130,8 @@ export function serveControlPlaneHttp(ctx: {
   auth: AuthService;
   authorization: WorkspaceAuthorization;
   apps: AppService;
+  appStore: AppStore;
+  appGateway: AppGateway;
   publicOrigin: string;
   workspace: WorkspaceService;
   integrations?: IntegrationService;
@@ -165,6 +178,31 @@ export function serveControlPlaneHttp(ctx: {
 
   server.removeListener("request", respondStarting);
   server.on("request", async (request, response) => {
+    // Creator hosts serve apps only; no Halo route is reachable from them.
+    const handle = creatorHandle({ publicOrigin, host: request.headers.host });
+    // A subdomain that cannot be a handle is not Halo either.
+    if (
+      handle === undefined &&
+      isCreatorHost({ publicOrigin, host: request.headers.host })
+    ) {
+      response.writeHead(404, { "cache-control": "no-store" }).end();
+      return;
+    }
+    if (handle !== undefined) {
+      const served = await ctx.appGateway
+        .serve({ request, response, handle })
+        .catch(
+          (cause) =>
+            new ControlPlaneHttpError({ detail: "serve app request", cause }),
+        );
+      if (served instanceof Error) {
+        console.error(served);
+        if (!response.headersSent) response.writeHead(500);
+        response.end();
+      }
+      return;
+    }
+    stripCrossOriginCookies(request, publicOrigin);
     await routeControlPlaneRequest({
       request,
       response,
@@ -179,6 +217,7 @@ export function serveControlPlaneHttp(ctx: {
       traces,
       rpc,
       apps: ctx.apps,
+      appStore: ctx.appStore,
       integrations: ctx.integrations,
       publicOrigin,
       webRoot,
@@ -189,6 +228,11 @@ export function serveControlPlaneHttp(ctx: {
   server.on("upgrade", async (request, socket, head) => {
     upgradeSockets.add(socket);
     socket.once("close", () => upgradeSockets.delete(socket));
+    if (isCreatorHost({ publicOrigin, host: request.headers.host })) {
+      respondToUpgrade(socket, 404);
+      return;
+    }
+    stripCrossOriginCookies(request, publicOrigin);
     const url = new URL(
       request.url === undefined ? "/" : request.url,
       requestUrlBase,
@@ -224,6 +268,20 @@ export async function closeControlPlaneHttp(server: HttpServer) {
   return await closing;
 }
 
+/**
+ * Cookies authenticate only requests from Halo's own origin. Sibling creator
+ * hosts are same-site, so SameSite does not stop their requests from carrying
+ * Halo's cookies; explicit bearer credentials still work from anywhere.
+ */
+function stripCrossOriginCookies(
+  request: IncomingMessage,
+  publicOrigin: string,
+) {
+  const origin = request.headers.origin;
+  if (origin !== undefined && origin !== publicOrigin)
+    delete request.headers.cookie;
+}
+
 function respondStarting(_request: IncomingMessage, response: ServerResponse) {
   response.writeHead(503).end("Control plane is starting.");
 }
@@ -242,6 +300,7 @@ async function routeControlPlaneRequest(ctx: {
   response: ServerResponse;
   auth: AuthService;
   apps: AppService;
+  appStore: AppStore;
   publicOrigin: string;
   gateway: WorkspaceGateway;
   traces?: TraceIngestion;
@@ -275,7 +334,7 @@ async function routeControlPlaneRequest(ctx: {
         ? undefined
         : (url.searchParams.get("code") ?? undefined),
       userId: session instanceof Error ? undefined : session?.user.id,
-      browsers: setupBrowserCookies(headers),
+      browsers: setupBrowserCookies(headers, ctx.publicOrigin),
     });
     response.setHeader("cache-control", "no-store");
     response.setHeader("referrer-policy", "no-referrer");
@@ -286,6 +345,23 @@ async function routeControlPlaneRequest(ctx: {
     }
     response.writeHead(303, { location: result.setupUrl });
     response.end();
+    return;
+  }
+
+  if (isAppHandoffRequest(url)) {
+    await serveAppHandoff({
+      request,
+      response,
+      url,
+      auth,
+      store: ctx.appStore,
+      publicOrigin: ctx.publicOrigin,
+    });
+    return;
+  }
+
+  if (isAppRuntimeRequest(url)) {
+    await serveAppRuntime({ request, response, url, apps: ctx.apps });
     return;
   }
 
