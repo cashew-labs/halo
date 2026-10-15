@@ -13,7 +13,8 @@ Declare the app in `package.json` under `halo.app`. Without a declaration, visit
     "app": {
       "description": "Books I am reading",
       "sync": "read-only",
-      "actions": []
+      "actions": [],
+      "instructions": "Recommend books from the list."
     }
   }
 }
@@ -34,6 +35,27 @@ if (!result.ok) return { error: result.error.message };
 Pass no arguments, or exactly the fixed ones. A different value fails with `invalid_action`, and other tools such as `context.tools.files` or `context.tools.integrations` are unavailable. Each app shares a limit of 120 action calls every 10 minutes across all visitors.
 
 Handlers see who is calling in `context.viewer`. `role` is `owner`, `member` (an invited Halo account, with `email`), or `public` (a pseudonymous visitor ID, with no email).
+
+## Add an assistant
+
+Every published app can hold assistant conversations with its visitors. `instructions` in `halo.app` tells that assistant what the app is for. A handler starts or continues a visitor's conversation:
+
+```ts
+chat: os
+  .input(type<{ message: string; conversationId?: string }>())
+  .handler(async ({ input, context }) => {
+    // Only requests that come through Halo carry a viewer token.
+    if (context.viewer.token === undefined) throw new Error("Open this app in Halo");
+    return await context.tools.conversation.send({
+      viewerToken: context.viewer.token,
+      message: input.message,
+      // Omit conversationId to start a new conversation.
+      ...(input.conversationId === undefined ? {} : { conversationId: input.conversationId }),
+    });
+  }),
+```
+
+`send` returns `{ conversationId, reply }`; `conversation.history({ viewerToken, conversationId })` returns the visible messages. A conversation belongs to the viewer whose request carried the token, so another visitor cannot read it. The assistant can call only the app's bound actions, gets at most 4 model steps and 1024 output tokens per message, and conversations never appear in your Halo sessions. Each app shares 1,000 model requests every 10 minutes across all visitors.
 
 ## Publish and edit
 
