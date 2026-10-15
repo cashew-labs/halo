@@ -233,23 +233,23 @@ export class ExtensionHost {
     return await this.actionQueue.run(async () => {
       const project = this.project(extensionId);
       if (project instanceof Error) return project;
+      // Source and build cannot change under a running app; only capturing
+      // live data needs it stopped, so a template snapshot keeps serving.
+      if (!options.data) return await project.snapshot({ contents: undefined });
       const running = this.processes.get(extensionId);
       const stopped = await running?.stop();
       if (stopped instanceof Error) return stopped;
       this.processes.delete(extensionId);
       this.removeToolConnection(extensionId);
-      // Without data, nothing reads the live store at all.
       const captured =
-        options.data &&
-        this.isSharedApp(extensionId) &&
-        this.sandbox !== undefined
+        this.isSharedApp(extensionId) && this.sandbox !== undefined
           ? await this.sandbox.snapshot(extensionId)
           : undefined;
       const snapshot =
         captured instanceof Error
           ? captured
           : await project.snapshot(
-              !options.data || this.isSharedApp(extensionId)
+              this.isSharedApp(extensionId)
                 ? { contents: captured }
                 : undefined,
             );
