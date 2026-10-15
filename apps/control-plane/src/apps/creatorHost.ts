@@ -30,12 +30,3 @@ function baseHostname(hostname: string) {
     ? "localhost"
     : hostname;
 }
-
-// Only URL-safe ASCII: the decoded value becomes a Location header.
-const returnPathPattern =
-  /^\/[a-z][a-z0-9-]{0,62}\/(?:view(?:\/[A-Za-z0-9._~!$&'()*+,;=:@%/?-]*)?)?$/;
-
-/** An app path on a creator host that sign-in may return to, or undefined. */
-export function appReturnPath(value: string | null) {
-  return value !== null && returnPathPattern.test(value) ? value : undefined;
-}
