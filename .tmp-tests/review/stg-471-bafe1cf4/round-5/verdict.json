@@ -1,0 +1,18 @@
+{
+  "status": "changes_requested",
+  "summary": "The only source change since the approved round 4 is in `extensionSharing.ts`. `validateAppDefinition` now rejects actions whose address, after stripping leading `tools.` prefixes, starts with a Halo or Executor management namespace. Temp tests cover it, and I found no defect. I can't approve yet because the durable ControlPlane run failed: 'automatically approves MCP, OpenAPI and Google connections across restart' timed out at 5000ms. That test passed in rounds 2 to 4, and nothing changed since then imports `extensionSharing.ts`. The failed run also left `proxy.ts` 280-283 without durable coverage, so the coverage gate failed. Rerun the durable suite, and investigate if the timeout repeats.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 5,
+  "headSha": "ced52b745ff354be5db83c18cfa001b3ae8e2f39",
+  "treeHash": "410c4bd8ea00e28662f5101cc9084fe08aec2474",
+  "codeTree": "22cac1dc555ba6c2aef06222aa9d22b70375f650",
+  "coverage": {
+    "executable": 95,
+    "covered": 90,
+    "exempt": 1,
+    "uncovered": 4
+  },
+  "createdAt": "2026-10-15T07:05:48.965Z"
+}
