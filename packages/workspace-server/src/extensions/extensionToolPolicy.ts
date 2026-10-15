@@ -6,13 +6,18 @@ export class ExtensionToolDeniedError extends errore.createTaggedError({
     "Extensions cannot manage connections, integrations, credentials or policies",
 }) {}
 
+const deniedPrefixes = [
+  "executor.",
+  "halo.",
+  "connections.",
+  "policies.",
+  "oauth.",
+];
+
 export function authorizeExtensionTool(path: string) {
-  if (
-    path.startsWith("executor.") ||
-    path.startsWith("halo.") ||
-    path.startsWith("connections.") ||
-    path.startsWith("policies.") ||
-    path.startsWith("oauth.")
-  )
+  // Executor resolves its sandbox form `tools.<path>` to the static address.
+  let address = path;
+  while (address.startsWith("tools.")) address = address.slice("tools.".length);
+  if (deniedPrefixes.some((prefix) => address.startsWith(prefix)))
     return new ExtensionToolDeniedError();
 }
