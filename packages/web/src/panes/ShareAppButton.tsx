@@ -90,6 +90,8 @@ function ShareAppDialog({
     mutationFn: async (input: {
       access: AppAccessList;
       published?: boolean;
+      // The failure already on record, to tell a new one from it.
+      failedAt?: number;
     }): Promise<AppSummary> =>
       app === undefined || app.stage !== "live"
         ? await api.apps.publish({ extensionId, access: input.access })
@@ -153,8 +155,9 @@ function ShareAppDialog({
   const failure = live ? undefined : app?.publishFailure;
   // A recorded failure replaces the raw publish error, which names host
   // details; while the list reloads after a failure, neither is shown yet.
-  const saveError =
-    failure === undefined && !apps.isFetching ? save.error : undefined;
+  const recorded =
+    failure !== undefined && failure.failedAt !== save.variables?.failedAt;
+  const saveError = recorded || apps.isFetching ? undefined : save.error;
   const error = saveError ?? recovery.error ?? apps.error ?? copy.error;
   const stalled = app !== undefined && !live;
   const busy = changing || recovery.pending;
@@ -349,7 +352,12 @@ function ShareAppDialog({
               {apps.isSuccess && !live && (
                 <Button
                   isDisabled={busy || emptyInvite}
-                  onPress={() => save.mutate({ access: current })}
+                  onPress={() =>
+                    save.mutate({
+                      access: current,
+                      failedAt: failure?.failedAt,
+                    })
+                  }
                 >
                   {save.isPending
                     ? "Publishing…"

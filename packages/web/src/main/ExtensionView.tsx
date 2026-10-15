@@ -93,35 +93,38 @@ function PublishingNotice({
   const failure = app?.stage === "live" ? undefined : app?.publishFailure;
   return (
     <div className={notice}>
-      {failure === undefined || recovery.publishing ? (
+      {recovery.publishing ? (
         <Text role="status">
           {displayName} is being published to its own server. It is paused in
           this workspace until publishing finishes.
         </Text>
+      ) : failure === undefined ? (
+        <Text role="status">
+          Publishing {displayName} has not finished, and it is paused in this
+          workspace. If it is not being published right now, publish it again or
+          keep it here.
+        </Text>
       ) : (
-        <>
-          <PublishFailureNotice displayName={displayName} failure={failure} />
-          {recovery.error !== null && (
-            <Text size="sm" role="alert">
-              {recovery.error.message}
-            </Text>
-          )}
-          <div className={actions}>
-            <Button
-              isDisabled={recovery.pending}
-              onPress={recovery.publishAgain}
-            >
-              Publish again
-            </Button>
-            <Button
-              variant="quiet"
-              isDisabled={recovery.pending}
-              onPress={recovery.keepLocal}
-            >
-              Keep it local
-            </Button>
-          </div>
-        </>
+        <PublishFailureNotice displayName={displayName} failure={failure} />
+      )}
+      {recovery.error !== undefined && (
+        <Text size="sm" role="alert">
+          {recovery.error.message}
+        </Text>
+      )}
+      {!recovery.publishing && app !== undefined && (
+        <div className={actions}>
+          <Button isDisabled={recovery.pending} onPress={recovery.publishAgain}>
+            Publish again
+          </Button>
+          <Button
+            variant="quiet"
+            isDisabled={recovery.pending}
+            onPress={recovery.keepLocal}
+          >
+            Keep it local
+          </Button>
+        </div>
       )}
     </div>
   );

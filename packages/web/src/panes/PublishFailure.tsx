@@ -34,6 +34,12 @@ export function usePublishRecovery(app: AppSummary | undefined) {
       }),
     onSettled: refresh,
   });
+  // Some failures are recorded on the app and shown by the notice; others
+  // (a lost connection, or an app the control plane abandoned) are not.
+  const recorded =
+    app?.publishFailure !== undefined &&
+    app.publishFailure.failedAt !==
+      publishAgain.variables?.publishFailure?.failedAt;
   const keepLocal = useMutation({
     mutationFn: async (target: AppSummary) =>
       await api.apps.cancel({ appId: target.appId }),
@@ -43,9 +49,10 @@ export function usePublishRecovery(app: AppSummary | undefined) {
   return {
     pending: publishAgain.isPending || keepLocal.isPending,
     publishing: publishAgain.isPending,
-    // A refused "keep it local" explains itself; a failed publish is shown
-    // through the app's recorded failure instead of its raw error.
-    error: keepLocal.error,
+    error:
+      keepLocal.error ??
+      (recorded || publishAgain.isPending ? undefined : publishAgain.error) ??
+      undefined,
     publishAgain: () => {
       if (failed) publishAgain.mutate(app);
     },
