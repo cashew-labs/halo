@@ -1,0 +1,6 @@
+[
+  {
+    "findingId": "F4",
+    "reply": "fixed: temp test makes the provider throw inside AppGateway.serve; the visitor gets 500 and /health still answers."
+  }
+]

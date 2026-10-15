@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "F5 is fixed. The gateway and the Halo-origin handoff now both use `creatorHost.appReturnPath`, which allows only URL-safe ASCII and accepts `view` with or without a trailing slash. The handoff also accepts the gateway's root fallback, and redeeming without an app path answers 200 \"Signed in.\". Temp tests cover the redirect from a slashless view and full handoffs for `/books/view` and `/`. Both test runs and the coverage gate pass, and no findings remain open.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 5,
+  "headSha": "492d2d3ca8d9e906d56228180e66c30582207f2d",
+  "treeHash": "88825ebfcd294e4971127254af6f2537c2c19537",
+  "codeTree": "8c3192294eb7a4850dc46444f9f5c129915a5c11",
+  "coverage": {
+    "executable": 449,
+    "covered": 385,
+    "exempt": 64,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-15T07:24:19.499Z"
+}
