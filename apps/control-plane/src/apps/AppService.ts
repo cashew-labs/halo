@@ -586,6 +586,20 @@ export class AppService {
           displayName: ready.displayName,
         })
         .catch(remoteFailure("store reference"));
+      // A local project the name check could not see (one that is not
+      // running) keeps the name; abandon the copy instead of leaving it.
+      if (referenced instanceof AppRequestError) {
+        const removed = await this.provider.remove?.({
+          workspaceId: ready.appId,
+          ownerUserId: ready.ownerUserId,
+        });
+        if (removed instanceof Error) return removed;
+        const deleted = await this.store.delete(ready.appId);
+        if (deleted instanceof Error) return deleted;
+        return new AppRequestError({
+          reason: `You already have an extension named ${ready.extensionId}`,
+        });
+      }
       if (referenced instanceof Error) return referenced;
     }
     return await this.store.advance({
