@@ -1,0 +1,6 @@
+[
+  {
+    "findingId": "F5",
+    "reply": "fixed: the stale temp expectation now matches #471's contract (gateway traffic without a viewer is the owner; a named viewer with an unknown or missing role is public)."
+  }
+]
