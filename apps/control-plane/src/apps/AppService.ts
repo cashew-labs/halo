@@ -39,7 +39,7 @@ export class AppLimitError extends errore.createTaggedError({
 // step of an app conversation is one inference request.
 const usageWindowMs = 10 * 60_000;
 const actionLimit = 120;
-const inferenceLimit = 60;
+const inferenceLimit = 1_000;
 
 export class AppRemoteError extends errore.createTaggedError({
   name: "AppRemoteError",
