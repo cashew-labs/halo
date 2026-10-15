@@ -27,12 +27,12 @@ const completionSchema = Type.Object({
 const appOutputTokens = Type.Integer({ minimum: 1, maximum: 2048 });
 const appCompletionSchema = Type.Union([
   Type.Object({
-    messages: Type.Array(Type.Unknown(), { minItems: 1, maxItems: 128 }),
+    messages: Type.Array(Type.Unknown(), { minItems: 1, maxItems: 64 }),
     max_tokens: appOutputTokens,
     max_completion_tokens: Type.Optional(appOutputTokens),
   }),
   Type.Object({
-    messages: Type.Array(Type.Unknown(), { minItems: 1, maxItems: 128 }),
+    messages: Type.Array(Type.Unknown(), { minItems: 1, maxItems: 64 }),
     max_completion_tokens: appOutputTokens,
     max_tokens: Type.Optional(appOutputTokens),
   }),
@@ -91,10 +91,8 @@ export async function serveWorkspaceInference(ctx: {
     headers.set("authorization", request.headers.authorization);
   const identity = await workspace.authenticateRuntime(headers);
   // An app VM's credential works here too, but only under its app's budget.
-  // App credentials are HMAC tokens, so they work while workspace key
-  // verification is unavailable.
   const app =
-    identity instanceof Error
+    identity instanceof WorkspaceAuthenticationRequiredError
       ? await ctx.apps.authenticateRuntime(request.headers.authorization)
       : undefined;
   // coverage-exempt: App database outage; no service mocks in the real control-plane fixture.
@@ -156,11 +154,6 @@ export async function serveWorkspaceInference(ctx: {
     response.writeHead(400).end();
     return;
   }
-  if (inference === undefined) {
-    response.writeHead(503).end();
-    return;
-  }
-  // Only a request that can reach a model counts against the app's budget.
   if (app !== undefined) {
     const allowed = await ctx.apps.consumeInference(app);
     // coverage-exempt: App database outage while counting the request.
@@ -173,6 +166,10 @@ export async function serveWorkspaceInference(ctx: {
       response.writeHead(429, { "retry-after": "600" }).end();
       return;
     }
+  }
+  if (inference === undefined) {
+    response.writeHead(503).end();
+    return;
   }
 
   if (response.destroyed) return;

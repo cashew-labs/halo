@@ -5,7 +5,7 @@ import * as errore from "errore";
 import type { WorkspaceProviderApi } from "../workspace/provider/WorkspaceProviderApi.js";
 import type { WorkspaceAuthorization } from "../workspace/proxy.js";
 import type { AppRecord, AppStore } from "./AppStore.js";
-import { appReturnPath, creatorOrigin } from "./creatorHost.js";
+import { creatorOrigin } from "./creatorHost.js";
 
 class AppGatewayError extends errore.createTaggedError({
   name: "AppGatewayError",
@@ -17,6 +17,9 @@ const appPathPattern =
   /^\/([a-z][a-z0-9-]{0,62})(?:\/(view|api|sync)(\/[A-Za-z0-9._~!$&'()*+,;=:@%/-]*)?)?\/?$/;
 // Rejects encoded separators and dot segments before any routing decision.
 const unsafePathPattern = /%(?:2f|5c|2e|00)|\\|\/\/|(?:^|\/)\.{1,2}(?:\/|$)/i;
+// Only URL-safe ASCII: the decoded value becomes a Location header.
+const returnPathPattern =
+  /^\/[a-z][a-z0-9-]{0,62}\/(?:view\/[A-Za-z0-9._~!$&'()*+,;=:@%/?-]*)?$/;
 const visitorPattern = /^[A-Za-z0-9_-]{22}$/;
 
 const appProxy = createProxyServer();
@@ -25,8 +28,6 @@ appProxy.on("proxyRes", (upstream) => {
   delete upstream.headers["set-cookie"];
   upstream.headers["x-content-type-options"] = "nosniff";
   upstream.headers["referrer-policy"] = "same-origin";
-  // Responses are rendered for one viewer; shared caches must not reuse them.
-  upstream.headers["cache-control"] = "private, no-store";
 });
 
 type CookieName = "session" | "visitor" | "handoff";
@@ -247,28 +248,12 @@ export class AppGateway {
       respond(ctx.response, 400);
       return;
     }
-    const cookies = [
-      this.setCookie("session", token, 7 * 24 * 60 * 60),
-      this.clearCookie("handoff"),
-    ];
-    const location = appReturnPath(ctx.url.searchParams.get("return"));
-    // Creator hosts serve only app paths; without one, confirm on the page.
-    if (location === undefined) {
-      respond(
-        ctx.response,
-        200,
-        {
-          "content-type": "text/plain; charset=utf-8",
-          "set-cookie": cookies,
-          "referrer-policy": "no-referrer",
-        },
-        "Signed in.",
-      );
-      return;
-    }
     respond(ctx.response, 302, {
-      location,
-      "set-cookie": cookies,
+      location: safeReturnPath(ctx.url.searchParams.get("return")),
+      "set-cookie": [
+        this.setCookie("session", token, 7 * 24 * 60 * 60),
+        this.clearCookie("handoff"),
+      ],
       "referrer-policy": "no-referrer",
     });
   }
@@ -366,7 +351,7 @@ export class AppGateway {
 }
 
 function safeReturnPath(value: string | null) {
-  return appReturnPath(value) ?? "/";
+  return value !== null && returnPathPattern.test(value) ? value : "/";
 }
 
 function respond(

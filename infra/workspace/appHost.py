@@ -79,27 +79,19 @@ def volume(extension_id, create=True):
     return mount
 
 
-def mounted(path):
-    """Whether path is a mount point, including a bind from the same filesystem."""
-    with open('/proc/self/mountinfo', encoding='utf8') as mountinfo:
-        points = {line.split()[4].replace('\\040', ' ') for line in mountinfo}
-    return str(path) in points
-
-
 def source_mount(extension_id):
     app_name(extension_id)
     target = appPaths.under(DATA, extension_id, 'source')
     target.mkdir(mode=0o700, parents=True, exist_ok=True)
     with appPaths.directory(appPaths.under(WORKSPACE / '.halo/extensions', extension_id)) as descriptor:
-        if mounted(target):
-            current, existing = os.fstat(descriptor), os.stat(target)
-            if (current.st_dev, current.st_ino) == (existing.st_dev, existing.st_ino):
+        if os.path.ismount(target):
+            current, mounted = os.fstat(descriptor), os.stat(target)
+            if (current.st_dev, current.st_ino) == (mounted.st_dev, mounted.st_ino):
                 return target
             command(['umount', str(target)])
         # The mount source is a pinned descriptor, not a pathname the user can
-        # replace between validation and the privileged mount syscall. Without
-        # --no-canonicalize, mount(8) would resolve it back to a pathname.
-        command(['mount', '--no-canonicalize', '--bind', f'/proc/{os.getpid()}/fd/{descriptor}', str(target)])
+        # replace between validation and the privileged mount syscall.
+        command(['mount', '--bind', f'/proc/{os.getpid()}/fd/{descriptor}', str(target)])
     return target
 
 
@@ -137,17 +129,11 @@ def import_data(extension_id, data):
     except FileNotFoundError:
         contents = None
     if contents is not None:
-        # Write a temporary file and rename it, so a crash before the marker
-        # leaves nothing that blocks the next start's import.
         with appPaths.directory(data) as parent:
-            with contextlib.suppress(FileNotFoundError):
-                os.unlink('tandem.json.import', dir_fd=parent)
-            descriptor = os.open('tandem.json.import', os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600,
-                                 dir_fd=parent)
-            with os.fdopen(descriptor, 'wb') as output:
-                output.write(contents)
-                os.fchown(output.fileno(), 1000, 1000)
-            os.replace('tandem.json.import', 'tandem.json', src_dir_fd=parent, dst_dir_fd=parent)
+            descriptor = os.open('tandem.json', os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=parent)
+        with os.fdopen(descriptor, 'wb') as output:
+            output.write(contents)
+            os.fchown(output.fileno(), 1000, 1000)
     imported.touch(mode=0o600)
 
 
