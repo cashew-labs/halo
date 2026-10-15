@@ -45,6 +45,16 @@ export async function serveExtensionRequest(ctx: {
     ctx.response.writeHead(404).end();
     return;
   }
+  // A full demo VM or a failed instance start; details stay in the host log.
+  if (connection instanceof Error) {
+    ctx.response
+      .writeHead(503, {
+        "content-type": "text/plain; charset=utf-8",
+        "retry-after": "60",
+      })
+      .end("This demo is busy. Try again in a few minutes.");
+    return;
+  }
 
   const target = new URL(`${route.path}${ctx.url.search}`, connection.origin);
   await forwardExtensionRequest({
@@ -78,6 +88,10 @@ export async function serveExtensionUpgrade(ctx: {
   });
   if (connection === undefined) {
     respondToUpgrade(ctx.socket, 404);
+    return;
+  }
+  if (connection instanceof Error) {
+    respondToUpgrade(ctx.socket, 503);
     return;
   }
 

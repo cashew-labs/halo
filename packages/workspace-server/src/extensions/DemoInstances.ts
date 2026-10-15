@@ -1,6 +1,12 @@
 import crypto from "node:crypto";
+import * as errore from "errore";
 import { SerialQueue } from "@get-halo/shared/SerialQueue";
 import type { AppSandbox } from "./AppSandbox.js";
+
+export class DemoBusyError extends errore.createTaggedError({
+  name: "DemoBusyError",
+  message: "This demo is full; try again in a few minutes",
+}) {}
 
 type Instance = {
   stop(): Promise<void | Error>;
@@ -13,8 +19,9 @@ type Instance = {
 
 /**
  * A template demo runs one sandboxed backend per visitor, each starting from
- * the installed sample data. Visitors never share state; the least recently
- * used instance is stopped and its data discarded when the VM is full.
+ * the installed sample data. Visitors never share state. When the VM is full,
+ * only an instance idle for `idleMs` is stopped and its data discarded, so a
+ * burst of new visitors cannot wipe demos that are in use.
  */
 export class DemoInstances {
   private readonly instances = new Map<string, Instance>();
@@ -24,6 +31,7 @@ export class DemoInstances {
   private readonly brokerPort: number;
   private readonly syncAccess: "read-only" | "shared" | "actions";
   private readonly limit: number;
+  private readonly idleMs: number;
   // Instances a previous server process left running are unknown to this
   // one, so the first connection reclaims them before counting capacity.
   private reclaimed = false;
@@ -34,26 +42,34 @@ export class DemoInstances {
     brokerPort: number;
     syncAccess: "read-only" | "shared" | "actions";
     limit?: number;
+    idleMs?: number;
   }) {
     this.sandbox = ctx.sandbox;
     this.extensionId = ctx.extensionId;
     this.brokerPort = ctx.brokerPort;
     this.syncAccess = ctx.syncAccess;
     this.limit = ctx.limit ?? 3;
+    this.idleMs = ctx.idleMs ?? 10 * 60_000;
   }
 
   async connect(viewerId: string) {
+    const key = crypto
+      .createHash("sha256")
+      .update(viewerId)
+      .digest("hex")
+      .slice(0, 12);
+    // A running instance answers without waiting for another visitor's start.
+    const running = this.instances.get(key);
+    if (this.reclaimed && running?.isRunning()) {
+      running.lastUsed = Date.now();
+      return running;
+    }
     return await this.actionQueue.run(async () => {
       if (!this.reclaimed) {
         const reset = await this.sandbox.resetInstances(this.extensionId);
         if (reset instanceof Error) return reset;
         this.reclaimed = true;
       }
-      const key = crypto
-        .createHash("sha256")
-        .update(viewerId)
-        .digest("hex")
-        .slice(0, 12);
       const existing = this.instances.get(key);
       if (existing?.isRunning()) {
         existing.lastUsed = Date.now();
@@ -66,8 +82,15 @@ export class DemoInstances {
       }
       while (this.instances.size >= this.limit) {
         const [oldest] = [...this.instances].toSorted(
-          ([, a], [, b]) => a.lastUsed - b.lastUsed,
+          ([, a], [, b]) =>
+            Number(a.isRunning()) - Number(b.isRunning()) ||
+            a.lastUsed - b.lastUsed,
         );
+        if (
+          oldest![1].isRunning() &&
+          Date.now() - oldest![1].lastUsed < this.idleMs
+        )
+          return new DemoBusyError();
         this.instances.delete(oldest![0]);
         const stopped = await oldest![1].stop();
         if (stopped instanceof Error) console.warn(stopped);

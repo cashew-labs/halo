@@ -146,6 +146,11 @@ export class AppService {
         actions: [],
       });
       if (created instanceof Error) return created;
+      // A template's demo shares the owner's demo-<slug> key; never adopt it.
+      if (created.origin?.kind === "demo")
+        return new AppRequestError({
+          reason: "This extension ID belongs to a template demo",
+        });
       // A retry may change who can visit, never which app is published.
       const app = await this.store.updateAccess({
         appId: created.appId,

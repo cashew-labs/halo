@@ -14,7 +14,7 @@ import { startExtension, type ExtensionRuntime } from "./startExtension.js";
 import { AppSandbox, AppSandboxError } from "./AppSandbox.js";
 import { AppProject, AppProjectError } from "./AppProject.js";
 import { AppPublication } from "./AppPublication.js";
-import { DemoInstances } from "./DemoInstances.js";
+import { DemoBusyError, DemoInstances } from "./DemoInstances.js";
 import type { ExtensionArtifact } from "@get-halo/client";
 import { Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
@@ -192,8 +192,9 @@ export class ExtensionHost {
       return this.getConnection(ctx.id);
     const instance = await this.demo.connect(ctx.viewerId);
     if (instance instanceof Error) {
-      this.logger.warn({ event: "demo-start-failed", error: instance });
-      return undefined;
+      if (!(instance instanceof DemoBusyError))
+        this.logger.warn({ event: "demo-start-failed", error: instance });
+      return instance;
     }
     return { origin: instance.origin, hostToken: instance.hostToken };
   }
