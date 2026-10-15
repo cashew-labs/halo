@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "F8 is fixed. The workspace-server temp test now polls with `expect.poll` until the background link refresh lands. The overtaken-lookup test waits until the slow lookup has returned before it checks that the newer link stays. The source has not changed since round 5, which I reviewed as sound. Both test tiers pass, the coverage gate passes, and every exemption is accepted.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 6,
+  "headSha": "96afb43f937401dc6656ac22cce93de8bb887187",
+  "treeHash": "298c750d39c4d60cb1dafe4a5c3aca79b973ec5c",
+  "codeTree": "2b96fb88a843fd4f0cda76fe81df2ab3e99350a5",
+  "coverage": {
+    "executable": 157,
+    "covered": 150,
+    "exempt": 7,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-15T08:32:44.223Z"
+}

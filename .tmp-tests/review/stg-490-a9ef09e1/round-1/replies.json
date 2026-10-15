@@ -1,0 +1,18 @@
+[
+  {
+    "findingId": "F1",
+    "reply": "fixed: the temp store fixture creates its parent directory before mkdtemp; both store tests run and pass."
+  },
+  {
+    "findingId": "F2",
+    "reply": "fixed: renames record the released handle in app_retired_handles; checkHandle, renameHandle and ensureHandle refuse a handle retired by another user, and the previous owner may reclaim it. Temp test: bob cannot rename to alice's old handle, carol's ensureHandle skips it, alice can return to it with old sessions still invalid, and alice's intermediate handle is reserved too."
+  },
+  {
+    "findingId": "F3",
+    "reply": "fixed: createHandoff and redeemHandoff return undefined for an unknown creator; the gateway answers 400 and the Halo handoff 404. Temp test: a sign-in confirmed before the creator renamed redeems with 400, re-confirming gets 404, /health still answers."
+  },
+  {
+    "findingId": "F4",
+    "reply": "fixed: list() and watch() no longer await the lookup; they answer from cached or stored links and refresh in the background, publishing a new snapshot when a link changes. refresh() (after a rename) still awaits the lookup. Temp test: while remoteApps.list hangs, list and reload return within a second."
+  }
+]
