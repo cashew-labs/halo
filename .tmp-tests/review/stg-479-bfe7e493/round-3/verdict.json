@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "Since round 2, AppConversations makes two changes. It takes the reply only from this turn's messages and treats any model error as a failure, so a failed request can no longer resurface an earlier answer. It also stores a turn longer than the 24-message window as only its question and final text answer, so later requests stay valid. A new temp test covers both changes, including the stored shape, history output, a failed turn that is not saved, and a valid next request. All temp tests pass, every changed line is covered or exempt with an acceptable reason, and no findings remain.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 3,
+  "headSha": "8b15f512c35ddffd487f1a12f0a84efd1d8e4d56",
+  "treeHash": "b66220f0da6da66599ce98dea36215a2dbc42dfc",
+  "codeTree": "553f600eacc3297bcfd29b51b9cc603ea111dee7",
+  "coverage": {
+    "executable": 187,
+    "covered": 172,
+    "exempt": 15,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-15T07:15:51.479Z"
+}

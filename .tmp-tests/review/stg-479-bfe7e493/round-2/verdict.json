@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change adds assistant conversations to shared apps. It covers stored instructions and a runtime definition endpoint, a separate inference budget for app VMs, host-signed viewer tokens, and per-viewer conversation storage on the app VM. All three round-1 findings are fixed. The last model step now sends tool_choice \"none\", and an empty reply becomes an explicit error; both are tested. The sharing.md example follows the typed-input pattern in api.md, and the text now states that every published app can hold conversations. A new temp unit test covers viewer-token expiry, tampering and a token from another host. All temp tests pass and every changed line is covered or exempt with an acceptable reason.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "e4da88aff0e671b9f83cf01c3d4b01ac4e34631c",
+  "treeHash": "73fddd3d5b30a0dfde227564391c49c6f67a6cdc",
+  "codeTree": "5a64ddca415addd1a70e5ae64a32ccc205118406",
+  "coverage": {
+    "executable": 182,
+    "covered": 167,
+    "exempt": 15,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-15T06:08:35.457Z"
+}

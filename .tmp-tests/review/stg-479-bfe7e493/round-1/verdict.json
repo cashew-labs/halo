@@ -1,0 +1,54 @@
+{
+  "status": "changes_requested",
+  "summary": "The change adds conversations with a restricted assistant to shared apps. It covers stored instructions and a runtime definition endpoint on the control plane, inference for app VMs under their own budget, host-signed viewer tokens, and per-viewer conversation files on the app VM. Gating, budgeting, and isolation are mostly sound and well tested, but it is not ready to merge. When the step budget runs out, a visitor gets a \"successful\" empty reply. The documented handler example does not typecheck. Token expiry is never actually tested.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "source",
+      "file": "packages/workspace-server/src/extensions/AppConversations.ts",
+      "line": 133,
+      "severity": "P1",
+      "body": "`finishTurn` ends the run after the 4th model step, but pi-agent-core still executes that step's tool calls first. If the 4th step is a tool call, which is likely for any multi-action request, the last assistant message has no text. `reply` (lines 145-149) becomes `\"\"`, `errorMessage` is undefined, and `send` returns `{ ok: true, data: { reply: \"\" } }` and saves the turn. The visitor sees a successful, empty answer, contrary to the documented `{ conversationId, reply }` contract. Fix: make the final step unable to call tools, so the model must answer in text. For example, in `streamFn` pass `{ ...context, tools: [] }` when `steps.count === limits.modelSteps`. Alternatively, return an `AppConversationError` when `reply` is empty. The 'Loop forever' test in conversations.test.ts only asserts `ok: true` and does not check the reply, so it hides this case."
+    },
+    {
+      "id": "F2",
+      "kind": "source",
+      "file": "packages/workspace-server/src/extensions/skills/halo-extension/references/sharing.md",
+      "line": 46,
+      "severity": "P1",
+      "body": "The documented handler does not compile in an extension made by the strict scaffold (`packages/extension-tools/src/scaffold.ts` sets `strict: true`). `context.viewer.token` is `string | undefined` (tools.ts:42), and `conversationId: input.conversationId` may be undefined, but `ExtensionToolInput` values cannot be `undefined`. An agent that follows this skill page will fail `npm run typecheck`. Show a form that typechecks: check that the token is present and add `conversationId` only when it is set, as the temp test routers do. Also, line 42 says declaring `instructions` gives an app an assistant, but conversations work for every shared app with `appActions`, whether or not it has instructions (WorkspaceServer.ts:470-477). Either make the text match the behavior or gate the feature on instructions."
+    },
+    {
+      "id": "F3",
+      "kind": "test",
+      "file": "packages/workspace-server/src/extensions/ExtensionHost.ts",
+      "line": 161,
+      "severity": "P1",
+      "body": "The viewer-token expiry check (`Number(parts[0]) < Date.now()`) is a security property: a token copied out of one request must stop working after an hour. No test exercises it. Both 'Viewer token expired' cases in the temp tests use forged signatures, so they are rejected by the HMAC comparison before the expiry is read. If the comparison were inverted or removed, every test would still pass. Add a test that issues a genuine token, advances time past the expiry (or signs a past timestamp), and checks that `readViewerToken` returns undefined. It should also check that an unexpired genuine token returns the original viewer ID."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "packages/workspace-server/src/extensions/ExtensionHost.ts:148-163: issueViewerToken/readViewerToken round-trip, expiry, and tampered viewer segment",
+      "tier": "tmp",
+      "rationale": "The current tests only reject forged signatures. Expiry, and rejecting a valid signature over a changed payload (the viewer ID swapped), are not checked."
+    },
+    {
+      "target": "packages/workspace-server/src/extensions/AppConversations.ts:131-149: a run that spends its step budget on tool calls returns a non-empty reply or an explicit error",
+      "tier": "tmp",
+      "rationale": "The existing 'Loop forever' test asserts only ok:true, so it accepts an empty reply."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "8b3cd61c77a1276af646eb16150ac529bbdc632b",
+  "treeHash": "33fba3352d4435bd3cc23c55a24e12ea0a395bbe",
+  "codeTree": "749537acd94167a36e9f05355301c2a9fd7b0b95",
+  "coverage": {
+    "executable": 182,
+    "covered": 167,
+    "exempt": 15,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-15T06:02:44.889Z"
+}
