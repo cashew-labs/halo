@@ -168,6 +168,13 @@ case "$mode" in
     if [ "$status" = paused ] || [ "$status" = suspended ]; then
       restore_paused=true
       ssh "${ssh_args[@]}" exe.dev resume "$vm"
+      # A RAM restore keeps the guest clock from when it paused; apt rejects
+      # package indexes "not valid yet" until the clock is corrected.
+      for attempt in 1 2 3 4 5; do
+        ssh "${ssh_args[@]}" "$vm.exe.xyz" "sudo date -s '@$(date +%s)' >/dev/null" && break
+        [ "$attempt" = 5 ] && exit 1
+        sleep 3
+      done
     fi
     # A release is active work: refresh the idle clock using the workspace's
     # existing scoped reporter before transferring bytes to a resumed guest.
