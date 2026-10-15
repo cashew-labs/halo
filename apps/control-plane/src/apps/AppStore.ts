@@ -57,6 +57,9 @@ type ActionRow = {
 };
 
 // Host labels the creator cannot claim, so they never shadow Halo services.
+// Renames an account may make; each released handle stays reserved for it.
+const maxHandleClaims = 20;
+
 const reservedHandles = new Set([
   "admin",
   "api",
@@ -96,10 +99,13 @@ export class AppStore {
     const statements = [
       `CREATE TABLE IF NOT EXISTS app_creators (
         user_id TEXT PRIMARY KEY, handle TEXT NOT NULL UNIQUE)`,
-      // A creator host is one browser origin, so a handle released by a
-      // rename stays reserved for its previous owner.
-      `CREATE TABLE IF NOT EXISTS app_retired_handles (
+      // Every handle an account has held, current or released. A creator host
+      // is one browser origin, so its primary key keeps a handle with one
+      // account, even under concurrent claims.
+      `CREATE TABLE IF NOT EXISTS app_handle_claims (
         handle TEXT PRIMARY KEY, user_id TEXT NOT NULL)`,
+      `INSERT INTO app_handle_claims (handle, user_id)
+        SELECT handle, user_id FROM app_creators WHERE true ON CONFLICT DO NOTHING`,
       `CREATE TABLE IF NOT EXISTS apps (
         app_id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL,
         extension_id TEXT NOT NULL, slug TEXT NOT NULL, display_name TEXT NOT NULL,
@@ -169,12 +175,9 @@ export class AppStore {
       for (let suffix = 1; suffix < 100; suffix += 1) {
         const handle = suffix === 1 ? prefix : `${prefix}-${suffix}`;
         if (reservedHandles.has(handle)) continue;
-        const retired = await sql.query(
-          "SELECT 1 FROM app_retired_handles WHERE handle = $1 AND user_id <> $2",
-          [handle, ctx.userId],
-        );
-        if (retired instanceof Error) return retired;
-        if (retired.length > 0) continue;
+        const mine = await claimHandle(sql, { userId: ctx.userId, handle });
+        if (mine instanceof Error) return mine;
+        if (!mine) continue;
         const inserted = await sql.query<{ handle: string }>(
           `INSERT INTO app_creators (user_id, handle) VALUES ($1, $2)
            ON CONFLICT DO NOTHING RETURNING handle`,
@@ -182,6 +185,7 @@ export class AppStore {
         );
         if (inserted instanceof Error) return inserted;
         if (inserted[0] !== undefined) return inserted[0].handle;
+        // A concurrent call created this account's creator first.
         const claimed = await sql.query<{ handle: string }>(
           "SELECT handle FROM app_creators WHERE user_id = $1",
           [ctx.userId],
@@ -197,8 +201,7 @@ export class AppStore {
     const invalid = validateHandle(ctx.handle);
     if (invalid !== undefined) return { available: false, reason: invalid };
     const rows = await this.database.query<{ user_id: string }>(
-      `SELECT user_id FROM app_creators WHERE handle = $1
-       UNION ALL SELECT user_id FROM app_retired_handles WHERE handle = $1`,
+      "SELECT user_id FROM app_handle_claims WHERE handle = $1",
       [ctx.handle],
     );
     if (rows instanceof Error) return rows;
@@ -213,43 +216,47 @@ export class AppStore {
     const invalid = validateHandle(ctx.handle);
     if (invalid !== undefined) return new AppConflictError({ reason: invalid });
     const result = await this.database.transaction(async (sql) => {
-      const retired = await sql.query(
-        "SELECT 1 FROM app_retired_handles WHERE handle = $1 AND user_id <> $2",
-        [ctx.handle, ctx.userId],
-      );
-      if (retired instanceof Error) return retired;
-      if (retired.length > 0)
-        return new AppConflictError({
-          reason: "This handle is already taken.",
-        });
-      const initialized = await sql.query(
-        `INSERT INTO app_creators (user_id, handle) VALUES ($1, $2)
-         ON CONFLICT DO NOTHING`,
-        [ctx.userId, ctx.handle],
-      );
-      if (initialized instanceof Error) return initialized;
       const current = await sql.query<{ handle: string }>(
         `SELECT handle FROM app_creators WHERE user_id = $1${sql.lock}`,
         [ctx.userId],
       );
       if (current instanceof Error) return current;
-      if (current[0] === undefined)
+      if (current[0]?.handle === ctx.handle) return ctx.handle;
+      // Every rename reserves one more handle for this account.
+      const held = await sql.query<{ handle: string }>(
+        "SELECT handle FROM app_handle_claims WHERE user_id = $1",
+        [ctx.userId],
+      );
+      if (held instanceof Error) return held;
+      if (
+        held.length >= maxHandleClaims &&
+        !held.some((row) => row.handle === ctx.handle)
+      )
+        return new AppConflictError({
+          reason: "This account cannot change its handle again.",
+        });
+      const mine = await claimHandle(sql, {
+        userId: ctx.userId,
+        handle: ctx.handle,
+      });
+      if (mine instanceof Error) return mine;
+      if (!mine)
         return new AppConflictError({
           reason: "This handle is already taken.",
         });
-      if (current[0].handle === ctx.handle) return ctx.handle;
-      // The unique constraint arbitrates concurrent claims across processes.
+      if (current[0] === undefined) {
+        const created = await sql.query(
+          "INSERT INTO app_creators (user_id, handle) VALUES ($1, $2)",
+          [ctx.userId, ctx.handle],
+        );
+        if (created instanceof Error) return created;
+        return ctx.handle;
+      }
       const saved = await sql.query(
         "UPDATE app_creators SET handle = $2 WHERE user_id = $1",
         [ctx.userId, ctx.handle],
       );
       if (saved instanceof Error) return saved;
-      const kept = await sql.query(
-        `INSERT INTO app_retired_handles (handle, user_id) VALUES ($1, $2)
-         ON CONFLICT DO NOTHING`,
-        [current[0].handle, ctx.userId],
-      );
-      if (kept instanceof Error) return kept;
       for (const table of ["app_viewer_sessions", "app_handoffs"]) {
         const deleted = await sql.query(
           `DELETE FROM ${table} WHERE handle = $1`,
@@ -839,6 +846,25 @@ export class AppStore {
     }
     return records;
   }
+}
+
+/** Claims a handle for an account; true when the account holds it. */
+async function claimHandle(
+  sql: SqlTransaction,
+  ctx: { userId: string; handle: string },
+) {
+  const inserted = await sql.query(
+    `INSERT INTO app_handle_claims (handle, user_id) VALUES ($1, $2)
+     ON CONFLICT DO NOTHING`,
+    [ctx.handle, ctx.userId],
+  );
+  if (inserted instanceof Error) return inserted;
+  const owner = await sql.query<{ user_id: string }>(
+    "SELECT user_id FROM app_handle_claims WHERE handle = $1",
+    [ctx.handle],
+  );
+  if (owner instanceof Error) return owner;
+  return owner[0]?.user_id === ctx.userId;
 }
 
 function validateHandle(handle: string) {
