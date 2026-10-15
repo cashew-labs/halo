@@ -123,9 +123,11 @@ export class AppConversations {
       },
       streamFn: (model, context, options) => {
         steps.count += 1;
+        // The last step may not call tools, so the model must answer in text.
         return models.streamSimple(model, context, {
           ...options,
           maxTokens: limits.outputTokens,
+          ...(steps.count >= limits.modelSteps ? { toolChoice: "none" } : {}),
         });
       },
       // Stop before a further model request once the step budget is spent.
@@ -146,7 +148,7 @@ export class AppConversations {
       .flatMap((part) => (part.type === "text" ? [part.text] : []))
       .join("")
       .slice(0, limits.replyCharacters);
-    if (agent.state.errorMessage !== undefined && reply === "")
+    if (reply === "")
       return new AppConversationError({
         reason: "The assistant could not reply",
       });

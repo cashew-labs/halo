@@ -38,15 +38,21 @@ Handlers see who is calling in `context.viewer`. `role` is `owner`, `member` (an
 
 ## Add an assistant
 
-Declare `instructions` in `halo.app` to give a published app an assistant. A handler starts or continues a visitor's conversation:
+Every published app can hold assistant conversations with its visitors. `instructions` in `halo.app` tells that assistant what the app is for. A handler starts or continues a visitor's conversation:
 
 ```ts
-chat: os.handler(async ({ input, context }) =>
-  await context.tools.conversation.send({
-    viewerToken: context.viewer.token,
-    message: input.message,
-    conversationId: input.conversationId, // omit to start a new one
-  })),
+chat: os
+  .input(type<{ message: string; conversationId?: string }>())
+  .handler(async ({ input, context }) => {
+    // Only requests that come through Halo carry a viewer token.
+    if (context.viewer.token === undefined) throw new Error("Open this app in Halo");
+    return await context.tools.conversation.send({
+      viewerToken: context.viewer.token,
+      message: input.message,
+      // Omit conversationId to start a new conversation.
+      ...(input.conversationId === undefined ? {} : { conversationId: input.conversationId }),
+    });
+  }),
 ```
 
 `send` returns `{ conversationId, reply }`; `conversation.history({ viewerToken, conversationId })` returns the visible messages. A conversation belongs to the viewer whose request carried the token, so another visitor cannot read it. The assistant can call only the app's bound actions, gets at most 4 model steps and 1024 output tokens per message, and conversations never appear in your Halo sessions. Each app shares 1,000 model requests every 10 minutes across all visitors.
