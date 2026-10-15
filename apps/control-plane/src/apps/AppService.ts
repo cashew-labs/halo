@@ -172,10 +172,7 @@ export class AppService {
         });
       // A lost install reply leaves the copy running before `ready` is
       // recorded, so a frozen app is abandoned only if its VM lacks it.
-      const installed =
-        app.stage === "ready" ? true : await this.installedOnVm(app);
-      if (installed instanceof Error) return installed;
-      if (installed)
+      if (app.stage === "ready" || (await this.installedOnVm(app)))
         return new AppRequestError({
           reason: "The app already runs on its VM; publish it again to finish",
         });
@@ -409,6 +406,12 @@ export class AppService {
 
   /** Restarts the frozen local project and forgets the publication. */
   private async abandon(ctx: { app: AppRecord; owner: HaloClient }) {
+    // Delete the app VM first, so it can never receive the copy later.
+    const removed = await this.provider.remove?.({
+      workspaceId: ctx.app.appId,
+      ownerUserId: ctx.app.ownerUserId,
+    });
+    if (removed instanceof Error) return removed;
     const released = await ctx.owner.extensions
       .release({ id: ctx.app.extensionId, appId: ctx.app.appId })
       .catch(remoteFailure("release"));
@@ -507,13 +510,15 @@ export class AppService {
   }
 
   /** Provisioning returns before the server listens; poll its RPC endpoint. */
-  /** Whether the app's VM already holds its project; an unreachable VM serves no one. */
+  /**
+   * Whether the app's VM answers with its project. A VM that does not answer
+   * serves no visitor; abandoning the publication deletes it.
+   */
   private async installedOnVm(app: AppRecord) {
     const client = await this.appClient(app);
-    if (client === undefined) return false;
-    if (client instanceof Error) return client;
+    if (client === undefined || client instanceof Error) return false;
     const listed = await client.extensions.list().catch(remoteFailure("probe"));
-    if (listed instanceof Error) return listed;
+    if (listed instanceof Error) return false;
     return listed.some((extension) => extension.id === app.extensionId);
   }
 
