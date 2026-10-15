@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "Each extension build now gets a persistent 512M npm cache volume. Before each build, `trim_cache` empties it when less than a quarter is free; it removes symlinks without following them, and `rmtree` cannot be redirected by links. The timeout budget is now stop 40 s + exec 180 s (build killed at 150 s) + start 60 s (readiness waits up to 30 s) = 280 s, under the 300 s upstream fetch header timeout. That resolves F1, and `trim_cache` resolves F2. The temp tests check the cache mount, the trim threshold on both sides, safe handling of symlinks, the 5 s readiness probe within the 30 s window, and the new build timeouts; all pass and every changed executable line is covered.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "09fd99742dd6f0b37769a3c6c4d910f2de287723",
+  "treeHash": "e4b22fa15d484ea3d612cbb4891c7a255ca2a427",
+  "codeTree": "17e0a647221e4092d61b284a7c0072748b7fb8ef",
+  "coverage": {
+    "executable": 19,
+    "covered": 19,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-15T15:30:02.779Z"
+}

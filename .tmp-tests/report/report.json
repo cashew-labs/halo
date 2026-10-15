@@ -1,0 +1,149 @@
+{
+  "baseRef": "origin/main",
+  "baseSha": "f44e77a19034389ee38ece213e0276cce29a83ac",
+  "headSha": "09fd99742dd6f0b37769a3c6c4d910f2de287723",
+  "treeHash": "e4b22fa15d484ea3d612cbb4891c7a255ca2a427",
+  "generatedAt": "2026-10-15T15:29:06.832Z",
+  "runs": {
+    "durable": {
+      "tier": "durable",
+      "testFiles": [],
+      "skipped": true,
+      "runners": [],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 0,
+      "log": ".tmp-tests/report/durable.log",
+      "lcovFiles": []
+    },
+    "tmp": {
+      "tier": "tmp",
+      "testFiles": [
+        "infra/workspace/.tmp-tests/__pycache__/appHostRun.test.cpython-312.pyc",
+        "infra/workspace/.tmp-tests/appHostRun.test.py",
+        "packages/workspace-server/src/extensions/.tmp-tests/sandboxProtocol.test.ts"
+      ],
+      "skipped": false,
+      "runners": [
+        {
+          "runner": "command",
+          "dir": ".",
+          "testFiles": [
+            "infra/workspace/.tmp-tests/appHostRun.test.py"
+          ],
+          "exitCode": 0
+        },
+        {
+          "runner": "vitest",
+          "dir": ".",
+          "testFiles": [
+            "packages/workspace-server/src/extensions/.tmp-tests/sandboxProtocol.test.ts"
+          ],
+          "exitCode": 0
+        }
+      ],
+      "unmatched": [
+        "infra/workspace/.tmp-tests/__pycache__/appHostRun.test.cpython-312.pyc"
+      ],
+      "exitCode": 0,
+      "durationMs": 41571,
+      "log": ".tmp-tests/report/tmp.log",
+      "lcovFiles": [
+        "tmp/python-tests/lcov.info",
+        "../../../halo/.git/worktrees/ess-fix-cache/code-review-agent/coverage/tmp-1/vitest-0/lcov.info"
+      ]
+    }
+  },
+  "durableTestFiles": [],
+  "tmpTestFiles": [
+    "infra/workspace/.tmp-tests/__pycache__/appHostRun.test.cpython-312.pyc",
+    "infra/workspace/.tmp-tests/appHostRun.test.py",
+    "packages/workspace-server/src/extensions/.tmp-tests/sandboxProtocol.test.ts"
+  ],
+  "files": [
+    {
+      "path": "infra/workspace/appHost.py",
+      "loaded": true,
+      "changed": [
+        9,
+        266,
+        267,
+        270,
+        288,
+        289,
+        290,
+        291,
+        294,
+        295,
+        296,
+        297,
+        298,
+        299,
+        300,
+        301,
+        302,
+        303,
+        304,
+        305,
+        306,
+        307,
+        326,
+        327,
+        330,
+        334
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [
+        9,
+        267,
+        270,
+        289,
+        290,
+        291,
+        294,
+        296,
+        297,
+        298,
+        299,
+        301,
+        302,
+        304,
+        307,
+        326,
+        327,
+        330,
+        334
+      ],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "packages/workspace-server/src/extensions/AppSandbox.ts",
+      "loaded": true,
+      "changed": [
+        140,
+        141,
+        142,
+        143,
+        144,
+        145,
+        146,
+        147,
+        148,
+        149
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    }
+  ],
+  "totals": {
+    "executable": 19,
+    "coveredDurable": 0,
+    "coveredTmpOnly": 19,
+    "uncovered": 0,
+    "exempt": 0
+  },
+  "passed": true
+}

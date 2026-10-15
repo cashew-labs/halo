@@ -1,0 +1,41 @@
+{
+  "status": "changes_requested",
+  "summary": "The change gives each extension build a persistent npm cache on its own 512M quota volume, doubles the build kill timeout to 240 s, and raises the AppSandbox exec socket timeout to 270 s. Temp tests pass and cover every changed line, and the argument builders are checked properly. I am requesting changes for two reasons. First, the new timeouts do not fit the 300 s upstream budget that the change's own comment depends on. Second, the persistent cache has a hard size limit but nothing ever removes old entries.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "source",
+      "file": "packages/workspace-server/src/extensions/AppSandbox.ts",
+      "line": 141,
+      "severity": "P1",
+      "body": "The comment says this timeout keeps the request under the 300 s fetch header timeout upstream, but `sandbox.execute` is only one step of `ExtensionHost.executeProject` (ExtensionHost.ts:456-477). That method first calls `running.stop()` (a supervisor request with a 40 s timeout), then exec (270 s), then `startUnqueued` (a `/start` request with a 40 s timeout, and `run_app` waits up to 15 s for readiness), then publishes. The control plane's `execSource` call (AppService.ts:294 and the template copy at :596) and the CLI → workspace server → control plane forwarding all wait for that whole chain. The exec timeout plus the start timeout alone exceed 300 s. Exec can also wait on the supervisor's global lock, which a demo-instance `/start` can hold, before its 240 s build begins. In that case the 270 s client timeout fires while the build is still running, and the following `/start` waits for the same lock. The upstream request then times out, and a template copy fails with a 'build' error even though the VM finishes. Size the timeouts so that stop + exec + restart + hop overhead stays under 300 s, for example a shorter build kill. Or move the build out of the synchronous request. At minimum, fix the comment so it does not claim a guarantee the code lacks."
+    },
+    {
+      "id": "F2",
+      "kind": "source",
+      "file": "infra/workspace/appHost.py",
+      "line": 287,
+      "severity": "P1",
+      "body": "The npm cache was on a 32 MB tmpfs that was cleared after every build. It is now a persistent 512M ext4 volume (`volume(..., size='512M')`) that grows with every new tarball, and nothing ever removes entries: npm does not evict from its cache automatically, and the supervisor never trims, verifies, or recreates the volume. As dependencies change over time, an extension's cache fills the quota. From then on, every `npm install` for that extension fails with ENOSPC. The cause is hidden from the owner and persists across builds, so the template-copy build (`npm install ... && npm run build`) also breaks. Add a recovery path: for example, clear or recreate the cache volume before the build when usage passes a threshold, or retry once with an empty cache after a failed build. Also add a temp test for that path."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "infra/workspace/appHost.py execute(): behavior when the build-cache volume is near or at its quota",
+      "tier": "tmp",
+      "rationale": "Whatever eviction or reset is added for F2 needs a test showing that a full cache does not block later builds."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "467322b1b7ee3ebba39b92485e7670f4e3d5ce12",
+  "treeHash": "93efba9883f599b3bff5561746ef0a82fbeec388",
+  "codeTree": "1e0c4152ddb743f5fe72dd8df1c3457846329a24",
+  "coverage": {
+    "executable": 7,
+    "covered": 7,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-15T15:23:36.792Z"
+}

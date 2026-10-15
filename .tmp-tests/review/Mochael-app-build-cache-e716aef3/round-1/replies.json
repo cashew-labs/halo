@@ -1,0 +1,10 @@
+[
+  {
+    "findingId": "F1",
+    "reply": "Fixed: builds are killed at 150 s, exec waits 180 s and start 60 s, so stop (40) + exec (180) + start (60) = 280 s stays under the 300 s fetch header timeout; the comment states that budget."
+  },
+  {
+    "findingId": "F2",
+    "reply": "Fixed: trim_cache empties the volume before a build when under 25% is free, without following links; temp tests cover full, roomy and symlinked caches."
+  }
+]
