@@ -1,0 +1,22 @@
+[
+  {
+    "findingId": "F1",
+    "reply": "Fixed: the temp Vitest config now sets coverage.include to packages/web/src and a 30 s timeout, and the web tests flag the act environment; all three sidebar states are still checked."
+  },
+  {
+    "findingId": "F2",
+    "reply": "Fixed: the temp Vitest config now sets coverage.include to packages/web/src and a 30 s timeout, and the web tests flag the act environment; all three sidebar states are still checked."
+  },
+  {
+    "findingId": "F3",
+    "reply": "Fixed: with no recorded failure and no request pending, the tab says publishing has not finished and offers Publish again and Keep it local; tested."
+  },
+  {
+    "findingId": "F4",
+    "reply": "Fixed: a publishAgain error shows unless the refreshed app carries a newer recorded failure (compared by the failedAt captured at request time, not clocks); the Share dialog does the same. Tested in both."
+  },
+  {
+    "findingId": "F5",
+    "reply": "Fixed: detail asserts the raw provisioning error, and a refused freeze (AppRequestError that deletes the record) is covered, leaving no failure behind."
+  }
+]
