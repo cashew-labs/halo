@@ -96,6 +96,10 @@ export class AppStore {
     const statements = [
       `CREATE TABLE IF NOT EXISTS app_creators (
         user_id TEXT PRIMARY KEY, handle TEXT NOT NULL UNIQUE)`,
+      // A creator host is one browser origin, so a handle released by a
+      // rename stays reserved for its previous owner.
+      `CREATE TABLE IF NOT EXISTS app_retired_handles (
+        handle TEXT PRIMARY KEY, user_id TEXT NOT NULL)`,
       `CREATE TABLE IF NOT EXISTS apps (
         app_id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL,
         extension_id TEXT NOT NULL, slug TEXT NOT NULL, display_name TEXT NOT NULL,
@@ -165,6 +169,12 @@ export class AppStore {
       for (let suffix = 1; suffix < 100; suffix += 1) {
         const handle = suffix === 1 ? prefix : `${prefix}-${suffix}`;
         if (reservedHandles.has(handle)) continue;
+        const retired = await sql.query(
+          "SELECT 1 FROM app_retired_handles WHERE handle = $1 AND user_id <> $2",
+          [handle, ctx.userId],
+        );
+        if (retired instanceof Error) return retired;
+        if (retired.length > 0) continue;
         const inserted = await sql.query<{ handle: string }>(
           `INSERT INTO app_creators (user_id, handle) VALUES ($1, $2)
            ON CONFLICT DO NOTHING RETURNING handle`,
@@ -187,11 +197,12 @@ export class AppStore {
     const invalid = validateHandle(ctx.handle);
     if (invalid !== undefined) return { available: false, reason: invalid };
     const rows = await this.database.query<{ user_id: string }>(
-      "SELECT user_id FROM app_creators WHERE handle = $1",
+      `SELECT user_id FROM app_creators WHERE handle = $1
+       UNION ALL SELECT user_id FROM app_retired_handles WHERE handle = $1`,
       [ctx.handle],
     );
     if (rows instanceof Error) return rows;
-    const available = rows.length === 0 || rows[0]?.user_id === ctx.userId;
+    const available = rows.every((row) => row.user_id === ctx.userId);
     return {
       available,
       reason: available ? undefined : "This handle is already taken.",
@@ -202,6 +213,15 @@ export class AppStore {
     const invalid = validateHandle(ctx.handle);
     if (invalid !== undefined) return new AppConflictError({ reason: invalid });
     const result = await this.database.transaction(async (sql) => {
+      const retired = await sql.query(
+        "SELECT 1 FROM app_retired_handles WHERE handle = $1 AND user_id <> $2",
+        [ctx.handle, ctx.userId],
+      );
+      if (retired instanceof Error) return retired;
+      if (retired.length > 0)
+        return new AppConflictError({
+          reason: "This handle is already taken.",
+        });
       const initialized = await sql.query(
         `INSERT INTO app_creators (user_id, handle) VALUES ($1, $2)
          ON CONFLICT DO NOTHING`,
@@ -224,6 +244,12 @@ export class AppStore {
         [ctx.userId, ctx.handle],
       );
       if (saved instanceof Error) return saved;
+      const kept = await sql.query(
+        `INSERT INTO app_retired_handles (handle, user_id) VALUES ($1, $2)
+         ON CONFLICT DO NOTHING`,
+        [current[0].handle, ctx.userId],
+      );
+      if (kept instanceof Error) return kept;
       for (const table of ["app_viewer_sessions", "app_handoffs"]) {
         const deleted = await sql.query(
           `DELETE FROM ${table} WHERE handle = $1`,
@@ -370,8 +396,8 @@ export class AppStore {
         [ctx.handle],
       );
       if (creator instanceof Error) return creator;
-      if (creator.length === 0)
-        return new AppConflictError({ reason: "Creator not found" });
+      // A renamed or unknown creator has no host to sign in to.
+      if (creator.length === 0) return undefined;
       const expired = await sql.query(
         "DELETE FROM app_handoffs WHERE expires_at < $1",
         [now],
@@ -408,8 +434,8 @@ export class AppStore {
         [ctx.handle],
       );
       if (creator instanceof Error) return creator;
-      if (creator.length === 0)
-        return new AppConflictError({ reason: "Creator not found" });
+      // A renamed or unknown creator has no host to sign in to.
+      if (creator.length === 0) return undefined;
       const claimed = await sql.query<{ user_id: string; email: string }>(
         `DELETE FROM app_handoffs
          WHERE code_hash = $1 AND handle = $2 AND state_hash = $3 AND expires_at >= $4

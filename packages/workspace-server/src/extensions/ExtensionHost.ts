@@ -124,7 +124,7 @@ export class ExtensionHost {
   }
 
   async list() {
-    await this.loadRemoteLinks();
+    this.refreshRemoteLinks();
     return await this.actionQueue.run(async () => await this.listUnqueued());
   }
 
@@ -133,7 +133,7 @@ export class ExtensionHost {
       signal === undefined
         ? this.closed.signal
         : AbortSignal.any([signal, this.closed.signal]);
-    await this.loadRemoteLinks();
+    this.refreshRemoteLinks();
     const initial = await this.actionQueue.run(async () => ({
       snapshot: await this.listUnqueued(),
       // Register in the snapshot's queue turn so later changes are buffered.
@@ -145,12 +145,20 @@ export class ExtensionHost {
     yield* updates;
   }
 
+  /** Looks links up without waiting; a changed link publishes a new snapshot. */
+  private refreshRemoteLinks() {
+    void this.loadRemoteLinks().then(async (changed) => {
+      if (changed)
+        await this.actionQueue.run(async () => await this.publishUnqueued());
+    });
+  }
+
   /** Refreshes published apps' current links; failures keep the last known ones. */
   private async loadRemoteLinks() {
-    if (this.remoteApps === undefined) return;
+    if (this.remoteApps === undefined) return false;
     const published = await this.publication.list();
-    if (published instanceof Error) return;
-    if (!published.some((app) => app.state === "remote")) return;
+    if (published instanceof Error) return false;
+    if (!published.some((app) => app.state === "remote")) return false;
     const remote = await this.remoteApps
       .list(undefined, { signal: AbortSignal.timeout(5000) })
       .catch(
@@ -159,10 +167,16 @@ export class ExtensionHost {
       );
     if (remote instanceof Error) {
       this.logger.warn({ event: "extension-links-unavailable", error: remote });
-      return;
+      return false;
     }
-    for (const app of remote)
-      this.remoteLinks.set(app.appId, `${app.url}view/`);
+    let changed = false;
+    for (const app of remote) {
+      const url = `${app.url}view/`;
+      if (this.remoteLinks.get(app.appId) === url) continue;
+      this.remoteLinks.set(app.appId, url);
+      changed = true;
+    }
+    return changed;
   }
 
   private async listUnqueued() {
