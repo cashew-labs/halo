@@ -90,6 +90,18 @@ export class AppDefinitionError extends errore.createTaggedError({
   message: "Cannot publish app: $reason",
 }) {}
 
+// Halo's own tool namespaces manage connections, OAuth and policies; an action
+// may only name an operation of a connected integration.
+const reservedActionNamespaces = new Set([
+  "executor",
+  "halo",
+  "tools",
+  "connections",
+  "policies",
+  "oauth",
+  "integrations",
+]);
+
 // oxlint-disable-next-line anti-slop/no-unknown-parameters -- App manifests are untrusted JSON at this validation boundary.
 export function validateAppDefinition(input: unknown) {
   if (!Value.Check(appDefinitionSchema, input))
@@ -102,7 +114,7 @@ export function validateAppDefinition(input: unknown) {
       (action) =>
         !/^[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_.-]+$/.test(
           action.address,
-        ),
+        ) || reservedActionNamespaces.has(action.address.split(".")[0]!),
     )
   )
     return new AppDefinitionError({
