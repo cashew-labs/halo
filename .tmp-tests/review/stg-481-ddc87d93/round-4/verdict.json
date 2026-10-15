@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change adds app templates. A template stores the app's source and build with sample data. Its demo runs on a separate VM, with one sandboxed instance per visitor; a full demo returns 503 instead of evicting active visitors. A trusted listing page lets signed-in users install a private copy, which is rebuilt in its own build sandbox. F1 through F5 are fixed and tested, all temp tests pass, and every changed line is covered or validly exempt, so the change is ready.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 4,
+  "headSha": "ca10299b5fda1ced23c9e5784606fc3ffc89cc88",
+  "treeHash": "af784742d0b2a3068cd088e2337e195d712c535e",
+  "codeTree": "a8dc2d5acceb0347ebefacd4088aeacd2f75b1bd",
+  "coverage": {
+    "executable": 363,
+    "covered": 338,
+    "exempt": 25,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-15T06:30:14.753Z"
+}
