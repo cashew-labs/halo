@@ -1,0 +1,6 @@
+[
+  {
+    "findingId": "F7",
+    "reply": "fixed: the test takes the independent server fixture and opens, snapshots and closes the browser through it after app.quit()."
+  }
+]

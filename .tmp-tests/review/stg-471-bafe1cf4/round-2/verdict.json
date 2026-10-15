@@ -1,0 +1,61 @@
+{
+  "status": "changes_requested",
+  "summary": "This round fixes all four earlier findings. The workspace browser now sends owner headers on direct extension URLs, unknown roles map to `public`, the deny test checks the policy message, and api.md documents `context.viewer`. The F2 fix introduced two P0 regressions. The owner, reaching their own workspace through the control-plane gateway, is now treated as an anonymous public visitor. Standalone extension servers also treat every viewer as public, so sync writes are refused. Three changed lines are uncovered, and the durable Electron E2E test failed because no X display was available, so it needs a run on a host with a display.",
+  "findings": [
+    {
+      "id": "F5",
+      "kind": "source",
+      "file": "packages/workspace-server/src/extensions/extensionProxy.ts",
+      "line": 158,
+      "severity": "P0",
+      "body": "When a gateway request has no `x-halo-viewer-id`, it now becomes `x-halo-viewer-id: anonymous`, `x-halo-viewer-role: public`. The control plane never sets viewer headers. `apps/control-plane/src/workspace/proxy.ts` `prepareWorkspaceRequest` only deletes them, and it forwards only the authenticated session user's requests to that user's own workspace. Every owner request through the gateway therefore reaches the extension as a public visitor. This includes the web app's iframe at `/workspace/extensions/<id>/view/` (`WebHost.getExtensionFrameUrl`) and remote workspaces reached through the gateway. With the default `read-only` sync, the owner's pushes get FORBIDDEN, and any procedure that follows the new api.md advice (`if (context.viewer.role !== \"owner\") throw`) rejects the owner. The temp test even asserts this outcome (`[{ \"x-halo-viewer-role\": \"owner\" }, { role: \"public\", viewerId: \"anonymous\" }]`). Fix: in the control plane, after stripping, set the verified session identity on owner requests (`x-halo-viewer-id: <user id>`, `x-halo-viewer-role: owner`, and the email). Extend the durable ControlPlane test to assert these forwarded values, and add a test showing that a gateway-proxied owner can push to sync."
+    },
+    {
+      "id": "F6",
+      "kind": "source",
+      "file": "packages/extension-sdk/src/server.ts",
+      "line": 129,
+      "severity": "P0",
+      "body": "The role now defaults to `public` even when the server runs without a host token, which is the standalone mode with no Halo proxy and no viewer headers. `runExtension` without `HALO_EXTENSION_SYNC_ACCESS` uses `read-only`, so `canWrite` is false for every standalone client and all Tandem pushes return FORBIDDEN. This breaks the documented standalone preview (`references/access.md`: 'Use a standalone preview ... for write-heavy checks' and the synchronized-records verification steps). It also breaks `packages/extension-tools/test/extension.test.ts`: 'syncs task edits between independent browsers' and 'preserves tasks across a server restart' start `dist/start.mjs --port 0` with no env. Fix: when `args.hostToken` is undefined, no host vouches for identity and the local user is the owner, so set the viewer to owner (or skip the sync gates). Apply the public default only to authenticated hosted requests. Add a test showing that a standalone server, with no host token and no headers, accepts a sync push."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "packages/extension-sdk/src/client.ts:101 — connectExtension returns the error when the sync connection fails for a reason other than FORBIDDEN",
+      "tier": "tmp",
+      "rationale": "Uncovered changed line. It is the branch that keeps real connection failures visible."
+    },
+    {
+      "target": "packages/workspace-server/src/extensions/ExtensionHost.ts:120 — ownerHeadersFor skips extensions whose origin does not match and returns undefined for other origins",
+      "tier": "tmp",
+      "rationale": "Uncovered changed line. The browser must not attach one extension's token to another origin."
+    },
+    {
+      "target": "packages/workspace-server/src/browser/BrowserService.ts:96 — open() returns a BrowserError when page.route fails",
+      "tier": "tmp",
+      "rationale": "Uncovered error path. Add a test or a coverage-exempt reason."
+    },
+    {
+      "target": "Standalone serveExtension without hostToken accepts a sync push and reports the owner viewer (F6)",
+      "tier": "tmp",
+      "rationale": "Shows the standalone preview regression is fixed."
+    },
+    {
+      "target": "Control-plane gateway forwards the authenticated owner's identity, and the extension sees role owner (F5)",
+      "tier": "durable",
+      "rationale": "Guards the owner-identity invariant across the gateway. Extend the existing durable ControlPlane test."
+    }
+  ],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "ce6ef167c741032601d944b20920777d837d3cbe",
+  "treeHash": "4fcb9876865b094d3f0c54419075eded24f07316",
+  "codeTree": "ec66dcee55ba333e3782ca5b74a1bccfa1b3dd9e",
+  "coverage": {
+    "executable": 91,
+    "covered": 88,
+    "exempt": 0,
+    "uncovered": 3
+  },
+  "createdAt": "2026-10-15T05:43:31.681Z"
+}

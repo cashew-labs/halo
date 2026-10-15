@@ -1,0 +1,67 @@
+{
+  "status": "changes_requested",
+  "summary": "I'm requesting changes. The change makes hosted extension processes require a per-process host token, adds viewer identity headers to the workspace proxy, adds read/write gates to sync, blocks management tools for extensions, and strips forged identity headers at the control-plane gateway. Two problems block approval. First, the host token breaks the direct extension URL that `halo extension list` returns: agents are told to open that URL, and an existing Electron E2E test fetches it, so both now get 401. Second, an unrecognised viewer role is treated as owner. Smaller issues: one temp test is too weak to show the deny check runs, and api.md is out of date. The durable run also failed: three ControlPlane tests failed because the `workspace-server/dist/codeExecutor.worker.js` build output is missing, which this change did not cause. The coverage gate also reports `proxy.ts` 280-283 as never loaded, even though the new durable test drives that path. Both runs need to pass after a build.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "source",
+      "file": "packages/workspace-server/src/extensions/ExtensionHost.ts",
+      "line": 97,
+      "severity": "P0",
+      "body": "`ExtensionSummary.url` still returns the extension process's direct loopback URL (`http://127.0.0.1:<port>/view/`). After this change the SDK server answers every request without `x-halo-extension-token` with 401 (`packages/extension-sdk/src/server.ts:109-121`), and the temp test confirms `fetch(extension.url)` now returns 401. That URL is the supported access surface for agents. `halo extension list` prints it, and the halo-extension skill tells agents to open it with `halo browser open` and use it to verify hosted workflows (`references/access.md` lines 7, 13-18, 75; `references/lifecycle.md:24`; `SKILL.md:69`). So agent inspection and verification of hosted extensions now fail. `apps/electron/e2e/extensions.e2e.test.ts:12-18` also breaks, because it opens and fetches `extension.url` directly and expects success. Fix: make `list()` publish a URL that goes through the authenticated `/extensions/<id>/view/` proxy, or give the Halo browser a way to attach the host token. Then update the skill docs and the E2E test to match."
+    },
+    {
+      "id": "F2",
+      "kind": "source",
+      "file": "packages/extension-sdk/src/server.ts",
+      "line": 127,
+      "severity": "P1",
+      "body": "Viewer roles fail open. Any `x-halo-viewer-role` value other than exactly `member` or `public` (for example `visitor`, `Public`, an empty string, or a comma-joined duplicate) becomes `owner`. Owner grants full sync read/write and owner identity to API procedures. The workspace proxy also forwards any gateway-supplied role string unchanged (`extensionProxy.ts:147-155`) and fills a missing id with `owner`. For this new access-control boundary, an unrecognised role should map to the least-privileged role (`public`), or the request should be rejected. The proxy should check the role against the allowed set before forwarding it. Only an explicit `owner` value, or a non-gateway local request, should yield owner."
+    },
+    {
+      "id": "F3",
+      "kind": "test",
+      "file": "packages/workspace-server/src/extensions/.tmp-tests/hostSecurity.test.ts",
+      "line": 39,
+      "severity": "P1",
+      "body": "`expect(await api.manage()).toMatchObject({ ok: false })` does not show that `authorizeExtensionTool` ran in `extensionsRouter.ts:39-40`. `halo.removeConnection` for a connection that doesn't exist (`notion/default`) would also return `ok: false` with no policy at all. The SDK client also discards the denial reason: every thrown RPC error becomes `{ code: 'tool_invocation_failed', message: \"Could not call Halo tool '...'\" }` (`packages/extension-sdk/src/tools.ts`). The test needs to tell a policy denial apart from an ordinary failure. Either assert something unique to the router path (for example, call `/extension-tools` invoke directly with the extension's token and assert the 400 and the `ExtensionToolDeniedError` message), or return a structured `tool_blocked` ToolResult from the router and assert that code."
+    },
+    {
+      "id": "F4",
+      "kind": "source",
+      "file": "packages/workspace-server/src/extensions/skills/halo-extension/references/api.md",
+      "line": 12,
+      "severity": "P1",
+      "body": "The skill reference still documents `ExtensionContext` as `{ tools: ExtensionTools }`. This change adds `viewer` (with the `owner`/`member`/`public` role) and `storage`. Extension authors need `viewer` to protect procedures, because sync gating does not cover API procedures. Update this reference so agents writing extensions know `context.viewer` exists and must be checked for non-owner access."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "packages/workspace-server/src/extensions/extensionsRouter.ts:39-40 — a denied path is rejected by the router policy, not by an ordinary tool failure",
+      "tier": "tmp",
+      "rationale": "The current hostSecurity assertion (ok: false) passes even without the policy."
+    },
+    {
+      "target": "Running extensions listed by `extensions.list()` are reachable at the published URL (through the proxy or with the token)",
+      "tier": "tmp",
+      "rationale": "Shows that the fix for F1 restores the agent access workflow and the extensions.e2e scenario."
+    },
+    {
+      "target": "SDK server and extension proxy map an unknown or malformed x-halo-viewer-role to a non-owner role",
+      "tier": "tmp",
+      "rationale": "Shows that the fix for F2 fails closed."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "195e1d454cf5ed725133bbd96d1075d3151c851b",
+  "treeHash": "4b4ddcde82e630e887e300e95f781b7de77bb74e",
+  "codeTree": "31f1376a695c8da68973c81533b983dbd614ffc0",
+  "coverage": {
+    "executable": 69,
+    "covered": 65,
+    "exempt": 0,
+    "uncovered": 4
+  },
+  "createdAt": "2026-10-15T05:34:46.038Z"
+}

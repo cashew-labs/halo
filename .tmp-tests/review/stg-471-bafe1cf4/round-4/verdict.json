@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "Hosted extensions now need a per-process host token. The workspace proxy forwards checked viewer identity, sync reads and writes are gated by role, extensions cannot call connection or policy management tools, and the control-plane gateway strips forged identity headers. F7 is fixed: the Electron E2E test now uses the independent `server` fixture after `app.quit()`. The durable and temp runs both pass, every changed line is covered or validly exempt, and no earlier finding remains open.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 4,
+  "headSha": "134c78a5eeafd4fe8ca1f00a30f1af64cc9d38d3",
+  "treeHash": "d7414a9f67d4c4df4e915135b5fb4a9191ac2ed5",
+  "codeTree": "db5fa5d076662c0ac8fdbc05c8112299d8bfed36",
+  "coverage": {
+    "executable": 91,
+    "covered": 90,
+    "exempt": 1,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-15T05:53:11.938Z"
+}
