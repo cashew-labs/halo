@@ -183,6 +183,9 @@ and topic publisher policy. Pulumi grants this role before creating the topic,
 and waits for the deployer's push-identity act-as binding before creating the
 authenticated subscription. These permissions belong to the deployment identity,
 not workspace runtime accounts.
+It also needs `roles/iam.roleAdmin` to manage the custom role that lets the
+control plane call Vertex AI models. Pulumi grants this role before creating the
+custom role.
 
 Stopped and suspended workspaces receive the desired metadata before the rollout
 starts or resumes them. The rollout waits for SSH, then verifies readiness as

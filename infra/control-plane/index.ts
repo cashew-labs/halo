@@ -301,14 +301,28 @@ const runtime = new gcp.serviceaccount.Account("control-plane-runtime", {
   displayName: `Halo control plane ${pulumi.getStack()}`,
 });
 // coverage-exempt: Declarative Pulumi IAM resources require cloud credentials and are validated by infra typecheck; no cloud mutation occurs in tests.
-const modelCaller = new gcp.projects.IAMCustomRole("model-caller", {
-  project,
-  // Stacks share the project, and role IDs allow only letters, digits, `_`, and `.`.
-  roleId: `${name.replaceAll("-", "_")}_model_caller`,
-  title: `Halo ${pulumi.getStack()} model caller`,
-  description: "Call Vertex AI models without managing Vertex AI resources.",
-  permissions: ["aiplatform.endpoints.predict"],
-});
+const deploymentRoleAdmin = ownsDeploymentAccess
+  ? [
+      new gcp.projects.IAMMember("deployment-role-admin", {
+        project,
+        role: "roles/iam.roleAdmin",
+        member: `serviceAccount:${deploymentServiceAccount}`,
+      }),
+    ]
+  : [];
+// coverage-exempt: Declarative Pulumi IAM resources require cloud credentials and are validated by infra typecheck; no cloud mutation occurs in tests.
+const modelCaller = new gcp.projects.IAMCustomRole(
+  "model-caller",
+  {
+    project,
+    // Stacks share the project, and role IDs allow only letters, digits, `_`, and `.`.
+    roleId: `${name.replaceAll("-", "_")}_model_caller`,
+    title: `Halo ${pulumi.getStack()} model caller`,
+    description: "Call Vertex AI models without managing Vertex AI resources.",
+    permissions: ["aiplatform.endpoints.predict"],
+  },
+  { dependsOn: deploymentRoleAdmin },
+);
 // coverage-exempt: Declarative Pulumi IAM resources require cloud credentials and are validated by infra typecheck; no cloud mutation occurs in tests.
 const controlPlaneInferenceAccess = new gcp.projects.IAMMember(
   "control-plane-inference",
