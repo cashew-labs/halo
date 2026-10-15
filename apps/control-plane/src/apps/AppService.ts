@@ -170,7 +170,12 @@ export class AppService {
         return new AppRequestError({
           reason: "Published apps are unpublished, not cancelled",
         });
-      if (app.stage === "ready")
+      // A lost install reply leaves the copy running before `ready` is
+      // recorded, so a frozen app is abandoned only if its VM lacks it.
+      const installed =
+        app.stage === "ready" ? true : await this.installedOnVm(app);
+      if (installed instanceof Error) return installed;
+      if (installed)
         return new AppRequestError({
           reason: "The app already runs on its VM; publish it again to finish",
         });
@@ -418,12 +423,12 @@ export class AppService {
     };
     this.publications.set(ownerUserId, entry);
     entry.pending += 1;
-    try {
-      return await entry.queue.run(run);
-    } finally {
+    using cleanup = new errore.DisposableStack();
+    cleanup.defer(() => {
       entry.pending -= 1;
       if (entry.pending === 0) this.publications.delete(ownerUserId);
-    }
+    });
+    return await entry.queue.run(run);
   }
 
   private async owned(ctx: { ownerUserId: string; appId: string }) {
@@ -502,6 +507,16 @@ export class AppService {
   }
 
   /** Provisioning returns before the server listens; poll its RPC endpoint. */
+  /** Whether the app's VM already holds its project; an unreachable VM serves no one. */
+  private async installedOnVm(app: AppRecord) {
+    const client = await this.appClient(app);
+    if (client === undefined) return false;
+    if (client instanceof Error) return client;
+    const listed = await client.extensions.list().catch(remoteFailure("probe"));
+    if (listed instanceof Error) return listed;
+    return listed.some((extension) => extension.id === app.extensionId);
+  }
+
   private async waitForApp(app: AppRecord) {
     const deadline = Date.now() + this.readyTimeoutMs;
     for (;;) {
