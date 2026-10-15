@@ -1,5 +1,4 @@
 import fs from "node:fs/promises";
-import { constants as fsConstants } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import * as errore from "errore";
@@ -105,10 +104,17 @@ export class AppProject {
         if (contents instanceof Error) return contents;
         build.push([file, contents.toString("base64")]);
       }
+      const dataPath = path.join(this.dataDirectory, "tandem.json");
       const data =
         dataOverride !== undefined
           ? dataOverride.contents
-          : await this.readData();
+          : await fs
+              .readFile(dataPath, "utf8")
+              .catch((cause: NodeJS.ErrnoException) =>
+                cause.code === "ENOENT"
+                  ? undefined
+                  : new AppProjectError({ detail: "read app data", cause }),
+              );
       if (data instanceof Error) return data;
       // install() refuses artifacts over the same total, so one limit covers
       // source, assets and build together.
@@ -302,32 +308,6 @@ export class AppProject {
     )
       return new AppProjectError({ detail: `invalid project path ${name}` });
     return path.join(this.directory, name);
-  }
-
-  /** The local app data, never through a link to another file. */
-  private async readData() {
-    const handle = await fs
-      .open(
-        path.join(this.dataDirectory, "tandem.json"),
-        fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW,
-      )
-      .catch((cause: NodeJS.ErrnoException) =>
-        cause.code === "ENOENT"
-          ? undefined
-          : new AppProjectError({ detail: "read app data", cause }),
-      );
-    if (handle === undefined || handle instanceof Error) return handle;
-    await using cleanup = new errore.AsyncDisposableStack();
-    cleanup.defer(async () => await handle.close());
-    const info = await handle.stat().catch(
-      (cause) => new AppProjectError({ detail: "read app data", cause }), // coverage-exempt: fstat of an open descriptor fails only on I/O errors.
-    );
-    if (info instanceof Error) return info;
-    if (!info.isFile())
-      return new AppProjectError({ detail: "app data is not a regular file" });
-    return await handle.readFile("utf8").catch(
-      (cause) => new AppProjectError({ detail: "read app data", cause }), // coverage-exempt: Reading an open regular file fails only on I/O errors.
-    );
   }
 
   private async readFile(name: string, kind: { compiled?: boolean } = {}) {

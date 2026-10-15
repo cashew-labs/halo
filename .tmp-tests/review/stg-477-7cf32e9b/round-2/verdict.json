@@ -1,0 +1,27 @@
+{
+  "status": "changes_requested",
+  "summary": "This change adds published apps: control-plane AppStore and AppService, owner-side publication markers, idempotent app VM installs, owner RPCs, and the `halo app` CLI. The three round-1 findings are fixed. Action addresses now accept the `tools.` prefix (fixed in the base, #471). Cancel now treats an app VM that does not answer as not installed. Abandoning a publication now deletes the app VM through the new `provider.remove`. All test runs pass. The only remaining blocker is the coverage gate: one changed line, the type-only `remove?` member in WorkspaceProviderApi.ts:75, has neither coverage nor an exemption.",
+  "findings": [
+    {
+      "id": "F4",
+      "kind": "source",
+      "file": "apps/control-plane/src/workspace/provider/WorkspaceProviderApi.ts",
+      "line": 75,
+      "severity": "P1",
+      "body": "The coverage gate fails on this line. The coverage report lists the new optional interface member `remove?` as an uncovered executable line, and no test loads the file. It is a type-only declaration, like `hostsSharedApps` at line 43, which already has a `coverage-exempt` comment. Add the same kind of exemption with a reason, for example: \"Type-only optional provider operation, called by AppService.abandon and implemented by ExeWorkspaceProvider.remove\". This lets the gate pass."
+    }
+  ],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "dc36308b09ab0ecb687d97c24288599753d3ce6a",
+  "treeHash": "e0690228360ff63b12bcc39f584b6f07ac0a086b",
+  "codeTree": "295ee4099633458ada17ead45bdb34819935a0f3",
+  "coverage": {
+    "executable": 654,
+    "covered": 608,
+    "exempt": 45,
+    "uncovered": 1
+  },
+  "createdAt": "2026-10-15T07:08:53.219Z"
+}
