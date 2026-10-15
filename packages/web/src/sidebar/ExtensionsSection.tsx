@@ -1,11 +1,12 @@
 import { useEffect, useEffectEvent } from "react";
 import { Text } from "maui";
 import * as MauiIcons from "maui/icons";
-import { CalendarTimer, Puzzle, Bolt } from "maui/icons";
+import { CalendarTimer, Puzzle, Bolt, WarningTriangle } from "maui/icons";
 import { useLocation } from "wouter";
 
 import { useExtensions } from "../api/WorkspaceUpdatesProvider.js";
 import { useDatabaseQuery } from "../database/useDatabaseQuery.js";
+import { useApps } from "../panes/useApps.js";
 import { useExpandSidebar } from "./navigation/NavigationSidebar.js";
 import { SidebarItem } from "./navigation/SidebarItem.js";
 import { SidebarSection } from "./navigation/SidebarSection.js";
@@ -17,6 +18,12 @@ export function ExtensionsSection() {
   const automations = useDatabaseQuery({
     collection: "automations",
     orderBy: { createdAt: "asc", id: "asc" },
+  });
+  // Only a project that is moving to its own server needs the app list.
+  const apps = useApps({
+    enabled: (extensions.data ?? []).some(
+      (extension) => extension.publishing !== undefined,
+    ),
   });
   const expand = useExpandSidebar();
   const [location] = useLocation();
@@ -88,7 +95,21 @@ export function ExtensionsSection() {
                 <Text size="xs" color="lowContrast">
                   Not running
                 </Text>
-              ) : undefined
+              ) : extension.publishing ===
+                undefined ? undefined : apps.data?.some(
+                  (app) =>
+                    app.extensionId === extensionId &&
+                    app.stage !== "live" &&
+                    app.publishFailure !== undefined,
+                ) ? (
+                <span title="Publishing failed">
+                  <WarningTriangle size="sm" aria-label="Publishing failed" />
+                </span>
+              ) : (
+                <Text size="xs" color="lowContrast">
+                  Publishing…
+                </Text>
+              )
             }
             items={owned.map((automation) => (
               <SidebarItem

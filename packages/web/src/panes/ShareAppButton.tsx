@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Dialog, Modal, ModalOverlay } from "react-aria-components";
 import * as errore from "errore";
 import type { AppAccessList, AppSummary } from "@get-halo/client";
@@ -19,6 +19,9 @@ import {
 import { Share } from "maui/icons";
 import { style, useStyles } from "purse-styles";
 import { useApi } from "../api/ApiProvider.js";
+import { useExtensions } from "../api/WorkspaceUpdatesProvider.js";
+import { PublishFailureNotice, usePublishRecovery } from "./PublishRecovery.js";
+import { appsQueryKey, useApps } from "./useApps.js";
 import { paneStyles } from "./paneStyles.js";
 
 class ShareLinkCopyError extends errore.createTaggedError({
@@ -26,7 +29,6 @@ class ShareLinkCopyError extends errore.createTaggedError({
   message: "Could not copy the link",
 }) {}
 
-const appsQueryKey = ["apps"] as const;
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /** Opens sharing for one extension: publish, access, invited people, link. */
@@ -64,11 +66,14 @@ function ShareAppDialog({
 }) {
   const api = useApi();
   const queryClient = useQueryClient();
-  const apps = useQuery({
-    queryKey: appsQueryKey,
-    queryFn: async () => await api.apps.list(),
-  });
+  const apps = useApps();
   const app = apps.data?.find((entry) => entry.extensionId === extensionId);
+  const displayName =
+    useExtensions().data?.find((entry) => entry.id === extensionId)
+      ?.displayName ??
+    app?.displayName ??
+    extensionId;
+  const recovery = usePublishRecovery(app);
   const [access, setAccess] = useState<AppAccessList | undefined>();
   const current: AppAccessList =
     access ??
@@ -81,6 +86,8 @@ function ShareAppDialog({
     mutationFn: async (input: {
       access: AppAccessList;
       published?: boolean;
+      // The failure already on record, to tell a new one from it.
+      failedAt?: number;
     }): Promise<AppSummary> =>
       app === undefined || app.stage !== "live"
         ? await api.apps.publish({ extensionId, access: input.access })
@@ -96,6 +103,9 @@ function ShareAppDialog({
         saved,
       ]);
     },
+    // A failed publish is recorded on the app; reload it to show why.
+    onError: () =>
+      void queryClient.invalidateQueries({ queryKey: appsQueryKey }),
   });
   const copy = useMutation({
     mutationFn: async (url: string) => {
@@ -138,7 +148,15 @@ function ShareAppDialog({
   const changing = save.isPending || apps.isFetching;
   const emptyInvite =
     current.visibility === "invited" && current.members.length === 0;
-  const error = save.error ?? apps.error ?? copy.error;
+  const failure = live ? undefined : app?.publishFailure;
+  // A recorded failure replaces the raw publish error, which names host
+  // details; while the list reloads after a failure, neither is shown yet.
+  const recorded =
+    failure !== undefined && failure.failedAt !== save.variables?.failedAt;
+  const saveError = recorded || apps.isFetching ? undefined : save.error;
+  const error = saveError ?? recovery.error ?? apps.error ?? copy.error;
+  const stalled = app !== undefined && !live;
+  const busy = changing || recovery.pending;
 
   return (
     <ModalOverlay
@@ -262,7 +280,18 @@ function ShareAppDialog({
                     Not shared. Only you can open this app.
                   </p>
                 )}
-                {app !== undefined && !live && (
+                {save.isPending && !live && (
+                  <p className={detail} role="status">
+                    Publishing {displayName}. This can take a minute.
+                  </p>
+                )}
+                {!save.isPending && failure !== undefined && (
+                  <PublishFailureNotice
+                    displayName={displayName}
+                    failure={failure}
+                  />
+                )}
+                {!save.isPending && stalled && failure === undefined && (
                   <p className={detail} role="status">
                     Publishing is not finished. Publish again to continue.
                   </p>
@@ -307,12 +336,30 @@ function ShareAppDialog({
                   {app.published ? "Stop sharing" : "Share again"}
                 </Button>
               )}
+              {stalled && !save.isPending && (
+                <Button
+                  variant="quiet"
+                  isDisabled={busy}
+                  onPress={recovery.keepLocal}
+                >
+                  Keep it local
+                </Button>
+              )}
               {apps.isSuccess && !live && (
                 <Button
-                  isDisabled={changing || emptyInvite}
-                  onPress={() => save.mutate({ access: current })}
+                  isDisabled={busy || emptyInvite}
+                  onPress={() =>
+                    save.mutate({
+                      access: current,
+                      failedAt: failure?.failedAt,
+                    })
+                  }
                 >
-                  {save.isPending ? "Publishing…" : "Publish"}
+                  {save.isPending
+                    ? "Publishing…"
+                    : stalled
+                      ? "Publish again"
+                      : "Publish"}
                 </Button>
               )}
               {live && changed && (

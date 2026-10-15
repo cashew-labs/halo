@@ -29,6 +29,8 @@ export type AppRecord = {
   credentialGeneration: number;
   installId: string;
   origin: { kind: "demo" | "template"; templateId: string } | undefined;
+  /** The last publish attempt that did not finish, until the app is live. */
+  publishFailure?: { message: string; detail: string; failedAt: number };
 };
 
 type AppRow = {
@@ -46,6 +48,9 @@ type AppRow = {
   install_id: string;
   origin_kind: "demo" | "template" | null;
   template_id: string | null;
+  failure_message: string | null;
+  failure_detail: string | null;
+  failed_at: number | string | null;
 };
 
 type ActionRow = {
@@ -85,7 +90,8 @@ function hash(secret: string) {
 
 const appColumns = `a.app_id, a.owner_user_id, c.handle, a.extension_id, a.slug,
   a.display_name, a.visibility, a.published, a.stage, a.sync_access,
-  a.credential_generation, a.install_id, o.kind AS origin_kind, o.template_id`;
+  a.credential_generation, a.install_id, o.kind AS origin_kind, o.template_id,
+  f.message AS failure_message, f.detail AS failure_detail, f.failed_at`;
 
 /** Durable app ownership, access and fixed action bindings. */
 export class AppStore {
@@ -143,6 +149,10 @@ export class AppStore {
         display_name TEXT NOT NULL, description TEXT NOT NULL,
         artifact TEXT NOT NULL, demo_app_id TEXT NOT NULL,
         ready INTEGER NOT NULL, created_at BIGINT NOT NULL)`,
+      // The last publish attempt that did not finish, shown to the owner.
+      `CREATE TABLE IF NOT EXISTS app_publish_failures (
+        app_id TEXT PRIMARY KEY, message TEXT NOT NULL, detail TEXT NOT NULL,
+        failed_at BIGINT NOT NULL)`,
       `CREATE TABLE IF NOT EXISTS app_actions (
         app_id TEXT NOT NULL, name TEXT NOT NULL, description TEXT NOT NULL,
         address TEXT NOT NULL, arguments TEXT NOT NULL, sample_result TEXT,
@@ -739,10 +749,39 @@ export class AppStore {
     );
   }
 
+  /** Remembers why publishing stopped; an app that no longer exists is skipped. */
+  async recordPublishFailure(ctx: {
+    appId: string;
+    message: string;
+    detail: string;
+  }) {
+    return await this.database.transaction(async (sql) => {
+      const recorded = await sql.query(
+        `INSERT INTO app_publish_failures (app_id, message, detail, failed_at)
+         SELECT app_id, $2, $3, $4 FROM apps WHERE app_id = $1
+         ON CONFLICT (app_id) DO UPDATE SET message = excluded.message,
+           detail = excluded.detail, failed_at = excluded.failed_at`,
+        [ctx.appId, ctx.message, ctx.detail, Date.now()],
+      );
+      if (recorded instanceof Error) return recorded;
+    });
+  }
+
+  async clearPublishFailure(appId: string) {
+    return await this.database.transaction(async (sql) => {
+      const cleared = await sql.query(
+        "DELETE FROM app_publish_failures WHERE app_id = $1",
+        [appId],
+      );
+      if (cleared instanceof Error) return cleared;
+    });
+  }
+
   async delete(appId: string) {
     return await this.database.transaction(async (sql) => {
       for (const table of [
         "app_actions",
+        "app_publish_failures",
         "app_members",
         "app_instructions",
         "app_origins",
@@ -814,6 +853,7 @@ export class AppStore {
       `SELECT ${appColumns} FROM apps a
        JOIN app_creators c ON c.user_id = a.owner_user_id
        LEFT JOIN app_origins o ON o.app_id = a.app_id
+       LEFT JOIN app_publish_failures f ON f.app_id = a.app_id
        WHERE ${where} ORDER BY a.created_at`,
       parameters,
     );
@@ -825,7 +865,7 @@ export class AppStore {
         [row.app_id],
       );
       if (members instanceof Error) return members;
-      records.push({
+      const record: AppRecord = {
         appId: row.app_id,
         ownerUserId: row.owner_user_id,
         handle: row.handle,
@@ -843,7 +883,19 @@ export class AppStore {
           row.origin_kind === null || row.template_id === null
             ? undefined
             : { kind: row.origin_kind, templateId: row.template_id },
-      });
+      };
+      if (
+        row.failure_message !== null &&
+        row.failure_detail !== null &&
+        row.failed_at !== null
+      )
+        record.publishFailure = {
+          message: row.failure_message,
+          detail: row.failure_detail,
+          // Postgres returns BIGINT as a string.
+          failedAt: Number(row.failed_at),
+        };
+      records.push(record);
     }
     return records;
   }
