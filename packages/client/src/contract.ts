@@ -66,6 +66,12 @@ export type ExtensionSummary = {
   displayName: string;
   icon?: string;
 };
+export type ExtensionArtifact = {
+  files: Record<string, string>;
+  assets: Record<string, string>;
+  build: Record<string, string>;
+  data?: string;
+};
 export type BrowserSnapshot = {
   url: string;
   title: string;
@@ -137,6 +143,21 @@ export const contract = publicProcedure.router({
     watch: oc.output(asyncIteratorObject(type<ExtensionSummary[]>())),
     reload: oc.output(type<void>()),
     restart: oc.input(type<{ id: string }>()).output(type<void>()),
+    snapshot: oc
+      .input(type<{ id: string }>())
+      .output(type<ExtensionArtifact>()),
+    install: oc
+      .input(type<{ id: string; artifact: ExtensionArtifact }>())
+      .output(type<void>()),
+    readSource: oc
+      .input(type<{ id: string; name: string }>())
+      .output(type<string>()),
+    writeSource: oc
+      .input(type<{ id: string; name: string; contents: string }>())
+      .output(type<void>()),
+    execSource: oc
+      .input(type<{ id: string; command: string }>())
+      .output(type<{ output: string; exitCode: number }>()),
   },
   workspace: {
     get: oc.output(type<WorkspaceInfo>()),

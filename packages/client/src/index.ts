@@ -47,6 +47,7 @@ export {
   type HaloClient,
   type ConnectionStarted,
   type ExtensionSummary,
+  type ExtensionArtifact, // coverage-exempt: Type-only public export; behavior is covered through the workspace RPC.
   type WorkspaceUpdate,
   type BrowserSnapshot,
   type BrowserExecution,

@@ -11,11 +11,25 @@ import { Stream } from "@get-halo/shared/Stream";
 import { SerialQueue } from "@get-halo/shared/SerialQueue";
 import { readExtensionManifest } from "./readExtensionManifest.js";
 import { startExtension, type ExtensionRuntime } from "./startExtension.js";
+import { AppSandbox, AppSandboxError } from "./AppSandbox.js";
+import { AppProject, AppProjectError } from "./AppProject.js";
+import type { ExtensionArtifact } from "@get-halo/client";
+import { Type } from "@sinclair/typebox";
+import { Value } from "@sinclair/typebox/value";
 
-type RunningExtension = Exclude<
-  Awaited<ReturnType<typeof startExtension>>,
-  Error
->;
+export type SharedAppRuntime = {
+  appId: string;
+  extensionId: string;
+  syncAccess: "read-only" | "shared" | "actions";
+};
+
+type RunningExtension = {
+  id: string;
+  url: string;
+  hostToken: string;
+  isRunning(): boolean;
+  stop(): Promise<void | Error>;
+};
 
 class ExtensionNotRunningError extends errore.createTaggedError({
   name: "ExtensionNotRunningError",
@@ -45,6 +59,8 @@ export class ExtensionHost {
   private readonly filesystem: FilesystemService;
   private readonly logger: Logger;
   private readonly runtime: ExtensionRuntime;
+  private readonly sharedApp: SharedAppRuntime | undefined;
+  private readonly sandbox: AppSandbox | undefined;
 
   constructor(ctx: {
     workspaceRoot: string;
@@ -52,6 +68,7 @@ export class ExtensionHost {
     filesystem: FilesystemService;
     logger: Logger;
     runtime: ExtensionRuntime;
+    sharedApp?: SharedAppRuntime;
   }) {
     const { workspaceRoot, toolsOrigin, filesystem, logger, runtime } = ctx;
     this.workspaceRoot = workspaceRoot;
@@ -59,6 +76,11 @@ export class ExtensionHost {
     this.filesystem = filesystem;
     this.logger = logger;
     this.runtime = runtime;
+    this.sharedApp = ctx.sharedApp;
+    this.sandbox =
+      runtime.sandbox === undefined
+        ? undefined
+        : new AppSandbox(runtime.sandbox);
   }
 
   async list() {
@@ -126,6 +148,131 @@ export class ExtensionHost {
     }
   }
 
+  isSharedApp(extensionId: string) {
+    return this.sharedApp?.extensionId === extensionId;
+  }
+
+  async snapshotProject(extensionId: string) {
+    return await this.actionQueue.run(async () => {
+      const project = this.project(extensionId);
+      if (project instanceof Error) return project;
+      const running = this.processes.get(extensionId);
+      const stopped = await running?.stop();
+      if (stopped instanceof Error) return stopped;
+      this.processes.delete(extensionId);
+      this.removeToolConnection(extensionId);
+      const captured =
+        this.isSharedApp(extensionId) && this.sandbox !== undefined
+          ? await this.sandbox.snapshot(extensionId)
+          : undefined;
+      const snapshot =
+        captured instanceof Error
+          ? captured
+          : await project.snapshot(
+              this.isSharedApp(extensionId)
+                ? { contents: captured }
+                : undefined,
+            );
+      // A failed restart must not discard the captured project.
+      const restarted =
+        running === undefined
+          ? undefined
+          : await this.startUnqueued(extensionId);
+      await this.publishUnqueued();
+      if (restarted instanceof Error)
+        this.logger.warn({
+          event: "extension-snapshot-restart-failed",
+          extensionId,
+          error: restarted,
+        });
+      return snapshot;
+    });
+  }
+
+  async installProject(ctx: {
+    extensionId: string;
+    artifact: ExtensionArtifact;
+  }) {
+    return await this.actionQueue.run(async () => {
+      if (!this.isSharedApp(ctx.extensionId))
+        return new AppProjectError({
+          detail: "installation requires a dedicated app VM",
+        });
+      const project = this.project(ctx.extensionId);
+      if (project instanceof Error) return project;
+      const installed = await project.install(ctx.artifact);
+      if (installed instanceof Error) return installed;
+      const started = await this.startUnqueued(ctx.extensionId);
+      await this.publishUnqueued();
+      return started;
+    });
+  }
+
+  async readSource(ctx: { extensionId: string; name: string }) {
+    return await this.actionQueue.run(async () => {
+      if (!this.isSharedApp(ctx.extensionId))
+        return new AppProjectError({
+          detail: "remote editing requires a dedicated app VM",
+        });
+      const project = this.project(ctx.extensionId);
+      if (project instanceof Error) return project;
+      return await project.read(ctx.name);
+    });
+  }
+
+  async writeSource(ctx: {
+    extensionId: string;
+    name: string;
+    contents: string;
+  }) {
+    return await this.actionQueue.run(async () => {
+      if (!this.isSharedApp(ctx.extensionId))
+        return new AppProjectError({
+          detail: "remote editing requires a dedicated app VM",
+        });
+      const project = this.project(ctx.extensionId);
+      if (project instanceof Error) return project;
+      return await project.write(ctx);
+    });
+  }
+
+  async executeProject(ctx: { extensionId: string; command: string }) {
+    return await this.actionQueue.run(async () => {
+      if (!this.isSharedApp(ctx.extensionId) || this.sandbox === undefined)
+        return new AppProjectError({
+          detail: "remote commands require a dedicated app VM",
+        });
+      if (!Value.Check(Type.String({ maxLength: 8_192 }), ctx.command))
+        return new AppProjectError({ detail: "invalid remote command" });
+      const running = this.processes.get(ctx.extensionId);
+      const stopped = await running?.stop();
+      if (stopped instanceof Error) return stopped;
+      this.processes.delete(ctx.extensionId);
+      this.removeToolConnection(ctx.extensionId);
+      const executed = await this.sandbox.execute(ctx);
+      const restarted = await this.startUnqueued(ctx.extensionId);
+      await this.publishUnqueued();
+      // Build output explains most restart failures, so keep it.
+      if (executed instanceof Error || !(restarted instanceof Error))
+        return executed;
+      return {
+        ...executed,
+        output: `${executed.output}\nThe app did not restart: ${restarted.message}`,
+      };
+    });
+  }
+
+  private project(extensionId: string) {
+    if (
+      !Value.Check(
+        Type.String({ pattern: "^[a-z][a-z0-9-]{0,79}$" }),
+        extensionId,
+      )
+    )
+      return new AppProjectError({ detail: "invalid extension ID" });
+    return new AppProject({ workspaceRoot: this.workspaceRoot, extensionId });
+  }
+
   getConnection(id: string) {
     const extension = this.processes.get(id);
     if (extension === undefined || !extension.isRunning()) return undefined;
@@ -174,6 +321,8 @@ export class ExtensionHost {
           : entries.filter(
               (item) =>
                 item.isDirectory() &&
+                (this.sharedApp === undefined ||
+                  item.name === this.sharedApp.extensionId) &&
                 !item.name.startsWith(".") &&
                 this.filesystem.exists(
                   join(directory, item.name, "package.json"),
@@ -236,16 +385,33 @@ export class ExtensionHost {
     const token = randomUUID();
     this.toolTokens.set(`Bearer ${token}`, id);
     const hostToken = randomUUID();
-    const extension = await startExtension({
-      id,
-      workspaceRoot: this.workspaceRoot,
-      directory: join(this.workspaceRoot, ".halo", "extensions", id),
-      dataDirectory: join(this.workspaceRoot, ".halo", "extension-data", id),
-      runtime: this.runtime,
-      logger: this.logger,
-      tools: { origin: this.toolsOrigin, token },
-      hostToken,
-    });
+    const extension = this.isSharedApp(id)
+      ? this.sandbox === undefined
+        ? new AppSandboxError({
+            operation: "shared apps require an OS sandbox",
+          })
+        : await this.sandbox.start({
+            extensionId: id,
+            brokerPort: Number(new URL(this.toolsOrigin).port),
+            toolToken: token,
+            hostToken,
+            syncAccess: this.sharedApp!.syncAccess,
+          })
+      : await startExtension({
+          id,
+          workspaceRoot: this.workspaceRoot,
+          directory: join(this.workspaceRoot, ".halo", "extensions", id),
+          dataDirectory: join(
+            this.workspaceRoot,
+            ".halo",
+            "extension-data",
+            id,
+          ),
+          runtime: this.runtime,
+          logger: this.logger,
+          tools: { origin: this.toolsOrigin, token },
+          hostToken,
+        });
     if (extension instanceof Error) {
       this.removeToolConnection(id);
       return extension;
