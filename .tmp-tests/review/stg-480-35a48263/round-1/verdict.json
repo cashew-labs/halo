@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The Copy link button in the tab bar is replaced by a Share dialog. In the dialog the owner can publish the app, choose public or invited access, manage the invited people, stop or resume sharing, and copy the live link. A remote, published app no longer loads in the tab's iframe. The tab shows a notice and a link that opens the app in the browser, where useExternalLinks routes it. The logic matches the apps contract and the server's access schema. The temp tests check publish, update, unpublish, copy, retry and empty-invite behavior against the API calls. All changed lines are covered, except the trivial PaneWorkspace swap, whose exemption I accept. The change is ready.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "3f0e5361ec176e34e8370f64ae20914218a36ee2",
+  "treeHash": "f362ff8b2d5f787b6c65b21887576939722f6dee",
+  "codeTree": "18deae3fefa7e5f0217c187bf7e575ad9cb6d933",
+  "coverage": {
+    "executable": 66,
+    "covered": 64,
+    "exempt": 2,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-15T06:10:31.629Z"
+}

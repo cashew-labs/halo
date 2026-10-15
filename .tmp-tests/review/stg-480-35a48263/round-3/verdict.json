@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "Since round 2, Stop sharing and Share again send the app's saved access, not the unsaved draft, and Share again is disabled only when the saved access is invited with nobody invited. The updated temp tests confirm that Share again sends the saved invited list while an unsaved public draft is pending, and that an app saved as invited with nobody invited cannot be shared again. All changed lines are covered or exempt (PaneWorkspace swap, accepted earlier), and the change is ready.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 3,
+  "headSha": "966dfa550946e30ab942e944a81eb394a3224c8a",
+  "treeHash": "6502ce36a2d1d25743e84614efbb018776a0192e",
+  "codeTree": "3bdd0115259defa97279b89ea7c9706f56928ddd",
+  "coverage": {
+    "executable": 67,
+    "covered": 65,
+    "exempt": 2,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-15T09:19:23.832Z"
+}
