@@ -72,7 +72,7 @@ export interface WorkspaceProviderApi {
   resume?: (input: WorkspaceProviderInput) => Promise<void | Error>;
 
   /** Delete an app VM that never went live; absent when unsupported. */
-  remove?: (input: WorkspaceProviderInput) => Promise<void | Error>;
+  remove?: (input: WorkspaceProviderInput) => Promise<void | Error>; // coverage-exempt: Type-only optional provider operation, called by AppService.abandon and implemented by ExeWorkspaceProvider.remove.
 
   /** Repair a running workspace's guest clock before time-sensitive work. */
   synchronizeClock?: (input: WorkspaceProviderInput) => Promise<void | Error>;
