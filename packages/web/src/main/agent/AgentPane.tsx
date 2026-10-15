@@ -804,7 +804,9 @@ function SessionViewRow({
     item.kind === "user" && item.pending
       ? styles.pendingUserMessage
       : undefined,
+    onWithdraw === undefined ? undefined : styles.withdrawableUserMessage,
   );
+  const queuedMessageAction = useStyles(styles.queuedMessageAction);
   const body = useStyles(styles.messageBody);
   const assistantRow = useStyles(styles.assistantRow);
   const assistantMessage = useStyles(styles.assistantMessage);
@@ -827,23 +829,25 @@ function SessionViewRow({
   if (item.kind === "user") {
     return (
       <div className={userRow}>
-        {onWithdraw === undefined ? undefined : (
-          <Tooltip content="Remove from queue and move to draft">
-            <Button
-              variant="quiet"
-              aria-label="Move queued message to draft"
-              isDisabled={queueDisabled}
-              onClick={onWithdraw}
-            >
-              <Close size="sm" aria-hidden="true" />
-            </Button>
-          </Tooltip>
-        )}
         <article
           className={userMessage}
           aria-label="You message"
           aria-busy={item.pending}
         >
+          {onWithdraw === undefined ? undefined : (
+            <span className={queuedMessageAction}>
+              <Tooltip content="Remove from queue and move to draft">
+                <Button
+                  variant="quiet"
+                  aria-label="Move queued message to draft"
+                  isDisabled={queueDisabled}
+                  onClick={onWithdraw}
+                >
+                  <Close size="sm" aria-hidden="true" />
+                </Button>
+              </Tooltip>
+            </span>
+          )}
           {item.text.length > 0 ? (
             <div className={body} data-find-segment={item.id}>
               <MessageContent>{item.text}</MessageContent>
@@ -1123,12 +1127,19 @@ const styles = {
     },
   ),
   userMessage: style(radius.xl, spacing.padding({ x: 6, y: 3 }), {
+    position: "relative",
     width: "fit-content",
     maxWidth: "80%",
     minWidth: 0,
     backgroundColor: colors.gray[3],
   }),
   pendingUserMessage: style({ opacity: 0.6 }),
+  withdrawableUserMessage: style(spacing.padding({ right: 16 })),
+  queuedMessageAction: style({
+    position: "absolute",
+    top: 2,
+    right: 2,
+  }),
   assistantRow: style(flex({ direction: "column", gap: 6 }), {
     minWidth: 0,
     width: "100%",
@@ -1138,9 +1149,12 @@ const styles = {
     maxWidth: "none",
     width: "100%",
   }),
-  interruption: style(text({ size: "sm", color: "lowContrast" }), {
-    alignSelf: "flex-end",
-  }),
+  interruption: style(
+    text({ size: "sm", fontWeight: 700, color: "lowContrast" }),
+    {
+      alignSelf: "flex-end",
+    },
+  ),
   messageBody: style(
     text({ size: "md", fontWeight: 400, color: "highContrast" }),
     {
