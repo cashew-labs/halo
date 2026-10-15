@@ -294,6 +294,14 @@ export class AppService {
       return new AppRequestError({
         reason: "App actions run only their fixed request",
       });
+    // Demos never reach anyone's connections; they replay the sample result
+    // without spending the action budget.
+    if (ctx.app.origin?.kind === "demo")
+      return {
+        status: "completed" as const,
+        // oxlint-disable-next-line unicorn/no-null -- A missing sample result is JSON null.
+        result: action.sampleResult ?? null,
+      };
     const allowed = await this.store.consume({
       appId: ctx.app.appId,
       kind: "action",
@@ -302,13 +310,6 @@ export class AppService {
     });
     if (allowed instanceof Error) return allowed;
     if (!allowed) return new AppLimitError();
-    // Demos never reach anyone's connections; they replay the sample result.
-    if (ctx.app.origin?.kind === "demo")
-      return {
-        status: "completed" as const,
-        // oxlint-disable-next-line unicorn/no-null -- A missing sample result is JSON null.
-        result: action.sampleResult ?? null,
-      };
     // coverage-exempt: Actions can be bound only when integrations are configured.
     if (this.integrations === undefined)
       return new AppRequestError({
@@ -363,6 +364,11 @@ export class AppService {
     if (ctx.slug.length > 58)
       return new AppRequestError({
         reason: "Template names can have at most 58 characters",
+      });
+    // demo-<slug> paths belong to demos, so a template name cannot start so.
+    if (ctx.slug.startsWith("demo-"))
+      return new AppRequestError({
+        reason: "Template names cannot start with demo-",
       });
     return await this.serialize(ctx.ownerUserId, async () => {
       const app = await this.owned(ctx);
