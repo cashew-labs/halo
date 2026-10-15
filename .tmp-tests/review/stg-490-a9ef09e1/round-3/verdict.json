@@ -1,0 +1,43 @@
+{
+  "status": "changes_requested",
+  "summary": "The change adds viewing, checking and renaming of creator handles. F5 and F6 are fixed: the temp tier now passes, and `app_handle_claims` (keyed by handle) settles concurrent claims, keeps released handles for their owner and limits each account to 20 handles. The one remaining blocker is coverage: AppStore.ts lines 189, 193-194 and 276 are uncovered and have no exemption. These lines handle creator rows that have no claim.",
+  "findings": [
+    {
+      "id": "F7",
+      "kind": "test",
+      "file": "apps/control-plane/src/apps/AppStore.ts",
+      "line": 276,
+      "severity": "P1",
+      "body": "Four changed lines have no test and no exemption, so the coverage gate fails. Line 276 maps a unique violation on `app_creators.handle` to \"This handle is already taken.\" Lines 189 and 193-194 are ensureHandle's fallback when the creator insert does nothing. On SQLite both paths run when an `app_creators` row has no matching `app_handle_claims` row. Such a row can come from data written before the backfill, or by an older instance during a rolling deploy. Add a temp test that inserts such a row directly. It should check that another account's renameHandle to that handle returns the \"already taken\" AppConflictError (line 276), and that ensureHandle for an email with that prefix skips it (lines 189, 193-194). The same test should check that initialize() back-fills a claim for a creator row that existed before it ran. The current test re-runs initialize but never checks a real back-fill. While writing it, decide whether ensureHandle should keep the claim it just inserted when the creator insert fails (line 187 continues the loop). As written, the claim stays with the new account while another account still uses that handle."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "apps/control-plane/src/apps/AppStore.ts:276 (unique-violation mapping in renameHandle)",
+      "tier": "tmp",
+      "rationale": "Insert an app_creators row with no claim, then rename another account to that handle; expect AppConflictError \"This handle is already taken.\""
+    },
+    {
+      "target": "apps/control-plane/src/apps/AppStore.ts:189,193-194 (ensureHandle fallback when the creator insert does nothing)",
+      "tier": "tmp",
+      "rationale": "With an unclaimed creator row holding the email prefix, ensureHandle must skip it and return the next suffix."
+    },
+    {
+      "target": "AppStore.initialize back-fill (line 107-108)",
+      "tier": "tmp",
+      "rationale": "Create a creator row before initialize() runs, then check that checkHandle reports the handle as taken by that creator."
+    }
+  ],
+  "tierChanges": [],
+  "round": 3,
+  "headSha": "8e7b4e4323b377b8a8520a9e8aca9f371a1ce952",
+  "treeHash": "1184dbcddcd40ce66eec7926ad80a5e0a83853a4",
+  "codeTree": "0748e6d797610761644c7a42edfa82530e7d926a",
+  "coverage": {
+    "executable": 147,
+    "covered": 141,
+    "exempt": 2,
+    "uncovered": 4
+  },
+  "createdAt": "2026-10-15T07:45:34.429Z"
+}

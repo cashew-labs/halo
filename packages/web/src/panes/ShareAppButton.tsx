@@ -134,8 +134,6 @@ function ShareAppDialog({
     setEmail("");
   };
   // An invited app needs at least one person besides the owner.
-  // A cached list may be stale while it refetches; never change access from it.
-  const changing = save.isPending || apps.isFetching;
   const emptyInvite =
     current.visibility === "invited" && current.members.length === 0;
   const error = save.error ?? apps.error ?? copy.error;
@@ -286,7 +284,7 @@ function ShareAppDialog({
               {live && (
                 <Button
                   variant="quiet"
-                  isDisabled={changing || (!app.published && emptyInvite)}
+                  isDisabled={save.isPending || (!app.published && emptyInvite)}
                   onPress={() =>
                     save.mutate({ access: current, published: !app.published })
                   }
@@ -296,7 +294,7 @@ function ShareAppDialog({
               )}
               {apps.isSuccess && !live && (
                 <Button
-                  isDisabled={changing || emptyInvite}
+                  isDisabled={save.isPending || emptyInvite}
                   onPress={() => save.mutate({ access: current })}
                 >
                   {save.isPending ? "Publishing…" : "Publish"}
@@ -304,7 +302,7 @@ function ShareAppDialog({
               )}
               {live && changed && (
                 <Button
-                  isDisabled={changing || emptyInvite}
+                  isDisabled={save.isPending || emptyInvite}
                   onPress={() => save.mutate({ access: current })}
                 >
                   Save
