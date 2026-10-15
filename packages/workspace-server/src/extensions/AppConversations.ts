@@ -145,12 +145,20 @@ export class AppConversations {
     );
     if (prompted instanceof Error) return prompted;
     const messages = agent.state.messages;
-    const last = messages.findLast((message) => message.role === "assistant");
+    // Only this turn's answer counts; a failed model request must not resurface
+    // an earlier reply.
+    const last = messages
+      .slice(history?.length ?? 0)
+      .findLast((message) => message.role === "assistant");
     const reply = (last?.role === "assistant" ? last.content : [])
       .flatMap((part) => (part.type === "text" ? [part.text] : []))
       .join("")
       .slice(0, limits.replyCharacters);
-    if (reply === "")
+    if (
+      agent.state.errorMessage !== undefined ||
+      last?.role !== "assistant" ||
+      reply === ""
+    )
       return new AppConversationError({
         reason: "The assistant could not reply",
       });
@@ -158,14 +166,24 @@ export class AppConversations {
       (message) => message.role !== "system",
     );
     // Keep whole turns: a tool result whose call was trimmed away would make
-    // every later model request invalid. The latest turn is always kept, even
-    // when its tool calls alone exceed the bound.
+    // every later model request invalid. A turn longer than the bound keeps
+    // only its question and final answer, so the next request still fits.
     const turns = conversation.flatMap((message, index) =>
       message.role === "user" ? [index] : [],
     );
+    const latest = turns.at(-1) ?? 0;
     const bound = conversation.length - limits.storedMessages;
-    const start = turns.find((index) => index >= bound) ?? turns.at(-1) ?? 0;
-    const saved = await this.write(file, conversation.slice(start));
+    const kept =
+      latest < bound
+        ? [
+            conversation[latest]!,
+            {
+              ...last,
+              content: last.content.filter((part) => part.type === "text"),
+            },
+          ]
+        : conversation.slice(turns.find((index) => index >= bound) ?? latest);
+    const saved = await this.write(file, kept);
     if (saved instanceof Error) return saved;
     return { conversationId, reply };
   }
