@@ -6,5 +6,6 @@ export type {
   ExtensionContext,
   ExtensionTools,
   ExtensionToolResult,
+  ExtensionViewer,
 } from "./tools.js";
 export const os = baseOs.$context<ExtensionContext>();

@@ -1,6 +1,8 @@
 import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
 import * as errore from "errore";
+import type { AnySchema, AnyRelations } from "@tanishqkancharla/tandem-core";
+import type { TandemServer } from "@tanishqkancharla/tandem-server";
 
 export type ExtensionToolResult<Data = unknown> =
   | {
@@ -32,7 +34,16 @@ export type ExtensionTools = {
   readonly [segment: string]: ExtensionTools;
 } & ((input: ExtensionToolInput) => Promise<ExtensionToolResult>);
 
-export type ExtensionContext = { tools: ExtensionTools };
+export type ExtensionViewer = {
+  viewerId: string;
+  role: "owner" | "member" | "public";
+  email?: string;
+};
+export type ExtensionContext = {
+  tools: ExtensionTools;
+  viewer: ExtensionViewer;
+  storage: TandemServer<AnySchema, AnyRelations<AnySchema>>;
+};
 
 class ExtensionToolConnectionError extends errore.createTaggedError({
   name: "ExtensionToolConnectionError",

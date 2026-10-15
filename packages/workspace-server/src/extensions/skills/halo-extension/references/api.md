@@ -9,7 +9,8 @@
 - `os`: an oRPC builder whose default context is `ExtensionContext`.
 - `type`: oRPC's type-only contract helper for typed inputs and outputs.
 - `Type`: TypeBox's runtime schema builder.
-- `ExtensionContext`: `{ tools: ExtensionTools }`.
+- `ExtensionContext`: `{ tools, viewer, storage }`. `viewer` is `{ viewerId, role, email? }` with `role` `"owner"`, `"member"` or `"public"`; `storage` is the app's Tandem server store.
+- `ExtensionViewer`: the type of `context.viewer`.
 - `ExtensionTools`: the callable, path-based Halo tool client type.
 - `ExtensionToolResult<Data>`: the success or failure result returned by a Halo tool.
 
@@ -35,6 +36,15 @@ The browser client mirrors the object:
 ```ts
 const greeting = await api.greeting();
 const { timestamp } = await api.clock.now();
+```
+
+Sync rules do not protect API procedures. When other people can open the app, check `context.viewer.role` in every procedure that reads private data or changes anything:
+
+```ts
+remove: os.handler(({ context }) => {
+  if (context.viewer.role !== "owner") throw new Error("Only the owner can remove notes");
+  // ...
+}),
 ```
 
 Return JSON-serializable values from handlers. Keep Node-only packages and secrets in `api.ts`; do not import them into `view.tsx`.

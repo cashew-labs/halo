@@ -113,10 +113,26 @@ export class ExtensionHost {
     return id;
   }
 
-  getOrigin(id: string) {
+  /** Owner headers for the workspace's own browser on a running extension's direct URL. */
+  ownerHeadersFor(origin: string) {
+    for (const extension of this.processes.values()) {
+      if (!extension.isRunning() || new URL(extension.url).origin !== origin)
+        continue;
+      return {
+        "x-halo-extension-token": extension.hostToken,
+        "x-halo-viewer-id": "owner",
+        "x-halo-viewer-role": "owner",
+      };
+    }
+  }
+
+  getConnection(id: string) {
     const extension = this.processes.get(id);
     if (extension === undefined || !extension.isRunning()) return undefined;
-    return new URL(extension.url).origin;
+    return {
+      origin: new URL(extension.url).origin,
+      hostToken: extension.hostToken,
+    };
   }
 
   async stop() {
@@ -219,6 +235,7 @@ export class ExtensionHost {
     this.removeToolConnection(id);
     const token = randomUUID();
     this.toolTokens.set(`Bearer ${token}`, id);
+    const hostToken = randomUUID();
     const extension = await startExtension({
       id,
       workspaceRoot: this.workspaceRoot,
@@ -227,6 +244,7 @@ export class ExtensionHost {
       runtime: this.runtime,
       logger: this.logger,
       tools: { origin: this.toolsOrigin, token },
+      hostToken,
     });
     if (extension instanceof Error) {
       this.removeToolConnection(id);

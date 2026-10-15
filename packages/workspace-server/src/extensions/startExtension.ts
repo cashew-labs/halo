@@ -32,6 +32,7 @@ export async function startExtension(args: {
   runtime: ExtensionRuntime;
   logger: Logger;
   tools: { origin: string; token: string };
+  hostToken: string;
 }) {
   const child = errore.try({
     try: () =>
@@ -45,6 +46,7 @@ export async function startExtension(args: {
             PATH: workspaceExecutablePath(args.workspaceRoot),
             HALO_EXTENSION_TOOLS_ORIGIN: args.tools.origin,
             HALO_EXTENSION_TOOLS_TOKEN: args.tools.token,
+            HALO_EXTENSION_HOST_TOKEN: args.hostToken,
             ELECTRON_RUN_AS_NODE: args.runtime.electronRunAsNode
               ? "1"
               : undefined,
@@ -98,6 +100,7 @@ export async function startExtension(args: {
   return {
     id: args.id,
     url,
+    hostToken: args.hostToken,
     isRunning() {
       return child.exitCode === null && child.signalCode === null;
     },

@@ -369,7 +369,9 @@ export class WorkspaceServer {
       runtime: config.extensionRuntime,
     });
     cleanup.defer(async () => await extensions.stop());
-    const browsers = new BrowserService();
+    const browsers = new BrowserService({
+      headersFor: (origin) => extensions.ownerHeadersFor(origin),
+    });
     cleanup.defer(async () => await browsers.shutdown());
     const sessions = new ThreadManager({
       environment: config.environment,
