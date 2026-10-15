@@ -1,0 +1,67 @@
+{
+  "status": "changes_requested",
+  "summary": "The change lets account owners view, check and rename their creator handle. It touches the control-plane RPCs and AppStore, forwards those RPCs through the workspace server, refreshes remote extension links and adds an account-dialog editor. It is not ready. The control-plane temp test fails at setup, which leaves 12 changed AppStore lines uncovered. Released handles can be claimed again by other users. Unknown or renamed handles now return 500 during sign-in, and extension list/watch now waits on a control-plane round trip that can take up to 5 seconds.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "test",
+      "file": "apps/control-plane/src/apps/.tmp-tests/Publisher.test.ts",
+      "line": 9,
+      "severity": "P1",
+      "body": "Both tests fail before they run. `mkdtemp` targets `tmp/publisher-url/db-` without creating the parent directory, so it throws ENOENT (see .tmp-tests/report/tmp.log). As a result the temp run fails, and the AppStore lines these tests are meant to cover stay uncovered: lines 175, 179-180 (handle collision in ensureHandle), line 217 (rename to a handle another user owns, for a user without a row), and lines 368, 372-374, 406 and 410-412 (the creator checks in createHandoff/redeemHandoff). Create the directory first with `mkdir(..., { recursive: true })`, or use `os.tmpdir()`, then rerun."
+    },
+    {
+      "id": "F2",
+      "kind": "source",
+      "file": "apps/control-plane/src/apps/AppStore.ts",
+      "line": 222,
+      "severity": "P1",
+      "body": "A rename frees the old handle at once, and any other user can then claim it through renameHandle or ensureHandle. The temp test does this on purpose: `renameHandle({ userId: \"bob\", handle: old })`. creatorHost.ts defines a creator host as \"one browser origin per creator\", so the new owner's app code would run on the origin where the previous creator's visitors already hold browser state: localStorage, IndexedDB, script-set cookies, registered service workers and the long-lived `visitor` cookie that identifies public visitors. Old links shared by the previous creator, at the same `/<slug>/` paths, would also open the new owner's apps, which enables phishing. Keep released handles reserved, for example in a retired-handles table checked by checkHandle, renameHandle and ensureHandle, or at least reserve them only for the original owner."
+    },
+    {
+      "id": "F3",
+      "kind": "source",
+      "file": "apps/control-plane/src/apps/AppStore.ts",
+      "line": 410,
+      "severity": "P1",
+      "body": "When no creator owns the handle, createHandoff and redeemHandoff now return `AppConflictError(\"Creator not found\")`. Their callers treat any Error as a database outage. AppGateway.redeem logs it and returns 500, and appHandoffHttp does the same for createHandoff. This happens in expected cases: a visitor who started sign-in on the old host just before the owner renamed, or any request to `<unknown>.host/__halo/handoff?code=…` with a handoff cookie. The gateway does not check that the handle exists before calling redeem. Previously these requests returned 400. For an unknown creator, return `undefined` from redeemHandoff so the result stays 400, and return a distinct not-found result from createHandoff that the HTTP handler maps to 404."
+    },
+    {
+      "id": "F4",
+      "kind": "source",
+      "file": "packages/workspace-server/src/extensions/ExtensionHost.ts",
+      "line": 136,
+      "severity": "P1",
+      "body": "`list()` and `watch()` now wait for `loadRemoteLinks()` before they return the first snapshot. On owner workspaces with any remote app, loadRemoteLinks makes a blocking control-plane `apps.list` RPC with a 5-second timeout. watchWorkspace subscribes on every renderer connection, so a slow or unreachable control plane delays the sidebar's initial extension list by up to 5 seconds on every connect and every `extensions.list` call. The lookup also ignores the caller's abort signal. Return the snapshot immediately using cached or stored links, and refresh the links in the background, appending a new snapshot when they change. The refresh can run at startup, after renamePublisher, or periodically."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "AppStore.ts:175-180, 217, 368-374, 406-412 via apps/control-plane/src/apps/.tmp-tests/Publisher.test.ts",
+      "tier": "tmp",
+      "rationale": "Once the temp test's setup is fixed (F1), it must pass and cover the ensureHandle collision path, the rename-to-taken path for a user without a creator row, and the creator checks in createHandoff/redeemHandoff."
+    },
+    {
+      "target": "AppGateway /__halo/handoff on a handle that no longer exists after a rename (AppStore.ts:410-412)",
+      "tier": "tmp",
+      "rationale": "After F3 is fixed, check that redeeming on a renamed or unknown creator host returns 400, not 500."
+    },
+    {
+      "target": "ExtensionHost.list/watch while remoteApps.list hangs (ExtensionHost.ts:127,136)",
+      "tier": "tmp",
+      "rationale": "After F4 is fixed, check that the initial snapshot is returned without waiting for the control-plane link lookup."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "d2c7efd1590f10789a1f4af8a8ea96496387c7b4",
+  "treeHash": "cbb00a9b526f04a07ada79936ae16e69efb0aac4",
+  "codeTree": "f68cbdb93788839e1328e3aa41145de885ff398d",
+  "coverage": {
+    "executable": 120,
+    "covered": 108,
+    "exempt": 0,
+    "uncovered": 12
+  },
+  "createdAt": "2026-10-15T07:28:21.317Z"
+}

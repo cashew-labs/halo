@@ -147,18 +147,10 @@ export class ExtensionHost {
 
   /** Looks links up without waiting; a changed link publishes a new snapshot. */
   private refreshRemoteLinks() {
-    void this.loadRemoteLinks().then(
-      async (changed) => {
-        if (changed)
-          await this.actionQueue.run(async () => await this.publishUnqueued());
-      },
-      // coverage-exempt: loadRemoteLinks returns its failures; this only guards an unexpected rejection.
-      (cause) =>
-        this.logger.warn({
-          event: "extension-links-unavailable",
-          error: cause,
-        }),
-    );
+    void this.loadRemoteLinks().then(async (changed) => {
+      if (changed)
+        await this.actionQueue.run(async () => await this.publishUnqueued());
+    });
   }
 
   /** Refreshes published apps' current links; failures keep the last known ones. */

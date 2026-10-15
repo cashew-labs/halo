@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change lets an account view, check and rename its creator handle. It covers the control plane, workspace-server forwarding with link refresh, and the account-dialog editor. Released handles stay with their owner through the `app_handle_claims` table, and claimHandle now refuses a handle that another account's creator row holds. All earlier findings are fixed, both test tiers pass and the coverage gate passes. I accept the remaining exemptions: on SQLite, transactions run one at a time, so those lines are reachable only when PostgreSQL writers run concurrently.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 4,
+  "headSha": "da43e663252f32bab5572db3163963857d1256aa",
+  "treeHash": "c79878f5568112d272f5852e9f70dce8d779f1f3",
+  "codeTree": "15a8e304f0567da88b5ea95eee6cee022dba3dc5",
+  "coverage": {
+    "executable": 150,
+    "covered": 144,
+    "exempt": 6,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-15T07:51:34.514Z"
+}

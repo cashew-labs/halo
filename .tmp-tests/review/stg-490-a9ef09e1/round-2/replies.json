@@ -1,0 +1,10 @@
+[
+  {
+    "findingId": "F5",
+    "reply": "fixed: the branch is now restacked on the current #481 chain, which includes #478's shared appReturnPath, so the handoff accepts /books/view and / and refuses the quote/angle return; the gateway temp tests pass with this base."
+  },
+  {
+    "findingId": "F6",
+    "reply": "fixed: app_handle_claims (handle PRIMARY KEY, user_id) replaces the retired-handles check. ensureHandle and renameHandle claim with INSERT … ON CONFLICT DO NOTHING and proceed only if the stored owner is this account, so the primary key decides concurrent claims; claims are never deleted, existing creators are back-filled on initialize, and an account holds at most 20. Temp tests: the limit, returning to an own handle, re-initialize keeps claims, plus the earlier reservation cases."
+  }
+]
