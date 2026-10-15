@@ -1,0 +1,70 @@
+{
+  "status": "changes_requested",
+  "summary": "The change records why a publish stopped on the control plane. It also keeps frozen projects listed by the workspace server and shows the failure, with \"Publish again\" and \"Keep it local\", in the Share dialog, the extension tab and the sidebar. The backend logic is sound, but this round cannot be approved. One temp test fails. None of the four changed web files has coverage, because the temp Vitest config sets the root to .tmp-tests. The tab also has two recovery gaps: a stalled publish with no recorded failure offers no actions, and \"Publish again\" errors that are not recorded are not shown.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "test",
+      "file": "packages/web/src/panes/.tmp-tests/extensionsSection.test.tsx",
+      "line": 33,
+      "severity": "P1",
+      "body": "This temp test fails with \"Test timed out in 5000ms\" (see .tmp-tests/report/tmp.log), so the temp run exits 1. Fix the test, or the component, so that it completes. Possible causes are the act environment that is not configured, React Query retrying while the list query toggles `enabled`, or `useDatabaseQuery` returning a new array on each render. The test must still check all three states: no list fetch without a publishing project, \"Publishing…\" for one in progress, and the warning icon for a recorded failure."
+    },
+    {
+      "id": "F2",
+      "kind": "test",
+      "file": "packages/web/src/panes/.tmp-tests/vitest.config.ts",
+      "line": 4,
+      "severity": "P1",
+      "body": "Because this config is in .tmp-tests, Vitest uses that folder as the root. Coverage then does not instrument the sources outside it. The report shows \"no test loaded this file\" for ExtensionView.tsx, PublishFailure.tsx, ShareAppButton.tsx and ExtensionsSection.tsx, so 192 changed lines count as uncovered, although the tests import these files. Set `root` (or `test.root`) to the packages/web directory, or set `coverage.include` to the changed sources, so the web tests count toward coverage."
+    },
+    {
+      "id": "F3",
+      "kind": "source",
+      "file": "packages/web/src/main/ExtensionView.tsx",
+      "line": 96,
+      "severity": "P1",
+      "body": "When the app is not live and has no `publishFailure`, the tab always says \"is being published … paused until publishing finishes\" and gives no action. This happens in expected cases: apps that stalled before this change shipped (they have no failure row), an attempt cut short by a control-plane restart or deploy, and a `recordPublishFailure` that failed (only logged at AppService.ts:205). The project then appears to be publishing forever, here and as \"Publishing…\" in the sidebar, and the owner gets no way to recover. The Share dialog handles this case with \"Publishing is not finished\" and recovery buttons. Show those buttons here as well whenever no publish request is pending, or tell the owner how to finish."
+    },
+    {
+      "id": "F4",
+      "kind": "source",
+      "file": "packages/web/src/panes/PublishFailure.tsx",
+      "line": 48,
+      "severity": "P1",
+      "body": "`error` shows only `keepLocal.error`; any `publishAgain` error is dropped. In the extension tab this is the only feedback channel, and many \"Publish again\" failures are not recorded on the app. Examples are transport or control-plane errors, failures in `ensureHandle`/`create`/`updateAccess`, and AppRequestErrors where `installFrozen` deletes or abandons the record (a refused freeze, or an invalid app). In those cases the button re-enables with no message. In the abandon case the project silently returns to local and the owner never learns why. Show `publishAgain.error` when the refreshed app has no newer recorded failure (for example, compare `failedAt` with the time of the request)."
+    },
+    {
+      "id": "F5",
+      "kind": "test",
+      "file": "apps/control-plane/src/apps/.tmp-tests/publishFailure.test.ts",
+      "line": 14,
+      "severity": "P1",
+      "body": "`detail: expect.stringContaining(\"\")` matches any string, so it does not check that the raw provisioning error is kept for agents. Assert the expected underlying message, for example the AppRemoteError text that the failed ensure produces. Also add a case for the `isAppRequestError` pass-through in `publishFailureMessage` (AppService.ts:1028)."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "packages/web/src/main/ExtensionView.tsx PublishingNotice: an app with stage \"publishing\" and no publishFailure (a stalled publish) shows a way to recover",
+      "tier": "tmp",
+      "rationale": "This covers the F3 fix and the branch that currently gives no actions."
+    },
+    {
+      "target": "packages/web/src/panes/PublishFailure.tsx usePublishRecovery: a publishAgain rejection that records no failure (for example, a network error) is shown in the extension tab",
+      "tier": "tmp",
+      "rationale": "This covers the F4 fix; no current test checks the error path of publishAgain in the tab."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "43458c82c47c176924eceeff01097a37a760b8ce",
+  "treeHash": "032b3ef28cd1b1ff0698cecd6c236319fb1afd20",
+  "codeTree": "f13466a1ed8c4820b760d9ab61a5fa59f85d7666",
+  "coverage": {
+    "executable": 220,
+    "covered": 28,
+    "exempt": 0,
+    "uncovered": 192
+  },
+  "createdAt": "2026-10-15T18:58:13.918Z"
+}

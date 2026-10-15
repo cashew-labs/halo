@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change records why a publish stopped on the control plane and keeps frozen projects listed by the workspace server. It shows the failure, with \"Publish again\" and \"Keep it local\", in the Share dialog, the extension tab and the sidebar. All round-1 findings are fixed: the temp tests pass, every changed line is covered, a stalled publish now offers recovery in the tab, unrecorded \"Publish again\" errors are shown, and the control-plane test checks the raw detail and the refused-freeze path. The change is ready.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "af3eb8020cd8d88919f3784335049b98a2073191",
+  "treeHash": "82c8c2b9e329a8a704a77790c463397d9d5ec553",
+  "codeTree": "39c4d7d89ba2fb61d8afc10607b606eec0e1469a",
+  "coverage": {
+    "executable": 73,
+    "covered": 73,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-15T19:02:39.887Z"
+}

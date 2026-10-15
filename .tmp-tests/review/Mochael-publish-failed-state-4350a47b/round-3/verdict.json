@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "This round moves the shared app-list query into `useApps.ts` and renames the recovery module to `PublishRecovery.tsx`. It also hides an unrecorded \"Publish again\" error while the app list reloads, and shows the \"Publishing…\" status in the Share dialog only for apps that are not live. The logic is unchanged from the approved round 2 apart from those safe refinements. All temp tests pass, every changed line is covered, and no findings remain.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 3,
+  "headSha": "93ddf7e1b7c83271472309dc1f11cbe5890a053f",
+  "treeHash": "894773052380e594c885b180a305cc2a54f3d970",
+  "codeTree": "59981cb63012d4e3c48a2adf57203ac45cdad672",
+  "coverage": {
+    "executable": 74,
+    "covered": 74,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-15T19:12:11.015Z"
+}
