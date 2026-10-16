@@ -1,7 +1,7 @@
 import { PublisherSettings, problemStyle } from "./PublisherSettings.js";
 import { useState } from "react";
 import { Dialog, Modal, ModalOverlay } from "react-aria-components";
-import { Avatar, Button, Flex, flex, spacing, text } from "maui";
+import { Avatar, Button, Flex, Text, flex, spacing, text } from "maui";
 import { style, useStyles } from "purse-styles";
 import { useAccount } from "../Authentication.js";
 import { modalStyle, overlayStyle } from "../ConnectionStatus.js";
@@ -21,8 +21,8 @@ export function AccountButton({ appInfo }: { appInfo?: AppInfo }) {
   const name = useStyles(nameStyle);
   const detail = useStyles(detailStyle);
   const footer = useStyles(footerStyle);
-  const signOutRow = useStyles(signOutRowStyle);
-  const signOutError = useStyles(detailStyle, problemStyle, signOutErrorStyle);
+  const signOutButton = useStyles(signOutStyle);
+  const signOutError = useStyles(detailStyle, problemStyle, paragraphStyle);
   const { user } = session;
   // Google profile images are not loaded: the web app's CSP allows only
   // Halo-hosted images, so both hosts show initials.
@@ -58,28 +58,27 @@ export function AccountButton({ appInfo }: { appInfo?: AppInfo }) {
                 </Flex>
               </div>
               {open && <PublisherSettings onSaving={setSavingPublisher} />}
+              {signingOut.error !== undefined && (
+                <p role="alert" className={signOutError}>
+                  {signingOut.error.message}
+                </p>
+              )}
               <div className={footer}>
                 {appInfo !== undefined && (
-                  <span className={detail} data-testid="app-version">
+                  <Text size="xs" color="lowContrast" data-testid="app-version">
                     {appInfo.development
                       ? "Development build"
                       : `Version ${appInfo.version}`}
-                  </span>
+                  </Text>
                 )}
-                <div className={signOutRow}>
-                  {signingOut.error !== undefined && (
-                    <span role="alert" className={signOutError}>
-                      {signingOut.error.message}
-                    </span>
-                  )}
-                  <Button
-                    isPending={signingOut.pending}
-                    isDisabled={savingPublisher}
-                    onClick={() => void signingOut.run()}
-                  >
-                    {signingOut.pending ? "Signing out…" : "Sign out"}
-                  </Button>
-                </div>
+                <Button
+                  className={signOutButton}
+                  isPending={signingOut.pending}
+                  isDisabled={savingPublisher}
+                  onClick={() => void signingOut.run()}
+                >
+                  {signingOut.pending ? "Signing out…" : "Sign out"}
+                </Button>
               </div>
             </Flex>
           </Dialog>
@@ -115,7 +114,6 @@ const detailStyle = style(text({ size: "xs", color: "lowContrast" }));
 const footerStyle = style(
   flex({ alignItems: "center", justifyContent: "between", gap: 4 }),
 );
-const signOutRowStyle = style(flex({ alignItems: "center", gap: 4 }), {
-  marginLeft: "auto",
-});
-const signOutErrorStyle = style({ textAlign: "right" });
+// Keeps Sign out on the right when no version is shown.
+const signOutStyle = style({ marginLeft: "auto" });
+const paragraphStyle = style({ margin: 0 });

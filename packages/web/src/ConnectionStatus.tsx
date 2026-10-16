@@ -7,6 +7,7 @@ import {
   P,
   backgroundColor,
   colors,
+  focusRing,
   radius,
   shadow,
   spacing,
@@ -204,14 +205,19 @@ function ConnectionAction({
     </>
   );
 }
-const statusStyle = style(text({ size: "lg", fontWeight: 400 }), {
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  padding: 0,
-  minWidth: 24,
-  minHeight: 24,
-});
+const statusStyle = style(
+  text({ size: "lg", fontWeight: 400 }),
+  focusRing(),
+  radius.sm,
+  {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 0,
+    minWidth: 24,
+    minHeight: 24,
+  },
+);
 export const overlayStyle = style({
   position: "fixed",
   inset: 0,

@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Flex, TextField, colors, flex, text } from "maui";
+import { Button, Flex, Text, TextField, colors, flex, text } from "maui";
 import { style, useStyles } from "purse-styles";
 import { useAuthenticatedUserId } from "../Authentication.js";
 import { useApi } from "../api/ApiProvider.js";
@@ -15,7 +15,6 @@ export function PublisherSettings({
   const userId = useAuthenticatedUserId();
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState<string>();
-  const label = useStyles(labelStyle);
   const hint = useStyles(hintStyle);
   const row = useStyles(rowStyle);
   const problemHint = useStyles(hintStyle, problemStyle);
@@ -92,9 +91,9 @@ export function PublisherSettings({
       }}
     >
       <Flex column gap={2}>
-        <span id="publisher-label" className={label}>
+        <Text id="publisher-label" size="xs" fontWeight={600}>
           Publishing URL
-        </span>
+        </Text>
         {publisher.isPending && (
           <p role="status" className={hint}>
             Loading…
@@ -102,7 +101,7 @@ export function PublisherSettings({
         )}
         {publisher.error != undefined && (
           <div role="alert" className={row}>
-            <span className={problemHint}>{publisher.error.message}</span>
+            <p className={problemHint}>{publisher.error.message}</p>
             <Button variant="quiet" onPress={() => void publisher.refetch()}>
               Retry
             </Button>
@@ -149,7 +148,6 @@ export function PublisherSettings({
   );
 }
 
-const labelStyle = style(text({ size: "xs", fontWeight: 600 }));
 const hintStyle = style(text({ size: "xs", color: "lowContrast" }), {
   margin: 0,
 });
