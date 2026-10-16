@@ -4,7 +4,7 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
 export default defineConfig(({ mode }) => {
-  const bundledDevelopment = mode === "bundled-development";
+  const development = mode === "development";
   return {
     plugins: [react()],
     define: {
@@ -14,16 +14,16 @@ export default defineConfig(({ mode }) => {
       "import.meta.env.VITE_HALO_DEVELOPMENT": mode !== "production",
     },
     build: {
-      minify: false,
+      minify: mode === "production",
       sourcemap: false,
-      rolldownOptions: bundledDevelopment
-        ? undefined
-        : {
+      rolldownOptions: development
+        ? {
             output: {
               minify: false,
               preserveModules: true,
             },
-          },
+          }
+        : undefined,
     },
     optimizeDeps: {
       include: ["maui", "maui/icons"],

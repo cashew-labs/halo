@@ -7,15 +7,9 @@ const rendererPort = process.env.HALO_RENDERER_PORT;
 export default defineConfig({
   plugins: [react()],
   build: {
-    minify: false,
+    minify: true,
     // code-review-agent builds with REVIEW_COVERAGE=1 to map coverage back to src/.
     sourcemap: process.env.REVIEW_COVERAGE === "1",
-    rolldownOptions: {
-      output: {
-        minify: false,
-        preserveModules: true,
-      },
-    },
   },
   resolve: {
     alias: {
