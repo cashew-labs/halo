@@ -433,6 +433,7 @@ e2eTest(
       .click();
     const pane = app.page.getByRole("main", { name: "New session" });
     const editor = pane.getByLabel("Message", { exact: true });
+    await expect(editor).toBeFocused();
     await editor.fill("Compare @brief");
     await pane.getByRole("option", { name: /brief.md/ }).click();
     await expect(pane.getByRole("list", { name: "References" })).toContainText(
