@@ -2,7 +2,7 @@ import { useContext as useReactContext } from "react";
 import { IncompatibleServerError } from "@get-halo/client";
 import type { ControlPlaneSession } from "@get-halo/shared/controlPlaneContract";
 import { ConnectionPage } from "./ConnectionPage.js";
-import { Button } from "maui";
+import { Button, P, Prose } from "maui";
 import {
   createContext,
   useContext,
@@ -15,6 +15,7 @@ import { LoadingPage } from "./LoadingPage.tsx";
 import { LandingPage } from "./LandingPage.js";
 import { NewsletterStatusPage } from "./NewsletterStatusPage.js";
 import { SignInPage } from "./SignInPage.tsx";
+import { FullscreenPage } from "./FullscreenPage.js";
 
 type AuthenticationState =
   | { status: "checking" }
@@ -98,19 +99,26 @@ export function Authentication({ children }: { children: ReactElement }) {
     if (window.location.pathname === "/newsletter/joined")
       return <NewsletterStatusPage status="joined" />;
   }
-  if (state.status === "checking") return <LoadingPage />;
+  if (state.status === "checking")
+    return <LoadingPage progressLabel="Loading Halo" />;
   if (state.status === "unavailable")
-    return (
-      <>
-        {state.error instanceof IncompatibleServerError ? (
-          <ConnectionPage status="incompatible" error={state.error} />
-        ) : (
-          <p>Halo cannot reach its sign-in service. Retrying automatically.</p>
-        )}
+    return state.error instanceof IncompatibleServerError ? (
+      <ConnectionPage
+        error={state.error}
+        onRetry={() => setAttempt((value) => value + 1)}
+      />
+    ) : (
+      <FullscreenPage>
+        <Prose size="sm">
+          <P>
+            Couldn't check your sign-in status. Try again or wait for Halo to
+            retry.
+          </P>
+        </Prose>
         <Button onClick={() => setAttempt((value) => value + 1)}>
-          Retry now
+          Try again
         </Button>
-      </>
+      </FullscreenPage>
     );
   if (state.status === "signedIn")
     return (
@@ -140,7 +148,7 @@ export function Authentication({ children }: { children: ReactElement }) {
       console.warn(session);
       setState({
         status: "signedOut",
-        error: "Halo couldn't sign you in. Try again.",
+        error: "Couldn't sign in with Google. Try again.",
       });
       return;
     }

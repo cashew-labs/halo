@@ -1,15 +1,5 @@
 import { confirmRestart } from "./confirmRestart.js";
-import {
-  Button,
-  Flex,
-  H1,
-  P,
-  backgroundColor,
-  colors,
-  radius,
-  shadow,
-  spacing,
-} from "maui";
+import { Button, Flex, P, Prose, spacing, text } from "maui";
 import { style, useStyles } from "purse-styles";
 import { useCallback } from "react";
 import { useAsyncData } from "./useAsyncData.js";
@@ -17,69 +7,48 @@ import { useAsyncAction } from "./useAsyncAction.js";
 import type { IncompatibleServerError } from "@get-halo/client";
 import type { AppInfo } from "./HostApi.js";
 import { useHost } from "./HostProvider.js";
+import { FullscreenPage } from "./FullscreenPage.js";
 
 const releasesUrl = "https://github.com/cashew-labs/halo/releases/latest";
 
-type ConnectionPageProps =
-  | { status: "disconnected" | "waiting" }
-  | { status: "incompatible"; error: IncompatibleServerError };
-
-export function ConnectionPage(props: ConnectionPageProps) {
-  const shell = useStyles(styles.shell);
-  const card = useStyles(styles.card);
-
+export function ConnectionPage({
+  error,
+  onRetry,
+}: {
+  error: IncompatibleServerError;
+  onRetry: () => void;
+}) {
   return (
-    <main className={shell}>
-      <section className={card}>
-        {props.status === "incompatible" ? (
-          <IncompatibleConnection error={props.error} />
-        ) : (
-          <Flex column gap={8}>
-            <div>
-              <H1>
-                {props.status === "waiting"
-                  ? "Waiting for your server"
-                  : "Halo disconnected from its server"}
-              </H1>
-              <P>
-                {props.status === "waiting"
-                  ? "Halo will connect when your server is ready."
-                  : "Reload Halo to reconnect."}
-              </P>
-            </div>
-            <Button
-              onClick={() => {
-                if (confirmRestart()) window.location.reload();
-              }}
-            >
-              Reload Halo
-            </Button>
-          </Flex>
-        )}
-      </section>
-    </main>
+    <FullscreenPage>
+      <IncompatibleConnection error={error} onRetry={onRetry} />
+    </FullscreenPage>
   );
 }
 
 export function IncompatibleConnection({
   error,
+  onRetry,
 }: {
   error: IncompatibleServerError;
+  onRetry?: () => void;
 }) {
   const host = useHost();
+  const heading = useStyles(styles.heading);
   if (
     !error.supportedProtocols.every(
       (protocol) => protocol > Number(error.clientProtocolVersion),
     )
   ) {
     return (
-      <Flex column gap={4}>
-        <P>{protocolMismatchMessage(error)}</P>
-        <P>
-          Your server does not support this app yet. Halo will check again
-          automatically. In local development, restart the server from the same
-          checkout as the app.
-        </P>
+      <Flex column gap={12} alignItems="center">
+        <Prose size="sm">
+          <h1 className={heading}>Can't connect to your workspace</h1>
+          <P>
+            Halo's service doesn't support this version of the app. Wait for the
+            service to update, then try again.
+          </P>
+        </Prose>
+        {onRetry && <Button onClick={onRetry}>Try again</Button>}
       </Flex>
     );
   }
@@ -89,12 +58,13 @@ export function IncompatibleConnection({
     host.installAppUpdate === undefined
   ) {
     return (
-      <Flex column gap={8}>
-        <div>
-          <H1>Reload Halo to reconnect</H1>
-          <P>{protocolMismatchMessage(error)}</P>
-          <P>The website may have updated while this page was open.</P>
-        </div>
+      <Flex column gap={12} alignItems="center">
+        <Prose size="sm">
+          <h1 className={heading}>Reload Halo</h1>
+          <P>
+            Halo needs an update to connect. Reload to get the latest version.
+          </P>
+        </Prose>
         <Button
           onClick={() => {
             if (confirmRestart()) window.location.reload();
@@ -112,14 +82,14 @@ export function IncompatibleConnection({
         error.clientProtocolVersion,
         error.supportedProtocols,
       ])}
-      error={error}
+      onRetry={onRetry}
     />
   );
 }
 
-function DesktopUpdate({ error }: { error: IncompatibleServerError }) {
+function DesktopUpdate({ onRetry }: { onRetry?: () => void }) {
   const host = useHost();
-  const status = useStyles(styles.status);
+  const heading = useStyles(styles.heading);
   const actions = useStyles(styles.actions);
   const checkUpdate = useCallback(async () => {
     const result = await host.checkForAppUpdate?.();
@@ -144,68 +114,71 @@ function DesktopUpdate({ error }: { error: IncompatibleServerError }) {
   );
   const update = appInfo.data?.update;
   const queryError = check.error ?? appInfo.error;
-  const actionError = install.error ?? openReleases.error;
   const checking = check.fetching || update?.state === "checking";
 
   return (
-    <Flex column gap={8}>
-      <div>
-        <H1>Update Halo to reconnect</H1>
-        <P>{protocolMismatchMessage(error)}</P>
-      </div>
-      <div className={status} role="status" aria-live="polite">
-        <P>
-          {updateStatusMessage({
-            appInfo: appInfo.data,
-            checking,
-            queryError,
-          })}
-        </P>
-      </div>
-      {actionError && (
-        <div role="alert">
-          <P>Halo could not complete that action. Try again.</P>
+    <Flex column gap={12} alignItems="center">
+      <Prose size="sm">
+        <h1 className={heading}>Update Halo</h1>
+        <P>Halo needs an update to connect to your workspace.</P>
+        <div role="status" aria-live="polite">
+          <P>
+            {updateStatusMessage({
+              appInfo: appInfo.data,
+              checking,
+              queryError,
+            })}
+          </P>
         </div>
-      )}
+        {install.error && (
+          <div role="alert">
+            <P>Couldn't restart Halo to install the update. Try again.</P>
+          </div>
+        )}
+        {openReleases.error && (
+          <div role="alert">
+            <P>Couldn't open the downloads page. Try again.</P>
+          </div>
+        )}
+      </Prose>
       <div className={actions}>
+        {update?.state === "downloaded" && onRetry && (
+          <Button variant="quiet" onClick={onRetry}>
+            Try reconnecting
+          </Button>
+        )}
+        {(update?.state === "disabled" ||
+          update?.state === "error" ||
+          queryError !== undefined) &&
+          host.openExternalUrl !== undefined && (
+            <Button
+              variant={update?.state === "disabled" ? "primary" : "quiet"}
+              isDisabled={openReleases.pending}
+              onClick={() => void openReleases.run()}
+            >
+              View downloads
+            </Button>
+          )}
         {update?.state === "downloaded" ? (
           <Button
             variant="primary"
             isDisabled={install.pending}
             onClick={() => void install.run()}
           >
-            {install.pending
-              ? "Restarting…"
-              : `Restart and install Halo ${update.version}`}
+            {install.pending ? "Restarting" : "Restart and update"}
           </Button>
         ) : update?.state === "available" || checking ? (
           <Button isDisabled>
-            {update?.state === "available"
-              ? "Downloading update…"
-              : "Checking…"}
+            {update?.state === "available" ? "Downloading update" : "Checking"}
           </Button>
         ) : update?.state !== "disabled" ? (
-          <Button onClick={check.refresh}>Check again</Button>
+          <Button variant="primary" onClick={check.refresh}>
+            Check again
+          </Button>
         ) : undefined}
-        {(update?.state === "disabled" ||
-          update?.state === "error" ||
-          queryError !== undefined) &&
-          host.openExternalUrl !== undefined && (
-            <Button
-              variant="quiet"
-              isDisabled={openReleases.pending}
-              onClick={() => void openReleases.run()}
-            >
-              View Halo downloads
-            </Button>
-          )}
       </div>
     </Flex>
   );
-}
-
-function protocolMismatchMessage(error: IncompatibleServerError) {
-  return `This app uses protocol ${error.clientProtocolVersion}, while the ${error.service} API supports protocols ${error.supportedProtocols.join(", ")}.`;
 }
 
 function updateStatusMessage({
@@ -218,46 +191,34 @@ function updateStatusMessage({
   queryError: Error | undefined;
 }) {
   if (queryError !== undefined) {
-    return "Halo could not check for updates. Check your internet connection, then try again.";
+    return "Couldn't check for updates. Check again to retry.";
   }
   if (checking || appInfo === undefined) {
-    return "Checking for a Halo update…";
+    return "Checking for updates";
   }
 
   switch (appInfo.update.state) {
     case "disabled":
-      return `${appInfo.update.reason}. Install the latest Halo release manually, then reopen the app.`;
+      return "Download the latest Halo, then reopen the app.";
     case "idle":
-      return `Halo ${appInfo.version} is the newest published version, but it cannot use this server yet. A compatible update is not available yet; check again shortly.`;
+      return "No Halo update is available yet. Check again later.";
     case "checking":
-      return "Checking for a Halo update…";
+      return "Checking for updates";
     case "available":
-      return "An update is downloading automatically. Keep Halo open; installation will be available when the download finishes.";
+      return "Downloading an update. Keep Halo open.";
     case "downloaded":
-      return `Halo ${appInfo.update.version} is ready. Restart now to install it and reconnect.`;
+      return "Your update is ready. Restart Halo to finish installing it.";
     case "error":
-      return "Halo could not check for updates. Check your internet connection, then try again.";
+      return "The automatic update failed. Check again to retry.";
   }
 }
 
 const styles = {
-  shell: style(spacing.padding({ all: 12 }), {
-    display: "grid",
-    placeItems: "center",
-    minHeight: "var(--halo-window-content-height, 100vh)",
-    backgroundColor: colors.gray[2],
-  }),
-  card: style(shadow.subtle, radius.lg, spacing.padding({ all: 12 }), {
-    width: "min(100%, 440px)",
-    minWidth: 0,
-    backgroundColor: backgroundColor.element,
-  }),
-  status: style(radius.md, spacing.padding({ all: 6 }), {
-    backgroundColor: colors.gray[3],
-  }),
+  heading: style(text({ size: "md", fontWeight: 600 })),
   actions: style({
     display: "flex",
     flexWrap: "wrap",
+    justifyContent: "center",
     gap: spacing.value(3),
   }),
 };

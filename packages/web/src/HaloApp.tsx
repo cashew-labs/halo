@@ -24,11 +24,11 @@ export function HaloApp() {
   const sessions = sessionsQuery.data === undefined ? [] : sessionsQuery.data;
 
   if (workspaceQuery.isPending || workspace === undefined) {
-    return <LoadingPage />;
+    return <LoadingPage progressLabel="Loading your workspace" />;
   }
 
   if (!sessionsQuery.isFetched) {
-    return <LoadingPage />;
+    return <LoadingPage progressLabel="Loading your sessions" />;
   }
 
   return (

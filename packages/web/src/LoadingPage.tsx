@@ -1,44 +1,17 @@
-import { useEffect, useState } from "react";
-import { Thinking } from "maui";
-import { style, useStyles } from "purse-styles";
+import type { ReactNode } from "react";
+import { LoadingScreen } from "maui";
+import { FullscreenPage } from "./FullscreenPage.js";
 
-const SHOW_INDICATOR_AFTER_MS = 2000;
-
-export function LoadingPage() {
-  const [showIndicator, setShowIndicator] = useState(false);
-  const shell = useStyles(styles.shell);
-  const indicator = useStyles(
-    styles.indicator,
-    { transition: "opacity ease-out 0.8s" },
-    showIndicator ? styles.indicatorVisible : undefined,
-  );
-
-  useEffect(() => {
-    const timeout = setTimeout(() => {
-      setShowIndicator(true);
-    }, SHOW_INDICATOR_AFTER_MS);
-    return () => clearTimeout(timeout);
-  }, []);
-
+export function LoadingPage({
+  progressLabel,
+  children,
+}: {
+  progressLabel: string;
+  children?: ReactNode;
+}) {
   return (
-    <main className={shell}>
-      <div className={indicator}>
-        <Thinking size="0.8rem" variant="accent" />
-      </div>
-    </main>
+    <FullscreenPage visual={<LoadingScreen progressLabel={progressLabel} />}>
+      {children}
+    </FullscreenPage>
   );
 }
-
-const styles = {
-  shell: style({
-    display: "grid",
-    placeItems: "center",
-    height: "var(--halo-window-content-height, 100vh)",
-  }),
-  indicator: style({
-    opacity: 0,
-  }),
-  indicatorVisible: style({
-    opacity: 1,
-  }),
-};

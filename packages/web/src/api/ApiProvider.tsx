@@ -20,6 +20,7 @@ import { useHost } from "../HostProvider.js";
 import { ConnectionService } from "./ConnectionService.js";
 import { ConnectionContext, useConnection } from "./ConnectionContext.js";
 import { ConnectionStatus } from "../ConnectionStatus.js";
+import { LoadingPage } from "../LoadingPage.js";
 
 const ApiContext = createContext<HaloClient>(undefined!);
 const workspaceQueryKey = ["workspace"] as const;
@@ -58,18 +59,11 @@ export function ApiProvider({ children }: { children: ReactNode }) {
   return (
     <ConnectionContext value={service}>
       {state.api === undefined ? (
-        <main
-          style={{
-            height: "var(--halo-window-content-height, 100dvh)",
-            display: "flex",
-            flexDirection: "column",
-            justifyContent: "space-between",
-            padding: 24,
-          }}
-        >
-          <p>Waiting for your server. Halo will connect automatically.</p>
-          <ConnectionStatus />
-        </main>
+        <LoadingPage progressLabel="Opening your workspace">
+          {(state.status === "authentication" ||
+            state.status === "incompatible" ||
+            state.status === "offline") && <ConnectionStatus />}
+        </LoadingPage>
       ) : (
         <ApiContext value={state.api}>
           <WorkspaceUpdatesProvider

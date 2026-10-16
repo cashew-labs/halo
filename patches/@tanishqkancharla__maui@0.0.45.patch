@@ -1,0 +1,164 @@
+diff --git a/dist/components/LoadingScreen.js b/dist/components/LoadingScreen.js
+index ed2ec81608e18a35e401d77fac27f4d0d5e3275f..fea742f3280e17ca5000047b9738cbb3434f427a 100644
+--- a/dist/components/LoadingScreen.js
++++ b/dist/components/LoadingScreen.js
+@@ -16,7 +16,7 @@ function resolvedLabel(progressLabel) {
+     return trimmed ? trimmed : undefined;
+ }
+ function progressText(label) {
+-    return label.endsWith("...") || label.endsWith("…") ? label : `${label}...`;
++    return label;
+ }
+ /**
+  * Full-size loading state. A `progressLabel` on the first render fades the
+@@ -86,7 +86,7 @@ const labelSlotClass = style({
+     width: "100%",
+ });
+ const labelClass = style({
+-    paddingTop: spacing.value(8),
++    paddingTop: spacing.value(12),
+     textAlign: "center",
+     maxWidth: "36ch",
+ });
+diff --git adist/components/LogoIcon.d.ts b/dist/components/LogoIcon.d.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..2b0438e6755ebd08efac61d260ea2f75f5a71161
+--- /dev/null
++++ b/dist/components/LogoIcon.d.ts
+@@ -0,0 +1,12 @@
++import { type IconSize } from "../tokens/sizing";
++export type LogoIconProps = {
++    src: string;
++    size?: IconSize;
++    alt?: string;
++};
++/**
++ * Brand artwork in an icon-sized box. Defaults to md (18px, or 24px at Large
++ * scale). Padding is included in the box and scales with it: 2px at 18px.
++ * An empty alt makes the logo decorative; provide alt for standalone images.
++ */
++export declare function LogoIcon({ src, size, alt }: LogoIconProps): import("react").JSX.Element;
+diff --git adist/components/LogoIcon.js b/dist/components/LogoIcon.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..43532f72e7fc41abafcae32e5e2ceea6ddb3f0e8
+--- /dev/null
++++ b/dist/components/LogoIcon.js
+@@ -0,0 +1,19 @@
++import { jsx as _jsx } from "react/jsx-runtime";
++import { style, useStyles } from "purse-styles";
++import { iconSizeValues } from "../tokens/sizing";
++/**
++ * Brand artwork in an icon-sized box. Defaults to md (18px, or 24px at Large
++ * scale). Padding is included in the box and scales with it: 2px at 18px.
++ * An empty alt makes the logo decorative; provide alt for standalone images.
++ */
++export function LogoIcon({ src, size = "md", alt = "" }) {
++    const className = useStyles(logo);
++    const box = iconSizeValues[size];
++    return (_jsx("img", { src: src, alt: alt, "aria-hidden": alt === "" ? true : undefined, className: className, style: { width: box, height: box, padding: `calc(${box} / 9)` } }));
++}
++const logo = style({
++    display: "block",
++    boxSizing: "border-box",
++    objectFit: "contain",
++    flexShrink: 0,
++});
+diff --git a/dist/maui.d.ts b/dist/maui.d.ts
+index 922fa6ff268d16702f415d637f4c8a6f585e4fdb..f582c81a28f0a59b0a5b3d046a2a0342a2d1bb74 100644
+--- a/dist/maui.d.ts
++++ b/dist/maui.d.ts
+@@ -20,6 +20,7 @@ export { prose, proseRhythm, proseHtml, proseStreamingMarkers, type ProseSize, }
+ export { visuallyHidden } from "./tokens/visuallyHidden";
+ export { Avatar } from "./components/Avatar";
+ export { Badge } from "./components/Badge";
++export { LogoIcon, type LogoIconProps } from "./components/LogoIcon";
+ export { Button, useButton, type ButtonCssColor, type ButtonProps, type ButtonSize, type ButtonVariant, type ButtonVariantColor, } from "./components/Button";
+ export { TabBar, type TabBarItem, type TabBarProps, } from "./components/TabBar";
+ export { Checkbox } from "./components/Checkbox";
+diff --git a/dist/maui.js b/dist/maui.js
+index b35de1ab553b85c5d3baea54ca93dc9293d8b2a2..aa1803aaada07c10089bd575dbf442d7143acb31 100644
+--- a/dist/maui.js
++++ b/dist/maui.js
+@@ -23,6 +23,7 @@ export { visuallyHidden } from "./tokens/visuallyHidden";
+ // Components
+ export { Avatar } from "./components/Avatar";
+ export { Badge } from "./components/Badge";
++export { LogoIcon } from "./components/LogoIcon";
+ export { Button, useButton, } from "./components/Button";
+ export { TabBar, } from "./components/TabBar";
+ export { Checkbox } from "./components/Checkbox";
+diff --git a/src/components/LoadingScreen.tsx b/src/components/LoadingScreen.tsx
+index e8ede506f8a1c8d05d8c761655007d11e47cc989..d9792eec12b5831fb3d99c1ff254fb9ad71c927a 100644
+--- a/src/components/LoadingScreen.tsx
++++ b/src/components/LoadingScreen.tsx
+@@ -27,7 +27,7 @@ function resolvedLabel(progressLabel: string | undefined) {
+ }
+ 
+ function progressText(label: string) {
+-	return label.endsWith("...") || label.endsWith("…") ? label : `${label}...`
++	return label
+ }
+ 
+ /**
+@@ -165,7 +165,7 @@ const labelSlotClass = style({
+ })
+ 
+ const labelClass = style({
+-	paddingTop: spacing.value(8),
++	paddingTop: spacing.value(12),
+ 	textAlign: "center",
+ 	maxWidth: "36ch",
+ })
+diff --git asrc/components/LogoIcon.tsx b/src/components/LogoIcon.tsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..d55d9abe96661c74c0169f9a36e8fc4e7aede9fc
+--- /dev/null
++++ b/src/components/LogoIcon.tsx
+@@ -0,0 +1,35 @@
++import { style, useStyles } from "purse-styles"
++import { iconSizeValues, type IconSize } from "../tokens/sizing"
++
++export type LogoIconProps = {
++	src: string
++	size?: IconSize
++	alt?: string
++}
++
++/**
++ * Brand artwork in an icon-sized box. Defaults to md (18px, or 24px at Large
++ * scale). Padding is included in the box and scales with it: 2px at 18px.
++ * An empty alt makes the logo decorative; provide alt for standalone images.
++ */
++export function LogoIcon({ src, size = "md", alt = "" }: LogoIconProps) {
++	const className = useStyles(logo)
++	const box = iconSizeValues[size]
++
++	return (
++		<img
++			src={src}
++			alt={alt}
++			aria-hidden={alt === "" ? true : undefined}
++			className={className}
++			style={{ width: box, height: box, padding: `calc(${box} / 9)` }}
++		/>
++	)
++}
++
++const logo = style({
++	display: "block",
++	boxSizing: "border-box",
++	objectFit: "contain",
++	flexShrink: 0,
++})
+diff --git a/src/maui.ts b/src/maui.ts
+index 4f9b471d848705c1f3d0ac8a4626d70ddb3db5d3..6bd5f288f05a9d22872e3fcda292041ebe87f92d 100644
+--- a/src/maui.ts
++++ b/src/maui.ts
+@@ -56,6 +56,7 @@ export { visuallyHidden } from "./tokens/visuallyHidden"
+ // Components
+ export { Avatar } from "./components/Avatar"
+ export { Badge } from "./components/Badge"
++export { LogoIcon, type LogoIconProps } from "./components/LogoIcon"
+ export {
+ 	Button,
+ 	useButton,
