@@ -175,13 +175,13 @@ function ShareAppDialog({
             <h2 className={heading}>Share app</h2>
             {apps.isPending && <p role="status">Loading…</p>}
             {/* Without the app list, publishing could overwrite existing access. */}
-            {app?.stage === "deleting" && (
+            {app?.stage === "removing" && (
               <p className={detail} role="status">
-                Deletion has started. Run halo app delete {app.appId} to finish
-                removing this app and its data.
+                Removal has started. Run halo app remove {app.appId} to finish
+                removing its VM. The extension stays in this workspace.
               </p>
             )}
-            {apps.isSuccess && app?.stage !== "deleting" && (
+            {apps.isSuccess && app?.stage !== "removing" && (
               <>
                 {!live && (
                   <p className={detail}>
@@ -351,7 +351,7 @@ function ShareAppDialog({
                   Keep it local
                 </Button>
               )}
-              {apps.isSuccess && !live && app?.stage !== "deleting" && (
+              {apps.isSuccess && !live && app?.stage !== "removing" && (
                 <Button
                   isDisabled={busy || emptyInvite}
                   onPress={() =>

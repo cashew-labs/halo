@@ -10,8 +10,8 @@ export class AppConflictError extends errore.createTaggedError({
   message: "$reason",
 }) {}
 
-/** Publication and deletion progress, retained until host cleanup completes. */
-type AppStage = "frozen" | "ready" | "live" | "deleting";
+/** Publication and removal progress, retained until host cleanup completes. */
+type AppStage = "frozen" | "ready" | "live" | "removing";
 type SyncAccess = "read-only" | "shared" | "actions";
 
 export type AppRecord = {
@@ -545,15 +545,15 @@ export class AppStore {
     published?: boolean;
   }) {
     return await this.database.transaction(async (sql) => {
-      // Lock the row before changing members so deletion cannot race access updates.
+      // Lock the row before changing members so removal cannot race access updates.
       const locked = await sql.query(
-        "UPDATE apps SET app_id = app_id WHERE app_id = $1 AND stage <> 'deleting' RETURNING app_id",
+        "UPDATE apps SET app_id = app_id WHERE app_id = $1 AND stage <> 'removing' RETURNING app_id",
         [ctx.appId],
       );
       if (locked instanceof Error) return locked;
       if (locked.length === 0)
         return new AppConflictError({
-          reason: "App is being deleted. Run halo app delete again to finish.",
+          reason: "App is being removed. Run halo app remove again to finish.",
         });
       if (ctx.access !== undefined) {
         const updated = await sql.query(
@@ -787,20 +787,20 @@ export class AppStore {
     });
   }
 
-  /** Claim deletion durably before touching the VM or owner workspace. */
-  async beginDeletion(appId: string) {
+  /** Claim removal durably before touching the VM or owner workspace. */
+  async beginRemoval(appId: string) {
     return await this.database.transaction(async (sql) => {
       const updated = await sql.query(
-        `UPDATE apps SET stage = 'deleting', credential_generation = credential_generation + 1
+        `UPDATE apps SET stage = 'removing', credential_generation = credential_generation + 1
          WHERE app_id = $1 AND stage = 'live' AND published = 0`,
         [appId],
       );
       if (updated instanceof Error) return updated;
       const apps = await this.selectApps(sql, "a.app_id = $1", [appId]);
       if (apps instanceof Error) return apps;
-      if (apps[0]?.stage !== "deleting")
+      if (apps[0]?.stage !== "removing")
         return new AppConflictError({
-          reason: "App changed. Unpublish it before deleting it.",
+          reason: "App changed. Unpublish it before removing it.",
         });
       return apps[0];
     });

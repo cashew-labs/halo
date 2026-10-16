@@ -438,7 +438,7 @@ export const controlPlaneContract = publicProcedure.router({
         ),
       )
       .output(type<void>()),
-    delete: authenticatedProcedure
+    remove: authenticatedProcedure
       .input(
         validated(
           Type.Object({ appId: appIdSchema }, { additionalProperties: false }),

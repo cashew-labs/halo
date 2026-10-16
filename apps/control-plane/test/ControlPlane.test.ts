@@ -5713,13 +5713,23 @@ publicAppTest(
   },
 );
 
-const appDeletionTest = controlPlaneTest.extend<{
+type AppVmRemovalDriver = {
+  failure: Error | undefined;
+  snapshotFailure: boolean;
+  available: boolean;
+  snapshots: number;
+  removed: Set<string>;
+  appIds: Set<string>;
+  origin: string;
+};
+
+const appRemovalTest = controlPlaneTest.extend<{
   removalSupported: boolean;
   publicationComplete: boolean;
   templateDemo: boolean;
   workspaceProvider: WorkspaceProviderApi;
-  vmDeletion: { failure: Error | undefined; removed: Set<string> };
-  appDeletion: {
+  vmRemoval: AppVmRemovalDriver;
+  appRemoval: {
     appId: string;
     backup: string;
     reference: string;
@@ -5730,27 +5740,107 @@ const appDeletionTest = controlPlaneTest.extend<{
   publicationComplete: true,
   templateDemo: false,
   // oxlint-disable-next-line eslint/no-empty-pattern -- Native Vitest fixture signature.
-  vmDeletion: async ({}, use) => {
-    await use({ failure: undefined, removed: new Set() });
+  vmRemoval: async ({}, use) => {
+    const state: AppVmRemovalDriver = {
+      failure: undefined,
+      snapshotFailure: false,
+      available: true,
+      snapshots: 0,
+      removed: new Set<string>(),
+      appIds: new Set<string>(),
+      origin: "",
+    };
+    // The external app-VM RPC boundary supplies its latest frozen artifact.
+    const server = http.createServer((request, response) => {
+      if (request.url !== "/rpc/extensions/snapshotForRemoval") {
+        response.writeHead(404).end();
+        return;
+      }
+      state.snapshots += 1;
+      response.setHeader("content-type", "application/json");
+      if (state.snapshotFailure) {
+        response.writeHead(400).end(
+          JSON.stringify({
+            json: {
+              defined: false,
+              inferable: true,
+              code: "BAD_REQUEST",
+              message: "Hosted snapshot is unavailable",
+            },
+          }),
+        );
+        return;
+      }
+      const buildId = "39ac4a1e-df81-492f-8f77-80a39e001cc6";
+      const launcher = `import http from "node:http"; const server = http.createServer((_req, res) => res.end("latest hosted extension")); server.listen(0, "127.0.0.1", () => process.send("http://127.0.0.1:" + server.address().port + "/view/")); process.on("message", (message) => { if (message === "shutdown") server.close(() => process.exit(0)); });`;
+      response.end(
+        JSON.stringify({
+          json: {
+            files: {
+              "package.json": JSON.stringify({
+                name: "delete-me",
+                halo: { displayName: "Delete me" },
+              }),
+              "latest.txt": "newest source from the VM",
+            },
+            assets: {},
+            build: {
+              "dist/start.mjs": Buffer.from(launcher).toString("base64"),
+              "dist/current.json": Buffer.from(
+                JSON.stringify(buildId),
+              ).toString("base64"),
+              [`dist/${buildId}/server.mjs`]:
+                Buffer.from(launcher).toString("base64"),
+            },
+            data: "latest hosted data",
+          },
+        }),
+      );
+    });
+    server.listen(0, "127.0.0.1");
+    await events.once(server, "listening");
+    // SAFETY: The fixture has started a numeric TCP listener before reading its address.
+    const address = server.address() as AddressInfo;
+    state.origin = `http://127.0.0.1:${address.port}`;
+    await using cleanup = new errore.AsyncDisposableStack();
+    cleanup.defer(async () => {
+      server.closeAllConnections();
+      await new Promise<void>((complete, reject) =>
+        server.close((error) =>
+          error === undefined ? complete() : reject(error),
+        ),
+      );
+    });
+    await use(state);
   },
   workspaceProvider: async (
-    { appDataDir, vmDeletion, removalSupported },
+    { appDataDir, vmRemoval, removalSupported },
     use,
   ) => {
     const local = new LocalWorkspaceProvider({ appDataDir });
     await use({
       hostsSharedApps: true,
       ensure: async (input) => await local.ensure(input),
-      getConnection: async () => await local.getConnection(),
+      getConnection: async (input) => {
+        if (vmRemoval.removed.has(input.workspaceId)) return undefined;
+        if (vmRemoval.appIds.has(input.workspaceId) && !vmRemoval.available)
+          return undefined;
+        if (vmRemoval.appIds.has(input.workspaceId))
+          return {
+            origin: vmRemoval.origin,
+            authorization: { type: "bearer", value: "Bearer test-app-vm" },
+          };
+        return await local.getConnection();
+      },
       remove: removalSupported
         ? async ({ workspaceId }) => {
-            if (vmDeletion.failure !== undefined) return vmDeletion.failure;
-            vmDeletion.removed.add(workspaceId);
+            if (vmRemoval.failure !== undefined) return vmRemoval.failure;
+            vmRemoval.removed.add(workspaceId);
           }
         : undefined,
     });
   },
-  appDeletion: async (
+  appRemoval: async (
     {
       plane,
       authenticatedRpc,
@@ -5758,6 +5848,7 @@ const appDeletionTest = controlPlaneTest.extend<{
       agent,
       publicationComplete,
       templateDemo,
+      vmRemoval,
     },
     use,
   ) => {
@@ -5791,6 +5882,7 @@ const appDeletionTest = controlPlaneTest.extend<{
       actions: [],
     });
     if (app instanceof Error) throw app;
+    vmRemoval.appIds.add(app.appId);
     const advanced = await store.advance({
       appId: app.appId,
       from: "frozen",
@@ -5829,23 +5921,23 @@ const appDeletionTest = controlPlaneTest.extend<{
 });
 
 // Durable: app deletion is irreversible; enforce owner authorization and the unpublish prerequisite.
-appDeletionTest(
-  "deletes only the owner's unpublished app and removes its extension and backup",
+appRemovalTest(
+  "removes only the owner's unpublished app and leaves its extension until extension delete",
   async ({
-    appDeletion,
+    appRemoval,
     authenticatedRpc,
     rpc,
     agent,
     plane,
     appDataDir,
-    vmDeletion,
+    vmRemoval,
   }) => {
-    const { appId, backup, reference } = appDeletion;
-    await expect(rpc.apps.delete({ appId })).rejects.toMatchObject({
+    const { appId, backup, reference } = appRemoval;
+    await expect(rpc.apps.remove({ appId })).rejects.toMatchObject({
       code: "FORBIDDEN",
     });
     await expect(
-      authenticatedRpc.apps.delete({ appId: "../bad" }),
+      authenticatedRpc.apps.remove({ appId: "../bad" }),
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
     const otherHeaders = await createAuthenticatedHeaders(
       appDataDir,
@@ -5854,56 +5946,79 @@ appDeletionTest(
     );
     otherHeaders.set("origin", plane.origin);
     await expect(
-      createControlPlaneRpcClient(plane.origin, otherHeaders).apps.delete({
+      createControlPlaneRpcClient(plane.origin, otherHeaders).apps.remove({
         appId,
       }),
     ).rejects.toMatchObject({ code: "BAD_REQUEST", message: "App not found" });
-    await expect(agent.rpc.apps.delete({ appId })).rejects.toMatchObject({
+    await expect(agent.rpc.apps.remove({ appId })).rejects.toMatchObject({
       code: "BAD_REQUEST",
       message: expect.stringContaining("Unpublish"),
     });
-    expect(vmDeletion.removed.has(appId)).toBe(false);
+    expect(vmRemoval.removed.has(appId)).toBe(false);
     expect(await fs.readFile(join(backup, "source/private.txt"), "utf8")).toBe(
       "private source and data",
     );
     const unshared = await agent.rpc.apps.update({ appId, published: false });
     expect(unshared).toMatchObject({ published: false, stage: "live" });
-    await agent.rpc.apps.delete({ appId });
-    expect(vmDeletion.removed.has(appId)).toBe(true);
+    await expect(
+      agent.rpc.extensions.delete({ id: "delete-me" }),
+    ).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: expect.stringContaining("halo app remove"),
+    });
+    await agent.rpc.apps.remove({ appId });
+    expect(vmRemoval.removed.has(appId)).toBe(true);
     expect(await agent.rpc.apps.list()).toEqual([]);
     expect(await agent.rpc.extensions.list()).toEqual([]);
-    await expect(fs.stat(backup)).rejects.toMatchObject({ code: "ENOENT" });
+    const source = join(agent.workspaceRoot, ".halo/extensions/delete-me");
+    const data = join(agent.workspaceRoot, ".halo/extension-data/delete-me");
+    expect(await fs.readFile(join(source, "latest.txt"), "utf8")).toBe(
+      "newest source from the VM",
+    );
+    expect(await fs.readFile(join(data, "tandem.json"), "utf8")).toBe(
+      "latest hosted data",
+    );
+    expect(await fs.readFile(join(backup, "source/private.txt"), "utf8")).toBe(
+      "private source and data",
+    );
     await expect(fs.stat(reference)).rejects.toMatchObject({ code: "ENOENT" });
+    await agent.rpc.extensions.delete({ id: "delete-me" });
+    expect(await agent.rpc.extensions.list()).toEqual([]);
+    for (const directory of [source, data, backup])
+      await expect(fs.stat(directory)).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+    await agent.rpc.extensions.delete({ id: "delete-me" });
     await agent.rpc.extensions.reload();
     expect(await agent.rpc.extensions.list()).toEqual([]);
   },
 );
 
 // Durable: failed deletion must revoke runtime authority and remain retryable without republishing.
-appDeletionTest(
-  "retries deletion after VM and workspace failures without reviving the app",
-  async ({ appDeletion, agent, plane, vmDeletion }) => {
-    const { appId, reference, backup, runtimeToken } = appDeletion;
+appRemovalTest(
+  "retries app removal without losing the saved extension or reviving the VM",
+  async ({ appRemoval, agent, plane, vmRemoval }) => {
+    const { appId, reference, backup, runtimeToken } = appRemoval;
     await agent.rpc.apps.update({ appId, published: false });
     const definition = async () =>
       await fetch(`${plane.origin}/api/app-runtime/definition`, {
         headers: { authorization: `Bearer ${runtimeToken}` },
       });
     expect((await definition()).status).toBe(200);
-    vmDeletion.failure = new Error("Cloud VM removal unavailable");
-    await expect(agent.rpc.apps.delete({ appId })).rejects.toMatchObject({
+    vmRemoval.failure = new Error("Cloud VM removal unavailable");
+    await expect(agent.rpc.apps.remove({ appId })).rejects.toMatchObject({
       code: "INTERNAL_SERVER_ERROR",
     });
-    expect(vmDeletion.removed.has(appId)).toBe(false);
+    expect(vmRemoval.removed.has(appId)).toBe(false);
     expect(await agent.rpc.apps.list()).toMatchObject([
-      { appId, stage: "deleting", published: false },
+      { appId, stage: "removing", published: false },
     ]);
     expect((await definition()).status).toBe(401);
     await expect(
       agent.rpc.apps.update({ appId, published: true }),
     ).rejects.toMatchObject({
       code: "BAD_REQUEST",
-      message: expect.stringContaining("deleted"),
+      message: expect.stringContaining("removed"),
     });
     await expect(
       agent.rpc.apps.publish({
@@ -5918,69 +6033,121 @@ appDeletionTest(
       agent.rpc.apps.readSource({ appId, name: "package.json" }),
     ).rejects.toMatchObject({
       code: "BAD_REQUEST",
-      message: expect.stringContaining("deleted"),
+      message: expect.stringContaining("removed"),
     });
-    vmDeletion.failure = undefined;
-    const saved = await fs.readFile(reference, "utf8");
-    await fs.writeFile(reference, "broken marker");
-    await expect(agent.rpc.apps.delete({ appId })).rejects.toMatchObject({
+    vmRemoval.failure = undefined;
+    const blocked = join(agent.workspaceRoot, ".halo/extensions/delete-me");
+    await fs.mkdir(blocked, { recursive: true });
+    await fs.writeFile(join(blocked, "unrelated.txt"), "do not overwrite");
+    await expect(agent.rpc.apps.remove({ appId })).rejects.toMatchObject({
       code: "BAD_REQUEST",
     });
-    expect(vmDeletion.removed.has(appId)).toBe(true);
+    expect(vmRemoval.removed.has(appId)).toBe(true);
     expect(await agent.rpc.apps.list()).toMatchObject([
-      { appId, stage: "deleting" },
+      { appId, stage: "removing" },
     ]);
     expect(await fs.readFile(join(backup, "source/private.txt"), "utf8")).toBe(
       "private source and data",
     );
-    await fs.writeFile(reference, saved);
-    await agent.rpc.apps.delete({ appId });
+    expect(vmRemoval.snapshots).toBe(1);
+    await fs.rm(blocked, { recursive: true });
+    await agent.rpc.apps.remove({ appId });
     expect(await agent.rpc.apps.list()).toEqual([]);
     expect(await agent.rpc.extensions.list()).toEqual([]);
+    expect(vmRemoval.snapshots).toBe(1);
+    expect(await fs.readFile(join(blocked, "latest.txt"), "utf8")).toBe(
+      "newest source from the VM",
+    );
+    await expect(fs.stat(reference)).rejects.toMatchObject({ code: "ENOENT" });
+    await agent.rpc.extensions.delete({ id: "delete-me" });
     await expect(fs.stat(backup)).rejects.toMatchObject({ code: "ENOENT" });
-    await expect(agent.rpc.apps.delete({ appId })).rejects.toMatchObject({
+    await expect(agent.rpc.apps.remove({ appId })).rejects.toMatchObject({
       code: "BAD_REQUEST",
       message: "App not found",
     });
   },
 );
 
-appDeletionTest.extend({ removalSupported: false })(
-  "keeps the app when its host cannot delete VMs",
-  async ({ appDeletion, agent, vmDeletion }) => {
-    const { appId } = appDeletion;
+appRemovalTest.extend({ removalSupported: false })(
+  "keeps the app when its host cannot remove VMs",
+  async ({ appRemoval, agent, vmRemoval }) => {
+    const { appId } = appRemoval;
     await agent.rpc.apps.update({ appId, published: false });
-    await expect(agent.rpc.apps.delete({ appId })).rejects.toMatchObject({
+    await expect(agent.rpc.apps.remove({ appId })).rejects.toMatchObject({
       code: "BAD_REQUEST",
-      message: "This Halo deployment cannot delete app VMs",
+      message: "This Halo deployment cannot remove app VMs",
     });
-    expect(vmDeletion.removed.has(appId)).toBe(false);
+    expect(vmRemoval.removed.has(appId)).toBe(false);
     expect(await agent.rpc.apps.list()).toMatchObject([{ stage: "live" }]);
   },
 );
 
-appDeletionTest.extend({ publicationComplete: false })(
-  "refuses to delete an unfinished publication",
-  async ({ appDeletion, agent, vmDeletion }) => {
-    const { appId } = appDeletion;
+appRemovalTest.extend({ publicationComplete: false })(
+  "refuses to remove an unfinished publication",
+  async ({ appRemoval, agent, vmRemoval }) => {
+    const { appId } = appRemoval;
     await agent.rpc.apps.update({ appId, published: false });
-    await expect(agent.rpc.apps.delete({ appId })).rejects.toMatchObject({
+    await expect(agent.rpc.apps.remove({ appId })).rejects.toMatchObject({
       code: "BAD_REQUEST",
       message: expect.stringContaining("Publishing is not finished"),
     });
-    expect(vmDeletion.removed.has(appId)).toBe(false);
+    expect(vmRemoval.removed.has(appId)).toBe(false);
   },
 );
 
-appDeletionTest.extend({ templateDemo: true })(
-  "preserves template demos when deleting apps",
-  async ({ appDeletion, agent, vmDeletion }) => {
+appRemovalTest.extend({ templateDemo: true })(
+  "preserves template demos when removing apps",
+  async ({ appRemoval, agent, vmRemoval }) => {
     await expect(
-      agent.rpc.apps.delete({ appId: appDeletion.appId }),
+      agent.rpc.apps.remove({ appId: appRemoval.appId }),
     ).rejects.toMatchObject({
       code: "BAD_REQUEST",
-      message: "Template demos cannot be deleted as apps",
+      message: "Template demos cannot be removed as apps",
     });
-    expect(vmDeletion.removed.has(appDeletion.appId)).toBe(false);
+    expect(vmRemoval.removed.has(appRemoval.appId)).toBe(false);
+  },
+);
+
+appRemovalTest(
+  "keeps the VM when its latest extension cannot be saved",
+  async ({ appRemoval, agent, vmRemoval }) => {
+    await agent.rpc.apps.update({ appId: appRemoval.appId, published: false });
+    vmRemoval.snapshotFailure = true;
+    await expect(
+      agent.rpc.apps.remove({ appId: appRemoval.appId }),
+    ).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: "Hosted snapshot is unavailable",
+    });
+    expect(vmRemoval.removed.has(appRemoval.appId)).toBe(false);
+    expect(
+      await fs.readFile(join(appRemoval.backup, "source/private.txt"), "utf8"),
+    ).toBe("private source and data");
+    vmRemoval.snapshotFailure = false;
+    await agent.rpc.apps.remove({ appId: appRemoval.appId });
+    expect(await agent.rpc.extensions.list()).toEqual([]);
+  },
+);
+
+appRemovalTest(
+  "does not remove an unreachable VM before saving its extension",
+  async ({ appRemoval, agent, vmRemoval }) => {
+    await agent.rpc.apps.update({ appId: appRemoval.appId, published: false });
+    vmRemoval.available = false;
+    await expect(
+      agent.rpc.apps.remove({ appId: appRemoval.appId }),
+    ).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: expect.stringContaining("App VM is not reachable"),
+    });
+    expect(vmRemoval.removed.has(appRemoval.appId)).toBe(false);
+    vmRemoval.available = true;
+    await agent.rpc.apps.remove({ appId: appRemoval.appId });
+    expect(
+      await fs.readFile(
+        join(agent.workspaceRoot, ".halo/extensions/delete-me/latest.txt"),
+        "utf8",
+      ),
+    ).toBe("newest source from the VM");
   },
 );

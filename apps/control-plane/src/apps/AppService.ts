@@ -234,9 +234,9 @@ export class AppService {
     return await this.serialize(ctx.ownerUserId, async () => {
       const app = await this.owned(ctx);
       if (app instanceof Error) return app;
-      if (app.stage === "live" || app.stage === "deleting")
+      if (app.stage === "live" || app.stage === "removing")
         return new AppRequestError({
-          reason: "To delete this app, unpublish it and run halo app delete.",
+          reason: "To remove this app, unpublish it and run halo app remove.",
         });
       // A lost install reply leaves the copy running before `ready` is
       // recorded, so a frozen app is abandoned only if its VM lacks it.
@@ -251,41 +251,66 @@ export class AppService {
     });
   }
 
-  /** Destructive cleanup is resumable; keep its record until all hosts agree. */
-  async delete(ctx: { ownerUserId: string; appId: string }) {
+  /** Save the extension before removing its VM; each host handoff is retryable. */
+  async remove(ctx: { ownerUserId: string; appId: string }) {
     return await this.serialize(ctx.ownerUserId, async () => {
       const app = await this.owned(ctx);
       if (app instanceof Error) return app;
       if (app.origin?.kind === "demo")
         return new AppRequestError({
-          reason: "Template demos cannot be deleted as apps",
+          reason: "Template demos cannot be removed as apps",
         });
       if (app.published)
         return new AppRequestError({
           reason:
-            "Unpublish this app before deleting it. Run halo app unpublish first.",
+            "Unpublish this app before removing it. Run halo app unpublish first.",
         });
-      if (app.stage !== "live" && app.stage !== "deleting")
+      if (app.stage !== "live" && app.stage !== "removing")
         return new AppRequestError({
           reason:
-            "Publishing is not finished. Run halo app publish again before deleting this app.",
+            "Publishing is not finished. Run halo app publish again before removing this app.",
         });
       if (this.provider.remove === undefined)
         return new AppRequestError({
-          reason: "This Halo deployment cannot delete app VMs",
+          reason: "This Halo deployment cannot remove app VMs",
         });
-      const deleting = await this.store.beginDeletion(app.appId);
-      if (deleting instanceof Error) return deleting;
+      const removing = await this.store.beginRemoval(app.appId);
+      if (removing instanceof Error) return removing;
+      const owner = await this.ownerClient(app.ownerUserId);
+      if (owner instanceof Error) return owner;
+      const prepared = await owner.extensions
+        .prepareAppRemoval({ id: app.extensionId, appId: app.appId })
+        .catch(remoteFailure("check saved extension"));
+      if (prepared instanceof Error) return prepared;
+      if (!prepared) {
+        const target = await this.appClient(app);
+        if (target instanceof Error) return target;
+        if (target === undefined)
+          return new AppRequestError({
+            reason:
+              "App VM is not reachable. Run halo app remove again when it is available.",
+          });
+        const artifact = await target.extensions
+          .snapshotForRemoval({ id: app.extensionId, appId: app.appId })
+          .catch(remoteFailure("save hosted extension"));
+        if (artifact instanceof Error) return artifact;
+        const saved = await owner.extensions
+          .prepareAppRemoval({
+            id: app.extensionId,
+            appId: app.appId,
+            artifact,
+          })
+          .catch(remoteFailure("save extension in workspace"));
+        if (saved instanceof Error) return saved;
+      }
       const removed = await this.provider.remove({
         workspaceId: app.appId,
         ownerUserId: app.ownerUserId,
       });
       if (removed instanceof Error) return removed;
-      const owner = await this.ownerClient(app.ownerUserId);
-      if (owner instanceof Error) return owner;
       const cleaned = await owner.extensions
-        .deletePublication({ id: app.extensionId, appId: app.appId })
-        .catch(remoteFailure("delete extension"));
+        .completeAppRemoval({ id: app.extensionId, appId: app.appId })
+        .catch(remoteFailure("restore local extension"));
       if (cleaned instanceof Error) return cleaned;
       return await this.store.delete(app.appId);
     });
@@ -724,7 +749,7 @@ export class AppService {
     if (app instanceof Error) return app;
     if (
       app === undefined ||
-      app.stage === "deleting" ||
+      app.stage === "removing" ||
       app.credentialGeneration !== claimed.generation
     )
       return undefined;
@@ -959,9 +984,9 @@ export class AppService {
   private async remoteApp(ctx: { ownerUserId: string; appId: string }) {
     const app = await this.owned(ctx);
     if (app instanceof Error) return app;
-    if (app.stage === "deleting")
+    if (app.stage === "removing")
       return new AppRequestError({
-        reason: "App is being deleted. Run halo app delete again to finish.",
+        reason: "App is being removed. Run halo app remove again to finish.",
       });
     if (app.stage === "frozen")
       return new AppRequestError({ reason: "App is still being published" });
@@ -986,8 +1011,8 @@ export class AppService {
       members: app.members,
       published: app.published,
       stage:
-        app.stage === "deleting"
-          ? "deleting"
+        app.stage === "removing"
+          ? "removing"
           : app.stage === "live"
             ? "live"
             : "publishing",

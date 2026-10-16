@@ -98,7 +98,7 @@ export type AppSummary = AppAccessList & {
   slug: string;
   url: string;
   published: boolean;
-  stage: "publishing" | "live" | "deleting";
+  stage: "publishing" | "live" | "removing";
   actions: { name: string; description: string }[];
   /** The last publish attempt that did not finish; cleared once the app is live. */
   publishFailure?: {
@@ -212,7 +212,16 @@ export const contract = publicProcedure.router({
     release: oc
       .input(type<{ id: string; appId: string }>())
       .output(type<void>()),
-    deletePublication: oc
+    delete: oc.input(type<{ id: string }>()).output(type<void>()),
+    snapshotForRemoval: oc
+      .input(type<{ id: string; appId: string }>())
+      .output(type<ExtensionArtifact>()),
+    prepareAppRemoval: oc
+      .input(
+        type<{ id: string; appId: string; artifact?: ExtensionArtifact }>(),
+      )
+      .output(type<boolean>()),
+    completeAppRemoval: oc
       .input(type<{ id: string; appId: string }>())
       .output(type<void>()),
     completePublication: oc
@@ -252,7 +261,7 @@ export const contract = publicProcedure.router({
       )
       .output(type<AppSummary>()),
     cancel: oc.input(type<{ appId: string }>()).output(type<void>()),
-    delete: oc.input(type<{ appId: string }>()).output(type<void>()),
+    remove: oc.input(type<{ appId: string }>()).output(type<void>()),
     bindActions: oc
       .input(type<{ appId: string; actions: AppActionBinding[] }>())
       .output(type<AppSummary>()),

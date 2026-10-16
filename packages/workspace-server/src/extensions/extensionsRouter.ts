@@ -83,13 +83,38 @@ export const extensionsRouter = os.router({
     });
     if (released instanceof Error) return orpcErrors.badRequest(released);
   }),
-  deletePublication: os.deletePublication.handler(
+  delete: os.delete.handler(async ({ context, input }) => {
+    const deleted = await context.extensions.delete(input.id);
+    if (deleted instanceof Error) return orpcErrors.badRequest(deleted);
+  }),
+  snapshotForRemoval: os.snapshotForRemoval.handler(
     async ({ context, input }) => {
-      const deleted = await context.extensions.deletePublication({
+      const artifact = await context.extensions.snapshotForRemoval({
         extensionId: input.id,
         appId: input.appId,
       });
-      if (deleted instanceof Error) return orpcErrors.badRequest(deleted);
+      if (artifact instanceof Error) return orpcErrors.badRequest(artifact);
+      return artifact;
+    },
+  ),
+  prepareAppRemoval: os.prepareAppRemoval.handler(
+    async ({ context, input }) => {
+      const prepared = await context.extensions.prepareAppRemoval({
+        extensionId: input.id,
+        appId: input.appId,
+        artifact: input.artifact,
+      });
+      if (prepared instanceof Error) return orpcErrors.badRequest(prepared);
+      return prepared;
+    },
+  ),
+  completeAppRemoval: os.completeAppRemoval.handler(
+    async ({ context, input }) => {
+      const completed = await context.extensions.completeAppRemoval({
+        extensionId: input.id,
+        appId: input.appId,
+      });
+      if (completed instanceof Error) return orpcErrors.badRequest(completed);
     },
   ),
   completePublication: os.completePublication.handler(

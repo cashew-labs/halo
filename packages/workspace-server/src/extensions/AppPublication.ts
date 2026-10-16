@@ -1,4 +1,6 @@
 import fs from "node:fs/promises";
+import { AppProject } from "./AppProject.js";
+import type { ExtensionArtifact } from "@get-halo/client";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import * as errore from "errore";
@@ -178,41 +180,196 @@ export class AppPublication {
     });
   }
 
-  /** Remove only the matching remote app, keeping its marker until cleanup ends. */
-  async delete(ctx: { extensionId: string; appId: string }) {
-    if (!Value.Check(appIdSchema, ctx.appId))
-      return new AppPublicationError({ detail: "invalid app ID" });
+  /** Save the latest hosted project before its VM can be removed. */
+  async prepareRemoval(ctx: {
+    extensionId: string;
+    appId: string;
+    artifact?: ExtensionArtifact;
+  }) {
+    const valid = this.removalRoot(ctx);
+    if (valid instanceof Error) return valid;
     const current = await this.read(ctx.extensionId);
     if (current instanceof Error) return current;
-    if (current !== undefined) {
-      if (current.appId !== ctx.appId || current.state !== "remote")
-        return new AppPublicationError({
-          detail: "only the matching remote app can be deleted",
-        });
-      // A cutover can have left source or data behind; retire it before deletion.
-      const retired = await this.retireLocalCopies(ctx);
-      if (retired instanceof Error) return retired;
-    }
-    const removed = await fs
-      .rm(path.join(this.workspaceRoot, ".halo/published-backups", ctx.appId), {
-        recursive: true,
-        force: true,
-      })
-      .catch(
-        (cause) => new AppPublicationError({ detail: "delete backup", cause }),
+    const prepared = await fs
+      .readFile(path.join(valid, "ready"), "utf8")
+      .catch((cause: NodeJS.ErrnoException) =>
+        cause.code === "ENOENT"
+          ? undefined
+          : new AppPublicationError({ detail: "read saved extension", cause }),
       );
-    if (removed instanceof Error) return removed;
+    if (prepared instanceof Error) return prepared;
+    if (prepared === ctx.extensionId) return true;
+    if (current?.state !== "remote" || current.appId !== ctx.appId)
+      return new AppPublicationError({
+        detail: "only the matching remote app can be removed",
+      });
+    if (ctx.artifact === undefined) return false;
+    const installed = await new AppProject({
+      workspaceRoot: valid,
+      extensionId: ctx.extensionId,
+    }).install(ctx.artifact, ctx.appId);
+    if (installed instanceof Error) return installed;
+    const saved = await fs
+      .writeFile(path.join(valid, "ready"), ctx.extensionId, { mode: 0o600 })
+      .catch(
+        (cause) =>
+          new AppPublicationError({ detail: "save removal progress", cause }),
+      );
+    if (saved instanceof Error) return saved;
+    return true;
+  }
+
+  /** Switch back to the saved local extension only after the VM is gone. */
+  async completeRemoval(ctx: { extensionId: string; appId: string }) {
+    const root = this.removalRoot(ctx);
+    if (root instanceof Error) return root;
+    const current = await this.read(ctx.extensionId);
+    if (current instanceof Error) return current;
+    if (current === undefined) return;
+    if (current.state !== "remote" || current.appId !== ctx.appId)
+      return new AppPublicationError({
+        detail: "only the matching remote app can be removed",
+      });
+    const prepared = await this.prepareRemoval(ctx);
+    if (prepared instanceof Error) return prepared;
+    if (!prepared)
+      return new AppPublicationError({
+        detail: "save the hosted extension before removing its VM",
+      });
+    for (const directory of ["extensions", "extension-data"]) {
+      const target = path.join(
+        this.workspaceRoot,
+        ".halo",
+        directory,
+        ctx.extensionId,
+      );
+      const created = await fs
+        .mkdir(path.dirname(target), { recursive: true })
+        .catch(
+          (cause) =>
+            new AppPublicationError({
+              detail: "create local extension directory",
+              cause,
+            }),
+        );
+      if (created instanceof Error) return created;
+      const moved = await fs
+        .rename(path.join(root, ".halo", directory, ctx.extensionId), target)
+        .catch((cause: NodeJS.ErrnoException) =>
+          cause.code === "ENOENT"
+            ? undefined
+            : new AppPublicationError({
+                detail: "restore local extension",
+                cause,
+              }),
+        );
+      if (moved instanceof Error) return moved;
+    }
+    const localAppId = await this.localAppId(ctx.extensionId);
+    if (localAppId instanceof Error) return localAppId;
+    if (localAppId !== ctx.appId)
+      return new AppPublicationError({ detail: "saved extension is missing" });
     const file = this.markerPath(ctx.extensionId);
     if (file instanceof Error) return file;
     return await fs
       .rm(file, { force: true })
       .catch(
         (cause) =>
-          new AppPublicationError({ detail: "delete reference", cause }),
+          new AppPublicationError({ detail: "remove app reference", cause }),
       );
   }
 
+  async localAppId(extensionId: string) {
+    const valid = this.markerPath(extensionId);
+    if (valid instanceof Error) return valid;
+    return await this.readAppId(this.sourcePath(extensionId));
+  }
+
+  private async readAppId(directory: string) {
+    const appId = await fs
+      .readFile(path.join(directory, ".install-id"), "utf8")
+      .catch((cause: NodeJS.ErrnoException) =>
+        cause.code === "ENOENT"
+          ? undefined
+          : new AppPublicationError({
+              detail: "read local app identity",
+              cause,
+            }),
+      );
+    if (appId === undefined || appId instanceof Error) return appId;
+    if (!Value.Check(appIdSchema, appId))
+      return new AppPublicationError({ detail: "invalid local app identity" });
+    return appId;
+  }
+
+  private async backupAppIds(appId: string) {
+    const appIds = [appId];
+    // A republished local extension carries the prior install ID in its backup.
+    for (const currentAppId of appIds) {
+      const previous = await this.readAppId(
+        path.join(
+          this.workspaceRoot,
+          ".halo/published-backups",
+          currentAppId,
+          "source",
+        ),
+      );
+      if (previous instanceof Error) return previous;
+      if (previous === undefined) continue;
+      if (appIds.includes(previous))
+        return new AppPublicationError({
+          detail: "publication backup identities form a cycle",
+        });
+      appIds.push(previous);
+    }
+    return appIds;
+  }
+
+  async deleteExtension(ctx: {
+    extensionId: string;
+    appId: string | undefined;
+  }) {
+    const appIds =
+      ctx.appId === undefined ? [] : await this.backupAppIds(ctx.appId);
+    if (appIds instanceof Error) return appIds;
+    const directories = [
+      ...appIds
+        .toReversed()
+        .flatMap((appId) => [
+          path.join(this.workspaceRoot, ".halo/published-backups", appId),
+          path.join(this.workspaceRoot, ".halo/app-removals", appId),
+        ]),
+      path.join(this.workspaceRoot, ".halo/extension-data", ctx.extensionId),
+      this.sourcePath(ctx.extensionId),
+    ];
+    // Source is last so a failed cleanup retains the app ID for a retry.
+    for (const directory of directories) {
+      const removed = await fs
+        .rm(directory, { recursive: true, force: true })
+        .catch(
+          (cause) =>
+            new AppPublicationError({
+              detail: "delete local extension files",
+              cause,
+            }),
+        );
+      if (removed instanceof Error) return removed;
+    }
+  }
+
+  private removalRoot(ctx: { extensionId: string; appId: string }) {
+    const valid = this.markerPath(ctx.extensionId);
+    if (valid instanceof Error) return valid;
+    if (!Value.Check(appIdSchema, ctx.appId))
+      return new AppPublicationError({ detail: "invalid app ID" });
+    return path.join(this.workspaceRoot, ".halo/app-removals", ctx.appId);
+  }
+
   async retireLocalCopies(ctx: { extensionId: string; appId: string }) {
+    // A removal can have restored files before its remote marker was removed.
+    const removing = await this.prepareRemoval(ctx);
+    if (removing instanceof Error) return removing;
+    if (removing) return;
     const backup = path.join(
       this.workspaceRoot,
       ".halo/published-backups",

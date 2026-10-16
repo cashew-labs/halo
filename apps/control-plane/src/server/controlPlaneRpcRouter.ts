@@ -476,9 +476,9 @@ export const controlPlaneRpcRouter = os.router({
       const cancelled = await context.apps.cancel({ ...owner, ...input });
       if (cancelled instanceof Error) return appError(cancelled);
     }),
-    delete: os.apps.delete.handler(async ({ context, input }) => {
+    remove: os.apps.remove.handler(async ({ context, input }) => {
       const owner = await appOwner(context);
-      const deleted = await context.apps.delete({ ...owner, ...input });
+      const deleted = await context.apps.remove({ ...owner, ...input });
       if (deleted instanceof Error) return appError(deleted);
     }),
     bindActions: os.apps.bindActions.handler(async ({ context, input }) => {
