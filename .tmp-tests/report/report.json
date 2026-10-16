@@ -1,0 +1,156 @@
+{
+  "baseRef": "perf/content-loading",
+  "baseSha": "35734c8ac3e29b430433aaa7119c30ed0acf98f6",
+  "headSha": "35734c8ac3e29b430433aaa7119c30ed0acf98f6",
+  "treeHash": "89834c56b7775e4f21a43ae5ff01e08c04af9f91",
+  "generatedAt": "2026-10-16T17:12:27.323Z",
+  "runs": {
+    "durable": {
+      "tier": "durable",
+      "testFiles": [],
+      "skipped": true,
+      "runners": [],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 0,
+      "log": ".tmp-tests/report/durable.log",
+      "lcovFiles": []
+    },
+    "tmp": {
+      "tier": "tmp",
+      "testFiles": [
+        "apps/electron/e2e/.tmp-tests/contentLoading.e2e.test.ts",
+        "apps/electron/e2e/.tmp-tests/documentLoading.e2e.test.ts",
+        "packages/extension-tools/src/.tmp-tests/build.test.ts"
+      ],
+      "skipped": false,
+      "runners": [
+        {
+          "runner": "playwright",
+          "dir": "apps/electron",
+          "testFiles": [
+            "apps/electron/e2e/.tmp-tests/contentLoading.e2e.test.ts",
+            "apps/electron/e2e/.tmp-tests/documentLoading.e2e.test.ts"
+          ],
+          "exitCode": 0
+        },
+        {
+          "runner": "vitest",
+          "dir": ".",
+          "testFiles": [
+            "packages/extension-tools/src/.tmp-tests/build.test.ts"
+          ],
+          "exitCode": 0
+        }
+      ],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 32681,
+      "log": ".tmp-tests/report/tmp.log",
+      "lcovFiles": [
+        "../../.git/worktrees/content-loading/code-review-agent/coverage/tmp-0/lcov/lcov.info",
+        "../../.git/worktrees/content-loading/code-review-agent/coverage/tmp-1/vitest-0/lcov.info"
+      ]
+    }
+  },
+  "durableTestFiles": [],
+  "tmpTestFiles": [
+    "apps/electron/e2e/.tmp-tests/contentLoading.e2e.test.ts",
+    "apps/electron/e2e/.tmp-tests/documentLoading.e2e.test.ts",
+    "packages/extension-tools/src/.tmp-tests/build.test.ts"
+  ],
+  "files": [
+    {
+      "path": "packages/client/src/contract.ts",
+      "loaded": true,
+      "changed": [
+        41,
+        42
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "packages/client/src/rpc.ts",
+      "loaded": true,
+      "changed": [
+        33
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "packages/web/src/api/ApiProvider.tsx",
+      "loaded": true,
+      "changed": [
+        21
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "packages/web/src/main/FilePane.tsx",
+      "loaded": true,
+      "changed": [
+        39,
+        49,
+        58,
+        59,
+        60,
+        61,
+        62,
+        63,
+        64,
+        65,
+        66
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [
+        49
+      ],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "packages/web/src/main/useAutosaveFile.ts",
+      "loaded": true,
+      "changed": [
+        10,
+        251,
+        252,
+        253,
+        254,
+        255
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "packages/workspace-server/src/workspace/workspaceFilePreview.ts",
+      "loaded": true,
+      "changed": [
+        49
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    }
+  ],
+  "totals": {
+    "executable": 1,
+    "coveredDurable": 0,
+    "coveredTmpOnly": 1,
+    "uncovered": 0,
+    "exempt": 0
+  },
+  "passed": true
+}

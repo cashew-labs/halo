@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "I found no problems, so I am approving this change. It makes `workspace.previewFile` return the UTF-8 content for text files. `FilePane` now passes that content straight to the editors, so it no longer makes a second `readFile` request, and autosave writes saved content into the `workspace-preview` cache. The protocol version moves to 29 and the server still accepts 28. A 29 client therefore refuses a 28-only server, which would send previews without `content`, while older clients can still call `readFile`. The temp e2e tests confirm that opening a file makes exactly one `previewFile` request and no `readFile` request, that the content is right for markdown, plain text and TypeScript files, and that edits are saved. The only changed executable line is covered, and all temp runs pass.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "35734c8ac3e29b430433aaa7119c30ed0acf98f6",
+  "treeHash": "89834c56b7775e4f21a43ae5ff01e08c04af9f91",
+  "codeTree": "654719333fdce65958d10bc6631c6a8f04f46bc3",
+  "coverage": {
+    "executable": 1,
+    "covered": 1,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-16T17:13:59.647Z"
+}
