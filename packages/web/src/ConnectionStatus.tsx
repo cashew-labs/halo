@@ -11,6 +11,8 @@ import {
   shadow,
   spacing,
   text,
+  Tooltip,
+  visuallyHidden,
 } from "maui";
 import { style, useStyles } from "purse-styles";
 import { IncompatibleServerError } from "@get-halo/client";
@@ -25,7 +27,8 @@ export function ConnectionStatus() {
     state.status !== "authentication" &&
     state.status !== "offline" &&
     state.status !== "incompatible";
-  const statusClass = useStyles(statusStyle, asleep && asleepStyle);
+  const statusClass = useStyles(statusStyle);
+  const hiddenLabel = useStyles(visuallyHidden);
   const mismatch =
     state.error instanceof IncompatibleServerError ? state.error : undefined;
   const label = (() => {
@@ -60,29 +63,37 @@ export function ConnectionStatus() {
     if (label === "Connected") return colors.green[9];
     return colors.amber[9];
   })();
+  // The label stays in the live region so screen readers announce changes.
   const indicator = (
     <>
       <span aria-hidden="true" style={{ color }}>
         ●
       </span>
-      <span>{label}</span>
+      <span className={hiddenLabel}>{label}</span>
     </>
   );
-  if (state.status !== "authentication" && mismatch === undefined)
-    return (
-      <span
-        className={statusClass}
-        role="status"
-        aria-live="polite"
-        aria-label={`Connection: ${label}`}
-      >
-        {indicator}
-      </span>
-    );
   return (
-    <ConnectionAction label={label} mismatch={mismatch} className={statusClass}>
-      {indicator}
-    </ConnectionAction>
+    <Tooltip content={label} placement="top">
+      {state.status !== "authentication" && mismatch === undefined ? (
+        <span
+          className={statusClass}
+          role="status"
+          aria-live="polite"
+          aria-label={`Connection: ${label}`}
+          tabIndex={0}
+        >
+          {indicator}
+        </span>
+      ) : (
+        <ConnectionAction
+          label={label}
+          mismatch={mismatch}
+          className={statusClass}
+        >
+          {indicator}
+        </ConnectionAction>
+      )}
+    </Tooltip>
   );
 }
 
@@ -193,18 +204,14 @@ function ConnectionAction({
     </>
   );
 }
-const statusStyle = style(
-  text({ size: "xs", fontWeight: 400, color: "lowContrast" }),
-  {
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "flex-start",
-    gap: 6,
-    padding: 0,
-    minHeight: 24,
-  },
-);
-const asleepStyle = style({ color: colors.blue[12] });
+const statusStyle = style(text({ size: "lg", fontWeight: 400 }), {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: 0,
+  minWidth: 24,
+  minHeight: 24,
+});
 export const overlayStyle = style({
   position: "fixed",
   inset: 0,

@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Flex, P, TextField } from "maui";
+import { Button, Flex, TextField, colors, flex, text } from "maui";
+import { style, useStyles } from "purse-styles";
 import { useAuthenticatedUserId } from "../Authentication.js";
 import { useApi } from "../api/ApiProvider.js";
 
@@ -14,6 +15,12 @@ export function PublisherSettings({
   const userId = useAuthenticatedUserId();
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState<string>();
+  const label = useStyles(labelStyle);
+  const hint = useStyles(hintStyle);
+  const row = useStyles(rowStyle);
+  const problemHint = useStyles(hintStyle, problemStyle);
+  // The full-width input would otherwise shrink Save below its label.
+  const saveButton = useStyles(saveStyle);
   const saving = useRef(false);
   const publisher = useQuery({
     queryKey: ["publisher", userId],
@@ -51,6 +58,29 @@ export function PublisherSettings({
     !availability.isFetching &&
     !availability.isError &&
     !save.isPending;
+  // One line reports the handle's state; problems replace the hint, never stack.
+  const [status, problem] = save.isPending
+    ? ["Saving…", false]
+    : save.error != undefined
+      ? [save.error.message, true]
+      : !changed
+        ? [
+            save.isSuccess
+              ? `Saved. ${publisher.data?.origin}`
+              : publisher.data?.origin,
+            false,
+          ]
+        : availability.isFetching
+          ? ["Checking availability…", false]
+          : availability.error != undefined
+            ? [
+                `Could not check availability: ${availability.error.message}`,
+                true,
+              ]
+            : availability.data?.available
+              ? ["Available. Existing app links will stop working.", false]
+              : [availability.data?.reason, true];
+  const statusClass = useStyles(hintStyle, problem && problemStyle);
   return (
     <form
       onSubmit={(event) => {
@@ -61,60 +91,68 @@ export function PublisherSettings({
         save.mutate();
       }}
     >
-      <Flex column gap={4}>
-        <P>Extension publishing URL</P>
-        {publisher.isPending && <p role="status">Loading publishing URL…</p>}
+      <Flex column gap={2}>
+        <span id="publisher-label" className={label}>
+          Publishing URL
+        </span>
+        {publisher.isPending && (
+          <p role="status" className={hint}>
+            Loading…
+          </p>
+        )}
         {publisher.error != undefined && (
-          <div role="alert">
-            <P>Publishing settings unavailable: {publisher.error.message}</P>
-            <Button onPress={() => void publisher.refetch()}>Retry</Button>
+          <div role="alert" className={row}>
+            <span className={problemHint}>{publisher.error.message}</span>
+            <Button variant="quiet" onPress={() => void publisher.refetch()}>
+              Retry
+            </Button>
           </div>
         )}
         {publisher.data !== undefined && (
           <>
-            <P>{publisher.data.origin}</P>
-            <TextField
-              aria-label="Creator handle"
-              aria-describedby="publisher-help publisher-status"
-              value={handle}
-              onChange={(value) => {
-                setDraft(value);
-                save.reset();
-              }}
-              isDisabled={save.isPending}
-              autoComplete="off"
-              autoCapitalize="none"
-              spellCheck="false"
-            />
-            <p id="publisher-help">
-              Use lowercase letters, numbers or hyphens. Changing your handle
-              changes every published app link. Old links will stop working and
-              visitors will need to sign in again.
-            </p>
-            <div id="publisher-status" role="status" aria-live="polite">
-              {save.isPending
-                ? "Saving…"
-                : save.isSuccess
-                  ? "Publishing URL saved."
-                  : !changed
-                    ? "This is your current handle."
-                    : availability.isFetching
-                      ? "Checking availability…"
-                      : availability.error != undefined
-                        ? `Could not check availability: ${availability.error.message}`
-                        : availability.data?.available
-                          ? "Handle available."
-                          : availability.data?.reason}
+            <div className={row}>
+              <TextField
+                aria-labelledby="publisher-label"
+                aria-describedby="publisher-status"
+                value={handle}
+                onChange={(value) => {
+                  setDraft(value);
+                  save.reset();
+                }}
+                isDisabled={save.isPending}
+                autoComplete="off"
+                autoCapitalize="none"
+                spellCheck="false"
+              />
+              {changed && (
+                <Button
+                  type="submit"
+                  className={saveButton}
+                  isDisabled={!canSave}
+                >
+                  Save
+                </Button>
+              )}
             </div>
-            {save.error != undefined && (
-              <p role="alert">{save.error.message}</p>
-            )}
-            <Button type="submit" isDisabled={!canSave}>
-              Save handle
-            </Button>
+            <p
+              id="publisher-status"
+              role="status"
+              aria-live="polite"
+              className={statusClass}
+            >
+              {status}
+            </p>
           </>
         )}
       </Flex>
     </form>
   );
 }
+
+const labelStyle = style(text({ size: "xs", fontWeight: 600 }));
+const hintStyle = style(text({ size: "xs", color: "lowContrast" }), {
+  margin: 0,
+});
+export const problemStyle = style({ color: colors.amber[11] });
+const saveStyle = style({ flexShrink: 0 });
+const rowStyle = style(flex({ alignItems: "center", gap: 3 }));
