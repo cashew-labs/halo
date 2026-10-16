@@ -33,6 +33,7 @@ export async function buildExtension(directory: string) {
       bundle: true,
       format: "esm",
       platform: "browser",
+      minify: true,
       jsx: "automatic",
       logLevel: "silent",
       metafile: true,
