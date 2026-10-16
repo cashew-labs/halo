@@ -9,8 +9,8 @@
   "scripts": {
     "build": "turbo run build",
     "dev": "HALO_WORKSPACE_ROOT=$INIT_CWD/tmp/workspace HALO_USER_DATA=$INIT_CWD/tmp/workspace/.halo turbo run dev --filter=@get-halo/desktop --filter=@get-halo/control-plane --filter=@get-halo/web-app --filter=@get-halo/workspace-server-app --filter=@get-halo/workspace-server --env-mode=loose",
-    "halo": "HALO_USER_DATA=$INIT_CWD/tmp/workspace/.halo pnpm --silent --filter @get-halo/cli cli",
-    "halo-dev": "HALO_USER_DATA=$INIT_CWD/tmp/workspace/.halo pnpm --silent --filter @get-halo/dev-cli cli",
+    "halo": "HALO_USER_DATA=$INIT_CWD/tmp/workspace/.halo HALO_CLI_CWD=$INIT_CWD pnpm --silent --filter @get-halo/cli cli",
+    "halo-dev": "HALO_USER_DATA=$INIT_CWD/tmp/workspace/.halo HALO_CLI_CWD=$INIT_CWD pnpm --silent --filter @get-halo/dev-cli cli",
     "diffmap": "pnpm --silent exec diffmap",
     "spec": "pnpm --silent exec diffmap",
     "walkthrough": "pnpm --silent exec diffmap",

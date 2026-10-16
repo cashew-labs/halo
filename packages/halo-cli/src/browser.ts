@@ -41,9 +41,9 @@ async function readSource(input: {
     });
   if (input.source !== undefined) return input.source;
   if (input.file !== undefined)
-    // pnpm runs the CLI from its package; INIT_CWD is the caller's directory.
+    // The root pnpm script runs the CLI from its package and passes the caller's directory.
     return await readFile(
-      path.resolve(process.env.INIT_CWD ?? "", input.file),
+      path.resolve(process.env.HALO_CLI_CWD ?? "", input.file),
       "utf8",
     ).catch(
       (cause) => new BrowserCommandError({ detail: "Read script file", cause }),
