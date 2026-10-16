@@ -78,7 +78,7 @@ After pulling changes to Halo itself, run this from anywhere inside the developm
 halo extension update <id>
 ```
 
-This is the canonical development refresh. It installs the current local SDK and build tools before typechecking, building, and restarting the hosted extension. Reload or reopen the extension pane afterward.
+This is the canonical development refresh. It installs the current local SDK and build tools before typechecking, building, and restarting the hosted extension. Open extension panes automatically reload after the restart.
 
 ## Runtime routes
 
@@ -104,7 +104,7 @@ The sync router and tool transport are internal and have no public package subpa
 
 ## Hosting and reload behavior
 
-`halo extension reload` starts extensions that are not already running and pushes the updated extension list to every connected Halo window. It does not rebuild or restart a healthy running process. After a manual `npm run build`, run `halo extension restart <id>` when the user is ready to replace the hosted process. `halo extension update <id>` performs that restart itself. Reload the renderer or reopen the extension pane to load the restarted extension's browser bundle.
+`halo extension reload` starts extensions that are not already running and pushes the updated extension list to every connected Halo window. It does not rebuild or restart a healthy running process. After a manual `npm run build`, run `halo extension restart <id>` when the user is ready to replace the hosted process. `halo extension update <id>` performs that restart itself. Open extension panes automatically reload the restarted extension's browser bundle. This resets temporary UI state in those panes.
 
 Closing Electron leaves the independently hosted workspace server and extensions running. Workspace-server shutdown or workspace replacement stops extension processes gracefully through IPC, with a forced stop after the shutdown timeout.
 
