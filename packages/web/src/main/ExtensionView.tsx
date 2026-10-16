@@ -70,7 +70,7 @@ export function ExtensionView({ extensionId }: { extensionId: string }) {
           className={frame}
           title={extension.displayName}
           src={extensionUrl}
-          sandbox="allow-scripts allow-same-origin allow-forms"
+          sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
         />
       )}
     </main>
