@@ -183,6 +183,7 @@ e2eTest(
     await editor.fill("Start working");
     await pane.getByRole("button", { name: "Send", exact: true }).click();
     await llm.waitForRequest();
+    await expect(editor).toHaveAttribute("contenteditable", "true");
     await editor.fill("Remove this message @brief");
     await pane.getByRole("option", { name: /brief.md/ }).click();
     await pane.getByLabel("Attach files", { exact: true }).setInputFiles({
