@@ -95,7 +95,7 @@ Halo starts `dist/start.mjs` with an ephemeral port, a data directory, and an IP
 
 The SDK exports two lower-level modules because the generated build uses them:
 
-- `@get-halo/extension-sdk/client` exports `connectExtension({ schema, relations })`. It derives API and sync paths from the current `/view/` URL, connects Tandem, and returns `{ api, storage }` or an `ExtensionConnectionError`. When the app's sync access denies the viewer (`actions` mode), `storage` is empty local storage and the view works through `api`.
+- `@get-halo/extension-sdk/client` exports `connectExtension({ schema, relations })`. It derives API and sync paths from the current `/view/` URL and returns `{ api, storage, connected }` once local storage is ready, or an `ExtensionConnectionError` if local initialization fails. Mount the view immediately so its queries join the first pull. The `connected` promise resolves to the synchronized `{ api, storage }` or an error; the generated entry replaces a failed view with a Reload action. When sync access denies an actions-mode visitor, `connected` returns empty local storage and the view continues through `api`.
 - `@get-halo/extension-sdk/server` exports `serveExtension(args)` and `runExtension(args)`. `serveExtension` starts a loopback HTTP server and returns `{ url, close }` or an `ExtensionServerError`. `runExtension` parses `--port` and `--data-dir`, reports readiness over IPC, and handles process shutdown.
 
 Normal extensions should not call these exports. The generated builder owns connection setup, rendering, server startup, IPC readiness, and shutdown. Inspect them only when changing the SDK/build system or diagnosing that boundary.
