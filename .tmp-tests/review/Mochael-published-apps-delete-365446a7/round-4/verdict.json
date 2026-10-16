@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "This round fixes all three round-3 findings. F6: `ExtensionHost.delete` now bounds its control-plane lookup with `AbortSignal.timeout(5000)`, the same limit as `loadRemoteLinks`. F7: `retireLocalCopies` now skips retirement while a saved removal for the same app exists, and a temp test confirms that a template-copy restore survives a reload and a restart. F8: new temp tests cover the VM-side guards, the receipt and restore failures, invalid or cyclic install IDs, and the delete refusals; a durable test covers the unreachable VM. All test runs pass, the coverage gate passes, and no defects remain.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 4,
+  "headSha": "82ee5b2953bd0abaf49f928e00a1d989614f8c64",
+  "treeHash": "ffec23287a83235cd14aa490cd009bba8e494ebd",
+  "codeTree": "31e2fee860a53eab3833ca0de4f61df656a557a8",
+  "coverage": {
+    "executable": 215,
+    "covered": 215,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-16T20:28:49.801Z"
+}

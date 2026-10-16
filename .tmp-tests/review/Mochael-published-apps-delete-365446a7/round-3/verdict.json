@@ -1,0 +1,69 @@
+{
+  "status": "changes_requested",
+  "summary": "This round redesigns the change into two commands. `halo app remove` claims the record as `removing`, saves a frozen snapshot from the VM into the owner workspace, removes the VM, and restores the extension locally. `halo extension delete` removes local files, data and backups. The VM-before-save ordering is sound, but `ExtensionHost.delete` makes an untimed control-plane call inside the extension action queue, and an installed template copy can get stuck in `removing` if a reload runs between a failed final step and the retry. The coverage gate also fails with 21 uncovered lines.",
+  "findings": [
+    {
+      "id": "F6",
+      "kind": "source",
+      "file": "packages/workspace-server/src/extensions/ExtensionHost.ts",
+      "line": 513,
+      "severity": "P1",
+      "body": "`delete` calls `this.remoteApps.list()` inside `actionQueue.run` and passes no abort signal. Lines 60-61 of this file state that control-plane lookups run outside the queue \"so a slow control plane never blocks it\", and `loadRemoteLinks` uses `AbortSignal.timeout(5000)`. Here, a slow or unreachable control plane blocks `halo extension delete` and also every queued extension operation (start, reload, publish, `prepareAppRemoval`) until the request fails. Do the lookup before entering the queue, or at least pass a timeout signal as `loadRemoteLinks` does. Then re-check the marker inside the queue."
+    },
+    {
+      "id": "F7",
+      "kind": "source",
+      "file": "packages/workspace-server/src/extensions/AppPublication.ts",
+      "line": 271,
+      "severity": "P1",
+      "body": "`completeRemoval` moves the saved project into `.halo/extensions/<id>` before it removes the remote marker. If the marker `rm` fails, which the temp test treats as a normal retryable failure, or the process stops between these steps, the next `reload()` still sees a `remote` marker. Server start also calls `reload()`. `reload()` then runs `retireLocalCopies` and renames the restored source into `.halo/published-backups/<appId>/source`. For an ordinary publication, that rename fails because the original backup already exists. An installed template copy has no backup, so the restored source moves away. Every later `halo app remove` then fails at line 271 with \"saved extension is missing\", although the VM is already deleted, and the app stays in `removing` permanently. Make `reload` skip retirement while `.halo/app-removals/<appId>/ready` exists, or have `completeRemoval` recover a source that was moved into the backup."
+    },
+    {
+      "id": "F8",
+      "kind": "test",
+      "file": "packages/workspace-server/src/extensions/ExtensionHost.ts",
+      "line": 375,
+      "severity": "P1",
+      "body": "The coverage gate fails, and these lines are uncovered: ExtensionHost 375-376, 456, 491, 517, 521, 576-577, 592-593, 617; AppPublication 216, 230, 250, 271, 297, 301, 320, 327, 335; AppService 289. The VM-side removal guards (375-376 install, 576-577 writeSource, 592-593 execSource, 456 sandbox snapshot failure) keep the saved snapshot authoritative, so they must be tested. The new `sandboxTest` seems to target them, but the report shows them uncovered; confirm that it runs and rerun coverage. Also add temp tests or accepted exemptions for: the unreachable VM (AppService 289); the marker/app-ID mismatch in `completeRemoval` (230); the missing saved extension (271); invalid or unreadable `.install-id` (297, 301); the backup-ID cycle (320); the remote-apps lookup failure and the apps-still-listed refusal in `delete` (517, 521); and the local start failure after restore (491)."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "ExtensionHost.ts:375-376, 456, 576-577, 592-593 — app VM refuses install, writeSource and execSource after snapshotForRemoval, and a sandbox snapshot failure is returned",
+      "tier": "tmp",
+      "rationale": "These guards keep the saved snapshot authoritative. The report shows them uncovered."
+    },
+    {
+      "target": "AppService.ts:289 — remove with an unreachable VM keeps the VM and leaves the record in removing",
+      "tier": "tmp",
+      "rationale": "An uncovered refusal that prevents removing a VM before its content is saved."
+    },
+    {
+      "target": "AppPublication.ts:230, 271 — completeRemoval refuses a mismatched marker and a missing restored source, including after reload() runs between a failed marker removal and the retry for a remote marker without a backup",
+      "tier": "tmp",
+      "rationale": "This is the recovery path behind F7."
+    },
+    {
+      "target": "ExtensionHost.ts:517, 521 — extension delete refuses while the app is still listed and when the remote-apps lookup fails",
+      "tier": "tmp",
+      "rationale": "Prevents deleting the only saved copy while app removal is unfinished."
+    },
+    {
+      "target": "AppPublication.ts:297, 301, 320 — invalid or unreadable .install-id and a backup-ID cycle",
+      "tier": "tmp",
+      "rationale": "Uncovered error branches in deleteExtension."
+    }
+  ],
+  "tierChanges": [],
+  "round": 3,
+  "headSha": "82ee5b2953bd0abaf49f928e00a1d989614f8c64",
+  "treeHash": "596fc3a697ba90300c82df88d7cffdc3d2a960de",
+  "codeTree": "829ce3aa86c618d4a4962ba4605ca99f60aae8d3",
+  "coverage": {
+    "executable": 224,
+    "covered": 203,
+    "exempt": 0,
+    "uncovered": 21
+  },
+  "createdAt": "2026-10-16T20:24:51.375Z"
+}

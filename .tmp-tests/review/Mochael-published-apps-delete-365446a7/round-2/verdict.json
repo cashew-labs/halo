@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change adds `halo app delete`, which is resumable. It first marks the record as `deleting` and revokes runtime credentials. It then removes the VM, the owner-workspace reference, the backup, and any leftover source and data, and finally drops the app rows. The new tests resolve all five round-1 findings: durable refusals for demos, unfinished publications, and unsupported providers; a temp `beginDeletion` race test; a temp CLI test; a temp Electron E2E for the deleting-state dialog; and temp permission-failure cleanup tests. All runs pass, the coverage gate passes, and no defects remain.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "36e2c52a072b2d56fff9a01045358983584ab11b",
+  "treeHash": "86941f3d275d721aa99708f6d62934c54256f089",
+  "codeTree": "49fc1fb40fa056facac2bb3eb83f9da25ba94d86",
+  "coverage": {
+    "executable": 72,
+    "covered": 72,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-16T19:51:34.612Z"
+}
