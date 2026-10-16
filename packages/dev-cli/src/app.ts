@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import path from "node:path";
 import { Cli, z } from "incur";
 import * as errore from "errore";
 import type { AppControlClient } from "@get-halo/app-control";
@@ -36,7 +37,11 @@ async function readSource(input: {
   if (input.source !== undefined) return input.source;
   if (input.file !== undefined)
     return await fs
-      .readFile(input.file, "utf8")
+      // The root pnpm script runs the CLI from its package and passes the caller's directory.
+      .readFile(
+        path.resolve(process.env.HALO_CLI_CWD ?? "", input.file),
+        "utf8",
+      )
       .catch(
         (cause) => new AppCommandError({ detail: "Read script file", cause }),
       );

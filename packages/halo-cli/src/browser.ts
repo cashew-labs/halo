@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import path from "node:path";
 import { Cli, z } from "incur";
 import * as errore from "errore";
 import type { HaloClient } from "@get-halo/client";
@@ -40,7 +41,11 @@ async function readSource(input: {
     });
   if (input.source !== undefined) return input.source;
   if (input.file !== undefined)
-    return await readFile(input.file, "utf8").catch(
+    // The root pnpm script runs the CLI from its package and passes the caller's directory.
+    return await readFile(
+      path.resolve(process.env.HALO_CLI_CWD ?? "", input.file),
+      "utf8",
+    ).catch(
       (cause) => new BrowserCommandError({ detail: "Read script file", cause }),
     );
   process.stdin.setEncoding("utf8");

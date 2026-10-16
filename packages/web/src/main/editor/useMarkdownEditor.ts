@@ -15,6 +15,7 @@ import { serializeMarkdown } from "./serializeMarkdown.js";
 import { MarkdownFormatting } from "./MarkdownFormatting.js";
 import { EditorCursor } from "./EditorCursor.js";
 import { EditorLinks } from "./EditorLinks.js";
+import { SubmitOnEnter } from "./SubmitOnEnter.js";
 
 const MarkdownParagraph = Paragraph.extend({
   parseMarkdown(token, helpers) {
@@ -89,6 +90,14 @@ export function useMarkdownEditor({
       MarkdownSyntax,
       EditorCursor,
       EditorLinks,
+      ...(onSubmit === undefined
+        ? []
+        : [
+            // oxlint-disable-next-line react/refs -- Only the Enter shortcut calls onSubmit, after render.
+            SubmitOnEnter.configure({
+              onSubmit: () => onSubmitRef.current?.(),
+            }),
+          ]),
       Placeholder.configure({
         placeholder,
       }),
@@ -103,19 +112,7 @@ export function useMarkdownEditor({
         "aria-label": ariaLabel,
         class: syntaxClassName,
       },
-      handleKeyDown: (_view, event) => {
-        if (onKeyDownRef.current?.(event)) return true;
-        if (
-          onSubmitRef.current !== undefined &&
-          event.key === "Enter" &&
-          (event.metaKey || event.ctrlKey)
-        ) {
-          event.preventDefault();
-          onSubmitRef.current?.();
-          return true;
-        }
-        return false;
-      },
+      handleKeyDown: (_view, event) => onKeyDownRef.current?.(event) ?? false,
     },
     onUpdate: ({ editor: current }) => {
       onChangeRef.current?.(serializeMarkdown({ editor: current }));
