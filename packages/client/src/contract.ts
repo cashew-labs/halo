@@ -38,8 +38,8 @@ import type {
 } from "./rpc.js";
 
 // Tandem-backed clients use a different workspace stream contract.
-export const haloProtocolVersion = 28 as const;
-export const haloSupportedProtocols = [25, 26, 27, haloProtocolVersion];
+export const haloProtocolVersion = 29 as const;
+export const haloSupportedProtocols = [25, 26, 27, 28, haloProtocolVersion];
 
 export const RequestRejectedError = error("BAD_REQUEST", {
   message: "Halo could not complete the request.",

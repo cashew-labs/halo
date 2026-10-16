@@ -11,7 +11,6 @@ import {
   text,
 } from "maui";
 import { style, useStyles } from "purse-styles";
-import { useWorkspaceFileQuery } from "../api/ApiProvider.tsx";
 import { CodeViewFileEditor } from "./CodeViewFileEditor.tsx";
 import { fileKind } from "./fileKind.ts";
 import { MarkdownFileEditor } from "./editor/MarkdownFileEditor.js";
@@ -37,7 +36,7 @@ export function FilePane({ path }: { path: string }) {
           {preview.error.message}
         </div>
       ) : preview.data.kind === "text" ? (
-        <TextFileContent path={path} />
+        <TextFileContent path={path} loaded={preview.data.content} />
       ) : preview.data.kind === "unsupported" ? (
         <div className={status}>{preview.data.reason}</div>
       ) : (
@@ -47,34 +46,24 @@ export function FilePane({ path }: { path: string }) {
   );
 }
 
-function TextFileContent({ path }: { path: string }) {
-  const file = useWorkspaceFileQuery(path);
+function TextFileContent({ path, loaded }: { path: string; loaded: string }) {
   const kind = fileKind(path);
   const body = useStyles(kind === "code" ? styles.codeBody : styles.body);
   const content = useStyles(
     kind === "code" ? styles.codeContent : styles.content,
   );
-  const status = useStyles(styles.status);
 
   return (
     <div className={body}>
-      {file.isPending ? (
-        <div className={status}>Loading file…</div>
-      ) : file.isError && file.data === undefined ? (
-        <div className={status} role="alert">
-          {String(file.error)}
-        </div>
-      ) : (
-        <div className={content} data-testid="file-page-content">
-          {kind === "markdown" ? (
-            <MarkdownFileEditor key={path} path={path} loaded={file.data} />
-          ) : kind === "code" ? (
-            <CodeViewFileEditor key={path} path={path} loaded={file.data} />
-          ) : (
-            <TextFileEditor key={path} path={path} loaded={file.data} />
-          )}
-        </div>
-      )}
+      <div className={content} data-testid="file-page-content">
+        {kind === "markdown" ? (
+          <MarkdownFileEditor key={path} path={path} loaded={loaded} />
+        ) : kind === "code" ? (
+          <CodeViewFileEditor key={path} path={path} loaded={loaded} />
+        ) : (
+          <TextFileEditor key={path} path={path} loaded={loaded} />
+        )}
+      </div>
     </div>
   );
 }

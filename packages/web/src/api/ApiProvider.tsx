@@ -18,7 +18,7 @@ import {
 } from "@get-halo/client";
 import { useHost } from "../HostProvider.js";
 import { ConnectionService } from "./ConnectionService.js";
-import { ConnectionContext, useConnection } from "./ConnectionContext.js";
+import { ConnectionContext } from "./ConnectionContext.js";
 import { ConnectionStatus } from "../ConnectionStatus.js";
 import { LoadingPage } from "../LoadingPage.js";
 
@@ -98,15 +98,5 @@ export function useSessionsQuery(workspace: WorkspaceInfo | undefined) {
   return useQuery<SessionSummary[]>({
     queryKey: ["sessions", workspaceRoot],
     queryFn: skipToken,
-  });
-}
-
-export function useWorkspaceFileQuery(path: string) {
-  const api = useApi();
-  const { state } = useConnection();
-  return useQuery({
-    queryKey: ["workspace-file", path],
-    enabled: state.status === "connected",
-    queryFn: async () => await api.workspace.readFile({ path }),
   });
 }
