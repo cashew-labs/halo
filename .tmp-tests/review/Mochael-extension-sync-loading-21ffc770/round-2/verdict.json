@@ -1,0 +1,33 @@
+{
+  "status": "changes_requested",
+  "summary": "F1 is resolved. The new \"renders the interface before the sync connection is ready\" test holds `sync/connect` open, and the reload now asserts exactly one pull; both checks fail on the old code. The temp run failed, though: \"measures extension loading and assets\" timed out waiting for `/sync/push` after a task was added right after the view mounted. That is the scenario this change creates, so the cause must be found before approval.",
+  "findings": [
+    {
+      "id": "F2",
+      "kind": "source",
+      "file": "packages/extension-tools/src/build.ts",
+      "line": 52,
+      "severity": "P0",
+      "body": "The temp run failed in `packages/extension-tools/test/.tmp-tests/loading.test.ts:28` with `page.waitForResponse: Test timeout of 90000ms exceeded`. The run reached line 28, and the test took 9.2 minutes against a 90 s timeout.\n\nThe page snapshot in `tmp/extension-prototype/results/.tmp-tests-loading-measures-extension-loading-and-assets/error-context.md` shows:\n- the new task in the table;\n- no error alert;\n- the textbox still containing \"Saved task\".\n\nThe fixture view clears the textbox only after `storage.commit()` resolves (fixtures/tasks/view.tsx:73-81). So the commit's push task never finished, and no successful `/sync/push` response arrived.\n\nThis change creates the ordering that triggers it. The view now mounts at build.ts:52 before `storage.connect()` resolves, so the click can commit while sync is still connecting or running its first pull. Before the change, the heading appeared only after connect. The test passed in round 1, so this looks like a timing-dependent hang, not slowness alone. The more-than-7-minute teardown also suggests the extension process or an in-flight sync request stayed stuck, because `running.stop()` waits for the child process to exit.\n\nFind the cause using the retained trace (`.../trace.zip`) and the server output. Check the Tandem SyncEngine/TaskQueue ordering when commits happen before or during connect, and server push/pull handling for a client that is still connecting. Fix it in the SDK or entry; for example, queue writes until `connected` settles, or make sure a pending push is flushed once and cannot stall. Alternatively, show with repeated runs (such as `--repeat-each`) that this is unrelated environment slowness. Then add a deterministic temp test: commit a task while `sync/connect` is held open, release it, and assert that the push succeeds and the task survives a reload."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "packages/extension-tools/src/build.ts:51-63 with packages/extension-sdk/src/client.ts:81-99: a task added while sync/connect is held pending is pushed after connect completes and is still visible after a reload",
+      "tier": "tmp",
+      "rationale": "Users can now edit before sync connects. The failed run suggests these early edits can stall without being pushed, and no test covers this ordering deterministically."
+    }
+  ],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "183115caad63f3d42199e5298d7af4161f041fac",
+  "treeHash": "dfb0198a5c91b01a856be3c2c8a3599c7ef7fa1a",
+  "codeTree": "fbb2fd689f70159674b30ee83b97847dd4bc67b1",
+  "coverage": {
+    "executable": 20,
+    "covered": 8,
+    "exempt": 12,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-16T17:40:27.195Z"
+}

@@ -1,0 +1,33 @@
+{
+  "status": "changes_requested",
+  "summary": "The change makes `connectExtension` return `{ api, storage, connected }` once local storage is ready, so the generated entry mounts the view right away. The entry then re-renders the view with the synchronized client, or shows a Reload alert if sync fails. I found no defects in the source logic. Tandem's SyncEngine skips pull and push until connect finishes, then pulls with the subscribed scan window and flushes queued mutations, so the reordering is sound. However, no test checks the purpose of the change: that the view mounts before sync connects and that its queries join the first pull. The exemption reason for build.ts also claims a \"fast mount\" check that does not exist.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "test",
+      "file": "packages/extension-tools/test/.tmp-tests/loading.test.ts",
+      "line": 16,
+      "severity": "P1",
+      "body": "The change exists so that the view mounts before `storage.connect()` resolves, which puts its `useQuery` subscriptions into the scan window of the first pull (client.ts:79-80). No test asserts this. The \"measures extension loading and assets\" test delays every sync request by 150 ms, then only waits for the heading and the saved task to become visible. Both assertions also pass on the old code, which awaited connect before mounting and then pulled again on subscribe. The timings are logged but never compared. The build.ts exemption reason says this file \"checks fast mount\", and it does not. Add an assertion that fails on the old code. For example: hold `**/sync/connect` (or the first `**/sync/pull`) open, assert that the `Shared tasks` heading and the `New task` textbox are visible while it is still pending, then release it. Alternatively, on reload, capture the first `/sync/pull` request body and assert that its scanWindow already contains the `tasks` query, or that `Saved task` appears after exactly one pull."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "packages/extension-tools/src/build.ts:51-63 and packages/extension-sdk/src/client.ts:81-99: the view renders while sync connect is pending, and the first pull after connect includes the view's subscribed query",
+      "tier": "tmp",
+      "rationale": "This is the behavior the change is for. Every current test also passes when connect is awaited before mounting, so none of them proves the change works."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "183115caad63f3d42199e5298d7af4161f041fac",
+  "treeHash": "7c2b4854a4ff39c19405de6f32e50e46eb03dcf7",
+  "codeTree": "fbb2fd689f70159674b30ee83b97847dd4bc67b1",
+  "coverage": {
+    "executable": 20,
+    "covered": 8,
+    "exempt": 12,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-16T17:22:56.477Z"
+}

@@ -1,0 +1,197 @@
+{
+  "baseRef": "Mochael/halo-app-loading-speed-investigate",
+  "baseSha": "d5771e6fd8d76c8e5418b4148c64338420389208",
+  "headSha": "92adbfdec363e814d7cfe9d740c520a9f0b83d96",
+  "treeHash": "132ac49a399bd6e87c66e3eb82bf0d408a9cb8fb",
+  "generatedAt": "2026-10-16T18:27:11.619Z",
+  "runs": {
+    "durable": {
+      "tier": "durable",
+      "testFiles": [],
+      "skipped": true,
+      "runners": [],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 0,
+      "log": ".tmp-tests/report/durable.log",
+      "lcovFiles": []
+    },
+    "tmp": {
+      "tier": "tmp",
+      "testFiles": [
+        "apps/electron/e2e/.tmp-tests/loadingSpeed.e2e.test.ts",
+        "packages/extension-sdk/src/.tmp-tests/client.test.ts",
+        "packages/extension-tools/test/.tmp-tests/loading.test.ts",
+        "packages/workspace-server/test/.tmp-tests/contentLoading.spec.ts"
+      ],
+      "skipped": false,
+      "runners": [
+        {
+          "runner": "playwright",
+          "dir": "apps/electron",
+          "testFiles": [
+            "apps/electron/e2e/.tmp-tests/loadingSpeed.e2e.test.ts"
+          ],
+          "exitCode": 0
+        },
+        {
+          "runner": "vitest",
+          "dir": ".",
+          "testFiles": [
+            "packages/extension-sdk/src/.tmp-tests/client.test.ts",
+            "packages/workspace-server/test/.tmp-tests/contentLoading.spec.ts"
+          ],
+          "exitCode": 0
+        },
+        {
+          "runner": "playwright",
+          "dir": "packages/extension-tools",
+          "testFiles": [
+            "packages/extension-tools/test/.tmp-tests/loading.test.ts"
+          ],
+          "exitCode": 0
+        }
+      ],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 61169,
+      "log": ".tmp-tests/report/tmp.log",
+      "lcovFiles": [
+        "../../../repos/halo/.git/worktrees/zagreb/code-review-agent/coverage/tmp-0/lcov/lcov.info",
+        "../../../repos/halo/.git/worktrees/zagreb/code-review-agent/coverage/tmp-1/vitest-0/lcov.info",
+        "../../../repos/halo/.git/worktrees/zagreb/code-review-agent/coverage/tmp-1/vitest-1/lcov.info",
+        "../../../repos/halo/.git/worktrees/zagreb/code-review-agent/coverage/tmp-2/lcov/lcov.info"
+      ]
+    }
+  },
+  "durableTestFiles": [],
+  "tmpTestFiles": [
+    "apps/electron/e2e/.tmp-tests/loadingSpeed.e2e.test.ts",
+    "packages/extension-sdk/src/.tmp-tests/client.test.ts",
+    "packages/extension-tools/test/.tmp-tests/loading.test.ts",
+    "packages/workspace-server/test/.tmp-tests/contentLoading.spec.ts"
+  ],
+  "files": [
+    {
+      "path": "packages/extension-sdk/src/client.ts",
+      "loaded": true,
+      "changed": [
+        79,
+        80,
+        81,
+        82,
+        83,
+        84,
+        85,
+        86,
+        87,
+        88,
+        89,
+        90,
+        91,
+        92,
+        93,
+        94,
+        95,
+        96,
+        97,
+        98,
+        99
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [
+        81,
+        82,
+        84,
+        85,
+        86,
+        88,
+        97,
+        99
+      ],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "packages/extension-tools/src/build.ts",
+      "loaded": false,
+      "changed": [
+        42,
+        50,
+        51,
+        52,
+        53,
+        54,
+        55,
+        56,
+        57,
+        58,
+        59,
+        60,
+        61,
+        62
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": [
+        {
+          "line": 50,
+          "reason": "Generated browser entry; loading.test.ts checks fast mount, built output, forbidden sync, and the visible failure/reload flow through the packed CLI."
+        },
+        {
+          "line": 51,
+          "reason": "Generated browser entry; loading.test.ts checks fast mount, built output, forbidden sync, and the visible failure/reload flow through the packed CLI."
+        },
+        {
+          "line": 52,
+          "reason": "Generated browser entry; loading.test.ts checks fast mount, built output, forbidden sync, and the visible failure/reload flow through the packed CLI."
+        },
+        {
+          "line": 53,
+          "reason": "Generated browser entry; loading.test.ts checks fast mount, built output, forbidden sync, and the visible failure/reload flow through the packed CLI."
+        },
+        {
+          "line": 54,
+          "reason": "Generated browser entry; loading.test.ts checks fast mount, built output, forbidden sync, and the visible failure/reload flow through the packed CLI."
+        },
+        {
+          "line": 55,
+          "reason": "Generated browser entry; loading.test.ts checks fast mount, built output, forbidden sync, and the visible failure/reload flow through the packed CLI."
+        },
+        {
+          "line": 56,
+          "reason": "Generated browser entry; loading.test.ts checks fast mount, built output, forbidden sync, and the visible failure/reload flow through the packed CLI."
+        },
+        {
+          "line": 57,
+          "reason": "Generated browser entry; loading.test.ts checks fast mount, built output, forbidden sync, and the visible failure/reload flow through the packed CLI."
+        },
+        {
+          "line": 58,
+          "reason": "Generated browser entry; loading.test.ts checks fast mount, built output, forbidden sync, and the visible failure/reload flow through the packed CLI."
+        },
+        {
+          "line": 59,
+          "reason": "Generated browser entry; loading.test.ts checks fast mount, built output, forbidden sync, and the visible failure/reload flow through the packed CLI."
+        },
+        {
+          "line": 61,
+          "reason": "Generated browser entry; loading.test.ts checks fast mount, built output, forbidden sync, and the visible failure/reload flow through the packed CLI."
+        },
+        {
+          "line": 62,
+          "reason": "Generated browser entry; loading.test.ts checks fast mount, built output, forbidden sync, and the visible failure/reload flow through the packed CLI."
+        }
+      ]
+    }
+  ],
+  "totals": {
+    "executable": 20,
+    "coveredDurable": 0,
+    "coveredTmpOnly": 8,
+    "uncovered": 0,
+    "exempt": 12
+  },
+  "passed": true
+}

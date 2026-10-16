@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change mounts the generated extension view before Tandem sync connects, so the view's queries are included in the first pull. When connect settles, the entry re-renders with the synced client, or shows a Reload alert if connect fails. A new temp test holds `sync/connect` open, adds a task, drains the queue, and then releases the connection; it shows the edit is pushed and survives a reload. That resolves F2, and the full temp run now passes. Coverage passes with the build.ts exemption, which I accept because loading.test.ts now tests the generated entry end to end.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 3,
+  "headSha": "183115caad63f3d42199e5298d7af4161f041fac",
+  "treeHash": "398ad9afcf3f25d5cc312b59857e4a27b78ee5c5",
+  "codeTree": "fbb2fd689f70159674b30ee83b97847dd4bc67b1",
+  "coverage": {
+    "executable": 20,
+    "covered": 8,
+    "exempt": 12,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-16T17:43:03.592Z"
+}

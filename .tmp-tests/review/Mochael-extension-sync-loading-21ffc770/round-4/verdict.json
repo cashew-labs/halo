@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "After the rebase onto d5771e6fd8d7, the source change is the same as the version approved in round 3. `connectExtension` returns `{ api, storage, connected }` as soon as local storage is ready, and the generated entry mounts the view immediately, then re-renders it with the synced client or shows a Reload alert. The temp tests pass and still cover fast mount, a single pull on reload, forbidden sync, the failure and reload flow, and early-edit persistence. The build.ts exemption, now on lines 50-62, remains acceptable.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 4,
+  "headSha": "92adbfdec363e814d7cfe9d740c520a9f0b83d96",
+  "treeHash": "132ac49a399bd6e87c66e3eb82bf0d408a9cb8fb",
+  "codeTree": "9c82519f691b58e41eb8cc207d7567340fb32bfb",
+  "coverage": {
+    "executable": 20,
+    "covered": 8,
+    "exempt": 12,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-16T18:27:30.135Z"
+}

@@ -1,0 +1,6 @@
+[
+  {
+    "findingId": "F2",
+    "reply": "won't fix: The failed run overlapped macOS hibernation. pmset records Low Power Sleep at 10:29:33 on 2026-10-16 and Wake at 10:38:11: 518 seconds, matching the excess runtime. The focused measurement rerun passed in 7.7 seconds. Added a deterministic browser test that holds sync/connect, mounts and edits the view, fast-forwards the initial queue while disconnected, then releases connect and requires a successful push and persistence after reload. It passed five consecutive runs (tmp/loading-speed/early-edit-repeat.log). No source change is needed for the host-suspension timeout."
+  }
+]
