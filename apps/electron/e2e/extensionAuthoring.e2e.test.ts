@@ -84,8 +84,10 @@ e2eTest(
     });
     expect(updated.code, `${updated.stdout}\n${updated.stderr}`).toBe(0);
 
-    await app.page.reload();
-    await app.page.getByRole("link", { name: "greeting", exact: true }).click();
+    await expect(app.page.locator("html")).toHaveAttribute(
+      "data-extension-authoring",
+      "original",
+    );
     await expect(
       app.page
         .locator('iframe[title="greeting"]')

@@ -110,7 +110,7 @@ export const extension = Cli.create("extension", {
       return c.ok({
         id: c.args.id,
         directory,
-        next: "Reload or reopen the extension pane to use the updated build.",
+        next: "Open extension panes automatically reload the updated build.",
       });
     },
   })

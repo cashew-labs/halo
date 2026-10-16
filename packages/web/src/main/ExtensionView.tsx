@@ -66,7 +66,7 @@ export function ExtensionView({ extensionId }: { extensionId: string }) {
       )}
       {extension !== undefined && extensionUrl !== undefined && (
         <iframe
-          key={extension.id}
+          key={`${extension.id}:${extension.url}`}
           className={frame}
           title={extension.displayName}
           src={extensionUrl}
