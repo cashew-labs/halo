@@ -37,6 +37,7 @@ import {
 import { ControlPlaneAuth } from "./auth/ControlPlaneAuth.js";
 import { createAdcDesktopIdentity } from "./auth/createAdcDesktopIdentity.js";
 import { registerDesktopApi } from "./api/registerDesktopApi.js";
+import { openExternalUrl } from "./openExternalUrl.js";
 import type { HaloRpcConnection } from "../shared/HaloRpcConnection.js";
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string;
 declare const MAIN_WINDOW_VITE_NAME: string;
@@ -298,6 +299,21 @@ async function createWindow(
   });
   const hotkeys = new WindowHotkeys();
   hotkeys.attach(window);
+  // A link that opens a window, or moves a pane to another origin, leaves Halo.
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    openOutsideHalo(url);
+    return { action: "deny" };
+  });
+  window.webContents.on("will-frame-navigate", (event) => {
+    const pane = event.frame;
+    // Panes are the window's direct child frames. Frames nested inside a pane
+    // belong to it, and Halo sets a pane's src itself.
+    if (!pane?.parent || pane.parent.parent) return;
+    if (event.initiator !== pane) return;
+    if (new URL(event.url).origin === new URL(pane.url).origin) return;
+    event.preventDefault();
+    openOutsideHalo(event.url);
+  });
   windows.add(window);
   window.once("closed", () => windows.delete(window));
   if (process.platform === "darwin") {
@@ -316,6 +332,15 @@ async function createWindow(
     );
   }
   return window;
+}
+
+function openOutsideHalo(url: string): void {
+  void openExternalUrl(url)
+    .then((opened) => {
+      if (opened instanceof Error)
+        logger.warn({ event: "open-external-url-failed", error: opened });
+    })
+    .catch(console.error);
 }
 
 function hideWindow(window: BrowserWindow): void {

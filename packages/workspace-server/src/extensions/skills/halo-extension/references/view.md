@@ -72,6 +72,8 @@ API and sync clients derive their paths from the current `/view/` location. Do n
 
 ## Iframe boundary
 
-Halo renders the extension in a separate-origin iframe with scripts, same-origin access within the extension, and forms enabled. The iframe does not receive Halo renderer globals or DOM access to the parent app. Communicate with Halo through the extension API and tool bridge, not `window.parent` or Electron APIs.
+Halo renders the extension in a separate-origin iframe with scripts, same-origin access within the extension, forms, and popups enabled. The iframe does not receive Halo renderer globals or DOM access to the parent app. Communicate with Halo through the extension API and tool bridge, not `window.parent` or Electron APIs.
 
 Halo owns the pane header and available content area. The view should fill its container, handle narrow widths, and own any navigation below that header.
+
+Use ordinary links. Links within the extension's origin stay in the pane. In the desktop app, links to other origins, `target="_blank"` links, and `window.open` open in the user's default browser; `window.open` returns `null`.
