@@ -155,7 +155,7 @@ function ShareAppDialog({
     failure !== undefined && failure.failedAt !== save.variables?.failedAt;
   const saveError = recorded || apps.isFetching ? undefined : save.error;
   const error = saveError ?? recovery.error ?? apps.error ?? copy.error;
-  const stalled = app !== undefined && !live;
+  const stalled = app?.stage === "publishing";
   const busy = changing || recovery.pending;
 
   return (
@@ -175,7 +175,13 @@ function ShareAppDialog({
             <h2 className={heading}>Share app</h2>
             {apps.isPending && <p role="status">Loading…</p>}
             {/* Without the app list, publishing could overwrite existing access. */}
-            {apps.isSuccess && (
+            {app?.stage === "deleting" && (
+              <p className={detail} role="status">
+                Deletion has started. Run halo app delete {app.appId} to finish
+                removing this app and its data.
+              </p>
+            )}
+            {apps.isSuccess && app?.stage !== "deleting" && (
               <>
                 {!live && (
                   <p className={detail}>
@@ -345,7 +351,7 @@ function ShareAppDialog({
                   Keep it local
                 </Button>
               )}
-              {apps.isSuccess && !live && (
+              {apps.isSuccess && !live && app?.stage !== "deleting" && (
                 <Button
                   isDisabled={busy || emptyInvite}
                   onPress={() =>

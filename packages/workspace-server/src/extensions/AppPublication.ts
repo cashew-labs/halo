@@ -178,6 +178,40 @@ export class AppPublication {
     });
   }
 
+  /** Remove only the matching remote app, keeping its marker until cleanup ends. */
+  async delete(ctx: { extensionId: string; appId: string }) {
+    if (!Value.Check(appIdSchema, ctx.appId))
+      return new AppPublicationError({ detail: "invalid app ID" });
+    const current = await this.read(ctx.extensionId);
+    if (current instanceof Error) return current;
+    if (current !== undefined) {
+      if (current.appId !== ctx.appId || current.state !== "remote")
+        return new AppPublicationError({
+          detail: "only the matching remote app can be deleted",
+        });
+      // A cutover can have left source or data behind; retire it before deletion.
+      const retired = await this.retireLocalCopies(ctx);
+      if (retired instanceof Error) return retired;
+    }
+    const removed = await fs
+      .rm(path.join(this.workspaceRoot, ".halo/published-backups", ctx.appId), {
+        recursive: true,
+        force: true,
+      })
+      .catch(
+        (cause) => new AppPublicationError({ detail: "delete backup", cause }),
+      );
+    if (removed instanceof Error) return removed;
+    const file = this.markerPath(ctx.extensionId);
+    if (file instanceof Error) return file;
+    return await fs
+      .rm(file, { force: true })
+      .catch(
+        (cause) =>
+          new AppPublicationError({ detail: "delete reference", cause }),
+      );
+  }
+
   async retireLocalCopies(ctx: { extensionId: string; appId: string }) {
     const backup = path.join(
       this.workspaceRoot,

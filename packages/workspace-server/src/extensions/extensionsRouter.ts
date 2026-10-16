@@ -83,6 +83,15 @@ export const extensionsRouter = os.router({
     });
     if (released instanceof Error) return orpcErrors.badRequest(released);
   }),
+  deletePublication: os.deletePublication.handler(
+    async ({ context, input }) => {
+      const deleted = await context.extensions.deletePublication({
+        extensionId: input.id,
+        appId: input.appId,
+      });
+      if (deleted instanceof Error) return orpcErrors.badRequest(deleted);
+    },
+  ),
   completePublication: os.completePublication.handler(
     async ({ context, input }) => {
       const completed = await context.extensions.completePublication({

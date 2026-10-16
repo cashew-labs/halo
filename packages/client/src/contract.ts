@@ -98,7 +98,7 @@ export type AppSummary = AppAccessList & {
   slug: string;
   url: string;
   published: boolean;
-  stage: "publishing" | "live";
+  stage: "publishing" | "live" | "deleting";
   actions: { name: string; description: string }[];
   /** The last publish attempt that did not finish; cleared once the app is live. */
   publishFailure?: {
@@ -212,6 +212,9 @@ export const contract = publicProcedure.router({
     release: oc
       .input(type<{ id: string; appId: string }>())
       .output(type<void>()),
+    deletePublication: oc
+      .input(type<{ id: string; appId: string }>())
+      .output(type<void>()),
     completePublication: oc
       .input(
         type<{ id: string; appId: string; url: string; displayName: string }>(),
@@ -249,6 +252,7 @@ export const contract = publicProcedure.router({
       )
       .output(type<AppSummary>()),
     cancel: oc.input(type<{ appId: string }>()).output(type<void>()),
+    delete: oc.input(type<{ appId: string }>()).output(type<void>()),
     bindActions: oc
       .input(type<{ appId: string; actions: AppActionBinding[] }>())
       .output(type<AppSummary>()),

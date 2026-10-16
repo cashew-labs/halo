@@ -234,9 +234,9 @@ export class AppService {
     return await this.serialize(ctx.ownerUserId, async () => {
       const app = await this.owned(ctx);
       if (app instanceof Error) return app;
-      if (app.stage === "live")
+      if (app.stage === "live" || app.stage === "deleting")
         return new AppRequestError({
-          reason: "Published apps are unpublished, not cancelled",
+          reason: "To delete this app, unpublish it and run halo app delete.",
         });
       // A lost install reply leaves the copy running before `ready` is
       // recorded, so a frozen app is abandoned only if its VM lacks it.
@@ -248,6 +248,46 @@ export class AppService {
       const owner = await this.ownerClient(app.ownerUserId);
       if (owner instanceof Error) return owner;
       return await this.abandon({ app, owner });
+    });
+  }
+
+  /** Destructive cleanup is resumable; keep its record until all hosts agree. */
+  async delete(ctx: { ownerUserId: string; appId: string }) {
+    return await this.serialize(ctx.ownerUserId, async () => {
+      const app = await this.owned(ctx);
+      if (app instanceof Error) return app;
+      if (app.origin?.kind === "demo")
+        return new AppRequestError({
+          reason: "Template demos cannot be deleted as apps",
+        });
+      if (app.published)
+        return new AppRequestError({
+          reason:
+            "Unpublish this app before deleting it. Run halo app unpublish first.",
+        });
+      if (app.stage !== "live" && app.stage !== "deleting")
+        return new AppRequestError({
+          reason:
+            "Publishing is not finished. Run halo app publish again before deleting this app.",
+        });
+      if (this.provider.remove === undefined)
+        return new AppRequestError({
+          reason: "This Halo deployment cannot delete app VMs",
+        });
+      const deleting = await this.store.beginDeletion(app.appId);
+      if (deleting instanceof Error) return deleting;
+      const removed = await this.provider.remove({
+        workspaceId: app.appId,
+        ownerUserId: app.ownerUserId,
+      });
+      if (removed instanceof Error) return removed;
+      const owner = await this.ownerClient(app.ownerUserId);
+      if (owner instanceof Error) return owner;
+      const cleaned = await owner.extensions
+        .deletePublication({ id: app.extensionId, appId: app.appId })
+        .catch(remoteFailure("delete extension"));
+      if (cleaned instanceof Error) return cleaned;
+      return await this.store.delete(app.appId);
     });
   }
 
@@ -682,7 +722,11 @@ export class AppService {
     if (claimed === undefined) return undefined;
     const app = await this.store.get(claimed.appId);
     if (app instanceof Error) return app;
-    if (app === undefined || app.credentialGeneration !== claimed.generation)
+    if (
+      app === undefined ||
+      app.stage === "deleting" ||
+      app.credentialGeneration !== claimed.generation
+    )
       return undefined;
     return app;
   }
@@ -915,6 +959,10 @@ export class AppService {
   private async remoteApp(ctx: { ownerUserId: string; appId: string }) {
     const app = await this.owned(ctx);
     if (app instanceof Error) return app;
+    if (app.stage === "deleting")
+      return new AppRequestError({
+        reason: "App is being deleted. Run halo app delete again to finish.",
+      });
     if (app.stage === "frozen")
       return new AppRequestError({ reason: "App is still being published" });
     const client = await this.appClient(app);
@@ -937,7 +985,12 @@ export class AppService {
       visibility: app.visibility,
       members: app.members,
       published: app.published,
-      stage: app.stage === "live" ? "live" : "publishing",
+      stage:
+        app.stage === "deleting"
+          ? "deleting"
+          : app.stage === "live"
+            ? "live"
+            : "publishing",
       actions: actions.map((action) => ({
         name: action.name,
         description: action.description,

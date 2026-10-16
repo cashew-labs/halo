@@ -429,6 +429,19 @@ export class ExtensionHost {
     });
   }
 
+  async deletePublication(ctx: { extensionId: string; appId: string }) {
+    return await this.actionQueue.run(async () => {
+      if (this.sharedApp !== undefined)
+        return new AppProjectError({
+          detail: "app VMs cannot delete app references",
+        });
+      const deleted = await this.publication.delete(ctx);
+      if (deleted instanceof Error) return deleted;
+      this.remoteLinks.delete(ctx.appId);
+      await this.publishUnqueued();
+    });
+  }
+
   /** Links an app installed elsewhere, such as a template copy, by reference. */
   async addRemoteApp(ctx: {
     extensionId: string;

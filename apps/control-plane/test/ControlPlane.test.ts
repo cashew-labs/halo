@@ -55,6 +55,7 @@ import { ControlPlane } from "../src/server/ControlPlane.js";
 import { LocalWorkspaceProvider } from "../src/workspace/provider/local/LocalWorkspaceProvider.js";
 import { DatabaseService } from "../src/DatabaseService.js";
 import { AppStore } from "../src/apps/AppStore.js";
+import { AppCredentials } from "../src/apps/AppCredentials.js";
 import type { WorkspaceProviderApi } from "../src/workspace/provider/WorkspaceProviderApi.js";
 import {
   workspaceRuntimeConfigFileName,
@@ -289,6 +290,7 @@ const controlPlaneTest = test.extend<{
       host: {
         llmApi: createOpenAILLMApi(llm.configuration),
         logger: new Logger({ sinks: [] }),
+        remoteApps: runtime.apps,
         automationControl: new ControlPlaneAutomationClient({
           origin: plane.origin,
           token: (await readRuntimeSettings(appDataDir)).token,
@@ -5708,5 +5710,277 @@ publicAppTest(
     const unpublished = await publicApps.request({ path: "/read-only/view/" });
     expect(unpublished.status).toBe(404);
     expect(unpublished.body).not.toContain("Halo is in private alpha.");
+  },
+);
+
+const appDeletionTest = controlPlaneTest.extend<{
+  removalSupported: boolean;
+  publicationComplete: boolean;
+  templateDemo: boolean;
+  workspaceProvider: WorkspaceProviderApi;
+  vmDeletion: { failure: Error | undefined; removed: Set<string> };
+  appDeletion: {
+    appId: string;
+    backup: string;
+    reference: string;
+    runtimeToken: string;
+  };
+}>({
+  removalSupported: true,
+  publicationComplete: true,
+  templateDemo: false,
+  // oxlint-disable-next-line eslint/no-empty-pattern -- Native Vitest fixture signature.
+  vmDeletion: async ({}, use) => {
+    await use({ failure: undefined, removed: new Set() });
+  },
+  workspaceProvider: async (
+    { appDataDir, vmDeletion, removalSupported },
+    use,
+  ) => {
+    const local = new LocalWorkspaceProvider({ appDataDir });
+    await use({
+      hostsSharedApps: true,
+      ensure: async (input) => await local.ensure(input),
+      getConnection: async () => await local.getConnection(),
+      remove: removalSupported
+        ? async ({ workspaceId }) => {
+            if (vmDeletion.failure !== undefined) return vmDeletion.failure;
+            vmDeletion.removed.add(workspaceId);
+          }
+        : undefined,
+    });
+  },
+  appDeletion: async (
+    {
+      plane,
+      authenticatedRpc,
+      appDataDir,
+      agent,
+      publicationComplete,
+      templateDemo,
+    },
+    use,
+  ) => {
+    const session = await authenticatedRpc.auth.session();
+    if (session.status !== "signed-in")
+      throw new Error("Owner must be signed in");
+    await authenticatedRpc.apps.publisher();
+    const db = await DatabaseService.start({
+      type: "sqlite",
+      path: join(appDataDir, "control-plane.db"),
+    });
+    if (db instanceof Error) throw db;
+    await using cleanup = new errore.AsyncDisposableStack();
+    cleanup.defer(async () => {
+      const closed = await db.close();
+      if (closed instanceof Error) throw closed;
+    });
+    const store = new AppStore({ db });
+    // Resume a completed publication; no actual cloud VM is used by these tests.
+    const app = await store.create({
+      origin: templateDemo
+        ? { kind: "demo", templateId: crypto.randomUUID() }
+        : undefined,
+      ownerUserId: session.session.user.id,
+      extensionId: "delete-me",
+      slug: "delete-me",
+      displayName: "Delete me",
+      visibility: "public",
+      members: [],
+      syncAccess: "read-only",
+      actions: [],
+    });
+    if (app instanceof Error) throw app;
+    const advanced = await store.advance({
+      appId: app.appId,
+      from: "frozen",
+      to: publicationComplete ? "live" : "frozen",
+    });
+    if (advanced instanceof Error) throw advanced;
+    await agent.rpc.extensions.addRemote({
+      id: app.extensionId,
+      appId: app.appId,
+      displayName: app.displayName,
+      url: `${plane.origin}/delete-me/view/`,
+    });
+    const backup = join(
+      agent.workspaceRoot,
+      ".halo/published-backups",
+      app.appId,
+    );
+    await fs.mkdir(join(backup, "source"), { recursive: true });
+    await fs.writeFile(
+      join(backup, "source", "private.txt"),
+      "private source and data",
+    );
+    await use({
+      appId: app.appId,
+      backup,
+      reference: join(
+        agent.workspaceRoot,
+        ".halo/app-publication/delete-me.json",
+      ),
+      runtimeToken: new AppCredentials({ secret: testAuth.secret }).issue({
+        appId: app.appId,
+        generation: 1,
+      }),
+    });
+  },
+});
+
+// Durable: app deletion is irreversible; enforce owner authorization and the unpublish prerequisite.
+appDeletionTest(
+  "deletes only the owner's unpublished app and removes its extension and backup",
+  async ({
+    appDeletion,
+    authenticatedRpc,
+    rpc,
+    agent,
+    plane,
+    appDataDir,
+    vmDeletion,
+  }) => {
+    const { appId, backup, reference } = appDeletion;
+    await expect(rpc.apps.delete({ appId })).rejects.toMatchObject({
+      code: "FORBIDDEN",
+    });
+    await expect(
+      authenticatedRpc.apps.delete({ appId: "../bad" }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    const otherHeaders = await createAuthenticatedHeaders(
+      appDataDir,
+      plane.origin,
+      "other-deleter@example.com",
+    );
+    otherHeaders.set("origin", plane.origin);
+    await expect(
+      createControlPlaneRpcClient(plane.origin, otherHeaders).apps.delete({
+        appId,
+      }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST", message: "App not found" });
+    await expect(agent.rpc.apps.delete({ appId })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: expect.stringContaining("Unpublish"),
+    });
+    expect(vmDeletion.removed.has(appId)).toBe(false);
+    expect(await fs.readFile(join(backup, "source/private.txt"), "utf8")).toBe(
+      "private source and data",
+    );
+    const unshared = await agent.rpc.apps.update({ appId, published: false });
+    expect(unshared).toMatchObject({ published: false, stage: "live" });
+    await agent.rpc.apps.delete({ appId });
+    expect(vmDeletion.removed.has(appId)).toBe(true);
+    expect(await agent.rpc.apps.list()).toEqual([]);
+    expect(await agent.rpc.extensions.list()).toEqual([]);
+    await expect(fs.stat(backup)).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(fs.stat(reference)).rejects.toMatchObject({ code: "ENOENT" });
+    await agent.rpc.extensions.reload();
+    expect(await agent.rpc.extensions.list()).toEqual([]);
+  },
+);
+
+// Durable: failed deletion must revoke runtime authority and remain retryable without republishing.
+appDeletionTest(
+  "retries deletion after VM and workspace failures without reviving the app",
+  async ({ appDeletion, agent, plane, vmDeletion }) => {
+    const { appId, reference, backup, runtimeToken } = appDeletion;
+    await agent.rpc.apps.update({ appId, published: false });
+    const definition = async () =>
+      await fetch(`${plane.origin}/api/app-runtime/definition`, {
+        headers: { authorization: `Bearer ${runtimeToken}` },
+      });
+    expect((await definition()).status).toBe(200);
+    vmDeletion.failure = new Error("Cloud VM removal unavailable");
+    await expect(agent.rpc.apps.delete({ appId })).rejects.toMatchObject({
+      code: "INTERNAL_SERVER_ERROR",
+    });
+    expect(vmDeletion.removed.has(appId)).toBe(false);
+    expect(await agent.rpc.apps.list()).toMatchObject([
+      { appId, stage: "deleting", published: false },
+    ]);
+    expect((await definition()).status).toBe(401);
+    await expect(
+      agent.rpc.apps.update({ appId, published: true }),
+    ).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: expect.stringContaining("deleted"),
+    });
+    await expect(
+      agent.rpc.apps.publish({
+        extensionId: "delete-me",
+        access: { visibility: "public", members: [] },
+      }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(agent.rpc.apps.cancel({ appId })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+    });
+    await expect(
+      agent.rpc.apps.readSource({ appId, name: "package.json" }),
+    ).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: expect.stringContaining("deleted"),
+    });
+    vmDeletion.failure = undefined;
+    const saved = await fs.readFile(reference, "utf8");
+    await fs.writeFile(reference, "broken marker");
+    await expect(agent.rpc.apps.delete({ appId })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+    });
+    expect(vmDeletion.removed.has(appId)).toBe(true);
+    expect(await agent.rpc.apps.list()).toMatchObject([
+      { appId, stage: "deleting" },
+    ]);
+    expect(await fs.readFile(join(backup, "source/private.txt"), "utf8")).toBe(
+      "private source and data",
+    );
+    await fs.writeFile(reference, saved);
+    await agent.rpc.apps.delete({ appId });
+    expect(await agent.rpc.apps.list()).toEqual([]);
+    expect(await agent.rpc.extensions.list()).toEqual([]);
+    await expect(fs.stat(backup)).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(agent.rpc.apps.delete({ appId })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: "App not found",
+    });
+  },
+);
+
+appDeletionTest.extend({ removalSupported: false })(
+  "keeps the app when its host cannot delete VMs",
+  async ({ appDeletion, agent, vmDeletion }) => {
+    const { appId } = appDeletion;
+    await agent.rpc.apps.update({ appId, published: false });
+    await expect(agent.rpc.apps.delete({ appId })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: "This Halo deployment cannot delete app VMs",
+    });
+    expect(vmDeletion.removed.has(appId)).toBe(false);
+    expect(await agent.rpc.apps.list()).toMatchObject([{ stage: "live" }]);
+  },
+);
+
+appDeletionTest.extend({ publicationComplete: false })(
+  "refuses to delete an unfinished publication",
+  async ({ appDeletion, agent, vmDeletion }) => {
+    const { appId } = appDeletion;
+    await agent.rpc.apps.update({ appId, published: false });
+    await expect(agent.rpc.apps.delete({ appId })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: expect.stringContaining("Publishing is not finished"),
+    });
+    expect(vmDeletion.removed.has(appId)).toBe(false);
+  },
+);
+
+appDeletionTest.extend({ templateDemo: true })(
+  "preserves template demos when deleting apps",
+  async ({ appDeletion, agent, vmDeletion }) => {
+    await expect(
+      agent.rpc.apps.delete({ appId: appDeletion.appId }),
+    ).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: "Template demos cannot be deleted as apps",
+    });
+    expect(vmDeletion.removed.has(appDeletion.appId)).toBe(false);
   },
 );

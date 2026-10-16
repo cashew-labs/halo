@@ -64,7 +64,10 @@ halo app publish my-extension                     # anyone with the link
 halo app publish my-extension --invite a@example.com
 halo app list                                     # links, access and app IDs
 halo app unpublish <appId>                        # stop sharing; it keeps running for you
+halo app delete <appId>                           # permanently delete an unpublished app, VM and data
 ```
+
+Deletion requires the app to be unpublished and fully moved to its VM. It removes the VM, the workspace link, and the local publication backup, including extension source and data. If deletion fails, run `halo app delete <appId>` again to finish; an app being deleted cannot be shared again. Published templates and their separate demos remain available.
 
 The extension stops locally while it is copied. If publishing fails, `halo app list` shows the app as `publishing`. Run the same `halo app publish` again to finish, or run `halo app cancel <appId>` to restart the local extension. Cancel works only before the copy reaches the app VM; after that, publishing again finishes the move.
 
