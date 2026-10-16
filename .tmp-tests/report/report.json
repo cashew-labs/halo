@@ -1,0 +1,80 @@
+{
+  "baseRef": "halo-stack-ssh/main",
+  "baseSha": "3a8708af03d244b86381d04912e5d81948d0d726",
+  "headSha": "3a8708af03d244b86381d04912e5d81948d0d726",
+  "treeHash": "51591bb8f7e19c27bd971f686f98294d11570b6a",
+  "generatedAt": "2026-10-16T17:07:55.508Z",
+  "runs": {
+    "durable": {
+      "tier": "durable",
+      "testFiles": [],
+      "skipped": true,
+      "runners": [],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 0,
+      "log": ".tmp-tests/report/durable.log",
+      "lcovFiles": []
+    },
+    "tmp": {
+      "tier": "tmp",
+      "testFiles": [
+        "apps/electron/e2e/.tmp-tests/contentLoading.e2e.test.ts",
+        "packages/extension-tools/src/.tmp-tests/build.test.ts"
+      ],
+      "skipped": false,
+      "runners": [
+        {
+          "runner": "playwright",
+          "dir": "apps/electron",
+          "testFiles": [
+            "apps/electron/e2e/.tmp-tests/contentLoading.e2e.test.ts"
+          ],
+          "exitCode": 0
+        },
+        {
+          "runner": "vitest",
+          "dir": ".",
+          "testFiles": [
+            "packages/extension-tools/src/.tmp-tests/build.test.ts"
+          ],
+          "exitCode": 0
+        }
+      ],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 46776,
+      "log": ".tmp-tests/report/tmp.log",
+      "lcovFiles": [
+        "../../.git/worktrees/content-loading/code-review-agent/coverage/tmp-0/lcov/lcov.info",
+        "../../.git/worktrees/content-loading/code-review-agent/coverage/tmp-1/vitest-0/lcov.info"
+      ]
+    }
+  },
+  "durableTestFiles": [],
+  "tmpTestFiles": [
+    "apps/electron/e2e/.tmp-tests/contentLoading.e2e.test.ts",
+    "packages/extension-tools/src/.tmp-tests/build.test.ts"
+  ],
+  "files": [
+    {
+      "path": "packages/extension-tools/src/build.ts",
+      "loaded": true,
+      "changed": [
+        36
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    }
+  ],
+  "totals": {
+    "executable": 0,
+    "coveredDurable": 0,
+    "coveredTmpOnly": 0,
+    "uncovered": 0,
+    "exempt": 0
+  },
+  "passed": true
+}

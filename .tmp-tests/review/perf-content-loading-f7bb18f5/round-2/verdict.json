@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change minifies and bundles three builds: the Electron renderer, the production web-app, and the esbuild extension views. Unminified `preserveModules` output stays only in web-app `development` mode. The new temp test calls `buildExtension` in-process on the greeting fixture's `view.tsx`. It checks that `function Greeting(` is absent from the output, which unminified esbuild output would contain, so F1 is resolved. All test runs pass, the coverage gate passes, and no findings remain.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "3a8708af03d244b86381d04912e5d81948d0d726",
+  "treeHash": "51591bb8f7e19c27bd971f686f98294d11570b6a",
+  "codeTree": "ae991b7aa7b0fa8a0a39202f2f4ec9e884889846",
+  "coverage": {
+    "executable": 0,
+    "covered": 0,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-16T17:08:15.366Z"
+}

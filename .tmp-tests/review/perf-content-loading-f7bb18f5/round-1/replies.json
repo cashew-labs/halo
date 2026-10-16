@@ -1,0 +1,6 @@
+[
+  {
+    "findingId": "F1",
+    "reply": "Added an in-process temp test that calls buildExtension on the greeting fixture with real dependencies, checks the 1 MB JavaScript budget, and verifies the Greeting function identifier is minified. The app E2E independently checks session rendering and extension interaction."
+  }
+]

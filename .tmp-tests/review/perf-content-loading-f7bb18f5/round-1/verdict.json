@@ -1,0 +1,33 @@
+{
+  "status": "changes_requested",
+  "summary": "The change turns on minification and bundling for the Electron renderer build, the production web-app build, and extension view bundles built by esbuild. The `preserveModules` unminified output now applies only to web-app `development` mode. The config logic looks right: `vite build` defaults to production, `dev` uses `--mode development`, and `preview:bundled` still bundles. The coverage gate fails, though, because no test loads the one changed executable line, `minify: true` in `packages/extension-tools/src/build.ts:36`. The temp E2E test reaches that line only through a `npm run build` subprocess, and its `< 1_000_000` byte check does not clearly show that the output is minified.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "test",
+      "file": "packages/extension-tools/src/build.ts",
+      "line": 36,
+      "severity": "P1",
+      "body": "No test loaded this changed line (the coverage gate failed). The temp E2E test `apps/electron/e2e/.tmp-tests/contentLoading.e2e.test.ts` builds the extension through `npm run build` in a child process, so coverage cannot reach `buildExtension`. Its only check of the effect is `bytes < 1_000_000`, and nothing shows that an unminified greeting bundle would go over that limit, so the test could pass without `minify: true`. Add a temp test under `packages/extension-tools/.tmp-tests/` that calls `buildExtension` on a small fixture extension and checks that `dist/<buildId>/public/view.js` is actually minified. For example, a local identifier or comment from the fixture's `view.tsx` should be absent, or the output should have very few lines. Alternatively, give a coverage exemption with a convincing reason."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "packages/extension-tools/src/build.ts:36 — buildExtension emits minified view.js",
+      "tier": "tmp",
+      "rationale": "This is the only changed executable line, and nothing covers it. A direct in-process call to buildExtension would load the file and check the behavior the change is meant to produce: minified extension view output. The E2E byte limit does not show that."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "3a8708af03d244b86381d04912e5d81948d0d726",
+  "treeHash": "cdb9245689af18cc997f7905feef552359c17e83",
+  "codeTree": "ae991b7aa7b0fa8a0a39202f2f4ec9e884889846",
+  "coverage": {
+    "executable": 1,
+    "covered": 0,
+    "exempt": 0,
+    "uncovered": 1
+  },
+  "createdAt": "2026-10-16T17:06:30.242Z"
+}
