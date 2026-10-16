@@ -1,0 +1,44 @@
+diff --git a/dist/components/LoadingScreen.js b/dist/components/LoadingScreen.js
+index ed2ec81608e18a35e401d77fac27f4d0d5e3275f..fea742f3280e17ca5000047b9738cbb3434f427a 100644
+--- a/dist/components/LoadingScreen.js
++++ b/dist/components/LoadingScreen.js
+@@ -16,7 +16,7 @@ function resolvedLabel(progressLabel) {
+     return trimmed ? trimmed : undefined;
+ }
+ function progressText(label) {
+-    return label.endsWith("...") || label.endsWith("…") ? label : `${label}...`;
++    return label;
+ }
+ /**
+  * Full-size loading state. A `progressLabel` on the first render fades the
+@@ -86,7 +86,7 @@ const labelSlotClass = style({
+     width: "100%",
+ });
+ const labelClass = style({
+-    paddingTop: spacing.value(8),
++    paddingTop: spacing.value(12),
+     textAlign: "center",
+     maxWidth: "36ch",
+ });
+diff --git a/src/components/LoadingScreen.tsx b/src/components/LoadingScreen.tsx
+index e8ede506f8a1c8d05d8c761655007d11e47cc989..d9792eec12b5831fb3d99c1ff254fb9ad71c927a 100644
+--- a/src/components/LoadingScreen.tsx
++++ b/src/components/LoadingScreen.tsx
+@@ -27,7 +27,7 @@ function resolvedLabel(progressLabel: string | undefined) {
+ }
+ 
+ function progressText(label: string) {
+-	return label.endsWith("...") || label.endsWith("…") ? label : `${label}...`
++	return label
+ }
+ 
+ /**
+@@ -165,7 +165,7 @@ const labelSlotClass = style({
+ })
+ 
+ const labelClass = style({
+-	paddingTop: spacing.value(8),
++	paddingTop: spacing.value(12),
+ 	textAlign: "center",
+ 	maxWidth: "36ch",
+ })

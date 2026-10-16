@@ -1,5 +1,15 @@
 import { useState } from "react";
-import { Button, Dialog, Flex, H3, P, colors, text } from "maui";
+import {
+  Button,
+  Dialog,
+  DialogActions,
+  DialogBody,
+  DialogTitle,
+  Flex,
+  P,
+  colors,
+  text,
+} from "maui";
 import { style, useStyles } from "purse-styles";
 import { useConnection } from "./api/ConnectionContext.js";
 import {
@@ -34,21 +44,21 @@ function SaveErrors({ errors }: { errors: FileSaveError[] }) {
           {label}
         </span>
       </Button>
-      {open && (
-        <Dialog onClickOutside={() => setOpen(false)}>
-          <div role="dialog" aria-modal="true" aria-label="File save errors">
-            <Flex column gap={4}>
-              <H3>File save errors</H3>
-              {errors.map((error) => (
-                <SaveError key={error.id} error={error} />
-              ))}
-              <Button variant="quiet" onClick={() => setOpen(false)}>
-                Close
-              </Button>
-            </Flex>
-          </div>
-        </Dialog>
-      )}
+      <Dialog isOpen={open} onOpenChange={setOpen}>
+        <DialogTitle>File save errors</DialogTitle>
+        <DialogBody>
+          <Flex column gap={4}>
+            {errors.map((error) => (
+              <SaveError key={error.id} error={error} />
+            ))}
+          </Flex>
+        </DialogBody>
+        <DialogActions>
+          <Button variant="quiet" slot="close">
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
     </>
   );
 }
