@@ -850,7 +850,7 @@ function SessionViewRow({
           )}
           {item.text.length > 0 ? (
             <div className={body} data-find-segment={item.id}>
-              <MessageContent>{item.text}</MessageContent>
+              <MessageContent size="sm">{item.text}</MessageContent>
             </div>
           ) : undefined}
           {item.attachments.length > 0 ? (
