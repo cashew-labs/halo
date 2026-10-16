@@ -36,6 +36,7 @@ integration marks. Download them from [SVGL](https://svgl.app/) into
 - Validate completed changes through the actual consumer surface whenever reasonable, in addition to automated checks. For UI and interaction changes, start or reuse the development app, exercise the affected flow with `pnpm halo-dev app`, and inspect a screenshot when layout matters. If live validation is impractical, state why.
 - Store temporary files and workspaces in a named folder under this repo's `tmp/` directory.
 - After a PR merges or a task is abandoned, clean up its `tmp/` folder, including packaged Electron builds in `apps/electron/out/`. Remove registered worktrees with `git worktree remove` before deleting any remaining task files. Check for uncommitted changes, open PRs, and processes using the folder first; keep work that is still in use and never force-remove another agent's worktree.
+- Don't use example.com for demos. Use other interactive websites instead.
 
 ## Cursor Cloud specific instructions
 
