@@ -328,6 +328,21 @@ export class ThreadManager {
       readConnections: () => HaloConnectionState[];
     },
   ) {
+    // Reading history must not wait for tools, skills, and the agent runtime.
+    // The live watch sends a second snapshot after attaching, covering any
+    // commits made while the runtime was opening.
+    if (!this.sessions.has(sessionId)) {
+      const snapshot = await this.snapshot(
+        sessionId,
+        options.readConnections(),
+      );
+      if (snapshot instanceof Error) {
+        yield snapshot;
+        return; // coverage-exempt: threadRouter throws the yielded error and closes this generator before it resumes; the missing-session RPC test checks the consumer-visible failure.
+      }
+      yield { type: "snapshot" as const, snapshot };
+      if (options.signal?.aborted) return;
+    }
     const acquired = await this.track(
       async () => await this.acquire(sessionId, { observer: true }),
     );
