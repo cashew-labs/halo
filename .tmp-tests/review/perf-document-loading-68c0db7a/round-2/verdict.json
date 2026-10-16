@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The workspace server now includes the UTF-8 content in a `previewFile` text result. FilePane passes that content straight to the editors, so the separate `readFile` query is gone, and the protocol version moves to 29. The stale temp tests under tmp/loading-speed-merge/ are gone, so F1 is resolved: the temp run passes, all changed executable lines are covered, and the source is unchanged from round 1, where it was correct.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "fc2b58af615ac011602387dc3cc04136d33dd779",
+  "treeHash": "c9ec80bb028e7d74ec2ccf1553685cafaa6370ce",
+  "codeTree": "1bbd1ca223d150016ce5f9cab559622c3d84ba66",
+  "coverage": {
+    "executable": 4,
+    "covered": 4,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-16T18:24:39.072Z"
+}

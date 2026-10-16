@@ -1,0 +1,27 @@
+{
+  "status": "changes_requested",
+  "summary": "The workspace server now includes the UTF-8 content in a `previewFile` text result. FilePane passes that content straight to the editors, so the separate `readFile` query is gone. The protocol version moves to 29, and an older server rejects the new client through `checkServerCompatibility`. The source logic is sound: the text checks match `readFile`, the editors read `loaded` only on mount, and the autosave cache updater leaves an evicted query alone. It is not ready because the temp-test run fails: three stale temp tests under tmp/loading-speed-merge/ fail on module imports.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "test",
+      "file": "tmp/loading-speed-merge/packages/workspace-server/test/.tmp-tests/contentLoading.spec.ts",
+      "line": 2,
+      "severity": "P1",
+      "body": "The temp-test run fails (see .tmp-tests/report/tmp.log, lines 4143-4178). Three temp test files under the scratch copy tmp/loading-speed-merge/ fail when vitest loads them: `Cannot find module '../serverTest.js'`, `'../client.js'`, and `'../extensionTest.js'`. Their relative helper imports do not resolve from that leftover folder. They belong to a stale merge workspace, not to this change, and the real copy at packages/workspace-server/test/.tmp-tests/contentLoading.spec.ts already passes. Remove the tmp/loading-speed-merge .tmp-tests files (or the whole scratch folder, after checking it is not in use), or move any needed test into the real package's .tmp-tests folder, so the temp run passes. The same failure applies to tmp/loading-speed-merge/packages/extension-sdk/src/.tmp-tests/client.test.ts:5 and tmp/loading-speed-merge/packages/extension-tools/test/.tmp-tests/loading.test.ts:2."
+    }
+  ],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "fc2b58af615ac011602387dc3cc04136d33dd779",
+  "treeHash": "1dc98375337a4db0c650bbeb5fa53bdd751e9c58",
+  "codeTree": "1bbd1ca223d150016ce5f9cab559622c3d84ba66",
+  "coverage": {
+    "executable": 4,
+    "covered": 4,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-16T18:23:32.647Z"
+}

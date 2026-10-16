@@ -1,0 +1,158 @@
+{
+  "baseRef": "origin/main",
+  "baseSha": "3a8708af03d244b86381d04912e5d81948d0d726",
+  "headSha": "fc2b58af615ac011602387dc3cc04136d33dd779",
+  "treeHash": "c9ec80bb028e7d74ec2ccf1553685cafaa6370ce",
+  "generatedAt": "2026-10-16T18:24:32.175Z",
+  "runs": {
+    "durable": {
+      "tier": "durable",
+      "testFiles": [],
+      "skipped": true,
+      "runners": [],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 0,
+      "log": ".tmp-tests/report/durable.log",
+      "lcovFiles": []
+    },
+    "tmp": {
+      "tier": "tmp",
+      "testFiles": [
+        "apps/electron/e2e/.tmp-tests/loadingSpeed.e2e.test.ts",
+        "packages/workspace-server/test/.tmp-tests/contentLoading.spec.ts"
+      ],
+      "skipped": false,
+      "runners": [
+        {
+          "runner": "playwright",
+          "dir": "apps/electron",
+          "testFiles": [
+            "apps/electron/e2e/.tmp-tests/loadingSpeed.e2e.test.ts"
+          ],
+          "exitCode": 0
+        },
+        {
+          "runner": "vitest",
+          "dir": ".",
+          "testFiles": [
+            "packages/workspace-server/test/.tmp-tests/contentLoading.spec.ts"
+          ],
+          "exitCode": 0
+        }
+      ],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 35383,
+      "log": ".tmp-tests/report/tmp.log",
+      "lcovFiles": [
+        "../../../repos/halo/.git/worktrees/zagreb/code-review-agent/coverage/tmp-0/lcov/lcov.info",
+        "../../../repos/halo/.git/worktrees/zagreb/code-review-agent/coverage/tmp-1/vitest-0/lcov.info"
+      ]
+    }
+  },
+  "durableTestFiles": [],
+  "tmpTestFiles": [
+    "apps/electron/e2e/.tmp-tests/loadingSpeed.e2e.test.ts",
+    "packages/workspace-server/test/.tmp-tests/contentLoading.spec.ts"
+  ],
+  "files": [
+    {
+      "path": "packages/client/src/contract.ts",
+      "loaded": true,
+      "changed": [
+        41,
+        42
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [
+        41,
+        42
+      ],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "packages/client/src/rpc.ts",
+      "loaded": true,
+      "changed": [
+        33
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "packages/web/src/api/ApiProvider.tsx",
+      "loaded": true,
+      "changed": [
+        21
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "packages/web/src/main/FilePane.tsx",
+      "loaded": true,
+      "changed": [
+        39,
+        49,
+        58,
+        59,
+        60,
+        61,
+        62,
+        63,
+        64,
+        65,
+        66
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [
+        49
+      ],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "packages/web/src/main/useAutosaveFile.ts",
+      "loaded": true,
+      "changed": [
+        10,
+        251,
+        252,
+        253,
+        254,
+        255
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "packages/workspace-server/src/workspace/workspaceFilePreview.ts",
+      "loaded": true,
+      "changed": [
+        49
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [
+        49
+      ],
+      "uncovered": [],
+      "exempt": []
+    }
+  ],
+  "totals": {
+    "executable": 4,
+    "coveredDurable": 0,
+    "coveredTmpOnly": 4,
+    "uncovered": 0,
+    "exempt": 0
+  },
+  "passed": true
+}
