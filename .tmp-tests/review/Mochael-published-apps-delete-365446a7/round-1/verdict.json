@@ -1,0 +1,85 @@
+{
+  "status": "changes_requested",
+  "summary": "The change adds `halo app delete`. The command claims the app record durably as `deleting` and revokes the runtime credential generation. It then removes the app VM and the owner-workspace reference, backup, and leftover source and data, and finally drops the app rows. Each step can be retried. I found no logic defects in the source, and the durable and temp tests check the main path well. The coverage gate failed with 27 uncovered changed lines, so the change is not ready to approve.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "test",
+      "file": "apps/control-plane/src/apps/AppService.ts",
+      "line": 260,
+      "severity": "P1",
+      "body": "No test covers three refusals in `AppService.delete`: template demos (line 260), apps whose publication is not finished, i.e. stage frozen or ready (line 269), and providers without `remove` (line 274). These guards stop deletion of an app that has not reached its VM, and they keep demo records that templates reference. Add a temp test for each. The test should check that the provider's `remove` is not called and that the record is unchanged."
+    },
+    {
+      "id": "F2",
+      "kind": "test",
+      "file": "apps/control-plane/src/apps/AppStore.ts",
+      "line": 801,
+      "severity": "P1",
+      "body": "No test covers the conflict branch of `beginDeletion` (line 801). This is the atomic guard against a concurrent re-publish between the `owned()` check and the claim. A temp test can call `store.beginDeletion` directly for an app with `published = 1`, and for an app that is not live. It should expect `AppConflictError` and an unchanged stage."
+    },
+    {
+      "id": "F3",
+      "kind": "test",
+      "file": "packages/halo-cli/src/app.ts",
+      "line": 98,
+      "severity": "P1",
+      "body": "No test loads the new `halo app delete` command (lines 98-110). Add a temp test that runs the command against a stub client and checks that it calls `apps.delete` with the app ID, returns `{ deleted }`, and maps a rejection to an APP error. Otherwise, give a coverage-exempt reason that names an existing test that exercises this command."
+    },
+    {
+      "id": "F4",
+      "kind": "test",
+      "file": "packages/web/src/panes/ShareAppButton.tsx",
+      "line": 178,
+      "severity": "P1",
+      "body": "No test covers the new UI branches for the `deleting` stage. These are in ShareAppButton.tsx (lines 158, 178-184, 354) and PublishRecovery.tsx (line 41). They hide the Publish and Keep-it-local controls and show the delete-to-finish notice. Add a temp component test that renders the dialog with an app in the `deleting` stage, or justify a coverage exemption. If you exempt the lines, validate them through the live app."
+    },
+    {
+      "id": "F5",
+      "kind": "test",
+      "file": "packages/workspace-server/src/extensions/AppPublication.ts",
+      "line": 202,
+      "severity": "P1",
+      "body": "No test reaches the failure branches for removing the backup (line 202) and removing the reference (line 211). The 'failed backup cleanup' temp test fails earlier, in `retireLocalCopies`. To reach line 202, run the same failure setup with no marker present (for example, `published-backups` as a file). Otherwise, add coverage-exempt reasons for both lines."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "apps/control-plane/src/apps/AppService.ts:260,269,274 — delete refuses demos, unfinished publications and providers without remove",
+      "tier": "tmp",
+      "rationale": "These guards keep deletion away from apps that are not live and from demo records. They are uncovered."
+    },
+    {
+      "target": "apps/control-plane/src/apps/AppStore.ts:801 — beginDeletion conflicts for a published or non-live app",
+      "tier": "tmp",
+      "rationale": "This is the atomic guard against a concurrent re-publish. It is uncovered."
+    },
+    {
+      "target": "packages/halo-cli/src/app.ts:98-110 — halo app delete calls apps.delete and maps errors",
+      "tier": "tmp",
+      "rationale": "No test loads the new CLI command."
+    },
+    {
+      "target": "packages/web/src/panes/ShareAppButton.tsx:158,178-184,354 and PublishRecovery.tsx:41 — deleting-stage UI",
+      "tier": "tmp",
+      "rationale": "The changed UI branches are uncovered."
+    },
+    {
+      "target": "packages/workspace-server/src/extensions/AppPublication.ts:202,211 — backup and reference removal failures return errors",
+      "tier": "tmp",
+      "rationale": "The failure branches are uncovered and are needed for retryable cleanup."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "36e2c52a072b2d56fff9a01045358983584ab11b",
+  "treeHash": "2bb677108969055a2ac21b984db4dceadf7ff135",
+  "codeTree": "f9e5585c5b33d86ccbc40de567af8f5c79c3ca9a",
+  "coverage": {
+    "executable": 86,
+    "covered": 59,
+    "exempt": 0,
+    "uncovered": 27
+  },
+  "createdAt": "2026-10-16T19:47:52.064Z"
+}

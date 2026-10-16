@@ -1,0 +1,499 @@
+{
+  "baseRef": "origin/main",
+  "baseSha": "36e2c52a072b2d56fff9a01045358983584ab11b",
+  "headSha": "36e2c52a072b2d56fff9a01045358983584ab11b",
+  "treeHash": "86941f3d275d721aa99708f6d62934c54256f089",
+  "generatedAt": "2026-10-16T19:51:14.457Z",
+  "runs": {
+    "durable": {
+      "tier": "durable",
+      "testFiles": [
+        "apps/control-plane/test/ControlPlane.test.ts"
+      ],
+      "skipped": false,
+      "runners": [
+        {
+          "runner": "vitest",
+          "dir": ".",
+          "testFiles": [
+            "apps/control-plane/test/ControlPlane.test.ts"
+          ],
+          "exitCode": 0
+        }
+      ],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 93196,
+      "log": ".tmp-tests/report/durable.log",
+      "lcovFiles": [
+        "../../../repos/halo/.git/worktrees/lagos/code-review-agent/coverage/durable-0/vitest-0/lcov.info"
+      ]
+    },
+    "tmp": {
+      "tier": "tmp",
+      "testFiles": [
+        "apps/control-plane/src/.tmp-tests/AppStore.test.ts",
+        "apps/electron/e2e/.tmp-tests/appDeletion.e2e.test.ts",
+        "packages/halo-cli/src/.tmp-tests/appDelete.test.ts",
+        "packages/workspace-server/test/.tmp-tests/appDeletion.spec.ts"
+      ],
+      "skipped": false,
+      "runners": [
+        {
+          "runner": "vitest",
+          "dir": ".",
+          "testFiles": [
+            "apps/control-plane/src/.tmp-tests/AppStore.test.ts",
+            "packages/halo-cli/src/.tmp-tests/appDelete.test.ts",
+            "packages/workspace-server/test/.tmp-tests/appDeletion.spec.ts"
+          ],
+          "exitCode": 0
+        },
+        {
+          "runner": "playwright",
+          "dir": "apps/electron",
+          "testFiles": [
+            "apps/electron/e2e/.tmp-tests/appDeletion.e2e.test.ts"
+          ],
+          "exitCode": 0
+        }
+      ],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 95142,
+      "log": ".tmp-tests/report/tmp.log",
+      "lcovFiles": [
+        "../../../repos/halo/.git/worktrees/lagos/code-review-agent/coverage/tmp-0/vitest-0/lcov.info",
+        "../../../repos/halo/.git/worktrees/lagos/code-review-agent/coverage/tmp-0/vitest-1/lcov.info",
+        "../../../repos/halo/.git/worktrees/lagos/code-review-agent/coverage/tmp-0/vitest-2/lcov.info",
+        "../../../repos/halo/.git/worktrees/lagos/code-review-agent/coverage/tmp-1/lcov/lcov.info"
+      ]
+    }
+  },
+  "durableTestFiles": [
+    "apps/control-plane/test/ControlPlane.test.ts"
+  ],
+  "tmpTestFiles": [
+    "apps/control-plane/src/.tmp-tests/AppStore.test.ts",
+    "apps/electron/e2e/.tmp-tests/appDeletion.e2e.test.ts",
+    "packages/halo-cli/src/.tmp-tests/appDelete.test.ts",
+    "packages/workspace-server/test/.tmp-tests/appDeletion.spec.ts"
+  ],
+  "files": [
+    {
+      "path": "apps/control-plane/src/apps/AppService.ts",
+      "loaded": true,
+      "changed": [
+        237,
+        239,
+        254,
+        255,
+        256,
+        257,
+        258,
+        259,
+        260,
+        261,
+        262,
+        263,
+        264,
+        265,
+        266,
+        267,
+        268,
+        269,
+        270,
+        271,
+        272,
+        273,
+        274,
+        275,
+        276,
+        277,
+        278,
+        279,
+        280,
+        281,
+        282,
+        283,
+        284,
+        285,
+        286,
+        287,
+        288,
+        289,
+        290,
+        291,
+        292,
+        293,
+        725,
+        726,
+        727,
+        728,
+        729,
+        962,
+        963,
+        964,
+        965,
+        988,
+        989,
+        990,
+        991,
+        992,
+        993
+      ],
+      "coveredDurable": [
+        237,
+        256,
+        257,
+        258,
+        259,
+        260,
+        263,
+        264,
+        268,
+        269,
+        273,
+        274,
+        277,
+        278,
+        279,
+        283,
+        284,
+        285,
+        286,
+        289,
+        290,
+        725,
+        962,
+        963
+      ],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "apps/control-plane/src/apps/AppStore.ts",
+      "loaded": true,
+      "changed": [
+        13,
+        14,
+        548,
+        549,
+        550,
+        551,
+        552,
+        553,
+        554,
+        555,
+        556,
+        557,
+        790,
+        791,
+        792,
+        793,
+        794,
+        795,
+        796,
+        797,
+        798,
+        799,
+        800,
+        801,
+        802,
+        803,
+        804,
+        805,
+        806,
+        807,
+        808,
+        813
+      ],
+      "coveredDurable": [
+        549,
+        553,
+        554,
+        555,
+        792,
+        793,
+        798,
+        799,
+        800,
+        801,
+        805
+      ],
+      "coveredTmpOnly": [
+        802
+      ],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "apps/control-plane/src/server/controlPlaneRpcRouter.ts",
+      "loaded": true,
+      "changed": [
+        479,
+        480,
+        481,
+        482,
+        483
+      ],
+      "coveredDurable": [
+        480,
+        481,
+        482
+      ],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "apps/control-plane/src/workspace/provider/WorkspaceProviderApi.ts",
+      "loaded": false,
+      "changed": [
+        75
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "packages/client/src/contract.ts",
+      "loaded": true,
+      "changed": [
+        101,
+        215,
+        216,
+        217,
+        255
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "packages/halo-cli/src/app.ts",
+      "loaded": true,
+      "changed": [
+        98,
+        99,
+        100,
+        101,
+        102,
+        103,
+        104,
+        105,
+        106,
+        107,
+        108,
+        109,
+        110,
+        111,
+        112
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [
+        104,
+        106,
+        108,
+        109,
+        110
+      ],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "packages/shared/src/controlPlaneContract.ts",
+      "loaded": true,
+      "changed": [
+        441,
+        442,
+        443,
+        444,
+        445,
+        446,
+        447
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "packages/web/src/panes/PublishRecovery.tsx",
+      "loaded": true,
+      "changed": [
+        41
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [
+        41
+      ],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "packages/web/src/panes/ShareAppButton.tsx",
+      "loaded": true,
+      "changed": [
+        158,
+        178,
+        179,
+        180,
+        181,
+        182,
+        183,
+        184,
+        354
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [
+        158
+      ],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "packages/workspace-server/src/extensions/AppPublication.ts",
+      "loaded": true,
+      "changed": [
+        181,
+        182,
+        183,
+        184,
+        185,
+        186,
+        187,
+        188,
+        189,
+        190,
+        191,
+        192,
+        193,
+        194,
+        195,
+        196,
+        197,
+        198,
+        199,
+        200,
+        201,
+        202,
+        203,
+        204,
+        205,
+        206,
+        207,
+        208,
+        209,
+        210,
+        211,
+        212,
+        213,
+        214
+      ],
+      "coveredDurable": [
+        183,
+        185,
+        186,
+        187,
+        188,
+        193,
+        194,
+        196,
+        204,
+        205,
+        206,
+        207
+      ],
+      "coveredTmpOnly": [
+        184,
+        189,
+        202,
+        211
+      ],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "packages/workspace-server/src/extensions/appsRouter.ts",
+      "loaded": true,
+      "changed": [
+        73,
+        74,
+        75,
+        76
+      ],
+      "coveredDurable": [
+        75
+      ],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "packages/workspace-server/src/extensions/ExtensionHost.ts",
+      "loaded": true,
+      "changed": [
+        432,
+        433,
+        434,
+        435,
+        436,
+        437,
+        438,
+        439,
+        440,
+        441,
+        442,
+        443,
+        444
+      ],
+      "coveredDurable": [
+        433,
+        434,
+        438,
+        439,
+        440,
+        441
+      ],
+      "coveredTmpOnly": [
+        435
+      ],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "packages/workspace-server/src/extensions/extensionsRouter.ts",
+      "loaded": true,
+      "changed": [
+        86,
+        87,
+        88,
+        89,
+        90,
+        91,
+        92,
+        93,
+        94
+      ],
+      "coveredDurable": [
+        88,
+        92
+      ],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    }
+  ],
+  "totals": {
+    "executable": 72,
+    "coveredDurable": 59,
+    "coveredTmpOnly": 13,
+    "uncovered": 0,
+    "exempt": 0
+  },
+  "passed": true
+}
