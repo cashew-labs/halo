@@ -21,16 +21,12 @@ export function MainPane({ sessions }: { sessions: SessionSummary[] }) {
         {(params) => (
           <AutomationPane
             automationId={decodeURIComponent(params.automationId)}
-            sessions={sessions}
           />
         )}
       </Route>
       <Route path="/routines/:routineId">
         {(params) => (
-          <AutomationPane
-            automationId={decodeURIComponent(params.routineId)}
-            sessions={sessions}
-          />
+          <AutomationPane automationId={decodeURIComponent(params.routineId)} />
         )}
       </Route>
       <Route path="/files/*">

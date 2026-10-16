@@ -4,6 +4,10 @@ import { e2eTest } from "./e2eTest.js";
 e2eTest(
   "edits personal routines and controls their run sessions",
   async ({ app, harness }) => {
+    const cdp = await app.page.context().newCDPSession(app.page);
+    await cdp.send("Emulation.setTimezoneOverride", {
+      timezoneId: "America/Los_Angeles",
+    });
     await harness.tools.bash.run({
       command: "mkdir -p .halo/extensions/appointments",
     });
@@ -99,11 +103,23 @@ e2eTest(
     await expect(routine).toContainText("At 10:30 AM (UTC)");
 
     await routine.getByRole("button", { name: "Run now" }).click();
-    const session = routine.getByRole("link", {
-      name: /Daily workspace check/,
-    });
+    const session = routine
+      .getByRole("region", { name: "Run history" })
+      .getByRole("link");
     await expect(session).toBeVisible();
     await expect(routine).toContainText(/Last run\s*Completed/);
+    const automation = (await app.server.rpc.automations.list()).find(
+      (item) => item.name === "Daily workspace check",
+    )!;
+    const [run] = await app.server.rpc.automations.listRuns({
+      automationId: automation.id,
+    });
+    const localTime = formatPacificTime(run!.startedAt);
+    await expect(session).toContainText(localTime);
+    await expect(routine).toContainText(`Completed · ${localTime}`);
+    await expect(routine).toContainText(
+      formatPacificTime(automation.nextRunAt!),
+    );
     await session.click();
 
     const command = app.page.getByRole("article", { name: "Shell command" });
@@ -128,7 +144,7 @@ e2eTest(
     await expect(routine).toContainText(/After run\s*Auto archive session/);
     await routine.getByRole("button", { name: "Run now" }).click();
     await expect(
-      routine.getByRole("link", { name: /Daily workspace check/ }),
+      routine.getByRole("region", { name: "Run history" }).getByRole("link"),
     ).toHaveCount(2);
     await expect(
       sidebar.getByRole("link", { name: /^Daily workspace check · / }),
@@ -139,6 +155,10 @@ e2eTest(
 e2eTest(
   "configures a trigger, shows event runs, and edits its activation",
   async ({ app }, testInfo) => {
+    const cdp = await app.page.context().newCDPSession(app.page);
+    await cdp.send("Emulation.setTimezoneOverride", {
+      timezoneId: "America/Los_Angeles",
+    });
     const sidebar = app.page.getByRole("navigation", { name: "Workspace" });
     await app.server.rpc.automations.save({
       name: "Incoming order",
@@ -192,6 +212,14 @@ e2eTest(
     await expect(
       pane.getByRole("region", { name: "Run history" }),
     ).toContainText("Completed · Triggered");
+    const [run] = await app.server.rpc.automations.listRuns({
+      automationId: automation!.id,
+    });
+    const localTime = formatPacificTime(run!.startedAt);
+    await expect(pane.getByRole("link", { name: /Triggered/ })).toContainText(
+      localTime,
+    );
+    await expect(pane).toContainText(`Completed · ${localTime}`);
     await pane.getByRole("link", { name: /Triggered/ }).click();
     await expect(
       app.page.getByRole("article", { name: "Shell command" }),
@@ -226,3 +254,14 @@ e2eTest(
     ).toContainText("Completed · Triggered");
   },
 );
+
+function formatPacificTime(time: string) {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Los_Angeles",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
+  }).format(new Date(time));
+}

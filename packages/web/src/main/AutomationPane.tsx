@@ -5,7 +5,6 @@ import * as errore from "errore";
 import type {
   Automation,
   AutomationRunStatus,
-  SessionSummary,
   WorkspaceSchema,
 } from "@get-halo/client";
 import { automationRunSelect } from "@get-halo/client";
@@ -34,13 +33,7 @@ const statusLabels = {
   skipped: "Skipped",
 } satisfies Record<AutomationRunStatus, string>;
 
-export function AutomationPane({
-  automationId,
-  sessions,
-}: {
-  automationId: string;
-  sessions: SessionSummary[];
-}) {
+export function AutomationPane({ automationId }: { automationId: string }) {
   const automations = useDatabaseQuery({
     collection: "automations",
     where: { id: automationId },
@@ -56,21 +49,13 @@ export function AutomationPane({
         sidebar.
       </div>
     );
-  return (
-    <AutomationView
-      key={automation.id}
-      automation={automation}
-      sessions={sessions}
-    />
-  );
+  return <AutomationView key={automation.id} automation={automation} />;
 }
 
 function AutomationView({
   automation,
-  sessions,
 }: {
   automation: WorkspaceSchema["automations"];
-  sessions: SessionSummary[];
 }) {
   const api = useApi();
   const workspace = useWorkspacePanes();
@@ -126,10 +111,6 @@ function AutomationView({
   const list = useStyles(styles.list);
   const runLink = useStyles(styles.runLink);
   const runInfo = useStyles(styles.runInfo);
-  const timezone =
-    automation.activation.type === "routine"
-      ? automation.activation.schedule.timezone
-      : new Intl.DateTimeFormat().resolvedOptions().timeZone;
   const actionError =
     runNow.error ?? toggle.error ?? remove.error ?? source.error;
   const pending =
@@ -185,7 +166,7 @@ function AutomationView({
                   <dt>Schedule</dt>
                   <dd>
                     {describeSchedule(automation.activation.schedule.cron)} (
-                    {timezone})
+                    {automation.activation.schedule.timezone})
                   </dd>
                 </div>
                 <div>
@@ -193,7 +174,7 @@ function AutomationView({
                   <dd>
                     {automation.nextRunAt === undefined
                       ? "Paused"
-                      : formatTime(automation.nextRunAt, timezone)}
+                      : formatTime(automation.nextRunAt)}
                   </dd>
                 </div>
               </>
@@ -219,7 +200,7 @@ function AutomationView({
               <dd>
                 {lastRun === undefined
                   ? "Never"
-                  : `${statusLabels[lastRun.status]} · ${formatTime(lastRun.startedAt, timezone)}`}
+                  : `${statusLabels[lastRun.status]} · ${formatTime(lastRun.startedAt)}`}
               </dd>
             </div>
             <div>
@@ -264,7 +245,7 @@ function AutomationView({
             <ul className={list}>
               {pending.map((delivery) => (
                 <li key={delivery.eventId} className={runLink}>
-                  <span>{formatTime(delivery.occurredAt, timezone)}</span>
+                  <span>{formatTime(delivery.occurredAt)}</span>
                   <span className={runInfo}>
                     {
                       {
@@ -282,14 +263,9 @@ function AutomationView({
                 </li>
               ))}
               {runs.slice(0, 100).map((run) => {
-                const session = sessions.find(
-                  (item) => item.sessionId === run.sessionId,
-                );
                 const body = (
                   <>
-                    <span>
-                      {session?.title ?? formatTime(run.startedAt, timezone)}
-                    </span>
+                    <span>{formatTime(run.startedAt)}</span>
                     <span className={runInfo}>
                       {statusLabels[run.status]} ·{" "}
                       {
@@ -392,9 +368,8 @@ function describeSchedule(cron: string) {
   if (described instanceof Error) return cron;
   return described;
 }
-function formatTime(time: string | number, timezone: string) {
+function formatTime(time: string | number) {
   return new Intl.DateTimeFormat(undefined, {
-    timeZone: timezone,
     month: "short",
     day: "numeric",
     hour: "numeric",
