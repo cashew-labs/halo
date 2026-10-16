@@ -122,10 +122,6 @@ export function FilesystemSection() {
         ),
       );
       await queryClient.invalidateQueries({
-        queryKey: ["workspace-file"],
-        refetchType: "none",
-      });
-      await queryClient.invalidateQueries({
         queryKey: ["workspace-preview"],
         refetchType: "none",
       });
