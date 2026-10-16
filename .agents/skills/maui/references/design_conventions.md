@@ -6,21 +6,24 @@ Patterns, demo apps, and the gallery `Panel` preview frame are not package compo
 
 ## Composition
 
+- Use Maui's `Text` component instead of raw `<span>` elements for inline text. Set typography through its `size`, `fontWeight`, `color`, `monospace`, and `tabular` props; see [Text](components/text.md). Keep semantic elements such as headings, paragraphs, labels, and links for their respective roles.
 - Hover backgrounds have no transitions. Hover fills such as `backgroundColor.elementHover`, quiet-button washes, and list or row highlights snap instantly. Do not animate `background` or `background-color` on hover with `motion.standard(...)` or a CSS `transition`. Other motion, including tooltips and transforms, is allowed.
 - Simple apps default to a prose column: `style(proseContainerStyle, { width: "100%", marginInline: "auto" })`. `sizing.contentWidth` is that same style. Use it for single-column tools, settings, forms, and reading layouts. Multi-pane or full-bleed apps such as inboxes, calendars, and IDEs are exceptions.
 - Design an intentional empty composition for every list, inbox, search result, or collection. Include copy and, when useful, an action. Do not leave a blank panel.
 
 ## Shadows
 
-Use the three-level elevation scale:
+Use `shadow.control` for interactive control surfaces. It combines two inset
+highlights with a compact outer edge. Use the three-level elevation scale for
+other raised surfaces:
 
-- `shadow.subtle` — controls, cards, and ordinary raised surfaces
+- `shadow.subtle` — cards and ordinary raised surfaces
 - `shadow.medium` — tooltips and larger floating panels
 - `shadow.strong` — dropdowns, popovers, and dominant overlays
 
 All three include a 1px ring. Do not also apply `border()`, `borderColor.outline`, or another ring to the same element.
 
-Buttons and form-control surfaces use `shadow.subtle` by default. For compound controls, apply it once to the outer control boundary instead of to every internal button or segment.
+Buttons and form-control surfaces use `shadow.control` by default. For compound controls, apply it once to the outer control boundary instead of to every internal button or segment.
 
 ## Focus
 

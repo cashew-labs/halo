@@ -113,11 +113,13 @@ text({
 | `lg` | 16px | 24px |
 | `xl` | 22px | 30px |
 
+Sizes step up on the **Large platform scale** (`:root[data-scale="large"]`, driven by `(pointer: coarse)` under the system preference): `md` is 14px/22px on desktop and 17px/26px on coarse pointers. See `useScale` / `ScaleProvider`.
+
 - `lowContrast` → `gray[11]`, `highContrast` → `gray[12]`, `accent` → `accent[11]`, `onAccent` → white.
 - UI sans: `fontFamily` (system ui-sans-serif stack). Mono: Commit Mono with `ss05` smart kerning (`monoFontStyle` / `monospace`).
 - `tabular: true` → `font-variant-numeric: tabular-nums`. NumberField, TableHead, and TableCell turn this on by default. Body copy and Prose stay off.
 - `baseTextStyle` is md / 400 / highContrast — already on `html, body`.
-- Inside `Prose`, `H1`–`H4` / `P` / lists switch to the **prose** scale (`sm` 14px, `md` 16px, `lg` 18px), which is larger and has reading rhythm. Do not put app chrome inside `Prose`.
+- Inside `Prose`, `H1`–`H4` / `P` / lists switch to the **prose** scale (`sm` 14px, `md` 16px, `lg` 18px), which is larger and has reading rhythm. Prose block sizes and line heights also step up ~1.2x on the Large platform scale. Do not put app chrome inside `Prose`.
 
 `proseContainerStyle` is the composable column (`maxWidth: proseMaxWidth`, `"80ch"`). `sizing.contentWidth` is that same style. `sizing.fullWidth` is `width: 100%`.
 
@@ -170,12 +172,14 @@ Controls typically use `sm`. Cards / sidebars use `lg`. Avatars use `circle`.
 ## Shadows and rings
 
 ```ts
-shadow.subtle | shadow.medium | shadow.strong   // style objects
-shadowVars.subtle | .medium | .strong           // raw box-shadow strings
+shadow.control                                  // button/form-control style object
+shadow.subtle | shadow.medium | shadow.strong   // elevation style objects
+shadowVars.control | .subtle | .medium | .strong // raw box-shadow strings
 tintedSubtle(color)                             // subtle ring+blur tinted from a fill
 ```
 
-Every elevation already includes a 1px ring. **Do not also `border()` the same element.**
+`shadow.control` uses inset highlights and a compact outer edge. Every elevation
+already includes a 1px ring. **Do not also `border()` the same element.**
 
 `border(sides, color)`:
 
@@ -184,7 +188,7 @@ Every elevation already includes a 1px ring. **Do not also `border()` the same e
 
 `borderColor.border` / `borderColor.outline` are the raw color strings (hairlines, `borderBottom`).
 
-`focusRing(selector = "&:focus-visible", existingShadow?)` — Radix blue ring. Pass `shadowVars.subtle` as the second argument so a raised control keeps its elevation while focused.
+`focusRing(selector = "&:focus-visible", existingShadow?)` — Radix blue ring. Pass `shadowVars.control` as the second argument so a form control keeps its surface treatment while focused; use the matching elevation variable for other raised surfaces.
 
 `visuallyHidden` — clip an input and keep the styled sibling visible (Checkbox / Switch / Radio).
 
@@ -195,11 +199,16 @@ motionDurationMs          // 80
 motionStreamDurationMs    // 80 — Streamdown word fade
 motionEasing              // "ease-in-out"
 motion.standard("opacity", "transform")  // 80ms ease-in-out on those properties
+overlayMotion             // shared tooltip, dialog, backdrop, and reduced timings
 ```
 
 Use `motion.standard` for opacity, transform, box-shadow, color. **Never** for hover `background` / `background-color`.
 
-Tooltips use a snappy spring (not `motion.standard`). Crossfade enter is a 0.3s spring (`bounce` 0.2); exit uses `motionDurationMs` / ease-in-out. Streaming markdown uses `motionStreamDurationMs`.
+`overlayMotion` defines tooltip enter (120ms entrance curve), tooltip exit
+(80ms ease-in), dialog enter (200ms entrance curve), dialog exit (120ms
+ease-in), backdrop (100ms), and opacity-only reduced motion (80ms). Crossfade
+enter is a 0.3s spring (`bounce` 0.2); exit uses `motionDurationMs` /
+ease-in-out. Streaming markdown uses `motionStreamDurationMs`.
 
 ## Sizing and icons
 

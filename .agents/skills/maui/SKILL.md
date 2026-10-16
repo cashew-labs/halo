@@ -23,6 +23,7 @@ Read the reference for the work you are doing:
 | Avatar           | [avatar.md](references/components/avatar.md)                                                 |
 | Badge            | [badge.md](references/components/badge.md)                                                   |
 | Buttons          | [buttons.md](references/components/buttons.md) (`Button`, `Overlay`, `Dialog`)               |
+| Tab bar          | [tab-bar.md](references/components/tab-bar.md)                                               |
 | Drawer           | [drawer.md](references/components/drawer.md)                                                 |
 | Prose            | [prose.md](references/components/prose.md) (`Prose`, `H1`–`H4`, `P`, lists, `Label`, `Link`) |
 | Editor / MarkdownEditor | [editor.md](references/components/editor.md) (optional TipTap peers; separate imports) |
