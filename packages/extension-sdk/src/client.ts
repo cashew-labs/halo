@@ -76,23 +76,27 @@ export async function connectExtension<
     (cause) => new ExtensionConnectionError({ cause }),
   );
   if (ready instanceof Error) return ready;
-  const connected = await storage
-    .connect()
-    .catch((cause) => new ExtensionConnectionError({ cause }));
-  if (connected instanceof Error) {
-    if (!isForbidden(connected)) return connected;
-    // Actions-mode apps deny visitors sync; their views use the API, with
-    // empty local storage.
-    return {
-      api,
-      storage: new TandemClient({
-        schema: args.schema,
-        relations: args.relations,
-        autoConnect: false,
-      }),
-    };
-  }
-  return { api, storage };
+  // Mount the view so its queries join the first pull. Waiting for connect()
+  // here pulls an empty scan window before the view can subscribe.
+  const connected = (async () => {
+    const result = await storage
+      .connect()
+      .catch((cause) => new ExtensionConnectionError({ cause }));
+    if (result instanceof Error) {
+      if (!isForbidden(result)) return result;
+      // Actions-mode visitors use the API with an empty local replica.
+      return {
+        api,
+        storage: new TandemClient({
+          schema: args.schema,
+          relations: args.relations,
+          autoConnect: false,
+        }),
+      };
+    }
+    return { api, storage };
+  })();
+  return { api, storage, connected };
 }
 
 function isForbidden(error: Error) {

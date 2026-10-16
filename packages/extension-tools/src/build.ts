@@ -39,6 +39,7 @@ export async function buildExtension(directory: string) {
       stdin: {
         resolveDir: directory,
         loader: "tsx",
+        // coverage-exempt: Generated browser entry; loading.test.ts checks fast mount, built output, forbidden sync, and the visible failure/reload flow through the packed CLI.
         contents: `
 import { createRoot } from "react-dom/client";
 import { connectExtension } from "@get-halo/extension-sdk/client";
@@ -46,7 +47,19 @@ import View from "./view.tsx";
 import { relations, schema } from "./schema.ts";
 const client = await connectExtension({ schema, relations });
 if (client instanceof Error) throw client;
-createRoot(document.getElementById("root")).render(<View {...client} />);`,
+const root = createRoot(document.getElementById("root"));
+root.render(<View {...client} />);
+void client.connected.then((connected) => {
+  if (connected instanceof Error) {
+    console.error(connected);
+    root.render(<div role="alert">
+      <p>Couldn't load this app's data. Changes made while connecting may not have been saved. Reload to try again.</p>
+      <button type="button" onClick={() => location.reload()}>Reload</button>
+    </div>);
+    return;
+  }
+  root.render(<View {...connected} />);
+});`,
       },
       outfile: join(output, "public", "view.js"),
       loader: {
