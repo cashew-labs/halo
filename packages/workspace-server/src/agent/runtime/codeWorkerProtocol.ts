@@ -2,11 +2,17 @@ import type { ExecuteResult } from "@executor-js/codemode-core";
 
 export type CodeWorkerRequest =
   | { type: "evaluate"; id: string; code: string }
-  | { type: "toolResult"; id: string; invocationId: string; value: unknown };
+  | {
+      type: "toolResult";
+      id: string;
+      invocationId: string;
+      value: unknown;
+      imageError?: string;
+    };
 
 export type CodeWorkerResponse =
   | {
-      type: "toolCall";
+      type: "toolCall" | "viewImage";
       id: string;
       invocationId: string;
       path: string;

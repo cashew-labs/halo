@@ -11,6 +11,20 @@ FROM ${BASE_IMAGE} AS playwright-version
 COPY packages/workspace-server/package.json /tmp/package.json
 RUN node -p "require('/tmp/package.json').dependencies.playwright" > /tmp/playwright-version
 
+FROM rust:1.97.1-bookworm AS opensky-driver
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends git clang pkg-config libdbus-1-dev libx11-dev libxi-dev libxtst-dev libxext-dev libxkbcommon-dev libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /src
+# Exact tested OpenSky fork; upstream CUA binaries do not implement its identity.
+RUN git init . \
+    && git remote add origin https://github.com/tanishqkancharla/cua.git \
+    && git fetch --depth 1 origin 9e9219a0ca84ea195b9cf3be35b42a6379699448 \
+    && git checkout --detach FETCH_HEAD
+WORKDIR /src/libs/cua-driver/rust
+RUN CUA_DRIVER_SOURCE_SHA=9e9219a0ca84ea195b9cf3be35b42a6379699448 \
+    cargo build --release --locked --jobs 2 -p cua-driver
+
 FROM ${BASE_IMAGE}
 
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright
@@ -21,9 +35,11 @@ RUN apt-get update \
     && apt-get install --yes --no-install-recommends ca-certificates curl poppler-utils python3 python3-pip python3-venv \
        tigervnc-standalone-server novnc websockify dbus-x11 xfwm4 xfce4-panel \
        xfce4-settings thunar xfce4-terminal x11-utils x11-xserver-utils \
+       at-spi2-core libatk-adaptor libxi6 libxtst6 xdotool \
        adwaita-icon-theme fonts-dejavu xdg-utils \
     && rm -rf /var/lib/apt/lists/*
 RUN npm install --global pnpm@12.1.0 && npm cache clean --force
+COPY --from=opensky-driver /src/libs/cua-driver/rust/target/release/cua-driver /usr/local/bin/opensky-driver
 COPY apps/workspace-server/pdf-requirements.txt ./apps/workspace-server/pdf-requirements.txt
 RUN python3 -m venv /opt/halo/.venv \
     && /opt/halo/.venv/bin/pip install --no-cache-dir --requirement apps/workspace-server/pdf-requirements.txt
@@ -74,6 +90,10 @@ RUN chown -R node:node /opt/halo/packages
 
 ENV HOME=/home/node \
     DISPLAY=:1 \
+    OPENSKY_DRIVER_BINARY=/usr/local/bin/opensky-driver \
+    OPENSKY_DRIVER_SOCKET=/tmp/halo-desktop-runtime/opensky.sock \
+    NO_AT_BRIDGE=0 \
+    GTK_MODULES=atk-bridge \
     HALO_DESKTOP_ORIGIN=http://127.0.0.1:6080 \
     VIRTUAL_ENV=/opt/halo/.venv \
     XDG_CONFIG_HOME=/home/node/.config \

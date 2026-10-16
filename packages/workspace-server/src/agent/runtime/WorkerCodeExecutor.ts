@@ -1,7 +1,9 @@
 import { Worker } from "node:worker_threads";
 import { randomUUID } from "node:crypto";
 import { AsyncResource } from "node:async_hooks";
-import { Effect } from "@executor-js/sdk/core";
+import { Effect, ToolResult, isToolResult } from "@executor-js/sdk/core";
+import { Type } from "@sinclair/typebox";
+import { Value } from "@sinclair/typebox/value";
 import type {
   ExecuteResult,
   SandboxToolInvoker,
@@ -34,6 +36,9 @@ type Session = {
 };
 
 type Completion = { resolve?: (value: ExecuteResult) => void };
+const imageReferenceSchema = Type.Object({
+  path: Type.String({ minLength: 1 }),
+});
 
 /** One lazy worker per loaded thread. Extensions never enter this evaluator. */
 export class WorkerCodeExecutor {
@@ -56,6 +61,10 @@ export class WorkerCodeExecutor {
     threadId: string;
     code: string;
     invoker: SandboxToolInvoker;
+    viewImage: (
+      reference: { path: string },
+      signal: AbortSignal,
+    ) => Promise<ToolResult<void>>;
     signal?: AbortSignal;
   }): Promise<ExecuteResult> {
     if (input.signal?.aborted)
@@ -117,6 +126,10 @@ export class WorkerCodeExecutor {
     session: Session;
     code: string;
     invoker: SandboxToolInvoker;
+    viewImage: (
+      reference: { path: string },
+      signal: AbortSignal,
+    ) => Promise<ToolResult<void>>;
     signal?: AbortSignal;
   }): Promise<ExecuteResult> {
     const { session } = input;
@@ -175,9 +188,20 @@ export class WorkerCodeExecutor {
         if (message.reset) await session.stop("guest runtime failed");
         return;
       }
-      const task = Effect.runPromise(
-        input.invoker.invoke({ path: message.path, args: message.args }),
-        { signal },
+      const task = (
+        message.type === "viewImage"
+          ? Value.Check(imageReferenceSchema, message.args)
+            ? input.viewImage(message.args, signal)
+            : Promise.resolve(
+                ToolResult.fail({
+                  code: "invalid_image_reference",
+                  message: "viewImage expects { path: string }",
+                }),
+              )
+          : Effect.runPromise(
+              input.invoker.invoke({ path: message.path, args: message.args }),
+              { signal },
+            )
       )
         .catch((cause) => new CodeWorkerError({ cause }))
         .then(async (value) => {
@@ -186,6 +210,14 @@ export class WorkerCodeExecutor {
             type: "toolResult",
             id,
             invocationId: message.invocationId,
+            imageError:
+              message.type !== "viewImage"
+                ? undefined
+                : value instanceof Error
+                  ? value.message
+                  : isToolResult(value) && !value.ok
+                    ? value.error.message
+                    : undefined,
             value:
               value instanceof Error
                 ? {

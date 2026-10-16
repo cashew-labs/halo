@@ -422,6 +422,177 @@ serverTest(
 );
 
 serverTest(
+  "emits image references into model content without guest bytes or next-run leakage",
+  async ({ server, llm }) => {
+    const png =
+      "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAE0lEQVR4nGP4z8DwnwGM/zMwAAAf7gP9NRsAMwAAAABJRU5ErkJggg==";
+    const imagePath = ".halo/computer/images/observation.png";
+    await fs.mkdir(path.dirname(path.join(server.workspaceRoot, imagePath)), {
+      recursive: true,
+    });
+    await fs.writeFile(
+      path.join(server.workspaceRoot, imagePath),
+      Buffer.from(png, "base64"),
+    );
+    const session = await server.rpc.thread.new();
+    const prompt = server.promptAndWait({
+      ...session,
+      text: "Inspect the observation",
+    });
+    await llm.respond(
+      m.tool.start("exec", {
+        id: "emit-observation",
+        arguments: {
+          js: `var observation = { data: { text: "Desktop observation", screenshot: { path: ${JSON.stringify(imagePath)} } } }; console.log(observation.data.text); viewImage(observation.data.screenshot)`,
+        },
+      }),
+    );
+    await llm.respond(({ messages }) => {
+      expect(
+        messages
+          .filter((message) => message.role === "tool")
+          .map((message) => message.content)
+          .join("\n"),
+      ).toContain("Logs:\nDesktop observation");
+      const images = messages.flatMap((message) =>
+        Array.isArray(message.content)
+          ? message.content.filter((part) => part.type === "image_url")
+          : [],
+      );
+      expect(images).toHaveLength(1);
+      expect(images[0]).toMatchObject({
+        type: "image_url",
+        image_url: { url: `data:image/png;base64,${png}` },
+      });
+      const text = messages
+        .filter((message) => message.role === "tool")
+        .map((message) => message.content)
+        .join("\n");
+      expect(text).toContain("Desktop observation");
+      expect(text).not.toContain(png);
+      expect(text).not.toContain("data:image");
+      return m.tool.start("exec", {
+        id: "invalid-image",
+        arguments: {
+          js: 'viewImage({ path: "missing-image.png" }); viewImage({ path: 42 }); "still running"',
+        },
+      });
+    });
+    await llm.respond(({ messages }) => {
+      expect(messages).toContainEqual(
+        expect.objectContaining({
+          role: "tool",
+          tool_call_id: "invalid-image",
+          content: expect.stringContaining("could not read the file"),
+        }),
+      );
+      expect(messages).toContainEqual(
+        expect.objectContaining({
+          role: "tool",
+          tool_call_id: "invalid-image",
+          content: expect.stringContaining(
+            "viewImage expects { path: string }",
+          ),
+        }),
+      );
+      const images = messages.flatMap((message) =>
+        Array.isArray(message.content)
+          ? message.content.filter((part) => part.type === "image_url")
+          : [],
+      );
+      expect(images).toHaveLength(1);
+      return m.tool.start("exec", {
+        id: "await-image",
+        arguments: {
+          js: `console.log(await viewImage({ path: ${JSON.stringify(imagePath)} })); typeof observation`,
+        },
+      });
+    });
+    await llm.respond(({ messages }) => {
+      const images = messages.flatMap((message) =>
+        Array.isArray(message.content)
+          ? message.content.filter((part) => part.type === "image_url")
+          : [],
+      );
+      expect(images).toHaveLength(2);
+      expect(messages).toContainEqual(
+        expect.objectContaining({
+          role: "tool",
+          tool_call_id: "await-image",
+          content: expect.stringContaining('"ok":true'),
+        }),
+      );
+      return m.tool.start("exec", {
+        id: "bounded-images",
+        arguments: {
+          js: `for (var index = 0; index < 9; index++) viewImage({ path: ${JSON.stringify(imagePath)} }); "bounded"`,
+        },
+      });
+    });
+    await llm.respond(({ messages }) => {
+      const images = messages.flatMap((message) =>
+        Array.isArray(message.content)
+          ? message.content.filter((part) => part.type === "image_url")
+          : [],
+      );
+      expect(images).toHaveLength(10);
+      expect(messages).toContainEqual(
+        expect.objectContaining({
+          role: "tool",
+          tool_call_id: "bounded-images",
+          content: expect.stringContaining("At most 8 images"),
+        }),
+      );
+      return m.tool.start("exec", {
+        id: "same-thread-clean",
+        arguments: { js: '"clean"' },
+      });
+    });
+    await llm.respond(({ messages }) => {
+      const images = messages.flatMap((message) =>
+        Array.isArray(message.content)
+          ? message.content.filter((part) => part.type === "image_url")
+          : [],
+      );
+      expect(images).toHaveLength(10);
+      expect(messages).toContainEqual(
+        expect.objectContaining({
+          role: "tool",
+          tool_call_id: "same-thread-clean",
+          content: "clean",
+        }),
+      );
+      return m.assistant("Viewed");
+    });
+    await prompt;
+    const executions = sessionToolExecutions(
+      await server.rpc.thread.snapshot(session),
+    );
+    const details = executions.map((execution) => execution.result?.details);
+    expect(JSON.stringify(details)).not.toContain(png);
+    expect(JSON.stringify(details)).not.toContain('"mimeType"');
+    const other = await server.rpc.thread.new();
+    const next = server.promptAndWait({
+      ...other,
+      text: "Start without images",
+    });
+    await llm.respond(
+      m.tool.start("exec", { id: "no-image", arguments: { js: '"clean"' } }),
+    );
+    await llm.respond(({ messages }) => {
+      const images = messages.flatMap((message) =>
+        Array.isArray(message.content)
+          ? message.content.filter((part) => part.type === "image_url")
+          : [],
+      );
+      expect(images).toHaveLength(0);
+      return m.assistant("Clean");
+    });
+    await next;
+  },
+);
+
+serverTest(
   "retains exec bindings outside the repository, resets explicitly, and notifies after reload",
   async ({ server, llm }) => {
     await using cleanup = new errore.AsyncDisposableStack();
@@ -1150,8 +1321,8 @@ serverTest(
         capability: "workspace.shell.execute",
       },
     ] as const;
-    await llm.respond(
-      operations.flatMap((operation) => [
+    await llm.respond([
+      ...operations.flatMap((operation) => [
         m.tool.start(operation.name, {
           id: `direct-${operation.name}`,
           arguments: operation.args,
@@ -1163,8 +1334,26 @@ serverTest(
           },
         }),
       ]),
-    );
+      m.tool.start("exec", {
+        id: "denied-image",
+        arguments: { js: 'await viewImage({ path: "protected.txt" })' },
+      }),
+    ]);
     await llm.respond(({ messages }) => {
+      expect(messages).toContainEqual(
+        expect.objectContaining({
+          role: "tool",
+          tool_call_id: "denied-image",
+          content: expect.stringContaining("workspace.files.read"),
+        }),
+      );
+      expect(
+        messages.flatMap((message) =>
+          Array.isArray(message.content)
+            ? message.content.filter((part) => part.type === "image_url")
+            : [],
+        ),
+      ).toHaveLength(0);
       for (const operation of operations)
         for (const surface of ["direct", "exec"]) {
           const toolMessage = messages.find(
@@ -1765,6 +1954,99 @@ serverTest(
     expect(
       (await server.rpc.thread.snapshot(session)).connections,
     ).toMatchObject([{ request, status: "cancelled" }]);
+  },
+);
+
+serverTest(
+  "discovers local tools by canonical path, name and description",
+  async ({ server, llm }) => {
+    const search = async (query: string, limit?: number) =>
+      await server.rpc.testApi.invokeTool({
+        path: "search",
+        input: { query, limit, source: "workspace" },
+      });
+    const computerPaths = [
+      "computer.back",
+      "computer.click",
+      "computer.close",
+      "computer.createTab",
+      "computer.drag",
+      "computer.forward",
+      "computer.getApp",
+      "computer.getTab",
+      "computer.goto",
+      "computer.listApps",
+      "computer.listTabs",
+      "computer.observe",
+      "computer.paste",
+      "computer.pressKey",
+      "computer.reload",
+      "computer.scroll",
+      "computer.setValue",
+      "computer.typeText",
+    ];
+    for (const query of ["computer", "CoMpUtEr."]) {
+      expect(await search(query)).toMatchObject({
+        tools: computerPaths.map((toolPath) => ({
+          path: toolPath,
+          source: "workspace",
+        })),
+        truncated: false,
+        unavailableSources: [],
+      });
+    }
+    expect(await search("computer.OBSERVE")).toMatchObject({
+      tools: [{ path: "computer.observe", name: "observe" }],
+    });
+    expect(await search("getApp")).toMatchObject({
+      tools: expect.arrayContaining([
+        expect.objectContaining({ path: "computer.getApp" }),
+      ]),
+    });
+    expect(await search("UTF-8 file")).toMatchObject({
+      tools: [{ path: "files.read" }, { path: "files.write" }],
+    });
+    expect(await search("computer", 2)).toMatchObject({
+      tools: [{ path: "computer.back" }, { path: "computer.click" }],
+      truncated: true,
+    });
+    expect(await search("")).toMatchObject({
+      tools: expect.arrayContaining([
+        expect.objectContaining({ path: "computer.observe" }),
+        expect.objectContaining({ path: "files.read" }),
+      ]),
+      truncated: false,
+    });
+    expect(await search("nonexistent-tool-namespace")).toEqual({
+      tools: [],
+      truncated: false,
+      unavailableSources: [],
+    });
+
+    const session = await server.rpc.thread.new();
+    const prompting = server.promptAndWait({
+      ...session,
+      text: "Find the computer tools",
+    });
+    await llm.respond(
+      m.tool.start("exec", {
+        id: "discover-computer",
+        arguments: {
+          js: 'await tools.search({ query: "computer", source: "workspace" })',
+        },
+      }),
+    );
+    await llm.respond(({ messages }) => {
+      expect(messages).toContainEqual(
+        expect.objectContaining({
+          role: "tool",
+          tool_call_id: "discover-computer",
+          content: expect.stringContaining("computer.observe"),
+        }),
+      );
+      return m.assistant("Found the observation tool");
+    });
+    await prompting;
   },
 );
 

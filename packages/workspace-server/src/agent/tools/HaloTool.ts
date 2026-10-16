@@ -10,6 +10,7 @@ import type { ThreadManager } from "../../sessions/ThreadManager.js";
 import type { ConnectionService } from "../runtime/ConnectionService.js";
 import type { ParallelSearchService } from "./web/parallelSearch.js";
 import type { ToolRuntime } from "../runtime/ToolRuntime.js";
+import type { ComputerService } from "../../computer/ComputerService.js";
 
 export type HaloToolExecution<T = unknown> = {
   result: T;
@@ -26,6 +27,7 @@ export type HaloToolServices = {
   readonly threads: ThreadManager;
   readonly connections: ConnectionService;
   readonly web: ParallelSearchService;
+  readonly computer: ComputerService;
 };
 
 export type HaloToolContext = {

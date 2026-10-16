@@ -74,6 +74,18 @@ export function createExecTool(input: {
           true;
       }, context);
       using cleanup = new errore.DisposableStack();
+      const images: { type: "image"; data: string; mimeType: string }[] = [];
+      cleanup.defer(
+        input.runtime.images.subscribe((attachment) => {
+          if (
+            attachment.threadId !== input.threadId ||
+            attachment.parentToolCallId !== api.callId ||
+            context.abortSignal?.aborted
+          )
+            return;
+          images.push(attachment.image);
+        }),
+      );
       const toolCalls = new Map<string, ExecToolCall>();
       const progressQueue = new SerialQueue();
       const progressUpdates: Promise<void | ToolProgressError>[] = [];
@@ -123,9 +135,10 @@ export function createExecTool(input: {
       );
       // Pi's tool boundary requires thrown failures.
       if (progressFailure instanceof Error) throw progressFailure;
+      if (context.abortSignal?.aborted) images.length = 0;
       if (result instanceof ToolInputRequiredError) {
         return {
-          content: [{ type: "text" as const, text: result.message }],
+          content: [{ type: "text" as const, text: result.message }, ...images],
           details: copyJson(
             {
               error: result.message,
@@ -139,7 +152,7 @@ export function createExecTool(input: {
       }
       if (result instanceof Error) {
         return {
-          content: [{ type: "text" as const, text: result.message }],
+          content: [{ type: "text" as const, text: result.message }, ...images],
           details: copyJson(
             {
               error: result.message,
@@ -168,7 +181,7 @@ export function createExecTool(input: {
           ? formatted.text
           : `${resultText}${logs}`;
       return {
-        content: [{ type: "text" as const, text: fullText }],
+        content: [{ type: "text" as const, text: fullText }, ...images],
         details: copyJson(
           {
             ...formatted.structured,

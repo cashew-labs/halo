@@ -55,12 +55,24 @@ for attempt in {1..100}; do
 done
 xdpyinfo >/dev/null
 xsetroot -solid '#20242b'
-xfwm4 --compositor=off &
+xfwm4 --compositor=on &
 desktop_pids+=("$!")
 xfsettingsd --no-daemon &
 desktop_pids+=("$!")
 xfce4-panel --disable-wm-check &
 desktop_pids+=("$!")
+# The workspace grants computer tools access to its shared desktop and browser.
+# Keep the daemon on the same display/session bus; never let SDK calls detach it.
+opensky-driver --socket "$OPENSKY_DRIVER_SOCKET" serve --no-overlay \
+  --permission-mode standard --grant existing-profile &
+driver_pid=$!
+desktop_pids+=("$driver_pid")
+for attempt in {1..100}; do
+  if [[ -S "$OPENSKY_DRIVER_SOCKET" ]]; then break; fi
+  kill -0 "$driver_pid"
+  sleep 0.1
+done
+[[ -S "$OPENSKY_DRIVER_SOCKET" ]]
 # Reopen the user's saved browser after container maintenance or a provider move.
 # Chrome is a user application: closing it must not stop the desktop service.
 if compgen -G "$HOME/.config/halo-chrome/Default/Sessions/Session_*" >/dev/null; then

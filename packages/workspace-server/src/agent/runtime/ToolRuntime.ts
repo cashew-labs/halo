@@ -477,6 +477,11 @@ type ToolRuntimeOptions = {
 };
 
 export class ToolRuntime {
+  readonly images = new Stream<{
+    threadId: string;
+    parentToolCallId: string;
+    image: { type: "image"; data: string; mimeType: string };
+  }>();
   readonly toolActivity = new Stream<{
     threadId: string | undefined;
     parentToolCallId: string;
@@ -686,6 +691,7 @@ export class ToolRuntime {
       "Execute JavaScript in a persistent, thread-owned session. tools and console are in scope. Variables and functions survive calls until reset or thread unload. Native let/const redeclarations error; use var for reusable bindings. Use exec({ op: 'reset' }) to discard bindings. Reset does not undo external actions.",
       'The final expression is the result: `await tools.search({ query: "send email" })`, `await tools.files.read({ path: "notes.md" })`, or `await tools[path](args)`. Top-level return is not supported. Await tool calls; detached work cannot outlive an evaluation.',
       "Runtime tools do not throw for expected failures. They return { ok: true, data } or { ok: false, error }. Check result.ok.",
+      "viewImage({ path }) attaches a workspace PNG, JPEG, or WebP directly to this exec result for model viewing. No await is needed; await returns only { ok: true } or { ok: false, error }, never image bytes. At most 8 images per evaluation; source files must be 20 MiB or smaller. Log observation text separately and viewImage(observation.data.screenshot) when present.",
       ...(this.remoteConnections
         ? [
             `Find available integrations with tools.executor.integrations.list({ query: "integration name" }); omit query to list them all. Register custom remote MCP servers with tools.halo.registerMcp({ name, slug, endpoint, auth }) and OpenAPI spec URLs with tools.halo.registerOpenAPI({ name, slug, url }). Show an optional connection card with tools.halo.showConnectionCard({ integration }) using an integration ID returned by listing or registration. Discover operations with tools.search({ query, source: "control-plane" }); results contain tools, truncated and unavailableSources. Describe with tools.describe.tool({ path }). Remote paths start with integrations.; invoke the complete saved path with tools[path](args). Credentials are entered in the control plane, never in tool arguments.`,
@@ -852,11 +858,12 @@ export class ToolRuntime {
     const tools = await Effect.runPromise(
       input.source === "control-plane"
         ? Effect.succeed([])
-        : this.executor.tools.list({ query: input.query }),
+        : this.executor.tools.list(),
     ).catch(
       (cause) => new ToolRuntimeError({ operation: "tool search", cause }),
     );
     if (tools instanceof Error) return tools;
+    const query = input.query.toLowerCase();
     const items = tools
       .map((catalogTool) => ({
         path: sandboxPath(String(catalogTool.address)),
@@ -864,6 +871,11 @@ export class ToolRuntime {
         description: catalogTool.description,
         source: "workspace" as const,
       }))
+      .filter((entry) =>
+        `${entry.path} ${entry.name} ${entry.description}`
+          .toLowerCase()
+          .includes(query),
+      )
       .toSorted((left, right) => left.path.localeCompare(right.path));
     const limit = input.limit ?? 100;
     const remote =
@@ -1182,6 +1194,7 @@ async function createToolRuntime(
               result: undefined,
               error: "Code evaluation requires a thread",
             });
+          let imageCount = 0;
           return Effect.promise(
             async () =>
               await codeSessions.evaluate({
@@ -1189,6 +1202,53 @@ async function createToolRuntime(
                 code,
                 invoker,
                 signal: context.signal,
+                viewImage: async (reference, signal) => {
+                  if (signal.aborted)
+                    return toolFailure("cancelled", "Image emission cancelled");
+                  if (++imageCount > 8)
+                    return toolFailure(
+                      "image_limit",
+                      "At most 8 images may be emitted per evaluation",
+                    );
+                  // Use the existing authorized, validated file-image boundary directly.
+                  // Image bytes must not pass through Executor serialization or guest tool results.
+                  const result = await context.runtime.invoke({
+                    path: "files.viewImage",
+                    args: reference,
+                    signal,
+                    modelId: context.modelId,
+                    threadId: context.threadId,
+                    toolCallId: context.parentToolCallId,
+                  });
+                  if (result instanceof Error)
+                    return toolFailure(result.name, result.message);
+                  if (signal.aborted)
+                    return toolFailure("cancelled", "Image emission cancelled");
+                  const image = result.modelResult?.content?.find(
+                    (part) => part.type === "image",
+                  );
+                  if (image === undefined)
+                    return toolFailure(
+                      "image_context",
+                      "Image tool returned no image",
+                    );
+                  if (image.data.length > 8 * 1024 * 1024)
+                    return toolFailure(
+                      "image_limit",
+                      "Resized image exceeded 8 MiB of encoded data",
+                    );
+                  if (context.parentToolCallId === undefined)
+                    return toolFailure(
+                      "image_context",
+                      "Image emission requires an exec tool call",
+                    );
+                  context.runtime.images.append({
+                    threadId: context.threadId!,
+                    parentToolCallId: context.parentToolCallId,
+                    image,
+                  });
+                  return ToolResult.ok(undefined);
+                },
               }),
           );
         },
