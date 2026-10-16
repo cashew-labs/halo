@@ -30,6 +30,6 @@ export type WorkspaceTreeEvent =
   | { type: "delete"; path: string };
 
 export type WorkspaceFilePreview =
-  | { kind: "text" }
+  | { kind: "text"; content: string }
   | { kind: "image" | "pdf" | "audio" | "video"; file: File }
   | { kind: "unsupported"; reason: string };

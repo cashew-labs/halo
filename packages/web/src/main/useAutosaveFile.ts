@@ -7,7 +7,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { SerialQueue } from "@get-halo/shared/SerialQueue";
 import { useApi } from "../api/ApiProvider.js";
 import { useConnection } from "../api/ConnectionContext.js";
-import type { HaloClient } from "@get-halo/client";
+import type { HaloClient, WorkspaceFilePreview } from "@get-halo/client";
 
 const autosaveDelayMs = 400;
 const fileSaves = new Set<FileAutosave>();
@@ -248,7 +248,11 @@ export function useAutosaveFile(args: { path: string; loaded: string }) {
           setProgress({ message, needsRetry }),
         synced: setLoaded,
         cache: (content) =>
-          queryClient.setQueryData(["workspace-file", args.path], content),
+          queryClient.setQueryData<WorkspaceFilePreview>(
+            ["workspace-preview", args.path],
+            (preview) =>
+              preview?.kind === "text" ? { ...preview, content } : preview,
+          ),
       }),
   );
   useEffect(() => {

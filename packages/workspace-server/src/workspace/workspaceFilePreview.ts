@@ -46,5 +46,5 @@ export function workspaceFilePreview(
       reason: "Text files larger than 5 MB cannot be previewed.",
     };
   }
-  return { kind: "text" };
+  return { kind: "text", content: contents.toString("utf8") };
 }
