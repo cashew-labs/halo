@@ -1,0 +1,59 @@
+{
+  "status": "changes_requested",
+  "summary": "The change speeds up loading in three places. Text previews now carry their content, so the editor needs one request (protocol 29). Thread events send the stored snapshot before the runtime opens. Extension views mount before Tandem finishes connecting, and view bundles are minified. The server and web paths look correct. It is not ready: a non-forbidden extension sync failure now fails silently, the coverage gate fails on 6 lines, and the key E2E assertion only runs when an environment variable is set.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "source",
+      "file": "packages/extension-sdk/src/client.ts",
+      "line": 81,
+      "severity": "P1",
+      "body": "A non-forbidden `storage.connect()` failure used to return an `ExtensionConnectionError`, so the generated entry threw and the view did not render. Now the error is only logged and the view mounts with an empty, permanently disconnected replica. Tandem never retries the connect (SyncEngine.connect runs once). Its `push()` returns early with 'skipping push while disconnected', so local writes stay in `pendingMutations` forever. A user can add data, see it render as saved, and lose it on reload, with no visible error. This can happen after a transient network error or during `halo extension restart`. Keep the fast mount, but surface the failure to the view (for example, a status the generated entry renders) or retry the connect. Do not leave the view in a state that silently accepts writes it will never sync. Only the FORBIDDEN (actions-mode) case should fall back quietly."
+    },
+    {
+      "id": "F2",
+      "kind": "test",
+      "file": "apps/electron/e2e/.tmp-tests/loadingSpeed.e2e.test.ts",
+      "line": 50,
+      "severity": "P1",
+      "body": "The only assertion for the main client-side claim (opening a text file makes one preview request and no separate readFile request) is guarded by `if (process.env.LOADING_RUN === \"after\")`. In a normal run it never executes, so the test passes even if the editor still calls `readFile`. Assert it unconditionally, for example that `requests` has exactly one entry and that it is a `previewFile` request."
+    },
+    {
+      "id": "F3",
+      "kind": "test",
+      "file": "packages/extension-tools/test/.tmp-tests/loading.test.ts",
+      "line": 61,
+      "severity": "P1",
+      "body": "The test computes `developmentReact` and `scriptBytes` but asserts neither. Nothing checks the `minify: true` change in build.ts:36, which is also reported as uncovered. Assert that the built view bundle is minified and uses the production React build, for example `expect(results.developmentReact).toBe(false)`."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "packages/extension-sdk/src/client.ts:80-85: connect-failure handling (FORBIDDEN is quiet; other errors are surfaced per F1)",
+      "tier": "tmp",
+      "rationale": "Lines 81-85 are uncovered and no test loaded this file. The Playwright forbidden test only checks that the heading renders. Add a test that loads this module, for example a vitest test that stubs `location` and `fetch`/RPC, or that runs under coverage. It should check that a FORBIDDEN cause is swallowed without `console.error`, and that a non-forbidden failure is reported and does not silently accept writes."
+    },
+    {
+      "target": "packages/workspace-server/src/sessions/ThreadManager.ts:339-341: the error path when the stored snapshot fails",
+      "tier": "tmp",
+      "rationale": "Line 341 is uncovered. The RPC test throws at the router, so the generator is never resumed past the yielded error. Call `ThreadManager.events` directly for a missing session and drain it. Check that it yields exactly one Error and then ends, without trying to acquire a runtime."
+    },
+    {
+      "target": "packages/extension-tools/src/build.ts:36: minified production bundle",
+      "tier": "tmp",
+      "rationale": "The changed line is uncovered and its effect is not asserted (see F3)."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "3a8708af03d244b86381d04912e5d81948d0d726",
+  "treeHash": "37c1121f1f155e5724d143f4eacb704b2b86b0de",
+  "codeTree": "741d25fcd91eb75faca8494ded8fd32257629213",
+  "coverage": {
+    "executable": 16,
+    "covered": 10,
+    "exempt": 0,
+    "uncovered": 6
+  },
+  "createdAt": "2026-10-16T17:12:18.673Z"
+}
