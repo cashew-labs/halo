@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change now carries text content in file previews (protocol 29), so the editor opens with one request. Thread events also send stored history before the agent runtime opens. The extension SDK and build changes were reverted, which resolves F1 and F3. The E2E test now always asserts a single previewFile request (F2). The temp tests pass, and the coverage gate passes with one exemption that I accept.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "3a8708af03d244b86381d04912e5d81948d0d726",
+  "treeHash": "5b58c18377d6bba88588ce0d1d1fa1af5934c69e",
+  "codeTree": "4da018046e20655117cb14cc159d76a1ba90634d",
+  "coverage": {
+    "executable": 11,
+    "covered": 10,
+    "exempt": 1,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-16T17:18:21.298Z"
+}

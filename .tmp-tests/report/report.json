@@ -1,0 +1,106 @@
+{
+  "baseRef": "origin/perf/document-loading",
+  "baseSha": "6e72c99166cb46325043c1b9532a8e3ebbcae2a6",
+  "headSha": "6e72c99166cb46325043c1b9532a8e3ebbcae2a6",
+  "treeHash": "da60e7566ab3ba5030ff081cef0648733c64ed6d",
+  "generatedAt": "2026-10-16T17:19:38.512Z",
+  "runs": {
+    "durable": {
+      "tier": "durable",
+      "testFiles": [],
+      "skipped": true,
+      "runners": [],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 0,
+      "log": ".tmp-tests/report/durable.log",
+      "lcovFiles": []
+    },
+    "tmp": {
+      "tier": "tmp",
+      "testFiles": [
+        "apps/electron/e2e/.tmp-tests/loadingSpeed.e2e.test.ts",
+        "packages/workspace-server/test/.tmp-tests/contentLoading.spec.ts"
+      ],
+      "skipped": false,
+      "runners": [
+        {
+          "runner": "playwright",
+          "dir": "apps/electron",
+          "testFiles": [
+            "apps/electron/e2e/.tmp-tests/loadingSpeed.e2e.test.ts"
+          ],
+          "exitCode": 0
+        },
+        {
+          "runner": "vitest",
+          "dir": ".",
+          "testFiles": [
+            "packages/workspace-server/test/.tmp-tests/contentLoading.spec.ts"
+          ],
+          "exitCode": 0
+        }
+      ],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 30160,
+      "log": ".tmp-tests/report/tmp.log",
+      "lcovFiles": [
+        "../../../repos/halo/.git/worktrees/zagreb/code-review-agent/coverage/tmp-0/lcov/lcov.info",
+        "../../../repos/halo/.git/worktrees/zagreb/code-review-agent/coverage/tmp-1/vitest-0/lcov.info"
+      ]
+    }
+  },
+  "durableTestFiles": [],
+  "tmpTestFiles": [
+    "apps/electron/e2e/.tmp-tests/loadingSpeed.e2e.test.ts",
+    "packages/workspace-server/test/.tmp-tests/contentLoading.spec.ts"
+  ],
+  "files": [
+    {
+      "path": "packages/workspace-server/src/sessions/ThreadManager.ts",
+      "loaded": true,
+      "changed": [
+        331,
+        332,
+        333,
+        334,
+        335,
+        336,
+        337,
+        338,
+        339,
+        340,
+        341,
+        342,
+        343,
+        344,
+        345
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [
+        334,
+        335,
+        339,
+        340,
+        343,
+        344
+      ],
+      "uncovered": [],
+      "exempt": [
+        {
+          "line": 341,
+          "reason": "threadRouter throws the yielded error and closes this generator before it resumes; the missing-session RPC test checks the consumer-visible failure."
+        }
+      ]
+    }
+  ],
+  "totals": {
+    "executable": 7,
+    "coveredDurable": 0,
+    "coveredTmpOnly": 6,
+    "uncovered": 0,
+    "exempt": 1
+  },
+  "passed": true
+}
