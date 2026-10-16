@@ -114,6 +114,25 @@ export const extension = Cli.create("extension", {
       });
     },
   })
+  .command("delete", {
+    description: "Delete a local extension, its data and publication backups",
+    args: z.object({ id: z.string().regex(/^[a-z][a-z0-9-]{0,79}$/) }),
+    env,
+    async run(c) {
+      const connected = await connectHalo(c.env);
+      if (connected instanceof Error)
+        return c.error({ code: "NOT_RUNNING", message: connected.message });
+      const deleted = await connected.client.extensions
+        .delete({ id: c.args.id })
+        .catch(
+          (cause) =>
+            new ExtensionCommandError({ detail: cause.message, cause }),
+        );
+      if (deleted instanceof Error)
+        return c.error({ code: "EXTENSION", message: deleted.message });
+      return c.ok({ deleted: c.args.id });
+    },
+  })
   .command("reload", {
     description:
       "Discover built extensions and stop servers for deleted extensions",

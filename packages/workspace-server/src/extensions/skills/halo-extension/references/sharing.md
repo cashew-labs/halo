@@ -64,7 +64,13 @@ halo app publish my-extension                     # anyone with the link
 halo app publish my-extension --invite a@example.com
 halo app list                                     # links, access and app IDs
 halo app unpublish <appId>                        # stop sharing; it keeps running for you
+halo app remove <appId>                           # remove its VM; keep the latest extension locally
+halo extension delete <extensionId>               # delete the local extension and its data
 ```
+
+Each command has one purpose. `unpublish` stops sharing and keeps the app VM running privately. `app remove` requires an unpublished, fully published app: it stops the hosted extension, saves its latest source, build and data in the workspace, removes the VM and app record, then restores the local extension. It keeps the publication backup and leaves the extension stopped. Run `halo extension reload` to start it locally if you want to keep using it. `extension delete` stops and deletes the local extension, its data and associated publication backups; remove its hosted app first. None of these commands asks for confirmation.
+
+To fully delete a published app, run the three commands above in order. Retry `halo app remove <appId>` if removal is interrupted; the app cannot be shared again once removal starts. Published templates and their separate demos remain available.
 
 The extension stops locally while it is copied. If publishing fails, `halo app list` shows the app as `publishing`. Run the same `halo app publish` again to finish, or run `halo app cancel <appId>` to restart the local extension. Cancel works only before the copy reaches the app VM; after that, publishing again finishes the move.
 

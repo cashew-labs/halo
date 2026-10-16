@@ -70,6 +70,10 @@ export const appsRouter = os.router({
     async ({ context, input }) =>
       await forward(context, async (apps) => await apps.cancel(input)),
   ),
+  remove: os.remove.handler(
+    async ({ context, input }) =>
+      await forward(context, async (apps) => await apps.remove(input)),
+  ),
   bindActions: os.bindActions.handler(
     async ({ context, input }) =>
       await forward(context, async (apps) => await apps.bindActions(input)),

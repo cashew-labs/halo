@@ -438,6 +438,13 @@ export const controlPlaneContract = publicProcedure.router({
         ),
       )
       .output(type<void>()),
+    remove: authenticatedProcedure
+      .input(
+        validated(
+          Type.Object({ appId: appIdSchema }, { additionalProperties: false }),
+        ),
+      )
+      .output(type<void>()),
     // Replaces fixed integration requests. Only the owner, never app code.
     bindActions: authenticatedProcedure
       .input(

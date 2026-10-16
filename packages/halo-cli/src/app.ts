@@ -95,6 +95,21 @@ export const app = Cli.create("app", {
       return c.ok(updated);
     },
   })
+  .command("remove", {
+    description:
+      "Remove an unpublished app and its VM; keep the extension in your workspace",
+    args: z.object({ appId }),
+    env,
+    async run(c) {
+      const deleted = await request(
+        c.env,
+        async (client) => await client.apps.remove({ appId: c.args.appId }),
+      );
+      if (deleted instanceof Error)
+        return c.error({ code: "APP", message: deleted.message });
+      return c.ok({ removed: c.args.appId });
+    },
+  })
   .command("cancel", {
     description:
       "Undo a publication that failed before reaching its app VM; the extension runs locally again",

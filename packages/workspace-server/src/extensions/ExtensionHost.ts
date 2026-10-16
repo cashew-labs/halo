@@ -372,6 +372,8 @@ export class ExtensionHost {
         return new AppProjectError({
           detail: "installation requires a dedicated app VM",
         });
+      const removing = await this.appRemovalError(ctx.extensionId);
+      if (removing instanceof Error) return removing;
       const project = this.project(ctx.extensionId);
       if (project instanceof Error) return project;
       const installed = await project.install(ctx.artifact, ctx.installId);
@@ -429,6 +431,105 @@ export class ExtensionHost {
     });
   }
 
+  async snapshotForRemoval(ctx: { extensionId: string; appId: string }) {
+    return await this.actionQueue.run(async () => {
+      if (
+        this.sharedApp?.appId !== ctx.appId ||
+        !this.isSharedApp(ctx.extensionId)
+      )
+        return new AppProjectError({
+          detail: "only this app VM can snapshot its extension for removal",
+        });
+      const frozen = await this.publication.freeze(ctx);
+      if (frozen instanceof Error) return frozen;
+      const running = this.processes.get(ctx.extensionId);
+      const stopped = await running?.stop();
+      if (stopped instanceof Error) return stopped;
+      this.processes.delete(ctx.extensionId);
+      this.removeToolConnection(ctx.extensionId);
+      const project = this.project(ctx.extensionId);
+      if (project instanceof Error) return project;
+      const data =
+        this.sandbox === undefined
+          ? undefined
+          : await this.sandbox.snapshot(ctx.extensionId);
+      if (data instanceof Error) return data;
+      const artifact = await project.snapshot(
+        this.sandbox === undefined ? undefined : { contents: data },
+      );
+      await this.publishUnqueued();
+      return artifact;
+    });
+  }
+
+  async prepareAppRemoval(ctx: {
+    extensionId: string;
+    appId: string;
+    artifact?: ExtensionArtifact;
+  }) {
+    return await this.actionQueue.run(async () => {
+      if (this.sharedApp !== undefined)
+        return new AppProjectError({
+          detail: "app VMs cannot restore owner extensions",
+        });
+      return await this.publication.prepareRemoval(ctx);
+    });
+  }
+
+  async completeAppRemoval(ctx: { extensionId: string; appId: string }) {
+    return await this.actionQueue.run(async () => {
+      if (this.sharedApp !== undefined)
+        return new AppProjectError({
+          detail: "app VMs cannot restore owner extensions",
+        });
+      const completed = await this.publication.completeRemoval(ctx);
+      if (completed instanceof Error) return completed;
+      this.remoteLinks.delete(ctx.appId);
+      await this.publishUnqueued();
+    });
+  }
+
+  async delete(extensionId: string) {
+    return await this.actionQueue.run(async () => {
+      if (this.sharedApp !== undefined)
+        return new AppProjectError({
+          detail:
+            "Remove the app VM with halo app remove before deleting its extension",
+        });
+      const marker = await this.publication.read(extensionId);
+      if (marker instanceof Error) return marker;
+      if (marker !== undefined)
+        return new AppProjectError({
+          detail: `Run halo app remove ${marker.appId} before deleting this extension`,
+        });
+      const appId = await this.publication.localAppId(extensionId);
+      if (appId instanceof Error) return appId;
+      if (appId !== undefined && this.remoteApps !== undefined) {
+        const apps = await this.remoteApps
+          .list(undefined, { signal: AbortSignal.timeout(5000) })
+          .catch(
+            (cause) =>
+              new AppProjectError({ detail: "check app removal", cause }),
+          );
+        if (apps instanceof Error) return apps;
+        if (apps.some((app) => app.appId === appId))
+          return new AppProjectError({
+            detail: `Run halo app remove ${appId} to finish before deleting this extension`,
+          });
+      }
+      const stopped = await this.processes.get(extensionId)?.stop();
+      if (stopped instanceof Error) return stopped;
+      this.processes.delete(extensionId);
+      this.removeToolConnection(extensionId);
+      const deleted = await this.publication.deleteExtension({
+        extensionId,
+        appId,
+      });
+      await this.publishUnqueued();
+      return deleted;
+    });
+  }
+
   /** Links an app installed elsewhere, such as a template copy, by reference. */
   async addRemoteApp(ctx: {
     extensionId: string;
@@ -467,6 +568,8 @@ export class ExtensionHost {
         return new AppProjectError({
           detail: "remote editing requires a dedicated app VM",
         });
+      const removing = await this.appRemovalError(ctx.extensionId);
+      if (removing instanceof Error) return removing;
       const project = this.project(ctx.extensionId);
       if (project instanceof Error) return project;
       return await project.write(ctx);
@@ -481,6 +584,8 @@ export class ExtensionHost {
         });
       if (!Value.Check(Type.String({ maxLength: 8_192 }), ctx.command))
         return new AppProjectError({ detail: "invalid remote command" });
+      const removing = await this.appRemovalError(ctx.extensionId);
+      if (removing instanceof Error) return removing;
       const running = this.processes.get(ctx.extensionId);
       const stopped = await running?.stop();
       if (stopped instanceof Error) return stopped;
@@ -497,6 +602,16 @@ export class ExtensionHost {
         output: `${executed.output}\nThe app did not restart: ${restarted.message}`,
       };
     });
+  }
+
+  private async appRemovalError(extensionId: string) {
+    if (this.sharedApp === undefined) return;
+    const marker = await this.publication.read(extensionId);
+    if (marker instanceof Error) return marker;
+    if (marker !== undefined)
+      return new AppProjectError({
+        detail: "App removal has started; finish with halo app remove",
+      });
   }
 
   private project(extensionId: string) {

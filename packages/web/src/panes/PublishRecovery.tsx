@@ -38,7 +38,7 @@ export function usePublishRecovery(app: AppSummary | undefined) {
       await api.apps.cancel({ appId: target.appId }),
     onSettled: refresh,
   });
-  const failed = app !== undefined && app.stage !== "live";
+  const failed = app !== undefined && app.stage === "publishing";
   const refreshing = useIsFetching({ queryKey: appsQueryKey }) > 0;
   return {
     pending: publishAgain.isPending || keepLocal.isPending,
