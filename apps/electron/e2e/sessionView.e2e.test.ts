@@ -374,6 +374,14 @@ e2eTest(
     await editor.press("End");
     await editor.press("Shift+Enter");
     await editor.pressSequentially("Desktop apps");
+    await editor.press("Shift+Enter");
+    await editor.press("Shift+Enter");
+    await editor.pressSequentially("```");
+    await editor.press("Shift+Enter");
+    await editor.pressSequentially("npm run build");
+    for (let count = 0; count < 3; count += 1)
+      await editor.press("Shift+Enter");
+    await editor.pressSequentially("After the code");
     await editor.press("Enter");
     const sent = pane.getByRole("article", { name: "You message" });
     const urlLink = sent.getByRole("link", {
@@ -385,7 +393,7 @@ e2eTest(
     await expect(
       sent.getByRole("link", { name: "Mobbin apps" }),
     ).toHaveAttribute("href", "https://mobbin.com/browse/ios/apps");
-    await expect(sent.locator("code")).toHaveText(
+    await expect(sent.locator("p code")).toHaveText(
       "[literal](https://example.com)",
     );
     await expect(sent.getByRole("link")).toHaveCount(2);
@@ -395,6 +403,8 @@ e2eTest(
       "Web flows",
       "Desktop apps",
     ]);
+    await expect(sent.locator("pre")).toHaveText("npm run build");
+    await expect(sent.locator("p").last()).toHaveText("After the code");
     await expect(sent.locator("strong")).toHaveText("iOS");
     await expect(sent).not.toContainText("[https://mobbin.com/mcp]");
     await llm.respond(
@@ -413,7 +423,7 @@ e2eTest(
     await expect(
       sent.getByRole("link", { name: "Mobbin apps" }),
     ).toHaveAttribute("href", "https://mobbin.com/browse/ios/apps");
-    await expect(sent.locator("code")).toHaveText(
+    await expect(sent.locator("p code")).toHaveText(
       "[literal](https://example.com)",
     );
     await sent.screenshot({ path: testInfo.outputPath("user-markdown.png") });
