@@ -73,9 +73,9 @@ export function ConnectionStatus() {
       <span className={hiddenLabel}>{label}</span>
     </>
   );
-  return (
-    <Tooltip content={label} placement="top">
-      {state.status !== "authentication" && mismatch === undefined ? (
+  if (state.status !== "authentication" && mismatch === undefined)
+    return (
+      <Tooltip content={label} placement="top">
         <span
           className={statusClass}
           role="status"
@@ -85,16 +85,12 @@ export function ConnectionStatus() {
         >
           {indicator}
         </span>
-      ) : (
-        <ConnectionAction
-          label={label}
-          mismatch={mismatch}
-          className={statusClass}
-        >
-          {indicator}
-        </ConnectionAction>
-      )}
-    </Tooltip>
+      </Tooltip>
+    );
+  return (
+    <ConnectionAction label={label} mismatch={mismatch} className={statusClass}>
+      {indicator}
+    </ConnectionAction>
   );
 }
 
@@ -119,14 +115,17 @@ function ConnectionAction({
   const details = useStyles(detailsStyle);
   return (
     <>
-      <Button
-        variant="quiet"
-        className={className}
-        onClick={() => setOpen(true)}
-        aria-label={`Connection: ${label}`}
-      >
-        {children}
-      </Button>
+      {/* Tooltip needs a single focusable child, not this fragment. */}
+      <Tooltip content={label} placement="top">
+        <Button
+          variant="quiet"
+          className={className}
+          onClick={() => setOpen(true)}
+          aria-label={`Connection: ${label}`}
+        >
+          {children}
+        </Button>
+      </Tooltip>
       <ModalOverlay
         isOpen={open}
         onOpenChange={setOpen}

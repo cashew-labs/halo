@@ -35,7 +35,7 @@ export async function scaffoldExtension(args: {
           "@get-halo/extension-sdk": packages.sdk,
           react: "^19.2.8",
           "react-dom": "^19.2.8",
-          maui: "npm:@tanishqkancharla/maui@0.0.50",
+          maui: "npm:@tanishqkancharla/maui@0.0.51",
           errore: "^0.14.1",
         },
         devDependencies: {
