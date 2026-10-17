@@ -1959,7 +1959,19 @@ serverTest(
 
 serverTest(
   "discovers local tools by canonical path, name and description",
-  async ({ server, llm }) => {
+  async ({ createServer, llm }) => {
+    const headless = createServer();
+    await headless.start();
+    expect(
+      await headless.rpc.testApi.invokeTool({
+        path: "search",
+        input: { query: "computer", source: "workspace" },
+      }),
+    ).toEqual({ tools: [], truncated: false, unavailableSources: [] });
+    await headless.stop();
+
+    const server = createServer({ desktopOrigin: "http://127.0.0.1:6080" });
+    await server.start();
     const search = async (query: string, limit?: number) =>
       await server.rpc.testApi.invokeTool({
         path: "search",

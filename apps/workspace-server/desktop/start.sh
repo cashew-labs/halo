@@ -3,6 +3,7 @@ set -euo pipefail
 
 # Dedicated app VMs need the authenticated editor service, not a desktop.
 if [[ ${HALO_APP_VM:-0} == 1 ]]; then
+  unset HALO_DESKTOP_ORIGIN
   exec node --import /opt/halo/node_modules/tsx/dist/loader.mjs \
     /opt/halo/apps/workspace-server/src/main.ts "$@"
 fi

@@ -299,6 +299,8 @@ export class WorkspaceServer {
       if (closed instanceof Error)
         host.logger.warn({ event: "web-cleanup-failed", error: closed });
     });
+    const hasDesktop =
+      config.desktopOrigin !== undefined && config.sharedApp === undefined;
     const computer = new ComputerService({ workspaceRoot });
     cleanup.defer(async () => {
       const closed = await computer.shutdown();
@@ -313,7 +315,7 @@ export class WorkspaceServer {
         workspaceRoot,
         userId: config.ownerUserId,
         tools: host.tools ?? {
-          computer: computerTools,
+          computer: hasDesktop ? computerTools : {},
           files: {
             read: readTool,
             viewImage: viewImageTool,
@@ -352,7 +354,7 @@ export class WorkspaceServer {
         },
         authority: new StaticAgentAuthority(
           host.agentCapabilities ?? [
-            "workspace.computer",
+            ...(hasDesktop ? ["workspace.computer"] : []),
             "workspace.hotkeys",
             "workspace.automations",
             "workspace.files.read",

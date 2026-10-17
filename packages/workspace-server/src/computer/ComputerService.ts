@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { SerialQueue } from "@get-halo/shared/SerialQueue";
 import * as errore from "errore";
 import {
   createCua,
@@ -54,7 +55,7 @@ export class ComputerService {
   private runtime?: { sdk: OpenSky; cua: CuaFacade };
   private readonly targets = new Map<string, BoundTarget>();
   private readonly appSelectors = new Map<string, string>();
-  private pending: Promise<void> = Promise.resolve();
+  private readonly actionQueue = new SerialQueue();
   private closed = false;
   private readonly workspaceRoot: string;
   private readonly sdkOptions: OpenSkyOptions;
@@ -91,21 +92,14 @@ export class ComputerService {
     input: Dispatch,
     operation: () => Promise<T | Error>,
   ): Promise<T | Error> {
-    const result = this.pending.then(async () => {
+    // Never race against cancellation: hold the queue until the SDK call settles.
+    return await this.actionQueue.run(async () => {
       if (input.signal?.aborted)
         return new ComputerAbortedError({ cause: input.signal.reason });
       if (this.closed)
         return new ComputerError({ detail: "service is shut down" });
       return await operation();
     });
-    // Never race against cancellation: hold the queue until the SDK call settles.
-    this.pending = result.then(
-      () => undefined,
-      (cause) => {
-        console.error("Unexpected computer operation failure", cause);
-      },
-    );
-    return await result;
   }
 
   async listApps(input: Dispatch = {}) {
@@ -207,38 +201,38 @@ export class ComputerService {
     operation: (binding: BoundTarget) => Promise<T | Error>,
   ) {
     return await this.dispatch(input, async () => {
-      const binding = this.targets.get(input.targetId);
-      if (binding) {
-        const result = await operation(binding);
-        if (
-          result instanceof Error &&
-          (errore.findCause(result, CuaTargetClosedError) ||
-            errore.findCause(result, CuaTargetNotFoundError))
-        ) {
-          this.targets.delete(input.targetId);
-          this.appSelectors.delete(input.targetId);
-          return new ComputerTargetError({
-            targetId: input.targetId,
-            cause: result,
-          });
-        }
-        return result;
+      const result = await (async () => {
+        const binding = this.targets.get(input.targetId);
+        if (binding) return await operation(binding);
+        const app = this.appSelectors.get(input.targetId);
+        if (!app) return new ComputerTargetError({ targetId: input.targetId });
+        const runtime = this.getRuntime();
+        if (runtime instanceof Error) return runtime;
+        const target = await runtime.cua
+          .getApp(app)
+          .catch(
+            (cause) => new ComputerError({ detail: "bind listed app", cause }),
+          );
+        if (target instanceof Error) return target;
+        const resolved = { target, owned: false };
+        this.targets.set(input.targetId, resolved);
+        if (input.signal?.aborted)
+          return new ComputerAbortedError({ cause: input.signal.reason });
+        return await operation(resolved);
+      })();
+      if (
+        result instanceof Error &&
+        (errore.findCause(result, CuaTargetClosedError) ||
+          errore.findCause(result, CuaTargetNotFoundError))
+      ) {
+        this.targets.delete(input.targetId);
+        this.appSelectors.delete(input.targetId);
+        return new ComputerTargetError({
+          targetId: input.targetId,
+          cause: result,
+        });
       }
-      const app = this.appSelectors.get(input.targetId);
-      if (!app) return new ComputerTargetError({ targetId: input.targetId });
-      const runtime = this.getRuntime();
-      if (runtime instanceof Error) return runtime;
-      const target = await runtime.cua
-        .getApp(app)
-        .catch(
-          (cause) => new ComputerError({ detail: "bind listed app", cause }),
-        );
-      if (target instanceof Error) return target;
-      const resolved = { target, owned: false };
-      this.targets.set(input.targetId, resolved);
-      if (input.signal?.aborted)
-        return new ComputerAbortedError({ cause: input.signal.reason });
-      return await operation(resolved);
+      return result;
     });
   }
 
@@ -438,7 +432,7 @@ export class ComputerService {
 
   async shutdown() {
     this.closed = true;
-    const result = this.pending.then(async () => {
+    return await this.actionQueue.run(async () => {
       if (!this.runtime) return;
       const closed = await this.runtime.sdk
         .close()
@@ -448,7 +442,5 @@ export class ComputerService {
       this.targets.clear();
       this.appSelectors.clear();
     });
-    this.pending = result.then(() => undefined);
-    return await result;
   }
 }
