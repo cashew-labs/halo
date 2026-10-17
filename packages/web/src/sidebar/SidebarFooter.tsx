@@ -14,7 +14,7 @@ export function SidebarFooter({ appInfo }: { appInfo?: AppInfo }) {
     <div className={row}>
       <AccountButton appInfo={appInfo} />
       {appInfo !== undefined && <UpgradeIcon appInfo={appInfo} />}
-      <ConnectionStatus />
+      <ConnectionStatus dot />
     </div>
   );
 }

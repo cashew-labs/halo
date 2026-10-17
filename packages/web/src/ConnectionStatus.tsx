@@ -21,14 +21,22 @@ import { useConnection } from "./api/ConnectionContext.js";
 import { IncompatibleConnection } from "./ConnectionPage.js";
 import { useReauthenticate } from "./Authentication.js";
 
-export function ConnectionStatus() {
+/**
+ * `dot` shows only the colored dot, with its label in a tooltip, for the
+ * sidebar footer. Otherwise the label is visible, which the loading page
+ * needs to explain why the workspace cannot open.
+ */
+export function ConnectionStatus({ dot = false }: { dot?: boolean }) {
   const { state } = useConnection();
   const asleep =
     state.power === "asleep" &&
     state.status !== "authentication" &&
     state.status !== "offline" &&
     state.status !== "incompatible";
-  const statusClass = useStyles(statusStyle);
+  const statusClass = useStyles(
+    dot ? dotStyle : labeledStyle,
+    !dot && asleep && asleepStyle,
+  );
   const hiddenLabel = useStyles(visuallyHidden);
   const mismatch =
     state.error instanceof IncompatibleServerError ? state.error : undefined;
@@ -64,31 +72,43 @@ export function ConnectionStatus() {
     if (label === "Connected") return colors.green[9];
     return colors.amber[9];
   })();
-  // The label stays in the live region so screen readers announce changes.
+  // A hidden label stays in the live region so screen readers announce changes.
   const indicator = (
     <>
       <span aria-hidden="true" style={{ color }}>
         ●
       </span>
-      <span className={hiddenLabel}>{label}</span>
+      <span className={dot ? hiddenLabel : undefined}>{label}</span>
     </>
   );
-  if (state.status !== "authentication" && mismatch === undefined)
-    return (
-      <Tooltip content={label} placement="top">
-        <span
-          className={statusClass}
-          role="status"
-          aria-live="polite"
-          aria-label={`Connection: ${label}`}
-          tabIndex={0}
-        >
-          {indicator}
-        </span>
-      </Tooltip>
+  if (state.status !== "authentication" && mismatch === undefined) {
+    const status = (
+      <span
+        className={statusClass}
+        role="status"
+        aria-live="polite"
+        aria-label={`Connection: ${label}`}
+        // Focusable only as the dot, so keyboard users can open its tooltip.
+        tabIndex={dot ? 0 : undefined}
+      >
+        {indicator}
+      </span>
     );
+    return dot ? (
+      <Tooltip content={label} placement="top">
+        {status}
+      </Tooltip>
+    ) : (
+      status
+    );
+  }
   return (
-    <ConnectionAction label={label} mismatch={mismatch} className={statusClass}>
+    <ConnectionAction
+      label={label}
+      mismatch={mismatch}
+      className={statusClass}
+      tooltip={dot}
+    >
       {indicator}
     </ConnectionAction>
   );
@@ -98,11 +118,13 @@ function ConnectionAction({
   label,
   mismatch,
   className,
+  tooltip,
   children,
 }: {
   label: string;
   mismatch: IncompatibleServerError | undefined;
   className: string;
+  tooltip: boolean;
   children: ReactNode;
 }) {
   const { service, state } = useConnection();
@@ -116,7 +138,7 @@ function ConnectionAction({
   return (
     <>
       {/* Tooltip needs a single focusable child, not this fragment. */}
-      <Tooltip content={label} placement="top">
+      <Tooltip content={label} placement="top" isDisabled={!tooltip}>
         <Button
           variant="quiet"
           className={className}
@@ -204,7 +226,19 @@ function ConnectionAction({
     </>
   );
 }
-const statusStyle = style(
+const labeledStyle = style(
+  text({ size: "xs", fontWeight: 400, color: "lowContrast" }),
+  {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "flex-start",
+    gap: 6,
+    padding: 0,
+    minHeight: 24,
+  },
+);
+const asleepStyle = style({ color: colors.blue[12] });
+const dotStyle = style(
   text({ size: "lg", fontWeight: 400 }),
   focusRing(),
   radius.sm,
