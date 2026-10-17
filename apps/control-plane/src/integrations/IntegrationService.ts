@@ -1449,6 +1449,19 @@ export class IntegrationService {
           return yield* executor.execute(tool.address, ctx.arguments).pipe(
             Effect.match({
               onFailure: (error): IntegrationInvocation => {
+                if (error instanceof CredentialResolutionError)
+                  // Provider messages can contain response bodies; keep only typed metadata in cloud logs.
+                  console.warn(
+                    JSON.stringify({
+                      severity: "WARNING",
+                      event: "integration-authorization-failed",
+                      userId: ctx.userId,
+                      integration: tool.integration,
+                      connectionName: tool.connection,
+                      reauthRequired: error.reauthRequired === true,
+                      oauthErrorCode: error.oauthErrorCode,
+                    }),
+                  );
                 if (error instanceof ToolBlockedError)
                   return { status: "blocked" };
                 if (error instanceof ElicitationDeclinedError)

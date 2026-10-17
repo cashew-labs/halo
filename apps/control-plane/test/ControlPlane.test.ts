@@ -208,6 +208,8 @@ const getOpenAPISpec = async (
     },
   });
 
+type OAuthTokenDriver = { refreshError?: string; refreshes: number };
+
 const controlPlaneTest = test.extend<{
   traceCloud: TraceCloudDriver;
   inferenceApi: InferenceDriver;
@@ -236,6 +238,7 @@ const controlPlaneTest = test.extend<{
   };
   integrationApi: {
     origin: string;
+    oauth: OAuthTokenDriver;
     requests: { url: string | undefined; authorization: string | undefined }[];
     disconnected: string[];
     revoked: string[];
@@ -547,6 +550,9 @@ const controlPlaneTest = test.extend<{
     const disconnected: string[] = [];
     const revoked: string[] = [];
     const revokeResponse = { status: 200, body: "" };
+    const oauth: OAuthTokenDriver = {
+      refreshes: 0,
+    };
     const server = http.createServer((request, response) => {
       requests.push({
         url: request.url,
@@ -740,14 +746,32 @@ const controlPlaneTest = test.extend<{
         return;
       }
       if (request.url === "/oauth/token") {
-        response.writeHead(200, { "content-type": "application/json" }).end(
-          JSON.stringify({
-            access_token: "fixture-google-token",
-            token_type: "Bearer",
-            expires_in: 3600,
-            refresh_token: "fixture-refresh-token",
-          }),
-        );
+        let body = "";
+        request.on("data", (chunk) => (body += String(chunk)));
+        request.on("end", () => {
+          if (new URLSearchParams(body).get("grant_type") === "refresh_token") {
+            oauth.refreshes++;
+            if (oauth.refreshError !== undefined) {
+              response
+                .writeHead(400, { "content-type": "application/json" })
+                .end(
+                  JSON.stringify({
+                    error: oauth.refreshError,
+                    error_description: "private provider response",
+                  }),
+                );
+              return;
+            }
+          }
+          response.writeHead(200, { "content-type": "application/json" }).end(
+            JSON.stringify({
+              access_token: "fixture-google-token",
+              token_type: "Bearer",
+              expires_in: 3600,
+              refresh_token: "fixture-refresh-token",
+            }),
+          );
+        });
         return;
       }
       if (request.url === "/test/v1/documents") {
@@ -814,6 +838,7 @@ const controlPlaneTest = test.extend<{
     const address = server.address() as AddressInfo;
     await use({
       origin: `http://127.0.0.1:${address.port}`,
+      oauth,
       requests,
       disconnected,
       revoked,
@@ -1528,6 +1553,166 @@ controlPlaneTest(
     expect((await opened.integrations.setup({ setupId })).status).toMatch(
       /^(ready|confirming)$/,
     );
+  },
+);
+
+controlPlaneTest(
+  "records rejected OAuth refreshes without secrets and recovers through reconnect",
+  async ({
+    plane,
+    authenticatedRpc: human,
+    browserHeaders,
+    integrationApi,
+    appDataDir,
+  }) => {
+    await using cleanup = new errore.AsyncDisposableStack();
+    await human.workspace.ensure();
+    const runtime = createControlPlaneRpcClient(
+      plane.origin,
+      (await readRuntimeSettings(appDataDir)).token,
+    );
+    await human.integrations.registerOpenAPI({
+      name: "Refresh API",
+      slug: "refresh-api",
+      url: `${integrationApi.origin}/setup-spec`,
+    });
+    const session = await human.auth.session();
+    if (session.status !== "signed-in") throw new Error("Missing session");
+    const client = await plane.integrations!.withUser(
+      session.session.user.id,
+      (executor) =>
+        executor.oauth.createClient({
+          owner: Owner.make("user"),
+          slug: OAuthClientSlug.make("refresh"),
+          authorizationUrl: `${integrationApi.origin}/oauth/authorize`,
+          tokenUrl: `${integrationApi.origin}/oauth/token`,
+          grant: "authorization_code",
+          clientId: "fixture",
+          clientSecret: "private-client-secret",
+        }),
+    );
+    if (client instanceof Error) throw client;
+    const method = (await human.integrations.catalog()).find(
+      (entry) => entry.integration === "refresh-api",
+    )!.methods[0]!;
+    const initial = await human.integrations.startSetup({
+      integration: "refresh-api",
+      connectionName: "personal",
+    });
+    const authorization = await human.integrations.submitSetup({
+      setupId: initial.setupId,
+      template: method.template,
+    });
+    const state = new URL(authorization.authorizationUrl!).searchParams.get(
+      "state",
+    )!;
+    expect(
+      (
+        await fetch(
+          `${plane.origin}/api/integrations/oauth/callback?state=${encodeURIComponent(state)}&code=fixture-code`,
+          { redirect: "manual", headers: browserHeaders },
+        )
+      ).status,
+    ).toBe(303);
+    expect(
+      await human.integrations.setup({ setupId: initial.setupId }),
+    ).toMatchObject({ status: "ready" });
+    const tool = (
+      await runtime.integrations.search({
+        query: "listItems",
+        integration: "refresh-api",
+      })
+    ).tools[0]!;
+    expect(
+      await runtime.integrations.invoke({
+        address: tool.address,
+        arguments: {},
+      }),
+    ).toMatchObject({ status: "completed" });
+
+    const warnings = vi.spyOn(console, "warn").mockImplementation(() => {});
+    cleanup.defer(() => warnings.mockRestore());
+    const clock = vi
+      .spyOn(Date, "now")
+      .mockReturnValue(Date.now() + 2 * 60 * 60 * 1000);
+    cleanup.defer(() => clock.mockRestore());
+    expect(
+      await runtime.integrations.invoke({
+        address: tool.address,
+        arguments: {},
+      }),
+    ).toMatchObject({ status: "completed" });
+    expect(integrationApi.oauth.refreshes).toBe(1);
+    clock.mockReturnValue(Date.now() + 2 * 60 * 60 * 1000);
+    integrationApi.oauth.refreshError = "invalid_grant";
+    for (let attempt = 0; attempt < 4; attempt++) {
+      expect(
+        await runtime.integrations.invoke({
+          address: tool.address,
+          arguments: {},
+        }),
+      ).toMatchObject({
+        status: "connection_required",
+        integration: "refresh-api",
+        connectionName: "personal",
+      });
+    }
+    expect(integrationApi.oauth.refreshes).toBe(2);
+    const diagnostics = warnings.mock.calls.map(([entry]) =>
+      JSON.parse(String(entry)),
+    );
+    expect(diagnostics).toContainEqual(
+      expect.objectContaining({
+        event: "integration-authorization-failed",
+        integration: "refresh-api",
+        connectionName: "personal",
+        reauthRequired: true,
+        oauthErrorCode: "invalid_grant",
+      }),
+    );
+    for (const secret of [
+      "fixture-google-token",
+      "fixture-refresh-token",
+      "private-client-secret",
+      "private provider response",
+    ])
+      expect(JSON.stringify(diagnostics)).not.toContain(secret);
+
+    clock.mockRestore();
+    integrationApi.oauth.refreshError = undefined;
+    const reconnect = await human.integrations.startSetup({
+      integration: "refresh-api",
+      connectionName: "personal",
+    });
+    const reconnectAuthorization = await human.integrations.submitSetup({
+      setupId: reconnect.setupId,
+      template: method.template,
+    });
+    const reconnectState = new URL(
+      reconnectAuthorization.authorizationUrl!,
+    ).searchParams.get("state")!;
+    expect(
+      (
+        await fetch(
+          `${plane.origin}/api/integrations/oauth/callback?state=${encodeURIComponent(reconnectState)}&code=reconnect-code`,
+          { redirect: "manual", headers: browserHeaders },
+        )
+      ).status,
+    ).toBe(303);
+    expect(
+      await human.integrations.setup({ setupId: reconnect.setupId }),
+    ).toMatchObject({ status: "ready", connectionName: "personal" });
+    expect(
+      await runtime.integrations.invoke({
+        address: tool.address,
+        arguments: {},
+      }),
+    ).toMatchObject({ status: "completed" });
+    expect(
+      (await human.integrations.connections()).filter(
+        (connection) => connection.integration === "refresh-api",
+      ),
+    ).toHaveLength(1);
   },
 );
 

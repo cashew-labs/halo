@@ -93,6 +93,71 @@ Tandem is squarely in Family 1, and its closest siblings are Replicache/Zero and
 );
 
 e2eTest(
+  "shows one connection prompt per account when Gmail calls repeatedly require authorization",
+  async ({ app, harness }, testInfo) => {
+    const personal = {
+      kind: "control-plane" as const,
+      integration: "google_gmail",
+      connectionName: "personal",
+    };
+    const work = { ...personal, connectionName: "work" };
+    await harness.loadSession({
+      title: "Daily inbox review",
+      messages: [
+        m.user("Review both inboxes"),
+        m.assistant("Pulling mail from both accounts."),
+        m.connectionRequest(personal),
+        m.connectionRequest(personal),
+        m.connectionRequest(personal),
+        m.connectionRequest(personal),
+        m.assistant("The personal account needs authorization."),
+      ],
+    });
+    const pane = app.page.getByRole("main", { name: "Daily inbox review" });
+    const cards = pane.getByRole("region", {
+      name: "Gmail connection",
+      exact: true,
+    });
+    await expect(cards).toHaveCount(1);
+    await expect(
+      pane.getByRole("button", { name: "Connect", exact: true }),
+    ).toHaveCount(1);
+    await app.page.reload();
+    await expect(cards).toHaveCount(1);
+    for (const viewport of [
+      { width: 1280, height: 800 },
+      { width: 390, height: 844 },
+    ]) {
+      await app.page.setViewportSize(viewport);
+      await app.page.screenshot({
+        path: testInfo.outputPath(
+          `gmail-reconnect-${viewport.width}x${viewport.height}.png`,
+        ),
+      });
+    }
+    await app.page.setViewportSize({ width: 1280, height: 800 });
+    await harness.loadSession({
+      title: "Separate connection requests",
+      messages: [
+        m.user("Review both inboxes"),
+        m.connectionRequest(personal),
+        m.connectionRequest(personal),
+        m.connectionRequest(work),
+        m.assistant("Both accounts need authorization."),
+        m.user("Retry the personal account"),
+        m.connectionRequest(personal),
+      ],
+    });
+    const separate = app.page.getByRole("main", {
+      name: "Separate connection requests",
+    });
+    await expect(
+      separate.getByRole("region", { name: "Gmail connection", exact: true }),
+    ).toHaveCount(3);
+  },
+);
+
+e2eTest(
   "keeps multiple queued messages visible and delivers each in order",
   async ({ app, harness, llm }, testInfo) => {
     await harness.loadSession({
