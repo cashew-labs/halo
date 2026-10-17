@@ -1,0 +1,38 @@
+{
+  "status": "changes_requested",
+  "summary": "The change does three things. It casts `$2` to BIGINT in `GmailStore.release` so PostgreSQL accepts millisecond retry timestamps. It logs typed metadata, with no secrets, when OAuth credential resolution fails. It removes duplicate connection cards within one turn of the session view. The source logic looks correct, but it is not ready: the durable Playwright run failed, and the only test for the PostgreSQL fix runs on SQLite unless `HALO_TEST_POSTGRES_URL` is set. That variable was not set in this review, and CI does not set it.\n\nThe failure is in the existing test `stops a detached command through bash and can send another message` (`sessionView.e2e.test.ts:133`). It timed out waiting for the scripted LLM request, which looks like load contention. The run used 5 workers even with coverage enabled, so the new `workers: REVIEW_COVERAGE_DIR ? 1 : undefined` setting in `playwright.config.ts` had no effect in this harness. The run must pass before approval.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "test",
+      "file": "apps/control-plane/src/automations/GmailStore.test.ts",
+      "line": 101,
+      "severity": "P1",
+      "body": "The test's own comment (lines 101-102) says SQLite cannot catch PostgreSQL's CASE parameter type inference. The fixture uses PostgreSQL only when `HALO_TEST_POSTGRES_URL` is set (line 27). No CI workflow sets that variable, and this review run did not have it. So the test ran on SQLite and would pass even with the original `CASE WHEN dirty = $1 THEN $2 ELSE 0 END` query. The coverage report also shows no executable changed lines for `GmailStore.ts`. As a result, nothing here verifies the actual fix (the `CAST($2 AS BIGINT)` at `GmailStore.ts:278`). Run this test against a real PostgreSQL instance with `HALO_TEST_POSTGRES_URL` and report the result. Confirm that it fails without the cast (error 22003) and passes with it. Either make the PostgreSQL path run where the regression is meant to be guarded, or change the comment so it does not claim protection that default runs do not give."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "apps/control-plane/src/automations/GmailStore.test.ts: run with HALO_TEST_POSTGRES_URL set against PostgreSQL, both with and without the CAST in GmailStore.ts:278",
+      "tier": "durable",
+      "rationale": "The PostgreSQL 22003 fix is only verified when the test uses PostgreSQL. The SQLite path cannot detect the regression."
+    },
+    {
+      "target": "apps/electron/e2e/sessionView.e2e.test.ts (full file): rerun the durable Playwright run until it passes, including 'stops a detached command through bash and can send another message' at line 133",
+      "tier": "durable",
+      "rationale": "The durable run failed (1 failed, 13 passed) because the LLM request wait timed out under 5-worker coverage load. The workers setting in playwright.config.ts did not take effect in this harness."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "b2b94f332105037f136efa8f983e9f8e844b9c78",
+  "treeHash": "becc48c77b938ff0390e94294456d7ba2a3436d5",
+  "codeTree": "ffb5f0dea04a438ef0c36be354733f9b33f36c50",
+  "coverage": {
+    "executable": 6,
+    "covered": 6,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-17T21:58:04.962Z"
+}

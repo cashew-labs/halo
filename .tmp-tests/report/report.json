@@ -1,0 +1,130 @@
+{
+  "baseRef": "origin/main",
+  "baseSha": "64f9b7a8e1e8a5b1c84618da5c8855314d4894fb",
+  "headSha": "4736516c57eef947f09a0e557684d67322ca81b1",
+  "treeHash": "30120caa7f15f66f30e1309b34c993373c1e2c0b",
+  "generatedAt": "2026-10-17T22:55:09.550Z",
+  "runs": {
+    "durable": {
+      "tier": "durable",
+      "testFiles": [
+        "apps/control-plane/src/automations/GmailStore.test.ts",
+        "apps/control-plane/test/ControlPlane.test.ts",
+        "apps/electron/e2e/sessionView.e2e.test.ts"
+      ],
+      "skipped": false,
+      "runners": [
+        {
+          "runner": "vitest",
+          "dir": ".",
+          "testFiles": [
+            "apps/control-plane/src/automations/GmailStore.test.ts",
+            "apps/control-plane/test/ControlPlane.test.ts"
+          ],
+          "exitCode": 0
+        },
+        {
+          "runner": "playwright",
+          "dir": "apps/electron",
+          "testFiles": [
+            "apps/electron/e2e/sessionView.e2e.test.ts"
+          ],
+          "exitCode": 0
+        }
+      ],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 377782,
+      "log": ".tmp-tests/report/durable.log",
+      "lcovFiles": [
+        "../../../repos/halo/.git/worktrees/paris-v1/code-review-agent/coverage/durable-0/vitest-0/lcov.info",
+        "../../../repos/halo/.git/worktrees/paris-v1/code-review-agent/coverage/durable-1/lcov/lcov.info"
+      ]
+    },
+    "tmp": {
+      "tier": "tmp",
+      "testFiles": [],
+      "skipped": true,
+      "runners": [],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 0,
+      "log": ".tmp-tests/report/tmp.log",
+      "lcovFiles": []
+    }
+  },
+  "durableTestFiles": [
+    "apps/control-plane/src/automations/GmailStore.test.ts",
+    "apps/control-plane/test/ControlPlane.test.ts",
+    "apps/electron/e2e/sessionView.e2e.test.ts"
+  ],
+  "tmpTestFiles": [],
+  "files": [
+    {
+      "path": "apps/control-plane/src/automations/GmailStore.ts",
+      "loaded": true,
+      "changed": [
+        276,
+        278
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "apps/control-plane/src/integrations/IntegrationService.ts",
+      "loaded": true,
+      "changed": [
+        1452,
+        1453,
+        1454,
+        1455,
+        1456,
+        1457,
+        1458,
+        1459,
+        1460,
+        1461,
+        1462,
+        1463,
+        1464
+      ],
+      "coveredDurable": [
+        1452,
+        1454
+      ],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "packages/web/src/main/agent/sessionView.ts",
+      "loaded": true,
+      "changed": [
+        17,
+        381,
+        401,
+        402,
+        403
+      ],
+      "coveredDurable": [
+        381,
+        401,
+        402,
+        403
+      ],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    }
+  ],
+  "totals": {
+    "executable": 6,
+    "coveredDurable": 6,
+    "coveredTmpOnly": 0,
+    "uncovered": 0,
+    "exempt": 0
+  },
+  "passed": true
+}
