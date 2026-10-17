@@ -5725,8 +5725,10 @@ type AppVmRemovalDriver = {
 
 const appRemovalTest = controlPlaneTest.extend<{
   removalSupported: boolean;
+  appWorkspaceCollision: boolean;
   publicationComplete: boolean;
   templateDemo: boolean;
+  templateCopy: boolean;
   workspaceProvider: WorkspaceProviderApi;
   vmRemoval: AppVmRemovalDriver;
   appRemoval: {
@@ -5737,8 +5739,10 @@ const appRemovalTest = controlPlaneTest.extend<{
   };
 }>({
   removalSupported: true,
+  appWorkspaceCollision: false,
   publicationComplete: true,
   templateDemo: false,
+  templateCopy: false,
   // oxlint-disable-next-line eslint/no-empty-pattern -- Native Vitest fixture signature.
   vmRemoval: async ({}, use) => {
     const state: AppVmRemovalDriver = {
@@ -5814,7 +5818,7 @@ const appRemovalTest = controlPlaneTest.extend<{
     await use(state);
   },
   workspaceProvider: async (
-    { appDataDir, vmRemoval, removalSupported },
+    { appDataDir, vmRemoval, removalSupported, templateCopy },
     use,
   ) => {
     const local = new LocalWorkspaceProvider({ appDataDir });
@@ -5822,6 +5826,8 @@ const appRemovalTest = controlPlaneTest.extend<{
       hostsSharedApps: true,
       ensure: async (input) => await local.ensure(input),
       getConnection: async (input) => {
+        // Ready template copies only contact their owner's workspace to add a reference.
+        if (templateCopy) return await local.getConnection();
         if (vmRemoval.removed.has(input.workspaceId)) return undefined;
         if (vmRemoval.appIds.has(input.workspaceId) && !vmRemoval.available)
           return undefined;
@@ -5832,10 +5838,10 @@ const appRemovalTest = controlPlaneTest.extend<{
           };
         return await local.getConnection();
       },
-      remove: removalSupported
-        ? async ({ workspaceId }) => {
+      removeAppVm: removalSupported
+        ? async ({ appId }) => {
             if (vmRemoval.failure !== undefined) return vmRemoval.failure;
-            vmRemoval.removed.add(workspaceId);
+            vmRemoval.removed.add(appId);
           }
         : undefined,
     });
@@ -5848,6 +5854,8 @@ const appRemovalTest = controlPlaneTest.extend<{
       agent,
       publicationComplete,
       templateDemo,
+      templateCopy,
+      appWorkspaceCollision,
       vmRemoval,
     },
     use,
@@ -5867,11 +5875,13 @@ const appRemovalTest = controlPlaneTest.extend<{
       if (closed instanceof Error) throw closed;
     });
     const store = new AppStore({ db });
+    const templateId = crypto.randomUUID();
     // Resume a completed publication; no actual cloud VM is used by these tests.
     const app = await store.create({
-      origin: templateDemo
-        ? { kind: "demo", templateId: crypto.randomUUID() }
-        : undefined,
+      origin:
+        templateDemo || templateCopy
+          ? { kind: templateDemo ? "demo" : "template", templateId }
+          : undefined,
       ownerUserId: session.session.user.id,
       extensionId: "delete-me",
       slug: "delete-me",
@@ -5882,19 +5892,68 @@ const appRemovalTest = controlPlaneTest.extend<{
       actions: [],
     });
     if (app instanceof Error) throw app;
+    if (appWorkspaceCollision) {
+      const workspace = await authenticatedRpc.workspace.ensure();
+      if (!(db.appClient instanceof DatabaseSync))
+        throw new Error("Collision fixture needs SQLite");
+      // Inject inconsistent persisted state: an app points at a main workspace.
+      // Normal publication generates a fresh app ID, so this needs fault injection.
+      db.appClient
+        .prepare("UPDATE apps SET app_id = ? WHERE app_id = ?")
+        .run(workspace.id, app.appId);
+      db.appClient
+        .prepare("UPDATE app_origins SET app_id = ? WHERE app_id = ?")
+        .run(workspace.id, app.appId);
+      app.appId = workspace.id;
+    }
     vmRemoval.appIds.add(app.appId);
     const advanced = await store.advance({
       appId: app.appId,
       from: "frozen",
-      to: publicationComplete ? "live" : "frozen",
+      to: templateCopy ? "ready" : publicationComplete ? "live" : "frozen",
     });
     if (advanced instanceof Error) throw advanced;
-    await agent.rpc.extensions.addRemote({
-      id: app.extensionId,
-      appId: app.appId,
-      displayName: app.displayName,
-      url: `${plane.origin}/delete-me/view/`,
-    });
+    if (templateCopy || !publicationComplete) {
+      const source = join(agent.workspaceRoot, ".halo/extensions/delete-me");
+      await fs.mkdir(source, { recursive: true });
+      await fs.writeFile(
+        join(source, "package.json"),
+        JSON.stringify({ name: "delete-me" }),
+      );
+      await fs.writeFile(join(source, "private.txt"), "keep my local source");
+      if (!templateCopy)
+        await agent.rpc.extensions.freeze({
+          id: app.extensionId,
+          appId: app.appId,
+        });
+    } else {
+      await agent.rpc.extensions.addRemote({
+        id: app.extensionId,
+        appId: app.appId,
+        displayName: app.displayName,
+        url: `${plane.origin}/delete-me/view/`,
+      });
+    }
+    if (templateCopy) {
+      const template = await store.createTemplate({
+        templateId,
+        ownerUserId: session.session.user.id,
+        sourceAppId: crypto.randomUUID(),
+        slug: "delete-me",
+        displayName: "Delete me",
+        description: "A template awaiting its workspace reference",
+        artifact: JSON.stringify({
+          files: {},
+          assets: {},
+          build: {},
+          data: "",
+        }),
+        demoAppId: crypto.randomUUID(),
+      });
+      if (template instanceof Error) throw template;
+      const ready = await store.markTemplateReady(templateId);
+      if (ready instanceof Error) throw ready;
+    }
     const backup = join(
       agent.workspaceRoot,
       ".halo/published-backups",
@@ -5939,6 +5998,11 @@ appRemovalTest(
     await expect(
       authenticatedRpc.apps.remove({ appId: "../bad" }),
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    const workspace = await authenticatedRpc.workspace.ensure();
+    await expect(
+      agent.rpc.apps.remove({ appId: workspace.id }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST", message: "App not found" });
+    expect(vmRemoval.removed.has(workspace.id)).toBe(false);
     const otherHeaders = await createAuthenticatedHeaders(
       appDataDir,
       plane.origin,
@@ -5991,6 +6055,121 @@ appRemovalTest(
     await agent.rpc.extensions.delete({ id: "delete-me" });
     await agent.rpc.extensions.reload();
     expect(await agent.rpc.extensions.list()).toEqual([]);
+  },
+);
+
+// Durable: even inconsistent app records must never authorize deleting a main workspace.
+appRemovalTest.extend({ appWorkspaceCollision: true })(
+  "protects a main workspace even when an app record points at it",
+  async ({ appRemoval, agent, vmRemoval }) => {
+    await agent.rpc.apps.update({ appId: appRemoval.appId, published: false });
+    await expect(
+      agent.rpc.apps.remove({ appId: appRemoval.appId }),
+    ).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: expect.stringContaining("Main workspaces cannot be removed"),
+    });
+    expect(vmRemoval.removed.size).toBe(0);
+    expect(vmRemoval.snapshots).toBe(0);
+    expect(await agent.rpc.apps.list()).toMatchObject([
+      { appId: appRemoval.appId, stage: "live" },
+    ]);
+    expect(await fs.readFile(appRemoval.reference, "utf8")).toContain(
+      appRemoval.appId,
+    );
+    await expect(
+      fs.stat(
+        join(agent.workspaceRoot, ".halo/app-removals", appRemoval.appId),
+      ),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+  },
+);
+
+appRemovalTest.extend({
+  appWorkspaceCollision: true,
+  publicationComplete: false,
+})(
+  "protects a main workspace when an unfinished app is cancelled",
+  async ({ appRemoval, agent, vmRemoval }) => {
+    const before = await agent.rpc.apps.list();
+    await expect(
+      agent.rpc.apps.cancel({ appId: appRemoval.appId }),
+    ).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: expect.stringContaining("Main workspaces cannot be removed"),
+    });
+    expect(vmRemoval.removed.size).toBe(0);
+    expect(await agent.rpc.apps.list()).toEqual(before);
+  },
+);
+
+appRemovalTest.extend({ publicationComplete: false })(
+  "cancels an unfinished app while preserving its local project",
+  async ({ appRemoval, agent, vmRemoval }) => {
+    await agent.rpc.apps.cancel({ appId: appRemoval.appId });
+    expect(vmRemoval.removed.has(appRemoval.appId)).toBe(true);
+    expect(await agent.rpc.apps.list()).toEqual([]);
+    expect(
+      await fs.readFile(
+        join(agent.workspaceRoot, ".halo/extensions/delete-me/private.txt"),
+        "utf8",
+      ),
+    ).toBe("keep my local source");
+    await expect(fs.stat(appRemoval.reference)).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  },
+);
+
+appRemovalTest.extend({ templateCopy: true }).for([false, true])(
+  "template conflict cleanup protects main workspaces (collision: %s)",
+  async (
+    collision,
+    {
+      appRemoval,
+      agent,
+      vmRemoval,
+      appDataDir,
+      plane,
+      browserHeaders,
+      authenticatedRpc,
+    },
+  ) => {
+    if (collision) {
+      const workspace = await authenticatedRpc.workspace.ensure();
+      using database = new DatabaseSync(join(appDataDir, "control-plane.db"));
+      // A ready app copy must never delete any registered main workspace.
+      database
+        .prepare("UPDATE workspace SET id = ? WHERE id = ?")
+        .run(appRemoval.appId, workspace.id);
+    }
+    const headers = new Headers(browserHeaders);
+    headers.set("origin", plane.origin);
+    const response = await fetch(
+      `${plane.origin}/api/templates/delete-me/install`,
+      { method: "POST", headers },
+    );
+    expect(response.status).toBe(400);
+    const message = await response.text();
+    if (collision) {
+      expect(message).toContain("Main workspaces cannot be removed");
+      expect(vmRemoval.removed.size).toBe(0);
+      expect(await agent.rpc.apps.list()).toMatchObject([
+        { appId: appRemoval.appId },
+      ]);
+    } else {
+      expect(message).toContain(
+        "You already have an extension named delete-me",
+      );
+      expect(vmRemoval.removed.has(appRemoval.appId)).toBe(true);
+      expect(await agent.rpc.apps.list()).toEqual([]);
+    }
+    expect(
+      await fs.readFile(
+        join(agent.workspaceRoot, ".halo/extensions/delete-me/private.txt"),
+        "utf8",
+      ),
+    ).toBe("keep my local source");
   },
 );
 

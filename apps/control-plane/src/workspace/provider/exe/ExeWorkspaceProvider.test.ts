@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import util from "node:util";
 import { Type, type Static } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { ExeWorkspaceProvider } from "./ExeWorkspaceProvider.js";
 import type { WorkspaceProviderAssignment } from "../WorkspaceProviderApi.js";
 import path from "node:path";
@@ -156,6 +156,86 @@ const exeTest = test.extend<{
   secondProvider: async ({ config }, use) =>
     await use(new ExeWorkspaceProvider(config)),
 });
+
+const removalTest = test.extend<{ provider: ExeWorkspaceProvider }>({
+  // oxlint-disable-next-line eslint/no-empty-pattern -- Native fixture signature.
+  provider: async ({}, use) => {
+    const directory = path.resolve(
+      import.meta.dirname,
+      "../../../../../../tmp/exe-removal-permissions",
+      crypto.randomUUID(),
+    );
+    await fs.mkdir(directory, { recursive: true });
+    await using cleanup = new errore.AsyncDisposableStack();
+    cleanup.defer(
+      async () => await fs.rm(directory, { recursive: true, force: true }),
+    );
+    const privateKeyPath = path.join(directory, "id_ed25519");
+    await util.promisify(childProcess.execFile)("ssh-keygen", [
+      "-t",
+      "ed25519",
+      "-N",
+      "",
+      "-f",
+      privateKeyPath,
+    ]);
+    const vms = new Set(["halo-removal-test"]);
+    // Model Exe's command authorization at the external HTTPS boundary, using
+    // the actual signed credential rather than replacing the provider or signer.
+    const fetch = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (url, init) => {
+        expect(url).toBe("https://exe.dev/exec");
+        const token = new Headers(init?.headers)
+          .get("authorization")
+          ?.split(".")[1];
+        if (token === undefined) throw new Error("Missing Exe token payload");
+        const permissions: unknown = JSON.parse(
+          Buffer.from(token, "base64url").toString(),
+        );
+        const schema = Type.Object({
+          exp: Type.Number(),
+          cmds: Type.Array(Type.String()),
+        });
+        if (!Value.Check(schema, permissions))
+          throw new Error("Invalid Exe permissions");
+        const command = /^'([a-z]+)' '([^']+)'$/u.exec(String(init?.body));
+        if (command === null) throw new Error("Unexpected Exe command");
+        const [, name = "", vmName = ""] = command;
+        if (!permissions.cmds.includes(name))
+          return new Response("Command not permitted", { status: 403 });
+        if (name === "ls")
+          return Response.json({
+            vms: vms.has(vmName)
+              ? [{ vm_name: vmName, status: "running", proxy_share: "private" }]
+              : [],
+          });
+        if (name !== "rm") throw new Error("Unexpected Exe command");
+        vms.delete(vmName);
+        return new Response("Removed");
+      });
+    cleanup.defer(() => fetch.mockRestore());
+    await use(
+      new ExeWorkspaceProvider({
+        privateKeyPath,
+        templateVmName: "unused",
+        gatewaySecret: "test-gateway-secret",
+      }),
+    );
+  },
+});
+
+// Durable: removal must work with the signed command permissions used in staging.
+removalTest(
+  "removes an app VM with its API credential and tolerates a retry",
+  async ({ provider }) => {
+    const input = { workspaceId: "removal-test", ownerUserId: "owner" };
+    const target = { appId: input.workspaceId, ownerUserId: input.ownerUserId };
+    expect(await provider.removeAppVm(target)).toBeUndefined();
+    expect(await provider.getConnection(input)).toBeUndefined();
+    expect(await provider.removeAppVm(target)).toBeUndefined();
+  },
+);
 
 // No fallback host: this test provisions a real, billed Exe VM from an empty template.
 exeTest.skipIf(process.env.HALO_EXE_TEST_CONFIG === undefined)(
