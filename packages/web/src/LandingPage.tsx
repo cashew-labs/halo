@@ -2,6 +2,7 @@ import {
   backgroundColor,
   Button,
   Flex,
+  Link,
   P,
   Prose,
   proseContainerStyle,
@@ -24,6 +25,13 @@ export function LandingPage() {
 
         <Prose size="md" className={statement}>
           <P>An open-source, self-modifiable, agentic operating system.</P>
+          <P>
+            Halo is a desktop workspace for working with AI agents and building
+            custom tools. Connect your Google services to work with email,
+            calendars, documents, files, and other data through conversations
+            and automations. You choose which services to connect and authorize
+            their permissions with Google.
+          </P>
         </Prose>
 
         <form
@@ -49,6 +57,14 @@ export function LandingPage() {
         </form>
 
         <DevLogs />
+
+        <Prose size="sm">
+          <P>
+            <Link href="https://gethalo.dev/privacy.html">Privacy policy</Link>
+            {" · "}
+            <Link href="mailto:team@libretto.sh">Contact Cashew Labs</Link>
+          </P>
+        </Prose>
       </div>
     </main>
   );

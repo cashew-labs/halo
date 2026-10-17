@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="How Halo handles your information and connected Google account data."
+    />
+    <link rel="icon" type="image/png" href="/halo-donut-transparent.png" />
+    <title>Privacy policy — Halo</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: system-ui, sans-serif;
+        line-height: 1.65;
+        background: light-dark(#ffffff, #181818);
+        color: light-dark(#252525, #ededed);
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+      }
+      main {
+        max-width: 76ch;
+        margin-inline: auto;
+        padding: clamp(24px, 5vw, 56px);
+        overflow-wrap: anywhere;
+      }
+      header {
+        margin-bottom: 40px;
+      }
+      h1 {
+        font-size: clamp(28px, 5vw, 36px);
+        line-height: 1.2;
+        margin-block: 32px 12px;
+      }
+      h2 {
+        font-size: 20px;
+        line-height: 1.4;
+        margin-block: 32px 12px;
+      }
+      p,
+      ul {
+        margin-block: 12px;
+      }
+      li {
+        margin-block: 8px;
+      }
+      a {
+        color: inherit;
+        text-underline-offset: 3px;
+      }
+      a:focus-visible {
+        outline: 2px solid currentColor;
+        outline-offset: 4px;
+      }
+      .updated {
+        color: light-dark(#666666, #aaaaaa);
+        font-size: 14px;
+      }
+      footer {
+        border-top: 1px solid light-dark(#dddddd, #444444);
+        margin-top: 40px;
+        padding-top: 20px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <a href="/">Halo home</a>
+        <h1>Privacy policy</h1>
+        <p class="updated">Last updated: October 17, 2026</p>
+        <p>
+          Halo is an open-source desktop workspace from Cashew Labs. This policy
+          explains how we handle information when you use Halo and our hosted
+          services at gethalo.dev. For privacy questions or deletion requests,
+          contact <a href="mailto:team@libretto.sh">team@libretto.sh</a>.
+        </p>
+      </header>
+
+      <h2>Information we collect</h2>
+      <ul>
+        <li>
+          <strong>Account information.</strong> When you sign in with Google, we
+          receive your account identifier, name, email address, and profile
+          image, and store account and session information to keep you signed
+          in.
+        </li>
+        <li>
+          <strong>Workspace content.</strong> We process the messages, prompts,
+          files, custom tools, automation instructions, and other content you
+          provide, together with AI responses and tool results generated while
+          carrying out your requests.
+        </li>
+        <li>
+          <strong>Connected services.</strong> If you connect a Google or other
+          third-party service, we receive authorization tokens and the data made
+          available through the permissions you grant. Signing in with Google
+          does not by itself connect your Gmail, Drive, or other services.
+        </li>
+        <li>
+          <strong>Operational information.</strong> Our services process network
+          and request information, errors, and execution records to operate,
+          secure, and troubleshoot Halo.
+        </li>
+        <li>
+          <strong>Updates and support.</strong> We receive information you send
+          us for support. If you subscribe to Halo updates, your email address
+          is processed by our newsletter provider, Buttondown; you can
+          unsubscribe using the link in an update.
+        </li>
+      </ul>
+
+      <h2>Google data and permissions</h2>
+      <p>
+        You choose which integrations to connect and authorize them through
+        Google's consent screen. The data Halo can access depends on the
+        permissions you grant and your own access to that service. Depending on
+        the integration, permissions may allow Halo to read, create, edit,
+        share, or delete data.
+      </p>
+      <ul>
+        <li>
+          <strong>Gmail and Calendar:</strong> messages, threads, drafts,
+          labels, mail settings, calendars, and events for email and scheduling
+          tasks and automations.
+        </li>
+        <li>
+          <strong>Drive, Docs, Sheets, Slides, Forms, and Tasks:</strong> files,
+          document contents, spreadsheets, presentations, forms and responses,
+          and tasks for finding information and completing work.
+        </li>
+        <li>
+          <strong>People, Chat, Photos, and YouTube:</strong> contacts and
+          profile details; chat spaces, membership, and messages; selected or
+          app-created photos and albums; and channel, video, playlist, comment,
+          and membership information for the connected features you use.
+        </li>
+        <li>
+          <strong
+            >Search Console, Classroom, Workspace administration, Apps Script,
+            BigQuery, and Google Cloud:</strong
+          >
+          site and search data, course and roster information, administrative
+          resources and reports, scripts, query data, and cloud resource
+          information for the corresponding integration. Organization and
+          administrator restrictions still apply.
+        </li>
+      </ul>
+      <p>
+        We use this information to provide the features you request, maintain
+        your connections, run your configured automations, and display and
+        preserve your work. We do not sell Google user data, use it for
+        advertising, or use it to train general-purpose AI models. Halo's use
+        and transfer of information received from Google APIs adheres to the
+        <a
+          href="https://developers.google.com/terms/api-services-user-data-policy"
+          >Google API Services User Data Policy</a
+        >, including its Limited Use requirements.
+      </p>
+
+      <h2>AI processing and sharing</h2>
+      <p>
+        Halo sends prompts, relevant conversation context, and tool results to
+        the AI provider used for your request. This can include Google data
+        retrieved while carrying out your instructions. Our hosted AI service
+        currently uses Together AI. See
+        <a href="https://www.together.ai/privacy"
+          >Together AI's privacy policy</a
+        >
+        for its handling of information. Custom tools and extensions may use
+        additional providers you configure.
+      </p>
+      <p>
+        We use infrastructure providers to host Halo, its databases, workspaces,
+        and execution archives. These currently include Google Cloud and
+        exe.dev. Information may also be sent to a connected service when needed
+        to perform an action you request or an automation you configure.
+        Connecting a service does not make its data public.
+      </p>
+      <p>
+        We may disclose information when required by law or necessary to address
+        fraud, abuse, or security threats. We limit human access to Google user
+        data to cases permitted by Google's Limited Use requirements, such as
+        your affirmative agreement, security investigations, or legal
+        obligations.
+      </p>
+
+      <h2>Storage, security, and retention</h2>
+      <p>
+        Hosted Halo stores account and connection information in its service
+        databases and workspace content in your workspace. Integration
+        credentials stored by Halo's credential service are encrypted at rest.
+        We use HTTPS for hosted service connections.
+      </p>
+      <p>
+        Halo records full agent execution archives, including conversation
+        context, tool arguments and results, model requests, and responses.
+        These records may contain information from connected Google services.
+        Archives are stored in the workspace and, for configured hosted
+        workspaces, uploaded to private cloud storage. Conversation and
+        execution archives currently have no automatic expiry. Revoking a
+        connection does not delete content already saved in conversations,
+        files, or archives.
+      </p>
+      <p>
+        We retain stored information until it is deleted or no longer needed to
+        provide the service, protect its security, or meet legal obligations.
+        You can request deletion of your account and associated hosted data by
+        emailing us. Backup copies and storage recovery copies may remain until
+        their recovery periods expire; data subject to a legal retention
+        obligation may be retained as required.
+      </p>
+
+      <h2>Your choices</h2>
+      <p>
+        You can choose not to connect an integration, disconnect it in Halo, or
+        revoke Halo's access in
+        <a href="https://myaccount.google.com/connections"
+          >your Google Account connections</a
+        >. Revoking access stops future Google API access through that
+        authorization; it does not undo actions already performed. To request
+        access to, correction of, or deletion of information we hold, contact
+        <a href="mailto:team@libretto.sh">team@libretto.sh</a>.
+      </p>
+      <p>
+        Halo uses session cookies and local storage to support sign-in and
+        application preferences. If you self-host Halo or use third-party
+        extensions, the operator of that installation or extension controls its
+        own configuration and data handling. This policy describes the services
+        we operate.
+      </p>
+
+      <h2>Changes and contact</h2>
+      <p>
+        We will update this page when our practices change and revise the date
+        above. For questions about this policy or your information, contact
+        Cashew Labs at <a href="mailto:team@libretto.sh">team@libretto.sh</a>.
+      </p>
+      <footer><a href="/">Return to Halo</a></footer>
+    </main>
+  </body>
+</html>

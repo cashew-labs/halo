@@ -99,6 +99,12 @@ export function Authentication({ children }: { children: ReactElement }) {
     if (window.location.pathname === "/newsletter/joined")
       return <NewsletterStatusPage status="joined" />;
   }
+  if (
+    host.showLandingPage === true &&
+    window.location.pathname === "/" &&
+    (state.status === "checking" || state.status === "signedOut")
+  )
+    return <LandingPage />;
   if (state.status === "checking")
     return <LoadingPage progressLabel="Loading Halo" />;
   if (state.status === "unavailable")
@@ -131,13 +137,6 @@ export function Authentication({ children }: { children: ReactElement }) {
         </ReauthenticateContext>
       </AccountContext>
     );
-
-  if (
-    state.status === "signedOut" &&
-    host.showLandingPage === true &&
-    window.location.pathname === "/"
-  )
-    return <LandingPage />;
 
   const signIn = async () => {
     setState({ status: "signingIn" });
