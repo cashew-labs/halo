@@ -7,10 +7,13 @@ import {
   P,
   backgroundColor,
   colors,
+  focusRing,
   radius,
   shadow,
   spacing,
   text,
+  Tooltip,
+  visuallyHidden,
 } from "maui";
 import { style, useStyles } from "purse-styles";
 import { IncompatibleServerError } from "@get-halo/client";
@@ -18,14 +21,23 @@ import { useConnection } from "./api/ConnectionContext.js";
 import { IncompatibleConnection } from "./ConnectionPage.js";
 import { useReauthenticate } from "./Authentication.js";
 
-export function ConnectionStatus() {
+/**
+ * `dot` shows only the colored dot, with its label in a tooltip, for the
+ * sidebar footer. Otherwise the label is visible, which the loading page
+ * needs to explain why the workspace cannot open.
+ */
+export function ConnectionStatus({ dot = false }: { dot?: boolean }) {
   const { state } = useConnection();
   const asleep =
     state.power === "asleep" &&
     state.status !== "authentication" &&
     state.status !== "offline" &&
     state.status !== "incompatible";
-  const statusClass = useStyles(statusStyle, asleep && asleepStyle);
+  const statusClass = useStyles(
+    dot ? dotStyle : labeledStyle,
+    !dot && asleep && asleepStyle,
+  );
+  const hiddenLabel = useStyles(visuallyHidden);
   const mismatch =
     state.error instanceof IncompatibleServerError ? state.error : undefined;
   const label = (() => {
@@ -60,27 +72,43 @@ export function ConnectionStatus() {
     if (label === "Connected") return colors.green[9];
     return colors.amber[9];
   })();
+  // A hidden label stays in the live region so screen readers announce changes.
   const indicator = (
     <>
       <span aria-hidden="true" style={{ color }}>
         ●
       </span>
-      <span>{label}</span>
+      <span className={dot ? hiddenLabel : undefined}>{label}</span>
     </>
   );
-  if (state.status !== "authentication" && mismatch === undefined)
-    return (
+  if (state.status !== "authentication" && mismatch === undefined) {
+    const status = (
       <span
         className={statusClass}
         role="status"
         aria-live="polite"
         aria-label={`Connection: ${label}`}
+        // Focusable only as the dot, so keyboard users can open its tooltip.
+        tabIndex={dot ? 0 : undefined}
       >
         {indicator}
       </span>
     );
+    return dot ? (
+      <Tooltip content={label} placement="top">
+        {status}
+      </Tooltip>
+    ) : (
+      status
+    );
+  }
   return (
-    <ConnectionAction label={label} mismatch={mismatch} className={statusClass}>
+    <ConnectionAction
+      label={label}
+      mismatch={mismatch}
+      className={statusClass}
+      tooltip={dot}
+    >
       {indicator}
     </ConnectionAction>
   );
@@ -90,11 +118,13 @@ function ConnectionAction({
   label,
   mismatch,
   className,
+  tooltip,
   children,
 }: {
   label: string;
   mismatch: IncompatibleServerError | undefined;
   className: string;
+  tooltip: boolean;
   children: ReactNode;
 }) {
   const { service, state } = useConnection();
@@ -107,14 +137,17 @@ function ConnectionAction({
   const details = useStyles(detailsStyle);
   return (
     <>
-      <Button
-        variant="quiet"
-        className={className}
-        onClick={() => setOpen(true)}
-        aria-label={`Connection: ${label}`}
-      >
-        {children}
-      </Button>
+      {/* Tooltip needs a single focusable child, not this fragment. */}
+      <Tooltip content={label} placement="top" isDisabled={!tooltip}>
+        <Button
+          variant="quiet"
+          className={className}
+          onClick={() => setOpen(true)}
+          aria-label={`Connection: ${label}`}
+        >
+          {children}
+        </Button>
+      </Tooltip>
       <ModalOverlay
         isOpen={open}
         onOpenChange={setOpen}
@@ -193,7 +226,7 @@ function ConnectionAction({
     </>
   );
 }
-const statusStyle = style(
+const labeledStyle = style(
   text({ size: "xs", fontWeight: 400, color: "lowContrast" }),
   {
     display: "inline-flex",
@@ -205,6 +238,19 @@ const statusStyle = style(
   },
 );
 const asleepStyle = style({ color: colors.blue[12] });
+const dotStyle = style(
+  text({ size: "lg", fontWeight: 400 }),
+  focusRing(),
+  radius.sm,
+  {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 0,
+    minWidth: 24,
+    minHeight: 24,
+  },
+);
 export const overlayStyle = style({
   position: "fixed",
   inset: 0,

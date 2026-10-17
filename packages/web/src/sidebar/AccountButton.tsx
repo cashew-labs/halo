@@ -1,7 +1,7 @@
-import { PublisherSettings } from "./PublisherSettings.js";
+import { PublisherSettings, problemStyle } from "./PublisherSettings.js";
 import { useState } from "react";
 import { Dialog, Modal, ModalOverlay } from "react-aria-components";
-import { Avatar, Button, Flex, H3, P, spacing, text } from "maui";
+import { Avatar, Button, Flex, Text, flex, spacing, text } from "maui";
 import { style, useStyles } from "purse-styles";
 import { useAccount } from "../Authentication.js";
 import { modalStyle, overlayStyle } from "../ConnectionStatus.js";
@@ -20,6 +20,9 @@ export function AccountButton({ appInfo }: { appInfo?: AppInfo }) {
   const identity = useStyles(identityStyle);
   const name = useStyles(nameStyle);
   const detail = useStyles(detailStyle);
+  const footer = useStyles(footerStyle);
+  const signOutButton = useStyles(signOutStyle);
+  const signOutError = useStyles(detailStyle, problemStyle, paragraphStyle);
   const { user } = session;
   // Google profile images are not loaded: the web app's CSP allows only
   // Halo-hosted images, so both hosts show initials.
@@ -32,7 +35,7 @@ export function AccountButton({ appInfo }: { appInfo?: AppInfo }) {
         data-testid="account-button"
         onClick={() => setOpen(true)}
       >
-        <Avatar name={user.name} size="xs" />
+        <Avatar name={user.name} size="lg" />
         <span className={email}>{user.email}</span>
       </Button>
       <ModalOverlay
@@ -44,44 +47,39 @@ export function AccountButton({ appInfo }: { appInfo?: AppInfo }) {
       >
         <Modal className={modal}>
           <Dialog aria-label="Account">
-            <Flex column gap={6}>
-              <H3>Account</H3>
+            <Flex column gap={8}>
               <div className={identity}>
-                <Avatar name={user.name} size="xl" />
+                <Avatar name={user.name} size="lg" />
                 <Flex column gap={1}>
                   <span className={name}>{user.name}</span>
-                  <span className={detail}>{user.email}</span>
+                  {user.email !== user.name && (
+                    <span className={detail}>{user.email}</span>
+                  )}
                 </Flex>
               </div>
-              {appInfo !== undefined && (
-                <P>
-                  {appInfo.deployment === undefined
-                    ? "Signed in with a local development identity."
-                    : `Signed in to ${appInfo.deployment}.`}
-                </P>
-              )}
               {open && <PublisherSettings onSaving={setSavingPublisher} />}
               {signingOut.error !== undefined && (
-                <div role="alert">
-                  <P>{signingOut.error.message}</P>
-                </div>
+                <p role="alert" className={signOutError}>
+                  {signingOut.error.message}
+                </p>
               )}
-              <Flex row gap={3}>
+              <div className={footer}>
+                {appInfo !== undefined && (
+                  <Text size="xs" color="lowContrast" data-testid="app-version">
+                    {appInfo.development
+                      ? "Development build"
+                      : `Version ${appInfo.version}`}
+                  </Text>
+                )}
                 <Button
+                  className={signOutButton}
                   isPending={signingOut.pending}
                   isDisabled={savingPublisher}
                   onClick={() => void signingOut.run()}
                 >
                   {signingOut.pending ? "Signing out…" : "Sign out"}
                 </Button>
-                <Button
-                  variant="quiet"
-                  isDisabled={signingOut.pending || savingPublisher}
-                  onClick={() => setOpen(false)}
-                >
-                  Close
-                </Button>
-              </Flex>
+              </div>
             </Flex>
           </Dialog>
         </Modal>
@@ -93,7 +91,7 @@ export function AccountButton({ appInfo }: { appInfo?: AppInfo }) {
 const triggerStyle = style(text({ size: "xs", color: "lowContrast" }), {
   justifyContent: "flex-start",
   gap: spacing.value(3),
-  width: "100%",
+  flex: 1,
   minWidth: 0,
   minHeight: 24,
   height: "auto",
@@ -113,3 +111,9 @@ const identityStyle = style({
 });
 const nameStyle = style(text({ size: "sm", fontWeight: 600 }));
 const detailStyle = style(text({ size: "xs", color: "lowContrast" }));
+const footerStyle = style(
+  flex({ alignItems: "center", justifyContent: "between", gap: 4 }),
+);
+// Keeps Sign out on the right when no version is shown.
+const signOutStyle = style({ marginLeft: "auto" });
+const paragraphStyle = style({ margin: 0 });
