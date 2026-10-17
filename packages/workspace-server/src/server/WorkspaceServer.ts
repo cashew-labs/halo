@@ -17,6 +17,8 @@ import path from "node:path";
 import { TursoThreadRepo } from "../database/TursoThreadRepo.js";
 import { DatabaseService } from "../database/DatabaseService.js";
 import { BrowserService } from "../browser/BrowserService.js";
+import { ComputerService } from "../computer/ComputerService.js";
+import { computerTools } from "../computer/computerTools.js";
 import type { Logger } from "@get-halo/logger";
 import * as errore from "errore";
 import { FilesystemService } from "../filesystem/FilesystemService.js";
@@ -297,6 +299,14 @@ export class WorkspaceServer {
       if (closed instanceof Error)
         host.logger.warn({ event: "web-cleanup-failed", error: closed });
     });
+    const hasDesktop =
+      config.desktopOrigin !== undefined && config.sharedApp === undefined;
+    const computer = new ComputerService({ workspaceRoot });
+    cleanup.defer(async () => {
+      const closed = await computer.shutdown();
+      if (closed instanceof Error)
+        host.logger.warn({ event: "computer-cleanup-failed", error: closed });
+    });
     const [initialized, toolRuntime] = await Promise.all([
       workspace.initialize(),
       ToolRuntime.create({
@@ -305,6 +315,7 @@ export class WorkspaceServer {
         workspaceRoot,
         userId: config.ownerUserId,
         tools: host.tools ?? {
+          computer: hasDesktop ? computerTools : {},
           files: {
             read: readTool,
             viewImage: viewImageTool,
@@ -326,6 +337,7 @@ export class WorkspaceServer {
           hotkeys,
           automations,
           web,
+          computer,
           // Threads and automation services borrow the runtime during startup.
           get threads() {
             return sessions;
@@ -342,6 +354,7 @@ export class WorkspaceServer {
         },
         authority: new StaticAgentAuthority(
           host.agentCapabilities ?? [
+            ...(hasDesktop ? ["workspace.computer"] : []),
             "workspace.hotkeys",
             "workspace.automations",
             "workspace.files.read",

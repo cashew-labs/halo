@@ -25,6 +25,7 @@ runtime.setMemoryLimit(32 * 1024 * 1024);
 runtime.setMaxStackSize(1024 * 1024);
 const vm = runtime.newContext();
 const pending = new Map<string, QuickJSDeferredPromise>();
+const imageInvocations = new Set<string>();
 type Evaluation = {
   id: string;
   logs: string[];
@@ -72,8 +73,9 @@ const call = vm.newFunction("__call", (path, args) => {
   const invocationId = randomUUID();
   const promise = vm.newPromise();
   pending.set(invocationId, promise);
+  if (vm.getString(path) === "__viewImage") imageInvocations.add(invocationId);
   send({
-    type: "toolCall",
+    type: vm.getString(path) === "__viewImage" ? "viewImage" : "toolCall",
     id: evaluation.id,
     invocationId,
     path: vm.getString(path),
@@ -108,6 +110,7 @@ const bootstrap = vm.evalCode(`
     apply(_, receiver, args) { return invoke(path, args[0] ?? {}); }
   });
   Object.defineProperty(globalThis, 'tools', { value: proxy('') });
+  Object.defineProperty(globalThis, 'viewImage', { value: ref => invoke('__viewImage', ref) });
   Object.defineProperty(globalThis, 'console', { value: Object.freeze(Object.fromEntries(
     ['log','info','warn','error','debug'].map(key => [key, (...args) => log(args.map(
       value => typeof value === 'string' ? value : JSON.stringify(value)
@@ -123,6 +126,10 @@ port.on("message", async (message: CodeWorkerRequest) => {
     const promise = pending.get(message.invocationId);
     if (!promise) return;
     pending.delete(message.invocationId);
+    if (imageInvocations.delete(message.invocationId)) {
+      if (message.imageError)
+        evaluation.logs.push(`viewImage: ${message.imageError}`);
+    }
     // Parse as data, never interpolate executable source from a tool result.
     const json = vm.newString(JSON.stringify(message.value) ?? "null");
     deadline = Date.now() + 2_000;
@@ -166,7 +173,7 @@ port.on("message", async (message: CodeWorkerRequest) => {
   result.value.dispose();
   if (settled.error) {
     const error = vm.dump(settled.error);
-    settled.error.dispose();
+    if (settled.error.alive) settled.error.dispose();
     current.result = {
       result: undefined,
       error: error?.message ? `${error.name}: ${error.message}` : String(error),
@@ -176,7 +183,8 @@ port.on("message", async (message: CodeWorkerRequest) => {
     // Async global evaluation resolves its completion as { value }.
     const handle = vm.getProp(settled.value, "value");
     const value: unknown = vm.dump(handle);
-    handle.dispose();
+    // QuickJS 0.31 dump consumes Promise handles, but leaves other handles alive.
+    if (handle.alive) handle.dispose();
     settled.value.dispose();
     const text = errore.try({
       try: () => JSON.stringify(value),

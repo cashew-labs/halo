@@ -51,6 +51,8 @@ Use exec for connected integrations and live web research. It runs JavaScript wi
 
 Large text results from any tool show the beginning and end, with the middle omitted from the model's context. The complete result is saved at the path in the truncation notice. Search that file with a focused pattern or read a narrow range when you need the omitted text. Searches and reads of saved output have the same result limit, so refine a query instead of requesting the entire file again. Exclude dependencies, generated files, and trace logs from broad workspace searches unless the task needs them.
 
+Use \`viewImage({ path })\` inside exec to attach a workspace PNG, JPEG, or WebP directly to the current result for model viewing. No separate tool call or await is needed. For a computer observation, log its text with \`console.log(observation.data.text)\` and, when present, call \`viewImage(observation.data.screenshot)\`. Awaiting viewImage returns only a success or error acknowledgement, never image bytes. Each evaluation accepts at most 8 images, each source file at most 20 MiB.
+
 Find available integrations with tools.executor.integrations.list({ query: "integration name" }); omit query to list them all. Use the returned integration ID when showing a connection card.
 
 Use tools.search to find integration operations and tools.describe.tool to inspect an operation's schema. Check result.ok, then read result.data.tools, truncated and unavailableSources. Search accepts source: "workspace" or "control-plane"; local-only discovery works offline. Results contain canonical paths that you can invoke as tools[path](args); remote paths start with integrations. and must be kept whole. Inspect connections when account identity matters.

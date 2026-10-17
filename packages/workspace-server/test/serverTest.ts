@@ -10,6 +10,7 @@ import type { WorkspaceServerOptions } from "@get-halo/workspace-server";
 vi.setConfig({ testTimeout: 20_000 });
 
 type ServerOptions = {
+  desktopOrigin?: WorkspaceServerOptions["config"]["desktopOrigin"];
   sharedApp?: WorkspaceServerOptions["config"]["sharedApp"];
   extensionRuntime?: WorkspaceServerOptions["config"]["extensionRuntime"];
   appDataDir?: string;
@@ -60,6 +61,7 @@ export const serverTest = baseTest.extend<{
     await using cleanup = new errore.AsyncDisposableStack();
     await use((options = {}) => {
       const server = new TestServer({
+        desktopOrigin: options.desktopOrigin,
         sharedApp: options.sharedApp,
         extensionRuntime: options.extensionRuntime,
         appDataDir: options.appDataDir,

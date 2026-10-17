@@ -29,11 +29,13 @@ export class TestServer {
   private readonly remoteConnections: WorkspaceServerOptions["host"]["remoteConnections"];
   private readonly remoteIntegrationTools: WorkspaceServerOptions["host"]["remoteIntegrationTools"];
   private readonly gateway: WorkspaceServerOptions["config"]["gateway"];
+  private readonly desktopOrigin: WorkspaceServerOptions["config"]["desktopOrigin"];
   private readonly sharedApp: WorkspaceServerOptions["config"]["sharedApp"];
   private readonly extensionRuntime: WorkspaceServerOptions["config"]["extensionRuntime"];
   private readonly appDataDir: string;
 
   constructor(ctx: {
+    desktopOrigin?: WorkspaceServerOptions["config"]["desktopOrigin"];
     sharedApp?: WorkspaceServerOptions["config"]["sharedApp"];
     extensionRuntime?: WorkspaceServerOptions["config"]["extensionRuntime"];
     appDataDir?: string;
@@ -71,6 +73,7 @@ export class TestServer {
     this.remoteIntegrationTools = ctx.remoteIntegrationTools;
     this.traceWorkspaceId = traceWorkspaceId;
     this.gateway = gateway;
+    this.desktopOrigin = ctx.desktopOrigin;
     this.sharedApp = ctx.sharedApp;
     this.extensionRuntime = ctx.extensionRuntime ?? {
       executable: process.execPath,
@@ -137,6 +140,7 @@ export class TestServer {
         testApiEnabled: this.testApiEnabled,
         traceWorkspaceId: this.traceWorkspaceId,
         gateway: this.gateway,
+        desktopOrigin: this.desktopOrigin,
         sharedApp: this.sharedApp,
         extensionRuntime: this.extensionRuntime,
       },
