@@ -1,0 +1,54 @@
+{
+  "status": "changes_requested",
+  "summary": "The change renames the provider operation to `removeAppVm` and adds a guard so a registered main workspace is never deleted as an app VM. It also adds `rm` to the signed Exe command permissions, which fixes the 403 that made removal fail. The source logic looks correct, but the coverage gate fails: no test reaches the publish name-collision cleanup or the successful cancel/abandon VM removal, and the type-only interface lines are no longer exempt.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "test",
+      "file": "apps/control-plane/src/apps/AppService.ts",
+      "line": 708,
+      "severity": "P1",
+      "body": "Lines 708-710 are uncovered. This publish path runs when `addRemote` reports that an extension with that name already exists. It now calls `appVmRemovalTarget(ready)` and then `provider.removeAppVm?.(...)`, but no test reaches it. A refactor that drops the workspace guard or passes the wrong ID would go unnoticed. Add a test, usually a temp test, that drives this path. It should assert that `removeAppVm` receives `{ appId: ready.appId, ownerUserId }` and that the app record is deleted. It should also assert that a collision with a main workspace returns the 'Main workspaces cannot be removed' error without calling the provider."
+    },
+    {
+      "id": "F2",
+      "kind": "test",
+      "file": "apps/control-plane/src/apps/AppService.ts",
+      "line": 961,
+      "severity": "P1",
+      "body": "Line 961 is uncovered. No changed test reaches `provider.removeAppVm` through `abandon()`. The only cancel tests in the changed files stop at the new guard, or are rejected earlier because the stage is `removing`. Add a test that cancels a frozen app that is not a workspace. It should verify that `removeAppVm` receives the app's ID and owner, and that the app record is deleted and the extension is released."
+    },
+    {
+      "id": "F3",
+      "kind": "source",
+      "file": "apps/control-plane/src/workspace/provider/WorkspaceProviderApi.ts",
+      "line": 80,
+      "severity": "P1",
+      "body": "The old `remove?:` member carried a `coverage-exempt` reason because it is a type-only optional interface member. The rewritten `removeAppVm?:` member on lines 80-83 lost that annotation, so the coverage report marks these lines as uncovered and the gate fails. Restore a `coverage-exempt` reason, for example: type-only optional provider operation, implemented by `ExeWorkspaceProvider.removeAppVm` and called from `AppService`."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "apps/control-plane/src/apps/AppService.ts:706-716 (publish name-collision cleanup calls removeAppVm with ready.appId/ownerUserId, deletes the record, and refuses when the appId is a main workspace)",
+      "tier": "tmp",
+      "rationale": "The changed lines 708-710 are not executed by any test."
+    },
+    {
+      "target": "apps/control-plane/src/apps/AppService.ts:957-967 (successful cancel of a frozen app calls removeAppVm with the app's ID and owner, then releases the extension and deletes the record)",
+      "tier": "tmp",
+      "rationale": "Changed line 961 is not executed. Today the only tests of the guard cover the rejection branch."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "46e6466017c6928572144c8a4502217ce6f6f1bd",
+  "treeHash": "02d241b23ab09ff83aa9f0d5cbb053a4f2c0f404",
+  "codeTree": "02d241b23ab09ff83aa9f0d5cbb053a4f2c0f404",
+  "coverage": {
+    "executable": 20,
+    "covered": 12,
+    "exempt": 0,
+    "uncovered": 8
+  },
+  "createdAt": "2026-10-17T01:38:39.409Z"
+}

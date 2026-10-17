@@ -1,0 +1,171 @@
+{
+  "baseRef": "origin/main",
+  "baseSha": "6216e7257241f8d6fcfd2ffa6d897c8117e5587a",
+  "headSha": "46e6466017c6928572144c8a4502217ce6f6f1bd",
+  "treeHash": "7f87b26bde16331de7c37398372cf206173579fe",
+  "generatedAt": "2026-10-17T01:40:49.655Z",
+  "runs": {
+    "durable": {
+      "tier": "durable",
+      "testFiles": [
+        "apps/control-plane/src/workspace/provider/exe/ExeWorkspaceProvider.test.ts",
+        "apps/control-plane/test/ControlPlane.test.ts"
+      ],
+      "skipped": false,
+      "runners": [
+        {
+          "runner": "vitest",
+          "dir": ".",
+          "testFiles": [
+            "apps/control-plane/src/workspace/provider/exe/ExeWorkspaceProvider.test.ts",
+            "apps/control-plane/test/ControlPlane.test.ts"
+          ],
+          "exitCode": 0
+        }
+      ],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 91006,
+      "log": ".tmp-tests/report/durable.log",
+      "lcovFiles": [
+        "../../../repos/halo/.git/worktrees/asuncion/code-review-agent/coverage/durable-0/vitest-0/lcov.info"
+      ]
+    },
+    "tmp": {
+      "tier": "tmp",
+      "testFiles": [],
+      "skipped": true,
+      "runners": [],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 0,
+      "log": ".tmp-tests/report/tmp.log",
+      "lcovFiles": []
+    }
+  },
+  "durableTestFiles": [
+    "apps/control-plane/src/workspace/provider/exe/ExeWorkspaceProvider.test.ts",
+    "apps/control-plane/test/ControlPlane.test.ts"
+  ],
+  "tmpTestFiles": [],
+  "files": [
+    {
+      "path": "apps/control-plane/src/apps/AppService.ts",
+      "loaded": true,
+      "changed": [
+        273,
+        277,
+        278,
+        308,
+        708,
+        709,
+        710,
+        944,
+        945,
+        946,
+        947,
+        948,
+        949,
+        950,
+        951,
+        952,
+        953,
+        954,
+        955,
+        959,
+        960,
+        961
+      ],
+      "coveredDurable": [
+        273,
+        277,
+        278,
+        308,
+        708,
+        709,
+        710,
+        946,
+        947,
+        948,
+        949,
+        953,
+        959,
+        960,
+        961
+      ],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "apps/control-plane/src/workspace/provider/exe/ExeApi.ts",
+      "loaded": true,
+      "changed": [
+        61
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "apps/control-plane/src/workspace/provider/exe/ExeWorkspaceProvider.ts",
+      "loaded": true,
+      "changed": [
+        141,
+        142
+      ],
+      "coveredDurable": [
+        142
+      ],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "apps/control-plane/src/workspace/provider/WorkspaceProviderApi.ts",
+      "loaded": false,
+      "changed": [
+        75,
+        76,
+        77,
+        78,
+        79,
+        80,
+        81,
+        82,
+        83,
+        84
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": [
+        {
+          "line": 81,
+          "reason": "Type-only provider contract, exercised through AppService and ExeWorkspaceProvider."
+        },
+        {
+          "line": 82,
+          "reason": "Type-only provider contract, exercised through AppService and ExeWorkspaceProvider."
+        },
+        {
+          "line": 83,
+          "reason": "Type-only provider contract, exercised through AppService and ExeWorkspaceProvider."
+        },
+        {
+          "line": 84,
+          "reason": "Type-only provider contract, exercised through AppService and ExeWorkspaceProvider."
+        }
+      ]
+    }
+  ],
+  "totals": {
+    "executable": 20,
+    "coveredDurable": 16,
+    "coveredTmpOnly": 0,
+    "uncovered": 0,
+    "exempt": 4
+  },
+  "passed": true
+}

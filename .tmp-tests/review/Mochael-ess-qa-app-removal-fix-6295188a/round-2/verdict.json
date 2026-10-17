@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change renames the provider operation to `removeAppVm` and refuses to remove any app ID that is a registered main workspace. It also adds the `rm` command to Exe's signed permissions, which fixes app VM removal. Round 2 fixes all three earlier findings: new tests cover the template name-conflict cleanup, with and without a workspace collision, and a successful cancel; the type-only interface lines have a coverage-exempt reason again. All tests pass, every changed line is covered or exempt, and no findings remain, so the change is ready.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "46e6466017c6928572144c8a4502217ce6f6f1bd",
+  "treeHash": "7f87b26bde16331de7c37398372cf206173579fe",
+  "codeTree": "7f87b26bde16331de7c37398372cf206173579fe",
+  "coverage": {
+    "executable": 20,
+    "covered": 16,
+    "exempt": 4,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-17T01:41:10.614Z"
+}
