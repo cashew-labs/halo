@@ -1,0 +1,46 @@
+{
+  "status": "changes_requested",
+  "summary": "The change adds a static privacy policy, a Google site-verification file, and a crawlable fallback in index.html. It also adds privacy and data-sharing copy to the landing, sign-in, and integration setup pages, and moves the landing-page check ahead of the auth-state checks. It is not ready to merge: the reordered check shows the marketing page to signed-in users at \"/\" while the session is being checked and whenever it can't be checked. No tests cover any of the 31 changed executable lines.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "source",
+      "file": "packages/web/src/Authentication.tsx",
+      "line": 102,
+      "severity": "P1",
+      "body": "The landing-page check now runs before the `checking` and `unavailable` branches and only requires `state.status !== \"signedIn\"`. On the web host (`showLandingPage = true`), a signed-in user who opens `/` therefore sees the marketing LandingPage while `getAuthSession` runs. That call can take up to the 10 s compatibility timeout. Before this change, the user saw `LoadingPage`. If the session check fails, the user stays on the landing page, retried every 15 s, and never sees the \"Couldn't check your sign-in status / Try again\" screen. The `IncompatibleServerError` `ConnectionPage` is hidden the same way, and that is the screen that tells users to reload after a deploy. The landing page has no sign-in or retry control, so these users have no way forward. If the goal is a landing page that renders immediately for crawlers and signed-out visitors, the static index.html fallback already provides one. Otherwise, limit the early return to `signedOut`, or keep `LoadingPage` for `checking` and the error pages for `unavailable`, and show the landing page only once the user is known to be signed out."
+    },
+    {
+      "id": "F2",
+      "kind": "test",
+      "file": "packages/web/src/Authentication.tsx",
+      "line": 102,
+      "severity": "P1",
+      "body": "No test covers the changed routing in Authentication or the new links and copy in LandingPage, SignInPage, and IntegrationSetupPage. All 31 changed executable lines are uncovered, and none has an exemption. Add temp tests, for example rendering with a stub HostApi. They should check which page `/` shows in each auth state (`checking`, `unavailable`, `signedOut`, `signedIn`) with `showLandingPage` true. They should also check that the privacy-policy link (`https://gethalo.dev/privacy.html`) renders on the landing, sign-in, and integration setup pages."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "packages/web/src/Authentication.tsx:102-107: with showLandingPage=true and pathname '/', which page renders for checking, unavailable (generic and IncompatibleServerError), signedOut, and signedIn",
+      "tier": "tmp",
+      "rationale": "This reordering changes which page signed-in and checking users see at '/'. The test must assert the page that renders in each state, not only that the component renders."
+    },
+    {
+      "target": "LandingPage.tsx:28-34,61-67; SignInPage.tsx:20; IntegrationSetupPage.tsx:250-257: the privacy-policy link to https://gethalo.dev/privacy.html and the data-sharing disclosure render",
+      "tier": "tmp",
+      "rationale": "These links and disclosures are the purpose of the change (OAuth verification), and no test currently loads these files."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "181ba5c6acfa7e8b7deb21e3603f9dd27fcc1d6d",
+  "treeHash": "e64aca6f5bf31898659c9e18481313579be6e488",
+  "codeTree": "e64aca6f5bf31898659c9e18481313579be6e488",
+  "coverage": {
+    "executable": 31,
+    "covered": 0,
+    "exempt": 0,
+    "uncovered": 31
+  },
+  "createdAt": "2026-10-17T23:30:37.036Z"
+}

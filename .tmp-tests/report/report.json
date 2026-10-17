@@ -1,0 +1,134 @@
+{
+  "baseRef": "64f9b7a8e1e8a5b1c84618da5c8855314d4894fb",
+  "baseSha": "64f9b7a8e1e8a5b1c84618da5c8855314d4894fb",
+  "headSha": "326c682a73ec9137fa0dc272db190a6fe0cfc1bf",
+  "treeHash": "8c547d4acba1baab984e2ca4cd57ffe1c8bd1919",
+  "generatedAt": "2026-10-17T23:31:39.548Z",
+  "runs": {
+    "durable": {
+      "tier": "durable",
+      "testFiles": [],
+      "skipped": true,
+      "runners": [],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 0,
+      "log": ".tmp-tests/report/durable.log",
+      "lcovFiles": []
+    },
+    "tmp": {
+      "tier": "tmp",
+      "testFiles": [
+        "packages/web/.tmp-tests/oauth-publication.test.tsx"
+      ],
+      "skipped": false,
+      "runners": [
+        {
+          "runner": "vitest",
+          "dir": ".",
+          "testFiles": [
+            "packages/web/.tmp-tests/oauth-publication.test.tsx"
+          ],
+          "exitCode": 0
+        }
+      ],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 3302,
+      "log": ".tmp-tests/report/tmp.log",
+      "lcovFiles": [
+        "../../../../Desktop/Saffron-Repos/halo-v2/.git/worktrees/halo-v2/code-review-agent/coverage/tmp-0/vitest-0/lcov.info"
+      ]
+    }
+  },
+  "durableTestFiles": [],
+  "tmpTestFiles": [
+    "packages/web/.tmp-tests/oauth-publication.test.tsx"
+  ],
+  "files": [
+    {
+      "path": "packages/web/src/Authentication.tsx",
+      "loaded": true,
+      "changed": [
+        102,
+        103,
+        104,
+        105,
+        106,
+        107
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [
+        102,
+        107
+      ],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "packages/web/src/IntegrationSetupPage.tsx",
+      "loaded": true,
+      "changed": [
+        7,
+        250,
+        251,
+        252,
+        253,
+        254,
+        255,
+        256,
+        257
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "packages/web/src/LandingPage.tsx",
+      "loaded": true,
+      "changed": [
+        5,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        60,
+        61,
+        62,
+        63,
+        64,
+        65,
+        66,
+        67
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "packages/web/src/SignInPage.tsx",
+      "loaded": true,
+      "changed": [
+        1,
+        20
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    }
+  ],
+  "totals": {
+    "executable": 2,
+    "coveredDurable": 0,
+    "coveredTmpOnly": 2,
+    "uncovered": 0,
+    "exempt": 0
+  },
+  "passed": true
+}
