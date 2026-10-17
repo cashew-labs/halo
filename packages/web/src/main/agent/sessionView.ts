@@ -14,6 +14,7 @@ import {
   type ConnectionRequest,
   type ChatAttachment,
   type ChatReference,
+  connectionRequestKey,
 } from "@get-halo/client";
 
 export type SessionViewItem =
@@ -377,6 +378,7 @@ function projectTurn(args: {
 
   const parts: SessionViewPart[] = [];
   let pendingGroups: GroupSegment[] = [];
+  const connectionRequests = new Set<string>();
 
   function flushGroups(active: boolean) {
     if (pendingGroups.length === 0) return;
@@ -396,6 +398,9 @@ function projectTurn(args: {
         });
       }
       for (const [index, request] of tool.connectionRequests.entries()) {
+        const key = connectionRequestKey(request);
+        if (connectionRequests.has(key)) continue;
+        connectionRequests.add(key);
         parts.push({
           kind: "executorConnection",
           id: `${tool.id}-connection-${index}`,

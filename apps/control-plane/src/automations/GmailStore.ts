@@ -273,8 +273,9 @@ export class GmailStore {
     });
   }
   async release(mailbox: GmailMailbox, retryMs = 5 * 60 * 1000) {
+    // PostgreSQL otherwise infers $2 as INTEGER from CASE's ELSE 0 and rejects millisecond timestamps.
     const result = await this.automations.database.query(
-      "UPDATE automation_gmail_mailboxes SET next_sync_at = CASE WHEN dirty = $1 THEN $2 ELSE 0 END, renew_at = CASE WHEN renew_at <= $3 THEN $2 ELSE renew_at END, lease_token = NULL, lease_until = 0 WHERE email = $4 AND lease_token = $5",
+      "UPDATE automation_gmail_mailboxes SET next_sync_at = CASE WHEN dirty = $1 THEN CAST($2 AS BIGINT) ELSE 0 END, renew_at = CASE WHEN renew_at <= $3 THEN $2 ELSE renew_at END, lease_token = NULL, lease_until = 0 WHERE email = $4 AND lease_token = $5",
       [
         mailbox.dirty,
         Date.now() + retryMs,

@@ -22,6 +22,8 @@ export default defineConfig({
   testDir: "./e2e",
   testMatch: "**/*.e2e.test.ts",
   fullyParallel: true,
+  // Instrumented Electron processes need enough CPU to service stop and startup deadlines.
+  workers: process.env.REVIEW_COVERAGE_DIR ? 1 : undefined,
   // Coverage slows every process, so code-review-agent runs get more time.
   timeout: process.env.REVIEW_COVERAGE_DIR ? 90_000 : 30_000,
   expect: { timeout: 10_000 },
