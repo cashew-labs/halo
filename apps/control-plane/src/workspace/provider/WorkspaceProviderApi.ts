@@ -72,8 +72,16 @@ export interface WorkspaceProviderApi {
   /** Wake a paused workspace; absent when unsupported. Does not imply server readiness. */
   resume?: (input: WorkspaceProviderInput) => Promise<void | Error>;
 
-  /** Idempotently delete an app VM and its disk; absent when unsupported. */
-  remove?: (input: WorkspaceProviderInput) => Promise<void | Error>; // coverage-exempt: Type-only optional provider operation, called by AppService.abandon and implemented by ExeWorkspaceProvider.remove.
+  /**
+   * Delete a dedicated app VM and its disk, idempotently; absent when unsupported.
+   * AppService must resolve an owned app record and reject registered main
+   * workspaces before invoking this operation. Never accept a caller's VM name.
+   */
+  // coverage-exempt: Type-only provider contract, exercised through AppService and ExeWorkspaceProvider.
+  removeAppVm?: (input: {
+    appId: string;
+    ownerUserId: string;
+  }) => Promise<void | Error>;
 
   /** Repair a running workspace's guest clock before time-sensitive work. */
   synchronizeClock?: (input: WorkspaceProviderInput) => Promise<void | Error>;

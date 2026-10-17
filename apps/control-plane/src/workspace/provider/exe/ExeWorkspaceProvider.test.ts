@@ -230,9 +230,10 @@ removalTest(
   "removes an app VM with its API credential and tolerates a retry",
   async ({ provider }) => {
     const input = { workspaceId: "removal-test", ownerUserId: "owner" };
-    expect(await provider.remove(input)).toBeUndefined();
+    const target = { appId: input.workspaceId, ownerUserId: input.ownerUserId };
+    expect(await provider.removeAppVm(target)).toBeUndefined();
     expect(await provider.getConnection(input)).toBeUndefined();
-    expect(await provider.remove(input)).toBeUndefined();
+    expect(await provider.removeAppVm(target)).toBeUndefined();
   },
 );
 

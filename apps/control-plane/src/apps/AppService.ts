@@ -270,10 +270,12 @@ export class AppService {
           reason:
             "Publishing is not finished. Run halo app publish again before removing this app.",
         });
-      if (this.provider.remove === undefined)
+      if (this.provider.removeAppVm === undefined)
         return new AppRequestError({
           reason: "This Halo deployment cannot remove app VMs",
         });
+      const removalTarget = await this.appVmRemovalTarget(app);
+      if (removalTarget instanceof Error) return removalTarget;
       const removing = await this.store.beginRemoval(app.appId);
       if (removing instanceof Error) return removing;
       const owner = await this.ownerClient(app.ownerUserId);
@@ -303,10 +305,7 @@ export class AppService {
           .catch(remoteFailure("save extension in workspace"));
         if (saved instanceof Error) return saved;
       }
-      const removed = await this.provider.remove({
-        workspaceId: app.appId,
-        ownerUserId: app.ownerUserId,
-      });
+      const removed = await this.provider.removeAppVm(removalTarget);
       if (removed instanceof Error) return removed;
       const cleaned = await owner.extensions
         .completeAppRemoval({ id: app.extensionId, appId: app.appId })
@@ -706,10 +705,9 @@ export class AppService {
       // A local project the name check could not see (one that is not
       // running) keeps the name; abandon the copy instead of leaving it.
       if (referenced instanceof AppRequestError) {
-        const removed = await this.provider.remove?.({
-          workspaceId: ready.appId,
-          ownerUserId: ready.ownerUserId,
-        });
+        const removalTarget = await this.appVmRemovalTarget(ready);
+        if (removalTarget instanceof Error) return removalTarget;
+        const removed = await this.provider.removeAppVm?.(removalTarget);
         if (removed instanceof Error) return removed;
         const deleted = await this.store.delete(ready.appId);
         if (deleted instanceof Error) return deleted;
@@ -943,13 +941,24 @@ export class AppService {
     return definition.actions;
   }
 
+  /** Only server-loaded app records may reach the destructive provider operation. */
+  private async appVmRemovalTarget(app: AppRecord) {
+    const isWorkspace = await this.workspace.hasWorkspace(app.appId);
+    if (isWorkspace instanceof Error) return isWorkspace;
+    if (isWorkspace)
+      return new AppRequestError({
+        reason:
+          "Main workspaces cannot be removed as apps. Use halo app list to choose a published app.",
+      });
+    return { appId: app.appId, ownerUserId: app.ownerUserId };
+  }
+
   /** Restarts the frozen local project and forgets the publication. */
   private async abandon(ctx: { app: AppRecord; owner: HaloClient }) {
     // Delete the app VM first, so it can never receive the copy later.
-    const removed = await this.provider.remove?.({
-      workspaceId: ctx.app.appId,
-      ownerUserId: ctx.app.ownerUserId,
-    });
+    const removalTarget = await this.appVmRemovalTarget(ctx.app);
+    if (removalTarget instanceof Error) return removalTarget;
+    const removed = await this.provider.removeAppVm?.(removalTarget);
     if (removed instanceof Error) return removed;
     const released = await ctx.owner.extensions
       .release({ id: ctx.app.extensionId, appId: ctx.app.appId })

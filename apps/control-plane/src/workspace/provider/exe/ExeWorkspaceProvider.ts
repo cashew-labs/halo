@@ -138,7 +138,8 @@ export class ExeWorkspaceProvider implements WorkspaceProviderApi {
     return await this.synchronizeClock(input);
   }
 
-  async remove(input: WorkspaceProviderInput) {
+  async removeAppVm(ctx: { appId: string; ownerUserId: string }) {
+    const input = { workspaceId: ctx.appId, ownerUserId: ctx.ownerUserId };
     const vm = await this.findVm(input);
     if (vm === undefined || vm instanceof Error) return vm;
     const removed = await this.api.execute(["rm", vm.vm_name]);
