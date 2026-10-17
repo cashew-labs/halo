@@ -25,13 +25,6 @@ export function LandingPage() {
 
         <Prose size="md" className={statement}>
           <P>An open-source, self-modifiable, agentic operating system.</P>
-          <P>
-            Halo is a desktop workspace for working with AI agents and building
-            custom tools. Connect your Google services to work with email,
-            calendars, documents, files, and other data through conversations
-            and automations. You choose which services to connect and authorize
-            their permissions with Google.
-          </P>
         </Prose>
 
         <form
