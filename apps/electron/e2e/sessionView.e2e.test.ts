@@ -6,6 +6,93 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 e2eTest(
+  "keeps lower rows of long Markdown tables interactive while streaming and after reload",
+  async ({ app, harness, llm }, testInfo) => {
+    const markdown = `## Comparison table
+
+| Engine | Conflict model | Data model | Sync scope | Offline writes | Truth |
+| --- | --- | --- | --- | --- | --- |
+| **Tandem** | Server reconciliation, LWW/record | Tuple/object store | Query subset (scan windows) | Yes (rebase queue) | Server |
+| Replicache/Zero | Server reconciliation | Object/relational (ZQL) | Query-driven | Replicache yes; Zero read-only | Vendor server |
+| Linear | Server-authoritative + OT | Object graph | Bootstrap + deltas | Yes | Linear cloud |
+| InstantDB | Server reconciliation | Triples | Query subscriptions | Yes | Instant cloud |
+| SQLSync | Server reconciliation | SQL | Query | Yes (rebase) | Server |
+| Firestore/Convex | Server-authoritative, LWW | Document / reactive | Listeners / functions | Queue (FS) | Vendor cloud |
+| Automerge | CRDT | JSON doc | Whole doc | Yes | Any peer |
+| Yjs / Loro | CRDT | Rich text/any | Whole doc | Yes | Any peer |
+| Ditto | CRDT | Document | Query subset | Yes (mesh) | Any peer |
+| Evolu | CRDT | SQLite | Per-table/owner | Yes | Relay/peer |
+| [Jazz](https://example.com/jazz) | CRDT | Relational | Partial tables/streams | Yes | Any peer |
+| Triplit | CRDT (server) | Relational | Query subscriptions | Yes | Server |
+| Electric | None (server) | Postgres | Shapes | No (read sync) | Your database |
+
+## Where Tandem sits, and its edges
+
+Tandem is squarely in Family 1, and its closest siblings are Replicache/Zero and SQLSync — same optimistic local write → push → pull → rebase on base loop, same per-client mutation IDs and lastMutationId acknowledgment, same query-scoped pull. Two things worth flagging to your friend:
+
+- **Versus the CRDT family:** Tandem resolves conflicts as plain LWW per record, so it can't merge concurrent field edits or text the way Automerge/Yjs/Jazz/Evolu/Ditto do.
+- **Server authority:** Different engines make different tradeoffs for merging data.
+`;
+    await harness.loadSession({
+      title: "Sync engine comparison",
+      messages: [m.user("Hello"), m.assistant("Ready.")],
+    });
+    const pane = app.page.getByRole("main", {
+      name: "Sync engine comparison",
+    });
+    await pane
+      .getByLabel("Message", { exact: true })
+      .fill("Compare sync engines");
+    await pane.getByRole("button", { name: "Send", exact: true }).click();
+    const response = await llm.stream();
+    response.write(m.assistant(markdown));
+    const table = pane.getByRole("table");
+    await expect(table.getByRole("row")).toHaveCount(14);
+    const externalUrls = await app.observeExternalUrls();
+    const jazz = table.getByRole("link", { name: "Jazz", exact: true });
+    await app.page.setViewportSize({ width: 1280, height: 1000 });
+    // A following paragraph used to cover this row and intercept the click.
+    await jazz.click();
+    await expect
+      .poll(async () => await externalUrls.jsonValue())
+      .toEqual(["https://example.com/jazz"]);
+    response.end();
+    await expect(
+      pane.getByRole("button", { name: "Stop", exact: true }),
+    ).toHaveCount(0);
+    await app.page.reload();
+    for (const viewport of [
+      { width: 1280, height: 1000 },
+      { width: 390, height: 844 },
+    ]) {
+      await app.page.setViewportSize(viewport);
+      await expect(table.getByRole("row")).toHaveCount(14);
+      await jazz.click();
+      const heading = pane.getByRole("heading", {
+        name: "Where Tandem sits, and its edges",
+      });
+      await heading.scrollIntoViewIfNeeded();
+      await expect(heading).toBeInViewport();
+      await expect(
+        table.getByRole("cell", { name: "Electric", exact: true }),
+      ).toBeInViewport();
+      await app.page.screenshot({
+        path: testInfo.outputPath(
+          `long-table-${viewport.width}x${viewport.height}.png`,
+        ),
+      });
+    }
+    await expect
+      .poll(async () => await externalUrls.jsonValue())
+      .toEqual([
+        "https://example.com/jazz",
+        "https://example.com/jazz",
+        "https://example.com/jazz",
+      ]);
+  },
+);
+
+e2eTest(
   "keeps multiple queued messages visible and delivers each in order",
   async ({ app, harness, llm }, testInfo) => {
     await harness.loadSession({
