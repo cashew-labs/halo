@@ -10,6 +10,7 @@ import {
   Code,
   CodeBlock,
   backgroundColor,
+  borderColor,
   motionEasing,
   motionStreamDurationMs,
   proseContainerStyle,
@@ -17,6 +18,7 @@ import {
   proseStreamingMarkers,
   radius,
   shadow,
+  spacing,
   type ProseSize,
 } from "maui";
 import { style, useStyles } from "purse-styles";
@@ -109,9 +111,25 @@ const streamdownComponents: Components = {
   ),
   em: ({ node: _node, className: _className, ...props }) => <em {...props} />,
   hr: ({ node: _node, className: _className, ...props }) => <hr {...props} />,
+  table: MarkdownTable,
   inlineCode: InlineCode,
   code: MauiFencedCode,
 };
+
+function MarkdownTable({
+  node: _node,
+  className: _className,
+  ...props
+}: ComponentPropsWithoutRef<"table"> & { node?: unknown }) {
+  const className = useStyles(markdownTableClass);
+  // Streamdown's default table caps height and relies on Tailwind for overflow.
+  // Halo uses Maui, so keep the full table in flow and scroll wide tables here.
+  return (
+    <div className={className}>
+      <table {...props} />
+    </div>
+  );
+}
 
 function InlineCode({
   node: _node,
@@ -173,6 +191,25 @@ const streamdownAnimate = {
 
 const messageContentClass = style(proseContainerStyle, {
   minWidth: 0,
+});
+
+const markdownTableClass = style({
+  minWidth: 0,
+  overflowX: "auto",
+  "& table": {
+    width: "100%",
+    borderCollapse: "collapse",
+  },
+  "& th, & td": {
+    padding: `${spacing.value(6)} ${spacing.value(8)}`,
+    verticalAlign: "top",
+    borderBottom: `1px solid ${borderColor.border}`,
+    fontVariantNumeric: "tabular-nums",
+  },
+  "& th:not([align]), & td:not([align])": { textAlign: "start" },
+  "& th": { fontWeight: 600 },
+  "& th:first-child, & td:first-child": { paddingInlineStart: 0 },
+  "& th:last-child, & td:last-child": { paddingInlineEnd: 0 },
 });
 
 // Drop Streamdown's Tailwind `space-y-*` dependency; Maui `proseHtml` owns gaps.
