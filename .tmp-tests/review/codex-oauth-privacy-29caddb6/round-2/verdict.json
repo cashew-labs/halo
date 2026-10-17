@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "On the web host, the landing page at \"/\" now shows only while the sign-in status is being checked or once the user is signed out. Signed-in users get the app, and failed or incompatible checks get their error pages. That fixes the stuck-on-landing problem from F1. The new temp test covers each sign-in outcome, protected paths, the desktop host, and the privacy and AI disclosures, so F2 is resolved and the change is ready.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "326c682a73ec9137fa0dc272db190a6fe0cfc1bf",
+  "treeHash": "8c547d4acba1baab984e2ca4cd57ffe1c8bd1919",
+  "codeTree": "a7ffe8793a12c7f02dd72fdde8ff55d1a31f567f",
+  "coverage": {
+    "executable": 2,
+    "covered": 2,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-17T23:32:07.811Z"
+}
