@@ -1,4 +1,4 @@
-import { Button, Flex, LogoIcon, colors, text } from "maui";
+import { Button, Flex, Link, LogoIcon, colors, text } from "maui";
 import { style, useStyles } from "purse-styles";
 import googleLogoUrl from "./assets/google-signin.svg";
 import { FullscreenPage } from "./FullscreenPage.js";
@@ -17,6 +17,7 @@ export function SignInPage(props: {
           <LogoIcon src={googleLogoUrl} />
           {props.signingIn ? "Waiting for Google" : "Continue with Google"}
         </Button>
+        <Link href="https://gethalo.dev/privacy.html">Privacy policy</Link>
         {props.error === undefined ? undefined : (
           <div className={error} role="alert">
             {props.error}

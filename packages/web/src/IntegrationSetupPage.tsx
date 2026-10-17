@@ -4,6 +4,7 @@ import {
   Button,
   Flex,
   H2,
+  Link,
   P,
   RadioOption,
   RadioOptionGroup,
@@ -245,6 +246,14 @@ function SetupForm({
           Connecting lets your agents and background extensions use this
           account’s tools, including actions that change data, within the access
           you grant. There are no additional per-action approval prompts.
+        </P>
+        <P>
+          Data retrieved from this account may be sent to your AI provider to
+          complete your tasks. Hosted Halo currently uses Together AI. Data may
+          also be saved in conversations and execution archives, which have no
+          automatic expiry. Read our{" "}
+          <Link href="https://gethalo.dev/privacy.html">privacy policy</Link>{" "}
+          before connecting.
         </P>
         {setup.methods.length > 1 && (
           <RadioOptionGroup

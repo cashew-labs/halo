@@ -2,6 +2,7 @@ import {
   backgroundColor,
   Button,
   Flex,
+  Link,
   P,
   Prose,
   proseContainerStyle,
@@ -49,6 +50,14 @@ export function LandingPage() {
         </form>
 
         <DevLogs />
+
+        <Prose size="sm">
+          <P>
+            <Link href="https://gethalo.dev/privacy.html">Privacy policy</Link>
+            {" · "}
+            <Link href="mailto:team@libretto.sh">Contact Cashew Labs</Link>
+          </P>
+        </Prose>
       </div>
     </main>
   );
