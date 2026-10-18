@@ -284,7 +284,7 @@ jobs:
             printf '## %s rollout: %s\n\nExpected source: `%s`\n\n' "$STACK" "$VERSION" "$SOURCE_SHA"
             printf '| Gate | Result |\n| --- | --- |\n'
             jq -r 'to_entries[] | "| \(.key) | \(.value.result) |"' <<< "$RESULTS"
-            printf '\nDiscovered workspaces: %s. Inspect the matrix jobs for individual readiness results.\n\n' "$(jq 'length' <<< "${INSTANCES:-[]}")"
+            printf '\nDiscovered workspaces: %s. Inspect the matrix jobs for individual readiness results.\n\n' "$(if [ -n "$INSTANCES" ]; then jq 'length' <<< "$INSTANCES"; else printf unavailable; fi)"
             printf 'Workspace: `%s`\n\nTransition: `%s`\n\nBrowser: `%s`\n\n' "$WORKSPACE_IMAGE" "$TRANSITION_IMAGE" "$FRONTEND_IMAGE"
             printf 'Failed jobs can have partial effects. Inspect their logs and `exe-rollout-*` artifacts; retry failed jobs in the original run with `gh run rerun %s --failed`.\n' "$GITHUB_RUN_ID"
           } >> "$GITHUB_STEP_SUMMARY"
