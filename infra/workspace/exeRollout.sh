@@ -17,7 +17,11 @@ if [[ ! "$WORKSPACE_IMAGE" =~ @sha256:[0-9a-f]{64}$ ]]; then
 fi
 source_digest=$WORKSPACE_IMAGE
 image="halo-workspace:${source_digest##*:}"
-vm=${EXE_TEMPLATE_VM_NAME:-${INSTANCE:?Set EXE_TEMPLATE_VM_NAME or INSTANCE}}
+case "$mode" in
+  template) vm=${EXE_TEMPLATE_VM_NAME:?} ;;
+  update) vm=${INSTANCE:?} ;;
+  *) echo "Mode must be template or update" >&2; exit 1 ;;
+esac
 diagnostics="$RUNNER_TEMP/exe-rollout/$vm"
 mkdir -p "$diagnostics"
 phase=starting
@@ -68,7 +72,7 @@ timeout --kill-after=5s 30s gcloud auth print-access-token |
 # Keep only the image the halo service is configured to run and any image a
 # container uses; everything else is an earlier release or a failed install.
 remove_unused_images() {
-  timeout --kill-after=5s 60s ssh "${ssh_args[@]}" "$vm.exe.xyz" 'sudo bash -s' <<'CLEAN' || echo "Could not remove unused workspace images on $vm" >&2
+  timeout --kill-after=5s 60s ssh "${ssh_args[@]}" "$vm.exe.xyz" 'sudo timeout --kill-after=5s 55s bash -s' <<'CLEAN' || echo "Could not remove unused workspace images on $vm" >&2
 set -euo pipefail
 keep=$(cat /etc/halo/image 2>/dev/null || true)
 in_use=$(docker ps -aq | xargs -r docker inspect --format '{{.Config.Image}}')
@@ -167,8 +171,6 @@ set_update_reserve() {
 
 case "$mode" in
   template)
-    : "${EXE_TEMPLATE_VM_NAME:?}"
-    vm="$EXE_TEMPLATE_VM_NAME"
     restore_paused=true
     report_phase inspect-template
     # Completed template names are immutable; incomplete bootstrap can be retried.
@@ -197,14 +199,13 @@ case "$mode" in
     report_phase reserve-disk
     set_update_reserve
     ssh "${ssh_args[@]}" "$vm.exe.xyz" "printf '%s\\n' '$image' | sudo tee /etc/halo/template-ready >/dev/null; sudo sync"
+    report_phase pause-template
     ssh "${ssh_args[@]}" exe.dev pause "$vm"
     restore_paused=false
     report_phase ready
     echo "HALO_EXE_TEMPLATE_READY name=$vm image=$image"
     ;;
   update)
-    : "${INSTANCE:?}"
-    vm="$INSTANCE"
     report_phase inspect-workspace
     status=$(ssh "${ssh_args[@]}" exe.dev ls "$vm" --json | jq -er '.vms[0].status')
     if [ "$status" = paused ] || [ "$status" = suspended ]; then
@@ -244,7 +245,13 @@ ACTIVITY
     ready=false
     for attempt in $(seq 1 60); do
       if info=$(ssh "${ssh_args[@]}" "$vm.exe.xyz" 'sudo docker exec halo-workspace node --import /opt/halo/node_modules/tsx/dist/loader.mjs /opt/halo/packages/halo-cli/src/cli.ts status --json' 2> "$RUNNER_TEMP/exe-status-error.log"); then
-        jq '{build,protocolVersion,supportedProtocols}' <<< "$info" > "$diagnostics/observed-workspace.json"
+        # Diagnostics must not turn a transient invalid response into a failed
+        # readiness gate; retain the last valid identity while retries continue.
+        if jq '{build,protocolVersion,supportedProtocols}' <<< "$info" > "$diagnostics/observed-workspace.tmp"; then
+          mv "$diagnostics/observed-workspace.tmp" "$diagnostics/observed-workspace.json"
+        else
+          rm -f "$diagnostics/observed-workspace.tmp"
+        fi
         if jq -e --arg revision "$SOURCE_SHA" --argjson protocols "$(jq -c .protocols.workspace.supported "$release_manifest")" '.build.revision == $revision and (.supportedProtocols // [.protocolVersion]) == $protocols' <<< "$info" >/dev/null; then ready=true; break; fi
       fi
       sleep 5
@@ -255,7 +262,10 @@ ACTIVITY
     remove_unused_images
     report_phase reserve-disk
     set_update_reserve
-    if [ "$status" = paused ] || [ "$status" = suspended ]; then ssh "${ssh_args[@]}" exe.dev pause "$vm"; fi
+    if [ "$status" = paused ] || [ "$status" = suspended ]; then
+      report_phase pause-workspace
+      ssh "${ssh_args[@]}" exe.dev pause "$vm"
+    fi
     restore_paused=false
     report_phase ready
     echo "HALO_WORKSPACE_READY image=$image revision=$SOURCE_SHA"
