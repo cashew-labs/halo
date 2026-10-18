@@ -191,6 +191,9 @@ const streamdownAnimate = {
 
 const messageContentClass = style(proseContainerStyle, {
   minWidth: 0,
+  // Break long URLs and other unbroken tokens instead of widening the pane.
+  // `break-word` keeps min-content widths, so wide tables still scroll.
+  overflowWrap: "break-word",
 });
 
 const markdownTableClass = style({
@@ -201,6 +204,8 @@ const markdownTableClass = style({
     borderCollapse: "collapse",
   },
   "& th, & td": {
+    // Keep columns readable; the wrapper scrolls instead of squeezing cells.
+    minWidth: "10em",
     padding: `${spacing.value(6)} ${spacing.value(8)}`,
     verticalAlign: "top",
     borderBottom: `1px solid ${borderColor.border}`,
