@@ -175,7 +175,7 @@ jobs:
 
   rollout-workspaces:
     name: Update workspace container ${{ matrix.instance }}
-    timeout-minutes: 60
+    timeout-minutes: 90
     needs: deploy
     if: needs.deploy.outputs.instances != '[]'
     strategy:
@@ -198,6 +198,8 @@ jobs:
         uses: google-github-actions/setup-gcloud@v3
 
       - name: Update and verify workspace container
+        # Leave time for cleanup and the always-run evidence upload.
+        timeout-minutes: 65
         env:
           INSTANCE: ${{ matrix.instance }}
           TEMPLATE: ${{ needs.deploy.outputs.workspace_template }}
@@ -208,9 +210,9 @@ jobs:
             export EXE_PRIVATE_KEY_PATH="$RUNNER_TEMP/exe-account-key"
             gcloud secrets versions access 1 --secret="${{ needs.deploy.outputs.exe_key_secret }}" --project="$PROJECT" --out-file="$EXE_PRIVATE_KEY_PATH"
             chmod 600 "$EXE_PRIVATE_KEY_PATH"
-            bash infra/workspace/exeRollout.sh update
+            timeout --kill-after=120s 60m bash infra/workspace/exeRollout.sh update
           else
-            bash infra/workspace/rollout.sh
+            timeout --kill-after=120s 60m bash infra/workspace/rollout.sh
           fi
 
       - name: Retain Exe rollout evidence

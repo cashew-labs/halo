@@ -297,7 +297,7 @@ jobs:
 
   prepare-staging:
     name: Prepare staging workspace template
-    timeout-minutes: 60
+    timeout-minutes: 90
     if: github.event_name == 'push'
     needs: [prepare, build-images, build-desktop]
     runs-on: blacksmith-4vcpu-ubuntu-2404
@@ -348,6 +348,8 @@ jobs:
         run: pnpm --filter @get-halo/infra exec pulumi login gs://halo-relay-pulumi-state
 
       - name: Prepare selected workspace provider
+        # Leave time for cleanup and the always-run evidence upload.
+        timeout-minutes: 65
         id: provider
         env:
           WORKSPACE_IMAGE: ${{ needs.build-images.outputs.workspace_image }}
@@ -363,7 +365,7 @@ jobs:
             chmod 600 "$key_path"
             export EXE_PRIVATE_KEY_PATH="$key_path"
             export EXE_TEMPLATE_VM_NAME="halo-exe-${VERSION//./-}"
-            bash infra/workspace/exeRollout.sh template
+            timeout --kill-after=120s 60m bash infra/workspace/exeRollout.sh template
             echo "template=$EXE_TEMPLATE_VM_NAME" >> "$GITHUB_OUTPUT"
             echo "EXE_PRIVATE_KEY_PATH=$key_path" >> "$GITHUB_ENV"
           elif [ "$provider" != gcp ]; then

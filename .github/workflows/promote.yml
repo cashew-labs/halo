@@ -220,7 +220,7 @@ jobs:
           echo "workspace_image=$(pin_image "$image_root/workspace-server:$VERSION")" >> "$GITHUB_OUTPUT"
 
   prepare-template:
-    timeout-minutes: 60
+    timeout-minutes: 90
     name: Ensure the production workspace template
     needs: [prepare, build-transition]
     runs-on: blacksmith-4vcpu-ubuntu-2404
@@ -263,10 +263,12 @@ jobs:
           echo "enabled=true" >> "$GITHUB_OUTPUT"
 
       - name: Rebuild the template if cleanup removed it
+        # Leave time for cleanup and the always-run evidence upload.
+        timeout-minutes: 65
         if: steps.exe.outputs.enabled == 'true'
         # Template mode is idempotent: an existing template with this image is
         # kept, and a missing one is rebuilt from the same registry digest.
-        run: bash infra/workspace/exeRollout.sh template
+        run: timeout --kill-after=120s 60m bash infra/workspace/exeRollout.sh template
 
       - name: Retain Exe rollout evidence
         if: always()
