@@ -373,6 +373,15 @@ jobs:
             exit 1
           fi
 
+      - name: Retain Exe rollout evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: exe-rollout-staging-template-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/exe-rollout
+          if-no-files-found: ignore
+          retention-days: 30
+
       - name: Require current, assigned copies before the first Exe cutover
         if: steps.provider.outputs.provider == 'exe'
         shell: bash
@@ -399,15 +408,6 @@ jobs:
           CHECKPOINT
             done
           fi
-
-      - name: Retain Exe rollout evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: exe-rollout-staging-template-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/exe-rollout
-          if-no-files-found: ignore
-          retention-days: 30
 
   deploy-staging:
     name: Deploy staging
