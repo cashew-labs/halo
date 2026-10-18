@@ -175,6 +175,7 @@ jobs:
 
   rollout-workspaces:
     name: Update workspace container ${{ matrix.instance }}
+    timeout-minutes: 60
     needs: deploy
     if: needs.deploy.outputs.instances != '[]'
     strategy:
@@ -211,6 +212,15 @@ jobs:
           else
             bash infra/workspace/rollout.sh
           fi
+
+      - name: Retain Exe rollout evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: exe-rollout-${{ inputs.stack }}-${{ matrix.instance }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/exe-rollout
+          if-no-files-found: ignore
+          retention-days: 30
 
   promote-browser:
     name: Promote ${{ inputs.stack }} browser after backend readiness
@@ -255,3 +265,26 @@ jobs:
             gcloud artifacts docker tags add "$WORKSPACE_IMAGE" \
               "us-west2-docker.pkg.dev/halo-relay/halo-west-workspaces/workspace-server:$VERSION" --project=halo-relay --quiet
           fi
+
+  status:
+    name: Record stack rollout status
+    if: always()
+    needs: [deploy, rollout-workspaces, promote-browser]
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    steps:
+      - name: Record backend and frontend gates
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+          INSTANCES: ${{ needs.deploy.outputs.instances }}
+          WORKSPACE_IMAGE: ${{ inputs.workspace_image }}
+          TRANSITION_IMAGE: ${{ inputs.transition_image }}
+          FRONTEND_IMAGE: ${{ inputs.frontend_image }}
+        run: |
+          {
+            printf '## %s rollout: %s\n\nExpected source: `%s`\n\n' "$STACK" "$VERSION" "$SOURCE_SHA"
+            printf '| Gate | Result |\n| --- | --- |\n'
+            jq -r 'to_entries[] | "| \(.key) | \(.value.result) |"' <<< "$RESULTS"
+            printf '\nDiscovered workspaces: %s. Inspect the matrix jobs for individual readiness results.\n\n' "$(jq 'length' <<< "${INSTANCES:-[]}")"
+            printf 'Workspace: `%s`\n\nTransition: `%s`\n\nBrowser: `%s`\n\n' "$WORKSPACE_IMAGE" "$TRANSITION_IMAGE" "$FRONTEND_IMAGE"
+            printf 'Failed jobs can have partial effects. Inspect their logs and `exe-rollout-*` artifacts; retry failed jobs in the original run with `gh run rerun %s --failed`.\n' "$GITHUB_RUN_ID"
+          } >> "$GITHUB_STEP_SUMMARY"

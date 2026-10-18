@@ -297,6 +297,7 @@ jobs:
 
   prepare-staging:
     name: Prepare staging workspace template
+    timeout-minutes: 60
     if: github.event_name == 'push'
     needs: [prepare, build-images, build-desktop]
     runs-on: blacksmith-4vcpu-ubuntu-2404
@@ -396,6 +397,15 @@ jobs:
           CHECKPOINT
             done
           fi
+
+      - name: Retain Exe rollout evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: exe-rollout-staging-template-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/exe-rollout
+          if-no-files-found: ignore
+          retention-days: 30
 
   deploy-staging:
     name: Deploy staging
@@ -622,3 +632,35 @@ jobs:
         run: |
           id=$(gh api --paginate repos/cashew-labs/halo-staging/releases --jq ".[] | select(.tag_name == \"$VERSION\") | .id")
           gh api -X PATCH "repos/cashew-labs/halo-staging/releases/$id" -F draft=false -f make_latest=true --silent
+
+  status:
+    name: Record staging release status
+    if: always() && github.event_name == 'push'
+    needs:
+      [
+        prepare,
+        build-images,
+        build-desktop,
+        prepare-staging,
+        deploy-staging,
+        release,
+        publish,
+      ]
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    steps:
+      - name: Summarize release and recovery
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          WORKSPACE_IMAGE: ${{ needs.build-images.outputs.workspace_image }}
+          FRONTEND_IMAGE: ${{ needs.build-images.outputs.frontend_image }}
+          TEMPLATE: ${{ needs.prepare-staging.outputs.exe_template }}
+        run: |
+          {
+            printf '## Staging release %s\n\nSource: `%s`\n\n' "$VERSION" "$GITHUB_SHA"
+            printf '| Stage | Result |\n| --- | --- |\n'
+            jq -r 'to_entries[] | "| \(.key) | \(.value.result) |"' <<< "$RESULTS"
+            printf '\nWorkspace image: `%s`\n\nBrowser image: `%s`\n\nTemplate: `%s`\n\n' "$WORKSPACE_IMAGE" "$FRONTEND_IMAGE" "$TEMPLATE"
+            printf 'Inspect failed job logs and `exe-rollout-*` artifacts before retrying. Exe artifacts record the last phase, expected digest/source and observed workspace identity.\n\n'
+            printf 'Retry failed jobs in this run: `gh run rerun %s --failed`. This preserves the source and reuses prepared images and signed desktop artifacts. A failed stage can have partial effects; do not infer rollback from this table.\n' "$GITHUB_RUN_ID"
+          } >> "$GITHUB_STEP_SUMMARY"

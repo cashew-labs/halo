@@ -220,6 +220,7 @@ jobs:
           echo "workspace_image=$(pin_image "$image_root/workspace-server:$VERSION")" >> "$GITHUB_OUTPUT"
 
   prepare-template:
+    timeout-minutes: 60
     name: Ensure the production workspace template
     needs: [prepare, build-transition]
     runs-on: blacksmith-4vcpu-ubuntu-2404
@@ -266,6 +267,15 @@ jobs:
         # Template mode is idempotent: an existing template with this image is
         # kept, and a missing one is rebuilt from the same registry digest.
         run: bash infra/workspace/exeRollout.sh template
+
+      - name: Retain Exe rollout evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: exe-rollout-production-template-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/exe-rollout
+          if-no-files-found: ignore
+          retention-days: 30
 
   deploy-production:
     name: Deploy production
