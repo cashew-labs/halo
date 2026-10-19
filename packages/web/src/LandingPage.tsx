@@ -2,10 +2,10 @@ import {
   backgroundColor,
   Button,
   Flex,
-  Link,
   P,
   Prose,
   proseContainerStyle,
+  text,
   TextField,
 } from "maui";
 import { style, useStyles } from "purse-styles";
@@ -17,6 +17,7 @@ export function LandingPage() {
   const logo = useStyles(styles.logo);
   const statement = useStyles(styles.statement);
   const field = useStyles(styles.field);
+  const footer = useStyles(styles.footer);
 
   return (
     <main className={page} aria-label="Halo home">
@@ -51,13 +52,11 @@ export function LandingPage() {
 
         <DevLogs />
 
-        <Prose size="sm">
-          <P>
-            <Link href="https://gethalo.dev/privacy.html">Privacy policy</Link>
-            {" · "}
-            <Link href="mailto:team@libretto.sh">Contact Cashew Labs</Link>
-          </P>
-        </Prose>
+        <footer className={footer}>
+          <a href="https://gethalo.dev/privacy.html">Privacy policy</a>
+          {" · "}
+          <a href="mailto:team@libretto.sh">Contact Cashew Labs</a>
+        </footer>
       </div>
     </main>
   );
@@ -95,5 +94,12 @@ const styles = {
     width: "100%",
     maxWidth: 240,
     minWidth: 0,
+  }),
+  footer: style(text({ size: "xs", fontWeight: 400, color: "lowContrast" }), {
+    // Absorbs leftover height so the footer sits at the bottom of the page.
+    marginTop: "auto",
+    "& a": {
+      color: "inherit",
+    },
   }),
 };
