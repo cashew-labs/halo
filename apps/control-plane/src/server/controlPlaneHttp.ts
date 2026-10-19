@@ -14,6 +14,7 @@ import {
   controlPlaneSupportedProtocols,
 } from "@get-halo/shared/controlPlaneContract";
 import { ORPCError } from "@orpc/server";
+import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import http, {
   createServer,
@@ -73,20 +74,40 @@ import { serveWorkspaceAutomationSnapshot } from "../workspace/workspaceAutomati
 import type { AutomationScheduleCoordinator } from "../workspace/AutomationScheduleCoordinator.js";
 
 const requestUrlBase = "http://localhost";
-const webContentSecurityPolicy = [
-  "base-uri 'none'",
-  "connect-src 'self'",
-  "default-src 'self'",
-  "font-src 'self' data:",
-  "form-action 'self' https://buttondown.com",
-  "frame-ancestors 'none'",
-  "frame-src 'self'",
-  "img-src 'self' blob: data: https://gethalo.dev",
-  "object-src 'none'",
-  "script-src 'self'",
-  "style-src 'self' 'unsafe-inline'",
-  "worker-src 'self' blob:",
-].join("; ");
+function webContentSecurityPolicy(scriptHashes: string[]) {
+  return [
+    "base-uri 'none'",
+    "connect-src 'self'",
+    "default-src 'self'",
+    "font-src 'self' data:",
+    "form-action 'self' https://buttondown.com",
+    "frame-ancestors 'none'",
+    "frame-src 'self'",
+    "img-src 'self' blob: data: https://gethalo.dev",
+    "object-src 'none'",
+    ["script-src 'self'", ...scriptHashes].join(" "),
+    "style-src 'self' 'unsafe-inline'",
+    "worker-src 'self' blob:",
+  ].join("; ");
+}
+
+/**
+ * CSP hashes for an HTML document's attribute-free inline scripts, computed
+ * from the served file so they cannot drift from its contents.
+ */
+function inlineScriptHashes(html: string) {
+  // Browsers hash script text after normalizing line endings to LF. Like the
+  // HTML parser, tag names are case-insensitive and the text ends at the first
+  // `</script` followed by whitespace, `/`, or `>`.
+  return [
+    ...html
+      .replaceAll("\r\n", "\n")
+      .matchAll(/<script\s*>([\s\S]*?)<\/script[\s/>]/gi),
+  ].map(
+    ([, source]) =>
+      `'sha256-${createHash("sha256").update(source!).digest("base64")}'`,
+  );
+}
 
 class ControlPlaneHttpError extends errore.createTaggedError({
   name: "ControlPlaneHttpError",
@@ -761,7 +782,11 @@ async function serveWebApp(ctx: {
   response.writeHead(200, {
     "cache-control": webCacheControl(url.pathname),
     "content-length": file.byteLength,
-    "content-security-policy": webContentSecurityPolicy,
+    "content-security-policy": webContentSecurityPolicy(
+      path.extname(filePath) === ".html"
+        ? inlineScriptHashes(file.toString("utf8"))
+        : [],
+    ),
     "content-type": webContentType(filePath),
     "x-content-type-options": "nosniff",
   });

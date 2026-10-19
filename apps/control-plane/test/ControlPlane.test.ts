@@ -3744,6 +3744,36 @@ controlPlaneTest(
   },
 );
 
+// Durable regression: a missing hash makes browsers silently skip the
+// landing page's pre-paint theme script.
+controlPlaneTest(
+  "allows exactly the inline scripts of the HTML document it serves",
+  async ({ plane, webRoot }) => {
+    const themeScript =
+      "\n  document.documentElement.dataset.theme = 'dark';\n";
+    await fs.writeFile(
+      join(webRoot, "landing.html"),
+      `<script>${themeScript}</script><script src="/assets/app.js"></script>`,
+    );
+    const scriptSources = async (pathname: string) => {
+      const response = await fetch(new URL(pathname, plane.origin));
+      return response.headers
+        .get("content-security-policy")!
+        .split("; ")
+        .find((directive) => directive.startsWith("script-src "));
+    };
+    const themeHash = crypto
+      .createHash("sha256")
+      .update(themeScript)
+      .digest("base64");
+
+    expect(await scriptSources("/landing.html")).toBe(
+      `script-src 'self' 'sha256-${themeHash}'`,
+    );
+    expect(await scriptSources("/assets/app.js")).toBe("script-src 'self'");
+  },
+);
+
 controlPlaneTest(
   "drains accepted integration work and rejects new work during shutdown",
   async ({ plane }) => {
