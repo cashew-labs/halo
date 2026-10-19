@@ -4,7 +4,6 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
 export default defineConfig(({ mode }) => {
-  const bundledDevelopment = mode === "bundled-development";
   return {
     plugins: [react()],
     define: {
@@ -13,17 +12,10 @@ export default defineConfig(({ mode }) => {
       ),
       "import.meta.env.VITE_HALO_DEVELOPMENT": mode !== "production",
     },
+    // Bundled, unlike Electron: browsers download every module before first render.
     build: {
       minify: false,
       sourcemap: false,
-      rolldownOptions: bundledDevelopment
-        ? undefined
-        : {
-            output: {
-              minify: false,
-              preserveModules: true,
-            },
-          },
     },
     optimizeDeps: {
       include: ["maui", "maui/icons"],

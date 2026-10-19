@@ -32,25 +32,243 @@
     <link rel="manifest" href="/manifest.json" />
     <meta name="theme-color" content="#ffffff" />
     <title>Halo</title>
+    <!-- Classic blocking script: sets theme and scale before first paint. -->
+    <script src="/theme-init.js"></script>
+    <style>
+      /*
+        Static copy of LandingPage, shown until React mounts and for crawlers
+        without JavaScript. Values mirror Maui's tokens; keep both in sync.
+      */
+      :root {
+        --landing-text: rgb(32, 32, 32);
+        --landing-text-low: rgb(100, 100, 100);
+        --landing-app: rgb(252, 252, 252);
+        --landing-field: #fff;
+        --landing-placeholder: rgb(187, 187, 187);
+        --landing-accent: rgb(18, 165, 148);
+        --landing-field-shadow:
+          inset 0 1px 0 0 rgba(255, 255, 255, 0.533),
+          inset 0 0 1px 1px rgba(255, 255, 255, 0.533),
+          0 0.5px 1px 0 rgba(0, 0, 0, 0.094), 0 0 0 0.5px rgba(0, 0, 0, 0.08),
+          0 0 4px -1px rgba(0, 0, 0, 0.067);
+        --landing-button-glow: oklch(0.421895 0.0738022 181.958);
+      }
+      :root[data-theme="dark"] {
+        --landing-text: rgb(238, 238, 238);
+        --landing-text-low: rgb(180, 180, 180);
+        --landing-app: rgb(17, 17, 17);
+        --landing-field: rgb(25, 25, 25);
+        --landing-placeholder: rgb(96, 96, 96);
+        --landing-accent: rgb(110, 86, 207);
+        --landing-field-shadow:
+          inset 0 1px 0 0 rgba(255, 255, 255, 0.03),
+          0 0 0 0.5px rgba(255, 255, 255, 0.08),
+          0 1px 0.5px 0 rgba(0, 0, 0, 0.094), 0 0 3px -1px rgba(0, 0, 0, 0.667);
+        --landing-button-glow: oklch(0.352084 0.116364 288.042);
+      }
+      :root:has(.static-landing),
+      body:has(.static-landing) {
+        margin: 0;
+        background-color: var(--landing-app);
+      }
+      .static-landing,
+      .static-landing * {
+        box-sizing: border-box;
+        margin: 0;
+      }
+      .static-landing {
+        min-height: 100dvh;
+        background-color: var(--landing-app);
+        color: var(--landing-text);
+        font-family:
+          ui-sans-serif,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          Helvetica,
+          "Apple Color Emoji",
+          Arial,
+          sans-serif,
+          "Segoe UI Emoji",
+          "Segoe UI Symbol";
+        font-size: 14px;
+        line-height: 22px;
+      }
+      .static-landing-content {
+        width: 100%;
+        max-width: 80ch;
+        min-height: 100dvh;
+        margin-inline: auto;
+        padding: clamp(24px, 5vw, 48px);
+        display: flex;
+        flex-direction: column;
+        gap: 80px;
+      }
+      .static-landing-logo img {
+        display: block;
+        width: 30px;
+        height: 30px;
+        margin: -5px 0 -1px;
+        object-fit: contain;
+      }
+      .static-landing-statement {
+        font-size: 16px;
+        line-height: 28px;
+        font-weight: 500;
+        text-wrap: pretty;
+      }
+      .static-landing-signup {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 9px;
+      }
+      .static-landing-signup input {
+        width: 100%;
+        max-width: 240px;
+        min-width: 0;
+        height: 28px;
+        padding: 4px 9px;
+        border: 0;
+        border-radius: 4px;
+        background-color: var(--landing-field);
+        box-shadow: var(--landing-field-shadow);
+        color: inherit;
+        font: inherit;
+        font-size: 13px;
+        line-height: 20px;
+      }
+      .static-landing-signup input::placeholder {
+        color: var(--landing-placeholder);
+        font-style: italic;
+      }
+      .static-landing-signup button {
+        display: inline-flex;
+        align-items: center;
+        height: 28px;
+        padding: 0 12px;
+        border: 0;
+        border-radius: 4px;
+        background-color: var(--landing-accent);
+        box-shadow:
+          inset 0 1px 0 0 rgba(255, 255, 255, 0.094),
+          inset 0 0 1px 0.5px rgba(255, 255, 255, 0.133),
+          0 1px 0.5px 0 rgba(0, 0, 0, 0.2),
+          0 0 3px -1px var(--landing-button-glow);
+        color: #fff;
+        font: inherit;
+        font-size: 12px;
+        line-height: 18px;
+      }
+      .static-landing-signup button span {
+        display: block;
+        text-box: trim-both cap alphabetic;
+      }
+      .static-landing-dev-logs {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .static-landing-dev-logs h2 {
+        color: var(--landing-text-low);
+        font-size: inherit;
+        line-height: inherit;
+        font-weight: 500;
+      }
+      .static-landing-dev-logs span {
+        font-variant-numeric: tabular-nums;
+      }
+      .static-landing a {
+        color: inherit;
+      }
+      .static-landing-footer {
+        margin-top: auto;
+        color: var(--landing-text-low);
+        font-size: 12px;
+        line-height: 18px;
+      }
+      :root[data-scale="large"] .static-landing {
+        font-size: 17px;
+        line-height: 26px;
+      }
+      :root[data-scale="large"] .static-landing-statement {
+        font-size: 19px;
+        line-height: 34px;
+      }
+      :root[data-scale="large"] .static-landing-signup {
+        gap: 12px;
+      }
+      :root[data-scale="large"] .static-landing-signup input {
+        height: 40px;
+        padding: 5px 12px;
+        border-radius: 6px;
+        font-size: 16px;
+        line-height: 24px;
+      }
+      :root[data-scale="large"] .static-landing-signup button {
+        height: 40px;
+        padding: 0 16px;
+        border-radius: 6px;
+        font-size: 15px;
+        line-height: 22px;
+      }
+      :root[data-scale="large"] .static-landing-dev-logs {
+        gap: 16px;
+      }
+      :root[data-scale="large"] .static-landing-footer {
+        font-size: 15px;
+        line-height: 22px;
+      }
+    </style>
   </head>
   <body>
     <div id="root">
-      <main
-        aria-label="Halo home"
-        style="
-          max-width: 48rem;
-          margin: auto;
-          padding: 32px;
-          font-family: system-ui, sans-serif;
-          line-height: 1.6;
-        "
-      >
-        <h1>Halo</h1>
-        <p>An open-source, self-modifiable, agentic operating system.</p>
-        <p>
-          <a href="https://gethalo.dev/privacy.html">Privacy policy</a> ·
-          <a href="mailto:team@libretto.sh">Contact Cashew Labs</a>
-        </p>
+      <main class="static-landing" aria-label="Halo home">
+        <div class="static-landing-content">
+          <h1 class="static-landing-logo">
+            <img src="/halo-donut-transparent.png" alt="Halo" />
+          </h1>
+          <p class="static-landing-statement">
+            An open-source, self-modifiable, agentic operating system.
+          </p>
+          <form
+            class="static-landing-signup"
+            aria-label="Halo updates signup"
+            action="https://buttondown.com/api/emails/embed-subscribe/halo"
+            method="post"
+          >
+            <input
+              aria-label="Email address"
+              type="email"
+              name="email"
+              placeholder="Email address"
+              required
+            />
+            <button type="submit"><span>Get updates</span></button>
+          </form>
+          <section
+            class="static-landing-dev-logs"
+            aria-labelledby="dev-logs-heading"
+          >
+            <h2 id="dev-logs-heading">Dev Logs</h2>
+            <p>
+              <span>0001</span> -
+              <a href="https://youtu.be/bTsJFEPTkYQ"
+                >The Personal Computing Revolution Hasn&apos;t Happened Yet.</a
+              >
+            </p>
+            <p>
+              <span>0002</span> -
+              <a href="https://www.youtube.com/watch?v=7TK5mVR-zoI"
+                >Taking notes in the AI Era</a
+              >
+            </p>
+          </section>
+          <footer class="static-landing-footer">
+            <a href="https://gethalo.dev/privacy.html">Privacy policy</a> ·
+            <a href="mailto:team@libretto.sh">Contact Cashew Labs</a>
+          </footer>
+        </div>
       </main>
     </div>
     <script type="module" src="/src/main.tsx"></script>

@@ -1,11 +1,13 @@
-import { Agentation } from "agentation";
-import { Redirect, Route, Switch } from "wouter";
+import { lazy, Suspense } from "react";
+import { Route, Switch } from "wouter";
 import type { HostApi } from "./HostApi.js";
-import { HaloApp } from "./HaloApp.tsx";
 import { Authentication } from "./Authentication.tsx";
-import { StandaloneExtension } from "./StandaloneExtension.js";
-import { ApiProvider } from "./api/ApiProvider.tsx";
 import { IntegrationSetupPage } from "./IntegrationSetupPage.js";
+import { LoadingPage } from "./LoadingPage.tsx";
+
+const SignedInApp = lazy(async () => ({
+  default: (await import("./SignedInApp.tsx")).SignedInApp,
+}));
 
 export function HaloAppRoutes({ host }: { host: HostApi }) {
   return (
@@ -23,33 +25,10 @@ export function HaloAppRoutes({ host }: { host: HostApi }) {
       )}
       <Route>
         <Authentication>
-          <ApiProvider>
-            <HaloRoutes />
-            {import.meta.env.DEV && (
-              <Agentation endpoint="http://127.0.0.1:4747" />
-            )}
-          </ApiProvider>
+          <Suspense fallback={<LoadingPage progressLabel="Loading Halo" />}>
+            <SignedInApp />
+          </Suspense>
         </Authentication>
-      </Route>
-    </Switch>
-  );
-}
-
-function HaloRoutes() {
-  return (
-    <Switch>
-      <Route path="/login">
-        <Redirect to="/" replace />
-      </Route>
-      <Route path="/extensions/:extensionId">
-        {(params) => (
-          <StandaloneExtension
-            extensionId={decodeURIComponent(params.extensionId)}
-          />
-        )}
-      </Route>
-      <Route>
-        <HaloApp />
       </Route>
     </Switch>
   );
