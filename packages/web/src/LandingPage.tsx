@@ -7,17 +7,29 @@ import {
   text,
 } from "maui";
 import { style, useStyles } from "purse-styles";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { DevLogs } from "./DevLogs.js";
 import { EarlyAccessDialog } from "./EarlyAccessDialog.js";
+import {
+  trackMarketingEvent,
+  trackMarketingPage,
+} from "./marketingAnalytics.js";
 
-export function LandingPage() {
+export function LandingPage({
+  analyticsEnabled,
+}: {
+  analyticsEnabled: boolean;
+}) {
   const page = useStyles(styles.page);
   const content = useStyles(styles.content);
   const logo = useStyles(styles.logo);
   const statement = useStyles(styles.statement);
   const footer = useStyles(styles.footer);
   const [earlyAccessOpen, setEarlyAccessOpen] = useState(false);
+
+  useEffect(() => {
+    if (analyticsEnabled) trackMarketingPage();
+  }, [analyticsEnabled]);
 
   return (
     <main className={page} aria-label="Halo home">
@@ -29,7 +41,13 @@ export function LandingPage() {
         </Prose>
 
         <div>
-          <Button variant="primary" onPress={() => setEarlyAccessOpen(true)}>
+          <Button
+            variant="primary"
+            onPress={() => {
+              trackMarketingEvent("early_access_open");
+              setEarlyAccessOpen(true);
+            }}
+          >
             Get early access
           </Button>
           <EarlyAccessDialog

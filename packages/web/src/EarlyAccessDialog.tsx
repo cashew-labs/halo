@@ -11,8 +11,12 @@ import {
 } from "maui";
 import { style, useStyles } from "purse-styles";
 import { useState } from "react";
-
-const BOOKING_URL = "https://cal.com/team/halo/halo-early-access-chat";
+import { EarlyAccessBooking } from "./EarlyAccessBooking.js";
+import {
+  marketingCampaign,
+  trackMarketingEvent,
+  trackWaitlistSubmission,
+} from "./marketingAnalytics.js";
 
 type Step = "choose" | "book" | "waitlist";
 
@@ -27,6 +31,11 @@ export function EarlyAccessDialog({
   const booking = useStyles(styles.booking);
   const waitlistForm = useStyles(styles.waitlistForm);
   const waitlistFields = useStyles(styles.waitlistFields);
+
+  const chooseStep = (next: "book" | "waitlist") => {
+    trackMarketingEvent(next === "book" ? "booking_open" : "waitlist_open");
+    setStep(next);
+  };
 
   const changeOpen = (open: boolean) => {
     if (!open) setStep("choose");
@@ -51,10 +60,10 @@ export function EarlyAccessDialog({
             </P>
           </DialogBody>
           <DialogActions>
-            <Button variant="quiet" onPress={() => setStep("waitlist")}>
+            <Button variant="quiet" onPress={() => chooseStep("waitlist")}>
               Join the waitlist instead
             </Button>
-            <Button variant="primary" onPress={() => setStep("book")}>
+            <Button variant="primary" onPress={() => chooseStep("book")}>
               Book a call
             </Button>
           </DialogActions>
@@ -65,16 +74,10 @@ export function EarlyAccessDialog({
         <>
           <DialogTitle>Book a call</DialogTitle>
           <DialogBody>
-            <iframe
-              className={booking}
-              title="Book a Halo early access call"
-              // oxlint-disable-next-line react/iframe-missing-sandbox -- Cal.com is cross-origin and needs storage access.
-              sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"
-              src={`${BOOKING_URL}?embed=true&theme=light`}
-            />
+            <EarlyAccessBooking className={booking} />
           </DialogBody>
           <DialogActions>
-            <Button variant="quiet" onPress={() => setStep("waitlist")}>
+            <Button variant="quiet" onPress={() => chooseStep("waitlist")}>
               Join the waitlist instead
             </Button>
           </DialogActions>
@@ -87,7 +90,16 @@ export function EarlyAccessDialog({
           action="https://buttondown.com/api/emails/embed-subscribe/halo"
           method="post"
           className={waitlistForm}
+          onSubmit={trackWaitlistSubmission}
         >
+          {Object.entries(marketingCampaign()).map(([key, value]) => (
+            <input
+              key={key}
+              type="hidden"
+              name={`metadata__${key}`}
+              value={value}
+            />
+          ))}
           <DialogTitle>Join the waitlist</DialogTitle>
           <div className={waitlistFields}>
             <P>We&apos;ll email you when Halo is ready for you.</P>
@@ -102,7 +114,7 @@ export function EarlyAccessDialog({
             />
           </div>
           <DialogActions>
-            <Button variant="quiet" onPress={() => setStep("book")}>
+            <Button variant="quiet" onPress={() => chooseStep("book")}>
               Book a call instead
             </Button>
             <Button type="submit" variant="primary">
@@ -128,5 +140,6 @@ const styles = {
     width: "100%",
     height: "min(500px, calc(100dvh - 200px))",
     border: 0,
+    overflow: "auto",
   }),
 };

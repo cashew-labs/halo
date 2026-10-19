@@ -243,6 +243,7 @@ export class ControlPlane {
       gmailPush,
       webRoot,
       build: ctx.build,
+      googleAnalyticsMeasurementId: config.googleAnalyticsMeasurementId,
       inference: ctx.inference,
       traces:
         ctx.traceCloud === undefined

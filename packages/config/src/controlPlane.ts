@@ -56,6 +56,9 @@ export const controlPlaneConfigSchema = Type.Union([
     port: portSchema,
     auth: authSchema,
     gmail: Type.Optional(gmailSchema),
+    googleAnalyticsMeasurementId: Type.Optional(
+      Type.String({ pattern: "^G-[A-Z0-9]+$" }),
+    ),
     workspace: Type.Union([localWorkspaceSchema, exeWorkspaceSchema]),
   }),
   Type.Object({
@@ -67,6 +70,9 @@ export const controlPlaneConfigSchema = Type.Union([
     workspaceServiceAccount: Type.String({ minLength: 1 }),
     auth: authSchema,
     gmail: Type.Optional(gmailSchema),
+    googleAnalyticsMeasurementId: Type.Optional(
+      Type.String({ pattern: "^G-[A-Z0-9]+$" }),
+    ),
     workspace: Type.Union([gcpWorkspaceSchema, exeWorkspaceSchema]),
   }),
 ]);
@@ -198,6 +204,7 @@ async function readDevelopmentConfig(): Promise<ControlPlaneConfig | Error> {
         ? path.join(repositoryRoot, ".halo")
         : path.resolve(configuredDataDir),
     port: developmentPort,
+    googleAnalyticsMeasurementId: process.env.GOOGLE_ANALYTICS_MEASUREMENT_ID, // coverage-exempt: Bootstrap reads live Secret Manager credentials; the schema and HTTP configuration contract are tested.
     auth,
     workspace: { deployment: "local" as const },
   };
@@ -254,6 +261,7 @@ async function readCloudRunConfig(): Promise<ControlPlaneConfig | Error> {
     port: Number(portValue),
     origin,
     databaseUrl,
+    googleAnalyticsMeasurementId: process.env.GOOGLE_ANALYTICS_MEASUREMENT_ID, // coverage-exempt: Bootstrap reads live Secret Manager credentials; the schema and HTTP configuration contract are tested.
     traceBucket: process.env.TRACE_BUCKET,
     gmail:
       process.env.GMAIL_PUBSUB_TOPIC === undefined

@@ -73,21 +73,22 @@ import { serveWorkspaceAutomationSnapshot } from "../workspace/workspaceAutomati
 import type { AutomationScheduleCoordinator } from "../workspace/AutomationScheduleCoordinator.js";
 
 const requestUrlBase = "http://localhost";
-const webContentSecurityPolicy = [
-  "base-uri 'none'",
-  "connect-src 'self'",
-  "default-src 'self'",
-  "font-src 'self' data:",
-  "form-action 'self' https://buttondown.com",
-  "frame-ancestors 'none'",
-  // The landing page embeds the Cal.com early access booking page.
-  "frame-src 'self' https://cal.com",
-  "img-src 'self' blob: data: https://gethalo.dev",
-  "object-src 'none'",
-  "script-src 'self'",
-  "style-src 'self' 'unsafe-inline'",
-  "worker-src 'self' blob:",
-].join("; ");
+function webContentSecurityPolicy(marketing: boolean) {
+  return [
+    "base-uri 'none'",
+    `connect-src 'self'${marketing ? " https://www.googletagmanager.com https://*.google-analytics.com https://*.analytics.google.com" : ""}`,
+    "default-src 'self'",
+    "font-src 'self' data:",
+    "form-action 'self' https://buttondown.com",
+    "frame-ancestors 'none'",
+    `frame-src 'self'${marketing ? " https://cal.com https://app.cal.com" : ""}`,
+    `img-src 'self' blob: data: https://gethalo.dev${marketing ? " https://www.googletagmanager.com https://*.google-analytics.com" : ""}`,
+    "object-src 'none'",
+    `script-src 'self'${marketing ? " https://app.cal.com https://www.googletagmanager.com" : ""}`,
+    "style-src 'self' 'unsafe-inline'",
+    "worker-src 'self' blob:",
+  ].join("; ");
+}
 
 class ControlPlaneHttpError extends errore.createTaggedError({
   name: "ControlPlaneHttpError",
@@ -144,6 +145,7 @@ export function serveControlPlaneHttp(ctx: {
   gmailPush: GmailPushReceiver;
   build?: { version: string; revision: string };
   webRoot: string;
+  googleAnalyticsMeasurementId?: string;
   traces?: TraceIngestion;
   inference?: WorkspaceInference;
 }) {
@@ -223,6 +225,7 @@ export function serveControlPlaneHttp(ctx: {
       integrations: ctx.integrations,
       publicOrigin,
       webRoot,
+      googleAnalyticsMeasurementId: ctx.googleAnalyticsMeasurementId,
       build: ctx.build,
       inference: ctx.inference,
     });
@@ -317,6 +320,7 @@ async function routeControlPlaneRequest(ctx: {
   build?: { version: string; revision: string };
   rpc: RPCHandler<ControlPlaneContext>;
   webRoot: string;
+  googleAnalyticsMeasurementId?: string;
 }) {
   const { request, response, auth, workspace, gateway, rpc, webRoot } = ctx;
   const url = new URL(
@@ -553,7 +557,23 @@ async function routeControlPlaneRequest(ctx: {
     return;
   }
 
-  await serveWebApp({ request, response, url, webRoot });
+  const session =
+    url.pathname === "/"
+      ? await auth.getSession(requestHeaders(request))
+      : undefined;
+  if (session instanceof Error) console.error(session);
+  const marketing =
+    url.pathname === "/newsletter/check-email" ||
+    url.pathname === "/newsletter/joined" ||
+    (url.pathname === "/" && session === undefined);
+  await serveWebApp({
+    request,
+    response,
+    url,
+    webRoot,
+    marketing,
+    googleAnalyticsMeasurementId: ctx.googleAnalyticsMeasurementId,
+  });
 }
 
 function isPathWithin(pathname: string, root: string) {
@@ -730,6 +750,8 @@ async function serveWebApp(ctx: {
   response: ServerResponse;
   url: URL;
   webRoot: string;
+  googleAnalyticsMeasurementId?: string;
+  marketing: boolean;
 }) {
   const { request, response, url, webRoot } = ctx;
   if (request.method !== "GET" && request.method !== "HEAD") {
@@ -759,15 +781,28 @@ async function serveWebApp(ctx: {
     return;
   }
 
+  const content =
+    requestedPath === "index.html" &&
+    ctx.marketing &&
+    ctx.googleAnalyticsMeasurementId !== undefined
+      ? Buffer.from(
+          file
+            .toString()
+            .replace(
+              '<meta name="halo-ga-measurement-id" content="" />',
+              `<meta name="halo-ga-measurement-id" content="${ctx.googleAnalyticsMeasurementId}" />`,
+            ),
+        )
+      : file;
   response.writeHead(200, {
     "cache-control": webCacheControl(url.pathname),
-    "content-length": file.byteLength,
-    "content-security-policy": webContentSecurityPolicy,
+    "content-length": content.byteLength,
+    "content-security-policy": webContentSecurityPolicy(ctx.marketing),
     "content-type": webContentType(filePath),
     "x-content-type-options": "nosniff",
   });
   if (request.method === "HEAD") response.end();
-  else response.end(file);
+  else response.end(content);
 }
 
 function webCacheControl(pathname: string) {

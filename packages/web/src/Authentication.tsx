@@ -104,7 +104,7 @@ export function Authentication({ children }: { children: ReactElement }) {
     window.location.pathname === "/" &&
     (state.status === "checking" || state.status === "signedOut")
   )
-    return <LandingPage />;
+    return <LandingPage analyticsEnabled={state.status === "signedOut"} />;
   if (state.status === "checking")
     return <LoadingPage progressLabel="Loading Halo" />;
   if (state.status === "unavailable")

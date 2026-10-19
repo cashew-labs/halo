@@ -60,6 +60,11 @@ const signInAllowlistSecretId = configuration.get("signInAllowlistSecretId");
 // Production offers the desktop staging toggle to the emails in this secret,
 // usually the staging allowlist. It never limits production sign-in.
 const stagingTestersSecretId = configuration.get("stagingTestersSecretId");
+// coverage-exempt: Pulumi deployment configuration is checked by typecheck and infrastructure review; unit tests do not provision Cloud Run.
+const googleAnalyticsMeasurementId = configuration.get(
+  "googleAnalyticsMeasurementId",
+);
+
 const controlPlaneOrigin = `https://${controlPlaneDomain}`;
 // Apex domains also serve www and redirect it; subdomains such as staging do not.
 const redirectWww = configuration.getBoolean("redirectWww") ?? true;
@@ -793,6 +798,17 @@ const controlPlane = new gcp.cloudrunv2.Service(
                   { name: "EXE_GATEWAY_SECRET_ID", value: exeGatewaySecretId },
                 ]),
             { name: "BETTER_AUTH_URL", value: controlPlaneOrigin },
+
+            // coverage-exempt: Pulumi passes this public stream ID into Cloud Run; exercised after deployment rather than by provisioning cloud infrastructure in tests.
+            ...(googleAnalyticsMeasurementId === undefined
+              ? []
+              : [
+                  {
+                    name: "GOOGLE_ANALYTICS_MEASUREMENT_ID",
+                    value: googleAnalyticsMeasurementId,
+                  },
+                ]),
+
             {
               name: "DATABASE_URL_SECRET_ID",
               value: databaseUrlSecret.secretId,
