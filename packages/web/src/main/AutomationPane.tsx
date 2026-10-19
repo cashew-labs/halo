@@ -13,6 +13,7 @@ import { Pencil } from "maui/icons";
 import { useStyles } from "purse-styles";
 import { useApi } from "../api/ApiProvider.js";
 import { useDatabaseQuery } from "../database/useDatabaseQuery.js";
+import { PaneHeaderActions } from "../panes/PaneHeader.js";
 import { useWorkspacePanes } from "../panes/WorkspacePanesProvider.js";
 import { AutomationEditor } from "./AutomationEditor.js";
 import { AutomationSample } from "./AutomationSample.js";
@@ -100,8 +101,6 @@ function AutomationView({
   });
   const pane = useStyles(styles.pane);
   const content = useStyles(styles.content);
-  const titleRow = useStyles(styles.titleRow);
-  const title = useStyles(styles.title);
   const actions = useStyles(styles.actions);
   const details = useStyles(styles.details);
   const errorText = useStyles(styles.error);
@@ -126,31 +125,22 @@ function AutomationView({
       aria-label={`Automation ${automation.name}`}
     >
       <div className={content}>
+        <PaneHeaderActions>
+          <Button
+            variant="quiet"
+            aria-label="Edit automation"
+            onClick={() => setEditing(true)}
+          >
+            <Pencil size="sm" aria-hidden="true" />
+          </Button>
+          <Button onClick={() => toggle.mutate()} isDisabled={toggle.isPending}>
+            {automation.enabled ? "Pause" : "Resume"}
+          </Button>
+          <Button onClick={() => runNow.mutate()} isDisabled={runNow.isPending}>
+            Run now
+          </Button>
+        </PaneHeaderActions>
         <header>
-          <div className={titleRow}>
-            <h2 className={title}>{automation.name}</h2>
-            <div className={actions}>
-              <Button
-                variant="quiet"
-                aria-label="Edit automation"
-                onClick={() => setEditing(true)}
-              >
-                <Pencil size="sm" aria-hidden="true" />
-              </Button>
-              <Button
-                onClick={() => toggle.mutate()}
-                isDisabled={toggle.isPending}
-              >
-                {automation.enabled ? "Pause" : "Resume"}
-              </Button>
-              <Button
-                onClick={() => runNow.mutate()}
-                isDisabled={runNow.isPending}
-              >
-                Run now
-              </Button>
-            </div>
-          </div>
           <dl className={details}>
             <div>
               <dt>Activation</dt>

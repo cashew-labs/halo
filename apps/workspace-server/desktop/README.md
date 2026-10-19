@@ -9,11 +9,11 @@ downloads use `/home/node/documents`.
 Halo's Desktop sidebar entry embeds the live desktop at `/desktop/` (or
 `/workspace/desktop/` through the control plane). Clicking the desktop gives it
 keyboard control; connecting or reconnecting does not take focus from Halo.
-While focused, a banner shows **Capturing keyboard shortcuts.** and an
+While focused, the pane header shows **Capturing keyboard shortcuts** and an
 **Unfocus Ctrl+Esc** button (**⌃Esc** on Mac) to return keyboard control to Halo without
-reloading the iframe or restarting the stream. The banner is hidden and inert
-when unfocused, with its space reserved so focus never resizes the stream. The
-remote display resizes with the pane. The viewer reconnects to the same desktop
+reloading the iframe or restarting the stream. Both live in the fixed-height
+header, so focus never resizes the stream. The remote display resizes with the
+pane. The viewer reconnects to the same desktop
 after a lost connection. Closing the pane does not close desktop applications.
 
 The container entrypoint owns the processes for this spike. A critical child

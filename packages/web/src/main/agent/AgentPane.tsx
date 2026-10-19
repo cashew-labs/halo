@@ -1,5 +1,7 @@
 import { useRestartWarning } from "../../confirmRestart.js";
 import { useIsActiveTab } from "../../panes/WorkspacePanesProvider.js";
+import { PaneHeaderActions } from "../../panes/PaneHeader.js";
+import { DoneButton } from "./DoneButton.js";
 import { useMarkSessionRead } from "./useMarkSessionRead.js";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { skipToken, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -80,13 +82,20 @@ export function AgentPane({
     queryFn: skipToken,
   });
   return (
-    <ChatPane
-      sessionId={sessionId}
-      draftKey={draftKey}
-      title={sessionMeta?.title ?? submittedTitle}
-      sessions={sessions}
-      {...session}
-    />
+    <>
+      {sessionMeta !== undefined && (
+        <PaneHeaderActions>
+          <DoneButton session={sessionMeta} />
+        </PaneHeaderActions>
+      )}
+      <ChatPane
+        sessionId={sessionId}
+        draftKey={draftKey}
+        title={sessionMeta?.title ?? submittedTitle}
+        sessions={sessions}
+        {...session}
+      />
+    </>
   );
 }
 

@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -30,9 +31,9 @@ import { useSidebar } from "../WorkspaceLayout.js";
 import { useExtensions } from "../api/WorkspaceUpdatesProvider.js";
 import { useDatabaseQuery } from "../database/useDatabaseQuery.js";
 import { sessionTitleQueryKey } from "../main/agent/useAgentSession.js";
-import { ShareAppButton } from "./ShareAppButton.js"; // coverage-exempt: Tab-bar button swap; ShareAppButton is tested directly.
-import { tabBarHeight, usePaneStyles } from "./paneStyles.js";
+import { paneHeaderHeight, tabBarHeight, usePaneStyles } from "./paneStyles.js";
 import { TabFind } from "./TabFind.js";
+import { PaneHeader, PaneHeaderSlot } from "./PaneHeader.js";
 import { PaneTabBar } from "./PaneTabBar.js";
 
 function bounds(rect: Rect): CSSProperties {
@@ -94,6 +95,19 @@ export function PaneWorkspace({ sessions }: { sessions: SessionSummary[] }) {
     return decodeURIComponent(tab.path.split("/").at(-1) ?? tab.path);
   }
   const root = useRef<HTMLDivElement>(null);
+  const [headerSlots, setHeaderSlots] = useState<
+    ReadonlyMap<string, HTMLElement>
+  >(new Map());
+  const setHeaderSlot = useCallback(
+    (paneId: string, element: HTMLElement | null) =>
+      setHeaderSlots((slots) => {
+        const next = new Map(slots);
+        if (element) next.set(paneId, element);
+        else next.delete(paneId);
+        return next;
+      }),
+    [],
+  );
   const [dragging, setDragging] = useState(false);
   const [drop, setDrop] = useState<{
     paneId: string;
@@ -278,20 +292,14 @@ export function PaneWorkspace({ sessions }: { sessions: SessionSummary[] }) {
               }}
             />
             <div className={chrome.windowDrag} aria-hidden="true" />
-            {pane.tabs
-              .filter(
-                (tab) =>
-                  tab.id === pane.activeTabId &&
-                  tab.path.startsWith("/extensions/"),
-              )
-              .map((tab) => (
-                // coverage-exempt: Tab-bar button swap; ShareAppButton is tested directly.
-                <ShareAppButton
-                  key={tab.id}
-                  extensionId={decodeURIComponent(tab.path.slice(12))}
-                />
-              ))}
           </div>
+          <PaneHeader
+            paneId={pane.id}
+            title={tabTitle(
+              pane.tabs.find((tab) => tab.id === pane.activeTabId)!,
+            )}
+            onActionsSlot={setHeaderSlot}
+          />
         </section>
       ))}
       {/* Flat, stable tab siblings keep editors and session drafts mounted across splits and moves. */}
@@ -309,7 +317,7 @@ export function PaneWorkspace({ sessions }: { sessions: SessionSummary[] }) {
             style={{
               left: `${rect.x}%`,
               right: `${100 - rect.x - rect.width}%`,
-              top: `calc(${rect.y}% + ${tabBarHeight}px)`,
+              top: `calc(${rect.y}% + ${tabBarHeight + paneHeaderHeight}px)`,
               bottom: `${100 - rect.y - rect.height}%`,
             }}
             onPointerDownCapture={() => workspace.select(pane.id)}
@@ -322,20 +330,28 @@ export function PaneWorkspace({ sessions }: { sessions: SessionSummary[] }) {
             }
           >
             <TabVisibilityContext value={pane.activeTabId === tab.id}>
-              <TabRouteContext value={tab.id}>
-                <TabFind
-                  active={
-                    pane.id === state.activePaneId &&
-                    pane.activeTabId === tab.id
-                  }
-                  path={tab.path}
-                >
-                  {/* oxlint-disable-next-line react/hooks -- Wouter calls the location hook supplied to Router. */}
-                  <Router hook={usePaneLocation}>
-                    <MainPane sessions={sessions} />
-                  </Router>
-                </TabFind>
-              </TabRouteContext>
+              <PaneHeaderSlot
+                value={
+                  pane.activeTabId === tab.id
+                    ? headerSlots.get(pane.id)
+                    : undefined
+                }
+              >
+                <TabRouteContext value={tab.id}>
+                  <TabFind
+                    active={
+                      pane.id === state.activePaneId &&
+                      pane.activeTabId === tab.id
+                    }
+                    path={tab.path}
+                  >
+                    {/* oxlint-disable-next-line react/hooks -- Wouter calls the location hook supplied to Router. */}
+                    <Router hook={usePaneLocation}>
+                      <MainPane sessions={sessions} />
+                    </Router>
+                  </TabFind>
+                </TabRouteContext>
+              </PaneHeaderSlot>
             </TabVisibilityContext>
           </div>
         )),
@@ -348,7 +364,7 @@ export function PaneWorkspace({ sessions }: { sessions: SessionSummary[] }) {
             style={{
               left: `${rect.x}%`,
               right: `${100 - rect.x - rect.width}%`,
-              top: `calc(${rect.y}% + ${tabBarHeight}px)`,
+              top: `calc(${rect.y}% + ${tabBarHeight + paneHeaderHeight}px)`,
               bottom: `${100 - rect.y - rect.height}%`,
             }}
           />

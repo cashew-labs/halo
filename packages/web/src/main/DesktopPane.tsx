@@ -3,7 +3,8 @@ import { Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import { style, useStyles } from "purse-styles";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { backgroundColor, border, Button, Flex, Kbd, Text, text } from "maui";
+import { backgroundColor, Button, Kbd, Text, text } from "maui";
+import { PaneHeaderActions } from "../panes/PaneHeader.js";
 import { useHost } from "../HostProvider.js";
 import { useConnection } from "../api/ConnectionContext.js";
 
@@ -50,10 +51,6 @@ export function DesktopPane() {
     return () => window.removeEventListener("message", desktopMessage);
   }, [src, unfocus]);
   const pane = useStyles(desktopPane);
-  const banner = useStyles(
-    desktopBanner,
-    !focused && style({ visibility: "hidden" }),
-  );
   const viewport = useStyles(desktopViewport);
   const frame = useStyles(desktopFrame);
   const waiting = useStyles(desktopWaiting);
@@ -65,18 +62,10 @@ export function DesktopPane() {
   })();
   return (
     <div ref={paneElement} className={pane} tabIndex={-1}>
-      <div className={banner} inert={!focused}>
-        <Flex
-          row
-          alignItems="center"
-          justifyContent="between"
-          gap={6}
-          px={6}
-          py={3}
-          background="app"
-        >
+      {focused && (
+        <PaneHeaderActions>
           <Text size="sm" color="lowContrast">
-            Capturing keyboard shortcuts.
+            Capturing keyboard shortcuts
           </Text>
           <Button aria-label="Unfocus desktop" onPressStart={unfocus}>
             Unfocus{" "}
@@ -84,8 +73,8 @@ export function DesktopPane() {
               {navigator.platform.startsWith("Mac") ? "⌃Esc" : "Ctrl+Esc"}
             </Kbd>
           </Button>
-        </Flex>
-      </div>
+        </PaneHeaderActions>
+      )}
       <div className={viewport}>
         {started ? (
           <iframe
@@ -118,13 +107,10 @@ const desktopMessageSchema = Type.Union([
 
 const desktopPane = style({
   display: "grid",
-  gridTemplateRows: "auto minmax(0, 1fr)",
+  gridTemplateRows: "minmax(0, 1fr)",
   width: "100%",
   height: "100%",
 });
-
-// Keep the row mounted and hide its paint so focus never resizes the stream.
-const desktopBanner = style(border(["bottom"], "border"));
 
 const desktopViewport = style({
   minWidth: 0,

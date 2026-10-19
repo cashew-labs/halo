@@ -39,6 +39,7 @@ e2eTest(
     });
 
     const sidebar = app.page.getByRole("navigation", { name: "Workspace" });
+    const header = app.page.getByTestId("pane-header");
     await sidebar.getByRole("button", { name: "Expand appointments" }).click();
     await expect(
       sidebar.getByRole("link", { name: "Book haircut" }),
@@ -51,7 +52,7 @@ e2eTest(
       name: "Automation Morning briefing",
     });
     await expect(agentRoutine).toContainText("Original briefing prompt");
-    await agentRoutine.getByRole("button", { name: "Edit automation" }).click();
+    await header.getByRole("button", { name: "Edit automation" }).click();
     const agentEditor = app.page.getByRole("dialog", {
       name: "Edit Morning briefing",
     });
@@ -78,10 +79,10 @@ e2eTest(
     await expect(routine).toContainText("echo original check");
     await expect(routine).toContainText(/After run\s*Show session/);
     await expect(
-      routine.getByRole("button", { name: "Edit automation" }),
+      header.getByRole("button", { name: "Edit automation" }),
     ).toBeVisible();
 
-    await routine.getByRole("button", { name: "Edit automation" }).click();
+    await header.getByRole("button", { name: "Edit automation" }).click();
     const editor = app.page.getByRole("dialog", {
       name: "Edit Daily workspace check",
     });
@@ -102,7 +103,7 @@ e2eTest(
     await expect(routine).toContainText("echo updated check");
     await expect(routine).toContainText("At 10:30 AM (UTC)");
 
-    await routine.getByRole("button", { name: "Run now" }).click();
+    await header.getByRole("button", { name: "Run now" }).click();
     const session = routine
       .getByRole("region", { name: "Run history" })
       .getByRole("link");
@@ -132,7 +133,7 @@ e2eTest(
     await sidebar
       .getByRole("link", { name: "Daily workspace check", exact: true })
       .click();
-    await routine.getByRole("button", { name: "Edit automation" }).click();
+    await header.getByRole("button", { name: "Edit automation" }).click();
     await editor.getByRole("button", { name: /Automation status/ }).click();
     await app.page.getByRole("option", { name: "Paused" }).click();
     await editor.getByRole("button", { name: /After run/ }).click();
@@ -142,7 +143,7 @@ e2eTest(
     await editor.getByRole("button", { name: "Save" }).click();
     await expect(routine).toContainText(/Next run\s*Paused/);
     await expect(routine).toContainText(/After run\s*Auto archive session/);
-    await routine.getByRole("button", { name: "Run now" }).click();
+    await header.getByRole("button", { name: "Run now" }).click();
     await expect(
       routine.getByRole("region", { name: "Run history" }).getByRole("link"),
     ).toHaveCount(2);
@@ -160,6 +161,7 @@ e2eTest(
       timezoneId: "America/Los_Angeles",
     });
     const sidebar = app.page.getByRole("navigation", { name: "Workspace" });
+    const header = app.page.getByTestId("pane-header");
     await app.server.rpc.automations.save({
       name: "Incoming order",
       activation: {
@@ -174,7 +176,7 @@ e2eTest(
     const pane = app.page.getByRole("region", {
       name: "Automation Incoming order",
     });
-    await pane.getByRole("button", { name: "Edit automation" }).click();
+    await header.getByRole("button", { name: "Edit automation" }).click();
     const editor = app.page.getByRole("dialog", {
       name: "Edit Incoming order",
     });
@@ -227,9 +229,9 @@ e2eTest(
     await sidebar
       .getByRole("link", { name: "Incoming order", exact: true })
       .click();
-    await pane.getByRole("button", { name: "Pause", exact: true }).click();
+    await header.getByRole("button", { name: "Pause", exact: true }).click();
     await expect(
-      pane.getByRole("button", { name: "Resume", exact: true }),
+      header.getByRole("button", { name: "Resume", exact: true }),
     ).toBeVisible();
     await pane
       .getByRole("textbox", { name: "Sample JSON" })
@@ -238,7 +240,7 @@ e2eTest(
     await expect(
       pane.getByRole("region", { name: "Run history" }),
     ).toContainText("Completed · Run now");
-    await pane.getByRole("button", { name: "Edit automation" }).click();
+    await header.getByRole("button", { name: "Edit automation" }).click();
     const edit = app.page.getByRole("dialog", { name: "Edit Incoming order" });
     await edit.getByRole("button", { name: /Activation$/ }).click();
     await app.page
