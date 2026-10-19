@@ -22,7 +22,6 @@ import { useApi } from "../api/ApiProvider.js";
 import { useExtensions } from "../api/WorkspaceUpdatesProvider.js";
 import { PublishFailureNotice, usePublishRecovery } from "./PublishRecovery.js";
 import { appsQueryKey, useApps } from "./useApps.js";
-import { paneStyles } from "./paneStyles.js";
 
 class ShareLinkCopyError extends errore.createTaggedError({
   name: "ShareLinkCopyError",
@@ -33,14 +32,12 @@ const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /** Opens sharing for one extension: publish, access, invited people, link. */
 export function ShareAppButton({ extensionId }: { extensionId: string }) {
-  const className = useStyles(paneStyles.add);
   const [open, setOpen] = useState(false);
   return (
     <>
       <Tooltip content="Share" placement="bottom">
         <Button
           variant="quiet"
-          className={className}
           aria-label="Share"
           onPress={() => setOpen(true)}
         >

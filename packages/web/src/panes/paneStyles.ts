@@ -10,8 +10,9 @@ import {
 import { style, useStyles } from "purse-styles";
 
 export const tabBarHeight = 42;
+export const paneHeaderHeight = 40;
 
-export const paneStyles = {
+const paneStyles = {
   workspace: style(
     focusRing("& [role=separator]:focus-visible"),
     text({ size: "sm" }),
@@ -37,6 +38,27 @@ export const paneStyles = {
     backgroundColor: backgroundColor.app,
     borderBottom: `1px solid ${colors.gray[6]}`,
     WebkitAppRegion: "drag",
+  }),
+  header: style(flex({ alignItems: "center", gap: 2 }), {
+    height: paneHeaderHeight,
+    // Line the title up with tab labels: tab bar padding plus Maui's tab button padding.
+    paddingInlineStart: `calc(8px + ${spacing.value(6)})`,
+    paddingInlineEnd: 8,
+    borderBottom: `1px solid ${colors.gray[6]}`,
+  }),
+  headerTitle: style(
+    text({ size: "sm", fontWeight: 400, color: "highContrast" }),
+    flexItem({ size: "fill" }),
+    {
+      margin: 0,
+      minWidth: 0,
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+      whiteSpace: "nowrap",
+    },
+  ),
+  headerActions: style(flex({ alignItems: "center", gap: 3 }), {
+    flexShrink: 0,
   }),
   tabs: style({
     display: "flex",
@@ -129,6 +151,9 @@ export function usePaneStyles() {
     workspace: useStyles(paneStyles.workspace),
     pane: useStyles(paneStyles.pane),
     tabBar: useStyles(paneStyles.tabBar),
+    header: useStyles(paneStyles.header),
+    headerTitle: useStyles(paneStyles.headerTitle),
+    headerActions: useStyles(paneStyles.headerActions),
     tabs: useStyles(paneStyles.tabs),
     nativeTabBar: useStyles(paneStyles.nativeTabBar),
     add: useStyles(paneStyles.add),

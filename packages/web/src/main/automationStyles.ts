@@ -24,21 +24,13 @@ export const automationStyles = {
       marginInline: "auto",
     },
   ),
-  titleRow: style(
-    flex({ alignItems: "center", justifyContent: "between", gap: 4 }),
-  ),
-  title: style(text({ size: "xl", fontWeight: 600, color: "highContrast" }), {
-    margin: 0,
-    minWidth: 0,
-    overflowWrap: "anywhere",
-  }),
   actions: style(flex({ alignItems: "center", gap: 2 }), { flexShrink: 0 }),
   details: style(text({ size: "sm", color: "lowContrast" }), {
     display: "grid",
     gridTemplateColumns: "max-content 1fr",
     columnGap: spacing.value(6),
     rowGap: spacing.value(1),
-    margin: `${spacing.value(6)} 0 0`,
+    margin: 0,
     "& > div": { display: "contents" },
     "& dd": {
       margin: 0,
