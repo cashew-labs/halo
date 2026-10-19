@@ -80,7 +80,8 @@ const webContentSecurityPolicy = [
   "font-src 'self' data:",
   "form-action 'self' https://buttondown.com",
   "frame-ancestors 'none'",
-  "frame-src 'self'",
+  // The landing page embeds the Cal.com early access booking page.
+  "frame-src 'self' https://cal.com",
   "img-src 'self' blob: data: https://gethalo.dev",
   "object-src 'none'",
   "script-src 'self'",
