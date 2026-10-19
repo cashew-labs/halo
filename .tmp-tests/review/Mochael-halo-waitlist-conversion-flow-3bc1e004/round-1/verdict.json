@@ -1,0 +1,46 @@
+{
+  "status": "changes_requested",
+  "summary": "The change replaces the newsletter form with a \"Get early access\" dialog. The dialog offers a Cal.com booking embed and a Buttondown waitlist form. It also adds GA4 marketing analytics: the control plane injects the measurement ID per deployment and the CSP is relaxed to allow the new hosts. The client-side analytics logic and its tests are solid. The change is not ready for three reasons:\n- The durable run failed. All 3 control-plane failures come from a missing workspace-server build artifact (`packages/workspace-server/dist/codeExecutor.worker.js`), not from this change. Build workspace-server and rerun so the coverage for `controlPlaneHttp.ts` and `ControlPlane.ts` is recorded.\n- The new CSP is broader than GA needs, and it applies to the signed-in app too.\n- The new durable Playwright setup depends on Google Chrome and on a test package that `apps/web-app/package.json` does not declare.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "source",
+      "file": "apps/control-plane/src/server/controlPlaneHttp.ts",
+      "line": 78,
+      "severity": "P1",
+      "body": "`webContentSecurityPolicy` is applied to every web-app response, including the signed-in workspace app served at `/`. This change adds `connect-src https://*.google.com`. That allows fetch/XHR/beacon to any google.com subdomain, for example POSTs to docs.google.com forms or script.google.com web apps, which is a ready exfiltration channel if an injection bug ever occurs. GA4 only needs `https://*.google-analytics.com` and `https://*.analytics.google.com` (plus `www.googletagmanager.com`). Replace `https://*.google.com` with `https://*.analytics.google.com`. Also note `script-src https://www.googletagmanager.com` (line 87): it allows loading any attacker-published GTM container (`gtm.js?id=GTM-…`), a known CSP bypass, for the authenticated app as well. At minimum narrow connect-src. Preferably scope the relaxed directives to the marketing responses, or add a short comment explaining why the whole app needs them. Update the control-plane test assertion to match."
+    },
+    {
+      "id": "F2",
+      "kind": "test",
+      "file": "apps/web-app/playwright.config.ts",
+      "line": 10,
+      "severity": "P1",
+      "body": "The new durable E2E suite has two environment problems. (1) `channel: \"chrome\"` requires a system Google Chrome install. The repo provisions only Playwright Chromium: release.yml runs `playwright install chromium`, and `.agents/setup` installs Playwright Chromium. This package now joins `turbo run test:e2e` (and the release E2E gate), so on hosts without Chrome the suite fails at browser launch. Use the bundled Chromium, as `packages/extension-tools/playwright.config.ts` does, unless Chrome is truly required; if it is, install it in CI. (2) `apps/web-app/package.json` runs `playwright test` and the tests import `@playwright/test`, but the package does not declare `@playwright/test` as a devDependency. The suite resolves only through `nodeLinker: hoisted`, from whichever version Electron or extension-tools happens to hoist (1.62.1 vs ^1.61.0). Add it as a devDependency pinned to the repo's version."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "packages/config/src/controlPlane.ts:59-60,73-74 (googleAnalyticsMeasurementId schema)",
+      "tier": "tmp",
+      "rationale": "`serveWebApp` inserts the ID into HTML without escaping, so the `^G-[A-Z0-9]+$` schema pattern is the only HTML-injection guard. Add a temp test that runs `Value.Check(controlPlaneConfigSchema, …)` on both the local and cloudRun variants. It should accept `G-ABC123` and reject values such as `G-x\" /><script>` and the empty string. These schema lines are currently uncovered and not exempt."
+    },
+    {
+      "target": "apps/control-plane/src/server/controlPlaneHttp.ts:772-792 and apps/control-plane/src/server/ControlPlane.ts:246",
+      "tier": "durable",
+      "rationale": "The new ControlPlane tests should cover these lines, but the durable run failed: 3 unrelated tests need the `packages/workspace-server/dist/codeExecutor.worker.js` build artifact. Build workspace-server (for example `pnpm --filter @get-halo/workspace-server build`) and rerun so the run passes and coverage is recorded."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "1f94c2a3f1c2ce229d7dcde6bcb57ae5a7b604ab",
+  "treeHash": "4a4d9d9c845851e41c729272fedca36054888cbf",
+  "codeTree": "42c7f24b2cfd566575caa6fa7c9ca534fda7e05b",
+  "coverage": {
+    "executable": 145,
+    "covered": 102,
+    "exempt": 0,
+    "uncovered": 43
+  },
+  "createdAt": "2026-10-19T21:38:32.130Z"
+}

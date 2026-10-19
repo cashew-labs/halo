@@ -1,0 +1,10 @@
+[
+  {
+    "findingId": "F1",
+    "reply": "Fixed: marketing CSP is selected only for the signed-out homepage and newsletter return pages. Signed-in/private responses retain the original restrictive CSP and receive no measurement ID. Google connect sources are narrowed to analytics hosts."
+  },
+  {
+    "findingId": "F2",
+    "reply": "Fixed: the suite now uses Playwright Chromium, and web-app declares @playwright/test 1.62.1 directly. Added local/cloudRun schema tests and built the workspace-server worker; all durable and temporary tests pass in round 2."
+  }
+]

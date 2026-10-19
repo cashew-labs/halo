@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change adds the early-access dialog (Cal.com booking and Buttondown waitlist) and GA4 marketing analytics. The control plane injects the measurement ID per deployment and sends a relaxed CSP only to signed-out marketing pages. The round-1 findings (CSP scope and Playwright setup) stay fixed. The only change since round 2 moves the coverage-exempt comment above `trackWaitlistSubmission`; with it in place, all test runs pass, every changed executable line is covered or acceptably exempt, and the coverage gate passes.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 3,
+  "headSha": "1f94c2a3f1c2ce229d7dcde6bcb57ae5a7b604ab",
+  "treeHash": "e19c82d3bd1a146f5f62bb1c306e43f1a7a3dea3",
+  "codeTree": "28617a08e00488941f6795b7eca1de9968bc6f9c",
+  "coverage": {
+    "executable": 119,
+    "covered": 109,
+    "exempt": 10,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-19T21:45:02.804Z"
+}

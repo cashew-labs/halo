@@ -1,0 +1,18 @@
+{
+  "status": "changes_requested",
+  "summary": "Both round-1 findings are fixed. F1: the relaxed CSP now goes only to the newsletter pages and to `/` for visitors with no server-side session. `*.google.com` is replaced by `*.analytics.google.com`, and a new durable test confirms that signed-in `/`, `/login` and `/settings` keep the strict policy and an empty measurement ID. F2: the Playwright config uses the bundled Chromium, and `@playwright/test@1.62.1` is now declared. All test runs pass. The one line still reported uncovered, `marketingAnalytics.ts:114` (the declaration of `trackWaitlistSubmission`), runs in the durable unit tests, whose body lines are covered. Its coverage-exempt comment sits one line below the declaration, and I accept its reason.\n\nNot approved: 1 changed line(s) are uncovered.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "1f94c2a3f1c2ce229d7dcde6bcb57ae5a7b604ab",
+  "treeHash": "b5bbcb7ca84acfa856e0c714d8757e336e69f7ac",
+  "codeTree": "d7ffd5bca426d7cb17b31e905ec59a9d300454a7",
+  "coverage": {
+    "executable": 119,
+    "covered": 109,
+    "exempt": 9,
+    "uncovered": 1
+  },
+  "createdAt": "2026-10-19T21:42:39.518Z"
+}
