@@ -96,9 +96,13 @@ function webContentSecurityPolicy(scriptHashes: string[]) {
  * from the served file so they cannot drift from its contents.
  */
 function inlineScriptHashes(html: string) {
-  // Browsers hash script text after normalizing line endings to LF.
+  // Browsers hash script text after normalizing line endings to LF. Like the
+  // HTML parser, tag names are case-insensitive and the text ends at the first
+  // `</script` followed by whitespace, `/`, or `>`.
   return [
-    ...html.replaceAll("\r\n", "\n").matchAll(/<script>([\s\S]*?)<\/script>/g),
+    ...html
+      .replaceAll("\r\n", "\n")
+      .matchAll(/<script\s*>([\s\S]*?)<\/script[\s/>]/gi),
   ].map(
     ([, source]) =>
       `'sha256-${createHash("sha256").update(source!).digest("base64")}'`,
