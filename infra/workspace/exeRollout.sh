@@ -93,6 +93,15 @@ pull_on_guest() {
   remote=$(cat "$root/infra/workspace/exePull.sh")
   for attempt in 1 2; do
     echo "HALO_PULL_ATTEMPT vm=$vm attempt=$attempt/2 deadline=900s image=$source_digest"
+    if [ "$attempt" = 2 ]; then
+      # An SSH disconnect can leave the first guest command alive until its
+      # 900s deadline plus 15s kill grace. Wait for that owner to release the
+      # lock before minting the retry token or starting its own pull deadline.
+      report_phase wait-pull-lock
+      timeout --kill-after=15s 990s ssh "${ssh_args[@]}" "$vm.exe.xyz" \
+        'sudo timeout --kill-after=15s 945s flock -w 930 /run/halo-image-pull.lock true'
+      report_phase pull-image
+    fi
     # A new token-creator grant can take a few minutes to propagate.
     for token_attempt in $(seq 1 12); do
       if token=$(timeout --kill-after=5s 15s gcloud auth print-access-token --impersonate-service-account="$image_puller" --lifetime=1800); then break; fi
@@ -133,7 +142,7 @@ update_bytes() {
 # Space root can still write where Docker keeps its data. Docker runs as root,
 # so it may use the update reserve that user files cannot.
 guest_root_free_bytes() {
-  ssh "${ssh_args[@]}" "$vm.exe.xyz" "stat -f -c '%f %S' /var/lib" | awk '{ print $1 * $2 }'
+  ssh "${ssh_args[@]}" "$vm.exe.xyz" "stat -f -c '%f %S' /var/lib" | awk '{ printf "%.0f\n", $1 * $2 }'
 }
 
 # A full disk also stops the running workspace, so refuse the transfer when the

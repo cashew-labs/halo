@@ -55,7 +55,9 @@ image pulls retain Docker's layer output and report elapsed time and disk space
 every 30 seconds. Each pull attempt has a 15-minute deadline on the guest and a
 longer deadline on SSH. Only the image transfer retries automatically, once,
 with a fresh 30-minute read-only token. A per-guest lock prevents overlapping
-pull clients. The rollout command has a 60-minute outer limit with two minutes for cleanup.
+pull clients. Before retrying, the runner waits up to 15 minutes 30 seconds for
+the previous guest command to release that lock, then mints the retry token.
+The lock wait does not consume the retry's 15-minute pull deadline. The rollout command has a 60-minute outer limit with two minutes for cleanup.
 Its step has a 65-minute fallback limit within a 90-minute job, leaving time for
 the always-run evidence upload after a command timeout.
 The guest deadline still applies if its runner disconnects; killing the Docker
