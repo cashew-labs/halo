@@ -6,17 +6,35 @@ There is no management UI or extension. Public visitors need no authentication.
 
 ## Grant administrator access
 
-Configure `halo-control-plane:marketingAdminUserIds` as an array of existing Halo
-account IDs, or supply `HALO_MARKETING_ADMIN_USER_IDS` as a JSON array for a direct
-server deployment. Deployment controls this list; callers cannot grant themselves
-access. It defaults to `[]`, denying all management operations. The ordinary
-sign-in allowlist, publisher ownership and extension membership do not grant
-marketing administrator access.
+Administrator IDs are private Secret Manager data. In GCP project `halo-relay`,
+create the secret **`halo-west-marketing-admin-user-ids`** and add a secret version
+whose value is a JSON array of existing **staging** Halo account IDs:
 
-Find your account ID through the existing authenticated `auth.session` RPC. Use
-`session.user.id`, not the session ID. Configure the administrator list and deploy
-once. Changing campaign links then requires no deployment. Restart all replicas
-when changing the administrator list so revocations apply to every process.
+```json
+["YOUR_STAGING_USER_ID"]
+```
+
+Use `[]` to deny all marketing management. Find your staging account ID through
+the authenticated `auth.session` RPC (`session.user.id`, not the session ID or
+email). Manage secret values in Google Cloud Console → Secret Manager; do not add
+real IDs to source files, PR descriptions, Pulumi config or deployment commands.
+
+The public `west` config contains only
+`halo-control-plane:marketingAdminUserIdsSecretId: halo-west-marketing-admin-user-ids`.
+Pulumi grants the control-plane runtime secret-scoped read access and passes
+`HALO_MARKETING_ADMIN_USER_IDS_SECRET_ID`. The server reads the latest version at
+startup and validates a JSON array of unique, nonempty IDs. The secret value does
+not pass through Pulumi. Create the secret and its first version **before** deploying
+this configuration. Unreadable or malformed configured secrets fail startup;
+no configured secret/list means no management access. Secret data takes precedence
+over the direct environment list, so a failed secret read cannot fall back to it.
+
+After adding or removing an ID, add a new secret version and roll out a new
+control-plane revision so every instance reloads it. Saving a version alone does
+not update running processes. Ordinary sign-in allowlisting, publisher ownership
+and extension membership do not grant marketing management. Local/direct development
+can still supply `HALO_MARKETING_ADMIN_USER_IDS` as private JSON environment data;
+never commit actual IDs. The old Pulumi `marketingAdminUserIds` array is no longer read.
 
 ## Agent API
 
@@ -88,8 +106,8 @@ Set `halo-control-plane:marketingHostname: go.gethalo.dev` and
 `HALO_MARKETING_HOMEPAGE_ORIGIN`. Defaults remain `go.<primary-host>` and the
 primary homepage when these overrides are absent.
 
-Sign in through `staging.gethalo.dev` and configure your **staging** account ID in
-`west`'s administrator list. Its workspace runtime can then manage live campaign
+Sign in through `staging.gethalo.dev` and add your **staging** account ID to
+the staging administrator secret. Its workspace runtime can then manage live campaign
 links without a production session. Staging's primary origin and authentication
 stay unchanged. The production database and administrator list are separate and
 do not control these links. Staging outages, database resets and campaign edits
@@ -105,7 +123,7 @@ development uses the existing control-plane SQLite app database file.
 
 Production's former configuration map was empty, so no campaign import is
 required. Remove `HALO_MARKETING_LINKS` and `halo-control-plane:marketingLinks`;
-these are no longer a source of campaign data. Keep administrator IDs and hostname/homepage settings in deployment configuration.
+these are no longer a source of campaign data. Keep only the administrator secret reference and hostname/homepage settings in deployment configuration.
 The custom marketing hostname gets a dedicated load-balancer-authorized Google
 certificate on staging's existing certificate map; its wildcard certificate does
 not cover `go.gethalo.dev`. Deploy the server image and infrastructure first.

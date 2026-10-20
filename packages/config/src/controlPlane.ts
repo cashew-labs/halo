@@ -229,7 +229,7 @@ async function readDevelopmentConfig(): Promise<ControlPlaneConfig | Error> {
   if (auth instanceof Error) return auth;
   const repositoryRoot = path.resolve(import.meta.dirname, "../../..");
   const configuredDataDir = process.env.HALO_USER_DATA;
-  const marketingAdminUserIds = readMarketingAdminUserIds();
+  const marketingAdminUserIds = await readMarketingAdminUserIds();
   if (marketingAdminUserIds instanceof Error) return marketingAdminUserIds;
   const server = {
     marketingAdminUserIds,
@@ -294,7 +294,7 @@ async function readCloudRunConfig(): Promise<ControlPlaneConfig | Error> {
     googleClientSecret: googleClientSecretId,
   });
   if (auth instanceof Error) return auth;
-  const marketingAdminUserIds = readMarketingAdminUserIds();
+  const marketingAdminUserIds = await readMarketingAdminUserIds();
   if (marketingAdminUserIds instanceof Error) return marketingAdminUserIds;
   const server = {
     marketingAdminUserIds,
@@ -378,8 +378,13 @@ export async function readControlPlaneSecret(secretId: string) {
   return await readGcpSecret({ projectId: secretProjectId, secretId });
 }
 
-function readMarketingAdminUserIds() {
-  const raw = process.env.HALO_MARKETING_ADMIN_USER_IDS;
+async function readMarketingAdminUserIds() {
+  const secretId = process.env.HALO_MARKETING_ADMIN_USER_IDS_SECRET_ID;
+  const raw =
+    secretId === undefined
+      ? process.env.HALO_MARKETING_ADMIN_USER_IDS
+      : await readControlPlaneSecret(secretId);
+  if (raw instanceof Error) return raw;
   if (raw === undefined) return [];
   const parsed = errore.try({
     // SAFETY: Parsed environment data is validated before use.

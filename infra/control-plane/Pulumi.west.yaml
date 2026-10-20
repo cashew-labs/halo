@@ -8,6 +8,7 @@ config:
   halo-control-plane:controlPlaneDomain: staging.gethalo.dev
   halo-control-plane:redirectWww: "false"
   halo-control-plane:environment: staging
+  halo-control-plane:marketingAdminUserIdsSecretId: halo-west-marketing-admin-user-ids
   halo-control-plane:marketingHostname: go.gethalo.dev
   halo-control-plane:marketingHomepageOrigin: https://gethalo.dev
   halo-control-plane:signInAllowlistSecretId: halo-west-sign-in-allowlist

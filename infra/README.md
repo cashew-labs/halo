@@ -25,17 +25,25 @@ The regular control-plane service resolves `https://go.gethalo.dev/:slug` to
 `https://gethalo.dev/` with configured campaign tags. This does not depend on
 extension HTTP routes or the custom-domain stack (#543–545).
 
-Campaign records live in the existing control-plane database. Configure
-`halo-control-plane:marketingAdminUserIds` as an array of existing Halo account IDs
-(or `HALO_MARKETING_ADMIN_USER_IDS` as a JSON array for a direct server deployment).
-The list defaults empty, denying management access. This is separate from the
-sign-in allowlist and extension ownership. Only deployment operators can grant
-admin access; campaign changes then use the authenticated API without a rollout.
+Campaign records live in the existing control-plane database. Administrator IDs
+live privately in GCP Secret Manager, outside Git and Pulumi state. The `west`
+stack contains only `marketingAdminUserIdsSecretId: halo-west-marketing-admin-user-ids`.
+Create that secret in project `halo-relay` with a JSON-array version before deploying:
+`["YOUR_STAGING_USER_ID"]` (or `[]` for no management access). Only the control-plane
+runtime gets `roles/secretmanager.secretAccessor` on this specific secret; there is
+no project-wide grant. Pulumi does not read or manage the secret payload.
+
+The server reads and validates the latest version on startup. A configured secret
+that cannot be read or parsed prevents startup rather than using another list.
+After secret changes, roll out a new control-plane revision so all replicas use
+the same list. Unconfigured deployments deny management by default. The old
+`marketingAdminUserIds` Pulumi array is removed; direct development can use private
+`HALO_MARKETING_ADMIN_USER_IDS` or `HALO_MARKETING_ADMIN_USER_IDS_SECRET_ID` env settings.
 See the [admin API guide](../apps/control-plane/README.marketing-links.md).
 
 Remove the former `marketingLinks`/`HALO_MARKETING_LINKS` campaign map. Production's
 map was empty, so there is no data import. Staging and production databases and
-administrator lists remain independent.
+administrator secrets remain independent.
 
 The `west` stack explicitly sets `marketingHostname: go.gethalo.dev` and
 `marketingHomepageOrigin: https://gethalo.dev`. Public links query **staging's**
@@ -60,7 +68,7 @@ so it needs no separate verification CNAME. Keep the existing wildcard certifica
 DNS authorization records for other hostnames.
 
 The new certificate provisions after the A record reaches staging's load balancer.
-Wait for ACTIVE status, configure staging administrator IDs, create a campaign,
+Wait for ACTIVE status, populate the staging administrator secret, create a campaign,
 and check 302 with saved tags, 404 for unknown/disabled URLs and GET/HEAD agreement.
 These changes do not deploy services or modify DNS. Local `west` preview succeeds;
 it also exposes existing image digest/tag and exe template version drift unrelated

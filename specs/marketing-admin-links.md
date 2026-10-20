@@ -112,6 +112,34 @@ drift, which must be reviewed before deployment. Deploy first, replace `go` DNS,
 then wait for the load-balancer-authorized certificate to activate. No deployment,
 DNS change or administrator grant is performed by this work.
 
+## ✅ Phase 4: Private administrator IDs in Secret Manager
+
+**Today:** Pulumi takes an administrator ID array and writes its JSON value into
+Cloud Run environment configuration. Putting real IDs in stack YAML exposes them
+in the public repository.
+
+**Proposed:** Keep only `marketingAdminUserIdsSecretId` in Pulumi and grant the
+control-plane runtime read access to that specific secret. At startup, the normal
+config loader reads its latest JSON-array version through the existing Secret
+Manager adapter. The server keeps the same admin authorization behavior and
+campaign database. Secret values never pass through Pulumi or Git.
+
+```callstack
+ Staging deployment: configure secret name only
++└── SecretIamMember # runtime read access on that secret
+     └── Control-plane startup
++        └── readMarketingAdminUserIds [[private-admins:new:381-387]]
+             ├── Secret Manager latest version # private JSON IDs; failure stops startup
+             └── Existing schema and MarketingLinks admin gate
+```
+
+The public west config names `halo-west-marketing-admin-user-ids`; an operator
+creates its first private version before deployment. Config tests cover local
+and cloud startup, replacement/revocation on restart, secret precedence, access
+failures and invalid payloads. A new version requires a rollout to reload all
+instances. No live secret, administrator grant or running service is changed here.
+The direct JSON environment option remains available for private local development.
+
 ## References
 
 - [[apps/control-plane/src/marketing/MarketingLinks.ts]]
@@ -323,4 +351,29 @@ index 2b8f6d4c..1091077d 100644
 @@ -232 +234 @@ export function serveControlPlaneHttp(ctx: {
 -        publicOrigin,
 +        homepageOrigin: ctx.marketingHomepageOrigin ?? publicOrigin,
+```
+
+## Phase 4 source patch
+
+```source-diff:private-admins:packages/config/src/controlPlane.ts
+diff --git a/packages/config/src/controlPlane.ts b/packages/config/src/controlPlane.ts
+index 4a31b24a..1b106d4c 100644
+--- a/packages/config/src/controlPlane.ts
++++ b/packages/config/src/controlPlane.ts
+@@ -232 +232 @@ async function readDevelopmentConfig(): Promise<ControlPlaneConfig | Error> {
+-  const marketingAdminUserIds = readMarketingAdminUserIds();
++  const marketingAdminUserIds = await readMarketingAdminUserIds();
+@@ -297 +297 @@ async function readCloudRunConfig(): Promise<ControlPlaneConfig | Error> {
+-  const marketingAdminUserIds = readMarketingAdminUserIds();
++  const marketingAdminUserIds = await readMarketingAdminUserIds();
+@@ -381,2 +381,7 @@ export async function readControlPlaneSecret(secretId: string) {
+-function readMarketingAdminUserIds() {
+-  const raw = process.env.HALO_MARKETING_ADMIN_USER_IDS;
++async function readMarketingAdminUserIds() {
++  const secretId = process.env.HALO_MARKETING_ADMIN_USER_IDS_SECRET_ID;
++  const raw =
++    secretId === undefined
++      ? process.env.HALO_MARKETING_ADMIN_USER_IDS
++      : await readControlPlaneSecret(secretId);
++  if (raw instanceof Error) return raw;
 ```

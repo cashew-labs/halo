@@ -67,10 +67,11 @@ const googleAnalyticsMeasurementId = configuration.get(
 // Staging serves the web app's staging/ overrides, such as its yellow logo.
 const environment = configuration.get("environment");
 
-// Administrator accounts are deployment-owned; campaign records are database-owned.
-// coverage-exempt: Pulumi configuration is checked by infra typecheck; no cloud preview is run in local unit tests.
-const marketingAdminUserIds =
-  configuration.getObject<string[]>("marketingAdminUserIds") ?? [];
+// Only the secret name is deployment configuration; administrator IDs stay in Secret Manager.
+// coverage-exempt: Pulumi secret reference is validated by infrastructure preview.
+const marketingAdminUserIdsSecretId = configuration.get(
+  "marketingAdminUserIdsSecretId",
+);
 const controlPlaneOrigin = `https://${controlPlaneDomain}`;
 // coverage-exempt: Pulumi deployment settings are validated by the receiving config schema and infra preview.
 const marketingHostname =
@@ -688,6 +689,22 @@ const signInAllowlistAccess =
         }),
       ];
 
+// coverage-exempt: Declarative secret-scoped runtime IAM is checked by infrastructure preview.
+const marketingAdminUserIdsAccess =
+  marketingAdminUserIdsSecretId === undefined
+    ? []
+    : [
+        new gcp.secretmanager.SecretIamMember(
+          "marketing-admin-user-ids-access",
+          {
+            project,
+            secretId: marketingAdminUserIdsSecretId,
+            role: "roles/secretmanager.secretAccessor",
+            member: pulumi.interpolate`serviceAccount:${runtime.email}`,
+          },
+        ),
+      ];
+
 const stagingTestersAccess =
   stagingTestersSecretId === undefined
     ? []
@@ -817,11 +834,15 @@ const controlPlane = new gcp.cloudrunv2.Service(
               name: "HALO_MARKETING_HOMEPAGE_ORIGIN",
               value: marketingHomepageOrigin,
             },
-            {
-              name: "HALO_MARKETING_ADMIN_USER_IDS", // coverage-exempt: Declarative Cloud Run environment provisioned by Pulumi.
-              value: JSON.stringify(marketingAdminUserIds), // coverage-exempt: Declarative Cloud Run environment provisioned by Pulumi.
-            },
-
+            // coverage-exempt: Cloud Run carries only the Secret Manager reference, verified by infrastructure preview.
+            ...(marketingAdminUserIdsSecretId === undefined
+              ? []
+              : [
+                  {
+                    name: "HALO_MARKETING_ADMIN_USER_IDS_SECRET_ID",
+                    value: marketingAdminUserIdsSecretId,
+                  },
+                ]),
             // coverage-exempt: Pulumi passes this public stream ID into Cloud Run; exercised after deployment rather than by provisioning cloud infrastructure in tests.
             ...(googleAnalyticsMeasurementId === undefined
               ? []
@@ -892,6 +913,7 @@ const controlPlane = new gcp.cloudrunv2.Service(
       controlPlaneIntegrationKeyAccess,
       controlPlaneTogetherApiKeyAccess,
       ...signInAllowlistAccess,
+      ...marketingAdminUserIdsAccess, // coverage-exempt: Declarative IAM-before-service ordering is verified by the authenticated infrastructure preview.
       ...stagingTestersAccess,
       controlPlaneTraceAccess,
       databaseUrlAccess,
