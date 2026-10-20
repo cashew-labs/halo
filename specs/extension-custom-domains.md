@@ -39,11 +39,12 @@ routes; the build includes it only on the server. GET/HEAD handlers receive
 read-only storage queries and no caller identity or Halo tools. Internal proxy
 authentication remains required, and response cookies are stripped.
 
-## Phase 2: Verified bindings and routing
+## Phase 2: Verified bindings and routing (implemented)
 
-**Today:** [[apps/control-plane/src/apps/AppGateway.ts]] routes creator app paths.
-**Proposed:** Owner APIs create a unique TXT challenge for an app/hostname.
-Verification and activation are separate from registration. Unknown hosts never
+[[apps/control-plane/src/apps/AppGateway.ts]] routes creator app paths and
+verified custom hosts. Owner APIs create a unique TXT challenge for an
+app/hostname.
+Verification and activation are separate from registration. Current DNS proof can reclaim a hostname after old proof is removed; the previous route is disabled before retryable certificate cleanup. Unknown hosts never
 fall back to Halo's authenticated application. Active custom hosts route only to
 an explicitly published public app's HTTP surface, with anonymous identity.
 

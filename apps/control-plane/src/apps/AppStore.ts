@@ -73,6 +73,7 @@ const reservedHandles = new Set([
   "auth",
   "demo",
   "docs",
+  "go",
   "halo",
   "mail",
   "staging",
@@ -95,7 +96,7 @@ const appColumns = `a.app_id, a.owner_user_id, c.handle, a.extension_id, a.slug,
 
 /** Durable app ownership, access and fixed action bindings. */
 export class AppStore {
-  private readonly database: SqlDatabase;
+  readonly database: SqlDatabase; // Shared with domain bindings so SQLite transactions use one queue.
 
   constructor(ctx: { db: DatabaseService }) {
     this.database = new SqlDatabase({ client: ctx.db.appClient });

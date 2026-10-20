@@ -27,7 +27,9 @@ export function creatorHandle(ctx: {
   host: string | undefined;
 }) {
   const label = subdomainLabel(ctx);
-  return label !== undefined && handlePattern.test(label) ? label : undefined;
+  return label !== undefined && label !== "go" && handlePattern.test(label)
+    ? label
+    : undefined;
 }
 
 function subdomainLabel(ctx: {
