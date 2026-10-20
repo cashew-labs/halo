@@ -544,6 +544,41 @@ e2eTest(
 );
 
 e2eTest(
+  "keeps the update page while retrying an older server",
+  async ({ app }) => {
+    const info = {
+      protocolVersion: haloProtocolVersion - 1,
+      supportedProtocols: [haloProtocolVersion - 1],
+    };
+    let hold = false;
+    let held = 0;
+    await app.page.route("**/rpc/server/info", async (route) => {
+      if (hold) held++;
+      else await route.fulfill({ json: { json: info } });
+    });
+    await routeWorkspaceRpc(app.page, async (request) => {
+      if (request.path !== "/server/info") request.continue();
+      else if (hold) held++;
+      else await request.fulfill({ json: info });
+    });
+    await app.page.reload();
+    const updatePage = app.page.getByText("Can't connect to your workspace", {
+      exact: true,
+    });
+    await expect(updatePage).toBeVisible();
+    hold = true;
+    await app.page.evaluate(() =>
+      document.dispatchEvent(new Event("visibilitychange")),
+    );
+    await expect.poll(() => held).toBeGreaterThan(0);
+    await expect(updatePage).toBeVisible();
+    await expect(
+      app.page.getByText("Opening your workspace", { exact: true }),
+    ).toHaveCount(0);
+  },
+);
+
+e2eTest(
   "automatically merges an offline note after reconnecting without a conflict dialog",
   async ({ app, llm }) => {
     await app.server.rpc.workspace.writeFile({

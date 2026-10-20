@@ -5,15 +5,18 @@ import haloLogo from "./assets/halo-donut-transparent.png";
 
 export function FullscreenPage({
   children,
+  footer,
   label,
   visual,
 }: {
   children: ReactNode;
+  footer?: ReactNode;
   label?: string;
   visual?: ReactNode;
 }) {
   const shell = useStyles(styles.shell);
   const content = useStyles(styles.content);
+  const footerClass = useStyles(styles.footer);
   const logo = useStyles(styles.logo);
   return (
     <main className={shell} aria-label={label}>
@@ -21,6 +24,9 @@ export function FullscreenPage({
         {visual ?? <img className={logo} src={haloLogo} alt="Halo" />}
         {children}
       </div>
+      {footer === undefined ? undefined : (
+        <footer className={footerClass}>{footer}</footer>
+      )}
     </main>
   );
 }
@@ -28,11 +34,14 @@ export function FullscreenPage({
 const styles = {
   shell: style(spacing.padding({ all: 12 }), {
     display: "grid",
-    placeItems: "center",
+    // Equal outer rows keep the content centered whether or not a footer is present.
+    gridTemplateRows: "1fr auto 1fr",
+    justifyItems: "center",
     minHeight: "var(--halo-window-content-height, 100dvh)",
     backgroundColor: backgroundColor.app,
   }),
   content: style({
+    gridRow: 2,
     width: "min(100%, 440px)",
     minWidth: 0,
     display: "flex",
@@ -44,6 +53,10 @@ const styles = {
     "& section > :not(:first-child)": {
       marginTop: spacing.value(4),
     },
+  }),
+  footer: style({
+    gridRow: 3,
+    alignSelf: "end",
   }),
   logo: style({
     display: "block",

@@ -199,9 +199,13 @@ export class ConnectionService {
     const controller = new AbortController();
     this.controller = controller;
     const generation = ++this.generation;
-    // A focus retry may discover credentials renewed in another window. Keep
-    // the sign-in action available until that probe actually connects.
-    if (this.state.status !== "authentication")
+    // A focus retry may discover credentials renewed in another window, and a
+    // timed retry may find an updated server. Keep the sign-in action or update
+    // page available until that probe actually connects.
+    if (
+      this.state.status !== "authentication" &&
+      this.state.status !== "incompatible"
+    )
       this.publish({
         ...this.state,
         status: this.state.api === undefined ? "connecting" : "reconnecting",
