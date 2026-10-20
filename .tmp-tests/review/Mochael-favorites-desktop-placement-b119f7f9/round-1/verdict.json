@@ -1,0 +1,51 @@
+{
+  "status": "changes_requested",
+  "summary": "The change adds a Favorites section with per-user and per-workspace persistence, collapsible and reorderable sidebar sections, and a top toolbar that replaces the per-section create buttons and the Desktop link. The preferences logic and the favorites wiring are mostly sound. It is not ready: an existing durable E2E still clicks the removed \"New file\" button, favorites show as \"Unavailable\" while data is still loading, and 33 changed lines are uncovered with no exemption.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "test",
+      "file": "apps/electron/e2e/basic.e2e.test.ts",
+      "line": 327,
+      "severity": "P1",
+      "body": "This durable E2E (`formats the first level N heading typed into a new Markdown file`, run for levels 1, 2, and 4) clicks `getByRole(\"button\", { name: \"New file\", exact: true })`. The change removed that button from the Documents header. The replacement in Sidebar.tsx is the toolbar button \"New Markdown file\", so all three test cases will now time out. `Release ready` requires the release E2E run to pass. Update the test to use the toolbar's \"New Markdown file\" button."
+    },
+    {
+      "id": "F2",
+      "kind": "source",
+      "file": "packages/web/src/sidebar/FavoritesSection.tsx",
+      "line": 109,
+      "severity": "P1",
+      "body": "Any favorite that does not resolve right now falls through to the \"Unavailable\" row. That includes favorites whose data has not loaded yet: `automations` is `undefined` before the database query resolves, `extensions.data` is `undefined` while that query loads, and file listings arrive asynchronously. Nested file favorites load one directory level at a time (root, then each parent), so the gap is longer for them. On every app start or reload, valid favorites therefore show briefly as \"Unavailable\" with no link. The coverage report agrees: lines 109 and 114 ran during the temp E2E, which never makes a favorite unavailable. Show \"Unavailable\" only after the matching source has loaded. For example, treat `automations === undefined` and `extensions.data === undefined` as loading. For files, wait until the parent directory listing has loaded, or render a neutral placeholder."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "packages/web/src/sidebar/SidebarPreferences.ts:64-70 and 155-159 (localStorage getItem/setItem throwing)",
+      "tier": "tmp",
+      "rationale": "These storage-failure branches are uncovered. Add a unit test that stubs `window.localStorage.getItem` and `setItem` to throw. It should assert that the constructor falls back to the defaults and warns, and that `toggleFavorite` still updates the snapshot and notifies listeners when saving fails."
+    },
+    {
+      "target": "packages/web/src/sidebar/SidebarPreferences.ts:126-137 shiftSection at the list boundaries",
+      "tier": "tmp",
+      "rationale": "Line 133 is uncovered. Test shifting the first section up and the last section down, and assert that the order stays unchanged."
+    },
+    {
+      "target": "packages/web/src/sidebar/Sidebar.tsx:79-127 toolbar handlers and packages/web/src/sidebar/navigation/SidebarSection.tsx:85-101,154-155,161-164 section drag/keyboard reorder",
+      "tier": "tmp",
+      "rationale": "The temp E2E exercises these handlers before its first `page.reload()`, but the report lists them as uncovered. Reloading probably resets the renderer's coverage. Restructure the temp E2E, or add one, so that the toolbar actions (New chat session, New Markdown file, New folder, Desktop), the drag-to-reorder, and the ArrowUp/ArrowDown reorder run in a page session that is not reloaded before coverage is collected. Keep the assertions on the resulting order and on the opened panes."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "a8b523f1ca6507bfcd28f038c1f6389c12f991be",
+  "treeHash": "b60a383771c70e5ec55cedee8363a94e3c411329",
+  "codeTree": "5378cfd2916937c2966fb6b25ae54b615b0aeac8",
+  "coverage": {
+    "executable": 182,
+    "covered": 149,
+    "exempt": 0,
+    "uncovered": 33
+  },
+  "createdAt": "2026-10-20T16:13:37.164Z"
+}
