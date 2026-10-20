@@ -1,0 +1,27 @@
+{
+  "status": "changes_requested",
+  "summary": "Phase 4 keeps marketing administrator IDs in Secret Manager. Pulumi now carries only the secret name and gives the runtime read access to that one secret. The server reads and validates the secret at startup, fails closed and gives the secret priority over the plaintext list. The logic is sound, and temp tests cover development and Cloud Run reads, rotation, revocation, precedence, HTTP failures and malformed payloads. The coverage gate fails: infra/control-plane/index.ts:916 is a changed executable line with no test and no accepted exemption.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "source",
+      "file": "infra/control-plane/index.ts",
+      "line": 916,
+      "severity": "P1",
+      "body": "Line 916 adds `...marketingAdminUserIdsAccess,` to the Cloud Run service's `dependsOn` list. The coverage report lists it as uncovered, and no `coverage-exempt` reason covers it, so the coverage gate fails. Every other new Pulumi line in this file carries an exemption. Add an exemption with the same kind of reason, for example: declarative Pulumi deployment ordering is checked by infra typecheck and preview, not by a cloud deployment in unit tests. This line orders the IAM grant before the revision that reads the secret, so the reason should say how that ordering is verified."
+    }
+  ],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 4,
+  "headSha": "ebf6739e13ba597a3197a3cff8874c8f92e80d41",
+  "treeHash": "5ac0f954d86226fb4c3e366030ee5e651b270523",
+  "codeTree": "adf40d86ec94d482ce1b5c1d42f31ea508e12dad",
+  "coverage": {
+    "executable": 60,
+    "covered": 19,
+    "exempt": 40,
+    "uncovered": 1
+  },
+  "createdAt": "2026-10-20T23:34:50.626Z"
+}

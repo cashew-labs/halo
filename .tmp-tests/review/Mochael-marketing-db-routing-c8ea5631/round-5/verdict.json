@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "F1 is resolved: infra/control-plane/index.ts:916 now has an acceptable exemption explaining that the IAM-before-service ordering is verified by the authenticated infrastructure preview, and the coverage gate passes. The rest of the change is the same as in round 4. Administrator IDs are read from a Secret Manager secret that fails closed, the go host serves database-backed campaigns, and the marketing hostname and homepage can be overridden. Both test tiers pass, every changed line is covered or exempt, and no findings remain.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 5,
+  "headSha": "ebf6739e13ba597a3197a3cff8874c8f92e80d41",
+  "treeHash": "e72674a6c624716b6b0b84759f022c1a2c503d6f",
+  "codeTree": "7b55d838ee7f7822db5eb3b1ec3fe2c8a2483bd4",
+  "coverage": {
+    "executable": 60,
+    "covered": 19,
+    "exempt": 41,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-20T23:37:02.709Z"
+}

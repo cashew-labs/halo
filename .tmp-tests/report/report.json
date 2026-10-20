@@ -1,0 +1,449 @@
+{
+  "baseRef": "Mochael/marketing-admin-api",
+  "baseSha": "b040f5ffbc4445919dd54d4e95cd7cf6a8b5f10b",
+  "headSha": "ebf6739e13ba597a3197a3cff8874c8f92e80d41",
+  "treeHash": "e72674a6c624716b6b0b84759f022c1a2c503d6f",
+  "generatedAt": "2026-10-20T23:36:49.985Z",
+  "runs": {
+    "durable": {
+      "tier": "durable",
+      "testFiles": [
+        "apps/control-plane/test/ControlPlane.test.ts"
+      ],
+      "skipped": false,
+      "runners": [
+        {
+          "runner": "vitest",
+          "dir": ".",
+          "testFiles": [
+            "apps/control-plane/test/ControlPlane.test.ts"
+          ],
+          "exitCode": 0
+        }
+      ],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 99198,
+      "log": ".tmp-tests/report/durable.log",
+      "lcovFiles": [
+        "../../../repos/halo/.git/worktrees/indianapolis/code-review-agent/coverage/durable-0/vitest-0/lcov.info"
+      ]
+    },
+    "tmp": {
+      "tier": "tmp",
+      "testFiles": [
+        "apps/control-plane/src/marketing/.tmp-tests/MarketingLinks.test.ts",
+        "apps/control-plane/src/marketing/.tmp-tests/MarketingLinksPostgres.test.ts",
+        "apps/control-plane/src/marketing/.tmp-tests/serveMarketingLink.test.ts",
+        "packages/config/src/.tmp-tests/marketingAdmins.test.ts"
+      ],
+      "skipped": false,
+      "runners": [
+        {
+          "runner": "vitest",
+          "dir": ".",
+          "testFiles": [
+            "apps/control-plane/src/marketing/.tmp-tests/MarketingLinks.test.ts",
+            "apps/control-plane/src/marketing/.tmp-tests/MarketingLinksPostgres.test.ts",
+            "apps/control-plane/src/marketing/.tmp-tests/serveMarketingLink.test.ts",
+            "packages/config/src/.tmp-tests/marketingAdmins.test.ts"
+          ],
+          "exitCode": 0
+        }
+      ],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 1101,
+      "log": ".tmp-tests/report/tmp.log",
+      "lcovFiles": [
+        "../../../repos/halo/.git/worktrees/indianapolis/code-review-agent/coverage/tmp-0/vitest-0/lcov.info",
+        "../../../repos/halo/.git/worktrees/indianapolis/code-review-agent/coverage/tmp-0/vitest-1/lcov.info"
+      ]
+    }
+  },
+  "durableTestFiles": [
+    "apps/control-plane/test/ControlPlane.test.ts"
+  ],
+  "tmpTestFiles": [
+    "apps/control-plane/src/marketing/.tmp-tests/MarketingLinks.test.ts",
+    "apps/control-plane/src/marketing/.tmp-tests/MarketingLinksPostgres.test.ts",
+    "apps/control-plane/src/marketing/.tmp-tests/serveMarketingLink.test.ts",
+    "packages/config/src/.tmp-tests/marketingAdmins.test.ts"
+  ],
+  "files": [
+    {
+      "path": "apps/control-plane/src/marketing/serveMarketingLink.ts",
+      "loaded": true,
+      "changed": [
+        1,
+        4,
+        5,
+        8,
+        9,
+        11,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        33
+      ],
+      "coveredDurable": [
+        11,
+        23,
+        24,
+        33
+      ],
+      "coveredTmpOnly": [
+        25,
+        26,
+        27
+      ],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "apps/control-plane/src/server/ControlPlane.ts",
+      "loaded": true,
+      "changed": [
+        256,
+        257
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "apps/control-plane/src/server/controlPlaneHttp.ts",
+      "loaded": true,
+      "changed": [
+        172,
+        173,
+        192,
+        193,
+        194,
+        228,
+        229,
+        230,
+        231,
+        234,
+        235,
+        292,
+        293,
+        294,
+        295
+      ],
+      "coveredDurable": [
+        193,
+        228,
+        231,
+        292
+      ],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "infra/control-plane/index.ts",
+      "loaded": false,
+      "changed": [
+        70,
+        71,
+        72,
+        73,
+        74,
+        76,
+        77,
+        78,
+        79,
+        80,
+        81,
+        692,
+        693,
+        694,
+        695,
+        696,
+        697,
+        698,
+        699,
+        700,
+        701,
+        702,
+        703,
+        704,
+        705,
+        706,
+        707,
+        830,
+        831,
+        832,
+        834,
+        835,
+        837,
+        838,
+        839,
+        840,
+        841,
+        842,
+        843,
+        844,
+        845,
+        916,
+        1019,
+        1020,
+        1021,
+        1022,
+        1023,
+        1024,
+        1025,
+        1026,
+        1027,
+        1028,
+        1029,
+        1030,
+        1031,
+        1032,
+        1033,
+        1034,
+        1035,
+        1036,
+        1037,
+        1038,
+        1039,
+        1040,
+        1041,
+        1164,
+        1165,
+        1167
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": [
+        {
+          "line": 72,
+          "reason": "Pulumi secret reference is validated by infrastructure preview."
+        },
+        {
+          "line": 73,
+          "reason": "Pulumi secret reference is validated by infrastructure preview."
+        },
+        {
+          "line": 77,
+          "reason": "Pulumi deployment settings are validated by the receiving config schema and infra preview."
+        },
+        {
+          "line": 78,
+          "reason": "Pulumi deployment settings are validated by the receiving config schema and infra preview."
+        },
+        {
+          "line": 80,
+          "reason": "Pulumi deployment settings are validated by the receiving config schema and infra preview."
+        },
+        {
+          "line": 81,
+          "reason": "Pulumi deployment settings are validated by the receiving config schema and infra preview."
+        },
+        {
+          "line": 693,
+          "reason": "Declarative secret-scoped runtime IAM is checked by infrastructure preview."
+        },
+        {
+          "line": 694,
+          "reason": "Declarative secret-scoped runtime IAM is checked by infrastructure preview."
+        },
+        {
+          "line": 695,
+          "reason": "Declarative secret-scoped runtime IAM is checked by infrastructure preview."
+        },
+        {
+          "line": 696,
+          "reason": "Declarative secret-scoped runtime IAM is checked by infrastructure preview."
+        },
+        {
+          "line": 697,
+          "reason": "Declarative secret-scoped runtime IAM is checked by infrastructure preview."
+        },
+        {
+          "line": 698,
+          "reason": "Declarative secret-scoped runtime IAM is checked by infrastructure preview."
+        },
+        {
+          "line": 700,
+          "reason": "Declarative secret-scoped runtime IAM is checked by infrastructure preview."
+        },
+        {
+          "line": 701,
+          "reason": "Declarative secret-scoped runtime IAM is checked by infrastructure preview."
+        },
+        {
+          "line": 702,
+          "reason": "Declarative secret-scoped runtime IAM is checked by infrastructure preview."
+        },
+        {
+          "line": 703,
+          "reason": "Declarative secret-scoped runtime IAM is checked by infrastructure preview."
+        },
+        {
+          "line": 831,
+          "reason": "Declarative Cloud Run environment; validated by config bootstrap tests and infrastructure preview."
+        },
+        {
+          "line": 834,
+          "reason": "Declarative Cloud Run environment; validated by config bootstrap tests and infrastructure preview."
+        },
+        {
+          "line": 835,
+          "reason": "Declarative Cloud Run environment; validated by config bootstrap tests and infrastructure preview."
+        },
+        {
+          "line": 838,
+          "reason": "Cloud Run carries only the Secret Manager reference, verified by infrastructure preview."
+        },
+        {
+          "line": 839,
+          "reason": "Cloud Run carries only the Secret Manager reference, verified by infrastructure preview."
+        },
+        {
+          "line": 840,
+          "reason": "Cloud Run carries only the Secret Manager reference, verified by infrastructure preview."
+        },
+        {
+          "line": 842,
+          "reason": "Cloud Run carries only the Secret Manager reference, verified by infrastructure preview."
+        },
+        {
+          "line": 843,
+          "reason": "Cloud Run carries only the Secret Manager reference, verified by infrastructure preview."
+        },
+        {
+          "line": 916,
+          "reason": "Declarative IAM-before-service ordering is verified by the authenticated infrastructure preview."
+        },
+        {
+          "line": 1023,
+          "reason": "Declarative certificate resources require an authenticated Pulumi preview and live DNS/TLS validation."
+        },
+        {
+          "line": 1024,
+          "reason": "Declarative certificate resources require an authenticated Pulumi preview and live DNS/TLS validation."
+        },
+        {
+          "line": 1025,
+          "reason": "Declarative certificate resources require an authenticated Pulumi preview and live DNS/TLS validation."
+        },
+        {
+          "line": 1027,
+          "reason": "Declarative certificate resources require an authenticated Pulumi preview and live DNS/TLS validation."
+        },
+        {
+          "line": 1028,
+          "reason": "Declarative certificate resources require an authenticated Pulumi preview and live DNS/TLS validation."
+        },
+        {
+          "line": 1029,
+          "reason": "Declarative certificate resources require an authenticated Pulumi preview and live DNS/TLS validation."
+        },
+        {
+          "line": 1030,
+          "reason": "Declarative certificate resources require an authenticated Pulumi preview and live DNS/TLS validation."
+        },
+        {
+          "line": 1032,
+          "reason": "Declarative certificate resources require an authenticated Pulumi preview and live DNS/TLS validation."
+        },
+        {
+          "line": 1034,
+          "reason": "Declarative certificate resources require an authenticated Pulumi preview and live DNS/TLS validation."
+        },
+        {
+          "line": 1035,
+          "reason": "Declarative certificate resources require an authenticated Pulumi preview and live DNS/TLS validation."
+        },
+        {
+          "line": 1036,
+          "reason": "Declarative certificate resources require an authenticated Pulumi preview and live DNS/TLS validation."
+        },
+        {
+          "line": 1037,
+          "reason": "Declarative certificate resources require an authenticated Pulumi preview and live DNS/TLS validation."
+        },
+        {
+          "line": 1038,
+          "reason": "Declarative certificate resources require an authenticated Pulumi preview and live DNS/TLS validation."
+        },
+        {
+          "line": 1039,
+          "reason": "Declarative certificate resources require an authenticated Pulumi preview and live DNS/TLS validation."
+        },
+        {
+          "line": 1165,
+          "reason": "Pulumi stack output; checked by typecheck and preview."
+        },
+        {
+          "line": 1167,
+          "reason": "Pulumi stack output; checked by typecheck and preview."
+        }
+      ]
+    },
+    {
+      "path": "packages/config/src/controlPlane.ts",
+      "loaded": true,
+      "changed": [
+        59,
+        64,
+        65,
+        66,
+        67,
+        68,
+        69,
+        70,
+        71,
+        72,
+        73,
+        74,
+        88,
+        89,
+        106,
+        107,
+        232,
+        236,
+        237,
+        297,
+        301,
+        302,
+        381,
+        382,
+        383,
+        384,
+        385,
+        386,
+        387
+      ],
+      "coveredDurable": [
+        66,
+        67,
+        71
+      ],
+      "coveredTmpOnly": [
+        232,
+        297,
+        382,
+        384,
+        387
+      ],
+      "uncovered": [],
+      "exempt": []
+    }
+  ],
+  "totals": {
+    "executable": 60,
+    "coveredDurable": 11,
+    "coveredTmpOnly": 8,
+    "uncovered": 0,
+    "exempt": 41
+  },
+  "passed": true
+}

@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The go host now reads enabled campaigns from the database for each request. It returns 500 on database errors, and it matches the go host by hostname for both requests and WebSocket upgrades. The static marketingLinks configuration and HALO_MARKETING_LINKS are removed. This round removes the stale Pulumi.prod.yaml comment noted in round 1 and simplifies the test request headers. Tests pass, all changed lines are covered, and there are no open findings.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "b040f5ffbc4445919dd54d4e95cd7cf6a8b5f10b",
+  "treeHash": "d881ed664ad01ea03bcfdbe627ab0140e15cfec9",
+  "codeTree": "dddd365881e161cdb3e1f4c0fcda90a9779099d3",
+  "coverage": {
+    "executable": 9,
+    "covered": 9,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-20T22:49:48.431Z"
+}
