@@ -753,6 +753,7 @@ const appDomainCertificateRole = new gcp.projects.IAMCustomRole(
       "certificatemanager.operations.get",
     ],
   },
+  { dependsOn: [certificateManager, ...deploymentRoleAdmin] },
 );
 // coverage-exempt: Runtime IAM binding is applied by Pulumi, not executed by unit tests.
 new gcp.projects.IAMMember("runtime-app-domain-certificates", {

@@ -169,3 +169,45 @@ tlsTest(
     expect(cloud.resources.size).toBe(0);
   },
 );
+
+// Durable: terminal Google failures must not trap a corrected DNS setup forever.
+tlsTest(
+  "recreates a failed certificate while preserving its DNS authorization",
+  async ({ tls, cloud }) => {
+    await tls.ensure(input);
+    const pending = await tls.ensure(input);
+    const certificate = [...cloud.resources.keys()].find((path) =>
+      path.includes("/certificates/"),
+    )!;
+    const authorization = [...cloud.resources.keys()].find((path) =>
+      path.includes("/dnsAuthorizations/"),
+    )!;
+    const proof = cloud.resources.get(authorization);
+    cloud.resources.set(certificate, { managed: { state: "ACTIVE" } });
+    await tls.ensure(input);
+    await tls.ensure(input);
+    cloud.resources.set(certificate, { managed: { state: "FAILED" } });
+    cloud.operationDone = false;
+    expect(await tls.ensure(input)).toBeInstanceOf(Error);
+    expect(cloud.resources.has(certificate)).toBe(true);
+    cloud.operationDone = true;
+    expect(await tls.ensure(input)).toEqual(pending);
+    expect(cloud.resources.has(certificate)).toBe(false);
+    expect(cloud.resources.get(authorization)).toEqual(proof);
+    expect(await tls.ensure(input)).toEqual(pending);
+    cloud.resources.set(certificate, { managed: { state: "ACTIVE" } });
+    await tls.ensure(input);
+    expect(await tls.ensure(input)).toMatchObject({ ready: true });
+    expect(
+      cloud.calls.filter(
+        (call) =>
+          call.method === "POST" && call.path.endsWith("dnsAuthorizations"),
+      ),
+    ).toHaveLength(1);
+    expect(
+      cloud.calls.filter(
+        (call) => call.method === "POST" && call.path.endsWith("certificates"),
+      ),
+    ).toHaveLength(2);
+  },
+);
