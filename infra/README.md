@@ -35,24 +35,36 @@ See the [admin API guide](../apps/control-plane/README.marketing-links.md).
 
 Remove the former `marketingLinks`/`HALO_MARKETING_LINKS` campaign map. Production's
 map was empty, so there is no data import. Staging and production databases and
-administrator lists are independent.
-The existing wildcard certificate covers `go.<controlPlaneDomain>` and the
-load balancer's default backend preserves its host and path. There is no
-additional certificate, extension binding, separate database, or workspace to provision.
-The stack exports `marketingUrl` and `marketingDnsRecord`. At Vercel DNS, point
-`go.gethalo.dev` to production's exported A-record address, or verify that the
-existing wildcard A record resolves it there. An explicit old CNAME/A record
-for `go` overrides a wildcard and must be replaced. Keep the wildcard
-certificate's DNS authorization records from `creatorDnsRecords.certificate`
-and verify that certificate is active before directing visitors to the host.
+administrator lists remain independent.
 
-Deploy the complete server stack before managing campaigns. Preview the selected
-stack, deploy a control-plane image containing the database-backed handler,
-configure the administrator account IDs, then create a campaign through the admin
-API. Verify its URL returns 302 with the saved tags, unknown/disabled URLs return
-404 and GET/HEAD agree. Staging uses `go.staging.gethalo.dev`, directing visits to
-`staging.gethalo.dev`. Live ingress/TLS smoke checks remain deployment work; this
-code does not modify DNS or running services.
+The `west` stack explicitly sets `marketingHostname: go.gethalo.dev` and
+`marketingHomepageOrigin: https://gethalo.dev`. Public links query **staging's**
+`marketing_links` table and redirect to production's homepage. Manage them through
+`https://staging.gethalo.dev/rpc` using an authorized staging account or its
+workspace runtime. Primary staging authentication stays on `staging.gethalo.dev`.
+Staging availability and preservation of its campaign data now affect live links.
+
+Without overrides, stacks keep `go.<controlPlaneDomain>` and their own homepage.
+The equivalent server variables are `HALO_MARKETING_HOSTNAME` and
+`HALO_MARKETING_HOMEPAGE_ORIGIN`. A hostname outside that default receives a
+separate Google-managed, load-balancer-authorized certificate and an exact entry
+in the existing certificate map. The main certificate is unchanged; staging's
+wildcard does not cover `go.gethalo.dev`. No extension binding is required.
+
+Deploy the server image containing these changes and apply the `west` infrastructure
+before switching DNS. The stack exports `marketingUrl` and `marketingDnsRecord`.
+The verified staging IP is `34.54.19.173`; replace existing Vercel DNS routing
+records for `go` with **A / go / 34.54.19.173 / TTL 60**. Remove conflicting CNAME,
+A or AAAA records for that name. This certificate uses load-balancer authorization,
+so it needs no separate verification CNAME. Keep the existing wildcard certificate
+DNS authorization records for other hostnames.
+
+The new certificate provisions after the A record reaches staging's load balancer.
+Wait for ACTIVE status, configure staging administrator IDs, create a campaign,
+and check 302 with saved tags, 404 for unknown/disabled URLs and GET/HEAD agreement.
+These changes do not deploy services or modify DNS. Local `west` preview succeeds;
+it also exposes existing image digest/tag and exe template version drift unrelated
+to marketing. Review that drift before applying the whole stack.
 
 ## Staging and production stacks
 

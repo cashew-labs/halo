@@ -5,10 +5,10 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 export async function serveMarketingLink(ctx: {
   request: IncomingMessage;
   response: ServerResponse;
-  publicOrigin: string;
+  homepageOrigin: string;
   links: Pick<MarketingLinks, "resolve">;
 }) {
-  const { request, response, publicOrigin, links } = ctx;
+  const { request, response, homepageOrigin, links } = ctx;
   response.setHeader("cache-control", "no-store");
   if (request.method !== "GET" && request.method !== "HEAD") {
     response.writeHead(405, { allow: "GET, HEAD" }).end();
@@ -30,7 +30,7 @@ export async function serveMarketingLink(ctx: {
     response.writeHead(404).end();
     return;
   }
-  const destination = new URL("/", publicOrigin);
+  const destination = new URL("/", homepageOrigin);
   for (const [key, value] of Object.entries(tags))
     if (value !== undefined) destination.searchParams.set(key, value);
   response.writeHead(302, { location: destination.href }).end();

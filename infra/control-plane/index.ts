@@ -72,6 +72,12 @@ const environment = configuration.get("environment");
 const marketingAdminUserIds =
   configuration.getObject<string[]>("marketingAdminUserIds") ?? [];
 const controlPlaneOrigin = `https://${controlPlaneDomain}`;
+// coverage-exempt: Pulumi deployment settings are validated by the receiving config schema and infra preview.
+const marketingHostname =
+  configuration.get("marketingHostname") ?? `go.${controlPlaneDomain}`;
+// coverage-exempt: Pulumi deployment settings are validated by the receiving config schema and infra preview.
+const marketingHomepageOrigin =
+  configuration.get("marketingHomepageOrigin") ?? controlPlaneOrigin;
 // Apex domains also serve www and redirect it; subdomains such as staging do not.
 const redirectWww = configuration.getBoolean("redirectWww") ?? true;
 const controlPlaneHostnames = redirectWww
@@ -804,6 +810,13 @@ const controlPlane = new gcp.cloudrunv2.Service(
                   { name: "EXE_GATEWAY_SECRET_ID", value: exeGatewaySecretId },
                 ]),
             { name: "BETTER_AUTH_URL", value: controlPlaneOrigin },
+            // coverage-exempt: Declarative Cloud Run environment; validated by config bootstrap tests and infrastructure preview.
+            { name: "HALO_MARKETING_HOSTNAME", value: marketingHostname },
+            // coverage-exempt: Declarative Cloud Run environment; validated by config bootstrap tests and infrastructure preview.
+            {
+              name: "HALO_MARKETING_HOMEPAGE_ORIGIN",
+              value: marketingHomepageOrigin,
+            },
             {
               name: "HALO_MARKETING_ADMIN_USER_IDS", // coverage-exempt: Declarative Cloud Run environment provisioned by Pulumi.
               value: JSON.stringify(marketingAdminUserIds), // coverage-exempt: Declarative Cloud Run environment provisioned by Pulumi.
@@ -981,6 +994,29 @@ new gcp.certificatemanager.CertificateMapEntry("creator-certificate-wildcard", {
   certificates: [creatorCertificate.id],
   hostname: `*.${controlPlaneDomain}`,
 });
+// A marketing override can live outside this stack's existing creator wildcard.
+// Use a separate load-balancer-authorized certificate: DNS cutover authorizes
+// issuance without replacing the primary Halo certificate or its auth origin.
+// coverage-exempt: Declarative certificate resources require an authenticated Pulumi preview and live DNS/TLS validation.
+if (marketingHostname !== `go.${controlPlaneDomain}`) {
+  const marketingCertificate = new gcp.certificatemanager.Certificate(
+    "marketing-certificate",
+    {
+      name: `${controlPlaneServiceName}-marketing`,
+      project,
+      scope: "DEFAULT",
+      managed: { domains: [marketingHostname] },
+    },
+    { dependsOn: [certificateManager, ...deploymentCertificateAccess] },
+  );
+  new gcp.certificatemanager.CertificateMapEntry("marketing-certificate-host", {
+    name: `${controlPlaneServiceName}-marketing`,
+    project,
+    map: controlPlaneCertificateMap.name,
+    certificates: [marketingCertificate.id],
+    hostname: marketingHostname,
+  });
+}
 const controlPlaneEndpoint = new gcp.compute.RegionNetworkEndpointGroup(
   "control-plane-endpoint",
   {
@@ -1103,10 +1139,10 @@ export const controlPlaneAuthSecretVersion = authSecretVersion.version;
 export const controlPlaneName = controlPlane.name;
 export const controlPlaneUrl = controlPlaneOrigin;
 export const controlPlaneDomainIp = controlPlaneAddress.address;
-// The existing wildcard certificate and default URL map already serve go.
-export const marketingUrl = `https://go.${controlPlaneDomain}`;
+// The default backend serves the configured marketing host, with its dedicated certificate when needed.
+export const marketingUrl = `https://${marketingHostname}`;
 export const marketingDnsRecord = {
-  name: `go.${controlPlaneDomain}`,
+  name: marketingHostname,
   type: "A",
   data: controlPlaneAddress.address,
 };

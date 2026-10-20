@@ -253,6 +253,8 @@ export class ControlPlane {
       googleAnalyticsMeasurementId: config.googleAnalyticsMeasurementId,
       environment: config.environment,
       marketing,
+      marketingHostname: config.marketingHostname,
+      marketingHomepageOrigin: config.marketingHomepageOrigin,
       inference: ctx.inference,
       traces:
         ctx.traceCloud === undefined

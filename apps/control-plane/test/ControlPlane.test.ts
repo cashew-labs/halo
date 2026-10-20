@@ -220,6 +220,8 @@ const controlPlaneTest = test.extend<{
   rpc: ControlPlaneClient;
   webRoot: string;
   marketingAdminUserIds: string[];
+  marketingHostname: string | undefined;
+  marketingHomepageOrigin: string | undefined;
   googleAnalyticsMeasurementId: string | undefined;
   environment: "production" | "staging" | "development" | undefined;
   workspaceProvider: WorkspaceProviderApi;
@@ -881,6 +883,8 @@ const controlPlaneTest = test.extend<{
     await fs.rm(appDataDir, { recursive: true, force: true });
   },
   marketingAdminUserIds: [],
+  marketingHostname: undefined,
+  marketingHomepageOrigin: undefined,
   googleAnalyticsMeasurementId: undefined,
   environment: undefined,
   webRoot: async ({ appDataDir }, use) => {
@@ -902,6 +906,8 @@ const controlPlaneTest = test.extend<{
       integrationApi,
       allowLocalIntegrationUrls,
       marketingAdminUserIds,
+      marketingHostname,
+      marketingHomepageOrigin,
       googleAnalyticsMeasurementId,
       environment,
     },
@@ -915,6 +921,8 @@ const controlPlaneTest = test.extend<{
         appDataDir,
         port: 0,
         marketingAdminUserIds,
+        marketingHostname,
+        marketingHomepageOrigin,
         googleAnalyticsMeasurementId,
         environment,
         auth: testAuth,
@@ -6990,5 +6998,96 @@ controlPlaneTest(
     await expect(authenticatedRpc.marketing.list()).rejects.toMatchObject({
       code: "FORBIDDEN",
     });
+  },
+);
+
+controlPlaneTest.extend({
+  marketingAdminUserIds: ["staging-admin"],
+  marketingHostname: "go.gethalo.dev",
+  marketingHomepageOrigin: "https://gethalo.dev",
+})(
+  "staging administrators manage production marketing URLs without production credentials",
+  async ({ plane, appDataDir }) => {
+    const headers = await createAuthenticatedHeaders(
+      appDataDir,
+      plane.origin,
+      "staging-admin@example.com",
+      "staging-admin",
+    );
+    headers.set("origin", plane.origin);
+    const admin = createControlPlaneRpcClient(plane.origin, headers);
+    expect(await admin.auth.session()).toMatchObject({ status: "signed-in" });
+    await admin.workspace.ensure();
+    const settings = await readRuntimeSettings(appDataDir);
+    const agent = createControlPlaneRpcClient(plane.origin, settings.token);
+    const tags = {
+      utm_source: "linkedin",
+      utm_medium: "social",
+      utm_campaign: "production launch",
+    };
+    await agent.marketing.create({ slug: "launch", tags });
+    const port = new URL(plane.origin).port;
+    const request = async (
+      path: string,
+      method = "GET",
+      host = "go.gethalo.dev",
+      upgrade = false,
+    ) =>
+      await new Promise<{ status: number; location: string | undefined }>(
+        (done, reject) => {
+          const outgoing = http.request(
+            {
+              hostname: "127.0.0.1",
+              port,
+              path,
+              method,
+              headers: upgrade
+                ? { host, connection: "upgrade", upgrade: "websocket" }
+                : { host },
+            },
+            (response) => {
+              response.resume();
+              response.on("end", () =>
+                done({
+                  status: response.statusCode!,
+                  location: response.headers.location,
+                }),
+              );
+            },
+          );
+          outgoing.on("error", reject);
+          outgoing.end();
+        },
+      );
+    for (const host of ["go.gethalo.dev", "GO.GETHALO.DEV:443"]) {
+      for (const method of ["GET", "HEAD"]) {
+        const result = await request(
+          "/launch?utm_source=evil&url=https://evil.example",
+          method,
+          host,
+        );
+        expect(result.status).toBe(302);
+        const destination = new URL(result.location!);
+        expect(destination.origin).toBe("https://gethalo.dev");
+        expect(destination.pathname).toBe("/");
+        expect(Object.fromEntries(destination.searchParams)).toEqual(tags);
+      }
+      expect((await request("/rpc/marketing/list", "GET", host)).status).toBe(
+        404,
+      );
+      expect(
+        (await request("/workspace/health", "GET", host, true)).status,
+      ).toBe(404);
+    }
+    expect(
+      (await request("/launch", "GET", `go.localhost:${port}`)).status,
+    ).toBe(404);
+    expect(await agent.marketing.list()).toEqual([
+      { slug: "launch", tags, enabled: true },
+    ]);
+    await agent.marketing.update({ slug: "launch", tags, enabled: false });
+    expect((await request("/launch")).status).toBe(404);
+    // The primary origin still authenticates the same account after public redirects.
+    expect(await admin.auth.session()).toMatchObject({ status: "signed-in" });
   },
 );

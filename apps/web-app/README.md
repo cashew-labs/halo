@@ -61,14 +61,16 @@ measurement.
 
 ## Custom shortener at go.gethalo.dev
 
-Halo's regular control-plane server owns `go.<control-plane-host>/:slug`.
+Halo's staging control-plane server owns `go.gethalo.dev/:slug`.
 It returns a 302 to the Halo homepage with the link's configured campaign tags.
 No hosted extension, workspace, or signed-in desktop session participates.
 `go` is reserved and cannot be claimed as a creator handle.
 
 Campaigns are persistent control-plane database records. Authorized Halo admins
 and their workspace agents manage them through `marketing.create/list/update/remove`
-on the primary Halo RPC origin. Link changes require no deployment. No campaign
+on `https://staging.gethalo.dev/rpc`, using a configured staging administrator account.
+The campaigns live in staging's database; destinations use the production homepage.
+Link changes require no deployment. No campaign
 is enabled by default; create one before distributing its URL. See the
 [admin API guide](../control-plane/README.marketing-links.md) for authorization,
 agent examples, slug rules and UTM validation.

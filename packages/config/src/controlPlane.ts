@@ -61,6 +61,18 @@ const marketingAdminUserIdsSchema = Type.Array(
   Type.String({ minLength: 1, maxLength: 256 }),
   { uniqueItems: true },
 );
+// Explicit marketing hostnames and homepage origins contain no paths or credentials.
+const marketingDomainPattern =
+  "(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?";
+const marketingHostnameSchema = Type.String({
+  maxLength: 253,
+  pattern: `^${marketingDomainPattern}$`,
+});
+const marketingHomepageOriginSchema = Type.String({
+  maxLength: 262,
+  pattern: `^https://${marketingDomainPattern}/?$`,
+});
+
 export const controlPlaneConfigSchema = Type.Union([
   Type.Object({
     deployment: Type.Literal("local"),
@@ -73,6 +85,8 @@ export const controlPlaneConfigSchema = Type.Union([
     ),
     environment: Type.Optional(environmentSchema),
     marketingAdminUserIds: Type.Optional(marketingAdminUserIdsSchema),
+    marketingHostname: Type.Optional(marketingHostnameSchema),
+    marketingHomepageOrigin: Type.Optional(marketingHomepageOriginSchema),
     workspace: Type.Union([localWorkspaceSchema, exeWorkspaceSchema]),
   }),
   Type.Object({
@@ -89,6 +103,8 @@ export const controlPlaneConfigSchema = Type.Union([
     ),
     environment: Type.Optional(environmentSchema),
     marketingAdminUserIds: Type.Optional(marketingAdminUserIdsSchema),
+    marketingHostname: Type.Optional(marketingHostnameSchema),
+    marketingHomepageOrigin: Type.Optional(marketingHomepageOriginSchema),
     workspace: Type.Union([gcpWorkspaceSchema, exeWorkspaceSchema]),
   }),
 ]);
@@ -217,6 +233,8 @@ async function readDevelopmentConfig(): Promise<ControlPlaneConfig | Error> {
   if (marketingAdminUserIds instanceof Error) return marketingAdminUserIds;
   const server = {
     marketingAdminUserIds,
+    marketingHostname: process.env.HALO_MARKETING_HOSTNAME,
+    marketingHomepageOrigin: process.env.HALO_MARKETING_HOMEPAGE_ORIGIN,
     deployment: "local" as const,
     appDataDir:
       configuredDataDir === undefined
@@ -280,6 +298,8 @@ async function readCloudRunConfig(): Promise<ControlPlaneConfig | Error> {
   if (marketingAdminUserIds instanceof Error) return marketingAdminUserIds;
   const server = {
     marketingAdminUserIds,
+    marketingHostname: process.env.HALO_MARKETING_HOSTNAME,
+    marketingHomepageOrigin: process.env.HALO_MARKETING_HOMEPAGE_ORIGIN,
     deployment: "cloudRun" as const,
     port: Number(portValue),
     origin,

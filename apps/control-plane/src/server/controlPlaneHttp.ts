@@ -169,6 +169,8 @@ export function serveControlPlaneHttp(ctx: {
   authorization: WorkspaceAuthorization;
   apps: AppService;
   marketing: MarketingLinks;
+  marketingHostname?: string;
+  marketingHomepageOrigin?: string;
   appStore: AppStore;
   appGateway: AppGateway;
   publicOrigin: string;
@@ -187,9 +189,9 @@ export function serveControlPlaneHttp(ctx: {
   inference?: WorkspaceInference;
 }) {
   const { server, auth, publicOrigin, workspace, webRoot, traces } = ctx;
-  const marketingHostname = new URL(
-    creatorOrigin({ publicOrigin, handle: "go" }),
-  ).hostname;
+  const marketingHostname =
+    ctx.marketingHostname ??
+    new URL(creatorOrigin({ publicOrigin, handle: "go" })).hostname;
   const upgradeSockets = new Set<Duplex>();
   const rpc = new RPCHandler<ControlPlaneContext>(controlPlaneRpcRouter, {
     clientInterceptors: [
@@ -229,7 +231,7 @@ export function serveControlPlaneHttp(ctx: {
       await serveMarketingLink({
         request,
         response,
-        publicOrigin,
+        homepageOrigin: ctx.marketingHomepageOrigin ?? publicOrigin,
         links: ctx.marketing,
       });
       return;

@@ -73,6 +73,45 @@ replica test verifies shared writes, atomic duplicate rejection and immediate
 visibility. Phase 2 also exercises live HTTP behavior when the database is closed.
 No deployment or DNS changes are performed; staging ingress/TLS remains to verify.
 
+## ✅ Phase 3: Staging owns the production marketing hostname
+
+**Today:** Each deployment derives its marketing host and homepage from its primary
+origin. Staging accounts therefore manage staging URLs only.
+
+**Proposed:** Configure the marketing hostname and homepage independently of the
+primary origin. Staging owns `go.gethalo.dev`, reads its own persistent campaigns,
+and redirects visitors to `https://gethalo.dev/`. Staging account and workspace
+credentials still authenticate at `staging.gethalo.dev`; only configured staging
+administrators can modify campaigns. A dedicated load-balancer certificate covers
+the production marketing hostname without changing staging's main certificate.
+
+```callstack
+ Visitor: GET go.gethalo.dev/slug
+ └── staging load balancer # dedicated certificate and exact host map
++    └── controlPlaneHttp [[staging-routing:new:192-194]] # configured marketing hostname
++        └── serveMarketingLink [[staging-routing:new:234]] # production homepage origin
+             └── MarketingLinks.resolve # staging database, enabled records only
+```
+
+```mermaid
+flowchart LR
+    A[Staging admin or workspace] --> B[Staging primary RPC and admin gate]
+    B --> D[(Staging campaign table)]
+    V[Visitor: go.gethalo.dev/slug] --> H[Staging public resolver]
+    H --> D
+    H --> P[302: gethalo.dev with saved UTM tags]
+```
+
+The canonical HTTP test creates a campaign through a staging administrator's real
+workspace runtime and resolves it on the production marketing hostname. It also
+checks primary sign-in, private-route and WebSocket isolation, Host ports, visitor
+query overrides and immediate disabling. Config tests cover local/cloud bootstrap
+and malformed overrides. A real `west` Pulumi preview succeeds and exports
+`A go.gethalo.dev → 34.54.19.173`; it also shows unrelated existing image/template
+drift, which must be reviewed before deployment. Deploy first, replace `go` DNS,
+then wait for the load-balancer-authorized certificate to activate. No deployment,
+DNS change or administrator grant is performed by this work.
+
 ## References
 
 - [[apps/control-plane/src/marketing/MarketingLinks.ts]]
@@ -262,4 +301,26 @@ index f363cc6b..7053a351 100644
 +    response.writeHead(500).end();
 +    return;
 +  }
+```
+
+## Phase 3 source patch
+
+```source-diff:staging-routing:apps/control-plane/src/server/controlPlaneHttp.ts
+diff --git a/apps/control-plane/src/server/controlPlaneHttp.ts b/apps/control-plane/src/server/controlPlaneHttp.ts
+index 2b8f6d4c..1091077d 100644
+--- a/apps/control-plane/src/server/controlPlaneHttp.ts
++++ b/apps/control-plane/src/server/controlPlaneHttp.ts
+@@ -171,0 +172,2 @@ export function serveControlPlaneHttp(ctx: {
++  marketingHostname?: string;
++  marketingHomepageOrigin?: string;
+@@ -190,3 +192,3 @@ export function serveControlPlaneHttp(ctx: {
+-  const marketingHostname = new URL(
+-    creatorOrigin({ publicOrigin, handle: "go" }),
+-  ).hostname;
++  const marketingHostname =
++    ctx.marketingHostname ??
++    new URL(creatorOrigin({ publicOrigin, handle: "go" })).hostname;
+@@ -232 +234 @@ export function serveControlPlaneHttp(ctx: {
+-        publicOrigin,
++        homepageOrigin: ctx.marketingHomepageOrigin ?? publicOrigin,
 ```
