@@ -155,6 +155,16 @@ e2eTest(
     expect(
       await app.server.rpc.workspace.readFile({ path: "Open/renamed.md" }),
     ).toBe("Added while offline");
+    await app.page
+      .getByRole("link", { name: "renamed.md", exact: true })
+      .dblclick();
+    await expect(
+      app.page.getByRole("textbox", { name: "Rename renamed.md" }),
+    ).toBeFocused();
+    await app.server.rpc.workspace.deleteEntry({ path: "Open/renamed.md" });
+    await expect(
+      app.page.getByRole("button", { name: "New file", exact: true }),
+    ).toBeEnabled();
   },
 );
 

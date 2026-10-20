@@ -73,10 +73,19 @@ export function FilesystemSection() {
   const files = useMemo(() => buildFileNavigation(paths), [paths]);
   const [, navigate] = useLocation();
   const workspacePanes = useWorkspacePanes();
-  const [action, setAction] = useState<FileAction>();
+  const [storedAction, setAction] = useState<FileAction>();
   const [dragged, setDragged] = useState<string>();
   const [dropTarget, setDropTarget] = useState<string>();
   const [uploadStatus, setUploadStatus] = useState<string>();
+  // The rename field renders in its entry's row. If the entry leaves the
+  // listing, nothing could close the action and the section would stay locked.
+  const action =
+    storedAction?.kind === "rename" &&
+    !paths.includes(
+      storedAction.isDirectory ? `${storedAction.path}/` : storedAction.path,
+    )
+      ? undefined
+      : storedAction;
   useEffect(() => {
     if (!uploadStatus?.startsWith("Uploaded ")) return;
     const timeout = setTimeout(() => setUploadStatus(undefined), 5_000);
