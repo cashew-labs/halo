@@ -36,7 +36,9 @@ the old app's proof, then run `verify` for the new app. Halo disables the old
 route and cleans up its certificate before assigning the new binding; retry
 verification if cleanup is still pending. If both proofs remain in DNS, the
 existing verified claim stays in place. Managed certificate renewal is handled
-by Google.
+by Google. If a certificate reaches terminal `FAILED`, verification removes its
+old map entry and certificate, keeps the DNS authorization, and recreates the
+certificate on the next retry. Correct the returned DNS records before retrying.
 
 ## Deployment
 
@@ -64,3 +66,5 @@ Provider API references:
 - https://docs.cloud.google.com/certificate-manager/docs/dns-authorizations
 - https://docs.cloud.google.com/certificate-manager/docs/reference/certificate-manager/rest/v1/projects.locations.certificates/create
 - https://docs.cloud.google.com/certificate-manager/docs/reference/certificate-manager/rest/v1/projects.locations.certificateMaps.certificateMapEntries/create
+
+- https://docs.cloud.google.com/certificate-manager/docs/reference/certificate-manager/rest/v1/projects.locations.certificates#State
