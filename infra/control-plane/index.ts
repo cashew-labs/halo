@@ -68,6 +68,9 @@ const googleAnalyticsMeasurementId = configuration.get(
 const environment = configuration.get("environment");
 
 // Public campaign tags, validated by the control plane at startup.
+// coverage-exempt: Pulumi configuration is checked by infra typecheck; no cloud preview is run in local unit tests.
+const marketingAdminUserIds =
+  configuration.getObject<string[]>("marketingAdminUserIds") ?? [];
 const marketingLinks = configuration.getObject("marketingLinks") ?? {};
 const controlPlaneOrigin = `https://${controlPlaneDomain}`;
 // Apex domains also serve www and redirect it; subdomains such as staging do not.
@@ -802,6 +805,10 @@ const controlPlane = new gcp.cloudrunv2.Service(
                   { name: "EXE_GATEWAY_SECRET_ID", value: exeGatewaySecretId },
                 ]),
             { name: "BETTER_AUTH_URL", value: controlPlaneOrigin },
+            {
+              name: "HALO_MARKETING_ADMIN_USER_IDS", // coverage-exempt: Declarative Cloud Run environment provisioned by Pulumi.
+              value: JSON.stringify(marketingAdminUserIds), // coverage-exempt: Declarative Cloud Run environment provisioned by Pulumi.
+            },
             {
               name: "HALO_MARKETING_LINKS",
               value: JSON.stringify(marketingLinks),

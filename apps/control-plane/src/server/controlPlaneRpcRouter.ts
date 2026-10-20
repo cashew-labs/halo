@@ -28,6 +28,13 @@ import {
 } from "../integrations/setupBrowserCookie.js";
 import { isAppRequestError, type AppService } from "../apps/AppService.js";
 
+import {
+  MarketingAdminRequiredError,
+  MarketingLinkConflictError,
+  MarketingLinkNotFoundError,
+  type MarketingLinks,
+} from "../marketing/MarketingLinks.js";
+
 export type ControlPlaneContext = RequestHeadersHandlerPluginContext &
   ResponseHeadersHandlerPluginContext & {
     build?: { version: string; revision: string };
@@ -36,6 +43,7 @@ export type ControlPlaneContext = RequestHeadersHandlerPluginContext &
     workspace: WorkspaceService;
     integrations?: IntegrationService;
     apps: AppService;
+    marketing: MarketingLinks;
   };
 
 const implementer =
@@ -147,6 +155,17 @@ async function appOwner(context: ControlPlaneContext) {
 function appError(result: Error): never {
   if (isAppRequestError(result)) throw badRequest(result);
   throw internalError(result);
+}
+
+function marketingResult<T>(result: T | Error): T {
+  if (result instanceof MarketingAdminRequiredError)
+    throw new ORPCError("FORBIDDEN", { message: result.message });
+  if (result instanceof MarketingLinkConflictError)
+    throw new ORPCError("CONFLICT", { message: result.message });
+  if (result instanceof MarketingLinkNotFoundError)
+    throw new ORPCError("NOT_FOUND", { message: result.message });
+  if (result instanceof Error) throw internalError(result); // coverage-exempt: Database outage translation at the transport edge; real database failures are covered at the service boundary.
+  return result;
 }
 
 // The browser that redeemed a setup's handoff acts for the setup owner, without
@@ -423,6 +442,39 @@ export const controlPlaneRpcRouter = os.router({
     start: startDesktopSignIn,
     exchange: exchangeDesktopAuthCode,
     session: getAuthSession,
+  }),
+  marketing: os.marketing.router({
+    create: os.marketing.create.handler(async ({ context, input }) => {
+      const owner = await appOwner(context);
+      return marketingResult(
+        await context.marketing.create({
+          ...input,
+          ownerUserId: owner.ownerUserId,
+        }),
+      );
+    }),
+    list: os.marketing.list.handler(async ({ context }) => {
+      const owner = await appOwner(context);
+      return marketingResult(await context.marketing.list(owner.ownerUserId));
+    }),
+    update: os.marketing.update.handler(async ({ context, input }) => {
+      const owner = await appOwner(context);
+      return marketingResult(
+        await context.marketing.update({
+          ...input,
+          ownerUserId: owner.ownerUserId,
+        }),
+      );
+    }),
+    remove: os.marketing.remove.handler(async ({ context, input }) => {
+      const owner = await appOwner(context);
+      return marketingResult(
+        await context.marketing.remove({
+          ...input,
+          ownerUserId: owner.ownerUserId,
+        }),
+      );
+    }),
   }),
   apps: os.apps.router({
     publisher: os.apps.publisher.handler(async ({ context }) => {

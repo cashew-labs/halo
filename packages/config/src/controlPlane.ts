@@ -57,6 +57,10 @@ const gmailSchema = Type.Object({
 });
 
 // Deployment-owned campaign tags. Anonymous visitors can only resolve links.
+const marketingAdminUserIdsSchema = Type.Array(
+  Type.String({ minLength: 1, maxLength: 256 }),
+  { uniqueItems: true },
+);
 const marketingLinksSchema = Type.Record(
   Type.String({ pattern: "^[a-z0-9][a-z0-9-]{0,62}$" }),
   Type.Object(
@@ -84,6 +88,7 @@ export const controlPlaneConfigSchema = Type.Union([
     ),
     environment: Type.Optional(environmentSchema),
     marketingLinks: Type.Optional(marketingLinksSchema),
+    marketingAdminUserIds: Type.Optional(marketingAdminUserIdsSchema),
     workspace: Type.Union([localWorkspaceSchema, exeWorkspaceSchema]),
   }),
   Type.Object({
@@ -100,6 +105,7 @@ export const controlPlaneConfigSchema = Type.Union([
     ),
     environment: Type.Optional(environmentSchema),
     marketingLinks: Type.Optional(marketingLinksSchema),
+    marketingAdminUserIds: Type.Optional(marketingAdminUserIdsSchema),
     workspace: Type.Union([gcpWorkspaceSchema, exeWorkspaceSchema]),
   }),
 ]);
@@ -224,10 +230,13 @@ async function readDevelopmentConfig(): Promise<ControlPlaneConfig | Error> {
   if (auth instanceof Error) return auth;
   const repositoryRoot = path.resolve(import.meta.dirname, "../../..");
   const configuredDataDir = process.env.HALO_USER_DATA;
+  const marketingAdminUserIds = readMarketingAdminUserIds();
+  if (marketingAdminUserIds instanceof Error) return marketingAdminUserIds;
   const marketingLinks = readMarketingLinks();
   if (marketingLinks instanceof Error) return marketingLinks;
   const server = {
     marketingLinks,
+    marketingAdminUserIds,
     deployment: "local" as const,
     appDataDir:
       configuredDataDir === undefined
@@ -287,10 +296,13 @@ async function readCloudRunConfig(): Promise<ControlPlaneConfig | Error> {
     googleClientSecret: googleClientSecretId,
   });
   if (auth instanceof Error) return auth;
+  const marketingAdminUserIds = readMarketingAdminUserIds();
+  if (marketingAdminUserIds instanceof Error) return marketingAdminUserIds;
   const marketingLinks = readMarketingLinks();
   if (marketingLinks instanceof Error) return marketingLinks;
   const server = {
     marketingLinks,
+    marketingAdminUserIds,
     deployment: "cloudRun" as const,
     port: Number(portValue),
     origin,
@@ -385,6 +397,27 @@ function readMarketingLinks() {
   if (!Value.Check(marketingLinksSchema, parsed))
     return new ControlPlaneConfigError({
       detail: "validate HALO_MARKETING_LINKS",
+    });
+  return parsed;
+}
+
+function readMarketingAdminUserIds() {
+  const raw = process.env.HALO_MARKETING_ADMIN_USER_IDS;
+  if (raw === undefined) return [];
+  const parsed = errore.try({
+    // SAFETY: Parsed environment data is validated before use.
+    try: () => JSON.parse(raw) as unknown,
+    catch: (cause) =>
+      new ControlPlaneConfigError({
+        detail: "parse HALO_MARKETING_ADMIN_USER_IDS",
+        cause,
+      }),
+  });
+  if (parsed instanceof Error) return parsed;
+  if (!Value.Check(marketingAdminUserIdsSchema, parsed))
+    return new ControlPlaneConfigError({
+      detail:
+        "HALO_MARKETING_ADMIN_USER_IDS must be a JSON array of unique Halo user IDs",
     });
   return parsed;
 }

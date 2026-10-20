@@ -1,3 +1,4 @@
+import { MarketingLinks } from "../marketing/MarketingLinks.js";
 import type { OAuth2Client } from "google-auth-library";
 import { GmailService } from "../automations/GmailService.js";
 import { GmailPushReceiver } from "../automations/gmailHttp.js";
@@ -209,6 +210,12 @@ export class ControlPlane {
     const appStore = new AppStore({ db });
     const initializedApps = await appStore.initialize();
     if (initializedApps instanceof Error) return initializedApps;
+    const marketing = new MarketingLinks({
+      database: db.appDatabase,
+      adminUserIds: config.marketingAdminUserIds ?? [],
+    });
+    const initializedMarketing = await marketing.initialize();
+    if (initializedMarketing instanceof Error) return initializedMarketing; // coverage-exempt: Database schema creation failure at startup; service-level database errors are tested through a closed real connection.
     const authorization = new WorkspaceAuthorization();
     const apps = new AppService({
       store: appStore,
@@ -246,6 +253,7 @@ export class ControlPlane {
       googleAnalyticsMeasurementId: config.googleAnalyticsMeasurementId,
       environment: config.environment,
       marketingLinks: config.marketingLinks,
+      marketing,
       inference: ctx.inference,
       traces:
         ctx.traceCloud === undefined

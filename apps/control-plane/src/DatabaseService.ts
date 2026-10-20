@@ -1,3 +1,4 @@
+import { SqlDatabase } from "./database/SqlDatabase.js";
 import fs from "node:fs/promises";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -20,6 +21,7 @@ export class DatabaseService {
   private readonly integrations: DatabaseClient;
   readonly automationClient: DatabaseClient;
   readonly appClient: DatabaseClient;
+  readonly appDatabase: SqlDatabase;
 
   private constructor(ctx: {
     client: DatabaseClient;
@@ -31,6 +33,7 @@ export class DatabaseService {
     this.integrations = ctx.integrations;
     this.automationClient = ctx.automations;
     this.appClient = ctx.apps;
+    this.appDatabase = new SqlDatabase({ client: ctx.apps });
   }
 
   static async start(config: DatabaseConfig) {

@@ -224,6 +224,7 @@ const controlPlaneTest = test.extend<{
   rpc: ControlPlaneClient;
   webRoot: string;
   marketingLinks: ControlPlaneConfig["marketingLinks"];
+  marketingAdminUserIds: string[];
   googleAnalyticsMeasurementId: string | undefined;
   environment: "production" | "staging" | "development" | undefined;
   workspaceProvider: WorkspaceProviderApi;
@@ -885,6 +886,7 @@ const controlPlaneTest = test.extend<{
     await fs.rm(appDataDir, { recursive: true, force: true });
   },
   marketingLinks: undefined,
+  marketingAdminUserIds: [],
   googleAnalyticsMeasurementId: undefined,
   environment: undefined,
   webRoot: async ({ appDataDir }, use) => {
@@ -906,6 +908,7 @@ const controlPlaneTest = test.extend<{
       integrationApi,
       allowLocalIntegrationUrls,
       marketingLinks,
+      marketingAdminUserIds,
       googleAnalyticsMeasurementId,
       environment,
     },
@@ -919,6 +922,7 @@ const controlPlaneTest = test.extend<{
         appDataDir,
         port: 0,
         marketingLinks,
+        marketingAdminUserIds,
         googleAnalyticsMeasurementId,
         environment,
         auth: testAuth,
@@ -4672,6 +4676,7 @@ async function createAuthenticatedHeaders(
   appDataDir: string,
   origin: string,
   email = "desktop@example.com",
+  userId?: string,
 ) {
   using database = new DatabaseSync(join(appDataDir, "control-plane.db"));
   const auth = betterAuth({
@@ -4682,6 +4687,7 @@ async function createAuthenticatedHeaders(
   });
   const context = await auth.$context;
   const user = context.test.createUser({
+    id: userId ?? crypto.randomUUID(),
     email,
     name: "Desktop User",
   });
@@ -6835,5 +6841,141 @@ controlPlaneTest(
       expect(
         Value.Check(controlPlaneConfigSchema, { ...config, marketingLinks }),
       ).toBe(false);
+  },
+);
+
+const marketingAdminTest = controlPlaneTest.extend({
+  marketingAdminUserIds: ["marketing-admin"],
+});
+const campaignTags = {
+  utm_source: "linkedin",
+  utm_medium: "social",
+  utm_campaign: "launch",
+};
+
+marketingAdminTest(
+  "marketing admin API creates, edits, disables and removes campaigns",
+  async ({ plane, appDataDir }) => {
+    const headers = await createAuthenticatedHeaders(
+      appDataDir,
+      plane.origin,
+      "admin@example.com",
+      "marketing-admin",
+    );
+    headers.set("origin", plane.origin);
+    const admin = createControlPlaneRpcClient(plane.origin, headers);
+    expect(await admin.marketing.list()).toEqual([]);
+    const input = { slug: "launch", tags: campaignTags };
+    expect(await admin.marketing.create(input)).toEqual({
+      ...input,
+      enabled: true,
+    });
+    const competing = await Promise.allSettled([
+      admin.marketing.create({ ...input, slug: "concurrent" }),
+      admin.marketing.create({ ...input, slug: "concurrent" }),
+    ]);
+    expect(competing.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    await expect(admin.marketing.create(input)).rejects.toMatchObject({
+      code: "CONFLICT",
+    });
+    const changed = {
+      ...input,
+      tags: { ...campaignTags, utm_content: "new & tagged" },
+      enabled: false,
+    };
+    expect(await admin.marketing.update(changed)).toEqual(changed);
+    expect(await admin.marketing.list()).toContainEqual(changed);
+    await admin.marketing.remove({ slug: "launch" });
+    expect((await admin.marketing.list()).map((c) => c.slug)).toEqual([
+      "concurrent",
+    ]);
+    await expect(admin.marketing.update(changed)).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+    await expect(
+      admin.marketing.remove({ slug: "missing" }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    // Use the actual request boundary to verify runtime schema validation.
+    for (const json of [
+      { ...input, slug: "../bad" },
+      { ...input, tags: { ...campaignTags, utm_source: " " } },
+      { ...input, ownerUserId: "forged" },
+      {
+        ...input,
+        tags: { ...campaignTags, destination: "https://evil.example" },
+      },
+    ]) {
+      const response = await fetch(`${plane.origin}/rpc/marketing/create`, {
+        method: "POST",
+        headers: {
+          cookie: headers.get("cookie")!,
+          origin: plane.origin,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ json }),
+      });
+      expect(response.status).toBe(400);
+    }
+  },
+);
+
+marketingAdminTest(
+  "marketing admin API rejects ordinary accounts, forged identities and cross-origin cookies",
+  async ({ plane, appDataDir, authenticatedRpc, rpc }) => {
+    const input = { slug: "launch", tags: campaignTags };
+    for (const operation of [
+      async () => await authenticatedRpc.marketing.create(input),
+      async () => await authenticatedRpc.marketing.list(),
+      async () =>
+        await authenticatedRpc.marketing.update({ ...input, enabled: false }),
+      async () => await authenticatedRpc.marketing.remove({ slug: "launch" }),
+    ])
+      await expect(operation()).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(rpc.marketing.list()).rejects.toMatchObject({
+      code: "FORBIDDEN",
+    });
+    await authenticatedRpc.workspace.ensure();
+    const regularRuntime = await readRuntimeSettings(appDataDir);
+    await expect(
+      createControlPlaneRpcClient(
+        plane.origin,
+        regularRuntime.token,
+      ).marketing.list(),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    const headers = await createAuthenticatedHeaders(
+      appDataDir,
+      plane.origin,
+      "admin@example.com",
+      "marketing-admin",
+    );
+    headers.set("origin", "https://other.example");
+    await expect(
+      createControlPlaneRpcClient(plane.origin, headers).marketing.create(
+        input,
+      ),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    headers.delete("origin");
+    await expect(
+      createControlPlaneRpcClient(plane.origin, headers).marketing.list(),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    headers.set("origin", plane.origin);
+    const admin = createControlPlaneRpcClient(plane.origin, headers);
+    await admin.workspace.ensure();
+    const runtime = await readRuntimeSettings(appDataDir);
+    const agent = createControlPlaneRpcClient(plane.origin, runtime.token);
+    await agent.marketing.create(input);
+    expect(await admin.marketing.list()).toEqual([{ ...input, enabled: true }]);
+    await expect(
+      createControlPlaneRpcClient(plane.origin, "fake-token").marketing.list(),
+    ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  },
+);
+
+controlPlaneTest(
+  "marketing admin API grants no access when no administrators are configured",
+  async ({ authenticatedRpc }) => {
+    await expect(authenticatedRpc.marketing.list()).rejects.toMatchObject({
+      code: "FORBIDDEN",
+    });
   },
 );

@@ -1,3 +1,4 @@
+import type { MarketingLinks } from "../marketing/MarketingLinks.js";
 import type { ControlPlaneConfig } from "@get-halo/config/controlPlane";
 import { serveMarketingLink } from "../marketing/serveMarketingLink.js";
 import type { GmailService } from "../automations/GmailService.js";
@@ -168,6 +169,7 @@ export function serveControlPlaneHttp(ctx: {
   auth: AuthService;
   authorization: WorkspaceAuthorization;
   apps: AppService;
+  marketing: MarketingLinks;
   appStore: AppStore;
   appGateway: AppGateway;
   publicOrigin: string;
@@ -270,6 +272,7 @@ export function serveControlPlaneHttp(ctx: {
       traces,
       rpc,
       apps: ctx.apps,
+      marketing: ctx.marketing,
       appStore: ctx.appStore,
       integrations: ctx.integrations,
       publicOrigin,
@@ -355,6 +358,7 @@ async function routeControlPlaneRequest(ctx: {
   response: ServerResponse;
   auth: AuthService;
   apps: AppService;
+  marketing: MarketingLinks;
   appStore: AppStore;
   publicOrigin: string;
   gateway: WorkspaceGateway;
@@ -594,6 +598,7 @@ async function routeControlPlaneRequest(ctx: {
       workspace,
       rpc,
       apps: ctx.apps,
+      marketing: ctx.marketing,
       integrations: ctx.integrations,
       build: ctx.build,
     });
@@ -773,6 +778,7 @@ async function serveControlPlaneRpc(ctx: {
   response: ServerResponse;
   auth: AuthService;
   apps: AppService;
+  marketing: MarketingLinks;
   publicOrigin: string;
   workspace: WorkspaceService;
   integrations?: IntegrationService;
@@ -788,6 +794,7 @@ async function serveControlPlaneRpc(ctx: {
       workspace,
       integrations: ctx.integrations,
       apps: ctx.apps,
+      marketing: ctx.marketing,
       build: ctx.build,
     },
   });
