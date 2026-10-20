@@ -9,6 +9,12 @@ import {
 } from "maui";
 import { style, useStyles } from "purse-styles";
 import { DevLogs } from "./DevLogs.js";
+import { useEffect } from "react";
+import {
+  trackMarketingEvent,
+  trackMarketingPage,
+  trackWaitlistAccepted,
+} from "./marketingAnalytics.js";
 
 export function NewsletterStatusPage({
   status,
@@ -22,6 +28,12 @@ export function NewsletterStatusPage({
   const message = useStyles(styles.message);
   const heading = useStyles(styles.heading);
   const gmailButton = useStyles(styles.gmailButton);
+
+  useEffect(() => {
+    if (!trackMarketingPage()) return;
+    if (status === "check-email") trackWaitlistAccepted();
+    else trackMarketingEvent("waitlist_confirmation_view");
+  }, [status]);
 
   return (
     <main className={shell} aria-label="Halo updates">

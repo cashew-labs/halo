@@ -1,23 +1,35 @@
 import {
   backgroundColor,
   Button,
-  Flex,
   P,
   Prose,
   proseContainerStyle,
   text,
-  TextField,
 } from "maui";
 import { style, useStyles } from "purse-styles";
+import { useEffect, useState } from "react";
 import { DevLogs } from "./DevLogs.js";
+import { EarlyAccessDialog } from "./EarlyAccessDialog.js";
+import {
+  trackMarketingEvent,
+  trackMarketingPage,
+} from "./marketingAnalytics.js";
 
-export function LandingPage() {
+export function LandingPage({
+  analyticsEnabled,
+}: {
+  analyticsEnabled: boolean;
+}) {
   const page = useStyles(styles.page);
   const content = useStyles(styles.content);
   const logo = useStyles(styles.logo);
   const statement = useStyles(styles.statement);
-  const field = useStyles(styles.field);
   const footer = useStyles(styles.footer);
+  const [earlyAccessOpen, setEarlyAccessOpen] = useState(false);
+
+  useEffect(() => {
+    if (analyticsEnabled) trackMarketingPage();
+  }, [analyticsEnabled]);
 
   return (
     <main className={page} aria-label="Halo home">
@@ -28,27 +40,21 @@ export function LandingPage() {
           <P>An open-source, self-modifiable, agentic operating system.</P>
         </Prose>
 
-        <form
-          aria-label="Halo updates signup"
-          action="https://buttondown.com/api/emails/embed-subscribe/halo"
-          method="post"
-        >
-          <Flex row gap={4} alignItems="center" style={{ flexWrap: "wrap" }}>
-            <div className={field}>
-              <TextField
-                aria-label="Email address"
-                type="email"
-                name="email"
-                placeholder="Email address"
-                validationBehavior="native"
-                isRequired
-              />
-            </div>
-            <Button type="submit" variant="primary">
-              Get updates
-            </Button>
-          </Flex>
-        </form>
+        <div>
+          <Button
+            variant="primary"
+            onPress={() => {
+              trackMarketingEvent("early_access_open");
+              setEarlyAccessOpen(true);
+            }}
+          >
+            Get early access
+          </Button>
+          <EarlyAccessDialog
+            isOpen={earlyAccessOpen}
+            onOpenChange={setEarlyAccessOpen}
+          />
+        </div>
 
         <DevLogs />
 
@@ -89,11 +95,6 @@ const styles = {
       fontWeight: 500,
       textWrap: "pretty",
     },
-  }),
-  field: style({
-    width: "100%",
-    maxWidth: 240,
-    minWidth: 0,
   }),
   footer: style(text({ size: "xs", fontWeight: 400, color: "lowContrast" }), {
     // Absorbs leftover height so the footer sits at the bottom of the page.

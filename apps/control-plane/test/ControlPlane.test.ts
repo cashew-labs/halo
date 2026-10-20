@@ -219,6 +219,7 @@ const controlPlaneTest = test.extend<{
   plane: ControlPlane;
   rpc: ControlPlaneClient;
   webRoot: string;
+  googleAnalyticsMeasurementId: string | undefined;
   workspaceProvider: WorkspaceProviderApi;
   workspaceHost: WorkspaceHostDriver;
   allowLocalIntegrationUrls: boolean;
@@ -877,6 +878,7 @@ const controlPlaneTest = test.extend<{
     await use(appDataDir);
     await fs.rm(appDataDir, { recursive: true, force: true });
   },
+  googleAnalyticsMeasurementId: undefined,
   webRoot: async ({ appDataDir }, use) => {
     const webRoot = join(appDataDir, "web");
     await fs.mkdir(join(webRoot, "assets"), { recursive: true });
@@ -895,6 +897,7 @@ const controlPlaneTest = test.extend<{
       inferenceApi,
       integrationApi,
       allowLocalIntegrationUrls,
+      googleAnalyticsMeasurementId,
     },
     use,
   ) => {
@@ -905,6 +908,7 @@ const controlPlaneTest = test.extend<{
         workspace: { deployment: "local" },
         appDataDir,
         port: 0,
+        googleAnalyticsMeasurementId,
         auth: testAuth,
         gmail: {
           topic: "projects/halo-test/topics/gmail",
@@ -6543,5 +6547,82 @@ appRemovalTest(
         "utf8",
       ),
     ).toBe("newest source from the VM");
+  },
+);
+
+controlPlaneTest(
+  "keeps marketing analytics disabled when no deployment ID is configured",
+  async ({ plane, webRoot }) => {
+    await fs.writeFile(
+      join(webRoot, "index.html"),
+      '<meta name="halo-ga-measurement-id" content="" /><main>Halo</main>',
+    );
+    const response = await fetch(plane.origin);
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain(
+      'name="halo-ga-measurement-id" content=""',
+    );
+  },
+);
+
+const marketingPlaneTest = controlPlaneTest.extend({
+  googleAnalyticsMeasurementId: "G-HALOTEST",
+});
+marketingPlaneTest(
+  "serves deployment-specific GA configuration and permits the booking and analytics hosts",
+  async ({ plane, webRoot }) => {
+    await fs.writeFile(
+      join(webRoot, "index.html"),
+      '<meta name="halo-ga-measurement-id" content="" /><main>Halo</main>',
+    );
+    const response = await fetch(`${plane.origin}/newsletter/check-email`);
+    const body = await response.text();
+    expect(body).toContain(
+      'name="halo-ga-measurement-id" content="G-HALOTEST"',
+    );
+    expect(Number(response.headers.get("content-length"))).toBe(
+      Buffer.byteLength(body),
+    );
+    const policy = response.headers.get("content-security-policy");
+    expect(policy).toContain(
+      "frame-src 'self' https://cal.com https://app.cal.com",
+    );
+    expect(policy).toContain("connect-src 'self' https://buttondown.com ");
+    expect(policy).toContain(
+      "script-src 'self' https://app.cal.com https://www.googletagmanager.com",
+    );
+    expect(policy).toContain("https://*.google-analytics.com");
+    expect(policy).not.toContain("'unsafe-inline' https://");
+    const head = await fetch(plane.origin, { method: "HEAD" });
+    expect(head.headers.get("content-length")).toBe(
+      response.headers.get("content-length"),
+    );
+    expect(await head.text()).toBe("");
+  },
+);
+
+marketingPlaneTest(
+  "keeps signed-in app responses and private routes free of marketing permissions",
+  async ({ plane, webRoot, browserHeaders }) => {
+    await fs.writeFile(
+      join(webRoot, "index.html"),
+      '<meta name="halo-ga-measurement-id" content="" /><main>Halo</main>',
+    );
+    for (const [pathname, headers] of [
+      ["/", browserHeaders],
+      ["/login", undefined],
+      ["/settings", undefined],
+    ] as const) {
+      const response = await fetch(`${plane.origin}${pathname}`, { headers });
+      expect(await response.text()).toContain(
+        'name="halo-ga-measurement-id" content=""',
+      );
+      const policy = response.headers.get("content-security-policy")!;
+      expect(policy).toContain("script-src 'self';");
+      expect(policy).toContain("connect-src 'self';");
+      expect(policy).not.toContain("googletagmanager");
+      expect(policy).not.toContain("google-analytics");
+      expect(policy).not.toContain("cal.com");
+    }
   },
 );

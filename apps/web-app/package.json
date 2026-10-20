@@ -10,9 +10,10 @@
     "og:generate": "node scripts/generate-og.mjs",
     "format": "oxfmt .",
     "format:check": "oxfmt --check .",
-    "lint": "NODE_OPTIONS=--experimental-strip-types oxlint --deny-warnings src vite.config.ts",
-    "lint:fix": "NODE_OPTIONS=--experimental-strip-types oxlint --fix src vite.config.ts",
-    "typecheck": "tsc --noEmit"
+    "lint": "NODE_OPTIONS=--experimental-strip-types oxlint --deny-warnings src test vite.config.ts playwright.config.ts",
+    "lint:fix": "NODE_OPTIONS=--experimental-strip-types oxlint --fix src test vite.config.ts playwright.config.ts",
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@get-halo/client": "workspace:*",
@@ -27,6 +28,7 @@
   "devDependencies": {
     "@fontsource/inter": "^5.3.0",
     "@get-halo/typescript-config": "workspace:*",
+    "@playwright/test": "1.62.1",
     "@resvg/resvg-js": "^2.6.2",
     "@types/node": "^22.20.1",
     "@types/react": "19.2.18",

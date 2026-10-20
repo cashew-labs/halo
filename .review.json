@@ -1,6 +1,11 @@
 {
   "tests": [
     {
+      "runner": "playwright",
+      "dir": "apps/web-app",
+      "match": "test/**/*.test.ts"
+    },
+    {
       "runner": "command",
       "match": "infra/workspace/**/*.test.py",
       "run": "python3 infra/workspace/pythonTestRunner.py {files}",
@@ -26,6 +31,9 @@
       ],
       "run": "node --test {files}"
     },
-    { "runner": "vitest", "match": "!**/fixtures.test.ts" }
+    {
+      "runner": "vitest",
+      "match": "!**/fixtures.test.ts"
+    }
   ]
 }

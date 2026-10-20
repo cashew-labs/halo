@@ -2,6 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <meta name="halo-ga-measurement-id" content="" />
     <meta
       name="viewport"
       content="width=device-width, initial-scale=1.0, viewport-fit=cover"
@@ -84,27 +85,14 @@
         --landing-text: rgb(32, 32, 32);
         --landing-text-low: rgb(100, 100, 100);
         --landing-app: rgb(252, 252, 252);
-        --landing-field: #fff;
-        --landing-placeholder: rgb(187, 187, 187);
         --landing-accent: rgb(18, 165, 148);
-        --landing-field-shadow:
-          inset 0 1px 0 0 rgba(255, 255, 255, 0.533),
-          inset 0 0 1px 1px rgba(255, 255, 255, 0.533),
-          0 0.5px 1px 0 rgba(0, 0, 0, 0.094), 0 0 0 0.5px rgba(0, 0, 0, 0.08),
-          0 0 4px -1px rgba(0, 0, 0, 0.067);
         --landing-button-glow: oklch(0.421895 0.0738022 181.958);
       }
       :root[data-theme="dark"] {
         --landing-text: rgb(238, 238, 238);
         --landing-text-low: rgb(180, 180, 180);
         --landing-app: rgb(17, 17, 17);
-        --landing-field: rgb(25, 25, 25);
-        --landing-placeholder: rgb(96, 96, 96);
         --landing-accent: rgb(110, 86, 207);
-        --landing-field-shadow:
-          inset 0 1px 0 0 rgba(255, 255, 255, 0.03),
-          0 0 0 0.5px rgba(255, 255, 255, 0.08),
-          0 1px 0.5px 0 rgba(0, 0, 0, 0.094), 0 0 3px -1px rgba(0, 0, 0, 0.667);
         --landing-button-glow: oklch(0.352084 0.116364 288.042);
       }
       :root:has(.static-landing),
@@ -158,37 +146,12 @@
         font-weight: 500;
         text-wrap: pretty;
       }
-      .static-landing-signup {
-        display: flex;
-        flex-wrap: wrap;
-        align-items: center;
-        gap: 9px;
-      }
-      .static-landing-signup input {
-        width: 100%;
-        max-width: 240px;
-        min-width: 0;
-        height: 28px;
-        padding: 4px 9px;
-        border: 0;
-        border-radius: 4px;
-        background-color: var(--landing-field);
-        box-shadow: var(--landing-field-shadow);
-        color: inherit;
-        font: inherit;
-        font-size: 13px;
-        line-height: 20px;
-      }
-      .static-landing-signup input::placeholder {
-        color: var(--landing-placeholder);
-        font-style: italic;
-      }
-      .static-landing-signup button {
+      .static-landing a.static-landing-access {
         display: inline-flex;
         align-items: center;
+        align-self: flex-start;
         height: 28px;
         padding: 0 12px;
-        border: 0;
         border-radius: 4px;
         background-color: var(--landing-accent);
         box-shadow:
@@ -197,11 +160,11 @@
           0 1px 0.5px 0 rgba(0, 0, 0, 0.2),
           0 0 3px -1px var(--landing-button-glow);
         color: #fff;
-        font: inherit;
         font-size: 12px;
         line-height: 18px;
+        text-decoration: none;
       }
-      .static-landing-signup button span {
+      .static-landing-access span {
         display: block;
         text-box: trim-both cap alphabetic;
       }
@@ -236,17 +199,7 @@
         font-size: 19px;
         line-height: 34px;
       }
-      :root[data-scale="large"] .static-landing-signup {
-        gap: 12px;
-      }
-      :root[data-scale="large"] .static-landing-signup input {
-        height: 40px;
-        padding: 5px 12px;
-        border-radius: 6px;
-        font-size: 16px;
-        line-height: 24px;
-      }
-      :root[data-scale="large"] .static-landing-signup button {
+      :root[data-scale="large"] .static-landing a.static-landing-access {
         height: 40px;
         padding: 0 16px;
         border-radius: 6px;
@@ -272,21 +225,11 @@
           <p class="static-landing-statement">
             An open-source, self-modifiable, agentic operating system.
           </p>
-          <form
-            class="static-landing-signup"
-            aria-label="Halo updates signup"
-            action="https://buttondown.com/api/emails/embed-subscribe/halo"
-            method="post"
+          <a
+            class="static-landing-access"
+            href="https://cal.com/team/halo/halo-early-access-chat"
+            ><span>Get early access</span></a
           >
-            <input
-              aria-label="Email address"
-              type="email"
-              name="email"
-              placeholder="Email address"
-              required
-            />
-            <button type="submit"><span>Get updates</span></button>
-          </form>
           <section
             class="static-landing-dev-logs"
             aria-labelledby="dev-logs-heading"
