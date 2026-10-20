@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "This round stores the runtime IAM binding as `appDomainCertificateAccess` and adds it to the Cloud Run service's `dependsOn`, next to the other runtime access grants. A revision with custom domains enabled therefore starts only after its Certificate Manager permissions exist, which fixes an ordering gap on first deploy. All other code matches round 7. Both test tiers pass, no changed line is uncovered, the new exemption reason is acceptable, and the change is ready.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 8,
+  "headSha": "a05781c0c652a14d8643d4ead7d6690b6c0172a0",
+  "treeHash": "b918b8c908930b24ddc3234f5c6e7391002849dd",
+  "codeTree": "c2f7a707c25106b896872300173e7a09801d4dd5",
+  "coverage": {
+    "executable": 126,
+    "covered": 74,
+    "exempt": 52,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-20T16:13:52.997Z"
+}

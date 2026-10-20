@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "This round adds recovery for a certificate in terminal `FAILED` state and makes the custom IAM role depend on the Certificate Manager service and the deployment role-admin binding. On `FAILED`, `ensure` deletes the map entry and then the certificate, keeps the DNS authorization, and recreates the certificate on the next verify; the order is still map entry before certificate. The new durable test checks a pending delete, deletion, unchanged authorization, recreation and activation. Both test tiers pass, no changed line is uncovered, the exemptions are acceptable, and the change is ready.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 4,
+  "headSha": "9bac48b0674b9d46c7818894ce52bc986f143ff8",
+  "treeHash": "48d56beab591451c732da60cd10f7b0cc9a2bcb9",
+  "codeTree": "01f3f364b407702812cbcae24f94f05abba8857b",
+  "coverage": {
+    "executable": 123,
+    "covered": 73,
+    "exempt": 50,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-20T01:18:51.785Z"
+}

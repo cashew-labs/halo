@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "All round-1 findings are fixed, and the change is ready. `/health` now returns 200 only after the custom-host and creator-host checks have failed (F1), and the durable tests confirm creator-host isolation and that a custom domain's app serves its own `/health`. The IAM role now includes the `use` and `certmaps` permissions (F2), and the unreachable cleanup branch is gone (F3). The stale archived temp tests are removed (F4), and a new temp test covers the `APP_DOMAIN_*` config parsing. The remaining main.ts and Pulumi lines are exempt with acceptable reasons (F5). Both test tiers pass and the coverage gate passes.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "0a12fdcbe516d431713809814247f8720f223dcf",
+  "treeHash": "ffa9f8ffb7ca8159dfc3cf5f891bd4ae0b5e83c6",
+  "codeTree": "64c5f32c750fccab417e02e5f57ca93733e7e0a0",
+  "coverage": {
+    "executable": 117,
+    "covered": 68,
+    "exempt": 49,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-20T00:33:18.421Z"
+}
