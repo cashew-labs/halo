@@ -37,6 +37,7 @@
     "tsx": "^4.23.13"
   },
   "devDependencies": {
+    "@get-halo/cli": "workspace:*",
     "@get-halo/logger": "workspace:*",
     "@get-halo/typescript-config": "workspace:*",
     "@get-halo/workspace-server": "workspace:*",

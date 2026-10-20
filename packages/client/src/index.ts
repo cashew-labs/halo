@@ -162,3 +162,6 @@ export {
   type AutomationRunStatus,
   type AutomationRunTrigger,
 } from "./automations.js";
+
+// coverage-exempt: Type-only public re-export; it emits no JavaScript to exercise.
+export type { AppDomain, AppDomainDnsRecord } from "./contract.js";

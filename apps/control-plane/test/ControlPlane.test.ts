@@ -29,7 +29,11 @@ import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
 import { RPCLink as SocketRPCLink } from "@orpc/client/websocket";
 import { haloProtocolVersion, type HaloClient } from "@get-halo/client";
-import { writeWorkspaceServerConnection } from "@get-halo/shared/WorkspaceServerConnection";
+import {
+  readWorkspaceServerConnection,
+  writeWorkspaceServerConnection,
+} from "@get-halo/shared/WorkspaceServerConnection";
+import { app as appCommand } from "@get-halo/cli/app";
 import {
   IntegrationRegistrationError,
   type ControlPlaneClient,
@@ -124,7 +128,19 @@ class WorkspaceHostDriver {
           .end('{"json":{"id":"released-workspace-run"}}');
         return;
       }
-      if (request.url === "/headers") {
+      if (request.url?.includes("/http/redirect")) {
+        response
+          .writeHead(302, {
+            location: "https://gethalo.dev/?utm_source=mail",
+            "set-cookie": "bad=1",
+          })
+          .end();
+        return;
+      }
+      if (
+        request.url === "/headers" ||
+        request.url?.includes("/http/headers")
+      ) {
         response
           .writeHead(200, { "content-type": "application/json" })
           .end(JSON.stringify(request.headers));
@@ -220,6 +236,12 @@ const getOpenAPISpec = async (
 type OAuthTokenDriver = { refreshError?: string; refreshes: number };
 
 const controlPlaneTest = test.extend<{
+  domainHost: {
+    txt: Map<string, string[][]>;
+    ready: boolean;
+    removeFailed: boolean;
+    removed: string[];
+  };
   traceCloud: TraceCloudDriver;
   inferenceApi: InferenceDriver;
   appDataDir: string;
@@ -273,6 +295,14 @@ const controlPlaneTest = test.extend<{
     };
   };
 }>({
+  // oxlint-disable-next-line no-empty-pattern -- Native fixture signature.
+  domainHost: async ({}, use) =>
+    await use({
+      txt: new Map(),
+      ready: false,
+      removeFailed: false,
+      removed: [],
+    }),
   allowLocalIntegrationUrls: true,
   agent: async ({ plane, authenticatedRpc, appDataDir }, use) => {
     await authenticatedRpc.workspace.ensure();
@@ -905,6 +935,7 @@ const controlPlaneTest = test.extend<{
       webRoot,
       traceCloud,
       workspaceProvider,
+      domainHost,
       inferenceApi,
       integrationApi,
       allowLocalIntegrationUrls,
@@ -914,6 +945,28 @@ const controlPlaneTest = test.extend<{
     use,
   ) => {
     const plane = await ControlPlane.start({
+      appDomainDns: async (hostname) => domainHost.txt.get(hostname) ?? [],
+      appDomainTls: {
+        ensure: async ({ hostname }) => ({
+          ready: domainHost.ready,
+          records: [
+            {
+              name: `_acme-challenge.${hostname}`,
+              type: "CNAME",
+              value: "test.authorize.certificatemanager.goog.",
+            },
+          ],
+        }),
+        remove: async ({ domainId }) => {
+          domainHost.removed.push(domainId);
+          return domainHost.removeFailed
+            ? new Error("certificate unavailable")
+            : undefined;
+        },
+        routingRecords: (hostname) => [
+          { name: hostname, type: "A", value: "192.0.2.1" },
+        ],
+      },
       build: { version: "test-release", revision: "test-revision" },
       config: {
         deployment: "local",
@@ -5784,7 +5837,10 @@ const publicAppTest = controlPlaneTest.extend<{
 }>({
   workspaceProvider: async ({ workspaceHost }, use) =>
     await use(workspaceHost.provider),
-  publicApps: async ({ plane, appDataDir }, use) => {
+  publicApps: async ({ plane, appDataDir, authenticatedRpc }, use) => {
+    const owner = await authenticatedRpc.auth.session();
+    if (owner.status !== "signed-in")
+      throw new Error("Owner must be signed in");
     const db = await DatabaseService.start({
       type: "sqlite",
       path: join(appDataDir, "control-plane.db"),
@@ -5797,14 +5853,14 @@ const publicAppTest = controlPlaneTest.extend<{
     });
     const store = new AppStore({ db });
     const handle = await store.ensureHandle({
-      userId: "public-app-owner",
+      userId: owner.session.user.id,
       email: "creator@example.com",
     });
     if (handle instanceof Error) throw handle;
     const records: { appId: string }[] = [];
     for (const syncAccess of ["read-only", "shared", "actions"] as const) {
       const app = await store.create({
-        ownerUserId: "public-app-owner",
+        ownerUserId: owner.session.user.id,
         extensionId: syncAccess,
         slug: syncAccess,
         displayName: '<Reading & "list">',
@@ -6705,5 +6761,449 @@ publicAppTest(
     expect(upstream).toBeDefined();
     expect(upstream?.headers["x-halo-viewer-role"]).toBe("public");
     expect(upstream?.headers["x-halo-extension-token"]).not.toBe("forged");
+  },
+);
+
+// Durable: domain control must be proven before a hostname can expose an app's public HTTP surface.
+publicAppTest(
+  "verifies DNS, waits for HTTPS, and isolates a custom hostname from owner APIs",
+  async ({ publicApps, authenticatedRpc, rpc, domainHost }) => {
+    const input = { appId: publicApps.appId, hostname: "links.example.org" };
+    await expect(rpc.apps.domains.add(input)).rejects.toMatchObject({
+      code: "FORBIDDEN",
+    });
+    const added = await authenticatedRpc.apps.domains.add(input);
+    expect(added.status).toBe("pending");
+    expect(await authenticatedRpc.apps.domains.add(input)).toEqual(added);
+    expect(
+      (
+        await publicApps.request({
+          path: "/http/headers",
+          headers: { host: input.hostname },
+        })
+      ).status,
+    ).toBe(404);
+    await expect(
+      authenticatedRpc.apps.domains.verify(input),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    const proof = added.records.find((record) => record.type === "TXT")!;
+    domainHost.txt.set(proof.name, [
+      [proof.value.slice(0, 12), proof.value.slice(12)],
+    ]);
+    const provisioning = await authenticatedRpc.apps.domains.verify(input);
+    expect(provisioning.status).toBe("provisioning");
+    expect(
+      (await authenticatedRpc.apps.domains.list({ appId: input.appId }))[0]
+        ?.records,
+    ).toContainEqual(
+      provisioning.records.find((record) => record.type === "CNAME"),
+    );
+    domainHost.ready = true;
+    expect((await authenticatedRpc.apps.domains.verify(input)).status).toBe(
+      "active",
+    );
+    const response = await publicApps.request({
+      path: "/headers?utm_source=mail",
+      headers: {
+        host: input.hostname,
+        authorization: "Bearer forged",
+        cookie: "owner=secret",
+        "x-halo-viewer-role": "owner",
+        "x-halo-extension-token": "forged",
+      },
+    });
+    expect(response.status).toBe(200);
+    const headers = JSON.parse(response.body);
+    expect(headers["x-halo-viewer-role"]).toBe("public");
+    expect(headers.cookie).toBeUndefined();
+    expect(headers["x-halo-viewer-token"]).toBeUndefined();
+    expect(
+      (
+        await publicApps.request({
+          path: "/api/private",
+          headers: { host: input.hostname },
+          method: "POST",
+        })
+      ).status,
+    ).toBe(405);
+    const health = await publicApps.request({
+      path: "/health",
+      headers: { host: input.hostname },
+    });
+    expect(health.status).toBe(200);
+    expect(JSON.parse(health.body).workspace).toBe("test-workspace");
+    const redirect = await publicApps.request({
+      path: "/redirect",
+      headers: { host: input.hostname },
+    });
+    expect(redirect.status).toBe(302);
+    expect(redirect.headers.location).toBe(
+      "https://gethalo.dev/?utm_source=mail",
+    );
+    expect(redirect.headers["set-cookie"]).toBeUndefined();
+    expect(
+      (
+        await publicApps.request({
+          path: "/../launch",
+          headers: { host: input.hostname },
+        })
+      ).status,
+    ).toBe(404);
+    domainHost.removeFailed = true;
+    await expect(
+      authenticatedRpc.apps.domains.remove(input),
+    ).rejects.toMatchObject({ code: "INTERNAL_SERVER_ERROR" });
+    expect(
+      (
+        await publicApps.request({
+          path: "/headers",
+          headers: { host: input.hostname },
+        })
+      ).status,
+    ).toBe(404);
+    domainHost.removeFailed = false;
+    await authenticatedRpc.apps.domains.remove(input);
+    expect(
+      await authenticatedRpc.apps.domains.list({ appId: input.appId }),
+    ).toEqual([]);
+  },
+);
+
+publicAppTest(
+  "rejects reserved hostnames and foreign app ownership, and revokes removed DNS proof",
+  async ({ publicApps, authenticatedRpc, domainHost }) => {
+    for (const hostname of [
+      "localhost",
+      "127.0.0.1",
+      "*.example.org",
+      "https://example.org",
+      "www.127.0.0.1",
+      "bad.example.org:443",
+    ])
+      await expect(
+        authenticatedRpc.apps.domains.add({
+          appId: publicApps.appId,
+          hostname,
+        }),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(
+      authenticatedRpc.apps.domains.add({
+        appId: crypto.randomUUID(),
+        hostname: "foreign.example.org",
+      }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    const input = { appId: publicApps.appId, hostname: "revoke.example.org" };
+    const domain = await authenticatedRpc.apps.domains.add(input);
+    const proof = domain.records.find((record) => record.type === "TXT")!;
+    domainHost.txt.set(proof.name, [[proof.value]]);
+    domainHost.ready = true;
+    await authenticatedRpc.apps.domains.verify(input);
+    domainHost.txt.clear();
+    domainHost.removeFailed = true;
+    await expect(
+      authenticatedRpc.apps.domains.verify(input),
+    ).rejects.toMatchObject({ code: "INTERNAL_SERVER_ERROR" });
+    expect(
+      (
+        await publicApps.request({
+          path: "/headers",
+          headers: { host: input.hostname },
+        })
+      ).status,
+    ).toBe(404);
+    domainHost.removeFailed = false;
+    await expect(
+      authenticatedRpc.apps.domains.verify(input),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(domainHost.removed).toHaveLength(2);
+    expect(
+      (await authenticatedRpc.apps.domains.list({ appId: input.appId }))[0]
+        ?.status,
+    ).toBe("pending");
+    await authenticatedRpc.apps.domains.remove(input);
+  },
+);
+
+// Durable: custom-host isolation must not break Cloud Run's internal-host startup probe.
+publicAppTest(
+  "allows internal-host health probes while rejecting unrelated host application traffic",
+  async ({ publicApps }) => {
+    expect(
+      (
+        await publicApps.request({
+          path: "/health",
+          headers: { host: "control-plane.internal" },
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await publicApps.request({
+          path: "/rpc/auth/session",
+          headers: { host: "control-plane.internal" },
+        })
+      ).status,
+    ).toBe(404);
+  },
+);
+
+publicAppTest(
+  "allows pending challenges without squatting but keeps one verified binding per hostname",
+  async ({ publicApps, authenticatedRpc, domainHost }) => {
+    const apps = await authenticatedRpc.apps.list();
+    const second = apps.find((app) => app.appId !== publicApps.appId)!;
+    const one = { appId: publicApps.appId, hostname: "shared.example.org" };
+    const two = { appId: second.appId, hostname: one.hostname };
+    const pendingOne = await authenticatedRpc.apps.domains.add(one);
+    const pendingTwo = await authenticatedRpc.apps.domains.add(two);
+    const proofOne = pendingOne.records.find(
+      (record) => record.type === "TXT",
+    )!;
+    const proofTwo = pendingTwo.records.find(
+      (record) => record.type === "TXT",
+    )!;
+    expect(proofTwo.value).not.toBe(proofOne.value);
+    domainHost.ready = true;
+    domainHost.txt.set(proofOne.name, [[proofOne.value]]);
+    await authenticatedRpc.apps.domains.verify(one);
+    domainHost.txt.set(proofTwo.name, [[proofOne.value], [proofTwo.value]]);
+    await expect(
+      authenticatedRpc.apps.domains.verify(two),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    domainHost.txt.set(proofTwo.name, [[proofTwo.value]]);
+    domainHost.removeFailed = true;
+    await expect(
+      authenticatedRpc.apps.domains.verify(two),
+    ).rejects.toMatchObject({ code: "INTERNAL_SERVER_ERROR" });
+    expect(
+      (
+        await publicApps.request({
+          path: "/headers",
+          headers: { host: one.hostname },
+        })
+      ).status,
+    ).toBe(404);
+    domainHost.removeFailed = false;
+    expect((await authenticatedRpc.apps.domains.verify(two)).status).toBe(
+      "active",
+    );
+    expect(domainHost.removed.length).toBe(2);
+    expect(
+      (await authenticatedRpc.apps.domains.list({ appId: one.appId }))[0]
+        ?.status,
+    ).toBe("pending");
+    await authenticatedRpc.apps.domains.remove(two);
+    await authenticatedRpc.apps.domains.remove(one);
+  },
+);
+publicAppTest(
+  "keeps binding management available after unpublishing while refusing activation",
+  async ({ publicApps, authenticatedRpc, domainHost }) => {
+    const input = { appId: publicApps.appId, hostname: "disabled.example.org" };
+    const added = await authenticatedRpc.apps.domains.add(input);
+    const proof = added.records.find((record) => record.type === "TXT")!;
+    domainHost.txt.set(proof.name, [[proof.value]]);
+    domainHost.ready = true;
+    await authenticatedRpc.apps.domains.verify(input);
+    await authenticatedRpc.apps.update({
+      appId: input.appId,
+      published: false,
+    });
+    expect(
+      (
+        await publicApps.request({
+          path: "/headers",
+          headers: { host: input.hostname },
+        })
+      ).status,
+    ).toBe(404);
+    expect(
+      (await authenticatedRpc.apps.domains.list({ appId: input.appId }))[0]
+        ?.hostname,
+    ).toBe(input.hostname);
+    await expect(
+      authenticatedRpc.apps.domains.verify(input),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(
+      authenticatedRpc.apps.domains.add({
+        ...input,
+        hostname: "another.example.org",
+      }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await authenticatedRpc.apps.domains.remove(input);
+  },
+);
+publicAppTest(
+  "protects another owner's bindings and caps pending domains",
+  async ({ publicApps, authenticatedRpc, appDataDir, plane }) => {
+    const bobHeaders = await createAuthenticatedHeaders(
+      appDataDir,
+      plane.origin,
+      "domains-bob@example.com",
+    );
+    bobHeaders.set("origin", plane.origin);
+    const bob = createControlPlaneRpcClient(plane.origin, bobHeaders);
+    const input = { appId: publicApps.appId, hostname: "owned.example.org" };
+    await authenticatedRpc.apps.domains.add(input);
+    await expect(
+      bob.apps.domains.list({ appId: input.appId }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    for (const operation of ["add", "verify", "remove"] as const)
+      await expect(bob.apps.domains[operation](input)).rejects.toMatchObject({
+        code: "BAD_REQUEST",
+      });
+    for (let index = 1; index < 10; index++)
+      await authenticatedRpc.apps.domains.add({
+        appId: input.appId,
+        hostname: `link${index}.example.org`,
+      });
+    await expect(
+      authenticatedRpc.apps.domains.add({
+        appId: input.appId,
+        hostname: "overflow.example.org",
+      }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(
+      authenticatedRpc.apps.domains.remove({
+        ...input,
+        hostname: "missing.example.org",
+      }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  },
+);
+// Durable: the agent-facing CLI must use the workspace owner forwarding path and preserve errors.
+publicAppTest.extend({
+  workspaceProvider: async ({ appDataDir }, use) =>
+    await use(new LocalWorkspaceProvider({ appDataDir })),
+})(
+  "runs domain commands through the workspace API",
+  async ({ publicApps, agent, appDataDir, authenticatedRpc, domainHost }) => {
+    const connection = await readWorkspaceServerConnection(appDataDir);
+    if (connection === undefined || connection instanceof Error)
+      throw new Error("Agent connection missing");
+    const rpcFile = join(appDataDir, "domain-cli-rpc.json");
+    await fs.writeFile(
+      rpcFile,
+      JSON.stringify({
+        version: 1,
+        host: "127.0.0.1",
+        port: Number(new URL(connection.origin).port),
+        token: connection.token,
+      }),
+    );
+    const command = async (
+      operation: string,
+      hostname?: string,
+      id = publicApps.appId,
+    ) => {
+      let output = "";
+      let exitCode = 0;
+      await appCommand.serve(
+        [
+          "domain",
+          operation,
+          id,
+          ...(hostname === undefined ? [] : [hostname]),
+          "--json",
+          "--full-output",
+        ],
+        {
+          env: { HALO_RPC_FILE: rpcFile },
+          stdout: (value) => {
+            output += value;
+          },
+          exit: (code) => {
+            exitCode = code;
+          },
+        },
+      );
+      return { output, exitCode };
+    };
+    const hostname = "agent.example.org";
+    const added = await command("add", hostname);
+    expect(added.exitCode).toBe(0);
+    expect(added.output).toContain('"pending"');
+    expect((await command("list")).output).toContain(hostname);
+    expect((await command("verify", hostname)).output).toContain(
+      '"APP_DOMAIN"',
+    );
+    const proof = (
+      await authenticatedRpc.apps.domains.list({ appId: publicApps.appId })
+    )[0]!.records.find((record) => record.type === "TXT")!;
+    domainHost.txt.set(proof.name, [[proof.value]]);
+    domainHost.ready = true;
+    expect((await command("verify", hostname)).output).toContain('"active"');
+    expect((await command("remove", hostname)).output).toContain(hostname);
+    for (const operation of ["add", "list", "verify", "remove"])
+      expect(
+        (
+          await command(
+            operation,
+            operation === "list" ? undefined : hostname,
+            crypto.randomUUID(),
+          )
+        ).output,
+      ).toContain('"APP_DOMAIN"');
+    expect(
+      await agent.rpc.apps.domains.list({ appId: publicApps.appId }),
+    ).toEqual([]);
+  },
+);
+// Durable: certificate cleanup failure must remain retryable after the app VM is gone.
+appRemovalTest(
+  "retries domain cleanup after app removal",
+  async ({ appRemoval, agent, domainHost, vmRemoval, appDataDir }) => {
+    const input = { appId: appRemoval.appId, hostname: "removed.example.org" };
+    const added = await agent.rpc.apps.domains.add(input);
+    const proof = added.records.find((record) => record.type === "TXT")!;
+    domainHost.txt.set(proof.name, [[proof.value]]);
+    domainHost.ready = true;
+    await agent.rpc.apps.domains.verify(input);
+    await agent.rpc.apps.update({ appId: input.appId, published: false });
+    domainHost.removeFailed = true;
+    await expect(
+      agent.rpc.apps.remove({ appId: input.appId }),
+    ).rejects.toMatchObject({ code: "INTERNAL_SERVER_ERROR" });
+    expect(vmRemoval.removed.has(input.appId)).toBe(true);
+    expect(await agent.rpc.apps.list()).toMatchObject([
+      { appId: input.appId, stage: "removing" },
+    ]);
+    domainHost.removeFailed = false;
+    await agent.rpc.apps.remove({ appId: input.appId });
+    expect(await agent.rpc.apps.list()).toEqual([]);
+    expect(domainHost.removed).toHaveLength(2);
+    using database = new DatabaseSync(
+      join(appDataDir, "control-plane.db.apps"),
+    );
+    expect(
+      database
+        .prepare("SELECT domain_id FROM app_domains WHERE app_id = ?")
+        .all(input.appId),
+    ).toEqual([]);
+  },
+);
+
+publicAppTest(
+  "limits custom-host traffic per app",
+  async ({ publicApps, authenticatedRpc, domainHost }) => {
+    const input = { appId: publicApps.appId, hostname: "quota.example.org" };
+    const added = await authenticatedRpc.apps.domains.add(input);
+    const proof = added.records.find((record) => record.type === "TXT")!;
+    domainHost.txt.set(proof.name, [[proof.value]]);
+    domainHost.ready = true;
+    await authenticatedRpc.apps.domains.verify(input);
+    // Drive the persisted rate bucket at its boundary, including the next minute.
+    const window = Math.floor(Date.now() / 60_000) * 60_000;
+    for (const start of [window, window + 60_000])
+      await publicApps.store.database.query(
+        "INSERT INTO app_usage (app_id,kind,window_start,count) VALUES ($1,'http',$2,6000) ON CONFLICT (app_id,kind,window_start) DO UPDATE SET count=6000",
+        [input.appId, start],
+      );
+    const limited = await publicApps.request({
+      path: "/launch",
+      headers: { host: input.hostname },
+    });
+    expect(limited.status).toBe(429);
+    expect(limited.headers["retry-after"]).toBe("60");
   },
 );
