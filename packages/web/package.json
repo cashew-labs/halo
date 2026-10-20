@@ -41,8 +41,9 @@
     "cronstrue": "^3.27.0",
     "errore": "^0.14.1",
     "marked": "17.0.6",
-    "maui": "npm:@tanishqkancharla/maui@0.0.52",
+    "maui": "npm:@tanishqkancharla/maui@0.0.53",
     "purse-styles": "^0.2.4",
+    "react-aria": "3.52.0",
     "react-aria-components": "1.21.0",
     "streamdown": "2.6.0",
     "wouter": "^3.10.0"
