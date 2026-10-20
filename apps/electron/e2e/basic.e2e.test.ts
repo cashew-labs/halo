@@ -859,12 +859,12 @@ e2eTest(
 );
 
 e2eTest(
-  "Whim cursors follow rich and source text while local links remain editable",
-  async ({ app }, testInfo) => {
-    const path = "cursor-links.md";
+  "Rich and source text stay editable while local links open",
+  async ({ app }) => {
+    const path = "editor-links.md";
     await app.server.rpc.workspace.writeFile({
       path,
-      content: "Plain text\n\nBefore **bold** after\n\n[Target](target.md)",
+      content: "Before **bold** after\n\n[Target](target.md)",
     });
     await app.server.rpc.workspace.writeFile({
       path: "target.md",
@@ -872,42 +872,9 @@ e2eTest(
     });
     await app.page.getByRole("link", { name: path, exact: true }).click();
     const editor = app.page.getByLabel(path, { exact: true });
-    await editor.getByText("Plain text", { exact: true }).click();
-    await expect(
-      app.page.locator(".halo-editor-caret").filter({ visible: true }),
-    ).toHaveCount(1);
-    const hover = await editor
-      .getByText("Plain text", { exact: true })
-      .evaluate((element) => {
-        const range = document.createRange();
-        range.setStart(element.firstChild!, 3);
-        range.collapse(true);
-        const rect = range.getClientRects()[0]!;
-        return { x: rect.left, y: rect.top + rect.height / 2 };
-      });
-    await app.page.mouse.move(hover.x, hover.y);
-    await expect(
-      app.page.locator(".halo-editor-hover-caret").filter({ visible: true }),
-    ).toHaveCount(1);
-    const screenshot = testInfo.outputPath("editor-cursors.png");
-    await app.page.screenshot({ path: screenshot });
-    await testInfo.attach("Editor cursors", {
-      path: screenshot,
-      contentType: "image/png",
-    });
-    await app.page.keyboard.press("ArrowLeft");
-    await expect(
-      app.page.locator(".halo-editor-caret").filter({ visible: true }),
-    ).toHaveCount(1);
-    await expect(
-      app.page.locator(".halo-editor-caret").filter({ visible: true }),
-    ).toHaveCSS("transition-property", "transform");
     await editor.locator("strong").click();
     const source = editor.getByRole("textbox", { name: "Markdown syntax" });
     await expect(source).toHaveText("**bold**");
-    await expect(
-      app.page.locator(".halo-editor-caret").filter({ visible: true }),
-    ).toHaveCount(1);
     await app.page.keyboard.type("X");
     await expect
       .poll(async () => await app.server.rpc.workspace.readFile({ path }))
@@ -923,9 +890,6 @@ e2eTest(
     await expect(
       app.page.getByRole("main", { name: "target.md", exact: true }),
     ).toHaveText(/Link target/);
-    await expect(
-      app.page.locator(".halo-editor-caret").filter({ visible: true }),
-    ).toHaveCount(0);
   },
 );
 

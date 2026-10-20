@@ -13,7 +13,6 @@ import { ListEditing } from "./ListEditing.js";
 import { MarkdownSyntax } from "./MarkdownSyntax.js";
 import { serializeMarkdown } from "./serializeMarkdown.js";
 import { MarkdownFormatting } from "./MarkdownFormatting.js";
-import { EditorCursor } from "./EditorCursor.js";
 import { EditorLinks } from "./EditorLinks.js";
 import { SubmitOnEnter } from "./SubmitOnEnter.js";
 
@@ -88,7 +87,6 @@ export function useMarkdownEditor({
       ListEditing,
       MarkdownFormatting,
       MarkdownSyntax,
-      EditorCursor,
       EditorLinks,
       ...(onSubmit === undefined
         ? []
@@ -155,10 +153,6 @@ export function useMarkdownEditor({
 }
 
 const syntaxStyle = style({
-  "&.halo-custom-caret, &.halo-custom-caret .markdown-source": {
-    caretColor: "transparent",
-  },
-  "&.halo-hover-caret, &.halo-hover-caret .markdown-source": { cursor: "none" },
   "& a": { cursor: "text" },
   "&.halo-link-modifier a": { cursor: "pointer", color: colors.accent[11] },
   "& .halo-selected-block": {
