@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The go-host resolver now reads enabled campaigns from the database through MarketingLinks.resolve and returns 500 on database errors. The static marketingLinks/HALO_MARKETING_LINKS configuration is removed from the config schema, the server and Pulumi. In the working tree, go-host isolation now matches on hostname whatever port the Host header carries, for both requests and upgrades. The durable test covers create, update, disable, re-enable and delete through the public host, including port variants and WebSocket upgrade rejection, and a temp test covers the 500 path on a closed database. All changed lines are covered and I found no blocking issue. One minor non-blocking item: Pulumi.prod.yaml line 8 still has the stale comment \"Add the actual slug-to-UTM mappings here\", which should be removed.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "b040f5ffbc4445919dd54d4e95cd7cf6a8b5f10b",
+  "treeHash": "932c1464ed10dd38e4fbb58c2eef0f51791ad28a",
+  "codeTree": "fb2827b95c2350e570a4584818ba1e8a91ec767a",
+  "coverage": {
+    "executable": 6,
+    "covered": 6,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-20T22:47:23.256Z"
+}

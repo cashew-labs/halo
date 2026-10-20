@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "This round adds Phase 3: the marketing hostname and homepage can now be set separately from the primary origin, so the `west` stack serves go.gethalo.dev from staging's campaign table and redirects to https://gethalo.dev. A separate load-balancer-authorized certificate and exact certificate-map entry cover a hostname outside the stack's own domain. Both configuration paths validate the overrides against strict hostname and https-origin patterns. Temp config tests cover development and Cloud Run reads and the rejected malformed values. A new durable HTTP test covers a staging runtime managing a production-hostname campaign, isolation, Host ports, visitor query overrides and disabling. Tests pass, the only uncovered lines are Pulumi declarations with reasonable exemptions, and I found no defects.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 3,
+  "headSha": "05e5919234e78e184191c3b4843dc1e8ac3a0447",
+  "treeHash": "9b1dab2f59fd3f4243ea83d1edfd0abe12dffdaf",
+  "codeTree": "ee403881874ea76b59c4db78eab6d0b6d2da4b2b",
+  "coverage": {
+    "executable": 39,
+    "covered": 14,
+    "exempt": 25,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-20T23:23:13.254Z"
+}

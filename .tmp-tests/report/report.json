@@ -1,0 +1,342 @@
+{
+  "baseRef": "Mochael/marketing-admin-api",
+  "baseSha": "b040f5ffbc4445919dd54d4e95cd7cf6a8b5f10b",
+  "headSha": "05e5919234e78e184191c3b4843dc1e8ac3a0447",
+  "treeHash": "9b1dab2f59fd3f4243ea83d1edfd0abe12dffdaf",
+  "generatedAt": "2026-10-20T23:22:17.986Z",
+  "runs": {
+    "durable": {
+      "tier": "durable",
+      "testFiles": [
+        "apps/control-plane/test/ControlPlane.test.ts"
+      ],
+      "skipped": false,
+      "runners": [
+        {
+          "runner": "vitest",
+          "dir": ".",
+          "testFiles": [
+            "apps/control-plane/test/ControlPlane.test.ts"
+          ],
+          "exitCode": 0
+        }
+      ],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 95777,
+      "log": ".tmp-tests/report/durable.log",
+      "lcovFiles": [
+        "../../../repos/halo/.git/worktrees/indianapolis/code-review-agent/coverage/durable-0/vitest-0/lcov.info"
+      ]
+    },
+    "tmp": {
+      "tier": "tmp",
+      "testFiles": [
+        "apps/control-plane/src/marketing/.tmp-tests/MarketingLinks.test.ts",
+        "apps/control-plane/src/marketing/.tmp-tests/MarketingLinksPostgres.test.ts",
+        "apps/control-plane/src/marketing/.tmp-tests/serveMarketingLink.test.ts",
+        "packages/config/src/.tmp-tests/marketingAdmins.test.ts"
+      ],
+      "skipped": false,
+      "runners": [
+        {
+          "runner": "vitest",
+          "dir": ".",
+          "testFiles": [
+            "apps/control-plane/src/marketing/.tmp-tests/MarketingLinks.test.ts",
+            "apps/control-plane/src/marketing/.tmp-tests/MarketingLinksPostgres.test.ts",
+            "apps/control-plane/src/marketing/.tmp-tests/serveMarketingLink.test.ts",
+            "packages/config/src/.tmp-tests/marketingAdmins.test.ts"
+          ],
+          "exitCode": 0
+        }
+      ],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 894,
+      "log": ".tmp-tests/report/tmp.log",
+      "lcovFiles": [
+        "../../../repos/halo/.git/worktrees/indianapolis/code-review-agent/coverage/tmp-0/vitest-0/lcov.info",
+        "../../../repos/halo/.git/worktrees/indianapolis/code-review-agent/coverage/tmp-0/vitest-1/lcov.info"
+      ]
+    }
+  },
+  "durableTestFiles": [
+    "apps/control-plane/test/ControlPlane.test.ts"
+  ],
+  "tmpTestFiles": [
+    "apps/control-plane/src/marketing/.tmp-tests/MarketingLinks.test.ts",
+    "apps/control-plane/src/marketing/.tmp-tests/MarketingLinksPostgres.test.ts",
+    "apps/control-plane/src/marketing/.tmp-tests/serveMarketingLink.test.ts",
+    "packages/config/src/.tmp-tests/marketingAdmins.test.ts"
+  ],
+  "files": [
+    {
+      "path": "apps/control-plane/src/marketing/serveMarketingLink.ts",
+      "loaded": true,
+      "changed": [
+        1,
+        4,
+        5,
+        8,
+        9,
+        11,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        33
+      ],
+      "coveredDurable": [
+        11,
+        23,
+        24,
+        33
+      ],
+      "coveredTmpOnly": [
+        25,
+        26,
+        27
+      ],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "apps/control-plane/src/server/ControlPlane.ts",
+      "loaded": true,
+      "changed": [
+        256,
+        257
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "apps/control-plane/src/server/controlPlaneHttp.ts",
+      "loaded": true,
+      "changed": [
+        172,
+        173,
+        192,
+        193,
+        194,
+        228,
+        229,
+        230,
+        231,
+        234,
+        235,
+        292,
+        293,
+        294,
+        295
+      ],
+      "coveredDurable": [
+        193,
+        228,
+        231,
+        292
+      ],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "infra/control-plane/index.ts",
+      "loaded": false,
+      "changed": [
+        70,
+        75,
+        76,
+        77,
+        78,
+        79,
+        80,
+        813,
+        814,
+        815,
+        817,
+        818,
+        821,
+        822,
+        997,
+        998,
+        999,
+        1000,
+        1001,
+        1002,
+        1003,
+        1004,
+        1005,
+        1006,
+        1007,
+        1008,
+        1009,
+        1010,
+        1011,
+        1012,
+        1013,
+        1014,
+        1015,
+        1016,
+        1017,
+        1018,
+        1019,
+        1142,
+        1143,
+        1145
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": [
+        {
+          "line": 76,
+          "reason": "Pulumi deployment settings are validated by the receiving config schema and infra preview."
+        },
+        {
+          "line": 77,
+          "reason": "Pulumi deployment settings are validated by the receiving config schema and infra preview."
+        },
+        {
+          "line": 79,
+          "reason": "Pulumi deployment settings are validated by the receiving config schema and infra preview."
+        },
+        {
+          "line": 80,
+          "reason": "Pulumi deployment settings are validated by the receiving config schema and infra preview."
+        },
+        {
+          "line": 814,
+          "reason": "Declarative Cloud Run environment; validated by config bootstrap tests and infrastructure preview."
+        },
+        {
+          "line": 817,
+          "reason": "Declarative Cloud Run environment; validated by config bootstrap tests and infrastructure preview."
+        },
+        {
+          "line": 818,
+          "reason": "Declarative Cloud Run environment; validated by config bootstrap tests and infrastructure preview."
+        },
+        {
+          "line": 821,
+          "reason": "Declarative Cloud Run environment provisioned by Pulumi."
+        },
+        {
+          "line": 822,
+          "reason": "Declarative Cloud Run environment provisioned by Pulumi."
+        },
+        {
+          "line": 1001,
+          "reason": "Declarative certificate resources require an authenticated Pulumi preview and live DNS/TLS validation."
+        },
+        {
+          "line": 1002,
+          "reason": "Declarative certificate resources require an authenticated Pulumi preview and live DNS/TLS validation."
+        },
+        {
+          "line": 1003,
+          "reason": "Declarative certificate resources require an authenticated Pulumi preview and live DNS/TLS validation."
+        },
+        {
+          "line": 1005,
+          "reason": "Declarative certificate resources require an authenticated Pulumi preview and live DNS/TLS validation."
+        },
+        {
+          "line": 1006,
+          "reason": "Declarative certificate resources require an authenticated Pulumi preview and live DNS/TLS validation."
+        },
+        {
+          "line": 1007,
+          "reason": "Declarative certificate resources require an authenticated Pulumi preview and live DNS/TLS validation."
+        },
+        {
+          "line": 1008,
+          "reason": "Declarative certificate resources require an authenticated Pulumi preview and live DNS/TLS validation."
+        },
+        {
+          "line": 1010,
+          "reason": "Declarative certificate resources require an authenticated Pulumi preview and live DNS/TLS validation."
+        },
+        {
+          "line": 1012,
+          "reason": "Declarative certificate resources require an authenticated Pulumi preview and live DNS/TLS validation."
+        },
+        {
+          "line": 1013,
+          "reason": "Declarative certificate resources require an authenticated Pulumi preview and live DNS/TLS validation."
+        },
+        {
+          "line": 1014,
+          "reason": "Declarative certificate resources require an authenticated Pulumi preview and live DNS/TLS validation."
+        },
+        {
+          "line": 1015,
+          "reason": "Declarative certificate resources require an authenticated Pulumi preview and live DNS/TLS validation."
+        },
+        {
+          "line": 1016,
+          "reason": "Declarative certificate resources require an authenticated Pulumi preview and live DNS/TLS validation."
+        },
+        {
+          "line": 1017,
+          "reason": "Declarative certificate resources require an authenticated Pulumi preview and live DNS/TLS validation."
+        },
+        {
+          "line": 1143,
+          "reason": "Pulumi stack output; checked by typecheck and preview."
+        },
+        {
+          "line": 1145,
+          "reason": "Pulumi stack output; checked by typecheck and preview."
+        }
+      ]
+    },
+    {
+      "path": "packages/config/src/controlPlane.ts",
+      "loaded": true,
+      "changed": [
+        59,
+        64,
+        65,
+        66,
+        67,
+        68,
+        69,
+        70,
+        71,
+        72,
+        73,
+        74,
+        88,
+        89,
+        106,
+        107,
+        236,
+        237,
+        301,
+        302
+      ],
+      "coveredDurable": [
+        66,
+        67,
+        71
+      ],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    }
+  ],
+  "totals": {
+    "executable": 39,
+    "coveredDurable": 11,
+    "coveredTmpOnly": 3,
+    "uncovered": 0,
+    "exempt": 25
+  },
+  "passed": true
+}
