@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useInteractOutside } from "react-aria";
 import { TreeItem, TreeItemContent } from "react-aria-components/Tree";
 import { TextField, colors, controlSize, spacing } from "maui";
@@ -88,6 +88,11 @@ function FileNameField({
     ref: inputRef,
     onInteractOutside: () => inputRef.current?.blur(),
   });
+  // Saving disables and blurs the field. When the server rejects the name,
+  // return focus so the user can fix it or press Escape.
+  useEffect(() => {
+    if (error !== undefined) inputRef.current?.focus();
+  }, [error]);
   return (
     <>
       <span className={icon} aria-hidden="true">
@@ -131,18 +136,25 @@ function FileNameField({
           }
           if (event.key === "Enter") {
             event.preventDefault();
-            inputRef.current?.blur();
+            // Keep editing an invalid name; its error is already shown.
+            if (!invalid) inputRef.current?.blur();
           }
         }}
         onBlur={() => {
           if (pending) return;
           // Check the raw text too, so an untouched name with surrounding spaces
           // closes instead of being renamed to its trimmed form.
-          if (value === "" || name === originalName || value === originalName) {
+          // Leaving with an invalid name cancels, so the section never stays
+          // locked behind an unfocused field.
+          if (
+            invalid ||
+            value === "" ||
+            name === originalName ||
+            value === originalName
+          ) {
             onClose();
             return;
           }
-          if (invalid) return;
           const filename =
             action.kind === "file" && !/\.[^.]+$/.test(value)
               ? `${value.replace(/\.$/, "")}.md`

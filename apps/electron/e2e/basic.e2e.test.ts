@@ -162,9 +162,34 @@ e2eTest(
       app.page.getByRole("textbox", { name: "Rename renamed.md" }),
     ).toBeFocused();
     await app.server.rpc.workspace.deleteEntry({ path: "Open/renamed.md" });
+    const newFile = app.page.getByRole("button", {
+      name: "New file",
+      exact: true,
+    });
+    await expect(newFile).toBeEnabled();
+    await app.server.rpc.workspace.writeFile({
+      path: "Open/renamed.md",
+      content: "Back again",
+    });
     await expect(
-      app.page.getByRole("button", { name: "New file", exact: true }),
-    ).toBeEnabled();
+      app.page.getByRole("link", { name: "renamed.md", exact: true }),
+    ).toBeVisible();
+    await expect(newFile).toBeEnabled();
+    await app.page
+      .getByRole("link", { name: "renamed.md", exact: true })
+      .dblclick();
+    const invalid = app.page.getByRole("textbox", {
+      name: "Rename renamed.md",
+      exact: true,
+    });
+    await invalid.fill("bad/name.md");
+    await invalid.press("Enter");
+    await expect(invalid).toBeFocused();
+    await invalid.blur();
+    await expect(newFile).toBeEnabled();
+    expect(
+      await app.server.rpc.workspace.readFile({ path: "Open/renamed.md" }),
+    ).toBe("Back again");
   },
 );
 
