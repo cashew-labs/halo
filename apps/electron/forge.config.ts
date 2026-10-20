@@ -18,6 +18,8 @@ const packagerConfig: NonNullable<ForgeConfig["packagerConfig"]> = {
   extraResource: [
     path.resolve(import.meta.dirname, "../../LICENSE"),
     path.resolve(import.meta.dirname, "../../NOTICE"),
+    // main.ts uses this as the dock and window icon on the staging channel.
+    path.resolve(import.meta.dirname, "icons/staging.png"),
   ],
   appBundleId: "com.saffronhealth.halo",
   appCategoryType: "public.app-category.medical",

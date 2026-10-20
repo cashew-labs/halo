@@ -244,6 +244,7 @@ export class ControlPlane {
       webRoot,
       build: ctx.build,
       googleAnalyticsMeasurementId: config.googleAnalyticsMeasurementId,
+      environment: config.environment,
       inference: ctx.inference,
       traces:
         ctx.traceCloud === undefined

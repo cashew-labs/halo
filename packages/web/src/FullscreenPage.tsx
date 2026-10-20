@@ -1,7 +1,16 @@
 import type { ReactNode } from "react";
 import { backgroundColor, spacing } from "maui";
 import { style, useStyles } from "purse-styles";
-import haloLogo from "./assets/halo-donut-transparent.png";
+import productionLogo from "./assets/halo-donut-transparent.png";
+import stagingLogo from "./assets/halo-donut-staging.png";
+import developmentLogo from "./assets/halo-donut-development.png";
+import { useHost } from "./HostProvider.js";
+
+const logos = {
+  production: productionLogo,
+  staging: stagingLogo,
+  development: developmentLogo,
+};
 
 export function FullscreenPage({
   children,
@@ -18,10 +27,17 @@ export function FullscreenPage({
   const content = useStyles(styles.content);
   const footerClass = useStyles(styles.footer);
   const logo = useStyles(styles.logo);
+  const host = useHost();
   return (
     <main className={shell} aria-label={label}>
       <div className={content}>
-        {visual ?? <img className={logo} src={haloLogo} alt="Halo" />}
+        {visual ?? (
+          <img
+            className={logo}
+            src={logos[host.environment ?? "production"]}
+            alt="Halo"
+          />
+        )}
         {children}
       </div>
       {footer === undefined ? undefined : (

@@ -220,6 +220,7 @@ const controlPlaneTest = test.extend<{
   rpc: ControlPlaneClient;
   webRoot: string;
   googleAnalyticsMeasurementId: string | undefined;
+  environment: "production" | "staging" | "development" | undefined;
   workspaceProvider: WorkspaceProviderApi;
   workspaceHost: WorkspaceHostDriver;
   allowLocalIntegrationUrls: boolean;
@@ -879,6 +880,7 @@ const controlPlaneTest = test.extend<{
     await fs.rm(appDataDir, { recursive: true, force: true });
   },
   googleAnalyticsMeasurementId: undefined,
+  environment: undefined,
   webRoot: async ({ appDataDir }, use) => {
     const webRoot = join(appDataDir, "web");
     await fs.mkdir(join(webRoot, "assets"), { recursive: true });
@@ -898,6 +900,7 @@ const controlPlaneTest = test.extend<{
       integrationApi,
       allowLocalIntegrationUrls,
       googleAnalyticsMeasurementId,
+      environment,
     },
     use,
   ) => {
@@ -909,6 +912,7 @@ const controlPlaneTest = test.extend<{
         appDataDir,
         port: 0,
         googleAnalyticsMeasurementId,
+        environment,
         auth: testAuth,
         gmail: {
           topic: "projects/halo-test/topics/gmail",
@@ -6561,6 +6565,51 @@ controlPlaneTest(
     expect(response.status).toBe(200);
     expect(await response.text()).toContain(
       'name="halo-ga-measurement-id" content=""',
+    );
+  },
+);
+
+async function writeStagingOverrides(webRoot: string) {
+  await fs.mkdir(join(webRoot, "staging"), { recursive: true });
+  await Promise.all([
+    fs.writeFile(
+      join(webRoot, "index.html"),
+      '<meta name="halo-environment" content="" /><main>Halo</main>',
+    ),
+    fs.writeFile(join(webRoot, "logo.png"), "production logo"),
+    fs.writeFile(join(webRoot, "icon.png"), "production icon"),
+    fs.writeFile(join(webRoot, "staging", "logo.png"), "staging logo"),
+  ]);
+}
+
+controlPlaneTest(
+  "production ignores staging web overrides",
+  async ({ plane, webRoot }) => {
+    await writeStagingOverrides(webRoot);
+    expect(await (await fetch(`${plane.origin}/logo.png`)).text()).toBe(
+      "production logo",
+    );
+    expect(await (await fetch(`${plane.origin}/login`)).text()).toContain(
+      'name="halo-environment" content=""',
+    );
+  },
+);
+
+const stagingPlaneTest = controlPlaneTest.extend({
+  environment: "staging" as const,
+});
+stagingPlaneTest(
+  "staging serves staging/ overrides at the root paths and marks the app shell",
+  async ({ plane, webRoot }) => {
+    await writeStagingOverrides(webRoot);
+    const logo = await fetch(`${plane.origin}/logo.png`);
+    expect(logo.headers.get("content-type")).toBe("image/png");
+    expect(await logo.text()).toBe("staging logo");
+    expect(await (await fetch(`${plane.origin}/icon.png`)).text()).toBe(
+      "production icon",
+    );
+    expect(await (await fetch(`${plane.origin}/login`)).text()).toContain(
+      'name="halo-environment" content="staging"',
     );
   },
 );

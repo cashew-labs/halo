@@ -47,6 +47,8 @@ export interface HostApi {
     // Signs in to the Halo account that requested the setup.
     signIn(): Promise<ControlPlaneSession | Error | undefined>;
   };
+  /** Selects environment branding such as the logo; absent means production. */
+  readonly environment?: "production" | "staging" | "development"; // coverage-exempt: a type declaration emits no runtime code
   getWorkspaceStatus?(): Promise<
     ControlPlaneWorkspaceStatus | Error | undefined
   >;
