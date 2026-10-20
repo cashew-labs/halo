@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "This round is another rebase. The new base adds an `environment` field to the Cloud Run config, and the `customDomains` field sits before it without conflict. The provider, durable tests, `main.ts` wiring, Pulumi IAM and resources, and spec text are the same as in round 6; only line numbers moved. Both test tiers pass, no changed line is uncovered, the exemptions are unchanged, and the change is ready.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 7,
+  "headSha": "a05781c0c652a14d8643d4ead7d6690b6c0172a0",
+  "treeHash": "528a6ae7ebaa5c82c6826aa88a89d4c794d53071",
+  "codeTree": "eabefddb089a6cab0fb077bdbb25746133a2d146",
+  "coverage": {
+    "executable": 124,
+    "covered": 74,
+    "exempt": 50,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-20T16:04:50.397Z"
+}

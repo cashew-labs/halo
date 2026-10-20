@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The rebase moved the `/health` probe fix and its durable tests into the base branch; I confirmed the fix at `controlPlaneHttp.ts:205-216`. The Certificate Manager provider, config parsing, `main.ts` wiring and Pulumi IAM/resources are unchanged from the version approved in round 2. The new README text on hostname transfer matches the order in `AppDomains.ts`, which removes the old binding's certificate resources before assigning the hostname to the new app. Both test tiers pass, no changed line is uncovered, and the exemptions are the same ones accepted earlier, so the change is ready.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 3,
+  "headSha": "731b7befe25595418f49c40136335130d3a08c00",
+  "treeHash": "8612231fffb9b75ab1fc353f1146c03163cc0e8f",
+  "codeTree": "7a571cf5af9a3569bab3058453640dae51a59ab5",
+  "coverage": {
+    "executable": 115,
+    "covered": 66,
+    "exempt": 49,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-20T01:00:40.018Z"
+}
