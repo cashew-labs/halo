@@ -25,6 +25,18 @@ export function ConnectionPage({
   );
 }
 
+export function OfflinePage() {
+  const heading = useStyles(styles.heading);
+  return (
+    <FullscreenPage>
+      <Prose size="sm">
+        <h1 className={heading}>You're offline</h1>
+        <P>Halo reconnects to your workspace when you're back online.</P>
+      </Prose>
+    </FullscreenPage>
+  );
+}
+
 export function IncompatibleConnection({
   error,
   onRetry,

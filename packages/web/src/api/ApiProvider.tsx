@@ -1,5 +1,8 @@
 import { FileSaveErrorsProvider } from "../main/FileSaveErrors.js";
-import { useAuthenticatedUserId } from "../Authentication.js";
+import {
+  useAuthenticatedUserId,
+  useReauthenticate,
+} from "../Authentication.js";
 import { WorkspaceUpdatesProvider } from "./WorkspaceUpdatesProvider.js";
 import { WorkspaceDataProvider } from "../database/WorkspaceDataProvider.js";
 import { useQuery, skipToken, useQueryClient } from "@tanstack/react-query";
@@ -12,15 +15,17 @@ import {
   type ReactNode,
 } from "react";
 import {
+  IncompatibleServerError,
   type HaloClient,
   type WorkspaceInfo,
   type SessionSummary,
 } from "@get-halo/client";
 import { useHost } from "../HostProvider.js";
 import { ConnectionService } from "./ConnectionService.js";
-import { ConnectionContext } from "./ConnectionContext.js";
-import { ConnectionStatus } from "../ConnectionStatus.js";
+import { ConnectionContext, useConnection } from "./ConnectionContext.js";
+import { ConnectionPage, OfflinePage } from "../ConnectionPage.js";
 import { LoadingPage } from "../LoadingPage.js";
+import { SignInPage } from "../SignInPage.js";
 
 const ApiContext = createContext<HaloClient>(undefined!);
 const workspaceQueryKey = ["workspace"] as const;
@@ -59,11 +64,7 @@ export function ApiProvider({ children }: { children: ReactNode }) {
   return (
     <ConnectionContext value={service}>
       {state.api === undefined ? (
-        <LoadingPage progressLabel="Opening your workspace">
-          {(state.status === "authentication" ||
-            state.status === "incompatible" ||
-            state.status === "offline") && <ConnectionStatus />}
-        </LoadingPage>
+        <OpeningWorkspacePage />
       ) : (
         <ApiContext value={state.api}>
           <WorkspaceUpdatesProvider
@@ -78,6 +79,42 @@ export function ApiProvider({ children }: { children: ReactNode }) {
       )}
     </ConnectionContext>
   );
+}
+
+/**
+ * Before the workspace opens, only an attempt in progress shows the loading
+ * screen. States that wait on the user or on an update get their own page.
+ */
+function OpeningWorkspacePage() {
+  const { service, state } = useConnection();
+  const reauthenticate = useReauthenticate();
+  const [signingIn, setSigningIn] = useState(false);
+  const [signInError, setSignInError] = useState<string>();
+  if (state.status === "authentication") {
+    const signIn = async () => {
+      setSigningIn(true);
+      setSignInError(undefined);
+      const result = await reauthenticate();
+      setSigningIn(false);
+      if (result instanceof Error) {
+        console.warn(result);
+        setSignInError("Couldn't sign in with Google. Try again.");
+        return;
+      }
+      if (result) service.resumeAfterSignIn();
+    };
+    return (
+      <SignInPage
+        error={signInError}
+        signingIn={signingIn}
+        onSignIn={() => void signIn()}
+      />
+    );
+  }
+  if (state.error instanceof IncompatibleServerError)
+    return <ConnectionPage error={state.error} onRetry={service.retry} />;
+  if (state.status === "offline") return <OfflinePage />;
+  return <LoadingPage progressLabel="Opening your workspace" />;
 }
 
 export function useApi(): HaloClient {
