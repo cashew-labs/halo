@@ -135,11 +135,14 @@ function FileNameField({
           }
         }}
         onBlur={() => {
-          if (pending || invalid) return;
-          if (value === "" || value === originalName) {
+          if (pending) return;
+          // Check the raw text too, so an untouched name with surrounding spaces
+          // closes instead of being renamed to its trimmed form.
+          if (value === "" || name === originalName || value === originalName) {
             onClose();
             return;
           }
+          if (invalid) return;
           const filename =
             action.kind === "file" && !/\.[^.]+$/.test(value)
               ? `${value.replace(/\.$/, "")}.md`
