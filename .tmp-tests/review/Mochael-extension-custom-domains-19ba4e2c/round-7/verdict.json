@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change was rebased onto a new merge base. Apart from rewording the Phase 2 section of `specs/extension-custom-domains.md` to describe the implemented behaviour, the source and tests are the same as the version I approved in round 6. Both test runs pass. The two `.parked` files under `tmp/` are not runnable tests and are not part of this change. Every changed line is covered or exempt with an accepted reason, and no P0 or P1 finding remains.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 7,
+  "headSha": "58bf843458b9412ee8cb35c41f3e9c7a62e356b1",
+  "treeHash": "5794c9332a69d257188e465be9583821968a8220",
+  "codeTree": "bcae4cef5553ea7dfcb4a99d96858c7940cbdd99",
+  "coverage": {
+    "executable": 215,
+    "covered": 206,
+    "exempt": 9,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-20T01:31:05.874Z"
+}

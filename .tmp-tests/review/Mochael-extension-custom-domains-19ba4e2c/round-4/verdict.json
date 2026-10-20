@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "This round adds `normalizeHost`, which strips only the public origin's default port from a Host header. It is used for the main-host check, the upgrade guard and the creator-subdomain check, so `gethalo.dev:443` and `alice.gethalo.dev:443` resolve the same way as the bare hosts. The logic fails closed for lookalike and non-default-port hosts. The new durable `creatorHost.test.ts` is a fast unit test that guards this host-isolation boundary, so I accept it as durable. Both test runs pass, every changed line is covered or exempt with an accepted reason, and no P0 or P1 finding remains.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 4,
+  "headSha": "e2c17b661ee1744908d500d540cdd49cde6bc82d",
+  "treeHash": "75639cdf4936e9bc29970e50f3dcbd2cc5ece2ca",
+  "codeTree": "92ee18e84e8ce5a8738c03efee194a095f89af51",
+  "coverage": {
+    "executable": 215,
+    "covered": 206,
+    "exempt": 9,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-20T01:10:38.935Z"
+}
