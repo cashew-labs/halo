@@ -1,0 +1,24 @@
+{
+  "status": "changes_requested",
+  "summary": "The diff is the same as the round-3 version I approved, and I found no source or test defects. The Playwright suite and the extension-sdk tests now pass, but ControlPlane.test.ts failed again. Four existing integration/OAuth/MCP tests failed: three timeouts and one empty tool catalog. One test logged 46,554,313 ms (about 13 hours) and the whole run took about 47,800 s, so the host was suspended or starved during the run. These failures are environmental and not caused by this change, but because the file failed, AppGateway.ts:18 still has no recorded coverage and the gate fails. Approval needs a clean ControlPlane run on an idle machine.",
+  "findings": [],
+  "testRequests": [
+    {
+      "target": "apps/control-plane/test/ControlPlane.test.ts: a passing run that records durable coverage for AppGateway.ts:18 through 'forwards extension HTTP routes through existing gateway authorization'",
+      "tier": "durable",
+      "rationale": "Four existing tests failed because of host suspension or starvation: a 13-hour test duration and a 47,800 s run. None of them touches the /http gateway route. Rerun on an idle machine. If those integration tests still fail there, show that they also fail on the base commit e2d5f9f647b8, so that they are recorded as pre-existing and not attributed to this change."
+    }
+  ],
+  "tierChanges": [],
+  "round": 5,
+  "headSha": "383f937d09e9990b20ee89c24735bca2db7efbc5",
+  "treeHash": "1cc7927249670cc7553914d8ac36d8e356971767",
+  "codeTree": "71771976fbef1ac2043eba9a0ab2fe3af40b7a65",
+  "coverage": {
+    "executable": 40,
+    "covered": 39,
+    "exempt": 0,
+    "uncovered": 1
+  },
+  "createdAt": "2026-10-20T15:40:07.943Z"
+}

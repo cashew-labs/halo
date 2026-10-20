@@ -1,0 +1,24 @@
+{
+  "status": "changes_requested",
+  "summary": "The diff is the same as the round-3 version I approved, rebased onto a new base, and I found no new source or test defects. This round's durable run failed: two existing ControlPlane tests timed out (custom MCP/OpenAPI registration at 20s, OAuth setup state at 5s), and so did the existing Playwright test 'syncs task edits between independent browsers' at 90s. Because ControlPlane.test.ts failed, no coverage was recorded for AppGateway.ts:18, which now counts as uncovered. The failures look like timeouts under machine load (the durable run took 435s, against about 111s before), not regressions from this change, but approval needs a passing run: rerun the durable tests and confirm they pass after the rebase.",
+  "findings": [],
+  "testRequests": [
+    {
+      "target": "Rerun the durable suite: apps/control-plane/test/ControlPlane.test.ts and packages/extension-tools/test/extension.test.ts (and the existing extension-sdk server test)",
+      "tier": "durable",
+      "rationale": "Three existing tests timed out this round. Because ControlPlane.test.ts failed, AppGateway.ts:18 has no recorded coverage and the gate fails. A clean rerun on the rebased head must pass, and it must record durable coverage for AppGateway.ts:18 through the new 'forwards extension HTTP routes through existing gateway authorization' test. If a timeout repeats, check whether the rebase or the new tasks/http.ts fixture causes it, since the sync test loads that same fixture."
+    }
+  ],
+  "tierChanges": [],
+  "round": 4,
+  "headSha": "383f937d09e9990b20ee89c24735bca2db7efbc5",
+  "treeHash": "1cc7927249670cc7553914d8ac36d8e356971767",
+  "codeTree": "71771976fbef1ac2043eba9a0ab2fe3af40b7a65",
+  "coverage": {
+    "executable": 40,
+    "covered": 39,
+    "exempt": 0,
+    "uncovered": 1
+  },
+  "createdAt": "2026-10-20T01:45:52.169Z"
+}

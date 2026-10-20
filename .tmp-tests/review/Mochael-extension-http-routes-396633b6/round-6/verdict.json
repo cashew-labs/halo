@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change adds an optional public `http.ts` handler to the extension SDK and its build, and routes `/<app>/http` through the creator-host gateway. The diff is unchanged from the round-3 version I approved. The rerun on head 383f937d09e9 passes every durable and temp test, and the coverage gate passes: AppGateway.ts:18 is now covered by the durable gateway test. This confirms that the earlier failures were environmental. The change is ready.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 6,
+  "headSha": "383f937d09e9990b20ee89c24735bca2db7efbc5",
+  "treeHash": "1cc7927249670cc7553914d8ac36d8e356971767",
+  "codeTree": "71771976fbef1ac2043eba9a0ab2fe3af40b7a65",
+  "coverage": {
+    "executable": 40,
+    "covered": 40,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-20T15:42:13.836Z"
+}

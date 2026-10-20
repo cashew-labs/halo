@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change adds an optional public `http.ts` handler to the extension SDK and its build. It routes `/<app>/http/...` through the creator-host gateway, and this round also accepts the bare `/http` root, with tests for the public host and the query for both `/http` and `/http/`. Durable and temp tests pass and the coverage gate passes; the skipped `.parked` files are another task's tmp/ work and are not part of this change. No findings remain, and the change is ready.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 3,
+  "headSha": "cbf1135e8408465b5bf7679ef9faa19cc39f7cfe",
+  "treeHash": "f78cd2b3713bebf0a4847a56330f005f29c003a5",
+  "codeTree": "61e34938933ddad33fcff09644560b7b7bc38ebc",
+  "coverage": {
+    "executable": 40,
+    "covered": 40,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-20T01:28:35.121Z"
+}
