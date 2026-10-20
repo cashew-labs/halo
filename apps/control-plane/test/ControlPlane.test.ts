@@ -6668,6 +6668,12 @@ publicAppTest(
         })
       ).status,
     ).toBe(405);
+    const health = await publicApps.request({
+      path: "/health",
+      headers: { host: input.hostname },
+    });
+    expect(health.status).toBe(200);
+    expect(JSON.parse(health.body).workspace).toBe("test-workspace");
     const redirect = await publicApps.request({
       path: "/redirect",
       headers: { host: input.hostname },
@@ -6743,5 +6749,28 @@ publicAppTest(
         ?.status,
     ).toBe("pending");
     await authenticatedRpc.apps.domains.remove(input);
+  },
+);
+
+// Durable: custom-host isolation must not break Cloud Run's internal-host startup probe.
+publicAppTest(
+  "allows internal-host health probes while rejecting unrelated host application traffic",
+  async ({ publicApps }) => {
+    expect(
+      (
+        await publicApps.request({
+          path: "/health",
+          headers: { host: "control-plane.internal" },
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await publicApps.request({
+          path: "/rpc/auth/session",
+          headers: { host: "control-plane.internal" },
+        })
+      ).status,
+    ).toBe(404);
   },
 );

@@ -206,7 +206,13 @@ export function serveControlPlaneHttp(ctx: {
       const custom = await ctx.appGateway.serveCustom({ request, response });
       if (custom) return;
       if (!isCreatorHost({ publicOrigin, host: requestHost })) {
-        response.writeHead(404, { "cache-control": "no-store" }).end();
+        // Internal Cloud Run probes have no public hostname. Custom and creator
+        // hosts were handled first, so their /health remains extension-owned.
+        const probe =
+          request.method === "GET" && request.url?.split("?")[0] === "/health";
+        response
+          .writeHead(probe ? 200 : 404, { "cache-control": "no-store" })
+          .end();
         return;
       }
     }

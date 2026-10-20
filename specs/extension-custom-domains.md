@@ -47,7 +47,7 @@ Verification and activation are separate from registration. Unknown hosts never
 fall back to Halo's authenticated application. Active custom hosts route only to
 an explicitly published public app's HTTP surface, with anonymous identity.
 
-## Phase 3: Managed HTTPS
+## ✅ Phase 3: Managed HTTPS
 
 **Today:** [[infra/control-plane/index.ts]] provisions certificates for Halo and creator hosts.
 **Proposed:** A host-supplied certificate provider provisions custom-host DNS
