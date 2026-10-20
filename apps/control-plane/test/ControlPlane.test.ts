@@ -6020,6 +6020,7 @@ const appRemovalTest = controlPlaneTest.extend<{
     backup: string;
     reference: string;
     runtimeToken: string;
+    createReplacement: () => Promise<string>;
   };
 }>({
   removalSupported: true,
@@ -6259,6 +6260,27 @@ const appRemovalTest = controlPlaneTest.extend<{
         appId: app.appId,
         generation: 1,
       }),
+      createReplacement: async () => {
+        // Resume a second completed publication with this fixture's owner.
+        const replacement = await store.create({
+          ownerUserId: session.session.user.id,
+          extensionId: "replacement",
+          slug: "replacement",
+          displayName: "Replacement",
+          visibility: "public",
+          members: [],
+          syncAccess: "read-only",
+          actions: [],
+        });
+        if (replacement instanceof Error) throw replacement;
+        const live = await store.advance({
+          appId: replacement.appId,
+          from: "frozen",
+          to: "live",
+        });
+        if (live instanceof Error) throw live;
+        return replacement.appId;
+      },
     });
   },
 });
@@ -7103,7 +7125,7 @@ publicAppTest.extend({
 // Durable: certificate cleanup failure must remain retryable after the app VM is gone.
 appRemovalTest(
   "retries domain cleanup after app removal",
-  async ({ appRemoval, agent, domainHost, vmRemoval, appDataDir }) => {
+  async ({ appRemoval, agent, domainHost, vmRemoval }) => {
     const input = { appId: appRemoval.appId, hostname: "removed.example.org" };
     const added = await agent.rpc.apps.domains.add(input);
     const proof = added.records.find((record) => record.type === "TXT")!;
@@ -7123,14 +7145,17 @@ appRemovalTest(
     await agent.rpc.apps.remove({ appId: input.appId });
     expect(await agent.rpc.apps.list()).toEqual([]);
     expect(domainHost.removed).toHaveLength(2);
-    using database = new DatabaseSync(
-      join(appDataDir, "control-plane.db.apps"),
+    const replacement = {
+      appId: await appRemoval.createReplacement(),
+      hostname: input.hostname,
+    };
+    const next = await agent.rpc.apps.domains.add(replacement);
+    const nextProof = next.records.find((record) => record.type === "TXT")!;
+    // Retaining the old proof exposes an orphaned verified claim through the API.
+    domainHost.txt.set(nextProof.name, [[proof.value], [nextProof.value]]);
+    expect((await agent.rpc.apps.domains.verify(replacement)).status).toBe(
+      "active",
     );
-    expect(
-      database
-        .prepare("SELECT domain_id FROM app_domains WHERE app_id = ?")
-        .all(input.appId),
-    ).toEqual([]);
   },
 );
 
@@ -7143,13 +7168,22 @@ publicAppTest(
     domainHost.txt.set(proof.name, [[proof.value]]);
     domainHost.ready = true;
     await authenticatedRpc.apps.domains.verify(input);
-    // Drive the persisted rate bucket at its boundary, including the next minute.
-    const window = Math.floor(Date.now() / 60_000) * 60_000;
-    for (const start of [window, window + 60_000])
-      await publicApps.store.database.query(
-        "INSERT INTO app_usage (app_id,kind,window_start,count) VALUES ($1,'http',$2,6000) ON CONFLICT (app_id,kind,window_start) DO UPDATE SET count=6000",
-        [input.appId, start],
+    // Keep the fixed-window boundary stable while real public requests fill it.
+    using clock = vi.spyOn(Date, "now");
+    clock.mockReturnValue(Date.now());
+    for (let batch = 0; batch < 60; batch++) {
+      const responses = await Promise.all(
+        Array.from(
+          { length: 100 },
+          async () =>
+            await publicApps.request({
+              path: "/launch",
+              headers: { host: input.hostname },
+            }),
+        ),
       );
+      expect(responses.every((response) => response.status === 200)).toBe(true);
+    }
     const limited = await publicApps.request({
       path: "/launch",
       headers: { host: input.hostname },
