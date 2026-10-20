@@ -1,7 +1,7 @@
 import { FileSaveErrorIndicator } from "../FileSaveErrorIndicator.js";
 import { SidebarFooter } from "./SidebarFooter.js";
 import { useSidebar } from "../WorkspaceLayout.js";
-import { Button, backgroundColor, flex, flexItem, shadow, spacing } from "maui";
+import { Button, backgroundColor, colors, flex, flexItem, spacing } from "maui";
 import { Close, Monitor } from "maui/icons";
 import { style, useStyles } from "purse-styles";
 import type { SessionSummary } from "@get-halo/client";
@@ -67,7 +67,7 @@ export function Sidebar({ sessions, appInfo }: SidebarProps) {
 }
 
 const styles = {
-  sidebar: style(shadow.medium, flex({ direction: "column", gap: 4 }), {
+  sidebar: style(flex({ direction: "column", gap: 4 }), {
     width: "100%",
     minWidth: 0,
     height: "100%",
@@ -77,6 +77,7 @@ const styles = {
     position: "relative",
     zIndex: 1,
     backgroundColor: backgroundColor.element,
+    borderRight: `0.5px solid ${colors.gray[6]}`,
     "@media (max-width: 700px)": {
       gap: 0,
       paddingBottom: "env(safe-area-inset-bottom)",

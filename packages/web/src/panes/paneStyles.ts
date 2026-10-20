@@ -36,7 +36,7 @@ const paneStyles = {
     height: tabBarHeight,
     paddingInline: 8,
     backgroundColor: backgroundColor.app,
-    borderBottom: `1px solid ${colors.gray[6]}`,
+    borderBottom: `0.5px solid ${colors.gray[6]}`,
     WebkitAppRegion: "drag",
   }),
   header: style(flex({ alignItems: "center", gap: 2 }), {
@@ -44,7 +44,7 @@ const paneStyles = {
     // Line the title up with tab labels: tab bar padding plus Maui's tab button padding.
     paddingInlineStart: `calc(8px + ${spacing.value(6)})`,
     paddingInlineEnd: 8,
-    borderBottom: `1px solid ${colors.gray[6]}`,
+    borderBottom: `0.5px solid ${colors.gray[6]}`,
   }),
   headerTitle: style(
     text({ size: "sm", fontWeight: 400, color: "highContrast" }),
@@ -100,27 +100,30 @@ const paneStyles = {
     zIndex: 4,
     touchAction: "none",
     outline: "none",
+    // Draw the line as a border so sub-pixel widths still render on 1x displays.
     "&::after": {
       content: "''",
       position: "absolute",
-      backgroundColor: colors.gray[6],
+      borderColor: colors.gray[6],
+      borderStyle: "solid",
+      borderWidth: 0,
     },
     "&[data-axis='horizontal']": { cursor: "col-resize" },
     "&[data-axis='vertical']": { cursor: "row-resize" },
     "&[data-axis='horizontal']::after": {
       top: 0,
       bottom: 0,
-      left: 2,
-      width: 1,
+      left: 3,
+      borderLeftWidth: 0.5,
     },
     "&[data-axis='vertical']::after": {
       left: 0,
       right: 0,
-      top: 2,
-      height: 1,
+      top: 3,
+      borderTopWidth: 0.5,
     },
     "&:hover::after, &:focus-visible::after": {
-      backgroundColor: colors.accent[9],
+      borderColor: colors.accent[9],
     },
   }),
   dropShield: style({
