@@ -49,6 +49,30 @@ The browser and desktop share this gated frontend publication phase. They are no
 
 Use **Re-run failed jobs** on the original workflow run. Its source SHA, image digests and retained desktop artifact identify the release. A full rerun also checks for and reuses an existing verified desktop artifact. Prepared artifacts are retained for 30 days; recover missing artifacts through a reviewed release rather than rebuilding during a publication-only retry. The old manual `workflow_dispatch` shortcut was removed because it could publish an arbitrary checkout without checking deployment readiness.
 
+The staging run summary records every stage's result, source revision, image
+digests and template. Exe template and workspace jobs log their current phase;
+image pulls retain Docker's layer output and report elapsed time and disk space
+every 30 seconds. Each pull attempt has a 15-minute deadline on the guest and a
+longer deadline on SSH. Only the image transfer retries automatically, once,
+with a fresh 30-minute read-only token. A per-guest lock prevents overlapping
+pull clients. Before retrying, the runner waits up to 15 minutes 30 seconds for
+the previous guest command to release that lock, then mints the retry token.
+The lock wait does not consume the retry's 15-minute pull deadline. The rollout command has a 60-minute outer limit with two minutes for cleanup.
+Its step has a 65-minute fallback limit within a 90-minute job, leaving time for
+the always-run evidence upload after a command timeout.
+The guest deadline still applies if its runner disconnects; killing the Docker
+client does not promise that the daemon immediately discards downloaded layers.
+
+`exe-rollout-*` artifacts, retained for 30 days on success or failure, contain
+`status.json` for each VM (last phase, result, expected digest/source, elapsed
+time), the observed workspace build/protocol identity when available, and disk,
+image and Docker daemon diagnostics after a failed pull. They exclude registry
+credentials and container environment inspection. A missing observed identity
+means readiness was not established; an expected revision alone proves nothing.
+Use the original run's failed-job retry after inspecting this evidence. Published
+templates remain immutable, successful jobs retain their results, and a retry
+reuses existing image layers rather than repeating unrelated builds.
+
 A failed backend gate blocks all frontend promotion. A partial VM rollout is reported as a failed workspace job; inspect that job before retrying it, since a failed VM may be unavailable. The other workspace jobs continue and ready VMs remain on the new image. Do not automatically roll back servers or data migrations. A publication-only retry does not repeat deployment. If the artifact digest, source SHA, protocol list or readiness check differs, stop and investigate.
 
 The first release under this policy sets its own version as the minimum, retiring `0.1.52` (workspace protocol 17, control-plane protocol 3). A brief interruption is accepted until users update the desktop app or refresh the browser after publication. Keeping an old protocol in the advertised list is a claim that its behavior is still implemented, not a substitute for compatibility tests.

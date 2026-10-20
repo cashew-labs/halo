@@ -297,6 +297,7 @@ jobs:
 
   prepare-staging:
     name: Prepare staging workspace template
+    timeout-minutes: 90
     if: github.event_name == 'push'
     needs: [prepare, build-images, build-desktop]
     runs-on: blacksmith-4vcpu-ubuntu-2404
@@ -347,6 +348,8 @@ jobs:
         run: pnpm --filter @get-halo/infra exec pulumi login gs://halo-relay-pulumi-state
 
       - name: Prepare selected workspace provider
+        # Leave time for cleanup and the always-run evidence upload.
+        timeout-minutes: 65
         id: provider
         env:
           WORKSPACE_IMAGE: ${{ needs.build-images.outputs.workspace_image }}
@@ -362,13 +365,22 @@ jobs:
             chmod 600 "$key_path"
             export EXE_PRIVATE_KEY_PATH="$key_path"
             export EXE_TEMPLATE_VM_NAME="halo-exe-${VERSION//./-}"
-            bash infra/workspace/exeRollout.sh template
+            timeout --kill-after=120s 60m bash infra/workspace/exeRollout.sh template
             echo "template=$EXE_TEMPLATE_VM_NAME" >> "$GITHUB_OUTPUT"
             echo "EXE_PRIVATE_KEY_PATH=$key_path" >> "$GITHUB_ENV"
           elif [ "$provider" != gcp ]; then
             echo "Unsupported workspace provider: $provider" >&2
             exit 1
           fi
+
+      - name: Retain Exe rollout evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: exe-rollout-staging-template-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/exe-rollout
+          if-no-files-found: ignore
+          retention-days: 30
 
       - name: Require current, assigned copies before the first Exe cutover
         if: steps.provider.outputs.provider == 'exe'
@@ -622,3 +634,35 @@ jobs:
         run: |
           id=$(gh api --paginate repos/cashew-labs/halo-staging/releases --jq ".[] | select(.tag_name == \"$VERSION\") | .id")
           gh api -X PATCH "repos/cashew-labs/halo-staging/releases/$id" -F draft=false -f make_latest=true --silent
+
+  status:
+    name: Record staging release status
+    if: always() && github.event_name == 'push'
+    needs:
+      [
+        prepare,
+        build-images,
+        build-desktop,
+        prepare-staging,
+        deploy-staging,
+        release,
+        publish,
+      ]
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    steps:
+      - name: Summarize release and recovery
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          WORKSPACE_IMAGE: ${{ needs.build-images.outputs.workspace_image }}
+          FRONTEND_IMAGE: ${{ needs.build-images.outputs.frontend_image }}
+          TEMPLATE: ${{ needs.prepare-staging.outputs.exe_template }}
+        run: |
+          {
+            printf '## Staging release %s\n\nSource: `%s`\n\n' "$VERSION" "$GITHUB_SHA"
+            printf '| Stage | Result |\n| --- | --- |\n'
+            jq -r 'to_entries[] | "| \(.key) | \(.value.result) |"' <<< "$RESULTS"
+            printf '\nWorkspace image: `%s`\n\nBrowser image: `%s`\n\nTemplate: `%s`\n\n' "$WORKSPACE_IMAGE" "$FRONTEND_IMAGE" "$TEMPLATE"
+            printf 'Inspect failed job logs and `exe-rollout-*` artifacts before retrying. Exe artifacts record the last phase, expected digest/source and observed workspace identity.\n\n'
+            printf 'Retry failed jobs in this run: `gh run rerun %s --failed`. This preserves the source and reuses prepared images and signed desktop artifacts. A failed stage can have partial effects; do not infer rollback from this table.\n' "$GITHUB_RUN_ID"
+          } >> "$GITHUB_STEP_SUMMARY"

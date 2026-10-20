@@ -10,35 +10,69 @@ ssh_args=(-F /dev/null -i "$EXE_PRIVATE_KEY_PATH" -o IdentitiesOnly=yes -o Ident
 # Guests pull release images themselves with a token for this read-only account
 # (infra/control-plane/index.ts), so only layers they lack cross the network.
 image_puller=${EXE_IMAGE_PULLER:-halo-west-image-puller@halo-relay.iam.gserviceaccount.com}
-# The runner pulls too, to resolve the digest and measure the image.
-export DOCKER_CONFIG="$RUNNER_TEMP/exe-registry"
-mkdir -p "$DOCKER_CONFIG"
-gcloud auth print-access-token | docker login -u oauth2accesstoken --password-stdin "${WORKSPACE_IMAGE%%/*}"
-docker pull --platform linux/amd64 "$WORKSPACE_IMAGE"
-# Name the image by its immutable registry digest on the runner and every guest.
-source_digest=$(docker image inspect --format '{{index .RepoDigests 0}}' "$WORKSPACE_IMAGE")
+# Both release workflows supply the registry digest. Metadata inspection does
+# not require downloading and unpacking the entire image on every runner.
+if [[ ! "$WORKSPACE_IMAGE" =~ @sha256:[0-9a-f]{64}$ ]]; then
+  echo "WORKSPACE_IMAGE must be pinned by sha256 digest" >&2; exit 1
+fi
+source_digest=$WORKSPACE_IMAGE
 image="halo-workspace:${source_digest##*:}"
+case "$mode" in
+  template) vm=${EXE_TEMPLATE_VM_NAME:?} ;;
+  update) vm=${INSTANCE:?} ;;
+  *) echo "Mode must be template or update" >&2; exit 1 ;;
+esac
+diagnostics="$RUNNER_TEMP/exe-rollout/$vm"
+mkdir -p "$diagnostics"
+phase=starting
+started=$SECONDS
+write_status() {
+  jq -n --arg phase "$phase" --arg vm "$vm" --arg version "$VERSION" \
+    --arg revision "$SOURCE_SHA" --arg image "$source_digest" \
+    --arg state "$1" --argjson exitCode "$2" --argjson elapsed "$(( SECONDS - started ))" \
+    '{state:$state,phase:$phase,vm:$vm,version:$version,expectedRevision:$revision,image:$image,exitCode:$exitCode,elapsedSeconds:$elapsed}' > "$diagnostics/status.json"
+}
+report_phase() {
+  phase=$1
+  write_status running null
+  echo "HALO_ROLLOUT phase=$phase vm=$vm version=$VERSION revision=$SOURCE_SHA image=$source_digest elapsed=$(( SECONDS - started ))s"
+}
+export DOCKER_CONFIG
+DOCKER_CONFIG=$(mktemp -d "$RUNNER_TEMP/exe-registry.XXXXXX")
 restore_paused=false
 clean_images_on_exit=false
 restore_sleep_on_exit() {
   result=$?
   trap - EXIT
+  rm -rf "$DOCKER_CONFIG"
   # A failed update must not leave its image behind to fill the next attempt's disk.
   if [ "$clean_images_on_exit" = true ]; then remove_unused_images; fi
   if [ "$restore_paused" = true ]; then
-    if ! ssh "${ssh_args[@]}" exe.dev pause "$vm"; then
+    if ! timeout --kill-after=5s 30s ssh "${ssh_args[@]}" exe.dev pause "$vm"; then
       echo "Failed to restore $vm to its paused state" >&2
       result=1
     fi
   fi
+  write_status finished "$result"
+  if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+    # Backticks are literal Markdown, not shell command substitutions.
+    # shellcheck disable=SC2016
+    printf '### Exe rollout: %s\n\nVersion: `%s` · expected source: `%s`\n\nImage: `%s`\n\nLast phase: **%s** · exit: **%s** · elapsed: %ss\n\nSee the `exe-rollout` artifact for this VM and the job log for layer progress. Retry failed jobs in the original run to reuse the release artifacts.\n' \
+      "$vm" "$VERSION" "$SOURCE_SHA" "$source_digest" "$phase" "$result" "$(( SECONDS - started ))" >> "$GITHUB_STEP_SUMMARY"
+  fi
   exit "$result"
 }
 trap restore_sleep_on_exit EXIT
+trap 'exit 143' TERM HUP
+trap 'exit 130' INT
+report_phase registry-metadata
+timeout --kill-after=5s 30s gcloud auth print-access-token |
+  timeout --kill-after=5s 30s docker login -u oauth2accesstoken --password-stdin "${source_digest%%/*}"
 
 # Keep only the image the halo service is configured to run and any image a
 # container uses; everything else is an earlier release or a failed install.
 remove_unused_images() {
-  ssh "${ssh_args[@]}" "$vm.exe.xyz" 'sudo bash -s' <<'CLEAN' || echo "Could not remove unused workspace images on $vm" >&2
+  timeout --kill-after=5s 60s ssh "${ssh_args[@]}" "$vm.exe.xyz" 'sudo timeout --kill-after=5s 55s bash -s' <<'CLEAN' || echo "Could not remove unused workspace images on $vm" >&2
 set -euo pipefail
 keep=$(cat /etc/halo/image 2>/dev/null || true)
 in_use=$(docker ps -aq | xargs -r docker inspect --format '{{.Config.Image}}')
@@ -50,31 +84,45 @@ docker image prune -f >/dev/null
 CLEAN
 }
 
-# Pulls $source_digest on the guest and tags it $image. The token expires after
-# 30 minutes and lives only in a throwaway Docker config removed after the pull.
+# Retry only the idempotent image transfer. Each attempt gets fresh credentials
+# and a guest-side deadline; the SSH deadline is longer so remote cleanup can
+# finish first. Cached layers are reused without restarting workspace services.
 pull_on_guest() {
-  local remote
-  remote=$(cat <<'PULL'
-set -euo pipefail
-read -r token
-config=$(mktemp -d)
-trap 'rm -rf "$config"' EXIT
-printf '%s' "$token" | DOCKER_CONFIG=$config docker login -u oauth2accesstoken --password-stdin "$1" >/dev/null
-DOCKER_CONFIG=$config docker pull --quiet --platform linux/amd64 "$2" >/dev/null
-docker tag "$2" "$3"
-# Keep only the halo-workspace name, which the image cleanup tracks.
-docker rmi "$2" >/dev/null
-PULL
-  )
-  local token
-  # A new token-creator grant can take a few minutes to propagate.
-  for attempt in $(seq 1 12); do
-    if token=$(gcloud auth print-access-token --impersonate-service-account="$image_puller" --lifetime=1800); then break; fi
-    if [ "$attempt" = 12 ]; then echo "Could not mint a pull token for $image_puller" >&2; exit 1; fi
-    sleep 10
+  report_phase pull-image
+  local remote token attempt token_attempt result diagnostic_command
+  remote=$(cat "$root/infra/workspace/exePull.sh")
+  for attempt in 1 2; do
+    echo "HALO_PULL_ATTEMPT vm=$vm attempt=$attempt/2 deadline=900s image=$source_digest"
+    if [ "$attempt" = 2 ]; then
+      # An SSH disconnect can leave the first guest command alive until its
+      # 900s deadline plus 15s kill grace. Wait for that owner to release the
+      # lock before minting the retry token or starting its own pull deadline.
+      report_phase wait-pull-lock
+      timeout --kill-after=15s 990s ssh "${ssh_args[@]}" "$vm.exe.xyz" \
+        'sudo timeout --kill-after=15s 945s flock -w 930 /run/halo-image-pull.lock true'
+      report_phase pull-image
+    fi
+    # A new token-creator grant can take a few minutes to propagate.
+    for token_attempt in $(seq 1 12); do
+      if token=$(timeout --kill-after=5s 15s gcloud auth print-access-token --impersonate-service-account="$image_puller" --lifetime=1800); then break; fi
+      if [ "$token_attempt" = 12 ]; then echo "Could not mint a pull token for $image_puller" >&2; return 1; fi
+      sleep 10
+    done
+    result=0
+    printf '%s\n' "$token" |
+      timeout --kill-after=15s 990s ssh "${ssh_args[@]}" "$vm.exe.xyz" \
+        "sudo timeout --kill-after=15s 900s bash -c $(printf %q "$remote") pull $(printf %q "${source_digest%%/*}") $(printf %q "$source_digest") $(printf %q "$image")" || result=$?
+    unset token
+    if [ "$result" = 0 ]; then return; fi
+    echo "HALO_PULL_FAILED vm=$vm attempt=$attempt exit=$result (124 means deadline exceeded)" >&2
+    # Evidence is bounded too; never collect registry credentials or inspect
+    # container environment variables into a public CI artifact.
+    diagnostic_command='date -u; df -h /var/lib/docker; docker image ls --digests; journalctl -u docker --since "-20 min" -n 100 --no-pager'
+    timeout --kill-after=5s 45s ssh "${ssh_args[@]}" "$vm.exe.xyz" \
+      "sudo timeout --kill-after=5s 30s bash -c $(printf %q "$diagnostic_command")" \
+      2>&1 | tee "$diagnostics/pull-attempt-$attempt.log" || true
   done
-  printf '%s\n' "$token" |
-    ssh "${ssh_args[@]}" "$vm.exe.xyz" "sudo bash -c $(printf %q "$remote") pull $(printf %q "${source_digest%%/*}") $(printf %q "$source_digest") $(printf %q "$image")"
+  return "$result"
 }
 
 # Bytes a guest needs to pull and unpack this image if it has none of its
@@ -83,10 +131,10 @@ PULL
 # plus 1 GiB.
 update_bytes() {
   local manifest digest
-  manifest=$(docker buildx imagetools inspect --raw "$source_digest")
+  manifest=$(timeout --kill-after=5s 60s docker buildx imagetools inspect --raw "$source_digest")
   if jq -e '.manifests' <<< "$manifest" >/dev/null; then
     digest=$(jq -er '[.manifests[] | select(.platform.os == "linux" and .platform.architecture == "amd64")][0].digest' <<< "$manifest")
-    manifest=$(docker buildx imagetools inspect --raw "${source_digest%@*}@$digest")
+    manifest=$(timeout --kill-after=5s 60s docker buildx imagetools inspect --raw "${source_digest%@*}@$digest")
   fi
   echo $(( $(jq '[.layers[].size] | add' <<< "$manifest") * 4 + 1073741824 ))
 }
@@ -94,7 +142,7 @@ update_bytes() {
 # Space root can still write where Docker keeps its data. Docker runs as root,
 # so it may use the update reserve that user files cannot.
 guest_root_free_bytes() {
-  ssh "${ssh_args[@]}" "$vm.exe.xyz" "stat -f -c '%f %S' /var/lib" | awk '{ print $1 * $2 }'
+  ssh "${ssh_args[@]}" "$vm.exe.xyz" "stat -f -c '%f %S' /var/lib" | awk '{ printf "%.0f\n", $1 * $2 }'
 }
 
 # A full disk also stops the running workspace, so refuse the transfer when the
@@ -132,9 +180,8 @@ set_update_reserve() {
 
 case "$mode" in
   template)
-    : "${EXE_TEMPLATE_VM_NAME:?}"
-    vm="$EXE_TEMPLATE_VM_NAME"
     restore_paused=true
+    report_phase inspect-template
     # Completed template names are immutable; incomplete bootstrap can be retried.
     details=$(ssh "${ssh_args[@]}" exe.dev ls "$vm" --json)
     if [ "$(jq '.vms | length' <<< "$details")" = 0 ]; then
@@ -147,23 +194,28 @@ case "$mode" in
       echo "Template already exists with another image" >&2; exit 1
     fi
     if [ -z "$published" ]; then
+      report_phase bootstrap-template
       ssh "${ssh_args[@]}" "$vm.exe.xyz" 'sudo test ! -f /etc/halo/assignment.json && { sudo test ! -d /var/lib/halo/home || sudo test -z "$(sudo find /var/lib/halo/home -type f -print -quit)"; }'
       ssh "${ssh_args[@]}" "$vm.exe.xyz" "sudo date -s '@$(date +%s)' >/dev/null; sudo apt-get update >/dev/null && sudo apt-get install -y docker.io >/dev/null && sudo systemctl enable --now docker"
       pull_on_guest
+      report_phase install-template
       scp "${ssh_args[@]}" "$root/infra/workspace/exeTemplate.sh" "$root/infra/workspace/appSandboxSetup.sh" "$root/infra/workspace/appHost.py" "$root/infra/workspace/appPaths.py" "$root/infra/workspace/desktop-seccomp.json" "$vm.exe.xyz:/tmp/"
       ssh "${ssh_args[@]}" "$vm.exe.xyz" "sudo bash /tmp/exeTemplate.sh '$image'"
     fi
+    report_phase verify-template
     ssh "${ssh_args[@]}" "$vm.exe.xyz" 'sudo test ! -f /etc/halo/assignment.json && sudo test ! -f /etc/halo/workspace-server.json && sudo test -z "$(sudo find /var/lib/halo/home -type f -print -quit)" && sudo test ! -f /root/.docker/config.json && sudo test ! -f /home/exedev/.docker/config.json && sudo sync'
     # Workspaces are copies of the template, so they start with this reserve.
+    report_phase reserve-disk
     set_update_reserve
     ssh "${ssh_args[@]}" "$vm.exe.xyz" "printf '%s\\n' '$image' | sudo tee /etc/halo/template-ready >/dev/null; sudo sync"
+    report_phase pause-template
     ssh "${ssh_args[@]}" exe.dev pause "$vm"
     restore_paused=false
+    report_phase ready
     echo "HALO_EXE_TEMPLATE_READY name=$vm image=$image"
     ;;
   update)
-    : "${INSTANCE:?}"
-    vm="$INSTANCE"
+    report_phase inspect-workspace
     status=$(ssh "${ssh_args[@]}" exe.dev ls "$vm" --json | jq -er '.vms[0].status')
     if [ "$status" = paused ] || [ "$status" = suspended ]; then
       restore_paused=true
@@ -190,15 +242,25 @@ ACTIVITY
       # A crashed or stopped old container must still receive the repair image.
       echo 'Could not report release activity; continuing with the workspace update' >&2
     fi
+    report_phase check-disk
     clean_images_on_exit=true
     remove_unused_images
     require_free_space
     pull_on_guest
+    report_phase install-workspace
     scp "${ssh_args[@]}" "$root/infra/workspace/exeTemplate.sh" "$root/infra/workspace/appSandboxSetup.sh" "$root/infra/workspace/appHost.py" "$root/infra/workspace/appPaths.py" "$root/infra/workspace/desktop-seccomp.json" "$vm.exe.xyz:/tmp/"
     ssh "${ssh_args[@]}" "$vm.exe.xyz" "sudo bash /tmp/exeTemplate.sh '$image' update-host && sudo /usr/local/bin/halo-workspace-upgrade '$image'"
+    report_phase verify-workspace
     ready=false
     for attempt in $(seq 1 60); do
       if info=$(ssh "${ssh_args[@]}" "$vm.exe.xyz" 'sudo docker exec halo-workspace node --import /opt/halo/node_modules/tsx/dist/loader.mjs /opt/halo/packages/halo-cli/src/cli.ts status --json' 2> "$RUNNER_TEMP/exe-status-error.log"); then
+        # Diagnostics must not turn a transient invalid response into a failed
+        # readiness gate; retain the last valid identity while retries continue.
+        if jq '{build,protocolVersion,supportedProtocols}' <<< "$info" > "$diagnostics/observed-workspace.tmp"; then
+          mv "$diagnostics/observed-workspace.tmp" "$diagnostics/observed-workspace.json"
+        else
+          rm -f "$diagnostics/observed-workspace.tmp"
+        fi
         if jq -e --arg revision "$SOURCE_SHA" --argjson protocols "$(jq -c .protocols.workspace.supported "$release_manifest")" '.build.revision == $revision and (.supportedProtocols // [.protocolVersion]) == $protocols' <<< "$info" >/dev/null; then ready=true; break; fi
       fi
       sleep 5
@@ -207,9 +269,14 @@ ACTIVITY
     # Cleanup must run while the guest is awake, before it is paused again.
     clean_images_on_exit=false
     remove_unused_images
+    report_phase reserve-disk
     set_update_reserve
-    if [ "$status" = paused ] || [ "$status" = suspended ]; then ssh "${ssh_args[@]}" exe.dev pause "$vm"; fi
+    if [ "$status" = paused ] || [ "$status" = suspended ]; then
+      report_phase pause-workspace
+      ssh "${ssh_args[@]}" exe.dev pause "$vm"
+    fi
     restore_paused=false
+    report_phase ready
     echo "HALO_WORKSPACE_READY image=$image revision=$SOURCE_SHA"
     ;;
   *) echo "Mode must be template or update" >&2; exit 1 ;;
