@@ -23,10 +23,12 @@ const authSchema = Type.Object({
   // Secret Manager secret listing the emails offered the desktop staging toggle.
   stagingTestersSecretId: Type.Optional(Type.String({ minLength: 1 })),
 });
-// Staging serves the web app's staging/ overrides, such as the blueprint logo.
-const releaseChannelSchema = Type.Union([
+// Non-production environments serve the web app's same-named override
+// folder, such as development/ or staging/ logos. Absent means production.
+const environmentSchema = Type.Union([
   Type.Literal("production"),
   Type.Literal("staging"),
+  Type.Literal("development"),
 ]);
 const portSchema = Type.Integer({ minimum: 0, maximum: 65_535 });
 const localWorkspaceSchema = Type.Object({
@@ -64,7 +66,7 @@ export const controlPlaneConfigSchema = Type.Union([
     googleAnalyticsMeasurementId: Type.Optional(
       Type.String({ pattern: "^G-[A-Z0-9]+$" }),
     ),
-    releaseChannel: Type.Optional(releaseChannelSchema),
+    environment: Type.Optional(environmentSchema),
     workspace: Type.Union([localWorkspaceSchema, exeWorkspaceSchema]),
   }),
   Type.Object({
@@ -79,7 +81,7 @@ export const controlPlaneConfigSchema = Type.Union([
     googleAnalyticsMeasurementId: Type.Optional(
       Type.String({ pattern: "^G-[A-Z0-9]+$" }),
     ),
-    releaseChannel: Type.Optional(releaseChannelSchema),
+    environment: Type.Optional(environmentSchema),
     workspace: Type.Union([gcpWorkspaceSchema, exeWorkspaceSchema]),
   }),
 ]);
@@ -212,7 +214,7 @@ async function readDevelopmentConfig(): Promise<ControlPlaneConfig | Error> {
         : path.resolve(configuredDataDir),
     port: developmentPort,
     googleAnalyticsMeasurementId: process.env.GOOGLE_ANALYTICS_MEASUREMENT_ID, // coverage-exempt: Bootstrap reads live Secret Manager credentials; the schema and HTTP configuration contract are tested.
-    releaseChannel: process.env.RELEASE_CHANNEL, // coverage-exempt: Bootstrap reads live Secret Manager credentials; the schema and HTTP configuration contract are tested.
+    environment: process.env.HALO_ENVIRONMENT ?? "development", // coverage-exempt: Bootstrap reads live Secret Manager credentials; the schema and HTTP configuration contract are tested.
     auth,
     workspace: { deployment: "local" as const },
   };
@@ -270,7 +272,7 @@ async function readCloudRunConfig(): Promise<ControlPlaneConfig | Error> {
     origin,
     databaseUrl,
     googleAnalyticsMeasurementId: process.env.GOOGLE_ANALYTICS_MEASUREMENT_ID, // coverage-exempt: Bootstrap reads live Secret Manager credentials; the schema and HTTP configuration contract are tested.
-    releaseChannel: process.env.RELEASE_CHANNEL, // coverage-exempt: Bootstrap reads live Secret Manager credentials; the schema and HTTP configuration contract are tested.
+    environment: process.env.HALO_ENVIRONMENT, // coverage-exempt: Bootstrap reads live Secret Manager credentials; the schema and HTTP configuration contract are tested.
     traceBucket: process.env.TRACE_BUCKET,
     gmail:
       process.env.GMAIL_PUBSUB_TOPIC === undefined

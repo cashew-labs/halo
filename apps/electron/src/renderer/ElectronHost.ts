@@ -39,7 +39,7 @@ export class ElectronHost implements HostApi {
 
   // Connects this renderer to Electron's preload bridge.
   private readonly desktopBridge = window.haloDesktop;
-  readonly releaseChannel = this.desktopBridge.releaseChannel;
+  readonly environment = this.desktopBridge.environment;
 
   setHotkeys(hotkeys: Parameters<DesktopBridge["setHotkeys"]>[0]) {
     this.desktopBridge.setHotkeys(hotkeys);

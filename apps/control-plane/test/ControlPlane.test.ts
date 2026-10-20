@@ -220,7 +220,7 @@ const controlPlaneTest = test.extend<{
   rpc: ControlPlaneClient;
   webRoot: string;
   googleAnalyticsMeasurementId: string | undefined;
-  releaseChannel: "production" | "staging" | undefined;
+  environment: "production" | "staging" | "development" | undefined;
   workspaceProvider: WorkspaceProviderApi;
   workspaceHost: WorkspaceHostDriver;
   allowLocalIntegrationUrls: boolean;
@@ -880,7 +880,7 @@ const controlPlaneTest = test.extend<{
     await fs.rm(appDataDir, { recursive: true, force: true });
   },
   googleAnalyticsMeasurementId: undefined,
-  releaseChannel: undefined,
+  environment: undefined,
   webRoot: async ({ appDataDir }, use) => {
     const webRoot = join(appDataDir, "web");
     await fs.mkdir(join(webRoot, "assets"), { recursive: true });
@@ -900,7 +900,7 @@ const controlPlaneTest = test.extend<{
       integrationApi,
       allowLocalIntegrationUrls,
       googleAnalyticsMeasurementId,
-      releaseChannel,
+      environment,
     },
     use,
   ) => {
@@ -912,7 +912,7 @@ const controlPlaneTest = test.extend<{
         appDataDir,
         port: 0,
         googleAnalyticsMeasurementId,
-        releaseChannel,
+        environment,
         auth: testAuth,
         gmail: {
           topic: "projects/halo-test/topics/gmail",
@@ -6574,7 +6574,7 @@ async function writeStagingOverrides(webRoot: string) {
   await Promise.all([
     fs.writeFile(
       join(webRoot, "index.html"),
-      '<meta name="halo-release-channel" content="" /><main>Halo</main>',
+      '<meta name="halo-environment" content="" /><main>Halo</main>',
     ),
     fs.writeFile(join(webRoot, "logo.png"), "production logo"),
     fs.writeFile(join(webRoot, "icon.png"), "production icon"),
@@ -6590,13 +6590,13 @@ controlPlaneTest(
       "production logo",
     );
     expect(await (await fetch(`${plane.origin}/login`)).text()).toContain(
-      'name="halo-release-channel" content=""',
+      'name="halo-environment" content=""',
     );
   },
 );
 
 const stagingPlaneTest = controlPlaneTest.extend({
-  releaseChannel: "staging" as const,
+  environment: "staging" as const,
 });
 stagingPlaneTest(
   "staging serves staging/ overrides at the root paths and marks the app shell",
@@ -6609,7 +6609,7 @@ stagingPlaneTest(
       "production icon",
     );
     expect(await (await fetch(`${plane.origin}/login`)).text()).toContain(
-      'name="halo-release-channel" content="staging"',
+      'name="halo-environment" content="staging"',
     );
   },
 );

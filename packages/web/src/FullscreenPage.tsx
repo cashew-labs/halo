@@ -1,9 +1,16 @@
 import type { ReactNode } from "react";
 import { backgroundColor, spacing } from "maui";
 import { style, useStyles } from "purse-styles";
-import haloLogo from "./assets/halo-donut-transparent.png";
+import productionLogo from "./assets/halo-donut-transparent.png";
 import stagingLogo from "./assets/halo-donut-staging.png";
+import developmentLogo from "./assets/halo-donut-development.png";
 import { useHost } from "./HostProvider.js";
+
+const logos = {
+  production: productionLogo,
+  staging: stagingLogo,
+  development: developmentLogo,
+};
 
 export function FullscreenPage({
   children,
@@ -24,7 +31,7 @@ export function FullscreenPage({
         {visual ?? (
           <img
             className={logo}
-            src={host.releaseChannel === "staging" ? stagingLogo : haloLogo}
+            src={logos[host.environment ?? "production"]}
             alt="Halo"
           />
         )}

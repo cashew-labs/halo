@@ -89,7 +89,7 @@ export type CancelIntegrationRequest = Extract<
 >;
 
 export type DesktopBridge = {
-  releaseChannel: "production" | "staging";
+  environment: "production" | "staging" | "development";
   getWorkspaceStatus: () => Promise<ControlPlaneWorkspaceStatus | undefined>;
   recordWorkspaceActivity: () => Promise<void>;
   setHotkeys: (hotkeys: Hotkey[]) => void;

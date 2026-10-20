@@ -56,12 +56,11 @@ export class WebHost implements HostApi {
   readonly showLandingPage = true;
 
   // The control plane fills this placeholder from its deployment configuration.
-  readonly releaseChannel =
+  readonly environment = readEnvironment(
     document
-      .querySelector('meta[name="halo-release-channel"]')
-      ?.getAttribute("content") === "staging"
-      ? "staging"
-      : "production";
+      .querySelector('meta[name="halo-environment"]')
+      ?.getAttribute("content"),
+  );
 
   // Tracks the active workspace client for integration connections.
   private haloClient: HaloClient | undefined;
@@ -255,4 +254,10 @@ export class WebHost implements HostApi {
           new WebHostError({ operation: "cancel the connection", cause }),
       );
   }
+}
+
+function readEnvironment(content: string | null | undefined) {
+  return content === "staging" || content === "development"
+    ? content
+    : "production";
 }

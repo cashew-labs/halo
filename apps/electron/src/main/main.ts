@@ -67,13 +67,18 @@ const logger = new Logger({
     : [fileSink],
 });
 const rendererLogger = logger.scope("renderer");
-// Staging shares production's signed bundle, so it swaps the icon at runtime.
-const stagingIcon =
-  applicationConfig.releaseChannel !== "staging"
+// Development and staging show their own logo. Staging shares production's
+// signed bundle, so the icon changes at runtime instead of in the bundle.
+const environment =
+  applicationConfig.mode === ApplicationMode.Development
+    ? "development"
+    : applicationConfig.releaseChannel;
+const environmentIcon =
+  environment === "production"
     ? undefined
     : app.isPackaged
-      ? join(process.resourcesPath, "staging.png")
-      : join(app.getAppPath(), "icons/staging.png");
+      ? join(process.resourcesPath, `${environment}.png`)
+      : join(app.getAppPath(), `icons/${environment}.png`);
 // coverage-exempt: main.ts starts Electron on import, so Vitest cannot load it
 if (applicationConfig.releaseChannelError !== undefined)
   logger.error({
@@ -127,7 +132,7 @@ app.whenReady().then(async () => {
     ownsWindow: (window) => windows.has(window),
   });
   installMenu();
-  if (stagingIcon !== undefined) app.dock?.setIcon(stagingIcon);
+  if (environmentIcon !== undefined) app.dock?.setIcon(environmentIcon);
   appUpdates.start();
   await openMainWindow();
   // Forge replaces the URL with undefined in packaged builds, excluding app control.
@@ -293,7 +298,7 @@ async function createWindow(
     center: true,
     titleBarStyle: "hiddenInset",
     trafficLightPosition: { x: 11, y: 11 },
-    icon: stagingIcon,
+    icon: environmentIcon,
     webPreferences: {
       preload: join(currentDirectory, "preload.js"),
       contextIsolation: true,
@@ -301,7 +306,7 @@ async function createWindow(
       nodeIntegration: false,
       additionalArguments: [
         ...additionalArguments,
-        `--halo-release-channel=${applicationConfig.releaseChannel}`,
+        `--halo-environment=${environment}`,
       ],
     },
   });
