@@ -45,7 +45,7 @@ e2eTest(
       sidebar.getByRole("link", { name: "Book haircut" }),
     ).toBeVisible();
     await expect(
-      sidebar.getByText("Automations", { exact: true }),
+      sidebar.getByRole("button", { name: "Collapse Artifacts", exact: true }),
     ).toBeVisible();
     await sidebar.getByRole("link", { name: "Morning briefing" }).click();
     const agentRoutine = app.page.getByRole("region", {

@@ -15,7 +15,11 @@ import {
   radius,
   spacing,
 } from "maui";
-import { ChevronRight } from "maui/icons";
+import { ChevronRight, Star } from "maui/icons";
+import {
+  useFavoriteIds,
+  useSidebarPreferences,
+} from "../SidebarPreferencesProvider.js";
 import { style, useStyles } from "purse-styles";
 import { useRoute, useRouter } from "wouter";
 import { useWorkspacePanes } from "../../panes/WorkspacePanesProvider.js";
@@ -26,7 +30,8 @@ import { sidebarPadding } from "./SidebarSection.js";
 type IconComponent = ComponentType<SVGProps<SVGSVGElement>>;
 
 type SidebarItemProps = {
-  id?: string | number;
+  id?: string;
+  favoriteId?: string;
   href?: string;
   pageTitle: string;
   children: ReactNode;
@@ -42,6 +47,12 @@ type SidebarItemProps = {
 };
 
 export function SidebarItem(props: SidebarItemProps) {
+  const favorites = useSidebarPreferences();
+  const favoriteIds = useFavoriteIds();
+  const favoriteId = props.favoriteId ?? props.id;
+  const isFavorite =
+    favoriteId !== undefined && favoriteIds.includes(favoriteId);
+  const favoriteClassName = useStyles(favoriteButton);
   const workspace = useWorkspacePanes();
   const sidebar = useSidebar();
   const route =
@@ -124,16 +135,16 @@ export function SidebarItem(props: SidebarItemProps) {
             {props.trailing === undefined ? undefined : (
               <span className={trailingClassName}>{props.trailing}</span>
             )}
-            {hasChildItems && props.chevronPosition === "trailing" && (
-              <Button slot="chevron" className={chevronClassName}>
-                <ChevronRight
-                  size="sm"
-                  className={
-                    isExpanded
-                      ? chevronIconExpandedClassName
-                      : chevronIconClassName
-                  }
-                />
+            {favoriteId !== undefined && (
+              <Button
+                className={favoriteClassName}
+                data-favorite={isFavorite || undefined}
+                data-sidebar-favorite
+                aria-label={`${isFavorite ? "Remove" : "Add"} ${props.pageTitle} ${isFavorite ? "from" : "to"} favorites`}
+                aria-pressed={isFavorite}
+                onPress={() => favorites.toggleFavorite(favoriteId)}
+              >
+                <Star size="2xs" fill={isFavorite ? "currentColor" : "none"} />
               </Button>
             )}
             {props.hoverTrailing === undefined ? undefined : (
@@ -143,6 +154,22 @@ export function SidebarItem(props: SidebarItemProps) {
               >
                 {props.hoverTrailing}
               </span>
+            )}
+            {hasChildItems && props.chevronPosition === "trailing" && (
+              <Button
+                slot="chevron"
+                className={chevronClassName}
+                data-sidebar-trailing-chevron
+              >
+                <ChevronRight
+                  size="sm"
+                  className={
+                    isExpanded
+                      ? chevronIconExpandedClassName
+                      : chevronIconClassName
+                  }
+                />
+              </Button>
             )}
           </>
         )}
@@ -180,7 +207,8 @@ const sidebarItem = style(navigationItem, sidebarPadding, {
     color: colors.accent[11],
     fontWeight: 500,
   },
-  "&:has([data-sidebar-hover-action]):is(:hover, :focus-within), &:has([data-sidebar-hover-action] [aria-expanded='true'])":
+  // A trailing chevron keeps the row padding so it stays aligned while actions appear.
+  "&:has([data-sidebar-hover-action]):not(:has([data-sidebar-trailing-chevron])):is(:hover, :focus-within), &:has([data-sidebar-hover-action] [aria-expanded='true']):not(:has([data-sidebar-trailing-chevron]))":
     {
       paddingRight: 0,
     },
@@ -188,6 +216,9 @@ const sidebarItem = style(navigationItem, sidebarPadding, {
     {
       display: "grid",
     },
+  "&:hover [data-sidebar-favorite], &:focus-within [data-sidebar-favorite]": {
+    opacity: 1,
+  },
 });
 
 const itemLink = style({
@@ -215,6 +246,23 @@ const iconWrap = style(radius.sm, {
 
 const iconWrapActive = style({ color: colors.accent[11] });
 const trailing = style({ flexShrink: 0 });
+const favoriteButton = style(focusRing(), radius.sm, {
+  display: "grid",
+  placeItems: "center",
+  flexShrink: 0,
+  width: "24px",
+  height: "24px",
+  padding: 0,
+  border: 0,
+  backgroundColor: "transparent",
+  color: colors.gray[10],
+  // Favorites have their own section, so the toggle appears only on hover or focus.
+  opacity: 0,
+  "&:focus-visible": { opacity: 1 },
+  "&:hover": { color: colors.gray[12] },
+  "@media (max-width: 700px)": { width: "40px", height: "40px" },
+  "@media (hover: none)": { opacity: 1 },
+});
 const hoverTrailing = style({
   display: "none",
   placeItems: "center",

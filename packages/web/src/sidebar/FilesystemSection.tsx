@@ -16,9 +16,7 @@ import {
   Menu,
   MenuItem,
   MenuTrigger,
-  Tooltip,
   colors,
-  flex,
   spacing,
   text,
 } from "maui";
@@ -27,23 +25,19 @@ import { useLocation } from "wouter";
 import { useWorkspacePanes } from "../panes/WorkspacePanesProvider.js";
 import { FileEntryDialog, type FileEntryAction } from "./FileEntryDialog.js";
 import { flushFileAutosaves } from "../main/useAutosaveFile.js";
-import { File, Folder, FilePlus, FolderPlus, DotsHorizontal } from "maui/icons";
+import { File, Folder, DotsHorizontal } from "maui/icons";
 import { useApi } from "../api/ApiProvider.tsx";
-import { useDirectoryListings } from "../filesystem/useDirectoryListings.js";
-import {
-  useExpandedSidebar,
-  useExpandSidebar,
-} from "./navigation/NavigationSidebar.js";
+import { useExpandSidebar } from "./navigation/NavigationSidebar.js";
 import { SidebarItem } from "./navigation/SidebarItem.js";
 import { SidebarSection } from "./navigation/SidebarSection.js";
 
 import { FileEntryInput, type FileCreationAction } from "./FileEntryInput.js";
-import { SidebarEmptyState } from "./SidebarEmptyState.js";
+import { useSidebarPreferences } from "./SidebarPreferencesProvider.js";
 
 type FileAction = FileEntryAction | FileCreationAction;
 type FileCreationRow = { parent: string; content: ReactNode };
 
-type FileNavigationNode = {
+export type FileNavigationNode = {
   path: string;
   name: string;
   isDirectory: boolean;
@@ -62,16 +56,38 @@ type FileOperation =
 
 const fileDragType = "application/x-halo-workspace-path";
 
-export function FilesystemSection() {
-  const { paths, error: listingError } =
-    useDirectoryListings(useExpandedSidebar());
+// Hosts the Artifacts section: other artifact rows come first, then the workspace files.
+export function FilesystemSection({
+  paths,
+  error: listingError,
+  createEntry,
+  onBusyChange,
+  label,
+  actions,
+  showFiles,
+  emptyState,
+  children,
+}: {
+  paths: string[];
+  error?: string;
+  createEntry: "file" | "directory" | undefined;
+  onBusyChange(busy: boolean): void;
+  label: ReactNode;
+  actions: ReactNode;
+  showFiles: boolean;
+  emptyState: ReactNode;
+  children: ReactNode;
+}) {
+  const favorites = useSidebarPreferences();
   const queryClient = useQueryClient();
   const api = useApi();
   const expand = useExpandSidebar();
   const files = useMemo(() => buildFileNavigation(paths), [paths]);
   const [, navigate] = useLocation();
   const workspacePanes = useWorkspacePanes();
-  const [action, setAction] = useState<FileAction>();
+  const [action, setAction] = useState<FileAction | undefined>(() =>
+    createEntry === undefined ? undefined : { kind: createEntry, parent: "" },
+  );
   const [dragged, setDragged] = useState<string>();
   const [dropTarget, setDropTarget] = useState<string>();
   const [uploadStatus, setUploadStatus] = useState<string>();
@@ -82,7 +98,6 @@ export function FilesystemSection() {
   }, [uploadStatus]);
   const dropRow = useStyles(styles.dropRow);
   const feedback = useStyles(styles.feedback);
-  const controls = useStyles(styles.controls);
   const mutation = useMutation({
     mutationKey: ["workspace-entry"],
     mutationFn: async (operation: FileOperation) => {
@@ -135,6 +150,10 @@ export function FilesystemSection() {
         operation.kind === "delete" ? operation.path : operation.source,
         operation.kind === "move" ? operation.destination : undefined,
       );
+      favorites.updateFiles(
+        operation.kind === "delete" ? operation.path : operation.source,
+        operation.kind === "move" ? operation.destination : undefined,
+      );
       setAction(undefined);
     },
     onError: () => setUploadStatus(undefined),
@@ -150,6 +169,9 @@ export function FilesystemSection() {
     )
       expand([`file:${next.parent}/`]);
   }
+  useEffect(() => {
+    onBusyChange(mutation.isPending || action !== undefined);
+  }, [mutation.isPending, action, onBusyChange]);
   function canDrop(folder: string, transfer?: DataTransfer) {
     if (mutation.isPending || action !== undefined) return false;
     if (transfer !== undefined && hasDroppedFiles(transfer)) return true;
@@ -222,6 +244,7 @@ export function FilesystemSection() {
 
   return (
     <SidebarSection
+      sectionId="artifacts"
       headerClassName={dropRow}
       render={(props) => (
         <div
@@ -282,7 +305,7 @@ export function FilesystemSection() {
       )}
       label={
         <span>
-          Documents
+          {label}
           {listingError !== undefined && (
             <span role="alert" className={feedback}>
               {listingError}
@@ -302,28 +325,7 @@ export function FilesystemSection() {
       }
       actions={
         <>
-          <span className={controls}>
-            <Tooltip content="New file">
-              <Button
-                variant="quiet"
-                aria-label="New file"
-                isDisabled={mutation.isPending || action !== undefined}
-                onPress={() => openAction({ kind: "file", parent: "" })}
-              >
-                <FilePlus size="sm" />
-              </Button>
-            </Tooltip>
-            <Tooltip content="New folder">
-              <Button
-                variant="quiet"
-                aria-label="New folder"
-                isDisabled={mutation.isPending || action !== undefined}
-                onPress={() => openAction({ kind: "directory", parent: "" })}
-              >
-                <FolderPlus size="sm" />
-              </Button>
-            </Tooltip>
-          </span>
+          {actions}
           {action !== undefined &&
             action.kind !== "file" &&
             action.kind !== "directory" && (
@@ -351,24 +353,24 @@ export function FilesystemSection() {
         </>
       }
     >
+      {children}
       {creation?.parent === "" && creation.content}
-      {files.length === 0 &&
-        action === undefined &&
-        listingError === undefined && <SidebarEmptyState kind="documents" />}
-      {files.map((node) => (
-        <FileNavigationItem
-          key={node.path}
-          node={node}
-          onAction={openAction}
-          onDrag={drag}
-          dropTarget={dropTarget}
-          onDropTarget={setDropTarget}
-          canDrop={canDrop}
-          onDrop={drop}
-          pending={mutation.isPending || action !== undefined}
-          creation={creation}
-        />
-      ))}
+      {action === undefined && listingError === undefined && emptyState}
+      {showFiles &&
+        files.map((node) => (
+          <FileNavigationItem
+            key={node.path}
+            node={node}
+            onAction={openAction}
+            onDrag={drag}
+            dropTarget={dropTarget}
+            onDropTarget={setDropTarget}
+            canDrop={canDrop}
+            onDrop={drop}
+            pending={mutation.isPending || action !== undefined}
+            creation={creation}
+          />
+        ))}
     </SidebarSection>
   );
 }
@@ -406,6 +408,7 @@ function FileNavigationItem({
       href={node.isDirectory ? undefined : fileRoute(node.path)}
       pageTitle={node.name}
       hasChildItems={node.isDirectory}
+      chevronPosition="trailing"
       icon={node.isDirectory ? Folder : File}
       className={row}
       render={(props) => (
@@ -540,7 +543,7 @@ function allFolders(nodes: FileNavigationNode[]): string[] {
   );
 }
 
-function buildFileNavigation(paths: readonly string[]) {
+export function buildFileNavigation(paths: readonly string[]) {
   const roots: FileNavigationNode[] = [];
   const nodes = new Map<string, FileNavigationNode>();
 
@@ -584,12 +587,11 @@ function sortFileNavigation(nodes: FileNavigationNode[]) {
   for (const node of nodes) sortFileNavigation(node.children);
 }
 
-function fileRoute(path: string) {
+export function fileRoute(path: string) {
   return `/files/${path.split("/").map(encodeURIComponent).join("/")}`;
 }
 
 const styles = {
-  controls: style(flex({ alignItems: "center", gap: 1 })),
   fileLabel: style({
     display: "block",
     width: "100%",

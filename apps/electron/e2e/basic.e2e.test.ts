@@ -324,7 +324,8 @@ for (const level of [1, 2, 4]) {
       const path = "new-heading.md";
       const prefix = "#".repeat(level);
       await app.page
-        .getByRole("button", { name: "New file", exact: true })
+        .getByRole("toolbar", { name: "Workspace actions" })
+        .getByRole("button", { name: "New Markdown file", exact: true })
         .click();
       const filename = app.page.getByRole("textbox", {
         name: "New file name",

@@ -73,6 +73,7 @@ export function useDirectoryListings(expanded: ReadonlySet<Key>) {
     return () => controller.abort();
   }, [api, enabled, activeFolders, service, queryClient, queryKey]);
   return {
+    pending: [...activeFolders].some((path) => listings[path] === undefined),
     paths: [...activeFolders].flatMap((path) => listings[path]?.entries ?? []),
     error: [...activeFolders]
       .map((path) => listings[path]?.error)
