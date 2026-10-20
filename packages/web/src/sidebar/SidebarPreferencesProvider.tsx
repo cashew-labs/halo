@@ -1,7 +1,7 @@
 import {
   createContext,
   useContext,
-  useState,
+  useMemo,
   useSyncExternalStore,
   type ReactNode,
 } from "react";
@@ -18,8 +18,10 @@ export function SidebarPreferencesProvider({
   workspaceRoot: string;
   children: ReactNode;
 }) {
-  const [preferences] = useState(
+  // A new user or workspace reads its own stored preferences.
+  const preferences = useMemo(
     () => new SidebarPreferences({ userId, workspaceRoot }),
+    [userId, workspaceRoot],
   );
   return (
     <SidebarPreferencesContext value={preferences}>

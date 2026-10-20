@@ -4,6 +4,7 @@ import { Apps, Clock, File, Filter } from "maui/icons";
 import { style, useStyles } from "purse-styles";
 import { useExtensions } from "../api/WorkspaceUpdatesProvider.js";
 import { useDatabaseQuery } from "../database/useDatabaseQuery.js";
+import { useWorkspaceDataSynced } from "../database/WorkspaceDataProvider.js";
 import { AutomationItems } from "./AutomationItems.js";
 import { ExtensionItems } from "./ExtensionItems.js";
 import { FilesystemSection } from "./FilesystemSection.js";
@@ -56,8 +57,10 @@ export function ArtifactsSection({
     automations: automations?.length ?? 0,
   };
   // Wait for every source so the empty state does not flash while loading.
+  const synced = useWorkspaceDataSynced();
   const loaded =
     !pending &&
+    synced &&
     automations !== undefined &&
     (extensions.data !== undefined || extensions.error !== undefined);
   const show = (filter: ArtifactFilter) =>

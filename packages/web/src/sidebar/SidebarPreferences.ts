@@ -134,6 +134,7 @@ export class SidebarPreferences {
     targetId: SidebarSectionId;
   }) {
     if (sourceId === targetId) return;
+    // The source takes the target's position, so moving down lands after it.
     const index = this.state.sectionOrder.indexOf(targetId);
     const sectionOrder = this.state.sectionOrder.filter(
       (item) => item !== sourceId,

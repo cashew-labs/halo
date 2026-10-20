@@ -1,4 +1,10 @@
-import { useEffect, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   createWorkspaceRemote,
   haloSchemaToTandemSchema,
@@ -14,6 +20,13 @@ class WorkspaceDataError extends errore.createTaggedError({
   name: "WorkspaceDataError",
   message: "Could not synchronize workspace data",
 }) {}
+
+// False until the current replica finishes its first pull, so empty results are not final.
+const WorkspaceDataSyncedContext = createContext(false);
+
+export function useWorkspaceDataSynced() {
+  return useContext(WorkspaceDataSyncedContext);
+}
 
 export function WorkspaceDataProvider({
   api,
@@ -33,6 +46,7 @@ export function WorkspaceDataProvider({
         autoConnect: false,
       }),
   );
+  const [synced, setSynced] = useState(false);
   // Retain the last replica and mounted panes during outages; fresh replicas
   // avoid reusing process-local server cookies after a restart.
   useEffect(() => {
@@ -51,7 +65,9 @@ export function WorkspaceDataProvider({
       await db.ready;
       if (controller.signal.aborted) return;
       setClient(db);
+      setSynced(false);
       await db.connect();
+      if (!controller.signal.aborted) setSynced(true);
     })().catch((cause) => {
       if (!controller.signal.aborted)
         service.fail(api, new WorkspaceDataError({ cause }));
@@ -64,6 +80,10 @@ export function WorkspaceDataProvider({
     };
   }, [api, enabled, service]);
   return (
-    <TandemClientProvider client={client}>{children}</TandemClientProvider>
+    <TandemClientProvider client={client}>
+      <WorkspaceDataSyncedContext value={synced}>
+        {children}
+      </WorkspaceDataSyncedContext>
+    </TandemClientProvider>
   );
 }

@@ -2,6 +2,7 @@ import type { SessionSummary } from "@get-halo/client";
 import { Text } from "maui";
 import { Clock, File, Folder, Message } from "maui/icons";
 import { ExtensionItem, useExtensionArtifacts } from "./ExtensionItems.js";
+import { useWorkspaceDataSynced } from "../database/WorkspaceDataProvider.js";
 import {
   buildFileNavigation,
   fileRoute,
@@ -23,6 +24,7 @@ export function FavoritesSection({
 }) {
   const favoriteIds = useFavoriteIds();
   const artifacts = useExtensionArtifacts();
+  const synced = useWorkspaceDataSynced();
   const { extensions, automations } = artifacts;
   const files = buildFileNavigation(paths);
   const nodes = new Map<string, FileNavigationNode>();
@@ -79,14 +81,19 @@ export function FavoritesSection({
               {automation.name}
             </SidebarItem>
           );
-        const extension = extensions.data?.find(
-          (item) => favoriteId === `extension:${item.id}`,
-        );
-        if (extension !== undefined)
+        // Like Artifacts, a stopped extension stays listed through its automations.
+        const extensionId = favoriteId.startsWith("extension:")
+          ? favoriteId.slice("extension:".length)
+          : undefined;
+        if (
+          extensionId !== undefined &&
+          (extensions.data?.some((item) => item.id === extensionId) ||
+            automations?.some((item) => item.extensionId === extensionId))
+        )
           return (
             <ExtensionItem
               key={favoriteId}
-              extensionId={extension.id}
+              extensionId={extensionId}
               artifacts={artifacts}
               idPrefix="favorite:"
             />
@@ -99,10 +106,11 @@ export function FavoritesSection({
         const pending = favoriteId.startsWith("file:")
           ? filesPending
           : favoriteId.startsWith("automation:")
-            ? automations === undefined
-            : favoriteId.startsWith("extension:") &&
-              extensions.data === undefined &&
-              extensions.error === undefined;
+            ? !synced
+            : extensionId !== undefined &&
+              (!synced ||
+                (extensions.data === undefined &&
+                  extensions.error === undefined));
         return (
           <SidebarItem
             key={favoriteId}
