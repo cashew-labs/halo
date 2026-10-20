@@ -225,6 +225,8 @@ ease-in-out. Streaming markdown uses `motionStreamDurationMs`.
 
 Stroke/fill is `currentColor`. Pass `size` on the icon component; optional `width` / `height` override the box.
 
+`controlSize.height` (28px) and `controlSize.smHeight` (24px) are the control heights used by `Button` and `TextField`. Both become 40px at large scale. Use them to size a slot that must line up with a control, such as an icon next to a `TextField size="sm"`.
+
 ## Avatar tokens
 
 `avatar.green` / `avatar.orange` / `avatar.pink` each have `background` and `foreground`. The `Avatar` component also uses `accent[4]`/`[11]`. You rarely need these tokens directly.

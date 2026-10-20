@@ -9,6 +9,7 @@ import {
   useMemo,
   useState,
   type DragEvent,
+  type ReactElement,
   type ReactNode,
 } from "react";
 import {
@@ -37,11 +38,12 @@ import {
 import { SidebarItem } from "./navigation/SidebarItem.js";
 import { SidebarSection } from "./navigation/SidebarSection.js";
 
-import { FileEntryInput, type FileCreationAction } from "./FileEntryInput.js";
+import { FileEntryInput, type FileInputAction } from "./FileEntryInput.js";
 import { SidebarEmptyState } from "./SidebarEmptyState.js";
 
-type FileAction = FileEntryAction | FileCreationAction;
+type FileAction = FileEntryAction | FileInputAction;
 type FileCreationRow = { parent: string; content: ReactNode };
+type FileRenameRow = { path: string; render(items: ReactNode): ReactElement };
 
 type FileNavigationNode = {
   path: string;
@@ -219,6 +221,31 @@ export function FilesystemSection() {
           ),
         }
       : undefined;
+  const rename: FileRenameRow | undefined =
+    action?.kind === "rename"
+      ? {
+          path: action.path,
+          render: (items) => (
+            <FileEntryInput
+              key={`rename:${action.path}`}
+              action={action}
+              items={items}
+              pending={mutation.isPending}
+              error={
+                mutation.error === null ? undefined : mutation.error.message
+              }
+              onClose={() => setAction(undefined)}
+              onSubmit={(destination) =>
+                mutation.mutate({
+                  kind: "move",
+                  source: action.path,
+                  destination,
+                })
+              }
+            />
+          ),
+        }
+      : undefined;
 
   return (
     <SidebarSection
@@ -324,30 +351,28 @@ export function FilesystemSection() {
               </Button>
             </Tooltip>
           </span>
-          {action !== undefined &&
-            action.kind !== "file" &&
-            action.kind !== "directory" && (
-              <FileEntryDialog
-                action={action}
-                folders={folders}
-                pending={mutation.isPending}
-                error={
-                  mutation.error === null ? undefined : mutation.error.message
-                }
-                onClose={() => setAction(undefined)}
-                onBrowseFolder={(path) => expand([`file:${path}/`])}
-                onSubmit={(path) => {
-                  if (action.kind === "delete")
-                    mutation.mutate({ kind: "delete", path: action.path });
-                  else
-                    mutation.mutate({
-                      kind: "move",
-                      source: action.path,
-                      destination: path,
-                    });
-                }}
-              />
-            )}
+          {(action?.kind === "move" || action?.kind === "delete") && (
+            <FileEntryDialog
+              action={action}
+              folders={folders}
+              pending={mutation.isPending}
+              error={
+                mutation.error === null ? undefined : mutation.error.message
+              }
+              onClose={() => setAction(undefined)}
+              onBrowseFolder={(path) => expand([`file:${path}/`])}
+              onSubmit={(path) => {
+                if (action.kind === "delete")
+                  mutation.mutate({ kind: "delete", path: action.path });
+                else
+                  mutation.mutate({
+                    kind: "move",
+                    source: action.path,
+                    destination: path,
+                  });
+              }}
+            />
+          )}
         </>
       }
     >
@@ -367,6 +392,7 @@ export function FilesystemSection() {
           onDrop={drop}
           pending={mutation.isPending || action !== undefined}
           creation={creation}
+          rename={rename}
         />
       ))}
     </SidebarSection>
@@ -383,6 +409,7 @@ function FileNavigationItem({
   onDrop,
   pending,
   creation,
+  rename,
 }: {
   node: FileNavigationNode;
   onAction(action: FileAction): void;
@@ -393,6 +420,7 @@ function FileNavigationItem({
   onDrop(event: DragEvent, folder: string): void;
   pending: boolean;
   creation: FileCreationRow | undefined;
+  rename: FileRenameRow | undefined;
 }) {
   const path = node.isDirectory ? node.path.slice(0, -1) : node.path;
   const label = useStyles(styles.fileLabel);
@@ -400,6 +428,27 @@ function FileNavigationItem({
   const destination = node.isDirectory
     ? path
     : path.slice(0, Math.max(0, path.lastIndexOf("/")));
+  const items = (
+    <>
+      {node.isDirectory && creation?.parent === path && creation.content}
+      {node.children.map((child) => (
+        <FileNavigationItem
+          key={child.path}
+          node={child}
+          onAction={onAction}
+          onDrag={onDrag}
+          dropTarget={dropTarget}
+          onDropTarget={onDropTarget}
+          canDrop={canDrop}
+          onDrop={onDrop}
+          pending={pending}
+          creation={creation}
+          rename={rename}
+        />
+      ))}
+    </>
+  );
+  if (rename?.path === path) return rename.render(items);
   return (
     <SidebarItem
       id={`file:${node.path}`}
@@ -448,25 +497,7 @@ function FileNavigationItem({
           disabled={pending}
         />
       }
-      items={
-        <>
-          {node.isDirectory && creation?.parent === path && creation.content}
-          {node.children.map((child) => (
-            <FileNavigationItem
-              key={child.path}
-              node={child}
-              onAction={onAction}
-              onDrag={onDrag}
-              dropTarget={dropTarget}
-              onDropTarget={onDropTarget}
-              canDrop={canDrop}
-              onDrop={onDrop}
-              pending={pending}
-              creation={creation}
-            />
-          ))}
-        </>
-      }
+      items={items}
     >
       <span
         className={label}
@@ -478,6 +509,10 @@ function FileNavigationItem({
           onDrag(path);
         }}
         onDragEnd={() => onDrag(undefined)}
+        onDoubleClick={() => {
+          if (!pending)
+            onAction({ kind: "rename", path, isDirectory: node.isDirectory });
+        }}
       >
         {node.name}
       </span>
@@ -519,7 +554,7 @@ function FileMenu({
           </MenuItem>
         )}
         <MenuItem onAction={() => onAction({ kind: "rename", ...node })}>
-          Rename…
+          Rename
         </MenuItem>
         <MenuItem onAction={() => onAction({ kind: "move", ...node })}>
           Move to…

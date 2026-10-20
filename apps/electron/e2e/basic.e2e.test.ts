@@ -137,6 +137,24 @@ e2eTest(
     await expect(
       app.page.getByRole("main", { name: "Closed/Other/deep.md", exact: true }),
     ).toContainText("Deep note");
+    await app.page
+      .getByRole("link", { name: "offline.md", exact: true })
+      .dblclick();
+    const name = app.page.getByRole("textbox", {
+      name: "Rename offline.md",
+      exact: true,
+    });
+    await expect(name).toBeFocused();
+    await name.press("ArrowUp");
+    await expect(name).toBeFocused();
+    await name.fill("renamed.md");
+    await name.press("Enter");
+    await expect(
+      app.page.getByRole("link", { name: "renamed.md", exact: true }),
+    ).toBeVisible();
+    expect(
+      await app.server.rpc.workspace.readFile({ path: "Open/renamed.md" }),
+    ).toBe("Added while offline");
   },
 );
 
