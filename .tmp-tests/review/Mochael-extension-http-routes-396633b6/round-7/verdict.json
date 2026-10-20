@@ -1,0 +1,24 @@
+{
+  "status": "changes_requested",
+  "summary": "The diff is the round-6 approved version, rebased onto a8b523f1ca65, and I found no source or test defects. This round's durable run broke because of the workspace's dependencies, not the change. ControlPlane.test.ts could not load: `Cannot find module node_modules/@earendil-works/pi-coding-agent/dist/index.js`. The extension-tools Playwright build stopped while pnpm was reinstalling dependencies (`failed to remove existing directory node_modules/maui ... Directory not empty`), so its tests did not run. Because of this, AppGateway.ts:18 has no recorded coverage and the gate fails. Reinstall dependencies cleanly after the rebase, for example by stopping any process that holds node_modules and running `pnpm install`, then rerun the durable suite.",
+  "findings": [],
+  "testRequests": [
+    {
+      "target": "Rerun durable tests after a clean `pnpm install`: apps/control-plane/test/ControlPlane.test.ts (it must record coverage for AppGateway.ts:18 through 'forwards extension HTTP routes through existing gateway authorization') and packages/extension-tools/test/extension.test.ts",
+      "tier": "durable",
+      "rationale": "The rebased head's run failed before any control-plane or Playwright test could execute: a missing pi-coding-agent dist and a pnpm install that failed partway on node_modules/maui. A passing run on a correctly installed workspace is needed to meet the test and coverage gates."
+    }
+  ],
+  "tierChanges": [],
+  "round": 7,
+  "headSha": "2ad3ee7953892aa91dfa07c9ffa8bb9b5440efad",
+  "treeHash": "3f54209c62b2aa69bd412be726f55e4b06a4f952",
+  "codeTree": "de5d835c6b8515fbaac3df5da1e5b5ef9da281e4",
+  "coverage": {
+    "executable": 40,
+    "covered": 39,
+    "exempt": 0,
+    "uncovered": 1
+  },
+  "createdAt": "2026-10-20T15:57:16.617Z"
+}

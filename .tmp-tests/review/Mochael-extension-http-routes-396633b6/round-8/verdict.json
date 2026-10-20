@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change adds an optional public `http.ts` handler to the extension SDK and its build, and routes `/<app>/http` through the creator-host gateway. The diff is unchanged from the version approved in rounds 3 and 6. After the dependency reinstall, the durable suite (ControlPlane, extension-sdk and Playwright) and the temp build test pass. The coverage gate passes, with AppGateway.ts:18 covered by the durable gateway test. No findings remain, and the change is ready.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 8,
+  "headSha": "2ad3ee7953892aa91dfa07c9ffa8bb9b5440efad",
+  "treeHash": "3f54209c62b2aa69bd412be726f55e4b06a4f952",
+  "codeTree": "de5d835c6b8515fbaac3df5da1e5b5ef9da281e4",
+  "coverage": {
+    "executable": 40,
+    "covered": 40,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-20T16:00:27.088Z"
+}
