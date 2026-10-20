@@ -758,11 +758,14 @@ const appDomainCertificateRole = new gcp.projects.IAMCustomRole(
   { dependsOn: [certificateManager, ...deploymentRoleAdmin] },
 );
 // coverage-exempt: Runtime IAM binding is applied by Pulumi, not executed by unit tests.
-new gcp.projects.IAMMember("runtime-app-domain-certificates", {
-  project,
-  role: appDomainCertificateRole.name,
-  member: pulumi.interpolate`serviceAccount:${runtime.email}`,
-});
+const appDomainCertificateAccess = new gcp.projects.IAMMember(
+  "runtime-app-domain-certificates",
+  {
+    project,
+    role: appDomainCertificateRole.name,
+    member: pulumi.interpolate`serviceAccount:${runtime.email}`,
+  },
+);
 const controlPlane = new gcp.cloudrunv2.Service(
   "control-plane-service",
   {
@@ -928,6 +931,7 @@ const controlPlane = new gcp.cloudrunv2.Service(
       authSecretAccess,
       controlPlaneComputeAccess,
       controlPlaneInferenceAccess, // coverage-exempt: Declarative Pulumi deployment ordering is checked by infra typecheck, not a cloud deployment in tests.
+      appDomainCertificateAccess, // coverage-exempt: Pulumi applies runtime IAM before promoting the domain-enabled revision; live cloud ordering is not a unit-test boundary.
       controlPlaneIntegrationKeyAccess,
       controlPlaneTogetherApiKeyAccess,
       ...signInAllowlistAccess,
