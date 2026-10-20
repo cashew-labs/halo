@@ -1,0 +1,46 @@
+{
+  "status": "changes_requested",
+  "summary": "This round merges Automations, Extensions, and Documents into one Artifacts section with a persisted filter. Extension rows and their nested automations become reusable for Favorites, and the durable E2Es are updated for the new labels. Tests pass and coverage is complete, but the merge silently drops the sidebar's \"Paused\" status for disabled automations. The new empty state also flashes while file listings load, despite a comment saying it waits for every source.",
+  "findings": [
+    {
+      "id": "F3",
+      "kind": "source",
+      "file": "packages/web/src/sidebar/AutomationItems.tsx",
+      "line": 18,
+      "severity": "P1",
+      "body": "The deleted AutomationsSection and ExtensionsSection showed a `Paused` trailing label on every automation with `enabled === false`. Neither replacement does: `AutomationItems` here and the nested automation rows in `ExtensionItems.tsx` (~line 124) both render a bare `SidebarItem` with no `trailing`. The sidebar no longer tells users that an automation is disabled. Nothing in the change or the skill doc says this removal is intended, and no test covers it. Restore the `trailing={automation.enabled ? undefined : <Text size=\"xs\" color=\"lowContrast\">Paused</Text>}` label on both row kinds and on the automation favorite row in FavoritesSection. Add a temp E2E assertion that a disabled automation shows \"Paused\" in Artifacts."
+    },
+    {
+      "id": "F4",
+      "kind": "source",
+      "file": "packages/web/src/sidebar/ArtifactsSection.tsx",
+      "line": 57,
+      "severity": "P1",
+      "body": "The comment says the empty state waits for every source, but `loaded` checks only automations and extensions, not the directory listing. On startup, the automation and extension queries often resolve before the root listing. In a workspace that has files but no extensions or automations, `counts.all` (or `counts.documents` under the Docs filter) is then 0, and \"No artifacts yet\" or \"No documents yet\" flashes before the files appear. This is the same loading-flash problem as F2. Pass `listing.pending` from `SidebarContents` into `ArtifactsSection` and include `!filesPending` in `loaded`. Ideally, extend the temp E2E's MutationObserver check to assert that the empty state never appears during a reload."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "Disabled automations show \"Paused\" in Artifacts (standalone, and nested under an extension)",
+      "tier": "tmp",
+      "rationale": "This covers the restored status label from F3."
+    },
+    {
+      "target": "No Artifacts empty state appears while the root directory listing loads (reload with files present but no extensions or automations)",
+      "tier": "tmp",
+      "rationale": "This guards the loading-flash fix from F4."
+    }
+  ],
+  "tierChanges": [],
+  "round": 3,
+  "headSha": "a8b523f1ca6507bfcd28f038c1f6389c12f991be",
+  "treeHash": "2548e7c8b518119c2b73d6b5ca6bd05d255880df",
+  "codeTree": "37534ecba5f768d96b2c06bdfd353f76f6ad908e",
+  "coverage": {
+    "executable": 230,
+    "covered": 230,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-20T22:18:36.933Z"
+}
