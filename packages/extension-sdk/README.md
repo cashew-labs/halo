@@ -46,3 +46,29 @@ Halo-hosted view. The development app installs local package builds when creatin
 After Halo's source changes, use `halo extension update <id>` to install updated
 local packages, typecheck, rebuild, and restart an existing extension. Reload or
 reopen its pane afterward. Published SDK 0.1.0 does not include tool support.
+
+## Public HTTP responses
+
+Add an optional `http.ts` default export, typed as `ExtensionHttpHandler` from
+`@get-halo/extension-sdk/server`. The build includes it only in the server bundle.
+It receives a standard `Request` and `{ storage }`, with the same extension-owned
+Tandem server as `api.ts`. It receives no viewer identity or Halo tool credentials.
+Only GET and HEAD are accepted; HEAD returns the same headers without a body.
+
+```ts
+import type { ExtensionHttpHandler } from "@get-halo/extension-sdk/server";
+
+const http: ExtensionHttpHandler = (request, { storage }) => {
+  // Look up the slug in storage here; this example uses one fixed campaign.
+  if (new URL(request.url).pathname !== "/launch")
+    return new Response("Not found", { status: 404 });
+  return Response.redirect("https://gethalo.dev/?utm_source=launch", 302);
+};
+export default http;
+```
+
+The standalone route is `/http/launch`; published creator URLs use
+`/<app>/http/launch`. A verified custom hostname can map `/launch` to the same
+surface. Redirect locations must be absolute HTTP(S) URLs, and HTTP responses
+cannot set cookies. Missing handlers return 404. Existing `/api`, `/sync`, and
+`/view` behavior and proxy authentication are unchanged.

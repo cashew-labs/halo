@@ -17,7 +17,11 @@ import {
 } from "@tanishqkancharla/tandem-server";
 import * as errore from "errore";
 import { syncRouter } from "./sync.js";
-import { createExtensionTools, type ExtensionViewer } from "./tools.js";
+import {
+  createExtensionTools,
+  type ExtensionViewer,
+  type ExtensionContext,
+} from "./tools.js";
 
 class ExtensionServerError extends errore.createTaggedError({
   name: "ExtensionServerError",
@@ -50,6 +54,12 @@ const contentTypes = new Map(
   }),
 );
 
+/** Explicit public HTTP surface; receives no owner identity or tool credentials. */
+export type ExtensionHttpHandler = (
+  request: Request,
+  context: { storage: Pick<ExtensionContext["storage"], "query"> },
+) => Response | Promise<Response>;
+
 export async function serveExtension<
   Schema extends AnySchema,
   Relations extends AnyRelations<Schema>,
@@ -58,6 +68,7 @@ export async function serveExtension<
   schema: RuntimeSchemaDefinition<Schema>;
   relations: Relations;
   publicDirectory: string;
+  http?: ExtensionHttpHandler;
   dataDirectory: string;
   port: number;
   hostToken?: string;
@@ -120,6 +131,66 @@ export async function serveExtension<
         return;
       }
     }
+    const pathname = new URL(request.url!, "http://localhost").pathname;
+    if (pathname.startsWith("/http/")) {
+      if (args.http === undefined) {
+        response.writeHead(404).end();
+        return;
+      }
+      if (request.method !== "GET" && request.method !== "HEAD") {
+        response.writeHead(405, { allow: "GET, HEAD" }).end();
+        return;
+      }
+      // The host token above authenticates Halo's proxy, never the visitor.
+      // This surface deliberately has no viewer or tools context.
+      const publicHost = request.headers["x-forwarded-host"];
+      const host = Array.isArray(publicHost)
+        ? (request.headers.host ?? "localhost")
+        : (publicHost ?? request.headers.host ?? "localhost");
+      const protocol =
+        request.headers["x-forwarded-proto"] === "https" ? "https" : "http";
+      const url = `${protocol}://${host}${request.url!.slice("/http".length)}`;
+      const result = await Promise.resolve()
+        .then(
+          async () =>
+            await args.http!(new Request(url, { method: request.method }), {
+              storage: { query: tandem.query.bind(tandem) },
+            }),
+        )
+        .catch(
+          (cause) =>
+            new ExtensionServerError({
+              operation: "handle public HTTP request",
+              cause,
+            }),
+        );
+      if (result instanceof Error) {
+        console.error(result);
+        response.writeHead(500).end();
+        return;
+      }
+      const location = result.headers.get("location");
+      if (location !== null && !/^https?:\/\//i.test(location)) {
+        response.writeHead(500).end();
+        return;
+      }
+      const headers = Object.fromEntries(result.headers);
+      for (const name of [
+        "set-cookie",
+        "connection",
+        "transfer-encoding",
+        "content-length",
+      ])
+        delete headers[name];
+      headers["x-content-type-options"] = "nosniff";
+      response.writeHead(result.status, headers);
+      response.end(
+        request.method === "HEAD"
+          ? undefined
+          : Buffer.from(await result.arrayBuffer()),
+      );
+      return;
+    }
     const viewer: ExtensionViewer = {
       viewerId: Array.isArray(request.headers["x-halo-viewer-id"])
         ? "owner"
@@ -162,7 +233,6 @@ export async function serveExtension<
       },
     });
     if (synced.matched) return;
-    const pathname = new URL(request.url!, "http://localhost").pathname;
     const isView =
       pathname.startsWith("/view/") && !pathname.startsWith("/view/assets/");
     const asset = assets.get(isView ? "/view/" : pathname);
@@ -220,6 +290,7 @@ export async function runExtension<
   schema: RuntimeSchemaDefinition<Schema>;
   relations: Relations;
   publicDirectory: string;
+  http?: ExtensionHttpHandler;
 }) {
   const { values } = parseArgs({
     options: {

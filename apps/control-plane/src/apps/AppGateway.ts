@@ -13,9 +13,9 @@ class AppGatewayError extends errore.createTaggedError({
   message: "App gateway failed: $detail",
 }) {}
 
-// Only the SDK's view, API and sync routes reach an app.
+// Only declared SDK surfaces reach an app; HTTP handlers have no owner context.
 const appPathPattern =
-  /^\/([a-z][a-z0-9-]{0,62})(?:\/(view|api|sync)(\/[A-Za-z0-9._~!$&'()*+,;=:@%/-]*)?)?\/?$/;
+  /^\/([a-z][a-z0-9-]{0,62})(?:\/(view|api|sync|http)(\/[A-Za-z0-9._~!$&'()*+,;=:@%/-]*)?)?\/?$/;
 // Rejects encoded separators and dot segments before any routing decision.
 const unsafePathPattern = /%(?:2f|5c|2e|00)|\\|\/\/|(?:^|\/)\.{1,2}(?:\/|$)/i;
 const visitorPattern = /^[A-Za-z0-9_-]{22}$/;

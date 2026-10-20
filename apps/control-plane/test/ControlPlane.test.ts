@@ -6545,3 +6545,19 @@ appRemovalTest(
     ).toBe("newest source from the VM");
   },
 );
+
+// Durable: an HTTP surface must retain public identity and strip forged owner credentials.
+publicAppTest(
+  "forwards extension HTTP routes through existing gateway authorization",
+  async ({ publicApps }) => {
+    const response = await publicApps.request({
+      path: "/read-only/http/launch?utm_source=mail",
+      headers: {
+        "x-halo-viewer-role": "owner",
+        "x-halo-extension-token": "forged",
+      },
+    });
+    expect(response.status).toBe(200);
+    expect(JSON.parse(response.body).workspace).toBe("test-workspace");
+  },
+);
