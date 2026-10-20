@@ -81,6 +81,15 @@ export class GoogleAppDomainTls implements AppDomainTls {
       if (created instanceof Error) return created;
       return { ready: false, records };
     }
+    if (certificate.managed?.state === "FAILED") {
+      // FAILED is terminal. Keep its DNS authorization stable while allowing a
+      // later verification to recreate the certificate after DNS is corrected.
+      for (const path of [entryName, certificateName]) {
+        const removed = await this.removeResource(path);
+        if (removed instanceof Error) return removed;
+      }
+      return { ready: false, records };
+    }
     if (certificate.managed?.state !== "ACTIVE")
       return { ready: false, records };
     const entry = await this.request({ path: entryName });
@@ -103,18 +112,22 @@ export class GoogleAppDomainTls implements AppDomainTls {
       `${this.parent}/certificates/${resourceId}`,
       `${this.parent}/dnsAuthorizations/${resourceId}`,
     ]) {
-      const operation = await this.request({ method: "DELETE", path });
-      if (operation instanceof Error) return operation;
-      if (operation?.name !== undefined && operation.done !== true) {
-        // Deleting a certificate before its map entry is gone fails with RESOURCE_IN_USE.
-        const completed = await this.request({ path: operation.name });
-        if (completed instanceof Error) return completed;
-        if (completed?.done !== true)
-          return new AppDomainHostError({
-            operation:
-              "Certificate cleanup is still running. Run halo app domain remove again to finish.",
-          });
-      }
+      const removed = await this.removeResource(path);
+      if (removed instanceof Error) return removed;
+    }
+  }
+  private async removeResource(path: string) {
+    const operation = await this.request({ method: "DELETE", path });
+    if (operation instanceof Error) return operation;
+    if (operation?.name !== undefined && operation.done !== true) {
+      // A referenced certificate cannot be deleted before its map entry is gone.
+      const completed = await this.request({ path: operation.name });
+      if (completed instanceof Error) return completed;
+      if (completed?.done !== true)
+        return new AppDomainHostError({
+          operation:
+            "Certificate cleanup is still running. Repeat this domain command to finish.",
+        });
     }
   }
   private async request(ctx: {
