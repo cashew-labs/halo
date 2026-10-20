@@ -19,6 +19,47 @@ remains the registrar and authoritative DNS provider. Production Electron
 builds use the custom origin, while the Cloud Run default URL remains reachable
 for previously released desktop clients.
 
+## Marketing links
+
+The regular control-plane service resolves `https://go.gethalo.dev/:slug` to
+`https://gethalo.dev/` with configured campaign tags. This does not depend on
+extension HTTP routes or the custom-domain stack (#543–545).
+
+Set `halo-control-plane:marketingLinks` in the selected stack to a map of slugs
+to campaign tags. For example (illustrative, not an active campaign):
+
+```yaml
+halo-control-plane:marketingLinks:
+  linkedin-launch:
+    utm_source: linkedin
+    utm_medium: social
+    utm_campaign: launch
+```
+
+Pulumi passes this map as `HALO_MARKETING_LINKS` into the normal Cloud Run
+container. The application validates it at startup; malformed entries prevent
+startup. See [the marketing guide](../apps/web-app/README.md#custom-shortener-at-gogethalodev)
+for the schema and redirect behavior. The production map is initially empty:
+no existing extension campaign data was available to migrate. Add the actual
+mappings through a reviewed configuration change before publishing links.
+
+The existing wildcard certificate covers `go.<controlPlaneDomain>` and the
+load balancer's default backend preserves its host and path. There is no
+additional certificate, extension binding, database, or workspace to provision.
+The stack exports `marketingUrl` and `marketingDnsRecord`. At Vercel DNS, point
+`go.gethalo.dev` to production's exported A-record address, or verify that the
+existing wildcard A record resolves it there. An explicit old CNAME/A record
+for `go` overrides a wildcard and must be replaced. Keep the wildcard
+certificate's DNS authorization records from `creatorDnsRecords.certificate`
+and verify that certificate is active before directing visitors to the host.
+
+Ship the server implementation before applying campaign configuration. Preview
+the selected stack, deploy a control-plane image containing the handler, then
+verify a configured URL returns 302 with the expected destination and that an
+unknown URL returns 404. GET and HEAD should agree. Staging uses its own map
+and `go.staging.gethalo.dev`, directing visits to `staging.gethalo.dev`.
+No DNS records or running services are changed by this PR alone.
+
 ## Staging and production stacks
 
 The `control-plane/` program has two stacks in `halo-relay`. Each has its own

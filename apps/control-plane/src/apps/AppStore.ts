@@ -74,6 +74,7 @@ const reservedHandles = new Set([
   "demo",
   "docs",
   "halo",
+  "go",
   "mail",
   "staging",
   "static",

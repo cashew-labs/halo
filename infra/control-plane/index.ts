@@ -67,6 +67,8 @@ const googleAnalyticsMeasurementId = configuration.get(
 // Staging serves the web app's staging/ overrides, such as its yellow logo.
 const environment = configuration.get("environment");
 
+// Public campaign tags, validated by the control plane at startup.
+const marketingLinks = configuration.getObject("marketingLinks") ?? {};
 const controlPlaneOrigin = `https://${controlPlaneDomain}`;
 // Apex domains also serve www and redirect it; subdomains such as staging do not.
 const redirectWww = configuration.getBoolean("redirectWww") ?? true;
@@ -800,6 +802,10 @@ const controlPlane = new gcp.cloudrunv2.Service(
                   { name: "EXE_GATEWAY_SECRET_ID", value: exeGatewaySecretId },
                 ]),
             { name: "BETTER_AUTH_URL", value: controlPlaneOrigin },
+            {
+              name: "HALO_MARKETING_LINKS",
+              value: JSON.stringify(marketingLinks),
+            },
 
             // coverage-exempt: Pulumi passes this public stream ID into Cloud Run; exercised after deployment rather than by provisioning cloud infrastructure in tests.
             ...(googleAnalyticsMeasurementId === undefined
@@ -1095,6 +1101,13 @@ export const controlPlaneAuthSecretVersion = authSecretVersion.version;
 export const controlPlaneName = controlPlane.name;
 export const controlPlaneUrl = controlPlaneOrigin;
 export const controlPlaneDomainIp = controlPlaneAddress.address;
+// The existing wildcard certificate and default URL map already serve go.
+export const marketingUrl = `https://go.${controlPlaneDomain}`;
+export const marketingDnsRecord = {
+  name: `go.${controlPlaneDomain}`,
+  type: "A",
+  data: controlPlaneAddress.address,
+};
 
 export const selectedWorkspaceProvider = workspaceProvider;
 export const exeWorkspaceTemplate = exeTemplateVmName;

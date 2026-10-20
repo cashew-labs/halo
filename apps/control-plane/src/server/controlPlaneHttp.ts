@@ -1,3 +1,5 @@
+import type { ControlPlaneConfig } from "@get-halo/config/controlPlane";
+import { serveMarketingLink } from "../marketing/serveMarketingLink.js";
 import type { GmailService } from "../automations/GmailService.js";
 import type { GmailPushReceiver } from "../automations/gmailHttp.js";
 import { serveWebhook } from "../automations/webhookHttp.js";
@@ -53,7 +55,11 @@ import {
 import type { AppService } from "../apps/AppService.js";
 import type { AppGateway } from "../apps/AppGateway.js";
 import type { AppStore } from "../apps/AppStore.js";
-import { creatorHandle, isCreatorHost } from "../apps/creatorHost.js";
+import {
+  creatorHandle,
+  creatorOrigin,
+  isCreatorHost,
+} from "../apps/creatorHost.js";
 import {
   isAppHandoffRequest,
   serveAppHandoff,
@@ -174,12 +180,15 @@ export function serveControlPlaneHttp(ctx: {
   gmailPush: GmailPushReceiver;
   build?: { version: string; revision: string };
   webRoot: string;
+  marketingLinks?: ControlPlaneConfig["marketingLinks"];
   googleAnalyticsMeasurementId?: string;
   environment?: "production" | "staging" | "development";
   traces?: TraceIngestion;
   inference?: WorkspaceInference;
 }) {
   const { server, auth, publicOrigin, workspace, webRoot, traces } = ctx;
+  const marketingHost = new URL(creatorOrigin({ publicOrigin, handle: "go" }))
+    .host;
   const upgradeSockets = new Set<Duplex>();
   const rpc = new RPCHandler<ControlPlaneContext>(controlPlaneRpcRouter, {
     clientInterceptors: [
@@ -212,6 +221,16 @@ export function serveControlPlaneHttp(ctx: {
 
   server.removeListener("request", respondStarting);
   server.on("request", async (request, response) => {
+    // The reserved go host belongs to Halo, before creator-app dispatch.
+    if (request.headers.host?.toLowerCase() === marketingHost) {
+      serveMarketingLink({
+        request,
+        response,
+        publicOrigin,
+        links: ctx.marketingLinks,
+      });
+      return;
+    }
     // Creator hosts serve apps only; no Halo route is reachable from them.
     const handle = creatorHandle({ publicOrigin, host: request.headers.host });
     // A subdomain that cannot be a handle is not Halo either.
