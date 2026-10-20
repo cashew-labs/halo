@@ -1,5 +1,15 @@
 const handlePattern = /^[a-z][a-z0-9-]{0,40}$/;
 
+/** HTTP authorities with an explicit default port name the same origin. */
+export function normalizeHost(ctx: {
+  publicOrigin: string;
+  host: string | undefined;
+}) {
+  const defaultPort =
+    new URL(ctx.publicOrigin).protocol === "https:" ? /:443$/ : /:80$/;
+  return (ctx.host ?? "").toLowerCase().replace(defaultPort, "");
+}
+
 /**
  * Creator hosts are one browser origin per creator: `handle.<Halo host>`, with
  * one path per app. Local development uses `handle.localhost:<port>`.
@@ -40,7 +50,7 @@ function subdomainLabel(ctx: {
   const url = new URL(ctx.publicOrigin);
   const port = url.port === "" ? "" : `:${url.port}`;
   const suffix = `.${baseHostname(url.hostname)}${port}`;
-  const host = ctx.host.toLowerCase();
+  const host = normalizeHost(ctx);
   if (!host.endsWith(suffix)) return undefined;
   const label = host.slice(0, -suffix.length);
   return label === "" || label === "www" ? undefined : label;
