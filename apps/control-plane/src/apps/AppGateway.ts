@@ -8,6 +8,8 @@ import type { AppRecord, AppStore } from "./AppStore.js";
 import { appReturnPath, creatorOrigin } from "./creatorHost.js";
 import { publicAppPage } from "./publicAppPage.js";
 
+import type { AppDomains } from "./AppDomains.js";
+
 class AppGatewayError extends errore.createTaggedError({
   name: "AppGatewayError",
   message: "App gateway failed: $detail",
@@ -44,6 +46,7 @@ type Viewer = {
  * All apps of one creator share this origin; access is checked per app.
  */
 export class AppGateway {
+  private readonly domains: AppDomains;
   private readonly store: AppStore;
   private readonly provider: WorkspaceProviderApi;
   private readonly authorization: WorkspaceAuthorization;
@@ -51,16 +54,74 @@ export class AppGateway {
 
   constructor(ctx: {
     store: AppStore;
+    domains: AppDomains;
     provider: WorkspaceProviderApi;
     authorization: WorkspaceAuthorization;
     publicOrigin: string;
   }) {
     this.store = ctx.store;
+    this.domains = ctx.domains;
     this.provider = ctx.provider;
     this.authorization = ctx.authorization;
     this.publicOrigin = new URL(ctx.publicOrigin);
   }
 
+  async serveCustom(ctx: {
+    request: IncomingMessage;
+    response: ServerResponse;
+  }) {
+    const hostname = (ctx.request.headers.host ?? "")
+      .toLowerCase()
+      .replace(/:\d+$/, "");
+    const app = await this.domains.lookup(hostname);
+    // coverage-exempt: Domain database outage; the consumer fixture uses real SQL services.
+    if (app instanceof Error) {
+      console.error(app);
+      respond(ctx.response, 503);
+      return true;
+    }
+    if (app === undefined) return false;
+    const raw = ctx.request.url ?? "/";
+    const rawPath = raw.split("?")[0]!;
+    if (
+      !raw.startsWith("/") ||
+      unsafePathPattern.test(rawPath) ||
+      new URL(raw, "http://custom.invalid").pathname !== rawPath
+    ) {
+      respond(ctx.response, 404);
+      return true;
+    }
+    if (ctx.request.method !== "GET" && ctx.request.method !== "HEAD") {
+      respond(ctx.response, 405, { allow: "GET, HEAD" });
+      return true;
+    }
+    // No custom-host cookies, viewer tokens, management API or sync surface.
+    const limited = await this.store.consume({
+      appId: app.appId,
+      kind: "http",
+      limit: 6000,
+      windowMs: 60_000,
+    });
+    // coverage-exempt: Rate-counter database outage; the consumer fixture uses real SQL services.
+    if (limited instanceof Error) {
+      console.error(limited);
+      respond(ctx.response, 503);
+      return true;
+    }
+    if (!limited) {
+      respond(ctx.response, 429, { "retry-after": "60" });
+      return true;
+    }
+    ctx.response.setTimeout(10_000, () => ctx.response.destroy());
+    await this.forward({
+      ...ctx,
+      app,
+      viewer: { viewerId: "public-http", role: "public" },
+      origin: `https://${hostname}`,
+      path: `/extensions/${app.extensionId}/http${raw}`,
+    });
+    return true;
+  }
   async serve(ctx: {
     request: IncomingMessage;
     response: ServerResponse;

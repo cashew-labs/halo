@@ -26,6 +26,8 @@ import type { AppCredentials } from "./AppCredentials.js";
 import { AppConflictError, type AppRecord, type AppStore } from "./AppStore.js";
 import { creatorOrigin } from "./creatorHost.js";
 
+import { AppDomainRequestError, type AppDomains } from "./AppDomains.js";
+
 export class AppRequestError extends errore.createTaggedError({
   name: "AppRequestError",
   message: "$reason",
@@ -69,6 +71,7 @@ export class AppService {
     string,
     { queue: SerialQueue; pending: number }
   >();
+  readonly domains: AppDomains;
   private readonly store: AppStore;
   private readonly credentials: AppCredentials;
   private readonly workspace: WorkspaceService;
@@ -80,6 +83,7 @@ export class AppService {
 
   constructor(ctx: {
     store: AppStore;
+    domains: AppDomains;
     credentials: AppCredentials;
     workspace: WorkspaceService;
     provider: WorkspaceProviderApi;
@@ -89,6 +93,7 @@ export class AppService {
     readyTimeoutMs?: number;
   }) {
     this.store = ctx.store;
+    this.domains = ctx.domains;
     this.credentials = ctx.credentials;
     this.workspace = ctx.workspace;
     this.provider = ctx.provider;
@@ -311,6 +316,12 @@ export class AppService {
         .completeAppRemoval({ id: app.extensionId, appId: app.appId })
         .catch(remoteFailure("restore local extension"));
       if (cleaned instanceof Error) return cleaned;
+      const domains = await this.domains.listForRemoval(app.appId);
+      if (domains instanceof Error) return domains;
+      for (const hostname of domains) {
+        const domainRemoved = await this.domains.remove({ ...ctx, hostname });
+        if (domainRemoved instanceof Error) return domainRemoved;
+      }
       return await this.store.delete(app.appId);
     });
   }
@@ -1117,7 +1128,11 @@ function publishFailureMessage(error: Error) {
 }
 
 export function isAppRequestError(error: Error) {
-  return error instanceof AppRequestError || error instanceof AppConflictError;
+  return (
+    error instanceof AppRequestError ||
+    error instanceof AppConflictError ||
+    error instanceof AppDomainRequestError
+  );
 }
 
 /**

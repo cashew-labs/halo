@@ -98,3 +98,39 @@ halo app template <appId> --slug reading-list --description "Track what you read
 The listing is `https://gethalo.dev/templates/<slug>` and the demo is `https://<handle>.gethalo.dev/demo-<slug>/`. Each demo visitor gets a separate copy that starts from the sample data and is discarded later. In the demo, actions return their `sampleResult` and the assistant is off. A template never includes live data, and fixed action arguments are removed.
 
 Installing a template creates a private app for the installer on its own VM, rebuilt in the build sandbox, with no actions bound. The installer's agent binds their own resources with `halo app bind-actions`.
+
+## Custom domains and public redirects
+
+A hosted, publicly published app can serve a verified hostname through its
+optional `http.ts` entry (see the extension SDK's public HTTP contract). The
+hostname maps directly to that entry: `/launch` becomes the handler's `/launch`,
+without a browser hop through the creator URL. The existing creator URL remains
+the authenticated management surface. Custom hosts never expose `/api` or `/sync`.
+
+```sh
+halo app domain add <appId> go.example.com
+# Add the returned _halo-challenge TXT and routing A record at your DNS provider.
+halo app domain verify <appId> go.example.com
+# Add any returned certificate CNAME record; retain it for automatic renewal.
+halo app domain verify <appId> go.example.com  # repeat until status is active
+halo app domain list <appId>
+halo app domain remove <appId> go.example.com
+```
+
+Only the app owner can manage its bindings. Each active hostname belongs to one
+app, each app can have ten domains, and creating a pending challenge does not
+reserve the hostname globally. Keep the verification TXT and certificate CNAME
+records in DNS. Re-verification with missing proof disables the route; removing
+a binding disables it before certificate cleanup and is retryable on failure.
+Unpublishing or restricting the app stops its custom-host traffic immediately.
+The `go` Halo creator handle is reserved for operator-owned marketing domains;
+claiming any custom hostname still requires DNS proof. Halo's own application,
+www and other creator hostnames cannot be registered as custom domains.
+
+Public HTTP supports GET/HEAD, not writes. The handler gets only read-only
+storage queries; owner identity, cookies, tokens and tools are not supplied.
+Choose redirect targets in extension code with absolute HTTP(S) URLs. Link
+management stays in owner-protected API procedures and private storage sync.
+A deployment must supply a certificate provider and DNS routing address before
+these commands can activate domains. Development/tests inject external DNS and
+certificate providers; production uses Google Certificate Manager.
