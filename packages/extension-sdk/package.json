@@ -35,7 +35,8 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit",
     "lint": "NODE_OPTIONS=--experimental-strip-types oxlint --deny-warnings src test",
-    "format:check": "oxfmt --check ."
+    "format:check": "oxfmt --check .",
+    "test:unit": "vitest run src --reporter=agent"
   },
   "dependencies": {
     "@orpc/client": "2.0.0-beta.29",

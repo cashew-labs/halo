@@ -62,3 +62,19 @@ extensionTest(
     await fresh.close();
   },
 );
+
+// Durable: optional HTTP entry points must survive the packed extension build.
+extensionTest(
+  "builds an extension's HTTP entry and returns an actual redirect",
+  async ({ loadExtension, request }) => {
+    const extension = await loadExtension(tasks);
+    const response = await request.get(
+      new URL("/http/launch", extension.url).href,
+      { maxRedirects: 0 },
+    );
+    expect(response.status()).toBe(302);
+    expect(response.headers().location).toBe(
+      "https://gethalo.dev/?utm_source=launch",
+    );
+  },
+);

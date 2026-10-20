@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, rename, rm, writeFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { build } from "esbuild";
 import * as errore from "errore";
@@ -10,6 +10,13 @@ class ExtensionBuildError extends errore.createTaggedError({
 }) {}
 
 export async function buildExtension(directory: string) {
+  const httpModule = await stat(join(directory, "http.ts")).catch(
+    (cause: NodeJS.ErrnoException) =>
+      cause.code === "ENOENT"
+        ? undefined
+        : new ExtensionBuildError({ step: "read HTTP entry", cause }),
+  );
+  if (httpModule instanceof Error) return httpModule;
   const buildId = randomUUID();
   const dist = join(directory, "dist");
   const output = join(dist, buildId);
@@ -85,9 +92,10 @@ void client.connected.then((connected) => {
         contents: `
 import { fileURLToPath } from "node:url";
 import { runExtension } from "@get-halo/extension-sdk/server";
+${httpModule === undefined ? "" : 'import http from "./http.ts";'}
 import router from "./api.ts";
 import { relations, schema } from "./schema.ts";
-await runExtension({ router, schema, relations, publicDirectory: fileURLToPath(new URL("./public/", import.meta.url)) });`,
+await runExtension({ router, schema, relations, ${httpModule === undefined ? "" : "http,"} publicDirectory: fileURLToPath(new URL("./public/", import.meta.url)) });`,
       },
       outfile: join(output, "server.mjs"),
     }).catch(

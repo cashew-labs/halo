@@ -71,6 +71,10 @@ import {
 class WorkspaceHostDriver {
   readonly provider: LocalWorkspaceProvider;
   readonly requests: string[] = [];
+  readonly extensionRequests: {
+    path: string;
+    headers: http.IncomingHttpHeaders;
+  }[] = [];
   readonly exeAuthorizations: Array<string | undefined> = [];
   readonly scheduledProtocols: string[] = [];
   readonly eventProtocols: string[] = [];
@@ -80,6 +84,11 @@ class WorkspaceHostDriver {
     this.provider = new LocalWorkspaceProvider(ctx);
     this.server = http.createServer((request, response) => {
       this.requests.push(request.url ?? "");
+      if (request.url?.startsWith("/extensions/"))
+        this.extensionRequests.push({
+          path: request.url,
+          headers: { ...request.headers },
+        });
       const exeAuthorization = request.headers["x-exedev-authorization"];
       this.exeAuthorizations.push(
         Array.isArray(exeAuthorization)
@@ -6624,5 +6633,28 @@ marketingPlaneTest(
       expect(policy).not.toContain("google-analytics");
       expect(policy).not.toContain("cal.com");
     }
+  },
+);
+
+// Durable: an HTTP surface must retain public identity and strip forged owner credentials.
+publicAppTest(
+  "forwards extension HTTP routes through existing gateway authorization",
+  async ({ publicApps, workspaceHost }) => {
+    const response = await publicApps.request({
+      path: "/read-only/http/launch?utm_source=mail",
+      headers: {
+        "x-halo-viewer-role": "owner",
+        "x-halo-extension-token": "forged",
+      },
+    });
+    expect(response.status).toBe(200);
+    expect(JSON.parse(response.body).workspace).toBe("test-workspace");
+    const upstream = workspaceHost.extensionRequests.find(
+      (item) =>
+        item.path === "/extensions/read-only/http/launch?utm_source=mail",
+    );
+    expect(upstream).toBeDefined();
+    expect(upstream?.headers["x-halo-viewer-role"]).toBe("public");
+    expect(upstream?.headers["x-halo-extension-token"]).not.toBe("forged");
   },
 );
