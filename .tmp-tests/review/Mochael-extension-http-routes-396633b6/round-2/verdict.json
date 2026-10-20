@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change adds an optional public `http.ts` handler to the extension SDK and its build, and routes `/<app>/http/...` through the creator-host gateway. All three round-1 findings are fixed: F1, F2 and F3. The new temp build test covers the HTTP module being absent, being present, and a stat failure, and the coverage gate passes. The change is ready to merge.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "2b2aeb8fec10dfaac648f4f507c62cf4a961ca66",
+  "treeHash": "860795a76d5d78261e05ce992734b97042496f7e",
+  "codeTree": "9e279a3612339a35d786f1099a4e337ae8904180",
+  "coverage": {
+    "executable": 40,
+    "covered": 40,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-20T00:41:24.834Z"
+}
