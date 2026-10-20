@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "F4 is fixed: `ArtifactsSection` now receives `listing.pending` and counts the section as loaded only when that is false. A new temp E2E watches the sidebar while the page reloads and asserts that \"No artifacts yet\" never appears. I accept the won't-fix reply on F3, because the user explicitly asked for \"Paused\" to be removed from the sidebar and the status still shows on the automation page. All runs pass and every changed line is covered, so the change is ready.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 4,
+  "headSha": "a8b523f1ca6507bfcd28f038c1f6389c12f991be",
+  "treeHash": "369faa8b3eee24f2e5abc97fb753ac9ad3fd2fe3",
+  "codeTree": "1b59bdc24813b4ee54ad6360e84230001469849f",
+  "coverage": {
+    "executable": 230,
+    "covered": 230,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-20T22:29:48.910Z"
+}

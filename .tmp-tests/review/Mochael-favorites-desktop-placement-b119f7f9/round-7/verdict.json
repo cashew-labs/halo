@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "F5 is fixed. The durable `sidebar.e2e.test.ts` now runs the toolbar actions (Desktop, New chat session, New folder), the section collapse, the drag, and both ArrowUp and ArrowDown reorders in one page session with no reload. It asserts the resulting pane and section order. The source is unchanged since round 5 and still sound. All runs pass and every changed line is covered, so the change is ready.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 7,
+  "headSha": "1e288d4628a5ab5873c160d4a5d3cb19c8eb8b19",
+  "treeHash": "9c729ad0867195290a495fc10c3b62084a702755",
+  "codeTree": "5f89769a9d36e5d8f10b8d1cebfb5b9b95efd77b",
+  "coverage": {
+    "executable": 239,
+    "covered": 239,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-20T23:39:19.436Z"
+}

@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "This round adds a `useWorkspaceDataSynced` context in WorkspaceDataProvider. The Artifacts empty state and the automation and extension favorites now wait for the replica's first pull instead of treating local-only results as final. A favorited extension that is stopped but owns automations now shows as \"Not running\", the same as in Artifacts, instead of \"Unavailable\". The preferences provider now rebuilds its store when the user or workspace changes, and a new temp test covers that switch. The logic is sound, all runs pass, and every changed line is covered.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 5,
+  "headSha": "7b1cde2f2c0f288d9a51e00bf218bc3d6fee42a9",
+  "treeHash": "6fd5dcc9d19909e51521c060928ef66b12e0c4a7",
+  "codeTree": "2fbaa01c859fb73da74726908c967b705ba277f4",
+  "coverage": {
+    "executable": 239,
+    "covered": 239,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-20T23:04:06.483Z"
+}

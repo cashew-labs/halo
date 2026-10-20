@@ -1,0 +1,33 @@
+{
+  "status": "changes_requested",
+  "summary": "This round adds a durable `sidebar.e2e.test.ts` that covers Artifacts filtering, favorites of stopped extensions, and section collapse and reorder. It also trims the temp E2E. The source is unchanged since round 5 and still sound, and I accept the new durable file as a guard for the merged sidebar. The coverage gate now fails: the temp test \"quick actions and section controls work without reloading\" was deleted. The new durable reorder test drags and presses ArrowUp before `page.reload()`, so the reload discards that coverage. As a result, 26 changed lines are uncovered: the toolbar's New chat session, New folder, and Desktop handlers, and the section drag and keyboard handlers.",
+  "findings": [
+    {
+      "id": "F5",
+      "kind": "test",
+      "file": "apps/electron/e2e/sidebar.e2e.test.ts",
+      "line": 180,
+      "severity": "P1",
+      "body": "The coverage gate fails with 26 uncovered changed lines: Sidebar.tsx 77, 81, 109-110, and 124-125, and SidebarSection.tsx 85-90, 92-97, 100-101, 154-155, and 161-164. Two things caused this. First, the temp test that ran the toolbar actions and the section drag and keyboard reorder without a reload (\"quick actions and section controls work without reloading\") was removed. Second, the new durable \"collapses and reorders sidebar sections\" test does its drag and ArrowUp before `app.page.reload()`. Round 1 showed that this resets the renderer's V8 coverage, so those handlers never register as covered. Restore a no-reload test that clicks New chat session, New folder, and Desktop and performs the drag and arrow-key reorder. It can be temp, or the durable reorder test can assert the order before reloading in a separate test. Alternatively, move the reload persistence check into its own test so the interaction test ends without a reload."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "Sidebar.tsx:77-81, 109-110, 124-125 (New chat session, New folder, and Desktop toolbar handlers) and SidebarSection.tsx:85-101, 154-155, 161-164 (section dragOver, drop, dragStart, and ArrowUp/ArrowDown reorder), run in a page session that is not reloaded before coverage is collected",
+      "tier": "tmp",
+      "rationale": "These are uncovered changed lines. Earlier rounds covered them with a no-reload temp test, which was removed this round."
+    }
+  ],
+  "tierChanges": [],
+  "round": 6,
+  "headSha": "1e288d4628a5ab5873c160d4a5d3cb19c8eb8b19",
+  "treeHash": "074773b424cfd6b4582980ed408f4e64fdd47c4c",
+  "codeTree": "45f234786bfbb2bc399e7cef2481ad9579f8acc3",
+  "coverage": {
+    "executable": 239,
+    "covered": 213,
+    "exempt": 0,
+    "uncovered": 26
+  },
+  "createdAt": "2026-10-20T23:26:39.073Z"
+}
