@@ -30,6 +30,11 @@ import type { TraceCloud } from "../traces/TraceCloud.js";
 import { CredentialService } from "../credentials/CredentialService.js";
 import { IntegrationService } from "../integrations/IntegrationService.js";
 import { AppStore } from "../apps/AppStore.js";
+import {
+  AppDomains,
+  type AppDomainDns,
+  type AppDomainTls,
+} from "../apps/AppDomains.js";
 import { AppService } from "../apps/AppService.js";
 import { AppCredentials } from "../apps/AppCredentials.js";
 import { AppGateway } from "../apps/AppGateway.js";
@@ -88,6 +93,8 @@ export class ControlPlane {
     gmailApiOrigin?: string;
     googleRevokeUrl?: string;
     appReadyTimeoutMs?: number;
+    appDomainTls?: AppDomainTls;
+    appDomainDns?: AppDomainDns;
   }) {
     const { config, webRoot } = ctx;
     await using cleanup = new errore.AsyncDisposableStack();
@@ -210,7 +217,17 @@ export class ControlPlane {
     const initializedApps = await appStore.initialize();
     if (initializedApps instanceof Error) return initializedApps;
     const authorization = new WorkspaceAuthorization();
+    const domains = new AppDomains({
+      database: appStore.database,
+      apps: appStore,
+      publicOrigin,
+      tls: ctx.appDomainTls,
+      resolveTxt: ctx.appDomainDns,
+    });
+    const initializedDomains = await domains.initialize();
+    if (initializedDomains instanceof Error) return initializedDomains;
     const apps = new AppService({
+      domains,
       store: appStore,
       credentials: new AppCredentials({ secret: config.auth.secret }),
       workspace,
@@ -228,6 +245,7 @@ export class ControlPlane {
       apps,
       appStore,
       appGateway: new AppGateway({
+        domains,
         store: appStore,
         provider: ctx.workspaceProvider,
         authorization,

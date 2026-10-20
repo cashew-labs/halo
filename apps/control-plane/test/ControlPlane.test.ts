@@ -115,7 +115,19 @@ class WorkspaceHostDriver {
           .end('{"json":{"id":"released-workspace-run"}}');
         return;
       }
-      if (request.url === "/headers") {
+      if (request.url?.includes("/http/redirect")) {
+        response
+          .writeHead(302, {
+            location: "https://gethalo.dev/?utm_source=mail",
+            "set-cookie": "bad=1",
+          })
+          .end();
+        return;
+      }
+      if (
+        request.url === "/headers" ||
+        request.url?.includes("/http/headers")
+      ) {
         response
           .writeHead(200, { "content-type": "application/json" })
           .end(JSON.stringify(request.headers));
@@ -211,6 +223,11 @@ const getOpenAPISpec = async (
 type OAuthTokenDriver = { refreshError?: string; refreshes: number };
 
 const controlPlaneTest = test.extend<{
+  domainHost: {
+    txt: Map<string, string[][]>;
+    ready: boolean;
+    removeFailed: boolean;
+  };
   traceCloud: TraceCloudDriver;
   inferenceApi: InferenceDriver;
   appDataDir: string;
@@ -262,6 +279,9 @@ const controlPlaneTest = test.extend<{
     };
   };
 }>({
+  // oxlint-disable-next-line no-empty-pattern -- Native fixture signature.
+  domainHost: async ({}, use) =>
+    await use({ txt: new Map(), ready: false, removeFailed: false }),
   allowLocalIntegrationUrls: true,
   agent: async ({ plane, authenticatedRpc, appDataDir }, use) => {
     await authenticatedRpc.workspace.ensure();
@@ -895,10 +915,31 @@ const controlPlaneTest = test.extend<{
       inferenceApi,
       integrationApi,
       allowLocalIntegrationUrls,
+      domainHost,
     },
     use,
   ) => {
     const plane = await ControlPlane.start({
+      appDomainDns: async (hostname) => domainHost.txt.get(hostname) ?? [],
+      appDomainTls: {
+        ensure: async ({ hostname }) => ({
+          ready: domainHost.ready,
+          records: [
+            {
+              name: `_acme-challenge.${hostname}`,
+              type: "CNAME",
+              value: "test.authorize.certificatemanager.goog.",
+            },
+          ],
+        }),
+        remove: async () =>
+          domainHost.removeFailed
+            ? new Error("certificate unavailable")
+            : undefined,
+        routingRecords: (hostname) => [
+          { name: hostname, type: "A", value: "192.0.2.1" },
+        ],
+      },
       build: { version: "test-release", revision: "test-revision" },
       config: {
         deployment: "local",
@@ -5767,7 +5808,10 @@ const publicAppTest = controlPlaneTest.extend<{
 }>({
   workspaceProvider: async ({ workspaceHost }, use) =>
     await use(workspaceHost.provider),
-  publicApps: async ({ plane, appDataDir }, use) => {
+  publicApps: async ({ plane, appDataDir, authenticatedRpc }, use) => {
+    const owner = await authenticatedRpc.auth.session();
+    if (owner.status !== "signed-in")
+      throw new Error("Owner must be signed in");
     const db = await DatabaseService.start({
       type: "sqlite",
       path: join(appDataDir, "control-plane.db"),
@@ -5780,14 +5824,14 @@ const publicAppTest = controlPlaneTest.extend<{
     });
     const store = new AppStore({ db });
     const handle = await store.ensureHandle({
-      userId: "public-app-owner",
+      userId: owner.session.user.id,
       email: "creator@example.com",
     });
     if (handle instanceof Error) throw handle;
     const records: { appId: string }[] = [];
     for (const syncAccess of ["read-only", "shared", "actions"] as const) {
       const app = await store.create({
-        ownerUserId: "public-app-owner",
+        ownerUserId: owner.session.user.id,
         extensionId: syncAccess,
         slug: syncAccess,
         displayName: '<Reading & "list">',
@@ -6559,5 +6603,145 @@ publicAppTest(
     });
     expect(response.status).toBe(200);
     expect(JSON.parse(response.body).workspace).toBe("test-workspace");
+  },
+);
+
+// Durable: domain control must be proven before a hostname can expose an app's public HTTP surface.
+publicAppTest(
+  "verifies DNS, waits for HTTPS, and isolates a custom hostname from owner APIs",
+  async ({ publicApps, authenticatedRpc, rpc, domainHost }) => {
+    const input = { appId: publicApps.appId, hostname: "links.example.org" };
+    await expect(rpc.apps.domains.add(input)).rejects.toMatchObject({
+      code: "FORBIDDEN",
+    });
+    const added = await authenticatedRpc.apps.domains.add(input);
+    expect(added.status).toBe("pending");
+    expect(await authenticatedRpc.apps.domains.add(input)).toEqual(added);
+    expect(
+      (
+        await publicApps.request({
+          path: "/http/headers",
+          headers: { host: input.hostname },
+        })
+      ).status,
+    ).toBe(404);
+    await expect(
+      authenticatedRpc.apps.domains.verify(input),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    const proof = added.records.find((record) => record.type === "TXT")!;
+    domainHost.txt.set(proof.name, [
+      [proof.value.slice(0, 12), proof.value.slice(12)],
+    ]);
+    const provisioning = await authenticatedRpc.apps.domains.verify(input);
+    expect(provisioning.status).toBe("provisioning");
+    expect(
+      (await authenticatedRpc.apps.domains.list({ appId: input.appId }))[0]
+        ?.records,
+    ).toContainEqual(
+      provisioning.records.find((record) => record.type === "CNAME"),
+    );
+    domainHost.ready = true;
+    expect((await authenticatedRpc.apps.domains.verify(input)).status).toBe(
+      "active",
+    );
+    const response = await publicApps.request({
+      path: "/headers?utm_source=mail",
+      headers: {
+        host: input.hostname,
+        authorization: "Bearer forged",
+        cookie: "owner=secret",
+        "x-halo-viewer-role": "owner",
+        "x-halo-extension-token": "forged",
+      },
+    });
+    expect(response.status).toBe(200);
+    const headers = JSON.parse(response.body);
+    expect(headers["x-halo-viewer-role"]).toBe("public");
+    expect(headers.cookie).toBeUndefined();
+    expect(headers["x-halo-viewer-token"]).toBeUndefined();
+    expect(
+      (
+        await publicApps.request({
+          path: "/api/private",
+          headers: { host: input.hostname },
+          method: "POST",
+        })
+      ).status,
+    ).toBe(405);
+    const redirect = await publicApps.request({
+      path: "/redirect",
+      headers: { host: input.hostname },
+    });
+    expect(redirect.status).toBe(302);
+    expect(redirect.headers.location).toBe(
+      "https://gethalo.dev/?utm_source=mail",
+    );
+    expect(redirect.headers["set-cookie"]).toBeUndefined();
+    expect(
+      (
+        await publicApps.request({
+          path: "/../launch",
+          headers: { host: input.hostname },
+        })
+      ).status,
+    ).toBe(404);
+    domainHost.removeFailed = true;
+    await expect(
+      authenticatedRpc.apps.domains.remove(input),
+    ).rejects.toMatchObject({ code: "INTERNAL_SERVER_ERROR" });
+    expect(
+      (
+        await publicApps.request({
+          path: "/headers",
+          headers: { host: input.hostname },
+        })
+      ).status,
+    ).toBe(404);
+    domainHost.removeFailed = false;
+    await authenticatedRpc.apps.domains.remove(input);
+    expect(
+      await authenticatedRpc.apps.domains.list({ appId: input.appId }),
+    ).toEqual([]);
+  },
+);
+
+publicAppTest(
+  "rejects reserved hostnames and foreign app ownership, and revokes removed DNS proof",
+  async ({ publicApps, authenticatedRpc, domainHost }) => {
+    for (const hostname of [
+      "localhost",
+      "127.0.0.1",
+      "*.example.org",
+      "https://example.org",
+      "www.127.0.0.1",
+      "bad.example.org:443",
+    ])
+      await expect(
+        authenticatedRpc.apps.domains.add({
+          appId: publicApps.appId,
+          hostname,
+        }),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(
+      authenticatedRpc.apps.domains.add({
+        appId: crypto.randomUUID(),
+        hostname: "foreign.example.org",
+      }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    const input = { appId: publicApps.appId, hostname: "revoke.example.org" };
+    const domain = await authenticatedRpc.apps.domains.add(input);
+    const proof = domain.records.find((record) => record.type === "TXT")!;
+    domainHost.txt.set(proof.name, [[proof.value]]);
+    domainHost.ready = true;
+    await authenticatedRpc.apps.domains.verify(input);
+    domainHost.txt.clear();
+    await expect(
+      authenticatedRpc.apps.domains.verify(input),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(
+      (await authenticatedRpc.apps.domains.list({ appId: input.appId }))[0]
+        ?.status,
+    ).toBe("pending");
+    await authenticatedRpc.apps.domains.remove(input);
   },
 );

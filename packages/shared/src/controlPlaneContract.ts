@@ -1,5 +1,9 @@
 import * as errore from "errore";
-import { checkServerCompatibility, type ServerInfo } from "@get-halo/client";
+import {
+  checkServerCompatibility,
+  type ServerInfo,
+  type AppDomain,
+} from "@get-halo/client";
 import { error, oc, type, type RouterContractClient } from "@orpc/contract";
 import { Type, type Static, type TSchema } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
@@ -378,6 +382,57 @@ export const controlPlaneContract = publicProcedure.router({
   },
   // Owner operations. Visitors reach apps only through the creator host.
   apps: {
+    domains: {
+      add: authenticatedProcedure
+        .input(
+          validated(
+            Type.Object(
+              {
+                appId: appIdSchema,
+                hostname: Type.String({ minLength: 1, maxLength: 253 }),
+              },
+              { additionalProperties: false },
+            ),
+          ),
+        )
+        .output(type<AppDomain>()),
+      list: authenticatedProcedure
+        .input(
+          validated(
+            Type.Object(
+              { appId: appIdSchema },
+              { additionalProperties: false },
+            ),
+          ),
+        )
+        .output(type<AppDomain[]>()),
+      verify: authenticatedProcedure
+        .input(
+          validated(
+            Type.Object(
+              {
+                appId: appIdSchema,
+                hostname: Type.String({ minLength: 1, maxLength: 253 }),
+              },
+              { additionalProperties: false },
+            ),
+          ),
+        )
+        .output(type<AppDomain>()),
+      remove: authenticatedProcedure
+        .input(
+          validated(
+            Type.Object(
+              {
+                appId: appIdSchema,
+                hostname: Type.String({ minLength: 1, maxLength: 253 }),
+              },
+              { additionalProperties: false },
+            ),
+          ),
+        )
+        .output(type<void>()),
+    },
     publisher:
       authenticatedProcedure.output(type<{ handle: string; origin: string }>()),
     checkPublisherHandle: authenticatedProcedure

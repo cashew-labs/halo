@@ -200,6 +200,16 @@ export function serveControlPlaneHttp(ctx: {
 
   server.removeListener("request", respondStarting);
   server.on("request", async (request, response) => {
+    const requestHost = (request.headers.host ?? "").toLowerCase();
+    const mainHost = new URL(publicOrigin).host;
+    if (requestHost !== mainHost && requestHost !== `www.${mainHost}`) {
+      const custom = await ctx.appGateway.serveCustom({ request, response });
+      if (custom) return;
+      if (!isCreatorHost({ publicOrigin, host: requestHost })) {
+        response.writeHead(404, { "cache-control": "no-store" }).end();
+        return;
+      }
+    }
     // Creator hosts serve apps only; no Halo route is reachable from them.
     const handle = creatorHandle({ publicOrigin, host: request.headers.host });
     // A subdomain that cannot be a handle is not Halo either.
@@ -250,7 +260,9 @@ export function serveControlPlaneHttp(ctx: {
   server.on("upgrade", async (request, socket, head) => {
     upgradeSockets.add(socket);
     socket.once("close", () => upgradeSockets.delete(socket));
-    if (isCreatorHost({ publicOrigin, host: request.headers.host })) {
+    if (
+      (request.headers.host ?? "").toLowerCase() !== new URL(publicOrigin).host
+    ) {
       respondToUpgrade(socket, 404);
       return;
     }

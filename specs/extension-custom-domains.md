@@ -31,7 +31,7 @@ sequenceDiagram
   Extension-->>Halo: HTTP 302 with Location
 ```
 
-## Phase 1: Extension HTTP responses
+## ✅ Phase 1: Extension HTTP responses
 
 **Today:** [[packages/extension-sdk/src/server.ts]] serves only API, sync, and view routes.
 **Proposed:** Optional `http.ts` supplies a standard Request/Response handler at
@@ -39,7 +39,7 @@ sequenceDiagram
 read-only storage queries and no caller identity or Halo tools. Internal proxy
 authentication remains required, and response cookies are stripped.
 
-## Phase 2: Verified bindings and routing
+## ✅ Phase 2: Verified bindings and routing
 
 **Today:** [[apps/control-plane/src/apps/AppGateway.ts]] routes creator app paths.
 **Proposed:** Owner APIs create a unique TXT challenge for an app/hostname.

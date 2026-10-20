@@ -162,3 +162,5 @@ export {
   type AutomationRunStatus,
   type AutomationRunTrigger,
 } from "./automations.js";
+
+export type { AppDomain, AppDomainDnsRecord } from "./contract.js";

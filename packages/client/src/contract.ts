@@ -90,6 +90,17 @@ export type AppAccessList = {
   members: string[];
 };
 /** What the owner sees and manages; never contains credentials. */
+export type AppDomainDnsRecord = {
+  name: string;
+  type: "A" | "CNAME" | "TXT";
+  value: string;
+};
+export type AppDomain = {
+  appId: string;
+  hostname: string;
+  status: "pending" | "provisioning" | "active";
+  records: AppDomainDnsRecord[];
+};
 export type AppSummary = AppAccessList & {
   appId: string;
   extensionId: string;
@@ -242,6 +253,18 @@ export const contract = publicProcedure.router({
   // Published apps, forwarded to the control plane with this workspace's owner
   // credential. Only the owner's workspace has them; app VMs do not.
   apps: {
+    domains: {
+      add: oc
+        .input(type<{ appId: string; hostname: string }>())
+        .output(type<AppDomain>()),
+      list: oc.input(type<{ appId: string }>()).output(type<AppDomain[]>()),
+      verify: oc
+        .input(type<{ appId: string; hostname: string }>())
+        .output(type<AppDomain>()),
+      remove: oc
+        .input(type<{ appId: string; hostname: string }>())
+        .output(type<void>()),
+    },
     publisher: oc.output(type<{ handle: string; origin: string }>()),
     checkPublisherHandle: oc
       .input(type<{ handle: string }>())
