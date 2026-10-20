@@ -25,27 +25,20 @@ The regular control-plane service resolves `https://go.gethalo.dev/:slug` to
 `https://gethalo.dev/` with configured campaign tags. This does not depend on
 extension HTTP routes or the custom-domain stack (#543–545).
 
-Set `halo-control-plane:marketingLinks` in the selected stack to a map of slugs
-to campaign tags. For example (illustrative, not an active campaign):
+Campaign records live in the existing control-plane database. Configure
+`halo-control-plane:marketingAdminUserIds` as an array of existing Halo account IDs
+(or `HALO_MARKETING_ADMIN_USER_IDS` as a JSON array for a direct server deployment).
+The list defaults empty, denying management access. This is separate from the
+sign-in allowlist and extension ownership. Only deployment operators can grant
+admin access; campaign changes then use the authenticated API without a rollout.
+See the [admin API guide](../apps/control-plane/README.marketing-links.md).
 
-```yaml
-halo-control-plane:marketingLinks:
-  linkedin-launch:
-    utm_source: linkedin
-    utm_medium: social
-    utm_campaign: launch
-```
-
-Pulumi passes this map as `HALO_MARKETING_LINKS` into the normal Cloud Run
-container. The application validates it at startup; malformed entries prevent
-startup. See [the marketing guide](../apps/web-app/README.md#custom-shortener-at-gogethalodev)
-for the schema and redirect behavior. The production map is initially empty:
-no existing extension campaign data was available to migrate. Add the actual
-mappings through a reviewed configuration change before publishing links.
-
+Remove the former `marketingLinks`/`HALO_MARKETING_LINKS` campaign map. Production's
+map was empty, so there is no data import. Staging and production databases and
+administrator lists are independent.
 The existing wildcard certificate covers `go.<controlPlaneDomain>` and the
 load balancer's default backend preserves its host and path. There is no
-additional certificate, extension binding, database, or workspace to provision.
+additional certificate, extension binding, separate database, or workspace to provision.
 The stack exports `marketingUrl` and `marketingDnsRecord`. At Vercel DNS, point
 `go.gethalo.dev` to production's exported A-record address, or verify that the
 existing wildcard A record resolves it there. An explicit old CNAME/A record
@@ -53,12 +46,13 @@ for `go` overrides a wildcard and must be replaced. Keep the wildcard
 certificate's DNS authorization records from `creatorDnsRecords.certificate`
 and verify that certificate is active before directing visitors to the host.
 
-Ship the server implementation before applying campaign configuration. Preview
-the selected stack, deploy a control-plane image containing the handler, then
-verify a configured URL returns 302 with the expected destination and that an
-unknown URL returns 404. GET and HEAD should agree. Staging uses its own map
-and `go.staging.gethalo.dev`, directing visits to `staging.gethalo.dev`.
-No DNS records or running services are changed by this PR alone.
+Deploy the complete server stack before managing campaigns. Preview the selected
+stack, deploy a control-plane image containing the database-backed handler,
+configure the administrator account IDs, then create a campaign through the admin
+API. Verify its URL returns 302 with the saved tags, unknown/disabled URLs return
+404 and GET/HEAD agree. Staging uses `go.staging.gethalo.dev`, directing visits to
+`staging.gethalo.dev`. Live ingress/TLS smoke checks remain deployment work; this
+code does not modify DNS or running services.
 
 ## Staging and production stacks
 

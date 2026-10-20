@@ -1,7 +1,3 @@
-import {
-  controlPlaneConfigSchema,
-  type ControlPlaneConfig,
-} from "@get-halo/config/controlPlane";
 import crypto from "node:crypto";
 import { OAuth2Client } from "google-auth-library";
 import { gzipSync } from "node:zlib";
@@ -223,7 +219,6 @@ const controlPlaneTest = test.extend<{
   plane: ControlPlane;
   rpc: ControlPlaneClient;
   webRoot: string;
-  marketingLinks: ControlPlaneConfig["marketingLinks"];
   marketingAdminUserIds: string[];
   googleAnalyticsMeasurementId: string | undefined;
   environment: "production" | "staging" | "development" | undefined;
@@ -885,7 +880,6 @@ const controlPlaneTest = test.extend<{
     await use(appDataDir);
     await fs.rm(appDataDir, { recursive: true, force: true });
   },
-  marketingLinks: undefined,
   marketingAdminUserIds: [],
   googleAnalyticsMeasurementId: undefined,
   environment: undefined,
@@ -907,7 +901,6 @@ const controlPlaneTest = test.extend<{
       inferenceApi,
       integrationApi,
       allowLocalIntegrationUrls,
-      marketingLinks,
       marketingAdminUserIds,
       googleAnalyticsMeasurementId,
       environment,
@@ -921,7 +914,6 @@ const controlPlaneTest = test.extend<{
         workspace: { deployment: "local" },
         appDataDir,
         port: 0,
-        marketingLinks,
         marketingAdminUserIds,
         googleAnalyticsMeasurementId,
         environment,
@@ -6692,25 +6684,34 @@ marketingPlaneTest(
 
 // Durable: protects public attribution and isolation from authenticated Halo routes.
 const marketingLinkTest = controlPlaneTest.extend({
-  marketingLinks: {
-    launch: {
+  marketingAdminUserIds: ["marketing-admin"],
+});
+
+marketingLinkTest(
+  "marketing short links resolve without a workspace or sign-in",
+  async ({ plane, authenticatedRpc, workspaceHost, appDataDir }) => {
+    const headers = await createAuthenticatedHeaders(
+      appDataDir,
+      plane.origin,
+      "admin@example.com",
+      "marketing-admin",
+    );
+    headers.set("origin", plane.origin);
+    const admin = createControlPlaneRpcClient(plane.origin, headers);
+    const tags = {
       utm_source: "linkedin",
       utm_medium: "social",
       utm_campaign: "Halo & friends",
       utm_content: "first post",
       utm_term: "desktop",
-    },
-  },
-});
-
-marketingLinkTest(
-  "marketing short links resolve without a workspace or sign-in",
-  async ({ plane, authenticatedRpc, workspaceHost }) => {
+    };
+    await admin.marketing.create({ slug: "launch", tags });
     const port = new URL(plane.origin).port;
     const request = async (
       path: string,
       method = "GET",
       host = `go.localhost:${port}`,
+      upgrade = false,
     ) =>
       await new Promise<{
         status: number;
@@ -6718,7 +6719,15 @@ marketingLinkTest(
         body: string;
       }>((complete, reject) => {
         const outgoing = http.request(
-          { hostname: "127.0.0.1", port, path, method, headers: { host } },
+          {
+            hostname: "127.0.0.1",
+            port,
+            path,
+            method,
+            headers: upgrade
+              ? { host, connection: "upgrade", upgrade: "websocket" }
+              : { host },
+          },
           (response) => {
             const chunks: Buffer[] = [];
             response.on("data", (chunk: Buffer) => chunks.push(chunk));
@@ -6760,6 +6769,20 @@ marketingLinkTest(
     expect(
       (await request("/launch", "GET", `GO.LOCALHOST:${port}`)).status,
     ).toBe(302);
+    // Public marketing hostname isolation does not depend on a Host port spelling.
+    for (const host of [
+      "go.localhost:443",
+      "go.localhost:12345",
+      "go.localhost",
+    ]) {
+      expect((await request("/launch", "GET", host)).status).toBe(302);
+      expect((await request("/rpc/marketing/list", "GET", host)).status).toBe(
+        404,
+      );
+      expect(
+        (await request("/workspace/health", "GET", host, true)).status,
+      ).toBe(404);
+    }
     for (const path of [
       "/",
       "/missing",
@@ -6789,13 +6812,30 @@ marketingLinkTest(
     await expect(
       authenticatedRpc.apps.renamePublisher({ handle: "go" }),
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await admin.marketing.update({
+      slug: "launch",
+      tags: { ...tags, utm_campaign: "updated" },
+      enabled: true,
+    });
+    expect(
+      new URL((await request("/launch")).headers.location!).searchParams.get(
+        "utm_campaign",
+      ),
+    ).toBe("updated");
+    await admin.marketing.update({ slug: "launch", tags, enabled: false });
+    expect((await request("/launch")).status).toBe(404);
+    expect((await request("/launch", "HEAD")).status).toBe(404);
+    await admin.marketing.update({ slug: "launch", tags, enabled: true });
+    expect((await request("/launch")).status).toBe(302);
+    await admin.marketing.remove({ slug: "launch" });
+    expect((await request("/launch")).status).toBe(404);
     expect(workspaceHost.requests).toEqual([]);
   },
 );
 
 controlPlaneTest(
-  "marketing short links are absent by default and config rejects invalid maps",
-  async ({ plane, appDataDir }) => {
+  "marketing short links are absent until an administrator creates them",
+  async ({ plane }) => {
     const port = new URL(plane.origin).port;
     const status = await new Promise<number>((complete, reject) => {
       const outgoing = http.request(
@@ -6814,33 +6854,6 @@ controlPlaneTest(
       outgoing.end();
     });
     expect(status).toBe(404);
-    const config = {
-      deployment: "local",
-      appDataDir,
-      port: 0,
-      auth: testAuth,
-      workspace: { deployment: "local" },
-    };
-    const tags = {
-      utm_source: "source",
-      utm_medium: "social",
-      utm_campaign: "launch",
-    };
-    expect(
-      Value.Check(controlPlaneConfigSchema, {
-        ...config,
-        marketingLinks: { launch: tags },
-      }),
-    ).toBe(true);
-    for (const marketingLinks of [
-      { "../launch": tags },
-      { launch: { ...tags, url: "https://evil.example" } },
-      { launch: { utm_source: "source" } },
-      { launch: { ...tags, utm_medium: "" } },
-    ])
-      expect(
-        Value.Check(controlPlaneConfigSchema, { ...config, marketingLinks }),
-      ).toBe(false);
   },
 );
 

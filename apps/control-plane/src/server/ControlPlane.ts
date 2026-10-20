@@ -252,7 +252,6 @@ export class ControlPlane {
       build: ctx.build,
       googleAnalyticsMeasurementId: config.googleAnalyticsMeasurementId,
       environment: config.environment,
-      marketingLinks: config.marketingLinks,
       marketing,
       inference: ctx.inference,
       traces:

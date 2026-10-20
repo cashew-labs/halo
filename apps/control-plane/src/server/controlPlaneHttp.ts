@@ -1,5 +1,4 @@
 import type { MarketingLinks } from "../marketing/MarketingLinks.js";
-import type { ControlPlaneConfig } from "@get-halo/config/controlPlane";
 import { serveMarketingLink } from "../marketing/serveMarketingLink.js";
 import type { GmailService } from "../automations/GmailService.js";
 import type { GmailPushReceiver } from "../automations/gmailHttp.js";
@@ -182,15 +181,15 @@ export function serveControlPlaneHttp(ctx: {
   gmailPush: GmailPushReceiver;
   build?: { version: string; revision: string };
   webRoot: string;
-  marketingLinks?: ControlPlaneConfig["marketingLinks"];
   googleAnalyticsMeasurementId?: string;
   environment?: "production" | "staging" | "development";
   traces?: TraceIngestion;
   inference?: WorkspaceInference;
 }) {
   const { server, auth, publicOrigin, workspace, webRoot, traces } = ctx;
-  const marketingHost = new URL(creatorOrigin({ publicOrigin, handle: "go" }))
-    .host;
+  const marketingHostname = new URL(
+    creatorOrigin({ publicOrigin, handle: "go" }),
+  ).hostname;
   const upgradeSockets = new Set<Duplex>();
   const rpc = new RPCHandler<ControlPlaneContext>(controlPlaneRpcRouter, {
     clientInterceptors: [
@@ -224,12 +223,14 @@ export function serveControlPlaneHttp(ctx: {
   server.removeListener("request", respondStarting);
   server.on("request", async (request, response) => {
     // The reserved go host belongs to Halo, before creator-app dispatch.
-    if (request.headers.host?.toLowerCase() === marketingHost) {
-      serveMarketingLink({
+    if (
+      request.headers.host?.toLowerCase().split(":")[0] === marketingHostname
+    ) {
+      await serveMarketingLink({
         request,
         response,
         publicOrigin,
-        links: ctx.marketingLinks,
+        links: ctx.marketing,
       });
       return;
     }
@@ -286,7 +287,10 @@ export function serveControlPlaneHttp(ctx: {
   server.on("upgrade", async (request, socket, head) => {
     upgradeSockets.add(socket);
     socket.once("close", () => upgradeSockets.delete(socket));
-    if (isCreatorHost({ publicOrigin, host: request.headers.host })) {
+    if (
+      request.headers.host?.toLowerCase().split(":")[0] === marketingHostname ||
+      isCreatorHost({ publicOrigin, host: request.headers.host })
+    ) {
       respondToUpgrade(socket, 404);
       return;
     }

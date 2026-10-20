@@ -81,11 +81,16 @@ Deleting allows reuse of that slug; disabling preserves it and is reversible.
 
 ## Rollout
 
-This first layer adds storage and management. The next layer replaces the public
-resolver's deployment map with this table. Do not distribute newly created links
-until that layer is deployed. Production's configuration map is empty, so there
-are no existing configured campaign records to migrate.
+Deploy the complete server stack before creating campaigns. Every public lookup
+reads the enabled campaign directly from the database, so creation, edits,
+disabling and deletion take effect without restarting the service. PostgreSQL
+replicas share the same table; there is no process-local campaign cache. Local
+development uses the existing control-plane SQLite app database file.
 
+Production's former configuration map was empty, so no campaign import is
+required. Remove `HALO_MARKETING_LINKS` and `halo-control-plane:marketingLinks`;
+these are no longer a source of campaign data. Keep only the administrator list
+in deployment configuration.
 Use the existing #554 marketing ingress and wildcard certificate setup. This
 feature does not require the extension custom-domain or dynamic TLS system.
 Verify hostname routing and certificate activation on staging before sharing

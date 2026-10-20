@@ -48,7 +48,7 @@ The public resolver remains configured until phase 2 connects the database.
 +        └── DatabaseService.appDatabase # shared SQL queue and connection
 ```
 
-## Phase 2: Resolve persistent campaigns
+## ✅ Phase 2: Resolve persistent campaigns
 
 **Today:** The go hostname reads a static map of slug-to-UTM tags.
 
@@ -58,6 +58,20 @@ path validation, ignore visitor target/tag overrides and prevent private routes
 or WebSockets on the marketing host. Remove campaign-map configuration from the
 server and Pulumi; only the administrator list remains deployment configuration.
 No live links exist in the supplied production map, so no data import is needed.
+
+```callstack
+ Visitor
+ └── controlPlaneHttp # reserved go host, no private Halo routes
++    └── serveMarketingLink [[campaign-routing:new:23-28]]
++        ├── MarketingLinks.resolve # SQL enabled campaign lookup
++        └── 302 to homepage with saved tags
+```
+
+Validation: all 84 control-plane tests and all 57 affected checks pass in layer 1.
+SQLite reopen tests preserve campaign data and disabled state; a real PostgreSQL
+replica test verifies shared writes, atomic duplicate rejection and immediate
+visibility. Phase 2 also exercises live HTTP behavior when the database is closed.
+No deployment or DNS changes are performed; staging ingress/TLS remains to verify.
 
 ## References
 
@@ -217,4 +231,35 @@ index 00000000..6a628d37
 +    enabled: row.enabled === 1,
 +  };
 +}
+```
+
+## Phase 2 source patch
+
+```source-diff:campaign-routing:apps/control-plane/src/marketing/serveMarketingLink.ts
+diff --git a/apps/control-plane/src/marketing/serveMarketingLink.ts b/apps/control-plane/src/marketing/serveMarketingLink.ts
+index f363cc6b..7053a351 100644
+--- a/apps/control-plane/src/marketing/serveMarketingLink.ts
++++ b/apps/control-plane/src/marketing/serveMarketingLink.ts
+@@ -1 +1 @@
+-import type { ControlPlaneConfig } from "@get-halo/config/controlPlane";
++import type { MarketingLinks } from "./MarketingLinks.js";
+@@ -4,2 +4,2 @@ import type { IncomingMessage, ServerResponse } from "node:http";
+-/** Resolve only configured slugs to Halo's homepage; no visitor-supplied target. */
+-export function serveMarketingLink(ctx: {
++/** Resolve only enabled saved slugs to Halo's homepage; no visitor-supplied target. */
++export async function serveMarketingLink(ctx: {
+@@ -9 +9 @@ export function serveMarketingLink(ctx: {
+-  links: ControlPlaneConfig["marketingLinks"];
++  links: Pick<MarketingLinks, "resolve">;
+@@ -23,4 +23,6 @@ export function serveMarketingLink(ctx: {
+-  const tags =
+-    slug !== undefined && links !== undefined && Object.hasOwn(links, slug)
+-      ? links[slug]
+-      : undefined;
++  const tags = slug === undefined ? undefined : await links.resolve(slug);
++  if (tags instanceof Error) {
++    console.error(tags);
++    response.writeHead(500).end();
++    return;
++  }
 ```

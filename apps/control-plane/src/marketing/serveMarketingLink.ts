@@ -1,12 +1,12 @@
-import type { ControlPlaneConfig } from "@get-halo/config/controlPlane";
+import type { MarketingLinks } from "./MarketingLinks.js";
 import type { IncomingMessage, ServerResponse } from "node:http";
 
-/** Resolve only configured slugs to Halo's homepage; no visitor-supplied target. */
-export function serveMarketingLink(ctx: {
+/** Resolve only enabled saved slugs to Halo's homepage; no visitor-supplied target. */
+export async function serveMarketingLink(ctx: {
   request: IncomingMessage;
   response: ServerResponse;
   publicOrigin: string;
-  links: ControlPlaneConfig["marketingLinks"];
+  links: Pick<MarketingLinks, "resolve">;
 }) {
   const { request, response, publicOrigin, links } = ctx;
   response.setHeader("cache-control", "no-store");
@@ -20,10 +20,12 @@ export function serveMarketingLink(ctx: {
     request.url ?? "/",
   );
   const slug = match?.[1];
-  const tags =
-    slug !== undefined && links !== undefined && Object.hasOwn(links, slug)
-      ? links[slug]
-      : undefined;
+  const tags = slug === undefined ? undefined : await links.resolve(slug);
+  if (tags instanceof Error) {
+    console.error(tags);
+    response.writeHead(500).end();
+    return;
+  }
   if (tags === undefined) {
     response.writeHead(404).end();
     return;

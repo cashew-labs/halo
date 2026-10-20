@@ -66,31 +66,22 @@ It returns a 302 to the Halo homepage with the link's configured campaign tags.
 No hosted extension, workspace, or signed-in desktop session participates.
 `go` is reserved and cannot be claimed as a creator handle.
 
-Links are deployment configuration, managed by operators through review, not a
-public API. JSON server configurations accept `marketingLinks`; environment-based
-hosts accept the same object in `HALO_MARKETING_LINKS`:
+Campaigns are persistent control-plane database records. Authorized Halo admins
+and their workspace agents manage them through `marketing.create/list/update/remove`
+on the primary Halo RPC origin. Link changes require no deployment. No campaign
+is enabled by default; create one before distributing its URL. See the
+[admin API guide](../control-plane/README.marketing-links.md) for authorization,
+agent examples, slug rules and UTM validation.
 
-```json
-{
-  "linkedin-launch": {
-    "utm_source": "linkedin",
-    "utm_medium": "social",
-    "utm_campaign": "launch"
-  }
-}
-```
-
-This example resolves `https://go.gethalo.dev/linkedin-launch` to
+For example, an administrator can create `linkedin-launch` with `utm_source=linkedin`,
+`utm_medium=social` and `utm_campaign=launch`. It resolves to
 `https://gethalo.dev/?utm_source=linkedin&utm_medium=social&utm_campaign=launch`.
-No campaign mappings are enabled by default. Add the actual campaign map before
-sharing links. Required tags are `utm_source`, `utm_medium`, and `utm_campaign`;
-`utm_content` and `utm_term` are optional. Slugs use 1–63 lowercase letters,
-numbers, or hyphens, starting with a letter or number. Invalid configuration
-stops startup. Updating or deleting a link requires a configuration rollout.
-
-GET and HEAD resolve configured slugs, with an optional trailing slash. Unknown
+Every campaign points to the homepage. Required tags are `utm_source`, `utm_medium`
+and `utm_campaign`; content and term are optional. Disabled/deleted campaigns
+stop resolving immediately.
+GET and HEAD resolve enabled slugs, with an optional trailing slash. Unknown
 paths return 404; other methods return 405. Responses are not cached. Visitor
-query strings never replace the configured tags or destination. No authenticated
+query strings never replace the saved tags or destination. No authenticated
 Halo routes or extension sync/API surfaces are served on this host.
 
 The existing landing page forwards these five tags into Cal.com and Buttondown

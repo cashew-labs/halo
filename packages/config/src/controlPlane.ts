@@ -56,26 +56,11 @@ const gmailSchema = Type.Object({
   serviceAccount: Type.String({ minLength: 1 }),
 });
 
-// Deployment-owned campaign tags. Anonymous visitors can only resolve links.
+// Deployment-owned administrator accounts. Campaign records live in the database.
 const marketingAdminUserIdsSchema = Type.Array(
   Type.String({ minLength: 1, maxLength: 256 }),
   { uniqueItems: true },
 );
-const marketingLinksSchema = Type.Record(
-  Type.String({ pattern: "^[a-z0-9][a-z0-9-]{0,62}$" }),
-  Type.Object(
-    {
-      utm_source: Type.String({ minLength: 1 }),
-      utm_medium: Type.String({ minLength: 1 }),
-      utm_campaign: Type.String({ minLength: 1 }),
-      utm_content: Type.Optional(Type.String({ minLength: 1 })),
-      utm_term: Type.Optional(Type.String({ minLength: 1 })),
-    },
-    { additionalProperties: false },
-  ),
-  { additionalProperties: false },
-);
-
 export const controlPlaneConfigSchema = Type.Union([
   Type.Object({
     deployment: Type.Literal("local"),
@@ -87,7 +72,6 @@ export const controlPlaneConfigSchema = Type.Union([
       Type.String({ pattern: "^G-[A-Z0-9]+$" }),
     ),
     environment: Type.Optional(environmentSchema),
-    marketingLinks: Type.Optional(marketingLinksSchema),
     marketingAdminUserIds: Type.Optional(marketingAdminUserIdsSchema),
     workspace: Type.Union([localWorkspaceSchema, exeWorkspaceSchema]),
   }),
@@ -104,7 +88,6 @@ export const controlPlaneConfigSchema = Type.Union([
       Type.String({ pattern: "^G-[A-Z0-9]+$" }),
     ),
     environment: Type.Optional(environmentSchema),
-    marketingLinks: Type.Optional(marketingLinksSchema),
     marketingAdminUserIds: Type.Optional(marketingAdminUserIdsSchema),
     workspace: Type.Union([gcpWorkspaceSchema, exeWorkspaceSchema]),
   }),
@@ -232,10 +215,7 @@ async function readDevelopmentConfig(): Promise<ControlPlaneConfig | Error> {
   const configuredDataDir = process.env.HALO_USER_DATA;
   const marketingAdminUserIds = readMarketingAdminUserIds();
   if (marketingAdminUserIds instanceof Error) return marketingAdminUserIds;
-  const marketingLinks = readMarketingLinks();
-  if (marketingLinks instanceof Error) return marketingLinks;
   const server = {
-    marketingLinks,
     marketingAdminUserIds,
     deployment: "local" as const,
     appDataDir:
@@ -298,10 +278,7 @@ async function readCloudRunConfig(): Promise<ControlPlaneConfig | Error> {
   if (auth instanceof Error) return auth;
   const marketingAdminUserIds = readMarketingAdminUserIds();
   if (marketingAdminUserIds instanceof Error) return marketingAdminUserIds;
-  const marketingLinks = readMarketingLinks();
-  if (marketingLinks instanceof Error) return marketingLinks;
   const server = {
-    marketingLinks,
     marketingAdminUserIds,
     deployment: "cloudRun" as const,
     port: Number(portValue),
@@ -379,26 +356,6 @@ async function readCloudWorkspaceConfig() {
 /** Reads a control-plane secret from the Halo project's Secret Manager. */
 export async function readControlPlaneSecret(secretId: string) {
   return await readGcpSecret({ projectId: secretProjectId, secretId });
-}
-
-function readMarketingLinks() {
-  const raw = process.env.HALO_MARKETING_LINKS;
-  if (raw === undefined) return undefined;
-  const parsed = errore.try({
-    // SAFETY: JSON is validated against marketingLinksSchema before use.
-    try: () => JSON.parse(raw) as unknown,
-    catch: (cause) =>
-      new ControlPlaneConfigError({
-        detail: "parse HALO_MARKETING_LINKS",
-        cause,
-      }),
-  });
-  if (parsed instanceof Error) return parsed;
-  if (!Value.Check(marketingLinksSchema, parsed))
-    return new ControlPlaneConfigError({
-      detail: "validate HALO_MARKETING_LINKS",
-    });
-  return parsed;
 }
 
 function readMarketingAdminUserIds() {
