@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change adds DNS-verified custom hostnames for published apps, with routing to the extension's public HTTP surface and owner management through RPC, workspace forwarding and the CLI. Both round-2 findings are fixed: the durable CLI test now imports `@get-halo/cli/app` through a declared devDependency, and the temp DNS test checks which error type each resolver failure produces. Durable and temp tests pass, every changed line is covered or exempt with an accepted reason, and no P0 or P1 finding remains.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 3,
+  "headSha": "31328603514e701368909d352d42360b46164d54",
+  "treeHash": "3e09cf38b38e6557c41eb97cce519a1d72645bc7",
+  "codeTree": "4affe75d0b4b514491b707b3112787533dab8282",
+  "coverage": {
+    "executable": 212,
+    "covered": 203,
+    "exempt": 9,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-20T00:59:23.590Z"
+}
