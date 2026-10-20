@@ -1,0 +1,54 @@
+{
+  "status": "changes_requested",
+  "summary": "The change adds an optional public `http.ts` handler to the extension SDK and its build, and routes `/<app>/http/...` through the creator-host gateway. The SDK handler logic is sound. It is not ready: the coverage gate fails, the control-plane test does not check what it claims to check, and the SDK README describes a custom-domain feature that does not exist yet.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "test",
+      "file": "apps/control-plane/test/ControlPlane.test.ts",
+      "line": 6560,
+      "severity": "P1",
+      "body": "The comment says this test checks that the HTTP surface keeps public identity and strips forged owner credentials. It asserts only status 200 and `workspace: \"test-workspace\"`. The fake workspace host returns that JSON for every path (ControlPlane.test.ts:124-126), so the test would also pass if the gateway forwarded to the wrong path, dropped the query, or passed the forged headers through. Assert that `workspaceHost.requests` contains `/extensions/read-only/http/launch?utm_source=mail`. Also check the headers the upstream receives: `x-halo-viewer-role` must be `public` and `x-halo-extension-token` must not be `forged`. You can capture these by recording headers in the fake host or by adding an echo route for `/extensions/*/http/*`."
+    },
+    {
+      "id": "F2",
+      "kind": "source",
+      "file": "packages/extension-sdk/README.md",
+      "line": 71,
+      "severity": "P1",
+      "body": "The public SDK README states that \"A verified custom hostname can map `/launch` to the same surface.\" No custom-host binding, verification, or routing exists in the control plane: a search of apps/control-plane/src finds nothing. The spec lists this as Phase 2. Extension authors will read this as a current capability. Remove the sentence or mark it as planned until Phase 2 ships."
+    },
+    {
+      "id": "F3",
+      "kind": "test",
+      "file": "packages/extension-sdk/src/server.test.ts",
+      "line": 14,
+      "severity": "P1",
+      "body": "`path.resolve(\"../../tmp/http-extension-\")` depends on the working directory. Under `pnpm --filter ... test:unit` it resolves to the repo's tmp/. If vitest runs from the repo root, as the coverage harness did (\"vitest in .\"), it resolves two levels above the repo. The test then creates temp directories outside the repo, against AGENTS.md (\"Store temporary files ... under this repo's `tmp/` directory\"), or fails when that parent does not exist. Build the path from `import.meta.dirname`, as the other package tests do with their `parent` directory."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "packages/extension-tools/src/build.ts:13-19 (stat of http.ts: ENOENT path, non-ENOENT error path returning ExtensionBuildError, and generated entry with/without `http`)",
+      "tier": "tmp",
+      "rationale": "No in-process test loads build.ts, so all changed lines are uncovered. The packed Playwright test runs the build in a subprocess and covers only the presence case. Add a temp vitest test that calls buildExtension on a fixture with and without http.ts and checks the generated server bundle. Also make stat fail with something other than ENOENT, for example by making http.ts unreadable through a directory permission, or by justifying an exemption."
+    },
+    {
+      "target": "packages/extension-sdk/src/server.ts:205 and :306 (non-/http requests still reach the viewer/api/sync/view path after pathname was moved; runExtension forwards `http`)",
+      "tier": "tmp",
+      "rationale": "These changed lines are uncovered. A temp test should send a non-/http request, such as `/__halo/ready` or a view asset, through serveExtension, so that hoisting `pathname` does not regress existing routing. It should also cover runExtension's handling of `http`, or the agent should give an exemption reason for the CLI entry."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "2b2aeb8fec10dfaac648f4f507c62cf4a961ca66",
+  "treeHash": "5da0f551158b74fedfc745cb01c239b943109551",
+  "codeTree": "d5331eb53b39c31fa0b7397720daf5e59828f7b2",
+  "coverage": {
+    "executable": 48,
+    "covered": 37,
+    "exempt": 2,
+    "uncovered": 9
+  },
+  "createdAt": "2026-10-20T00:38:22.750Z"
+}
