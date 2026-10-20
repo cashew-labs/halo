@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "This round makes `APP_DOMAIN_ADDRESS` validation accept only real IPv4 addresses (each octet 0–255, no leading zeros) and rewrites the spec's Phase 3 section as implemented. The temp config test rejects `999.999.999.999`, `192.0.2.256` and `192.0.2.01` and accepts the boundaries `0.0.0.0` and `255.255.255.255`. The provider, Pulumi and `main.ts` code are unchanged from the version approved in round 4. Both test tiers pass, no changed line is uncovered, and the change is ready.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 5,
+  "headSha": "65a578a254afbae0fdd7f621fc0f2b0c78b82055",
+  "treeHash": "b8de65344756b4020eaf0a872efd3bc12d63875a",
+  "codeTree": "da3a5128412239cb1e29f600cfb3384c917df5d6",
+  "coverage": {
+    "executable": 124,
+    "covered": 74,
+    "exempt": 50,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-20T01:32:08.249Z"
+}
