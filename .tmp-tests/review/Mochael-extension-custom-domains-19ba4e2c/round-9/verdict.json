@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change was rebased again. The only differences are line offsets from the new base in `controlPlaneHttp.ts` and `ControlPlane.test.ts`, and `domainHost` moving to a different position in the plane fixture's parameter list. The custom-domain source and tests are the same as the version I approved before. Both test runs pass, every changed line is covered or exempt with an accepted reason, and no P0 or P1 finding remains.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 9,
+  "headSha": "4a43545176b3f47c69a11b8e9c9bd65819990516",
+  "treeHash": "f91374ddc40f8e7bdf22c3757ae6a216391263b0",
+  "codeTree": "403177067783e614f61ee2c697b85f7478a671f5",
+  "coverage": {
+    "executable": 215,
+    "covered": 206,
+    "exempt": 9,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-20T16:03:02.236Z"
+}

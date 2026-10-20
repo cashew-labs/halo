@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "F5 is fixed. After the app is removed, the durable test now adds the same hostname to a newly created app owned by the same user. It keeps the removed app's old TXT proof in DNS, so a leftover verified row would cause a \"still verifies another app\" error, and it expects verification to reach `active`. That proves through the public API that removing the app releases the hostname claim. Source code is unchanged since round 4, both test runs pass, every changed line is covered or exempt with an accepted reason, and no P0 or P1 finding remains.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 6,
+  "headSha": "e2c17b661ee1744908d500d540cdd49cde6bc82d",
+  "treeHash": "b74e7517ba8ed4bfd18f0027bbcdcdc0eff1c6ef",
+  "codeTree": "4f58496fb64bd0f038c83390627d87b8dc5863a3",
+  "coverage": {
+    "executable": 215,
+    "covered": 206,
+    "exempt": 9,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-20T01:16:54.282Z"
+}

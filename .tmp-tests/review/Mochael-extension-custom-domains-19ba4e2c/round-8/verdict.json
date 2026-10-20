@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change was rebased again. The only differences from round 7 come from the new base: line offsets in `controlPlaneHttp.ts`, and a `googleAnalyticsMeasurementId` fixture parameter next to the new `domainHost` fixture. The custom-domain source and tests are unchanged from the version I approved before. Both test runs pass, every changed line is covered or exempt with an accepted reason, and no P0 or P1 finding remains.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 8,
+  "headSha": "00b8418ff4fbfcd210d791f9b07ae12781b10b97",
+  "treeHash": "c65119bb0f287fabe03e9053a835fe1b6acfe522",
+  "codeTree": "5b2b9ff7d7875eb2e069e5b36f9da078ff8b86f5",
+  "coverage": {
+    "executable": 215,
+    "covered": 206,
+    "exempt": 9,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-20T15:44:37.574Z"
+}

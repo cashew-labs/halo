@@ -1,0 +1,33 @@
+{
+  "status": "changes_requested",
+  "summary": "This round changes only tests. The rate-limit test now sends 6,000 real custom-host requests with a frozen clock and then expects a 429. That is a stronger test and its cost is acceptable. However, the durable app-removal test lost its check that the `app_domains` rows are deleted. That check guards against orphaned verified claims that would block a hostname permanently, so F5 is open again. Source code is unchanged since round 4, both test runs pass, and coverage passes.",
+  "findings": [
+    {
+      "id": "F5",
+      "kind": "test",
+      "file": "apps/control-plane/test/ControlPlane.test.ts",
+      "line": 7044,
+      "severity": "P1",
+      "body": "\"retries domain cleanup after app removal\" no longer checks that the app's `app_domains` rows are gone. The earlier version queried the apps database for that. The test now checks only that `tls.remove` ran twice and that `apps.list()` is empty, and both still pass if `AppDomains.remove` skips the `DELETE` or `AppService.remove` deletes the app before its domain rows. An orphaned row keeps `verified_at` set, so the unique verified-hostname index blocks that hostname for every other app. Its owning app is gone, so no one can remove the row through the API. Restore an assertion that shows the claim was released. One option is to read the correct apps database and expect no rows for the app ID. A better option uses only public behaviour: after the removal, add and verify `removed.example.org` on another app owned by the same user, and expect status `active`."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "AppService.remove → AppDomains.remove deletes the binding (AppService.ts:319-325, AppDomains.ts:291-295): after app removal the hostname can be verified by another app",
+      "tier": "durable",
+      "rationale": "This guards against an orphaned verified claim that blocks a hostname permanently and cannot be removed through the API."
+    }
+  ],
+  "tierChanges": [],
+  "round": 5,
+  "headSha": "e2c17b661ee1744908d500d540cdd49cde6bc82d",
+  "treeHash": "2d6428f3e058a5356898ccb1a46b5c40ce8954a9",
+  "codeTree": "f407dc2379c9282fab484eaff0b9049690cbc954",
+  "coverage": {
+    "executable": 215,
+    "covered": 206,
+    "exempt": 9,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-20T01:13:47.931Z"
+}

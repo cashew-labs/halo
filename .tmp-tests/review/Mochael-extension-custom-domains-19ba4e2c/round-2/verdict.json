@@ -1,0 +1,41 @@
+{
+  "status": "changes_requested",
+  "summary": "All six round-1 findings are fixed. Current DNS proof now reclaims a hostname from a stale binding, re-verifying no longer interrupts an active route, and the new tests cover reserved hostnames and the `go` exception, the CLI and workspace forwarding, retrying domain cleanup on app removal, and the 429 rate limit. Three small items remain. The durable CLI test imports halo-cli by a relative path, so Turbo will not rerun it when the CLI changes. A temp DNS test does not tell the two DNS failure kinds apart. One type-only export line is uncovered and has no exemption.",
+  "findings": [
+    {
+      "id": "F7",
+      "kind": "test",
+      "file": "apps/control-plane/test/ControlPlane.test.ts",
+      "line": 36,
+      "severity": "P1",
+      "body": "The durable test \"runs domain commands through the workspace API\" imports the CLI with `../../../packages/halo-cli/src/app.js`. `@get-halo/control-plane` does not depend on `@get-halo/cli`. CI runs `turbo run ... test:unit --affected`, and Turbo builds both its affected set and its cache hash from the package graph. A later change to `packages/halo-cli/src/app.ts` therefore will not rerun or invalidate this test, so the CLI behavior it is meant to guard goes unchecked. Fix: add `@get-halo/cli` as a devDependency of the control plane and import it through the package specifier, or export the command from the package. Otherwise, make the CLI part of this test a temp test and keep only the workspace-forwarding assertions as durable."
+    },
+    {
+      "id": "F8",
+      "kind": "test",
+      "file": "apps/control-plane/src/apps/.tmp-tests/AppDomains.test.ts",
+      "line": 134,
+      "severity": "P1",
+      "body": "The loop over `ENODATA`, `ENOTFOUND` and `ETIMEOUT` only checks `toBeInstanceOf(Error)`. The behavior under test (AppDomains.ts:29-36) is that missing records become an empty answer. That gives an `AppDomainRequestError`, which the user sees as BAD_REQUEST. Real resolver failures become an `AppDomainHostError`, which the user sees as a 500. The current assertion passes even if the two are swapped. Assert `name: \"AppDomainRequestError\"` for ENODATA and ENOTFOUND, and `name: \"AppDomainHostError\"` for ETIMEOUT."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "packages/client/src/index.ts:166",
+      "tier": "tmp",
+      "rationale": "This is a type-only re-export (`export type { AppDomain, AppDomainDnsRecord }`) that is erased at compile time. Add a coverage-exempt comment saying so. Do not add a test."
+    }
+  ],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "31328603514e701368909d352d42360b46164d54",
+  "treeHash": "5a0dad2a9e10e399c315f32b228a438e18aea2c1",
+  "codeTree": "394e51e8af503bfeeebb71643750010f8ebad218",
+  "coverage": {
+    "executable": 207,
+    "covered": 198,
+    "exempt": 8,
+    "uncovered": 1
+  },
+  "createdAt": "2026-10-20T00:55:55.925Z"
+}
