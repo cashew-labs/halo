@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "This round is a rebase onto a new base that adds `googleAnalyticsMeasurementId` to the Cloud Run config. The custom-domain config field still sits next to it without conflict. The provider, tests, `main.ts` wiring and Pulumi resources are the same as in round 5; only line numbers moved. `deploymentRoleAdmin` is still defined at index.ts:309, before the IAM role that depends on it. Both test tiers pass, no changed line is uncovered, the exemptions are unchanged, and the change is ready.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 6,
+  "headSha": "ab48259fd504d7015e7ef3895193e77708b01162",
+  "treeHash": "ae48db0d710fc6f6685a3c0e187e8297589d5641",
+  "codeTree": "b92ced0df2bb81c303bd0a8d4b77fe9f7e63eb78",
+  "coverage": {
+    "executable": 124,
+    "covered": 74,
+    "exempt": 50,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-20T15:45:46.832Z"
+}
