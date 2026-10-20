@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change is now committed at b040f5ff. Its content matches what I approved in round 2: the persistent marketing campaign store, admin-only RPCs gated by the configured admin user-ID list, config and Pulumi wiring, and the shared app SqlDatabase. Both test tiers pass, every changed line is covered except four Pulumi lines whose exemptions I accept, and no findings remain, so the change is ready.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 3,
+  "headSha": "b040f5ffbc4445919dd54d4e95cd7cf6a8b5f10b",
+  "treeHash": "536e21f426b7b92d13632fde11b40bc7381d15f7",
+  "codeTree": "c535b2bbe7a2a12159c06f60ffa2899626468e97",
+  "coverage": {
+    "executable": 74,
+    "covered": 70,
+    "exempt": 4,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-20T22:42:54.207Z"
+}

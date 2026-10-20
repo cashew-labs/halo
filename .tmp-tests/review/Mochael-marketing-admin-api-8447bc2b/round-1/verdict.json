@@ -1,0 +1,59 @@
+{
+  "status": "changes_requested",
+  "summary": "The change adds a database-backed marketing campaign store (`MarketingLinks`), admin-only `marketing.create/list/update/remove` RPCs gated by a deployment-configured user-ID allowlist, the config and infra wiring for that allowlist, and a shared `SqlDatabase` for the app client. The source logic looks sound: a single `SqlDatabase` instance now serializes SQLite transactions across AppStore and MarketingLinks, the admin check runs after the existing `appOwner` origin and bearer checks, and errors map to the right codes. The change is not ready because the gate failed. 68 durable tests failed, every temp suite except the config one failed to load, and almost all changed lines are uncovered.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "test",
+      "file": "apps/control-plane/test/ControlPlane.test.ts",
+      "line": 4690,
+      "severity": "P0",
+      "body": "In the reported run, `createAuthenticatedHeaders` passed `id: userId` to `context.test.createUser`. When `userId` was undefined, this overwrote the generated ID, so `login({ userId: undefined })` threw `User not found: undefined` in 68 durable tests. The working tree now reads `id: userId ?? crypto.randomUUID()`, which looks like the fix, but the durable run that this round evaluated failed. Re-run `ControlPlane.test.ts` and confirm that all 84 tests pass, including the three new marketing tests."
+    },
+    {
+      "id": "F2",
+      "kind": "test",
+      "file": "apps/control-plane/src/marketing/.tmp-tests/MarketingLinks.test.ts",
+      "line": 4,
+      "severity": "P1",
+      "body": "The temp test cannot load. `../../../DatabaseService.js` resolves to `apps/control-plane/DatabaseService.js`; from `src/marketing/.tmp-tests/`, the correct path is `../../DatabaseService.js`. The fixture directory on line 14 (`../../../../../../tmp/marketing-admin/databases`) goes one level above the repository root; it should be `../../../../../tmp/marketing-admin/databases`, which stays inside the repo's `tmp/`. Because this suite never runs, none of `MarketingLinks.ts` is covered: persistence across reopen, NULL optional tags, `resolve`, and errors from a closed database."
+    },
+    {
+      "id": "F3",
+      "kind": "test",
+      "file": "tmp/marketing-admin/old-tests/apps/control-plane/src/apps/.tmp-tests/AppDomains.test.ts",
+      "line": 5,
+      "severity": "P1",
+      "body": "Stale copies of unrelated temp tests under `tmp/marketing-admin/old-tests/**/.tmp-tests/` are collected into the temp run. These are AppDomains, GoogleAppDomainTls, customDomains and extension-tools build. All four fail on module resolution because their relative imports point at nonexistent `tmp/...` sources, so the temp tier fails. Delete them, or move them out of `.tmp-tests` folders, because they do not test this change."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "packages/config/src/controlPlane.ts:233-234 (readDevelopmentConfig reads and validates HALO_MARKETING_ADMIN_USER_IDS)",
+      "tier": "tmp",
+      "rationale": "The temp config test covers only the Cloud Run path. Add one case that reads the development (local) config with a valid admin list and one with an invalid value, and assert that the list is read correctly and that the invalid value is returned as an Error."
+    },
+    {
+      "target": "infra/control-plane/index.ts:71-72, 808-809",
+      "tier": "tmp",
+      "rationale": "These Pulumi lines are uncovered. Either add a `coverage-exempt` reason (for example, Pulumi program wiring with no unit-test harness) or a test that checks the env var gets `JSON.stringify` of the configured array and defaults to `[]`."
+    },
+    {
+      "target": "apps/control-plane/src/marketing/MarketingLinks.ts (all lines) and the router/contract/ControlPlane wiring",
+      "tier": "tmp",
+      "rationale": "After F1 and F2 are fixed, re-run both tiers so that the durable RPC tests and the temp store test actually cover the router, contract, `marketingResult` mapping and store lines. The coverage report currently shows them all uncovered because their suites failed."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "fb6e579eb8eb6b300d3768b12f18f773e7262056",
+  "treeHash": "978a647475560a069f162eceacf05e9c45cbaa9d",
+  "codeTree": "040958b8c3711f9a55df287800b7d71c33bd086d",
+  "coverage": {
+    "executable": 220,
+    "covered": 12,
+    "exempt": 0,
+    "uncovered": 208
+  },
+  "createdAt": "2026-10-20T22:37:32.031Z"
+}

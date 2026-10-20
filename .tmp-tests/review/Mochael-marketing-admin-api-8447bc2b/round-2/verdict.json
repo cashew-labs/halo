@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change adds a persistent marketing campaign store with admin-only create/list/update/remove RPCs, the configuration and Pulumi wiring for the admin user-ID list, and one shared SqlDatabase for the app client. All three round-1 findings are fixed: the durable suite passes with the `id: userId ?? crypto.randomUUID()` fix, the MarketingLinks temp test now uses the correct import and fixture paths and passes, and the stale old-tests copies no longer run. Every changed line is covered except four Pulumi infra lines, whose exemptions I accept; the source logic is sound, so the change is ready.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "fb6e579eb8eb6b300d3768b12f18f773e7262056",
+  "treeHash": "6e251e5e2ab900f375d3977485ad73a98f0bcf53",
+  "codeTree": "8b154fcc6d3b7825b9313f8b228b56a8491fa583",
+  "coverage": {
+    "executable": 74,
+    "covered": 70,
+    "exempt": 4,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-20T22:40:16.909Z"
+}
