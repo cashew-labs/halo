@@ -67,6 +67,13 @@ const logger = new Logger({
     : [fileSink],
 });
 const rendererLogger = logger.scope("renderer");
+// Staging shares production's signed bundle, so it swaps the icon at runtime.
+const stagingIcon =
+  applicationConfig.releaseChannel !== "staging"
+    ? undefined
+    : app.isPackaged
+      ? join(process.resourcesPath, "staging.png")
+      : join(app.getAppPath(), "icons/staging.png");
 // coverage-exempt: main.ts starts Electron on import, so Vitest cannot load it
 if (applicationConfig.releaseChannelError !== undefined)
   logger.error({
@@ -120,6 +127,7 @@ app.whenReady().then(async () => {
     ownsWindow: (window) => windows.has(window),
   });
   installMenu();
+  if (stagingIcon !== undefined) app.dock?.setIcon(stagingIcon);
   appUpdates.start();
   await openMainWindow();
   // Forge replaces the URL with undefined in packaged builds, excluding app control.
@@ -285,12 +293,16 @@ async function createWindow(
     center: true,
     titleBarStyle: "hiddenInset",
     trafficLightPosition: { x: 11, y: 11 },
+    icon: stagingIcon,
     webPreferences: {
       preload: join(currentDirectory, "preload.js"),
       contextIsolation: true,
       sandbox: true,
       nodeIntegration: false,
-      additionalArguments,
+      additionalArguments: [
+        ...additionalArguments,
+        `--halo-release-channel=${applicationConfig.releaseChannel}`,
+      ],
     },
   });
   // The first document paint supplies the drag region; do not wait for a server.

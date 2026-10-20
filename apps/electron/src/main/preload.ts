@@ -11,6 +11,10 @@ import { LOG_CHANNELS } from "../shared/channels.js";
 import { DESKTOP_CHANNEL, type DesktopBridge } from "../shared/desktop.js";
 
 const desktopBridge: DesktopBridge = {
+  // Main passes the channel as an argument so the first render can use it.
+  releaseChannel: process.argv.includes("--halo-release-channel=staging")
+    ? "staging"
+    : "production",
   getWorkspaceStatus: async () =>
     await ipcRenderer.invoke(DESKTOP_CHANNEL, { type: "getWorkspaceStatus" }),
   recordWorkspaceActivity: async () =>

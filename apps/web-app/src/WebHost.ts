@@ -55,6 +55,14 @@ export class WebHost implements HostApi {
 
   readonly showLandingPage = true;
 
+  // The control plane fills this placeholder from its deployment configuration.
+  readonly releaseChannel =
+    document
+      .querySelector('meta[name="halo-release-channel"]')
+      ?.getAttribute("content") === "staging"
+      ? "staging"
+      : "production";
+
   // Tracks the active workspace client for integration connections.
   private haloClient: HaloClient | undefined;
 

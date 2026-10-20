@@ -47,6 +47,8 @@ export interface HostApi {
     // Signs in to the Halo account that requested the setup.
     signIn(): Promise<ControlPlaneSession | Error | undefined>;
   };
+  /** Which deployment this host follows; absent means production. */
+  readonly releaseChannel?: "production" | "staging"; // coverage-exempt: a type declaration emits no runtime code
   getWorkspaceStatus?(): Promise<
     ControlPlaneWorkspaceStatus | Error | undefined
   >;

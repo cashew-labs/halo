@@ -2,6 +2,8 @@ import type { ReactNode } from "react";
 import { backgroundColor, spacing } from "maui";
 import { style, useStyles } from "purse-styles";
 import haloLogo from "./assets/halo-donut-transparent.png";
+import stagingLogo from "./assets/halo-donut-staging.png";
+import { useHost } from "./HostProvider.js";
 
 export function FullscreenPage({
   children,
@@ -15,10 +17,17 @@ export function FullscreenPage({
   const shell = useStyles(styles.shell);
   const content = useStyles(styles.content);
   const logo = useStyles(styles.logo);
+  const host = useHost();
   return (
     <main className={shell} aria-label={label}>
       <div className={content}>
-        {visual ?? <img className={logo} src={haloLogo} alt="Halo" />}
+        {visual ?? (
+          <img
+            className={logo}
+            src={host.releaseChannel === "staging" ? stagingLogo : haloLogo}
+            alt="Halo"
+          />
+        )}
         {children}
       </div>
     </main>

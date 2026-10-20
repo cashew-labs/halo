@@ -64,6 +64,8 @@ const stagingTestersSecretId = configuration.get("stagingTestersSecretId");
 const googleAnalyticsMeasurementId = configuration.get(
   "googleAnalyticsMeasurementId",
 );
+// Staging serves the web app's staging/ overrides, such as the blueprint logo.
+const releaseChannel = configuration.get("releaseChannel");
 
 const controlPlaneOrigin = `https://${controlPlaneDomain}`;
 // Apex domains also serve www and redirect it; subdomains such as staging do not.
@@ -808,6 +810,9 @@ const controlPlane = new gcp.cloudrunv2.Service(
                     value: googleAnalyticsMeasurementId,
                   },
                 ]),
+            ...(releaseChannel === undefined
+              ? []
+              : [{ name: "RELEASE_CHANNEL", value: releaseChannel }]),
 
             {
               name: "DATABASE_URL_SECRET_ID",

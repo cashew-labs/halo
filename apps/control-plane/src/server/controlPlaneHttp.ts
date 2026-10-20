@@ -65,6 +65,7 @@ import {
 import { isTemplateRequest, serveTemplate } from "../apps/templateHttp.js";
 
 import { workspaceInferencePath } from "@get-halo/config/inference";
+import type { ReleaseChannel } from "@get-halo/config/releaseChannel";
 import {
   type WorkspaceInference,
   serveWorkspaceInference,
@@ -175,6 +176,7 @@ export function serveControlPlaneHttp(ctx: {
   build?: { version: string; revision: string };
   webRoot: string;
   googleAnalyticsMeasurementId?: string;
+  releaseChannel?: ReleaseChannel;
   traces?: TraceIngestion;
   inference?: WorkspaceInference;
 }) {
@@ -255,6 +257,7 @@ export function serveControlPlaneHttp(ctx: {
       publicOrigin,
       webRoot,
       googleAnalyticsMeasurementId: ctx.googleAnalyticsMeasurementId,
+      releaseChannel: ctx.releaseChannel,
       build: ctx.build,
       inference: ctx.inference,
     });
@@ -350,6 +353,7 @@ async function routeControlPlaneRequest(ctx: {
   rpc: RPCHandler<ControlPlaneContext>;
   webRoot: string;
   googleAnalyticsMeasurementId?: string;
+  releaseChannel?: ReleaseChannel;
 }) {
   const { request, response, auth, workspace, gateway, rpc, webRoot } = ctx;
   const url = new URL(
@@ -602,6 +606,7 @@ async function routeControlPlaneRequest(ctx: {
     webRoot,
     marketing,
     googleAnalyticsMeasurementId: ctx.googleAnalyticsMeasurementId,
+    releaseChannel: ctx.releaseChannel,
   });
 }
 
@@ -780,6 +785,7 @@ async function serveWebApp(ctx: {
   url: URL;
   webRoot: string;
   googleAnalyticsMeasurementId?: string;
+  releaseChannel?: ReleaseChannel;
   marketing: boolean;
 }) {
   const { request, response, url, webRoot } = ctx;
@@ -799,7 +805,12 @@ async function serveWebApp(ctx: {
     return;
   }
 
-  const file = await readWebFile(filePath);
+  // Staging shares production's image; staging/ replaces same-named root files.
+  const stagingFile =
+    ctx.releaseChannel === "staging"
+      ? await readWebFile(path.resolve(root, "staging", requestedPath))
+      : undefined;
+  const file = stagingFile ?? (await readWebFile(filePath));
   if (file instanceof Error) {
     console.error(file);
     response.writeHead(500).end();
@@ -810,16 +821,19 @@ async function serveWebApp(ctx: {
     return;
   }
 
+  const measurementId = ctx.marketing ? ctx.googleAnalyticsMeasurementId : "";
   const content =
-    requestedPath === "index.html" &&
-    ctx.marketing &&
-    ctx.googleAnalyticsMeasurementId !== undefined
+    requestedPath === "index.html"
       ? Buffer.from(
           file
             .toString()
             .replace(
               '<meta name="halo-ga-measurement-id" content="" />',
-              `<meta name="halo-ga-measurement-id" content="${ctx.googleAnalyticsMeasurementId}" />`,
+              `<meta name="halo-ga-measurement-id" content="${measurementId ?? ""}" />`,
+            )
+            .replace(
+              '<meta name="halo-release-channel" content="" />',
+              `<meta name="halo-release-channel" content="${ctx.releaseChannel ?? ""}" />`,
             ),
         )
       : file;
