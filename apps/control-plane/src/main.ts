@@ -10,6 +10,9 @@ import { ExeWorkspaceProvider } from "./workspace/provider/exe/ExeWorkspaceProvi
 // coverage-exempt: Process entry point is not imported by tests; its provider factory is covered through the public server.
 import { createWorkspaceInference } from "./inference/createWorkspaceInference.js";
 
+// coverage-exempt: Process entry point loads cloud credentials; provider behavior is exercised through its HTTP boundary.
+import { GoogleAppDomainTls } from "./apps/GoogleAppDomainTls.js";
+
 async function run() {
   const stopping = new Promise<void>((stop) => {
     process.once("SIGINT", stop);
@@ -36,6 +39,17 @@ async function run() {
             revision: process.env.HALO_BUILD_REVISION,
           },
     config: config.server,
+    // coverage-exempt: Process bootstrap mounts the tested provider from validated cloud configuration; tests start ControlPlane directly.
+    appDomainTls:
+      config.server.deployment !== "cloudRun" ||
+      config.server.customDomains === undefined
+        ? undefined
+        : new GoogleAppDomainTls({
+            ...config.server.customDomains,
+            auth: new GoogleAuth({
+              scopes: ["https://www.googleapis.com/auth/cloud-platform"],
+            }),
+          }),
     // coverage-exempt: Process bootstrap uses live credentials; the same provider factory is exercised through ControlPlane.start in the HTTP tests.
     inference: createWorkspaceInference({
       apiKey: config.inferenceApiKey,
