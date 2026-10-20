@@ -6557,6 +6557,7 @@ marketingPlaneTest(
     expect(policy).toContain(
       "frame-src 'self' https://cal.com https://app.cal.com",
     );
+    expect(policy).toContain("connect-src 'self' https://buttondown.com ");
     expect(policy).toContain(
       "script-src 'self' https://app.cal.com https://www.googletagmanager.com",
     );

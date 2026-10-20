@@ -45,7 +45,7 @@ test("reports a new booking once and forwards marketing campaign tags", async ({
   ).toHaveLength(1);
 });
 
-test("reports an accepted waitlist signup after the native form returns, without reload duplicates", async ({
+test("confirms a waitlist signup in the dialog and reports it once", async ({
   marketing: page,
 }) => {
   await page.goto(
@@ -78,11 +78,14 @@ test("reports an accepted waitlist signup after the native form returns, without
   await page
     .getByRole("button", { name: "Join waitlist", exact: true })
     .click();
+  const dialog = page.getByRole("dialog");
   await expect(
-    page.getByRole("heading", {
-      name: "Check your email to confirm your subscription.",
-    }),
+    dialog.getByRole("heading", { name: "You're on the waitlist" }),
   ).toBeVisible();
+  await expect(
+    dialog.getByText("Check your email to confirm your spot."),
+  ).toBeVisible();
+  expect(new URL(page.url()).pathname).toBe("/");
   expect(submitted.get("email")).toBe("test@example.com");
   expect(submitted.get("metadata__utm_source")).toBe("newsletter");
   expect(submitted.has("metadata__email")).toBe(false);
@@ -97,7 +100,9 @@ test("reports an accepted waitlist signup after the native form returns, without
         { lead_type: "waitlist_signup", method: "buttondown" },
       ],
     ]);
-  await page.reload();
+  await dialog.getByRole("button", { name: "Done" }).click();
+  await expect(dialog).not.toBeVisible();
+  await page.goto("/newsletter/check-email");
   await expect(
     page.getByRole("heading", {
       name: "Check your email to confirm your subscription.",
@@ -115,6 +120,54 @@ test("reports an accepted waitlist signup after the native form returns, without
       (entry) => entry[1] === "waitlist_confirmation_view",
     ),
   ).toHaveLength(1);
+});
+
+test("falls back to Buttondown's return page when the background signup fails", async ({
+  marketing: page,
+}) => {
+  await page.goto("/");
+  await page
+    .getByRole("button", { name: "Get early access", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Join the waitlist instead" }).click();
+  await page
+    .getByRole("textbox", { name: "Email address" })
+    .fill("test@example.com");
+  let attempts = 0;
+  await page.route(
+    "https://buttondown.com/api/emails/embed-subscribe/halo",
+    async (route) => {
+      attempts += 1;
+      if (attempts === 1) {
+        await route.abort();
+        return;
+      }
+      await route.fulfill({
+        status: 303,
+        headers: { location: `${origin}/newsletter/check-email` },
+      });
+    },
+  );
+  await page
+    .getByRole("button", { name: "Join waitlist", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", {
+      name: "Check your email to confirm your subscription.",
+    }),
+  ).toBeVisible();
+  expect(attempts).toBe(2);
+  await expect
+    .poll(async () =>
+      (await events(page)).filter((entry) => entry[1] === "generate_lead"),
+    )
+    .toEqual([
+      [
+        "event",
+        "generate_lead",
+        { lead_type: "waitlist_signup", method: "buttondown" },
+      ],
+    ]);
 });
 
 test("does not load GA while authentication is pending or for the signed-in application", async ({

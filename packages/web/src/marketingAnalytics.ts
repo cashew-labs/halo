@@ -122,7 +122,8 @@ export function trackWaitlistSubmission() {
 }
 
 export function trackWaitlistAccepted() {
-  // Buttondown returns here after accepting the form, before double opt-in.
+  // Runs once Buttondown accepts the background submission, or on its
+  // check-email return page after a native fallback, before double opt-in.
   // Consume the marker so reloads and direct visits do not create more leads.
   const pending = errore.try({
     try: () => {

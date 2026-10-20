@@ -9,16 +9,23 @@ import {
   spacing,
   TextField,
 } from "maui";
+import * as errore from "errore";
 import { style, useStyles } from "purse-styles";
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 import { EarlyAccessBooking } from "./EarlyAccessBooking.js";
 import {
   marketingCampaign,
   trackMarketingEvent,
+  trackWaitlistAccepted,
   trackWaitlistSubmission,
 } from "./marketingAnalytics.js";
 
-type Step = "choose" | "book" | "waitlist";
+class WaitlistSubmissionError extends errore.createTaggedError({
+  name: "WaitlistSubmissionError",
+  message: "Could not submit the waitlist form in the background.",
+}) {}
+
+type Step = "choose" | "book" | "waitlist" | "joined";
 
 export function EarlyAccessDialog({
   isOpen,
@@ -28,6 +35,7 @@ export function EarlyAccessDialog({
   onOpenChange: (isOpen: boolean) => void;
 }) {
   const [step, setStep] = useState<Step>("choose");
+  const [joining, setJoining] = useState(false);
   const booking = useStyles(styles.booking);
   const waitlistForm = useStyles(styles.waitlistForm);
   const waitlistFields = useStyles(styles.waitlistFields);
@@ -40,6 +48,31 @@ export function EarlyAccessDialog({
   const changeOpen = (open: boolean) => {
     if (!open) setStep("choose");
     onOpenChange(open);
+  };
+
+  const joinWaitlist = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    trackWaitlistSubmission();
+    setJoining(true);
+    // The response is opaque; a resolved request means Buttondown handled the
+    // signup and its redirect stayed within the page's connect-src.
+    const sent = await fetch(form.action, {
+      method: "POST",
+      mode: "no-cors",
+      body: new URLSearchParams(
+        Array.from(new FormData(form), ([key, value]) => [key, String(value)]),
+      ),
+    }).catch((cause) => new WaitlistSubmissionError({ cause }));
+    setJoining(false);
+    if (sent instanceof Error) {
+      console.warn(sent);
+      // Fall back to the native submission and its check-email return page.
+      form.submit();
+      return;
+    }
+    trackWaitlistAccepted();
+    setStep("joined");
   };
 
   return (
@@ -90,7 +123,7 @@ export function EarlyAccessDialog({
           action="https://buttondown.com/api/emails/embed-subscribe/halo"
           method="post"
           className={waitlistForm}
-          onSubmit={trackWaitlistSubmission}
+          onSubmit={(event) => void joinWaitlist(event)}
         >
           {Object.entries(marketingCampaign()).map(([key, value]) => (
             <input
@@ -117,11 +150,25 @@ export function EarlyAccessDialog({
             <Button variant="quiet" onPress={() => chooseStep("book")}>
               Book a call instead
             </Button>
-            <Button type="submit" variant="primary">
+            <Button type="submit" variant="primary" isDisabled={joining}>
               Join waitlist
             </Button>
           </DialogActions>
         </form>
+      )}
+
+      {step === "joined" && (
+        <>
+          <DialogTitle>You&apos;re on the waitlist</DialogTitle>
+          <DialogBody>
+            <P>Check your email to confirm your spot.</P>
+          </DialogBody>
+          <DialogActions>
+            <Button variant="primary" onPress={() => changeOpen(false)}>
+              Done
+            </Button>
+          </DialogActions>
+        </>
       )}
     </Dialog>
   );

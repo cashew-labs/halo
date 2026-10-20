@@ -24,8 +24,10 @@ pages. Production uses Measurement ID `G-87KZ9JXCVX`; other deployments remain d
 5. In Buttondown, set `subscription_redirect_url` to
    `https://gethalo.dev/newsletter/check-email` and
    `subscription_confirmation_redirect_url` to
-   `https://gethalo.dev/newsletter/joined`. Keep the native form submission so
-   Buttondown can handle validation and CAPTCHA.
+   `https://gethalo.dev/newsletter/joined`. The dialog posts the form in the
+   background and confirms the signup in place. Its response is opaque, so a
+   Buttondown rejection still looks sent. If the request fails, the dialog falls
+   back to the native form submission and this return page.
 6. In GA's unwanted referrals settings, exclude `buttondown.com` so returning
    from the subscription form does not replace the acquisition source. Use
    Realtime or DebugView to verify a tagged landing visit and the two lead types.
@@ -39,16 +41,16 @@ booking payloads, or workspace content. The privacy policy describes analytics
 and the booking provider. Configure any required consent controls before
 activating analytics for an audience that needs them.
 
-| Event                                        | Trigger                                                              | Meaning                                                                                                |
-| -------------------------------------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `page_view`                                  | Marketing page renders                                               | One view per page load, including React Strict Mode                                                    |
-| `early_access_open`                          | Get early access is pressed                                          | Dialog opened                                                                                          |
-| `booking_open`                               | Book a call is pressed                                               | Booking flow opened, not a conversion                                                                  |
-| `waitlist_open`                              | Waitlist choice is pressed                                           | Waitlist form opened                                                                                   |
-| `waitlist_submit`                            | Valid form submits                                                   | Attempt, not yet accepted by Buttondown                                                                |
-| `generate_lead`, `lead_type=call_booking`    | Cal.com's `bookingSuccessfulV2` event                                | New booking created, deduplicated by UID for the current page; Cal may still require host confirmation |
-| `generate_lead`, `lead_type=waitlist_signup` | Buttondown returns to check-email after a form submitted in this tab | Accepted signup, before email confirmation; marker is consumed to prevent reload counts                |
-| `waitlist_confirmation_view`                 | Joined page renders                                                  | Browser confirmation-page view, not server-verified double opt-in                                      |
+| Event                                        | Trigger                                                                                                  | Meaning                                                                                                |
+| -------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `page_view`                                  | Marketing page renders                                                                                   | One view per page load, including React Strict Mode                                                    |
+| `early_access_open`                          | Get early access is pressed                                                                              | Dialog opened                                                                                          |
+| `booking_open`                               | Book a call is pressed                                                                                   | Booking flow opened, not a conversion                                                                  |
+| `waitlist_open`                              | Waitlist choice is pressed                                                                               | Waitlist form opened                                                                                   |
+| `waitlist_submit`                            | Valid form submits                                                                                       | Attempt, not yet accepted by Buttondown                                                                |
+| `generate_lead`, `lead_type=call_booking`    | Cal.com's `bookingSuccessfulV2` event                                                                    | New booking created, deduplicated by UID for the current page; Cal may still require host confirmation |
+| `generate_lead`, `lead_type=waitlist_signup` | Buttondown accepts the dialog's background submission, or returns to check-email after a native fallback | Signup sent to Buttondown, before email confirmation; counted once per submission in this tab          |
+| `waitlist_confirmation_view`                 | Joined page renders                                                                                      | Browser confirmation-page view, not server-verified double opt-in                                      |
 
 Browser analytics is best-effort. Blocking analytics prevents GA reporting;
 blocking session storage also prevents the accepted-waitlist event. Cal.com and

@@ -76,7 +76,7 @@ const requestUrlBase = "http://localhost";
 function webContentSecurityPolicy(marketing: boolean) {
   return [
     "base-uri 'none'",
-    `connect-src 'self'${marketing ? " https://www.googletagmanager.com https://*.google-analytics.com https://*.analytics.google.com" : ""}`,
+    `connect-src 'self'${marketing ? " https://buttondown.com https://www.googletagmanager.com https://*.google-analytics.com https://*.analytics.google.com" : ""}`,
     "default-src 'self'",
     "font-src 'self' data:",
     "form-action 'self' https://buttondown.com",
