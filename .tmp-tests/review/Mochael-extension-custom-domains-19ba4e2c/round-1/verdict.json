@@ -1,0 +1,98 @@
+{
+  "status": "changes_requested",
+  "summary": "The change adds DNS-verified custom hostnames for published apps. It covers the store, gateway routing, RPC/CLI/workspace forwarding, and docs. Ownership checks and custom-host isolation look correct. It is not ready to merge for two reasons. First, a stale verified binding can permanently block the current DNS owner and keep serving the previous app. Second, the coverage gate fails: the CLI, the workspace forwarding router, the rate-limit path, reserved-hostname rejection, and domain cleanup on app removal are all untested.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "source",
+      "file": "apps/control-plane/src/apps/AppDomains.ts",
+      "line": 183,
+      "severity": "P1",
+      "body": "Once a binding is verified, it holds the hostname indefinitely. The only things that clear `verified_at` are that binding's own owner re-running `verify` or `remove`. Domains change hands, for example through expiry, a sale, or an ex-employee's app. In that case the current DNS owner can publish their own `_halo-challenge` TXT record, but `verify` still rejects them with \"already verified for another app\", so the hostname cannot be reclaimed. Worse, when the new owner points the A record at Halo, `lookup` keeps serving the previous owner's app under the new owner's domain. This contradicts the stated design that \"only proof can claim it\". Fix: when a competing verified row exists, compare the TXT records just fetched against the competing row's token. If that token is no longer present, revoke the competing binding: clear `verified_at` and `active`, and call `tls.remove`. Only then claim the hostname. Alternatively, re-check proof periodically or on lookup."
+    },
+    {
+      "id": "F2",
+      "kind": "source",
+      "file": "apps/control-plane/src/apps/AppDomains.ts",
+      "line": 202,
+      "severity": "P1",
+      "body": "Every successful `verify` sets `active = 0` before `tls.ensure`'s `ready` result is applied, including on a domain that is already active. Re-running `verify` on an active domain is an expected scenario: the docs say to repeat it, and it is how an owner checks status. Each re-run therefore opens a window where custom-host requests fall through to 404. If the activation transaction then fails (a DB error, or a competing row), the live route stays down. Fix: write `active = 0` only when `certificate.ready` is false; otherwise update `records` without clearing `active`."
+    },
+    {
+      "id": "F3",
+      "kind": "test",
+      "file": "apps/control-plane/test/ControlPlane.test.ts",
+      "line": 6729,
+      "severity": "P1",
+      "body": "The \"rejects reserved hostnames\" test never reaches the reserved-hostname branch (AppDomains.ts:103-110). Every listed input fails the syntax regex first, including `www.127.0.0.1`, whose last label starts with a digit. As a result, the rule that Halo's own host and creator subdomains cannot be claimed is untested. The `go.<host>` exception and the new `creatorHandle` exclusion of `go` (creatorHost.ts:30) are also unasserted. Add tests with an `AppDomains` built from a DNS-named origin such as `https://gethalo.dev`. They should check three cases: `gethalo.dev`, `www.gethalo.dev` and `alice.gethalo.dev` are rejected; `go.gethalo.dev` is accepted; `creatorHandle` returns undefined for `go.<host>`."
+    },
+    {
+      "id": "F4",
+      "kind": "test",
+      "file": "packages/workspace-server/src/extensions/appsRouter.ts",
+      "line": 38,
+      "severity": "P1",
+      "body": "No test exercises the new workspace-server `apps.domains` forwarding (lines 38-61) or the `halo app domain` CLI commands (packages/halo-cli/src/app.ts:39-96). The spec requires \"Agent APIs and CLI manage domains\", and these are the paths agents actually use. Add a test that calls `apps.domains.add`/`list`/`verify`/`remove` through the workspace-server client against a control plane, or against a stub that checks the input is forwarded. Add a CLI test that checks argument mapping and the `APP_DOMAIN` error mapping."
+    },
+    {
+      "id": "F5",
+      "kind": "test",
+      "file": "apps/control-plane/src/apps/AppService.ts",
+      "line": 321,
+      "severity": "P1",
+      "body": "No test removes an app that still has custom-domain bindings, so the cleanup loop in `AppService.remove` (lines 321-323) never runs. Add a test that adds and verifies a domain, unpublishes, and runs `apps.remove`. It should assert that `tls.remove` was called and the app_domains row is gone. Also assert that a `tls.remove` failure leaves the app in `removing` and that a retry succeeds."
+    },
+    {
+      "id": "F6",
+      "kind": "test",
+      "file": "apps/control-plane/src/apps/AppGateway.ts",
+      "line": 109,
+      "severity": "P1",
+      "body": "The custom-host rate limit (429 with `retry-after`, lines 109-112) is untested, so nothing shows that custom-host traffic is limited per app. Add a temp test that exhausts the `http` bucket for the app (for example by pre-consuming through `AppStore.consume`) and asserts that a custom-host request returns 429 with `retry-after: 60`."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "AppDomains.verify: a competing verified binding whose token is absent from current TXT is revoked and the new owner can verify (after F1 fix)",
+      "tier": "durable",
+      "rationale": "Guards the security invariant that current DNS proof, not historical proof, owns a hostname."
+    },
+    {
+      "target": "AppDomains.add reserved-host branch (AppDomains.ts:103-110) and creatorHandle go exclusion (creatorHost.ts:30)",
+      "tier": "tmp",
+      "rationale": "Uncovered line 108 and new go reservation behavior have no assertions."
+    },
+    {
+      "target": "packages/workspace-server/src/extensions/appsRouter.ts:38-61 and packages/halo-cli/src/app.ts:39-96",
+      "tier": "tmp",
+      "rationale": "Agent and CLI management paths are entirely unloaded by tests."
+    },
+    {
+      "target": "AppService.remove domain cleanup loop (AppService.ts:319-324)",
+      "tier": "tmp",
+      "rationale": "Lines 322-323 uncovered; verifies certificates and rows are cleaned up on app removal."
+    },
+    {
+      "target": "AppGateway.serveCustom 429 rate-limit path (AppGateway.ts:109-112)",
+      "tier": "tmp",
+      "rationale": "Uncovered public-traffic limit."
+    },
+    {
+      "target": "AppDomains tls-undefined branches (AppDomains.ts:85-88, 194-197)",
+      "tier": "tmp",
+      "rationale": "Deployments without a TLS provider must refuse add/verify with a clear error; construct AppDomains without tls in a temp test. Remaining DB-outage lines (AppGateway.ts:78-80, 105-107), the real DNS resolver (AppDomains.ts:30-31) and the defensive active-competition branch (AppDomains.ts:216) may instead carry coverage-exempt reasons."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "31328603514e701368909d352d42360b46164d54",
+  "treeHash": "79c1758a113028ffec9888680b8980212c20e363",
+  "codeTree": "80f76361806f57d5e5bfd2fc60968e2f88c4254b",
+  "coverage": {
+    "executable": 226,
+    "covered": 156,
+    "exempt": 0,
+    "uncovered": 70
+  },
+  "createdAt": "2026-10-20T00:49:59.046Z"
+}
