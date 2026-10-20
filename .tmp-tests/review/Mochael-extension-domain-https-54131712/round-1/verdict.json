@@ -1,0 +1,70 @@
+{
+  "status": "changes_requested",
+  "summary": "The change adds a Google Certificate Manager TLS provider for extension custom domains, wires it through the Cloud Run config, main.ts, and Pulumi, and moves `/health` ahead of host routing. It is not ready. The `/health` move breaks creator- and custom-host isolation and makes an existing durable test fail. The runtime IAM role probably lacks the `.use` permissions that Certificate Manager checks when one resource references another. Both test tiers fail, and several changed lines have no tests and no exemption.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "source",
+      "file": "apps/control-plane/src/server/controlPlaneHttp.ts",
+      "line": 204,
+      "severity": "P0",
+      "body": "The `/health` check now runs before any host routing, so it answers 200 on every Host. That includes creator hosts (`creator.<domain>/health`) and active custom domains. This breaks the existing isolation invariant, and the durable test `creator hosts never reach Halo routes…` now fails at test/ControlPlane.test.ts:5683 (expects 404, gets 200). It also hides any public extension's own `/health` route on its creator or custom host. Fix: keep the probe for unknown hosts only. In the non-main-host branch, call `serveCustom` first. If the host is neither custom nor a creator host, return 200 for `GET /health` and 404 for everything else. Another option is a host-independent probe path that apps cannot claim, with the Cloud Run probe updated to match. Both the old test and the new internal-host test must pass."
+    },
+    {
+      "id": "F2",
+      "kind": "source",
+      "file": "infra/control-plane/index.ts",
+      "line": 728,
+      "severity": "P1",
+      "body": "The custom role grants only create/get/delete. Certificate Manager also checks `use` permissions when a resource references another one. Creating a managed certificate with `dnsAuthorizations: [authName]` needs `certificatemanager.dnsauthorizations.use`. Creating a map entry with `certificates: [certificateName]` needs `certificatemanager.certs.use`, and inserting the entry into the shared map may need `certificatemanager.certmaps.use` or `certmaps.get`. Without them, step 2 and step 3 of `ensure` will return HTTP 403 in staging or production, and the unit tests cannot catch this. Check the required permissions against the Certificate Manager IAM reference and add any that are missing."
+    },
+    {
+      "id": "F3",
+      "kind": "source",
+      "file": "apps/control-plane/src/apps/GoogleAppDomainTls.ts",
+      "line": 116,
+      "severity": "P1",
+      "body": "`if (completed.error !== undefined)` can never be reached. `request()` already returns an `AppDomainHostError` whenever the parsed resource has an `error` field (lines 175-179), so a failed delete operation returns the generic 'operation failed; retry the domain command' error, not the cleanup-specific message. Lines 117-118 stay uncovered and cannot be covered. Fix: let `request()` return operation resources that carry an `error`, so callers can produce the right message, or delete this dead branch."
+    },
+    {
+      "id": "F4",
+      "kind": "test",
+      "file": "tmp/halo-marketing-links/archived-temp-tests/packages/config/src/.tmp-tests/marketing.test.ts",
+      "line": 3,
+      "severity": "P1",
+      "body": "The temp tier fails because two archived temp tests from another task (`tmp/halo-marketing-links/archived-temp-tests/.../.tmp-tests/marketing.test.ts`) are picked up and cannot resolve their relative imports (`../controlPlane.js`, `../fixtures.js`). They do not test this change. Move them out of `.tmp-tests` folders or delete them so the temp run passes."
+    },
+    {
+      "id": "F5",
+      "kind": "source",
+      "file": "packages/config/src/controlPlane.ts",
+      "line": 267,
+      "severity": "P1",
+      "body": "These changed lines have no tests and no accepted exemption: config lines 66-73 and 267-273, main.ts lines 13 and 41-48, and the new infra resources at index.ts lines 708-747 and 853-858. The config parsing is testable and needs a temp test. It should check that `APP_DOMAIN_*` env vars produce `customDomains`, that an absent map leaves it undefined, and that a partial or invalid set (missing project, bad address) fails validation. The main.ts bootstrap and the Pulumi declarations may use `coverage-exempt` comments like the existing ones in those files, but each needs a specific reason."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "apps/control-plane/src/server/controlPlaneHttp.ts:204 — after the F1 fix, `/health` returns 404 on creator hosts (existing test at ControlPlane.test.ts:5683) and 200 on an unknown internal host; an active custom-domain app's own `/health` reaches the app",
+      "tier": "durable",
+      "rationale": "The existing durable test already guards creator-host isolation. The new durable test guards the Cloud Run probe. Both must pass together."
+    },
+    {
+      "target": "packages/config/src/controlPlane.ts:267-273 and schema lines 66-73 — Cloud Run config parsing of APP_DOMAIN_* env vars (present, absent, partial/invalid)",
+      "tier": "tmp",
+      "rationale": "These are changed lines with no coverage. Misconfigured env vars must fail validation and not start a provider that is half-configured."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "4ae48c8524608063e09c039c4962bda7d991127f",
+  "treeHash": "d44c1970b8757a15c200a809057b42f075e098ee",
+  "codeTree": "e63914aa557c6103cd01edecbf85f3d156dce976",
+  "coverage": {
+    "executable": 129,
+    "covered": 59,
+    "exempt": 0,
+    "uncovered": 70
+  },
+  "createdAt": "2026-10-20T00:29:32.315Z"
+}
