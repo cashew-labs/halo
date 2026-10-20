@@ -710,6 +710,56 @@ if (ownsDeploymentAccess && exePrivateKeySecretId !== undefined)
     member: `serviceAccount:${deploymentServiceAccount}`,
   });
 
+// coverage-exempt: Pulumi resource declarations require an authenticated cloud preview; types and provider behavior are tested locally.
+const certificateManager = new gcp.projects.Service("certificate-manager", {
+  project,
+  service: "certificatemanager.googleapis.com",
+  disableOnDestroy: false,
+});
+// coverage-exempt: Pulumi resource declarations require an authenticated cloud preview; types and provider behavior are tested locally.
+const controlPlaneAddress = new gcp.compute.GlobalAddress(
+  "control-plane-address",
+  { name: controlPlaneServiceName, project },
+  { protect: true },
+);
+// coverage-exempt: Pulumi resource declarations require an authenticated cloud preview; types and provider behavior are tested locally.
+const controlPlaneCertificateMap = new gcp.certificatemanager.CertificateMap(
+  "control-plane-certificate-map",
+  { name: controlPlaneServiceName, project },
+  { dependsOn: [certificateManager] },
+);
+
+// coverage-exempt: Pulumi resource declarations require an authenticated cloud preview; types and provider behavior are tested locally.
+const appDomainCertificateRole = new gcp.projects.IAMCustomRole(
+  "app-domain-certificates",
+  {
+    project,
+    roleId: `${name.replaceAll("-", "_")}_app_domains`,
+    title: "Halo custom domain certificates",
+    permissions: [
+      "certificatemanager.dnsauthorizations.create",
+      "certificatemanager.dnsauthorizations.get",
+      "certificatemanager.dnsauthorizations.use",
+      "certificatemanager.dnsauthorizations.delete",
+      "certificatemanager.certs.create",
+      "certificatemanager.certs.get",
+      "certificatemanager.certs.use",
+      "certificatemanager.certs.delete",
+      "certificatemanager.certmapentries.create",
+      "certificatemanager.certmapentries.get",
+      "certificatemanager.certmaps.get",
+      "certificatemanager.certmaps.use",
+      "certificatemanager.certmapentries.delete",
+      "certificatemanager.operations.get",
+    ],
+  },
+);
+// coverage-exempt: Runtime IAM binding is applied by Pulumi, not executed by unit tests.
+new gcp.projects.IAMMember("runtime-app-domain-certificates", {
+  project,
+  role: appDomainCertificateRole.name,
+  member: pulumi.interpolate`serviceAccount:${runtime.email}`,
+});
 const controlPlane = new gcp.cloudrunv2.Service(
   "control-plane-service",
   {
@@ -825,6 +875,15 @@ const controlPlane = new gcp.cloudrunv2.Service(
               name: "GOOGLE_CLIENT_SECRET_ID",
               value: googleClientSecretId,
             },
+            // coverage-exempt: Cloud Run environment wiring is evaluated during Pulumi preview; configuration parsing is tested separately.
+            { name: "APP_DOMAIN_PROJECT_ID", value: project },
+            // coverage-exempt: Cloud Run environment wiring is evaluated during Pulumi preview.
+            {
+              name: "APP_DOMAIN_CERTIFICATE_MAP",
+              value: controlPlaneCertificateMap.name,
+            },
+            // coverage-exempt: Load-balancer address is a Pulumi output, not a runtime computation.
+            { name: "APP_DOMAIN_ADDRESS", value: controlPlaneAddress.address },
             { name: "TRACE_BUCKET", value: traces.name },
             ...(signInAllowlistSecretId === undefined
               ? []
@@ -888,16 +947,6 @@ const deploymentCertificateAccess = ownsDeploymentAccess
       }),
     ]
   : [];
-const certificateManager = new gcp.projects.Service("certificate-manager", {
-  project,
-  service: "certificatemanager.googleapis.com",
-  disableOnDestroy: false,
-});
-const controlPlaneAddress = new gcp.compute.GlobalAddress(
-  "control-plane-address",
-  { name: controlPlaneServiceName, project },
-  { protect: true },
-);
 const controlPlaneCertificate = new gcp.certificatemanager.Certificate(
   "control-plane-certificate",
   {
@@ -907,11 +956,6 @@ const controlPlaneCertificate = new gcp.certificatemanager.Certificate(
     managed: { domains: controlPlaneHostnames },
   },
   { dependsOn: [certificateManager, ...deploymentCertificateAccess] },
-);
-const controlPlaneCertificateMap = new gcp.certificatemanager.CertificateMap(
-  "control-plane-certificate-map",
-  { name: controlPlaneServiceName, project },
-  { dependsOn: [certificateManager] },
 );
 new gcp.certificatemanager.CertificateMapEntry(
   "control-plane-certificate-apex",

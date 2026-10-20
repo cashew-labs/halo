@@ -66,6 +66,16 @@ export const controlPlaneConfigSchema = Type.Union([
     port: portSchema,
     origin: Type.String({ pattern: "^https://" }),
     databaseUrl: Type.String({ minLength: 1 }),
+    customDomains: Type.Optional(
+      Type.Object(
+        {
+          projectId: Type.String({ pattern: "^[a-z][a-z0-9-]{4,61}[a-z0-9]$" }),
+          certificateMap: Type.String({ pattern: "^[a-z][a-z0-9-]{0,62}$" }),
+          address: Type.String({ pattern: "^(?:[0-9]{1,3}\\.){3}[0-9]{1,3}$" }),
+        },
+        { additionalProperties: false },
+      ),
+    ),
     traceBucket: Type.String({ minLength: 1 }),
     workspaceServiceAccount: Type.String({ minLength: 1 }),
     auth: authSchema,
@@ -262,6 +272,14 @@ async function readCloudRunConfig(): Promise<ControlPlaneConfig | Error> {
     origin,
     databaseUrl,
     googleAnalyticsMeasurementId: process.env.GOOGLE_ANALYTICS_MEASUREMENT_ID, // coverage-exempt: Bootstrap reads live Secret Manager credentials; the schema and HTTP configuration contract are tested.
+    customDomains:
+      process.env.APP_DOMAIN_CERTIFICATE_MAP === undefined
+        ? undefined
+        : {
+            projectId: process.env.APP_DOMAIN_PROJECT_ID,
+            certificateMap: process.env.APP_DOMAIN_CERTIFICATE_MAP,
+            address: process.env.APP_DOMAIN_ADDRESS,
+          },
     traceBucket: process.env.TRACE_BUCKET,
     gmail:
       process.env.GMAIL_PUBSUB_TOPIC === undefined
