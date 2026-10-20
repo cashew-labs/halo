@@ -53,7 +53,11 @@ import {
 import type { AppService } from "../apps/AppService.js";
 import type { AppGateway } from "../apps/AppGateway.js";
 import type { AppStore } from "../apps/AppStore.js";
-import { creatorHandle, isCreatorHost } from "../apps/creatorHost.js";
+import {
+  creatorHandle,
+  isCreatorHost,
+  normalizeHost,
+} from "../apps/creatorHost.js";
 import {
   isAppHandoffRequest,
   serveAppHandoff,
@@ -212,7 +216,10 @@ export function serveControlPlaneHttp(ctx: {
 
   server.removeListener("request", respondStarting);
   server.on("request", async (request, response) => {
-    const requestHost = (request.headers.host ?? "").toLowerCase();
+    const requestHost = normalizeHost({
+      publicOrigin,
+      host: request.headers.host,
+    });
     const mainHost = new URL(publicOrigin).host;
     if (requestHost !== mainHost && requestHost !== `www.${mainHost}`) {
       const custom = await ctx.appGateway.serveCustom({ request, response });
@@ -281,7 +288,8 @@ export function serveControlPlaneHttp(ctx: {
     upgradeSockets.add(socket);
     socket.once("close", () => upgradeSockets.delete(socket));
     if (
-      (request.headers.host ?? "").toLowerCase() !== new URL(publicOrigin).host
+      normalizeHost({ publicOrigin, host: request.headers.host }) !==
+      new URL(publicOrigin).host
     ) {
       respondToUpgrade(socket, 404);
       return;
