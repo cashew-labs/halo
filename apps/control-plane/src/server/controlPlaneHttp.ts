@@ -14,6 +14,7 @@ import {
   controlPlaneSupportedProtocols,
 } from "@get-halo/shared/controlPlaneContract";
 import { ORPCError } from "@orpc/server";
+import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import http, {
   createServer,
@@ -73,7 +74,11 @@ import { serveWorkspaceAutomationSnapshot } from "../workspace/workspaceAutomati
 import type { AutomationScheduleCoordinator } from "../workspace/AutomationScheduleCoordinator.js";
 
 const requestUrlBase = "http://localhost";
-function webContentSecurityPolicy(marketing: boolean) {
+function webContentSecurityPolicy(ctx: {
+  marketing: boolean;
+  scriptHashes: string[];
+}) {
+  const { marketing, scriptHashes } = ctx;
   return [
     "base-uri 'none'",
     `connect-src 'self'${marketing ? " https://buttondown.com https://www.googletagmanager.com https://*.google-analytics.com https://*.analytics.google.com" : ""}`,
@@ -84,10 +89,34 @@ function webContentSecurityPolicy(marketing: boolean) {
     `frame-src 'self'${marketing ? " https://cal.com https://app.cal.com" : ""}`,
     `img-src 'self' blob: data: https://gethalo.dev${marketing ? " https://www.googletagmanager.com https://*.google-analytics.com" : ""}`,
     "object-src 'none'",
-    `script-src 'self'${marketing ? " https://app.cal.com https://www.googletagmanager.com" : ""}`,
+    [
+      "script-src 'self'",
+      ...(marketing
+        ? ["https://app.cal.com", "https://www.googletagmanager.com"]
+        : []),
+      ...scriptHashes,
+    ].join(" "),
     "style-src 'self' 'unsafe-inline'",
     "worker-src 'self' blob:",
   ].join("; ");
+}
+
+/**
+ * CSP hashes for an HTML document's attribute-free inline scripts, computed
+ * from the served file so they cannot drift from its contents.
+ */
+function inlineScriptHashes(html: string) {
+  // Browsers hash script text after normalizing line endings to LF. Like the
+  // HTML parser, tag names are case-insensitive and the text ends at the first
+  // `</script` followed by whitespace, `/`, or `>`.
+  return [
+    ...html
+      .replaceAll("\r\n", "\n")
+      .matchAll(/<script\s*>([\s\S]*?)<\/script[\s/>]/gi),
+  ].map(
+    ([, source]) =>
+      `'sha256-${createHash("sha256").update(source!).digest("base64")}'`,
+  );
 }
 
 class ControlPlaneHttpError extends errore.createTaggedError({
@@ -797,7 +826,13 @@ async function serveWebApp(ctx: {
   response.writeHead(200, {
     "cache-control": webCacheControl(url.pathname),
     "content-length": content.byteLength,
-    "content-security-policy": webContentSecurityPolicy(ctx.marketing),
+    "content-security-policy": webContentSecurityPolicy({
+      marketing: ctx.marketing,
+      scriptHashes:
+        path.extname(filePath) === ".html"
+          ? inlineScriptHashes(content.toString("utf8"))
+          : [],
+    }),
     "content-type": webContentType(filePath),
     "x-content-type-options": "nosniff",
   });
