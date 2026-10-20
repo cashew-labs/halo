@@ -61,44 +61,42 @@ measurement.
 
 ## Custom shortener at go.gethalo.dev
 
-The custom **hosted Halo extension** will own link storage and the agent API.
-There is no third-party shortening provider and no management UI. The public
-website only needs the GA integration above to attribute visits and conversions.
+Halo's regular control-plane server owns `go.<control-plane-host>/:slug`.
+It returns a 302 to the Halo homepage with the link's configured campaign tags.
+No hosted extension, workspace, or signed-in desktop session participates.
+`go` is reserved and cannot be claimed as a creator handle.
 
-A short link must redirect to a tagged destination such as:
+Links are deployment configuration, managed by operators through review, not a
+public API. JSON server configurations accept `marketingLinks`; environment-based
+hosts accept the same object in `HALO_MARKETING_LINKS`:
 
+```json
+{
+  "linkedin-launch": {
+    "utm_source": "linkedin",
+    "utm_medium": "social",
+    "utm_campaign": "launch"
+  }
+}
 ```
-https://gethalo.dev/?utm_source=linkedin&utm_medium=social&utm_campaign=launch
-```
 
-Use `utm_source`, `utm_medium`, and `utm_campaign` consistently; optionally add
-`utm_content` and `utm_term`. The landing page forwards these five fields into
-Cal.com's booking configuration and Buttondown's `metadata__utm_*` fields.
-Google Analytics reads the tags on the destination, so the shortener does not
-need a GA tag for this flow.
+This example resolves `https://go.gethalo.dev/linkedin-launch` to
+`https://gethalo.dev/?utm_source=linkedin&utm_medium=social&utm_campaign=launch`.
+No campaign mappings are enabled by default. Add the actual campaign map before
+sharing links. Required tags are `utm_source`, `utm_medium`, and `utm_campaign`;
+`utm_content` and `utm_term` are optional. Slugs use 1–63 lowercase letters,
+numbers, or hyphens, starting with a letter or number. Invalid configuration
+stops startup. Updating or deleting a link requires a configuration rollout.
 
-Before the shortener can run, its deployment must:
+GET and HEAD resolve configured slugs, with an optional trailing slash. Unknown
+paths return 404; other methods return 405. Responses are not cached. Visitor
+query strings never replace the configured tags or destination. No authenticated
+Halo routes or extension sync/API surfaces are served on this host.
 
-- Reserve `go` for the Halo marketing service so a normal creator cannot claim
-  the trusted hostname.
-- Route `go.gethalo.dev/:slug` to that one hosted extension's public resolution
-  endpoint and return an HTTP redirect. The current app gateway exposes
-  `/<app>/view`, `/api`, and `/sync`; it does not yet map short paths to an
-  extension. A CNAME alone does not add that mapping.
-- Verify DNS and HTTPS for `go.gethalo.dev`. The control-plane infrastructure
-  declares wildcard creator DNS and certificates; check that they are active
-  before adding a record. If a separate ingress is chosen, configure its DNS
-  target and certificate instead.
-- Keep link creation, editing, listing, and deletion behind an explicit Halo
-  admin authorization check or narrowly scoped admin-agent credentials. An
-  extension owner/member role is not a Halo administrator role. Expose only
-  destination lookup to anonymous visitors and block public storage sync.
-- Keep the published extension available independently of desktop sessions.
-
-This PR does not deploy the extension, reserve `go`, configure its DNS, or add
-its hostname-to-extension route. Those require the actual extension and its
-hosting target. Do not point DNS at an ordinary creator app and assume short
-paths or admin protections are provided automatically.
+The existing landing page forwards these five tags into Cal.com and Buttondown
+and reports attribution to GA4. The redirect does not need its own analytics tag.
+DNS and HTTPS must route this hostname to the regular control plane; see
+[the infrastructure guide](../../infra/README.md).
 
 ## References
 

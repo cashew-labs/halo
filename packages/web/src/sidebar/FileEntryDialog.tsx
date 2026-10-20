@@ -4,7 +4,6 @@ import {
   Button,
   Select,
   SelectItem,
-  TextField,
   backgroundColor,
   flex,
   radius,
@@ -15,7 +14,6 @@ import {
 import { style, useStyles } from "purse-styles";
 
 export type FileEntryAction =
-  | { kind: "rename"; path: string; isDirectory: boolean }
   | { kind: "delete"; path: string; isDirectory: boolean }
   | { kind: "move"; path: string; isDirectory: boolean };
 
@@ -37,7 +35,6 @@ export function FileEntryDialog({
   onClose(): void;
 }) {
   const originalName = action.path.slice(action.path.lastIndexOf("/") + 1);
-  const [name, setName] = useState(originalName);
   const [folder, setFolder] = useState(
     action.path.slice(0, Math.max(0, action.path.lastIndexOf("/"))),
   );
@@ -45,23 +42,15 @@ export function FileEntryDialog({
   const modal = useStyles(styles.modal);
   const form = useStyles(styles.form);
   const heading = useStyles(styles.heading);
-  const label = useStyles(styles.label);
   const buttons = useStyles(styles.buttons);
   const errorClass = useStyles(styles.error);
   const title =
-    action.kind === "rename"
-      ? "Rename"
-      : action.kind === "delete"
-        ? `Delete ${originalName}?`
-        : `Move ${originalName}`;
-  const validName =
-    action.kind === "delete" ||
-    (name.trim().length > 0 &&
-      !/[\\/]/.test(name) &&
-      !name.startsWith(".") &&
-      name !== "node_modules");
-  const destination = folder === "" ? name.trim() : `${folder}/${name.trim()}`;
-  const unchanged = action.kind !== "delete" && destination === action.path;
+    action.kind === "delete"
+      ? `Delete ${originalName}?`
+      : `Move ${originalName}`;
+  const destination =
+    folder === "" ? originalName : `${folder}/${originalName}`;
+  const unchanged = action.kind === "move" && destination === action.path;
   const availableFolders = folders.filter(
     (path) =>
       !action.isDirectory ||
@@ -84,7 +73,7 @@ export function FileEntryDialog({
             className={form}
             onSubmit={(event) => {
               event.preventDefault();
-              if (validName && !unchanged && !pending)
+              if (!unchanged && !pending)
                 onSubmit(action.kind === "delete" ? action.path : destination);
             }}
           >
@@ -98,27 +87,7 @@ export function FileEntryDialog({
                 . This cannot be undone.
               </p>
             )}
-            {action.kind !== "move" && action.kind !== "delete" && (
-              <label className={label}>
-                Name
-                <TextField
-                  aria-label="Name"
-                  value={name}
-                  onChange={setName}
-                  autoFocus
-                  isDisabled={pending}
-                  onFocus={(event) => {
-                    const input = event.target;
-                    const dot = input.value.lastIndexOf(".");
-                    input.setSelectionRange(
-                      0,
-                      dot > 0 ? dot : input.value.length,
-                    );
-                  }}
-                />
-              </label>
-            )}
-            {action.kind !== "rename" && action.kind !== "delete" && (
+            {action.kind === "move" && (
               <Select
                 label="Move to"
                 selectedKey={folder === "" ? "/" : folder}
@@ -129,7 +98,7 @@ export function FileEntryDialog({
                   onBrowseFolder(path);
                 }}
                 isDisabled={pending}
-                autoFocus={action.kind === "move"}
+                autoFocus
               >
                 {availableFolders.map((path) => (
                   <SelectItem key={path} id={path === "" ? "/" : path}>
@@ -150,7 +119,7 @@ export function FileEntryDialog({
               <Button
                 type="submit"
                 variant="primary"
-                isDisabled={!validName || unchanged || pending}
+                isDisabled={unchanged || pending}
               >
                 {pending
                   ? action.kind === "delete"
@@ -158,9 +127,7 @@ export function FileEntryDialog({
                     : "Saving…"
                   : action.kind === "delete"
                     ? "Delete"
-                    : action.kind === "rename"
-                      ? "Rename"
-                      : "Move"}
+                    : "Move"}
               </Button>
             </div>
           </form>
@@ -190,7 +157,6 @@ const styles = {
     margin: 0,
     overflowWrap: "anywhere",
   }),
-  label: style(text({ size: "sm" }), flex({ direction: "column", gap: 2 })),
   buttons: style(flex({ justifyContent: "end", gap: 3 }), {
     marginTop: spacing.value(2),
     "& button": { transition: "none" },

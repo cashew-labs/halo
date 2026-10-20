@@ -1,3 +1,7 @@
+import {
+  controlPlaneConfigSchema,
+  type ControlPlaneConfig,
+} from "@get-halo/config/controlPlane";
 import crypto from "node:crypto";
 import { OAuth2Client } from "google-auth-library";
 import { gzipSync } from "node:zlib";
@@ -219,6 +223,7 @@ const controlPlaneTest = test.extend<{
   plane: ControlPlane;
   rpc: ControlPlaneClient;
   webRoot: string;
+  marketingLinks: ControlPlaneConfig["marketingLinks"];
   googleAnalyticsMeasurementId: string | undefined;
   environment: "production" | "staging" | "development" | undefined;
   workspaceProvider: WorkspaceProviderApi;
@@ -879,6 +884,7 @@ const controlPlaneTest = test.extend<{
     await use(appDataDir);
     await fs.rm(appDataDir, { recursive: true, force: true });
   },
+  marketingLinks: undefined,
   googleAnalyticsMeasurementId: undefined,
   environment: undefined,
   webRoot: async ({ appDataDir }, use) => {
@@ -899,6 +905,7 @@ const controlPlaneTest = test.extend<{
       inferenceApi,
       integrationApi,
       allowLocalIntegrationUrls,
+      marketingLinks,
       googleAnalyticsMeasurementId,
       environment,
     },
@@ -911,6 +918,7 @@ const controlPlaneTest = test.extend<{
         workspace: { deployment: "local" },
         appDataDir,
         port: 0,
+        marketingLinks,
         googleAnalyticsMeasurementId,
         environment,
         auth: testAuth,
@@ -6673,5 +6681,159 @@ marketingPlaneTest(
       expect(policy).not.toContain("google-analytics");
       expect(policy).not.toContain("cal.com");
     }
+  },
+);
+
+// Durable: protects public attribution and isolation from authenticated Halo routes.
+const marketingLinkTest = controlPlaneTest.extend({
+  marketingLinks: {
+    launch: {
+      utm_source: "linkedin",
+      utm_medium: "social",
+      utm_campaign: "Halo & friends",
+      utm_content: "first post",
+      utm_term: "desktop",
+    },
+  },
+});
+
+marketingLinkTest(
+  "marketing short links resolve without a workspace or sign-in",
+  async ({ plane, authenticatedRpc, workspaceHost }) => {
+    const port = new URL(plane.origin).port;
+    const request = async (
+      path: string,
+      method = "GET",
+      host = `go.localhost:${port}`,
+    ) =>
+      await new Promise<{
+        status: number;
+        headers: http.IncomingHttpHeaders;
+        body: string;
+      }>((complete, reject) => {
+        const outgoing = http.request(
+          { hostname: "127.0.0.1", port, path, method, headers: { host } },
+          (response) => {
+            const chunks: Buffer[] = [];
+            response.on("data", (chunk: Buffer) => chunks.push(chunk));
+            response.on("end", () =>
+              complete({
+                status: response.statusCode!,
+                headers: response.headers,
+                body: Buffer.concat(chunks).toString(),
+              }),
+            );
+          },
+        );
+        outgoing.on("error", reject);
+        outgoing.end();
+      });
+    for (const path of [
+      "/launch",
+      "/launch/",
+      "/launch?utm_source=evil&url=https://evil.example&code=secret",
+    ]) {
+      for (const method of ["GET", "HEAD"]) {
+        const response = await request(path, method);
+        expect(response.status).toBe(302);
+        const destination = new URL(response.headers.location!);
+        expect(destination.origin).toBe(plane.origin);
+        expect(destination.pathname).toBe("/");
+        expect(Object.fromEntries(destination.searchParams)).toEqual({
+          utm_source: "linkedin",
+          utm_medium: "social",
+          utm_campaign: "Halo & friends",
+          utm_content: "first post",
+          utm_term: "desktop",
+        });
+        expect(response.headers["cache-control"]).toBe("no-store");
+        expect(response.headers["set-cookie"]).toBeUndefined();
+        expect(response.body).toBe("");
+      }
+    }
+    expect(
+      (await request("/launch", "GET", `GO.LOCALHOST:${port}`)).status,
+    ).toBe(302);
+    for (const path of [
+      "/",
+      "/missing",
+      "/toString",
+      "/constructor",
+      "/api/auth/get-session",
+      "/rpc/server/info",
+      "/workspace/health",
+      "/launch/sync",
+      "/%6caunch",
+      "/other/../launch",
+      "//launch",
+      "/launch\\other",
+    ]) {
+      const response = await request(path);
+      expect([path, response.status]).toEqual([path, 404]);
+    }
+    const post = await request("/launch", "POST");
+    expect(post.status).toBe(405);
+    expect(post.headers.allow).toBe("GET, HEAD");
+    expect(
+      (await request("/launch", "GET", `creator.localhost:${port}`)).status,
+    ).toBe(404);
+    expect((await request("/health", "GET", `127.0.0.1:${port}`)).status).toBe(
+      200,
+    );
+    await expect(
+      authenticatedRpc.apps.renamePublisher({ handle: "go" }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(workspaceHost.requests).toEqual([]);
+  },
+);
+
+controlPlaneTest(
+  "marketing short links are absent by default and config rejects invalid maps",
+  async ({ plane, appDataDir }) => {
+    const port = new URL(plane.origin).port;
+    const status = await new Promise<number>((complete, reject) => {
+      const outgoing = http.request(
+        {
+          hostname: "127.0.0.1",
+          port,
+          path: "/launch",
+          headers: { host: `go.localhost:${port}` },
+        },
+        (response) => {
+          response.resume();
+          complete(response.statusCode!);
+        },
+      );
+      outgoing.on("error", reject);
+      outgoing.end();
+    });
+    expect(status).toBe(404);
+    const config = {
+      deployment: "local",
+      appDataDir,
+      port: 0,
+      auth: testAuth,
+      workspace: { deployment: "local" },
+    };
+    const tags = {
+      utm_source: "source",
+      utm_medium: "social",
+      utm_campaign: "launch",
+    };
+    expect(
+      Value.Check(controlPlaneConfigSchema, {
+        ...config,
+        marketingLinks: { launch: tags },
+      }),
+    ).toBe(true);
+    for (const marketingLinks of [
+      { "../launch": tags },
+      { launch: { ...tags, url: "https://evil.example" } },
+      { launch: { utm_source: "source" } },
+      { launch: { ...tags, utm_medium: "" } },
+    ])
+      expect(
+        Value.Check(controlPlaneConfigSchema, { ...config, marketingLinks }),
+      ).toBe(false);
   },
 );
