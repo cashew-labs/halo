@@ -1,5 +1,6 @@
 import Cal, { getCalApi, type EmbedEvent } from "@calcom/embed-react";
 import * as errore from "errore";
+import { useTheme } from "maui";
 import { useEffect } from "react";
 import { marketingCampaign, trackCallBooking } from "./marketingAnalytics.js";
 
@@ -9,6 +10,7 @@ class BookingEmbedError extends errore.createTaggedError({
 }) {}
 
 export function EarlyAccessBooking({ className }: { className: string }) {
+  const { resolvedTheme } = useTheme();
   useEffect(() => {
     let active = true;
     let calApi: Awaited<ReturnType<typeof getCalApi>> | undefined;
@@ -42,7 +44,7 @@ export function EarlyAccessBooking({ className }: { className: string }) {
       calLink="team/halo/halo-early-access-chat"
       calOrigin="https://cal.com"
       className={className}
-      config={{ theme: "light", ...marketingCampaign() }}
+      config={{ theme: resolvedTheme, ...marketingCampaign() }}
     />
   );
 }
