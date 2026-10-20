@@ -6,6 +6,7 @@ import * as errore from "errore";
 import { ApplicationMode } from "./ApplicationMode.js";
 import { readGcpSecret } from "./readGcpSecret.js";
 
+const ipv4Octet = "(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])";
 const developmentPort = 8787;
 const secretProjectId = "halo-relay";
 const developmentAuthSecretIds = {
@@ -79,7 +80,9 @@ export const controlPlaneConfigSchema = Type.Union([
         {
           projectId: Type.String({ pattern: "^[a-z][a-z0-9-]{4,61}[a-z0-9]$" }),
           certificateMap: Type.String({ pattern: "^[a-z][a-z0-9-]{0,62}$" }),
-          address: Type.String({ pattern: "^(?:[0-9]{1,3}\\.){3}[0-9]{1,3}$" }),
+          address: Type.String({
+            pattern: `^(?:${ipv4Octet}\\.){3}${ipv4Octet}$`,
+          }),
         },
         { additionalProperties: false },
       ),
