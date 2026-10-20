@@ -210,6 +210,9 @@ importers:
         specifier: ^4.23.13
         version: 4.23.13
     devDependencies:
+      '@get-halo/cli':
+        specifier: workspace:*
+        version: link:../../packages/halo-cli
       '@get-halo/logger':
         specifier: workspace:*
         version: link:../../packages/logger

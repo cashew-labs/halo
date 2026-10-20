@@ -68,7 +68,7 @@ export default http;
 ```
 
 The standalone route is `/http/launch`; published creator URLs use
-`/<app>/http/launch`. Custom hostname binding is planned for the next PR of this stack; it is not
-available in this layer. Redirect locations must be absolute HTTP(S) URLs, and HTTP responses
+`/<app>/http/launch`. A verified custom hostname maps `/launch` directly to this HTTP surface.
+Use `halo app domain` to manage its DNS proof and activation. Redirect locations must be absolute HTTP(S) URLs, and HTTP responses
 cannot set cookies. Missing handlers return 404. Existing `/api`, `/sync`, and
 `/view` behavior and proxy authentication are unchanged.

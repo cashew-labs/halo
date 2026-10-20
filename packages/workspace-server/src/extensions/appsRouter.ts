@@ -35,6 +35,30 @@ async function forward<T>(
 }
 
 export const appsRouter = os.router({
+  domains: os.domains.router({
+    add: os.domains.add.handler(
+      async ({ context, input }) =>
+        await forward(context, async (apps) => await apps.domains.add(input)),
+    ),
+    list: os.domains.list.handler(
+      async ({ context, input }) =>
+        await forward(context, async (apps) => await apps.domains.list(input)),
+    ),
+    verify: os.domains.verify.handler(
+      async ({ context, input }) =>
+        await forward(
+          context,
+          async (apps) => await apps.domains.verify(input),
+        ),
+    ),
+    remove: os.domains.remove.handler(
+      async ({ context, input }) =>
+        await forward(
+          context,
+          async (apps) => await apps.domains.remove(input),
+        ),
+    ),
+  }),
   publisher: os.publisher.handler(
     async ({ context }) =>
       await forward(context, async (apps) => await apps.publisher()),

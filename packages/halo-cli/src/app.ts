@@ -36,6 +36,67 @@ export const app = Cli.create("app", {
   description:
     "Publish extensions as shared apps and edit, build or restart them on their app VM",
 })
+  .command(
+    Cli.create("domain", {
+      description: "Manage DNS-verified custom hostnames for a published app",
+    })
+      .command("add", {
+        description: "Create DNS verification instructions",
+        args: z.object({ appId, hostname: z.string() }),
+        env,
+        async run(c) {
+          const result = await request(
+            c.env,
+            async (client) => await client.apps.domains.add(c.args),
+          );
+          if (result instanceof Error)
+            return c.error({ code: "APP_DOMAIN", message: result.message });
+          return c.ok(result);
+        },
+      })
+      .command("list", {
+        description: "List custom domains and routing records",
+        args: z.object({ appId }),
+        env,
+        async run(c) {
+          const result = await request(
+            c.env,
+            async (client) => await client.apps.domains.list(c.args),
+          );
+          if (result instanceof Error)
+            return c.error({ code: "APP_DOMAIN", message: result.message });
+          return c.ok(result);
+        },
+      })
+      .command("verify", {
+        description: "Verify DNS and provision HTTPS; repeat until active",
+        args: z.object({ appId, hostname: z.string() }),
+        env,
+        async run(c) {
+          const result = await request(
+            c.env,
+            async (client) => await client.apps.domains.verify(c.args),
+          );
+          if (result instanceof Error)
+            return c.error({ code: "APP_DOMAIN", message: result.message });
+          return c.ok(result);
+        },
+      })
+      .command("remove", {
+        description: "Disable a hostname and remove its certificate",
+        args: z.object({ appId, hostname: z.string() }),
+        env,
+        async run(c) {
+          const result = await request(
+            c.env,
+            async (client) => await client.apps.domains.remove(c.args),
+          );
+          if (result instanceof Error)
+            return c.error({ code: "APP_DOMAIN", message: result.message });
+          return c.ok(result ?? { removed: c.args.hostname });
+        },
+      }),
+  )
   .command("list", {
     description: "List your published apps with their links and access",
     env,
