@@ -1,7 +1,3 @@
-import {
-  controlPlaneConfigSchema,
-  type ControlPlaneConfig,
-} from "@get-halo/config/controlPlane";
 import crypto from "node:crypto";
 import { OAuth2Client } from "google-auth-library";
 import { gzipSync } from "node:zlib";
@@ -223,7 +219,9 @@ const controlPlaneTest = test.extend<{
   plane: ControlPlane;
   rpc: ControlPlaneClient;
   webRoot: string;
-  marketingLinks: ControlPlaneConfig["marketingLinks"];
+  marketingAdminUserIds: string[];
+  marketingHostname: string | undefined;
+  marketingHomepageOrigin: string | undefined;
   googleAnalyticsMeasurementId: string | undefined;
   environment: "production" | "staging" | "development" | undefined;
   workspaceProvider: WorkspaceProviderApi;
@@ -884,7 +882,9 @@ const controlPlaneTest = test.extend<{
     await use(appDataDir);
     await fs.rm(appDataDir, { recursive: true, force: true });
   },
-  marketingLinks: undefined,
+  marketingAdminUserIds: [],
+  marketingHostname: undefined,
+  marketingHomepageOrigin: undefined,
   googleAnalyticsMeasurementId: undefined,
   environment: undefined,
   webRoot: async ({ appDataDir }, use) => {
@@ -905,7 +905,9 @@ const controlPlaneTest = test.extend<{
       inferenceApi,
       integrationApi,
       allowLocalIntegrationUrls,
-      marketingLinks,
+      marketingAdminUserIds,
+      marketingHostname,
+      marketingHomepageOrigin,
       googleAnalyticsMeasurementId,
       environment,
     },
@@ -918,7 +920,9 @@ const controlPlaneTest = test.extend<{
         workspace: { deployment: "local" },
         appDataDir,
         port: 0,
-        marketingLinks,
+        marketingAdminUserIds,
+        marketingHostname,
+        marketingHomepageOrigin,
         googleAnalyticsMeasurementId,
         environment,
         auth: testAuth,
@@ -4672,6 +4676,7 @@ async function createAuthenticatedHeaders(
   appDataDir: string,
   origin: string,
   email = "desktop@example.com",
+  userId?: string,
 ) {
   using database = new DatabaseSync(join(appDataDir, "control-plane.db"));
   const auth = betterAuth({
@@ -4682,6 +4687,7 @@ async function createAuthenticatedHeaders(
   });
   const context = await auth.$context;
   const user = context.test.createUser({
+    id: userId ?? crypto.randomUUID(),
     email,
     name: "Desktop User",
   });
@@ -6686,25 +6692,34 @@ marketingPlaneTest(
 
 // Durable: protects public attribution and isolation from authenticated Halo routes.
 const marketingLinkTest = controlPlaneTest.extend({
-  marketingLinks: {
-    launch: {
+  marketingAdminUserIds: ["marketing-admin"],
+});
+
+marketingLinkTest(
+  "marketing short links resolve without a workspace or sign-in",
+  async ({ plane, authenticatedRpc, workspaceHost, appDataDir }) => {
+    const headers = await createAuthenticatedHeaders(
+      appDataDir,
+      plane.origin,
+      "admin@example.com",
+      "marketing-admin",
+    );
+    headers.set("origin", plane.origin);
+    const admin = createControlPlaneRpcClient(plane.origin, headers);
+    const tags = {
       utm_source: "linkedin",
       utm_medium: "social",
       utm_campaign: "Halo & friends",
       utm_content: "first post",
       utm_term: "desktop",
-    },
-  },
-});
-
-marketingLinkTest(
-  "marketing short links resolve without a workspace or sign-in",
-  async ({ plane, authenticatedRpc, workspaceHost }) => {
+    };
+    await admin.marketing.create({ slug: "launch", tags });
     const port = new URL(plane.origin).port;
     const request = async (
       path: string,
       method = "GET",
       host = `go.localhost:${port}`,
+      upgrade = false,
     ) =>
       await new Promise<{
         status: number;
@@ -6712,7 +6727,15 @@ marketingLinkTest(
         body: string;
       }>((complete, reject) => {
         const outgoing = http.request(
-          { hostname: "127.0.0.1", port, path, method, headers: { host } },
+          {
+            hostname: "127.0.0.1",
+            port,
+            path,
+            method,
+            headers: upgrade
+              ? { host, connection: "upgrade", upgrade: "websocket" }
+              : { host },
+          },
           (response) => {
             const chunks: Buffer[] = [];
             response.on("data", (chunk: Buffer) => chunks.push(chunk));
@@ -6754,6 +6777,20 @@ marketingLinkTest(
     expect(
       (await request("/launch", "GET", `GO.LOCALHOST:${port}`)).status,
     ).toBe(302);
+    // Public marketing hostname isolation does not depend on a Host port spelling.
+    for (const host of [
+      "go.localhost:443",
+      "go.localhost:12345",
+      "go.localhost",
+    ]) {
+      expect((await request("/launch", "GET", host)).status).toBe(302);
+      expect((await request("/rpc/marketing/list", "GET", host)).status).toBe(
+        404,
+      );
+      expect(
+        (await request("/workspace/health", "GET", host, true)).status,
+      ).toBe(404);
+    }
     for (const path of [
       "/",
       "/missing",
@@ -6783,13 +6820,30 @@ marketingLinkTest(
     await expect(
       authenticatedRpc.apps.renamePublisher({ handle: "go" }),
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await admin.marketing.update({
+      slug: "launch",
+      tags: { ...tags, utm_campaign: "updated" },
+      enabled: true,
+    });
+    expect(
+      new URL((await request("/launch")).headers.location!).searchParams.get(
+        "utm_campaign",
+      ),
+    ).toBe("updated");
+    await admin.marketing.update({ slug: "launch", tags, enabled: false });
+    expect((await request("/launch")).status).toBe(404);
+    expect((await request("/launch", "HEAD")).status).toBe(404);
+    await admin.marketing.update({ slug: "launch", tags, enabled: true });
+    expect((await request("/launch")).status).toBe(302);
+    await admin.marketing.remove({ slug: "launch" });
+    expect((await request("/launch")).status).toBe(404);
     expect(workspaceHost.requests).toEqual([]);
   },
 );
 
 controlPlaneTest(
-  "marketing short links are absent by default and config rejects invalid maps",
-  async ({ plane, appDataDir }) => {
+  "marketing short links are absent until an administrator creates them",
+  async ({ plane }) => {
     const port = new URL(plane.origin).port;
     const status = await new Promise<number>((complete, reject) => {
       const outgoing = http.request(
@@ -6808,32 +6862,232 @@ controlPlaneTest(
       outgoing.end();
     });
     expect(status).toBe(404);
-    const config = {
-      deployment: "local",
+  },
+);
+
+const marketingAdminTest = controlPlaneTest.extend({
+  marketingAdminUserIds: ["marketing-admin"],
+});
+const campaignTags = {
+  utm_source: "linkedin",
+  utm_medium: "social",
+  utm_campaign: "launch",
+};
+
+marketingAdminTest(
+  "marketing admin API creates, edits, disables and removes campaigns",
+  async ({ plane, appDataDir }) => {
+    const headers = await createAuthenticatedHeaders(
       appDataDir,
-      port: 0,
-      auth: testAuth,
-      workspace: { deployment: "local" },
+      plane.origin,
+      "admin@example.com",
+      "marketing-admin",
+    );
+    headers.set("origin", plane.origin);
+    const admin = createControlPlaneRpcClient(plane.origin, headers);
+    expect(await admin.marketing.list()).toEqual([]);
+    const input = { slug: "launch", tags: campaignTags };
+    expect(await admin.marketing.create(input)).toEqual({
+      ...input,
+      enabled: true,
+    });
+    const competing = await Promise.allSettled([
+      admin.marketing.create({ ...input, slug: "concurrent" }),
+      admin.marketing.create({ ...input, slug: "concurrent" }),
+    ]);
+    expect(competing.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    await expect(admin.marketing.create(input)).rejects.toMatchObject({
+      code: "CONFLICT",
+    });
+    const changed = {
+      ...input,
+      tags: { ...campaignTags, utm_content: "new & tagged" },
+      enabled: false,
     };
-    const tags = {
-      utm_source: "source",
-      utm_medium: "social",
-      utm_campaign: "launch",
-    };
-    expect(
-      Value.Check(controlPlaneConfigSchema, {
-        ...config,
-        marketingLinks: { launch: tags },
-      }),
-    ).toBe(true);
-    for (const marketingLinks of [
-      { "../launch": tags },
-      { launch: { ...tags, url: "https://evil.example" } },
-      { launch: { utm_source: "source" } },
-      { launch: { ...tags, utm_medium: "" } },
+    expect(await admin.marketing.update(changed)).toEqual(changed);
+    expect(await admin.marketing.list()).toContainEqual(changed);
+    await admin.marketing.remove({ slug: "launch" });
+    expect((await admin.marketing.list()).map((c) => c.slug)).toEqual([
+      "concurrent",
+    ]);
+    await expect(admin.marketing.update(changed)).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+    await expect(
+      admin.marketing.remove({ slug: "missing" }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    // Use the actual request boundary to verify runtime schema validation.
+    for (const json of [
+      { ...input, slug: "../bad" },
+      { ...input, tags: { ...campaignTags, utm_source: " " } },
+      { ...input, ownerUserId: "forged" },
+      {
+        ...input,
+        tags: { ...campaignTags, destination: "https://evil.example" },
+      },
+    ]) {
+      const response = await fetch(`${plane.origin}/rpc/marketing/create`, {
+        method: "POST",
+        headers: {
+          cookie: headers.get("cookie")!,
+          origin: plane.origin,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ json }),
+      });
+      expect(response.status).toBe(400);
+    }
+  },
+);
+
+marketingAdminTest(
+  "marketing admin API rejects ordinary accounts, forged identities and cross-origin cookies",
+  async ({ plane, appDataDir, authenticatedRpc, rpc }) => {
+    const input = { slug: "launch", tags: campaignTags };
+    for (const operation of [
+      async () => await authenticatedRpc.marketing.create(input),
+      async () => await authenticatedRpc.marketing.list(),
+      async () =>
+        await authenticatedRpc.marketing.update({ ...input, enabled: false }),
+      async () => await authenticatedRpc.marketing.remove({ slug: "launch" }),
     ])
+      await expect(operation()).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(rpc.marketing.list()).rejects.toMatchObject({
+      code: "FORBIDDEN",
+    });
+    await authenticatedRpc.workspace.ensure();
+    const regularRuntime = await readRuntimeSettings(appDataDir);
+    await expect(
+      createControlPlaneRpcClient(
+        plane.origin,
+        regularRuntime.token,
+      ).marketing.list(),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    const headers = await createAuthenticatedHeaders(
+      appDataDir,
+      plane.origin,
+      "admin@example.com",
+      "marketing-admin",
+    );
+    headers.set("origin", "https://other.example");
+    await expect(
+      createControlPlaneRpcClient(plane.origin, headers).marketing.create(
+        input,
+      ),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    headers.delete("origin");
+    await expect(
+      createControlPlaneRpcClient(plane.origin, headers).marketing.list(),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    headers.set("origin", plane.origin);
+    const admin = createControlPlaneRpcClient(plane.origin, headers);
+    await admin.workspace.ensure();
+    const runtime = await readRuntimeSettings(appDataDir);
+    const agent = createControlPlaneRpcClient(plane.origin, runtime.token);
+    await agent.marketing.create(input);
+    expect(await admin.marketing.list()).toEqual([{ ...input, enabled: true }]);
+    await expect(
+      createControlPlaneRpcClient(plane.origin, "fake-token").marketing.list(),
+    ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  },
+);
+
+controlPlaneTest(
+  "marketing admin API grants no access when no administrators are configured",
+  async ({ authenticatedRpc }) => {
+    await expect(authenticatedRpc.marketing.list()).rejects.toMatchObject({
+      code: "FORBIDDEN",
+    });
+  },
+);
+
+controlPlaneTest.extend({
+  marketingAdminUserIds: ["staging-admin"],
+  marketingHostname: "go.gethalo.dev",
+  marketingHomepageOrigin: "https://gethalo.dev",
+})(
+  "staging administrators manage production marketing URLs without production credentials",
+  async ({ plane, appDataDir }) => {
+    const headers = await createAuthenticatedHeaders(
+      appDataDir,
+      plane.origin,
+      "staging-admin@example.com",
+      "staging-admin",
+    );
+    headers.set("origin", plane.origin);
+    const admin = createControlPlaneRpcClient(plane.origin, headers);
+    expect(await admin.auth.session()).toMatchObject({ status: "signed-in" });
+    await admin.workspace.ensure();
+    const settings = await readRuntimeSettings(appDataDir);
+    const agent = createControlPlaneRpcClient(plane.origin, settings.token);
+    const tags = {
+      utm_source: "linkedin",
+      utm_medium: "social",
+      utm_campaign: "production launch",
+    };
+    await agent.marketing.create({ slug: "launch", tags });
+    const port = new URL(plane.origin).port;
+    const request = async (
+      path: string,
+      method = "GET",
+      host = "go.gethalo.dev",
+      upgrade = false,
+    ) =>
+      await new Promise<{ status: number; location: string | undefined }>(
+        (done, reject) => {
+          const outgoing = http.request(
+            {
+              hostname: "127.0.0.1",
+              port,
+              path,
+              method,
+              headers: upgrade
+                ? { host, connection: "upgrade", upgrade: "websocket" }
+                : { host },
+            },
+            (response) => {
+              response.resume();
+              response.on("end", () =>
+                done({
+                  status: response.statusCode!,
+                  location: response.headers.location,
+                }),
+              );
+            },
+          );
+          outgoing.on("error", reject);
+          outgoing.end();
+        },
+      );
+    for (const host of ["go.gethalo.dev", "GO.GETHALO.DEV:443"]) {
+      for (const method of ["GET", "HEAD"]) {
+        const result = await request(
+          "/launch?utm_source=evil&url=https://evil.example",
+          method,
+          host,
+        );
+        expect(result.status).toBe(302);
+        const destination = new URL(result.location!);
+        expect(destination.origin).toBe("https://gethalo.dev");
+        expect(destination.pathname).toBe("/");
+        expect(Object.fromEntries(destination.searchParams)).toEqual(tags);
+      }
+      expect((await request("/rpc/marketing/list", "GET", host)).status).toBe(
+        404,
+      );
       expect(
-        Value.Check(controlPlaneConfigSchema, { ...config, marketingLinks }),
-      ).toBe(false);
+        (await request("/workspace/health", "GET", host, true)).status,
+      ).toBe(404);
+    }
+    expect(
+      (await request("/launch", "GET", `go.localhost:${port}`)).status,
+    ).toBe(404);
+    expect(await agent.marketing.list()).toEqual([
+      { slug: "launch", tags, enabled: true },
+    ]);
+    await agent.marketing.update({ slug: "launch", tags, enabled: false });
+    expect((await request("/launch")).status).toBe(404);
+    // The primary origin still authenticates the same account after public redirects.
+    expect(await admin.auth.session()).toMatchObject({ status: "signed-in" });
   },
 );

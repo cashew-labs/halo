@@ -67,9 +67,18 @@ const googleAnalyticsMeasurementId = configuration.get(
 // Staging serves the web app's staging/ overrides, such as its yellow logo.
 const environment = configuration.get("environment");
 
-// Public campaign tags, validated by the control plane at startup.
-const marketingLinks = configuration.getObject("marketingLinks") ?? {};
+// Only the secret name is deployment configuration; administrator IDs stay in Secret Manager.
+// coverage-exempt: Pulumi secret reference is validated by infrastructure preview.
+const marketingAdminUserIdsSecretId = configuration.get(
+  "marketingAdminUserIdsSecretId",
+);
 const controlPlaneOrigin = `https://${controlPlaneDomain}`;
+// coverage-exempt: Pulumi deployment settings are validated by the receiving config schema and infra preview.
+const marketingHostname =
+  configuration.get("marketingHostname") ?? `go.${controlPlaneDomain}`;
+// coverage-exempt: Pulumi deployment settings are validated by the receiving config schema and infra preview.
+const marketingHomepageOrigin =
+  configuration.get("marketingHomepageOrigin") ?? controlPlaneOrigin;
 // Apex domains also serve www and redirect it; subdomains such as staging do not.
 const redirectWww = configuration.getBoolean("redirectWww") ?? true;
 const controlPlaneHostnames = redirectWww
@@ -680,6 +689,22 @@ const signInAllowlistAccess =
         }),
       ];
 
+// coverage-exempt: Declarative secret-scoped runtime IAM is checked by infrastructure preview.
+const marketingAdminUserIdsAccess =
+  marketingAdminUserIdsSecretId === undefined
+    ? []
+    : [
+        new gcp.secretmanager.SecretIamMember(
+          "marketing-admin-user-ids-access",
+          {
+            project,
+            secretId: marketingAdminUserIdsSecretId,
+            role: "roles/secretmanager.secretAccessor",
+            member: pulumi.interpolate`serviceAccount:${runtime.email}`,
+          },
+        ),
+      ];
+
 const stagingTestersAccess =
   stagingTestersSecretId === undefined
     ? []
@@ -802,11 +827,22 @@ const controlPlane = new gcp.cloudrunv2.Service(
                   { name: "EXE_GATEWAY_SECRET_ID", value: exeGatewaySecretId },
                 ]),
             { name: "BETTER_AUTH_URL", value: controlPlaneOrigin },
+            // coverage-exempt: Declarative Cloud Run environment; validated by config bootstrap tests and infrastructure preview.
+            { name: "HALO_MARKETING_HOSTNAME", value: marketingHostname },
+            // coverage-exempt: Declarative Cloud Run environment; validated by config bootstrap tests and infrastructure preview.
             {
-              name: "HALO_MARKETING_LINKS",
-              value: JSON.stringify(marketingLinks),
+              name: "HALO_MARKETING_HOMEPAGE_ORIGIN",
+              value: marketingHomepageOrigin,
             },
-
+            // coverage-exempt: Cloud Run carries only the Secret Manager reference, verified by infrastructure preview.
+            ...(marketingAdminUserIdsSecretId === undefined
+              ? []
+              : [
+                  {
+                    name: "HALO_MARKETING_ADMIN_USER_IDS_SECRET_ID",
+                    value: marketingAdminUserIdsSecretId,
+                  },
+                ]),
             // coverage-exempt: Pulumi passes this public stream ID into Cloud Run; exercised after deployment rather than by provisioning cloud infrastructure in tests.
             ...(googleAnalyticsMeasurementId === undefined
               ? []
@@ -877,6 +913,7 @@ const controlPlane = new gcp.cloudrunv2.Service(
       controlPlaneIntegrationKeyAccess,
       controlPlaneTogetherApiKeyAccess,
       ...signInAllowlistAccess,
+      ...marketingAdminUserIdsAccess, // coverage-exempt: Declarative IAM-before-service ordering is verified by the authenticated infrastructure preview.
       ...stagingTestersAccess,
       controlPlaneTraceAccess,
       databaseUrlAccess,
@@ -979,6 +1016,29 @@ new gcp.certificatemanager.CertificateMapEntry("creator-certificate-wildcard", {
   certificates: [creatorCertificate.id],
   hostname: `*.${controlPlaneDomain}`,
 });
+// A marketing override can live outside this stack's existing creator wildcard.
+// Use a separate load-balancer-authorized certificate: DNS cutover authorizes
+// issuance without replacing the primary Halo certificate or its auth origin.
+// coverage-exempt: Declarative certificate resources require an authenticated Pulumi preview and live DNS/TLS validation.
+if (marketingHostname !== `go.${controlPlaneDomain}`) {
+  const marketingCertificate = new gcp.certificatemanager.Certificate(
+    "marketing-certificate",
+    {
+      name: `${controlPlaneServiceName}-marketing`,
+      project,
+      scope: "DEFAULT",
+      managed: { domains: [marketingHostname] },
+    },
+    { dependsOn: [certificateManager, ...deploymentCertificateAccess] },
+  );
+  new gcp.certificatemanager.CertificateMapEntry("marketing-certificate-host", {
+    name: `${controlPlaneServiceName}-marketing`,
+    project,
+    map: controlPlaneCertificateMap.name,
+    certificates: [marketingCertificate.id],
+    hostname: marketingHostname,
+  });
+}
 const controlPlaneEndpoint = new gcp.compute.RegionNetworkEndpointGroup(
   "control-plane-endpoint",
   {
@@ -1101,10 +1161,10 @@ export const controlPlaneAuthSecretVersion = authSecretVersion.version;
 export const controlPlaneName = controlPlane.name;
 export const controlPlaneUrl = controlPlaneOrigin;
 export const controlPlaneDomainIp = controlPlaneAddress.address;
-// The existing wildcard certificate and default URL map already serve go.
-export const marketingUrl = `https://go.${controlPlaneDomain}`;
+// The default backend serves the configured marketing host, with its dedicated certificate when needed.
+export const marketingUrl = `https://${marketingHostname}`;
 export const marketingDnsRecord = {
-  name: `go.${controlPlaneDomain}`,
+  name: marketingHostname,
   type: "A",
   data: controlPlaneAddress.address,
 };

@@ -11,7 +11,8 @@
     "./Stream": "./src/Stream.ts",
     "./testing": "./src/testing.ts",
     "./HaloRpcFile": "./src/HaloRpcFile.ts",
-    "./WorkspaceServerConnection": "./src/WorkspaceServerConnection.ts"
+    "./WorkspaceServerConnection": "./src/WorkspaceServerConnection.ts",
+    "./marketingCampaign": "./src/marketingCampaign.ts"
   },
   "scripts": {
     "format": "oxfmt .",
