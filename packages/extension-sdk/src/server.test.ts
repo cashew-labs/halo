@@ -30,6 +30,8 @@ const httpTest = test.extend<{ origin: string; httpEnabled: boolean }>({
         : (request, context) => {
             expect(Object.keys(context)).toEqual(["storage"]);
             const url = new URL(request.url);
+            if (url.pathname === "/")
+              return Response.json({ url: request.url });
             if (url.pathname === "/body-error")
               return new Response(
                 new ReadableStream({
@@ -144,3 +146,33 @@ httpTest(
     expect(await response.json()).toEqual({ protocol: 1 });
   },
 );
+
+for (const surface of ["/http", "/http/"])
+  httpTest(
+    `serves the HTTP root with its public origin and query at ${surface}`,
+    async ({ origin }) => {
+      expect((await fetch(`${origin}${surface}`)).status).toBe(401);
+      const headers = {
+        "x-halo-extension-token": "internal-secret",
+        "x-forwarded-host": "go.gethalo.dev",
+        "x-forwarded-proto": "https",
+      };
+      const response = await fetch(`${origin}${surface}?utm_source=mail`, {
+        headers,
+      });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({
+        url: "https://go.gethalo.dev/?utm_source=mail",
+      });
+      const head = await fetch(`${origin}${surface}`, {
+        headers,
+        method: "HEAD",
+      });
+      expect(head.status).toBe(200);
+      expect(await head.text()).toBe("");
+      expect(
+        (await fetch(`${origin}${surface}`, { headers, method: "POST" }))
+          .status,
+      ).toBe(405);
+    },
+  );

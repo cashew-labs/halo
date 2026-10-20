@@ -31,11 +31,11 @@ sequenceDiagram
   Extension-->>Halo: HTTP 302 with Location
 ```
 
-## Phase 1: Extension HTTP responses
+## Phase 1: Extension HTTP responses (implemented)
 
-**Today:** [[packages/extension-sdk/src/server.ts]] serves only API, sync, and view routes.
-**Proposed:** Optional `http.ts` supplies a standard Request/Response handler at
-`/http/`; the build includes it only on the server. GET/HEAD handlers receive
+[[packages/extension-sdk/src/server.ts]] now serves the optional `http.ts`
+Request/Response handler at `/http` and `/http/`, alongside API, sync and view
+routes; the build includes it only on the server. GET/HEAD handlers receive
 read-only storage queries and no caller identity or Halo tools. Internal proxy
 authentication remains required, and response cookies are stripped.
 
