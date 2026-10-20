@@ -2,7 +2,10 @@
 import crypto from "node:crypto";
 import * as errore from "errore";
 import type { AppAction, AppJson } from "@get-halo/shared/extensionSharing";
-import { SqlDatabase, type SqlTransaction } from "../database/SqlDatabase.js";
+import {
+  type SqlDatabase,
+  type SqlTransaction,
+} from "../database/SqlDatabase.js";
 import type { DatabaseService } from "../DatabaseService.js";
 
 export class AppConflictError extends errore.createTaggedError({
@@ -99,7 +102,7 @@ export class AppStore {
   private readonly database: SqlDatabase;
 
   constructor(ctx: { db: DatabaseService }) {
-    this.database = new SqlDatabase({ client: ctx.db.appClient });
+    this.database = ctx.db.appDatabase;
   }
 
   async initialize() {

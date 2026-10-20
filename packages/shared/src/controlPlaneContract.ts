@@ -11,6 +11,13 @@ import {
   type TemplateSummary,
 } from "./extensionSharing.js";
 
+import {
+  marketingCampaignSchema,
+  marketingSlugSchema,
+  marketingTagsSchema,
+  type MarketingCampaign,
+} from "./marketingCampaign.js";
+
 const jsonValueSchema = Type.Recursive((self) =>
   Type.Union([
     Type.Null(),
@@ -224,6 +231,32 @@ export const controlPlaneContract = publicProcedure.router({
       .input(type<{ code: string }>())
       .output(type<DesktopAuthSession>()),
     session: publicProcedure.output(type<ControlPlaneAuthentication>()),
+  },
+  marketing: {
+    create: authenticatedProcedure
+      .input(
+        validated(
+          Type.Object(
+            { slug: marketingSlugSchema, tags: marketingTagsSchema },
+            { additionalProperties: false },
+          ),
+        ),
+      )
+      .output(type<MarketingCampaign>()),
+    list: authenticatedProcedure.output(type<MarketingCampaign[]>()),
+    update: authenticatedProcedure
+      .input(validated(marketingCampaignSchema))
+      .output(type<MarketingCampaign>()),
+    remove: authenticatedProcedure
+      .input(
+        validated(
+          Type.Object(
+            { slug: marketingSlugSchema },
+            { additionalProperties: false },
+          ),
+        ),
+      )
+      .output(type<void>()),
   },
   workspace: {
     status: authenticatedProcedure.output(type<ControlPlaneWorkspaceStatus>()),
