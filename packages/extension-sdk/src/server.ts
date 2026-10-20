@@ -132,7 +132,7 @@ export async function serveExtension<
       }
     }
     const pathname = new URL(request.url!, "http://localhost").pathname;
-    if (pathname.startsWith("/http/")) {
+    if (pathname === "/http" || pathname.startsWith("/http/")) {
       if (args.http === undefined) {
         response.writeHead(404).end();
         return;
