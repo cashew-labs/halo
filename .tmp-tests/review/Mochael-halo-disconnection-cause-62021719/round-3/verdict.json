@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change adds the control-plane workspace update API (status, upgrade, host report and registry token), maintenance admission in the workspace server, and the config and IAM wiring. F5 is resolved: a report clears consent only when the state first becomes `failed`, or when it is `upgrading` or the target version. A durable test shows that a retry after a failure still reaches the host, with `activate: true` and a `requestId`. F6 is resolved because the unused update block was removed from the development config reader. Both test tiers pass, every changed line is covered or has an exemption I accept, and no findings remain.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 3,
+  "headSha": "bcec4b9a6f5a9a5abe3afc5161da7a4c3ff7a909",
+  "treeHash": "8188d86a02af1dabaeb7898ca25a0c46c5db3d47",
+  "codeTree": "41a5edf187d6f6c7990e81d7de0b88ef1644eef9",
+  "coverage": {
+    "executable": 202,
+    "covered": 176,
+    "exempt": 26,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-21T20:09:53.465Z"
+}
