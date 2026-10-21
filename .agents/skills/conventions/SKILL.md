@@ -1,6 +1,6 @@
 ---
 name: conventions
-description: Apply repository design and testing conventions when writing, refactoring, or reviewing TypeScript packages, services, state, tests, or runtime hosts. Includes package-level E2Es and fixture design.
+description: Apply repository design and testing conventions when writing, refactoring, or reviewing TypeScript packages, services, state, application UI, tests, or runtime hosts. Includes package-level E2Es and fixture design.
 ---
 
 # Repository conventions
@@ -20,10 +20,15 @@ Read the pages relevant to the change before editing:
 | Tests, fixtures, or test review                                       | [Testing](references/testing.md)                             |
 | Development hosts, environment setup, CI, or deployment               | [Environments](references/environments.md)                   |
 | Adding, integrating, or upgrading external dependencies               | [Dependency management](references/dependency-management.md) |
+| Application UI, components, or styles                                 | [Maui skill](../maui/SKILL.md)                               |
 
 Read multiple pages when the change crosses boundaries, not the entire handbook for every task. Testing guidance applies to Vitest and Playwright alike.
 
 Examples use simplified TypeScript adapted from real code, not complete implementations. Imports and unrelated setup are omitted; “avoid” shows the counterexample, “prefer” shows the intended shape.
+
+## Build application UI with Maui
+
+Always build application UI with Maui components and styles: its components, tokens, and `purse-styles` helpers. Do not hand-roll an element or style that Maui provides. For example, show code with `CodeBlock` or `Code`, not a bare `<pre>` or `<code>`, and set type with `text()`, not a custom font stack.
 
 ## Apply it to the change at hand
 
