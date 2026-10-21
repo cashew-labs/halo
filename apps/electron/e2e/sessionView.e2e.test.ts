@@ -634,6 +634,71 @@ e2eTest(
   },
 );
 
+e2eTest(
+  "sends a message before its file finishes uploading and keeps later messages in order",
+  async ({ app, harness, llm }) => {
+    await harness.loadSession({
+      title: "Send early",
+      messages: [m.user("Hello"), m.assistant("Ready.")],
+    });
+    const pane = app.page.getByRole("main", { name: "Send early" });
+    const editor = pane.getByLabel("Message", { exact: true });
+    // Hold chunk uploads so the file is still uploading when the user sends.
+    const held: Route[] = [];
+    let holding = true;
+    await app.page.route("**/rpc/uploads/write", async (route) => {
+      if (holding) held.push(route);
+      else await route.continue();
+    });
+    await editor.fill("What is in this archive?");
+    await pane.getByLabel("Attach files", { exact: true }).setInputFiles({
+      name: "archive.bin",
+      mimeType: "application/octet-stream",
+      buffer: Buffer.alloc(9 * 1024 * 1024, 7),
+    });
+    await expect.poll(() => held.length).toBe(1);
+    await pane.getByRole("button", { name: "Send", exact: true }).click();
+    const waiting = pane
+      .getByRole("article", { name: "You message" })
+      .filter({ hasText: "What is in this archive?" });
+    await expect(waiting).toContainText(
+      "Sends when its files finish uploading",
+    );
+    await expect(waiting.getByRole("listitem")).toContainText("0%");
+    await expect(editor).toHaveAttribute("contenteditable", "true");
+    await expect(editor).toHaveText("");
+    // A later message without files waits behind the first one.
+    await editor.fill("And summarize it");
+    await pane.getByRole("button", { name: "Send", exact: true }).click();
+    await expect(
+      pane
+        .getByRole("article", { name: "You message" })
+        .filter({ hasText: "And summarize it" }),
+    ).toBeVisible();
+    holding = false;
+    for (const route of held) await route.continue();
+    await llm.respond(({ messages }) => {
+      const users = messages
+        .filter((message) => message.role === "user")
+        .map(messageText);
+      expect(users.at(-1)).toContain("What is in this archive?");
+      expect(users.at(-1)).toContain("archive.bin");
+      expect(users.join("\n")).not.toContain("And summarize it");
+      return m.assistant("It is a binary archive.");
+    });
+    await llm.respond(({ messages }) => {
+      expect(
+        messageText(messages.findLast((message) => message.role === "user")!),
+      ).toBe("And summarize it");
+      return m.assistant("Summary done.");
+    });
+    await expect(pane.getByRole("log")).toContainText("Summary done.");
+    await expect(pane.getByRole("log")).not.toContainText(
+      "Sends when its files finish uploading",
+    );
+  },
+);
+
 // Chromium's nested PDF frame can stall Playwright DOM snapshot evaluation on
 // macOS before an assertion starts. Keep screenshots and action logs without
 // injecting snapshot scripts into the native PDF viewer for this test.
