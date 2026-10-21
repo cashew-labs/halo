@@ -138,6 +138,13 @@ export function serveHaloHttp(options: {
   const rpcOptions = {
     clientInterceptors: [
       async ({ path, context, next }) => {
+        const admission = options.context.maintenance.enter();
+        if (admission instanceof Error)
+          throw new ORPCError("SERVICE_UNAVAILABLE", {
+            message: admission.message,
+          });
+        // oxlint-disable-next-line no-unused-vars -- The lease releases admission at scope exit.
+        using admissionLease = admission;
         if (
           path.join(".") !== "server.info" &&
           !acceptsProtocol({
@@ -187,6 +194,13 @@ export function serveHaloHttp(options: {
         response.writeHead(401).end();
         return;
       }
+      const admission = options.context.maintenance.enter();
+      if (admission instanceof Error) {
+        response.writeHead(503).end();
+        return;
+      }
+      // oxlint-disable-next-line no-unused-vars -- The lease releases admission at scope exit.
+      using admissionLease = admission;
       const handled = await extensionHandler.handle(request, response, {
         prefix: "/extension-tools",
         context: {
@@ -222,6 +236,43 @@ export function serveHaloHttp(options: {
     if (request.method !== "OPTIONS" && authorization === undefined) {
       response.statusCode = 401;
       response.end();
+      return;
+    }
+
+    // Host maintenance is private to the VM; the public gateway cannot reserve it.
+    if (url.pathname === "/maintenance") {
+      const local = ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(
+        request.socket.remoteAddress ?? "",
+      );
+      if (!local || (authorization !== "gateway" && authorization !== "cli")) {
+        response.writeHead(403).end();
+        return;
+      }
+      const maintenance = options.context.maintenance;
+      if (
+        request.method === "POST" &&
+        !maintenance.prepare(request.headers["x-halo-force-update"] === "true")
+      ) {
+        response.writeHead(409).end();
+        return;
+      }
+      if (request.method === "DELETE") maintenance.cancel();
+      if (!["GET", "POST", "DELETE"].includes(request.method ?? "")) {
+        response.writeHead(405).end();
+        return;
+      }
+      response
+        .writeHead(200, {
+          "content-type": "application/json",
+          "cache-control": "no-store",
+        })
+        .end(
+          JSON.stringify({
+            version: options.context.build?.version ?? "dev",
+            busy: maintenance.busy,
+            upgrading: maintenance.upgrading,
+          }),
+        );
       return;
     }
 

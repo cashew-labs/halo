@@ -1,3 +1,4 @@
+import type { WorkspaceMaintenance } from "../server/WorkspaceMaintenance.js";
 import path from "node:path";
 import fs from "node:fs/promises";
 import { SerialQueue } from "@get-halo/shared/SerialQueue";
@@ -64,6 +65,7 @@ export class AutomationRunner {
   private readonly filesystem: Pick<FilesystemService, "stat">;
   private readonly workspaceRoot: string;
   private readonly logger: Logger;
+  private readonly maintenance: WorkspaceMaintenance | undefined;
 
   constructor(ctx: {
     automations: AutomationService;
@@ -71,6 +73,7 @@ export class AutomationRunner {
     filesystem: Pick<FilesystemService, "stat">;
     workspaceRoot: string;
     logger: Logger;
+    maintenance?: WorkspaceMaintenance;
   }) {
     const { automations, sessions, filesystem, workspaceRoot, logger } = ctx;
     this.automations = automations;
@@ -78,6 +81,7 @@ export class AutomationRunner {
     this.filesystem = filesystem;
     this.workspaceRoot = workspaceRoot;
     this.logger = logger;
+    this.maintenance = ctx.maintenance;
   }
 
   // Stops agents owned by unfinished automation runs before the registry can resume all sessions.
@@ -131,6 +135,14 @@ export class AutomationRunner {
   private async pump() {
     await this.actionQueue.run(async () => {
       clearTimeout(this.retry);
+      const admission = this.maintenance?.enter();
+      if (admission instanceof Error) {
+        if (!this.stopping)
+          this.retry = setTimeout(() => this.schedule(), 1000);
+        return;
+      }
+      // oxlint-disable-next-line no-unused-vars -- The lease releases admission at scope exit.
+      using admissionLease = admission;
       if (Date.now() - this.lastPrunedAt > 60 * 60 * 1000) {
         const events = await this.automations.expiredEvents();
         if (events instanceof Error) {

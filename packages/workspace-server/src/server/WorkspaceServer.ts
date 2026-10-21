@@ -1,3 +1,4 @@
+import { WorkspaceMaintenance } from "./WorkspaceMaintenance.js";
 import { AutomationService } from "../automations/AutomationService.js";
 import { AutomationSources } from "../automations/AutomationSources.js";
 import type { ControlPlaneAutomationClient } from "../automations/ControlPlaneAutomationClient.js";
@@ -414,7 +415,19 @@ export class WorkspaceServer {
           error: closed,
         });
     });
+    const toolsIdle = toolRuntime.idle.project(
+      false,
+      (_previous, idle) => idle,
+    );
+    cleanup.defer(() => toolsIdle[Symbol.dispose]());
+    const maintenance = new WorkspaceMaintenance({
+      isWorkIdle: () =>
+        sessions.idle.latestValue &&
+        toolsIdle.latestValue &&
+        automationRunner.idle.latestValue,
+    });
     const automationRunner = new AutomationRunner({
+      maintenance,
       automations,
       sessions,
       filesystem,
@@ -494,6 +507,7 @@ export class WorkspaceServer {
         workspace,
         search,
         sessions,
+        maintenance,
         connections: connectionService,
         toolRuntime,
         logger: host.logger,

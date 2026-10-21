@@ -191,9 +191,28 @@ export type ControlPlaneAuthentication =
   | { status: "signed-out" }
   | { status: "signed-in"; session: ControlPlaneSession };
 
-/** VM lifecycle only; the app separately tracks its workspace connection. */
+export type WorkspaceUpdateStatus = {
+  state:
+    | "current"
+    | "available"
+    | "downloading"
+    | "ready"
+    | "upgrading"
+    | "failed";
+  version: string;
+  targetVersion: string;
+  busy: boolean;
+  reportedAt: number;
+  error?: string;
+};
+export type WorkspaceUpgradeResult = {
+  status: "current" | "started" | "busy" | "checking";
+};
+
+/** VM lifecycle and maintenance remain available while its server restarts. */
 export type ControlPlaneWorkspaceStatus = {
   status: "running" | "sleeping" | "asleep" | "waking";
+  update?: WorkspaceUpdateStatus;
 };
 
 export type ControlPlaneWorkspace = {
@@ -260,6 +279,16 @@ export const controlPlaneContract = publicProcedure.router({
   },
   workspace: {
     status: authenticatedProcedure.output(type<ControlPlaneWorkspaceStatus>()),
+    upgrade: authenticatedProcedure
+      .input(
+        validated(
+          Type.Object(
+            { force: Type.Boolean() },
+            { additionalProperties: false },
+          ),
+        ),
+      )
+      .output(type<WorkspaceUpgradeResult>()),
     ensure: authenticatedProcedure.output(type<ControlPlaneWorkspace>()),
     rotateRuntimeToken:
       authenticatedProcedure.output(type<ControlPlaneWorkspace>()),

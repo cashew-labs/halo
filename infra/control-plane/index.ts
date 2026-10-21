@@ -362,6 +362,17 @@ new gcp.projects.IAMMember("control-plane-cloud-sql", {
   member: pulumi.interpolate`serviceAccount:${runtime.email}`,
 });
 
+// coverage-exempt: Declarative GCP IAM resources require a Pulumi deployment; the registry adapter tests verify the delegated scopes and lifetime.
+// Hosts can mint only short-lived tokens for the existing image reader.
+if (workspaceProvider === "exe")
+  new gcp.serviceaccount.IAMMember("runtime-image-puller-token", {
+    serviceAccountId:
+      imageBuild.imagePuller?.name ??
+      pulumi.interpolate`projects/${project}/serviceAccounts/halo-west-image-puller@${project}.iam.gserviceaccount.com`,
+    role: "roles/iam.serviceAccountTokenCreator",
+    member: pulumi.interpolate`serviceAccount:${runtime.email}`,
+  });
+
 const workspaceRuntime = new gcp.serviceaccount.Account("workspace-runtime", {
   accountId: `${name}-workspace`,
   displayName: `Halo workspace runtime ${pulumi.getStack()}`,
@@ -822,6 +833,14 @@ const controlPlane = new gcp.cloudrunv2.Service(
               ? []
               : [
                   { name: "EXE_TEMPLATE_VM_NAME", value: exeTemplateVmName },
+                  // coverage-exempt: Cloud Run environment is evaluated by Pulumi; config tests cover pinned images and safe disabling for tags.
+                  { name: "WORKSPACE_UPDATE_IMAGE", value: workspaceImage },
+                  {
+                    name: "WORKSPACE_UPDATE_IMAGE_PULLER",
+                    value:
+                      imageBuild.imagePuller?.email ??
+                      "halo-west-image-puller@halo-relay.iam.gserviceaccount.com",
+                  },
                   { name: "EXE_WORKSPACE_TAG", value: name },
                   { name: "EXE_PRIVATE_KEY_PATH", value: "/etc/halo/exe/key" },
                   { name: "EXE_GATEWAY_SECRET_ID", value: exeGatewaySecretId },

@@ -1,3 +1,4 @@
+import type { WorkspaceUpdates } from "../workspace/WorkspaceUpdates.js";
 import {
   controlPlaneContract,
   controlPlaneProtocolVersion,
@@ -41,6 +42,7 @@ export type ControlPlaneContext = RequestHeadersHandlerPluginContext &
     publicOrigin: string;
     auth: AuthService;
     workspace: WorkspaceService;
+    workspaceUpdates: WorkspaceUpdates;
     integrations?: IntegrationService;
     apps: AppService;
     marketing: MarketingLinks;
@@ -583,7 +585,22 @@ export const controlPlaneRpcRouter = os.router({
           context.session.user.id,
         );
         if (status instanceof Error) throw internalError(status);
-        return status;
+        const update = await context.workspaceUpdates.status(
+          context.session.user.id,
+        );
+        if (update instanceof Error) throw internalError(update);
+        return { ...status, update };
+      }),
+    upgrade: os.workspace.upgrade
+      .use(loadSession)
+      .handler(async ({ context, input }) => {
+        if (context.session === undefined) throw new ORPCError("UNAUTHORIZED");
+        const result = await context.workspaceUpdates.request(
+          context.session.user.id,
+          input.force,
+        );
+        if (result instanceof Error) throw badRequest(result);
+        return result;
       }),
     ensure: ensureWorkspace,
     rotateRuntimeToken: os.workspace.rotateRuntimeToken

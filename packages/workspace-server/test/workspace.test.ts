@@ -3690,3 +3690,93 @@ serverTest(
     ).rejects.toThrow("Connect again");
   },
 );
+
+serverTest(
+  "reserves idle maintenance before accepting new work and rejects untrusted maintenance callers",
+  async ({ server }) => {
+    const directory = path.join(
+      server.workspaceRoot,
+      ".halo/extensions/maintenance-check",
+    );
+    await fs.mkdir(path.join(directory, "dist"), { recursive: true });
+    await fs.writeFile(
+      path.join(directory, "package.json"),
+      JSON.stringify({ name: "maintenance-check" }),
+    );
+    await fs.writeFile(
+      path.join(directory, "dist/start.mjs"),
+      `
+      import http from "node:http";
+      const server = http.createServer(async (_request, response) => {
+        const result = await fetch(process.env.HALO_EXTENSION_TOOLS_ORIGIN + "/extension-tools/invoke", {
+          method: "POST", headers: {authorization: "Bearer " + process.env.HALO_EXTENSION_TOOLS_TOKEN}, body: "{}"
+        });
+        response.writeHead(result.status).end();
+      });
+      server.listen(0, "127.0.0.1", () => process.send("http://127.0.0.1:" + server.address().port + "/view/"));
+      process.on("message", message => { if(message === "shutdown") server.close(() => process.exit(0)); });
+    `,
+    );
+    await server.rpc.extensions.reload();
+    const url = `${server.transport.origin}/maintenance`;
+    const headers = server.transport.headers;
+    expect((await fetch(url)).status).toBe(401);
+    expect(
+      (await fetch(url, { headers: server.rendererTransport.headers })).status,
+    ).toBe(403);
+    await expect
+      .poll(async () => (await (await fetch(url, { headers })).json()).busy)
+      .toBe(false);
+    expect((await fetch(url, { method: "PUT", headers })).status).toBe(405);
+    expect((await fetch(url, { method: "POST", headers })).status).toBe(200);
+    await expect(server.rpc.thread.new()).rejects.toThrow("503");
+    expect(
+      (
+        await fetch(
+          `${server.transport.origin}/extensions/maintenance-check/view/`,
+          { headers },
+        )
+      ).status,
+    ).toBe(503);
+    expect((await fetch(url, { method: "DELETE", headers })).status).toBe(200);
+    expect(await server.rpc.thread.new()).toHaveProperty("sessionId");
+  },
+);
+
+serverTest(
+  "refuses to reserve maintenance while an agent is running unless interruption is explicitly requested",
+  async ({ server, llm }) => {
+    const session = await server.rpc.thread.new();
+    const accepted = await server.rpc.thread.prompt({
+      ...session,
+      text: "Keep working",
+    });
+    await llm.waitForRequest();
+    const url = `${server.transport.origin}/maintenance`;
+    expect(
+      (await fetch(url, { method: "POST", headers: server.transport.headers }))
+        .status,
+    ).toBe(409);
+    expect(
+      (
+        await fetch(url, {
+          method: "POST",
+          headers: {
+            ...server.transport.headers,
+            "x-halo-force-update": "true",
+          },
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (await (await fetch(url, { headers: server.transport.headers })).json())
+        .upgrading,
+    ).toBe(true);
+    await fetch(url, { method: "DELETE", headers: server.transport.headers });
+    await llm.respond(m.assistant("Finished without interruption."));
+    await server.rpc.thread.wait({ ...session, ...accepted });
+    expect(
+      assistantReplies(await server.rpc.thread.snapshot(session)),
+    ).toContain("Finished without interruption.");
+  },
+);
