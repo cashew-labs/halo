@@ -114,6 +114,7 @@ async function run() {
       traceWorkspaceId: applicationConfig.server.runtime?.workspaceId,
       gateway: applicationConfig.server.gateway,
       desktopOrigin: process.env.HALO_DESKTOP_ORIGIN,
+      chrome: applicationConfig.server.chrome,
       cliEntry: applicationConfig.server.cliEntry,
       cliNodeExecutable: applicationConfig.server.cliNodeExecutable,
       cliElectronRunAsNode: applicationConfig.server.cliElectronRunAsNode,

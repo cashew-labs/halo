@@ -54,7 +54,6 @@
     "heic-convert": "2.1.0",
     "httpxy": "^0.5.5",
     "icojs": "1.0.1",
-    "libretto-browser-tools": "^0.1.2",
     "marked": "17.0.6",
     "maui": "npm:@tanishqkancharla/maui@0.0.55",
     "node-diff3": "3.2.1",

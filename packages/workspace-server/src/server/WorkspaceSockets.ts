@@ -11,7 +11,6 @@ const maximumLifetime = 55 * 60_000;
 
 type SocketIdentity = {
   clientId: string;
-  browserControlAllowed: boolean;
   expiresAt: number;
 };
 
@@ -53,7 +52,7 @@ export class WorkspaceSockets {
     this.timer.unref();
   }
 
-  issueTicket(clientId: string, browserControlAllowed: boolean) {
+  issueTicket(clientId: string) {
     // Superseded attempts need no additional pending ticket for this client.
     for (const [ticket, identity] of this.tickets) {
       if (identity.clientId === clientId || identity.expiresAt <= Date.now())
@@ -62,7 +61,6 @@ export class WorkspaceSockets {
     const ticket = crypto.randomBytes(32).toString("base64url");
     this.tickets.set(ticket, {
       clientId,
-      browserControlAllowed,
       expiresAt: Date.now() + 60_000,
     });
     return { ticket };
@@ -96,12 +94,7 @@ export class WorkspaceSockets {
         expiresAt: Math.min(identity.expiresAt, Date.now() + maximumLifetime),
       };
       this.connections.set(identity.clientId, connection);
-      this.handler.upgrade(websocket, {
-        context: {
-          ...this.context,
-          browserControlAllowed: identity.browserControlAllowed,
-        },
-      });
+      this.handler.upgrade(websocket, { context: this.context });
       websocket.on("error", (error) => {
         this.context.logger.warn({ event: "workspace-socket-error", error });
         websocket.terminate();

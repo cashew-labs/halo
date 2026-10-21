@@ -78,9 +78,9 @@ pnpm halo-dev app exec "return await page.locator('body').innerText()"
 pnpm halo-dev app exec "await page.getByRole('button', { name: 'New thread' }).click()"
 ```
 
-The `halo` CLI is the workspace-facing command for agents. Use `halo browser open <url>` for an isolated extension preview, followed by `halo browser exec <id>`, `snapshot <id>`, `screenshot <id>`, and `close <id>`. Halo owns these browsers and provisions Chromium on first use.
+Agents drive the workspace's own Chrome through the `browser.*` tools: `tabs`, `newPage`, `call`, and `close`. `browser.call` runs one Playwright page or locator method on a tab, named by its Chrome target ID. Agents can read every tab but close only the tabs they opened.
 
-Pass `--stdin` or `--file checks.js` for longer scripts. Output uses TOON by default; pass `--json` for JSON. Packaged builds do not expose the debug port.
+For `halo-dev app exec`, pass `--stdin` or `--file checks.js` for longer scripts. Output uses TOON by default; pass `--json` for JSON. Packaged builds do not expose the debug port.
 
 ## Infrastructure
 

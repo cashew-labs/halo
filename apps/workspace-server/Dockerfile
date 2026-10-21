@@ -5,12 +5,6 @@
 # updates this digest (node:22-bookworm).
 ARG BASE_IMAGE=node:22-bookworm@sha256:0e5f906573693feaa1e21057ebdcfdb5bd5021f050b2dc7c9deceb629c7da2a8
 
-# The browser install depends only on the pinned Playwright version, not on the
-# whole workspace manifest.
-FROM ${BASE_IMAGE} AS playwright-version
-COPY packages/workspace-server/package.json /tmp/package.json
-RUN node -p "require('/tmp/package.json').dependencies.playwright" > /tmp/playwright-version
-
 FROM rust:1.97.1-bookworm AS opensky-driver
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends git clang pkg-config libdbus-1-dev libx11-dev libxi-dev libxtst-dev libxext-dev libxkbcommon-dev libssl-dev \
@@ -27,7 +21,6 @@ RUN CUA_DRIVER_SOURCE_SHA=9e9219a0ca84ea195b9cf3be35b42a6379699448 \
 
 FROM ${BASE_IMAGE}
 
-ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright
 ENV ELECTRON_SKIP_BINARY_DOWNLOAD=1
 WORKDIR /opt/halo
 
@@ -43,10 +36,6 @@ COPY --from=opensky-driver /src/libs/cua-driver/rust/target/release/cua-driver /
 COPY apps/workspace-server/pdf-requirements.txt ./apps/workspace-server/pdf-requirements.txt
 RUN python3 -m venv /opt/halo/.venv \
     && /opt/halo/.venv/bin/pip install --no-cache-dir --requirement apps/workspace-server/pdf-requirements.txt
-# BrowserService launches Playwright's Chromium.
-COPY --from=playwright-version /tmp/playwright-version /opt/halo/.playwright-version
-RUN npx --yes "playwright@$(cat /opt/halo/.playwright-version)" install --with-deps chromium --no-shell \
-    && rm -rf /var/lib/apt/lists/* /root/.npm
 # The desktop uses Google Chrome. CI passes the ISO week, so Chrome refreshes
 # weekly instead of with every commit.
 ARG CHROME_REFRESH=local

@@ -56,6 +56,13 @@ export const workspaceServerConfigSchema = Type.Object({
     ]),
   ),
   port: Type.Integer({ minimum: 0, maximum: 65_535 }),
+  // The workspace's headed Chrome profile and its launcher, for agent browser tools.
+  chrome: Type.Optional(
+    Type.Object({
+      profileDir: Type.String({ minLength: 1 }),
+      launcher: Type.String({ minLength: 1 }),
+    }),
+  ),
   cliEntry: Type.Optional(Type.String()),
   cliNodeExecutable: Type.Optional(Type.String()),
   cliElectronRunAsNode: Type.Optional(Type.Boolean()),

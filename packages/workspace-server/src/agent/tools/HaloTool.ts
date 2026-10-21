@@ -11,6 +11,7 @@ import type { ConnectionService } from "../runtime/ConnectionService.js";
 import type { ParallelSearchService } from "./web/parallelSearch.js";
 import type { ToolRuntime } from "../runtime/ToolRuntime.js";
 import type { ComputerService } from "../../computer/ComputerService.js";
+import type { BrowserService } from "../../browser/BrowserService.js";
 
 export type HaloToolExecution<T = unknown> = {
   result: T;
@@ -28,6 +29,8 @@ export type HaloToolServices = {
   readonly connections: ConnectionService;
   readonly web: ParallelSearchService;
   readonly computer: ComputerService;
+  // Absent when the workspace has no Chrome.
+  readonly browser: BrowserService | undefined;
 };
 
 export type HaloToolContext = {

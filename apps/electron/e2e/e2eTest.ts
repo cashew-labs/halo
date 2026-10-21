@@ -8,7 +8,11 @@ import { test as baseTest } from "@playwright/test";
 import * as errore from "errore";
 import { createTestArtifacts, type TestArtifacts } from "./TestArtifacts.js";
 import { ElectronTestApp } from "./ElectronTestApp.js";
-import { LLMDriver, HttpService } from "@get-halo/workspace-server/testing";
+import {
+  LLMDriver,
+  HttpService,
+  TestChrome,
+} from "@get-halo/workspace-server/testing";
 import { createHarnessTools } from "./tools.js";
 import { loadThreadDescription } from "./loadThreadDescription.js";
 
@@ -29,6 +33,7 @@ type E2EFixtures = {
   traceSnapshots: boolean;
   llm: LLMDriver;
   http: HttpService;
+  chrome: TestChrome;
   server: Exclude<
     Awaited<ReturnType<typeof startWorkspaceServerProcess>>,
     Error
@@ -73,6 +78,14 @@ export const e2eTest = baseTest.extend<E2EFixtures, E2EWorkerFixtures>({
     await use(llm);
   },
   // oxlint-disable-next-line eslint/no-empty-pattern -- Playwright fixture callbacks require an object-destructured first parameter.
+  chrome: async ({}, use) => {
+    const chrome = await TestChrome.start();
+    if (chrome instanceof Error) throw chrome;
+    await using cleanup = new errore.AsyncDisposableStack();
+    cleanup.defer(async () => await chrome.close());
+    await use(chrome);
+  },
+  // oxlint-disable-next-line eslint/no-empty-pattern -- Playwright fixture callbacks require an object-destructured first parameter.
   testArtifacts: async ({}, use, testInfo) => {
     const artifacts = await createTestArtifacts(testInfo);
     await use(artifacts);
@@ -80,7 +93,7 @@ export const e2eTest = baseTest.extend<E2EFixtures, E2EWorkerFixtures>({
     if (finished instanceof Error) throw finished;
   },
   server: [
-    async ({ testArtifacts, llm }, use) => {
+    async ({ testArtifacts, llm, chrome }, use) => {
       await using cleanup = new errore.AsyncDisposableStack();
       const server = await startWorkspaceServerProcess({
         entry: resolve(
@@ -101,6 +114,7 @@ export const e2eTest = baseTest.extend<E2EFixtures, E2EWorkerFixtures>({
           logFilePath: testArtifacts.paths.haloLog,
           corsOrigins: ["null"],
           port: 0,
+          chrome: chrome.config,
           cliEntry: resolve(
             import.meta.dirname,
             "../../../packages/halo-cli/src/cli.ts",

@@ -10,10 +10,6 @@ import {
   type HotkeysRouterContext,
 } from "../hotkeys/hotkeysRouter.js";
 import {
-  browserRouter,
-  type BrowserRouterContext,
-} from "../browser/browserRouter.js";
-import {
   contract,
   haloProtocolVersion,
   haloSupportedProtocols,
@@ -53,7 +49,6 @@ export type HaloContext = RequestHeadersHandlerPluginContext &
   SyncRouterContext &
   HotkeysRouterContext &
   AutomationsRouterContext &
-  BrowserRouterContext &
   TracesRouterContext &
   WorkspaceRouterContext &
   UploadsRouterContext &
@@ -88,7 +83,6 @@ export const haloRpcRouter = {
   server: serverRouter,
   hotkeys: hotkeysRouter,
   automations: automationsRouter,
-  browser: browserRouter,
   workspace: workspaceRouter,
   uploads: uploadsRouter,
   thread: threadRouter,

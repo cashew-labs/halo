@@ -9,17 +9,31 @@ e2eTest(
     const prepared = await harness.loadExtension("./fixtures/greeting");
     const extensions = await app.server.rpc.extensions.list();
     const extension = extensions.find((entry) => entry.id === prepared.id)!;
-    const browser = await app.server.rpc.browser.open({ url: extension.url });
-    const view = await app.server.rpc.browser.snapshot({ id: browser.id });
-    expect(view.tree).toContain("Your name");
+    // The extension accepts only the workspace's authenticated requests, so
+    // check it through a tab an agent opened in the workspace Chrome.
+    const opened = await server.rpc.testApi.invokeTool({
+      path: "browser.newPage",
+      input: { url: extension.url },
+    });
+    // SAFETY: browser.newPage returns the opened tab.
+    const tab = opened as { id: string };
+    const call = async (method: string) =>
+      // SAFETY: browser.call returns { value, url }.
+      (
+        (await server.rpc.testApi.invokeTool({
+          path: "browser.call",
+          input: { page: tab.id, chain: [], method, args: [] },
+        })) as { value: unknown }
+      ).value;
+    expect(await call("snapshot")).toContain("Your name");
 
     await app.quit();
 
-    // The extension still answers its listed URL; it accepts only the
-    // workspace's authenticated requests, so check through its browser.
-    const reopened = await server.rpc.browser.open({ url: extension.url });
-    const after = await server.rpc.browser.snapshot({ id: reopened.id });
-    expect(after.tree).toContain("Your name");
-    await server.rpc.browser.close({ id: reopened.id });
+    await call("reload");
+    expect(await call("snapshot")).toContain("Your name");
+    await server.rpc.testApi.invokeTool({
+      path: "browser.close",
+      input: { page: tab.id },
+    });
   },
 );

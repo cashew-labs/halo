@@ -122,19 +122,6 @@ export type ExtensionArtifact = {
   build: Record<string, string>;
   data?: string;
 };
-export type BrowserSnapshot = {
-  url: string;
-  title: string;
-  tree: string;
-  errors: string[];
-};
-export type BrowserExecution = {
-  result: unknown;
-  stdout: string;
-  stderr: string;
-  snapshotDiff: string;
-  errors: string[];
-};
 
 export type WorkspaceUpdate =
   | { type: "hotkeys"; hotkeys: Hotkey[] }
@@ -168,26 +155,6 @@ export const contract = publicProcedure.router({
         >(),
       )
       .output(asyncIteratorObject(type<WorkspaceUpdate>())),
-  },
-  browser: {
-    open: oc.input(type<{ url: string }>()).output(
-      type<{
-        id: string;
-        url: string;
-        title: string;
-        tree: string;
-        errors: string[];
-      }>(),
-    ),
-    list: oc.output(type<Array<{ id: string; url: string }>>()),
-    exec: oc
-      .input(type<{ id: string; source: string }>())
-      .output(type<BrowserExecution>()),
-    snapshot: oc.input(type<{ id: string }>()).output(type<BrowserSnapshot>()),
-    screenshot: oc
-      .input(type<{ id: string }>())
-      .output(type<{ path: string }>()),
-    close: oc.input(type<{ id: string }>()).output(type<void>()),
   },
   extensions: {
     list: oc.output(type<ExtensionSummary[]>()),

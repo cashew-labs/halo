@@ -34,9 +34,9 @@ stable Chrome Debian package for its architecture (`amd64` or `arm64`). The
 version is resolved when that image layer builds. Production builds pass the
 release revision as a cache key, refreshing Chrome on each new release while
 reusing earlier dependency layers. Headed Chrome uses its own
-persistent profile at `~/.config/halo-chrome`; the existing browser service still
-uses Playwright Chromium and is unchanged. The initial Chromium spike profile
-is not migrated.
+persistent profile at `~/.config/halo-chrome`. Agent browser tools drive this
+Chrome, and the server launches it if it is not running. The initial Chromium
+spike profile is not migrated.
 
 The launcher starts Chrome with `--remote-debugging-port=0`. Chrome binds a free
 loopback DevTools port and writes the port and browser WebSocket path to
