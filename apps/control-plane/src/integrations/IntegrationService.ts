@@ -50,7 +50,7 @@ import type {
   IntegrationToolSchema,
   IntegrationSetup,
   IntegrationSetupCatalogEntry,
-  OpenAPIRegistration,
+  ApiRegistration,
 } from "@get-halo/shared/controlPlaneContract";
 import { Layer } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
@@ -1046,7 +1046,7 @@ export class IntegrationService {
     return body.includes("invalid_token") ? "revoked" : "failed";
   }
 
-  async registerOpenAPI(ctx: OpenAPIRegistration & { userId: string }) {
+  async registerApi(ctx: ApiRegistration & { userId: string }) {
     const safe = await this.validateRemoteUrl(ctx.url);
     if (safe instanceof Error) return safe;
     const googleDiscovery = isGoogleDiscoveryUrl(ctx.url);

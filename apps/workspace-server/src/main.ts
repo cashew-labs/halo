@@ -143,7 +143,7 @@ async function run() {
                     (cause) => new IntegrationRegistrationError({ cause }),
                   ),
               // coverage-exempt: host RPC wiring, exercised through the workspace host fixture.
-              registerOpenAPI: async (input, signal) =>
+              registerApi: async (input, signal) =>
                 await runtimeClient!.integrations
                   .registerOpenAPI(input, { signal })
                   .catch(
