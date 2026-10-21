@@ -24,13 +24,14 @@ import {
   sessionTitleQueryKey,
   useAgentSession,
   useDraftAgentSession,
+  type SessionPrompt,
 } from "./useAgentSession.ts";
 import { sessionViewItems, type SessionViewItem } from "./sessionView.ts";
 import {
   type SessionSnapshot,
   type SessionSummary,
-  type ChatPrompt,
   type ChatReference,
+  uploadChatFile,
   validateChatFiles,
 } from "@get-halo/client";
 import { MessageContent } from "./MessageContent.js";
@@ -57,7 +58,7 @@ class WithdrawMessageError extends errore.createTaggedError({
 }) {}
 
 type QueuedMessage = Extract<SessionViewItem, { kind: "user" }> & {
-  draft: ChatPrompt;
+  draft: { text: string; files: File[]; references: ChatReference[] };
   submissionId?: number;
 };
 
@@ -148,7 +149,7 @@ function ChatPane({
   sessions: SessionSummary[];
   state: SessionSnapshot;
   error: string | undefined;
-  prompt: (input: ChatPrompt) => Promise<{ submissionId: number } | Error>;
+  prompt: (input: SessionPrompt) => Promise<{ submissionId: number } | Error>;
   abort: () => Promise<void | Error>;
 }) {
   const isActiveTab = useIsActiveTab();
@@ -177,6 +178,10 @@ function ChatPane({
   );
   const submitting = useRef<string | undefined>(undefined);
   const mounted = useRef(true);
+  // Percent of the sending message's attachments uploaded so far.
+  const [uploadPercent, setUploadPercent] = useState<number>();
+  // Cancels attachment uploads when the pane closes.
+  const uploadControllers = useRef(new Set<AbortController>());
   const [dragging, setDragging] = useState(false);
   const dragDepth = useRef(0);
   const picker = useRef<HTMLInputElement>(null);
@@ -234,8 +239,10 @@ function ChatPane({
 
   useEffect(() => {
     mounted.current = true;
+    const controllers = uploadControllers.current;
     return () => {
       mounted.current = false;
+      for (const controller of controllers) controller.abort();
     };
   }, []);
 
@@ -278,7 +285,7 @@ function ChatPane({
       (candidate) => candidate.id === messageId,
     );
     if (message?.submissionId === undefined) return;
-    const restoredFiles = message.draft.files ?? [];
+    const restoredFiles = message.draft.files;
     const invalid = validateChatFiles([
       ...attachments.map(({ file }) => file),
       ...restoredFiles,
@@ -318,9 +325,10 @@ function ChatPane({
     ]);
     setReferences([
       ...new Map(
-        [...references, ...(message.draft.references ?? [])].map(
-          (reference) => [JSON.stringify(reference), reference],
-        ),
+        [...references, ...message.draft.references].map((reference) => [
+          JSON.stringify(reference),
+          reference,
+        ]),
       ).values(),
     ]);
     setFocusRequest((current) => current + 1);
@@ -384,12 +392,23 @@ function ChatPane({
       setAttachments([]);
       setReferences([]);
     }
-    const result = await prompt({
-      text: submittedDraft.trim(),
-      files: submittedAttachments.map((item) => item.file),
-      references: submittedReferences,
-      clientMessageId,
-    });
+    const files = submittedAttachments.map((item) => item.file);
+    const uploadIds = await uploadAttachments(files);
+    // The pane closed, so neither send the message nor restore its draft.
+    if (errore.isAbortError(uploadIds)) return;
+    if (uploadIds instanceof Error) setLocalError(uploadIds.message);
+    const result =
+      uploadIds instanceof Error
+        ? uploadIds
+        : await prompt({
+            text: submittedDraft.trim(),
+            uploadIds,
+            files,
+            references: submittedReferences,
+            clientMessageId,
+          });
+    if (result instanceof Error && !(uploadIds instanceof Error))
+      await cancelUploads(uploadIds);
     if (submitting.current !== clientMessageId) return;
     submitting.current = undefined;
     setSending(false);
@@ -414,6 +433,44 @@ function ChatPane({
     setDraft("");
     setAttachments([]);
     setReferences([]);
+  }
+
+  async function uploadAttachments(files: readonly File[]) {
+    const controller = new AbortController();
+    uploadControllers.current.add(controller);
+    using cleanup = new errore.DisposableStack();
+    cleanup.defer(() => {
+      uploadControllers.current.delete(controller);
+      if (mounted.current) setUploadPercent(undefined);
+    });
+    const total = files.reduce((size, file) => size + file.size, 0);
+    const uploadIds: string[] = [];
+    let uploaded = 0;
+    for (const file of files) {
+      setUploadPercent(Math.floor((uploaded / total) * 100));
+      const result = await uploadChatFile({
+        api,
+        file,
+        signal: controller.signal,
+        onProgress: (received) =>
+          setUploadPercent(Math.floor(((uploaded + received) / total) * 100)),
+      });
+      if (result instanceof Error) {
+        await cancelUploads(uploadIds);
+        return result;
+      }
+      uploadIds.push(result.uploadId);
+      uploaded += file.size;
+    }
+    return uploadIds;
+  }
+
+  async function cancelUploads(uploadIds: readonly string[]) {
+    // The server also deletes unsent uploads after a day.
+    for (const uploadId of uploadIds)
+      await api.uploads
+        .cancel({ uploadId })
+        .catch((cause) => console.warn("Could not cancel upload:", cause));
   }
 
   return (
@@ -618,9 +675,11 @@ function ChatPane({
                 </Button>
                 <span className={progress} role="status">
                   {sending
-                    ? attachments.length > 0
-                      ? "Preparing attachments…"
-                      : "Sending…"
+                    ? uploadPercent !== undefined
+                      ? `Uploading attachments… ${uploadPercent}%`
+                      : attachments.length > 0
+                        ? "Preparing attachments…"
+                        : "Sending…"
                     : stopping
                       ? "Interrupting…"
                       : withdrawing !== undefined

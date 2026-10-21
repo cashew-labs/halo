@@ -76,9 +76,19 @@ export const threadRouter = os.router({
       sessionId: input.sessionId,
       textLength: input.text.length,
     });
+    // Protocol 29 clients send `files`, empty for text-only messages. Reject
+    // attachments instead of accepting the message without them.
+    // SAFETY: The contract omits this legacy field; it is checked below.
+    const { files: legacyFiles, ...prompt } = input as typeof input & {
+      files?: unknown;
+    };
+    if (Array.isArray(legacyFiles) && legacyFiles.length > 0)
+      return orpcErrors.badRequest(
+        new PromptFailedError({ reason: "Update Halo to attach files." }),
+      );
     const prompted = await runWithSignal(
       signal,
-      async () => await context.sessions.prompt(input),
+      async () => await context.sessions.prompt(prompt),
     );
     if (prompted instanceof Error) return orpcErrors.badRequest(prompted);
     return prompted;

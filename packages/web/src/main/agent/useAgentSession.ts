@@ -33,11 +33,16 @@ class AbortFailedError extends errore.createTaggedError({
   message: "$reason",
 }) {}
 
+/** A prompt plus the attached files' names, which title a new session. */
+export type SessionPrompt = ChatPrompt & {
+  files?: readonly { name: string }[];
+};
+
 type UseAgentSessionResult = {
   state: SessionSnapshot;
   error: string | undefined;
   prompt: (
-    input: ChatPrompt,
+    input: SessionPrompt,
   ) => Promise<{ submissionId: number } | PromptFailedError>;
   abort: () => Promise<void | AbortFailedError>;
 };
@@ -124,7 +129,7 @@ export function useAgentSession(
     };
   }, [api, sessionId, isTabVisible, service, enabled]);
 
-  async function prompt(input: ChatPrompt) {
+  async function prompt({ files: _files, ...input }: SessionPrompt) {
     if (readySessionId === undefined || !enabled || readyApi !== api) {
       const error = new PromptFailedError({
         reason: "This chat is still connecting. Please try again in a moment.",
@@ -192,7 +197,7 @@ type UseDraftAgentSessionResult = {
   sessionId: string | undefined;
   title: string | undefined;
   prompt: (
-    input: ChatPrompt,
+    input: SessionPrompt,
   ) => Promise<{ submissionId: number } | PromptFailedError>;
   abort: () => Promise<void | AbortFailedError>;
 };
@@ -231,13 +236,13 @@ export function useDraftAgentSession(
     onAcceptedRef.current(sessionId);
   }, [sessionId, hasMessages, queryClient, state]);
 
-  async function prompt(input: ChatPrompt) {
+  async function prompt({ files, ...input }: SessionPrompt) {
     setLocalError(undefined);
     if (service.getSnapshot().status !== "connected")
       return new PromptFailedError({
         reason: "This chat is still connecting. Please try again in a moment.",
       });
-    const submittedTitle = chatPromptTitle(input);
+    const submittedTitle = chatPromptTitle({ ...input, files });
     setTitle(submittedTitle);
     if (sessionIdRef.current === undefined) {
       const created = await api.thread.new().catch(

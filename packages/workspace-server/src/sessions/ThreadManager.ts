@@ -28,6 +28,7 @@ import type {
   DatabaseService,
   WorkspaceSchema,
 } from "../database/DatabaseService.js";
+import type { UploadService } from "../uploads/UploadService.js";
 
 type SessionProductFields = Omit<WorkspaceSchema["sessionState"], "id">;
 
@@ -64,6 +65,7 @@ class ThreadManagerClosedError extends errore.createTaggedError({
 type ThreadManagerOptions = ThreadOptions & {
   repo: ThreadRepoApi;
   db: DatabaseService;
+  uploads: UploadService;
 };
 
 type PiSessionSummary = Omit<
@@ -111,6 +113,7 @@ export class ThreadManager {
   private readonly filesystem: ThreadOptions["filesystem"];
   private readonly layout: ThreadOptions["layout"];
   private readonly toolRuntime: ThreadOptions["toolRuntime"];
+  private readonly uploads: UploadService;
 
   constructor(ctx: ThreadManagerOptions) {
     const { repo, environment, llmApi, filesystem, layout, toolRuntime } = ctx;
@@ -121,6 +124,7 @@ export class ThreadManager {
     this.filesystem = filesystem;
     this.layout = layout;
     this.toolRuntime = toolRuntime;
+    this.uploads = ctx.uploads;
   }
 
   async list() {
@@ -291,10 +295,26 @@ export class ThreadManager {
           : transcript,
       );
     }
-    return await this.withThread(
+    const { uploadIds = [], ...prompt } = input;
+    const attachments =
+      uploadIds.length === 0 ? [] : await this.uploads.claim(uploadIds);
+    if (attachments instanceof Error) return attachments;
+    await using cleanup = new errore.AsyncDisposableStack();
+    cleanup.defer(async () => {
+      if (attachments.length === 0) return;
+      // A rejected message keeps its uploads so the client can send them again.
+      const released = await this.uploads.release(attachments);
+      if (released instanceof Error)
+        console.warn("Could not release chat uploads:", released);
+    });
+    const accepted = await this.withThread(
       input.sessionId,
-      async (thread) => await thread.prompt(input, sessionContents),
+      async (thread) =>
+        await thread.prompt({ ...prompt, attachments }, sessionContents),
     );
+    if (accepted instanceof Error) return accepted;
+    cleanup.move();
+    return accepted;
   }
 
   async wait(

@@ -116,9 +116,11 @@ export type {
 export { isThreadUnread } from "./rpc.js";
 
 export { imageFilename, imageMediaTypes } from "./imageFilename.js";
+// coverage-exempt: Public barrel re-exports; behavior is exercised through the defining modules.
 export {
   chatAttachmentLimits,
   chatAttachmentSchema,
+  chatImageExtensions,
   chatReferenceSchema,
   chatPromptContent,
   chatPromptTitle,
@@ -127,6 +129,13 @@ export {
   type ChatReference,
   type ChatPrompt,
 } from "./chatAttachments.js";
+// coverage-exempt: Public barrel re-exports; behavior is exercised through the defining modules.
+export {
+  uploadChatFile,
+  ChatUploadError,
+  ChatUploadRejectedError,
+  ChatUploadCancelledError,
+} from "./uploadChatFile.js";
 export {
   hotkeyActionSchema,
   hotkeyInputSchema,

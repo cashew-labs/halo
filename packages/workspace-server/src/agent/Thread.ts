@@ -45,6 +45,7 @@ import {
   ToolApprovalService,
 } from "./ToolApprovalService.js";
 import { prepareChatAttachments } from "./chatAttachments.js";
+import type { ClaimedUpload } from "../uploads/UploadService.js";
 import type { WorkspaceLayout } from "../workspace/WorkspaceService.js";
 import type { FilesystemService } from "../filesystem/FilesystemService.js";
 import type { ToolRuntime } from "./runtime/ToolRuntime.js";
@@ -513,11 +514,13 @@ export class Thread {
   }
 
   async prompt(
-    input: ChatPrompt,
+    input: Omit<ChatPrompt, "uploadIds"> & {
+      attachments?: readonly ClaimedUpload[];
+    },
     sessionContents?: ReadonlyMap<string, string>,
   ) {
     const text = input.text.trim();
-    const files = input.files ?? [];
+    const files = input.attachments ?? [];
     const references = input.references ?? [];
     if (text.length === 0 && files.length === 0 && references.length === 0)
       return new EmptyPromptError();
@@ -526,7 +529,6 @@ export class Thread {
       const prepared = await prepareChatAttachments({
         files,
         filesystem: this.filesystem,
-        workspaceRoot: this.workspaceRoot,
       });
       if (prepared instanceof Error) return prepared;
       return await this.send({

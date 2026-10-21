@@ -63,6 +63,7 @@ import type { SharedAppRuntime } from "../extensions/ExtensionHost.js";
 import type { RemoteApps } from "../extensions/appsRouter.js";
 import type { AppActions } from "../extensions/AppActionsClient.js";
 import { AppConversations } from "../extensions/AppConversations.js";
+import { UploadService } from "../uploads/UploadService.js";
 
 export type WorkspaceServerConfig = {
   environment: HaloEnvironment;
@@ -133,6 +134,7 @@ export class WorkspaceServer {
   private readonly sessionRepo: TursoThreadRepo;
   private readonly workspace: WorkspaceService;
   private readonly sessions: ThreadManager;
+  private readonly uploads: UploadService;
   private readonly automations: AutomationService;
   private readonly automationRunner: AutomationRunner;
   private readonly automationSync: AutomationSync | undefined;
@@ -155,6 +157,7 @@ export class WorkspaceServer {
     sessionRepo: TursoThreadRepo;
     workspace: WorkspaceService;
     sessions: ThreadManager;
+    uploads: UploadService;
     automations: AutomationService;
     automationRunner: AutomationRunner;
     automationScheduler: AutomationScheduler | AutomationScheduleSync;
@@ -192,6 +195,7 @@ export class WorkspaceServer {
     this.sessionRepo = sessionRepo;
     this.workspace = workspace;
     this.sessions = sessions;
+    this.uploads = ctx.uploads;
     this.automations = automations;
     this.automationRunner = automationRunner;
     this.automationScheduler = automationScheduler;
@@ -397,6 +401,10 @@ export class WorkspaceServer {
       headersFor: (origin) => extensions.ownerHeadersFor(origin),
     });
     cleanup.defer(async () => await browsers.shutdown());
+    const uploads = new UploadService({ filesystem, workspaceRoot });
+    const uploadsStarted = await uploads.start();
+    if (uploadsStarted instanceof Error) return uploadsStarted;
+    cleanup.defer(() => uploads.close());
     const sessions = new ThreadManager({
       environment: config.environment,
       repo: sessionRepo,
@@ -405,6 +413,7 @@ export class WorkspaceServer {
       filesystem,
       layout: workspace.layout,
       toolRuntime,
+      uploads,
     });
     cleanup.defer(async () => {
       const closed = await sessions.shutdown();
@@ -493,6 +502,7 @@ export class WorkspaceServer {
               }),
         workspace,
         search,
+        uploads,
         sessions,
         connections: connectionService,
         toolRuntime,
@@ -516,6 +526,7 @@ export class WorkspaceServer {
       sessionRepo,
       workspace,
       sessions,
+      uploads,
       automations,
       automationRunner,
       automationScheduler,
@@ -548,6 +559,7 @@ export class WorkspaceServer {
     await this.automationRunner.stop();
     await this.automations.close();
     const sessionsClosed = await this.sessions.shutdown();
+    this.uploads.close();
     await this.traces.close();
     await this.browsers.shutdown();
     await this.extensions.stop();
