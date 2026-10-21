@@ -95,7 +95,7 @@ export class WorkspaceUpdates {
     return {
       ...report,
       error:
-        report.state === "failed" && row.request_version === this.target.version
+        report.state === "failed" && this.requested(row)
           ? undefined
           : report.error,
       targetVersion: this.target.version,
@@ -104,8 +104,7 @@ export class WorkspaceUpdates {
         report.version === this.target.version
           ? "current"
           : report.state === "current" ||
-              (report.state === "failed" &&
-                row.request_version === this.target.version)
+              (report.state === "failed" && this.requested(row))
             ? "available"
             : report.state,
     };
@@ -174,7 +173,7 @@ export class WorkspaceUpdates {
     if (this.target === undefined || report.version === this.target.version)
       return {};
     const row = saved[0]!;
-    const manual = row.request_version === this.target.version;
+    const manual = this.requested(row);
     const inactive = await this.workspace.inactiveFor(
       identity.ownerUserId,
       this.idleMs,
@@ -205,6 +204,15 @@ export class WorkspaceUpdates {
     );
     if (rows instanceof Error) return rows;
     return rows[0];
+  }
+
+  private requested(row: UpdateRow) {
+    // Consent cannot outlive the frontend's bounded update attempt.
+    return (
+      this.target !== undefined &&
+      row.request_version === this.target.version &&
+      Date.now() - Number(row.request_at) < 20 * 60_000
+    );
   }
 
   private parse(text: string) {

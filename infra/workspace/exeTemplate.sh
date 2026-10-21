@@ -16,7 +16,7 @@ case "$mode" in
       > /etc/halo/workspace-server-base.json
     printf '%s\n' "$image" > /etc/halo/image
     ;;
-  update-host)
+  update-host|update-personal-host)
     test -f /etc/halo/assignment.json
     test -f /etc/halo/image
     test -f /etc/halo/workspace-server-base.json
@@ -27,7 +27,11 @@ esac
 
 script_dir=$(cd -- "$(dirname -- "$0")" && pwd)
 cp "$script_dir/desktop-seccomp.json" /etc/halo/desktop-seccomp.json
-bash "$script_dir/appSandboxSetup.sh" "$image"
+# Shared-app sandboxes have their own VM and rollout. Personal updates only
+# refresh the workspace host; no running app supervisor is restarted here.
+if [ "$mode" != update-personal-host ]; then
+  bash "$script_dir/appSandboxSetup.sh" "$image"
+fi
 
 cat > /usr/local/bin/halo-workspace-assign.tmp <<'ASSIGN'
 #!/usr/bin/env python3
@@ -145,6 +149,7 @@ ExecStop=/usr/bin/docker stop --time 30 halo-workspace
 [Install]
 WantedBy=multi-user.target
 SERVICE
+bash "$script_dir/installUpdater.sh"
 systemctl daemon-reload
 # Clones boot from disk; flush preparation writes before pausing the template.
 sync

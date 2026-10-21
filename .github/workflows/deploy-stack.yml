@@ -174,7 +174,7 @@ jobs:
           echo "instances=$instances" >> "$GITHUB_OUTPUT"
 
   rollout-workspaces:
-    name: Update workspace container ${{ matrix.instance }}
+    name: Prepare workspace update ${{ matrix.instance }}
     timeout-minutes: 90
     needs: deploy
     if: needs.deploy.outputs.instances != '[]'
@@ -197,7 +197,7 @@ jobs:
       - name: Setup gcloud
         uses: google-github-actions/setup-gcloud@v3
 
-      - name: Update and verify workspace container
+      - name: Prepare workspace update
         # Leave time for cleanup and the always-run evidence upload.
         timeout-minutes: 65
         env:
@@ -227,7 +227,8 @@ jobs:
   promote-browser:
     name: Promote ${{ inputs.stack }} browser after backend readiness
     needs: [deploy, rollout-workspaces]
-    # A stack without workspace VMs skips the rollout; any rollout failure blocks promotion.
+    # Personal workspaces install at idle; publishing waits for updater installation.
+    # Shared apps and legacy GCP hosts still verify their immediate rollout.
     if: always() && needs.deploy.result == 'success' && (needs.rollout-workspaces.result == 'success' || needs.rollout-workspaces.result == 'skipped')
     runs-on: blacksmith-4vcpu-ubuntu-2404
     env:

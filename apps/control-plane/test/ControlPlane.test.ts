@@ -7279,6 +7279,18 @@ updateTest(
     expect((await authenticatedRpc.workspace.status()).update?.state).toBe(
       "available",
     );
+    const expired = vi
+      .spyOn(Date, "now")
+      .mockReturnValue(Date.now() + 21 * 60_000);
+    try {
+      expect(await (await report("ready", true)).json()).toMatchObject({
+        activate: false,
+        force: false,
+        requestId: 0,
+      });
+    } finally {
+      expired.mockRestore();
+    }
     expect(
       (await fetch(`${plane.origin}/api/workspace-runtime/update`)).status,
     ).toBe(405);
