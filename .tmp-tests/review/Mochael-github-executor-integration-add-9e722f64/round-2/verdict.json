@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change adds an optional first-party GitHub App OAuth client. The client takes its credentials from Secret Manager, is wired through the config schema and ControlPlane, and gets per-stack Pulumi IAM grants and env vars. Both round-1 findings are resolved. F1: the weak exemption is gone, and a temp test drives readControlPlaneConfig through the development and Cloud Run paths for the unset, partial, trimmed and failed-read cases. F2: a Pulumi-mock temp test checks the both-or-neither guard, the grants and the env entries. The durable tests now also check that the authorize URL carries client_id, uses PKCE and has no scope, and that the client is absent when GitHub is unconfigured. Every test run passes, the coverage gate passes, and no findings remain.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "bcec4b9a6f5a9a5abe3afc5161da7a4c3ff7a909",
+  "treeHash": "86f4e83902b0d137ac1a2a3989bb86810ed69b00",
+  "codeTree": "0cfa36f320b1acbd841f861e8ef23a54e6529168",
+  "coverage": {
+    "executable": 21,
+    "covered": 21,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-21T19:31:47.662Z"
+}

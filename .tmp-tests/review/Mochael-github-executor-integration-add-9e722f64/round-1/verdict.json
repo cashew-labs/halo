@@ -1,0 +1,56 @@
+{
+  "status": "changes_requested",
+  "summary": "The change reads optional GitHub App OAuth credentials from Secret Manager, adds them to the control-plane config schema, registers a `first-party:github` Executor client that requests no scopes, and wires the Pulumi IAM grants and env vars. The source logic looks correct. The change is not ready because the coverage gate fails: 30 changed lines in the config bootstrap and the Pulumi program have no test or exemption, the exemption on `readGithubConfiguration` claims the code can't be tested when it can, and nothing tests the case where GitHub is not configured.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "test",
+      "file": "packages/config/src/controlPlane.ts",
+      "line": 345,
+      "severity": "P1",
+      "body": "The function-level `coverage-exempt` on `readGithubConfiguration` gives \"reads live Secret Manager credentials\" as the reason. That does not hold. `readGcpSecret` is a separate module (`./readGcpSecret.js`, imported at line 7), so `vi.mock` can stub it. The both-or-neither check at lines 347-353 is plain env logic and makes no secret read at all. The call sites at lines 236-237 and 306-307 are also uncovered and have no exemption. Add a temp test that mocks `readGcpSecret` and calls `readControlPlaneConfig`, taking the development path (no `K_SERVICE`) and/or the Cloud Run path. It should check four cases: (a) neither `GITHUB_*` var is set, so `server.github` is undefined; (b) only one var is set, so the result is a `ControlPlaneConfigError` that mentions both vars; (c) both vars are set, so whitespace-padded secret values come back trimmed in `server.github`; (d) a failed secret read is propagated. After that, remove the exemption or narrow it."
+    },
+    {
+      "id": "F2",
+      "kind": "test",
+      "file": "infra/control-plane/index.ts",
+      "line": 45,
+      "severity": "P1",
+      "body": "No test loads the Pulumi program changes, and they carry no exemption. That covers the both-or-neither guard (lines 45-51), the conditional `SecretIamMember` grants (lines 667-678), the conditional `GITHUB_*` Cloud Run env entries (lines 898-907), and the added dependency (line 957). The coverage gate fails on these lines. The repo has no Pulumi test harness. Either add a temp test that uses `pulumi.runtime.setMocks` to check the guard and the conditional resources/env, or add `coverage-exempt` annotations with a concrete reason, e.g. that the code was checked with `pnpm infra:control-plane:preview` with and without the config keys, and say what that check showed."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "packages/config/src/controlPlane.ts:345-361 and call sites 236-237, 306-307 (readGithubConfiguration through readControlPlaneConfig with readGcpSecret mocked)",
+      "tier": "tmp",
+      "rationale": "Checks the both-or-neither env validation, value trimming, error propagation, and that the result reaches server.github in the development and Cloud Run configs. The current exemption reason does not justify skipping this."
+    },
+    {
+      "target": "apps/control-plane/src/server/ControlPlane.ts:170 — when config.github is undefined, listClients contains no first-party:github entry (Google first-party client still present)",
+      "tier": "tmp",
+      "rationale": "The README documents that an unconfigured deployment does not register the GitHub client, but the fixture now always sets github, so nothing tests the opt-out branch."
+    },
+    {
+      "target": "apps/control-plane/src/server/ControlPlane.ts:180-181 — starting an OAuth flow with first-party:github produces a GitHub authorize URL with the configured client_id, PKCE challenge, and no scope parameter (authorizationScopes: [])",
+      "tier": "tmp",
+      "rationale": "The reason for this change is that GitHub App user tokens are requested without classic OAuth scopes. The current test only checks the listing metadata, not the authorization request that is actually sent."
+    },
+    {
+      "target": "infra/control-plane/index.ts:45-51, 667-678, 898-907 — Pulumi mocks: setting only one of githubClientIdSecretId/githubClientSecretId throws; setting both creates two SecretIamMembers and both env vars; setting neither creates neither",
+      "tier": "tmp",
+      "rationale": "Covers the infra lines that are currently uncovered, unless the agent instead adds a coverage-exempt annotation with a concrete reason."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "bcec4b9a6f5a9a5abe3afc5161da7a4c3ff7a909",
+  "treeHash": "745fc94555761ae1efd1ca1faad8db0e2f1003b7",
+  "codeTree": "745fc94555761ae1efd1ca1faad8db0e2f1003b7",
+  "coverage": {
+    "executable": 41,
+    "covered": 1,
+    "exempt": 10,
+    "uncovered": 30
+  },
+  "createdAt": "2026-10-21T19:25:28.646Z"
+}

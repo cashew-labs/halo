@@ -1,0 +1,211 @@
+{
+  "baseRef": "origin/main",
+  "baseSha": "bcec4b9a6f5a9a5abe3afc5161da7a4c3ff7a909",
+  "headSha": "bcec4b9a6f5a9a5abe3afc5161da7a4c3ff7a909",
+  "treeHash": "86f4e83902b0d137ac1a2a3989bb86810ed69b00",
+  "generatedAt": "2026-10-21T19:31:33.790Z",
+  "runs": {
+    "durable": {
+      "tier": "durable",
+      "testFiles": [
+        "apps/control-plane/test/ControlPlane.test.ts"
+      ],
+      "skipped": false,
+      "runners": [
+        {
+          "runner": "vitest",
+          "dir": ".",
+          "testFiles": [
+            "apps/control-plane/test/ControlPlane.test.ts"
+          ],
+          "exitCode": 0
+        }
+      ],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 91644,
+      "log": ".tmp-tests/report/durable.log",
+      "lcovFiles": [
+        "../../../repos/halo/.git/worktrees/tallahassee/code-review-agent/coverage/durable-0/vitest-0/lcov.info"
+      ]
+    },
+    "tmp": {
+      "tier": "tmp",
+      "testFiles": [
+        "infra/control-plane/.tmp-tests/githubInfra.test.ts",
+        "packages/config/src/.tmp-tests/githubConfig.test.ts"
+      ],
+      "skipped": false,
+      "runners": [
+        {
+          "runner": "vitest",
+          "dir": ".",
+          "testFiles": [
+            "infra/control-plane/.tmp-tests/githubInfra.test.ts",
+            "packages/config/src/.tmp-tests/githubConfig.test.ts"
+          ],
+          "exitCode": 0
+        }
+      ],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 1720,
+      "log": ".tmp-tests/report/tmp.log",
+      "lcovFiles": [
+        "../../../repos/halo/.git/worktrees/tallahassee/code-review-agent/coverage/tmp-0/vitest-0/lcov.info",
+        "../../../repos/halo/.git/worktrees/tallahassee/code-review-agent/coverage/tmp-0/vitest-1/lcov.info"
+      ]
+    }
+  },
+  "durableTestFiles": [
+    "apps/control-plane/test/ControlPlane.test.ts"
+  ],
+  "tmpTestFiles": [
+    "infra/control-plane/.tmp-tests/githubInfra.test.ts",
+    "packages/config/src/.tmp-tests/githubConfig.test.ts"
+  ],
+  "files": [
+    {
+      "path": "apps/control-plane/src/server/ControlPlane.ts",
+      "loaded": true,
+      "changed": [
+        170,
+        171,
+        172,
+        173,
+        174,
+        175,
+        176,
+        177,
+        178,
+        179,
+        180,
+        181,
+        182,
+        183
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "infra/control-plane/index.ts",
+      "loaded": true,
+      "changed": [
+        45,
+        46,
+        47,
+        48,
+        49,
+        50,
+        51,
+        667,
+        668,
+        669,
+        670,
+        671,
+        672,
+        673,
+        674,
+        675,
+        676,
+        677,
+        678,
+        679,
+        680,
+        681,
+        682,
+        898,
+        899,
+        900,
+        901,
+        902,
+        903,
+        904,
+        905,
+        906,
+        907,
+        908,
+        909,
+        957
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [
+        45,
+        46,
+        47,
+        51,
+        667,
+        671
+      ],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "packages/config/src/controlPlane.ts",
+      "loaded": true,
+      "changed": [
+        26,
+        27,
+        28,
+        29,
+        86,
+        105,
+        236,
+        237,
+        255,
+        306,
+        307,
+        330,
+        345,
+        346,
+        347,
+        348,
+        349,
+        350,
+        351,
+        352,
+        353,
+        354,
+        355,
+        356,
+        357,
+        358,
+        359,
+        360,
+        361,
+        362
+      ],
+      "coveredDurable": [
+        26
+      ],
+      "coveredTmpOnly": [
+        236,
+        237,
+        306,
+        307,
+        346,
+        347,
+        348,
+        349,
+        350,
+        351,
+        354,
+        358,
+        359,
+        360
+      ],
+      "uncovered": [],
+      "exempt": []
+    }
+  ],
+  "totals": {
+    "executable": 21,
+    "coveredDurable": 1,
+    "coveredTmpOnly": 20,
+    "uncovered": 0,
+    "exempt": 0
+  },
+  "passed": true
+}
