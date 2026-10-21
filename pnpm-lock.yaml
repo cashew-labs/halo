@@ -617,6 +617,31 @@ importers:
         specifier: 7.0.2
         version: 7.0.2
 
+  packages/device-host:
+    dependencies:
+      '@get-halo/client':
+        specifier: workspace:*
+        version: link:../client
+      '@get-halo/logger':
+        specifier: workspace:*
+        version: link:../logger
+      '@sinclair/typebox':
+        specifier: ^0.34.52
+        version: 0.34.52
+      errore:
+        specifier: ^0.14.1
+        version: 0.14.1
+    devDependencies:
+      '@get-halo/typescript-config':
+        specifier: workspace:*
+        version: link:../typescript-config
+      '@types/node':
+        specifier: ^22.20.1
+        version: 22.20.1
+      typescript:
+        specifier: 7.0.2
+        version: 7.0.2
+
   packages/extension-sdk:
     dependencies:
       '@orpc/client':
@@ -999,6 +1024,9 @@ importers:
         specifier: 8.21.1
         version: 8.21.1
     devDependencies:
+      '@get-halo/device-host':
+        specifier: workspace:*
+        version: link:../device-host
       '@get-halo/typescript-config':
         specifier: workspace:*
         version: link:../typescript-config

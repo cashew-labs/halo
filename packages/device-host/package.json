@@ -1,0 +1,29 @@
+{
+  "name": "@get-halo/device-host",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "lint": "NODE_OPTIONS=--experimental-strip-types oxlint --deny-warnings src",
+    "lint:fix": "NODE_OPTIONS=--experimental-strip-types oxlint --fix src",
+    "format": "oxfmt .",
+    "format:check": "oxfmt --check .",
+    "test": "pnpm run test:unit",
+    "test:unit": "vitest run src",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@get-halo/client": "workspace:*",
+    "@get-halo/logger": "workspace:*",
+    "@sinclair/typebox": "^0.34.52",
+    "errore": "^0.14.1"
+  },
+  "devDependencies": {
+    "@get-halo/typescript-config": "workspace:*",
+    "@types/node": "^22.20.1",
+    "typescript": "7.0.2"
+  }
+}
