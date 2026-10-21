@@ -1,18 +1,34 @@
 import { FileSaveErrorIndicator } from "../FileSaveErrorIndicator.js";
 import { SidebarFooter } from "./SidebarFooter.js";
 import { useSidebar } from "../WorkspaceLayout.js";
-import { Button, backgroundColor, colors, flex, flexItem, spacing } from "maui";
-import { Close, Monitor } from "maui/icons";
+import { Fragment, useState } from "react";
+import {
+  Button,
+  Tooltip,
+  backgroundColor,
+  colors,
+  flex,
+  flexItem,
+  spacing,
+} from "maui";
+import { Close, FilePlus, FolderPlus, Edit, Monitor } from "maui/icons";
 import { style, useStyles } from "purse-styles";
 import type { SessionSummary } from "@get-halo/client";
 import type { AppInfo } from "../HostApi.js";
-import { FilesystemSection } from "./FilesystemSection.tsx";
+import { ArtifactsSection } from "./ArtifactsSection.js";
 import { SessionsSection } from "./SessionsSection.tsx";
-import { ExtensionsSection } from "./ExtensionsSection.js";
-import { AutomationsSection } from "./AutomationsSection.js";
-import { NavigationSidebar } from "./navigation/NavigationSidebar.js";
+import {
+  NavigationSidebar,
+  useExpandedSidebar,
+} from "./navigation/NavigationSidebar.js";
+import { useDirectoryListings } from "../filesystem/useDirectoryListings.js";
+import {
+  useSidebarPreferences,
+  useSidebarPreferenceState,
+} from "./SidebarPreferencesProvider.js";
+import { FavoritesSection } from "./FavoritesSection.js";
 import { sidebarPadding } from "./navigation/SidebarSection.js";
-import { SidebarItem } from "./navigation/SidebarItem.js";
+import { useWorkspacePanes } from "../panes/WorkspacePanesProvider.js";
 
 type SidebarProps = {
   sessions: SessionSummary[];
@@ -21,6 +37,14 @@ type SidebarProps = {
 
 export function Sidebar({ sessions, appInfo }: SidebarProps) {
   const { isMobile, close } = useSidebar();
+  const workspace = useWorkspacePanes();
+  const preferences = useSidebarPreferences();
+  const [entryRequest, setEntryRequest] = useState<{
+    kind: "file" | "directory";
+    sequence: number;
+  }>({ kind: "file", sequence: 0 });
+  const [filesBusy, setFilesBusy] = useState(false);
+  const actions = useStyles(styles.actions);
   const mobileHeader = useStyles(styles.mobileHeader);
   const closeButton = useStyles(styles.closeButton);
   const sidebar = useStyles(styles.sidebar);
@@ -44,19 +68,73 @@ export function Sidebar({ sessions, appInfo }: SidebarProps) {
       ) : (
         <div className={titleBar} aria-hidden="true" />
       )}
+      <div className={actions} role="toolbar" aria-label="Workspace actions">
+        <Tooltip content="New chat session" placement="bottom">
+          <Button
+            variant="quiet"
+            aria-label="New chat session"
+            onPress={() => {
+              workspace.open({
+                path: `/draft/${crypto.randomUUID()}`,
+                newTab: true,
+              });
+              close();
+            }}
+          >
+            <Edit size="md" />
+          </Button>
+        </Tooltip>
+        <Tooltip content="New Markdown file" placement="bottom">
+          <Button
+            variant="quiet"
+            aria-label="New Markdown file"
+            isDisabled={filesBusy}
+            onPress={() => {
+              preferences.revealDocuments();
+              setEntryRequest((request) => ({
+                kind: "file",
+                sequence: request.sequence + 1,
+              }));
+            }}
+          >
+            <FilePlus size="md" />
+          </Button>
+        </Tooltip>
+        <Tooltip content="New folder" placement="bottom">
+          <Button
+            variant="quiet"
+            aria-label="New folder"
+            isDisabled={filesBusy}
+            onPress={() => {
+              preferences.revealDocuments();
+              setEntryRequest((request) => ({
+                kind: "directory",
+                sequence: request.sequence + 1,
+              }));
+            }}
+          >
+            <FolderPlus size="md" />
+          </Button>
+        </Tooltip>
+        <Tooltip content="Desktop" placement="bottom">
+          <Button
+            variant="quiet"
+            aria-label="Desktop"
+            onPress={() => {
+              workspace.open({ path: "/desktop" });
+              close();
+            }}
+          >
+            <Monitor size="md" />
+          </Button>
+        </Tooltip>
+      </div>
       <NavigationSidebar aria-label="Workspace" className={navigation}>
-        <SidebarItem
-          id="desktop"
-          href="/desktop"
-          pageTitle="Desktop"
-          icon={Monitor}
-        >
-          Desktop
-        </SidebarItem>
-        <AutomationsSection />
-        <ExtensionsSection />
-        <FilesystemSection />
-        <SessionsSection sessions={sessions} />
+        <SidebarContents
+          sessions={sessions}
+          entryRequest={entryRequest}
+          onFilesBusyChange={setFilesBusy}
+        />
       </NavigationSidebar>
       <div className={footer} data-testid="app-update-status">
         <SidebarFooter appInfo={appInfo} />
@@ -66,7 +144,61 @@ export function Sidebar({ sessions, appInfo }: SidebarProps) {
   );
 }
 
+function SidebarContents({
+  sessions,
+  entryRequest,
+  onFilesBusyChange,
+}: {
+  sessions: SessionSummary[];
+  entryRequest: { kind: "file" | "directory"; sequence: number };
+  onFilesBusyChange(busy: boolean): void;
+}) {
+  const expanded = useExpandedSidebar();
+  const { favoriteIds, sectionOrder } = useSidebarPreferenceState();
+  const watched = new Set(expanded);
+  for (const key of expanded) {
+    const itemId = String(key);
+    if (itemId.startsWith("favorite-file:"))
+      watched.add(`file:${itemId.slice(itemId.indexOf("/") + 1)}`);
+  }
+  for (const favoriteId of favoriteIds) {
+    if (!favoriteId.startsWith("file:")) continue;
+    const segments = favoriteId.slice(5).split("/");
+    for (let index = 1; index < segments.length; index++) {
+      watched.add(`file:${segments.slice(0, index).join("/")}/`);
+    }
+  }
+  const listing = useDirectoryListings(watched);
+  const sections = {
+    favorites: (
+      <FavoritesSection
+        sessions={sessions}
+        paths={listing.paths}
+        filesPending={listing.pending}
+      />
+    ),
+    artifacts: (
+      <ArtifactsSection
+        key={entryRequest.sequence}
+        paths={listing.paths}
+        pending={listing.pending}
+        error={listing.error}
+        createEntry={entryRequest.sequence > 0 ? entryRequest.kind : undefined}
+        onBusyChange={onFilesBusyChange}
+      />
+    ),
+    sessions: <SessionsSection sessions={sessions} />,
+  };
+  return sectionOrder.map((sectionId) => (
+    <Fragment key={sectionId}>{sections[sectionId]}</Fragment>
+  ));
+}
+
 const styles = {
+  actions: style(flex({ alignItems: "center", gap: 2 }), sidebarPadding, {
+    flexShrink: 0,
+    "@media (max-width: 700px)": { paddingBottom: spacing.value(4) },
+  }),
   sidebar: style(flex({ direction: "column", gap: 4 }), {
     width: "100%",
     minWidth: 0,

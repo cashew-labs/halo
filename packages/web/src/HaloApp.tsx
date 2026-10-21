@@ -15,6 +15,7 @@ import { useHost } from "./HostProvider.js";
 import { LoadingPage } from "./LoadingPage.tsx";
 import { WorkspaceLayout } from "./WorkspaceLayout.js";
 import { useSessionsQuery, useWorkspaceQuery } from "./api/ApiProvider.tsx";
+import { SidebarPreferencesProvider } from "./sidebar/SidebarPreferencesProvider.js";
 
 export function HaloApp() {
   const workspaceQuery = useWorkspaceQuery();
@@ -83,7 +84,12 @@ function WorkspaceShell({
         {/* oxlint-disable-next-line react/hooks -- Wouter calls the location hook supplied to Router. */}
         <Router hook={usePaneLocation}>
           <KeyboardShortcuts />
-          <WorkspaceLayout sessions={sessions} appInfo={appInfo} />
+          <SidebarPreferencesProvider
+            userId={userId}
+            workspaceRoot={workspaceRoot}
+          >
+            <WorkspaceLayout sessions={sessions} appInfo={appInfo} />
+          </SidebarPreferencesProvider>
         </Router>
       </WorkspacePanesProvider>
     </div>

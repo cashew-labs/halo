@@ -9,19 +9,31 @@ import { sidebarPadding } from "./navigation/SidebarSection.js";
 export function SidebarEmptyState({
   kind,
 }: {
-  kind: "documents" | "automations" | "sessions";
+  kind:
+    | "artifacts"
+    | "documents"
+    | "extensions"
+    | "automations"
+    | "sessions"
+    | "favorites";
 }) {
   const row = useStyles(styles.row);
   const message = useStyles(styles.message);
   return (
     <NavigationTreeItem
       id={`empty-${kind}`}
-      textValue={`No ${kind} yet`}
+      textValue={
+        kind === "favorites"
+          ? "Star an item to keep it here."
+          : `No ${kind} yet`
+      }
       className={row}
     >
       <NavigationTreeItemContent>
         <Text size="2xs" color="lowContrast" className={message}>
-          No {kind} yet
+          {kind === "favorites"
+            ? "Star an item to keep it here."
+            : `No ${kind} yet`}
         </Text>
       </NavigationTreeItemContent>
     </NavigationTreeItem>

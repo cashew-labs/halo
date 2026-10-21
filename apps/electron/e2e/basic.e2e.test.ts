@@ -162,10 +162,9 @@ e2eTest(
       app.page.getByRole("textbox", { name: "Rename renamed.md" }),
     ).toBeFocused();
     await app.server.rpc.workspace.deleteEntry({ path: "Open/renamed.md" });
-    const newFile = app.page.getByRole("button", {
-      name: "New file",
-      exact: true,
-    });
+    const newFile = app.page
+      .getByRole("toolbar", { name: "Workspace actions" })
+      .getByRole("button", { name: "New Markdown file", exact: true });
     await expect(newFile).toBeEnabled();
     await app.server.rpc.workspace.writeFile({
       path: "Open/renamed.md",
@@ -377,7 +376,8 @@ for (const level of [1, 2, 4]) {
       const path = "new-heading.md";
       const prefix = "#".repeat(level);
       await app.page
-        .getByRole("button", { name: "New file", exact: true })
+        .getByRole("toolbar", { name: "Workspace actions" })
+        .getByRole("button", { name: "New Markdown file", exact: true })
         .click();
       const filename = app.page.getByRole("textbox", {
         name: "New file name",
