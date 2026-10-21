@@ -1,0 +1,299 @@
+{
+  "baseRef": "Mochael/github-executor-integration-add",
+  "baseSha": "d5721e7348973186c5490b62f107ade9c0092488",
+  "headSha": "d5721e7348973186c5490b62f107ade9c0092488",
+  "treeHash": "6bd803de0da85b01a046498cc3dc9b418daf5a63",
+  "generatedAt": "2026-10-21T20:05:13.135Z",
+  "runs": {
+    "durable": {
+      "tier": "durable",
+      "testFiles": [
+        "apps/control-plane/test/ControlPlane.test.ts"
+      ],
+      "skipped": false,
+      "runners": [
+        {
+          "runner": "vitest",
+          "dir": ".",
+          "testFiles": [
+            "apps/control-plane/test/ControlPlane.test.ts"
+          ],
+          "exitCode": 0
+        }
+      ],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 100255,
+      "log": ".tmp-tests/report/durable.log",
+      "lcovFiles": [
+        "../../../repos/halo/.git/worktrees/tallahassee/code-review-agent/coverage/durable-0/vitest-0/lcov.info"
+      ]
+    },
+    "tmp": {
+      "tier": "tmp",
+      "testFiles": [
+        "apps/electron/e2e/.tmp-tests/github.e2e.test.ts",
+        "apps/electron/e2e/.tmp-tests/githubSetup.e2e.test.ts",
+        "infra/control-plane/.tmp-tests/githubInfra.test.ts",
+        "packages/config/src/.tmp-tests/githubConfig.test.ts"
+      ],
+      "skipped": false,
+      "runners": [
+        {
+          "runner": "playwright",
+          "dir": "apps/electron",
+          "testFiles": [
+            "apps/electron/e2e/.tmp-tests/github.e2e.test.ts",
+            "apps/electron/e2e/.tmp-tests/githubSetup.e2e.test.ts"
+          ],
+          "exitCode": 0
+        },
+        {
+          "runner": "vitest",
+          "dir": ".",
+          "testFiles": [
+            "infra/control-plane/.tmp-tests/githubInfra.test.ts",
+            "packages/config/src/.tmp-tests/githubConfig.test.ts"
+          ],
+          "exitCode": 0
+        }
+      ],
+      "unmatched": [],
+      "exitCode": 0,
+      "durationMs": 157907,
+      "log": ".tmp-tests/report/tmp.log",
+      "lcovFiles": [
+        "../../../repos/halo/.git/worktrees/tallahassee/code-review-agent/coverage/tmp-0/lcov/lcov.info",
+        "../../../repos/halo/.git/worktrees/tallahassee/code-review-agent/coverage/tmp-1/vitest-0/lcov.info",
+        "../../../repos/halo/.git/worktrees/tallahassee/code-review-agent/coverage/tmp-1/vitest-1/lcov.info"
+      ]
+    }
+  },
+  "durableTestFiles": [
+    "apps/control-plane/test/ControlPlane.test.ts"
+  ],
+  "tmpTestFiles": [
+    "apps/electron/e2e/.tmp-tests/github.e2e.test.ts",
+    "apps/electron/e2e/.tmp-tests/githubSetup.e2e.test.ts",
+    "infra/control-plane/.tmp-tests/githubInfra.test.ts",
+    "packages/config/src/.tmp-tests/githubConfig.test.ts"
+  ],
+  "files": [
+    {
+      "path": "apps/control-plane/src/integrations/IntegrationService.ts",
+      "loaded": true,
+      "changed": [
+        14,
+        44,
+        65,
+        66,
+        67,
+        68,
+        69,
+        70,
+        71,
+        72,
+        73,
+        74,
+        75,
+        76,
+        77,
+        78,
+        79,
+        80,
+        81,
+        82,
+        83,
+        84,
+        85,
+        86,
+        189,
+        215,
+        216,
+        217,
+        218,
+        219,
+        223,
+        224,
+        230,
+        231,
+        232,
+        233,
+        234,
+        235,
+        236,
+        237,
+        238,
+        251,
+        252,
+        253,
+        1718,
+        1720,
+        1750,
+        1751,
+        1752,
+        1753,
+        1754
+      ],
+      "coveredDurable": [
+        66,
+        67,
+        69,
+        215,
+        217,
+        218,
+        232,
+        233,
+        234,
+        237,
+        238,
+        1718,
+        1720,
+        1750,
+        1751,
+        1753
+      ],
+      "coveredTmpOnly": [
+        216,
+        230
+      ],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "apps/control-plane/src/server/ControlPlane.ts",
+      "loaded": true,
+      "changed": [
+        79,
+        147,
+        148,
+        149,
+        150,
+        180,
+        181
+      ],
+      "coveredDurable": [
+        148
+      ],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "packages/client/src/ConnectionRequest.ts",
+      "loaded": true,
+      "changed": [
+        2,
+        37
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [
+        37
+      ],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "packages/client/src/index.ts",
+      "loaded": true,
+      "changed": [
+        67,
+        68,
+        69
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "packages/client/src/IntegrationDisplay.ts",
+      "loaded": true,
+      "changed": [
+        1,
+        5,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        125,
+        127,
+        129,
+        131
+      ],
+      "coveredDurable": [
+        12
+      ],
+      "coveredTmpOnly": [
+        1,
+        127,
+        131
+      ],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "packages/web/src/IntegrationSetupPage.tsx",
+      "loaded": true,
+      "changed": [
+        17,
+        74,
+        75,
+        76,
+        77,
+        132,
+        158,
+        159,
+        160,
+        161,
+        162,
+        224,
+        229,
+        258,
+        259,
+        260,
+        261,
+        262,
+        263,
+        264,
+        265,
+        266
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [
+        74
+      ],
+      "uncovered": [],
+      "exempt": []
+    },
+    {
+      "path": "packages/web/src/main/agent/ExecutorConnectionCard.tsx",
+      "loaded": true,
+      "changed": [
+        16,
+        150,
+        155,
+        156,
+        159,
+        160
+      ],
+      "coveredDurable": [],
+      "coveredTmpOnly": [
+        150
+      ],
+      "uncovered": [],
+      "exempt": []
+    }
+  ],
+  "totals": {
+    "executable": 26,
+    "coveredDurable": 18,
+    "coveredTmpOnly": 8,
+    "uncovered": 0,
+    "exempt": 0
+  },
+  "passed": true
+}

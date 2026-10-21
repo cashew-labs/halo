@@ -1,0 +1,14 @@
+[
+  {
+    "findingId": "F5",
+    "reply": "Added durable canonical control-plane RPC coverage of optional GitHub specification failure, Google catalog availability, and a subsequent Gmail setup/read/cancel. The existing Playwright unavailable-spec test also passes, but its Node control-plane execution is not included in V8 coverage."
+  },
+  {
+    "findingId": "F6",
+    "reply": "The non-local guard remains intact. Added a coverage exemption: starting that branch requires the Cloud Run/PostgreSQL host; the canonical local tests verify both the default github.com origin and explicit fixture origin via OAuth RPCs. This limit is recorded in the PR description."
+  },
+  {
+    "findingId": "F2",
+    "reply": "The pinned fixture is now gzip-compressed as fixtures/github-openapi.json.gz so the evidence side commit stays small. The same full JSON document is decompressed before Executor installs it; assertions still require more than 500 GitHub tools and installation under 30 seconds."
+  }
+]
