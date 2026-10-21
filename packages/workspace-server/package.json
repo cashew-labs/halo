@@ -69,6 +69,7 @@
     "ws": "8.21.1"
   },
   "devDependencies": {
+    "@get-halo/device-host": "workspace:*",
     "@get-halo/typescript-config": "workspace:*",
     "@types/heic-convert": "2.1.1",
     "@types/node": "^22.20.1",
