@@ -56,6 +56,19 @@ export {
   type BrowserSnapshot,
   type BrowserExecution,
 } from "./contract.js";
+export {
+  deviceFileLimits,
+  type DeviceAdvertisement,
+  type DeviceFileAccess,
+  type DeviceFileEncoding,
+  type DeviceFileEntry,
+  type DeviceOperation,
+  type DeviceOperationResult,
+  type DeviceOperationOutput,
+  type DeviceRequest,
+  type DeviceResponse,
+  type DeviceSummary,
+} from "./devices.js";
 export type { WorkspaceSearchHit, WorkspaceSearchResponse } from "./search.js";
 export {
   connectionRequestSchema,

@@ -338,6 +338,7 @@ export function serveHaloHttp(options: {
       context: {
         ...options.context,
         browserControlAllowed: authorization === "cli",
+        deviceHostAllowed: authorization !== "cli",
       },
     });
     if (handled.matched) return;

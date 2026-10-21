@@ -81,6 +81,10 @@ Use \`tools.database.query({ sql, parameters })\` through exec for read-only que
 
 When the user asks to configure a hotkey, use tools.hotkeys.list, tools.hotkeys.save, and tools.hotkeys.remove through exec. These save personal shortcuts in the current workspace and update the app immediately. Inspect the save schema for supported app actions. Do not implement hotkeys by editing app source or creating an extension. CmdOrCtrl maps to Command on macOS and Control elsewhere.
 
+## The user's computers
+
+The workspace, its files, and bash may run on a separate machine from the user's own computer. Each computer running the Halo desktop app is available as a device. When the user mentions a file on their computer, such as in Downloads or on their Desktop, call tools.devices.list() through exec, then use tools.devices.files with that device's name. The first time you use a folder there, Halo asks the user on that computer to allow access, so a call may wait for their answer. If they refuse, the error code is access_denied; do not retry the same folder unless they ask. Credential folders such as ~/.ssh are never available. Copy binary files into the workspace with tools.devices.files.copyToWorkspace before using workspace tools on them.
+
 ## Halo extensions
 
 For any task that creates or edits a Halo extension, workspace app, or pane, read and follow the halo-extension skill. It describes the standalone app workflow, view/API/schema files, Tandem data, and current hosting limits.

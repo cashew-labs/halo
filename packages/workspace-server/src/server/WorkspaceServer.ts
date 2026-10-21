@@ -20,6 +20,8 @@ import { DatabaseService } from "../database/DatabaseService.js";
 import { BrowserService } from "../browser/BrowserService.js";
 import { ComputerService } from "../computer/ComputerService.js";
 import { computerTools } from "../computer/computerTools.js";
+import { DeviceService } from "../devices/DeviceService.js";
+import { deviceTools } from "../devices/deviceTools.js";
 import type { Logger } from "@get-halo/logger";
 import * as errore from "errore";
 import { FilesystemService } from "../filesystem/FilesystemService.js";
@@ -312,6 +314,10 @@ export class WorkspaceServer {
       if (closed instanceof Error)
         host.logger.warn({ event: "computer-cleanup-failed", error: closed });
     });
+    // A shared app runs for other people and must never reach the owner's computers.
+    const hasDevices = config.sharedApp === undefined;
+    const devices = new DeviceService();
+    cleanup.defer(() => devices.close());
     const [initialized, toolRuntime] = await Promise.all([
       workspace.initialize(),
       ToolRuntime.create({
@@ -321,6 +327,7 @@ export class WorkspaceServer {
         userId: config.ownerUserId,
         tools: host.tools ?? {
           computer: hasDesktop ? computerTools : {},
+          devices: hasDevices ? deviceTools : {},
           files: {
             read: readTool,
             viewImage: viewImageTool,
@@ -343,6 +350,7 @@ export class WorkspaceServer {
           automations,
           web,
           computer,
+          devices,
           // Threads and automation services borrow the runtime during startup.
           get threads() {
             return sessions;
@@ -360,6 +368,9 @@ export class WorkspaceServer {
         authority: new StaticAgentAuthority(
           host.agentCapabilities ?? [
             ...(hasDesktop ? ["workspace.computer"] : []),
+            ...(hasDevices
+              ? ["devices.list", "devices.files.read", "devices.files.write"]
+              : []),
             "workspace.hotkeys",
             "workspace.automations",
             "workspace.files.read",
@@ -521,7 +532,9 @@ export class WorkspaceServer {
         connections: connectionService,
         toolRuntime,
         logger: host.logger,
+        devices,
         browserControlAllowed: false,
+        deviceHostAllowed: false,
         testApiEnabled: config.testApiEnabled === true,
       },
       corsOrigins: config.corsOrigins,

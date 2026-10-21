@@ -11,6 +11,7 @@ import type { ConnectionService } from "../runtime/ConnectionService.js";
 import type { ParallelSearchService } from "./web/parallelSearch.js";
 import type { ToolRuntime } from "../runtime/ToolRuntime.js";
 import type { ComputerService } from "../../computer/ComputerService.js";
+import type { DeviceService } from "../../devices/DeviceService.js";
 
 export type HaloToolExecution<T = unknown> = {
   result: T;
@@ -28,6 +29,7 @@ export type HaloToolServices = {
   readonly connections: ConnectionService;
   readonly web: ParallelSearchService;
   readonly computer: ComputerService;
+  readonly devices: DeviceService;
 };
 
 export type HaloToolContext = {

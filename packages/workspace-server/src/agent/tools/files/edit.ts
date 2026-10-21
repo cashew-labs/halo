@@ -2,7 +2,7 @@ import path from "node:path";
 import * as errore from "errore";
 import { Type } from "@sinclair/typebox";
 import { haloTool } from "../HaloTool.js";
-import type { FilesystemService } from "../../../filesystem/FilesystemService.js";
+import type { TextFiles } from "./read.js";
 
 export class FilesEditError extends errore.createTaggedError({
   name: "FilesEditError",
@@ -61,8 +61,8 @@ function restoreLineEndings(text: string, ending: "\r\n" | "\n") {
   return ending === "\r\n" ? text.replace(/\n/g, "\r\n") : text;
 }
 
-async function editFile(args: {
-  filesystem: FilesystemService;
+export async function editFile(args: {
+  filesystem: TextFiles;
   cwd: string;
   input: {
     path: string;

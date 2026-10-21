@@ -100,6 +100,7 @@ export class WorkspaceSockets {
         context: {
           ...this.context,
           browserControlAllowed: identity.browserControlAllowed,
+          deviceHostAllowed: !identity.browserControlAllowed,
         },
       });
       websocket.on("error", (error) => {
