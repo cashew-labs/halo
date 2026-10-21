@@ -7,6 +7,7 @@ import {
   TableHead,
   TableHeader,
   TableRow,
+  Text,
   colors,
   flex,
   monospace,
@@ -32,7 +33,12 @@ export function ToolCall({ part }: { part: ToolPart }) {
   const summaryClassName = useStyles(styles.summary);
   const shellClassName = useStyles(styles.shell);
   const bodyClassName = useStyles(styles.body);
-  const { details } = part;
+  const nestedClassName = useStyles(styles.nested);
+  const nestedCount = part.calls.length;
+  const countLabel =
+    nestedCount === 0
+      ? undefined
+      : ` · ${String(nestedCount)} tool ${nestedCount === 1 ? "call" : "calls"}`;
 
   const summary =
     label.kind === "shell" ? (
@@ -51,10 +57,11 @@ export function ToolCall({ part }: { part: ToolPart }) {
         className={summaryClassName}
         aria-expanded={expanded}
         aria-controls={detailsId}
-        aria-label={`${label.text} (${part.tool.path})`}
+        aria-label={`${label.text}${countLabel ?? ""} (${part.tool.path})`}
         onClick={() => setExpanded(!expanded)}
       >
         {summary}
+        {countLabel}
       </button>
       {expanded ? (
         <div
@@ -63,24 +70,38 @@ export function ToolCall({ part }: { part: ToolPart }) {
           role="region"
           aria-label={part.tool.path}
         >
-          <ToolCallInput details={details} />
-          {details.resultText !== undefined ? (
-            <CodeBlock lang="text">{details.resultText}</CodeBlock>
+          <ToolCallInput part={part} />
+          {part.resultText !== undefined ? (
+            <CodeBlock lang="text">{part.resultText}</CodeBlock>
           ) : undefined}
+          {nestedCount === 0 ? undefined : (
+            <div className={nestedClassName}>
+              <Text size="sm" color="lowContrast">
+                Tool calls
+              </Text>
+              <div role="list" aria-label="Nested tool calls">
+                {part.calls.map((call) => (
+                  <div role="listitem" key={call.id}>
+                    <ToolCall part={call} />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       ) : undefined}
     </div>
   );
 }
 
-function ToolCallInput({ details }: { details: ToolPart["details"] }) {
-  const js = details.toolPath === "exec" ? execJsSource(details) : undefined;
+function ToolCallInput({ part }: { part: ToolPart }) {
+  const js = execJsSource(part);
   if (js !== undefined) return <CodeBlock lang="javascript">{js}</CodeBlock>;
-  const rows = parseToolArgumentRows({ value: details.args });
+  const rows = parseToolArgumentRows({ value: part.args });
   if (rows === undefined) {
     return (
       <CodeBlock lang="json">
-        {JSON.stringify(details.args, undefined, 2)}
+        {JSON.stringify(part.args, undefined, 2)}
       </CodeBlock>
     );
   }
@@ -137,6 +158,7 @@ const styles = {
     width: "100%",
   }),
   shell: style(monospace, { fontFeatureSettings: '"calt" 1' }),
+  nested: style(flex({ direction: "column", gap: 2 }), { minWidth: 0 }),
   body: style(flex({ direction: "column", gap: 3 }), {
     minWidth: 0,
     "& pre, & code": {

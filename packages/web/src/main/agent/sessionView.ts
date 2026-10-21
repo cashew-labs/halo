@@ -40,16 +40,14 @@ export type SessionViewItem =
       parts: SessionViewPart[];
     };
 
+/** One top-level tool invocation; exec keeps its nested invocations in `calls`. */
 export type ToolPart = {
   id: string;
   tool: ToolIdentity;
   args: unknown;
   status: "active" | "completed";
-  details: {
-    toolPath: string;
-    args: unknown;
-    resultText?: string;
-  };
+  resultText?: string;
+  calls: ToolPart[];
 };
 
 export type SessionViewPart =
@@ -72,16 +70,8 @@ export type SessionViewPart =
     };
 
 type ToolActivitySummary = {
-  completed: string[];
+  completed: string | undefined;
   active: Array<{ id: string; label: ToolPartLabel }>;
-};
-
-type ReducedToolInvocation = Pick<
-  ToolExecution,
-  "id" | "tool" | "arguments" | "result"
-> & {
-  parentId?: string;
-  active: boolean;
 };
 
 type ToolActivityPresenter = {
@@ -141,7 +131,9 @@ export function sessionViewItems(state: SessionSnapshot): SessionViewItem[] {
   const items: SessionViewItem[] = [];
   const toolResults = toolResultsByCallId(state);
   const toolApprovals = toolApprovalsByCallId(state);
-  const invocations = reduceToolInvocations(state);
+  const executions = new Map(
+    sessionToolExecutions(state).map((execution) => [execution.id, execution]),
+  );
   const emittedTools = new Set<string>();
   let pending: PendingTurn | undefined;
 
@@ -150,7 +142,7 @@ export function sessionViewItems(state: SessionSnapshot): SessionViewItem[] {
     const parts = projectTurn({
       turn: pending,
       live,
-      invocations,
+      executions,
     });
     if (parts.length > 0) {
       items.push({
@@ -279,7 +271,19 @@ export function toolPartLabel(
   const path = part.tool.path;
   const active = part.status === "active";
   if (path === "exec") {
-    return { kind: "exec", text: active ? "Using tools" : "Used tools" };
+    if (active) {
+      // The latest nested call describes the current work, including the gap
+      // between sequential calls.
+      const latest =
+        part.calls.filter((call) => call.status === "active").at(-1) ??
+        part.calls.at(-1);
+      if (latest === undefined) return { kind: "exec", text: "Using tools" };
+      return toolPartLabel({ ...latest, status: "active" }, workspaceRoot);
+    }
+    return {
+      kind: "exec",
+      text: completedSummary(part.calls, workspaceRoot) ?? "Used tools",
+    };
   }
 
   const operation = path.split(".").at(-1);
@@ -339,17 +343,18 @@ export function toolPartLabel(
 
 const execArgsSchema = Type.Object({ js: Type.String() });
 
-export function execJsSource(details: ToolPart["details"]): string | undefined {
-  if (!Value.Check(execArgsSchema, details.args)) return undefined;
-  return details.args.js;
+export function execJsSource(part: ToolPart): string | undefined {
+  if (part.tool.path !== "exec") return undefined;
+  if (!Value.Check(execArgsSchema, part.args)) return undefined;
+  return part.args.js;
 }
 
 function projectTurn(args: {
   turn: PendingTurn;
   live: boolean;
-  invocations: readonly ReducedToolInvocation[];
+  executions: ReadonlyMap<string, ToolExecution>;
 }): SessionViewPart[] {
-  const { turn, live, invocations } = args;
+  const { turn, live, executions } = args;
   const hasTools = turn.segments.some((segment) => segment.kind === "group");
   const hasText = turn.segments.some((segment) => segment.kind === "text");
   if (!hasTools) {
@@ -386,7 +391,7 @@ function projectTurn(args: {
     const activity = groupActivity({
       tools,
       live: active,
-      invocations,
+      executions,
     });
     if (activity !== undefined) parts.push(activity);
     for (const tool of tools) {
@@ -431,18 +436,17 @@ function projectTurn(args: {
 function groupActivity(args: {
   tools: CollectedTool[];
   live: boolean;
-  invocations: readonly ReducedToolInvocation[];
+  executions: ReadonlyMap<string, ToolExecution>;
 }): SessionViewPart | undefined {
-  const { tools, live, invocations } = args;
+  const { tools, live, executions } = args;
   const firstTool = tools[0];
   if (firstTool === undefined) return undefined;
 
-  const visible = tools.filter((call) => call.connectionRequests.length === 0);
-  const activities = activitiesForRoots(
-    invocations,
-    new Set(visible.map((call) => call.id)),
-  );
-  const calls = visibleToolParts(activities);
+  const calls = tools.flatMap((tool) => {
+    if (tool.connectionRequests.length > 0) return [];
+    const execution = executions.get(tool.id);
+    return execution === undefined ? [] : [toToolPart(execution)];
+  });
 
   return {
     kind: "toolActivity",
@@ -452,87 +456,51 @@ function groupActivity(args: {
   };
 }
 
-function reduceToolInvocations(
-  state: SessionSnapshot,
-): ReducedToolInvocation[] {
-  return sessionToolExecutions(state).flatMap((tool) => {
-    const active = tool.status === "running";
-    const root: ReducedToolInvocation = { ...tool, active };
-    if (tool.type !== "exec") return [root];
-    return [
-      root,
-      ...tool.calls.map((call) => ({
-        id: call.id,
-        parentId: call.parentId,
-        tool: call.tool,
-        arguments: call.arguments,
-        active: active && call.status === "running",
-      })),
-    ];
-  });
-}
-
+/**
+ * Summarize top-level calls for one status line. Completed text describes the
+ * concrete tools used, including calls nested in exec; active labels stay one
+ * per top-level call so nested fan-out never multiplies the status.
+ */
 export function summarizeToolActivities(args: {
   calls: readonly ToolPart[];
   workspaceRoot: string | undefined;
   live: boolean;
 }): ToolActivitySummary {
   const { calls, workspaceRoot, live } = args;
-  const concreteCalls = calls.filter((call) => call.tool.path !== "exec");
-  const summarizedCalls = concreteCalls.length === 0 ? calls : concreteCalls;
-  const presenters = activityPresenters(workspaceRoot);
-  const completed = presenters.flatMap((presenter) => {
-    const summary = presenter.completedSummary(summarizedCalls);
-    return summary === undefined ? [] : [summary];
-  });
   const active = live
-    ? summarizedCalls.flatMap((call) =>
+    ? calls.flatMap((call) =>
         call.status === "active"
           ? [{ id: call.id, label: toolPartLabel(call, workspaceRoot) }]
           : [],
       )
     : [];
-  return { completed, active };
+  return { completed: completedSummary(calls, workspaceRoot), active };
 }
 
-function visibleToolParts(
-  activities: readonly ReducedToolInvocation[],
-): ToolPart[] {
-  const concreteAncestorIds = new Set<string>();
-  const byId = new Map(activities.map((activity) => [activity.id, activity]));
-  const parts: ToolPart[] = [];
-  for (const activity of activities) {
-    let detailSource = activity;
-    let parentId = activity.parentId;
-    while (parentId !== undefined) {
-      if (activity.tool.path !== "exec") {
-        concreteAncestorIds.add(parentId);
-      }
-      const parent = byId.get(parentId);
-      if (parent?.tool.path === "exec") detailSource = parent;
-      parentId = parent?.parentId;
-    }
-    parts.push(toToolPart({ activity, detailSource }));
-  }
-  return parts.filter(
-    (part) => part.tool.path !== "exec" || !concreteAncestorIds.has(part.id),
+function completedSummary(
+  calls: readonly ToolPart[],
+  workspaceRoot: string | undefined,
+): string | undefined {
+  const concreteCalls = calls.flatMap((call) =>
+    call.tool.path === "exec" ? call.calls : [call],
   );
+  const summarizedCalls = concreteCalls.length === 0 ? calls : concreteCalls;
+  const chunks = activityPresenters(workspaceRoot).flatMap((presenter) => {
+    const summary = presenter.completedSummary(summarizedCalls);
+    return summary === undefined ? [] : [summary];
+  });
+  return joinSummary(chunks);
 }
 
-function activitiesForRoots(
-  activities: readonly ReducedToolInvocation[],
-  rootIds: ReadonlySet<string>,
-): ReducedToolInvocation[] {
-  const byId = new Map(activities.map((activity) => [activity.id, activity]));
-  return activities.filter((activity) => {
-    let current: ReducedToolInvocation | undefined = activity;
-    while (current !== undefined) {
-      if (rootIds.has(current.id)) return true;
-      const parentId: string | undefined = current.parentId;
-      current = parentId === undefined ? undefined : byId.get(parentId);
-    }
-    return false;
-  });
+function joinSummary(chunks: readonly string[]): string | undefined {
+  const first = chunks[0];
+  if (first === undefined) return undefined;
+  const capitalized = `${first.charAt(0).toUpperCase()}${first.slice(1)}`;
+  const rest = chunks.slice(1);
+  const last = rest.at(-1);
+  if (last === undefined) return capitalized;
+  if (rest.length === 1) return `${capitalized} and ${last}`;
+  return `${capitalized}, ${rest.slice(0, -1).join(", ")}, and ${last}`;
 }
 
 function activityPresenters(
@@ -675,27 +643,30 @@ function stableToolIdentity(tool: ToolIdentity): string {
   return tool.path;
 }
 
-function toToolPart(args: {
-  activity: ReducedToolInvocation;
-  detailSource: ReducedToolInvocation;
-}): ToolPart {
-  const { activity, detailSource } = args;
+function toToolPart(execution: ToolExecution): ToolPart {
+  const active = execution.status === "running";
   const part: ToolPart = {
-    id: activity.id,
-    tool: activity.tool,
-    args: activity.arguments,
-    status: activity.active ? "active" : "completed",
-    details: {
-      toolPath: detailSource.tool.path,
-      args: detailSource.arguments,
-    },
+    id: execution.id,
+    tool: execution.tool,
+    args: execution.arguments,
+    status: active ? "active" : "completed",
+    calls:
+      execution.type === "exec"
+        ? execution.calls.map((call) => ({
+            id: call.id,
+            tool: call.tool,
+            args: call.arguments,
+            status:
+              active && call.status === "running" ? "active" : "completed",
+            calls: [],
+          }))
+        : [],
   };
-  if (detailSource.result !== undefined) {
-    const resultText = detailSource.result.content
-      .flatMap((content) => (content.type === "text" ? [content.text] : []))
-      .join("");
-    if (resultText.length > 0) part.details.resultText = resultText;
-  }
+  const resultText = execution.result?.content
+    .flatMap((content) => (content.type === "text" ? [content.text] : []))
+    .join("");
+  if (resultText !== undefined && resultText.length > 0)
+    part.resultText = resultText;
   return part;
 }
 

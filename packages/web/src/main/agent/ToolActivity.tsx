@@ -45,7 +45,7 @@ export function ToolActivity({ part }: { part: ToolActivityPart }) {
   const additionalToolsClassName = useStyles(styles.additionalTools);
   const interactive = calls.length > 0;
   const visibleCalls = expanded ? calls : [];
-  const completedLabel = joinSummary(summary.completed);
+  const completedLabel = summary.completed;
   if (completedLabel === undefined && !part.live) return undefined;
   const activeTool = summary.active.at(-1);
   const activeLabel =
@@ -114,17 +114,6 @@ export function ToolActivity({ part }: { part: ToolActivityPart }) {
       <AnimatedToolCalls calls={visibleCalls} />
     </div>
   );
-}
-
-function joinSummary(chunks: readonly string[]): string | undefined {
-  const first = chunks[0];
-  if (first === undefined) return undefined;
-  const capitalized = `${first.charAt(0).toUpperCase()}${first.slice(1)}`;
-  const rest = chunks.slice(1);
-  const last = rest.at(-1);
-  if (last === undefined) return capitalized;
-  if (rest.length === 1) return `${capitalized} and ${last}`;
-  return `${capitalized}, ${rest.slice(0, -1).join(", ")}, and ${last}`;
 }
 
 function AnimatedToolCalls({ calls }: { calls: ToolPart[] }) {
