@@ -144,10 +144,21 @@ export class FilesystemService {
       if (closed instanceof Error)
         console.warn("Could not close file:", closed); // coverage-exempt: Warn-only branch for the close failure above.
     });
-    const written = await handle
-      .write(data, 0, data.byteLength, position)
-      .catch((cause) => filesystemError({ operation: "write", path, cause }));
-    if (written instanceof Error) return written;
+    // A write can store fewer bytes than requested; continue with the rest.
+    let offset = 0;
+    while (offset < data.byteLength) {
+      const written = await handle
+        .write(data, offset, data.byteLength - offset, position + offset)
+        .catch((cause) => filesystemError({ operation: "write", path, cause }));
+      if (written instanceof Error) return written;
+      if (written.bytesWritten === 0)
+        return filesystemError({
+          operation: "write",
+          path,
+          cause: new Error("The file accepted no more bytes."),
+        });
+      offset += written.bytesWritten;
+    }
   }
 
   async makeDirectory(
