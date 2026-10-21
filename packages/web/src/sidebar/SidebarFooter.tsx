@@ -1,3 +1,4 @@
+import { useConnection } from "../api/ConnectionContext.js";
 import { Button, Tooltip, flex, spacing } from "maui";
 import { ArrowUpCircle } from "maui/icons";
 import { style, useStyles } from "purse-styles";
@@ -21,18 +22,27 @@ export function SidebarFooter({ appInfo }: { appInfo?: AppInfo }) {
 
 function UpgradeIcon({ appInfo }: { appInfo: AppInfo }) {
   const host = useHost();
+  const { state } = useConnection();
+  const workspaceBehind =
+    state.update !== undefined &&
+    state.update.version !== state.update.targetVersion;
   const icon = useStyles(iconStyle);
   const install = useAsyncAction(async () => {
     if (host.installAppUpdate === undefined || !confirmRestart()) return;
     return await host.installAppUpdate();
   });
   if (
+    !workspaceBehind &&
     appInfo.update.state !== "available" &&
     appInfo.update.state !== "downloaded"
   )
     return;
-  const ready = appInfo.update.state === "downloaded";
-  const label = ready ? "Restart to update" : "Downloading update";
+  const ready = appInfo.update.state === "downloaded" || workspaceBehind;
+  const label = workspaceBehind
+    ? "Update workspace"
+    : ready
+      ? "Restart to update"
+      : "Downloading update";
   return (
     <Tooltip content={install.error?.message ?? label} placement="top">
       <Button
@@ -41,7 +51,10 @@ function UpgradeIcon({ appInfo }: { appInfo: AppInfo }) {
         aria-label={label}
         data-testid="app-update-restart"
         isDisabled={
-          !ready || host.installAppUpdate === undefined || install.pending
+          !ready ||
+          state.status === "upgrading" ||
+          host.installAppUpdate === undefined ||
+          install.pending
         }
         onClick={() => void install.run()}
       >

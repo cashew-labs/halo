@@ -291,6 +291,7 @@ export const controlPlaneContract = publicProcedure.router({
   },
   workspace: {
     status: authenticatedProcedure.output(type<ControlPlaneWorkspaceStatus>()),
+    cancelUpgrade: authenticatedProcedure.output(type<void>()),
     upgrade: authenticatedProcedure
       .input(
         validated(

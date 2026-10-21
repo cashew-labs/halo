@@ -1,5 +1,6 @@
 import type {
   ControlPlaneWorkspaceStatus,
+  WorkspaceUpgradeResult,
   ControlPlaneSession,
 } from "@get-halo/shared/controlPlaneContract";
 import { readWorkspaceServerConnection } from "@get-halo/shared/WorkspaceServerConnection";
@@ -9,6 +10,10 @@ export type DesktopAuthentication = {
   getWorkspaceStatus?: () => Promise<
     ControlPlaneWorkspaceStatus | Error | undefined
   >;
+  upgradeWorkspace?: (
+    force: boolean,
+  ) => Promise<WorkspaceUpgradeResult | Error>;
+  cancelWorkspaceUpgrade?: () => Promise<void | Error>;
   recordWorkspaceActivity?: () => Promise<void | Error>;
   getWorkspaceConnection: () => Promise<HaloRpcConnection | Error | undefined>;
   getSession: () => Promise<ControlPlaneSession | Error | undefined>;

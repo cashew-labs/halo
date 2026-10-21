@@ -12,7 +12,8 @@
     "./testing": "./src/testing.ts",
     "./HaloRpcFile": "./src/HaloRpcFile.ts",
     "./WorkspaceServerConnection": "./src/WorkspaceServerConnection.ts",
-    "./marketingCampaign": "./src/marketingCampaign.ts"
+    "./marketingCampaign": "./src/marketingCampaign.ts",
+    "./prepareWorkspaceUpdate": "./src/prepareWorkspaceUpdate.ts"
   },
   "scripts": {
     "format": "oxfmt .",

@@ -23,6 +23,8 @@ export class AppUpdates {
   private updatesEnabled = false;
   private manualCheckPending = false;
   private macUpdater: MacAppUpdater | undefined;
+  private beforeInstall: (() => Promise<boolean | Error>) | undefined;
+  private preparingInstall = false;
   private readonly config: ElectronConfig["updates"];
   private readonly releaseChannel: ElectronConfig["releaseChannel"];
   private readonly deployment: string | undefined;
@@ -230,10 +232,27 @@ export class AppUpdates {
     this.beginUpdateCheck();
   }
 
+  setBeforeInstall(prepare: () => Promise<boolean | Error>) {
+    this.beforeInstall = prepare;
+  }
+
   async installAppUpdate() {
-    if (this.macUpdater !== undefined) return await this.macUpdater.install();
+    if (this.preparingInstall) return;
+    this.preparingInstall = true;
+    // oxlint-disable-next-line no-unused-vars -- Reset installation ownership on every exit.
+    using preparing = {
+      [Symbol.dispose]: () => {
+        this.preparingInstall = false;
+      },
+    };
+    const prepared = await this.beforeInstall?.();
+    if (prepared instanceof Error) return prepared;
+    if (prepared === false) return;
     if (this.updateStatus.state !== "downloaded")
-      return new UpdateNotReadyError();
+      return this.beforeInstall === undefined
+        ? new UpdateNotReadyError()
+        : undefined;
+    if (this.macUpdater !== undefined) return await this.macUpdater.install();
     autoUpdater.quitAndInstall();
   }
 

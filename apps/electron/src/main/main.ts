@@ -1,3 +1,4 @@
+import { prepareWorkspaceUpdate } from "@get-halo/shared/prepareWorkspaceUpdate";
 import { WindowHotkeys } from "./WindowHotkeys.js";
 import {
   app,
@@ -122,6 +123,31 @@ const appUpdates = new AppUpdates({
 // oxlint-disable-next-line typescript/no-floating-promises -- Electron owns the app-ready lifecycle and keeps the process alive for this work.
 app.whenReady().then(async () => {
   const authentication = await createDesktopAuthentication();
+  appUpdates.setBeforeInstall(async () => {
+    if (authentication.upgradeWorkspace === undefined) return true;
+    const woke = await authentication.recordWorkspaceActivity?.();
+    if (woke instanceof Error) return woke;
+    return await prepareWorkspaceUpdate({
+      request: async (force) => await authentication.upgradeWorkspace!(force),
+      cancel: async () => await authentication.cancelWorkspaceUpgrade?.(),
+      status: async () => await authentication.getWorkspaceStatus?.(),
+      confirmInterruption: async () => {
+        const result = await dialog.showMessageBox({
+          type: "warning",
+          title: "Stop running work and update?",
+          message:
+            "Updating your workspace will stop running agents, commands, and automations.",
+          detail:
+            "Wait for them to finish, or choose Stop work and update to upgrade now.",
+          buttons: ["Cancel", "Stop work and update"],
+          defaultId: 0,
+          cancelId: 0,
+          noLink: true,
+        });
+        return result.response === 1;
+      },
+    });
+  });
 
   registerLogBridge();
   registerDesktopApi({

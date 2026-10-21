@@ -1,3 +1,4 @@
+import { prepareWorkspaceUpdate } from "@get-halo/shared/prepareWorkspaceUpdate";
 import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
 import {
@@ -42,6 +43,37 @@ export class WebHost implements HostApi {
         (cause) =>
           new WebHostError({ operation: "read workspace status", cause }),
       );
+  }
+
+  async installAppUpdate() {
+    const woke = await this.recordWorkspaceActivity();
+    if (woke instanceof Error) return woke;
+    const prepared = await prepareWorkspaceUpdate({
+      request: async (force) =>
+        await this.controlPlane.workspace
+          .upgrade({ force }, { signal: AbortSignal.timeout(10_000) })
+          .catch(
+            (cause) =>
+              new WebHostError({ operation: "update the workspace", cause }),
+          ),
+      cancel: async () =>
+        await this.controlPlane.workspace
+          .cancelUpgrade(undefined, { signal: AbortSignal.timeout(10_000) })
+          .catch(
+            (cause) =>
+              new WebHostError({
+                operation: "cancel the workspace update",
+                cause,
+              }),
+          ),
+      status: async () => await this.getWorkspaceStatus(),
+      confirmInterruption: async () =>
+        window.confirm(
+          "Updating your workspace will stop running agents, commands, and automations. Continue with the update?",
+        ),
+    });
+    if (prepared instanceof Error) return prepared;
+    if (prepared) window.location.reload();
   }
 
   async recordWorkspaceActivity() {
