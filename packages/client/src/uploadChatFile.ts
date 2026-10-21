@@ -40,6 +40,28 @@ export async function uploadChatFile(input: {
     .catch((cause) => uploadError({ file, signal, cause }));
   if (created instanceof Error) return created;
   const { uploadId } = created;
+  const written = await writeChunks({ ...input, uploadId });
+  if (written instanceof Error) {
+    // Free the staged file and its reserved disk space now, not when it
+    // expires. A later retry starts a new upload.
+    const cancelled = await api.uploads
+      .cancel({ uploadId })
+      .catch((cause) => new ChatUploadError({ fileName: file.name, cause }));
+    if (cancelled instanceof Error)
+      console.warn("Could not cancel upload:", cancelled);
+    return written;
+  }
+  return { uploadId };
+}
+
+async function writeChunks(input: {
+  api: HaloClient;
+  file: File;
+  uploadId: string;
+  signal?: AbortSignal;
+  onProgress?: (received: number) => void;
+}) {
+  const { api, file, uploadId, signal } = input;
   let offset = 0;
   let failures = 0;
   while (offset < file.size) {
@@ -81,7 +103,6 @@ export async function uploadChatFile(input: {
     if (status instanceof Error) continue;
     offset = status.received;
   }
-  return { uploadId };
 }
 
 function uploadError(input: {
