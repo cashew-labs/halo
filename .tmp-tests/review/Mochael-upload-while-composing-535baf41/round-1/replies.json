@@ -1,0 +1,14 @@
+[
+  {
+    "findingId": "F1",
+    "reply": "fixed: uploads and waiting messages now live in a workspace-level ChatOutbox (ChatOutboxProvider under the workspace-keyed provider). Panes no longer cancel uploads on unmount; a composer's attachments are kept per session or draft ID like its draft text. Temp E2E: closing a new session's tab with its prompt held still delivers the message with its attachment."
+  },
+  {
+    "findingId": "F2",
+    "reply": "fixed: ChatOutbox sends waiting messages even after their pane closes or shows another session, and returns failed ones to that session's composer when it next mounts. Temp E2E: navigating the tab to another session while a message waits still sends it."
+  },
+  {
+    "findingId": "F3",
+    "reply": "fixed: the withdraw test now checks that only the original first chunk is held after withdrawing"
+  }
+]

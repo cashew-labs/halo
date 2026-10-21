@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "Queued rows now sort by queuedAt, so messages show in send order (F4). The restart warning now counts every unsent outbox message, including returned ones (F5). A temp E2E checks the A, B, C row order and that Stop removes sent messages but keeps waiting ones. Both test runs pass, and the coverage gate passes with two acceptable exemptions for catch handlers that only log; no findings remain.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 3,
+  "headSha": "e993460d6c7bd95c565ffd38f2a02c302fc22572",
+  "treeHash": "00b140ac9bdab3087a9875a447b249a4a4881267",
+  "codeTree": "8dd2123c218a0e22b1b104d0f0c46ced5554a75e",
+  "coverage": {
+    "executable": 264,
+    "covered": 262,
+    "exempt": 2,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-21T21:18:35.415Z"
+}

@@ -1,0 +1,51 @@
+{
+  "status": "changes_requested",
+  "summary": "Uploads and waiting messages now live in a ChatOutbox that belongs to the workspace, so they outlive chat panes. This fixes F1 and F2, and F3 is fixed in the temp test. The coverage gate still fails with 4 uncovered lines. Two new defects remain: the queued-message list can show messages out of server order, and a message returned while its pane is closed is lost on restart without a warning.",
+  "findings": [
+    {
+      "id": "F4",
+      "kind": "source",
+      "file": "packages/web/src/main/agent/AgentPane.tsx",
+      "line": 307,
+      "severity": "P1",
+      "body": "`queuedMessages` always puts outbox messages first and optimistic messages second. Example: during an active run, the user sends text A, which takes the synchronous path and becomes an optimistic message with a submissionId. The user then sends B with a file that is still uploading, which goes into the outbox as waiting. The pane shows B above A, but the server receives A first and B only after its upload. The queued list therefore shows the wrong order, which affects which message the user moves back to the draft. Fix: merge the two lists in submission order, for example by recording a creation sequence or timestamp on each entry and sorting by it."
+    },
+    {
+      "id": "F5",
+      "kind": "source",
+      "file": "packages/web/src/main/agent/ChatOutboxProvider.tsx",
+      "line": 31,
+      "severity": "P1",
+      "body": "The restart warning only checks `waiting` and `sending`. A message that fails while its session's pane is closed stays in the outbox as `returned` until a pane for that session mounts and calls `takeReturned`. `submit()` already cleared that message's persisted draft text (`clearMessageDraft(draftKey)`), so the outbox holds the only copy. If the app restarts or reloads before the user reopens the session, the message is lost and no warning was shown. This is the same silent loss as F2, now only in the failure case. Fix: include `returned` messages in `unsent` here. Alternatively, write the returned text back to the session's persisted message draft when the message is returned."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "packages/web/src/main/agent/AgentPane.tsx:461: Stop forgets outbox messages that were already sent and are still queued, and keeps waiting ones",
+      "tier": "tmp",
+      "rationale": "This line is uncovered. Example: during an active run, make an outbox message reach `sent` (its upload finished while another message was waiting), enqueue another message that is still waiting, and click Stop. Assert the sent row disappears and the waiting row stays and later sends."
+    },
+    {
+      "target": "packages/web/src/main/agent/ChatUploads.ts:196 (cancel RPC rejects), ChatUploads.ts:143 and ChatOutbox.ts:102 (catch handlers for unexpected rejections)",
+      "tier": "tmp",
+      "rationale": "These lines are uncovered. Line 196 is easy to cover in the existing vitest file: make `uploads.cancel` reject and assert `remove()` neither throws nor leaves an unhandled rejection. Lines 143 and 102 only log unexpected rejections. Cover them with a fake that throws, or mark them coverage-exempt with that reason."
+    },
+    {
+      "target": "Queued-message display order when an optimistic message and an outbox message coexist (F4)",
+      "tier": "tmp",
+      "rationale": "No test covers this ordering. Send text during an active run, then send a message whose file is still uploading, and assert the rows appear in send order."
+    }
+  ],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "e993460d6c7bd95c565ffd38f2a02c302fc22572",
+  "treeHash": "74096bd5732f4ab709873391858831368383b159",
+  "codeTree": "cb7259b176b8ff2f7a4ebcb6546120dd24759698",
+  "coverage": {
+    "executable": 264,
+    "covered": 260,
+    "exempt": 0,
+    "uncovered": 4
+  },
+  "createdAt": "2026-10-21T21:03:16.506Z"
+}

@@ -1,0 +1,64 @@
+{
+  "status": "changes_requested",
+  "summary": "The change starts uploading chat attachments when they are added and lets an open session send a message before its files finish uploading. Waiting messages go through a SerialQueue so they keep their order. Both test runs pass, but the coverage gate fails with 8 uncovered lines. Closing the pane can cancel uploads that a message in flight still needs, and a message waiting for its uploads is dropped without notice when the pane unmounts. One temp test does not check what its title claims.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "source",
+      "file": "packages/web/src/main/agent/ChatUploads.ts",
+      "line": 127,
+      "severity": "P1",
+      "body": "`close()` runs from the unmount effect (AgentPane.tsx:187). It removes every attachment still in the map and calls `api.uploads.cancel` for each one that has an `uploadId`. `consume()` runs only after `prompt` resolves, so the uploads of a message whose prompt RPC is still in flight are cancelled too. This covers the synchronous submit path and a waiting message in `sendingWaitingId`. It happens when the user sends a message and then closes the tab. It also happens to a new session: `useDraftAgentSession` navigates to `/sessions/:id` when the committed entry arrives, which can be before `prompt` returns, so DraftAgentPane unmounts and calls `close()` before `consume()`. On the server, `ThreadManager.prompt` does asynchronous reference work before `uploads.claim`, and `cancel` and `claim` share one `actionQueue`. A cancel can therefore run before the claim, the claim then returns `UploadNotFoundError`, and the message is rejected after its pane is gone. The old code never cancelled uploads that had already finished when the pane unmounted. Fix: mark the attachments of a message with a prompt in flight as claimed (or call `consume` before `prompt`), and have `close()` skip them."
+    },
+    {
+      "id": "F2",
+      "kind": "source",
+      "file": "packages/web/src/main/agent/AgentPane.tsx",
+      "line": 284,
+      "severity": "P1",
+      "body": "On unmount, the effect aborts every waiting message's controller, and `close()` cancels its uploads. `submit()` already called `clearMessageDraft(draftKey)` when the message was queued (around line 500). A waiting message is therefore lost without notice: it is neither sent nor restored to the draft. ChatPane unmounts when the tab closes or when the tab navigates to another session, because AgentPane is keyed by `sessionId` in MainPane.tsx. The feature frees the composer and shows \"Sends when its files finish uploading\", which tells users they can move on during an upload that can take minutes. Moving on loses the message. `useRestartWarning` covers only app restarts. Fix: on unmount, write the waiting messages' text (and references) back to the persisted message draft. Alternatively, keep the uploads and waiting queue at a level that outlives the pane, or warn before closing."
+    },
+    {
+      "id": "F3",
+      "kind": "test",
+      "file": "apps/electron/e2e/.tmp-tests/uploadWhileComposing.e2e.test.ts",
+      "line": 87,
+      "severity": "P1",
+      "body": "The test \"moves a waiting message back to the draft without restarting its upload\" never checks that the upload was not restarted. The comment says \"The first chunk was sent once\", but nothing counts the write requests. If withdrawal restarted the upload, the new chunk would be held as well, `release()` would continue it, and the test would still pass. Before `chunks.release()`, assert `expect(chunks.held).toHaveLength(1)` after a short settle, or record every `uploads/write` and `uploads/start` request and assert only one upload started."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "packages/web/src/main/agent/AgentPane.tsx:557-559: in the synchronous submit path, a failed send restores the draft text, attachment IDs (with their upload state kept), and references",
+      "tier": "tmp",
+      "rationale": "These lines are uncovered. An example: in a new session, make `thread/prompt` fail while an attachment is uploaded, then assert the composer gets the text and the attachment chip back with no '%' or 'Upload failed', and that a resend succeeds without uploading again."
+    },
+    {
+      "target": "packages/web/src/main/agent/ChatUploads.ts:91-93 and AgentPane sendWaiting failure: when the first waiting message fails, the later waiting messages are aborted and return to the draft in order",
+      "tier": "tmp",
+      "rationale": "Lines 92-93 (wait on an already-aborted signal) are uncovered. The cascade that returns several waiting messages to the draft is untested: the only failure test has a single waiting message. Queue A (file held) and B (text only), make A's upload fail, then assert the editor text is A then B, neither message is sent, and both rows disappear."
+    },
+    {
+      "target": "packages/web/src/main/agent/ChatUploads.ts:172-173 (upload finishes after its attachment was removed, so it is cancelled) and :208 (removed-attachment error)",
+      "tier": "tmp",
+      "rationale": "These lines are uncovered. ChatUploads is a plain class, so a Vitest unit test with a fake HaloClient and a controllable uploadChatFile can cover both: remove an attachment while uploadChatFile resolves successfully and assert `uploads.cancel` is called with that uploadId; call uploadIds() for an ID that was removed and assert a ChatUploadFailedError."
+    },
+    {
+      "target": "Closing a tab while a sent message's prompt RPC is in flight does not cancel its uploads (F1)",
+      "tier": "tmp",
+      "rationale": "Hold `thread/prompt`, close the tab, release the route, and assert the message is accepted with its attachment (no UploadNotFoundError)."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "e993460d6c7bd95c565ffd38f2a02c302fc22572",
+  "treeHash": "430290eafce000243eff85caf331af14a279ebb0",
+  "codeTree": "94aaa0eba4b51e60ae096bffa44878afe85c16ba",
+  "coverage": {
+    "executable": 178,
+    "covered": 170,
+    "exempt": 0,
+    "uncovered": 8
+  },
+  "createdAt": "2026-10-21T20:30:26.711Z"
+}

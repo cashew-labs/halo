@@ -1,0 +1,10 @@
+[
+  {
+    "findingId": "F4",
+    "reply": "fixed: optimistic and outbox messages carry queuedAt and the queued rows sort by it; a temp E2E sends text during a run, then two messages with uploading files, and checks the row order, then Stop"
+  },
+  {
+    "findingId": "F5",
+    "reply": "fixed: the outbox restart warning now covers every message that is not sent, including returned ones"
+  }
+]
