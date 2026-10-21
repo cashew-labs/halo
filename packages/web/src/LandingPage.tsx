@@ -1,9 +1,11 @@
 import {
   backgroundColor,
   Button,
+  Flex,
   P,
   Prose,
   proseContainerStyle,
+  spacing,
   text,
 } from "maui";
 import { style, useStyles } from "purse-styles";
@@ -36,11 +38,10 @@ export function LandingPage({
       <div className={content}>
         <img className={logo} src="/halo-donut-transparent.png" alt="Halo" />
 
-        <Prose size="md" className={statement}>
-          <P>An open-source, self-modifiable, agentic operating system.</P>
-        </Prose>
-
-        <div>
+        <Flex column gap={12} alignItems="start">
+          <Prose size="md" className={statement}>
+            <P>An open-source, self-modifiable, agentic operating system.</P>
+          </Prose>
           <Button
             variant="primary"
             onPress={() => {
@@ -54,7 +55,7 @@ export function LandingPage({
             isOpen={earlyAccessOpen}
             onOpenChange={setEarlyAccessOpen}
           />
-        </div>
+        </Flex>
 
         <DevLogs />
 
@@ -80,7 +81,7 @@ const styles = {
     padding: "clamp(24px, 5vw, 48px)",
     display: "flex",
     flexDirection: "column",
-    gap: 80,
+    gap: spacing.value(16),
   }),
   logo: style({
     // The PNG has transparent padding; these dimensions make the visible donut 24px tall.
