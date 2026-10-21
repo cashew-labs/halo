@@ -1,0 +1,6 @@
+[
+  {
+    "findingId": "F1",
+    "reply": "Fixed: validate selected API scopes against the Discovery document before registration, while allowing standard Google identity scopes. Consumer RPC regressions reject both typo and unrelated scopes and verify no integration remains; a temporary adapter test covers the same rejection."
+  }
+]

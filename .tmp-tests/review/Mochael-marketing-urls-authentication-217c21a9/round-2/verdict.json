@@ -1,0 +1,33 @@
+{
+  "status": "changes_requested",
+  "summary": "F1 is fixed: user-selected Google scopes are now checked against the Discovery document, with tests at the RPC level and in the adapter. But the check sits in the shared spec-format adapter, so it also runs when the built-in Google catalog presets are installed and when specs are refreshed. If any preset's real Discovery document does not declare one of Executor's consent scopes, Executor creation fails for every new user. The durable fixtures had to be changed to declare the preset scopes, which shows this coupling.",
+  "findings": [
+    {
+      "id": "F2",
+      "kind": "source",
+      "file": "apps/control-plane/src/integrations/googleDiscoveryAdapter.ts",
+      "line": 60,
+      "severity": "P1",
+      "body": "The undeclared-scope check runs whenever `input.consentScopes` is set. The openapi plugin sets it from any stored or supplied `authenticationTemplate`, not only from `registerOpenAPI`. This adapter is the only `google-discovery` format registered in `openApiPlugin` (IntegrationService.ts:218-228), so the check also runs in two other places:\n- Every preset install in the per-user Executor setup (IntegrationService.ts:1710-1746). Each preset passes `authenticationTemplate: preset.authTemplate`, and any failure returns `install ${preset.id}` and aborts Executor creation.\n- Every `updateSpec` refresh of an existing Google integration.\n\nThis makes new-user onboarding depend on every Google document declaring every scope in Executor's hard-coded `googleOAuthConsentScopes` (24 presets, including Photos Picker/Library, Chat, YouTube, Classroom and Admin). Executor already carries `authoritativeScopes`/`fallbackMethodScopes` overrides for Photos because those documents and the consent scopes diverge. The test change that adds `auth: googleFixtureAuth(url)` to `getOpenAPISpec` and `gmailDiscovery` exists only because presets now fail without it.\n\nApply the check only to user-supplied `googleOAuthScopes`. One option is to run it in `registerOpenAPI` before or after `addSpec`, and remove the integration on failure. Another is a separate adapter or a flag used only for custom registrations. Either way, preset installs and refreshes keep Executor's original behavior."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "Preset installation and Google spec refresh still succeed when a preset's Discovery document does not declare every consent scope in the preset's authTemplate (e.g. getOpenAPISpec fixture without the auth block)",
+      "tier": "tmp",
+      "rationale": "Shows that the scope check is limited to custom registrations with user-supplied googleOAuthScopes and cannot block Executor creation for new users."
+    }
+  ],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "bcec4b9a6f5a9a5abe3afc5161da7a4c3ff7a909",
+  "treeHash": "fc00777963a43112625d51a909f2055c134e3016",
+  "codeTree": "776c0d7f1fdbf3d979f32ffdec00f0c60f0c97c0",
+  "coverage": {
+    "executable": 32,
+    "covered": 32,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-21T19:25:26.065Z"
+}

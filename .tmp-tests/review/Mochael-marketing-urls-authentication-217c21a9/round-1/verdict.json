@@ -1,0 +1,33 @@
+{
+  "status": "changes_requested",
+  "summary": "The change detects Google Discovery URLs in registerOpenAPI and adds an optional googleOAuthScopes field. It also replaces Executor's Discovery fetcher with one that keeps the published URL, and updates the agent instructions. Both test tiers pass and every changed line is covered. One P1 remains: the requested scopes are not checked against the Discovery document. A wrong or unrelated scope still registers successfully but filters out every operation, so the integration has no tools, and the failure only appears after the user has gone through Google consent.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "source",
+      "file": "apps/control-plane/src/integrations/IntegrationService.ts",
+      "line": 1062,
+      "severity": "P1",
+      "body": "googleOAuthScopes goes straight into the authenticationTemplate, and the openapi plugin uses those scopes as the consent filter. In convertGoogleDiscoveryBundleToOpenApi, any method whose scopes are not covered by the consent set is skipped. A scope the document does not declare, such as a typo, a scope from another API, or a guessed name, removes every scoped method. addSpec still succeeds with toolCount 0, so registerOpenAPI returns ok. The agent then shows a connection card for an integration with no tools, and Google consent may also fail with invalid_scope for the undeclared scope. This is a likely case, because the new prompt and tool description tell the model to choose the scopes itself. Reject the request when a requested scope is not declared in the document's auth.oauth2.scopes. At minimum, if the result has no operations, remove the integration and return an IntegrationSetupError that tells the agent to pick scopes from the API description."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "IntegrationService.registerOpenAPI with googleOAuthScopes that the Discovery document does not declare (e.g. [\"https://www.googleapis.com/auth/analytic.readonly\"] against the analyticsDiscovery fixture)",
+      "tier": "tmp",
+      "rationale": "Shows that a misspelled or unrelated scope is rejected with a clear BAD_REQUEST. It must not leave behind a registered integration with zero tools."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "bcec4b9a6f5a9a5abe3afc5161da7a4c3ff7a909",
+  "treeHash": "7c67c613703ffa1ff36a8db5b6465af466673909",
+  "codeTree": "2cadab5032477bd983a4d708ab59ad5730342370",
+  "coverage": {
+    "executable": 18,
+    "covered": 18,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-21T19:19:40.397Z"
+}

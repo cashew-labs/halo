@@ -1,0 +1,6 @@
+[
+  {
+    "findingId": "F2",
+    "reply": "Fixed: use a separate persisted adapter format only when a custom registration explicitly supplies googleOAuthScopes. Preset installs and existing Google refreshes use the original format without scope validation. Restored the original no-auth Discovery fixtures and added a native preset updateSpec regression plus a temporary adapter compatibility case."
+  }
+]

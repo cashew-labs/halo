@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "F2 is fixed. The scope check now runs only in a separate adapter, `halo-google-discovery-scoped`, which is used only when a custom registration supplies `googleOAuthScopes`. Built-in Google presets and refreshes keep the original `google-discovery` format without the check. A durable test covers a preset refresh, and a temp test covers fetching a document that does not declare the preset's scopes. Both test tiers pass, every changed line is covered, and no findings remain open.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 3,
+  "headSha": "bcec4b9a6f5a9a5abe3afc5161da7a4c3ff7a909",
+  "treeHash": "15ed4c693ae8a132ff0ec64941843d7ffe323d6c",
+  "codeTree": "2e783494790ba8d07b773e3f92373b8dc956acb9",
+  "coverage": {
+    "executable": 37,
+    "covered": 37,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-21T19:29:10.735Z"
+}
