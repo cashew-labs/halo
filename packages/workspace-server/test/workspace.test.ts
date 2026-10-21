@@ -2082,7 +2082,7 @@ serverTest(
     const server = createServer({
       remoteIntegrationTools: {
         registerMcp: async () => undefined,
-        registerOpenAPI: async () => undefined,
+        registerApi: async () => undefined,
         search: async ({ limit }) =>
           offline
             ? new Error("offline")

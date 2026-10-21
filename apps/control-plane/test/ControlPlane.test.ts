@@ -308,7 +308,7 @@ const controlPlaneTest = test.extend<{
             await runtime.integrations
               .registerMcp(input, { signal })
               .catch((cause) => new IntegrationRegistrationError({ cause })),
-          registerOpenAPI: async (input, signal) =>
+          registerApi: async (input, signal) =>
             await runtime.integrations
               .registerOpenAPI(input, { signal })
               .catch((cause) => new IntegrationRegistrationError({ cause })),
@@ -1028,7 +1028,7 @@ controlPlaneTest(
       },
       {
         slug: "agent-api",
-        tool: "registerOpenAPI",
+        tool: "registerApi",
         input: {
           name: "Agent API",
           slug: "agent-api",
@@ -1147,12 +1147,12 @@ controlPlaneTest(
     );
     expect(JSON.stringify(badUrl)).toContain("Unsafe remote URL");
     const badSpec = await agent.run(
-      `await tools.halo.registerOpenAPI({ name: "Invalid", slug: "invalid-spec", url: ${JSON.stringify(new URL("/invalid-spec", integrationApi.origin).href)} });`,
+      `await tools.halo.registerApi({ name: "Invalid", slug: "invalid-spec", url: ${JSON.stringify(new URL("/invalid-spec", integrationApi.origin).href)} });`,
     );
     expect(JSON.stringify(badSpec)).toContain("registration_failed");
     expect(JSON.stringify(badSpec)).not.toContain("Internal Server Error");
     const duplicateApi = await agent.run(
-      `await tools.halo.registerOpenAPI(${JSON.stringify(integrations[2]!.input)});`,
+      `await tools.halo.registerApi(${JSON.stringify(integrations[2]!.input)});`,
     );
     expect(JSON.stringify(duplicateApi)).toContain(
       "already exists; choose a new slug",

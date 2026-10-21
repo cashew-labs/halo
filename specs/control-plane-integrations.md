@@ -413,21 +413,21 @@ IntegrationService seeds a persisted native `org` policy with pattern `*` and ac
 
 **Historical automatic-approval slice evidence:** the control-plane/credential command reported **30 passed, 2 skipped**, and `check-affected` reported **46 successful tasks** before the setup and UI additions. Current verification is recorded under Delivery state below.
 
-**Implemented now:** `catalog`, `startSetup`, `setup`, `submitSetup`, `cancelSetup`, `registerOpenAPI` and `registerMcp`. Registration accepts signed-in people and authenticated owner workspace runtimes; it saves catalogs without creating connections. There is no registration form. Agent-facing `tools.halo.registerMcp` and `tools.halo.registerOpenAPI` register catalogs through this same owner-authenticated boundary; the agent then shows the existing connection card. IntegrationService stores durable setup SQL and atomically claims submission, cancellation and callback consumption. The native HTTP callback is `/api/integrations/oauth/callback`; its stored state determines the initiating user, not the current browser identity. URL validation rejects private networks and redirects, including checking DNS results at the actual socket lookup. Local fixture URLs require an explicit test exception. Disconnect has no endpoint or UI yet.
+**Implemented now:** `catalog`, `startSetup`, `setup`, `submitSetup`, `cancelSetup`, `registerOpenAPI` and `registerMcp`. Registration accepts signed-in people and authenticated owner workspace runtimes; it saves catalogs without creating connections. There is no registration form. Agent-facing `tools.halo.registerMcp` and `tools.halo.registerApi` register catalogs through this same owner-authenticated boundary; the agent then shows the existing connection card. IntegrationService stores durable setup SQL and atomically claims submission, cancellation and callback consumption. The native HTTP callback is `/api/integrations/oauth/callback`; its stored state determines the initiating user, not the current browser identity. URL validation rejects private networks and redirects, including checking DNS results at the actual socket lookup. Local fixture URLs require an explicit test exception. Disconnect has no endpoint or UI yet.
 
 #### ✅ Agent registration: remote MCP and OpenAPI
 
 **Today (before this addition):** The backend accepted custom catalogs, but the agent had no registration tools and workspace runtime registration was denied.
 
-**Proposed and implemented:** Allow authenticated owner runtimes to save catalogs, expose `halo.registerMcp({ name, slug, endpoint, auth })` and `halo.registerOpenAPI({ name, slug, url })`, and instruct the agent to show `halo.showConnectionCard({ integration })` after registration succeeds. Share the strict registration schemas between RPC and agent tools. Registration returns `{ status: "registered", integration: slug }`; it never creates a connection or accepts credentials. Executor rejects existing slugs. Registration maps duplicate-slug and malformed-spec errors to actionable BAD_REQUEST responses; the workspace preserves RPC rejection messages in a registration-specific error. Public HTTPS endpoints and remote HTTP MCP remain the supported scope; local files and stdio processes are not added.
+**Proposed and implemented:** Allow authenticated owner runtimes to save catalogs, expose `halo.registerMcp({ name, slug, endpoint, auth })` and `halo.registerApi({ name, slug, url })`, and instruct the agent to show `halo.showConnectionCard({ integration })` after registration succeeds. Share the strict registration schemas between RPC and agent tools. Registration returns `{ status: "registered", integration: slug }`; it never creates a connection or accepts credentials. Executor rejects existing slugs. Registration maps duplicate-slug and malformed-spec errors to actionable BAD_REQUEST responses; the workspace preserves RPC rejection messages in a registration-specific error. Public HTTPS endpoints and remote HTTP MCP remain the supported scope; local files and stdio processes are not added.
 
 ```callstack
  Agent exec [[packages/workspace-server/src/agent/tools/execTool.ts#createExecTool]]
-+├── call halo.registerMcp or halo.registerOpenAPI [[packages/workspace-server/src/agent/runtime/ToolRuntime.ts]]
++├── call halo.registerMcp or halo.registerApi [[packages/workspace-server/src/agent/runtime/ToolRuntime.ts]]
 +│   ├── validate the shared input schema [[packages/shared/src/controlPlaneContract.ts]]
 +│   └── call the authenticated registration RPC [[apps/workspace-server/src/main.ts]]
 +│       ├── derive the integration owner [[apps/control-plane/src/server/controlPlaneRpcRouter.ts#integrationOwner]]
-+│       └── validate URL and save catalog [[apps/control-plane/src/integrations/IntegrationService.ts#IntegrationService.registerMcp]] [[apps/control-plane/src/integrations/IntegrationService.ts#IntegrationService.registerOpenAPI]]
++│       └── validate URL and save catalog [[apps/control-plane/src/integrations/IntegrationService.ts#IntegrationService.registerMcp]] [[apps/control-plane/src/integrations/IntegrationService.ts#IntegrationService.registerApi]]
  └── show the normal connection card; user completes setup before tool discovery and invocation [[packages/workspace-server/src/agent/runtime/ConnectionService.ts#ConnectionService.startConnection]]
 ```
 
@@ -491,7 +491,7 @@ cancelSetup({ setupId }): Promise<void>;
 
 // Human session only; verify Origin/CSRF protection. Never agent-exposed.
 submitSetup({ setupId, template, values }): Promise<{ authorizationUrl?: string }>;
-registerOpenAPI({ name, slug, url }): Promise<void>;
+registerApi({ name, slug, url }): Promise<void>;
 registerMcp({ name, slug, endpoint, auth }): Promise<void>;
 // Disconnect is not implemented.
 // The OAuth callback validates stored state; it is not a runtime RPC.

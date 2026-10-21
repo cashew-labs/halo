@@ -101,15 +101,27 @@ export type IntegrationInvocation =
       message: string;
     };
 
-export const registerOpenAPIInputSchema = Type.Object(
+export const registerApiInputSchema = Type.Object(
   {
     name: Type.String({ minLength: 1, maxLength: 256 }),
     slug: Type.String({ pattern: "^[a-z][a-z0-9_-]{0,63}$" }),
     url: Type.String({ minLength: 1, maxLength: 2048 }),
+    googleOAuthScopes: Type.Optional(
+      Type.Array(
+        Type.String({ minLength: 1, maxLength: 2048, pattern: "\\S" }),
+        {
+          minItems: 1,
+          maxItems: 64,
+          uniqueItems: true,
+          description:
+            "Optional Google OAuth permissions for an official Google Discovery URL. Choose scopes declared in the API description and request only the access needed for the user’s task. Operations requiring other scopes are omitted.",
+        },
+      ),
+    ),
   },
   { additionalProperties: false },
 );
-export type OpenAPIRegistration = Static<typeof registerOpenAPIInputSchema>;
+export type ApiRegistration = Static<typeof registerApiInputSchema>;
 
 export const registerMcpInputSchema = Type.Object(
   {
@@ -360,8 +372,9 @@ export const controlPlaneContract = publicProcedure.router({
         ),
       )
       .output(type<{ revocation: ConnectionRevocation }>()),
+    // Keep the RPC route stable for released clients; agents use halo.registerApi.
     registerOpenAPI: authenticatedProcedure
-      .input(validated(registerOpenAPIInputSchema))
+      .input(validated(registerApiInputSchema))
       .output(type<void>()),
     registerMcp: authenticatedProcedure
       .input(validated(registerMcpInputSchema))

@@ -365,7 +365,7 @@ export const controlPlaneRpcRouter = os.router({
     registerOpenAPI: os.integrations.registerOpenAPI
       .use(loadIntegrationOwner)
       .handler(async ({ context, input }) => {
-        const result = await context.integrations.registerOpenAPI({
+        const result = await context.integrations.registerApi({
           ...input,
           userId: context.ownerUserId,
         });

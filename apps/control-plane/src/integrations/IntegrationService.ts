@@ -10,7 +10,6 @@ import { mcpPlugin } from "@executor-js/plugin-mcp/core";
 import { openApiPlugin } from "@executor-js/plugin-openapi/core";
 import {
   googleCatalog,
-  googleDiscoveryAdapter,
   isGoogleDiscoveryUrl,
 } from "@executor-js/plugin-openapi/providers/google";
 import {
@@ -52,6 +51,7 @@ import type {
   IntegrationToolSchema,
   IntegrationSetup,
   IntegrationSetupCatalogEntry,
+  ApiRegistration,
 } from "@get-halo/shared/controlPlaneContract";
 import { Layer } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
@@ -61,6 +61,10 @@ import type { DatabaseService, DatabaseClient } from "../DatabaseService.js";
 import { withAccountChoice } from "./accountChoice.js";
 import { GmailApi } from "../automations/GmailApi.js";
 import { createExecutorDatabase } from "./createExecutorDatabase.js";
+import {
+  googleDiscoveryAdapter,
+  scopedGoogleDiscoveryAdapter,
+} from "./googleDiscoveryAdapter.js";
 
 const githubSpecUrl =
   "https://raw.githubusercontent.com/github/rest-api-description/bb754941722779d8a5b3a2f25a5fbb7ce794e1ea/descriptions/api.github.com/api.github.com.json";
@@ -250,7 +254,7 @@ export class IntegrationService {
       openApiPlugin({
         presets: this.presets,
         httpClientLayer: httpClientLayer ?? this.safeHttpLayer(),
-        specFormats: [googleDiscoveryAdapter],
+        specFormats: [googleDiscoveryAdapter, scopedGoogleDiscoveryAdapter],
       }),
       // Remote HTTP/SSE only: never spawn user-supplied processes in the control plane.
       {
@@ -1066,20 +1070,40 @@ export class IntegrationService {
     return body.includes("invalid_token") ? "revoked" : "failed";
   }
 
-  async registerOpenAPI(ctx: {
-    userId: string;
-    name: string;
-    slug: string;
-    url: string;
-  }) {
+  async registerApi(ctx: ApiRegistration & { userId: string }) {
     const safe = await this.validateRemoteUrl(ctx.url);
     if (safe instanceof Error) return safe;
+    const googleDiscovery = isGoogleDiscoveryUrl(ctx.url);
+    if (ctx.googleOAuthScopes !== undefined && !googleDiscovery)
+      return new IntegrationSetupError({
+        detail:
+          "Google OAuth scopes require an official Google Discovery URL. Use the provider's Google API description URL or omit googleOAuthScopes for OpenAPI.",
+      });
+    const adapter =
+      ctx.googleOAuthScopes === undefined
+        ? googleDiscoveryAdapter
+        : scopedGoogleDiscoveryAdapter;
     return await this.withUser(ctx.userId, (executor) =>
       Effect.asVoid(
         executor.openapi.addSpec({
           name: ctx.name,
           slug: ctx.slug,
           spec: { kind: "url", url: ctx.url },
+          family: googleDiscovery ? "google" : undefined,
+          specFormat: googleDiscovery ? adapter.id : undefined,
+          authenticationTemplate:
+            ctx.googleOAuthScopes === undefined
+              ? undefined
+              : [
+                  {
+                    slug: "googleOAuth2",
+                    kind: "oauth2",
+                    authorizationUrl:
+                      "https://accounts.google.com/o/oauth2/v2/auth",
+                    tokenUrl: "https://oauth2.googleapis.com/token",
+                    scopes: ctx.googleOAuthScopes,
+                  },
+                ],
         }),
       ).pipe(
         Effect.catchTags({
