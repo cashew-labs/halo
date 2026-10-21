@@ -8,7 +8,7 @@ import type {
   WorkspaceSchema,
 } from "@get-halo/client";
 import { automationRunSelect } from "@get-halo/client";
-import { Button } from "maui";
+import { Button, CodeBlock } from "maui";
 import { Pencil } from "maui/icons";
 import { useStyles } from "purse-styles";
 import { useApi } from "../api/ApiProvider.js";
@@ -219,11 +219,13 @@ function AutomationView({
           ))}
         <section className={section} aria-label={actionLabel}>
           <h3 className={sectionTitle}>{actionLabel}</h3>
-          <pre className={actionBody}>
-            {automation.action.type === "runAgent"
-              ? automation.action.prompt
-              : automation.action.command}
-          </pre>
+          <div className={actionBody}>
+            {automation.action.type === "runAgent" ? (
+              <CodeBlock lang="text">{automation.action.prompt}</CodeBlock>
+            ) : (
+              <CodeBlock lang="bash">{automation.action.command}</CodeBlock>
+            )}
+          </div>
         </section>
         <section className={section} aria-label="Run history">
           <h3 className={sectionTitle}>Run history</h3>

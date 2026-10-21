@@ -13,10 +13,7 @@ import {
 } from "maui";
 import { style, useStyles } from "purse-styles";
 import { Check } from "maui/icons";
-import {
-  connectionRequestLabel,
-  googleIntegrationDisplay,
-} from "@get-halo/client";
+import { connectionRequestLabel, integrationDisplay } from "@get-halo/client";
 import { useHost } from "../../HostProvider.js";
 import { brands } from "../../BrandLogo.tsx";
 import {
@@ -150,17 +147,17 @@ export function ExecutorConnectionCard({
   });
 
   const status = connection.status;
-  const display = googleIntegrationDisplay(part.request.integration);
+  const display = integrationDisplay(part.request.integration);
   const label = connectionRequestLabel(part.request);
   const brand = brands.google;
   const canConnect = sessionId !== undefined;
   const brandButtonProps =
-    display === undefined
-      ? {}
-      : {
+    display !== undefined && part.request.integration.startsWith("google_")
+      ? {
           variantColor: brand.buttonColor,
           style: { color: brand.buttonForeground },
-        };
+        }
+      : {};
 
   return (
     <section

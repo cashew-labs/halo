@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import { Dialog, Modal, ModalOverlay } from "react-aria-components";
 import {
   Button,
+  CodeBlock,
   Flex,
   H3,
   P,
@@ -11,7 +12,6 @@ import {
   radius,
   shadow,
   spacing,
-  text,
   Tooltip,
   visuallyHidden,
 } from "maui";
@@ -30,6 +30,7 @@ export function ConnectionStatus() {
     state.status !== "offline" &&
     state.status !== "incompatible";
   const statusClass = useStyles(statusStyle);
+  const dotClass = useStyles(dotStyle);
   const hiddenLabel = useStyles(visuallyHidden);
   const mismatch =
     state.error instanceof IncompatibleServerError ? state.error : undefined;
@@ -68,9 +69,11 @@ export function ConnectionStatus() {
   // The hidden label stays in the live region so screen readers announce changes.
   const indicator = (
     <>
-      <span aria-hidden="true" style={{ color }}>
-        ●
-      </span>
+      <span
+        aria-hidden="true"
+        className={dotClass}
+        style={{ backgroundColor: color }}
+      />
       <span className={hiddenLabel}>{label}</span>
     </>
   );
@@ -113,7 +116,6 @@ function ConnectionAction({
   const [signingIn, setSigningIn] = useState(false);
   const overlay = useStyles(overlayStyle);
   const modal = useStyles(modalStyle);
-  const details = useStyles(detailsStyle);
   return (
     <>
       {/* Tooltip needs a single focusable child, not this fragment. */}
@@ -152,9 +154,9 @@ function ConnectionAction({
               )}
               <details>
                 <summary>Connection details</summary>
-                <pre className={details}>
+                <CodeBlock lang="json">
                   {JSON.stringify(service.diagnostics(), undefined, 2)}
-                </pre>
+                </CodeBlock>
                 <Button
                   onClick={async () => {
                     await navigator.clipboard
@@ -205,19 +207,20 @@ function ConnectionAction({
     </>
   );
 }
-const statusStyle = style(
-  text({ size: "lg", fontWeight: 400 }),
-  focusRing(),
-  radius.sm,
-  {
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 0,
-    minWidth: 24,
-    minHeight: 24,
-  },
-);
+const statusStyle = style(focusRing(), radius.sm, {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: 0,
+  minWidth: 24,
+  minHeight: 24,
+});
+const dotStyle = style(radius.circle, {
+  display: "block",
+  width: 6,
+  height: 6,
+  flexShrink: 0,
+});
 export const overlayStyle = style({
   position: "fixed",
   inset: 0,
@@ -242,4 +245,3 @@ export const modalStyle = style(
     "& [role='dialog']": { outline: "none" },
   },
 );
-const detailsStyle = style({ overflowX: "auto", maxWidth: "100%" });

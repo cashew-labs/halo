@@ -42,6 +42,13 @@ const googleClientIdSecretId =
 const googleClientSecretId =
   configuration.get("googleClientSecretId") ??
   `${name}-control-plane-google-client-secret`;
+const githubClientIdSecretId = configuration.get("githubClientIdSecretId");
+const githubClientSecretId = configuration.get("githubClientSecretId");
+if (
+  (githubClientIdSecretId === undefined) !==
+  (githubClientSecretId === undefined)
+)
+  throw new Error("Set both githubClientIdSecretId and githubClientSecretId");
 // Project-wide grants to the shared deployment identity need exactly one owning
 // stack: deleting or replacing a non-authoritative binding in either stack
 // would remove it for both.
@@ -657,6 +664,22 @@ const googleClientSecretAccess = new gcp.secretmanager.SecretIamMember(
   },
 );
 
+const githubClientAccess = [
+  githubClientIdSecretId,
+  githubClientSecretId,
+].flatMap((secretId, index) =>
+  secretId === undefined
+    ? []
+    : [
+        new gcp.secretmanager.SecretIamMember(`github-oauth-${index}-access`, {
+          project,
+          secretId,
+          role: "roles/secretmanager.secretAccessor",
+          member: pulumi.interpolate`serviceAccount:${runtime.email}`,
+        }),
+      ],
+);
+
 const controlPlaneTogetherApiKeyAccess = new gcp.secretmanager.SecretIamMember(
   "control-plane-together-api-key",
   {
@@ -872,6 +895,18 @@ const controlPlane = new gcp.cloudrunv2.Service(
               name: "GOOGLE_CLIENT_SECRET_ID",
               value: googleClientSecretId,
             },
+            ...(githubClientIdSecretId === undefined
+              ? []
+              : [
+                  {
+                    name: "GITHUB_CLIENT_ID_SECRET_ID",
+                    value: githubClientIdSecretId,
+                  },
+                  {
+                    name: "GITHUB_CLIENT_SECRET_ID",
+                    value: githubClientSecretId,
+                  },
+                ]),
             { name: "TRACE_BUCKET", value: traces.name },
             ...(signInAllowlistSecretId === undefined
               ? []
@@ -919,6 +954,7 @@ const controlPlane = new gcp.cloudrunv2.Service(
       databaseUrlAccess,
       googleClientIdAccess,
       googleClientSecretAccess,
+      ...githubClientAccess,
       ...exeSecretAccess,
       workspaceServiceAccountAccess,
     ],

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { canUseWASM, type HighlighterTypes } from "@pierre/diffs";
 import {
   Editor,
   type EditorOptions,
@@ -22,7 +23,14 @@ const diffsTheme = {
   light: "pierre-light",
 } as const;
 
-const pierreUnsafeCss = `:host { --diffs-font-family: ${monoFontFamily}; }`;
+// A transparent `--diffs-bg` lets the pane background show through; Diffs derives
+// its hover, selection, and line-number colors by mixing with it.
+const pierreUnsafeCss = `:host { --diffs-font-family: ${monoFontFamily}; --diffs-bg: transparent; }`;
+
+// Highlights needs WebAssembly with SIMD; the browser app's CSP blocks WebAssembly, so it keeps Shiki.
+const preferredHighlighter: HighlighterTypes = canUseWASM()
+  ? "highlights"
+  : "shiki-js";
 
 function createPierreEditor<EType extends EditorType>(
   editorType: EType,
@@ -131,6 +139,7 @@ export function CodeViewFileEditor({
       overflow: "scroll" as const,
       disableFileHeader: true,
       unsafeCSS: pierreUnsafeCss,
+      preferredHighlighter,
     }),
     [resolvedTheme],
   );

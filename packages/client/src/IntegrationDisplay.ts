@@ -1,14 +1,21 @@
-export type GoogleIntegrationDisplay = {
+export type IntegrationDisplay = {
   name: string;
   description: string;
   icon: string;
+  installationUrl?: string;
 };
 
 const logos = "https://gethalo.dev/logos";
 const googleLogo = `${logos}/google.svg`;
 const googleCloudLogo = `${logos}/google-cloud.svg`;
 
-const googleIntegrationDisplays = {
+const integrationDisplays = {
+  github: {
+    name: "GitHub",
+    description: "Work with repositories, issues, pull requests, and actions.",
+    icon: `${logos}/github.svg`,
+    installationUrl: "https://github.com/apps/halo-by-cashew/installations/new",
+  },
   google_calendar: {
     name: "Google Calendar",
     description: "Search events and schedule meetings.",
@@ -115,13 +122,11 @@ const googleIntegrationDisplays = {
     description: "See projects, folders, and organizations.",
     icon: googleCloudLogo,
   },
-} as const satisfies Record<string, GoogleIntegrationDisplay>;
+} as const satisfies Record<string, IntegrationDisplay>;
 
-export function googleIntegrationDisplay(
+export function integrationDisplay(
   integration: string,
-): GoogleIntegrationDisplay | undefined {
+): IntegrationDisplay | undefined {
   // SAFETY: unknown slugs are missing catalog keys, so this index is undefined.
-  return googleIntegrationDisplays[
-    integration as keyof typeof googleIntegrationDisplays
-  ];
+  return integrationDisplays[integration as keyof typeof integrationDisplays];
 }

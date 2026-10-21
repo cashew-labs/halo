@@ -19,6 +19,52 @@ remains the registrar and authoritative DNS provider. Production Electron
 builds use the custom origin, while the Cloud Run default URL remains reachable
 for previously released desktop clients.
 
+## GitHub integration OAuth
+
+Halo uses the public [Halo by Cashew GitHub App](https://github.com/apps/halo-by-cashew),
+owned by `cashew-labs` (app ID `5415709`, client ID `Iv23liHtgLY577uUcAeU`).
+This is separate from Halo's Google sign-in. Users authorize a GitHub App user token;
+Executor exchanges the code with PKCE, stores encrypted per-user tokens, and refreshes
+expiring access tokens. The app does not request classic OAuth `repo` scopes.
+
+Register these exact callback URLs with wildcard matching disabled:
+
+- `https://gethalo.dev/api/integrations/oauth/callback`
+- `https://staging.gethalo.dev/api/integrations/oauth/callback`
+- `http://127.0.0.1:8787/api/integrations/oauth/callback`
+
+Keep user token expiration enabled. Leave OAuth during installation, device flow,
+and webhooks disabled: Halo starts its own state-bound authorization flow.
+The app requests read/write Contents, Issues, Pull requests, and Actions; read-only
+Checks and Commit statuses; and GitHub's mandatory read-only Metadata permission.
+It requests no account or organization permissions. Users choose which repositories
+the app can access when they install it. GitHub requires an app key pair before the
+app can be installed; the user-token OAuth flow itself does not use that private key.
+The registration key is backed up as `halo-github-app-private-key` in Secret Manager
+without a control-plane runtime grant.
+
+Store the client ID and client secret as separate secrets in project `halo-relay`:
+`halo-github-app-client-id` and `halo-github-app-client-secret`. Never put the secret
+payload in Git or Pulumi config. For each enabled stack, set
+`githubClientIdSecretId` and `githubClientSecretId` to those secret names. Pulumi grants
+only that stack's control-plane runtime secret access and supplies the names as
+`GITHUB_CLIENT_ID_SECRET_ID` and `GITHUB_CLIENT_SECRET_ID`. Configure both names or
+neither; an unconfigured deployment does not register the first-party GitHub client.
+The server reads the current secret versions at startup, so credential changes need
+a new control-plane revision. Local development uses the same two environment
+variables; file-based server configuration can supply `github.clientId` and
+`github.clientSecret` through a private configuration file.
+
+The setup page links to repository installation in a separate tab before browser
+OAuth. Users can also manage repository access after connecting. Installation and
+user authorization are separate: an authorized user token can access only resources
+allowed to both that user and the installed app. Executor still calls the REST API
+on the connected user's behalf; this integration does not use installation tokens.
+The GitHub catalog is enabled only when its app credentials are configured. Halo
+pins the REST description to revision `bb754941722779d8a5b3a2f25a5fbb7ce794e1ea`.
+If that description cannot be installed, Halo logs the failure and keeps the
+existing integrations available; a new control-plane process retries installation.
+
 ## Marketing links
 
 The regular control-plane service resolves `https://go.gethalo.dev/:slug` to

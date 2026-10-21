@@ -1,5 +1,7 @@
 secretsprovider: gcpkms://projects/halo-relay/locations/us-central1/keyRings/halo-pulumi/cryptoKeys/state
 config:
+  halo-control-plane:githubClientIdSecretId: halo-github-app-client-id
+  halo-control-plane:githubClientSecretId: halo-github-app-client-secret
   gcp:project: halo-relay
   gcp:region: us-west2
   gcp:zone: us-west2-a
