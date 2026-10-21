@@ -1,14 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  Button,
-  Flex,
-  RadioOption,
-  RadioOptionGroup,
-  Switch,
-  Text,
-  flex,
-  text,
-} from "maui";
+import { Button, Switch, Text, flex, text } from "maui";
 import { style, useStyles } from "purse-styles";
 import type {
   HostApi,
@@ -18,9 +9,8 @@ import type {
 import { problemStyle } from "./PublisherSettings.js";
 
 const deviceQueryKey = ["local-device"];
-const accessLevels = ["off", "read", "write"] as const;
 
-/** Lets the person decide what the workspace agent may do on this computer. */
+/** Shows what the workspace agent may do on this computer. */
 export function DeviceSettings({
   device,
 }: {
@@ -29,26 +19,21 @@ export function DeviceSettings({
   const queryClient = useQueryClient();
   const hint = useStyles(hintStyle);
   const problem = useStyles(hintStyle, problemStyle);
+  const section = useStyles(sectionStyle);
+  const list = useStyles(listStyle);
   const folderRow = useStyles(folderRowStyle);
   const folderPath = useStyles(folderPathStyle);
-  const section = useStyles(sectionStyle);
   // A long path would otherwise shrink Remove below its label.
   const removeButton = useStyles(removeButtonStyle);
   const state = useQuery({
     queryKey: deviceQueryKey,
     queryFn: async () => await unwrap(device.read()),
-    // The connection status changes without a settings change.
+    // Connection status and new grants change outside this dialog.
     refetchInterval: 2_000,
   });
   const save = useMutation({
-    mutationFn: async (
-      change: { update: LocalDeviceUpdate } | { addFolder: true },
-    ) =>
-      await unwrap(
-        "addFolder" in change
-          ? device.addFolder()
-          : device.update(change.update),
-      ),
+    mutationFn: async (update: LocalDeviceUpdate) =>
+      await unwrap(device.update(update)),
     onSuccess: (saved) => queryClient.setQueryData(deviceQueryKey, saved),
   });
   const current = state.data;
@@ -58,8 +43,7 @@ export function DeviceSettings({
         {state.error.message}
       </p>
     );
-  const update = (change: LocalDeviceUpdate) => save.mutate({ update: change });
-  const { files } = current;
+  const { grants } = current.files;
   return (
     <section aria-labelledby="device-settings-label" className={section}>
       <Text id="device-settings-label" size="xs" fontWeight={600}>
@@ -68,68 +52,48 @@ export function DeviceSettings({
       <Switch
         label={`Let Halo use ${current.name}`}
         selected={current.enabled}
-        onChange={(enabled) => update({ enabled })}
+        onChange={(enabled) => save.mutate({ enabled })}
       />
       <p role="status" aria-live="polite" className={hint}>
         {statusText(current)}
       </p>
       {current.enabled && (
         <>
-          <RadioOptionGroup
-            label="Files"
-            value={files.access}
-            onChange={(value) => {
-              const access = accessLevels.find((level) => level === value);
-              if (access !== undefined) update({ files: { ...files, access } });
-            }}
-            isDisabled={save.isPending}
-          >
-            <RadioOption value="off">Off</RadioOption>
-            <RadioOption value="read">Read only</RadioOption>
-            <RadioOption value="write">Read and write</RadioOption>
-          </RadioOptionGroup>
-          {files.access !== "off" && (
-            <Flex column gap={2}>
-              {files.roots.length === 0 && (
-                <p className={hint}>
-                  Add a folder for the agent to use. Other folders stay private.
-                </p>
-              )}
-              {files.roots.map((root) => (
-                <div key={root} className={folderRow}>
-                  <span className={folderPath} title={root}>
-                    {root}
+          <p className={hint}>
+            Halo asks here before the agent uses a new folder. Credential
+            folders such as ~/.ssh are never shared.
+          </p>
+          {grants.length > 0 && (
+            <ul aria-label="Allowed folders" className={list}>
+              {grants.map((grant) => (
+                <li key={grant.path} className={folderRow}>
+                  <span className={folderPath} title={grant.path}>
+                    {grant.path}
                   </span>
+                  <Text size="xs" color="lowContrast">
+                    {grant.access === "write" ? "Read and write" : "Read only"}
+                  </Text>
                   <Button
                     variant="quiet"
                     size="sm"
                     className={removeButton}
-                    aria-label={`Stop sharing ${root}`}
+                    aria-label={`Stop allowing ${grant.path}`}
                     isDisabled={save.isPending}
                     onPress={() =>
-                      update({
+                      save.mutate({
                         files: {
-                          ...files,
-                          roots: files.roots.filter((entry) => entry !== root),
+                          grants: grants.filter(
+                            (entry) => entry.path !== grant.path,
+                          ),
                         },
                       })
                     }
                   >
                     Remove
                   </Button>
-                </div>
+                </li>
               ))}
-              <Button
-                size="sm"
-                isDisabled={save.isPending}
-                onPress={() => save.mutate({ addFolder: true })}
-              >
-                Add folder…
-              </Button>
-              <p className={hint}>
-                Credential folders such as ~/.ssh are never shared.
-              </p>
-            </Flex>
+            </ul>
           )}
         </>
       )}
@@ -161,14 +125,16 @@ async function unwrap(result: Promise<LocalDeviceState | Error>) {
   return value;
 }
 
-const removeButtonStyle = style({ flexShrink: 0 });
 const sectionStyle = style(flex({ direction: "column", gap: 3 }));
+const listStyle = style(flex({ direction: "column", gap: 2 }), {
+  margin: 0,
+  padding: 0,
+  listStyle: "none",
+});
 const hintStyle = style(text({ size: "xs", color: "lowContrast" }), {
   margin: 0,
 });
-const folderRowStyle = style(
-  flex({ alignItems: "center", justifyContent: "between", gap: 3 }),
-);
+const folderRowStyle = style(flex({ alignItems: "center", gap: 3 }));
 const folderPathStyle = style(text({ size: "xs" }), {
   flex: 1,
   minWidth: 0,
@@ -176,3 +142,4 @@ const folderPathStyle = style(text({ size: "xs" }), {
   textOverflow: "ellipsis",
   whiteSpace: "nowrap",
 });
+const removeButtonStyle = style({ flexShrink: 0 });

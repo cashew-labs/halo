@@ -29,11 +29,12 @@ export type AppInfo = {
   update: AppUpdateStatus;
 };
 
-/** This computer's connection to the workspace agent, shown in the desktop app. */
+/** The computer the desktop app runs on, as the workspace agent sees it. */
 export type LocalDeviceState = {
   name: string;
   enabled: boolean;
-  files: { access: "off" | "read" | "write"; roots: string[] };
+  /** Folders the person allowed when the agent first asked. */
+  files: { grants: { path: string; access: "read" | "write" }[] };
   status:
     | { state: "disabled" }
     | { state: "connecting" }
@@ -51,8 +52,6 @@ export interface HostApi {
   device?: {
     read(): Promise<LocalDeviceState | Error>;
     update(update: LocalDeviceUpdate): Promise<LocalDeviceState | Error>;
-    /** Opens a folder picker and shares the chosen folder. */
-    addFolder(): Promise<LocalDeviceState | Error>;
   };
   integrationSetup?: {
     read(setupId: string): Promise<IntegrationSetup | Error>;

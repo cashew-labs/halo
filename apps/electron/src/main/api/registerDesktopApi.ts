@@ -49,7 +49,6 @@ export function registerDesktopApi(args: {
       stagingToggle: args.stagingToggle,
       getConnection: args.getConnection,
       device: args.device,
-      window: BrowserWindow.fromWebContents(event.sender) ?? undefined,
     });
     if (
       result instanceof Error &&
@@ -75,7 +74,6 @@ async function handleDesktopRequest(args: {
   stagingToggle: StagingToggle;
   getConnection: () => Promise<HaloRpcConnection | Error | undefined>;
   device: LocalDevice | undefined;
-  window: BrowserWindow | undefined;
 }) {
   switch (args.request.type) {
     case "getWorkspaceStatus":
@@ -108,8 +106,6 @@ async function handleDesktopRequest(args: {
       return (
         (await args.device?.update(args.request.update)) ?? deviceUnavailable()
       );
-    case "addDeviceFolder":
-      return (await args.device?.addFolder(args.window)) ?? deviceUnavailable();
     case "getAppInfo":
       return args.appUpdates.getAppInfo();
     case "checkForAppUpdate":

@@ -177,13 +177,6 @@ export class ElectronHost implements HostApi {
             cause,
           }),
       ),
-    addFolder: async () =>
-      await this.desktopBridge
-        .addDeviceFolder()
-        .catch(
-          (cause) =>
-            new ElectronHostError({ operation: "share a folder", cause }),
-        ),
   };
 
   async openExternalUrl(url: string) {

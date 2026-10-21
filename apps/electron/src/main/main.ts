@@ -154,6 +154,7 @@ app.whenReady().then(async () => {
   const device = await LocalDevice.start({
     dataDir: applicationConfig.dataDir,
     getConnection: async () => await getWorkspaceConnection(authentication),
+    getWindow: () => mainWindow,
     logger: logger.scope("device"),
   });
   if (device instanceof Error)

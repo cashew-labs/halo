@@ -86,12 +86,18 @@ export const desktopRequestSchema = Type.Union([
           files: Type.Optional(
             Type.Object(
               {
-                access: Type.Union([
-                  Type.Literal("off"),
-                  Type.Literal("read"),
-                  Type.Literal("write"),
-                ]),
-                roots: Type.Array(Type.String({ minLength: 1 })),
+                grants: Type.Array(
+                  Type.Object(
+                    {
+                      path: Type.String({ minLength: 1 }),
+                      access: Type.Union([
+                        Type.Literal("read"),
+                        Type.Literal("write"),
+                      ]),
+                    },
+                    { additionalProperties: false },
+                  ),
+                ),
               },
               { additionalProperties: false },
             ),
@@ -100,10 +106,6 @@ export const desktopRequestSchema = Type.Union([
         { additionalProperties: false },
       ),
     },
-    { additionalProperties: false },
-  ),
-  Type.Object(
-    { type: Type.Literal("addDeviceFolder") },
     { additionalProperties: false },
   ),
   Type.Object(
@@ -154,7 +156,6 @@ export type DesktopBridge = {
   }) => Promise<void>;
   getDevice: () => Promise<LocalDeviceState>;
   updateDevice: (update: LocalDeviceUpdate) => Promise<LocalDeviceState>;
-  addDeviceFolder: () => Promise<LocalDeviceState>;
 };
 
 declare global {
