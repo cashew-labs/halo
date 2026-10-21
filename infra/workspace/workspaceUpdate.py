@@ -13,6 +13,7 @@ import time
 import urllib.error
 import urllib.request
 
+PROC = pathlib.Path('/proc')
 ROOT = pathlib.Path('/etc/halo')
 STATE = ROOT / 'update-state.json'
 
@@ -39,6 +40,29 @@ def command(args, **kwargs):
     return subprocess.run(args, check=True, text=True, capture_output=True, **kwargs).stdout
 
 
+def background_commands():
+    # A command can redirect its pipes and outlive the tool invocation. Only
+    # inspect this container's PIDs, and never print process environments.
+    try:
+        rows = command(['docker', 'top', 'halo-workspace', '-eo', 'pid'], timeout=10).splitlines()
+        if not rows or rows[0].strip() != 'PID':
+            return True
+        for row in rows[1:]:
+            pid = row.strip()
+            if not pid.isdecimal():
+                return True
+            try:
+                environment = (PROC / pid / 'environ').read_bytes()
+            except FileNotFoundError:
+                continue
+            if any(value.startswith(b'HALO_BASH_RUN_ID=') for value in environment.split(b'\0')):
+                return True
+        return False
+    except (OSError, subprocess.SubprocessError):
+        # Failed observation cannot grant automatic interruption permission.
+        return True
+
+
 class Updater:
     def __init__(self, config):
         self.config = config
@@ -53,7 +77,7 @@ class Updater:
             status = request(self.local, self.config['gateway']['token'])
             self.supported = True
             self.state['version'] = status['version']
-            self.state['busy'] = status['busy']
+            self.state['busy'] = status['busy'] or background_commands()
         except (urllib.error.URLError, TimeoutError, ValueError):
             # An old or unavailable server is never assumed safe to restart.
             self.supported = False
@@ -162,7 +186,7 @@ class Updater:
         if plan.get('target') != target or not plan.get('activate'):
             return
         force = plan.get('force') is True
-        if not self.supported and not force:
+        if not force and (not self.supported or self.state['busy']):
             return
         reserved = False
         activated = False
@@ -179,6 +203,12 @@ class Updater:
                         reserved = False
                         return
                     raise
+                # Admission is now closed. Recheck detached children created by
+                # a tool that completed between the first observation and reservation.
+                if not force and background_commands():
+                    self.state['busy'] = True
+                    self.report()
+                    return
             self.state.update(state='upgrading', attemptPrevious=previous)
             # Persist maintenance before disconnecting readers.
             self.report()
