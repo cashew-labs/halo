@@ -162,6 +162,7 @@ export async function connectHaloClient(options: HaloClientOptions) {
 }
 
 const httpTransferMethods = new Set([
+  "devices.respond",
   "thread.prompt",
   "uploads.write",
   "workspace.uploadFile",

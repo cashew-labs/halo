@@ -22,6 +22,11 @@ import {
   type RouterContractClient,
 } from "@orpc/contract";
 import type { ConnectionRequest } from "./ConnectionRequest.js";
+import type {
+  DeviceAdvertisement,
+  DeviceRequest,
+  DeviceResponse,
+} from "./devices.js";
 import type { TraceAgent, TraceEvent, TraceOutcome } from "./traces.js";
 import type {
   SessionWatchItem,
@@ -434,6 +439,14 @@ export const contract = publicProcedure.router({
       ),
     abort: oc.input(type<{ sessionId: string }>()),
     close: oc.input(type<{ sessionId: string }>()),
+  },
+  devices: {
+    // A device opens this stream and runs each request it receives. Results
+    // return through respond over HTTP because file bodies can be large.
+    serve: oc
+      .input(type<{ device: DeviceAdvertisement }>())
+      .output(asyncIteratorObject(type<DeviceRequest>())),
+    respond: oc.input(type<DeviceResponse>()).output(type<void>()),
   },
   traces: {
     start: oc

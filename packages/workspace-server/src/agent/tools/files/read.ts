@@ -2,7 +2,16 @@ import path from "node:path";
 import * as errore from "errore";
 import { Type } from "@sinclair/typebox";
 import { haloTool } from "../HaloTool.js";
-import type { FilesystemService } from "../../../filesystem/FilesystemService.js";
+
+/** The text file operations shared by workspace and device file tools. */
+export type TextFiles = {
+  readFile(path: string, encoding: "utf8"): Promise<string | Error>;
+  writeFile(
+    path: string,
+    data: string,
+    encoding: "utf8",
+  ): Promise<void | Error>;
+};
 
 export class FilesReadError extends errore.createTaggedError({
   name: "FilesReadError",
@@ -40,7 +49,7 @@ export const readTool = haloTool({
 });
 
 export async function readFile(args: {
-  filesystem: FilesystemService;
+  filesystem: TextFiles;
   cwd: string;
   input: {
     path: string;

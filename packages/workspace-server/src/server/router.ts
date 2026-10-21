@@ -45,6 +45,10 @@ import {
   type UploadsRouterContext,
 } from "../uploads/uploadsRouter.js";
 import {
+  devicesRouter,
+  type DevicesRouterContext,
+} from "../devices/devicesRouter.js";
+import {
   testApiRouter,
   type TestApiRouterContext,
 } from "../testing/testApiRouter.js";
@@ -60,6 +64,7 @@ export type HaloContext = RequestHeadersHandlerPluginContext &
   ExtensionsRouterContext &
   AppsRouterContext &
   ThreadRouterContext &
+  DevicesRouterContext &
   TestApiRouterContext & {
     maintenance: WorkspaceMaintenance;
     build?: { version: string; revision: string };
@@ -93,6 +98,7 @@ export const haloRpcRouter = {
   uploads: uploadsRouter,
   thread: threadRouter,
   traces: tracesRouter,
+  devices: devicesRouter,
   apps: appsRouter,
   extensions: extensionsRouter,
   testApi: testApiRouter,

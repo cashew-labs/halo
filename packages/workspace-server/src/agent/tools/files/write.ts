@@ -2,7 +2,7 @@ import path from "node:path";
 import * as errore from "errore";
 import { Type } from "@sinclair/typebox";
 import { haloTool } from "../HaloTool.js";
-import type { FilesystemService } from "../../../filesystem/FilesystemService.js";
+import type { TextFiles } from "./read.js";
 
 export class FilesWriteError extends errore.createTaggedError({
   name: "FilesWriteError",
@@ -35,7 +35,7 @@ export const writeTool = haloTool({
 });
 
 export async function writeFile(args: {
-  filesystem: FilesystemService;
+  filesystem: TextFiles;
   cwd: string;
   input: { path: string; content: string };
 }) {

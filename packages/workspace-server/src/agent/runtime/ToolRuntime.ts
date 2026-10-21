@@ -1294,6 +1294,7 @@ const namespaceNames = new Map([
   ["thread", "Workspace threads"],
   ["bash", "Workspace shell"],
   ["web", "Web Search"],
+  ["devices", "Your computers"],
 ]);
 
 function isHaloTool(value: HaloTool | HaloTools): value is HaloTool {
