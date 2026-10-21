@@ -1,3 +1,5 @@
+// coverage-exempt: Process entrypoint starts Cloud Run with live GCP credentials; protocol tests exercise ControlPlane.start.
+import { workspaceRegistryToken } from "./workspace/workspaceRegistryToken.js";
 import { GoogleAuth } from "google-auth-library";
 import { TraceCloud } from "./traces/TraceCloud.js";
 import path from "node:path";
@@ -36,6 +38,21 @@ async function run() {
             revision: process.env.HALO_BUILD_REVISION,
           },
     config: config.server,
+    // coverage-exempt: Bootstrap supplies live release metadata and GCP reader identity; config and registry adapter have focused tests.
+    workspaceUpdateTarget:
+      config.server.workspaceUpdates === undefined
+        ? undefined
+        : {
+            image: config.server.workspaceUpdates.image,
+            version: process.env.HALO_BUILD_VERSION ?? "dev",
+          },
+    workspaceUpdateToken:
+      config.server.workspaceUpdates === undefined
+        ? undefined
+        : async () =>
+            await workspaceRegistryToken(
+              config.server.workspaceUpdates!.imagePuller,
+            ),
     // coverage-exempt: Process bootstrap uses live credentials; the same provider factory is exercised through ControlPlane.start in the HTTP tests.
     inference: createWorkspaceInference({
       apiKey: config.inferenceApiKey,

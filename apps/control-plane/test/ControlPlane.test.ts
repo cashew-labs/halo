@@ -211,6 +211,8 @@ const getOpenAPISpec = async (
 type OAuthTokenDriver = { refreshError?: string; refreshes: number };
 
 const controlPlaneTest = test.extend<{
+  updateTarget: { image: string; version: string } | undefined;
+  updateIdleMs: number;
   traceCloud: TraceCloudDriver;
   inferenceApi: InferenceDriver;
   appDataDir: string;
@@ -267,6 +269,8 @@ const controlPlaneTest = test.extend<{
     };
   };
 }>({
+  updateTarget: undefined,
+  updateIdleMs: 5 * 60_000,
   allowLocalIntegrationUrls: true,
   agent: async ({ plane, authenticatedRpc, appDataDir }, use) => {
     await authenticatedRpc.workspace.ensure();
@@ -910,10 +914,15 @@ const controlPlaneTest = test.extend<{
       marketingHomepageOrigin,
       googleAnalyticsMeasurementId,
       environment,
+      updateTarget,
+      updateIdleMs,
     },
     use,
   ) => {
     const plane = await ControlPlane.start({
+      workspaceUpdateTarget: updateTarget,
+      workspaceUpdateIdleMs: updateIdleMs,
+      workspaceUpdateToken: async () => "read-only-registry-token",
       build: { version: "test-release", revision: "test-revision" },
       config: {
         deployment: "local",
@@ -7089,5 +7098,275 @@ controlPlaneTest.extend({
     expect((await request("/launch")).status).toBe(404);
     // The primary origin still authenticates the same account after public redirects.
     expect(await admin.auth.session()).toMatchObject({ status: "signed-in" });
+  },
+);
+
+// Durable coverage: release maintenance must never restart busy work without consent.
+const updateTest = controlPlaneTest.extend({
+  updateTarget: {
+    version: "0.1.92",
+    image: `registry.example/halo@sha256:${"a".repeat(64)}`,
+  },
+  updateIdleMs: 1_000,
+});
+updateTest(
+  "schedules only idle updates, persists progress through disconnect, and requires explicit interruption",
+  async ({ authenticatedRpc, plane, appDataDir, rpc }) => {
+    await authenticatedRpc.workspace.ensure();
+    const runtime = await readRuntimeSettings(appDataDir);
+    const report = async (
+      body: {
+        state: string;
+        version: string;
+        targetVersion: string;
+        busy: boolean;
+      },
+      token = runtime.token,
+    ) =>
+      await fetch(`${plane.origin}/api/workspace-runtime/update`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+    const busy = {
+      state: "available",
+      version: "0.1.90",
+      targetVersion: "0.1.92",
+      busy: true,
+    };
+    expect((await report(busy, "invalid")).status).toBe(401);
+    expect((await report({ ...busy, state: "invalid" })).status).toBe(400);
+    await expect(rpc.workspace.upgrade({ force: true })).rejects.toThrow();
+    expect(await (await report(busy)).json()).toMatchObject({
+      activate: false,
+      force: false,
+    });
+    expect(await authenticatedRpc.workspace.upgrade({ force: false })).toEqual({
+      status: "busy",
+    });
+    expect(await authenticatedRpc.workspace.upgrade({ force: true })).toEqual({
+      status: "started",
+    });
+    expect(await (await report(busy)).json()).toMatchObject({
+      activate: true,
+      force: true,
+    });
+    expect(
+      await (await report({ ...busy, state: "upgrading" })).json(),
+    ).toMatchObject({ activate: false, force: false });
+    expect((await authenticatedRpc.workspace.status()).update).toMatchObject({
+      state: "upgrading",
+      version: "0.1.90",
+      targetVersion: "0.1.92",
+    });
+    await report({ ...busy, state: "current", version: "0.1.92", busy: false });
+    expect(await authenticatedRpc.workspace.upgrade({ force: false })).toEqual({
+      status: "current",
+    });
+    expect((await authenticatedRpc.workspace.status()).update).toMatchObject({
+      state: "current",
+    });
+  },
+);
+updateTest(
+  "waits for inactivity and coalesces older prepared versions into the latest release",
+  async ({ authenticatedRpc, plane, appDataDir }) => {
+    await authenticatedRpc.workspace.ensure();
+    const runtime = await readRuntimeSettings(appDataDir);
+    const report = async (busy: boolean) =>
+      await (
+        await fetch(`${plane.origin}/api/workspace-runtime/update`, {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${runtime.token}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            state: "ready",
+            version: "0.1.90",
+            targetVersion: "0.1.91",
+            busy,
+          }),
+        })
+      ).json();
+    expect(await report(false)).toMatchObject({
+      target: { version: "0.1.92" },
+      activate: false,
+    });
+    await new Promise((done) => setTimeout(done, 1_100));
+    expect(await report(true)).toMatchObject({ activate: false });
+    expect(await report(false)).toMatchObject({ activate: true, force: false });
+    const token = await fetch(
+      `${plane.origin}/api/workspace-runtime/update-token`,
+      { method: "POST", headers: { authorization: `Bearer ${runtime.token}` } },
+    );
+    expect(await token.json()).toEqual({ token: "read-only-registry-token" });
+    expect(
+      JSON.stringify(await authenticatedRpc.workspace.status()),
+    ).not.toContain("read-only-registry-token");
+  },
+);
+
+updateTest(
+  "waits for fresh wake reports and expires interruption consent after a failed attempt",
+  async ({ authenticatedRpc, plane, appDataDir }) => {
+    await authenticatedRpc.workspace.ensure();
+    expect(await authenticatedRpc.workspace.upgrade({ force: false })).toEqual({
+      status: "checking",
+    });
+    const runtime = await readRuntimeSettings(appDataDir);
+    const report = async (state: string, busy: boolean) =>
+      await fetch(`${plane.origin}/api/workspace-runtime/update`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${runtime.token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          state,
+          version: "0.1.90",
+          targetVersion: "0.1.92",
+          busy,
+        }),
+      });
+    await report("ready", true);
+    expect(await authenticatedRpc.workspace.upgrade({ force: true })).toEqual({
+      status: "started",
+    });
+    await report("upgrading", true);
+    const now = Date.now();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now + 90_000);
+    try {
+      expect(
+        await authenticatedRpc.workspace.upgrade({ force: false }),
+      ).toEqual({ status: "started" });
+      expect((await authenticatedRpc.workspace.status()).update?.state).toBe(
+        "upgrading",
+      );
+      clock.mockReturnValue(now + 181_000);
+      expect(
+        await authenticatedRpc.workspace.upgrade({ force: false }),
+      ).toEqual({ status: "checking" });
+      expect((await authenticatedRpc.workspace.status()).update?.state).toBe(
+        "failed",
+      );
+    } finally {
+      clock.mockRestore();
+    }
+    await authenticatedRpc.workspace.ensure();
+    expect(await (await report("failed", true)).json()).toMatchObject({
+      activate: false,
+      force: false,
+    });
+    expect(await authenticatedRpc.workspace.upgrade({ force: false })).toEqual({
+      status: "busy",
+    });
+    await report("failed", false);
+    expect(await authenticatedRpc.workspace.upgrade({ force: false })).toEqual({
+      status: "started",
+    });
+    expect((await authenticatedRpc.workspace.status()).update?.state).toBe(
+      "available",
+    );
+    expect(await (await report("failed", false)).json()).toMatchObject({
+      activate: true,
+      force: false,
+      requestId: expect.any(Number),
+    });
+    expect((await authenticatedRpc.workspace.status()).update?.state).toBe(
+      "available",
+    );
+    expect(
+      (await fetch(`${plane.origin}/api/workspace-runtime/update`)).status,
+    ).toBe(405);
+    expect(
+      (
+        await fetch(`${plane.origin}/api/workspace-runtime/update`, {
+          method: "POST",
+          body: "{",
+        })
+      ).status,
+    ).toBe(400);
+  },
+);
+
+controlPlaneTest(
+  "disabled workspace updates leave frontend updates available and reject registry tokens",
+  async ({ authenticatedRpc, plane, appDataDir }) => {
+    await authenticatedRpc.workspace.ensure();
+    expect(await authenticatedRpc.workspace.upgrade({ force: false })).toEqual({
+      status: "current",
+    });
+    const runtime = await readRuntimeSettings(appDataDir);
+    const token = await fetch(
+      `${plane.origin}/api/workspace-runtime/update-token`,
+      { method: "POST", headers: { authorization: `Bearer ${runtime.token}` } },
+    );
+    expect(token.status).toBe(500);
+    expect(await token.text()).not.toContain("configured");
+  },
+);
+
+updateTest(
+  "reports database failures without disclosing update credentials",
+  async ({ authenticatedRpc, plane, appDataDir }) => {
+    await authenticatedRpc.workspace.ensure();
+    const runtime = await readRuntimeSettings(appDataDir);
+    using database = new DatabaseSync(
+      join(appDataDir, "control-plane.db.apps"),
+    );
+    database.exec(
+      "CREATE TRIGGER fail_workspace_update BEFORE INSERT ON workspace_updates BEGIN SELECT RAISE(ABORT, 'fixture database failure'); END;",
+    );
+    const response = await fetch(
+      `${plane.origin}/api/workspace-runtime/update`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${runtime.token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          state: "ready",
+          version: "old",
+          targetVersion: "new",
+          busy: false,
+        }),
+      },
+    );
+    expect(response.status).toBe(500);
+    expect(await response.text()).not.toContain("fixture");
+    database.exec("DROP TRIGGER fail_workspace_update");
+    await fetch(`${plane.origin}/api/workspace-runtime/update`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${runtime.token}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        state: "ready",
+        version: "old",
+        targetVersion: "new",
+        busy: false,
+      }),
+    });
+    for (const stored of ["{}", "{"]) {
+      database.prepare("UPDATE workspace_updates SET report=?").run(stored);
+      await expect(authenticatedRpc.workspace.status()).rejects.toThrow();
+      await expect(
+        authenticatedRpc.workspace.upgrade({ force: false }),
+      ).rejects.toThrow();
+    }
+    expect(
+      (
+        await fetch(`${plane.origin}/api/workspace-runtime/update`, {
+          method: "POST",
+          body: " ".repeat(5000),
+        })
+      ).status,
+    ).toBe(400);
   },
 );

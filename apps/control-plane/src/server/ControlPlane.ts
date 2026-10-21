@@ -1,3 +1,7 @@
+import {
+  WorkspaceUpdates,
+  type WorkspaceUpdateTarget,
+} from "../workspace/WorkspaceUpdates.js";
 import { MarketingLinks } from "../marketing/MarketingLinks.js";
 import type { OAuth2Client } from "google-auth-library";
 import { GmailService } from "../automations/GmailService.js";
@@ -83,6 +87,9 @@ export class ControlPlane {
     traceCloud?: TraceCloud;
     inference?: WorkspaceInference;
     workspaceIdleTimeoutMs?: number;
+    workspaceUpdateTarget?: WorkspaceUpdateTarget;
+    workspaceUpdateIdleMs?: number;
+    workspaceUpdateToken?: () => Promise<string | Error>;
     integrationEncryptionKey?: Buffer;
     getOpenAPISpec?: (url: string) => Promise<string | Error>;
     allowLocalIntegrationUrls?: boolean;
@@ -135,6 +142,15 @@ export class ControlPlane {
       idleTimeoutMs: ctx.workspaceIdleTimeoutMs,
     });
     if (workspace instanceof Error) return workspace;
+    const workspaceUpdates = new WorkspaceUpdates({
+      database: db.appDatabase,
+      workspace,
+      target: ctx.workspaceUpdateTarget,
+      idleMs: ctx.workspaceUpdateIdleMs,
+      registryToken: ctx.workspaceUpdateToken,
+    });
+    const updatesStarted = await workspaceUpdates.initialize();
+    if (updatesStarted instanceof Error) return updatesStarted;
 
     const credentials =
       ctx.integrationEncryptionKey === undefined
@@ -260,6 +276,7 @@ export class ControlPlane {
       }),
       publicOrigin,
       workspace,
+      workspaceUpdates,
       integrations,
       automationSchedules,
       automationStore,

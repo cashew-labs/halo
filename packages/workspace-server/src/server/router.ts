@@ -1,3 +1,4 @@
+import type { WorkspaceMaintenance } from "./WorkspaceMaintenance.js";
 import {
   automationsRouter,
   type AutomationsRouterContext,
@@ -54,7 +55,10 @@ export type HaloContext = RequestHeadersHandlerPluginContext &
   ExtensionsRouterContext &
   AppsRouterContext &
   ThreadRouterContext &
-  TestApiRouterContext & { build?: { version: string; revision: string } };
+  TestApiRouterContext & {
+    maintenance: WorkspaceMaintenance;
+    build?: { version: string; revision: string };
+  };
 
 const server = implement(contract.server).$context<HaloContext>();
 

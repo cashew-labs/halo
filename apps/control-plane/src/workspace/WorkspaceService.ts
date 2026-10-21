@@ -80,6 +80,18 @@ export class WorkspaceService {
     return service;
   }
 
+  async ensureIdentity(userId: string) {
+    return await this.ensureRecord(userId);
+  }
+
+  async inactiveFor(userId: string, durationMs: number) {
+    const workspace = await this.findRecord(userId);
+    if (workspace instanceof Error) return workspace;
+    return (
+      workspace !== undefined && Date.now() - workspace.activityAt >= durationMs
+    );
+  }
+
   async ensure(userId: string) {
     const record = await this.ensureRecord(userId);
     if (record instanceof Error) return record;

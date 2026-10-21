@@ -1,3 +1,5 @@
+import type { WorkspaceUpdates } from "../workspace/WorkspaceUpdates.js";
+import { serveWorkspaceUpdate } from "../workspace/workspaceUpdateHttp.js";
 import type { MarketingLinks } from "../marketing/MarketingLinks.js";
 import { serveMarketingLink } from "../marketing/serveMarketingLink.js";
 import type { GmailService } from "../automations/GmailService.js";
@@ -175,6 +177,7 @@ export function serveControlPlaneHttp(ctx: {
   appGateway: AppGateway;
   publicOrigin: string;
   workspace: WorkspaceService;
+  workspaceUpdates: WorkspaceUpdates;
   integrations?: IntegrationService;
   automationSchedules: AutomationScheduleCoordinator;
   automationStore: AutomationStore;
@@ -262,6 +265,7 @@ export function serveControlPlaneHttp(ctx: {
     }
     stripCrossOriginCookies(request, publicOrigin);
     await routeControlPlaneRequest({
+      workspaceUpdates: ctx.workspaceUpdates,
       request,
       response,
       auth,
@@ -371,6 +375,7 @@ async function routeControlPlaneRequest(ctx: {
   traces?: TraceIngestion;
   inference?: WorkspaceInference;
   workspace: WorkspaceService;
+  workspaceUpdates: WorkspaceUpdates;
   integrations?: IntegrationService;
   automationSchedules: AutomationScheduleCoordinator;
   automationStore: AutomationStore;
@@ -442,6 +447,21 @@ async function routeControlPlaneRequest(ctx: {
 
   if (isAppRuntimeRequest(url)) {
     await serveAppRuntime({ request, response, url, apps: ctx.apps });
+    return;
+  }
+
+  if (
+    [
+      "/api/workspace-runtime/update",
+      "/api/workspace-runtime/update-token",
+    ].includes(url.pathname)
+  ) {
+    await serveWorkspaceUpdate({
+      request,
+      response,
+      updates: ctx.workspaceUpdates,
+      token: url.pathname.endsWith("-token"),
+    });
     return;
   }
 
@@ -597,6 +617,7 @@ async function routeControlPlaneRequest(ctx: {
 
   if (isPathWithin(url.pathname, "/rpc")) {
     await serveControlPlaneRpc({
+      workspaceUpdates: ctx.workspaceUpdates,
       request,
       response,
       auth,
@@ -787,6 +808,7 @@ async function serveControlPlaneRpc(ctx: {
   marketing: MarketingLinks;
   publicOrigin: string;
   workspace: WorkspaceService;
+  workspaceUpdates: WorkspaceUpdates;
   integrations?: IntegrationService;
   build?: { version: string; revision: string };
   rpc: RPCHandler<ControlPlaneContext>;
@@ -795,6 +817,7 @@ async function serveControlPlaneRpc(ctx: {
   const handled = await rpc.handle(request, response, {
     prefix: "/rpc",
     context: {
+      workspaceUpdates: ctx.workspaceUpdates,
       auth,
       publicOrigin: ctx.publicOrigin,
       workspace,

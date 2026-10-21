@@ -92,6 +92,14 @@ export const controlPlaneConfigSchema = Type.Union([
     marketingAdminUserIds: Type.Optional(marketingAdminUserIdsSchema),
     marketingHostname: Type.Optional(marketingHostnameSchema),
     marketingHomepageOrigin: Type.Optional(marketingHomepageOriginSchema),
+    workspaceUpdates: Type.Optional(
+      Type.Object({
+        image: Type.String({
+          pattern: "^[a-z0-9.-]+/[^ ]+@sha256:[a-f0-9]{64}$",
+        }),
+        imagePuller: Type.String({ minLength: 1 }),
+      }),
+    ),
     workspace: Type.Union([localWorkspaceSchema, exeWorkspaceSchema]),
   }),
   Type.Object({
@@ -111,6 +119,14 @@ export const controlPlaneConfigSchema = Type.Union([
     marketingAdminUserIds: Type.Optional(marketingAdminUserIdsSchema),
     marketingHostname: Type.Optional(marketingHostnameSchema),
     marketingHomepageOrigin: Type.Optional(marketingHomepageOriginSchema),
+    workspaceUpdates: Type.Optional(
+      Type.Object({
+        image: Type.String({
+          pattern: "^[a-z0-9.-]+/[^ ]+@sha256:[a-f0-9]{64}$",
+        }),
+        imagePuller: Type.String({ minLength: 1 }),
+      }),
+    ),
     workspace: Type.Union([gcpWorkspaceSchema, exeWorkspaceSchema]),
   }),
 ]);
@@ -307,6 +323,18 @@ async function readCloudRunConfig(): Promise<ControlPlaneConfig | Error> {
   if (github instanceof Error) return github;
   const marketingAdminUserIds = await readMarketingAdminUserIds();
   if (marketingAdminUserIds instanceof Error) return marketingAdminUserIds;
+  const updateImage = process.env.WORKSPACE_UPDATE_IMAGE;
+  const imagePuller = process.env.WORKSPACE_UPDATE_IMAGE_PULLER;
+  const workspaceUpdates =
+    updateImage !== undefined &&
+    /^[a-z0-9.-]+\/[^\s]+@sha256:[a-f0-9]{64}$/.test(updateImage) &&
+    imagePuller
+      ? { image: updateImage, imagePuller }
+      : undefined;
+  if (updateImage !== undefined && workspaceUpdates === undefined)
+    console.warn(
+      "Workspace updates disabled: configure a digest-pinned image and image reader account.",
+    );
   const server = {
     marketingAdminUserIds,
     marketingHostname: process.env.HALO_MARKETING_HOSTNAME,
@@ -334,6 +362,7 @@ async function readCloudRunConfig(): Promise<ControlPlaneConfig | Error> {
       stagingTestersSecretId: process.env.STAGING_TESTERS_SECRET_ID,
     },
     workspace,
+    workspaceUpdates,
   };
   if (!Value.Check(controlPlaneConfigSchema, server))
     return new ControlPlaneConfigError({
