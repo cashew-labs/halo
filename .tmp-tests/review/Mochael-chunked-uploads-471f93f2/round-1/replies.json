@@ -1,0 +1,10 @@
+[
+  {
+    "findingId": "F1",
+    "reply": "fixed: the guard rejects only a non-empty legacy files array and strips the key; a temp test checks a text-only prompt with files: []"
+  },
+  {
+    "findingId": "F2",
+    "reply": "fixed in part: uploads now abort when the pane unmounts (temp E2E closes the tab mid-upload) and the status shows upload progress. Stop is hidden while a message is sending (showStop requires !composerBusy, and sending is true during the upload), so Stop cannot be clicked during this upload."
+  }
+]

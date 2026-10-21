@@ -1,0 +1,66 @@
+{
+  "status": "changes_requested",
+  "summary": "The change replaces in-prompt `File` attachments with a chunked, resumable `uploads.*` API. Files are staged under `.halo/uploads`, claimed into `attachments/<uploadId>/` when a prompt is accepted, and released if the prompt is rejected. Large or unreadable files are now passed to the model as workspace paths. The server-side design and the temp tests are solid, but the change is not ready: the legacy-client guard rejects every message from protocol-29 clients, including text-only ones; the new long uploads cannot be cancelled; and the client UI paths plus several server error and rollback paths have no coverage.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "source",
+      "file": "packages/workspace-server/src/sessions/threadRouter.ts",
+      "line": 81,
+      "severity": "P0",
+      "body": "The guard `if (\"files\" in input)` rejects every prompt from a protocol-29 client, not only prompts that carry attachments. The removed AgentPane code always sent `files: submittedAttachments.map(...)`, so text-only messages carried `files: []`, and old useAgentSession forwarded the key to `api.thread.prompt`. oRPC keeps an empty array in the payload. Protocol 29 is still in `haloSupportedProtocols` (contract.ts:42), so an older desktop app connected to an updated workspace server gets \"Update Halo to attach files.\" for every message. Fix: reject only when the legacy field actually holds files, for example `Array.isArray(input.files) && input.files.length > 0`, and strip the key before passing `input` on. The temp test at uploads.test.ts:298 covers only the non-empty case. Add a test showing that a legacy text-only prompt with `files: []` is still accepted."
+    },
+    {
+      "id": "F2",
+      "kind": "source",
+      "file": "packages/web/src/main/agent/AgentPane.tsx",
+      "line": 433,
+      "severity": "P1",
+      "body": "`uploadAttachments` calls `uploadChatFile({ api, file })` without a `signal` or `onProgress`. The per-file limit is now 512 MB, up to 10 files, so this step can take minutes, and the user has no way to cancel it. When a run is active, the message is shown as a pending optimistic message. Clicking Stop (`stop()`, line 334) removes that message and aborts the run, but the upload keeps going. When it finishes, `prompt(...)` sends the message the user just stopped and starts a new run. Unmounting the pane also leaves the upload running and the message is still sent. Create an AbortController per submission. Abort it from Stop and on unmount, pass its signal to `uploadChatFile`, skip the prompt once it is aborted, and cancel uploads that already completed. Consider using `onProgress` for the long-running status as well."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "packages/workspace-server/src/sessions/threadRouter.ts:81 — a protocol-29-style prompt with `files: []` and text is accepted and reaches the model; a prompt with non-empty `files` is rejected",
+      "tier": "tmp",
+      "rationale": "Shows that the F1 fix keeps legacy text-only prompts working."
+    },
+    {
+      "target": "packages/web/src/main/agent/AgentPane.tsx:389-403,430-448 and useAgentSession.ts:132,239-245 — the composer uploads attachments through uploads.create/write, sends uploadIds (not files), restores the draft and cancels uploads when the prompt fails, and stops the upload on Stop (F2)",
+      "tier": "tmp",
+      "rationale": "No test loaded these files. The existing sessionView attachment E2E routes `**/rpc/thread/prompt` and could be run as a temp E2E (or adapted) to cover the new client flow, including the upload-failure branch."
+    },
+    {
+      "target": "packages/workspace-server/src/uploads/UploadService.ts:211,226-229 — claim rejects more than 10 IDs, and if a later upload fails to move, the uploads already claimed are restored to staging and stay sendable",
+      "tier": "tmp",
+      "rationale": "The rollback path keeps uploads usable after a partial claim failure and has no coverage. A move failure can be forced, for example by placing a non-empty directory at the target path."
+    },
+    {
+      "target": "packages/workspace-server/src/uploads/UploadService.ts:329-331 — an unsent upload is deleted after its lifetime (fake timers), and the timer restarts after each chunk",
+      "tier": "tmp",
+      "rationale": "The expiry behavior is promised in comments and in the client's cancelUploads note, but no test checks it."
+    },
+    {
+      "target": "packages/client/src/uploadChatFile.ts:108,113-114,121-122 — aborting the signal during the retry back-off returns ChatUploadCancelledError right away",
+      "tier": "tmp",
+      "rationale": "The cancellation path in wait() has no coverage. It matters once F2 passes a signal."
+    },
+    {
+      "target": "Remaining uncovered filesystem error branches (UploadService.ts:102,118,125,149,180,250,257,265,286,292,299,320; FilesystemService.ts:137,143,145,149,193; chatAttachments.ts:95; ThreadManager.ts:308; client index.ts re-exports)",
+      "tier": "tmp",
+      "rationale": "Each line needs either a test with an injected failure or a coverage exemption with a stated reason. Re-export lines and warn-only branches are good candidates for exemption; the error returns that clients see should be tested where practical."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "a17548cfc5e5a10e636d8cf1b98ce8f219353e42",
+  "treeHash": "88d4c23bb1e471f4ae117ce2833105e40ebe2a7f",
+  "codeTree": "b3e22d03a2521b5972f0e81281938cdcdb6b8f1f",
+  "coverage": {
+    "executable": 314,
+    "covered": 232,
+    "exempt": 0,
+    "uncovered": 82
+  },
+  "createdAt": "2026-10-21T19:49:05.108Z"
+}
