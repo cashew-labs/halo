@@ -18,6 +18,7 @@ import type { StagingToggle } from "../app/StagingToggle.js";
 import type { DesktopAuthentication } from "../DesktopAuthentication.js";
 import type { HaloRpcConnection } from "../../shared/HaloRpcConnection.js";
 import { openExternalUrl } from "../openExternalUrl.js";
+import type { LocalDevice } from "../device/LocalDevice.js";
 
 class DesktopRequestError extends errore.createTaggedError({
   name: "DesktopRequestError",
@@ -35,6 +36,7 @@ export function registerDesktopApi(args: {
   stagingToggle: StagingToggle;
   getConnection: () => Promise<HaloRpcConnection | Error | undefined>;
   ownsWindow: (window: BrowserWindow) => boolean;
+  device: LocalDevice | undefined;
 }): void {
   ipcMain.handle(DESKTOP_CHANNEL, async (event, request: DesktopRequest) => {
     assertTrustedSender({ event, ownsWindow: args.ownsWindow });
@@ -46,6 +48,7 @@ export function registerDesktopApi(args: {
       appUpdates: args.appUpdates,
       stagingToggle: args.stagingToggle,
       getConnection: args.getConnection,
+      device: args.device,
     });
     if (
       result instanceof Error &&
@@ -70,6 +73,7 @@ async function handleDesktopRequest(args: {
   appUpdates: AppUpdates;
   stagingToggle: StagingToggle;
   getConnection: () => Promise<HaloRpcConnection | Error | undefined>;
+  device: LocalDevice | undefined;
 }) {
   switch (args.request.type) {
     case "getWorkspaceStatus":
@@ -87,13 +91,21 @@ async function handleDesktopRequest(args: {
     case "signIn": {
       const session = await args.authentication.signIn();
       args.stagingToggle.observe(session);
+      args.device?.reconnect();
       return session;
     }
     case "signOut": {
       const signedOut = await args.authentication.signOut();
       if (!(signedOut instanceof Error)) args.stagingToggle.observe(undefined);
+      args.device?.reconnect();
       return signedOut;
     }
+    case "getDevice":
+      return args.device?.state() ?? deviceUnavailable();
+    case "updateDevice":
+      return (
+        (await args.device?.update(args.request.update)) ?? deviceUnavailable()
+      );
     case "getAppInfo":
       return args.appUpdates.getAppInfo();
     case "checkForAppUpdate":
@@ -117,6 +129,12 @@ async function handleDesktopRequest(args: {
     default:
       return new DesktopRequestError({ operation: "desktop API" });
   }
+}
+
+function deviceUnavailable() {
+  return new DesktopOperationError({
+    operation: "load this computer's settings",
+  });
 }
 
 async function connectIntegration(args: {

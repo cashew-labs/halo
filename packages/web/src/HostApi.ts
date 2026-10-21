@@ -29,7 +29,30 @@ export type AppInfo = {
   update: AppUpdateStatus;
 };
 
+/** The computer the desktop app runs on, as the workspace agent sees it. */
+export type LocalDeviceState = {
+  name: string;
+  enabled: boolean;
+  /** Folders the person allowed when the agent first asked. */
+  files: { grants: { path: string; access: "read" | "write" }[] };
+  status:
+    | { state: "disabled" }
+    | { state: "connecting" }
+    | { state: "online"; since: number }
+    | { state: "offline"; message: string; retryAt: number };
+};
+
+export type LocalDeviceUpdate = Partial<
+  Pick<LocalDeviceState, "name" | "enabled" | "files">
+>;
+
 export interface HostApi {
+  /** Present only where Halo can let the agent use this computer. */
+  // coverage-exempt: type declarations
+  device?: {
+    read(): Promise<LocalDeviceState | Error>;
+    update(update: LocalDeviceUpdate): Promise<LocalDeviceState | Error>;
+  };
   integrationSetup?: {
     read(setupId: string): Promise<IntegrationSetup | Error>;
     submit(input: {

@@ -1,4 +1,6 @@
 import { PublisherSettings, problemStyle } from "./PublisherSettings.js";
+import { DeviceSettings } from "./DeviceSettings.js";
+import { useHost } from "../HostProvider.js";
 import { useState } from "react";
 import { Dialog, Modal, ModalOverlay } from "react-aria-components";
 import { Avatar, Button, Flex, Text, flex, spacing, text } from "maui";
@@ -10,6 +12,7 @@ import { useAsyncAction } from "../useAsyncAction.js";
 
 export function AccountButton({ appInfo }: { appInfo?: AppInfo }) {
   const { session, signOut } = useAccount();
+  const host = useHost();
   const [open, setOpen] = useState(false);
   const [savingPublisher, setSavingPublisher] = useState(false);
   const signingOut = useAsyncAction(signOut);
@@ -58,6 +61,9 @@ export function AccountButton({ appInfo }: { appInfo?: AppInfo }) {
                 </Flex>
               </div>
               {open && <PublisherSettings onSaving={setSavingPublisher} />}
+              {open && host.device !== undefined && (
+                <DeviceSettings device={host.device} />
+              )}
               {signingOut.error !== undefined && (
                 <p role="alert" className={signOutError}>
                   {signingOut.error.message}

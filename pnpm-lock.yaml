@@ -246,6 +246,9 @@ importers:
       '@get-halo/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@get-halo/device-host':
+        specifier: workspace:*
+        version: link:../../packages/device-host
       '@get-halo/logger':
         specifier: workspace:*
         version: link:../../packages/logger

@@ -40,6 +40,7 @@ import { createAdcDesktopIdentity } from "./auth/createAdcDesktopIdentity.js";
 import { registerDesktopApi } from "./api/registerDesktopApi.js";
 import { openExternalUrl } from "./openExternalUrl.js";
 import type { HaloRpcConnection } from "../shared/HaloRpcConnection.js";
+import { LocalDevice } from "./device/LocalDevice.js";
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string;
 declare const MAIN_WINDOW_VITE_NAME: string;
 
@@ -150,7 +151,21 @@ app.whenReady().then(async () => {
   });
 
   registerLogBridge();
+  const device = await LocalDevice.start({
+    dataDir: applicationConfig.dataDir,
+    getConnection: async () => await getWorkspaceConnection(authentication),
+    getWindow: () => mainWindow,
+    logger: logger.scope("device"),
+  });
+  if (device instanceof Error)
+    logger.error({ event: "device-start-failed", error: device });
+  else
+    app.once("will-quit", () => {
+      // oxlint-disable-next-line typescript/no-floating-promises -- Quitting closes the socket; stop only ends the retry loop.
+      void device.stop();
+    });
   registerDesktopApi({
+    device: device instanceof Error ? undefined : device,
     authentication,
     appUpdates,
     stagingToggle,
