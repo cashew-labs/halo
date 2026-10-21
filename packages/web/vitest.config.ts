@@ -12,8 +12,8 @@ export default defineConfig({
     },
     server: {
       deps: {
-        // Maui publishes extensionless ESM imports, resolved by the app bundler.
-        inline: ["maui", "purse-styles"],
+        // Maui and Tandem publish extensionless ESM imports, resolved by the app bundler.
+        inline: ["maui", "purse-styles", "@tanishqkancharla/tandem-core"],
       },
     },
   },
