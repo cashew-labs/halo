@@ -1,5 +1,5 @@
-/** How much of a device's chosen folders the workspace agent may use. */
-export type DeviceFileAccess = "off" | "read" | "write";
+/** What the person allowed the workspace agent to do in one folder. */
+export type DeviceFileAccess = "read" | "write";
 
 /** What a connected device tells its workspace about itself. */
 export type DeviceAdvertisement = {
@@ -9,7 +9,6 @@ export type DeviceAdvertisement = {
   platform: string;
   /** Absolute home folder, used to resolve `~/` and relative paths. */
   home: string;
-  files: { access: DeviceFileAccess; roots: string[] };
 };
 
 export type DeviceSummary = DeviceAdvertisement & {

@@ -12,7 +12,6 @@ const laptop: DeviceAdvertisement = {
   name: "Laptop",
   platform: "darwin",
   home: "/Users/sam",
-  files: { access: "write", roots: ["/Users/sam/Documents"] },
 };
 const stat = { type: "files.stat", path: "/Users/sam/Documents" } as const;
 const documents = {

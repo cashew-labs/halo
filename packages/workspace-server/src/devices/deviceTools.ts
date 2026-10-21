@@ -106,7 +106,7 @@ function deviceTextFiles(tool: DeviceToolContext): TextFiles {
 export const deviceTools = {
   list: haloTool({
     description:
-      "List the person's own computers connected to Halo, with online status, platform, home folder, file access (off, read, or write) and the folders the agent may use. Pass a device's name to the other tools.devices tools. Workspace tools such as files and bash run on the workspace VM, never on a device.",
+      "List the person's own computers running Halo, with online status, platform, and home folder. Pass a device's name to the other tools.devices tools. The first time the agent uses a folder on a computer, the person is asked there to allow read or read-and-write access; a refusal returns access_denied. Workspace tools such as files and bash run on the workspace VM, never on a device.",
     inputSchema: Type.Object({}),
     requiredCapabilities: ["devices.list"],
     execute: async (_, context) => ({
@@ -116,7 +116,7 @@ export const deviceTools = {
   files: {
     list: deviceTool({
       description:
-        "List a folder on one of the person's computers. Only folders the person allowed in Halo are available.",
+        "List a folder on one of the person's computers. The person may be asked to allow access first.",
       inputSchema: Type.Object({ device, path: devicePath }),
       requiredCapabilities: ["devices.files.read"],
       execute: async (input, tool) =>
@@ -145,7 +145,7 @@ export const deviceTools = {
     }),
     write: deviceTool({
       description:
-        "Create or replace a UTF-8 text file on one of the person's computers. Requires write access to that folder.",
+        "Create or replace a UTF-8 text file on one of the person's computers. The person may be asked to allow changes to that folder first.",
       inputSchema: Type.Object({
         device,
         path: devicePath,
@@ -161,7 +161,7 @@ export const deviceTools = {
     }),
     edit: deviceTool({
       description:
-        "Replace exact text in a UTF-8 file on one of the person's computers. Requires write access to that folder.",
+        "Replace exact text in a UTF-8 file on one of the person's computers. The person may be asked to allow changes to that folder first.",
       inputSchema: Type.Object({
         device,
         path: devicePath,
@@ -179,7 +179,7 @@ export const deviceTools = {
     }),
     delete: deviceTool({
       description:
-        "Delete a file on one of the person's computers. Folders are refused. Requires write access to that folder.",
+        "Delete a file on one of the person's computers. Folders are refused. The person may be asked to allow changes to that folder first.",
       inputSchema: Type.Object({ device, path: devicePath }),
       requiredCapabilities: ["devices.files.write"],
       execute: async (input, tool) =>
@@ -245,7 +245,7 @@ export const deviceTools = {
       },
     }),
     copyFromWorkspace: deviceTool({
-      description: `Copy a workspace file to one of the person's computers, replacing any file at that path. Requires write access to that folder. Files are limited to ${deviceFileLimits.maxBytes / 1024 / 1024} MiB.`,
+      description: `Copy a workspace file to one of the person's computers, replacing any file at that path. The person may be asked to allow changes to that folder first. Files are limited to ${deviceFileLimits.maxBytes / 1024 / 1024} MiB.`,
       inputSchema: Type.Object({
         device,
         workspacePath: Type.String({ minLength: 1 }),

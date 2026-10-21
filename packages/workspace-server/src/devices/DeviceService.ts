@@ -89,8 +89,8 @@ type PendingCall = {
 /**
  * Routes workspace tool calls to the person's connected computers. A device
  * opens a request stream with serve and answers each request with respond.
- * Devices enforce their own folder and access settings; this service only
- * delivers requests and results.
+ * Devices decide what is allowed, asking the person when needed; this
+ * service only delivers requests and results.
  */
 export class DeviceService {
   private readonly devices = new Map<string, KnownDevice>();
@@ -103,7 +103,8 @@ export class DeviceService {
   ) {
     // A socket rotation or brief network loss should not fail running calls.
     this.disconnectGraceMs = ctx.disconnectGraceMs ?? 20_000;
-    this.callTimeoutMs = ctx.callTimeoutMs ?? 60_000;
+    // The device may be waiting for the person to answer an access prompt.
+    this.callTimeoutMs = ctx.callTimeoutMs ?? 5 * 60_000;
   }
 
   list(): DeviceSummary[] {
