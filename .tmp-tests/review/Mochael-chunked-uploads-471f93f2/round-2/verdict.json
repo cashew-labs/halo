@@ -1,0 +1,39 @@
+{
+  "status": "changes_requested",
+  "summary": "Both round-1 findings are resolved. The legacy guard now rejects only a non-empty `files` array, and a temp test confirms that a text-only prompt with `files: []` is still accepted. Uploads now abort when the pane unmounts and show progress, and I verified that Stop is hidden while a message is sending (`showStop` requires `!composerBusy`), so it cannot be clicked during an upload. The new temp tests are thorough and all pass. The only remaining blocker is the coverage gate: 5 changed lines have no test and no exemption.",
+  "findings": [],
+  "testRequests": [
+    {
+      "target": "packages/web/src/main/agent/AgentPane.tsx:288: withdrawing a queued message restores its files to the composer",
+      "tier": "tmp",
+      "rationale": "This line changed and is not covered. The durable E2E 'moves one queued message and its attachments and references into the existing draft' in apps/electron/e2e/sessionView.e2e.test.ts exercises it. Run that E2E in the temp tier, or add an equivalent temp E2E."
+    },
+    {
+      "target": "packages/workspace-server/src/uploads/UploadService.ts:224: when a claim fails and restoring the uploads claimed before it also fails, the service logs 'Could not restore claimed uploads'",
+      "tier": "tmp",
+      "rationale": "This line is uncovered. Extend the existing rollback temp test by also injecting a staging mkdir or rename failure during the restore, or add a coverage exemption with a reason."
+    },
+    {
+      "target": "packages/workspace-server/src/uploads/UploadService.ts:327: when expiry cleanup fails, the service logs 'Could not remove an expired upload'",
+      "tier": "tmp",
+      "rationale": "This line is uncovered. Add an rm failure to the fake-timer expiry temp test, or add a coverage exemption with a reason."
+    },
+    {
+      "target": "packages/client/src/uploadChatFile.ts:113-114: wait() returns a cancellation right away when the signal is already aborted",
+      "tier": "tmp",
+      "rationale": "These lines are uncovered. uploadError() already returns ChatUploadCancelledError once the signal is aborted, so this branch is reachable only through a race. A coverage exemption with that reason is acceptable; otherwise add a test."
+    }
+  ],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "a17548cfc5e5a10e636d8cf1b98ce8f219353e42",
+  "treeHash": "db89cf2d587628f7f2d3a05be3d66dab57eb2cc9",
+  "codeTree": "f6b62ea401c59449c00349fdb20dd526df1d25e3",
+  "coverage": {
+    "executable": 309,
+    "covered": 302,
+    "exempt": 2,
+    "uncovered": 5
+  },
+  "createdAt": "2026-10-21T19:59:07.322Z"
+}

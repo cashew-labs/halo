@@ -1,0 +1,10 @@
+[
+  {
+    "findingId": "F3",
+    "reply": "fixed: the abort is deferred with setTimeout so it no longer races the finished response stream"
+  },
+  {
+    "findingId": "F4",
+    "reply": "fixed: the stacked PR's worktree moved outside this repository, so its temp tests are no longer collected"
+  }
+]

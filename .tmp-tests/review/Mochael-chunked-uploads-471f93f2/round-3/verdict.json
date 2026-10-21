@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "This change moves chat attachments to a chunked, resumable upload API. Uploads are claimed when a prompt is accepted and released when it is rejected, and files too large to include are passed to the model as workspace paths. The coverage gate now passes: lines 224 and 327 of UploadService.ts and line 288 of AgentPane.tsx are covered by temp tests. The `wait()` early-abort branch in uploadChatFile.ts is exempt because only a race reaches it (uploadError() already handles earlier aborts), and I accept that reason. Both earlier findings are resolved, all test runs pass, and no P0 or P1 issues remain.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 3,
+  "headSha": "a17548cfc5e5a10e636d8cf1b98ce8f219353e42",
+  "treeHash": "6deaec6b76bb093a463ab58c1a5340a6fa319323",
+  "codeTree": "ed81178801d2da94a0ef1c7f86290b552e910e23",
+  "coverage": {
+    "executable": 309,
+    "covered": 305,
+    "exempt": 4,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-21T20:02:51.364Z"
+}
