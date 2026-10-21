@@ -1,0 +1,33 @@
+{
+  "status": "changes_requested",
+  "summary": "The change rebuilds the sidebar. It adds a Workspace actions toolbar and a Favorites section. Extensions, automations, and files are merged into one Artifacts section with a kind filter, and sections can be collapsed and reordered. These preferences persist per user and workspace. The logic, persistence, loading guards, and tests hold up, and coverage is complete. One problem remains: automation rows silently lost their \"Paused\" status indicator, which is a user-visible regression.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "source",
+      "file": "packages/web/src/sidebar/AutomationItems.tsx",
+      "line": 18,
+      "severity": "P1",
+      "body": "The removed AutomationsSection and ExtensionsSection showed a trailing \"Paused\" label on disabled automations (`automation.enabled ? undefined : <Text …>Paused</Text>`). The replacement rows have no such label: AutomationItems.tsx:18-26, the nested automation rows in ExtensionItems.tsx:124-137, and the automation favorites in FavoritesSection.tsx:73-82. Users can no longer see in the sidebar which automations are paused. The Artifacts consolidation does not require dropping this status. Restore the `trailing` Paused indicator on every automation row, or explain why the spec removes it. A check that a disabled automation row contains \"Paused\" (for example, the disabled \"Morning briefing\" in routines.e2e) would guard it."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "A disabled automation's sidebar row (standalone, nested under an extension, and in Favorites) shows the Paused indicator",
+      "tier": "tmp",
+      "rationale": "The restored behavior from F1 needs a test that checks the indicator is rendered."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "acd84e13b0ce9955b024a815b53442f9a140364c",
+  "treeHash": "298c381a25a1139cd746fe25ff4f542b8a6cbdfc",
+  "codeTree": "28de6d066359d580b88a63539b1fdbe2481b5821",
+  "coverage": {
+    "executable": 239,
+    "covered": 239,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-21T00:47:28.842Z"
+}

@@ -1,0 +1,6 @@
+[
+  {
+    "findingId": "F1",
+    "reply": "won't fix: the user explicitly decided automations in the sidebar must not show a 'Paused' label; dropping it is intentional, not a regression."
+  }
+]

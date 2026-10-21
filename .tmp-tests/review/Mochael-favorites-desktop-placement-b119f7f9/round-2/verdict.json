@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change rebuilds the sidebar. It adds a Workspace actions toolbar, a Favorites section, and one filterable Artifacts section, and section order and collapsed state persist per user and workspace. The head is unchanged since round 1. F1 is dropped because the user chose to remove the \"Paused\" label. Tests pass, every changed line is covered, and no findings remain, so the change is ready.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "acd84e13b0ce9955b024a815b53442f9a140364c",
+  "treeHash": "298c381a25a1139cd746fe25ff4f542b8a6cbdfc",
+  "codeTree": "b1bb98f7c715fb065ebd5ff0905b3bba869189b9",
+  "coverage": {
+    "executable": 239,
+    "covered": 239,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-21T01:12:53.534Z"
+}
