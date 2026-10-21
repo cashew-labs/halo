@@ -114,7 +114,7 @@ export const registerOpenAPIInputSchema = Type.Object(
           maxItems: 64,
           uniqueItems: true,
           description:
-            "Optional Google OAuth permissions for an official Google Discovery URL. Use the least privilege needed, such as https://www.googleapis.com/auth/analytics.readonly for Analytics reports. Operations requiring other scopes are omitted.",
+            "Optional Google OAuth permissions for an official Google Discovery URL. Choose scopes declared in the API description and request only the access needed for the user’s task. Operations requiring other scopes are omitted.",
         },
       ),
     ),
