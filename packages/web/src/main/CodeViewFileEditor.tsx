@@ -23,7 +23,9 @@ const diffsTheme = {
   light: "pierre-light",
 } as const;
 
-const pierreUnsafeCss = `:host { --diffs-font-family: ${monoFontFamily}; }`;
+// A transparent `--diffs-bg` lets the pane background show through; Diffs derives
+// its hover, selection, and line-number colors by mixing with it.
+const pierreUnsafeCss = `:host { --diffs-font-family: ${monoFontFamily}; --diffs-bg: transparent; }`;
 
 // Highlights needs WebAssembly with SIMD; the browser app's CSP blocks WebAssembly, so it keeps Shiki.
 const preferredHighlighter: HighlighterTypes = canUseWASM()
