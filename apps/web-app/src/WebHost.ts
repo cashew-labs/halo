@@ -151,6 +151,8 @@ export class WebHost implements HostApi {
     if (result instanceof Error) return result;
     if (result.error !== null)
       return new WebHostError({ operation: "sign out", cause: result.error });
+    // Fetch the signed-out document's CSP before showing the booking embed.
+    window.location.reload();
   }
 
   async connectHalo({
