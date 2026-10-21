@@ -160,6 +160,32 @@ export class ElectronHost implements HostApi {
     );
   }
 
+  readonly device = {
+    read: async () =>
+      await this.desktopBridge.getDevice().catch(
+        (cause) =>
+          new ElectronHostError({
+            operation: "read this computer's settings",
+            cause,
+          }),
+      ),
+    update: async (update: Parameters<DesktopBridge["updateDevice"]>[0]) =>
+      await this.desktopBridge.updateDevice(update).catch(
+        (cause) =>
+          new ElectronHostError({
+            operation: "save this computer's settings",
+            cause,
+          }),
+      ),
+    addFolder: async () =>
+      await this.desktopBridge
+        .addDeviceFolder()
+        .catch(
+          (cause) =>
+            new ElectronHostError({ operation: "share a folder", cause }),
+        ),
+  };
+
   async openExternalUrl(url: string) {
     return await this.desktopBridge.openExternal({ url }).catch(
       (cause) =>

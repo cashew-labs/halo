@@ -11,7 +11,11 @@ import type {
   ControlPlaneWorkspaceStatus,
   ControlPlaneSession,
 } from "@get-halo/shared/controlPlaneContract";
-import type { AppInfo } from "@get-halo/web/HostApi";
+import type {
+  AppInfo,
+  LocalDeviceState,
+  LocalDeviceUpdate,
+} from "@get-halo/web/HostApi";
 import type { HaloRpcConnection } from "./HaloRpcConnection.js";
 
 export const DESKTOP_CHANNEL = "halo:desktop";
@@ -69,6 +73,40 @@ export const desktopRequestSchema = Type.Union([
     { additionalProperties: false },
   ),
   Type.Object(
+    { type: Type.Literal("getDevice") },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    {
+      type: Type.Literal("updateDevice"),
+      update: Type.Object(
+        {
+          name: Type.Optional(Type.String({ minLength: 1, maxLength: 64 })),
+          enabled: Type.Optional(Type.Boolean()),
+          files: Type.Optional(
+            Type.Object(
+              {
+                access: Type.Union([
+                  Type.Literal("off"),
+                  Type.Literal("read"),
+                  Type.Literal("write"),
+                ]),
+                roots: Type.Array(Type.String({ minLength: 1 })),
+              },
+              { additionalProperties: false },
+            ),
+          ),
+        },
+        { additionalProperties: false },
+      ),
+    },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    { type: Type.Literal("addDeviceFolder") },
+    { additionalProperties: false },
+  ),
+  Type.Object(
     {
       type: Type.Literal("cancelIntegration"),
       sessionId: Type.String(),
@@ -114,6 +152,9 @@ export type DesktopBridge = {
     sessionId: string;
     connectionId: string;
   }) => Promise<void>;
+  getDevice: () => Promise<LocalDeviceState>;
+  updateDevice: (update: LocalDeviceUpdate) => Promise<LocalDeviceState>;
+  addDeviceFolder: () => Promise<LocalDeviceState>;
 };
 
 declare global {

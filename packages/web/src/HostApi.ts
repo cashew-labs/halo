@@ -29,7 +29,31 @@ export type AppInfo = {
   update: AppUpdateStatus;
 };
 
+/** This computer's connection to the workspace agent, shown in the desktop app. */
+export type LocalDeviceState = {
+  name: string;
+  enabled: boolean;
+  files: { access: "off" | "read" | "write"; roots: string[] };
+  status:
+    | { state: "disabled" }
+    | { state: "connecting" }
+    | { state: "online"; since: number }
+    | { state: "offline"; message: string; retryAt: number };
+};
+
+export type LocalDeviceUpdate = Partial<
+  Pick<LocalDeviceState, "name" | "enabled" | "files">
+>;
+
 export interface HostApi {
+  /** Present only where Halo can let the agent use this computer. */
+  // coverage-exempt: type declarations
+  device?: {
+    read(): Promise<LocalDeviceState | Error>;
+    update(update: LocalDeviceUpdate): Promise<LocalDeviceState | Error>;
+    /** Opens a folder picker and shares the chosen folder. */
+    addFolder(): Promise<LocalDeviceState | Error>;
+  };
   integrationSetup?: {
     read(setupId: string): Promise<IntegrationSetup | Error>;
     submit(input: {

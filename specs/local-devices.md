@@ -2,7 +2,7 @@
 
 The workspace agent can use the person's own computers. Every computer running the Halo desktop app connects to its workspace as a **device** automatically; nothing is shared until the person answers an access prompt. The agent loop, threads, and state stay on the workspace server; only device tool calls run on the computer.
 
-Status: the workspace protocol and the agent file tools are implemented. The reusable device host and the desktop app land in the next two changes. Local bash and local computer use are planned.
+Status: file access is implemented. Local bash and local computer use are planned.
 
 ## System flow
 
