@@ -188,6 +188,7 @@ function ChatPane({
   const column = useStyles(styles.column);
   const composer = useStyles(styles.composer);
   const connectionMessage = {
+    upgrading: undefined,
     connecting: "Connecting to your workspace…",
     reconnecting: "Connection lost. Automatically reconnecting…",
     offline: "You're offline. Halo will reconnect when you're back online.",

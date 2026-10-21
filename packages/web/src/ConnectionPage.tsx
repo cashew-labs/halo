@@ -14,13 +14,19 @@ const releasesUrl = "https://github.com/cashew-labs/halo/releases/latest";
 export function ConnectionPage({
   error,
   onRetry,
+  workspaceUpdateAvailable = false,
 }: {
   error: IncompatibleServerError;
   onRetry: () => void;
+  workspaceUpdateAvailable?: boolean;
 }) {
   return (
     <FullscreenPage>
-      <IncompatibleConnection error={error} onRetry={onRetry} />
+      <IncompatibleConnection
+        error={error}
+        onRetry={onRetry}
+        workspaceUpdateAvailable={workspaceUpdateAvailable}
+      />
     </FullscreenPage>
   );
 }
@@ -40,9 +46,11 @@ export function OfflinePage() {
 export function IncompatibleConnection({
   error,
   onRetry,
+  workspaceUpdateAvailable = false,
 }: {
   error: IncompatibleServerError;
   onRetry?: () => void;
+  workspaceUpdateAvailable?: boolean;
 }) {
   const host = useHost();
   const heading = useStyles(styles.heading);
@@ -55,11 +63,16 @@ export function IncompatibleConnection({
       <Flex column gap={12} alignItems="center">
         <Prose size="sm">
           <h1 className={heading}>Can't connect to your workspace</h1>
-          <P>
-            Halo's service doesn't support this version of the app. Wait for the
-            service to update, then try again.
-          </P>
+          {workspaceUpdateAvailable ? (
+            <P>Update your workspace to reconnect to Halo.</P>
+          ) : (
+            <P>
+              Halo's service doesn't support this version of the app. Wait for
+              the service to update, then try again.
+            </P>
+          )}
         </Prose>
+        {workspaceUpdateAvailable && <WorkspaceUpdate />}
         {onRetry && <Button onClick={onRetry}>Try again</Button>}
       </Flex>
     );
@@ -96,6 +109,25 @@ export function IncompatibleConnection({
       ])}
       onRetry={onRetry}
     />
+  );
+}
+
+export function WorkspaceUpdate() {
+  const host = useHost();
+  const install = useAsyncAction(async () => {
+    if (!confirmRestart()) return;
+    return await host.installAppUpdate?.();
+  });
+  return (
+    <Flex column gap={4}>
+      <Button
+        isDisabled={install.pending || host.installAppUpdate === undefined}
+        onClick={() => void install.run()}
+      >
+        {install.pending ? "Updating workspace…" : "Update workspace"}
+      </Button>
+      {install.error && <P>{install.error.message}</P>}
+    </Flex>
   );
 }
 

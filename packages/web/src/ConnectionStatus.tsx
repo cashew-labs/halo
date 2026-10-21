@@ -50,6 +50,7 @@ export function ConnectionStatus() {
         return "Server update required";
       return "Unsupported API protocol";
     }
+    if (state.status === "upgrading") return "Upgrading workspace…";
     if (state.status === "offline") return "Disconnected";
     if (state.status === "authentication") return "Sign in required";
     if (state.power === "sleeping") return "Sleeping…";
@@ -138,7 +139,13 @@ function ConnectionAction({
             <Flex column gap={4}>
               <H3>{label}</H3>
               {mismatch !== undefined ? (
-                <IncompatibleConnection error={mismatch} />
+                <IncompatibleConnection
+                  error={mismatch}
+                  workspaceUpdateAvailable={
+                    state.update !== undefined &&
+                    state.update.version !== state.update.targetVersion
+                  }
+                />
               ) : (
                 <P>
                   {state.error?.message ??

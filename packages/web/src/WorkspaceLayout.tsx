@@ -1,3 +1,4 @@
+import { WorkspaceUpgradeBanner } from "./WorkspaceUpgradeBanner.js";
 import {
   createContext,
   useContext,
@@ -57,6 +58,8 @@ export function WorkspaceLayout({
     setSidebarState({ location, isMobile, isOpen });
   }
   const shell = useStyles(shellStyle);
+  const main = useStyles(mainStyle);
+  const panes = useStyles(panesStyle);
 
   return (
     <SidebarContext
@@ -68,7 +71,12 @@ export function WorkspaceLayout({
     >
       <div className={shell} data-testid="sessions-shell">
         {!isMobile && <Sidebar sessions={sessions} appInfo={appInfo} />}
-        <PaneWorkspace sessions={sessions} />
+        <div className={main}>
+          <WorkspaceUpgradeBanner />
+          <div className={panes}>
+            <PaneWorkspace sessions={sessions} />
+          </div>
+        </div>
       </div>
       <Drawer
         isOpen={isMobile && sidebarState.isOpen}
@@ -95,4 +103,17 @@ const shellStyle = style({
   "@media (max-width: 700px)": {
     gridTemplateColumns: "minmax(0, 1fr)",
   },
+});
+
+const mainStyle = style({
+  display: "flex",
+  flexDirection: "column",
+  minWidth: 0,
+  minHeight: 0,
+});
+const panesStyle = style({
+  display: "grid",
+  flex: 1,
+  minWidth: 0,
+  minHeight: 0,
 });

@@ -23,7 +23,11 @@ import {
 import { useHost } from "../HostProvider.js";
 import { ConnectionService } from "./ConnectionService.js";
 import { ConnectionContext, useConnection } from "./ConnectionContext.js";
-import { ConnectionPage, OfflinePage } from "../ConnectionPage.js";
+import {
+  ConnectionPage,
+  OfflinePage,
+  WorkspaceUpdate,
+} from "../ConnectionPage.js";
 import { LoadingPage } from "../LoadingPage.js";
 import { SignInPage } from "../SignInPage.js";
 
@@ -112,9 +116,32 @@ function OpeningWorkspacePage() {
     );
   }
   if (state.error instanceof IncompatibleServerError)
-    return <ConnectionPage error={state.error} onRetry={service.retry} />;
+    return (
+      <ConnectionPage
+        error={state.error}
+        onRetry={service.retry}
+        workspaceUpdateAvailable={
+          state.update !== undefined &&
+          state.update.version !== state.update.targetVersion
+        }
+      />
+    );
   if (state.status === "offline") return <OfflinePage />;
-  return <LoadingPage progressLabel="Opening your workspace" />;
+  return (
+    <LoadingPage
+      progressLabel={
+        state.status === "upgrading"
+          ? "Upgrading your workspace"
+          : "Opening your workspace"
+      }
+    >
+      {state.status !== "upgrading" &&
+        state.update !== undefined &&
+        state.update.version !== state.update.targetVersion && (
+          <WorkspaceUpdate />
+        )}
+    </LoadingPage>
+  );
 }
 
 export function useApi(): HaloClient {

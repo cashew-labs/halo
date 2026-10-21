@@ -292,6 +292,34 @@ export class ControlPlaneAuth implements DesktopAuthentication {
       );
   }
 
+  async cancelWorkspaceUpgrade() {
+    if (this.token === undefined) return new AuthenticationRequiredError();
+    return await this.createClient(this.token)
+      .workspace.cancelUpgrade(undefined, {
+        signal: AbortSignal.timeout(10_000),
+      })
+      .catch(
+        (cause) =>
+          new ControlPlaneAuthError({
+            operation: "cancel the workspace update",
+            cause,
+          }),
+      );
+  }
+
+  async upgradeWorkspace(force: boolean) {
+    if (this.token === undefined) return new AuthenticationRequiredError();
+    return await this.createClient(this.token)
+      .workspace.upgrade({ force }, { signal: AbortSignal.timeout(10_000) })
+      .catch(
+        (cause) =>
+          new ControlPlaneAuthError({
+            operation: "update your workspace",
+            cause,
+          }),
+      );
+  }
+
   async recordWorkspaceActivity() {
     if (this.token === undefined) return;
     const workspace = await this.createClient(this.token)

@@ -7140,6 +7140,7 @@ updateTest(
     expect((await report(busy, "invalid")).status).toBe(401);
     expect((await report({ ...busy, state: "invalid" })).status).toBe(400);
     await expect(rpc.workspace.upgrade({ force: true })).rejects.toThrow();
+    await expect(rpc.workspace.cancelUpgrade()).rejects.toThrow();
     expect(await (await report(busy)).json()).toMatchObject({
       activate: false,
       force: false,
@@ -7279,6 +7280,21 @@ updateTest(
     expect((await authenticatedRpc.workspace.status()).update?.state).toBe(
       "available",
     );
+    await authenticatedRpc.workspace.cancelUpgrade();
+    expect(await (await report("ready", true)).json()).toMatchObject({
+      activate: false,
+      force: false,
+      requestId: 0,
+    });
+    await authenticatedRpc.workspace.upgrade({ force: true });
+    await authenticatedRpc.workspace.cancelUpgrade();
+    expect(await (await report("ready", true)).json()).toMatchObject({
+      activate: false,
+      force: false,
+      requestId: 0,
+    });
+    await report("ready", false);
+    await authenticatedRpc.workspace.upgrade({ force: false });
     const expired = vi
       .spyOn(Date, "now")
       .mockReturnValue(Date.now() + 21 * 60_000);

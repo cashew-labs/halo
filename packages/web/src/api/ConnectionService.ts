@@ -18,6 +18,7 @@ type ConnectionState = {
   status:
     | "connecting"
     | "reconnecting"
+    | "upgrading"
     | "offline"
     | "synchronizing"
     | "connected"
@@ -27,6 +28,7 @@ type ConnectionState = {
   workspace?: WorkspaceInfo;
   error?: Error;
   power?: ControlPlaneWorkspaceStatus["status"];
+  update?: ControlPlaneWorkspaceStatus["update"];
 };
 
 const frameActivitySchema = Type.Object(
@@ -107,6 +109,7 @@ export class ConnectionService {
   retry = () => {
     if (
       !this.active ||
+      this.state.status === "upgrading" ||
       this.attempting ||
       this.reportingActivity ||
       this.state.power === "asleep" ||
@@ -286,6 +289,7 @@ export class ConnectionService {
   }
 
   private failed(error?: Error) {
+    if (this.state.status === "upgrading") return;
     this.controller?.abort(new ConnectionInterruptedError({ cause: error }));
     const incompatible =
       error === undefined
@@ -403,6 +407,31 @@ export class ConnectionService {
       !this.reportingActivity &&
       activityAt === this.lastActivitySent
     ) {
+      const updating = result.update?.state === "upgrading";
+      if (
+        updating &&
+        this.state.status !== "upgrading" &&
+        !["authentication", "offline"].includes(this.state.status)
+      ) {
+        clearTimeout(this.timer);
+        this.generation++;
+        this.attempting = false;
+        this.controller?.abort(new ConnectionInterruptedError());
+        this.probe?.abort(new ConnectionInterruptedError());
+        this.publish({
+          ...this.state,
+          status: "upgrading",
+          error: undefined,
+          update: result.update,
+        });
+      } else if (!updating && this.state.status === "upgrading") {
+        this.publish({
+          ...this.state,
+          status: "reconnecting",
+          update: result.update,
+        });
+        this.retry();
+      } else this.publish({ ...this.state, update: result.update });
       const previous = this.state.power;
       if (result.status === "asleep" && previous !== "asleep") {
         clearTimeout(this.timer);

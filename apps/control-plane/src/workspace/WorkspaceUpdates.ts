@@ -144,6 +144,16 @@ export class WorkspaceUpdates {
     return { status: "started" };
   }
 
+  async cancel(userId: string) {
+    const workspace = await this.workspace.ensureIdentity(userId);
+    if (workspace instanceof Error) return workspace;
+    const cleared = await this.database.query(
+      "UPDATE workspace_updates SET request_version='', force=0, request_at=0 WHERE workspace_id=$1",
+      [workspace.id],
+    );
+    if (cleared instanceof Error) return cleared;
+  }
+
   async report(headers: Headers, report: WorkspaceUpdateReport) {
     const identity = await this.workspace.authenticateRuntimeOwner(headers);
     if (identity instanceof Error) return identity;

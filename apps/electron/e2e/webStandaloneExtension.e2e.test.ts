@@ -1,6 +1,12 @@
 import { routeWorkspaceRpc } from "./workspaceSocket.js";
 import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
+import { readFile } from "node:fs/promises";
+import { Value } from "@sinclair/typebox/value";
+import {
+  workspaceRuntimeConfigSchema,
+  workspaceRuntimeConfigFileName,
+} from "@get-halo/config/workspaceServer";
 import http from "node:http";
 import { once } from "node:events";
 import type { AddressInfo } from "node:net";
@@ -436,3 +442,192 @@ e2eTest(
     await expect(card).toBeVisible();
   },
 );
+
+// Durable regression: a frontend update must not silently interrupt workspace work.
+for (const { busy, entry } of [
+  { busy: false, entry: "connected" },
+  { busy: true, entry: "connected" },
+  { busy: true, entry: "incompatible" },
+  { busy: true, entry: "unavailable" },
+]) {
+  e2eTest(
+    `coordinates browser and workspace updates with busy=${busy}, entry=${entry}`,
+    async ({ browser, harness, testArtifacts }, testInfo) => {
+      e2eTest.setTimeout(90_000);
+      const session = await harness.loadSession({
+        title: "Release planning",
+        messages: [m.user("Keep this conversation open while Halo updates.")],
+      });
+      const plane = await ControlPlane.start({
+        config: {
+          deployment: "local",
+          workspace: { deployment: "local" },
+          appDataDir: testArtifacts.paths.userData,
+          port: 0,
+          auth,
+        },
+        webRoot: path.resolve(import.meta.dirname, "../../web-app/dist"),
+        workspaceProvider: new LocalWorkspaceProvider({
+          appDataDir: testArtifacts.paths.userData,
+        }),
+        workspaceUpdateTarget: {
+          version: "0.1.92",
+          image: `registry.example/halo@sha256:${"a".repeat(64)}`,
+        },
+      });
+      if (plane instanceof Error) throw plane;
+      await using cleanup = new errore.AsyncDisposableStack();
+      cleanup.defer(async () => {
+        const closed = await plane.close();
+        if (closed instanceof Error) throw closed;
+      });
+      const cookie = await createAuthenticatedCookie({
+        appDataDir: testArtifacts.paths.userData,
+        origin: plane.origin,
+      });
+      const client: ControlPlaneClient = createORPCClient(
+        new RPCLink({
+          origin: plane.origin,
+          url: "/rpc",
+          headers: { cookie, origin: plane.origin },
+        }),
+      );
+      await client.workspace.ensure();
+      const runtime: unknown = JSON.parse(
+        await readFile(
+          path.join(
+            testArtifacts.paths.userData,
+            workspaceRuntimeConfigFileName,
+          ),
+          "utf8",
+        ),
+      );
+      if (!Value.Check(workspaceRuntimeConfigSchema, runtime))
+        throw new Error("Invalid test runtime configuration");
+      const report = async (
+        state: "ready" | "upgrading" | "current",
+        version = "0.1.90",
+      ) => {
+        const response = await fetch(
+          `${plane.origin}/api/workspace-runtime/update`,
+          {
+            method: "POST",
+            headers: {
+              authorization: `Bearer ${runtime.token}`,
+              "content-type": "application/json",
+            },
+            body: JSON.stringify({
+              state,
+              version,
+              targetVersion: "0.1.92",
+              busy,
+            }),
+          },
+        );
+        expect(response.status).toBe(200);
+        return await response.json();
+      };
+      await report("ready");
+      const context = await browser.newContext({
+        extraHTTPHeaders: { cookie },
+        viewport: { width: 1280, height: 800 },
+      });
+      cleanup.defer(async () => await context.close());
+      const page = await context.newPage();
+      let workspaceUpdated = false;
+      if (entry !== "connected") {
+        // External HTTP boundary: initial compatibility probes do not use the socket.
+        await page.route(
+          entry === "incompatible"
+            ? "**/workspace/rpc/server/info"
+            : "**/workspace/health",
+          async (route) => {
+            if (workspaceUpdated) return await route.continue();
+            if (entry === "unavailable")
+              return await route.fulfill({ status: 503 });
+            await route.fulfill({
+              json: { json: { protocolVersion: 1, supportedProtocols: [1] } },
+            });
+          },
+        );
+      }
+      await page.goto(`${plane.origin}/#/sessions/${session.sessionId}`);
+      if (entry === "incompatible")
+        await expect(
+          page.getByRole("heading", {
+            name: "Can't connect to your workspace",
+          }),
+        ).toBeVisible();
+      const update = page.getByRole("button", {
+        name: "Update workspace",
+        exact: true,
+      });
+      await expect(update).toBeVisible();
+      let dialogs = 0;
+      page.on("dialog", async (dialog) => {
+        dialogs++;
+        expect(dialog.message()).toContain(
+          "stop running agents, commands, and automations",
+        );
+        if (dialogs === 1) await dialog.dismiss();
+        else await dialog.accept();
+      });
+      if (busy) {
+        await update.click();
+        await expect.poll(() => dialogs).toBe(1);
+        expect(await report("ready")).toMatchObject({ activate: false });
+        await expect(update).toBeEnabled();
+      }
+      await update.click();
+      await expect
+        .poll(async () => await report("ready"))
+        .toMatchObject({ activate: true, force: busy });
+      await report("upgrading");
+      await expect(
+        page
+          .getByRole("status")
+          .filter({ hasText: "Upgrading your workspace" }),
+      ).toBeVisible();
+      if (entry === "connected")
+        await expect(
+          page.getByRole("main", { name: "Release planning", exact: true }),
+        ).toBeVisible();
+      if (!busy) {
+        const screenshots = testArtifacts.paths.root;
+        await testInfo.attach("workspace-upgrading-desktop-1280x800", {
+          body: await page.screenshot({
+            path: path.join(
+              screenshots,
+              "workspace-upgrading-desktop-1280x800.png",
+            ),
+          }),
+          contentType: "image/png",
+        });
+        await page.setViewportSize({ width: 390, height: 844 });
+        await expect(
+          page
+            .getByRole("status")
+            .filter({ hasText: "Upgrading your workspace" }),
+        ).toBeVisible();
+        await testInfo.attach("workspace-upgrading-mobile-390x844", {
+          body: await page.screenshot({
+            path: path.join(
+              screenshots,
+              "workspace-upgrading-mobile-390x844.png",
+            ),
+          }),
+          contentType: "image/png",
+        });
+      }
+      workspaceUpdated = true;
+      await report("current", "0.1.92");
+      await expect(
+        page.getByText("Upgrading your workspace.", { exact: false }),
+      ).toHaveCount(0);
+      await expect(
+        page.getByRole("main", { name: "Release planning", exact: true }),
+      ).toBeVisible();
+      expect(dialogs).toBe(busy ? 2 : 0);
+    },
+  );
+}

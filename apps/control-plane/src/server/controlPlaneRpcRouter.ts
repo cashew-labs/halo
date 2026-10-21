@@ -591,6 +591,15 @@ export const controlPlaneRpcRouter = os.router({
         if (update instanceof Error) throw internalError(update);
         return { ...status, update };
       }),
+    cancelUpgrade: os.workspace.cancelUpgrade
+      .use(loadSession)
+      .handler(async ({ context }) => {
+        if (context.session === undefined) throw new ORPCError("UNAUTHORIZED");
+        const result = await context.workspaceUpdates.cancel(
+          context.session.user.id,
+        );
+        if (result instanceof Error) throw badRequest(result);
+      }),
     upgrade: os.workspace.upgrade
       .use(loadSession)
       .handler(async ({ context, input }) => {
