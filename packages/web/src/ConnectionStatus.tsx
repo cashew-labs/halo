@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import { Dialog, Modal, ModalOverlay } from "react-aria-components";
 import {
   Button,
+  CodeBlock,
   Flex,
   H3,
   P,
@@ -113,7 +114,6 @@ function ConnectionAction({
   const [signingIn, setSigningIn] = useState(false);
   const overlay = useStyles(overlayStyle);
   const modal = useStyles(modalStyle);
-  const details = useStyles(detailsStyle);
   return (
     <>
       {/* Tooltip needs a single focusable child, not this fragment. */}
@@ -152,9 +152,9 @@ function ConnectionAction({
               )}
               <details>
                 <summary>Connection details</summary>
-                <pre className={details}>
+                <CodeBlock lang="json">
                   {JSON.stringify(service.diagnostics(), undefined, 2)}
-                </pre>
+                </CodeBlock>
                 <Button
                   onClick={async () => {
                     await navigator.clipboard
@@ -242,4 +242,3 @@ export const modalStyle = style(
     "& [role='dialog']": { outline: "none" },
   },
 );
-const detailsStyle = style({ overflowX: "auto", maxWidth: "100%" });

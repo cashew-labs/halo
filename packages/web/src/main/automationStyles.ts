@@ -42,12 +42,13 @@ export const automationStyles = {
   }),
   section: style(flex({ direction: "column", gap: 3 })),
   sectionTitle: style(text({ size: "md", fontWeight: 600 }), { margin: 0 }),
-  actionBody: style(text({ size: "sm", color: "highContrast" }), radius.md, {
-    margin: 0,
-    padding: spacing.value(4),
-    backgroundColor: backgroundColor.element,
-    whiteSpace: "pre-wrap",
-    overflowWrap: "anywhere",
+  // Prompts and commands wrap instead of scrolling sideways.
+  actionBody: style({
+    minWidth: 0,
+    "& pre, & code": {
+      whiteSpace: "pre-wrap",
+      overflowWrap: "anywhere",
+    },
   }),
   editor: style(
     text({ size: "sm", color: "highContrast" }),
