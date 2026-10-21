@@ -1,0 +1,72 @@
+{
+  "status": "changes_requested",
+  "summary": "This change adds a GitHub REST preset to the Executor catalog, a local-only override for the GitHub OAuth origin, display and setup-page support for GitHub, and the related infra config. It is not ready to merge. The durable run failed with an MCP test timeout. The Electron temp tests never ran because packaging failed. The coverage gate reports all 74 changed lines as uncovered. The new test-mode fetch filter also sends some Google Discovery fetches to the real network, and nothing checks the GitHub preset itself: neither its OAuth template against Halo's GitHub client nor the real GitHub specification.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "source",
+      "file": "apps/control-plane/src/integrations/IntegrationService.ts",
+      "line": 225,
+      "severity": "P1",
+      "body": "Test mode now intercepts a URL only if it equals `preset.url` exactly. But `googleDiscoveryAdapter.fetch` first normalizes Discovery URLs (`normalizeGoogleDiscoveryUrl`). The admin `directory_v1` and `reports_v1` presets and `cloudresourcemanager?version=v3` become `https://www.googleapis.com/discovery/v1/apis/<service>/<version>/rest`, which matches no `preset.url`. Those fetches skip `getOpenAPISpec` and go through `safeFetch` to the live Google API. Before this change, every adapter fetch in test mode reached the fixture. Now every executor start in ControlPlane.test.ts and in the e2e harness downloads and installs real Discovery documents. The suite is no longer hermetic: it fails offline, runs slower, and may explain the MCP test timeout at ControlPlane.test.ts:3375. Match the normalized URL forms, or send every preset or adapter specification fetch to `getOpenAPISpec`. Only tool invocations should go through `safeFetch`. The comment at line 216 is also out of date now."
+    },
+    {
+      "id": "F2",
+      "kind": "source",
+      "file": "apps/control-plane/src/integrations/IntegrationService.ts",
+      "line": 64,
+      "severity": "P1",
+      "body": "The GitHub preset loads GitHub's full REST description from the unpinned `main` branch. Each new user's executor fetches and installs it inside the 30-second `addSpec` timeout, and the install loop returns an error on any preset failure, so that user's whole executor fails to start (Google integrations included). No test checks that Executor can fetch and compile the real GitHub document within that budget; both tests use a one-operation stub. Check it against the real document, for example with a temp test that installs the actual specification. Also pin a specific revision or ship a known-good copy, and decide whether a GitHub install failure should block the other integrations."
+    },
+    {
+      "id": "F3",
+      "kind": "source",
+      "file": "apps/control-plane/src/integrations/IntegrationService.ts",
+      "line": 68,
+      "severity": "P1",
+      "body": "The GitHub preset is installed even when the deployment has no `config.github` client, for example local development without the GitHub secrets or the `githubConfigured: false` test. Users then see GitHub in the catalog with an OAuth method. Setup fails with \"No configured OAuth client matches this integration; the server does not support dynamic registration\", and every new user still downloads the large specification for nothing. Install or expose the GitHub preset only when a first-party GitHub client is configured."
+    },
+    {
+      "id": "F4",
+      "kind": "test",
+      "file": "apps/control-plane/test/ControlPlane.test.ts",
+      "line": 1324,
+      "severity": "P1",
+      "body": "The new test replaces the preset's `authenticationTemplate` before it checks the catalog and starts OAuth. The test therefore never checks the template the change ships. Production depends on that template's `authorizationUrl` and `tokenUrl` exactly matching the first-party `github` client in ControlPlane.ts:180-181, because `submitSetup` picks the client by matching both URLs. If the preset and the client config diverge, production setup breaks and this test still passes. Add an assertion that runs without the override: start and submit setup for `github` with the shipped preset, then expect an authorization URL at `https://github.com` with `client_id` equal to `testGithub.clientId`. No network call is needed for this."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "Executor startup in test mode makes no request outside the fixtures (IntegrationService.ts:222-227), including the normalized admin and cloudresourcemanager Discovery URLs",
+      "tier": "tmp",
+      "rationale": "F1: the new URL filter sends normalized Discovery URLs to the real network."
+    },
+    {
+      "target": "The shipped `github` preset's OAuth template selects the `first-party:github` client: `submitSetup` without `openapi.configure` returns a github.com authorization URL with Halo's client_id",
+      "tier": "durable",
+      "rationale": "F4: this protects the invariant that the preset and the client URLs match, which is easy to break in a later edit."
+    },
+    {
+      "target": "Installing the real GitHub REST description (or a pinned copy) through `openApiPlugin` finishes inside the 30-second install timeout and produces tools",
+      "tier": "tmp",
+      "rationale": "F2: nothing has checked that Executor can install the real specification."
+    },
+    {
+      "target": "Coverage of the changed lines in IntegrationService.ts, ControlPlane.ts, IntegrationDisplay.ts, ConnectionRequest.ts, IntegrationSetupPage.tsx and ExecutorConnectionCard.tsx. The report marks all 74 lines uncovered, and the Electron temp tests did not run because packaging failed.",
+      "tier": "tmp",
+      "rationale": "The coverage gate failed. Rerun the e2e temp tests after a successful build, and make sure the durable run's coverage loads the control-plane sources."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "d5721e7348973186c5490b62f107ade9c0092488",
+  "treeHash": "a5e52ae7ab2d44ce22c869c0a1994097f04b6137",
+  "codeTree": "72ee4fff3811d8b05b8652f778c399e1b8ddfa7f",
+  "coverage": {
+    "executable": 74,
+    "covered": 0,
+    "exempt": 0,
+    "uncovered": 74
+  },
+  "createdAt": "2026-10-21T19:49:19.354Z"
+}

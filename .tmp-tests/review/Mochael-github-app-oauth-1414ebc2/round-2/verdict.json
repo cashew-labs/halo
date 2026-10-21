@@ -1,0 +1,59 @@
+{
+  "status": "changes_requested",
+  "summary": "This round fixes F1 with `isGoogleDiscoveryUrl`, which keeps test-mode Discovery fetches on the fixture. It fixes F3: GitHub is gated on a configured first-party client, and a catalog assertion checks that. It fixes F4 with a durable test of the shipped preset against Halo's client, and it pins the specification revision and makes a GitHub install failure non-fatal. It is not ready to merge. The coverage gate fails on the new GitHub failure fallback and on the deployment-gated origin line. Nothing yet confirms that the pinned real GitHub description installs within Executor's 30-second limit.",
+  "findings": [
+    {
+      "id": "F2",
+      "kind": "source",
+      "file": "apps/control-plane/src/integrations/IntegrationService.ts",
+      "line": 66,
+      "severity": "P1",
+      "body": "Pinning the revision and making a GitHub install failure non-fatal (lines 1750-1754) resolves the part of this finding about blocking the other integrations. The remaining risk is the opposite outcome: the pinned full GitHub REST description may not fetch and compile inside the 30-second `addSpec` timeout. If it does not, every executor logs a warning and production never shows GitHub, and the suite still passes because both tests use a one-operation stub. Add a temp test that installs the real pinned description through `openApiPlugin` and `safeFetch`, or install path, and checks that it finishes inside the limit and produces the expected tools (for example `repos/list-for-authenticated-user`)."
+    },
+    {
+      "id": "F5",
+      "kind": "test",
+      "file": "apps/control-plane/src/integrations/IntegrationService.ts",
+      "line": 1751,
+      "severity": "P1",
+      "body": "The new fallback that keeps other integrations usable when the GitHub specification fails is untested. Coverage marks lines 1751 and 1753 uncovered. Add a temp test in which `getOpenAPISpec` returns an Error for the GitHub description URL. It should check that the executor still starts, that the catalog contains the Google integrations without `github`, and that a later setup or RPC call still works."
+    },
+    {
+      "id": "F6",
+      "kind": "test",
+      "file": "apps/control-plane/src/server/ControlPlane.ts",
+      "line": 149,
+      "severity": "P1",
+      "body": "Coverage marks line 149 uncovered. This line belongs to the deployment gate, which ensures that only local deployments can redirect the first-party GitHub client, which carries the client secret, to another OAuth origin. Cover the non-local branch with a temp test showing that a non-local deployment ignores `githubOAuthOrigin` and keeps `https://github.com`. If that is impractical, state an exemption reason."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "IntegrationService.ts:66 and 1724-1745: installing the real pinned GitHub REST description finishes within the 30-second limit and produces tools",
+      "tier": "tmp",
+      "rationale": "F2: the shipped specification has never been installed in a test."
+    },
+    {
+      "target": "IntegrationService.ts:1750-1754: when the GitHub specification fails, executor startup succeeds and the catalog omits GitHub but keeps Google",
+      "tier": "tmp",
+      "rationale": "F5: these changed lines are uncovered, and the behavior protects every other integration."
+    },
+    {
+      "target": "ControlPlane.ts:147-150: a non-local deployment ignores `githubOAuthOrigin`",
+      "tier": "tmp",
+      "rationale": "F6: this is an uncovered line in a security-relevant deployment gate."
+    }
+  ],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "d5721e7348973186c5490b62f107ade9c0092488",
+  "treeHash": "ecb742db60fd2d6fcfc788a5bea736e80592308a",
+  "codeTree": "0efd20a79275bcf8df785aa9d390fb38dea4d005",
+  "coverage": {
+    "executable": 27,
+    "covered": 24,
+    "exempt": 0,
+    "uncovered": 3
+  },
+  "createdAt": "2026-10-21T19:58:24.431Z"
+}

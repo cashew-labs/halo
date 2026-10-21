@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "The change adds a GitHub REST preset, pinned to one revision and enabled only when Halo's GitHub client is configured. A GitHub install failure no longer blocks the other integrations, and test-mode Google Discovery fetches stay hermetic. All findings are resolved. F2: a temp e2e installs the full pinned description from a fixture and checks for more than 500 tools within 30 seconds. F5: a durable test covers the failure fallback. F6: the exemption is acceptable because a non-local start needs Cloud Run and PostgreSQL, and the local tests check both the default and the override origin. Both test runs pass and coverage has no gaps, so the change is ready to merge.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 3,
+  "headSha": "d5721e7348973186c5490b62f107ade9c0092488",
+  "treeHash": "6bd803de0da85b01a046498cc3dc9b418daf5a63",
+  "codeTree": "a8ae52a02e33b989698a0b15907519f698eaa361",
+  "coverage": {
+    "executable": 26,
+    "covered": 26,
+    "exempt": 0,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-21T20:05:44.534Z"
+}
