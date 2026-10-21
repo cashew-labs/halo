@@ -494,14 +494,14 @@ e2eTest(
     );
     await expect(
       app.page.getByRole("button", {
-        name: "Connection: Server update required",
+        name: "Connection: Cloud workspace update required",
         exact: true,
       }),
     ).toBeVisible();
     supportedProtocols = undefined;
     await app.page
       .getByRole("button", {
-        name: "Connection: Server update required",
+        name: "Connection: Cloud workspace update required",
         exact: true,
       })
       .click();
@@ -536,9 +536,10 @@ e2eTest(
       else await request.fulfill({ json: info });
     });
     await app.page.reload();
-    const updatePage = app.page.getByText("Can't connect to your workspace", {
-      exact: true,
-    });
+    const updatePage = app.page.getByText(
+      "Your cloud workspace needs an update",
+      { exact: true },
+    );
     await expect(updatePage).toBeVisible();
     hold = true;
     await app.page.evaluate(() =>
@@ -547,7 +548,7 @@ e2eTest(
     await expect.poll(() => held).toBeGreaterThan(0);
     await expect(updatePage).toBeVisible();
     await expect(
-      app.page.getByText("Opening your workspace", { exact: true }),
+      app.page.getByText("Opening your cloud workspace", { exact: true }),
     ).toHaveCount(0);
   },
 );
