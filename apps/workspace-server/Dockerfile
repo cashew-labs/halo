@@ -115,6 +115,8 @@ ENTRYPOINT ["bash", "/opt/halo/apps/workspace-server/desktop/start.sh"]
 CMD ["/opt/halo/apps/workspace-server/container.json"]
 
 # Per-release metadata comes last so it never invalidates a large layer.
+COPY infra/workspace/exeTemplate.sh infra/workspace/desktop-seccomp.json \
+     infra/workspace/installUpdater.sh infra/workspace/workspaceUpdate.py /opt/halo/host/
 ARG VERSION=dev
 ARG REVISION=local
 ENV HALO_BUILD_VERSION=$VERSION HALO_BUILD_REVISION=$REVISION

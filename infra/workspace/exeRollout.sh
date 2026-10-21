@@ -199,7 +199,7 @@ case "$mode" in
       ssh "${ssh_args[@]}" "$vm.exe.xyz" "sudo date -s '@$(date +%s)' >/dev/null; sudo apt-get update >/dev/null && sudo apt-get install -y docker.io >/dev/null && sudo systemctl enable --now docker"
       pull_on_guest
       report_phase install-template
-      scp "${ssh_args[@]}" "$root/infra/workspace/exeTemplate.sh" "$root/infra/workspace/appSandboxSetup.sh" "$root/infra/workspace/appHost.py" "$root/infra/workspace/appPaths.py" "$root/infra/workspace/desktop-seccomp.json" "$vm.exe.xyz:/tmp/"
+      scp "${ssh_args[@]}" "$root/infra/workspace/exeTemplate.sh" "$root/infra/workspace/appSandboxSetup.sh" "$root/infra/workspace/appHost.py" "$root/infra/workspace/appPaths.py" "$root/infra/workspace/desktop-seccomp.json" "$root/infra/workspace/workspaceUpdate.py" "$root/infra/workspace/installUpdater.sh" "$vm.exe.xyz:/tmp/"
       ssh "${ssh_args[@]}" "$vm.exe.xyz" "sudo bash /tmp/exeTemplate.sh '$image'"
     fi
     report_phase verify-template
@@ -215,7 +215,6 @@ case "$mode" in
     echo "HALO_EXE_TEMPLATE_READY name=$vm image=$image"
     ;;
   update)
-    report_phase inspect-workspace
     status=$(ssh "${ssh_args[@]}" exe.dev ls "$vm" --json | jq -er '.vms[0].status')
     if [ "$status" = paused ] || [ "$status" = suspended ]; then
       restore_paused=true
@@ -228,6 +227,21 @@ case "$mode" in
         sleep 3
       done
     fi
+    # Personal workspaces install a scheduler; running work is left untouched.
+    role=$(ssh "${ssh_args[@]}" "$vm.exe.xyz" 'sudo python3 -' <<'ROLE'
+import json
+print("app" if "sharedApp" in json.load(open("/etc/halo/workspace-server.json")) else "workspace")
+ROLE
+    )
+    if [ "$role" = workspace ]; then
+      report_phase install-updater
+      scp "${ssh_args[@]}" "$root/infra/workspace/workspaceUpdate.py" "$root/infra/workspace/installUpdater.sh" "$vm.exe.xyz:/tmp/"
+      ssh "${ssh_args[@]}" "$vm.exe.xyz" 'sudo bash /tmp/installUpdater.sh'
+      report_phase scheduled
+      echo "HALO_WORKSPACE_UPDATE_SCHEDULED vm=$vm version=$VERSION"
+      exit 0
+    fi
+    report_phase inspect-workspace
     # A release is active work: refresh the idle clock using the workspace's
     # existing scoped reporter before transferring bytes to a resumed guest.
     if ! ssh "${ssh_args[@]}" "$vm.exe.xyz" 'sudo docker exec -i halo-workspace node --import /opt/halo/node_modules/tsx/dist/loader.mjs --input-type=module' <<'ACTIVITY'
@@ -248,7 +262,7 @@ ACTIVITY
     require_free_space
     pull_on_guest
     report_phase install-workspace
-    scp "${ssh_args[@]}" "$root/infra/workspace/exeTemplate.sh" "$root/infra/workspace/appSandboxSetup.sh" "$root/infra/workspace/appHost.py" "$root/infra/workspace/appPaths.py" "$root/infra/workspace/desktop-seccomp.json" "$vm.exe.xyz:/tmp/"
+    scp "${ssh_args[@]}" "$root/infra/workspace/exeTemplate.sh" "$root/infra/workspace/appSandboxSetup.sh" "$root/infra/workspace/appHost.py" "$root/infra/workspace/appPaths.py" "$root/infra/workspace/desktop-seccomp.json" "$root/infra/workspace/workspaceUpdate.py" "$root/infra/workspace/installUpdater.sh" "$vm.exe.xyz:/tmp/"
     ssh "${ssh_args[@]}" "$vm.exe.xyz" "sudo bash /tmp/exeTemplate.sh '$image' update-host && sudo /usr/local/bin/halo-workspace-upgrade '$image'"
     report_phase verify-workspace
     ready=false
