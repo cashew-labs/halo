@@ -40,6 +40,8 @@ Checks and Commit statuses; and GitHub's mandatory read-only Metadata permission
 It requests no account or organization permissions. Users choose which repositories
 the app can access when they install it. GitHub requires an app key pair before the
 app can be installed; the user-token OAuth flow itself does not use that private key.
+The registration key is backed up as `halo-github-app-private-key` in Secret Manager
+without a control-plane runtime grant.
 
 Store the client ID and client secret as separate secrets in project `halo-relay`:
 `halo-github-app-client-id` and `halo-github-app-client-secret`. Never put the secret
@@ -52,6 +54,16 @@ The server reads the current secret versions at startup, so credential changes n
 a new control-plane revision. Local development uses the same two environment
 variables; file-based server configuration can supply `github.clientId` and
 `github.clientSecret` through a private configuration file.
+
+The setup page links to repository installation in a separate tab before browser
+OAuth. Users can also manage repository access after connecting. Installation and
+user authorization are separate: an authorized user token can access only resources
+allowed to both that user and the installed app. Executor still calls the REST API
+on the connected user's behalf; this integration does not use installation tokens.
+The GitHub catalog is enabled only when its app credentials are configured. Halo
+pins the REST description to revision `bb754941722779d8a5b3a2f25a5fbb7ce794e1ea`.
+If that description cannot be installed, Halo logs the failure and keeps the
+existing integrations available; a new control-plane process retries installation.
 
 ## Marketing links
 

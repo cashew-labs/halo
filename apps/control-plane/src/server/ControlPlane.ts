@@ -76,6 +76,7 @@ export class ControlPlane {
 
   static async start(ctx: {
     config: ControlPlaneConfig;
+    githubOAuthOrigin?: string;
     webRoot: string;
     workspaceProvider: WorkspaceProviderApi;
     build?: { version: string; revision: string };
@@ -143,6 +144,10 @@ export class ControlPlane {
             encryptionKey: ctx.integrationEncryptionKey,
           });
     if (credentials instanceof Error) return credentials;
+    const githubOAuthOrigin =
+      config.deployment === "local"
+        ? (ctx.githubOAuthOrigin ?? "https://github.com") // coverage-exempt: non-local startup requires Cloud Run/PostgreSQL; local default and override are asserted through OAuth RPC tests
+        : "https://github.com";
     const integrations =
       credentials === undefined
         ? undefined
@@ -172,9 +177,8 @@ export class ControlPlane {
                 : [
                     {
                       name: "github",
-                      authorizationUrl:
-                        "https://github.com/login/oauth/authorize",
-                      tokenUrl: "https://github.com/login/oauth/access_token",
+                      authorizationUrl: `${githubOAuthOrigin}/login/oauth/authorize`,
+                      tokenUrl: `${githubOAuthOrigin}/login/oauth/access_token`,
                       clientId: config.github.clientId,
                       clientSecret: config.github.clientSecret,
                       authorizationScopes: [],

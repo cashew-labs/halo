@@ -179,13 +179,35 @@ const testGithub = {
 const desktopAuthState = "desktop-auth-state-0123456789abcdef";
 
 const integrationEncryptionKey = Buffer.alloc(32, 17);
-// Only Google's external Discovery HTTP boundary is replaced. Executor parses,
+// Only the external specification HTTP boundary is replaced. Executor parses,
 // installs and persists the document through its real OpenAPI plugin.
 const getOpenAPISpec = async (
-  _url: string,
+  url: string,
   origin = "https://example.invalid",
-) =>
-  JSON.stringify({
+) => {
+  if (url.includes("github/rest-api-description"))
+    return JSON.stringify({
+      openapi: "3.0.3",
+      info: { title: "GitHub", version: "1" },
+      servers: [{ url: origin }],
+      paths: {
+        "/items": {
+          get: {
+            operationId: "repos/list-for-authenticated-user",
+            summary: "List repositories for the authenticated user",
+            responses: {
+              "200": {
+                description: "Repositories",
+                content: {
+                  "application/json": { schema: { type: "object" } },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+  return JSON.stringify({
     discoveryVersion: "v1",
     id: "test:v1",
     name: "test",
@@ -212,8 +234,13 @@ const getOpenAPISpec = async (
       },
     },
   });
+};
 
-type OAuthTokenDriver = { refreshError?: string; refreshes: number };
+type OAuthTokenDriver = {
+  refreshError?: string;
+  refreshes: number;
+  githubRequests: URLSearchParams[];
+};
 
 const controlPlaneTest = test.extend<{
   traceCloud: TraceCloudDriver;
@@ -233,6 +260,8 @@ const controlPlaneTest = test.extend<{
   workspaceHost: WorkspaceHostDriver;
   allowLocalIntegrationUrls: boolean;
   githubConfigured: boolean;
+  githubSpecUnavailable: boolean;
+  localGithubOAuth: boolean;
   agent: {
     rpc: ReturnType<typeof createHaloClient>;
     workspaceRoot: string;
@@ -275,6 +304,8 @@ const controlPlaneTest = test.extend<{
 }>({
   allowLocalIntegrationUrls: true,
   githubConfigured: true,
+  githubSpecUnavailable: false,
+  localGithubOAuth: false,
   agent: async ({ plane, authenticatedRpc, appDataDir }, use) => {
     await authenticatedRpc.workspace.ensure();
     const runtime = createControlPlaneRpcClient(
@@ -564,6 +595,7 @@ const controlPlaneTest = test.extend<{
     const revokeResponse = { status: 200, body: "" };
     const oauth: OAuthTokenDriver = {
       refreshes: 0,
+      githubRequests: [],
     };
     const server = http.createServer((request, response) => {
       requests.push({
@@ -757,6 +789,28 @@ const controlPlaneTest = test.extend<{
         });
         return;
       }
+      if (request.url === "/login/oauth/access_token") {
+        let body = "";
+        request.on("data", (chunk) => (body += String(chunk)));
+        request.on("end", () => {
+          const params = new URLSearchParams(body);
+          oauth.githubRequests.push(params);
+          const refresh = params.get("grant_type") === "refresh_token";
+          response.writeHead(200, { "content-type": "application/json" }).end(
+            JSON.stringify({
+              access_token: refresh
+                ? "fixture-github-refreshed-token"
+                : "fixture-github-token",
+              token_type: "bearer",
+              scope: "",
+              expires_in: refresh ? 3600 : 0,
+              refresh_token: "fixture-github-refresh-token",
+              refresh_token_expires_in: 15897600,
+            }),
+          );
+        });
+        return;
+      }
       if (request.url === "/oauth/token") {
         let body = "";
         request.on("data", (chunk) => (body += String(chunk)));
@@ -913,6 +967,8 @@ const controlPlaneTest = test.extend<{
       integrationApi,
       allowLocalIntegrationUrls,
       githubConfigured,
+      githubSpecUnavailable,
+      localGithubOAuth,
       marketingAdminUserIds,
       marketingHostname,
       marketingHomepageOrigin,
@@ -947,6 +1003,7 @@ const controlPlaneTest = test.extend<{
       inference: inferenceApi.configuration(),
       integrationEncryptionKey,
       allowLocalIntegrationUrls,
+      githubOAuthOrigin: localGithubOAuth ? integrationApi.origin : undefined,
       gmailApiOrigin: integrationApi.origin,
       googleRevokeUrl: `${integrationApi.origin}/google-revoke`,
       gmailPushAuth: new OAuth2Client({
@@ -954,10 +1011,16 @@ const controlPlaneTest = test.extend<{
           oauth2FederatedSignonPemCertsUrl: `${integrationApi.origin}/google-certs`,
         },
       }),
-      getOpenAPISpec: async (url) =>
-        integrationApi.gmail.enabled && url.includes("gmail")
+      getOpenAPISpec: async (url) => {
+        if (
+          githubSpecUnavailable &&
+          url.includes("github/rest-api-description")
+        )
+          return new Error("GitHub specification unavailable");
+        return integrationApi.gmail.enabled && url.includes("gmail")
           ? gmailDiscovery(integrationApi.origin)
-          : await getOpenAPISpec(url, integrationApi.origin),
+          : await getOpenAPISpec(url, integrationApi.origin);
+      },
     });
     if (plane instanceof Error) throw plane;
     await use(plane);
@@ -1251,6 +1314,177 @@ controlPlaneTest.extend({ githubConfigured: false })(
     expect(clients.map((client) => client.slug)).not.toContain(
       "first-party:github",
     );
+    expect(
+      (await authenticatedRpc.integrations.catalog()).map(
+        (entry) => entry.integration,
+      ),
+    ).not.toContain("github");
+  },
+);
+
+// Durable: an optional provider failure must not prevent existing connections from being set up.
+controlPlaneTest.extend({ githubSpecUnavailable: true })(
+  "keeps Google setup usable when the GitHub specification is unavailable",
+  async ({ authenticatedRpc }) => {
+    const catalog = await authenticatedRpc.integrations.catalog();
+    expect(catalog.some((entry) => entry.integration === "google_gmail")).toBe(
+      true,
+    );
+    expect(catalog.some((entry) => entry.integration === "github")).toBe(false);
+    const setup = await authenticatedRpc.integrations.startSetup({
+      integration: "google_gmail",
+    });
+    expect(
+      await authenticatedRpc.integrations.setup({ setupId: setup.setupId }),
+    ).toMatchObject({ status: "awaiting_credentials" });
+    await authenticatedRpc.integrations.cancelSetup({ setupId: setup.setupId });
+  },
+);
+
+// Durable: the shipped preset must match the host-owned OAuth client's endpoints.
+controlPlaneTest(
+  "starts GitHub authorization with the shipped preset and Halo's app client",
+  async ({ authenticatedRpc }) => {
+    const setup = await authenticatedRpc.integrations.startSetup({
+      integration: "github",
+    });
+    const submitted = await authenticatedRpc.integrations.submitSetup({
+      setupId: setup.setupId,
+      template: "githubOAuth2",
+    });
+    const authorization = new URL(submitted.authorizationUrl!);
+    expect(authorization.origin).toBe("https://github.com");
+    expect(authorization.pathname).toBe("/login/oauth/authorize");
+    expect(authorization.searchParams.get("client_id")).toBe(
+      testGithub.clientId,
+    );
+    expect(authorization.searchParams.get("code_challenge_method")).toBe(
+      "S256",
+    );
+    expect(authorization.searchParams.has("scope")).toBe(false);
+    await authenticatedRpc.integrations.cancelSetup({ setupId: setup.setupId });
+  },
+);
+
+controlPlaneTest.extend({ localGithubOAuth: true })(
+  "authorizes GitHub with PKCE and refreshes its user token before invoking REST tools",
+  async ({
+    authenticatedRpc,
+    plane,
+    appDataDir,
+    integrationApi,
+    browserHeaders,
+  }) => {
+    const session = await authenticatedRpc.auth.session();
+    if (session.status !== "signed-in") throw new Error("Missing test session");
+    // Only GitHub's external OAuth host changes; the same host-owned client
+    // identity, Executor exchange/refresh, and Halo callback remain in use.
+    const configured = await plane.integrations!.withUser(
+      session.session.user.id,
+      (executor) =>
+        executor.openapi.configure(IntegrationSlug.make("github"), {
+          mode: "replace",
+          authenticationTemplate: [
+            {
+              slug: "githubOAuth2",
+              kind: "oauth2",
+              authorizationUrl: `${integrationApi.origin}/login/oauth/authorize`,
+              tokenUrl: `${integrationApi.origin}/login/oauth/access_token`,
+              scopes: [],
+            },
+          ],
+        }),
+    );
+    if (configured instanceof Error) throw configured;
+    const catalog = await authenticatedRpc.integrations.catalog();
+    expect(
+      catalog.find((entry) => entry.integration === "github"),
+    ).toMatchObject({
+      integration: "github",
+      name: "GitHub",
+      methods: [{ template: "githubOAuth2", kind: "oauth", fields: [] }],
+    });
+    const started = await authenticatedRpc.integrations.startSetup({
+      integration: "github",
+    });
+    const submitted = await authenticatedRpc.integrations.submitSetup({
+      setupId: started.setupId,
+      template: "githubOAuth2",
+    });
+    const authorization = new URL(submitted.authorizationUrl!);
+    expect(authorization.origin).toBe(integrationApi.origin);
+    expect(authorization.searchParams.get("client_id")).toBe(
+      testGithub.clientId,
+    );
+    expect(authorization.searchParams.get("code_challenge_method")).toBe(
+      "S256",
+    );
+    expect(authorization.searchParams.get("code_challenge")).toBeTruthy();
+    expect(authorization.searchParams.has("scope")).toBe(false);
+    expect(submitted.authorizationUrl).not.toContain(testGithub.clientSecret);
+    const callback = new URL("/api/integrations/oauth/callback", plane.origin);
+    callback.searchParams.set(
+      "state",
+      authorization.searchParams.get("state")!,
+    );
+    callback.searchParams.set("code", "fixture-github-code");
+    expect(
+      (await fetch(callback, { headers: browserHeaders, redirect: "manual" }))
+        .status,
+    ).toBe(303);
+    const ready = await authenticatedRpc.integrations.setup({
+      setupId: started.setupId,
+    });
+    expect(ready).toMatchObject({
+      status: "ready",
+      connection: { integration: "github" },
+    });
+    expect(
+      integrationApi.oauth.githubRequests[0]!.get("code_verifier"),
+    ).toBeTruthy();
+    expect(integrationApi.oauth.githubRequests[0]!.get("client_secret")).toBe(
+      testGithub.clientSecret,
+    );
+    await authenticatedRpc.workspace.ensure();
+    const runtime = createControlPlaneRpcClient(
+      plane.origin,
+      (await readRuntimeSettings(appDataDir)).token,
+    );
+    const discovered = await runtime.integrations.search({
+      integration: "github",
+      query: "repositories",
+    });
+    expect(discovered.tools).toHaveLength(1);
+    expect(
+      await runtime.integrations.invoke({
+        address: discovered.tools[0]!.address,
+        arguments: {},
+      }),
+    ).toMatchObject({ status: "completed" });
+    expect(integrationApi.oauth.githubRequests[1]!.get("grant_type")).toBe(
+      "refresh_token",
+    );
+    expect(integrationApi.oauth.githubRequests[1]!.get("refresh_token")).toBe(
+      "fixture-github-refresh-token",
+    );
+    expect(integrationApi.requests.at(-1)).toMatchObject({
+      url: "/items",
+      authorization: "Bearer fixture-github-refreshed-token",
+    });
+    for (const secret of [
+      testGithub.clientSecret,
+      "fixture-github-token",
+      "fixture-github-refresh-token",
+      "fixture-github-refreshed-token",
+    ])
+      expect(JSON.stringify({ ready, discovered })).not.toContain(secret);
+    await authenticatedRpc.integrations.removeConnection({
+      integration: "github",
+      name: ready.connectionName,
+    });
+    expect(
+      await runtime.integrations.search({ integration: "github", query: "" }),
+    ).toMatchObject({ tools: [] });
   },
 );
 

@@ -12,4 +12,4 @@ Download third-party product logos from [SVGL](https://svgl.app/) and serve them
 3. Point the display catalog at `https://gethalo.dev/logos/<file>.svg`. Do not hotlink svgl.app, gstatic product logos, or call the SVGL API from the renderer.
 4. If SVGL has no product logo, reuse the vendor's parent mark already in `public/logos/` (Google products → `google.svg`). Do not invent filenames.
 
-Google integration icons live on `googleIntegrationDisplay` in `@get-halo/client`. The connection card renders them with `LogoImage`. Maui icons stay the source for in-app chrome (`Search`, `Plus`, overflow, status).
+Integration icons live on `integrationDisplay` in `@get-halo/client`. The connection card renders them with `LogoIcon`. Maui icons stay the source for in-app chrome (`Search`, `Plus`, overflow, status).

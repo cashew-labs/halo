@@ -11,6 +11,7 @@ import { openApiPlugin } from "@executor-js/plugin-openapi/core";
 import {
   googleCatalog,
   googleDiscoveryAdapter,
+  isGoogleDiscoveryUrl,
 } from "@executor-js/plugin-openapi/providers/google";
 import {
   createExecutor,
@@ -40,6 +41,7 @@ import {
   type Integration,
   type Connection,
   type FirstPartyOAuthClientConfig,
+  type IntegrationPreset,
 } from "@executor-js/sdk/core";
 import type {
   ConnectionRevocation,
@@ -60,8 +62,28 @@ import { withAccountChoice } from "./accountChoice.js";
 import { GmailApi } from "../automations/GmailApi.js";
 import { createExecutorDatabase } from "./createExecutorDatabase.js";
 
-// Executor 1.6 rewrites Meet's Discovery URL to a legacy endpoint returning 404.
-const presets = googleCatalog.filter((preset) => preset.id !== "google-meet");
+const githubSpecUrl =
+  "https://raw.githubusercontent.com/github/rest-api-description/bb754941722779d8a5b3a2f25a5fbb7ce794e1ea/descriptions/api.github.com/api.github.com.json";
+const presets: readonly IntegrationPreset[] = [
+  // Executor 1.6 rewrites Meet's Discovery URL to a legacy endpoint returning 404.
+  ...googleCatalog.filter((preset) => preset.id !== "google-meet"),
+  {
+    id: "github-rest",
+    defaultSlug: "github",
+    name: "GitHub",
+    summary: "Repositories, issues, pull requests, actions, and users.",
+    url: githubSpecUrl,
+    authTemplate: [
+      {
+        slug: "githubOAuth2",
+        kind: "oauth2",
+        authorizationUrl: "https://github.com/login/oauth/authorize",
+        tokenUrl: "https://github.com/login/oauth/access_token",
+        scopes: [],
+      },
+    ],
+  },
+];
 const maxRemoteResponseBytes = 64 * 1024 * 1024;
 // Host-only: no agent tools. The receipt and connection metadata commit together.
 // CredentialService remains a separate store; this is proof of a completed save,
@@ -164,6 +186,7 @@ export class IntegrationService {
   private readonly setupDb: DatabaseClient;
   private readonly publicOrigin: string;
   private readonly firstPartyOAuthClients: readonly FirstPartyOAuthClientConfig[];
+  private readonly presets: readonly IntegrationPreset[];
   private readonly allowLocalUrls: boolean;
   private readonly gmailTransport = new AsyncLocalStorage<boolean>();
   private readonly gmailApiOrigin: string | undefined;
@@ -189,19 +212,30 @@ export class IntegrationService {
     this.setupDb = ctx.setupDb;
     this.publicOrigin = ctx.publicOrigin;
     this.firstPartyOAuthClients = ctx.firstPartyOAuthClients ?? [];
+    this.presets = presets.filter(
+      (preset) =>
+        preset.id !== "github-rest" ||
+        this.firstPartyOAuthClients.some((client) => client.name === "github"),
+    );
     this.allowLocalUrls = ctx.allowLocalUrls ?? false;
     this.gmailApiOrigin = ctx.gmailApiOrigin;
     const getOpenAPISpec = ctx.getOpenAPISpec;
-    // Only spec loading is overridden. Tool invocations keep Executor's normal HTTP client.
+    // Override specification loading, including Google's normalized Discovery URLs.
+    // Tool invocations continue through the safe HTTP client.
     const httpClientLayer =
       getOpenAPISpec === undefined
         ? undefined
         : FetchHttpClient.layer.pipe(
             Layer.provide(
-              Layer.succeed(FetchHttpClient.Fetch, async (input) => {
-                const spec = await getOpenAPISpec(
-                  input instanceof Request ? input.url : String(input),
-                );
+              Layer.succeed(FetchHttpClient.Fetch, async (input, init) => {
+                const url =
+                  input instanceof Request ? input.url : String(input);
+                if (
+                  !this.presets.some((preset) => preset.url === url) &&
+                  !isGoogleDiscoveryUrl(url)
+                )
+                  return await this.safeFetch(input, init);
+                const spec = await getOpenAPISpec(url);
                 // Fetch reports failure by rejecting; adapt Halo's error value at this SDK boundary.
                 if (spec instanceof Error) throw spec;
                 return new Response(spec, {
@@ -214,17 +248,9 @@ export class IntegrationService {
     const mcp = mcpPlugin({ httpClientLayer: mcpHttpClientLayer });
     this.plugins = [
       openApiPlugin({
-        presets,
-        httpClientLayer: this.safeHttpLayer(),
-        specFormats: [
-          httpClientLayer === undefined
-            ? googleDiscoveryAdapter
-            : {
-                ...googleDiscoveryAdapter,
-                fetch: (input) =>
-                  googleDiscoveryAdapter.fetch({ ...input, httpClientLayer }),
-              },
-        ],
+        presets: this.presets,
+        httpClientLayer: httpClientLayer ?? this.safeHttpLayer(),
+        specFormats: [googleDiscoveryAdapter],
       }),
       // Remote HTTP/SSE only: never spawn user-supplied processes in the control plane.
       {
@@ -1689,13 +1715,9 @@ export class IntegrationService {
         }),
     );
     if (approved instanceof Error) return approved;
-    for (const preset of presets) {
+    for (const preset of this.presets) {
       const { defaultSlug, url, specFormat } = preset;
-      if (
-        defaultSlug === undefined ||
-        url === undefined ||
-        specFormat === undefined
-      )
+      if (defaultSlug === undefined || url === undefined)
         return new IntegrationServiceError({
           detail: `preset ${preset.id} cannot be installed`,
         });
@@ -1725,7 +1747,11 @@ export class IntegrationService {
             cause,
           }),
       );
-      if (installed instanceof Error) return installed;
+      if (installed instanceof Error) {
+        if (preset.id !== "github-rest") return installed;
+        // Keep the established integrations usable if GitHub's specification is unavailable.
+        console.warn("Could not load the GitHub integration", installed);
+      }
     }
     cleanup.move();
     return executor;
