@@ -1,0 +1,61 @@
+{
+  "status": "changes_requested",
+  "summary": "The change is now narrowed to the control-plane update API, maintenance admission in the workspace server, the config and IAM wiring, and their tests. The round-1 findings are resolved: F1 (requests now return `checking`/`started`), F2 (a `failed` report clears consent), F3 (an unpinned image disables updates with a warning instead of failing startup), and F4 (the e2e test was removed). It is not ready to merge. 12 changed lines are uncovered, the new failure-clearing rule discards a user's retry request, and the development config computes the update settings but never uses them.",
+  "findings": [
+    {
+      "id": "F5",
+      "kind": "source",
+      "file": "apps/control-plane/src/workspace/WorkspaceUpdates.ts",
+      "line": 166,
+      "severity": "P1",
+      "body": "Every report with `state: \"failed\"` clears `request_version`, `force` and `request_at` in the same `INSERT ... ON CONFLICT ... RETURNING` statement that computes the plan. `request()` handles a retry after a failure by rewriting the stored report to `available` and saving a new request (lines 134-147). However, the host learns about that request only from the response to its next report. A host that is still in its failed or back-off state sends `failed` in that report, so the request is cleared before `manual` is computed. The host therefore never receives `activate` or `requestId` for the retry, and the user's 'try again' is silently lost. It is lost permanently while the host keeps reporting `failed`. Fix: clear consent only on the transition into `failed` (the previous stored report was not `failed`), or only clear requests whose `request_at` is older than the failed attempt. Add a test: report failed → upgrade → report failed again → the plan still has `activate: true` with a non-zero `requestId`."
+    },
+    {
+      "id": "F6",
+      "kind": "source",
+      "file": "packages/config/src/controlPlane.ts",
+      "line": 252,
+      "severity": "P1",
+      "body": "`readDevelopmentConfig` reads `WORKSPACE_UPDATE_IMAGE` and `WORKSPACE_UPDATE_IMAGE_PULLER` and computes `workspaceUpdates`. It also prints the 'disabled' warning. But the value is never added to the `server` object built at lines 262-276. A valid pinned configuration in development is silently ignored, and only invalid settings produce output. The block is also a copy of the Cloud Run logic, and its lines 250-259 are uncovered. Either add `workspaceUpdates` to the development `server` object and extract a shared helper used by both readers, or remove the block from the development reader."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "packages/workspace-server/src/automations/AutomationRunner.ts:139-142 (automation pump during a maintenance reservation)",
+      "tier": "tmp",
+      "rationale": "These lines are uncovered. The test should check that a due automation does not start while maintenance is reserved, and that it starts after `cancel()` through the 1 s retry."
+    },
+    {
+      "target": "apps/control-plane/src/workspace/WorkspaceUpdates.ts:218,224 (corrupt stored report) and workspaceUpdateHttp.ts:38 (body over 4096 bytes returns 400)",
+      "tier": "tmp",
+      "rationale": "These error branches are uncovered. Corrupt stored progress should return an error from status and request, not crash. An oversized report should be rejected with 400."
+    },
+    {
+      "target": "apps/control-plane/src/workspace/workspaceRegistryToken.ts:26 (empty token)",
+      "tier": "tmp",
+      "rationale": "The \"empty\" temp case does not reach line 26, probably because the library rejects a null `accessToken` before returning. Mock `getAccessToken` to resolve `{ token: null }`, or exempt the line with a reason."
+    },
+    {
+      "target": "packages/config/src/controlPlane.ts development reader (after the F6 fix)",
+      "tier": "tmp",
+      "rationale": "Check that a pinned development configuration is used, and that a tag-only image disables updates with a warning."
+    },
+    {
+      "target": "WorkspaceUpdates.report after request() following a failed report (F5)",
+      "tier": "durable",
+      "rationale": "This protects consent semantics: a retry request after a failure must reach the host, while consent from a failed attempt must not carry over."
+    }
+  ],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "bcec4b9a6f5a9a5abe3afc5161da7a4c3ff7a909",
+  "treeHash": "0decd30b15465bee0ba6c9e533eec47e4b1dc09e",
+  "codeTree": "424ade466df29c983272751ce9e4ef1c7462c8ab",
+  "coverage": {
+    "executable": 210,
+    "covered": 173,
+    "exempt": 25,
+    "uncovered": 12
+  },
+  "createdAt": "2026-10-21T20:05:16.193Z"
+}

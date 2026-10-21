@@ -1,0 +1,87 @@
+{
+  "status": "changes_requested",
+  "summary": "This change adds idle-time workspace container updates. The pieces are a host updater (systemd and Python), control-plane endpoints that schedule and report updates, and maintenance admission in the workspace server. The desktop and browser update buttons now finish the workspace update before the app update. The change is not ready to merge. The durable Playwright build failed during Electron packaging, so the e2e test that covers the web UI did not run. 238 changed lines are uncovered and none has an exemption. There are four logic and test defects: progress reports that age out break the update flow, forced consent outlives a failed attempt, the image format check can stop the control plane from starting, and the durable e2e test writes into the repository.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "source",
+      "file": "apps/control-plane/src/workspace/WorkspaceUpdates.ts",
+      "line": 117,
+      "severity": "P1",
+      "body": "`request()` rejects any row with `reported_at` older than 60 s, and it checks this before it checks `report.state === \"upgrading\"`. This breaks two expected scenarios.\n\n1. Mid-upgrade: after the updater reports `upgrading`, it sends no report while `halo-workspace-upgrade` runs (up to 90 s) and during the readiness loop (up to 60 s). `prepareWorkspaceUpdate` calls `request()` every second. Once 60 s pass, it gets \"Could not check running workspace tasks\" and shows the user an error during a valid upgrade, even though `status()` allows 180 s.\n2. After a wake: Electron and WebHost call `recordWorkspaceActivity()` (ensure) and then `request()` right away. A workspace that was paused has an old `reported_at`, so the desktop \"Restart to update\" action, which now always goes through `beforeInstall`, fails on the first click.\n\nFix: return `started` for a recent `upgrading` row, using the same window as `status()`. Treat a stale report as \"still checking\" (keep polling) rather than as a hard error, or wait for a new report after waking."
+    },
+    {
+      "id": "F2",
+      "kind": "source",
+      "file": "apps/control-plane/src/workspace/WorkspaceUpdates.ts",
+      "line": 180,
+      "severity": "P1",
+      "body": "Forced consent (`force=1` with `request_version=target`) stays in `workspace_updates` until the workspace reaches the target version. If a forced attempt fails, `main()` in `workspaceUpdate.py` reports `failed` and sets `retryAt` to 5 minutes later. The client's `prepareWorkspaceUpdate` gives up and shows \"Try updating again\". After the 5 minutes, the timer retries with `plan.force === True` and sends `x-halo-force-update`. That stops whatever agents, commands, or automations the user started after the failure, without asking again. This violates the stated invariant: never restart busy work without consent.\n\nFix: clear `force` (and `request_version`) when a failure is reported, or when the request is older than a short window. Consent should cover only the attempt the user confirmed."
+    },
+    {
+      "id": "F3",
+      "kind": "source",
+      "file": "packages/config/src/controlPlane.ts",
+      "line": 345,
+      "severity": "P1",
+      "body": "`WORKSPACE_UPDATE_IMAGE` is copied from the Pulumi `workspaceImage` config, and the schema requires the format `...@sha256:<64 hex>`. The committed stack configs use plain tags, for example `infra/control-plane/Pulumi.prod.yaml:11` (`workspace-server:0.1.88`) and `Pulumi.west.yaml:16`. CI passes pinned images, but `pnpm infra:control-plane:up` (listed in AGENTS.md) uses the stack config. With a tag, `readCloudRunConfig` fails `Value.Check` and the exe-provider control plane does not start. An optional update feature should not be able to stop the control plane from starting.\n\nFix: disable workspace updates and log a warning when the image is not pinned, or pin the image in the committed stack configs."
+    },
+    {
+      "id": "F4",
+      "kind": "test",
+      "file": "apps/electron/e2e/webStandaloneExtension.e2e.test.ts",
+      "line": 561,
+      "severity": "P1",
+      "body": "The durable e2e test writes screenshots to `<repo>/.context` with `mkdir` and `page.screenshot`. These are one-off demo artifacts, written outside the test's artifact directory, and they would be created on every CI run. Write them to `testArtifacts` paths, or remove them from the durable test."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "apps/electron/e2e/webStandaloneExtension.e2e.test.ts (durable Playwright run)",
+      "tier": "durable",
+      "rationale": "The Electron package build failed with ENOENT while finalizing the package, so the e2e test that covers WebHost.installAppUpdate, SidebarFooter, WorkspaceUpgradeBanner, WorkspaceLayout, ApiProvider and the ConnectionService upgrading transitions never ran. Rebuild it and get a passing run."
+    },
+    {
+      "target": "apps/electron/src/main/app/AppUpdates.ts:235-255 installAppUpdate with beforeInstall",
+      "tier": "tmp",
+      "rationale": "New gating logic has no test. Cover these cases: concurrent installs are ignored; beforeInstall returning false stops the install; an Error is returned; when the app update is not downloaded, the call returns undefined instead of UpdateNotReadyError; and installation proceeds only after preparation returns true."
+    },
+    {
+      "target": "packages/web/src/api/ConnectionService.ts:410-434 upgrading state transitions",
+      "tier": "tmp",
+      "rationale": "Check these cases: the service enters `upgrading` when the status reports `upgrading`; `failed()` and `retry()` do nothing while upgrading; and the service leaves `upgrading` and reconnects when the update state changes."
+    },
+    {
+      "target": "apps/control-plane/src/workspace/WorkspaceUpdates.ts stale-report branch (117-121), stale upgrading→failed (status), failed→available reset (135-137), token without target",
+      "tier": "tmp",
+      "rationale": "These branches are uncovered, and F1 and F2 change their behavior. Tests should show that a request during a long upgrade keeps returning `started`, and that forced consent does not survive a failure."
+    },
+    {
+      "target": "packages/workspace-server/src/server/http.ts:199-200 extension-tools 503 during maintenance; apps/control-plane/src/workspace/workspaceUpdateHttp.ts 405/500 branches",
+      "tier": "tmp",
+      "rationale": "These changed rejection paths are uncovered."
+    },
+    {
+      "target": "infra/workspace/workspaceUpdate.py heartbeat during pull, the no-target path, the retryAt wait, and a 409 on the second reservation",
+      "tier": "tmp",
+      "rationale": "The temp Python tests leave lines 95-98, 119-122, 126-127, 148 and 165-175 uncovered. Add a case where a forced retry after a failure does not interrupt new work (F2)."
+    },
+    {
+      "target": "apps/control-plane/src/workspace/workspaceRegistryToken.ts, apps/control-plane/src/main.ts, apps/electron/src/main/main.ts, apps/electron/src/main/auth/ControlPlaneAuth.ts:295-303, infra/control-plane/index.ts",
+      "tier": "tmp",
+      "rationale": "These lines are uncovered and have no coverage-exempt reasons. Add tests, or add exemptions that state why the code is impractical to test, such as live GCP credentials, Pulumi resources, or Electron bootstrap."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "0bf636d77e54fd0b1c3622cd612c26fc5da39436",
+  "treeHash": "9b7b2a3e1e59f7a58f970629338dabe35a81e541",
+  "codeTree": "ee54740177a431c43cff0d32a1c7815bd5c3dbb8",
+  "coverage": {
+    "executable": 551,
+    "covered": 313,
+    "exempt": 0,
+    "uncovered": 238
+  },
+  "createdAt": "2026-10-21T19:53:59.077Z"
+}
