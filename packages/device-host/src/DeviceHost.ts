@@ -9,6 +9,12 @@ import {
   type HaloRpcTransport,
 } from "@get-halo/client";
 import type { LoggerApi } from "@get-halo/logger";
+import {
+  DeviceAccess,
+  type DeviceAccessAnswer,
+  type DeviceAccessRequest,
+  type DeviceGrant,
+} from "./DeviceAccess.js";
 import { DeviceFiles } from "./DeviceFiles.js";
 import type { DeviceSettings } from "./DeviceSettings.js";
 
@@ -29,7 +35,8 @@ const maximumRetryMs = 30_000;
 /**
  * Keeps this computer connected to its workspace while it is enabled and
  * runs the requests the workspace agent sends to it. The host supplies the
- * workspace transport and the saved settings.
+ * workspace transport, the saved settings, the access prompt, and where
+ * new grants are saved.
  */
 export class DeviceHost {
   private readonly getTransport: () => Promise<
@@ -37,6 +44,8 @@ export class DeviceHost {
   >;
   private readonly logger: Pick<LoggerApi, "info" | "warn">;
   private readonly home: string;
+  private readonly files: DeviceFiles;
+  private readonly access: DeviceAccess;
   private settings: DeviceSettings;
   private connection: AbortController | undefined;
   private readonly stopped = new AbortController();
@@ -48,12 +57,22 @@ export class DeviceHost {
     settings: DeviceSettings;
     getTransport: () => Promise<HaloRpcTransport | Error | undefined>;
     logger: Pick<LoggerApi, "info" | "warn">;
+    /** Asks the person on this computer; resolve "deny" when the signal aborts. */
+    ask: (request: DeviceAccessRequest) => Promise<DeviceAccessAnswer>;
+    saveGrants: (grants: DeviceGrant[]) => Promise<void>;
     home?: string;
   }) {
     this.settings = ctx.settings;
     this.getTransport = ctx.getTransport;
     this.logger = ctx.logger;
     this.home = ctx.home ?? os.homedir();
+    this.access = new DeviceAccess({
+      grants: ctx.settings.files.grants,
+      home: this.home,
+      ask: ctx.ask,
+      save: ctx.saveGrants,
+    });
+    this.files = new DeviceFiles({ access: this.access });
   }
 
   get status() {
@@ -64,10 +83,14 @@ export class DeviceHost {
     this.running ??= this.run();
   }
 
-  /** Applies new settings by reconnecting with a fresh advertisement. */
+  /** Applies new settings; only a new name or on/off state reconnects. */
   update(settings: DeviceSettings) {
+    const reconnect =
+      settings.enabled !== this.settings.enabled ||
+      settings.name !== this.settings.name;
     this.settings = settings;
-    this.reconnect();
+    this.access.setGrants(settings.files.grants);
+    if (reconnect) this.reconnect();
   }
 
   /** Reconnects now, for example after signing in again. */
@@ -89,7 +112,6 @@ export class DeviceHost {
       name: this.settings.name,
       platform: process.platform,
       home: this.home,
-      files: this.settings.files,
     };
   }
 
@@ -154,10 +176,9 @@ export class DeviceHost {
     this.current = { state: "online", since: Date.now() };
     this.logger.info({ event: "device-online", name: this.settings.name });
     onOnline();
-    const files = new DeviceFiles({ ...this.settings.files, home: this.home });
     const served = await (async () => {
       for await (const request of requests)
-        this.handle({ client, files, request }).catch((cause: unknown) =>
+        this.handle({ client, request }).catch((cause: unknown) =>
           this.logger.warn({
             event: "device-request-failed",
             error: new DeviceHostConnectionError({ detail: "request", cause }),
@@ -178,13 +199,9 @@ export class DeviceHost {
     });
   }
 
-  private async handle(input: {
-    client: HaloClient;
-    files: DeviceFiles;
-    request: DeviceRequest;
-  }) {
-    const { client, files, request } = input;
-    const result = await files.run(request.operation);
+  private async handle(input: { client: HaloClient; request: DeviceRequest }) {
+    const { client, request } = input;
+    const result = await this.files.run(request.operation);
     const response =
       result instanceof Error
         ? {

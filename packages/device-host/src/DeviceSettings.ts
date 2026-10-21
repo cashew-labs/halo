@@ -12,12 +12,13 @@ export const deviceSettingsSchema = Type.Object({
   /** Whether this computer connects to the workspace at all. */
   enabled: Type.Boolean(),
   files: Type.Object({
-    access: Type.Union([
-      Type.Literal("off"),
-      Type.Literal("read"),
-      Type.Literal("write"),
-    ]),
-    roots: Type.Array(Type.String({ minLength: 1 })),
+    /** Folders the person allowed when the agent first asked. */
+    grants: Type.Array(
+      Type.Object({
+        path: Type.String({ minLength: 1 }),
+        access: Type.Union([Type.Literal("read"), Type.Literal("write")]),
+      }),
+    ),
   }),
 });
 
@@ -58,12 +59,13 @@ export class DeviceSettingsStore {
       this.current = parsed;
       return parsed;
     }
-    // A new install starts disconnected; the person opts in from settings.
+    // The computer this app runs on is available at once. Nothing is
+    // shared until the person answers an access prompt.
     const created: DeviceSettings = {
       id: crypto.randomUUID(),
       name: defaultDeviceName(),
-      enabled: false,
-      files: { access: "write", roots: [] },
+      enabled: true,
+      files: { grants: [] },
     };
     const saved = await this.write(created);
     if (saved instanceof Error) return saved;

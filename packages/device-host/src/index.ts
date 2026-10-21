@@ -1,10 +1,13 @@
 export { DeviceHost, type DeviceHostStatus } from "./DeviceHost.js";
+export { DeviceFiles } from "./DeviceFiles.js";
 export {
-  DeviceFiles,
+  DeviceAccess,
   DeviceFileError,
+  type DeviceAccessAnswer,
+  type DeviceAccessRequest,
   type DeviceFileErrorCode,
-  type DeviceFilePolicy,
-} from "./DeviceFiles.js";
+  type DeviceGrant,
+} from "./DeviceAccess.js";
 export {
   DeviceSettingsStore,
   DeviceSettingsError,

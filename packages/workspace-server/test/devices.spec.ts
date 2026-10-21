@@ -2,7 +2,12 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import * as errore from "errore";
 import { expect, vi } from "vitest";
-import { DeviceHost, type DeviceSettings } from "@get-halo/device-host";
+import {
+  DeviceHost,
+  type DeviceAccessAnswer,
+  type DeviceAccessRequest,
+  type DeviceSettings,
+} from "@get-halo/device-host";
 import type { DeviceSummary } from "@get-halo/client";
 import type { TestServer } from "./TestServer.js";
 import { serverTest } from "./serverTest.js";
@@ -10,33 +15,37 @@ import { serverTest } from "./serverTest.js";
 async function connectDevice(
   server: TestServer,
   cleanup: errore.AsyncDisposableStack,
-  files: DeviceSettings["files"] = { access: "write", roots: ["Documents"] },
+  answer: DeviceAccessAnswer = "write",
 ) {
   const home = path.join(server.harness.paths.root, "device-home");
   await fs.mkdir(path.join(home, "Documents"), { recursive: true });
+  await fs.mkdir(path.join(home, ".ssh"), { recursive: true });
   await fs.writeFile(path.join(home, "Documents", "notes.md"), "Buy milk\n");
-  await fs.writeFile(path.join(home, "secret.txt"), "private\n");
+  await fs.writeFile(path.join(home, ".ssh", "id_ed25519"), "key\n");
   const settings: DeviceSettings = {
     id: "8a0e7c63-5c2f-4f3c-9d4c-3c6a8f0f1d11",
     name: "Studio Mac",
     enabled: true,
-    files: {
-      ...files,
-      roots: files.roots.map((root) => path.join(home, root)),
-    },
+    files: { grants: [] },
   };
+  const prompts: DeviceAccessRequest[] = [];
   const host = new DeviceHost({
     settings,
     home,
     getTransport: async () => await Promise.resolve(server.rendererTransport),
     logger: { info: () => undefined, warn: () => undefined },
+    ask: async (request) => {
+      prompts.push(request);
+      return await Promise.resolve(answer);
+    },
+    saveGrants: async () => await Promise.resolve(),
   });
   host.start();
   cleanup.defer(async () => await host.stop());
   await expect
     .poll(async () => await listDevices(server))
     .toMatchObject([{ name: "Studio Mac", online: true }]);
-  return { host, home, settings };
+  return { host, home, settings, prompts };
 }
 
 async function listDevices(server: TestServer) {
@@ -49,10 +58,10 @@ async function listDevices(server: TestServer) {
 }
 
 serverTest(
-  "the agent reads and edits files in a computer's shared folder",
+  "the computer asks once, then the agent reads and edits files there",
   async ({ server }) => {
     await using cleanup = new errore.AsyncDisposableStack();
-    const { home } = await connectDevice(server, cleanup);
+    const { home, prompts } = await connectDevice(server, cleanup);
 
     await expect(
       server.rpc.testApi.invokeTool({
@@ -89,6 +98,10 @@ serverTest(
     expect(
       await fs.readFile(path.join(home, "Documents/plans/today.md"), "utf8"),
     ).toBe("Call the bank\n");
+    // Allowing read and write once covers the folder and its subfolders.
+    expect(prompts).toMatchObject([
+      { folder: path.join(home, "Documents"), access: "read" },
+    ]);
   },
 );
 
@@ -137,37 +150,35 @@ serverTest(
 );
 
 serverTest(
-  "the computer refuses paths outside its shared folders",
+  "a refusal on the computer reaches the agent, and credentials are never asked for",
   async ({ server }) => {
     await using cleanup = new errore.AsyncDisposableStack();
-    await connectDevice(server, cleanup);
+    const { prompts } = await connectDevice(server, cleanup, "deny");
     await expect(
       server.rpc.testApi.invokeTool({
         path: "devices.files.read",
-        input: { device: "Studio Mac", path: "~/secret.txt" },
+        input: { device: "Studio Mac", path: "~/Documents/notes.md" },
       }),
-    ).rejects.toThrow(/outside_allowed_folders/);
+    ).rejects.toThrow(/access_denied/);
     await expect(
       server.rpc.testApi.invokeTool({
         path: "devices.files.read",
-        input: { device: "Studio Mac", path: "~/Documents/../secret.txt" },
+        input: { device: "Studio Mac", path: "~/.ssh/id_ed25519" },
       }),
-    ).rejects.toThrow(/outside_allowed_folders/);
+    ).rejects.toThrow(/protected_path/);
+    expect(prompts).toHaveLength(1);
   },
 );
 
 serverTest(
-  "new settings take effect when the computer reconnects",
+  "read-only answers refuse changes, and turning the computer off disconnects it",
   async ({ server }) => {
     await using cleanup = new errore.AsyncDisposableStack();
-    const { host, home, settings } = await connectDevice(server, cleanup);
-    host.update({
-      ...settings,
-      files: { ...settings.files, access: "read" },
-    });
-    await expect
-      .poll(async () => await listDevices(server))
-      .toMatchObject([{ online: true, files: { access: "read" } }]);
+    const { host, home, settings } = await connectDevice(
+      server,
+      cleanup,
+      "read",
+    );
     await expect(
       server.rpc.testApi.invokeTool({
         path: "devices.files.write",
@@ -222,7 +233,6 @@ serverTest(
           name: "Fake",
           platform: "linux",
           home: "/",
-          files: { access: "write", roots: ["/"] },
         },
       })
       .then(serve)
