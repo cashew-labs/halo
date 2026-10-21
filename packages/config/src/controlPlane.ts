@@ -23,6 +23,10 @@ const authSchema = Type.Object({
   // Secret Manager secret listing the emails offered the desktop staging toggle.
   stagingTestersSecretId: Type.Optional(Type.String({ minLength: 1 })),
 });
+const githubSchema = Type.Object({
+  clientId: Type.String({ minLength: 1 }),
+  clientSecret: Type.String({ minLength: 1 }),
+});
 // Non-production environments serve the web app's same-named override
 // folder, such as development/ or staging/ logos. Absent means production.
 const environmentSchema = Type.Union([
@@ -79,6 +83,7 @@ export const controlPlaneConfigSchema = Type.Union([
     appDataDir: Type.String(),
     port: portSchema,
     auth: authSchema,
+    github: Type.Optional(githubSchema),
     gmail: Type.Optional(gmailSchema),
     googleAnalyticsMeasurementId: Type.Optional(
       Type.String({ pattern: "^G-[A-Z0-9]+$" }),
@@ -97,6 +102,7 @@ export const controlPlaneConfigSchema = Type.Union([
     traceBucket: Type.String({ minLength: 1 }),
     workspaceServiceAccount: Type.String({ minLength: 1 }),
     auth: authSchema,
+    github: Type.Optional(githubSchema),
     gmail: Type.Optional(gmailSchema),
     googleAnalyticsMeasurementId: Type.Optional(
       Type.String({ pattern: "^G-[A-Z0-9]+$" }),
@@ -227,6 +233,8 @@ async function readAuthConfiguration(
 async function readDevelopmentConfig(): Promise<ControlPlaneConfig | Error> {
   const auth = await readAuthConfiguration(developmentAuthSecretIds);
   if (auth instanceof Error) return auth;
+  const github = await readGithubConfiguration();
+  if (github instanceof Error) return github;
   const repositoryRoot = path.resolve(import.meta.dirname, "../../..");
   const configuredDataDir = process.env.HALO_USER_DATA;
   const marketingAdminUserIds = await readMarketingAdminUserIds();
@@ -244,6 +252,7 @@ async function readDevelopmentConfig(): Promise<ControlPlaneConfig | Error> {
     googleAnalyticsMeasurementId: process.env.GOOGLE_ANALYTICS_MEASUREMENT_ID, // coverage-exempt: Bootstrap reads live Secret Manager credentials; the schema and HTTP configuration contract are tested.
     environment: process.env.HALO_ENVIRONMENT ?? "development", // coverage-exempt: Bootstrap reads live Secret Manager credentials; the schema and HTTP configuration contract are tested.
     auth,
+    github,
     workspace: { deployment: "local" as const },
   };
   if (!Value.Check(controlPlaneConfigSchema, server))
@@ -294,6 +303,8 @@ async function readCloudRunConfig(): Promise<ControlPlaneConfig | Error> {
     googleClientSecret: googleClientSecretId,
   });
   if (auth instanceof Error) return auth;
+  const github = await readGithubConfiguration();
+  if (github instanceof Error) return github;
   const marketingAdminUserIds = await readMarketingAdminUserIds();
   if (marketingAdminUserIds instanceof Error) return marketingAdminUserIds;
   const server = {
@@ -316,6 +327,7 @@ async function readCloudRunConfig(): Promise<ControlPlaneConfig | Error> {
             serviceAccount: process.env.GMAIL_PUSH_SERVICE_ACCOUNT,
           },
     workspaceServiceAccount: process.env.WORKSPACE_SERVICE_ACCOUNT,
+    github,
     auth: {
       ...auth,
       signInAllowlistSecretId: process.env.SIGN_IN_ALLOWLIST_SECRET_ID,
@@ -328,6 +340,24 @@ async function readCloudRunConfig(): Promise<ControlPlaneConfig | Error> {
       detail: "validate Cloud Run configuration",
     });
   return server;
+}
+
+async function readGithubConfiguration() {
+  const clientIdSecretId = process.env.GITHUB_CLIENT_ID_SECRET_ID;
+  const clientSecretSecretId = process.env.GITHUB_CLIENT_SECRET_ID;
+  if (clientIdSecretId === undefined && clientSecretSecretId === undefined)
+    return undefined;
+  if (!clientIdSecretId || !clientSecretSecretId)
+    return new ControlPlaneConfigError({
+      detail: "set both GITHUB_CLIENT_ID_SECRET_ID and GITHUB_CLIENT_SECRET_ID",
+    });
+  const [clientId, clientSecret] = await Promise.all([
+    readControlPlaneSecret(clientIdSecretId),
+    readControlPlaneSecret(clientSecretSecretId),
+  ]);
+  if (clientId instanceof Error) return clientId;
+  if (clientSecret instanceof Error) return clientSecret;
+  return { clientId: clientId.trim(), clientSecret: clientSecret.trim() };
 }
 
 async function readCloudWorkspaceConfig() {
