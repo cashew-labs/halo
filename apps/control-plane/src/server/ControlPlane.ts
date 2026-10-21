@@ -167,6 +167,20 @@ export class ControlPlane {
                 clientId: config.auth.googleClientId,
                 clientSecret: config.auth.googleClientSecret,
               },
+              ...(config.github === undefined
+                ? []
+                : [
+                    {
+                      name: "github",
+                      authorizationUrl:
+                        "https://github.com/login/oauth/authorize",
+                      tokenUrl: "https://github.com/login/oauth/access_token",
+                      clientId: config.github.clientId,
+                      clientSecret: config.github.clientSecret,
+                      authorizationScopes: [],
+                      allowedScopes: [],
+                    },
+                  ]),
             ],
           });
     if (integrations instanceof Error) return integrations;

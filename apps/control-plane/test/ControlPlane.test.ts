@@ -171,6 +171,11 @@ const testAuth = {
   googleClientSecret: "test-google-client-secret",
 };
 
+const testGithub = {
+  clientId: "fixture-github-client-id",
+  clientSecret: "fixture-github-client-secret",
+};
+
 const desktopAuthState = "desktop-auth-state-0123456789abcdef";
 
 const integrationEncryptionKey = Buffer.alloc(32, 17);
@@ -227,6 +232,7 @@ const controlPlaneTest = test.extend<{
   workspaceProvider: WorkspaceProviderApi;
   workspaceHost: WorkspaceHostDriver;
   allowLocalIntegrationUrls: boolean;
+  githubConfigured: boolean;
   agent: {
     rpc: ReturnType<typeof createHaloClient>;
     workspaceRoot: string;
@@ -268,6 +274,7 @@ const controlPlaneTest = test.extend<{
   };
 }>({
   allowLocalIntegrationUrls: true,
+  githubConfigured: true,
   agent: async ({ plane, authenticatedRpc, appDataDir }, use) => {
     await authenticatedRpc.workspace.ensure();
     const runtime = createControlPlaneRpcClient(
@@ -905,6 +912,7 @@ const controlPlaneTest = test.extend<{
       inferenceApi,
       integrationApi,
       allowLocalIntegrationUrls,
+      githubConfigured,
       marketingAdminUserIds,
       marketingHostname,
       marketingHomepageOrigin,
@@ -926,6 +934,7 @@ const controlPlaneTest = test.extend<{
         googleAnalyticsMeasurementId,
         environment,
         auth: testAuth,
+        github: githubConfigured ? testGithub : undefined,
         gmail: {
           topic: "projects/halo-test/topics/gmail",
           audience: "https://halo.test/api/automation-events/gmail",
@@ -1159,6 +1168,90 @@ controlPlaneTest(
     );
   },
   20_000,
+);
+
+controlPlaneTest(
+  "configures Halo's GitHub app without exposing its client secret",
+  async ({ authenticatedRpc, plane, integrationApi }) => {
+    const session = await authenticatedRpc.auth.session();
+    if (session.status !== "signed-in") throw new Error("Missing test session");
+    const clients = await plane.integrations!.withUser(
+      session.session.user.id,
+      (executor) => executor.oauth.listClients(),
+    );
+    if (clients instanceof Error) throw clients;
+    expect(clients).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          slug: "first-party:github",
+          authorizationUrl: "https://github.com/login/oauth/authorize",
+          tokenUrl: "https://github.com/login/oauth/access_token",
+          clientId: testGithub.clientId,
+        }),
+      ]),
+    );
+    expect(JSON.stringify(clients)).not.toContain(testGithub.clientSecret);
+    await authenticatedRpc.integrations.registerOpenAPI({
+      slug: "github-oauth-test",
+      name: "GitHub OAuth test",
+      url: `${integrationApi.origin}/key-spec`,
+    });
+    const configured = await plane.integrations!.withUser(
+      session.session.user.id,
+      (executor) =>
+        executor.openapi.configure(IntegrationSlug.make("github-oauth-test"), {
+          mode: "replace",
+          authenticationTemplate: [
+            {
+              slug: "githubOAuth2",
+              kind: "oauth2",
+              authorizationUrl: "https://github.com/login/oauth/authorize",
+              tokenUrl: "https://github.com/login/oauth/access_token",
+              scopes: [],
+            },
+          ],
+        }),
+    );
+    if (configured instanceof Error) throw configured;
+    const setup = await authenticatedRpc.integrations.startSetup({
+      integration: "github-oauth-test",
+    });
+    const submitted = await authenticatedRpc.integrations.submitSetup({
+      setupId: setup.setupId,
+      template: "githubOAuth2",
+    });
+    const authorization = new URL(submitted.authorizationUrl!);
+    expect(authorization.origin).toBe("https://github.com");
+    expect(authorization.searchParams.get("client_id")).toBe(
+      testGithub.clientId,
+    );
+    expect(authorization.searchParams.get("code_challenge_method")).toBe(
+      "S256",
+    );
+    expect(authorization.searchParams.get("code_challenge")).toBeTruthy();
+    expect(authorization.searchParams.has("scope")).toBe(false);
+    expect(submitted.authorizationUrl).not.toContain(testGithub.clientSecret);
+    await authenticatedRpc.integrations.cancelSetup({ setupId: setup.setupId });
+  },
+);
+
+controlPlaneTest.extend({ githubConfigured: false })(
+  "omits the GitHub app when the deployment has no GitHub credentials",
+  async ({ authenticatedRpc, plane }) => {
+    const session = await authenticatedRpc.auth.session();
+    if (session.status !== "signed-in") throw new Error("Missing test session");
+    const clients = await plane.integrations!.withUser(
+      session.session.user.id,
+      (executor) => executor.oauth.listClients(),
+    );
+    if (clients instanceof Error) throw clients;
+    expect(clients.map((client) => client.slug)).toContain(
+      "first-party:google",
+    );
+    expect(clients.map((client) => client.slug)).not.toContain(
+      "first-party:github",
+    );
+  },
 );
 
 controlPlaneTest(
