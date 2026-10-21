@@ -293,6 +293,8 @@ e2eTest(
 e2eTest(
   "restores open tabs, selection, and closed tabs after refresh and restart",
   async ({ app }) => {
+    // Four renderer reloads and an Electron restart can exceed 30s on CI.
+    e2eTest.slow();
     const page = app.page;
     for (const name of ["One", "Two", "Three"]) {
       await app.server.rpc.workspace.writeFile({
