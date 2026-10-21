@@ -26,6 +26,7 @@ import { ConnectionContext, useConnection } from "./ConnectionContext.js";
 import { ConnectionPage, OfflinePage } from "../ConnectionPage.js";
 import { LoadingPage } from "../LoadingPage.js";
 import { SignInPage } from "../SignInPage.js";
+import { ChatOutboxProvider } from "../main/agent/ChatOutboxProvider.js";
 
 const ApiContext = createContext<HaloClient>(undefined!);
 const workspaceQueryKey = ["workspace"] as const;
@@ -71,9 +72,11 @@ export function ApiProvider({ children }: { children: ReactNode }) {
             key={state.workspace?.workspaceRoot}
             api={state.api}
           >
-            <WorkspaceDataProvider api={state.api}>
-              <FileSaveErrorsProvider>{children}</FileSaveErrorsProvider>
-            </WorkspaceDataProvider>
+            <ChatOutboxProvider api={state.api}>
+              <WorkspaceDataProvider api={state.api}>
+                <FileSaveErrorsProvider>{children}</FileSaveErrorsProvider>
+              </WorkspaceDataProvider>
+            </ChatOutboxProvider>
           </WorkspaceUpdatesProvider>
         </ApiContext>
       )}

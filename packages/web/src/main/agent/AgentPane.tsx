@@ -3,7 +3,15 @@ import { useIsActiveTab } from "../../panes/WorkspacePanesProvider.js";
 import { PaneHeaderActions } from "../../panes/PaneHeader.js";
 import { DoneButton } from "./DoneButton.js";
 import { useMarkSessionRead } from "./useMarkSessionRead.js";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { skipToken, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import {
@@ -18,7 +26,7 @@ import {
   spacing,
   text,
 } from "maui";
-import { ArrowUp, Stop, Paperclip, Close, FileText } from "maui/icons";
+import { ArrowUp, Stop, Paperclip, Close, FileText, Refresh } from "maui/icons";
 import { style, useStyles } from "purse-styles";
 import {
   sessionTitleQueryKey,
@@ -31,7 +39,6 @@ import {
   type SessionSnapshot,
   type SessionSummary,
   type ChatReference,
-  uploadChatFile,
   validateChatFiles,
 } from "@get-halo/client";
 import { MessageContent } from "./MessageContent.js";
@@ -51,6 +58,10 @@ import {
   useMessageDraft,
   useMessageDraftKey,
 } from "./useMessageDraft.js";
+import type { ChatUpload } from "./ChatUploads.js";
+import type { OutboxMessage } from "./ChatOutbox.js";
+import { useChatOutbox } from "./ChatOutboxProvider.js";
+import { useRefCurrent } from "./useRefCurrent.js";
 
 class WithdrawMessageError extends errore.createTaggedError({
   name: "WithdrawMessageError",
@@ -58,9 +69,38 @@ class WithdrawMessageError extends errore.createTaggedError({
 }) {}
 
 type QueuedMessage = Extract<SessionViewItem, { kind: "user" }> & {
-  draft: { text: string; files: File[]; references: ChatReference[] };
+  draft: {
+    text: string;
+    attachmentIds: string[];
+    files: File[];
+    references: ChatReference[];
+  };
   submissionId?: number;
+  /** Not sent yet; it sends once its attachments finish uploading. */
+  waiting?: true;
+  /** Its prompt is on the way to the server, so it cannot be withdrawn. */
+  sending?: true;
+  /** When it was sent from the composer; queued rows show in this order. */
+  queuedAt: number;
 };
+
+function outboxQueuedMessage(message: OutboxMessage): QueuedMessage {
+  const queued: QueuedMessage = {
+    kind: "user",
+    id: message.messageId,
+    text: message.draft.text.trim(),
+    attachments: message.draft.files.map((file) => ({ name: file.name })),
+    references: message.draft.references,
+    pending: true,
+    draft: message.draft,
+    queuedAt: message.queuedAt,
+  };
+  if (message.submissionId !== undefined)
+    queued.submissionId = message.submissionId;
+  if (message.state !== "sent") queued.waiting = true;
+  if (message.state === "sending") queued.sending = true;
+  return queued;
+}
 
 export function AgentPane({
   sessionId,
@@ -165,9 +205,26 @@ function ChatPane({
       sessionId: session.sessionId,
       title: session.title ?? session.sessionId,
     }));
-  const [attachments, setAttachments] = useState<{ id: string; file: File }[]>(
-    [],
+  const outbox = useChatOutbox();
+  const { uploads } = outbox;
+  const outboxMessages = useSyncExternalStore(
+    useCallback((onChange) => outbox.state.subscribe(onChange), [outbox]),
+    () => outbox.state.latestValue,
   );
+  const uploadStates = useSyncExternalStore(
+    useCallback((onChange) => uploads.state.subscribe(onChange), [uploads]),
+    () => uploads.state.latestValue,
+  );
+  // Attachment IDs in the composer, in the order they were added.
+  // A new session's pane keeps its draft ID after the session is created.
+  const composerId = draftId ?? sessionId ?? "";
+  const attachments = useSyncExternalStore(
+    useCallback((onChange) => outbox.drafts.subscribe(onChange), [outbox]),
+    () => outbox.draftAttachments(composerId),
+  );
+  function setAttachments(attachmentIds: readonly string[]) {
+    outbox.setDraftAttachments(composerId, attachmentIds);
+  }
   const [localError, setLocalError] = useState<string>();
   const [sending, setSending] = useState(false);
   const [withdrawing, setWithdrawing] = useState<string>();
@@ -178,10 +235,6 @@ function ChatPane({
   );
   const submitting = useRef<string | undefined>(undefined);
   const mounted = useRef(true);
-  // Percent of the sending message's attachments uploaded so far.
-  const [uploadPercent, setUploadPercent] = useState<number>();
-  // Cancels attachment uploads when the pane closes.
-  const uploadControllers = useRef(new Set<AbortController>());
   const [dragging, setDragging] = useState(false);
   const dragDepth = useRef(0);
   const picker = useRef<HTMLInputElement>(null);
@@ -217,6 +270,14 @@ function ChatPane({
   const hasContent =
     draft.trim().length > 0 || attachments.length > 0 || references.length > 0;
   useRestartWarning(attachments.length > 0 || references.length > 0);
+  const composerUploads = attachments.flatMap((attachmentId) => {
+    const upload = uploadStates.get(attachmentId);
+    return upload === undefined ? [] : [upload];
+  });
+  const composerUploading = composerUploads.some(
+    (upload) => upload.state === "uploading",
+  );
+  const draftRef = useRefCurrent({ draft, references });
   const composerBusy = sending || withdrawing !== undefined || stopping;
   const showStop =
     state.activeRun !== undefined && !hasContent && !composerBusy;
@@ -236,15 +297,50 @@ function ChatPane({
   const visibleOptimisticMessages = optimisticMessages.filter(
     (message) => !committedMessageIds.has(message.id),
   );
+  // This session's messages that wait for uploads or are not shown yet.
+  const sessionOutbox = outboxMessages.filter(
+    (message) =>
+      message.sessionId === sessionId &&
+      message.state !== "returned" &&
+      !committedMessageIds.has(message.messageId),
+  );
+  const outboxBusy = sessionOutbox.some(
+    (message) => message.state === "waiting" || message.state === "sending",
+  );
+  const queuedMessages: QueuedMessage[] = [
+    ...sessionOutbox.map(outboxQueuedMessage),
+    ...visibleOptimisticMessages,
+    // oxlint-disable-next-line unicorn/no-array-sort -- This new array is owned here; the web package targets ES2022.
+  ].sort((left, right) => left.queuedAt - right.queuedAt);
 
   useEffect(() => {
     mounted.current = true;
-    const controllers = uploadControllers.current;
     return () => {
       mounted.current = false;
-      for (const controller of controllers) controller.abort();
     };
   }, []);
+
+  const restoreRef = useRefCurrent(restoreToDraft);
+  useEffect(() => {
+    if (sessionId === undefined) return;
+    // Messages that could not be sent come back to this composer, including
+    // ones that failed while the pane was closed.
+    return outbox.state.subscribe(() => {
+      const returned = outbox.takeReturned(sessionId);
+      if (returned.length === 0) return;
+      const failed = returned.find((message) => message.error !== undefined);
+      if (failed !== undefined) setLocalError(failed.error);
+      restoreRef.current(
+        returned.map((message) => message.draft),
+        returned.flatMap((message) => message.draft.attachmentIds),
+      );
+    });
+  }, [outbox, sessionId, restoreRef]);
+
+  useEffect(
+    () => outbox.forget(committedMessageIds),
+    [outbox, committedMessageIds],
+  );
 
   useEffect(() => {
     // A committed message can arrive before its acceptance RPC returns.
@@ -253,9 +349,9 @@ function ChatPane({
     submitting.current = undefined;
     setSending(false);
     setDraft("");
-    setAttachments([]);
+    outbox.setDraftAttachments(composerId, []);
     setReferences([]);
-  }, [committedMessageIds, setDraft]);
+  }, [committedMessageIds, setDraft, outbox, composerId]);
 
   function addFiles(files: File[]) {
     if (submitting.current || withdrawing !== undefined) {
@@ -265,7 +361,7 @@ function ChatPane({
       return;
     }
     const invalid = validateChatFiles([
-      ...attachments.map((item) => item.file),
+      ...composerUploads.map((upload) => upload.file),
       ...files,
     ]);
     if (invalid !== undefined) {
@@ -273,21 +369,48 @@ function ChatPane({
       return;
     }
     setLocalError(undefined);
-    setAttachments((current) => [
-      ...current,
-      ...files.map((file) => ({ id: crypto.randomUUID(), file })),
+    setAttachments([...attachments, ...uploads.add(files)]);
+  }
+
+  /** Appends queued messages to the composer, keeping their uploads. */
+  function restoreToDraft(
+    drafts: readonly { text: string; references: ChatReference[] }[],
+    attachmentIds: readonly string[],
+  ) {
+    const current = draftRef.current;
+    setDraft(
+      [current.draft, ...drafts.map((restored) => restored.text)]
+        .filter((content) => content.length > 0)
+        .join("\n\n"),
+    );
+    setAttachments([...outbox.draftAttachments(composerId), ...attachmentIds]);
+    setReferences([
+      ...new Map(
+        [
+          ...current.references,
+          ...drafts.flatMap((restored) => restored.references),
+        ].map((reference) => [JSON.stringify(reference), reference]),
+      ).values(),
     ]);
+    setFocusRequest((count) => count + 1);
   }
 
   async function withdrawMessage(messageId: string) {
-    if (composerBusy || sessionId === undefined) return;
-    const message = optimisticMessages.find(
+    if (composerBusy) return;
+    const waiting = outbox.withdraw(messageId);
+    if (waiting !== undefined) {
+      setLocalError(undefined);
+      restoreToDraft([waiting.draft], waiting.draft.attachmentIds);
+      return;
+    }
+    const message = queuedMessages.find(
       (candidate) => candidate.id === messageId,
     );
-    if (message?.submissionId === undefined) return;
+    if (message === undefined) return;
+    if (message.submissionId === undefined || sessionId === undefined) return;
     const restoredFiles = message.draft.files;
     const invalid = validateChatFiles([
-      ...attachments.map(({ file }) => file),
+      ...composerUploads.map((upload) => upload.file),
       ...restoredFiles,
     ]);
     if (invalid !== undefined) {
@@ -314,32 +437,20 @@ function ChatPane({
     setOptimisticMessages((messages) =>
       messages.filter((candidate) => candidate.id !== messageId),
     );
-    setDraft(
-      [draft, message.draft.text]
-        .filter((content) => content.length > 0)
-        .join("\n\n"),
-    );
-    setAttachments((current) => [
-      ...current,
-      ...restoredFiles.map((file) => ({ id: crypto.randomUUID(), file })),
-    ]);
-    setReferences([
-      ...new Map(
-        [...references, ...message.draft.references].map((reference) => [
-          JSON.stringify(reference),
-          reference,
-        ]),
-      ).values(),
-    ]);
-    setFocusRequest((current) => current + 1);
+    outbox.forget([messageId]);
+    // The server kept the sent uploads as attachments, so upload them again.
+    restoreToDraft([message], uploads.add(restoredFiles));
   }
 
   async function stop() {
     if (stopping) return;
     setStopping(true);
     setLocalError(undefined);
+    // Messages still waiting for uploads have not reached the server.
     const cancelledMessageIds = new Set(
-      optimisticMessages.map((message) => message.id),
+      queuedMessages
+        .filter((message) => !message.waiting)
+        .map((message) => message.id),
     );
     const result = await abort();
     setStopping(false);
@@ -351,6 +462,7 @@ function ChatPane({
     setOptimisticMessages((messages) =>
       messages.filter((message) => !cancelledMessageIds.has(message.id)),
     );
+    outbox.forget(cancelledMessageIds);
   }
 
   async function submit() {
@@ -361,116 +473,102 @@ function ChatPane({
       stopping
     )
       return;
+    const failed = composerUploads.find((upload) => upload.state === "failed");
+    if (failed !== undefined) {
+      setLocalError(`Retry or remove ${failed.file.name} before sending.`);
+      return;
+    }
     const clientMessageId = crypto.randomUUID();
-    const submittedDraft = draft;
-    const submittedAttachments = attachments;
-    const submittedReferences = references;
+    const message: QueuedMessage = {
+      kind: "user",
+      id: clientMessageId,
+      text: draft.trim(),
+      attachments: composerUploads.map((upload) => ({
+        name: upload.file.name,
+      })),
+      references,
+      pending: true,
+      queuedAt: Date.now(),
+      draft: {
+        text: draft,
+        attachmentIds: [...attachments],
+        files: composerUploads.map((upload) => upload.file),
+        references,
+      },
+    };
+    // An open session keeps the composer free while files upload. A new
+    // session needs its first message accepted before it can queue more.
+    if (
+      draftId === undefined &&
+      sessionId !== undefined &&
+      (composerUploading || outboxBusy)
+    ) {
+      clearMessageDraft(draftKey);
+      setLocalError(undefined);
+      outbox.enqueue({
+        messageId: clientMessageId,
+        sessionId,
+        draft: message.draft,
+        queuedAt: message.queuedAt,
+      });
+      setDraft("");
+      setAttachments([]);
+      setReferences([]);
+      return;
+    }
     submitting.current = clientMessageId;
     clearMessageDraft(draftKey);
     setSending(true);
     setLocalError(undefined);
     if (state.activeRun !== undefined) {
       setOptimisticMessages((messages) => [
-        ...messages.filter((message) => !committedMessageIds.has(message.id)),
-        {
-          kind: "user",
-          id: clientMessageId,
-          text: submittedDraft.trim(),
-          attachments: submittedAttachments.map(({ file }) => ({
-            name: file.name,
-          })),
-          references: submittedReferences,
-          pending: true,
-          draft: {
-            text: submittedDraft,
-            files: submittedAttachments.map(({ file }) => file),
-            references: submittedReferences,
-          },
-        },
+        ...messages.filter(
+          (candidate) => !committedMessageIds.has(candidate.id),
+        ),
+        message,
       ]);
       setDraft("");
       setAttachments([]);
       setReferences([]);
     }
-    const files = submittedAttachments.map((item) => item.file);
-    const uploadIds = await uploadAttachments(files);
-    // The pane closed, so neither send the message nor restore its draft.
-    if (errore.isAbortError(uploadIds)) return;
+    const uploadIds = await uploads.uploadIds(message.draft.attachmentIds);
     if (uploadIds instanceof Error) setLocalError(uploadIds.message);
     const result =
       uploadIds instanceof Error
         ? uploadIds
         : await prompt({
-            text: submittedDraft.trim(),
+            text: message.text,
             uploadIds,
-            files,
-            references: submittedReferences,
+            files: message.draft.files,
+            references: message.draft.references,
             clientMessageId,
           });
-    if (result instanceof Error && !(uploadIds instanceof Error))
-      await cancelUploads(uploadIds);
+    if (!(result instanceof Error))
+      uploads.consume(message.draft.attachmentIds);
     if (submitting.current !== clientMessageId) return;
     submitting.current = undefined;
     setSending(false);
     if (result instanceof Error) {
       if (mounted.current) {
         setOptimisticMessages((messages) =>
-          messages.filter((message) => message.id !== clientMessageId),
+          messages.filter((candidate) => candidate.id !== clientMessageId),
         );
-        setDraft(submittedDraft);
-        setAttachments(submittedAttachments);
-        setReferences(submittedReferences);
+        setDraft(message.draft.text);
+        setAttachments(message.draft.attachmentIds);
+        setReferences(message.draft.references);
       }
       return;
     }
     setOptimisticMessages((messages) =>
-      messages.map((message) =>
-        message.id === clientMessageId
-          ? { ...message, submissionId: result.submissionId }
-          : message,
+      messages.map((candidate) =>
+        candidate.id === clientMessageId
+          ? { ...candidate, submissionId: result.submissionId }
+          : candidate,
       ),
     );
     setDraft("");
     setAttachments([]);
     setReferences([]);
-  }
-
-  async function uploadAttachments(files: readonly File[]) {
-    const controller = new AbortController();
-    uploadControllers.current.add(controller);
-    using cleanup = new errore.DisposableStack();
-    cleanup.defer(() => {
-      uploadControllers.current.delete(controller);
-      if (mounted.current) setUploadPercent(undefined);
-    });
-    const total = files.reduce((size, file) => size + file.size, 0);
-    const uploadIds: string[] = [];
-    let uploaded = 0;
-    for (const file of files) {
-      setUploadPercent(Math.floor((uploaded / total) * 100));
-      const result = await uploadChatFile({
-        api,
-        file,
-        signal: controller.signal,
-        onProgress: (received) =>
-          setUploadPercent(Math.floor(((uploaded + received) / total) * 100)),
-      });
-      if (result instanceof Error) {
-        await cancelUploads(uploadIds);
-        return result;
-      }
-      uploadIds.push(result.uploadId);
-      uploaded += file.size;
-    }
-    return uploadIds;
-  }
-
-  async function cancelUploads(uploadIds: readonly string[]) {
-    // The server also deletes unsent uploads after a day.
-    for (const uploadId of uploadIds)
-      await api.uploads
-        .cancel({ uploadId })
-        .catch((cause) => console.warn("Could not cancel upload:", cause));
   }
 
   return (
@@ -537,7 +635,8 @@ function ChatPane({
             <SessionView
               state={state}
               sessionId={sessionId}
-              optimisticMessages={visibleOptimisticMessages}
+              optimisticMessages={queuedMessages}
+              uploads={uploadStates}
               onWithdraw={withdrawMessage}
               queueDisabled={composerBusy}
             />
@@ -626,27 +725,49 @@ function ChatPane({
                   ) : undefined}
                   {attachments.length > 0 ? (
                     <ul className={attachmentList} aria-label="Attachments">
-                      {attachments.map(({ id, file }) => (
-                        <li className={attachmentChip} key={id}>
-                          <FileText size="sm" aria-hidden="true" />
-                          <span className={attachmentName} title={file.name}>
-                            {file.name}
-                          </span>
-                          <Button
-                            variant="quiet"
-                            aria-label={`Remove ${file.name}`}
-                            isDisabled={composerBusy}
-                            onClick={() => {
-                              setAttachments((current) =>
-                                current.filter((item) => item.id !== id),
-                              );
-                              setLocalError(undefined);
-                            }}
-                          >
-                            <Close size="sm" aria-hidden="true" />
-                          </Button>
-                        </li>
-                      ))}
+                      {attachments.map((attachmentId) => {
+                        const upload = uploadStates.get(attachmentId);
+                        if (upload === undefined) return undefined;
+                        const { name } = upload.file;
+                        return (
+                          <li className={attachmentChip} key={attachmentId}>
+                            <FileText size="sm" aria-hidden="true" />
+                            <span className={attachmentName} title={name}>
+                              {name}
+                            </span>
+                            <UploadStatus upload={upload} />
+                            {upload.state === "failed" ? (
+                              <Button
+                                variant="quiet"
+                                aria-label={`Retry ${name}`}
+                                isDisabled={composerBusy}
+                                onClick={() => {
+                                  uploads.retry(attachmentId);
+                                  setLocalError(undefined);
+                                }}
+                              >
+                                <Refresh size="sm" aria-hidden="true" />
+                              </Button>
+                            ) : undefined}
+                            <Button
+                              variant="quiet"
+                              aria-label={`Remove ${name}`}
+                              isDisabled={composerBusy}
+                              onClick={() => {
+                                uploads.remove([attachmentId]);
+                                setAttachments(
+                                  attachments.filter(
+                                    (item) => item !== attachmentId,
+                                  ),
+                                );
+                                setLocalError(undefined);
+                              }}
+                            >
+                              <Close size="sm" aria-hidden="true" />
+                            </Button>
+                          </li>
+                        );
+                      })}
                     </ul>
                   ) : undefined}
                 </>
@@ -675,8 +796,8 @@ function ChatPane({
                 </Button>
                 <span className={progress} role="status">
                   {sending
-                    ? uploadPercent !== undefined
-                      ? `Uploading attachments… ${uploadPercent}%`
+                    ? composerUploading
+                      ? `Uploading attachments… ${uploadPercent(composerUploads)}%`
                       : attachments.length > 0
                         ? "Preparing attachments…"
                         : "Sending…"
@@ -711,12 +832,14 @@ function SessionView({
   state,
   sessionId,
   optimisticMessages,
+  uploads,
   onWithdraw,
   queueDisabled,
 }: {
   state: SessionSnapshot;
   sessionId: string | undefined;
   optimisticMessages: QueuedMessage[];
+  uploads: ReadonlyMap<string, ChatUpload>;
   onWithdraw: (messageId: string) => Promise<void>;
   queueDisabled: boolean;
 }) {
@@ -847,8 +970,20 @@ function SessionView({
           key={message.id}
           item={message}
           sessionId={sessionId}
+          uploads={
+            message.waiting
+              ? message.draft.attachmentIds.map((attachmentId) =>
+                  uploads.get(attachmentId),
+                )
+              : undefined
+          }
           onWithdraw={async () => await onWithdraw(message.id)}
-          queueDisabled={queueDisabled || message.submissionId === undefined}
+          queueDisabled={
+            queueDisabled ||
+            (message.waiting
+              ? message.sending === true
+              : message.submissionId === undefined)
+          }
         />
       ))}
     </div>
@@ -858,11 +993,14 @@ function SessionView({
 function SessionViewRow({
   item,
   sessionId,
+  uploads,
   onWithdraw,
   queueDisabled,
 }: {
   item: SessionViewItem;
   sessionId: string | undefined;
+  /** Upload state for each attachment of a message that has not been sent. */
+  uploads?: readonly (ChatUpload | undefined)[];
   onWithdraw?: () => Promise<void>;
   queueDisabled?: boolean;
 }) {
@@ -883,6 +1021,7 @@ function SessionViewRow({
   const attachmentName = useStyles(styles.attachmentName);
   const referenceExcerpt = useStyles(styles.referenceExcerpt);
   const interruption = useStyles(styles.interruption);
+  const waitingNote = useStyles(styles.waitingNote);
 
   if (item.kind === "interruption")
     return (
@@ -923,14 +1062,17 @@ function SessionViewRow({
           ) : undefined}
           {item.attachments.length > 0 ? (
             <ul className={attachmentList} aria-label="Attached files">
-              {item.attachments.map((attachment) => (
-                <li key={attachment.path ?? attachment.name}>
+              {item.attachments.map((attachment, index) => (
+                <li key={attachment.path ?? `${attachment.name}-${index}`}>
                   {attachment.path === undefined ? (
                     <span className={attachmentChip}>
                       <FileText size="sm" aria-hidden="true" />
                       <span className={attachmentName} title={attachment.name}>
                         {attachment.name}
                       </span>
+                      {uploads?.[index] === undefined ? undefined : (
+                        <UploadStatus upload={uploads[index]} />
+                      )}
                     </span>
                   ) : (
                     <Link
@@ -947,6 +1089,11 @@ function SessionViewRow({
               ))}
             </ul>
           ) : undefined}
+          {uploads === undefined ? undefined : (
+            <span className={waitingNote}>
+              Sends when its files finish uploading
+            </span>
+          )}
           {item.references.length > 0 ? (
             <ul className={attachmentList} aria-label="References">
               {item.references.map((reference, index) => (
@@ -1034,6 +1181,30 @@ function SessionViewRow({
   );
 }
 
+function uploadPercent(uploads: readonly ChatUpload[]) {
+  const size = uploads.reduce((total, upload) => total + upload.file.size, 0);
+  const received = uploads.reduce(
+    (total, upload) => total + upload.received,
+    0,
+  );
+  return size === 0 ? 0 : Math.floor((received / size) * 100);
+}
+
+function UploadStatus({ upload }: { upload: ChatUpload }) {
+  const status = useStyles(
+    styles.uploadStatus,
+    upload.state === "failed" ? styles.uploadFailed : undefined,
+  );
+  if (upload.state === "uploaded") return undefined;
+  return (
+    <span className={status} title={upload.error}>
+      {upload.state === "failed"
+        ? "Upload failed"
+        : `${uploadPercent([upload])}%`}
+    </span>
+  );
+}
+
 const styles = {
   pane: style(flex({ direction: "column" }), {
     width: "100%",
@@ -1086,6 +1257,12 @@ const styles = {
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
   }),
+  uploadStatus: style(text({ size: "xs", color: "lowContrast" }), {
+    flexShrink: 0,
+    fontVariantNumeric: "tabular-nums",
+  }),
+  uploadFailed: style({ color: colors.red[11] }),
+  waitingNote: style(text({ size: "xs", color: "lowContrast" })),
   referenceExcerpt: style(text({ size: "xs", color: "lowContrast" }), {
     maxWidth: "18ch",
     overflow: "hidden",
