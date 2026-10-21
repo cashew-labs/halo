@@ -1,5 +1,5 @@
 import { type Static, Type } from "@sinclair/typebox";
-import { googleIntegrationDisplay } from "./GoogleIntegrationDisplay.js";
+import { integrationDisplay } from "./IntegrationDisplay.js";
 
 const controlPlaneConnectionRequestSchema = Type.Object({
   kind: Type.Literal("control-plane"),
@@ -34,7 +34,7 @@ export function connectionRequestKey(request: ConnectionRequest) {
 }
 
 export function connectionRequestLabel(request: ConnectionRequest) {
-  const display = googleIntegrationDisplay(request.integration);
+  const display = integrationDisplay(request.integration);
   if (display !== undefined) return display.name;
   return request.integration
     .split("_")

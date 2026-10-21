@@ -14,6 +14,7 @@ import {
 } from "maui";
 import { style, useStyles } from "purse-styles";
 import type { IntegrationSetup } from "@get-halo/shared/controlPlaneContract";
+import { integrationDisplay } from "@get-halo/client";
 import type { HostApi } from "./HostApi.js";
 import { SetupUnavailableError, setupReader } from "./setupHandoff.js";
 
@@ -70,6 +71,10 @@ export function IntegrationSetupPage({
     },
   });
   const data = setup.data;
+  const installationUrl =
+    data === undefined
+      ? undefined
+      : integrationDisplay(data.integration)?.installationUrl;
   return (
     <main className={className}>
       <Flex column gap={8}>
@@ -124,6 +129,7 @@ export function IntegrationSetupPage({
               <SetupForm
                 key={setupId}
                 setup={data}
+                installationUrl={installationUrl}
                 api={api}
                 onSaved={async () => {
                   await queryClient.invalidateQueries({ queryKey });
@@ -148,6 +154,11 @@ export function IntegrationSetupPage({
                 </div>
                 {data.connection?.accountLabel && (
                   <Text>{data.connection.accountLabel}</Text>
+                )}
+                {installationUrl !== undefined && (
+                  <a href={installationUrl} target="_blank" rel="noreferrer">
+                    Manage repository access on GitHub
+                  </a>
                 )}
               </>
             )}
@@ -210,10 +221,12 @@ export function IntegrationSetupPage({
 
 function SetupForm({
   setup,
+  installationUrl,
   api,
   onSaved,
 }: {
   setup: IntegrationSetup;
+  installationUrl: string | undefined;
   api: SetupApi;
   onSaved(): Promise<void>;
 }) {
@@ -242,6 +255,15 @@ function SetupForm({
       }}
     >
       <Flex column gap={8}>
+        {installationUrl !== undefined && (
+          <P>
+            <a href={installationUrl} target="_blank" rel="noreferrer">
+              Choose repositories on GitHub
+            </a>
+            , then return here to authorize your account. If Halo is already
+            installed on the repositories you need, you can continue now.
+          </P>
+        )}
         <P>
           Connecting lets your agents and background extensions use this
           account’s tools, including actions that change data, within the access

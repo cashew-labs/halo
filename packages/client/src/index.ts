@@ -64,9 +64,9 @@ export {
   type ConnectionRequest,
 } from "./ConnectionRequest.js";
 export {
-  googleIntegrationDisplay,
-  type GoogleIntegrationDisplay,
-} from "./GoogleIntegrationDisplay.js";
+  integrationDisplay,
+  type IntegrationDisplay,
+} from "./IntegrationDisplay.js";
 export {
   haloMessageSchema,
   execToolCallSchema,
