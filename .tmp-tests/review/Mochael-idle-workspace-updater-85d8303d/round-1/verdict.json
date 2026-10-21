@@ -1,0 +1,80 @@
+{
+  "status": "changes_requested",
+  "summary": "The change replaces the CI container restart for personal Exe workspaces with a root systemd timer (workspaceUpdate.py). The timer downloads the release image and swaps it in when the workspace is idle or the user confirms. It is not ready: the temp Python suite fails (2 failures, 1 error), 8 changed lines are uncovered, and an unattended update can leave a workspace down with no rollback. Personal workspaces also no longer receive host-script updates, and a workspace whose container has crashed can no longer be repaired.",
+  "findings": [
+    {
+      "id": "F1",
+      "kind": "test",
+      "file": "infra/workspace/.tmp-tests/workspaceUpdate.test.py",
+      "line": 55,
+      "severity": "P1",
+      "body": "The mock `do_POST` handler for `/maintenance` replies without reading the 2-byte `{}` request body. The handler speaks HTTP/1.0, so it closes the socket with unread data, the kernel sends a TCP RST, and the client gets `ConnectionResetError`. This causes all three temp-suite failures: `test_failed_restart_releases_reservation_and_persists_a_retry`, `test_a_new_manual_request_retries_a_failed_download_immediately`, and `test_success_keeps_one_previous_image_even_when_cleanup_fails`. Because of them, lines 131 and 168-171 are uncovered. Read `content-length` bytes before replying, as the other POST branch already does, then rerun the suite."
+    },
+    {
+      "id": "F2",
+      "kind": "source",
+      "file": "infra/workspace/workspaceUpdate.py",
+      "line": 178,
+      "severity": "P1",
+      "body": "If the upgraded container does not become ready within 60 s, the updater raises and reports `failed`. But `/etc/halo/image` already points at the new image and nothing restores it, so the user's workspace stays down. The previous image is kept 'for an explicit rollback', yet no code path uses it. In the old CI flow an operator saw the failure and promotion was blocked. Now the update runs unattended at idle, so a bad release silently breaks the workspace. Later runs then fail in `inspect()` (see F3) and cannot recover. On a failed health check (and on a failed `halo-workspace-upgrade`), run `halo-workspace-upgrade <previous>` and report the failure."
+    },
+    {
+      "id": "F3",
+      "kind": "source",
+      "file": "infra/workspace/workspaceUpdate.py",
+      "line": 61,
+      "severity": "P1",
+      "body": "When `/maintenance` is unreachable, `inspect()` falls back to `docker inspect halo-workspace`. The container runs with `--rm`, so if it has crashed or stopped this raises `CalledProcessError`. `run()` then aborts on its first line, before it reads the plan. The old rollout explicitly handled this case ('A crashed or stopped old container must still receive the repair image'). Under the new flow a personal workspace with a dead container can never get a fixed image, even when the user confirms the update. Treat a missing container as version `unknown` and busy instead of failing, so a forced update can still apply the image."
+    },
+    {
+      "id": "F4",
+      "kind": "source",
+      "file": "infra/workspace/exeRollout.sh",
+      "line": 236,
+      "severity": "P1",
+      "body": "Personal workspaces now exit after `installUpdater.sh` and never run `exeTemplate.sh update-host` again. The updater only calls the existing `/usr/local/bin/halo-workspace-upgrade`. As a result, later changes to `halo-workspace-run`, `halo-workspace-assign`, `halo-workspace-upgrade`, `halo.service`, `desktop-seccomp.json`, or `appSandboxSetup.sh` never reach existing personal workspaces. New images would run under stale host scripts and seccomp profiles. Either refresh the host scripts in this step (the parts that do not restart the container), or have the idle updater install the host files that ship with the release before it calls the upgrade."
+    },
+    {
+      "id": "F5",
+      "kind": "source",
+      "file": "infra/workspace/workspaceUpdate.py",
+      "line": 146,
+      "severity": "P1",
+      "body": "`reserved` becomes true only after the POST response parses. If the server accepts the reservation but the client then gets a transport error (reset, 15 s timeout, or bad JSON), the `finally` block skips the DELETE. The server keeps rejecting user operations with `WorkspaceUpdatingError` for up to 120 s while no update happens. The temp test shows this: `self.reserved` stays True after the reset. Release the reservation on any POST outcome other than 409, for example by setting `reserved = True` before the request."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "infra/workspace/workspaceUpdate.py:178 rollback when the new container never becomes healthy (and when halo-workspace-upgrade fails)",
+      "tier": "tmp",
+      "rationale": "Prove the updater restores the previous image instead of leaving the workspace down."
+    },
+    {
+      "target": "infra/workspace/workspaceUpdate.py:61 inspect() with the halo-workspace container absent",
+      "tier": "tmp",
+      "rationale": "A crashed workspace must still report status and accept a forced update."
+    },
+    {
+      "target": "infra/workspace/workspaceUpdate.py:150 a non-409 HTTPError or a transport error from POST /maintenance releases the reservation and reports failed",
+      "tier": "tmp",
+      "rationale": "Line 150 is uncovered, and F5's leak path needs a regression check."
+    },
+    {
+      "target": "infra/workspace/workspaceUpdate.py:131 and 168-171 (retry backoff and cleanup failure) pass once the harness reads the POST body",
+      "tier": "tmp",
+      "rationale": "These lines are uncovered only because their tests fail on ConnectionResetError."
+    }
+  ],
+  "tierChanges": [],
+  "round": 1,
+  "headSha": "0dbece4e3c86e56783e6cc4cbbdba17252442e1f",
+  "treeHash": "fd649be495ddf34a3ed510c2384d5c8a44869abe",
+  "codeTree": "0eb598f093eb2c5114549068bfd181dcea9567dd",
+  "coverage": {
+    "executable": 182,
+    "covered": 174,
+    "exempt": 0,
+    "uncovered": 8
+  },
+  "createdAt": "2026-10-21T20:16:39.879Z"
+}

@@ -1,0 +1,18 @@
+{
+  "status": "approve",
+  "summary": "F6 is fixed. The health wait now breaks out once the new server reports the target version, and the success report is sent best effort, so a control-plane outage no longer rolls back a healthy workspace. The new recovery path for an interrupted `upgrading` state also works: it finishes the update or restores the previous image and releases the reservation. Temp tests cover all of this, both test runs pass, every changed line is covered or exempt with a reason I accept, and no P0 or P1 findings remain.",
+  "findings": [],
+  "testRequests": [],
+  "tierChanges": [],
+  "round": 3,
+  "headSha": "0dbece4e3c86e56783e6cc4cbbdba17252442e1f",
+  "treeHash": "48c7c7e1f2a9445b92dc9b63591feac9a16dd868",
+  "codeTree": "647d9710398963b7bb56581f1ccae61f22eb0ea1",
+  "coverage": {
+    "executable": 238,
+    "covered": 237,
+    "exempt": 1,
+    "uncovered": 0
+  },
+  "createdAt": "2026-10-21T20:35:12.312Z"
+}

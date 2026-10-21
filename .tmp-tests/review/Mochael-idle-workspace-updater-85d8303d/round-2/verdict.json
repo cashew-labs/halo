@@ -1,0 +1,38 @@
+{
+  "status": "changes_requested",
+  "summary": "All five round-1 findings are fixed. The test harness now reads the request body, failed upgrades roll back and block the bad image, a crashed container reports `unknown`, host files now ship in the image and are installed at activation, and the reservation is released after a lost response. The suite now passes. It is still not ready: lines 138 and 198-199 of `workspaceUpdate.py` are uncovered, and the health-wait loop treats a failed control-plane report as a failed health check, so a healthy update can be rolled back.",
+  "findings": [
+    {
+      "id": "F6",
+      "kind": "source",
+      "file": "infra/workspace/workspaceUpdate.py",
+      "line": 198,
+      "severity": "P1",
+      "body": "In the health-wait loop, `self.report()` (line 187) shares a try block with the health check. Suppose the new server answers with the target version, but the report to the control plane fails (outage, 5xx, or timeout). The `except ... pass` at lines 198-199 swallows the error and the loop retries. If the control plane stays unreachable for 60 s, line 202 raises 'Updated workspace did not become ready'. The outer handler then sees `activated` and rolls back a healthy update to the previous image, marks the release as `blockedImage`, and stops automatic retries. A healthy server must count as success whether or not the report succeeds. Leave the loop once the version matches, record `previous`, then report as best effort (a later run will report `current` anyway)."
+    }
+  ],
+  "testRequests": [
+    {
+      "target": "infra/workspace/workspaceUpdate.py:138: after a failure that is not an activation failure (for example a failed pull), a second main() within 300 s returns at the retry check without running commands",
+      "tier": "tmp",
+      "rationale": "Line 138 is uncovered. `test_failed_restart_releases_reservation_and_persists_a_retry` now stops at the `blockedImage` check (line 136), so no test covers the retry backoff."
+    },
+    {
+      "target": "infra/workspace/workspaceUpdate.py:184-199: new server is healthy at the target version but the control-plane report fails for the whole health window; expect no rollback, state saved as current with `previous` recorded",
+      "tier": "tmp",
+      "rationale": "Lines 198-199 are uncovered. `inspect()` now catches its own docker errors, so only a report failure reaches this path, and F6 shows it rolls back a healthy update."
+    }
+  ],
+  "tierChanges": [],
+  "round": 2,
+  "headSha": "0dbece4e3c86e56783e6cc4cbbdba17252442e1f",
+  "treeHash": "381c85540f1edc8d1d2d9fb2a65e31db8ae79e17",
+  "codeTree": "7c41d7d0cc3ee2df8ee3dde4228cd9d24674ec8c",
+  "coverage": {
+    "executable": 213,
+    "covered": 209,
+    "exempt": 1,
+    "uncovered": 3
+  },
+  "createdAt": "2026-10-21T20:27:34.061Z"
+}
