@@ -130,6 +130,37 @@ export class FilesystemService {
       .catch((cause) => filesystemError({ operation: "append", path, cause }));
   }
 
+  /** Writes all of `data` at `position` in an existing file. */
+  async writeAt(path: string, data: Uint8Array, position: number) {
+    const handle = await fsPromises
+      .open(path, "r+")
+      .catch((cause) => filesystemError({ operation: "open", path, cause }));
+    if (handle instanceof Error) return handle;
+    await using cleanup = new errore.AsyncDisposableStack();
+    cleanup.defer(async () => {
+      const closed = await handle
+        .close()
+        .catch((cause) => filesystemError({ operation: "close", path, cause })); // coverage-exempt: Closing an open regular file does not fail without a kernel I/O error.
+      if (closed instanceof Error)
+        console.warn("Could not close file:", closed); // coverage-exempt: Warn-only branch for the close failure above.
+    });
+    // A write can store fewer bytes than requested; continue with the rest.
+    let offset = 0;
+    while (offset < data.byteLength) {
+      const written = await handle
+        .write(data, offset, data.byteLength - offset, position + offset)
+        .catch((cause) => filesystemError({ operation: "write", path, cause }));
+      if (written instanceof Error) return written;
+      if (written.bytesWritten === 0)
+        return filesystemError({
+          operation: "write",
+          path,
+          cause: new Error("The file accepted no more bytes."),
+        });
+      offset += written.bytesWritten;
+    }
+  }
+
   async makeDirectory(
     path: string,
     options?: { recursive?: boolean; mode?: number },
@@ -164,6 +195,16 @@ export class FilesystemService {
     return await fsPromises
       .lstat(path)
       .catch((cause) => filesystemError({ operation: "stat", path, cause }));
+  }
+
+  async availableBytes(path: string) {
+    const stats = await fsPromises
+      .statfs(path)
+      .catch((cause) =>
+        filesystemError({ operation: "check free space", path, cause }),
+      );
+    if (stats instanceof Error) return stats;
+    return stats.bavail * stats.bsize;
   }
 
   async rename(source: string, destination: string) {

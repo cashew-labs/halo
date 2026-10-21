@@ -1,5 +1,4 @@
 import childProcess from "node:child_process";
-import crypto from "node:crypto";
 import path from "node:path";
 import util from "node:util";
 import buffer from "node:buffer";
@@ -11,11 +10,12 @@ import { convertToPng } from "@earendil-works/pi-coding-agent";
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import {
   chatAttachmentLimits,
-  validateChatFiles,
+  chatImageExtensions,
   type ChatAttachment,
 } from "@get-halo/client";
 import * as errore from "errore";
 import type { FilesystemService } from "../filesystem/FilesystemService.js";
+import type { ClaimedUpload } from "../uploads/UploadService.js";
 
 type AttachmentContent = (TextContent | ImageContent)[];
 const execFile = util.promisify(childProcess.execFile);
@@ -30,121 +30,97 @@ const documentExtensions = new Set([
   "rtf",
   "epub",
 ]);
-const imageExtensions = new Set([
-  "png",
-  "jpg",
-  "jpeg",
-  "gif",
-  "webp",
-  "avif",
-  "svg",
-  "tif",
-  "tiff",
-  "bmp",
-  "ico",
-  "heic",
-  "heif",
-]);
 
 export class ChatAttachmentError extends errore.createTaggedError({
   name: "ChatAttachmentError",
   message: "Could not attach $fileName: $reason",
 }) {}
 
+/**
+ * Converts uploaded files into model context. Files that are too large,
+ * unreadable, or over the message budget stay in the workspace; the model gets
+ * their paths so it can inspect them with its file tools.
+ */
 export async function prepareChatAttachments(input: {
-  files: File[];
+  files: readonly ClaimedUpload[];
   filesystem: FilesystemService;
-  workspaceRoot: string;
 }) {
-  const invalid = validateChatFiles(input.files);
-  if (invalid !== undefined)
-    return new ChatAttachmentError({ fileName: "files", reason: invalid });
   const attachments: ChatAttachment[] = [];
   const content: AttachmentContent = [];
-  const directory = path.join(
-    input.workspaceRoot,
-    "attachments",
-    crypto.randomUUID(),
-  );
-  const created = await input.filesystem.makeDirectory(directory, {
-    recursive: true,
-  });
-  if (created instanceof Error) return created;
-  await using cleanup = new errore.AsyncDisposableStack();
-  cleanup.defer(async () => {
-    const removed = await input.filesystem.remove(directory, {
-      recursive: true,
-      force: true,
-    });
-    if (removed instanceof Error)
-      console.warn("Could not remove failed chat attachments:", removed);
-  });
-
-  // Each file gets its own directory, so files with the same name stay distinct.
-  for (const [index, file] of input.files.entries()) {
-    const fileDirectory = path.join(directory, String(index + 1));
-    const madeDirectory = await input.filesystem.makeDirectory(fileDirectory);
-    if (madeDirectory instanceof Error) return madeDirectory;
-    const absolutePath = path.join(fileDirectory, file.name);
-    const read = await file.arrayBuffer().catch(
-      (cause) =>
-        new ChatAttachmentError({
-          fileName: file.name,
-          reason: "could not read the file",
-          cause,
-        }),
-    );
-    if (read instanceof Error) return read;
-    const bytes = Buffer.from(read);
-    const written = await input.filesystem.writeFile(absolutePath, bytes, {
-      flag: "wx",
-    });
-    if (written instanceof Error) return written;
-    const converted = await attachmentContent({
-      bytes,
-      absolutePath,
-      filesystem: input.filesystem,
-    });
-    if (converted instanceof Error) return converted;
-    const relativePath = path
-      .relative(input.workspaceRoot, absolutePath)
-      .split(path.sep)
-      .join("/");
+  for (const file of input.files) {
     attachments.push({
       name: file.name,
-      path: relativePath,
+      path: file.path,
       size: file.size,
-      mimeType: file.type,
+      mimeType: file.mimeType,
     });
-    content.push(
-      {
+    const header = `Attached file: ${JSON.stringify(file.name)}\nWorkspace path: ${JSON.stringify(file.path)}`;
+    const included = await includedContent({
+      file,
+      filesystem: input.filesystem,
+      textCharacters: content.reduce(
+        (total, part) => total + (part.type === "text" ? part.text.length : 0),
+        0,
+      ),
+      images: content.filter((part) => part.type === "image").length,
+    });
+    if (included instanceof Error) return included;
+    if ("omitted" in included) {
+      content.push({
         type: "text",
-        text: `Attached file: ${JSON.stringify(file.name)}\nWorkspace path: ${JSON.stringify(relativePath)}\nFile contents:`,
-      },
-      ...converted,
-    );
-    const textLength = content.reduce(
-      (total, part) => total + (part.type === "text" ? part.text.length : 0),
-      0,
-    );
-    if (textLength > chatAttachmentLimits.textCharacters)
-      return new ChatAttachmentError({
-        fileName: file.name,
-        reason:
-          "the extracted text exceeds 200,000 characters. Split the files into smaller messages.",
+        text: `${header}\nSize: ${file.size} bytes\nThe contents are not included in this message: ${included.omitted}. Use the read, bash, or viewImage tools to inspect the file if you need it.`,
       });
-    if (
-      content.filter((part) => part.type === "image").length >
-      chatAttachmentLimits.images
-    )
-      return new ChatAttachmentError({
-        fileName: file.name,
-        reason:
-          "the files contain more than 40 images or PDF pages. Split them into smaller messages.",
-      });
+      continue;
+    }
+    content.push(
+      { type: "text", text: `${header}\nFile contents:` },
+      ...included.content,
+    );
   }
-  cleanup.move();
   return { attachments, content };
+}
+
+async function includedContent(input: {
+  file: ClaimedUpload;
+  filesystem: FilesystemService;
+  textCharacters: number;
+  images: number;
+}) {
+  if (input.file.size > chatAttachmentLimits.inlineBytes)
+    return {
+      omitted: `the file is larger than ${chatAttachmentLimits.inlineBytes / 1_000_000} MB`,
+    };
+  const bytes = await input.filesystem.readFile(input.file.absolutePath);
+  if (bytes instanceof Error)
+    return new ChatAttachmentError({
+      fileName: input.file.name,
+      reason: "could not read the uploaded file",
+      cause: bytes,
+    });
+  const converted = await attachmentContent({
+    bytes,
+    absolutePath: input.file.absolutePath,
+    filesystem: input.filesystem,
+  });
+  if (converted instanceof Error) {
+    console.warn("Chat attachment was not converted:", converted);
+    return { omitted: converted.reason };
+  }
+  const textCharacters = converted.reduce(
+    (total, part) => total + (part.type === "text" ? part.text.length : 0),
+    input.textCharacters,
+  );
+  if (textCharacters > chatAttachmentLimits.textCharacters)
+    return {
+      omitted: `its extracted text would exceed the ${chatAttachmentLimits.textCharacters.toLocaleString("en-US")}-character limit for one message`,
+    };
+  const images =
+    input.images + converted.filter((part) => part.type === "image").length;
+  if (images > chatAttachmentLimits.images)
+    return {
+      omitted: `it would exceed the limit of ${chatAttachmentLimits.images} images or PDF pages for one message`,
+    };
+  return { content: converted };
 }
 
 async function attachmentContent(input: {
@@ -156,7 +132,7 @@ async function attachmentContent(input: {
   const extension = path.extname(name).slice(1).toLowerCase();
   if (extension === "pdf" || input.bytes.subarray(0, 5).toString() === "%PDF-")
     return await pdfContent(input);
-  if (imageExtensions.has(extension)) {
+  if (chatImageExtensions.has(extension)) {
     const image = await imageContent({ bytes: input.bytes, name });
     if (image instanceof Error) return image;
     return [image];
@@ -170,7 +146,7 @@ async function attachmentContent(input: {
         new ChatAttachmentError({
           fileName: name,
           reason:
-            "the document could not be read. Check that it is valid and not password-protected.",
+            "the document could not be read; it may be invalid or password-protected",
           cause,
         }),
     );
@@ -235,7 +211,7 @@ async function attachmentContent(input: {
   return new ChatAttachmentError({
     fileName: name,
     reason:
-      "this file format cannot be read yet. Use an image, PDF, DOCX, XLSX, PPTX, OpenDocument, RTF, EPUB, or text file.",
+      "Halo cannot extract text from this file format; it reads images, PDF, DOCX, XLSX, PPTX, OpenDocument, RTF, EPUB, and text files",
   });
 }
 
@@ -321,8 +297,7 @@ async function imageContent(input: {
       (cause) =>
         new ChatAttachmentError({
           fileName: input.name,
-          reason:
-            "the image could not be decoded. Try exporting it as PNG or JPEG.",
+          reason: "the image could not be decoded",
           cause,
         }),
     );
@@ -347,7 +322,7 @@ async function pdfCommand(input: {
       new ChatAttachmentError({
         fileName: input.name,
         reason:
-          "the PDF could not be read. Check that it is valid and not password-protected, and that Poppler is installed on the workspace server.",
+          "the PDF could not be read; it may be invalid or password-protected, or Poppler may be missing on the workspace server",
         cause,
       }),
   );
@@ -372,8 +347,7 @@ async function pdfContent(input: {
   )
     return new ChatAttachmentError({
       fileName: name,
-      reason:
-        "attach a PDF with 1–20 pages. Split larger PDFs into smaller files.",
+      reason: `only PDFs with 1 to ${chatAttachmentLimits.pdfPages} pages are included`,
     });
   const text = await pdfCommand({
     command: "pdftotext",

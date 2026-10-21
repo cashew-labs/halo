@@ -38,8 +38,8 @@ import type {
 } from "./rpc.js";
 
 // Tandem-backed clients use a different workspace stream contract.
-export const haloProtocolVersion = 29 as const;
-export const haloSupportedProtocols = [25, 26, 27, 28, haloProtocolVersion];
+export const haloProtocolVersion = 30 as const;
+export const haloSupportedProtocols = [25, 26, 27, 28, 29, haloProtocolVersion];
 
 export const RequestRejectedError = error("BAD_REQUEST", {
   message: "Halo could not complete the request.",
@@ -360,6 +360,20 @@ export const contract = publicProcedure.router({
     listRuns: oc
       .input(type<{ automationId: string; limit?: number }>())
       .output(type<AutomationRun[]>()),
+  },
+  uploads: {
+    create: oc
+      .input(type<{ name: string; size: number; mimeType: string }>())
+      .output(type<{ uploadId: string }>()),
+    // Chunks keep each request under gateway body limits and let an
+    // interrupted upload resume from the offset the server reports.
+    write: oc
+      .input(type<{ uploadId: string; offset: number; chunk: Blob }>())
+      .output(type<{ received: number }>()),
+    status: oc
+      .input(type<{ uploadId: string }>())
+      .output(type<{ received: number; size: number }>()),
+    cancel: oc.input(type<{ uploadId: string }>()).output(type<void>()),
   },
   thread: {
     list: oc.output(type<SessionSummary[]>()),
