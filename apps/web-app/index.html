@@ -132,7 +132,7 @@
         padding: clamp(24px, 5vw, 48px);
         display: flex;
         flex-direction: column;
-        gap: 80px;
+        gap: 32px;
       }
       .static-landing-logo img {
         display: block;
@@ -146,6 +146,12 @@
         line-height: 28px;
         font-weight: 500;
         text-wrap: pretty;
+      }
+      .static-landing-intro {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 24px;
       }
       .static-landing a.static-landing-access {
         display: inline-flex;
@@ -196,6 +202,12 @@
         font-size: 17px;
         line-height: 26px;
       }
+      :root[data-scale="large"] .static-landing-content {
+        gap: 40px;
+      }
+      :root[data-scale="large"] .static-landing-intro {
+        gap: 30px;
+      }
       :root[data-scale="large"] .static-landing-statement {
         font-size: 19px;
         line-height: 34px;
@@ -223,14 +235,16 @@
           <h1 class="static-landing-logo">
             <img src="/halo-donut-transparent.png" alt="Halo" />
           </h1>
-          <p class="static-landing-statement">
-            An open-source, self-modifiable, agentic operating system.
-          </p>
-          <a
-            class="static-landing-access"
-            href="https://cal.com/team/halo/halo-early-access-chat"
-            ><span>Get early access</span></a
-          >
+          <div class="static-landing-intro">
+            <p class="static-landing-statement">
+              An open-source, self-modifiable, agentic operating system.
+            </p>
+            <a
+              class="static-landing-access"
+              href="https://cal.com/team/halo/halo-early-access-chat"
+              ><span>Get early access</span></a
+            >
+          </div>
           <section
             class="static-landing-dev-logs"
             aria-labelledby="dev-logs-heading"
