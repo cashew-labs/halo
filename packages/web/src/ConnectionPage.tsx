@@ -59,6 +59,13 @@ export function IncompatibleConnection({
       (protocol) => protocol > Number(error.clientProtocolVersion),
     )
   ) {
+    if (error.service === "control-plane")
+      return (
+        <Prose size="sm">
+          <h1 className={heading}>Halo will be back soon</h1>
+          <P>We're updating our service. Try connecting later.</P>
+        </Prose>
+      );
     return (
       <Flex column gap={12} alignItems="center">
         <Prose size="sm">
