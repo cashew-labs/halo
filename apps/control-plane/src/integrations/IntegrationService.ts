@@ -10,7 +10,7 @@ import { mcpPlugin } from "@executor-js/plugin-mcp/core";
 import { openApiPlugin } from "@executor-js/plugin-openapi/core";
 import {
   googleCatalog,
-  googleDiscoveryAdapter,
+  isGoogleDiscoveryUrl,
 } from "@executor-js/plugin-openapi/providers/google";
 import {
   createExecutor,
@@ -50,6 +50,7 @@ import type {
   IntegrationToolSchema,
   IntegrationSetup,
   IntegrationSetupCatalogEntry,
+  OpenAPIRegistration,
 } from "@get-halo/shared/controlPlaneContract";
 import { Layer } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
@@ -59,6 +60,10 @@ import type { DatabaseService, DatabaseClient } from "../DatabaseService.js";
 import { withAccountChoice } from "./accountChoice.js";
 import { GmailApi } from "../automations/GmailApi.js";
 import { createExecutorDatabase } from "./createExecutorDatabase.js";
+import {
+  googleDiscoveryAdapter,
+  scopedGoogleDiscoveryAdapter,
+} from "./googleDiscoveryAdapter.js";
 
 // Executor 1.6 rewrites Meet's Discovery URL to a legacy endpoint returning 404.
 const presets = googleCatalog.filter((preset) => preset.id !== "google-meet");
@@ -216,15 +221,16 @@ export class IntegrationService {
       openApiPlugin({
         presets,
         httpClientLayer: this.safeHttpLayer(),
-        specFormats: [
-          httpClientLayer === undefined
-            ? googleDiscoveryAdapter
-            : {
-                ...googleDiscoveryAdapter,
-                fetch: (input) =>
-                  googleDiscoveryAdapter.fetch({ ...input, httpClientLayer }),
-              },
-        ],
+        specFormats: [googleDiscoveryAdapter, scopedGoogleDiscoveryAdapter].map(
+          (adapter) =>
+            httpClientLayer === undefined
+              ? adapter
+              : {
+                  ...adapter,
+                  fetch: (input) =>
+                    adapter.fetch({ ...input, httpClientLayer }),
+                },
+        ),
       }),
       // Remote HTTP/SSE only: never spawn user-supplied processes in the control plane.
       {
@@ -1040,20 +1046,40 @@ export class IntegrationService {
     return body.includes("invalid_token") ? "revoked" : "failed";
   }
 
-  async registerOpenAPI(ctx: {
-    userId: string;
-    name: string;
-    slug: string;
-    url: string;
-  }) {
+  async registerOpenAPI(ctx: OpenAPIRegistration & { userId: string }) {
     const safe = await this.validateRemoteUrl(ctx.url);
     if (safe instanceof Error) return safe;
+    const googleDiscovery = isGoogleDiscoveryUrl(ctx.url);
+    if (ctx.googleOAuthScopes !== undefined && !googleDiscovery)
+      return new IntegrationSetupError({
+        detail:
+          "Google OAuth scopes require an official Google Discovery URL. Use the provider's Google API description URL or omit googleOAuthScopes for OpenAPI.",
+      });
+    const adapter =
+      ctx.googleOAuthScopes === undefined
+        ? googleDiscoveryAdapter
+        : scopedGoogleDiscoveryAdapter;
     return await this.withUser(ctx.userId, (executor) =>
       Effect.asVoid(
         executor.openapi.addSpec({
           name: ctx.name,
           slug: ctx.slug,
           spec: { kind: "url", url: ctx.url },
+          family: googleDiscovery ? "google" : undefined,
+          specFormat: googleDiscovery ? adapter.id : undefined,
+          authenticationTemplate:
+            ctx.googleOAuthScopes === undefined
+              ? undefined
+              : [
+                  {
+                    slug: "googleOAuth2",
+                    kind: "oauth2",
+                    authorizationUrl:
+                      "https://accounts.google.com/o/oauth2/v2/auth",
+                    tokenUrl: "https://oauth2.googleapis.com/token",
+                    scopes: ctx.googleOAuthScopes,
+                  },
+                ],
         }),
       ).pipe(
         Effect.catchTags({

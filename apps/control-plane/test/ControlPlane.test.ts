@@ -789,6 +789,16 @@ const controlPlaneTest = test.extend<{
           .end(JSON.stringify({ items: ["google-document"] }));
         return;
       }
+      if (request.url === "/v1beta/properties/123:runReport") {
+        if (request.headers.authorization !== "Bearer fixture-google-token") {
+          response.writeHead(401).end();
+          return;
+        }
+        response
+          .writeHead(200, { "content-type": "application/json" })
+          .end(JSON.stringify({ rows: [{ source: "linkedin", users: 42 }] }));
+        return;
+      }
       if (request.url === "/lost") {
         request.socket.destroy();
         return;
@@ -946,9 +956,11 @@ const controlPlaneTest = test.extend<{
         },
       }),
       getOpenAPISpec: async (url) =>
-        integrationApi.gmail.enabled && url.includes("gmail")
-          ? gmailDiscovery(integrationApi.origin)
-          : await getOpenAPISpec(url, integrationApi.origin),
+        url.includes("analyticsdata")
+          ? analyticsDiscovery(integrationApi.origin)
+          : integrationApi.gmail.enabled && url.includes("gmail")
+            ? gmailDiscovery(integrationApi.origin)
+            : await getOpenAPISpec(url, integrationApi.origin),
     });
     if (plane instanceof Error) throw plane;
     await use(plane);
@@ -1159,6 +1171,230 @@ controlPlaneTest(
     );
   },
   20_000,
+);
+
+controlPlaneTest(
+  "registers Google Analytics through agent exec with read-only consent and report tools",
+  async ({
+    agent,
+    authenticatedRpc,
+    integrationApi,
+    plane,
+    browserHeaders,
+    appDataDir,
+  }) => {
+    const runtime = createControlPlaneRpcClient(
+      plane.origin,
+      (await readRuntimeSettings(appDataDir)).token,
+    );
+    const scope = "https://www.googleapis.com/auth/analytics.readonly";
+    const registration = {
+      name: "Google Analytics",
+      slug: "analytics-reports",
+      url: "https://analyticsdata.googleapis.com/$discovery/rest?version=v1beta",
+      googleOAuthScopes: [scope],
+    };
+    const registered = await agent.run(`
+      var registration = await tools.halo.registerOpenAPI(${JSON.stringify(registration)});
+      if (!registration.ok) throw new Error(JSON.stringify(registration));
+      await tools.halo.showConnectionCard({ integration: registration.data.integration });
+    `);
+    expect(registered[0]?.result?.details).toMatchObject({
+      connectionRequests: [
+        { kind: "control-plane", integration: registration.slug },
+      ],
+    });
+    expect(await authenticatedRpc.integrations.connections()).toEqual([]);
+    const method = (await authenticatedRpc.integrations.catalog()).find(
+      (entry) => entry.integration === registration.slug,
+    )!.methods[0]!;
+    expect(method).toMatchObject({ kind: "oauth", fields: [] });
+    const started = await authenticatedRpc.integrations.startSetup({
+      integration: registration.slug,
+    });
+    const submitted = await authenticatedRpc.integrations.submitSetup({
+      setupId: started.setupId,
+      template: method.template,
+    });
+    const authorization = new URL(submitted.authorizationUrl!);
+    expect(authorization.origin).toBe("https://accounts.google.com");
+    expect(authorization.searchParams.get("scope")?.split(" ")).toEqual([
+      scope,
+    ]);
+    expect(authorization.searchParams.get("client_id")).toBe(
+      testAuth.googleClientId,
+    );
+    expect(
+      await runtime.integrations.search({
+        query: "runReport",
+        integration: registration.slug,
+      }),
+    ).toEqual({ tools: [], truncated: false });
+    await authenticatedRpc.integrations.cancelSetup({
+      setupId: started.setupId,
+    });
+
+    // Replace only the external OAuth provider so consent can complete locally.
+    const session = await authenticatedRpc.auth.session();
+    if (session.status !== "signed-in") throw new Error("Missing session");
+    const oauth = {
+      authorizationUrl: `${integrationApi.origin}/oauth/authorize`,
+      tokenUrl: `${integrationApi.origin}/oauth/token`,
+    };
+    const configured = await plane.integrations!.withUser(
+      session.session.user.id,
+      (executor) =>
+        Effect.gen(function* () {
+          yield* executor.openapi.configure(
+            IntegrationSlug.make(registration.slug),
+            {
+              authenticationTemplate: [
+                {
+                  slug: method.template,
+                  kind: "oauth2",
+                  ...oauth,
+                  scopes: [scope],
+                },
+              ],
+            },
+          );
+          yield* executor.oauth.createClient({
+            owner: Owner.make("user"),
+            slug: OAuthClientSlug.make("analytics-fixture"),
+            ...oauth,
+            grant: "authorization_code",
+            clientId: "fixture",
+            clientSecret: "fixture-secret",
+          });
+        }),
+    );
+    if (configured instanceof Error) throw configured;
+    const setup = await authenticatedRpc.integrations.startSetup({
+      integration: registration.slug,
+    });
+    const local = await authenticatedRpc.integrations.submitSetup({
+      setupId: setup.setupId,
+      template: method.template,
+    });
+    const state = new URL(local.authorizationUrl!).searchParams.get("state")!;
+    expect(
+      (
+        await fetch(
+          `${plane.origin}/api/integrations/oauth/callback?state=${encodeURIComponent(state)}&code=fixture-code`,
+          { redirect: "manual", headers: browserHeaders },
+        )
+      ).status,
+    ).toBe(303);
+    expect(
+      await authenticatedRpc.integrations.setup({ setupId: setup.setupId }),
+    ).toMatchObject({ status: "ready" });
+    const reports = await runtime.integrations.search({
+      query: "runReport",
+      integration: registration.slug,
+    });
+    expect(reports.tools).toHaveLength(1);
+    expect(
+      await runtime.integrations.search({
+        query: "delete",
+        integration: registration.slug,
+      }),
+    ).toEqual({ tools: [], truncated: false });
+    const invoked = await agent.run(`
+      var path = ${JSON.stringify(`integrations.${reports.tools[0]!.address}`)};
+      var schema = await tools.describe.tool({ path });
+      if (!schema.ok) throw new Error(JSON.stringify(schema));
+      await tools[path]({ property: "properties/123", body: { dateRanges: [{ startDate: "7daysAgo", endDate: "yesterday" }] } });
+    `);
+    expect(invoked).toMatchObject([{ result: { isError: false } }]);
+    expect(JSON.stringify(invoked)).toContain("linkedin");
+    expect(JSON.stringify(invoked)).toContain("42");
+    expect(JSON.stringify(invoked)).not.toContain("fixture-google-token");
+    expect(JSON.stringify(registered)).not.toContain(
+      testAuth.googleClientSecret,
+    );
+  },
+  20_000,
+);
+
+controlPlaneTest(
+  "detects central Google Discovery URLs and rejects misplaced or malformed scope selections",
+  async ({ authenticatedRpc, integrationApi, plane }) => {
+    await authenticatedRpc.integrations.registerOpenAPI({
+      name: "Analytics default permissions",
+      slug: "analytics-default",
+      url: "https://www.googleapis.com/discovery/v1/apis/analyticsdata/v1beta/rest",
+    });
+    const session = await authenticatedRpc.auth.session();
+    if (session.status !== "signed-in") throw new Error("Missing session");
+    // Preset scopes are managed by Executor, including document-specific overrides.
+    const refreshed = await plane.integrations!.withUser(
+      session.session.user.id,
+      (executor) => executor.openapi.updateSpec("google_gmail"),
+    );
+    if (refreshed instanceof Error) throw refreshed;
+    expect(refreshed.toolCount).toBeGreaterThan(0);
+    const method = (await authenticatedRpc.integrations.catalog()).find(
+      (entry) => entry.integration === "analytics-default",
+    )!.methods[0]!;
+    const setup = await authenticatedRpc.integrations.startSetup({
+      integration: "analytics-default",
+    });
+    const submitted = await authenticatedRpc.integrations.submitSetup({
+      setupId: setup.setupId,
+      template: method.template,
+    });
+    expect(
+      new URL(submitted.authorizationUrl!).searchParams.get("scope"),
+    ).toContain("https://www.googleapis.com/auth/analytics");
+    await expect(
+      authenticatedRpc.integrations.registerOpenAPI({
+        name: "Wrong format",
+        slug: "wrong-format",
+        url: `${integrationApi.origin}/key-spec`,
+        googleOAuthScopes: [
+          "https://www.googleapis.com/auth/analytics.readonly",
+        ],
+      }),
+    ).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: expect.stringContaining(
+        "Google OAuth scopes require an official",
+      ),
+    });
+    for (const googleOAuthScopes of [
+      ["https://www.googleapis.com/auth/analytic.readonly"],
+      ["https://www.googleapis.com/auth/gmail.readonly"],
+    ]) {
+      await expect(
+        authenticatedRpc.integrations.registerOpenAPI({
+          name: "Unsupported scopes",
+          slug: "unsupported-scopes",
+          url: "https://analyticsdata.googleapis.com/$discovery/rest?version=v1beta",
+          googleOAuthScopes,
+        }),
+      ).rejects.toMatchObject({
+        code: "BAD_REQUEST",
+        message: expect.stringContaining(
+          "Choose scopes declared in its API description",
+        ),
+      });
+    }
+    expect(
+      (await authenticatedRpc.integrations.catalog()).some(
+        (entry) => entry.integration === "unsupported-scopes",
+      ),
+    ).toBe(false);
+    for (const googleOAuthScopes of [[], [" "], ["read", "read"]]) {
+      await expect(
+        authenticatedRpc.integrations.registerOpenAPI({
+          name: "Bad scopes",
+          slug: "bad-scopes",
+          url: "https://analyticsdata.googleapis.com/$discovery/rest?version=v1beta",
+          googleOAuthScopes,
+        }),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    }
+  },
 );
 
 controlPlaneTest(
@@ -5006,6 +5242,65 @@ controlPlaneTest(
     ).toBe(1);
   },
 );
+
+function analyticsDiscovery(origin: string) {
+  const read = "https://www.googleapis.com/auth/analytics.readonly";
+  const write = "https://www.googleapis.com/auth/analytics";
+  return JSON.stringify({
+    discoveryVersion: "v1",
+    id: "analyticsdata:v1beta",
+    name: "analyticsdata",
+    version: "v1beta",
+    title: "Google Analytics Data API",
+    rootUrl: `${origin}/`,
+    servicePath: "",
+    auth: {
+      oauth2: {
+        scopes: {
+          [read]: { description: "View Analytics reports" },
+          [write]: { description: "Manage Analytics" },
+        },
+      },
+    },
+    schemas: {
+      RunReportRequest: {
+        type: "object",
+        properties: {
+          dateRanges: { type: "array", items: { type: "object" } },
+        },
+      },
+    },
+    resources: {
+      properties: {
+        methods: {
+          runReport: {
+            id: "analyticsdata.properties.runReport",
+            description: "Run a Google Analytics report",
+            path: "v1beta/{+property}:runReport",
+            httpMethod: "POST",
+            parameters: {
+              property: { type: "string", location: "path", required: true },
+            },
+            scopes: [read, write],
+            request: { $ref: "RunReportRequest" },
+            response: { type: "object" },
+          },
+          // Synthetic write operation verifies scope-based filtering, including POST reports.
+          delete: {
+            id: "analyticsdata.properties.delete",
+            path: "v1beta/{+property}",
+            httpMethod: "DELETE",
+            parameters: {
+              property: { type: "string", location: "path", required: true },
+            },
+            scopes: [write],
+            response: { type: "object" },
+          },
+        },
+      },
+    },
+  });
+}
 
 function gmailDiscovery(origin: string) {
   const parameter = {

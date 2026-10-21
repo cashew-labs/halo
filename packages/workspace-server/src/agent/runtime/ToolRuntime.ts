@@ -261,7 +261,7 @@ const haloToolsPlugin = definePlugin((options?: HaloToolsPluginOptions) => {
           tool({
             name: "registerOpenAPI",
             description:
-              "Register a custom API from a public HTTPS OpenAPI spec URL. Never pass API keys or other credentials here. Returns the integration id. Then use halo.showConnectionCard so the user can finish connecting.",
+              "Register a custom API from its official public HTTPS OpenAPI or Google Discovery description URL; Google Discovery URLs are detected automatically. Find the URL in the provider's documentation when the user names a service. For Google Discovery, optionally set googleOAuthScopes to the least privilege needed; reporting should use read-only scopes. Never pass credentials here. Returns the integration id. Then use halo.showConnectionCard so the user can authorize access.",
             inputSchema: toExecutorSchema(registerOpenAPIInputSchema),
             execute: (args) =>
               Effect.promise(async () => {
@@ -694,7 +694,7 @@ export class ToolRuntime {
       "viewImage({ path }) attaches a workspace PNG, JPEG, or WebP directly to this exec result for model viewing. No await is needed; await returns only { ok: true } or { ok: false, error }, never image bytes. At most 8 images per evaluation; source files must be 20 MiB or smaller. Log observation text separately and viewImage(observation.data.screenshot) when present.",
       ...(this.remoteConnections
         ? [
-            `Find available integrations with tools.executor.integrations.list({ query: "integration name" }); omit query to list them all. Register custom remote MCP servers with tools.halo.registerMcp({ name, slug, endpoint, auth }) and OpenAPI spec URLs with tools.halo.registerOpenAPI({ name, slug, url }). Show an optional connection card with tools.halo.showConnectionCard({ integration }) using an integration ID returned by listing or registration. Discover operations with tools.search({ query, source: "control-plane" }); results contain tools, truncated and unavailableSources. Describe with tools.describe.tool({ path }). Remote paths start with integrations.; invoke the complete saved path with tools[path](args). Credentials are entered in the control plane, never in tool arguments.`,
+            `Find available integrations with tools.executor.integrations.list({ query: "integration name" }); omit query to list them all. If a requested service is missing, find its official API description or remote MCP endpoint in the provider's documentation; do not ask users to identify formats or supply URLs you can look up. Register remote MCP servers with tools.halo.registerMcp({ name, slug, endpoint, auth }) and APIs with tools.halo.registerOpenAPI({ name, slug, url, googleOAuthScopes? }); OpenAPI and official Google Discovery URLs are supported, with automatic format selection. Use least-privilege Google scopes. Show an optional connection card with tools.halo.showConnectionCard({ integration }) using an integration ID returned by listing or registration. Discover operations with tools.search({ query, source: "control-plane" }); results contain tools, truncated and unavailableSources. Describe with tools.describe.tool({ path }). Remote paths start with integrations.; invoke the complete saved path with tools[path](args). Credentials are entered in the control plane, never in tool arguments.`,
           ]
         : []),
     ].join("\n");
