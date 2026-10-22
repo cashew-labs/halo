@@ -305,11 +305,7 @@ export function serveHaloHttp(options: {
           "content-type": "application/json",
           "cache-control": "no-store",
         })
-        .end(
-          JSON.stringify(
-            sockets.issueTicket(clientId, authorization === "cli"),
-          ),
-        );
+        .end(JSON.stringify(sockets.issueTicket(clientId)));
       return;
     }
 
@@ -335,10 +331,7 @@ export function serveHaloHttp(options: {
 
     const handled = await handler.handle(request, response, {
       prefix: "/rpc",
-      context: {
-        ...options.context,
-        browserControlAllowed: authorization === "cli",
-      },
+      context: options.context,
     });
     if (handled.matched) return;
     response.statusCode = 404;
@@ -406,7 +399,6 @@ export function serveHaloHttp(options: {
       sockets.upgrade(request, socket, head, {
         clientId,
         expiresAt,
-        browserControlAllowed: false,
       });
       return;
     }

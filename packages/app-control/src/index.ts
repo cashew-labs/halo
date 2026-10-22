@@ -1,6 +1,8 @@
 export {
   appControlContract,
   type AppControlClient,
+  type BrowserExecution,
+  type BrowserSnapshot,
 } from "./appControlContract.js";
 export { createAppControlClient } from "./createAppControlClient.js";
 export {

@@ -10,6 +10,10 @@
   "port": 8788,
   "cliEntry": "/opt/halo/packages/halo-cli/src/cli.ts",
   "cliNodeExecutable": "/usr/local/bin/node",
+  "chrome": {
+    "profileDir": "/home/node/.config/halo-chrome",
+    "launcher": "/usr/local/bin/halo-chrome"
+  },
   "extensionRuntime": {
     "executable": "/usr/local/bin/node",
     "electronRunAsNode": false

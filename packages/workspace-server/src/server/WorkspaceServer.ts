@@ -17,7 +17,11 @@ import { hotkeyTools } from "../hotkeys/hotkeyTools.js";
 import path from "node:path";
 import { TursoThreadRepo } from "../database/TursoThreadRepo.js";
 import { DatabaseService } from "../database/DatabaseService.js";
-import { BrowserService } from "../browser/BrowserService.js";
+import {
+  BrowserService,
+  type ChromeConfig,
+} from "../browser/BrowserService.js";
+import { browserTools } from "../browser/browserTools.js";
 import { ComputerService } from "../computer/ComputerService.js";
 import { computerTools } from "../computer/computerTools.js";
 import type { Logger } from "@get-halo/logger";
@@ -81,6 +85,8 @@ export type WorkspaceServerConfig = {
   traceWorkspaceId?: string;
   gateway?: WorkspaceGatewayIdentity;
   desktopOrigin?: string;
+  // The workspace's headed Chrome; enables the agent browser tools.
+  chrome?: ChromeConfig;
   cliEntry?: string;
   cliNodeExecutable?: string;
   cliElectronRunAsNode?: boolean;
@@ -145,7 +151,7 @@ export class WorkspaceServer {
   private readonly toolRuntime: ToolRuntime;
   private readonly web: ParallelSearchService;
   private readonly connectionService: ConnectionService;
-  private readonly browsers: BrowserService;
+  private readonly browsers: BrowserService | undefined;
   private readonly extensions: ExtensionHost;
   private readonly http: ListeningHaloHttp;
   private readonly requests: ServingHaloHttp;
@@ -166,7 +172,7 @@ export class WorkspaceServer {
     toolRuntime: ToolRuntime;
     web: ParallelSearchService;
     connectionService: ConnectionService;
-    browsers: BrowserService;
+    browsers: BrowserService | undefined;
     extensions: ExtensionHost;
     http: ListeningHaloHttp;
     requests: ServingHaloHttp;
@@ -312,6 +318,14 @@ export class WorkspaceServer {
       if (closed instanceof Error)
         host.logger.warn({ event: "computer-cleanup-failed", error: closed });
     });
+    const browsers =
+      config.chrome === undefined || config.sharedApp !== undefined
+        ? undefined
+        : new BrowserService({
+            chrome: config.chrome,
+            workspaceRoot,
+          });
+    cleanup.defer(async () => await browsers?.shutdown());
     const [initialized, toolRuntime] = await Promise.all([
       workspace.initialize(),
       ToolRuntime.create({
@@ -321,6 +335,7 @@ export class WorkspaceServer {
         userId: config.ownerUserId,
         tools: host.tools ?? {
           computer: hasDesktop ? computerTools : {},
+          browser: browsers === undefined ? {} : browserTools,
           files: {
             read: readTool,
             viewImage: viewImageTool,
@@ -343,6 +358,7 @@ export class WorkspaceServer {
           automations,
           web,
           computer,
+          browser: browsers,
           // Threads and automation services borrow the runtime during startup.
           get threads() {
             return threads;
@@ -360,6 +376,7 @@ export class WorkspaceServer {
         authority: new StaticAgentAuthority(
           host.agentCapabilities ?? [
             ...(hasDesktop ? ["workspace.computer"] : []),
+            ...(browsers === undefined ? [] : ["workspace.browser"]),
             "workspace.hotkeys",
             "workspace.automations",
             "workspace.files.read",
@@ -398,10 +415,6 @@ export class WorkspaceServer {
       remoteApps: host.remoteApps,
     });
     cleanup.defer(async () => await extensions.stop());
-    const browsers = new BrowserService({
-      headersFor: (origin) => extensions.ownerHeadersFor(origin),
-    });
-    cleanup.defer(async () => await browsers.shutdown());
     const uploads = new UploadService({ filesystem, workspaceRoot });
     const uploadsStarted = await uploads.start();
     if (uploadsStarted instanceof Error) return uploadsStarted;
@@ -499,7 +512,6 @@ export class WorkspaceServer {
         automationRunner,
         automationSources,
         traces,
-        browsers,
         extensions,
         remoteApps: host.remoteApps,
         appActions: host.appActions,
@@ -521,7 +533,6 @@ export class WorkspaceServer {
         connections: connectionService,
         toolRuntime,
         logger: host.logger,
-        browserControlAllowed: false,
         testApiEnabled: config.testApiEnabled === true,
       },
       corsOrigins: config.corsOrigins,
@@ -575,7 +586,7 @@ export class WorkspaceServer {
     const threadsClosed = await this.threads.shutdown();
     this.uploads.close();
     await this.traces.close();
-    await this.browsers.shutdown();
+    await this.browsers?.shutdown();
     await this.extensions.stop();
     const toolsClosed = await this.toolRuntime.close();
     const webClosed = await this.web.close();
