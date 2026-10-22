@@ -27,6 +27,19 @@
     "typescript/no-unnecessary-type-parameters": "off",
     "typescript/no-unsafe-type-assertion": "off",
     "typescript/promise-function-async": "error",
+    "typescript/restrict-template-expressions": [
+      "error",
+      {
+        "allow": [
+          { "from": "lib", "name": ["Error", "URL", "URLSearchParams"] },
+          {
+            "from": "package",
+            "name": "StyleElement",
+            "package": "purse-styles"
+          }
+        ]
+      }
+    ],
     "typescript/return-await": ["error", "always"],
     "typescript/unbound-method": "off",
     "unicorn/no-null": "error",
