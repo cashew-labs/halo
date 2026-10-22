@@ -6743,6 +6743,93 @@ controlPlaneTest(
   },
 );
 
+// Durable: installed extensions must launch their own route, not Halo's root.
+controlPlaneTest(
+  "serves independent extension install manifests without credentials",
+  async ({ plane, webRoot }) => {
+    await fs.writeFile(
+      join(webRoot, "index.html"),
+      '<link rel="manifest" href="/manifest.json" /><main>Halo</main>',
+    );
+    await fs.copyFile(
+      resolve(import.meta.dirname, "../../web-app/public/manifest.json"),
+      join(webRoot, "manifest.json"),
+    );
+    for (const route of [
+      "/extensions/fuel",
+      "/extensions/fuel/",
+      "/Extensions/fuel",
+    ]) {
+      const shell = await fetch(`${plane.origin}${route}`);
+      const html = await shell.text();
+      expect(html).toContain(
+        '<meta name="halo-extension-id" content="fuel" />',
+      );
+      expect(html).not.toContain('rel="manifest"');
+    }
+    const fallback = await fetch(
+      `${plane.origin}/manifest.json?extension=fuel`,
+    );
+    expect(await fallback.json()).toMatchObject({
+      id: "/extensions/fuel",
+      name: "fuel",
+      short_name: "fuel",
+      start_url: "/extensions/fuel",
+    });
+
+    const query = new URLSearchParams({
+      extension: "fuel",
+      name: 'Fuel & "Fitness" 🏃',
+    });
+    const manifestUrl = `${plane.origin}/manifest.json?${query.toString()}`;
+    const response = await fetch(manifestUrl);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe(
+      "application/manifest+json; charset=utf-8",
+    );
+    expect(response.headers.get("cache-control")).toBe("no-cache");
+    expect(await response.json()).toMatchObject({
+      id: "/extensions/fuel",
+      name: 'Fuel & "Fitness" 🏃',
+      short_name: 'Fuel & "Fitness" 🏃',
+      start_url: "/extensions/fuel",
+      scope: "/",
+      display: "standalone",
+      icons: expect.arrayContaining([
+        {
+          src: "/icon-192.png",
+          sizes: "192x192",
+          type: "image/png",
+          purpose: "any",
+        },
+      ]),
+    });
+    const head = await fetch(manifestUrl, { method: "HEAD" });
+    expect(head.headers.get("content-length")).toBe(
+      response.headers.get("content-length"),
+    );
+    expect(await head.text()).toBe("");
+
+    const other = await fetch(
+      `${plane.origin}/manifest.json?extension=notes&name=Notes`,
+    );
+    expect(await other.json()).toMatchObject({
+      id: "/extensions/notes",
+      name: "Notes",
+      start_url: "/extensions/notes",
+    });
+    const root = await fetch(`${plane.origin}/manifest.json`);
+    expect(await root.json()).toMatchObject({
+      id: "/",
+      name: "Halo",
+      start_url: "/",
+    });
+    expect(await (await fetch(plane.origin)).text()).toContain(
+      '<link rel="manifest" href="/manifest.json" />',
+    );
+  },
+);
+
 async function writeStagingOverrides(webRoot: string) {
   await fs.mkdir(join(webRoot, "staging"), { recursive: true });
   await Promise.all([
