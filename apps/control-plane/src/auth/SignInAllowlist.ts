@@ -1,3 +1,4 @@
+import type { LoggerApi } from "@get-halo/logger";
 import * as errore from "errore";
 
 class SignInAllowlistError extends errore.createTaggedError({
@@ -17,17 +18,20 @@ export class SignInAllowlist {
   private checkedAt = 0;
   // One read at a time; concurrent requests share it.
   private refreshing: Promise<SignInAllowlistError | undefined> | undefined;
+  private readonly logger: LoggerApi;
   private readonly read: () => Promise<string | Error>;
   private readonly refreshMs: number;
   private readonly timeoutMs: number;
   private readonly now: () => number;
 
   constructor(ctx: {
+    logger: LoggerApi;
     read: () => Promise<string | Error>;
     refreshMs: number;
     timeoutMs?: number;
     now?: () => number;
   }) {
+    this.logger = ctx.logger;
     this.read = ctx.read;
     this.refreshMs = ctx.refreshMs;
     this.timeoutMs = ctx.timeoutMs ?? 5_000;
@@ -63,7 +67,8 @@ export class SignInAllowlist {
         cause: source,
       });
       // With a list in hand callers fall back to it, so report the failure here.
-      if (this.emails !== undefined) console.error(error);
+      if (this.emails !== undefined)
+        this.logger.warn({ event: "sign-in-allowlist-refresh-failed" });
       return error;
     }
     this.emails = parseEmails(source);

@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import type { LoggerApi } from "@get-halo/logger";
 import getRawBody from "raw-body";
 import * as errore from "errore";
 import type { AuthService } from "../auth/AuthService.js";
@@ -26,6 +27,7 @@ export function isAppHandoffRequest(url: URL) {
  * single-use code, never Halo's session cookie.
  */
 export async function serveAppHandoff(ctx: {
+  logger: LoggerApi;
   request: IncomingMessage;
   response: ServerResponse;
   url: URL;
@@ -59,7 +61,10 @@ export async function serveAppHandoff(ctx: {
   const known = await ctx.store.hasHandle(handle);
   // coverage-exempt: App database outage; no service mocks in the real control-plane fixture.
   if (known instanceof Error) {
-    console.error(known);
+    ctx.logger.error({
+      event: "app-handoff-handle-lookup-failed",
+      errorType: known.name,
+    });
     respond(response, 500);
     return;
   }
@@ -82,7 +87,10 @@ export async function serveAppHandoff(ctx: {
   const session = await ctx.auth.getSession(headers);
   // coverage-exempt: Auth database outage; no service mocks in the real control-plane fixture.
   if (session instanceof Error) {
-    console.error(session);
+    ctx.logger.error({
+      event: "app-handoff-session-failed",
+      errorType: session.name,
+    });
     respond(response, 500);
     return;
   }
@@ -98,7 +106,10 @@ export async function serveAppHandoff(ctx: {
     const started = await ctx.auth.startAppSignIn(handoff.toString());
     // coverage-exempt: Better Auth failed to start Google sign-in; the success path is tested.
     if (started instanceof Error) {
-      console.error(started);
+      ctx.logger.error({
+        event: "app-sign-in-start-failed",
+        errorType: started.name,
+      });
       respond(response, 500);
       return;
     }
@@ -142,7 +153,10 @@ export async function serveAppHandoff(ctx: {
   });
   // coverage-exempt: App database outage; no service mocks in the real control-plane fixture.
   if (code instanceof Error) {
-    console.error(code);
+    ctx.logger.error({
+      event: "app-handoff-code-create-failed",
+      errorType: code.name,
+    });
     respond(response, 500);
     return;
   }

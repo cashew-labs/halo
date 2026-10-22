@@ -172,6 +172,9 @@ importers:
       '@get-halo/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@get-halo/logger':
+        specifier: workspace:*
+        version: link:../../packages/logger
       '@get-halo/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -209,9 +212,6 @@ importers:
         specifier: ^4.23.13
         version: 4.23.13
     devDependencies:
-      '@get-halo/logger':
-        specifier: workspace:*
-        version: link:../../packages/logger
       '@get-halo/typescript-config':
         specifier: workspace:*
         version: link:../../packages/typescript-config

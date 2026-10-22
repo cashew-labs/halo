@@ -1,4 +1,5 @@
 import { Type } from "@sinclair/typebox";
+import type { LoggerApi } from "@get-halo/logger";
 import { Value } from "@sinclair/typebox/value";
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import type { Duplex } from "node:stream";
@@ -87,7 +88,11 @@ export class WorkspaceGateway {
     this.workspace = ctx.workspace;
   }
 
-  async serve(request: IncomingMessage, response: ServerResponse) {
+  async serve(
+    request: IncomingMessage,
+    response: ServerResponse,
+    logger: LoggerApi,
+  ) {
     if (request.method === "OPTIONS") {
       respondToPreflight(request, response);
       return;
@@ -120,7 +125,10 @@ export class WorkspaceGateway {
       );
       if (ticket instanceof Error) {
         // coverage-exempt: Response to an external auth/database outage; no service mocks in the full gateway fixture.
-        console.error(ticket);
+        logger.error({
+          event: "workspace-socket-ticket-failed",
+          errorType: ticket.name,
+        });
         respond(request, response, 500);
         return;
       }
@@ -140,7 +148,10 @@ export class WorkspaceGateway {
 
     const session = await this.auth.getSession(requestHeaders(request));
     if (session instanceof Error) {
-      console.error(session);
+      logger.error({
+        event: "workspace-proxy-session-failed",
+        errorType: session.name,
+      });
       respond(request, response, 500);
       return;
     }
@@ -151,7 +162,7 @@ export class WorkspaceGateway {
 
     const connection = await this.workspace.getConnection(session.user.id);
     if (connection instanceof Error) {
-      console.error(connection);
+      logger.error({ event: "workspace-proxy-connection-failed" });
       respond(request, response, 503);
       return;
     }
@@ -162,12 +173,13 @@ export class WorkspaceGateway {
 
     const authorization = await this.authorization.headers(connection);
     if (authorization instanceof Error) {
-      console.error(authorization);
+      logger.error({ event: "workspace-proxy-authorization-failed" });
       respond(request, response, 502);
       return;
     }
 
     await forwardWorkspaceRequest({
+      logger,
       request,
       response,
       origin: connection.origin,
@@ -176,7 +188,12 @@ export class WorkspaceGateway {
     });
   }
 
-  async upgrade(request: IncomingMessage, socket: Duplex, head: Buffer) {
+  async upgrade(
+    request: IncomingMessage,
+    socket: Duplex,
+    head: Buffer,
+    logger: LoggerApi,
+  ) {
     const url = new URL(request.url ?? "/", this.publicOrigin);
     const rpcSocket = url.pathname === "/workspace/rpc/socket";
     const protocols =
@@ -190,7 +207,10 @@ export class WorkspaceGateway {
       ? await this.auth.consumeWorkspaceSocketTicket(ticket ?? "")
       : await this.auth.getSession(requestHeaders(request));
     if (session instanceof Error) {
-      console.error(session);
+      logger.error({
+        event: "workspace-upgrade-session-failed",
+        errorType: session.name,
+      });
       respondToUpgrade(socket, 500);
       return;
     }
@@ -201,7 +221,7 @@ export class WorkspaceGateway {
 
     const connection = await this.workspace.getConnection(session.user.id);
     if (connection instanceof Error) {
-      console.error(connection);
+      logger.error({ event: "workspace-upgrade-connection-failed" });
       respondToUpgrade(socket, 503);
       return;
     }
@@ -212,7 +232,7 @@ export class WorkspaceGateway {
 
     const authorization = await this.authorization.headers(connection);
     if (authorization instanceof Error) {
-      console.error(authorization);
+      logger.error({ event: "workspace-upgrade-authorization-failed" });
       respondToUpgrade(socket, 502);
       return;
     }
@@ -240,11 +260,16 @@ export class WorkspaceGateway {
           cause,
         }),
     );
-    if (proxied instanceof Error) console.error(proxied);
+    if (proxied instanceof Error)
+      logger.error({
+        event: "workspace-upgrade-failed",
+        errorType: proxied.name,
+      });
   }
 }
 
 async function forwardWorkspaceRequest(ctx: {
+  logger: LoggerApi;
   authorization: Readonly<Record<string, string>>;
   origin: string;
   publicOrigin: URL;
@@ -268,7 +293,10 @@ async function forwardWorkspaceRequest(ctx: {
     );
   if (!(proxied instanceof Error)) return;
 
-  console.error(proxied);
+  ctx.logger.error({
+    event: "workspace-proxy-failed",
+    errorType: proxied.name,
+  });
   if (!ctx.response.headersSent) respond(ctx.request, ctx.response, 502);
   if (!ctx.response.writableEnded) ctx.response.end();
 }

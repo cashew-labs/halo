@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import type { LoggerApi } from "@get-halo/logger";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { togetherModel } from "@get-halo/config/inference";
@@ -74,13 +75,14 @@ export type WorkspaceInference = {
 
 /** Transport for the workspace's existing OpenAI-compatible LLMApi. */
 export async function serveWorkspaceInference(ctx: {
+  logger: LoggerApi;
   request: IncomingMessage;
   response: ServerResponse;
   workspace: WorkspaceService;
   apps: AppService;
   inference: WorkspaceInference | undefined;
 }) {
-  const { request, response, workspace, inference } = ctx;
+  const { request, response, workspace, inference, logger } = ctx;
   response.setHeader("cache-control", "no-store");
   if (request.method !== "POST") {
     response.writeHead(405, { allow: "POST" }).end();
@@ -99,7 +101,10 @@ export async function serveWorkspaceInference(ctx: {
       : undefined;
   // coverage-exempt: App database outage; no service mocks in the real control-plane fixture.
   if (app instanceof Error) {
-    console.error(app);
+    logger.error({
+      event: "inference-app-authentication-failed",
+      errorType: app.name,
+    });
     response.writeHead(500).end();
     return;
   }
@@ -108,7 +113,10 @@ export async function serveWorkspaceInference(ctx: {
     return;
   }
   if (identity instanceof Error && !app) {
-    console.error(identity);
+    logger.error({
+      event: "inference-workspace-authentication-failed",
+      errorType: identity.name,
+    });
     response.writeHead(500).end();
     return;
   }
@@ -165,7 +173,10 @@ export async function serveWorkspaceInference(ctx: {
     const allowed = await ctx.apps.consumeInference(app);
     // coverage-exempt: App database outage while counting the request.
     if (allowed instanceof Error) {
-      console.error(allowed);
+      logger.error({
+        event: "inference-budget-check-failed",
+        errorType: allowed.name,
+      });
       response.writeHead(500).end();
       return;
     }
@@ -182,13 +193,14 @@ export async function serveWorkspaceInference(ctx: {
   response.once("close", disconnected);
   cleanup.defer(() => response.off("close", disconnected));
   const upstream = await requestInference({
+    logger,
     inference,
     body,
     signal: controller.signal,
   });
   if (controller.signal.aborted) return;
   if (upstream instanceof Error) {
-    console.error(upstream);
+    logger.error({ event: "inference-provider-request-failed" });
     response.writeHead(502).end();
     return;
   }
@@ -215,15 +227,16 @@ export async function serveWorkspaceInference(ctx: {
   );
   if (forwarded === undefined) return;
   if (errore.isAbortError(forwarded)) return;
-  console.error(forwarded);
+  logger.error({ event: "inference-provider-stream-failed" });
 }
 
 async function requestInference(ctx: {
+  logger: LoggerApi;
   inference: WorkspaceInference;
   body: CompletionRequest;
   signal: AbortSignal;
 }) {
-  const { inference, body, signal } = ctx;
+  const { inference, body, signal, logger } = ctx;
   const primary = await requestProvider({
     provider: inference.primary,
     body,
@@ -235,10 +248,11 @@ async function requestInference(ctx: {
     ![429, 500, 502, 503, 504].includes(primary.status)
   )
     return primary;
-  console.warn("Workspace inference fallback", {
+  logger.warn({
+    event: "workspace-inference-fallback",
     primary: inference.primary.name,
     fallback: inference.fallback.name,
-    failure: primary instanceof Error ? primary : primary.status,
+    status: primary instanceof Error ? "unavailable" : primary.status,
   });
   if (!(primary instanceof Error) && primary.body !== null) {
     const cancelled = await primary.body.cancel().catch(
@@ -249,7 +263,8 @@ async function requestInference(ctx: {
           cause,
         }),
     );
-    if (cancelled instanceof Error) console.warn(cancelled);
+    if (cancelled instanceof Error)
+      logger.warn({ event: "inference-response-cancel-failed" });
   }
   if (signal.aborted) return new InferenceDisconnectedError();
   return await requestProvider({ provider: inference.fallback, body, signal });

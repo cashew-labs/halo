@@ -23,6 +23,7 @@
     "@executor-js/sdk": "1.6.0",
     "@get-halo/client": "workspace:*",
     "@get-halo/config": "workspace:*",
+    "@get-halo/logger": "workspace:*",
     "@get-halo/shared": "workspace:*",
     "@orpc/server": "2.0.0-beta.29",
     "@sinclair/typebox": "^0.34.52",
@@ -37,7 +38,6 @@
     "tsx": "^4.23.13"
   },
   "devDependencies": {
-    "@get-halo/logger": "workspace:*",
     "@get-halo/typescript-config": "workspace:*",
     "@get-halo/workspace-server": "workspace:*",
     "@modelcontextprotocol/sdk": "1.30.0",

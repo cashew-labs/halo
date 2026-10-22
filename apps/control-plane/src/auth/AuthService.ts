@@ -8,6 +8,7 @@ import { toNodeHandler } from "better-auth/node";
 import { bearer, oneTimeToken } from "better-auth/plugins";
 import { symmetricDecrypt, symmetricEncrypt } from "better-auth/crypto";
 import { apiKey } from "@better-auth/api-key";
+import type { LoggerApi } from "@get-halo/logger";
 import * as errore from "errore";
 import type { DatabaseClient, DatabaseService } from "../DatabaseService.js";
 import type { SignInAllowlist } from "./SignInAllowlist.js";
@@ -45,6 +46,7 @@ export class WorkspaceAuthenticationRequiredError extends errore.createTaggedErr
 ) {}
 
 type AuthServiceOptions = {
+  logger: LoggerApi;
   db: DatabaseService;
   origin: string;
   secret: string;
@@ -127,6 +129,7 @@ function authOptions(options: AuthServiceOptions, database: DatabaseClient) {
       errorURL: new URL("/api/desktop-auth/error", options.origin).toString(),
     },
     databaseHooks: signInHooks({
+      logger: options.logger,
       allowlist: options.signInAllowlist,
       findUserEmail: async (userId) => await findUserEmail(database, userId),
     }),
@@ -187,6 +190,7 @@ type AuthOptions = ReturnType<typeof authOptions>;
 type BetterAuth = Auth<AuthOptions>;
 
 export class AuthService {
+  private readonly logger: LoggerApi;
   private readonly auth: BetterAuth;
   private readonly nodeHandler: NodeHandler;
   private readonly origin: string;
@@ -195,6 +199,7 @@ export class AuthService {
   private readonly stagingTesters: SignInAllowlist | undefined;
 
   private constructor(ctx: {
+    logger: LoggerApi;
     auth: BetterAuth;
     nodeHandler: NodeHandler;
     origin: string;
@@ -202,6 +207,7 @@ export class AuthService {
     signInAllowlist: SignInAllowlist | undefined;
     stagingTesters: SignInAllowlist | undefined;
   }) {
+    this.logger = ctx.logger;
     this.signInAllowlist = ctx.signInAllowlist;
     this.stagingTesters = ctx.stagingTesters;
     this.auth = ctx.auth;
@@ -227,6 +233,7 @@ export class AuthService {
     const auth = betterAuth(config);
 
     return new AuthService({
+      logger: options.logger,
       auth,
       nodeHandler: toNodeHandler(auth),
       origin: options.origin,
@@ -384,7 +391,8 @@ export class AuthService {
   private async hasStagingAccess(email: string) {
     if (this.stagingTesters === undefined) return false;
     const allowed = await this.stagingTesters.allows(email);
-    if (allowed instanceof Error) console.error(allowed);
+    if (allowed instanceof Error)
+      this.logger.error({ event: "staging-access-check-failed" });
     return allowed === true;
   }
 

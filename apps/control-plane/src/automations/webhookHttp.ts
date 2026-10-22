@@ -1,4 +1,5 @@
 import type { AutomationEvent } from "@get-halo/client";
+import type { LoggerApi } from "@get-halo/logger";
 import crypto from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import getRawBody from "raw-body";
@@ -20,6 +21,7 @@ class WebhookBodyError extends errore.createTaggedError({
 }) {}
 
 export async function serveWebhook(ctx: {
+  logger: LoggerApi;
   request: IncomingMessage;
   response: ServerResponse;
   url: URL;
@@ -40,7 +42,7 @@ export async function serveWebhook(ctx: {
     : (url.searchParams.get("token") ?? "");
   const registration = await ctx.webhooks.authenticate(ctx.webhookId, token);
   if (registration instanceof Error) {
-    console.error(registration);
+    ctx.logger.error({ event: "webhook-authentication-failed" });
     response.writeHead(503).end();
     return;
   }
@@ -120,7 +122,11 @@ export async function serveWebhook(ctx: {
     return;
   }
   if (receipt instanceof Error) {
-    console.error(receipt);
+    ctx.logger.error({
+      event: "webhook-enqueue-failed",
+      workspaceId: registration.workspace_id,
+      automationId: registration.automation_id,
+    });
     response.writeHead(503).end();
     return;
   }

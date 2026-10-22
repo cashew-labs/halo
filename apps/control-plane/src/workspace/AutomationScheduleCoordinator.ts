@@ -3,6 +3,7 @@ import { createHaloClient, protocolHeader } from "@get-halo/client";
 import { GoogleAuth } from "google-auth-library";
 import * as errore from "errore";
 import type { PoolClient } from "pg";
+import type { LoggerApi } from "@get-halo/logger";
 import type { DatabaseService } from "../DatabaseService.js";
 import type { WorkspaceService } from "./WorkspaceService.js";
 import type { WorkspaceProviderConnection } from "./provider/WorkspaceProviderApi.js";
@@ -29,16 +30,20 @@ export class AutomationScheduleCoordinator {
   private readonly db: DatabaseService;
   private readonly workspace: WorkspaceService;
   private readonly auth = new GoogleAuth();
+  private readonly logger: LoggerApi;
 
   private constructor(ctx: {
+    logger: LoggerApi;
     db: DatabaseService;
     workspace: WorkspaceService;
   }) {
+    this.logger = ctx.logger;
     this.db = ctx.db;
     this.workspace = ctx.workspace;
   }
 
   static async start(ctx: {
+    logger: LoggerApi;
     db: DatabaseService;
     workspace: WorkspaceService;
   }) {
@@ -60,7 +65,7 @@ export class AutomationScheduleCoordinator {
   async update(workspaceId: string, snapshot: AutomationScheduleSnapshot) {
     const db = this.db.client;
     if (db instanceof DatabaseSync) {
-      const updated = sqliteTransaction(db, () => {
+      const updated = sqliteTransaction(db, this.logger, () => {
         const ids = snapshot.automations.map((routine) => routine.id); // coverage-exempt: PostgreSQL snapshot field rename; equivalent SQLite replacement is exercised.
         if (ids.length === 0)
           db.prepare(
@@ -182,7 +187,11 @@ export class AutomationScheduleCoordinator {
         }),
     );
 
-    if (rolledBack instanceof Error) console.error(rolledBack);
+    if (rolledBack instanceof Error)
+      this.logger.error({
+        event: "automation-schedule-rollback-failed",
+        databaseType: "postgres",
+      });
   }
 
   private scheduleTick() {
@@ -195,7 +204,7 @@ export class AutomationScheduleCoordinator {
   private async tick() {
     const due = await this.claimDue();
     if (due instanceof Error) {
-      console.error(due);
+      this.logger.error({ event: "automation-schedule-claim-failed" });
       return;
     }
     const grouped = new Map<string, string[]>();
@@ -216,7 +225,7 @@ export class AutomationScheduleCoordinator {
     const db = this.db.client;
     const now = Date.now();
     if (db instanceof DatabaseSync)
-      return sqliteTransaction(db, () => {
+      return sqliteTransaction(db, this.logger, () => {
         // SAFETY: The projection matches workspace_routine_schedule columns.
         const rows = db
           .prepare(`SELECT workspace_id, routine_id FROM workspace_routine_schedule
@@ -268,13 +277,19 @@ export class AutomationScheduleCoordinator {
   private async fire(workspaceId: string, routineIds: string[]) {
     const connection = await this.workspace.wakeForAutomation(workspaceId);
     if (connection instanceof Error) {
-      console.error(connection);
+      this.logger.error({
+        event: "automation-schedule-wake-failed",
+        workspaceId,
+      });
       return;
     }
     if (connection === undefined) return;
     const headers = await this.authorization(connection);
     if (headers instanceof Error) {
-      console.error(headers);
+      this.logger.error({
+        event: "automation-schedule-authorization-failed",
+        workspaceId,
+      });
       return;
     }
     const client = createHaloClient({
@@ -301,7 +316,12 @@ export class AutomationScheduleCoordinator {
               }),
           );
 
-        if (started instanceof Error) console.error(started);
+        if (started instanceof Error)
+          this.logger.error({
+            event: "automation-schedule-run-failed",
+            workspaceId,
+            automationId: routineId,
+          });
       }),
     );
   }
@@ -385,7 +405,11 @@ export class AutomationScheduleCoordinator {
   }
 }
 
-function sqliteTransaction<T>(db: DatabaseSync, work: () => T): T | Error {
+function sqliteTransaction<T>(
+  db: DatabaseSync,
+  logger: LoggerApi,
+  work: () => T,
+): T | Error {
   const begun = errore.try({
     try: () => db.exec("BEGIN IMMEDIATE"),
     catch: (cause) =>
@@ -422,6 +446,10 @@ function sqliteTransaction<T>(db: DatabaseSync, work: () => T): T | Error {
       }),
   });
 
-  if (rolledBack instanceof Error) console.error(rolledBack);
+  if (rolledBack instanceof Error)
+    logger.error({
+      event: "automation-schedule-rollback-failed",
+      databaseType: "sqlite",
+    });
   return result;
 }

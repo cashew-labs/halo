@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import * as errore from "errore";
+import { Logger } from "@get-halo/logger";
 import { expect, test } from "vitest";
 import { DatabaseService } from "../DatabaseService.js";
 import {
@@ -35,11 +36,13 @@ const credentialTest = test.extend<{
 
     await use(async (encryptionKey) => {
       const url = process.env.HALO_TEST_POSTGRES_URL;
-      const db = await DatabaseService.start(
-        url === undefined
-          ? { type: "sqlite", path: databasePath }
-          : { type: "postgres", connectionString: url },
-      );
+      const db = await DatabaseService.start({
+        logger: new Logger(),
+        config:
+          url === undefined
+            ? { type: "sqlite", path: databasePath }
+            : { type: "postgres", connectionString: url },
+      });
       if (db instanceof Error) throw db;
       cleanup.defer(async () => {
         if (
@@ -139,8 +142,8 @@ credentialTest(
   async ({ databasePath }) => {
     await using cleanup = new errore.AsyncDisposableStack();
     const db = await DatabaseService.start({
-      type: "sqlite",
-      path: databasePath,
+      logger: new Logger(),
+      config: { type: "sqlite", path: databasePath },
     });
     if (db instanceof Error) throw db;
     cleanup.defer(async () => {

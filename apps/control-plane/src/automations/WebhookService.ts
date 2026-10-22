@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import * as errore from "errore";
 import type { AutomationWebhookAccess } from "@get-halo/client";
+import type { LoggerApi } from "@get-halo/logger";
 import type { CredentialService } from "../credentials/CredentialService.js";
 import {
   AutomationRegistrationError,
@@ -24,11 +25,14 @@ export class WebhookService {
   private readonly store: AutomationStore;
   private readonly credentials: CredentialService | undefined;
   private readonly origin: string;
+  private readonly logger: LoggerApi;
   constructor(ctx: {
+    logger: LoggerApi;
     store: AutomationStore;
     credentials?: CredentialService;
     origin: string;
   }) {
+    this.logger = ctx.logger;
     this.store = ctx.store;
     this.credentials = ctx.credentials;
     this.origin = ctx.origin;
@@ -91,7 +95,12 @@ export class WebhookService {
     if (result instanceof Error) return result;
     if (result.previous !== undefined) {
       const deleted = await credentials.delete(owner, result.previous);
-      if (deleted instanceof Error) console.error(deleted);
+      if (deleted instanceof Error)
+        this.logger.error({
+          event: "webhook-credential-delete-failed",
+          workspaceId: registration.workspace_id,
+          automationId: registration.automation_id,
+        });
     }
     const endpoint = this.endpoint(registration);
     const access: AutomationWebhookAccess = {

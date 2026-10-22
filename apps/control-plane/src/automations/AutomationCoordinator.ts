@@ -4,6 +4,7 @@ import * as errore from "errore";
 import type { WorkspaceService } from "../workspace/WorkspaceService.js";
 import type { WorkspaceProviderConnection } from "../workspace/provider/WorkspaceProviderApi.js";
 import type { AutomationStore } from "./AutomationStore.js";
+import type { LoggerApi } from "@get-halo/logger";
 
 class AutomationDeliveryError extends errore.createTaggedError({
   name: "AutomationDeliveryError",
@@ -19,7 +20,13 @@ export class AutomationCoordinator {
   private readonly workspace: WorkspaceService;
   private readonly auth = new GoogleAuth();
 
-  constructor(ctx: { store: AutomationStore; workspace: WorkspaceService }) {
+  private readonly logger: LoggerApi;
+  constructor(ctx: {
+    store: AutomationStore;
+    workspace: WorkspaceService;
+    logger: LoggerApi;
+  }) {
+    this.logger = ctx.logger;
     this.store = ctx.store;
     this.workspace = ctx.workspace;
   }
@@ -44,7 +51,7 @@ export class AutomationCoordinator {
     if (Date.now() - this.lastPrunedAt > 60 * 60 * 1000) {
       const pruned = await this.store.prune();
       if (pruned instanceof Error) {
-        console.error(pruned);
+        this.logger.error({ event: "automation-prune-failed" });
         return;
       }
       this.lastPrunedAt = Date.now();
@@ -54,7 +61,7 @@ export class AutomationCoordinator {
     for (let index = 0; index < 20 && !this.closed; index++) {
       const claimed = await this.store.claim();
       if (claimed instanceof Error) {
-        console.error(claimed);
+        this.logger.error({ event: "automation-claim-failed" });
         return;
       }
       if (claimed === undefined) return;
@@ -63,7 +70,11 @@ export class AutomationCoordinator {
         automationId: claimed.event.automationId,
       });
       if (registration instanceof Error) {
-        console.error(registration);
+        this.logger.error({
+          event: "automation-registration-read-failed",
+          workspaceId: claimed.workspaceId,
+          automationId: claimed.event.automationId,
+        });
         return;
       }
       if (
@@ -77,7 +88,11 @@ export class AutomationCoordinator {
           cancelled: true,
           error: "Automation changed before delivery.",
         });
-        if (cancelled instanceof Error) console.error(cancelled);
+        if (cancelled instanceof Error)
+          this.logger.error({
+            event: "automation-delivery-cancel-failed",
+            eventId: claimed.event.eventId,
+          });
         continue;
       }
       const result = await this.deliver(claimed);
@@ -88,7 +103,11 @@ export class AutomationCoordinator {
         error: result instanceof Error ? result.message : undefined,
         retryMs: Math.min(60_000, 1000 * 2 ** Math.min(claimed.attempts, 6)),
       });
-      if (saved instanceof Error) console.error(saved);
+      if (saved instanceof Error)
+        this.logger.error({
+          event: "automation-delivery-settle-failed",
+          eventId: claimed.event.eventId,
+        });
     }
   }
 

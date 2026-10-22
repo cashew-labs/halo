@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import type { LoggerApi } from "@get-halo/logger";
 import type { AuthService } from "../auth/AuthService.js";
 import type { AppStore } from "./AppStore.js";
 import { isAppRequestError, type AppService } from "./AppService.js";
@@ -18,6 +19,7 @@ export function isTemplateRequest(url: URL) {
  * demo frame on the creator host.
  */
 export async function serveTemplate(ctx: {
+  logger: LoggerApi;
   request: IncomingMessage;
   response: ServerResponse;
   url: URL;
@@ -33,7 +35,10 @@ export async function serveTemplate(ctx: {
   const template = await ctx.store.findTemplate(slug);
   // coverage-exempt: App database outage; no service mocks in the real control-plane fixture.
   if (template instanceof Error) {
-    console.error(template);
+    ctx.logger.error({
+      event: "template-lookup-failed",
+      errorType: template.name,
+    });
     respond(response, 500);
     return;
   }
@@ -51,7 +56,10 @@ export async function serveTemplate(ctx: {
     const session = await ctx.auth.getSession(cookieHeaders(request));
     // coverage-exempt: Auth database outage; no service mocks in the real control-plane fixture.
     if (session instanceof Error) {
-      console.error(session);
+      ctx.logger.error({
+        event: "template-session-failed",
+        errorType: session.name,
+      });
       respond(response, 500);
       return;
     }
@@ -79,7 +87,10 @@ export async function serveTemplate(ctx: {
     const started = await ctx.auth.startAppSignIn(listingUrl);
     // coverage-exempt: Better Auth failed to start Google sign-in; the success path is tested.
     if (started instanceof Error) {
-      console.error(started);
+      ctx.logger.error({
+        event: "template-sign-in-start-failed",
+        errorType: started.name,
+      });
       respond(response, 500);
       return;
     }
@@ -96,7 +107,10 @@ export async function serveTemplate(ctx: {
   const session = await ctx.auth.getSession(cookieHeaders(request));
   // coverage-exempt: Auth database outage; no service mocks in the real control-plane fixture.
   if (session instanceof Error) {
-    console.error(session);
+    ctx.logger.error({
+      event: "template-session-failed",
+      errorType: session.name,
+    });
     respond(response, 500);
     return;
   }
@@ -110,7 +124,7 @@ export async function serveTemplate(ctx: {
     slug,
   });
   if (installed instanceof Error && !isAppRequestError(installed))
-    console.error(installed);
+    ctx.logger.error({ event: "template-install-failed" });
   page({
     response,
     status: installed instanceof Error ? 400 : 200,

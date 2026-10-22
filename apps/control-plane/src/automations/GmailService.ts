@@ -1,4 +1,5 @@
 import type { AutomationSourceState } from "@get-halo/client";
+import type { LoggerApi } from "@get-halo/logger";
 import type { IntegrationService } from "../integrations/IntegrationService.js";
 import {
   registrationActivation,
@@ -26,11 +27,14 @@ export class GmailService {
   private timer: NodeJS.Timeout | undefined;
   private working: Promise<void> | undefined;
   private closed = false;
+  private readonly logger: LoggerApi;
   constructor(ctx: {
+    logger: LoggerApi;
     automations: AutomationStore;
     integrations?: IntegrationService;
     configuration?: GmailConfiguration;
   }) {
+    this.logger = ctx.logger;
     this.store = new GmailStore({ automations: ctx.automations });
     this.configuration = ctx.configuration;
     this.api =
@@ -99,12 +103,12 @@ export class GmailService {
     if (api === undefined || configuration === undefined) return;
     const cleaned = await this.store.cleanup();
     if (cleaned instanceof Error) {
-      console.error(cleaned);
+      this.logger.error({ event: "gmail-cleanup-failed" });
       return;
     }
     const registrations = await this.store.pending();
     if (registrations instanceof Error) {
-      console.error(registrations);
+      this.logger.error({ event: "gmail-pending-read-failed" });
       return;
     }
     for (const registration of registrations) {
@@ -112,13 +116,21 @@ export class GmailService {
       if (registration.deleted === 1 || registration.enabled === 0) continue;
       const activation = registrationActivation(registration);
       if (activation instanceof Error) {
-        console.error(activation);
+        this.logger.error({
+          event: "gmail-activation-read-failed",
+          workspaceId: registration.workspace_id,
+          automationId: registration.automation_id,
+        });
         continue;
       }
       if (activation.trigger.type !== "gmail") continue;
       const deferred = await this.store.deferSetup(registration);
       if (deferred instanceof Error) {
-        console.error(deferred);
+        this.logger.error({
+          event: "gmail-setup-defer-failed",
+          workspaceId: registration.workspace_id,
+          automationId: registration.automation_id,
+        });
         continue;
       }
       const profile = await api.profile({
@@ -135,24 +147,30 @@ export class GmailService {
         activation.trigger.connectionAddress,
       );
       if (bound instanceof Error) {
-        console.error(bound);
+        this.logger.error({
+          event: "gmail-binding-failed",
+          workspaceId: registration.workspace_id,
+          automationId: registration.automation_id,
+        });
         continue;
       }
     }
     for (let index = 0; index < 10 && !this.closed; index++) {
       const mailbox = await this.store.claim();
       if (mailbox instanceof Error) {
-        console.error(mailbox);
+        this.logger.error({ event: "gmail-mailbox-claim-failed" });
         return;
       }
       if (mailbox === undefined) return;
       const result = await this.syncMailbox(mailbox, api, configuration);
-      if (result instanceof Error) console.warn(result.message);
+      if (result instanceof Error)
+        this.logger.warn({ event: "gmail-mailbox-sync-failed" });
       const released = await this.store.release(
         mailbox,
         result instanceof Error ? 60_000 : undefined,
       );
-      if (released instanceof Error) console.error(released);
+      if (released instanceof Error)
+        this.logger.error({ event: "gmail-mailbox-release-failed" });
     }
   }
 
@@ -334,6 +352,11 @@ export class GmailService {
     error?: string,
   ) {
     const saved = await this.store.status(registration, status, error);
-    if (saved instanceof Error) console.error(saved);
+    if (saved instanceof Error)
+      this.logger.error({
+        event: "gmail-status-save-failed",
+        workspaceId: registration.workspace_id,
+        automationId: registration.automation_id,
+      });
   }
 }

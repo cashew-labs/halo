@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import type { LoggerApi } from "@get-halo/logger";
 import { OAuth2Client } from "google-auth-library";
 import getRawBody from "raw-body";
 import { Type, type Static } from "@sinclair/typebox";
@@ -25,7 +26,11 @@ export class GmailPushReceiver {
     this.gmail = ctx.gmail;
     this.auth = ctx.auth ?? new OAuth2Client();
   }
-  async serve(request: IncomingMessage, response: ServerResponse) {
+  async serve(
+    request: IncomingMessage,
+    response: ServerResponse,
+    logger: LoggerApi,
+  ) {
     response.setHeader("cache-control", "no-store");
     if (request.method !== "POST") {
       response.writeHead(405, { allow: "POST" }).end();
@@ -91,7 +96,7 @@ export class GmailPushReceiver {
     // The email only dirties an already verified mailbox. It never selects an owner or advances a cursor.
     const saved = await this.gmail.store.markDirty(notification.emailAddress);
     if (saved instanceof Error) {
-      console.error(saved);
+      logger.error({ event: "gmail-push-save-failed" });
       response.writeHead(503).end();
       return;
     }
