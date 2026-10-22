@@ -6,13 +6,13 @@ import type {
   WorkspaceSearchHit,
   WorkspaceSearchResponse,
 } from "@get-halo/client";
-import { SessionProjection } from "../agent/SessionProjection.js";
+import { ThreadProjection } from "../agent/ThreadProjection.js";
 import type { ThreadRepoApi } from "../database/ThreadRepoApi.js";
 import type { WorkspaceService } from "./WorkspaceService.js";
 
 const maxFileBytes = 5 * 1024 * 1024;
 const maxFileHits = 60;
-const maxSessionHits = 40;
+const maxThreadHits = 40;
 const excludedExtensions = new Set([
   ".pdf",
   ".doc",
@@ -180,16 +180,16 @@ export class WorkspaceSearch {
     if (query.trim().length === 0)
       return { hits: [], skippedOversizedFiles: 0, truncated: false };
     const needle = query.slice(0, 200).toLocaleLowerCase();
-    const [files, sessions] = await Promise.all([
+    const [files, threads] = await Promise.all([
       this.searchFiles(needle, signal),
-      this.searchSessions(needle, signal),
+      this.searchThreads(needle, signal),
     ]);
     if (files instanceof Error) return files;
-    if (sessions instanceof Error) return sessions;
+    if (threads instanceof Error) return threads;
     return {
-      hits: [...files.hits, ...sessions.hits],
+      hits: [...files.hits, ...threads.hits],
       skippedOversizedFiles: files.skippedOversizedFiles,
-      truncated: files.truncated || sessions.truncated,
+      truncated: files.truncated || threads.truncated,
     };
   }
 
@@ -277,33 +277,33 @@ export class WorkspaceSearch {
     };
   }
 
-  private async searchSessions(needle: string, signal?: AbortSignal) {
-    const sessions = await this.repo
+  private async searchThreads(needle: string, signal?: AbortSignal) {
+    const threads = await this.repo
       .list()
       .catch((cause) => new WorkspaceSearchError({ cause }));
-    if (sessions instanceof Error) return sessions;
+    if (threads instanceof Error) return threads;
     const hits: WorkspaceSearchHit[] = [];
     let truncated = false;
-    for (const session of sessions) {
+    for (const thread of threads) {
       if (signal?.aborted || truncated) break;
       const data = await this.repo
-        .read(session.id)
+        .read(thread.id)
         .catch((cause) => new WorkspaceSearchError({ cause }));
       if (data instanceof Error) return data;
-      const projection = new SessionProjection(data);
+      const projection = new ThreadProjection(data);
       const snapshot = projection.snapshot();
       const title = projection.title(snapshot);
       let matchIndex = 0;
       const titleOffset =
         projection.name?.toLocaleLowerCase().indexOf(needle) ?? -1;
       if (titleOffset !== -1) {
-        if (hits.length >= maxSessionHits) {
+        if (hits.length >= maxThreadHits) {
           truncated = true;
           break;
         }
         hits.push({
           kind: "session",
-          sessionId: session.id,
+          sessionId: thread.id,
           title,
           snippet: title,
           snippetMatch: {
@@ -320,16 +320,16 @@ export class WorkspaceSearch {
           for (const offset of occurrences(
             segment.text,
             needle,
-            maxSessionHits - hits.length + 1,
+            maxThreadHits - hits.length + 1,
           )) {
-            if (hits.length >= maxSessionHits) {
+            if (hits.length >= maxThreadHits) {
               truncated = true;
               break;
             }
             hits.push({
               kind: "session",
-              sessionId: session.id,
-              title: title || "Session",
+              sessionId: thread.id,
+              title: title || "Thread",
               ...snippet(segment.text, offset, needle.length),
               source: "content",
               matchIndex: matchIndex++,

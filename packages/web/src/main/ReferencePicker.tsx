@@ -7,7 +7,7 @@ import { style, useStyles } from "purse-styles";
 
 export type ReferenceTarget =
   | { kind: "file"; path: string }
-  | { kind: "session"; sessionId: string; title: string };
+  | { kind: "thread"; threadId: string; title: string };
 
 type Query = { query: string; from: number; to: number };
 
@@ -127,7 +127,7 @@ export function useReferencePicker({
               : undefined
           }
           role="listbox"
-          aria-label="Reference a file or session"
+          aria-label="Reference a file or thread"
         >
           {matches.length === 0 ? (
             <div className={resultClassName}>
@@ -143,7 +143,7 @@ export function useReferencePicker({
                 key={
                   target.kind === "file"
                     ? `file:${target.path}`
-                    : `session:${target.sessionId}`
+                    : `thread:${target.threadId}`
                 }
                 role="option"
                 aria-selected={index === selectedIndex}
@@ -157,7 +157,7 @@ export function useReferencePicker({
                     : target.title}
                 </span>
                 <span className={detailClassName}>
-                  {target.kind === "file" ? target.path : "Session"}
+                  {target.kind === "file" ? target.path : "Thread"}
                 </span>
               </div>
             ))
@@ -170,7 +170,7 @@ export function useReferencePicker({
 export function referenceHref(target: ReferenceTarget) {
   return target.kind === "file"
     ? `/files/${target.path.split("/").map(encodeURIComponent).join("/")}`
-    : `/sessions/${encodeURIComponent(target.sessionId)}`;
+    : `/sessions/${encodeURIComponent(target.threadId)}`;
 }
 
 function activeReferenceQuery(editor: Editor) {

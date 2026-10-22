@@ -124,13 +124,13 @@ export class TraceService {
     return service;
   }
 
-  async start(input: { sessionId: string; agent: TraceAgent; data?: unknown }) {
+  async start(input: { threadId: string; agent: TraceAgent; data?: unknown }) {
     if (this.closed)
       return new TraceStorageError({ operation: "start during shutdown" });
-    if (!/^[a-zA-Z0-9_-]{1,128}$/.test(input.sessionId))
-      return new TraceStorageError({ operation: "validate session ID" });
+    if (!/^[a-zA-Z0-9_-]{1,128}$/.test(input.threadId))
+      return new TraceStorageError({ operation: "validate thread ID" });
     const traceId = crypto.randomBytes(16).toString("hex");
-    const filePath = this.activePath(input.sessionId, traceId);
+    const filePath = this.activePath(input.threadId, traceId);
     const created = await fs
       .mkdir(path.dirname(filePath), { recursive: true, mode: 0o700 })
       .catch(
@@ -140,7 +140,7 @@ export class TraceService {
     if (created instanceof Error) return created;
     const run = new RunTrace({
       workspaceId: this.workspaceId,
-      sessionId: input.sessionId,
+      threadId: input.threadId,
       traceId,
       spanId: RunTrace.spanId(),
       filePath,
@@ -174,7 +174,7 @@ export class TraceService {
     this.runs.delete(traceId);
     const finished = await run.finish(outcome);
     if (finished instanceof Error) return finished;
-    const archived = await this.archive(run.sessionId, traceId);
+    const archived = await this.archive(run.threadId, traceId);
     if (archived instanceof Error) return archived;
     this.scheduleUpload();
   }
@@ -194,20 +194,20 @@ export class TraceService {
     this.logger.warn({ event: "trace-storage-failed", error });
   }
 
-  private key(sessionId: string, traceId: string) {
-    return `v1/workspaces/${this.workspaceId}/sessions/${sessionId}/${traceId}.jsonl.gz`;
+  private key(threadId: string, traceId: string) {
+    return `v1/workspaces/${this.workspaceId}/sessions/${threadId}/${traceId}.jsonl.gz`;
   }
 
-  private activePath(sessionId: string, traceId: string) {
-    return path.join(this.directory, "active", sessionId, `${traceId}.jsonl`);
+  private activePath(threadId: string, traceId: string) {
+    return path.join(this.directory, "active", threadId, `${traceId}.jsonl`);
   }
 
-  private async archive(sessionId: string, traceId: string) {
-    const source = this.activePath(sessionId, traceId);
+  private async archive(threadId: string, traceId: string) {
+    const source = this.activePath(threadId, traceId);
     const destination = path.join(
       this.directory,
       "pending",
-      this.key(sessionId, traceId),
+      this.key(threadId, traceId),
     );
     const created = await fs
       .mkdir(path.dirname(destination), { recursive: true, mode: 0o700 })
@@ -282,6 +282,7 @@ export class TraceService {
       if (last.type !== "run.finished") {
         const run = new RunTrace({
           ...first,
+          threadId: first.sessionId,
           filePath,
           sequence: last.sequence + 1,
         });

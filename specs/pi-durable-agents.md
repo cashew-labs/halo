@@ -78,8 +78,8 @@ Do not build a second scheduler, add arbitrary provider selection, introduce a m
 ## Sources
 
 - [[packages/workspace-server/src/agent/Thread.ts#Thread]] — loaded Pi runtime, durable admission, completion, and projected snapshot.
-- [[packages/workspace-server/src/sessions/ThreadManager.ts#ThreadManager]] — loaded threads and product operations.
-- [[packages/workspace-server/src/agent/SessionProjection.ts#SessionProjection]] — committed-state projection shared with search.
+- [[packages/workspace-server/src/threads/ThreadManager.ts#ThreadManager]] — loaded threads and product operations.
+- [[packages/workspace-server/src/agent/ThreadProjection.ts#ThreadProjection]] — committed-state projection shared with search.
 - [[packages/workspace-server/src/storage/TursoStorage.ts#TursoStorage]] — durable protocol and consistent persisted reads.
 - [[packages/workspace-server/src/agent/runtime/ToolRuntime.ts#ToolRuntime]] — authority, Executor, integrations, and credentials.
 - [[packages/workspace-server/src/routines/RoutineRunner.ts#RoutineRunner]] — automation and interrupted-run recovery.
@@ -199,7 +199,7 @@ The unshipped durable-storage migration now creates `halo_threads` and partition
 ```callstack
  threadRouter / RoutineRunner
 -└── SessionRegistry → HaloAgentSession
-+└── ThreadManager [[packages/workspace-server/src/sessions/ThreadManager.ts#ThreadManager]]
++└── ThreadManager [[packages/workspace-server/src/threads/ThreadManager.ts#ThreadManager]]
 +    └── Thread [[packages/workspace-server/src/agent/Thread.ts#Thread]]
 ```
 

@@ -40,7 +40,7 @@ function preview(content: string, notice: string) {
 
 async function saveOutput(input: {
   workspaceRoot: string;
-  sessionId: string;
+  threadId: string;
   toolName: string;
   content: string;
 }) {
@@ -48,7 +48,7 @@ async function saveOutput(input: {
     input.workspaceRoot,
     ".halo",
     "tool-outputs",
-    input.sessionId,
+    input.threadId,
   );
   const outputFile = path.join(
     directory,
@@ -67,7 +67,7 @@ async function saveOutput(input: {
 
 export function limitToolOutput(
   tool: ToolRegistration,
-  input: { workspaceRoot: string; sessionId: string },
+  input: { workspaceRoot: string; threadId: string },
 ): ToolRegistration {
   return {
     ...tool,

@@ -666,7 +666,7 @@ migrationTest(
       action: { type: "runAgent", prompt: "Say 'hello'" },
       position: 7,
     };
-    const session: WorkspaceSchema["sessionState"] = {
+    const thread: WorkspaceSchema["sessionState"] = {
       id: "session",
       markedDone: false,
       readReceiptCursorId: "cursor-🦉",
@@ -674,13 +674,13 @@ migrationTest(
     await storage.commit({
       set: [
         { key: ["record", "hotkeys", hotkey.id], value: hotkey },
-        { key: ["record", "sessionState", session.id], value: session },
+        { key: ["record", "sessionState", thread.id], value: thread },
       ],
     });
     expect((await storage.scan()).map(({ value }) => value)).toEqual([
       { id: "1", generation: 1, nextRunSequence: 1 },
       hotkey,
-      session,
+      thread,
     ]);
     // Check the existing SQL layout independently of the generated decoder.
     expect(
@@ -697,23 +697,23 @@ migrationTest(
       (await storage.scan({ reverse: true, limit: 2 })).map(
         ({ value }) => value,
       ),
-    ).toEqual([session, hotkey]);
+    ).toEqual([thread, hotkey]);
     expect(
       (
         await storage.scan({
           gt: ["record", "hotkeys", hotkey.id],
-          lte: ["record", "sessionState", session.id],
+          lte: ["record", "sessionState", thread.id],
         })
       ).map(({ value }) => value),
-    ).toEqual([session]);
+    ).toEqual([thread]);
     const updated = {
-      ...session,
+      ...thread,
       markedDone: true,
       readReceiptCursorId: undefined,
     };
     await storage.commit({
-      remove: [["record", "sessionState", session.id]],
-      set: [{ key: ["record", "sessionState", session.id], value: updated }],
+      remove: [["record", "sessionState", thread.id]],
+      set: [{ key: ["record", "sessionState", thread.id], value: updated }],
     });
     expect(
       (await storage.scan({ gte: ["record", "sessionState"], limit: 1 }))[0]
@@ -723,7 +723,7 @@ migrationTest(
       storage.commit({
         remove: [["record", "hotkeys", hotkey.id]],
         set: [
-          { key: ["record", "sessionState", "duplicate-id"], value: session },
+          { key: ["record", "sessionState", "duplicate-id"], value: thread },
         ],
       }),
     ).rejects.toThrow();
@@ -937,7 +937,7 @@ migrationTest(
     expect(restored.patch.set).toEqual([
       { collection: "hotkeys", value: ownerHotkey },
     ]);
-    const sessions = await sync.pull({
+    const threads = await sync.pull({
       clientId,
       cookie: restored.cookie,
       scanWindow: [
@@ -945,7 +945,7 @@ migrationTest(
         { collection: "hotkeys", where: [["id", "=", ownerHotkey.id]] },
       ],
     });
-    expect(sessions.patch.set).toEqual([
+    expect(threads.patch.set).toEqual([
       {
         collection: "sessionState",
         value: { id: "private-session", markedDone: true },
@@ -958,7 +958,7 @@ migrationTest(
     expect((await events.next()).value).toEqual({ type: "poke" });
     const updated = await sync.pull({
       clientId,
-      cookie: sessions.cookie,
+      cookie: threads.cookie,
       scanWindow: [
         { collection: "sessionState" },
         { collection: "hotkeys", where: [["id", "=", ownerHotkey.id]] },

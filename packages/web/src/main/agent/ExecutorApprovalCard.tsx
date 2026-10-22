@@ -4,9 +4,9 @@ import { Check, Close, Mail, ShieldTick } from "maui/icons";
 import { style, useStyles } from "purse-styles";
 import type { ToolApproval, ToolApprovalDecision } from "@get-halo/client";
 import { useApi } from "../../api/ApiProvider.tsx";
-import type { SessionViewPart } from "./sessionView.ts";
+import type { ThreadViewPart } from "./threadView.ts";
 
-type ExecutorApprovalPart = Extract<SessionViewPart, { kind: "toolApproval" }>;
+type ExecutorApprovalPart = Extract<ThreadViewPart, { kind: "toolApproval" }>;
 
 const card = style(background.element, radius.lg, shadow.subtle, {
   width: "100%",
@@ -14,10 +14,10 @@ const card = style(background.element, radius.lg, shadow.subtle, {
 });
 
 export function ExecutorApprovalCard({
-  sessionId,
+  threadId,
   part,
 }: {
-  sessionId: string | undefined;
+  threadId: string | undefined;
   part: ExecutorApprovalPart;
 }) {
   const cardClassName = useStyles(card);
@@ -26,10 +26,10 @@ export function ExecutorApprovalCard({
   const copy = approvalCopy(approval);
   const respond = useMutation({
     mutationFn: async (decision: ToolApprovalDecision) => {
-      // SAFETY: both actions are disabled until sessionId is a string.
-      const activeSessionId = sessionId as string;
+      // SAFETY: both actions are disabled until threadId is a string.
+      const activeThreadId = threadId as string;
       await api.thread.respondToToolApproval({
-        sessionId: activeSessionId,
+        sessionId: activeThreadId,
         approvalId: approval.id,
         decision,
       });
@@ -43,7 +43,7 @@ export function ExecutorApprovalCard({
   return (
     <section
       aria-label={`${copy.title} approval`}
-      data-session-id={sessionId}
+      data-thread-id={threadId}
       data-tool-path={approval.toolPath}
       data-testid="executor-approval-card"
       className={cardClassName}
@@ -73,7 +73,7 @@ export function ExecutorApprovalCard({
             >
               <Button
                 variant="quiet"
-                isDisabled={sessionId === undefined || respond.isPending}
+                isDisabled={threadId === undefined || respond.isPending}
                 onClick={() => respond.mutate("deny")}
               >
                 Deny
@@ -81,7 +81,7 @@ export function ExecutorApprovalCard({
               <Button
                 variant="primary"
                 variantColor="#1A73E8"
-                isDisabled={sessionId === undefined || respond.isPending}
+                isDisabled={threadId === undefined || respond.isPending}
                 onClick={() => respond.mutate("allow")}
               >
                 Allow once

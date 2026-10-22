@@ -303,7 +303,7 @@ export type RunResult = {
   error?: string;
 };
 
-export type SessionSnapshot = {
+export type ThreadSnapshot = {
   entries: HaloEntry[];
   activeRun: ActiveRun | undefined;
   lastRun: RunResult | undefined;
@@ -311,7 +311,8 @@ export type SessionSnapshot = {
   connections: HaloConnectionState[];
 };
 
-export type SessionEvent =
+// Keep the legacy failure discriminator on the wire for older clients.
+export type ThreadEvent =
   | { type: "session.failed"; error: string }
   | { type: "run.started"; runId: string }
   | { type: "run.finished"; run: RunResult }
@@ -331,11 +332,11 @@ export type SessionEvent =
     }
   | HaloConnectionEvent;
 
-export type SessionWatchItem =
-  | { type: "snapshot"; snapshot: SessionSnapshot }
-  | { type: "event"; event: SessionEvent };
+export type ThreadWatchItem =
+  | { type: "snapshot"; snapshot: ThreadSnapshot }
+  | { type: "event"; event: ThreadEvent };
 
-export function emptySessionSnapshot(): SessionSnapshot {
+export function emptyThreadSnapshot(): ThreadSnapshot {
   return {
     entries: [],
     activeRun: undefined,
@@ -345,18 +346,18 @@ export function emptySessionSnapshot(): SessionSnapshot {
   };
 }
 
-export function reduceSessionUpdate(
-  snapshot: SessionSnapshot,
-  item: SessionWatchItem,
-): SessionSnapshot {
+export function reduceThreadUpdate(
+  snapshot: ThreadSnapshot,
+  item: ThreadWatchItem,
+): ThreadSnapshot {
   if (item.type === "snapshot") return item.snapshot;
-  return applySessionEvent(snapshot, item.event);
+  return applyThreadEvent(snapshot, item.event);
 }
 
-export function applySessionEvent(
-  snapshot: SessionSnapshot,
-  event: SessionEvent,
-): SessionSnapshot {
+export function applyThreadEvent(
+  snapshot: ThreadSnapshot,
+  event: ThreadEvent,
+): ThreadSnapshot {
   switch (event.type) {
     case "session.failed":
       return { ...snapshot, fault: event.error, activeRun: undefined };
@@ -467,15 +468,15 @@ export function executionWithOutput(
 }
 
 /** Read committed messages without tool-result entries. */
-export function sessionMessages(snapshot: SessionSnapshot) {
+export function threadMessages(snapshot: ThreadSnapshot) {
   return snapshot.entries.flatMap((entry) =>
     entry.type === "message" ? [entry.message] : [],
   );
 }
 
 /** Assemble tool executions from committed entries and the current run. */
-export function sessionToolExecutions(
-  snapshot: SessionSnapshot,
+export function threadToolExecutions(
+  snapshot: ThreadSnapshot,
 ): ToolExecution[] {
   const requests = new Map<string, ToolExecution["arguments"]>();
   const executions = new Map<string, ToolExecution | undefined>();
@@ -520,7 +521,7 @@ export function sessionToolExecutions(
     });
 }
 
-function toolApprovalDecisions(snapshot: SessionSnapshot) {
+function toolApprovalDecisions(snapshot: ThreadSnapshot) {
   const decisions = new Map<string, ToolApprovalDecision>();
   for (const entry of snapshot.entries) {
     if (entry.type !== "message") continue;

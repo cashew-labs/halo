@@ -16,7 +16,7 @@ import {
   FilesystemPathNotFoundError,
   type FilesystemService,
 } from "../filesystem/FilesystemService.js";
-import type { ThreadManager } from "../sessions/ThreadManager.js";
+import type { ThreadManager } from "../threads/ThreadManager.js";
 import type { AutomationService } from "./AutomationService.js";
 
 class AutomationRunnerStoppedError extends errore.createTaggedError({
@@ -28,7 +28,7 @@ class AutomationRunnerStoppedError extends errore.createTaggedError({
 type RunOutcome = {
   status: "completed" | "failed" | "interrupted";
   error?: string;
-  sessionId?: string;
+  threadId?: string;
 };
 
 type AutomationThreadManager = Pick<
@@ -61,7 +61,7 @@ export class AutomationRunner {
   private pumping: Promise<void> | undefined;
   private retry: NodeJS.Timeout | undefined;
   private readonly automations: AutomationService;
-  private readonly sessions: AutomationThreadManager;
+  private readonly threads: AutomationThreadManager;
   private readonly filesystem: Pick<FilesystemService, "stat">;
   private readonly workspaceRoot: string;
   private readonly logger: Logger;
@@ -69,27 +69,27 @@ export class AutomationRunner {
 
   constructor(ctx: {
     automations: AutomationService;
-    sessions: AutomationThreadManager;
+    threads: AutomationThreadManager;
     filesystem: Pick<FilesystemService, "stat">;
     workspaceRoot: string;
     logger: Logger;
     maintenance?: WorkspaceMaintenance;
   }) {
-    const { automations, sessions, filesystem, workspaceRoot, logger } = ctx;
+    const { automations, threads, filesystem, workspaceRoot, logger } = ctx;
     this.automations = automations;
-    this.sessions = sessions;
+    this.threads = threads;
     this.filesystem = filesystem;
     this.workspaceRoot = workspaceRoot;
     this.logger = logger;
     this.maintenance = ctx.maintenance;
   }
 
-  // Stops agents owned by unfinished automation runs before the registry can resume all sessions.
+  // Stops agents owned by unfinished automation runs before the registry can resume all threads.
   async recover(options?: { preserveDue?: boolean }) {
-    const sessionIds = await this.automations.runningSessionIds();
-    if (sessionIds instanceof Error) return sessionIds;
-    for (const sessionId of sessionIds) {
-      const aborted = await this.sessions.abort(sessionId);
+    const threadIds = await this.automations.runningThreadIds();
+    if (threadIds instanceof Error) return threadIds;
+    for (const threadId of threadIds) {
+      const aborted = await this.threads.abort(threadId);
       if (aborted instanceof Error) return aborted;
     }
     return await this.automations.recover(options);
@@ -276,25 +276,25 @@ export class AutomationRunner {
       const missing = await this.checkExtension(automation.extensionId);
       if (missing !== undefined) return { status: "failed", error: missing };
     }
-    const session = await this.sessions.new();
-    if (session instanceof Error)
-      return { status: "failed", error: session.message };
-    const attached = await this.automations.attachSession({
+    const thread = await this.threads.new();
+    if (thread instanceof Error)
+      return { status: "failed", error: thread.message };
+    const attached = await this.automations.attachThread({
       runId: run.id,
-      sessionId: session.sessionId,
+      threadId: thread.threadId,
     });
     if (attached instanceof Error)
       this.logger.warn({
-        event: "automation-session-link-failed",
+        event: "automation-thread-link-failed",
         error: attached,
       });
-    const named = await this.sessions.setName(
-      session.sessionId,
-      runSessionName(automation, run),
+    const named = await this.threads.setName(
+      thread.threadId,
+      runThreadName(automation, run),
     );
     if (named instanceof Error)
       this.logger.warn({
-        event: "automation-session-name-failed",
+        event: "automation-thread-name-failed",
         error: named,
       });
     if (signal.aborted)
@@ -302,29 +302,29 @@ export class AutomationRunner {
     const outcome =
       automation.action.type === "runAgent"
         ? await this.runAgent({
-            session,
+            thread,
             prompt: automation.action.prompt,
             eventPath,
             signal,
           })
         : await this.runScript({
-            session,
+            thread,
             extensionId: automation.extensionId,
             action: automation.action,
             eventPath,
             signal,
           });
-    return { ...outcome, sessionId: session.sessionId };
+    return { ...outcome, threadId: thread.threadId };
   }
 
   private async runScript(input: {
-    session: { sessionId: string };
+    thread: { threadId: string };
     extensionId?: string;
     action: Extract<AutomationAction, { type: "runScript" }>;
     eventPath?: string;
     signal: AbortSignal;
   }): Promise<RunOutcome> {
-    const { session, extensionId, action, signal } = input;
+    const { thread, extensionId, action, signal } = input;
     const cwd = path.join(
       this.workspaceRoot,
       action.cwd ??
@@ -343,7 +343,7 @@ export class AutomationRunner {
           this.workspaceRoot,
           ".halo",
           "tool-outputs",
-          session.sessionId,
+          thread.threadId,
         ),
         headChars: 0,
         tailChars: maxScriptOutputLength,
@@ -358,7 +358,7 @@ export class AutomationRunner {
         : result.truncated
           ? `${result.tail}\n[Full output: ${result.fullOutputPath}]`
           : result.stdout + result.stderr;
-    const appended = await this.sessions.appendMessages(session.sessionId, [
+    const appended = await this.threads.appendMessages(thread.threadId, [
       {
         role: "bashExecution",
         command: action.command,
@@ -392,22 +392,22 @@ export class AutomationRunner {
   }
 
   private async runAgent(input: {
-    session: { sessionId: string };
+    thread: { threadId: string };
     prompt: string;
     eventPath?: string;
     signal: AbortSignal;
   }): Promise<RunOutcome> {
-    const { session, prompt, signal } = input;
+    const { thread, prompt, signal } = input;
     const abort = async () => {
-      const aborted = await this.sessions.abort(session.sessionId);
+      const aborted = await this.threads.abort(thread.threadId);
       if (aborted instanceof Error)
         this.logger.warn({ event: "automation-abort-failed", error: aborted });
     };
     signal.addEventListener("abort", abort, { once: true });
     using cleanup = new errore.DisposableStack();
     cleanup.defer(() => signal.removeEventListener("abort", abort));
-    const accepted = await this.sessions.prompt({
-      sessionId: session.sessionId,
+    const accepted = await this.threads.prompt({
+      threadId: thread.threadId,
       text: prompt,
       references:
         input.eventPath === undefined
@@ -418,7 +418,7 @@ export class AutomationRunner {
       return { status: "failed", error: accepted.message };
     // Cancellation may race admission; abort again once the durable input exists.
     if (signal.aborted) await abort();
-    const outcome = await this.sessions.wait({ ...session, ...accepted });
+    const outcome = await this.threads.wait({ ...thread, ...accepted });
     if (outcome instanceof Error)
       return { status: "failed", error: outcome.message };
     if (outcome.status === "completed") return { status: "completed" };
@@ -436,7 +436,7 @@ export class AutomationRunner {
   private async finish(
     run: AutomationRun,
     outcome: RunOutcome,
-    autoArchiveSession: boolean,
+    autoArchiveThread: boolean,
   ) {
     const finished = await this.automations.finishRun({
       runId: run.id,
@@ -447,18 +447,18 @@ export class AutomationRunner {
       this.logger.warn({ event: "automation-finish-failed", error: finished });
       return;
     }
-    if (!autoArchiveSession || outcome.sessionId === undefined) return;
-    const archived = await this.sessions.markDone(outcome.sessionId);
+    if (!autoArchiveThread || outcome.threadId === undefined) return;
+    const archived = await this.threads.markDone(outcome.threadId);
     if (archived instanceof Error)
       this.logger.warn({
-        event: "automation-session-archive-failed",
+        event: "automation-thread-archive-failed",
         error: archived,
       });
   }
 }
 
-// Names a run's session after its automation and occurrence, in the automation's time zone.
-function runSessionName(automation: Automation, run: AutomationRun) {
+// Names a run's thread after its automation and occurrence, in the automation's time zone.
+function runThreadName(automation: Automation, run: AutomationRun) {
   const time = new Intl.DateTimeFormat("en-US", {
     timeZone:
       automation.activation.type === "routine"

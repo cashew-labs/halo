@@ -18,7 +18,7 @@ import {
   IncompatibleServerError,
   type HaloClient,
   type WorkspaceInfo,
-  type SessionSummary,
+  type ThreadSummary,
 } from "@get-halo/client";
 import { useHost } from "../HostProvider.js";
 import { ConnectionService } from "./ConnectionService.js";
@@ -159,11 +159,11 @@ export function useWorkspaceQuery() {
   });
 }
 
-export function useSessionsQuery(workspace: WorkspaceInfo | undefined) {
+export function useThreadsQuery(workspace: WorkspaceInfo | undefined) {
   const workspaceRoot = workspace?.workspaceRoot;
 
-  return useQuery<SessionSummary[]>({
-    queryKey: ["sessions", workspaceRoot],
+  return useQuery<ThreadSummary[]>({
+    queryKey: ["threads", workspaceRoot],
     queryFn: skipToken,
   });
 }

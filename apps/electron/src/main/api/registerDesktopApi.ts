@@ -133,9 +133,10 @@ async function connectIntegration(args: {
   }
 
   const client = createWorkspaceClient(connection);
+  // Desktop IPC uses threadId; the public workspace RPC retains sessionId.
   const started = await client.thread
     .startConnection({
-      sessionId: args.request.sessionId,
+      sessionId: args.request.threadId,
       request: args.request.request,
     })
     .catch(
@@ -160,7 +161,7 @@ async function connectIntegration(args: {
   if (opened instanceof Error) {
     await cancelPendingConnection({
       client,
-      sessionId: args.request.sessionId,
+      threadId: args.request.threadId,
       connectionId: started.connectionId,
     });
     return new DesktopOperationError({
@@ -185,19 +186,19 @@ async function cancelIntegration(args: {
   }
   await cancelPendingConnection({
     client: createWorkspaceClient(connection),
-    sessionId: args.request.sessionId,
+    threadId: args.request.threadId,
     connectionId: args.request.connectionId,
   });
 }
 
 async function cancelPendingConnection(args: {
   client: HaloClient;
-  sessionId: string;
+  threadId: string;
   connectionId: string;
 }) {
   const cancelled = await args.client.thread
     .cancelConnection({
-      sessionId: args.sessionId,
+      sessionId: args.threadId,
       connectionId: args.connectionId,
     })
     .catch(

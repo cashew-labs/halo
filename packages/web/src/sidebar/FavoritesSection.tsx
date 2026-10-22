@@ -1,4 +1,4 @@
-import type { SessionSummary } from "@get-halo/client";
+import type { ThreadSummary } from "@get-halo/client";
 import { Text } from "maui";
 import { Clock, File, Folder, Message } from "maui/icons";
 import { ExtensionItem, useExtensionArtifacts } from "./ExtensionItems.js";
@@ -14,11 +14,11 @@ import { SidebarSection } from "./navigation/SidebarSection.js";
 import { SidebarEmptyState } from "./SidebarEmptyState.js";
 
 export function FavoritesSection({
-  sessions,
+  threads,
   paths,
   filesPending,
 }: {
-  sessions: SessionSummary[];
+  threads: ThreadSummary[];
   paths: string[];
   filesPending: boolean;
 }) {
@@ -47,17 +47,17 @@ export function FavoritesSection({
               <FavoriteFile key={favoriteId} rootId={favoriteId} node={node} />
             );
         }
-        const session = sessions.find(
+        const thread = threads.find(
           (item) => favoriteId === `session:${item.sessionId}`,
         );
-        if (session !== undefined) {
-          const title = session.title || session.sessionId;
+        if (thread !== undefined) {
+          const title = thread.title || thread.sessionId;
           return (
             <SidebarItem
               key={favoriteId}
               id={`favorite:${favoriteId}`}
               favoriteId={favoriteId}
-              href={`/sessions/${session.sessionId}`}
+              href={`/sessions/${thread.sessionId}`}
               pageTitle={title}
               icon={Message}
             >

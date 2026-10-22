@@ -8,7 +8,7 @@ import {
   type CSSProperties,
 } from "react";
 import { Router } from "wouter";
-import type { SessionSummary } from "@get-halo/client";
+import type { ThreadSummary } from "@get-halo/client";
 import { Button } from "maui";
 import { Menu } from "maui/icons";
 import { MainPane } from "../main/MainPane.js";
@@ -30,7 +30,7 @@ import { queryOptions, skipToken, useQueries } from "@tanstack/react-query";
 import { useSidebar } from "../WorkspaceLayout.js";
 import { useExtensions } from "../api/WorkspaceUpdatesProvider.js";
 import { useDatabaseQuery } from "../database/useDatabaseQuery.js";
-import { sessionTitleQueryKey } from "../main/agent/useAgentSession.js";
+import { threadTitleQueryKey } from "../main/agent/useAgentThread.js";
 import { paneHeaderHeight, tabBarHeight, usePaneStyles } from "./paneStyles.js";
 import { TabFind } from "./TabFind.js";
 import { PaneHeader, PaneHeaderSlot } from "./PaneHeader.js";
@@ -44,36 +44,36 @@ function bounds(rect: Rect): CSSProperties {
     height: `${rect.height}%`,
   };
 }
-export function PaneWorkspace({ sessions }: { sessions: SessionSummary[] }) {
+export function PaneWorkspace({ threads }: { threads: ThreadSummary[] }) {
   const workspace = useWorkspacePanes();
   const sidebar = useSidebar();
   const extensions = useExtensions().data;
   const automations = useDatabaseQuery({ collection: "automations" });
   const state = usePaneState();
   const { leaves, dividers } = paneLayout(state.root);
-  const sessionTabs = leaves
+  const threadTabs = leaves
     .flatMap(({ pane }) => pane.tabs)
     .filter((tab) => tab.path.startsWith("/sessions/"));
   const submittedTitles = useQueries({
-    queries: sessionTabs.map((tab) =>
+    queries: threadTabs.map((tab) =>
       queryOptions<string>({
-        queryKey: sessionTitleQueryKey(tab.path.slice(10)),
+        queryKey: threadTitleQueryKey(tab.path.slice(10)),
         queryFn: skipToken,
       }),
     ),
   });
   function tabTitle(tab: WorkspaceTab) {
     if (tab.path === "/desktop") return "Desktop";
-    if (tab.path.startsWith("/draft/")) return "New session";
+    if (tab.path.startsWith("/draft/")) return "New thread";
     if (tab.path.startsWith("/sessions/")) {
       const id = tab.path.slice(10);
       const submitted =
-        submittedTitles[sessionTabs.findIndex((item) => item.id === tab.id)]
+        submittedTitles[threadTabs.findIndex((item) => item.id === tab.id)]
           ?.data;
       return (
-        sessions.find((session) => session.sessionId === id)?.title ??
+        threads.find((thread) => thread.sessionId === id)?.title ??
         submitted ??
-        "Session"
+        "Thread"
       );
     }
     if (
@@ -302,7 +302,7 @@ export function PaneWorkspace({ sessions }: { sessions: SessionSummary[] }) {
           />
         </section>
       ))}
-      {/* Flat, stable tab siblings keep editors and session drafts mounted across splits and moves. */}
+      {/* Flat, stable tab siblings keep editors and thread drafts mounted across splits and moves. */}
       {leaves.flatMap(({ pane, rect }) =>
         pane.tabs.map((tab) => (
           <div
@@ -347,7 +347,7 @@ export function PaneWorkspace({ sessions }: { sessions: SessionSummary[] }) {
                   >
                     {/* oxlint-disable-next-line react/hooks -- Wouter calls the location hook supplied to Router. */}
                     <Router hook={usePaneLocation}>
-                      <MainPane sessions={sessions} />
+                      <MainPane threads={threads} />
                     </Router>
                   </TabFind>
                 </TabRouteContext>

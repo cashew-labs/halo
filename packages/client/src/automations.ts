@@ -45,6 +45,7 @@ export const automationInputSchema = Type.Object({
   activation: automationActivationSchema,
   action: automationActionSchema,
   enabled: Type.Optional(Type.Boolean()),
+  // Serialized automation definitions retain the legacy archive option.
   autoArchiveSession: Type.Optional(Type.Boolean()),
 });
 export type AutomationInput = Static<typeof automationInputSchema>;
@@ -65,6 +66,7 @@ export type AutomationRun = {
   trigger: AutomationRunTrigger;
   eventId?: string;
   scheduledFor: string;
+  // Preserve existing automation history and supported RPC payloads.
   sessionId?: string;
   status: AutomationRunStatus;
   startedAt: string;
@@ -80,6 +82,7 @@ export type Automation = {
   activation: AutomationActivation;
   action: AutomationAction;
   enabled: boolean;
+  // Must match the persisted automation definition's field name.
   autoArchiveSession: boolean;
   nextRunAt?: string;
   createdAt: string;

@@ -117,7 +117,7 @@ export function GlobalSearch() {
           ref={input}
           className={field}
           aria-label="Search workspace"
-          placeholder="Search files and sessions"
+          placeholder="Search files and threads"
           maxLength={200}
           value={query}
           onChange={(event) => {
@@ -155,8 +155,8 @@ export function GlobalSearch() {
                         ? "File name"
                         : "File"
                       : hit.source === "name"
-                        ? "Session title"
-                        : "Session"}{" "}
+                        ? "Thread title"
+                        : "Thread"}{" "}
                     · {hit.title}
                   </span>
                   <span className={snippet}>

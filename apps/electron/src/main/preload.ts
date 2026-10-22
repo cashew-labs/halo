@@ -68,13 +68,13 @@ const desktopBridge: DesktopBridge = {
   connectIntegration: async (input) =>
     await ipcRenderer.invoke(DESKTOP_CHANNEL, {
       type: "connectIntegration",
-      sessionId: input.sessionId,
+      threadId: input.threadId,
       request: input.request,
     }),
   cancelIntegration: async (input) =>
     await ipcRenderer.invoke(DESKTOP_CHANNEL, {
       type: "cancelIntegration",
-      sessionId: input.sessionId,
+      threadId: input.threadId,
       connectionId: input.connectionId,
     }),
 };

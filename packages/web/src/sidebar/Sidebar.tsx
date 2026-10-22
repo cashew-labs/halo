@@ -13,10 +13,10 @@ import {
 } from "maui";
 import { Close, FilePlus, FolderPlus, Edit, Monitor } from "maui/icons";
 import { style, useStyles } from "purse-styles";
-import type { SessionSummary } from "@get-halo/client";
+import type { ThreadSummary } from "@get-halo/client";
 import type { AppInfo } from "../HostApi.js";
 import { ArtifactsSection } from "./ArtifactsSection.js";
-import { SessionsSection } from "./SessionsSection.tsx";
+import { ThreadsSection } from "./ThreadsSection.tsx";
 import {
   NavigationSidebar,
   useExpandedSidebar,
@@ -31,11 +31,11 @@ import { sidebarPadding } from "./navigation/SidebarSection.js";
 import { useWorkspacePanes } from "../panes/WorkspacePanesProvider.js";
 
 type SidebarProps = {
-  sessions: SessionSummary[];
+  threads: ThreadSummary[];
   appInfo?: AppInfo;
 };
 
-export function Sidebar({ sessions, appInfo }: SidebarProps) {
+export function Sidebar({ threads, appInfo }: SidebarProps) {
   const { isMobile, close } = useSidebar();
   const workspace = useWorkspacePanes();
   const preferences = useSidebarPreferences();
@@ -69,10 +69,10 @@ export function Sidebar({ sessions, appInfo }: SidebarProps) {
         <div className={titleBar} aria-hidden="true" />
       )}
       <div className={actions} role="toolbar" aria-label="Workspace actions">
-        <Tooltip content="New chat session" placement="bottom">
+        <Tooltip content="New thread" placement="bottom">
           <Button
             variant="quiet"
-            aria-label="New chat session"
+            aria-label="New thread"
             onPress={() => {
               workspace.open({
                 path: `/draft/${crypto.randomUUID()}`,
@@ -131,7 +131,7 @@ export function Sidebar({ sessions, appInfo }: SidebarProps) {
       </div>
       <NavigationSidebar aria-label="Workspace" className={navigation}>
         <SidebarContents
-          sessions={sessions}
+          threads={threads}
           entryRequest={entryRequest}
           onFilesBusyChange={setFilesBusy}
         />
@@ -145,11 +145,11 @@ export function Sidebar({ sessions, appInfo }: SidebarProps) {
 }
 
 function SidebarContents({
-  sessions,
+  threads,
   entryRequest,
   onFilesBusyChange,
 }: {
-  sessions: SessionSummary[];
+  threads: ThreadSummary[];
   entryRequest: { kind: "file" | "directory"; sequence: number };
   onFilesBusyChange(busy: boolean): void;
 }) {
@@ -172,7 +172,7 @@ function SidebarContents({
   const sections = {
     favorites: (
       <FavoritesSection
-        sessions={sessions}
+        threads={threads}
         paths={listing.paths}
         filesPending={listing.pending}
       />
@@ -187,7 +187,7 @@ function SidebarContents({
         onBusyChange={onFilesBusyChange}
       />
     ),
-    sessions: <SessionsSection sessions={sessions} />,
+    sessions: <ThreadsSection threads={threads} />,
   };
   return sectionOrder.map((sectionId) => (
     <Fragment key={sectionId}>{sections[sectionId]}</Fragment>

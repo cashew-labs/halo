@@ -14,7 +14,7 @@ export function SidebarEmptyState({
     | "documents"
     | "extensions"
     | "automations"
-    | "sessions"
+    | "threads"
     | "favorites";
 }) {
   const row = useStyles(styles.row);

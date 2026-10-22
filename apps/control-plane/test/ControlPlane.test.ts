@@ -41,7 +41,7 @@ import { expect, onTestFinished, test, vi } from "vitest";
 import {
   type AutomationDelivery,
   createHaloClient,
-  sessionToolExecutions,
+  threadToolExecutions,
 } from "@get-halo/client";
 import { Logger } from "@get-halo/logger";
 import {
@@ -232,7 +232,7 @@ const controlPlaneTest = test.extend<{
   agent: {
     rpc: ReturnType<typeof createHaloClient>;
     workspaceRoot: string;
-    run: (code: string) => Promise<ReturnType<typeof sessionToolExecutions>>;
+    run: (code: string) => Promise<ReturnType<typeof threadToolExecutions>>;
   };
   mcpApi: {
     publicEndpoint: string;
@@ -362,13 +362,13 @@ const controlPlaneTest = test.extend<{
       rpc: client,
       workspaceRoot,
       run: async (code) => {
-        const session = await client.thread.new();
+        const thread = await client.thread.new();
         const submitted = await client.thread.prompt({
-          ...session,
+          ...thread,
           text: "Run the integration fixture",
         });
         const waiting = client.thread.wait({
-          ...session,
+          ...thread,
           submissionId: submitted.submissionId,
         });
         await llm.respond(
@@ -376,7 +376,7 @@ const controlPlaneTest = test.extend<{
         );
         await llm.respond(m.assistant("Done"));
         await waiting;
-        return sessionToolExecutions(await client.thread.snapshot(session));
+        return threadToolExecutions(await client.thread.snapshot(thread));
       },
     });
   },
@@ -5465,10 +5465,10 @@ controlPlaneTest(
       );
       return { socket, api };
     };
-    const session = await agent.rpc.thread.new();
+    const thread = await agent.rpc.thread.new();
     const ticket = await issue();
     const first = open(ticket.ticket);
-    const updates = await first.api.thread.events(session);
+    const updates = await first.api.thread.events(thread);
     expect((await updates.next()).value).toMatchObject({ type: "snapshot" });
     const duplicate = open(ticket.ticket);
     // Older Node WebSocket clients report failed upgrades via error while
@@ -5480,7 +5480,7 @@ controlPlaneTest(
     );
     const pending = expect(updates.next()).rejects.toThrow();
     const second = open((await issue()).ticket);
-    expect(await second.api.thread.snapshot(session)).toMatchObject({});
+    expect(await second.api.thread.snapshot(thread)).toMatchObject({});
     await pending;
     await expect.poll(() => first.socket.readyState).toBe(WebSocket.CLOSED);
     expect(second.socket.protocol).toBe("halo-rpc");
@@ -5496,7 +5496,7 @@ controlPlaneTest(
       const replacement = open((await issue()).ticket);
       const watch = await replacement.api.server.watch();
       expect((await watch.next()).done).toBe(false);
-      expect(await replacement.api.thread.snapshot(session)).toMatchObject({});
+      expect(await replacement.api.thread.snapshot(thread)).toMatchObject({});
       await expect
         .poll(() => previous.socket.readyState)
         .toBe(WebSocket.CLOSED);

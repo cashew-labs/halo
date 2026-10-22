@@ -27,15 +27,15 @@ import {
 } from "@get-halo/shared/Stream";
 import {
   type HaloMessage as StoredMessage,
-  type SessionWatchItem,
+  type ThreadWatchItem,
   type HaloConnectionEvent,
   type HaloConnectionState,
   type ChatPrompt,
-  type SessionSnapshot,
-  type SessionSummary,
+  type ThreadSnapshot,
+  type ThreadSummary,
   chatPromptContent,
-  applySessionEvent,
-  sessionToolExecutions,
+  applyThreadEvent,
+  threadToolExecutions,
   toolApprovalDecisionCustomType,
   userInterruptionCustomType,
   type ToolApprovalDecision,
@@ -53,12 +53,12 @@ import { createExecTool } from "./tools/execTool.js";
 import { limitToolOutput } from "./tools/limitToolOutput.js";
 import { WorkspaceResourceLoader } from "./WorkspaceResourceLoader.js";
 import type { HaloEnvironment } from "./workspacePrompt.js";
-import { sessionEvents } from "./sessionEvents.js";
+import { threadEvents } from "./threadEvents.js";
 import {
   HaloThreadDoc,
-  SessionProjection,
+  ThreadProjection,
   type MessagePresentation,
-} from "./SessionProjection.js";
+} from "./ThreadProjection.js";
 
 export class EmptyPromptError extends errore.createTaggedError({
   name: "EmptyPromptError",
@@ -72,16 +72,16 @@ export class AbortFailedError extends errore.createTaggedError({
   name: "AbortFailedError",
   message: "$reason",
 }) {}
-export class CreateAgentSessionError extends errore.createTaggedError({
-  name: "CreateAgentSessionError",
-  message: "Failed to create agent session",
+export class CreateAgentThreadError extends errore.createTaggedError({
+  name: "CreateAgentThreadError",
+  message: "Failed to create agent thread",
 }) {}
-export class SessionStorageError extends errore.createTaggedError({
-  name: "SessionStorageError",
-  message: "Could not access storage for session '$sessionId'",
+export class ThreadStorageError extends errore.createTaggedError({
+  name: "ThreadStorageError",
+  message: "Could not access storage for thread '$threadId'",
 }) {}
 
-type SessionNotification = {
+type ThreadNotification = {
   customType:
     | "halo.integration.connected"
     | typeof toolApprovalDecisionCustomType;
@@ -117,14 +117,14 @@ export class Thread {
   private activity = 0;
   private readonly eventStream = new Stream<ThreadEvent>();
   readonly events: ReadonlyStream<ThreadEvent> = this.eventStream;
-  readonly snapshot: ReadonlyProjectedStream<SessionSnapshot>;
-  private readonly projection: SessionProjection;
-  private readonly updates = new Stream<SessionWatchItem>();
+  readonly snapshot: ReadonlyProjectedStream<ThreadSnapshot>;
+  private readonly projection: ThreadProjection;
+  private readonly updates = new Stream<ThreadWatchItem>();
   private readonly summaryChanges = new Stream<void>();
   private readonly closed = new AbortController();
   private readonly detach: () => void;
   private readonly detachStorage: () => void;
-  readonly sessionId: string;
+  readonly threadId: string;
   private readonly harness: Harness;
   private readonly conversation: Conversation;
   private readonly stored: ThreadHandle;
@@ -148,19 +148,19 @@ export class Thread {
     this.harness = harness;
     this.conversation = conversation;
     this.stored = stored;
-    this.sessionId = stored.metadata.id;
+    this.threadId = stored.metadata.id;
     this.filesystem = filesystem;
     this.workspaceRoot = workspaceRoot;
     this.approvals = ctx.approvals;
     this.toolRuntime = ctx.toolRuntime;
-    this.projection = new SessionProjection(data);
+    this.projection = new ThreadProjection(data);
     this.snapshot = this.events.project(
       this.projection.snapshot(),
       (previous, event) => {
         if (event.type === "fault")
           return { ...previous, activeRun: undefined, fault: event.error };
         if (event.type === "halo.connection")
-          return applySessionEvent(previous, event);
+          return applyThreadEvent(previous, event);
         this.projection.apply(event.publication);
         return {
           ...this.projection.snapshot(),
@@ -172,7 +172,7 @@ export class Thread {
       const previous = this.snapshot.latestValue;
       const summary = this.readSummary();
       this.eventStream.append(event);
-      for (const update of sessionEvents(previous, this.snapshot.latestValue))
+      for (const update of threadEvents(previous, this.snapshot.latestValue))
         this.updates.append({ type: "event", event: update });
       if (JSON.stringify(summary) !== JSON.stringify(this.readSummary()))
         this.summaryChanges.append();
@@ -201,6 +201,7 @@ export class Thread {
     const resourceLoader = new WorkspaceResourceLoader({
       environment: options.environment,
       workspaceRoot: layout.root,
+      threadId: stored.metadata.id,
     });
     const reloaded = await resourceLoader.reload();
     if (reloaded instanceof Error) return reloaded;
@@ -221,7 +222,7 @@ export class Thread {
     ].map((tool) =>
       limitToolOutput(tool, {
         workspaceRoot: layout.root,
-        sessionId: stored.metadata.id,
+        threadId: stored.metadata.id,
       }),
     );
     const registry = createRegistry();
@@ -241,7 +242,7 @@ export class Thread {
         onReport: (error) => console.warn("Pi Durable", error),
       },
       BACKGROUND_CONTEXT,
-    ).catch((cause) => new CreateAgentSessionError({ cause }));
+    ).catch((cause) => new CreateAgentThreadError({ cause }));
     if (harness instanceof Error) return harness;
     cleanup.defer(async () => await harness.close(BACKGROUND_CONTEXT));
     const conversation = await harness
@@ -250,7 +251,7 @@ export class Thread {
           await tx.doc(HaloThreadDoc, conversationId);
         },
       })
-      .catch((cause) => new CreateAgentSessionError({ cause }));
+      .catch((cause) => new CreateAgentThreadError({ cause }));
     if (conversation instanceof Error) return conversation;
     const resetNotice = await conversation
       .commit(async (tx) => {
@@ -269,7 +270,7 @@ export class Thread {
         );
         state.execSessionUsed = false;
       }, BACKGROUND_CONTEXT)
-      .catch((cause) => new CreateAgentSessionError({ cause }));
+      .catch((cause) => new CreateAgentThreadError({ cause }));
     if (resetNotice instanceof Error) return resetNotice;
     const configured = await conversation
       .configure(
@@ -279,9 +280,9 @@ export class Thread {
         },
         BACKGROUND_CONTEXT,
       )
-      .catch((cause) => new CreateAgentSessionError({ cause }));
+      .catch((cause) => new CreateAgentThreadError({ cause }));
     if (configured instanceof Error) return configured;
-    const session = await harness
+    const thread = await harness
       .commit(
         async () =>
           new Thread({
@@ -296,10 +297,10 @@ export class Thread {
           }),
         BACKGROUND_CONTEXT,
       )
-      .catch((cause) => new CreateAgentSessionError({ cause }));
-    if (session instanceof Error) return session;
+      .catch((cause) => new CreateAgentThreadError({ cause }));
+    if (thread instanceof Error) return thread;
     cleanup.move();
-    return session;
+    return thread;
   }
 
   resume() {
@@ -332,8 +333,7 @@ export class Thread {
     const inspection = await this.harness
       .inspect(BACKGROUND_CONTEXT)
       .catch(
-        (cause) =>
-          new SessionStorageError({ sessionId: this.sessionId, cause }),
+        (cause) => new ThreadStorageError({ threadId: this.threadId, cause }),
       );
     if (inspection instanceof Error) return inspection;
     const noActivityOccurredDuringInspection = this.activity === activity;
@@ -386,8 +386,7 @@ export class Thread {
       const inspection = await this.harness
         .inspect(BACKGROUND_CONTEXT)
         .catch(
-          (cause) =>
-            new SessionStorageError({ sessionId: this.sessionId, cause }),
+          (cause) => new ThreadStorageError({ threadId: this.threadId, cause }),
         );
       if (inspection instanceof Error) {
         console.warn(inspection);
@@ -420,7 +419,7 @@ export class Thread {
   async *watch(options: {
     signal?: AbortSignal;
     readConnections: () => HaloConnectionState[];
-  }): AsyncGenerator<SessionWatchItem> {
+  }): AsyncGenerator<ThreadWatchItem> {
     const abortSignal =
       options.signal === undefined
         ? this.closed.signal
@@ -443,7 +442,7 @@ export class Thread {
     approvalId: string;
     decision: ToolApprovalDecision;
   }) {
-    const approval = sessionToolExecutions(this.readSnapshot([]))
+    const approval = threadToolExecutions(this.readSnapshot([]))
       .flatMap((execution) =>
         execution.type === "exec" ? execution.approvals : [],
       )
@@ -475,8 +474,7 @@ export class Thread {
         });
       }, BACKGROUND_CONTEXT)
       .catch(
-        (cause) =>
-          new SessionStorageError({ sessionId: this.sessionId, cause }),
+        (cause) => new ThreadStorageError({ threadId: this.threadId, cause }),
       );
     if (saved instanceof Error) {
       this.approvals.release(approval.id);
@@ -497,8 +495,7 @@ export class Thread {
           await tx.appendEntry(this.conversation.id, messageDraft(message));
       }, BACKGROUND_CONTEXT)
       .catch(
-        (cause) =>
-          new SessionStorageError({ sessionId: this.sessionId, cause }),
+        (cause) => new ThreadStorageError({ threadId: this.threadId, cause }),
       );
   }
 
@@ -508,8 +505,7 @@ export class Thread {
         (await tx.doc(HaloThreadDoc, this.conversation.id)).name = name;
       }, BACKGROUND_CONTEXT)
       .catch(
-        (cause) =>
-          new SessionStorageError({ sessionId: this.sessionId, cause }),
+        (cause) => new ThreadStorageError({ threadId: this.threadId, cause }),
       );
   }
 
@@ -517,14 +513,14 @@ export class Thread {
     input: Omit<ChatPrompt, "uploadIds"> & {
       attachments?: readonly ClaimedUpload[];
     },
-    sessionContents?: ReadonlyMap<string, string>,
+    threadContents?: ReadonlyMap<string, string>,
   ) {
     const text = input.text.trim();
     const files = input.attachments ?? [];
     const references = input.references ?? [];
     if (text.length === 0 && files.length === 0 && references.length === 0)
       return new EmptyPromptError();
-    const content = chatPromptContent(text, references, sessionContents);
+    const content = chatPromptContent(text, references, threadContents);
     if (files.length > 0) {
       const prepared = await prepareChatAttachments({
         files,
@@ -712,7 +708,7 @@ export class Thread {
       );
     if (recorded instanceof Error) return recorded;
   }
-  async notify(input: SessionNotification) {
+  async notify(input: ThreadNotification) {
     return await this.send({
       role: "custom",
       ...input,
@@ -730,9 +726,9 @@ export class Thread {
       .close(BACKGROUND_CONTEXT)
       .catch(
         (cause) =>
-          new AbortFailedError({ reason: "Session close failed", cause }),
+          new AbortFailedError({ reason: "Thread close failed", cause }),
       );
-    await this.toolRuntime.codeSessions.reset(this.sessionId);
+    await this.toolRuntime.codeSessions.reset(this.threadId);
     const closed = await closing;
     this.detach();
     this.detachStorage();
@@ -741,7 +737,7 @@ export class Thread {
     if (closed instanceof Error) return closed;
   }
 
-  readSummary(): Omit<SessionSummary, "markedDone" | "readReceiptCursorId"> {
+  readSummary(): Omit<ThreadSummary, "markedDone" | "readReceiptCursorId"> {
     return this.projection.summary({
       metadata: this.stored.metadata,
       cwd: this.workspaceRoot,

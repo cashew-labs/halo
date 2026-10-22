@@ -8,7 +8,7 @@ import { serverTest } from "./serverTest.js";
 serverTest(
   "queries current conversation data through the shared read-only database tool",
   async ({ server }) => {
-    const saved = await server.rpc.testApi.seedSession({
+    const saved = await server.rpc.testApi.seedThread({
       title: "Timezone choice",
       messages: [
         {
@@ -36,9 +36,16 @@ serverTest(
       truncated: false,
     });
 
-    await server.rpc.testApi.seedSession({
-      title: "New session",
+    // Released clients can still seed through the legacy test API name.
+    const legacyThread = await server.rpc.testApi.seedSession({
+      title: "New thread",
       messages: [{ role: "user", content: "Later", timestamp: Date.now() }],
+    });
+    expect(legacyThread).toEqual({ sessionId: expect.any(String) });
+    expect(await server.rpc.thread.snapshot(legacyThread)).toMatchObject({
+      entries: [
+        { type: "message", message: { role: "user", content: "Later" } },
+      ],
     });
     const latest = await server.rpc.testApi.invokeTool({
       path: "database.query",
@@ -52,7 +59,7 @@ serverTest(
         input: { sql: "SELECT * FROM missing_table" },
       }),
     ).rejects.toThrow("Database query failed");
-    await server.rpc.testApi.seedSession({
+    await server.rpc.testApi.seedThread({
       title: "After failed query",
       messages: [],
     });
@@ -128,14 +135,14 @@ serverTest(
       content: "x".repeat(5 * 1024 * 1024 + 1),
     });
 
-    const session = await server.rpc.thread.new();
+    const thread = await server.rpc.thread.new();
     const prompt = server.promptAndWait({
-      ...session,
+      ...thread,
       text: "Find the silver marmot",
     });
     await llm.respond(m.assistant("I found a silver marmot."));
     await prompt;
-    const named = await server.rpc.testApi.seedSession({
+    const named = await server.rpc.testApi.seedThread({
       title: "Silver marmot report",
       messages: [],
     });
@@ -160,7 +167,7 @@ serverTest(
       result.hits.filter(
         (hit) =>
           hit.kind === "session" &&
-          hit.sessionId === session.sessionId &&
+          hit.sessionId === thread.sessionId &&
           hit.source === "name",
       ),
     ).toEqual([]);
@@ -176,7 +183,7 @@ serverTest(
       result.hits.some(
         (hit) =>
           hit.kind === "session" &&
-          hit.sessionId === session.sessionId &&
+          hit.sessionId === thread.sessionId &&
           hit.source === "content",
       ),
     ).toBe(true);

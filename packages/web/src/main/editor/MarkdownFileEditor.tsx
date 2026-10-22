@@ -21,7 +21,7 @@ import {
 } from "./MarkdownFindHighlight.js";
 import {
   useApi,
-  useSessionsQuery,
+  useThreadsQuery,
   useWorkspaceQuery,
 } from "../../api/ApiProvider.js";
 import { useTabFindSource } from "../../panes/TabFind.js";
@@ -44,11 +44,11 @@ export function MarkdownFileEditor({
   const isActiveTab = useIsActiveTab();
   const api = useApi();
   const workspace = useWorkspaceQuery().data;
-  const sessions = useSessionsQuery(workspace).data ?? [];
-  const targets: ReferenceTarget[] = sessions.map((session) => ({
-    kind: "session" as const,
-    sessionId: session.sessionId,
-    title: session.title ?? session.sessionId,
+  const threads = useThreadsQuery(workspace).data ?? [];
+  const targets: ReferenceTarget[] = threads.map((thread) => ({
+    kind: "thread" as const,
+    threadId: thread.sessionId,
+    title: thread.title ?? thread.sessionId,
   }));
   const apiRef = useRef(api);
   useEffect(() => {

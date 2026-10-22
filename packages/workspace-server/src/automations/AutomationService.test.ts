@@ -56,7 +56,7 @@ automationTest(
       scheduledFor: "2026-09-25T08:02:00.000Z",
     });
     await automations.claimNext();
-    await automations.attachSession({ runId: run.id, sessionId: "session-1" });
+    await automations.attachThread({ runId: run.id, threadId: "session-1" });
 
     const overlap = await automations.beginRun({
       automationId: saved.id,
@@ -247,7 +247,7 @@ automationTest(
 );
 
 automationTest(
-  "recovery aborts attached routine sessions before interrupting their runs",
+  "recovery aborts attached routine threads before interrupting their runs",
   async ({ openAutomations }) => {
     const automations = await openAutomations();
     const saved = await automations.save(everyTwoMinutes);
@@ -258,14 +258,14 @@ automationTest(
     });
     if (run instanceof Error || run === undefined) throw new Error("No run");
     await automations.claimNext();
-    await automations.attachSession({ runId: run.id, sessionId: "session-1" });
+    await automations.attachThread({ runId: run.id, threadId: "session-1" });
     const abortError = new AbortFailedError({
       reason: "abort failed",
       cause: new Error("abort failed"),
     });
     const failedRunner = new AutomationRunner({
       automations: automations,
-      sessions: {
+      threads: {
         abort: async () => abortError,
         new: vi.fn(),
         setName: vi.fn(),
@@ -291,7 +291,7 @@ automationTest(
     });
     const runner = new AutomationRunner({
       automations: automations,
-      sessions: {
+      threads: {
         abort,
         new: vi.fn(),
         markDone: vi.fn(),

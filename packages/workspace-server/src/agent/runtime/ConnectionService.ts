@@ -16,9 +16,9 @@ import type {
 
 const setupTtlMs = 15 * 60 * 1_000;
 
-export class ConnectionSessionMismatchError extends errore.createTaggedError({
-  name: "ConnectionSessionMismatchError",
-  message: "The connection does not belong to session '$sessionId'.",
+export class ConnectionThreadMismatchError extends errore.createTaggedError({
+  name: "ConnectionThreadMismatchError",
+  message: "The connection does not belong to thread '$threadId'.",
 }) {}
 
 export class ConnectionUnavailableError extends errore.createTaggedError({
@@ -29,7 +29,7 @@ export class ConnectionUnavailableError extends errore.createTaggedError({
 type StartConnectionInput = {
   onEvent: (event: HaloConnectionEvent) => Promise<Error | undefined>;
   request: ConnectionRequest;
-  sessionId: string;
+  threadId: string;
   legacyClient?: boolean;
 };
 
@@ -70,7 +70,7 @@ export type RemoteConnectionBackend = {
 export class ConnectionService {
   private closed = false;
   private readonly pendingConnections = new Map<string, PendingConnection>();
-  private readonly connectionStatesBySession = new Map<
+  private readonly connectionStatesByThread = new Map<
     string,
     HaloConnectionState[]
   >();
@@ -85,11 +85,11 @@ export class ConnectionService {
     for (const pending of this.pendingConnections.values())
       clearTimeout(pending.expires);
     this.pendingConnections.clear();
-    this.connectionStatesBySession.clear();
+    this.connectionStatesByThread.clear();
   }
 
-  statesForSession(sessionId: string) {
-    return this.connectionStatesBySession.get(sessionId) ?? [];
+  statesForThread(threadId: string) {
+    return this.connectionStatesByThread.get(threadId) ?? [];
   }
 
   async startConnection(
@@ -124,7 +124,7 @@ export class ConnectionService {
       expires: setTimeout(() => void this.pollRemote(connectionId), 1_000),
     };
     this.pendingConnections.set(connectionId, pending);
-    const wasConnected = this.statesForSession(input.sessionId).some(
+    const wasConnected = this.statesForThread(input.threadId).some(
       (state) =>
         connectionRequestKey(state.request) ===
           connectionRequestKey(input.request) && state.status === "connected",
@@ -147,11 +147,11 @@ export class ConnectionService {
     };
   }
 
-  async cancelConnection(input: { connectionId: string; sessionId: string }) {
+  async cancelConnection(input: { connectionId: string; threadId: string }) {
     const pending = this.pendingConnections.get(input.connectionId);
     if (pending === undefined) return;
-    if (pending.sessionId !== input.sessionId)
-      return new ConnectionSessionMismatchError({ sessionId: input.sessionId });
+    if (pending.threadId !== input.threadId)
+      return new ConnectionThreadMismatchError({ threadId: input.threadId });
     if (this.remote === undefined) return new ConnectionUnavailableError();
     const cancelled = await this.remote.cancelSetup({
       setupId: pending.setupId,
@@ -232,9 +232,9 @@ export class ConnectionService {
     pending: StartConnectionInput,
     event: HaloConnectionEvent,
   ) {
-    this.connectionStatesBySession.set(
-      pending.sessionId,
-      applyConnectionEvent(this.statesForSession(pending.sessionId), event),
+    this.connectionStatesByThread.set(
+      pending.threadId,
+      applyConnectionEvent(this.statesForThread(pending.threadId), event),
     );
     return await pending.onEvent(event);
   }

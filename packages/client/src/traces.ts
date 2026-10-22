@@ -21,6 +21,7 @@ export type TraceOutcome = "completed" | "failed" | "cancelled" | "interrupted";
 export type TraceRecord = TraceEvent & {
   schemaVersion: 1;
   workspaceId: string;
+  // Existing trace archives use this serialized key for the Halo thread ID.
   sessionId: string;
   traceId: string;
   sequence: number;

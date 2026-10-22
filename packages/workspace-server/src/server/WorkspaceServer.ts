@@ -25,8 +25,8 @@ import * as errore from "errore";
 import { FilesystemService } from "../filesystem/FilesystemService.js";
 import { ExtensionHost } from "../extensions/ExtensionHost.js";
 import type { ExtensionRuntime } from "../extensions/startExtension.js";
-import { ThreadManager } from "../sessions/ThreadManager.js";
-import { threadTools } from "../sessions/threadTools.js";
+import { ThreadManager } from "../threads/ThreadManager.js";
+import { threadTools } from "../threads/threadTools.js";
 import { WorkspaceService } from "../workspace/WorkspaceService.js";
 import { WorkspaceSearch } from "../workspace/WorkspaceSearch.js";
 import { StaticAgentAuthority } from "../agent/runtime/AgentAuthority.js";
@@ -132,9 +132,9 @@ export class WorkspaceServer {
   }
   private readonly filesystem: FilesystemService;
   private readonly db: DatabaseService;
-  private readonly sessionRepo: TursoThreadRepo;
+  private readonly threadRepo: TursoThreadRepo;
   private readonly workspace: WorkspaceService;
-  private readonly sessions: ThreadManager;
+  private readonly threads: ThreadManager;
   private readonly uploads: UploadService;
   private readonly automations: AutomationService;
   private readonly automationRunner: AutomationRunner;
@@ -155,9 +155,9 @@ export class WorkspaceServer {
     idleReporter: WorkspaceIdleReporter;
     filesystem: FilesystemService;
     db: DatabaseService;
-    sessionRepo: TursoThreadRepo;
+    threadRepo: TursoThreadRepo;
     workspace: WorkspaceService;
-    sessions: ThreadManager;
+    threads: ThreadManager;
     uploads: UploadService;
     automations: AutomationService;
     automationRunner: AutomationRunner;
@@ -175,9 +175,9 @@ export class WorkspaceServer {
     const {
       filesystem,
       db,
-      sessionRepo,
+      threadRepo,
       workspace,
-      sessions,
+      threads,
       automations,
       automationRunner,
       automationScheduler,
@@ -193,9 +193,9 @@ export class WorkspaceServer {
     this.idleReporter = ctx.idleReporter;
     this.filesystem = filesystem;
     this.db = db;
-    this.sessionRepo = sessionRepo;
+    this.threadRepo = threadRepo;
     this.workspace = workspace;
-    this.sessions = sessions;
+    this.threads = threads;
     this.uploads = ctx.uploads;
     this.automations = automations;
     this.automationRunner = automationRunner;
@@ -279,13 +279,13 @@ export class WorkspaceServer {
           error: closed,
         });
     });
-    const sessionRepo = new TursoThreadRepo(db.createNativeConnection());
-    const search = new WorkspaceSearch({ workspace, repo: sessionRepo });
+    const threadRepo = new TursoThreadRepo(db.createNativeConnection());
+    const search = new WorkspaceSearch({ workspace, repo: threadRepo });
     cleanup.defer(async () => {
-      const closed = await sessionRepo.close();
+      const closed = await threadRepo.close();
       if (closed instanceof Error)
         host.logger.warn({
-          event: "session-repo-cleanup-failed",
+          event: "thread-repo-cleanup-failed",
           error: closed,
         });
     });
@@ -345,7 +345,7 @@ export class WorkspaceServer {
           computer,
           // Threads and automation services borrow the runtime during startup.
           get threads() {
-            return sessions;
+            return threads;
           },
           get connections() {
             return connectionService;
@@ -406,9 +406,9 @@ export class WorkspaceServer {
     const uploadsStarted = await uploads.start();
     if (uploadsStarted instanceof Error) return uploadsStarted;
     cleanup.defer(() => uploads.close());
-    const sessions = new ThreadManager({
+    const threads = new ThreadManager({
       environment: config.environment,
-      repo: sessionRepo,
+      repo: threadRepo,
       db,
       llmApi: host.llmApi,
       filesystem,
@@ -417,10 +417,10 @@ export class WorkspaceServer {
       uploads,
     });
     cleanup.defer(async () => {
-      const closed = await sessions.shutdown();
+      const closed = await threads.shutdown();
       if (closed instanceof Error)
         host.logger.warn({
-          event: "sessions-cleanup-failed",
+          event: "threads-cleanup-failed",
           error: closed,
         });
     });
@@ -431,14 +431,14 @@ export class WorkspaceServer {
     cleanup.defer(() => toolsIdle[Symbol.dispose]());
     const maintenance = new WorkspaceMaintenance({
       isWorkIdle: () =>
-        sessions.idle.latestValue &&
+        threads.idle.latestValue &&
         toolsIdle.latestValue &&
         automationRunner.idle.latestValue,
     });
     const automationRunner = new AutomationRunner({
       maintenance,
       automations,
-      sessions,
+      threads,
       filesystem,
       workspaceRoot,
       logger: host.logger,
@@ -448,12 +448,12 @@ export class WorkspaceServer {
       preserveDue: host.reportAutomationSchedule !== undefined,
     });
     if (recoveredAutomations instanceof Error) return recoveredAutomations;
-    const recovered = await sessions.start();
+    const recovered = await threads.start();
     if (recovered instanceof Error) return recovered;
     await automationRunner.startWorker();
     const idleReporter = new WorkspaceIdleReporter({
       idle: combineLatest([
-        sessions.idle,
+        threads.idle,
         toolRuntime.idle,
         automationRunner.idle,
       ]).map((states) => states.every(Boolean)),
@@ -516,7 +516,7 @@ export class WorkspaceServer {
         workspace,
         search,
         uploads,
-        sessions,
+        threads,
         maintenance,
         connections: connectionService,
         toolRuntime,
@@ -537,9 +537,9 @@ export class WorkspaceServer {
       idleReporter,
       filesystem,
       db,
-      sessionRepo,
+      threadRepo,
       workspace,
-      sessions,
+      threads,
       uploads,
       automations,
       automationRunner,
@@ -567,26 +567,26 @@ export class WorkspaceServer {
     await this.idleReporter.close();
     await this.requests.close();
     this.connectionService.close();
-    // Routine runs record their interruption before their sessions close.
+    // Routine runs record their interruption before their threads close.
     await this.automationScheduler.stop();
     await this.automationSync?.close();
     await this.automationRunner.stop();
     await this.automations.close();
-    const sessionsClosed = await this.sessions.shutdown();
+    const threadsClosed = await this.threads.shutdown();
     this.uploads.close();
     await this.traces.close();
     await this.browsers.shutdown();
     await this.extensions.stop();
     const toolsClosed = await this.toolRuntime.close();
     const webClosed = await this.web.close();
-    const repoClosed = await this.sessionRepo.close();
+    const repoClosed = await this.threadRepo.close();
     const databaseClosed = await this.db.close();
     const httpClosed = await closeHaloHttp(this.http);
     this.workspace.close();
     const filesystemClosed = await this.filesystem.close();
 
     if (httpClosed instanceof Error) return httpClosed;
-    if (sessionsClosed instanceof Error) return sessionsClosed;
+    if (threadsClosed instanceof Error) return threadsClosed;
     if (toolsClosed instanceof Error) return toolsClosed;
     if (webClosed instanceof Error) return webClosed;
     if (repoClosed instanceof Error) return repoClosed;

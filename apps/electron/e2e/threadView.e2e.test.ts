@@ -33,7 +33,7 @@ Tandem is squarely in Family 1, and its closest siblings are Replicache/Zero and
 - **Versus the CRDT family:** Tandem resolves conflicts as plain LWW per record, so it can't merge concurrent field edits or text the way Automerge/Yjs/Jazz/Evolu/Ditto do.
 - **Server authority:** Different engines make different tradeoffs for merging data.
 `;
-    await harness.loadSession({
+    await harness.loadThread({
       title: "Sync engine comparison",
       messages: [m.user("Hello"), m.assistant("Ready.")],
     });
@@ -101,7 +101,7 @@ e2eTest(
       connectionName: "personal",
     };
     const work = { ...personal, connectionName: "work" };
-    await harness.loadSession({
+    await harness.loadThread({
       title: "Daily inbox review",
       messages: [
         m.user("Review both inboxes"),
@@ -136,7 +136,7 @@ e2eTest(
       });
     }
     await app.page.setViewportSize({ width: 1280, height: 800 });
-    await harness.loadSession({
+    await harness.loadThread({
       title: "Separate connection requests",
       messages: [
         m.user("Review both inboxes"),
@@ -160,7 +160,7 @@ e2eTest(
 e2eTest(
   "keeps multiple queued messages visible and delivers each in order",
   async ({ app, harness, llm }, testInfo) => {
-    await harness.loadSession({
+    await harness.loadThread({
       title: "Queued messages",
       messages: [m.user("Hello"), m.assistant("Ready.")],
     });
@@ -220,7 +220,7 @@ for (const toolName of ["bash", "exec"] as const)
   e2eTest(
     `stops a detached command through ${toolName} and can send another message`,
     async ({ app, harness, llm }, testInfo) => {
-      await harness.loadSession({
+      await harness.loadThread({
         title: "Stop command",
         messages: [m.user("Hello"), m.assistant("Ready.")],
       });
@@ -322,7 +322,7 @@ for (const toolName of ["bash", "exec"] as const)
 e2eTest(
   "moves one queued message and its attachments and references into the existing draft",
   async ({ app, harness, llm }, testInfo) => {
-    await harness.loadSession({
+    await harness.loadThread({
       title: "Edit queued message",
       messages: [m.user("Hello"), m.assistant("Ready.")],
     });
@@ -430,7 +430,7 @@ e2eTest(
 e2eTest(
   "scrolls a long input draft while keeping Send available",
   async ({ app, harness }, testInfo) => {
-    await harness.loadSession({
+    await harness.loadThread({
       title: "Long input draft",
       messages: [m.user("Hello"), m.assistant("Ready.")],
     });
@@ -583,9 +583,9 @@ e2eTest(
 );
 
 e2eTest(
-  "references files and sessions from a message",
+  "references files and threads from a message",
   async ({ app, harness, llm }) => {
-    await harness.loadSession({
+    await harness.loadThread({
       title: "Previous plan",
       messages: [
         m.user("What is the launch color?"),
@@ -599,7 +599,7 @@ e2eTest(
     await app.page
       .getByRole("button", { name: "New tab", exact: true })
       .click();
-    const pane = app.page.getByRole("main", { name: "New session" });
+    const pane = app.page.getByRole("main", { name: "New thread" });
     const editor = pane.getByLabel("Message", { exact: true });
     await expect(editor).toBeFocused();
     await editor.fill("Compare @brief");
@@ -637,7 +637,7 @@ e2eTest(
 e2eTest(
   "sends a message before its file finishes uploading and keeps later messages in order",
   async ({ app, harness, llm }) => {
-    await harness.loadSession({
+    await harness.loadThread({
       title: "Send early",
       messages: [m.user("Hello"), m.assistant("Ready.")],
     });
@@ -862,14 +862,14 @@ attachmentTest(
 );
 
 e2eTest(
-  "keeps rendering a long session while a response streams faster than it renders",
+  "keeps rendering a long thread while a response streams faster than it renders",
   async ({ app, harness, llm }) => {
     e2eTest.setTimeout(120_000);
     const pageErrors: string[] = [];
     app.page.on("pageerror", (error) =>
       pageErrors.push(error.stack ?? error.message),
     );
-    await harness.loadSession({
+    await harness.loadThread({
       title: "Long conversation",
       messages: Array.from({ length: 400 }, (_, index) => [
         m.user(`Question ${index}: Please explain step ${index} in detail.`),
@@ -893,16 +893,16 @@ e2eTest(
         ),
       ]).flat(),
     });
-    const session = app.page.getByRole("main", { name: "Long conversation" });
-    const transcript = session.getByRole("log", { name: "Session transcript" });
+    const thread = app.page.getByRole("main", { name: "Long conversation" });
+    const transcript = thread.getByRole("log", { name: "Thread transcript" });
     await expect(transcript).toContainText("Answer 399");
 
     // Keep renderer work slower than incoming deltas on fast CI machines.
     const cdp = await app.page.context().newCDPSession(app.page);
     await cdp.send("Emulation.setCPUThrottlingRate", { rate: 4 });
 
-    await session.getByLabel("Message", { exact: true }).fill("Keep going");
-    await session.getByRole("button", { name: "Send", exact: true }).click();
+    await thread.getByLabel("Message", { exact: true }).fill("Keep going");
+    await thread.getByRole("button", { name: "Send", exact: true }).click();
     const response = await llm.stream();
     // Each delta re-renders the whole transcript. Deltas that arrive faster
     // than that render once made React count the Find updates as nested and
@@ -925,8 +925,8 @@ e2eTest(
   },
 );
 
-e2eTest("starts a new session", async ({ harness, app }) => {
-  await harness.loadSession({
+e2eTest("starts a new thread", async ({ harness, app }) => {
+  await harness.loadThread({
     title: "Existing conversation",
     messages: [
       m.user("Summarize this workspace"),
@@ -936,12 +936,12 @@ e2eTest("starts a new session", async ({ harness, app }) => {
 
   await app.page.getByRole("button", { name: "New tab", exact: true }).click();
 
-  const newSession = app.page.getByRole("main", {
-    name: "New session",
+  const newThread = app.page.getByRole("main", {
+    name: "New thread",
     exact: true,
   });
-  await expect(newSession).toBeVisible();
-  await expect(newSession.getByLabel("Message", { exact: true })).toBeFocused();
+  await expect(newThread).toBeVisible();
+  await expect(newThread.getByLabel("Message", { exact: true })).toBeFocused();
 });
 
 e2eTest(
@@ -978,7 +978,7 @@ e2eTest(
     await app.open();
 
     const pane = app.page.getByRole("main");
-    const transcript = pane.getByRole("log", { name: "Session transcript" });
+    const transcript = pane.getByRole("log", { name: "Thread transcript" });
     await expect(
       transcript.getByText("Read the project notes", { exact: true }),
     ).toBeVisible();
@@ -1073,13 +1073,13 @@ e2eTest(
     const response = await llm.stream();
     response.write(m.assistant("The first step"));
     await expect(
-      app.page.getByRole("log", { name: "Session transcript" }),
+      app.page.getByRole("log", { name: "Thread transcript" }),
     ).toContainText("The first step");
 
     await app.page.reload();
 
     const transcript = app.page.getByRole("log", {
-      name: "Session transcript",
+      name: "Thread transcript",
     });
     await expect(transcript).toContainText("The first step");
     await expect(

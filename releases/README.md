@@ -100,4 +100,4 @@ rollout. Workspace schedule snapshots now POST to
 The old `/api/workspace-runtime/routines` route is removed without an alias.
 Older workspaces log failed schedule reports until upgraded; reporting does not
 block startup. Existing stored schedules remain available during that window.
-The storage migrations, IDs, run history and session links remain intact.
+The storage migrations, IDs, run history and thread links remain intact.

@@ -12,7 +12,7 @@ export function useMessageDraftKey({
   kind,
   messageId,
 }: {
-  kind: "session" | "draft";
+  kind: "thread" | "draft";
   messageId: string;
 }) {
   const userId = useAuthenticatedUserId();
@@ -22,7 +22,8 @@ export function useMessageDraftKey({
     "halo:message-draft",
     userId,
     workspaceRoot,
-    kind,
+    // Retain the storage key for existing thread drafts.
+    kind === "thread" ? "session" : kind,
     messageId,
   ]);
 }

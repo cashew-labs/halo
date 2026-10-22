@@ -74,13 +74,13 @@ export {
   toolApprovalDecisionCustomType,
   userInterruptionCustomType,
   directToolIdentity,
-  emptySessionSnapshot,
-  reduceSessionUpdate,
-  applySessionEvent,
+  emptyThreadSnapshot,
+  reduceThreadUpdate,
+  applyThreadEvent,
   applyConnectionEvent,
   executionWithOutput,
-  sessionMessages,
-  sessionToolExecutions,
+  threadMessages,
+  threadToolExecutions,
   type HaloMessage,
   type ToolIdentity,
   type ExecToolCall,
@@ -94,10 +94,10 @@ export {
   type HaloEntry,
   type ActiveRun,
   type RunResult,
-  type SessionSnapshot,
-  type SessionEvent,
-  type SessionWatchItem,
-} from "./sessionState.js";
+  type ThreadSnapshot,
+  type ThreadEvent,
+  type ThreadWatchItem,
+} from "./threadState.js";
 // coverage-exempt: Public barrel re-exports; behavior is exercised through the defining modules.
 export {
   traceUploadLimits,
@@ -108,8 +108,8 @@ export {
 } from "./traces.js";
 export type {
   WorkspaceInfo,
-  SessionSummary,
-  SessionSummariesUpdate,
+  ThreadSummary,
+  ThreadSummariesUpdate,
   WorkspaceTreeEvent,
   WorkspaceFilePreview,
 } from "./rpc.js";

@@ -173,7 +173,7 @@ export class ElectronHost implements HostApi {
   async connectIntegration(
     input: Parameters<DesktopBridge["connectIntegration"]>[0],
   ) {
-    if (this.canRequest?.(["sessions", "startConnection"]) !== true)
+    if (this.canRequest?.(["thread", "startConnection"]) !== true)
       return new ConnectionUnavailableError();
     return await this.desktopBridge.connectIntegration(input).catch(
       (cause) =>
@@ -187,7 +187,7 @@ export class ElectronHost implements HostApi {
   async cancelIntegration(
     input: Parameters<DesktopBridge["cancelIntegration"]>[0],
   ) {
-    if (this.canRequest?.(["sessions", "cancelConnection"]) !== true)
+    if (this.canRequest?.(["thread", "cancelConnection"]) !== true)
       return new ConnectionUnavailableError();
     return await this.desktopBridge.cancelIntegration(input).catch(
       (cause) =>

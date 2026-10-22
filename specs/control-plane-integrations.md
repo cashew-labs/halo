@@ -999,7 +999,7 @@ index efb913a..a8bd93f 100644
 - [[apps/control-plane/src/server/ControlPlane.ts]] and [[apps/control-plane/src/DatabaseService.ts]] — host composition and database lifetime.
 - [[packages/config/src/controlPlane.ts]] — existing configuration and secret loading.
 - [[packages/workspace-server/src/agent/runtime/ConnectionService.ts]] and [[packages/workspace-server/src/agent/ToolApprovalService.ts]] — current connection and approval coordination.
-- [[packages/web/src/main/agent/sessionView.ts]] and [[packages/web/src/main/agent/AgentPane.tsx]] — structured result projection and cards.
+- [[packages/web/src/main/agent/threadView.ts]] and [[packages/web/src/main/agent/AgentPane.tsx]] — structured result projection and cards.
 - [Executor database contract](https://github.com/UsefulSoftwareCo/executor/blob/v1.6.0/packages/core/sdk/src/promise-executor.ts), [FumaDB adapter](https://github.com/UsefulSoftwareCo/executor/blob/v1.6.0/packages/core/sdk/src/executor-fuma-db.ts), [schema initialization](https://github.com/UsefulSoftwareCo/executor/blob/v1.6.0/packages/core/fumadb/src/adapters/drizzle/runtime.ts).
 - [Executor policies](https://github.com/UsefulSoftwareCo/executor/blob/v1.6.0/packages/core/sdk/src/policies.ts) and [OAuth storage](https://github.com/UsefulSoftwareCo/executor/blob/v1.6.0/packages/core/sdk/src/oauth-service.ts).
 - [Pi 1.0 codemode](https://github.com/earendil-works/pi/blob/v1.0.0/packages/codemode/README.md).

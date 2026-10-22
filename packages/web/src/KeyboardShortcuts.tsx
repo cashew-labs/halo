@@ -18,7 +18,7 @@ import { shortcuts } from "./shortcuts.js";
 import { matchesHotkey, type HotkeyAction } from "@get-halo/client";
 import { useDatabaseQuery } from "./database/useDatabaseQuery.js";
 import { useApi } from "./api/ApiProvider.js";
-import { sessionTitleQueryKey } from "./main/agent/useAgentSession.js";
+import { threadTitleQueryKey } from "./main/agent/useAgentThread.js";
 import {
   captureFileSelection,
   draftReferencesQueryKey,
@@ -72,7 +72,7 @@ export function KeyboardShortcuts() {
           return;
         }
         queryClient.setQueryData(
-          sessionTitleQueryKey(created.sessionId),
+          threadTitleQueryKey(created.sessionId),
           action.prompt,
         );
         workspace.open({

@@ -8,6 +8,7 @@ import type {
 } from "../../automations.js";
 
 // Domain tables remain the source of truth. Times are epoch milliseconds.
+// Legacy thread-related field names are also persisted in Tandem sync state.
 export const automations = haloSchema.table({
   table: "halo_automations",
   fields: {

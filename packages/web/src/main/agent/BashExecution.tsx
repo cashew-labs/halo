@@ -10,7 +10,7 @@ import {
 } from "maui";
 import { style, useStyles } from "purse-styles";
 
-// A shell command Halo ran into this session, such as a routine's script.
+// A shell command Halo ran into this thread, such as a routine's script.
 export function BashExecution({
   message,
 }: {

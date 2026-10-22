@@ -17,18 +17,18 @@ const [selectedId, setSelectedId] = useState("changes")
   onSelectionChange={setSelectedId}
   onClose={(id) => closeTab(id)}
   onAdd={() => addTab()}
-  addLabel="New session"
+  addLabel="New thread"
 />
 ```
 
-| Prop | Notes |
-| --- | --- |
-| `items` | `{ id, label, icon?, isClosable? }[]` |
-| `selectedId` | Controlled selected item ID |
-| `onSelectionChange` | Called when a tab is pressed or selected with the keyboard |
-| `onClose` | Enables a close control for every item where `isClosable` is true. Selected tabs show it persistently; unselected tabs reveal it on hover |
-| `onAdd` | Shows an icon-only add button |
-| `addLabel` | Accessible add-button label; defaults to `"New tab"` |
-| `aria-label` | Required accessible label for the tab toolbar |
+| Prop                | Notes                                                                                                                                     |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `items`             | `{ id, label, icon?, isClosable? }[]`                                                                                                     |
+| `selectedId`        | Controlled selected item ID                                                                                                               |
+| `onSelectionChange` | Called when a tab is pressed or selected with the keyboard                                                                                |
+| `onClose`           | Enables a close control for every item where `isClosable` is true. Selected tabs show it persistently; unselected tabs reveal it on hover |
+| `onAdd`             | Shows an icon-only add button                                                                                                             |
+| `addLabel`          | Accessible add-button label; defaults to `"New tab"`                                                                                      |
+| `aria-label`        | Required accessible label for the tab toolbar                                                                                             |
 
 Left/Right arrows wrap through tabs (and respect RTL). Home/End select the first/last tab. Delete or Backspace calls `onClose` for a selected closable tab.

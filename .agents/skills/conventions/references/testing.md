@@ -21,7 +21,7 @@ Prefer a smaller suite of durable tests over broad low-value coverage. Keep a du
 
 Package tests are E2Es through the main supported exports. Apps use their public UI or protocol. The consumer boundary defines E2E, not the number of processes: an exported reducer can be tested directly. Use Vitest for library/server APIs and Playwright for UI workflows.
 
-For an exported reducer, that means testing `applySessionEvent(emptySessionSnapshot(), event)` through the client package's root export. Do not start a server just to call it, or import a private module and relabel the test as a package E2E.
+For an exported reducer, that means testing `applyThreadEvent(emptyThreadSnapshot(), event)` through the client package's root export. Do not start a server just to call it, or import a private module and relabel the test as a package E2E.
 
 ## Locate and name tests by boundary
 
@@ -66,7 +66,7 @@ Write clear setup → action → assertion workflows. Prefer successful behavior
 
 Assert end-user state, not calls between internal services or private database rows. Avoid historical assertions about removed APIs or failures caused by incomplete setup.
 
-For UI tests, assert visible content, accessible roles and names, and meaningful containment. Check that a session link belongs to the Workspace sidebar and appears or disappears as the user acts:
+For UI tests, assert visible content, accessible roles and names, and meaningful containment. Check that a thread link belongs to the Workspace sidebar and appears or disappears as the user acts:
 
 ```ts
 const sidebar = page.getByRole("navigation", { name: "Workspace" });

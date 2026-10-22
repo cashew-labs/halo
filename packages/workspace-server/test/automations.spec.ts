@@ -3,7 +3,7 @@ import path from "node:path";
 import {
   createHaloClient,
   haloSupportedProtocols,
-  sessionMessages,
+  threadMessages,
   type WorkspaceUpdate,
   type HaloClient,
   type AutomationInput,
@@ -49,7 +49,7 @@ async function waitForRun(
 }
 
 serverTest(
-  "a script routine runs in a new named session",
+  "a script routine runs in a new named thread",
   async ({ server }) => {
     await installExtension(server, "appointments");
     const routine = await server.rpc.automations.save(bookHaircut);
@@ -63,7 +63,7 @@ serverTest(
     const snapshot = await server.rpc.thread.snapshot({
       sessionId: run.sessionId!,
     });
-    expect(sessionMessages(snapshot)).toMatchObject([
+    expect(threadMessages(snapshot)).toMatchObject([
       {
         role: "bashExecution",
         command: "echo booked in $(basename $PWD); echo slot 8am >&2",
@@ -71,9 +71,9 @@ serverTest(
         exitCode: 0,
       },
     ]);
-    const sessions = await server.rpc.thread.list();
+    const threads = await server.rpc.thread.list();
     expect(
-      sessions.find((session) => session.sessionId === run.sessionId),
+      threads.find((thread) => thread.sessionId === run.sessionId),
     ).toMatchObject({
       title: expect.stringMatching(/^Book haircut · \w+ \d+, \d+:\d\d [AP]M$/),
     });
@@ -141,7 +141,7 @@ serverTest(
     const snapshot = await server.rpc.thread.snapshot({
       sessionId: interrupted!.sessionId!,
     });
-    expect(sessionMessages(snapshot)).toMatchObject([
+    expect(threadMessages(snapshot)).toMatchObject([
       {
         role: "bashExecution",
         command: "touch started; sleep 30",

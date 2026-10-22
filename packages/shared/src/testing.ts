@@ -34,12 +34,12 @@ type ToolStartOptions = {
   arguments?: ToolArguments;
 };
 
-export type SessionDescription = {
+export type ThreadDescription = {
   title: string;
-  messages?: SessionDescriptionItem[];
+  messages?: ThreadDescriptionItem[];
 };
 
-export type SessionDescriptionItem =
+export type ThreadDescriptionItem =
   | { type: "user"; text: string }
   | { type: "assistant"; text: string }
   | {
@@ -57,16 +57,16 @@ type ToolCallDescription = {
   path: string;
 } & ToolStartOptions;
 
-type ToolMessage = Extract<SessionDescriptionItem, { type: "tool" }>;
+type ToolMessage = Extract<ThreadDescriptionItem, { type: "tool" }>;
 
 export type MessageDialect = {
   tool: {
     start(toolPath: string, options: ToolStartOptions): ToolCallDescription;
   };
-  user(text: string): Extract<SessionDescriptionItem, { type: "user" }>;
+  user(text: string): Extract<ThreadDescriptionItem, { type: "user" }>;
   assistant(
     text: string,
-  ): Extract<SessionDescriptionItem, { type: "assistant" }>;
+  ): Extract<ThreadDescriptionItem, { type: "assistant" }>;
   error(message: string): { type: "error"; message: string };
   read(input: { path: string; result: string }): ToolMessage;
   edit(input: {
@@ -81,7 +81,7 @@ export type MessageDialect = {
   exec(input: Omit<ExecDescription, "type">): ExecDescription;
   connectionRequest(
     request: ConnectionRequest,
-  ): Extract<SessionDescriptionItem, { type: "connectionRequest" }>;
+  ): Extract<ThreadDescriptionItem, { type: "connectionRequest" }>;
 };
 
 export const m: MessageDialect = {

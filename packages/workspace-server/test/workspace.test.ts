@@ -8,16 +8,16 @@ import {
   connectHaloClient,
   haloProtocolVersion,
   haloSupportedProtocols,
-  emptySessionSnapshot,
+  emptyThreadSnapshot,
   isThreadUnread,
-  reduceSessionUpdate,
-  sessionMessages,
-  sessionToolExecutions,
+  reduceThreadUpdate,
+  threadMessages,
+  threadToolExecutions,
   type HaloClient,
   type Hotkey,
   type TraceRecord,
-  type SessionSummary,
-  type SessionSummariesUpdate,
+  type ThreadSummary,
+  type ThreadSummariesUpdate,
 } from "@get-halo/client";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -111,9 +111,9 @@ serverTest(
       path: "note.txt",
       content: "delta",
     });
-    const session = await server.rpc.thread.new();
+    const thread = await server.rpc.thread.new();
     const prompt = server.promptAndWait({
-      ...session,
+      ...thread,
       text: "Inspect through both surfaces",
     });
     await llm.respond(({ tools }) => {
@@ -180,7 +180,7 @@ serverTest(
           ok: true,
           data: {
             text: "exec:delta",
-            threadId: session.sessionId,
+            threadId: thread.sessionId,
             modelId: "scripted",
             userId: "server-test-user",
             toolPath: "notes.org.main.inspect",
@@ -237,7 +237,7 @@ serverTest(
     });
     await prompt;
     expect(
-      sessionToolExecutions(await server.rpc.thread.snapshot(session)).find(
+      threadToolExecutions(await server.rpc.thread.snapshot(thread)).find(
         (execution) => execution.id === "alias",
       )?.result?.details,
     ).toBeUndefined();
@@ -302,9 +302,9 @@ serverTest.for([
       },
     });
     await server.start();
-    const session = await server.rpc.thread.new();
+    const thread = await server.rpc.thread.new();
     const prompt = server.promptAndWait({
-      ...session,
+      ...thread,
       text: "Inspect both outputs",
     });
     await llm.respond([
@@ -330,8 +330,8 @@ serverTest.for([
       return m.assistant("Inspected.");
     });
     await prompt;
-    const native = sessionToolExecutions(
-      await server.rpc.thread.snapshot(session),
+    const native = threadToolExecutions(
+      await server.rpc.thread.snapshot(thread),
     ).find((execution) => execution.id === "native");
     expect(native?.result?.details).toEqual(expectedDetails);
     expect(native?.status).toBe(expectedIsError ? "failed" : "completed");
@@ -374,9 +374,9 @@ serverTest.for([
       },
     });
     await server.start();
-    const session = await server.rpc.thread.new();
+    const thread = await server.rpc.thread.new();
     const prompt = server.promptAndWait({
-      ...session,
+      ...thread,
       text: "Inspect the result",
     });
     await llm.respond(m.tool.start("inspect", { id: "native", arguments: {} }));
@@ -389,14 +389,14 @@ serverTest.for([
       return m.assistant("Inspected.");
     });
     await prompt;
-    const native = sessionToolExecutions(
-      await server.rpc.thread.snapshot(session),
+    const native = threadToolExecutions(
+      await server.rpc.thread.snapshot(thread),
     ).find((execution) => execution.id === "native");
     expect(native?.status).toBe("completed");
     expect(native?.result?.details).toBeUndefined();
-    await server.rpc.thread.close(session);
-    const restored = sessionToolExecutions(
-      await server.rpc.thread.snapshot(session),
+    await server.rpc.thread.close(thread);
+    const restored = threadToolExecutions(
+      await server.rpc.thread.snapshot(thread),
     ).find((execution) => execution.id === "native");
     expect(restored).toEqual(native);
   },
@@ -434,9 +434,9 @@ serverTest(
       path.join(server.workspaceRoot, imagePath),
       Buffer.from(png, "base64"),
     );
-    const session = await server.rpc.thread.new();
+    const thread = await server.rpc.thread.new();
     const prompt = server.promptAndWait({
-      ...session,
+      ...thread,
       text: "Inspect the observation",
     });
     await llm.respond(
@@ -565,8 +565,8 @@ serverTest(
       return m.assistant("Viewed");
     });
     await prompt;
-    const executions = sessionToolExecutions(
-      await server.rpc.thread.snapshot(session),
+    const executions = threadToolExecutions(
+      await server.rpc.thread.snapshot(thread),
     );
     const details = executions.map((execution) => execution.result?.details);
     expect(JSON.stringify(details)).not.toContain(png);
@@ -600,9 +600,9 @@ serverTest(
     cleanup.defer(() => process.chdir(workingDirectory));
     // Production starts outside the source tree and its node_modules.
     process.chdir(os.tmpdir());
-    const session = await server.rpc.thread.new();
+    const thread = await server.rpc.thread.new();
     const first = server.promptAndWait({
-      ...session,
+      ...thread,
       text: "Remember a number",
     });
     await llm.respond(
@@ -666,7 +666,7 @@ serverTest(
     });
     await first;
 
-    const next = server.promptAndWait({ ...session, text: "Increase it" });
+    const next = server.promptAndWait({ ...thread, text: "Increase it" });
     await llm.respond(
       m.tool.start("exec", {
         id: "increase",
@@ -707,9 +707,9 @@ serverTest(
     await server.stop();
     await server.start();
     expect(
-      (await server.rpc.thread.snapshot(session)).activeRun,
+      (await server.rpc.thread.snapshot(thread)).activeRun,
     ).toBeUndefined();
-    const resumed = server.promptAndWait({ ...session, text: "Continue" });
+    const resumed = server.promptAndWait({ ...thread, text: "Continue" });
     await llm.respond(({ messages }) => {
       expect(
         messages.filter(
@@ -808,14 +808,21 @@ async function readTraces(workspaceRoot: string, state = "pending") {
 }
 
 serverTest(
-  "continues each conversation with its own history after restarting the server",
+  "continues each thread with its own history and system prompt ID after restarting the server",
   async ({ server, llm }) => {
     const notebook = await server.rpc.thread.new();
     const saveNotebook = server.promptAndWait({
       ...notebook,
       text: "Blue notebook",
     });
-    await llm.respond(m.assistant("Saved the notebook."));
+    await llm.respond(({ messages }) => {
+      const system = messages
+        .filter((message) => message.role === "system")
+        .map((message) => messageText(message))
+        .join("\n");
+      expect(system).toContain(`Current thread ID: ${notebook.sessionId}`);
+      return m.assistant("Saved the notebook.");
+    });
     await saveNotebook;
 
     const bicycle = await server.rpc.thread.new();
@@ -833,14 +840,20 @@ serverTest(
       ...notebook,
       text: "Continue",
     });
-    await llm.respond(({ messages }) =>
-      m.assistant(
+    await llm.respond(({ messages }) => {
+      const system = messages
+        .filter((message) => message.role === "system")
+        .map((message) => messageText(message))
+        .join("\n");
+      expect(system).toContain(`Current thread ID: ${notebook.sessionId}`);
+      expect(system).not.toContain(`Current thread ID: ${bicycle.sessionId}`);
+      return m.assistant(
         messages
           .filter((message) => message.role === "user")
           .map((message) => messageText(message))
           .join(" → "),
-      ),
-    );
+      );
+    });
     await recallNotebook;
     expect(
       assistantReplies(await server.rpc.thread.snapshot(notebook)),
@@ -850,14 +863,20 @@ serverTest(
       ...bicycle,
       text: "Continue",
     });
-    await llm.respond(({ messages }) =>
-      m.assistant(
+    await llm.respond(({ messages }) => {
+      const system = messages
+        .filter((message) => message.role === "system")
+        .map((message) => messageText(message))
+        .join("\n");
+      expect(system).toContain(`Current thread ID: ${bicycle.sessionId}`);
+      expect(system).not.toContain(`Current thread ID: ${notebook.sessionId}`);
+      return m.assistant(
         messages
           .filter((message) => message.role === "user")
           .map((message) => messageText(message))
           .join(" → "),
-      ),
-    );
+      );
+    });
     await recallBicycle;
     expect(assistantReplies(await server.rpc.thread.snapshot(bicycle))).toEqual(
       ["Saved the bicycle.", "Red bicycle → Continue"],
@@ -868,21 +887,21 @@ serverTest(
 serverTest(
   "deduplicates thread and prompt request IDs and resumes waiting after restart",
   async ({ server, llm }) => {
-    const [session, retry] = await Promise.all([
+    const [thread, retry] = await Promise.all([
       server.rpc.thread.new({ requestId: "durable-thread" }),
       server.rpc.thread.new({ requestId: "durable-thread" }),
     ]);
-    expect(retry).toEqual(session);
+    expect(retry).toEqual(thread);
     expect(
       await server.rpc.thread.new({ requestId: "different-thread" }),
-    ).not.toEqual(session);
+    ).not.toEqual(thread);
     const input = {
-      ...session,
+      ...thread,
       text: "Remember this once",
       clientMessageId: "durable-retry",
     };
     const accepted = await server.rpc.thread.prompt(input);
-    const waiting = server.rpc.thread.wait({ ...session, ...accepted });
+    const waiting = server.rpc.thread.wait({ ...thread, ...accepted });
     const disconnected = expect(waiting).rejects.toThrow();
     await llm.waitForRequest();
     await server.stop();
@@ -890,24 +909,24 @@ serverTest(
     await server.start();
     expect(
       await server.rpc.thread.new({ requestId: "durable-thread" }),
-    ).toEqual(session);
+    ).toEqual(thread);
     await llm.respond(m.assistant("Remembered once."));
     await expect
       .poll(async () =>
-        assistantReplies(await server.rpc.thread.snapshot(session)),
+        assistantReplies(await server.rpc.thread.snapshot(thread)),
       )
       .toEqual(["Remembered once."]);
     expect(await server.rpc.thread.prompt(input)).toEqual(accepted);
-    await server.rpc.thread.wait({ ...session, ...accepted });
-    const settled = await server.rpc.thread.snapshot(session);
+    await server.rpc.thread.wait({ ...thread, ...accepted });
+    const settled = await server.rpc.thread.snapshot(thread);
     expect(
-      sessionMessages(settled).filter((message) => message.role === "user"),
+      threadMessages(settled).filter((message) => message.role === "user"),
     ).toHaveLength(1);
     await server.stop();
     await server.start();
     expect(await server.rpc.thread.prompt(input)).toEqual(accepted);
-    await server.rpc.thread.wait({ ...session, ...accepted });
-    expect(await server.rpc.thread.snapshot(session)).toEqual(settled);
+    await server.rpc.thread.wait({ ...thread, ...accepted });
+    expect(await server.rpc.thread.snapshot(thread)).toEqual(settled);
   },
 );
 
@@ -916,7 +935,7 @@ serverTest(
   async ({ server, llm }) => {
     const old = "Old context. ".repeat(45_000);
     const recent = "Recent context. ".repeat(6_500);
-    const session = await server.rpc.testApi.seedSession({
+    const thread = await server.rpc.testApi.seedThread({
       title: "Long conversation",
       messages: [
         { role: "user", content: old, timestamp: Date.now() },
@@ -924,7 +943,7 @@ serverTest(
       ],
     });
     const prompting = server.promptAndWait({
-      ...session,
+      ...thread,
       text: "Continue after compaction",
     });
     await llm.respond(m.assistant("COMPACTED_OLD_CONTEXT"));
@@ -937,9 +956,9 @@ serverTest(
       return m.assistant("Continued with compact context.");
     });
     await prompting;
-    const snapshot = await server.rpc.thread.snapshot(session);
+    const snapshot = await server.rpc.thread.snapshot(thread);
     expect(
-      sessionMessages(snapshot)
+      threadMessages(snapshot)
         .filter((message) => message.role === "user")
         .map((message) => message.content),
     ).toEqual([old, recent, "Continue after compaction"]);
@@ -948,7 +967,7 @@ serverTest(
     ]);
     await server.stop();
     await server.start();
-    expect(await server.rpc.thread.snapshot(session)).toEqual(snapshot);
+    expect(await server.rpc.thread.snapshot(thread)).toEqual(snapshot);
   },
 );
 
@@ -956,14 +975,14 @@ serverTest(
   "reopens a conversation after shutting down with a tool and viewer still active",
   { timeout: 20_000 },
   async ({ server, llm, http }) => {
-    const session = await server.rpc.thread.new();
-    const watch = await server.rpc.thread.events(session);
+    const thread = await server.rpc.thread.new();
+    const watch = await server.rpc.thread.events(thread);
     await watch.next();
     const accepted = await server.rpc.thread.prompt({
-      ...session,
+      ...thread,
       text: "Fetch the report",
     });
-    const waiting = server.rpc.thread.wait({ ...session, ...accepted });
+    const waiting = server.rpc.thread.wait({ ...thread, ...accepted });
     const disconnected = expect(waiting).rejects.toThrow();
     const command = `printf x >> replay-count.txt; curl --silent --fail '${http.url("/pending-report")}'`;
     await llm.respond(
@@ -994,17 +1013,17 @@ serverTest(
     });
     await expect
       .poll(async () =>
-        assistantReplies(await server.rpc.thread.snapshot(session)),
+        assistantReplies(await server.rpc.thread.snapshot(thread)),
       )
       .toContain("The interrupted report was not rerun.");
-    const restored = await server.rpc.thread.snapshot(session);
-    expect(sessionMessages(restored)).toEqual(
+    const restored = await server.rpc.thread.snapshot(thread);
+    expect(threadMessages(restored)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ role: "user", content: "Fetch the report" }),
       ]),
     );
     expect(restored.activeRun).toBeUndefined();
-    expect(sessionToolExecutions(restored)).toMatchObject([
+    expect(threadToolExecutions(restored)).toMatchObject([
       { id: "pending-report", type: "exec", status: "failed" },
     ]);
     expect(
@@ -1012,14 +1031,14 @@ serverTest(
     ).toBe("x");
 
     const continued = server.promptAndWait({
-      ...session,
+      ...thread,
       text: "Continue without the report",
     });
     await llm.respond(m.assistant("Continuing without it."));
     await continued;
     await expect
       .poll(async () =>
-        assistantReplies(await server.rpc.thread.snapshot(session)),
+        assistantReplies(await server.rpc.thread.snapshot(thread)),
       )
       .toContain("Continuing without it.");
   },
@@ -1167,10 +1186,10 @@ serverTest(
   "runs file and shell operations through direct tools and exec",
   async ({ server, llm }) => {
     for (const surface of ["direct", "exec"] as const) {
-      const session = await server.rpc.thread.new();
+      const thread = await server.rpc.thread.new();
       const file = `${surface}.txt`;
       const prompt = server.promptAndWait({
-        ...session,
+        ...thread,
         text: "Write, edit, patch, and read the notes",
       });
       const operations = [
@@ -1271,9 +1290,9 @@ serverTest(
       path: "protected.txt",
       content: "original",
     });
-    const session = await server.rpc.thread.new();
+    const thread = await server.rpc.thread.new();
     const prompt = server.promptAndWait({
-      ...session,
+      ...thread,
       text: "Attempt restricted tools",
     });
     const operations = [
@@ -1379,8 +1398,14 @@ serverTest(
     const server = createServer({ testApiEnabled: false });
     await server.start();
     await expect(
-      server.rpc.testApi.seedSession({
+      server.rpc.testApi.seedThread({
         title: "Should not seed",
+        messages: [],
+      }),
+    ).rejects.toThrow("The test API is disabled for this workspace server.");
+    await expect(
+      server.rpc.testApi.seedSession({
+        title: "Should not seed through the legacy alias",
         messages: [],
       }),
     ).rejects.toThrow("The test API is disabled for this workspace server.");
@@ -1552,9 +1577,9 @@ serverTest(
 );
 
 function assistantReplies(
-  session: Awaited<ReturnType<HaloClient["thread"]["snapshot"]>>,
+  thread: Awaited<ReturnType<HaloClient["thread"]["snapshot"]>>,
 ) {
-  return sessionMessages(session).flatMap((message) =>
+  return threadMessages(thread).flatMap((message) =>
     message.role === "assistant" ? [contentText(message.content)] : [],
   );
 }
@@ -1562,9 +1587,9 @@ function assistantReplies(
 serverTest(
   "reconnects to a running conversation without losing or duplicating its answer",
   async ({ server, llm }) => {
-    const session = await server.rpc.thread.new();
+    const thread = await server.rpc.thread.new();
     const initial = new AbortController();
-    const watch = await server.rpc.thread.events(session, {
+    const watch = await server.rpc.thread.events(thread, {
       signal: initial.signal,
     });
     const first = await watch.next();
@@ -1574,7 +1599,7 @@ serverTest(
     });
 
     const prompted = server.promptAndWait({
-      ...session,
+      ...thread,
       text: "Keep going while I reconnect",
     });
     await llm.waitForRequest();
@@ -1582,7 +1607,7 @@ serverTest(
     await watch.return();
 
     const reconnected = new AbortController();
-    const updates = await server.rpc.thread.events(session, {
+    const updates = await server.rpc.thread.events(thread, {
       signal: reconnected.signal,
     });
     const current = await updates.next();
@@ -1600,22 +1625,22 @@ serverTest(
     });
     await llm.respond(m.assistant("I kept going."));
     await prompted;
-    let state = emptySessionSnapshot();
-    if (current.done) throw new Error("Expected a session snapshot");
-    state = reduceSessionUpdate(state, current.value);
+    let state = emptyThreadSnapshot();
+    if (current.done) throw new Error("Expected a thread snapshot");
+    state = reduceThreadUpdate(state, current.value);
     for await (const item of updates) {
-      state = reduceSessionUpdate(state, item);
+      state = reduceThreadUpdate(state, item);
       if (state.activeRun === undefined) {
         reconnected.abort();
         break;
       }
     }
     expect(
-      sessionMessages(state).flatMap((message) =>
+      threadMessages(state).flatMap((message) =>
         "content" in message ? [contentText(message.content)] : [],
       ),
     ).toEqual(["Keep going while I reconnect", "I kept going."]);
-    expect(await server.rpc.thread.snapshot(session)).toMatchObject({
+    expect(await server.rpc.thread.snapshot(thread)).toMatchObject({
       entries: state.entries,
       lastRun: state.lastRun,
     });
@@ -1630,9 +1655,9 @@ serverTest(
       path: "large.txt",
       content: fullText,
     });
-    const session = await server.rpc.thread.new();
+    const thread = await server.rpc.thread.new();
     const prompt = server.promptAndWait({
-      ...session,
+      ...thread,
       text: "Find the needle",
     });
     await llm.respond(
@@ -1709,9 +1734,9 @@ serverTest(
       },
     });
     await server.start();
-    const session = await server.rpc.thread.new();
+    const thread = await server.rpc.thread.new();
     const prompting = server.promptAndWait({
-      ...session,
+      ...thread,
       text: "Remove my personal Gmail",
     });
     const js = `var listed = await tools.halo.listConnections({});
@@ -1722,8 +1747,8 @@ await tools.halo.removeConnection({ integration: connection.integration, name: c
     );
     await llm.respond(m.assistant("Approve the removal."));
     await prompting;
-    const approval = sessionToolExecutions(
-      await server.rpc.thread.snapshot(session),
+    const approval = threadToolExecutions(
+      await server.rpc.thread.snapshot(thread),
     ).flatMap((execution) =>
       execution.type === "exec" ? execution.approvals : [],
     )[0]!;
@@ -1734,7 +1759,7 @@ await tools.halo.removeConnection({ integration: connection.integration, name: c
     });
     expect(removed).toEqual([]);
     await server.rpc.thread.respondToToolApproval({
-      ...session,
+      ...thread,
       approvalId: approval.id,
       decision: "allow",
     });
@@ -1744,7 +1769,7 @@ await tools.halo.removeConnection({ integration: connection.integration, name: c
     await llm.respond(m.assistant("Removed."));
     await expect
       .poll(async () =>
-        sessionToolExecutions(await server.rpc.thread.snapshot(session)).find(
+        threadToolExecutions(await server.rpc.thread.snapshot(thread)).find(
           (execution) => execution.id === "remove-retry",
         ),
       )
@@ -1786,9 +1811,9 @@ serverTest(
       },
     });
     await server.start();
-    const session = await server.rpc.thread.new();
+    const thread = await server.rpc.thread.new();
     const prompting = server.promptAndWait({
-      ...session,
+      ...thread,
       text: "Check which integrations are supported",
     });
     await llm.respond(
@@ -1817,8 +1842,8 @@ serverTest(
     });
     await llm.respond(m.assistant("Discovery is currently unavailable."));
     await prompting;
-    const [listed, offline] = sessionToolExecutions(
-      await server.rpc.thread.snapshot(session),
+    const [listed, offline] = threadToolExecutions(
+      await server.rpc.thread.snapshot(thread),
     );
     assert(listed?.type === "exec" && offline?.type === "exec");
     expect(listed.result?.details).toMatchObject({
@@ -1871,9 +1896,9 @@ serverTest(
       },
     });
     await server.start();
-    const session = await server.rpc.thread.new();
+    const thread = await server.rpc.thread.new();
     const prompting = server.promptAndWait({
-      ...session,
+      ...thread,
       text: "Connect the new MCP server",
     });
     await llm.respond(
@@ -1907,8 +1932,8 @@ serverTest(
     });
     await llm.respond(m.assistant("Use the connection card to connect."));
     await prompting;
-    const executions = sessionToolExecutions(
-      await server.rpc.thread.snapshot(session),
+    const executions = threadToolExecutions(
+      await server.rpc.thread.snapshot(thread),
     );
     expect(executions).toHaveLength(3);
     for (const [index, code] of [
@@ -1938,7 +1963,7 @@ serverTest(
       ]),
     });
     const started = await server.rpc.thread.startConnection({
-      ...session,
+      ...thread,
       request,
     });
     expect(started).toMatchObject({
@@ -1948,11 +1973,11 @@ serverTest(
     if (started.status !== "authorization-required")
       throw new Error("Missing setup");
     await server.rpc.thread.cancelConnection({
-      ...session,
+      ...thread,
       connectionId: started.connectionId,
     });
     expect(
-      (await server.rpc.thread.snapshot(session)).connections,
+      (await server.rpc.thread.snapshot(thread)).connections,
     ).toMatchObject([{ request, status: "cancelled" }]);
   },
 );
@@ -2035,9 +2060,9 @@ serverTest(
       unavailableSources: [],
     });
 
-    const session = await server.rpc.thread.new();
+    const thread = await server.rpc.thread.new();
     const prompting = server.promptAndWait({
-      ...session,
+      ...thread,
       text: "Find the computer tools",
     });
     await llm.respond(
@@ -2132,9 +2157,9 @@ serverTest(
       },
     });
     await server.start();
-    const session = await server.rpc.thread.new();
+    const thread = await server.rpc.thread.new();
     const prompting = server.promptAndWait({
-      ...session,
+      ...thread,
       text: "Use the remote fixture",
     });
     await fs.writeFile(
@@ -2159,8 +2184,8 @@ serverTest(
     );
     await llm.respond(m.assistant("Done"));
     await prompting;
-    const executions = sessionToolExecutions(
-      await server.rpc.thread.snapshot(session),
+    const executions = threadToolExecutions(
+      await server.rpc.thread.snapshot(thread),
     );
     expect(JSON.stringify(executions)).toContain("sandbox");
     expect(JSON.stringify(executions)).toContain("Shared");
@@ -2249,7 +2274,7 @@ serverTest(
     });
     expect(writes).toBe(1);
     expect(
-      sessionToolExecutions(await server.rpc.thread.snapshot(session)),
+      threadToolExecutions(await server.rpc.thread.snapshot(thread)),
     ).toEqual(executions);
     offline = true;
     expect(
@@ -2276,7 +2301,7 @@ serverTest(
       json: { ok: false, error: { code: "discovery_failed" } },
     });
     const collecting = server.promptAndWait({
-      ...session,
+      ...thread,
       text: "Request the missing connection",
     });
     await llm.respond(
@@ -2289,8 +2314,8 @@ serverTest(
     );
     await llm.respond(m.assistant("Connect using the card"));
     await collecting;
-    const latest = sessionToolExecutions(
-      await server.rpc.thread.snapshot(session),
+    const latest = threadToolExecutions(
+      await server.rpc.thread.snapshot(thread),
     ).at(-1)!;
     assert(latest.type === "exec");
     expect(latest.approvals).toEqual([]);
@@ -2331,9 +2356,9 @@ serverTest(
   "finishes approval requests and retries only after a thread response",
   async ({ server, llm }) => {
     for (const decision of ["allow", "deny"] as const) {
-      const session = await server.rpc.thread.new();
+      const thread = await server.rpc.thread.new();
       const prompting = server.promptAndWait({
-        ...session,
+        ...thread,
         text: `${decision} the policy`,
       });
       const js = `await tools.executor.coreTools.policies.create({ owner: "user", pattern: "approval-test-${decision}.*", action: "block" });`;
@@ -2345,15 +2370,15 @@ serverTest(
       );
       await llm.respond(m.assistant(`Waiting for ${decision}`));
       await prompting;
-      const pending = await server.rpc.thread.snapshot(session);
+      const pending = await server.rpc.thread.snapshot(thread);
       expect(pending.activeRun).toBeUndefined();
-      const approval = sessionToolExecutions(pending).flatMap((execution) =>
+      const approval = threadToolExecutions(pending).flatMap((execution) =>
         execution.type === "exec" ? execution.approvals : [],
       )[0]!;
       expect(approval.status).toBe("pending");
 
       await server.rpc.thread.respondToToolApproval({
-        ...session,
+        ...thread,
         approvalId: approval.id,
         decision,
       });
@@ -2369,10 +2394,10 @@ serverTest(
 
       await expect
         .poll(async () => {
-          const snapshot = await server.rpc.thread.snapshot(session);
+          const snapshot = await server.rpc.thread.snapshot(thread);
           return {
             activeRun: snapshot.activeRun,
-            executions: sessionToolExecutions(snapshot),
+            executions: threadToolExecutions(snapshot),
           };
         })
         .toMatchObject({
@@ -2391,8 +2416,8 @@ serverTest(
                   },
                 ],
         });
-      const completed = await server.rpc.thread.snapshot(session);
-      const executions = sessionToolExecutions(completed);
+      const completed = await server.rpc.thread.snapshot(thread);
+      const executions = threadToolExecutions(completed);
       expect(executions[0]).toMatchObject({
         type: "exec",
         status: "completed",
@@ -2411,12 +2436,12 @@ serverTest(
           approvals: [],
         });
       }
-      await server.rpc.thread.close(session);
-      const restored = await server.rpc.thread.snapshot(session);
-      expect(sessionToolExecutions(restored)).toEqual(executions);
+      await server.rpc.thread.close(thread);
+      const restored = await server.rpc.thread.snapshot(thread);
+      expect(threadToolExecutions(restored)).toEqual(executions);
       await expect(
         server.rpc.thread.respondToToolApproval({
-          ...session,
+          ...thread,
           approvalId: approval.id,
           decision,
         }),
@@ -2441,9 +2466,9 @@ serverTest(
         input: { owner: "user", pattern, action },
       });
     }
-    const session = await server.rpc.thread.new();
+    const thread = await server.rpc.thread.new();
     const blocked = server.promptAndWait({
-      ...session,
+      ...thread,
       text: "Attempt a blocked write",
     });
     await llm.respond(
@@ -2481,7 +2506,7 @@ serverTest(
     const js =
       'await tools.files.edit({ path: "policy.txt", oldText: "original", newText: "approved" })';
     const editing = server.promptAndWait({
-      ...session,
+      ...thread,
       text: "Request an edit",
     });
     await llm.respond(
@@ -2489,8 +2514,8 @@ serverTest(
     );
     await llm.respond(m.assistant("Waiting for approval."));
     await editing;
-    const approval = sessionToolExecutions(
-      await server.rpc.thread.snapshot(session),
+    const approval = threadToolExecutions(
+      await server.rpc.thread.snapshot(thread),
     ).flatMap((execution) =>
       execution.type === "exec" ? execution.approvals : [],
     )[0]!;
@@ -2503,7 +2528,7 @@ serverTest(
     );
 
     await server.rpc.thread.respondToToolApproval({
-      ...session,
+      ...thread,
       approvalId: approval.id,
       decision: "allow",
     });
@@ -2517,7 +2542,7 @@ serverTest(
       )
       .toBe("approved");
     await expect
-      .poll(async () => (await server.rpc.thread.snapshot(session)).activeRun)
+      .poll(async () => (await server.rpc.thread.snapshot(thread)).activeRun)
       .toBeUndefined();
   },
 );
@@ -2525,11 +2550,11 @@ serverTest(
 serverTest(
   "requires another approval when retry arguments change",
   async ({ server, llm }) => {
-    const session = await server.rpc.thread.new();
+    const thread = await server.rpc.thread.new();
     const originalJs =
       'await tools.executor.coreTools.policies.create({ owner: "user", pattern: "approval-original.*", action: "block" });';
     const prompting = server.promptAndWait({
-      ...session,
+      ...thread,
       text: "Create the policy",
     });
     await llm.respond(
@@ -2540,13 +2565,13 @@ serverTest(
     );
     await llm.respond(m.assistant("Waiting for approval"));
     await prompting;
-    const pending = await server.rpc.thread.snapshot(session);
-    const originalApproval = sessionToolExecutions(pending).flatMap(
+    const pending = await server.rpc.thread.snapshot(thread);
+    const originalApproval = threadToolExecutions(pending).flatMap(
       (execution) => (execution.type === "exec" ? execution.approvals : []),
     )[0]!;
 
     await server.rpc.thread.respondToToolApproval({
-      ...session,
+      ...thread,
       approvalId: originalApproval.id,
       decision: "allow",
     });
@@ -2562,10 +2587,10 @@ serverTest(
 
     await expect
       .poll(async () => {
-        const snapshot = await server.rpc.thread.snapshot(session);
+        const snapshot = await server.rpc.thread.snapshot(thread);
         return {
           activeRun: snapshot.activeRun,
-          approvals: sessionToolExecutions(snapshot).flatMap((execution) =>
+          approvals: threadToolExecutions(snapshot).flatMap((execution) =>
             execution.type === "exec" ? execution.approvals : [],
           ),
         };
@@ -2577,8 +2602,8 @@ serverTest(
           { status: "pending", arguments: { pattern: "approval-changed.*" } },
         ],
       });
-    const completed = await server.rpc.thread.snapshot(session);
-    const approvals = sessionToolExecutions(completed).flatMap((execution) =>
+    const completed = await server.rpc.thread.snapshot(thread);
+    const approvals = threadToolExecutions(completed).flatMap((execution) =>
       execution.type === "exec" ? execution.approvals : [],
     );
     expect(approvals).toMatchObject([
@@ -2589,7 +2614,7 @@ serverTest(
 );
 
 serverTest(
-  "pushes session summaries and catches up after reconnect and restart",
+  "pushes thread summaries and catches up after reconnect and restart",
   async ({ server, llm }) => {
     using cleanup = new errore.DisposableStack();
     const first = new AbortController();
@@ -2601,18 +2626,18 @@ serverTest(
       type: "snapshot",
       sessions: [],
     });
-    const session = await server.rpc.thread.new();
+    const thread = await server.rpc.thread.new();
     expect((await updates.next()).value).toMatchObject({
       type: "updated",
       session: {
-        ...session,
+        ...thread,
         isRunning: false,
         markedDone: false,
       },
     });
 
     const prompting = server.promptAndWait({
-      ...session,
+      ...thread,
       text: "Work without an open conversation",
     });
     const running = await nextSummary(
@@ -2620,7 +2645,7 @@ serverTest(
       (summary) => summary.isRunning && summary.title !== undefined,
     );
     expect(running).toMatchObject({
-      ...session,
+      ...thread,
       title: "Work without an open conversation",
       markedDone: false,
     });
@@ -2638,7 +2663,7 @@ serverTest(
 
     // Finish another run while this client is disconnected.
     const again = server.promptAndWait({
-      ...session,
+      ...thread,
       text: "Finish while I am disconnected",
     });
     await llm.respond(m.assistant("Second result"));
@@ -2653,7 +2678,7 @@ serverTest(
       type: "snapshot",
       sessions: [
         {
-          ...session,
+          ...thread,
           isRunning: false,
           markedDone: false,
         },
@@ -2668,12 +2693,12 @@ serverTest(
 
     // Aborting an active run also pushes its settled status.
     const aborted = server.promptAndWait({
-      ...session,
+      ...thread,
       text: "Stop this run",
     });
     await nextSummary(resumed, (summary) => summary.isRunning);
     await llm.waitForRequest();
-    await server.rpc.thread.abort(session);
+    await server.rpc.thread.abort(thread);
     await aborted;
     const stopped = await nextSummary(
       resumed,
@@ -2693,7 +2718,7 @@ serverTest(
       type: "snapshot",
       sessions: [
         {
-          ...session,
+          ...thread,
           isRunning: false,
           latestResultId: stopped.latestResultId,
           markedDone: false,
@@ -2705,7 +2730,7 @@ serverTest(
 );
 
 serverTest(
-  "persists session status commands and streams their summaries",
+  "persists thread status commands and streams their summaries",
   async ({ server, llm }) => {
     using cleanup = new errore.DisposableStack();
     const firstConnection = new AbortController();
@@ -2744,7 +2769,7 @@ serverTest(
     });
     expect(secondSummary?.readReceiptCursorId).toBeUndefined();
 
-    // A session without any transcript or product-state row can be marked done.
+    // A thread without any transcript or product-state row can be marked done.
     await server.rpc.thread.markDone(second);
     expect(
       await nextSummary(
@@ -2880,7 +2905,7 @@ serverTest(
     });
     const snapshot = await restored.next();
     if (snapshot.done || snapshot.value.type !== "snapshot")
-      throw new Error("Expected restored session summary snapshot");
+      throw new Error("Expected restored thread summary snapshot");
     const restoredFirst = snapshot.value.sessions.find(
       (summary) => summary.sessionId === first.sessionId,
     );
@@ -2948,17 +2973,15 @@ serverTest(
 );
 
 async function nextSummary(
-  updates: AsyncIterable<SessionSummariesUpdate>,
-  matches: (summary: SessionSummary) => boolean,
+  updates: AsyncIterable<ThreadSummariesUpdate>,
+  matches: (summary: ThreadSummary) => boolean,
 ) {
   // Consume without returning the iterator so the same connection remains usable.
   const iterator = updates[Symbol.asyncIterator]();
   while (true) {
     const next = await iterator.next();
     if (next.done)
-      throw new Error(
-        "Session summary stream ended before the expected update",
-      );
+      throw new Error("Thread summary stream ended before the expected update");
     if (next.value.type === "updated" && matches(next.value.session))
       return next.value.session;
   }
@@ -3013,9 +3036,9 @@ serverTest(
     await db.ready;
     await db.connect();
     expect(db.query({ collection: "hotkeys" })).toEqual([]);
-    const session = await server.rpc.thread.new();
+    const thread = await server.rpc.thread.new();
     const prompt = server.promptAndWait({
-      ...session,
+      ...thread,
       text: "Make Cmd+Shift+K open a new chat tab",
     });
     await llm.respond(
@@ -3328,12 +3351,12 @@ serverTest(
       initial.add(next.value.type);
     }
     expect(initial).toEqual(new Set(["extensions", "sessions"]));
-    const session = await server.rpc.thread.new();
+    const thread = await server.rpc.thread.new();
     for await (const item of updates) {
       if (item.type !== "sessions") continue;
       expect(item.update).toMatchObject({
         type: "updated",
-        session: { sessionId: session.sessionId },
+        session: { sessionId: thread.sessionId },
       });
       break;
     }
@@ -3345,7 +3368,7 @@ serverTest(
       if (item.type !== "sessions") continue;
       expect(item.update).toMatchObject({
         type: "snapshot",
-        sessions: [expect.objectContaining({ sessionId: session.sessionId })],
+        sessions: [expect.objectContaining({ sessionId: thread.sessionId })],
       });
       break;
     }
@@ -3590,9 +3613,9 @@ serverTest(
         },
       },
     });
-    const session = await legacy.thread.new();
+    const thread = await legacy.thread.new();
     const prompting = server.promptAndWait({
-      ...session,
+      ...thread,
       text: "Connect Example",
     });
     await llm.respond(
@@ -3605,8 +3628,8 @@ serverTest(
     );
     await llm.respond(m.assistant("Connect Example using this card."));
     await prompting;
-    const execution = sessionToolExecutions(
-      await legacy.thread.snapshot(session),
+    const execution = threadToolExecutions(
+      await legacy.thread.snapshot(thread),
     )[0]!;
     assert(execution.type === "exec");
     // Freeze the request schema validated by Halo 0.1.65 renderer and desktop IPC.
@@ -3632,7 +3655,7 @@ serverTest(
       redirectUri: "http://127.0.0.1:49152/oauth/callback",
     };
     const started = await legacy.thread.startConnection({
-      ...session,
+      ...thread,
       request,
       completion,
     });
@@ -3643,15 +3666,15 @@ serverTest(
     status = "ready";
     await llm.respond(m.assistant("Example is connected."));
     await expect
-      .poll(async () => (await legacy.thread.snapshot(session)).connections)
+      .poll(async () => (await legacy.thread.snapshot(thread)).connections)
       .toMatchObject([{ request, status: "connected" }]);
     // Old desktop's unused callback timeout cannot cancel a completed setup.
     assert(started.status === "authorization-required");
     await legacy.thread.cancelConnection({
-      ...session,
+      ...thread,
       connectionId: started.connectionId,
     });
-    expect((await legacy.thread.snapshot(session)).connections).toMatchObject([
+    expect((await legacy.thread.snapshot(thread)).connections).toMatchObject([
       { status: "connected" },
     ]);
     status = "failed";
@@ -3664,7 +3687,7 @@ serverTest(
       template: "googleOAuth2",
     };
     const failed = await legacy.thread.startConnection({
-      ...session,
+      ...thread,
       request: savedRequest,
       completion,
     });
@@ -3672,7 +3695,7 @@ serverTest(
     await expect
       .poll(
         async () =>
-          (await legacy.thread.snapshot(session)).connections.find(
+          (await legacy.thread.snapshot(thread)).connections.find(
             (connection) => connection.connectionId === failed.connectionId,
           )?.status,
       )
@@ -3746,9 +3769,9 @@ serverTest(
 serverTest(
   "refuses to reserve maintenance while an agent is running unless interruption is explicitly requested",
   async ({ server, llm }) => {
-    const session = await server.rpc.thread.new();
+    const thread = await server.rpc.thread.new();
     const accepted = await server.rpc.thread.prompt({
-      ...session,
+      ...thread,
       text: "Keep working",
     });
     await llm.waitForRequest();
@@ -3774,9 +3797,9 @@ serverTest(
     ).toBe(true);
     await fetch(url, { method: "DELETE", headers: server.transport.headers });
     await llm.respond(m.assistant("Finished without interruption."));
-    await server.rpc.thread.wait({ ...session, ...accepted });
+    await server.rpc.thread.wait({ ...thread, ...accepted });
     expect(
-      assistantReplies(await server.rpc.thread.snapshot(session)),
+      assistantReplies(await server.rpc.thread.snapshot(thread)),
     ).toContain("Finished without interruption.");
   },
 );

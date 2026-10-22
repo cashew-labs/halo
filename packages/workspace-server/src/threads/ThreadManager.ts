@@ -4,21 +4,21 @@ import { Stream } from "@get-halo/shared/Stream";
 import { SerialQueue } from "@get-halo/shared/SerialQueue";
 import {
   isThreadUnread,
-  type SessionSummary,
-  type SessionSummariesUpdate,
+  type ThreadSummary,
+  type ThreadSummariesUpdate,
   type ChatPrompt,
   type HaloMessage,
   type HaloConnectionState,
   type HaloConnectionEvent,
-  sessionMessages,
+  threadMessages,
 } from "@get-halo/client";
 import {
   Thread,
-  CreateAgentSessionError,
-  SessionStorageError,
+  CreateAgentThreadError,
+  ThreadStorageError,
   type ThreadOptions,
 } from "../agent/Thread.js";
-import { SessionProjection } from "../agent/SessionProjection.js";
+import { ThreadProjection } from "../agent/ThreadProjection.js";
 import type {
   ThreadRepoApi,
   ThreadHandle,
@@ -30,31 +30,31 @@ import type {
 } from "../database/DatabaseService.js";
 import type { UploadService } from "../uploads/UploadService.js";
 
-type SessionProductFields = Omit<WorkspaceSchema["sessionState"], "id">;
+type ThreadProductFields = Omit<WorkspaceSchema["sessionState"], "id">;
 
-class SessionStateError extends errore.createTaggedError({
-  name: "SessionStateError",
-  message: "Session state failed during $operation",
+class ThreadStateError extends errore.createTaggedError({
+  name: "ThreadStateError",
+  message: "Thread state failed during $operation",
 }) {}
 
-export class SessionNotFoundError extends errore.createTaggedError({
-  name: "SessionNotFoundError",
-  message: "Session '$sessionId' does not exist.",
+export class ThreadNotFoundError extends errore.createTaggedError({
+  name: "ThreadNotFoundError",
+  message: "Thread '$threadId' does not exist.",
 }) {}
 
-export class ListAgentSessionsError extends errore.createTaggedError({
-  name: "ListAgentSessionsError",
-  message: "Failed to list agent sessions",
+export class ListAgentThreadsError extends errore.createTaggedError({
+  name: "ListAgentThreadsError",
+  message: "Failed to list agent threads",
 }) {}
 
-export class OpenAgentSessionError extends errore.createTaggedError({
-  name: "OpenAgentSessionError",
-  message: "Failed to open agent session '$sessionId'",
+export class OpenAgentThreadError extends errore.createTaggedError({
+  name: "OpenAgentThreadError",
+  message: "Failed to open agent thread '$threadId'",
 }) {}
 
-export class SessionNotOpenError extends errore.createTaggedError({
-  name: "SessionNotOpenError",
-  message: "Agent session '$sessionId' is not open.",
+export class ThreadNotOpenError extends errore.createTaggedError({
+  name: "ThreadNotOpenError",
+  message: "Agent thread '$threadId' is not open.",
 }) {}
 
 class ThreadManagerClosedError extends errore.createTaggedError({
@@ -68,8 +68,8 @@ type ThreadManagerOptions = ThreadOptions & {
   uploads: UploadService;
 };
 
-type PiSessionSummary = Omit<
-  SessionSummary,
+type PiThreadSummary = Omit<
+  ThreadSummary,
   "markedDone" | "readReceiptCursorId"
 >;
 
@@ -88,15 +88,15 @@ export class ThreadManager {
   readonly idle = this.idleChanges.project(false, (_previous, idle) => idle);
   private readonly idleSubscriptions = new Map<string, () => void>();
   private closing = false;
-  // Recovery opens sessions paused until interrupted routines have been aborted.
+  // Recovery opens threads paused until interrupted routines have been aborted.
   private started = false;
   private readonly closed = new AbortController();
   // Serializes snapshots and updates so reconnect cannot miss a transition.
   private readonly summaryQueue = new SerialQueue();
   private readonly creationQueue = new SerialQueue();
-  private readonly summaries = new Map<string, SessionSummary>();
+  private readonly summaries = new Map<string, ThreadSummary>();
   private readonly summaryChanges = new Stream<
-    SessionSummariesUpdate | SessionStateError
+    ThreadSummariesUpdate | ThreadStateError
   >();
   private readonly summarySubscriptions = new Map<string, () => void>();
   private stateSubscription: { destroy(): void } | undefined;
@@ -104,7 +104,7 @@ export class ThreadManager {
   private readonly lifecycleQueues = new Map<string, SerialQueue>();
   private readonly closeFailures = new Map<string, Error>();
   private readonly pending = new Set<Promise<unknown>>();
-  private readonly sessions = new Map<string, Thread>();
+  private readonly threads = new Map<string, Thread>();
   private readonly stored = new Map<string, Promise<ThreadHandle | Error>>();
   private readonly repo: ThreadRepoApi;
   private readonly db: DatabaseService;
@@ -130,7 +130,7 @@ export class ThreadManager {
   async list() {
     return await this.track(
       async () =>
-        await this.summaryQueue.run(async () => await this.listSessions()),
+        await this.summaryQueue.run(async () => await this.listThreads()),
     );
   }
 
@@ -161,7 +161,7 @@ export class ThreadManager {
             if (refreshed instanceof Error)
               this.summaryChanges.append(refreshed);
           }).catch((cause) => {
-            const error = new SessionStateError({
+            const error = new ThreadStateError({
               operation: "publish",
               cause,
             });
@@ -172,31 +172,31 @@ export class ThreadManager {
         {
           onError: (cause) =>
             this.summaryChanges.append(
-              new SessionStateError({ operation: "watch", cause }),
+              new ThreadStateError({ operation: "watch", cause }),
             ),
         },
       )
       .catch(
-        (cause) => new SessionStateError({ operation: "subscribe", cause }),
+        (cause) => new ThreadStateError({ operation: "subscribe", cause }),
       );
     if (subscription instanceof Error) return subscription;
     this.stateSubscription = subscription;
 
     const pending = await this.repo.listPendingThreadIds();
     if (pending instanceof Error) return pending;
-    for (const sessionId of pending) {
-      const session = await this.openSession(sessionId);
-      if (session instanceof Error) return session;
+    for (const threadId of pending) {
+      const thread = await this.openThread(threadId);
+      if (thread instanceof Error) return thread;
     }
     this.started = true;
     // Includes threads opened paused by routine recovery.
-    for (const session of this.sessions.values()) session.resume();
+    for (const thread of this.threads.values()) thread.resume();
     this.publishIdle();
   }
 
   async *watchSummaries(
     signal: AbortSignal | undefined,
-  ): AsyncGenerator<SessionSummariesUpdate> {
+  ): AsyncGenerator<ThreadSummariesUpdate> {
     const abortSignal =
       signal === undefined
         ? this.closed.signal
@@ -204,11 +204,11 @@ export class ThreadManager {
     const initial = await this.track(
       async () =>
         await this.summaryQueue.run(async () => {
-          const sessions = await this.listSessions();
-          if (sessions instanceof Error) return sessions;
+          const threads = await this.listThreads();
+          if (threads instanceof Error) return threads;
           // Subscribe in the same queue turn as the snapshot; subsequent updates are buffered.
           return {
-            sessions,
+            threads,
             updates: this.summaryChanges.consume({ abortSignal }),
           };
         }),
@@ -216,7 +216,7 @@ export class ThreadManager {
     if (initial instanceof Error) throw initial;
     using updates = initial.updates;
     if (abortSignal.aborted) return;
-    yield { type: "snapshot", sessions: initial.sessions };
+    yield { type: "snapshot", sessions: initial.threads };
     for await (const update of updates) {
       if (update instanceof Error) throw update;
       yield update;
@@ -228,34 +228,34 @@ export class ThreadManager {
       async () =>
         await this.creationQueue.run(async () => {
           // Deterministic, filesystem-safe identity makes creation retries survive restart.
-          const sessionId =
+          const threadId =
             input?.requestId === undefined
               ? undefined
               : `thread-${createHash("sha256").update(input.requestId).digest("hex")}`;
-          if (sessionId !== undefined) {
+          if (threadId !== undefined) {
             const metadata = await this.repo
               .list()
-              .catch((cause) => new ListAgentSessionsError({ cause }));
+              .catch((cause) => new ListAgentThreadsError({ cause }));
             if (metadata instanceof Error) return metadata;
-            if (metadata.some((item) => item.id === sessionId)) {
-              const opened = await this.openSession(sessionId);
+            if (metadata.some((item) => item.id === threadId)) {
+              const opened = await this.openThread(threadId);
               if (opened instanceof Error) return opened;
-              return { sessionId };
+              return { threadId };
             }
           }
-          const thread = await this.createSession(sessionId);
+          const thread = await this.createThread(threadId);
           if (thread instanceof Error) return thread;
-          return { sessionId: thread.sessionId };
+          return { threadId: thread.threadId };
         }),
     );
   }
 
   private async withThread<T>(
-    sessionId: string,
+    threadId: string,
     operation: (thread: Thread) => Promise<T> | T,
   ) {
     return await this.track(async () => {
-      const acquired = await this.acquire(sessionId);
+      const acquired = await this.acquire(threadId);
       if (acquired instanceof Error) return acquired;
       using cleanup = new errore.DisposableStack();
       cleanup.use(acquired.lease);
@@ -263,21 +263,22 @@ export class ThreadManager {
     });
   }
 
-  private async acquire(sessionId: string, options?: { observer: true }) {
-    return await this.lifecycleQueue(sessionId).run(async () => {
-      const thread = await this.openSessionUnqueued(sessionId);
+  private async acquire(threadId: string, options?: { observer: true }) {
+    return await this.lifecycleQueue(threadId).run(async () => {
+      const thread = await this.openThreadUnqueued(threadId);
       if (thread instanceof Error) return thread;
       return { thread, lease: thread.retain(options) };
     });
   }
 
-  async prompt(input: ChatPrompt & { sessionId: string }) {
-    const sessionContents = new Map<string, string>();
+  async prompt(input: ChatPrompt & { threadId: string }) {
+    const threadContents = new Map<string, string>();
     for (const reference of input.references ?? []) {
       if (!("sessionId" in reference)) continue;
-      const snapshot = await this.snapshot(reference.sessionId, []);
+      const { sessionId: referencedThreadId } = reference;
+      const snapshot = await this.snapshot(referencedThreadId, []);
       if (snapshot instanceof Error) return snapshot;
-      const transcript = sessionMessages(snapshot)
+      const transcript = threadMessages(snapshot)
         .flatMap((message) => {
           if (message.role === "user")
             return [
@@ -288,8 +289,8 @@ export class ThreadManager {
           return [];
         })
         .join("\n\n");
-      sessionContents.set(
-        reference.sessionId,
+      threadContents.set(
+        referencedThreadId,
         transcript.length > 30_000
           ? `(Earlier messages omitted)\n${transcript.slice(-30_000)}`
           : transcript,
@@ -308,9 +309,9 @@ export class ThreadManager {
         console.warn("Could not release chat uploads:", released);
     });
     const accepted = await this.withThread(
-      input.sessionId,
+      input.threadId,
       async (thread) =>
-        await thread.prompt({ ...prompt, attachments }, sessionContents),
+        await thread.prompt({ ...prompt, attachments }, threadContents),
     );
     if (accepted instanceof Error) return accepted;
     cleanup.move();
@@ -318,7 +319,7 @@ export class ThreadManager {
   }
 
   async wait(
-    input: { sessionId: string; submissionId: number },
+    input: { threadId: string; submissionId: number },
     signal?: AbortSignal,
   ) {
     const abortSignal =
@@ -326,23 +327,23 @@ export class ThreadManager {
         ? this.closed.signal
         : AbortSignal.any([signal, this.closed.signal]);
     return await this.withThread(
-      input.sessionId,
+      input.threadId,
       async (thread) => await thread.wait(input.submissionId, abortSignal),
     );
   }
 
-  async snapshot(sessionId: string, connections: HaloConnectionState[]) {
+  async snapshot(threadId: string, connections: HaloConnectionState[]) {
     return await this.track(async () => {
-      const thread = this.sessions.get(sessionId);
+      const thread = this.threads.get(threadId);
       if (thread !== undefined) return thread.readSnapshot(connections);
-      const projection = await this.readStoredProjection(sessionId);
+      const projection = await this.readStoredProjection(threadId);
       if (projection instanceof Error) return projection;
       return { ...projection.snapshot(), connections };
     });
   }
 
   async *events(
-    sessionId: string,
+    threadId: string,
     options: {
       signal?: AbortSignal;
       readConnections: () => HaloConnectionState[];
@@ -351,20 +352,17 @@ export class ThreadManager {
     // Reading history must not wait for tools, skills, and the agent runtime.
     // The live watch sends a second snapshot after attaching, covering any
     // commits made while the runtime was opening.
-    if (!this.sessions.has(sessionId)) {
-      const snapshot = await this.snapshot(
-        sessionId,
-        options.readConnections(),
-      );
+    if (!this.threads.has(threadId)) {
+      const snapshot = await this.snapshot(threadId, options.readConnections());
       if (snapshot instanceof Error) {
         yield snapshot;
-        return; // coverage-exempt: threadRouter throws the yielded error and closes this generator before it resumes; the missing-session RPC test checks the consumer-visible failure.
+        return; // coverage-exempt: threadRouter throws the yielded error and closes this generator before it resumes; the missing-thread RPC test checks the consumer-visible failure.
       }
       yield { type: "snapshot" as const, snapshot };
       if (options.signal?.aborted) return;
     }
     const acquired = await this.track(
-      async () => await this.acquire(sessionId, { observer: true }),
+      async () => await this.acquire(threadId, { observer: true }),
     );
     if (acquired instanceof Error) {
       yield acquired;
@@ -375,73 +373,73 @@ export class ThreadManager {
     yield* acquired.thread.watch(options);
   }
 
-  async withdraw(input: { sessionId: string; submissionId: number }) {
+  async withdraw(input: { threadId: string; submissionId: number }) {
     return await this.withThread(
-      input.sessionId,
+      input.threadId,
       async (thread) => await thread.withdraw(input.submissionId),
     );
   }
 
-  async abort(sessionId: string) {
+  async abort(threadId: string) {
     return await this.withThread(
-      sessionId,
+      threadId,
       async (thread) => await thread.abort(),
     );
   }
 
-  async setName(sessionId: string, name: string) {
+  async setName(threadId: string, name: string) {
     return await this.withThread(
-      sessionId,
+      threadId,
       async (thread) => await thread.setName(name),
     );
   }
 
-  async appendMessages(sessionId: string, messages: readonly HaloMessage[]) {
+  async appendMessages(threadId: string, messages: readonly HaloMessage[]) {
     return await this.withThread(
-      sessionId,
+      threadId,
       async (thread) => await thread.appendMessages(messages),
     );
   }
 
-  async notify(sessionId: string, input: Parameters<Thread["notify"]>[0]) {
+  async notify(threadId: string, input: Parameters<Thread["notify"]>[0]) {
     return await this.withThread(
-      sessionId,
+      threadId,
       async (thread) => await thread.notify(input),
     );
   }
 
   async respondToToolApproval(
     input: Parameters<Thread["respondToToolApproval"]>[0] & {
-      sessionId: string;
+      threadId: string;
     },
   ) {
     return await this.withThread(
-      input.sessionId,
+      input.threadId,
       async (thread) => await thread.respondToToolApproval(input),
     );
   }
 
-  async publishConnectionEvent(sessionId: string, event: HaloConnectionEvent) {
-    return await this.withThread(sessionId, (thread) =>
+  async publishConnectionEvent(threadId: string, event: HaloConnectionEvent) {
+    return await this.withThread(threadId, (thread) =>
       thread.publishConnectionEvent(event),
     );
   }
 
-  async close(sessionId: string) {
+  async close(threadId: string) {
     return await this.track(
       async () =>
-        await this.lifecycleQueue(sessionId).run(
-          async () => await this.closeSession(sessionId),
+        await this.lifecycleQueue(threadId).run(
+          async () => await this.closeThread(threadId),
         ),
     );
   }
 
-  async markRead(input: { sessionId: string; observedResultId: string }) {
-    const { sessionId, observedResultId } = input;
+  async markRead(input: { threadId: string; observedResultId: string }) {
+    const { threadId, observedResultId } = input;
     return await this.track(
       async () =>
         await this.summaryQueue.run(async () => {
-          const summary = await this.getSummaryUnqueued(sessionId);
+          const summary = await this.getSummaryUnqueued(threadId);
           if (summary instanceof Error) return summary;
           if (
             summary.latestResultId !== observedResultId ||
@@ -449,53 +447,53 @@ export class ThreadManager {
           )
             return;
           return await this.updateProductFields({
-            sessionId,
+            threadId,
             fields: { readReceiptCursorId: summary.latestResultId },
           });
         }),
     );
   }
 
-  async markUnread(sessionId: string) {
+  async markUnread(threadId: string) {
     return await this.track(
       async () =>
         await this.summaryQueue.run(async () => {
-          const summary = await this.getSummaryUnqueued(sessionId);
+          const summary = await this.getSummaryUnqueued(threadId);
           if (summary instanceof Error) return summary;
           if (summary.latestResultId === undefined || isThreadUnread(summary))
             return;
           return await this.updateProductFields({
-            sessionId,
+            threadId,
             fields: { readReceiptCursorId: undefined },
           });
         }),
     );
   }
 
-  async markDone(sessionId: string) {
+  async markDone(threadId: string) {
     return await this.track(
       async () =>
         await this.summaryQueue.run(async () => {
-          const summary = await this.getSummaryUnqueued(sessionId);
+          const summary = await this.getSummaryUnqueued(threadId);
           if (summary instanceof Error) return summary;
           if (summary.markedDone) return;
           return await this.updateProductFields({
-            sessionId,
+            threadId,
             fields: { markedDone: true },
           });
         }),
     );
   }
 
-  async markUndone(sessionId: string) {
+  async markUndone(threadId: string) {
     return await this.track(
       async () =>
         await this.summaryQueue.run(async () => {
-          const summary = await this.getSummaryUnqueued(sessionId);
+          const summary = await this.getSummaryUnqueued(threadId);
           if (summary instanceof Error) return summary;
           if (!summary.markedDone) return;
           return await this.updateProductFields({
-            sessionId,
+            threadId,
             fields: { markedDone: false },
           });
         }),
@@ -515,14 +513,14 @@ export class ThreadManager {
     return await pending;
   }
 
-  private async listSessions() {
+  private async listThreads() {
     const metadata = await this.repo
       .list()
-      .catch((cause) => new ListAgentSessionsError({ cause }));
+      .catch((cause) => new ListAgentThreadsError({ cause }));
     if (metadata instanceof Error) return metadata;
     const productFields = await this.listProductFields();
     if (productFields instanceof Error) return productFields;
-    const summaries: SessionSummary[] = [];
+    const summaries: ThreadSummary[] = [];
     for (const item of metadata) {
       const fields = productFields.get(item.id);
       const cached = this.summaries.get(item.id);
@@ -532,8 +530,8 @@ export class ThreadManager {
         summaries.push(current);
         continue;
       }
-      const session = this.sessions.get(item.id);
-      let summary = session?.readSummary();
+      const thread = this.threads.get(item.id);
+      let summary = thread?.readSummary();
       if (summary === undefined) {
         const projection = await this.readStoredProjection(item.id);
         if (projection instanceof Error) return projection;
@@ -559,125 +557,125 @@ export class ThreadManager {
     );
   }
 
-  private async getSummaryUnqueued(sessionId: string) {
-    const cached = this.summaries.get(sessionId);
+  private async getSummaryUnqueued(threadId: string) {
+    const cached = this.summaries.get(threadId);
     if (cached !== undefined) {
-      const fields = await this.getProductFields(sessionId);
+      const fields = await this.getProductFields(threadId);
       if (fields instanceof Error) return fields;
       return applyProductFields({ summary: cached, fields });
     }
-    const summaries = await this.listSessions();
+    const summaries = await this.listThreads();
     if (summaries instanceof Error) return summaries;
     return (
-      summaries.find((summary) => summary.sessionId === sessionId) ??
-      new SessionNotFoundError({ sessionId })
+      summaries.find((summary) => summary.sessionId === threadId) ??
+      new ThreadNotFoundError({ threadId })
     );
   }
 
-  private async readStoredProjection(sessionId: string) {
+  private async readStoredProjection(threadId: string) {
     const data = await this.repo
-      .read(sessionId)
-      .catch((cause) => new SessionStorageError({ sessionId, cause }));
+      .read(threadId)
+      .catch((cause) => new ThreadStorageError({ threadId, cause }));
     if (data instanceof Error) return data;
-    return new SessionProjection(data);
+    return new ThreadProjection(data);
   }
 
   private async listProductFields() {
     const records = await this.db
       .query({ collection: "sessionState" })
-      .catch((cause) => new SessionStateError({ operation: "list", cause }));
+      .catch((cause) => new ThreadStateError({ operation: "list", cause }));
     if (records instanceof Error) return records;
     return new Map(records.map((record) => [record.id, record]));
   }
 
-  private async getProductFields(sessionId: string) {
+  private async getProductFields(threadId: string) {
     const records = await this.db
-      .query({ collection: "sessionState", where: { id: sessionId } })
-      .catch((cause) => new SessionStateError({ operation: "get", cause }));
+      .query({ collection: "sessionState", where: { id: threadId } })
+      .catch((cause) => new ThreadStateError({ operation: "get", cause }));
     if (records instanceof Error) return records;
     return records[0];
   }
 
   private async updateProductFields(input: {
-    sessionId: string;
-    fields: Partial<SessionProductFields>;
+    threadId: string;
+    fields: Partial<ThreadProductFields>;
   }) {
     await using tx = this.db.useTransaction();
     const current = await tx
-      .get("sessionState", input.sessionId)
+      .get("sessionState", input.threadId)
       .catch(
         (cause) =>
-          new SessionStateError({ operation: "read before update", cause }),
+          new ThreadStateError({ operation: "read before update", cause }),
       );
     if (current instanceof Error) return current;
     tx.set("sessionState", {
-      id: input.sessionId,
+      id: input.threadId,
       markedDone: false,
       ...current,
       ...input.fields,
     });
     return await this.db
       .commit(tx)
-      .catch((cause) => new SessionStateError({ operation: "update", cause }));
+      .catch((cause) => new ThreadStateError({ operation: "update", cause }));
   }
 
-  private async createSession(sessionId?: string) {
+  private async createThread(threadId?: string) {
     const stored = await this.repo
-      .create({ id: sessionId })
-      .catch((cause) => new CreateAgentSessionError({ cause }));
+      .create({ id: threadId })
+      .catch((cause) => new CreateAgentThreadError({ cause }));
     if (stored instanceof Error) return stored;
     this.stored.set(stored.metadata.id, Promise.resolve(stored));
-    return await this.openSession(stored.metadata.id);
+    return await this.openThread(stored.metadata.id);
   }
 
-  private async openSession(sessionId: string) {
-    return await this.lifecycleQueue(sessionId).run(
-      async () => await this.openSessionUnqueued(sessionId),
+  private async openThread(threadId: string) {
+    return await this.lifecycleQueue(threadId).run(
+      async () => await this.openThreadUnqueued(threadId),
     );
   }
 
-  private lifecycleQueue(sessionId: string) {
-    let queue = this.lifecycleQueues.get(sessionId);
+  private lifecycleQueue(threadId: string) {
+    let queue = this.lifecycleQueues.get(threadId);
     if (queue === undefined) {
       queue = new SerialQueue();
-      this.lifecycleQueues.set(sessionId, queue);
+      this.lifecycleQueues.set(threadId, queue);
     }
     return queue;
   }
 
-  private async openSessionUnqueued(sessionId: string) {
-    const failed = this.closeFailures.get(sessionId);
+  private async openThreadUnqueued(threadId: string) {
+    const failed = this.closeFailures.get(threadId);
     if (failed !== undefined) return failed;
-    const live = this.sessions.get(sessionId);
+    const live = this.threads.get(threadId);
     if (live !== undefined) return live;
-    return await this.openAndRegister(sessionId);
+    return await this.openAndRegister(threadId);
   }
 
-  private async closeSession(sessionId: string) {
-    const session = this.sessions.get(sessionId);
-    if (session === undefined) return new SessionNotOpenError({ sessionId });
-    const published = await this.publishSummary(sessionId);
+  private async closeThread(threadId: string) {
+    const thread = this.threads.get(threadId);
+    if (thread === undefined) return new ThreadNotOpenError({ threadId });
+    const published = await this.publishSummary(threadId);
     if (published instanceof Error) return published;
-    this.summarySubscriptions.get(sessionId)?.();
-    this.summarySubscriptions.delete(sessionId);
-    const closed = await session.close();
+    this.summarySubscriptions.get(threadId)?.();
+    this.summarySubscriptions.delete(threadId);
+    const closed = await thread.close();
     if (closed instanceof Error) {
       // Keep ownership until resource release is known; never admit a replacement.
-      this.closeFailures.set(sessionId, closed);
+      this.closeFailures.set(threadId, closed);
       return closed;
     }
-    this.sessions.delete(sessionId);
-    this.idleSubscriptions.get(sessionId)?.();
-    this.idleSubscriptions.delete(sessionId);
-    this.closeFailures.delete(sessionId);
+    this.threads.delete(threadId);
+    this.idleSubscriptions.get(threadId)?.();
+    this.idleSubscriptions.delete(threadId);
+    this.closeFailures.delete(threadId);
     this.publishIdle();
-    this.lifecycleSubscriptions.get(sessionId)?.();
-    this.lifecycleSubscriptions.delete(sessionId);
+    this.lifecycleSubscriptions.get(threadId)?.();
+    this.lifecycleSubscriptions.delete(threadId);
     await this.summaryQueue.run(() => {
-      const summary = this.summaries.get(sessionId);
+      const summary = this.summaries.get(threadId);
       if (summary !== undefined) this.publish({ ...summary, isRunning: false });
     });
-    this.stored.delete(sessionId);
+    this.stored.delete(threadId);
   }
 
   async shutdown() {
@@ -694,27 +692,25 @@ export class ThreadManager {
     for (const unsubscribe of this.idleSubscriptions.values()) unsubscribe();
     this.idleSubscriptions.clear();
 
-    const sessions = [...this.sessions.values()];
-    this.sessions.clear();
+    const threads = [...this.threads.values()];
+    this.threads.clear();
     const closed = await Promise.all(
-      sessions.map(async (session) => await session.close()),
+      threads.map(async (thread) => await thread.close()),
     );
-    const sessionError = closed.find((result) => result instanceof Error);
+    const threadError = closed.find((result) => result instanceof Error);
     this.stored.clear();
     this.lifecycleQueues.clear();
     this.closeFailures.clear();
     this.idle[Symbol.dispose]();
-    if (sessionError instanceof Error) return sessionError;
+    if (threadError instanceof Error) return threadError;
   }
 
-  private async openAndRegister(sessionId: string) {
-    const existing = this.stored.get(sessionId);
+  private async openAndRegister(threadId: string) {
+    const existing = this.stored.get(threadId);
     const stored =
-      existing === undefined
-        ? await this.findStored(sessionId)
-        : await existing;
+      existing === undefined ? await this.findStored(threadId) : await existing;
     if (stored instanceof Error) return stored;
-    const session = await Thread.attach(
+    const thread = await Thread.attach(
       {
         environment: this.environment,
         llmApi: this.llmApi,
@@ -724,42 +720,42 @@ export class ThreadManager {
       },
       stored,
     );
-    if (session instanceof Error) {
-      this.stored.delete(sessionId);
-      return session;
+    if (thread instanceof Error) {
+      this.stored.delete(threadId);
+      return thread;
     }
-    this.register(session);
-    const published = await this.publishSummary(sessionId);
+    this.register(thread);
+    const published = await this.publishSummary(threadId);
     if (published instanceof Error) {
-      this.summarySubscriptions.get(sessionId)?.();
-      this.summarySubscriptions.delete(sessionId);
-      this.lifecycleSubscriptions.get(sessionId)?.();
-      this.lifecycleSubscriptions.delete(sessionId);
-      const closed = await session.close();
+      this.summarySubscriptions.get(threadId)?.();
+      this.summarySubscriptions.delete(threadId);
+      this.lifecycleSubscriptions.get(threadId)?.();
+      this.lifecycleSubscriptions.delete(threadId);
+      const closed = await thread.close();
       if (closed instanceof Error) {
-        this.closeFailures.set(sessionId, closed);
+        this.closeFailures.set(threadId, closed);
         console.warn(closed);
         return published;
       }
-      this.sessions.delete(sessionId);
-      this.idleSubscriptions.get(sessionId)?.();
-      this.idleSubscriptions.delete(sessionId);
+      this.threads.delete(threadId);
+      this.idleSubscriptions.get(threadId)?.();
+      this.idleSubscriptions.delete(threadId);
       this.publishIdle();
-      this.stored.delete(sessionId);
-      this.summaries.delete(sessionId);
+      this.stored.delete(threadId);
+      this.summaries.delete(threadId);
       return published;
     }
-    if (this.started) session.resume();
-    return session;
+    if (this.started) thread.resume();
+    return thread;
   }
 
-  private async findStored(sessionId: string) {
+  private async findStored(threadId: string) {
     const metadata = await this.repo
       .list()
-      .catch((cause) => new ListAgentSessionsError({ cause }));
+      .catch((cause) => new ListAgentThreadsError({ cause }));
     if (metadata instanceof Error) return metadata;
-    const item = metadata.find((candidate) => candidate.id === sessionId);
-    if (item === undefined) return new SessionNotFoundError({ sessionId });
+    const item = metadata.find((candidate) => candidate.id === threadId);
+    if (item === undefined) return new ThreadNotFoundError({ threadId });
     return await this.openStored(item);
   }
 
@@ -769,7 +765,7 @@ export class ThreadManager {
     const opening = this.repo
       .open(metadata)
       .catch(
-        (cause) => new OpenAgentSessionError({ sessionId: metadata.id, cause }),
+        (cause) => new OpenAgentThreadError({ threadId: metadata.id, cause }),
       );
     this.stored.set(metadata.id, opening);
     const stored = await opening;
@@ -777,25 +773,25 @@ export class ThreadManager {
     return stored;
   }
 
-  private register(session: Thread) {
-    this.sessions.set(session.sessionId, session);
+  private register(thread: Thread) {
+    this.threads.set(thread.threadId, thread);
     this.idleSubscriptions.set(
-      session.sessionId,
-      session.workIdle.subscribe(() => this.publishIdle()),
+      thread.threadId,
+      thread.workIdle.subscribe(() => this.publishIdle()),
     );
     this.lifecycleSubscriptions.set(
-      session.sessionId,
-      session.lifecycle.subscribe(() => {
+      thread.threadId,
+      thread.lifecycle.subscribe(() => {
         if (this.closing) return;
         // oxlint-disable-next-line typescript/no-floating-promises -- Tracked through shutdown; returned lifecycle errors are logged below.
         this.track(
           async () =>
-            await this.lifecycleQueue(session.sessionId).run(async () => {
-              if (this.sessions.get(session.sessionId) !== session) return;
-              const idle = await session.canUnload();
+            await this.lifecycleQueue(thread.threadId).run(async () => {
+              if (this.threads.get(thread.threadId) !== thread) return;
+              const idle = await thread.canUnload();
               if (idle instanceof Error) return idle;
               if (!idle) return;
-              return await this.closeSession(session.sessionId);
+              return await this.closeThread(thread.threadId);
             }),
         ).then((result) => {
           if (result instanceof Error) console.warn(result);
@@ -803,30 +799,30 @@ export class ThreadManager {
       }),
     );
     this.summarySubscriptions.set(
-      session.sessionId,
-      session.onSummaryChange(async () => {
+      thread.threadId,
+      thread.onSummaryChange(async () => {
         if (this.closing) return;
-        const published = await this.publishSummary(session.sessionId);
+        const published = await this.publishSummary(thread.threadId);
         if (published instanceof Error) console.warn(published);
       }),
     );
   }
 
-  private async publishSummary(sessionId: string) {
+  private async publishSummary(threadId: string) {
     return await this.track(
       async () =>
         await this.summaryQueue.run(async () => {
-          const session = this.sessions.get(sessionId);
-          if (session === undefined) return;
-          const fields = await this.getProductFields(sessionId);
+          const thread = this.threads.get(threadId);
+          if (thread === undefined) return;
+          const fields = await this.getProductFields(threadId);
           if (fields instanceof Error) return fields;
-          const summary = await session.readSummary();
+          const summary = await thread.readSummary();
           if (summary instanceof Error) return summary;
           this.publish(
             applyProductFields({
               summary: {
                 ...summary,
-                isRunning: this.sessions.has(sessionId) && summary.isRunning,
+                isRunning: this.threads.has(threadId) && summary.isRunning,
               },
               fields,
             }),
@@ -835,9 +831,9 @@ export class ThreadManager {
     );
   }
 
-  private publish(session: SessionSummary) {
-    this.summaries.set(session.sessionId, session);
-    this.summaryChanges.append({ type: "updated", session });
+  private publish(thread: ThreadSummary) {
+    this.summaries.set(thread.sessionId, thread);
+    this.summaryChanges.append({ type: "updated", session: thread });
   }
 
   private publishIdle() {
@@ -846,9 +842,7 @@ export class ThreadManager {
       !this.closing &&
       this.pending.size === 0 &&
       this.closeFailures.size === 0 &&
-      [...this.sessions.values()].every(
-        (session) => session.workIdle.latestValue,
-      );
+      [...this.threads.values()].every((thread) => thread.workIdle.latestValue);
     if (idle !== this.idle.latestValue) this.idleChanges.append(idle);
   }
 }
@@ -857,9 +851,9 @@ function applyProductFields({
   summary,
   fields,
 }: {
-  summary: PiSessionSummary | SessionSummary;
-  fields: SessionProductFields | undefined;
-}): SessionSummary {
+  summary: PiThreadSummary | ThreadSummary;
+  fields: ThreadProductFields | undefined;
+}): ThreadSummary {
   return {
     ...summary,
     markedDone: fields?.markedDone ?? false,

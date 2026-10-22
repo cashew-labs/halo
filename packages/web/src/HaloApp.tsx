@@ -9,36 +9,34 @@ import {
   WorkspacePanesProvider,
   usePaneLocation,
 } from "./panes/WorkspacePanesProvider.js";
-import type { SessionSummary } from "@get-halo/client";
+import type { ThreadSummary } from "@get-halo/client";
 import type { AppInfo } from "./HostApi.js";
 import { useHost } from "./HostProvider.js";
 import { LoadingPage } from "./LoadingPage.tsx";
 import { WorkspaceLayout } from "./WorkspaceLayout.js";
-import { useSessionsQuery, useWorkspaceQuery } from "./api/ApiProvider.tsx";
+import { useThreadsQuery, useWorkspaceQuery } from "./api/ApiProvider.tsx";
 import { SidebarPreferencesProvider } from "./sidebar/SidebarPreferencesProvider.js";
 
 export function HaloApp() {
   const workspaceQuery = useWorkspaceQuery();
   const workspace = workspaceQuery.data;
-  const sessionsQuery = useSessionsQuery(workspace);
+  const threadsQuery = useThreadsQuery(workspace);
   const appInfoQuery = useAppInfoQuery();
-  const sessions = sessionsQuery.data === undefined ? [] : sessionsQuery.data;
+  const threads = threadsQuery.data === undefined ? [] : threadsQuery.data;
 
   if (workspaceQuery.isPending || workspace === undefined) {
     return <LoadingPage progressLabel="Loading your cloud workspace" />;
   }
 
-  if (!sessionsQuery.isFetched) {
-    return <LoadingPage progressLabel="Loading your sessions" />;
+  if (!threadsQuery.isFetched) {
+    return <LoadingPage progressLabel="Loading your threads" />;
   }
 
   return (
     <WorkspaceShell
       workspaceRoot={workspace.workspaceRoot}
-      sessions={sessions}
-      alertMessage={
-        sessionsQuery.error ? String(sessionsQuery.error) : undefined
-      }
+      threads={threads}
+      alertMessage={threadsQuery.error ? String(threadsQuery.error) : undefined}
       appInfo={appInfoQuery.data}
     />
   );
@@ -55,12 +53,12 @@ function useAppInfoQuery() {
 
 function WorkspaceShell({
   workspaceRoot,
-  sessions,
+  threads,
   alertMessage,
   appInfo,
 }: {
   workspaceRoot: string;
-  sessions: SessionSummary[];
+  threads: ThreadSummary[];
   alertMessage?: string;
   appInfo?: AppInfo;
 }) {
@@ -79,7 +77,7 @@ function WorkspaceShell({
         key={JSON.stringify([userId, workspaceRoot])}
         userId={userId}
         workspaceRoot={workspaceRoot}
-        initialPath={initialHostPath(sessions)}
+        initialPath={initialHostPath(threads)}
       >
         {/* oxlint-disable-next-line react/hooks -- Wouter calls the location hook supplied to Router. */}
         <Router hook={usePaneLocation}>
@@ -88,7 +86,7 @@ function WorkspaceShell({
             userId={userId}
             workspaceRoot={workspaceRoot}
           >
-            <WorkspaceLayout sessions={sessions} appInfo={appInfo} />
+            <WorkspaceLayout threads={threads} appInfo={appInfo} />
           </SidebarPreferencesProvider>
         </Router>
       </WorkspacePanesProvider>
@@ -96,8 +94,8 @@ function WorkspaceShell({
   );
 }
 
-function initialHostPath(sessions: SessionSummary[]) {
-  const first = sessions.find((session) => !session.markedDone);
+function initialHostPath(threads: ThreadSummary[]) {
+  const first = threads.find((thread) => !thread.markedDone);
   if (first !== undefined) return `/sessions/${first.sessionId}`;
   return `/draft/${crypto.randomUUID()}`;
 }

@@ -1,7 +1,7 @@
 import { expect, type Locator, type Page } from "@playwright/test";
 import { e2eTest } from "./e2eTest.js";
 
-const sectionHeaders = /^(Collapse|Expand) (Favorites|Artifacts|Sessions)$/;
+const sectionHeaders = /^(Collapse|Expand) (Favorites|Artifacts|Threads)$/;
 
 e2eTest(
   "lists every artifact kind under Artifacts and filters by kind",
@@ -175,10 +175,10 @@ e2eTest(
       app.page.getByRole("region", { name: "Desktop", exact: true }),
     ).toBeVisible();
     await toolbar
-      .getByRole("button", { name: "New chat session", exact: true })
+      .getByRole("button", { name: "New thread", exact: true })
       .click();
     await expect(
-      app.page.getByRole("main", { name: "New session", exact: true }),
+      app.page.getByRole("main", { name: "New thread", exact: true }),
     ).toBeVisible();
     await toolbar
       .getByRole("button", { name: "New folder", exact: true })
@@ -194,28 +194,28 @@ e2eTest(
     ).toBeVisible();
 
     await sidebar
-      .getByRole("button", { name: "Collapse Sessions", exact: true })
+      .getByRole("button", { name: "Collapse Threads", exact: true })
       .click();
     await expect(
-      sidebar.getByRole("button", { name: "Expand Sessions", exact: true }),
+      sidebar.getByRole("button", { name: "Expand Threads", exact: true }),
     ).toBeVisible();
-    await dragSection(sidebar, "Sessions", "Collapse Artifacts", [
+    await dragSection(sidebar, "Threads", "Collapse Artifacts", [
       "Favorites",
-      "Sessions",
+      "Threads",
       "Artifacts",
     ]);
     await sidebar
-      .getByRole("button", { name: "Reorder Sessions", exact: true })
+      .getByRole("button", { name: "Reorder Threads", exact: true })
       .press("ArrowUp");
     await expect(
       sidebar.getByRole("button", { name: sectionHeaders }),
-    ).toHaveText(["Sessions", "Favorites", "Artifacts"]);
+    ).toHaveText(["Threads", "Favorites", "Artifacts"]);
     await sidebar
-      .getByRole("button", { name: "Reorder Sessions", exact: true })
+      .getByRole("button", { name: "Reorder Threads", exact: true })
       .press("ArrowDown");
     await expect(
       sidebar.getByRole("button", { name: sectionHeaders }),
-    ).toHaveText(["Favorites", "Sessions", "Artifacts"]);
+    ).toHaveText(["Favorites", "Threads", "Artifacts"]);
   },
 );
 

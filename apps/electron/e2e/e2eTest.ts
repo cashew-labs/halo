@@ -3,22 +3,22 @@ import { mkdir, mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import nodePath, { join, resolve } from "node:path";
 import { Logger } from "@get-halo/logger";
 import { startWorkspaceServerProcess } from "./startWorkspaceServerProcess.js";
-import type { SessionDescription } from "@get-halo/shared/testing";
+import type { ThreadDescription } from "@get-halo/shared/testing";
 import { test as baseTest } from "@playwright/test";
 import * as errore from "errore";
 import { createTestArtifacts, type TestArtifacts } from "./TestArtifacts.js";
 import { ElectronTestApp } from "./ElectronTestApp.js";
 import { LLMDriver, HttpService } from "@get-halo/workspace-server/testing";
 import { createHarnessTools } from "./tools.js";
-import { loadSessionDescription } from "./loadSessionDescription.js";
+import { loadThreadDescription } from "./loadThreadDescription.js";
 
-type E2ESession = {
-  sessionId: string;
+type E2EThread = {
+  threadId: string;
 };
 
 type E2ETestHarness = TestArtifacts["harness"] & {
   tools: ReturnType<typeof createHarnessTools>;
-  loadSession(description: SessionDescription): Promise<E2ESession>;
+  loadThread(description: ThreadDescription): Promise<E2EThread>;
   loadExtension(sourceDirectory: string): Promise<{
     id: string;
     directory: string;
@@ -142,11 +142,11 @@ export const e2eTest = baseTest.extend<E2EFixtures, E2EWorkerFixtures>({
     await use({
       ...testArtifacts.harness,
       tools,
-      async loadSession(description) {
+      async loadThread(description) {
         await app.page.getByRole("main").waitFor();
-        const loaded = await loadSessionDescription({
+        const loaded = await loadThreadDescription({
           description,
-          load: async (input) => await server.rpc.testApi.seedSession(input),
+          load: async (input) => await server.rpc.testApi.seedThread(input),
           getToolIdentity: async (path) =>
             await server.rpc.testApi.getToolIdentity({ path }),
         });
@@ -158,7 +158,7 @@ export const e2eTest = baseTest.extend<E2EFixtures, E2EWorkerFixtures>({
         await app.page
           .getByRole("main", { name: description.title, exact: true })
           .waitFor();
-        return loaded;
+        return { threadId: loaded.sessionId };
       },
       async loadExtension(sourceDirectory) {
         const source = nodePath.resolve(

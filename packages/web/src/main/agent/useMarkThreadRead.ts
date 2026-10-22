@@ -2,15 +2,15 @@ import { useContext, useEffect, useSyncExternalStore } from "react";
 import * as errore from "errore";
 import {
   isThreadUnread,
-  type SessionSnapshot,
-  type SessionSummary,
+  type ThreadSnapshot,
+  type ThreadSummary,
 } from "@get-halo/client";
 import { useApi } from "../../api/ApiProvider.js";
 import { TabVisibilityContext } from "../../panes/WorkspacePanesProvider.js";
 
-class MarkSessionReadError extends errore.createTaggedError({
-  name: "MarkSessionReadError",
-  message: "Could not mark the session as read",
+class MarkThreadReadError extends errore.createTaggedError({
+  name: "MarkThreadReadError",
+  message: "Could not mark the thread as read",
 }) {}
 
 function subscribeToFocus(onChange: () => void) {
@@ -28,20 +28,20 @@ function isViewingWindow() {
   return document.visibilityState === "visible" && document.hasFocus();
 }
 
-export function useMarkSessionRead({
-  session,
+export function useMarkThreadRead({
+  thread,
   state,
 }: {
-  session: SessionSummary | undefined;
-  state: SessionSnapshot;
+  thread: ThreadSummary | undefined;
+  state: ThreadSnapshot;
 }) {
   const api = useApi();
   const isViewing = useSyncExternalStore(subscribeToFocus, isViewingWindow);
   const isTabVisible = useContext(TabVisibilityContext);
-  const sessionId = session?.sessionId;
-  const latestResultId = session?.latestResultId;
-  const isRunning = session?.isRunning;
-  const isUnread = session !== undefined && isThreadUnread(session);
+  const threadId = thread?.sessionId;
+  const latestResultId = thread?.latestResultId;
+  const isRunning = thread?.isRunning;
+  const isUnread = thread !== undefined && isThreadUnread(thread);
   const lastRunId = state.lastRun?.id;
   const lastAssistantEntryId = state.entries
     .filter(
@@ -53,7 +53,7 @@ export function useMarkSessionRead({
     if (
       !isViewing ||
       !isTabVisible ||
-      sessionId === undefined ||
+      threadId === undefined ||
       isRunning ||
       state.activeRun !== undefined ||
       latestResultId === undefined ||
@@ -61,14 +61,14 @@ export function useMarkSessionRead({
       (lastRunId !== latestResultId && lastAssistantEntryId !== latestResultId)
     )
       return;
-    const readInput = { sessionId, observedResultId: latestResultId };
+    const readInput = { sessionId: threadId, observedResultId: latestResultId };
     let cancelled = false;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
 
     async function markRead() {
       const result = await api.thread
         .markRead(readInput)
-        .catch((cause) => new MarkSessionReadError({ cause }));
+        .catch((cause) => new MarkThreadReadError({ cause }));
       if (!(result instanceof Error)) return;
       console.warn(result);
       if (cancelled) return;
@@ -86,7 +86,7 @@ export function useMarkSessionRead({
     api,
     isTabVisible,
     isViewing,
-    sessionId,
+    threadId,
     isRunning,
     isUnread,
     latestResultId,

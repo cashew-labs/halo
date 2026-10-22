@@ -1,14 +1,14 @@
 import { ORPCError } from "@orpc/client";
 import { useConnection } from "../../api/ConnectionContext.js";
-import { sessionError } from "./sessionView.js";
+import { threadError } from "./threadView.js";
 import { useContext, useEffect, useRef, useState } from "react";
 import * as errore from "errore";
 import { useQueryClient } from "@tanstack/react-query";
 import {
-  emptySessionSnapshot,
-  reduceSessionUpdate,
-  type SessionSnapshot,
-  type SessionWatchItem,
+  emptyThreadSnapshot,
+  reduceThreadUpdate,
+  type ThreadSnapshot,
+  type ThreadWatchItem,
   type ChatPrompt,
   chatPromptTitle,
 } from "@get-halo/client";
@@ -33,23 +33,23 @@ class AbortFailedError extends errore.createTaggedError({
   message: "$reason",
 }) {}
 
-/** A prompt plus the attached files' names, which title a new session. */
-export type SessionPrompt = ChatPrompt & {
+/** A prompt plus the attached files' names, which title a new thread. */
+export type ThreadPrompt = ChatPrompt & {
   files?: readonly { name: string }[];
 };
 
-type UseAgentSessionResult = {
-  state: SessionSnapshot;
+type UseAgentThreadResult = {
+  state: ThreadSnapshot;
   error: string | undefined;
   prompt: (
-    input: SessionPrompt,
+    input: ThreadPrompt,
   ) => Promise<{ submissionId: number } | PromptFailedError>;
   abort: () => Promise<void | AbortFailedError>;
 };
 
-export function useAgentSession(
-  sessionId: string | undefined,
-): UseAgentSessionResult {
+export function useAgentThread(
+  threadId: string | undefined,
+): UseAgentThreadResult {
   const api = useApi();
   const { service, state: connection } = useConnection();
   const enabled = connection.status === "connected";
@@ -57,23 +57,23 @@ export function useAgentSession(
   const queryClient = useQueryClient();
   const queryClientRef = useRef(queryClient);
   const [readyApi, setReadyApi] = useState<typeof api>();
-  const [readySessionId, setReadySessionId] = useState<string | undefined>(
+  const [readyThreadId, setReadyThreadId] = useState<string | undefined>(
     undefined,
   );
-  const [state, setState] = useState<SessionSnapshot>(
+  const [state, setState] = useState<ThreadSnapshot>(
     () =>
-      queryClient.getQueryData<SessionSnapshot>(
-        draftSessionSnapshotQueryKey(sessionId),
-      ) ?? emptySessionSnapshot(),
+      queryClient.getQueryData<ThreadSnapshot>(
+        draftThreadSnapshotQueryKey(threadId),
+      ) ?? emptyThreadSnapshot(),
   );
   const stateRef = useRef(state);
   const [localError, setLocalError] = useState<string | undefined>(undefined);
-  const [openedFor, setOpenedFor] = useState(sessionId);
+  const [openedFor, setOpenedFor] = useState(threadId);
 
-  if (openedFor !== sessionId) {
-    setOpenedFor(sessionId);
-    setReadySessionId(undefined);
-    setState(emptySessionSnapshot());
+  if (openedFor !== threadId) {
+    setOpenedFor(threadId);
+    setReadyThreadId(undefined);
+    setState(emptyThreadSnapshot());
     setLocalError(undefined);
   }
 
@@ -84,37 +84,40 @@ export function useAgentSession(
   useEffect(() => {
     // Hidden tabs retain their UI state, but must release HTTP streams so new
     // chats and prompts are not blocked by the browser's connection limit.
-    if (sessionId === undefined || !isTabVisible || !enabled) return;
+    if (threadId === undefined || !isTabVisible || !enabled) return;
     const controller = new AbortController();
 
-    const updates = new Stream<SessionWatchItem>();
-    const states = updates.project(stateRef.current, reduceSessionUpdate);
+    const updates = new Stream<ThreadWatchItem>();
+    const states = updates.project(stateRef.current, reduceThreadUpdate);
     const unsubscribe = states.subscribe(() => setState(states.latestValue));
     reconnectStream({
-      name: "Session event",
+      name: "Thread event",
       onError: (error) => service.fail(api, error),
       signal: controller.signal,
       open: async () =>
-        await api.thread.events({ sessionId }, { signal: controller.signal }),
+        await api.thread.events(
+          { sessionId: threadId },
+          { signal: controller.signal },
+        ),
       onItem: (item) => {
         if (item.type === "snapshot") {
           queryClientRef.current.removeQueries({
-            queryKey: draftSessionSnapshotQueryKey(sessionId),
+            queryKey: draftThreadSnapshotQueryKey(threadId),
             exact: true,
           });
-          setReadySessionId(sessionId);
+          setReadyThreadId(threadId);
           setReadyApi(() => api);
-          for (const sessionConnection of item.snapshot.connections) {
+          for (const threadConnection of item.snapshot.connections) {
             queryClientRef.current.setQueryData<ConnectionState>(
-              connectionStateQueryKey(sessionId, sessionConnection.request),
-              connectionStateFromServer(sessionConnection),
+              connectionStateQueryKey(threadId, threadConnection.request),
+              connectionStateFromServer(threadConnection),
             );
           }
         }
         if (item.type === "event" && item.event.type === "halo.connection") {
           const event = item.event;
           queryClientRef.current.setQueryData<ConnectionState>(
-            connectionStateQueryKey(sessionId, event.request),
+            connectionStateQueryKey(threadId, event.request),
             (current) => applyConnectionEvent(current, event),
           );
         }
@@ -127,10 +130,10 @@ export function useAgentSession(
       states[Symbol.dispose]();
       controller.abort();
     };
-  }, [api, sessionId, isTabVisible, service, enabled]);
+  }, [api, threadId, isTabVisible, service, enabled]);
 
-  async function prompt({ files: _files, ...input }: SessionPrompt) {
-    if (readySessionId === undefined || !enabled || readyApi !== api) {
+  async function prompt({ files: _files, ...input }: ThreadPrompt) {
+    if (readyThreadId === undefined || !enabled || readyApi !== api) {
       const error = new PromptFailedError({
         reason: "This chat is still connecting. Please try again in a moment.",
       });
@@ -139,7 +142,7 @@ export function useAgentSession(
     }
     setLocalError(undefined);
     const result = await api.thread
-      .prompt({ sessionId: readySessionId, ...input })
+      .prompt({ sessionId: readyThreadId, ...input })
       .catch(
         (e) =>
           new PromptFailedError({
@@ -151,7 +154,7 @@ export function useAgentSession(
           }),
       );
     // The connection banner owns transport recovery. The server may still be
-    // running this prompt; reconnect the session stream without resending it.
+    // running this prompt; reconnect the thread stream without resending it.
     if (result instanceof Error && errore.isAbortError(result.cause))
       return result;
     if (result instanceof PromptFailedError) {
@@ -164,10 +167,10 @@ export function useAgentSession(
   }
 
   async function abort() {
-    if (readySessionId === undefined) return;
+    if (readyThreadId === undefined) return;
     setLocalError(undefined);
     const result = await api.thread
-      .abort({ sessionId: readySessionId })
+      .abort({ sessionId: readyThreadId })
       .then(() => undefined)
       .catch(
         (e) =>
@@ -177,7 +180,7 @@ export function useAgentSession(
           }),
       );
     if (result instanceof AbortFailedError) {
-      console.warn("Failed to stop session:", result);
+      console.warn("Failed to stop thread:", result);
       return result;
     }
     return result;
@@ -185,43 +188,43 @@ export function useAgentSession(
 
   return {
     state,
-    error: localError === undefined ? sessionError(state) : localError,
+    error: localError === undefined ? threadError(state) : localError,
     prompt,
     abort,
   };
 }
 
-type UseDraftAgentSessionResult = {
-  state: SessionSnapshot;
+type UseDraftAgentThreadResult = {
+  state: ThreadSnapshot;
   error: string | undefined;
-  sessionId: string | undefined;
+  threadId: string | undefined;
   title: string | undefined;
   prompt: (
-    input: SessionPrompt,
+    input: ThreadPrompt,
   ) => Promise<{ submissionId: number } | PromptFailedError>;
   abort: () => Promise<void | AbortFailedError>;
 };
 
-export function sessionTitleQueryKey(sessionId: string) {
-  return ["session-title", sessionId] as const;
+export function threadTitleQueryKey(threadId: string) {
+  return ["thread-title", threadId] as const;
 }
 
-function draftSessionSnapshotQueryKey(sessionId: string | undefined) {
-  return ["draft-session-snapshot", sessionId] as const;
+function draftThreadSnapshotQueryKey(threadId: string | undefined) {
+  return ["draft-thread-snapshot", threadId] as const;
 }
 
-export function useDraftAgentSession(
-  onAccepted: (sessionId: string) => void,
-): UseDraftAgentSessionResult {
+export function useDraftAgentThread(
+  onAccepted: (threadId: string) => void,
+): UseDraftAgentThreadResult {
   const api = useApi();
   const { service } = useConnection();
   const queryClient = useQueryClient();
   const [localError, setLocalError] = useState<string | undefined>(undefined);
-  const [sessionId, setSessionId] = useState<string | undefined>(undefined);
+  const [threadId, setThreadId] = useState<string | undefined>(undefined);
   const [title, setTitle] = useState<string>();
-  const sessionIdRef = useRef<string | undefined>(undefined);
+  const threadIdRef = useRef<string | undefined>(undefined);
   const onAcceptedRef = useRef(onAccepted);
-  const { state, error, abort } = useAgentSession(sessionId);
+  const { state, error, abort } = useAgentThread(threadId);
   const hasMessages = state.entries.length > 0;
 
   useEffect(() => {
@@ -229,14 +232,14 @@ export function useDraftAgentSession(
   }, [onAccepted]);
 
   useEffect(() => {
-    if (sessionId === undefined || !hasMessages) return;
-    // Navigation remounts the session pane. Keep its confirmed transcript visible
+    if (threadId === undefined || !hasMessages) return;
+    // Navigation remounts the thread pane. Keep its confirmed transcript visible
     // until the replacement subscription delivers a fresh snapshot.
-    queryClient.setQueryData(draftSessionSnapshotQueryKey(sessionId), state);
-    onAcceptedRef.current(sessionId);
-  }, [sessionId, hasMessages, queryClient, state]);
+    queryClient.setQueryData(draftThreadSnapshotQueryKey(threadId), state);
+    onAcceptedRef.current(threadId);
+  }, [threadId, hasMessages, queryClient, state]);
 
-  async function prompt({ files, ...input }: SessionPrompt) {
+  async function prompt({ files, ...input }: ThreadPrompt) {
     setLocalError(undefined);
     if (service.getSnapshot().status !== "connected")
       return new PromptFailedError({
@@ -244,7 +247,7 @@ export function useDraftAgentSession(
       });
     const submittedTitle = chatPromptTitle({ ...input, files });
     setTitle(submittedTitle);
-    if (sessionIdRef.current === undefined) {
+    if (threadIdRef.current === undefined) {
       const created = await api.thread.new().catch(
         (e) =>
           new PromptFailedError({
@@ -264,16 +267,16 @@ export function useDraftAgentSession(
         setTitle(undefined);
         return created;
       }
-      sessionIdRef.current = created.sessionId;
-      setSessionId(created.sessionId);
+      threadIdRef.current = created.sessionId;
+      setThreadId(created.sessionId);
     }
 
     queryClient.setQueryData(
-      sessionTitleQueryKey(sessionIdRef.current),
+      threadTitleQueryKey(threadIdRef.current),
       submittedTitle,
     );
     const result = await api.thread
-      .prompt({ sessionId: sessionIdRef.current, ...input })
+      .prompt({ sessionId: threadIdRef.current, ...input })
       .catch(
         (e) =>
           new PromptFailedError({
@@ -299,7 +302,7 @@ export function useDraftAgentSession(
   return {
     state,
     error: localError === undefined ? error : localError,
-    sessionId,
+    threadId,
     title,
     prompt,
     abort,

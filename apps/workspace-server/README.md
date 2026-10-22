@@ -135,7 +135,7 @@ read. Users reconnect through the control plane; old connections are not migrate
 
 ## Test setup
 
-The existing workspace `serverTest` and Electron `e2eTest` fixtures start the same `WorkspaceServer` used by the app, with temporary data and controlled inference. The normal client exposes `testApi.seedSession`, `testApi.invokeTool`, and `testApi.getToolIdentity`. A shared server-side gate rejects these operations unless `WorkspaceServer.start` receives `config.testApiEnabled: true`. Omission disables them. Tests prepare state through these semantic operations, not internal database records, then observe it through ordinary product RPC or the UI.
+The existing workspace `serverTest` and Electron `e2eTest` fixtures start the same `WorkspaceServer` used by the app, with temporary data and controlled inference. The normal client exposes `testApi.seedThread`, `testApi.invokeTool`, and `testApi.getToolIdentity`; `testApi.seedSession` remains an alias for older consumers. A shared server-side gate rejects these operations unless `WorkspaceServer.start` receives `config.testApiEnabled: true`. Omission disables them. Tests prepare state through these semantic operations, not internal database records, then observe it through ordinary product RPC or the UI.
 
 Electron's fixture launches the same `src/main.ts` as normal runs. The app enables `testApi` only in `ApplicationMode.Test`; development and production leave it disabled. The fixture receives the normal server readiness through child-process IPC and creates an ordinary client. There is no separate test host, entry point, listener, token, contract, or client implementation.
 

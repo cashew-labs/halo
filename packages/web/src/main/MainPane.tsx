@@ -1,12 +1,12 @@
 import { Route, Switch } from "wouter";
-import type { SessionSummary } from "@get-halo/client";
+import type { ThreadSummary } from "@get-halo/client";
 import { AgentPane, DraftAgentPane } from "./agent/AgentPane.tsx";
 import { FilePane } from "./FilePane.tsx";
 import { ExtensionPane } from "./ExtensionPane.js";
 import { AutomationPane } from "./AutomationPane.js";
 import { DesktopPane } from "./DesktopPane.js";
 
-export function MainPane({ sessions }: { sessions: SessionSummary[] }) {
+export function MainPane({ threads }: { threads: ThreadSummary[] }) {
   return (
     <Switch>
       <Route path="/desktop">
@@ -37,16 +37,17 @@ export function MainPane({ sessions }: { sessions: SessionSummary[] }) {
           <DraftAgentPane
             key={params.draftId}
             draftId={params.draftId}
-            sessions={sessions}
+            threads={threads}
           />
         )}
       </Route>
-      <Route path="/sessions/:sessionId">
+      {/* Keep existing conversation URLs valid for saved links and tabs. */}
+      <Route path="/sessions/:threadId">
         {(params) => (
           <AgentPane
-            key={params.sessionId}
-            sessionId={params.sessionId}
-            sessions={sessions}
+            key={params.threadId}
+            threadId={params.threadId}
+            threads={threads}
           />
         )}
       </Route>

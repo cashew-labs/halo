@@ -15,6 +15,7 @@ const decompress = promisify(gunzip);
 const recordSchema = Type.Object({
   schemaVersion: Type.Literal(1),
   workspaceId: Type.String(),
+  // Persisted trace envelopes retain their original field names.
   sessionId: Type.String(),
   traceId: Type.String(),
   spanId: Type.String({ pattern: "^[0-9a-f]{16}$" }),
@@ -53,7 +54,7 @@ export class TraceIngestion {
       return;
     }
     const workspaceId = identity.workspaceId;
-    // The request can select a session/run, never a workspace prefix or bucket.
+    // The request can select a thread/run, never a workspace prefix or bucket.
     const match =
       /^\/api\/traces\/([a-zA-Z0-9_-]{1,128})\/([0-9a-f]{32})$/.exec(
         url.pathname,
@@ -67,7 +68,7 @@ export class TraceIngestion {
       response.writeHead(400).end();
       return;
     }
-    const sessionId = match[1]!;
+    const threadId = match[1]!;
     const traceId = match[2]!;
     const body = await readArchive(request);
     if (body instanceof Error) {
@@ -77,7 +78,7 @@ export class TraceIngestion {
     const valid = await validateArchive({
       body,
       workspaceId,
-      sessionId,
+      threadId,
       traceId,
     });
     if (valid instanceof Error) {
@@ -86,7 +87,7 @@ export class TraceIngestion {
     }
     const uploaded = await this.cloud.upload({
       workspaceId,
-      sessionId,
+      threadId,
       traceId,
       body,
     });
@@ -125,7 +126,7 @@ async function readArchive(request: IncomingMessage) {
 async function validateArchive(input: {
   body: Buffer;
   workspaceId: string;
-  sessionId: string;
+  threadId: string;
   traceId: string;
 }) {
   const expanded = await decompress(input.body, {
@@ -154,7 +155,7 @@ async function validateArchive(input: {
     if (record instanceof Error) return record;
     if (
       record.workspaceId !== input.workspaceId ||
-      record.sessionId !== input.sessionId ||
+      record.sessionId !== input.threadId ||
       record.traceId !== input.traceId ||
       record.sequence !== sequence
     )

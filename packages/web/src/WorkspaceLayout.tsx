@@ -8,7 +8,7 @@ import {
 import { useLocation } from "wouter";
 import { Drawer, colors } from "maui";
 import { style, useStyles } from "purse-styles";
-import type { SessionSummary } from "@get-halo/client";
+import type { ThreadSummary } from "@get-halo/client";
 import type { AppInfo } from "./HostApi.js";
 import { PaneWorkspace } from "./panes/PaneWorkspace.js";
 import { Sidebar } from "./sidebar/Sidebar.js";
@@ -35,10 +35,10 @@ function isMobileScreen() {
 }
 
 export function WorkspaceLayout({
-  sessions,
+  threads,
   appInfo,
 }: {
-  sessions: SessionSummary[];
+  threads: ThreadSummary[];
   appInfo?: AppInfo;
 }) {
   const isMobile = useSyncExternalStore(subscribeToMobile, isMobileScreen);
@@ -69,12 +69,12 @@ export function WorkspaceLayout({
         close: () => setIsOpen(false),
       }}
     >
-      <div className={shell} data-testid="sessions-shell">
-        {!isMobile && <Sidebar sessions={sessions} appInfo={appInfo} />}
+      <div className={shell} data-testid="threads-shell">
+        {!isMobile && <Sidebar threads={threads} appInfo={appInfo} />}
         <div className={main}>
           <WorkspaceUpgradeBanner />
           <div className={panes}>
-            <PaneWorkspace sessions={sessions} />
+            <PaneWorkspace threads={threads} />
           </div>
         </div>
       </div>
@@ -84,7 +84,7 @@ export function WorkspaceLayout({
         side="start"
         aria-label="Workspace navigation"
       >
-        <Sidebar sessions={sessions} appInfo={appInfo} />
+        <Sidebar threads={threads} appInfo={appInfo} />
       </Drawer>
       <GlobalSearch />
     </SidebarContext>

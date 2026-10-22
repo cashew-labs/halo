@@ -6,7 +6,7 @@ import type { HotkeyService } from "../../hotkeys/HotkeyService.js";
 import type { AutomationService } from "../../automations/AutomationService.js";
 import type { AutomationRunner } from "../../automations/AutomationRunner.js";
 import type { AutomationSources } from "../../automations/AutomationSources.js";
-import type { ThreadManager } from "../../sessions/ThreadManager.js";
+import type { ThreadManager } from "../../threads/ThreadManager.js";
 import type { ConnectionService } from "../runtime/ConnectionService.js";
 import type { ParallelSearchService } from "./web/parallelSearch.js";
 import type { ToolRuntime } from "../runtime/ToolRuntime.js";

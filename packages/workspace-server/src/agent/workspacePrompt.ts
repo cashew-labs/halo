@@ -97,12 +97,14 @@ Do not browse parent directories or other projects for extra context.
 export function haloEnvironmentPrompt(ctx: {
   environment: HaloEnvironment;
   workspaceRoot: string;
+  threadId: string;
 }) {
   const path = ctx.workspaceRoot.replaceAll("\\", "/");
   const homePath = os.homedir().replaceAll("\\", "/");
   const system = `${os.type()} ${os.release()} (${process.platform}, ${os.arch()})`;
   return `<env>
  Working directory and workspace root: ${path}
+ Current thread ID: ${ctx.threadId}
 ${ctx.environment === "cloud" ? ` Unix home: ${homePath}\n` : ""} System: ${system}
  Today's date: ${new Date().toDateString()}
 </env>`;

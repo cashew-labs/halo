@@ -3,20 +3,20 @@ import { m } from "@get-halo/shared/testing";
 import { e2eTest } from "./e2eTest.js";
 
 e2eTest(
-  "searches saved files and sessions and opens a result",
+  "searches saved files and threads and opens a result",
   async ({ app, llm }) => {
     await app.server.rpc.workspace.writeFile({
       path: "notes.txt",
       content:
         "A careful field report describes the wet creek and the trail along the ridge before a silver marmot waits here beside the cairn while hikers record the time and weather.",
     });
-    const session = await app.server.rpc.thread.new();
+    const thread = await app.server.rpc.thread.new();
     const { submissionId } = await app.server.rpc.thread.prompt({
-      ...session,
+      ...thread,
       text: "Find the silver marmot",
     });
     const completion = app.server.rpc.thread.wait({
-      sessionId: session.sessionId,
+      sessionId: thread.sessionId,
       submissionId,
     });
     await llm.respond(m.assistant("The silver marmot is in the notes."));
@@ -27,12 +27,16 @@ e2eTest(
       .click();
     await app.page.keyboard.press("ControlOrMeta+Shift+f");
     const dialog = app.page.getByRole("dialog", { name: "Search workspace" });
+    await expect(
+      dialog.getByRole("textbox", { name: "Search workspace" }),
+    ).toHaveAttribute("placeholder", "Search files and threads");
     await dialog
       .getByRole("textbox", { name: "Search workspace" })
       .fill("silver marmot");
     const results = dialog.getByRole("list", { name: "Search results" });
     await expect(results).toContainText("notes.txt");
     await expect(results).toContainText("Find the silver marmot");
+    await expect(results).toContainText("Thread · Find the silver marmot");
     const fileHit = results
       .getByRole("button")
       .filter({ hasText: "notes.txt" });

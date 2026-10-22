@@ -314,7 +314,7 @@ export class AutomationService {
     });
   }
 
-  // Sessions stay in the workspace; remove the schedule and run index together.
+  // Threads stay in the workspace; remove the schedule and run index together.
   async remove(automationId: string) {
     return await this.actionQueue.run(async () => {
       await using tx = this.db.useTransaction();
@@ -387,7 +387,7 @@ export class AutomationService {
     return runFromRecord(runs[0]);
   }
 
-  async runningSessionIds() {
+  async runningThreadIds() {
     const runs = await this.db
       .query({
         collection: "automationRuns",
@@ -396,11 +396,11 @@ export class AutomationService {
       })
       .catch(
         (cause) =>
-          new AutomationStorageError({ operation: "running sessions", cause }),
+          new AutomationStorageError({ operation: "running threads", cause }),
       );
     if (runs instanceof Error) return runs;
-    return runs.flatMap((run) =>
-      run.sessionId === undefined ? [] : [run.sessionId],
+    return runs.flatMap(({ sessionId: threadId }) =>
+      threadId === undefined ? [] : [threadId],
     );
   }
 
@@ -750,10 +750,10 @@ export class AutomationService {
     });
   }
 
-  async attachSession(input: { runId: string; sessionId: string }) {
+  async attachThread(input: { runId: string; threadId: string }) {
     return await this.updateRun({
       runId: input.runId,
-      apply: (run) => ({ ...run, sessionId: input.sessionId }),
+      apply: (run) => ({ ...run, sessionId: input.threadId }),
     });
   }
 
@@ -945,7 +945,7 @@ function automationFromRecord(record: Definition, lastRun?: AutomationRun) {
     revision,
     action,
     enabled,
-    autoArchiveSession,
+    autoArchiveSession: autoArchiveThread,
   } = record;
   const automation: Automation = {
     id,
@@ -955,7 +955,7 @@ function automationFromRecord(record: Definition, lastRun?: AutomationRun) {
     revision,
     action,
     enabled,
-    autoArchiveSession,
+    autoArchiveSession: autoArchiveThread,
     nextRunAt: isoTime(record.nextRunAt),
     createdAt: new Date(record.createdAt).toISOString(),
     updatedAt: new Date(record.updatedAt).toISOString(),
@@ -972,7 +972,7 @@ function runFromRecord(record: RunSummary): AutomationRun {
     eventId,
     trigger,
     scheduledFor,
-    sessionId,
+    sessionId: threadId,
     status,
     startedAt,
     finishedAt,
@@ -984,7 +984,7 @@ function runFromRecord(record: RunSummary): AutomationRun {
     revision,
     eventId,
     trigger,
-    sessionId,
+    sessionId: threadId,
     status,
     error,
     scheduledFor: new Date(scheduledFor).toISOString(),

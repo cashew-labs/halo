@@ -24,15 +24,15 @@ import {
 import type { ConnectionRequest } from "./ConnectionRequest.js";
 import type { TraceAgent, TraceEvent, TraceOutcome } from "./traces.js";
 import type {
-  SessionWatchItem,
-  SessionSnapshot,
+  ThreadWatchItem,
+  ThreadSnapshot,
   ToolApprovalDecision,
   ToolIdentity,
   HaloMessage,
-} from "./sessionState.js";
+} from "./threadState.js";
 import type {
-  SessionSummary,
-  SessionSummariesUpdate,
+  ThreadSummary,
+  ThreadSummariesUpdate,
   WorkspaceInfo,
   WorkspaceTreeEvent,
 } from "./rpc.js";
@@ -142,7 +142,8 @@ export type WorkspaceUpdate =
   | { type: "automations"; automations: Automation[] }
   | { type: "extensions"; extensions: ExtensionSummary[] }
   | { type: "extensionsError"; message: string }
-  | { type: "sessions"; update: SessionSummariesUpdate };
+  // Legacy workspace watch discriminator, retained for older clients.
+  | { type: "sessions"; update: ThreadSummariesUpdate };
 
 export const contract = publicProcedure.router({
   sync: {
@@ -375,10 +376,11 @@ export const contract = publicProcedure.router({
       .output(type<{ received: number; size: number }>()),
     cancel: oc.input(type<{ uploadId: string }>()).output(type<void>()),
   },
+  // Keep sessionId payload keys for clients on supported older protocols.
   thread: {
-    list: oc.output(type<SessionSummary[]>()),
+    list: oc.output(type<ThreadSummary[]>()),
     watchSummaries: oc.output(
-      asyncIteratorObject(type<SessionSummariesUpdate>()),
+      asyncIteratorObject(type<ThreadSummariesUpdate>()),
     ),
     markRead: oc
       .input(type<{ sessionId: string; observedResultId: string }>())
@@ -391,10 +393,10 @@ export const contract = publicProcedure.router({
       .output(type<{ sessionId: string }>()),
     snapshot: oc
       .input(type<{ sessionId: string }>())
-      .output(type<SessionSnapshot>()),
+      .output(type<ThreadSnapshot>()),
     events: oc
       .input(type<{ sessionId: string }>())
-      .output(asyncIteratorObject(type<SessionWatchItem>())),
+      .output(asyncIteratorObject(type<ThreadWatchItem>())),
     prompt: oc
       .input(type<ChatPrompt & { sessionId: string }>())
       .output(type<{ submissionId: number }>()),
@@ -447,6 +449,10 @@ export const contract = publicProcedure.router({
       .output(type<void>()),
   },
   testApi: {
+    seedThread: oc
+      .input(type<{ title: string; messages: HaloMessage[] }>())
+      .output(type<{ sessionId: string }>()),
+    // Alias for older test consumers.
     seedSession: oc
       .input(type<{ title: string; messages: HaloMessage[] }>())
       .output(type<{ sessionId: string }>()),

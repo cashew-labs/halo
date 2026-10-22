@@ -3,7 +3,8 @@ export type WorkspaceInfo = {
   workspaceRoot: string;
 };
 
-export type SessionSummary = {
+// Serialized field names stay compatible with existing clients.
+export type ThreadSummary = {
   sessionId: string;
   agent: "pi";
   cwd: string;
@@ -16,14 +17,14 @@ export type SessionSummary = {
   readReceiptCursorId?: string;
 };
 
-export function isThreadUnread(summary: SessionSummary) {
+export function isThreadUnread(summary: ThreadSummary) {
   if (summary.latestResultId === undefined) return false;
   return summary.readReceiptCursorId !== summary.latestResultId;
 }
 
-export type SessionSummariesUpdate =
-  | { type: "snapshot"; sessions: SessionSummary[] }
-  | { type: "updated"; session: SessionSummary };
+export type ThreadSummariesUpdate =
+  | { type: "snapshot"; sessions: ThreadSummary[] }
+  | { type: "updated"; session: ThreadSummary };
 
 export type WorkspaceTreeEvent =
   | { type: "create"; path: string }

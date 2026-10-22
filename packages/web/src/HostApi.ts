@@ -73,11 +73,11 @@ export interface HostApi {
   installAppUpdate?(): Promise<void | Error>;
   openExternalUrl?(url: string): Promise<void | Error>;
   connectIntegration(input: {
-    sessionId: string;
+    threadId: string;
     request: ConnectionRequest;
   }): Promise<ConnectionStarted | Error>;
   cancelIntegration(input: {
-    sessionId: string;
+    threadId: string;
     connectionId: string;
   }): Promise<void | Error>;
 }

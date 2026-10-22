@@ -1,11 +1,12 @@
 import { haloSchema, type SchemaRecords } from "./schema.js";
 import { hotkeys } from "./hotkeys.js";
-import { sessionState } from "./sessionState.js";
+import { threadState } from "./threadState.js";
 import { automations, automationRuns, automationSync } from "./automations.js";
 
 export const workspaceSchema = haloSchema.schema({
   hotkeys,
-  sessionState,
+  // Tandem clients persist this collection name in their sync state.
+  sessionState: threadState,
   automations,
   automationRuns,
   automationSync,

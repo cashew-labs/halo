@@ -15,7 +15,7 @@ const previewLimitBytes = 64 * 1024;
 
 type ArchiveIdentity = {
   workspaceId: string;
-  sessionId: string;
+  threadId: string;
   traceId: string;
 };
 
@@ -57,7 +57,7 @@ export class ControlPlaneTraceUploader implements TraceUploader {
     if (metadata instanceof Error) return metadata;
     const identity = {
       workspaceId: match[1]!,
-      sessionId: match[2]!,
+      threadId: match[2]!,
       traceId: match[3]!,
     };
     const prepared = await this.prepare(
@@ -69,7 +69,7 @@ export class ControlPlaneTraceUploader implements TraceUploader {
     if (prepared instanceof Error) return prepared;
     const response = await fetch(
       new URL(
-        `/api/traces/${identity.sessionId}/${identity.traceId}`,
+        `/api/traces/${identity.threadId}/${identity.traceId}`,
         this.origin,
       ),
       {
@@ -161,7 +161,9 @@ export class ControlPlaneTraceUploader implements TraceUploader {
     );
     const spanId = crypto.randomBytes(8).toString("hex");
     const envelope = {
-      ...identity,
+      workspaceId: identity.workspaceId,
+      sessionId: identity.threadId,
+      traceId: identity.traceId,
       schemaVersion: 1,
       spanId,
       timestamp: new Date().toISOString(),

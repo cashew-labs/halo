@@ -50,7 +50,7 @@ const guard = [
 
 /**
  * Visitor conversations for a shared app. They live only on the app VM, apart
- * from the owner's sessions, and each is reachable only by the viewer it
+ * from the owner's threads, and each is reachable only by the viewer it
  * belongs to. The agent gets the app's stored actions and nothing else.
  */
 export class AppConversations {
