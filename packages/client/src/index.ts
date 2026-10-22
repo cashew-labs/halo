@@ -69,6 +69,7 @@ export {
   type DeviceOperationResult,
   type DeviceOperationOutput,
   type DeviceRequest,
+  type DeviceRequestContext,
   type DeviceResponse,
   type DeviceSummary,
 } from "./devices.js";

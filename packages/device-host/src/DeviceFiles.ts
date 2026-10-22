@@ -4,6 +4,7 @@ import type {
   DeviceFileEntry,
   DeviceFileOperation,
   DeviceOperationResult,
+  DeviceRequestContext,
 } from "@get-halo/client";
 import {
   fileError,
@@ -27,6 +28,7 @@ export class DeviceFiles {
 
   async run<T extends DeviceFileOperation>(
     operation: T,
+    options: { context?: DeviceRequestContext; signal?: AbortSignal } = {},
   ): Promise<DeviceOperationResult[T["type"]] | DeviceFileError> {
     const target = await this.access.authorize({
       path: operation.path,
@@ -35,6 +37,7 @@ export class DeviceFiles {
           ? "write"
           : "read",
       target: operation.type === "files.list" ? "folder" : "file",
+      ...options,
     });
     if (target instanceof Error) return target;
     // SAFETY: Each branch returns the result type for its operation.

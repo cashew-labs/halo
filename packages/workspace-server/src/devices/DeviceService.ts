@@ -7,6 +7,7 @@ import type {
   DeviceOperationOutput,
   DeviceOperationResult,
   DeviceRequest,
+  DeviceRequestContext,
   DeviceResponse,
   DeviceSummary,
 } from "@get-halo/client";
@@ -206,6 +207,7 @@ export class DeviceService {
   async call<T extends DeviceOperation>(input: {
     device: string;
     operation: T;
+    context?: DeviceRequestContext;
     signal?: AbortSignal;
     timeoutMs?: number;
   }): Promise<DeviceOperationResult[T["type"]] | Error> {
@@ -263,6 +265,7 @@ export class DeviceService {
         connection.requests.append({
           callId,
           operation: input.operation,
+          context: input.context,
         });
       },
     );

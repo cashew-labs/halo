@@ -87,6 +87,10 @@ function deviceTextFiles(tool: DeviceToolContext): TextFiles {
           maxBytes: deviceFileLimits.maxBytes,
         },
         signal: tool.context.signal,
+        context: {
+          sessionId: tool.context.threadId,
+          toolCallId: tool.context.toolCallId,
+        },
       });
       if (read instanceof Error) return read;
       return read.data;
@@ -101,6 +105,10 @@ function deviceTextFiles(tool: DeviceToolContext): TextFiles {
           encoding: "utf8",
         },
         signal: tool.context.signal,
+        context: {
+          sessionId: tool.context.threadId,
+          toolCallId: tool.context.toolCallId,
+        },
       });
       if (written instanceof Error) return written;
     },
@@ -128,6 +136,10 @@ export const deviceTools = {
           device: tool.device.id,
           operation: { type: "files.list", path: tool.resolvePath(input.path) },
           signal: tool.context.signal,
+          context: {
+            sessionId: tool.context.threadId,
+            toolCallId: tool.context.toolCallId,
+          },
         }),
     }),
     read: deviceTool({
@@ -194,6 +206,10 @@ export const deviceTools = {
             path: tool.resolvePath(input.path),
           },
           signal: tool.context.signal,
+          context: {
+            sessionId: tool.context.threadId,
+            toolCallId: tool.context.toolCallId,
+          },
         }),
     }),
     copyToWorkspace: deviceTool({
@@ -221,6 +237,10 @@ export const deviceTools = {
             maxBytes: deviceFileLimits.maxBytes,
           },
           signal: tool.context.signal,
+          context: {
+            sessionId: tool.context.threadId,
+            toolCallId: tool.context.toolCallId,
+          },
         });
         if (read instanceof Error) return read;
         const workspacePath =
@@ -281,6 +301,10 @@ export const deviceTools = {
             encoding: "base64",
           },
           signal: tool.context.signal,
+          context: {
+            sessionId: tool.context.threadId,
+            toolCallId: tool.context.toolCallId,
+          },
         });
       },
     }),
@@ -312,6 +336,10 @@ export const deviceTools = {
             timeoutMs,
           },
           signal: tool.context.signal,
+          context: {
+            sessionId: tool.context.threadId,
+            toolCallId: tool.context.toolCallId,
+          },
           // Leave time for the person to answer the first-use prompt.
           timeoutMs: timeoutMs + 5 * 60_000,
         });

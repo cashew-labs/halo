@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import * as errore from "errore";
-import type { DeviceFileAccess } from "@get-halo/client";
+import type { DeviceFileAccess, DeviceRequestContext } from "@get-halo/client";
 
 export type DeviceFileErrorCode =
   | "access_denied"
@@ -45,6 +45,7 @@ export type DeviceCommandRequest = {
   command: string;
   cwd: string;
   signal: AbortSignal;
+  context?: DeviceRequestContext;
 };
 
 export type DeviceAccessRequest = {
@@ -55,6 +56,7 @@ export type DeviceAccessRequest = {
   /** The path the agent asked for. */
   path: string;
   signal: AbortSignal;
+  context?: DeviceRequestContext;
 };
 
 /** Paths under the home folder that hold credentials; never served. */
@@ -123,6 +125,8 @@ export class DeviceAccess {
   async authorizeCommand(input: {
     command: string;
     cwd: string;
+    signal?: AbortSignal;
+    context?: DeviceRequestContext;
   }): Promise<void | DeviceFileError> {
     if (this.permissions.commandsAllowed) return;
     if (this.commandsRefused)
@@ -140,11 +144,21 @@ export class DeviceAccess {
     );
   }
 
-  private async answerCommands(input: { command: string; cwd: string }) {
+  private async answerCommands(input: {
+    command: string;
+    cwd: string;
+    signal?: AbortSignal;
+    context?: DeviceRequestContext;
+  }) {
+    const signal = AbortSignal.any([
+      AbortSignal.timeout(promptTimeoutMs),
+      ...(input.signal === undefined ? [] : [input.signal]),
+    ]);
     const allowed = await this.askCommands({
       ...input,
-      signal: AbortSignal.timeout(promptTimeoutMs),
+      signal,
     }).catch(() => false);
+    if (signal.aborted) return false;
     if (!allowed) {
       this.commandsRefused = true;
       return false;
@@ -162,6 +176,8 @@ export class DeviceAccess {
     path: string;
     access: DeviceFileAccess;
     target: "folder" | "file";
+    context?: DeviceRequestContext;
+    signal?: AbortSignal;
   }): Promise<string | DeviceFileError> {
     if (!path.isAbsolute(input.path))
       return fileError(
@@ -189,6 +205,8 @@ export class DeviceAccess {
       folder,
       access: input.access,
       path: input.path,
+      context: input.context,
+      signal: input.signal,
     });
     if (answer === "deny")
       return fileError(
@@ -215,7 +233,9 @@ export class DeviceAccess {
   }
 
   /** One prompt per folder and access at a time; concurrent calls share it. */
-  private async prompt(request: Omit<DeviceAccessRequest, "signal">) {
+  private async prompt(
+    request: Omit<DeviceAccessRequest, "signal"> & { signal?: AbortSignal },
+  ) {
     if (isAtLeast(this.refused.get(request.folder), request.access))
       return "deny";
     const key = `${request.access}:${request.folder}`;
@@ -228,11 +248,18 @@ export class DeviceAccess {
     return await answering;
   }
 
-  private async answer(request: Omit<DeviceAccessRequest, "signal">) {
+  private async answer(
+    request: Omit<DeviceAccessRequest, "signal"> & { signal?: AbortSignal },
+  ) {
+    const signal = AbortSignal.any([
+      AbortSignal.timeout(promptTimeoutMs),
+      ...(request.signal === undefined ? [] : [request.signal]),
+    ]);
     const answer = await this.ask({
       ...request,
-      signal: AbortSignal.timeout(promptTimeoutMs),
+      signal,
     }).catch((): DeviceAccessAnswer => "deny");
+    if (signal.aborted) return "deny";
     if (answer === "deny") {
       this.refused.set(request.folder, request.access);
       return answer;
