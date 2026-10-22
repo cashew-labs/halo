@@ -1,10 +1,13 @@
 # Agent run archives
 
 The trace API records one immutable gzip-compressed JSONL file per explicitly
-recorded run. A session can contain many runs, including requests made after a
+recorded run. A thread can contain many runs, including requests made after a
 server restart. The main Pi Durable agent does not currently feed this API.
 The normal workspace application does not configure an uploader, so recording
 through the API stays local and starts no upload timer.
+
+The archive envelope and object paths retain legacy session names for compatibility;
+the trace services use `threadId` internally.
 
 `TraceRecord` in `@get-halo/client` is the versioned envelope. Every record has
 `schemaVersion`, `workspaceId`, `sessionId`, `traceId`, `spanId`, `sequence`,
@@ -110,7 +113,7 @@ await halo.traces.record({
 await halo.traces.finish({ traceId: run.traceId, outcome: "completed" });
 ```
 
-Generate a new random 16-hex span ID for each operation. Session IDs may contain
+Generate a new random 16-hex span ID for each operation. Thread IDs may contain
 letters, numbers, underscores, and hyphens, up to 128 characters. The server
 assigns trace IDs, sequence numbers, and timestamps. Arbitrary extension model
 calls are not captured automatically. Unfinished extension runs are finalized as

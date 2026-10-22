@@ -26,10 +26,10 @@ import {
   type ConnectionState,
   type StartedConnectionCard,
 } from "./ConnectionState.ts";
-import type { SessionViewPart } from "./sessionView.ts";
+import type { ThreadViewPart } from "./threadView.ts";
 
 type ExecutorConnectionPart = Extract<
-  SessionViewPart,
+  ThreadViewPart,
   { kind: "executorConnection" }
 >;
 
@@ -42,10 +42,10 @@ const brandButton = style({
 });
 
 export function ExecutorConnectionCard({
-  sessionId,
+  threadId,
   part,
 }: {
-  sessionId: string | undefined;
+  threadId: string | undefined;
   part: ExecutorConnectionPart;
 }) {
   const cardClassName = useStyles(card);
@@ -53,12 +53,12 @@ export function ExecutorConnectionCard({
   const host = useHost();
   const queryClient = useQueryClient();
   const statusKey = useMemo(
-    () => connectionStateQueryKey(sessionId, part.request),
-    [part.request, sessionId],
+    () => connectionStateQueryKey(threadId, part.request),
+    [part.request, threadId],
   );
   const cardKey = useMemo(
-    () => connectionCardQueryKey(sessionId, part.request),
-    [part.request, sessionId],
+    () => connectionCardQueryKey(threadId, part.request),
+    [part.request, threadId],
   );
   const shared = useQuery<ConnectionState>({
     queryKey: statusKey,
@@ -80,10 +80,10 @@ export function ExecutorConnectionCard({
   const wasConnected = shared.status === "connected";
   const connect = useMutation({
     mutationFn: async () => {
-      // SAFETY: the button is disabled until sessionId is a string.
-      const activeSessionId = sessionId as string;
+      // SAFETY: the button is disabled until threadId is a string.
+      const activeThreadId = threadId as string;
       const started = await host.connectIntegration({
-        sessionId: activeSessionId,
+        threadId: activeThreadId,
         request: part.request,
       });
       if (started instanceof Error) throw started;
@@ -130,9 +130,9 @@ export function ExecutorConnectionCard({
   });
   const cancel = useMutation({
     mutationFn: async () => {
-      if (sessionId === undefined || connection.status !== "connecting") return;
+      if (threadId === undefined || connection.status !== "connecting") return;
       const cancelled = await host.cancelIntegration({
-        sessionId,
+        threadId,
         connectionId: connection.connectionId,
       });
       if (cancelled instanceof Error) throw cancelled;
@@ -150,7 +150,7 @@ export function ExecutorConnectionCard({
   const display = integrationDisplay(part.request.integration);
   const label = connectionRequestLabel(part.request);
   const brand = brands.google;
-  const canConnect = sessionId !== undefined;
+  const canConnect = threadId !== undefined;
   const brandButtonProps =
     display !== undefined && part.request.integration.startsWith("google_")
       ? {
@@ -162,7 +162,7 @@ export function ExecutorConnectionCard({
   return (
     <section
       aria-label={`${label} connection`}
-      data-session-id={sessionId}
+      data-thread-id={threadId}
       data-integration={part.request.integration}
       data-testid="executor-connection-card"
       className={cardClassName}

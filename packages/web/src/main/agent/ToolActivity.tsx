@@ -13,13 +13,13 @@ import {
 import { style, useStyles } from "purse-styles";
 import {
   summarizeToolActivities,
-  type SessionViewPart,
+  type ThreadViewPart,
   type ToolPart,
-} from "./sessionView.ts";
+} from "./threadView.ts";
 import { ToolCall } from "./ToolCall.tsx";
 import { useWorkspaceQuery } from "../../api/ApiProvider.tsx";
 
-type ToolActivityPart = Extract<SessionViewPart, { kind: "toolActivity" }>;
+type ToolActivityPart = Extract<ThreadViewPart, { kind: "toolActivity" }>;
 
 const thinkingSize = "0.6em";
 const chevronSize = "0.85em";

@@ -16,7 +16,7 @@ import {
   text,
 } from "maui";
 import { style, useStyles } from "purse-styles";
-import { execJsSource, toolPartLabel, type ToolPart } from "./sessionView.ts";
+import { execJsSource, toolPartLabel, type ToolPart } from "./threadView.ts";
 import { parseToolArgumentRows } from "./toolArgumentRows.ts";
 import { useWorkspaceQuery } from "../../api/ApiProvider.tsx";
 

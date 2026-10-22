@@ -7,7 +7,7 @@ import { Type as SchemaType } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import { Type } from "typebox";
 import * as errore from "errore";
-import { HaloThreadDoc } from "../SessionProjection.js";
+import { HaloThreadDoc } from "../ThreadProjection.js";
 import {
   ToolInputRequiredError,
   type ToolRuntime,

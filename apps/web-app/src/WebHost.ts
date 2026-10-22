@@ -257,7 +257,7 @@ export class WebHost implements HostApi {
     // oxlint-disable-next-line unicorn/no-null -- The DOM requires null to detach the setup tab's opener.
     setupPage.opener = null;
     const started = await this.haloClient.thread
-      .startConnection(input)
+      .startConnection({ sessionId: input.threadId, request: input.request })
       .catch(
         (cause) =>
           new WebHostError({ operation: "start the connection", cause }),
@@ -281,7 +281,10 @@ export class WebHost implements HostApi {
       });
     }
     return await this.haloClient.thread
-      .cancelConnection(input)
+      .cancelConnection({
+        sessionId: input.threadId,
+        connectionId: input.connectionId,
+      })
       .then(() => undefined)
       .catch(
         (cause) =>

@@ -58,7 +58,7 @@ export const automationTools = {
   }),
   save: haloTool({
     description:
-      "Create or update an automation. Omit id to create; include an ID from list to replace a definition. Choose activation.type routine with a five-field cron and IANA timezone, or trigger with webhook or Gmail. Gmail requires a connectionAddress from gmailConnections, messageReceived, and optional exact sender/subject substring filters. Actions run a saved agent prompt or shell command in a new session. Agent prompts must include all needed context. Event data is JSON in HALO_AUTOMATION_EVENT_FILE for scripts and a referenced file for agents; never interpolate event data into commands. Saving does not run the action. Editing cancels queued runs from the previous definition; an active run finishes its saved action. External trigger setup also requires control-plane registration; check source status before claiming it is live.",
+      "Create or update an automation. Omit id to create; include an ID from list to replace a definition. Choose activation.type routine with a five-field cron and IANA timezone, or trigger with webhook or Gmail. Gmail requires a connectionAddress from gmailConnections, messageReceived, and optional exact sender/subject substring filters. Actions run a saved agent prompt or shell command in a new thread. Agent prompts must include all needed context. Event data is JSON in HALO_AUTOMATION_EVENT_FILE for scripts and a referenced file for agents; never interpolate event data into commands. Saving does not run the action. Editing cancels queued runs from the previous definition; an active run finishes its saved action. External trigger setup also requires control-plane registration; check source status before claiming it is live.",
     inputSchema: automationInputSchema,
     requiredCapabilities: ["workspace.automations"],
     execute: async (input, ctx) => {
@@ -96,7 +96,7 @@ export const automationTools = {
   }),
   remove: haloTool({
     description:
-      "Delete an automation and its run index. Existing session transcripts remain.",
+      "Delete an automation and its run index. Existing thread transcripts remain.",
     inputSchema: automationIdSchema,
     requiredCapabilities: ["workspace.automations"],
     execute: async ({ automationId }, ctx) => {
@@ -128,7 +128,7 @@ export const automationTools = {
   }),
   history: haloTool({
     description:
-      "List recent automation runs, including queued deliveries, errors, and session links.",
+      "List recent automation runs, including queued deliveries, errors, and thread links.",
     inputSchema: Type.Object({
       automationId: Type.String({ minLength: 1 }),
       limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 200 })),

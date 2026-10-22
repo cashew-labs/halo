@@ -1,11 +1,11 @@
-import type { SessionDescription } from "@get-halo/shared/testing";
+import type { ThreadDescription } from "@get-halo/shared/testing";
 import crypto from "node:crypto";
 import type { HaloMessage, ExecToolCall, ToolIdentity } from "@get-halo/client";
 import * as errore from "errore";
 
-class LoadSessionError extends errore.createTaggedError({
-  name: "LoadSessionError",
-  message: "Could not load the described E2E session",
+class LoadThreadError extends errore.createTaggedError({
+  name: "LoadThreadError",
+  message: "Could not load the described E2E thread",
 }) {}
 
 const emptyUsage = {
@@ -23,8 +23,8 @@ const emptyUsage = {
   },
 };
 
-export async function loadSessionDescription(args: {
-  description: SessionDescription;
+export async function loadThreadDescription(args: {
+  description: ThreadDescription;
   load(input: {
     title: string;
     messages: HaloMessage[];
@@ -62,7 +62,7 @@ export async function loadSessionDescription(args: {
       for (const call of item.tools) {
         const tool = await args
           .getToolIdentity(call.path)
-          .catch((cause) => new LoadSessionError({ cause }));
+          .catch((cause) => new LoadThreadError({ cause }));
         if (tool instanceof Error) return tool;
         toolCalls.push({
           id: crypto.randomUUID(),
@@ -101,7 +101,7 @@ export async function loadSessionDescription(args: {
   }
   return await args
     .load({ title: args.description.title, messages })
-    .catch((cause) => new LoadSessionError({ cause }));
+    .catch((cause) => new LoadThreadError({ cause }));
 }
 
 function assistantMessage(args: {

@@ -11,7 +11,7 @@ import * as errore from "errore";
 import type {
   ExtensionSummary,
   HaloClient,
-  SessionSummary,
+  ThreadSummary,
 } from "@get-halo/client";
 import { useWorkspaceQuery } from "./ApiProvider.js";
 import { reconnectStream } from "./reconnectStream.js";
@@ -68,23 +68,24 @@ export function WorkspaceUpdatesProvider({
           item.type === "automations"
         )
           return;
+        // The workspace stream retains its legacy serialized conversation keys.
         if (item.type === "sessions") {
           const update = item.update;
           if (update.type === "snapshot") {
             service.ready(api);
           }
-          queryClient.setQueryData<SessionSummary[]>(
-            ["sessions", workspaceRoot],
+          queryClient.setQueryData<ThreadSummary[]>(
+            ["threads", workspaceRoot],
             (current = []) => {
               if (update.type === "snapshot") return update.sessions;
-              const sessions = [
+              const threads = [
                 ...current.filter(
-                  (session) => session.sessionId !== update.session.sessionId,
+                  (thread) => thread.sessionId !== update.session.sessionId,
                 ),
                 update.session,
               ];
               // oxlint-disable-next-line unicorn/no-array-sort -- This new array is owned here; the web package targets ES2022.
-              return sessions.sort((left, right) =>
+              return threads.sort((left, right) =>
                 right.updatedAt.localeCompare(left.updatedAt),
               );
             },

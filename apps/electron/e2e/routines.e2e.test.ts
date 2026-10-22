@@ -2,7 +2,7 @@ import { expect } from "@playwright/test";
 import { e2eTest } from "./e2eTest.js";
 
 e2eTest(
-  "edits personal routines and controls their run sessions",
+  "edits personal routines and controls their run threads",
   async ({ app, harness }) => {
     const cdp = await app.page.context().newCDPSession(app.page);
     await cdp.send("Emulation.setTimezoneOverride", {
@@ -77,7 +77,7 @@ e2eTest(
     await expect(routine).toContainText("At 09:00 AM");
     await expect(routine).toContainText("No runs yet");
     await expect(routine).toContainText("echo original check");
-    await expect(routine).toContainText(/After run\s*Show session/);
+    await expect(routine).toContainText(/After run\s*Show thread/);
     await expect(
       header.getByRole("button", { name: "Edit automation" }),
     ).toBeVisible();
@@ -104,10 +104,10 @@ e2eTest(
     await expect(routine).toContainText("At 10:30 AM (UTC)");
 
     await header.getByRole("button", { name: "Run now" }).click();
-    const session = routine
+    const thread = routine
       .getByRole("region", { name: "Run history" })
       .getByRole("link");
-    await expect(session).toBeVisible();
+    await expect(thread).toBeVisible();
     await expect(routine).toContainText(/Last run\s*Completed/);
     const automation = (await app.server.rpc.automations.list()).find(
       (item) => item.name === "Daily workspace check",
@@ -116,12 +116,12 @@ e2eTest(
       automationId: automation.id,
     });
     const localTime = formatPacificTime(run!.startedAt);
-    await expect(session).toContainText(localTime);
+    await expect(thread).toContainText(localTime);
     await expect(routine).toContainText(`Completed · ${localTime}`);
     await expect(routine).toContainText(
       formatPacificTime(automation.nextRunAt!),
     );
-    await session.click();
+    await thread.click();
 
     const command = app.page.getByRole("article", { name: "Shell command" });
     await expect(command).toContainText("$ echo updated check");
@@ -137,12 +137,10 @@ e2eTest(
     await editor.getByRole("button", { name: /Automation status/ }).click();
     await app.page.getByRole("option", { name: "Paused" }).click();
     await editor.getByRole("button", { name: /After run/ }).click();
-    await app.page
-      .getByRole("option", { name: "Auto archive session" })
-      .click();
+    await app.page.getByRole("option", { name: "Auto archive thread" }).click();
     await editor.getByRole("button", { name: "Save" }).click();
     await expect(routine).toContainText(/Next run\s*Paused/);
-    await expect(routine).toContainText(/After run\s*Auto archive session/);
+    await expect(routine).toContainText(/After run\s*Auto archive thread/);
     await header.getByRole("button", { name: "Run now" }).click();
     await expect(
       routine.getByRole("region", { name: "Run history" }).getByRole("link"),

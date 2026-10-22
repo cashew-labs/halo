@@ -13,7 +13,7 @@ Use `pnpm halo-dev` from the repository root for development app control. Use `p
 pnpm halo status
 pnpm halo-dev app snapshot
 pnpm halo-dev app exec 'return await page.title()'
-pnpm halo-dev app exec 'await page.getByRole("button", { name: "New session", exact: true }).click()'
+pnpm halo-dev app exec 'await page.getByRole("button", { name: "New thread", exact: true }).click()'
 pnpm halo-dev app screenshot
 ```
 

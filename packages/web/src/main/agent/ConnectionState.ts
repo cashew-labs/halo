@@ -18,12 +18,12 @@ export type ConnectionState =
 export const idleConnectionState: ConnectionState = { status: "idle" };
 
 export function connectionStateQueryKey(
-  sessionId: string | undefined,
+  threadId: string | undefined,
   request: ConnectionRequest,
 ) {
   return [
     "executorConnection",
-    sessionId,
+    threadId,
     connectionRequestKey(request),
   ] as const;
 }
@@ -62,12 +62,12 @@ export type StartedConnectionCard = { cardId?: string };
 // Names the card that started the latest attempt for a request. Server
 // snapshots replace connection state but never this client-only entry.
 export function connectionCardQueryKey(
-  sessionId: string | undefined,
+  threadId: string | undefined,
   request: ConnectionRequest,
 ) {
   return [
     "executorConnectionCard",
-    sessionId,
+    threadId,
     connectionRequestKey(request),
   ] as const;
 }

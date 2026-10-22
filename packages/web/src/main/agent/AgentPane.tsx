@@ -2,7 +2,7 @@ import { useRestartWarning } from "../../confirmRestart.js";
 import { useIsActiveTab } from "../../panes/WorkspacePanesProvider.js";
 import { PaneHeaderActions } from "../../panes/PaneHeader.js";
 import { DoneButton } from "./DoneButton.js";
-import { useMarkSessionRead } from "./useMarkSessionRead.js";
+import { useMarkThreadRead } from "./useMarkThreadRead.js";
 import {
   useCallback,
   useEffect,
@@ -29,15 +29,15 @@ import {
 import { ArrowUp, Stop, Paperclip, Close, FileText, Refresh } from "maui/icons";
 import { style, useStyles } from "purse-styles";
 import {
-  sessionTitleQueryKey,
-  useAgentSession,
-  useDraftAgentSession,
-  type SessionPrompt,
-} from "./useAgentSession.ts";
-import { sessionViewItems, type SessionViewItem } from "./sessionView.ts";
+  threadTitleQueryKey,
+  useAgentThread,
+  useDraftAgentThread,
+  type ThreadPrompt,
+} from "./useAgentThread.ts";
+import { threadViewItems, type ThreadViewItem } from "./threadView.ts";
 import {
-  type SessionSnapshot,
-  type SessionSummary,
+  type ThreadSnapshot,
+  type ThreadSummary,
   type ChatReference,
   validateChatFiles,
 } from "@get-halo/client";
@@ -68,7 +68,7 @@ class WithdrawMessageError extends errore.createTaggedError({
   message: "Couldn't remove your queued message. Please try again.",
 }) {}
 
-type QueuedMessage = Extract<SessionViewItem, { kind: "user" }> & {
+type QueuedMessage = Extract<ThreadViewItem, { kind: "user" }> & {
   draft: {
     text: string;
     attachmentIds: string[];
@@ -103,38 +103,38 @@ function outboxQueuedMessage(message: OutboxMessage): QueuedMessage {
 }
 
 export function AgentPane({
-  sessionId,
-  sessions,
+  threadId,
+  threads,
 }: {
-  sessionId: string;
-  sessions: SessionSummary[];
+  threadId: string;
+  threads: ThreadSummary[];
 }) {
-  const session = useAgentSession(sessionId);
+  const thread = useAgentThread(threadId);
   const draftKey = useMessageDraftKey({
-    kind: "session",
-    messageId: sessionId,
+    kind: "thread",
+    messageId: threadId,
   });
-  const sessionMeta = sessions.find(
-    ({ sessionId: candidateSessionId }) => candidateSessionId === sessionId,
+  const threadMeta = threads.find(
+    ({ sessionId: candidateThreadId }) => candidateThreadId === threadId,
   );
-  useMarkSessionRead({ session: sessionMeta, state: session.state });
+  useMarkThreadRead({ thread: threadMeta, state: thread.state });
   const { data: submittedTitle } = useQuery<string>({
-    queryKey: sessionTitleQueryKey(sessionId),
+    queryKey: threadTitleQueryKey(threadId),
     queryFn: skipToken,
   });
   return (
     <>
-      {sessionMeta !== undefined && (
+      {threadMeta !== undefined && (
         <PaneHeaderActions>
-          <DoneButton session={sessionMeta} />
+          <DoneButton thread={threadMeta} />
         </PaneHeaderActions>
       )}
       <ChatPane
-        sessionId={sessionId}
+        threadId={threadId}
         draftKey={draftKey}
-        title={sessionMeta?.title ?? submittedTitle}
-        sessions={sessions}
-        {...session}
+        title={threadMeta?.title ?? submittedTitle}
+        threads={threads}
+        {...thread}
       />
     </>
   );
@@ -142,10 +142,10 @@ export function AgentPane({
 
 export function DraftAgentPane({
   draftId,
-  sessions,
+  threads,
 }: {
   draftId: string;
-  sessions: SessionSummary[];
+  threads: ThreadSummary[];
 }) {
   const [, navigate] = useLocation();
   const queryClient = useQueryClient();
@@ -153,43 +153,43 @@ export function DraftAgentPane({
     draftReferencesQueryKey(draftId),
   );
   const draftKey = useMessageDraftKey({ kind: "draft", messageId: draftId });
-  const session = useDraftAgentSession((createdSessionId) => {
+  const thread = useDraftAgentThread((createdThreadId) => {
     clearMessageDraft(draftKey);
-    navigate(`/sessions/${createdSessionId}`);
+    navigate(`/sessions/${createdThreadId}`);
   });
   return (
     <ChatPane
       draftId={draftId}
       initialReferences={initialReferences}
       draftKey={draftKey}
-      {...session}
-      title={session.title ?? "New session"}
-      sessions={sessions}
+      {...thread}
+      title={thread.title ?? "New thread"}
+      threads={threads}
     />
   );
 }
 
 function ChatPane({
-  sessionId,
+  threadId,
   draftId,
   initialReferences = [],
   draftKey,
   title,
-  sessions,
+  threads,
   state,
   error,
   prompt,
   abort,
 }: {
-  sessionId: string | undefined;
+  threadId: string | undefined;
   draftId?: string;
   initialReferences?: ChatReference[];
   draftKey: string | undefined;
   title: string | undefined;
-  sessions: SessionSummary[];
-  state: SessionSnapshot;
+  threads: ThreadSummary[];
+  state: ThreadSnapshot;
   error: string | undefined;
-  prompt: (input: SessionPrompt) => Promise<{ submissionId: number } | Error>;
+  prompt: (input: ThreadPrompt) => Promise<{ submissionId: number } | Error>;
   abort: () => Promise<void | Error>;
 }) {
   const isActiveTab = useIsActiveTab();
@@ -198,12 +198,12 @@ function ChatPane({
   const [draft, setDraft] = useMessageDraft(draftKey);
   const [references, setReferences] =
     useState<ChatReference[]>(initialReferences);
-  const referenceTargets: ReferenceTarget[] = sessions
-    .filter((session) => session.sessionId !== sessionId)
-    .map((session) => ({
-      kind: "session" as const,
-      sessionId: session.sessionId,
-      title: session.title ?? session.sessionId,
+  const referenceTargets: ReferenceTarget[] = threads
+    .filter((thread) => thread.sessionId !== threadId)
+    .map((thread) => ({
+      kind: "thread" as const,
+      threadId: thread.sessionId,
+      title: thread.title ?? thread.sessionId,
     }));
   const outbox = useChatOutbox();
   const { uploads } = outbox;
@@ -216,8 +216,8 @@ function ChatPane({
     () => uploads.state.latestValue,
   );
   // Attachment IDs in the composer, in the order they were added.
-  // A new session's pane keeps its draft ID after the session is created.
-  const composerId = draftId ?? sessionId ?? "";
+  // A new thread's pane keeps its draft ID after the thread is created.
+  const composerId = draftId ?? threadId ?? "";
   const attachments = useSyncExternalStore(
     useCallback((onChange) => outbox.drafts.subscribe(onChange), [outbox]),
     () => outbox.draftAttachments(composerId),
@@ -298,18 +298,18 @@ function ChatPane({
   const visibleOptimisticMessages = optimisticMessages.filter(
     (message) => !committedMessageIds.has(message.id),
   );
-  // This session's messages that wait for uploads or are not shown yet.
-  const sessionOutbox = outboxMessages.filter(
+  // This thread's messages that wait for uploads or are not shown yet.
+  const threadOutbox = outboxMessages.filter(
     (message) =>
-      message.sessionId === sessionId &&
+      message.threadId === threadId &&
       message.state !== "returned" &&
       !committedMessageIds.has(message.messageId),
   );
-  const outboxBusy = sessionOutbox.some(
+  const outboxBusy = threadOutbox.some(
     (message) => message.state === "waiting" || message.state === "sending",
   );
   const queuedMessages: QueuedMessage[] = [
-    ...sessionOutbox.map(outboxQueuedMessage),
+    ...threadOutbox.map(outboxQueuedMessage),
     ...visibleOptimisticMessages,
     // oxlint-disable-next-line unicorn/no-array-sort -- This new array is owned here; the web package targets ES2022.
   ].sort((left, right) => left.queuedAt - right.queuedAt);
@@ -323,11 +323,11 @@ function ChatPane({
 
   const restoreRef = useRefCurrent(restoreToDraft);
   useEffect(() => {
-    if (sessionId === undefined) return;
+    if (threadId === undefined) return;
     // Messages that could not be sent come back to this composer, including
     // ones that failed while the pane was closed.
     return outbox.state.subscribe(() => {
-      const returned = outbox.takeReturned(sessionId);
+      const returned = outbox.takeReturned(threadId);
       if (returned.length === 0) return;
       const failed = returned.find((message) => message.error !== undefined);
       if (failed !== undefined) setLocalError(failed.error);
@@ -336,7 +336,7 @@ function ChatPane({
         returned.flatMap((message) => message.draft.attachmentIds),
       );
     });
-  }, [outbox, sessionId, restoreRef]);
+  }, [outbox, threadId, restoreRef]);
 
   useEffect(
     () => outbox.forget(committedMessageIds),
@@ -408,7 +408,7 @@ function ChatPane({
       (candidate) => candidate.id === messageId,
     );
     if (message === undefined) return;
-    if (message.submissionId === undefined || sessionId === undefined) return;
+    if (message.submissionId === undefined || threadId === undefined) return;
     const restoredFiles = message.draft.files;
     const invalid = validateChatFiles([
       ...composerUploads.map((upload) => upload.file),
@@ -421,7 +421,7 @@ function ChatPane({
     setWithdrawing(messageId);
     setLocalError(undefined);
     const result = await api.thread
-      .withdraw({ sessionId, submissionId: message.submissionId })
+      .withdraw({ sessionId: threadId, submissionId: message.submissionId })
       .catch((cause) => new WithdrawMessageError({ cause }));
     setWithdrawing(undefined);
     if (result instanceof Error) {
@@ -497,18 +497,18 @@ function ChatPane({
         references,
       },
     };
-    // An open session keeps the composer free while files upload. A new
-    // session needs its first message accepted before it can queue more.
+    // An open thread keeps the composer free while files upload. A new
+    // thread needs its first message accepted before it can queue more.
     if (
       draftId === undefined &&
-      sessionId !== undefined &&
+      threadId !== undefined &&
       (composerUploading || outboxBusy)
     ) {
       clearMessageDraft(draftKey);
       setLocalError(undefined);
       outbox.enqueue({
         messageId: clientMessageId,
-        sessionId,
+        threadId,
         draft: message.draft,
         queuedAt: message.queuedAt,
       });
@@ -633,9 +633,9 @@ function ChatPane({
       <div className={body}>
         <div className={column}>
           {draftId === undefined || state.entries.length > 0 ? (
-            <SessionView
+            <ThreadView
               state={state}
-              sessionId={sessionId}
+              threadId={threadId}
               optimisticMessages={queuedMessages}
               uploads={uploadStates}
               onWithdraw={withdrawMessage}
@@ -663,13 +663,12 @@ function ChatPane({
               const reference =
                 target.kind === "file"
                   ? { path: target.path }
-                  : { sessionId: target.sessionId, title: target.title };
+                  : { sessionId: target.threadId, title: target.title };
               setReferences((current) =>
                 current.some((item) =>
                   target.kind === "file"
                     ? "path" in item && item.path === target.path
-                    : "sessionId" in item &&
-                      item.sessionId === target.sessionId,
+                    : "sessionId" in item && item.sessionId === target.threadId,
                 )
                   ? current
                   : [...current, reference],
@@ -829,16 +828,16 @@ function ChatPane({
   );
 }
 
-function SessionView({
+function ThreadView({
   state,
-  sessionId,
+  threadId,
   optimisticMessages,
   uploads,
   onWithdraw,
   queueDisabled,
 }: {
-  state: SessionSnapshot;
-  sessionId: string | undefined;
+  state: ThreadSnapshot;
+  threadId: string | undefined;
   optimisticMessages: QueuedMessage[];
   uploads: ReadonlyMap<string, ChatUpload>;
   onWithdraw: (messageId: string) => Promise<void>;
@@ -855,11 +854,11 @@ function SessionView({
   }>();
   useTabFindSource(findSource);
   const followLatest = useRef(true);
-  const viewedSessionId = useRef(sessionId);
+  const viewedThreadId = useRef(threadId);
   const view = useStyles(styles.view);
-  const items = useMemo(() => sessionViewItems(state), [state]);
+  const items = useMemo(() => threadViewItems(state), [state]);
   // Publish the Find source after paint. A layout effect schedules a sync
-  // re-render on every session event; when events arrive faster than this
+  // re-render on every thread event; when events arrive faster than this
   // view renders, React counts those nested updates until it throws
   // "Maximum update depth exceeded" and unmounts the window.
   useEffect(() => {
@@ -872,7 +871,7 @@ function SessionView({
     const clearHighlight = () => {
       if (activeFindRange.current === undefined) return;
       CSS.highlights
-        .get("halo-find-session-match")
+        .get("halo-find-thread-match")
         ?.delete(activeFindRange.current);
       activeFindRange.current = undefined;
     };
@@ -924,17 +923,17 @@ function SessionView({
         const range = rangeFor(match.segmentId, match.start, match.end);
         if (range === undefined) return;
         const highlight =
-          CSS.highlights.get("halo-find-session-match") ?? new Highlight();
+          CSS.highlights.get("halo-find-thread-match") ?? new Highlight();
         highlight.add(range);
-        CSS.highlights.set("halo-find-session-match", highlight);
+        CSS.highlights.set("halo-find-thread-match", highlight);
         activeFindRange.current = range;
       },
     });
     return clearHighlight;
   }, [state]);
   useLayoutEffect(() => {
-    if (viewedSessionId.current !== sessionId) {
-      viewedSessionId.current = sessionId;
+    if (viewedThreadId.current !== threadId) {
+      viewedThreadId.current = threadId;
       followLatest.current = true;
     }
     const element = viewRef.current;
@@ -943,7 +942,7 @@ function SessionView({
       if (followLatest.current) element.scrollTop = element.scrollHeight;
     };
     scrollToLatest();
-    // Streamdown can resize message rows after the session render has committed.
+    // Streamdown can resize message rows after the thread render has committed.
     const observer = new ResizeObserver(scrollToLatest);
     observer.observe(element);
     for (const child of element.children) observer.observe(child);
@@ -954,7 +953,7 @@ function SessionView({
     <div
       className={view}
       role="log"
-      aria-label="Session transcript"
+      aria-label="Thread transcript"
       aria-relevant="additions"
       ref={viewRef}
       onScroll={(event) => {
@@ -964,13 +963,13 @@ function SessionView({
       }}
     >
       {items.map((item) => (
-        <SessionViewRow key={item.id} item={item} sessionId={sessionId} />
+        <ThreadViewRow key={item.id} item={item} threadId={threadId} />
       ))}
       {optimisticMessages.map((message) => (
-        <SessionViewRow
+        <ThreadViewRow
           key={message.id}
           item={message}
-          sessionId={sessionId}
+          threadId={threadId}
           uploads={
             message.waiting
               ? message.draft.attachmentIds.map((attachmentId) =>
@@ -991,15 +990,15 @@ function SessionView({
   );
 }
 
-function SessionViewRow({
+function ThreadViewRow({
   item,
-  sessionId,
+  threadId,
   uploads,
   onWithdraw,
   queueDisabled,
 }: {
-  item: SessionViewItem;
-  sessionId: string | undefined;
+  item: ThreadViewItem;
+  threadId: string | undefined;
   /** Upload state for each attachment of a message that has not been sent. */
   uploads?: readonly (ChatUpload | undefined)[];
   onWithdraw?: () => Promise<void>;
@@ -1105,8 +1104,8 @@ function SessionViewRow({
                     href={referenceHref(
                       "sessionId" in reference
                         ? {
-                            kind: "session",
-                            sessionId: reference.sessionId,
+                            kind: "thread",
+                            threadId: reference.sessionId,
                             title: reference.title,
                           }
                         : { kind: "file", path: reference.path },
@@ -1151,7 +1150,7 @@ function SessionViewRow({
           return (
             <ExecutorConnectionCard
               key={part.id}
-              sessionId={sessionId}
+              threadId={threadId}
               part={part}
             />
           );
@@ -1160,7 +1159,7 @@ function SessionViewRow({
           return (
             <ExecutorApprovalCard
               key={part.id}
-              sessionId={sessionId}
+              threadId={threadId}
               part={part}
             />
           );
@@ -1312,7 +1311,7 @@ const styles = {
       paddingTop: spacing.value(12),
       paddingBottom: spacing.value(6),
       "&::-webkit-scrollbar": { display: "none" },
-      "& ::highlight(halo-find-session-match)": {
+      "& ::highlight(halo-find-thread-match)": {
         backgroundColor: colors.amber[5],
       },
     },

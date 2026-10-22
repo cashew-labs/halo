@@ -15,13 +15,13 @@ type OutboxDraft = {
 export type OutboxMessage = {
   /** The client message ID the server records with the message. */
   messageId: string;
-  sessionId: string;
+  threadId: string;
   draft: OutboxDraft;
-  /** When the message was queued, to order it among the session's messages. */
+  /** When the message was queued, to order it among the thread's messages. */
   queuedAt: number;
   /**
    * `waiting` for uploads, `sending` the prompt, `sent` but not yet in the
-   * session, or `returned` because it could not be sent.
+   * thread, or `returned` because it could not be sent.
    */
   state: "waiting" | "sending" | "sent" | "returned";
   submissionId: number | undefined;
@@ -38,12 +38,12 @@ class OutboxSendError extends errore.createTaggedError({
 /**
  * Sends chat messages once their attachments finish uploading. It belongs to
  * the workspace connection, not a chat pane, so a waiting message still sends
- * after its pane closes or shows another session.
+ * after its pane closes or shows another thread.
  */
 export class ChatOutbox {
   readonly uploads: ChatUploads;
   private readonly changes = new Stream<readonly OutboxMessage[]>();
-  /** Messages that the session has not shown yet, oldest first. */
+  /** Messages that the thread has not shown yet, oldest first. */
   readonly state = this.changes.project<readonly OutboxMessage[]>(
     [],
     (_previous, next) => next,
@@ -52,13 +52,13 @@ export class ChatOutbox {
     ReadonlyMap<string, readonly string[]>
   >();
   /**
-   * Attachment IDs in each composer, by session or draft ID. They outlive the
+   * Attachment IDs in each composer, by thread or draft ID. They outlive the
    * pane, as the draft text does.
    */
   readonly drafts = this.draftChanges.project<
     ReadonlyMap<string, readonly string[]>
   >(new Map(), (_previous, next) => next);
-  // Sends each session's messages in the order they were queued.
+  // Sends each thread's messages in the order they were queued.
   private readonly queues = new Map<string, SerialQueue>();
   // Stops each waiting message, by message ID, when it leaves the queue.
   private readonly controllers = new Map<string, AbortController>();
@@ -90,7 +90,7 @@ export class ChatOutbox {
   /** Queues a message that sends once its attachments upload. */
   enqueue(input: {
     messageId: string;
-    sessionId: string;
+    threadId: string;
     draft: OutboxDraft;
     queuedAt: number;
   }) {
@@ -100,8 +100,8 @@ export class ChatOutbox {
       ...this.state.latestValue,
       { ...input, state: "waiting", submissionId: undefined, error: undefined },
     ]);
-    const queue = this.queues.get(input.sessionId) ?? new SerialQueue();
-    this.queues.set(input.sessionId, queue);
+    const queue = this.queues.get(input.threadId) ?? new SerialQueue();
+    this.queues.set(input.threadId, queue);
     queue
       .run(async () => await this.send(input.messageId, controller.signal))
       .finally(() => this.controllers.delete(input.messageId))
@@ -123,11 +123,11 @@ export class ChatOutbox {
     return message;
   }
 
-  /** Takes back a session's messages that could not be sent, oldest first. */
-  takeReturned(sessionId: string) {
+  /** Takes back a thread's messages that could not be sent, oldest first. */
+  takeReturned(threadId: string) {
     const returned = this.state.latestValue.filter(
       (message) =>
-        message.sessionId === sessionId && message.state === "returned",
+        message.threadId === threadId && message.state === "returned",
     );
     if (returned.length > 0)
       this.changes.append(
@@ -136,7 +136,7 @@ export class ChatOutbox {
     return returned;
   }
 
-  /** Drops sent messages that the session now shows or that Stop withdrew. */
+  /** Drops sent messages that the thread now shows or that Stop withdrew. */
   forget(messageIds: Iterable<string | undefined>) {
     const forgotten = new Set(messageIds);
     const kept = this.state.latestValue.filter(
@@ -168,7 +168,7 @@ export class ChatOutbox {
         ? uploadIds
         : await this.api.thread
             .prompt({
-              sessionId: message.sessionId,
+              sessionId: message.threadId,
               text: message.draft.text.trim(),
               uploadIds,
               references: message.draft.references,
@@ -200,7 +200,7 @@ export class ChatOutbox {
   private returnFrom(failed: OutboxMessage, error: string) {
     const later = this.state.latestValue.filter(
       (message) =>
-        message.sessionId === failed.sessionId && message.state === "waiting",
+        message.threadId === failed.threadId && message.state === "waiting",
     );
     for (const message of later)
       this.controllers.get(message.messageId)?.abort();

@@ -116,7 +116,7 @@ piBackendTest(
     const laterEntryId = 100 as EntryId;
     const earlierEntryId = 50 as EntryId;
     const piLiveId = 200 as DocumentId;
-    const haloSessionId = 201 as DocumentId;
+    const haloThreadId = 201 as DocumentId;
 
     await handle.storage.commit(
       [
@@ -173,7 +173,7 @@ piBackendTest(
         {
           type: "document.create",
           record: {
-            id: haloSessionId,
+            id: haloThreadId,
             kind: "halo.thread",
             scope: { kind: "conversation", conversationId: rootId },
             history: "latest",
@@ -216,7 +216,7 @@ piBackendTest(
         },
         {
           type: "document.change",
-          id: haloSessionId,
+          id: haloThreadId,
           content: {
             kind: "delta",
             version: 1,

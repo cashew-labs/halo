@@ -2,10 +2,12 @@ import * as errore from "errore";
 import { Type, type Static } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 
+// Section IDs and favorite prefixes are persisted browser preferences.
+// Keep the legacy "sessions" and "session:" values when displaying threads.
 export const sidebarSectionLabels = {
   favorites: "Favorites",
   artifacts: "Artifacts",
-  sessions: "Sessions",
+  sessions: "Threads",
 } as const;
 const sectionIdSchema = Type.Union([
   Type.Literal("favorites"),

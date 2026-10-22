@@ -166,7 +166,7 @@ const writeId = (write: StorageWrite): Id<string> | undefined => {
 
 /** Portable SQLite implementation of the Pico storage contract. */
 export class TursoStorage implements Storage {
-  // Reports commit failures that poison the owning Pi session. Protocol rejections are recoverable.
+  // Reports commit failures that poison the owning thread. Protocol rejections are recoverable.
   private readonly fatalCommitErrorStream = new Stream<Error>();
   readonly fatalCommitErrors: ReadonlyStream<Error> =
     this.fatalCommitErrorStream;

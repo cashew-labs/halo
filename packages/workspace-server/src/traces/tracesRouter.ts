@@ -8,11 +8,13 @@ export type TracesRouterContext = { traces: TraceService };
 const os = implement(contract.traces).$context<TracesRouterContext>();
 
 export const tracesRouter = os.router({
-  start: os.start.handler(async ({ input, context }) => {
-    const run = await context.traces.start(input);
-    if (run instanceof Error) return orpcErrors.badRequest(run);
-    return { traceId: run.traceId, spanId: run.spanId };
-  }),
+  start: os.start.handler(
+    async ({ input: { sessionId: threadId, ...input }, context }) => {
+      const run = await context.traces.start({ threadId, ...input });
+      if (run instanceof Error) return orpcErrors.badRequest(run);
+      return { traceId: run.traceId, spanId: run.spanId };
+    },
+  ),
   record: os.record.handler(async ({ input, context }) => {
     const run = context.traces.get(input.traceId);
     if (run instanceof Error) return orpcErrors.badRequest(run);

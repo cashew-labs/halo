@@ -10,11 +10,11 @@ Human UI, agents, CLI, SDK, and MCP should reach the same product operations, wi
 
 ## Give dependencies an owner and a lifetime
 
-A composed service owns its children. Place a shared child at the lowest common owner that needs it. For example, sessions and tools share a database and its transaction coordination:
+A composed service owns its children. Place a shared child at the lowest common owner that needs it. For example, threads and tools share a database and its transaction coordination:
 
 ```ts
 // Avoid: separate connections to the same file.
-const sessions = new SessionRepo({
+const threads = new ThreadRepo({
   database: new DatabaseClient({ path: databasePath }),
 });
 const tools = new ToolRuntime({
@@ -27,7 +27,7 @@ Instead, construct the shared dependency once in the server's startup:
 ```ts
 // Prefer: both children borrow the database owned by the server.
 const database = new DatabaseClient({ path: databasePath });
-const sessions = new SessionRepo({ database });
+const threads = new ThreadRepo({ database });
 const tools = new ToolRuntime({ database });
 ```
 

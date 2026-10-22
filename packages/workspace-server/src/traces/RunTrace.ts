@@ -21,21 +21,21 @@ export class RunTrace {
 
   readonly traceId: string;
   readonly spanId: string;
-  readonly sessionId: string;
+  readonly threadId: string;
   private readonly workspaceId: string;
   private readonly filePath: string;
 
   constructor(ctx: {
     workspaceId: string;
-    sessionId: string;
+    threadId: string;
     traceId: string;
     spanId: string;
     filePath: string;
     sequence: number;
   }) {
-    const { workspaceId, sessionId, traceId, spanId, filePath, sequence } = ctx;
+    const { workspaceId, threadId, traceId, spanId, filePath, sequence } = ctx;
     this.workspaceId = workspaceId;
-    this.sessionId = sessionId;
+    this.threadId = threadId;
     this.traceId = traceId;
     this.spanId = spanId;
     this.filePath = filePath;
@@ -70,7 +70,7 @@ export class RunTrace {
       ...event,
       schemaVersion: 1,
       workspaceId: this.workspaceId,
-      sessionId: this.sessionId,
+      sessionId: this.threadId,
       traceId: this.traceId,
       sequence: this.sequence++,
       timestamp: new Date().toISOString(),

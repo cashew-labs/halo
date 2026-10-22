@@ -1,7 +1,7 @@
 import type { EntryRecord, LiveState } from "@earendil-works/pi-durable";
 import { Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
-import type { MessagePresentation } from "./SessionProjection.js";
+import type { MessagePresentation } from "./ThreadProjection.js";
 import {
   directToolIdentity,
   execToolCallSchema,
@@ -9,8 +9,8 @@ import {
   executionWithOutput,
   type HaloMessage,
   type HaloEntry,
-  type SessionEvent,
-  type SessionSnapshot,
+  type ThreadEvent,
+  type ThreadSnapshot,
   type HaloConnectionState,
   type ToolResult,
   type ToolExecution,
@@ -35,7 +35,7 @@ function toolOutput(name: string, result: ToolResult): ToolOutput {
   };
 }
 
-export function sessionEntry(
+export function threadEntry(
   entry: EntryRecord,
   presentation?: MessagePresentation,
 ): HaloEntry | undefined {
@@ -59,12 +59,12 @@ export function sessionEntry(
   };
 }
 
-export function sessionSnapshot(input: {
+export function threadSnapshot(input: {
   live: LiveState;
   entries: HaloEntry[];
-  lastRun: SessionSnapshot["lastRun"];
+  lastRun: ThreadSnapshot["lastRun"];
   connections: HaloConnectionState[];
-}): SessionSnapshot {
+}): ThreadSnapshot {
   const { live, entries, lastRun, connections } = input;
   // SAFETY: The committed generation message is Pi's serialized AssistantMessage.
   const message = live.generation?.message as
@@ -135,11 +135,11 @@ export function sessionSnapshot(input: {
 }
 
 /** Project committed state transitions into Halo's existing transport events. */
-export function sessionEvents(
-  before: SessionSnapshot,
-  after: SessionSnapshot,
-): SessionEvent[] {
-  const events: SessionEvent[] = [];
+export function threadEvents(
+  before: ThreadSnapshot,
+  after: ThreadSnapshot,
+): ThreadEvent[] {
+  const events: ThreadEvent[] = [];
   const run = after.activeRun;
   const known = new Set(before.entries.map((entry) => entry.id));
   for (const entry of after.entries)

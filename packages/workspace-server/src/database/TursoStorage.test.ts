@@ -49,7 +49,7 @@ registerStorageConformance(
 );
 
 piBackendTest(
-  "drains admitted commits before releasing a session",
+  "drains admitted commits before releasing a thread",
   async ({ piBackend }) => {
     const handle = await piBackend.repo.create();
     const finished: string[] = [];
@@ -74,7 +74,7 @@ piBackendTest(
 );
 
 piBackendTest(
-  "reports fatal commit failures through the session handle and preserves the rejection",
+  "reports fatal commit failures through the thread handle and preserves the rejection",
   async ({ piBackend }) => {
     const handle = await piBackend.repo.create();
     const fatalErrors: Error[] = [];

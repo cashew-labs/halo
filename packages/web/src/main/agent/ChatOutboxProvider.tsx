@@ -27,7 +27,7 @@ export function ChatOutboxProvider({
   const unsent = useSyncExternalStore(
     useCallback((onChange) => outbox.state.subscribe(onChange), [outbox]),
     () =>
-      // A returned message waits for its session's composer to take it back.
+      // A returned message waits for its thread's composer to take it back.
       outbox.state.latestValue.some((message) => message.state !== "sent"),
   );
   useRestartWarning(unsent);

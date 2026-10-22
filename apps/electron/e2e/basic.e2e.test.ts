@@ -11,7 +11,7 @@ import { e2eTest } from "./e2eTest.js";
 
 e2eTest("opens the server-configured workspace", async ({ harness, app }) => {
   await expect(
-    app.page.getByRole("main", { name: "New session" }),
+    app.page.getByRole("main", { name: "New thread" }),
   ).toBeVisible();
   await expect(
     app.page.getByRole("button", { name: "New tab", exact: true }),
@@ -193,9 +193,9 @@ e2eTest(
 );
 
 e2eTest(
-  "adds file and session links with @ in Markdown",
+  "adds file and thread links with @ in Markdown",
   async ({ app, harness }, testInfo) => {
-    const previous = await harness.loadSession({
+    const previous = await harness.loadThread({
       title: "Previous plan",
       messages: [m.user("Plan the launch"), m.assistant("Launch on Friday.")],
     });
@@ -221,7 +221,7 @@ e2eTest(
       )
       .toContain("/files/brief.md");
     const saved = await app.server.rpc.workspace.readFile({ path: "notes.md" });
-    expect(saved).toContain(`/sessions/${previous.sessionId}`);
+    expect(saved).toContain(`/sessions/${previous.threadId}`);
     await app.page.reload();
     await expect(pane.getByRole("link", { name: "@brief.md" })).toBeVisible();
     await pane

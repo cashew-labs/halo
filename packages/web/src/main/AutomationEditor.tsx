@@ -327,8 +327,8 @@ export function AutomationEditor({
               onSelectionChange={(key) => setArchive(key === "archive")}
               isDisabled={save.isPending}
             >
-              <SelectItem id="show">Show session</SelectItem>
-              <SelectItem id="archive">Auto archive session</SelectItem>
+              <SelectItem id="show">Show thread</SelectItem>
+              <SelectItem id="archive">Auto archive thread</SelectItem>
             </Select>
             {save.error && (
               <div className={error} role="alert">

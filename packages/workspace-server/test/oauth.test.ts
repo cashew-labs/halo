@@ -64,7 +64,7 @@ test("remote setup publishes ready once and enforces cancellation ownership", as
 }) => {
   setup.cancellationError = new Error("Setup is completing");
   const started = await setup.connections.startConnection({
-    sessionId: "owner",
+    threadId: "owner",
     request,
     onEvent: async (event) => {
       setup.events.push(event);
@@ -78,14 +78,14 @@ test("remote setup publishes ready once and enforces cancellation ownership", as
     throw new Error("Setup did not start");
   expect(
     await setup.connections.cancelConnection({
-      sessionId: "other",
+      threadId: "other",
       connectionId: started.connectionId,
     }),
   ).toBeInstanceOf(Error);
   expect(setup.cancellations).toBe(0);
   expect(
     await setup.connections.cancelConnection({
-      sessionId: "owner",
+      threadId: "owner",
       connectionId: started.connectionId,
     }),
   ).toBeInstanceOf(Error);
@@ -106,12 +106,12 @@ test.for(["cancelled", "expired", "failed"] as const)(
   async (status, { setup }) => {
     setup.status = { status };
     await setup.connections.startConnection({
-      sessionId: "owner",
+      threadId: "owner",
       request,
       onEvent: async () => undefined,
     });
     await vi.advanceTimersByTimeAsync(1_000);
-    expect(setup.connections.statesForSession("owner")).toMatchObject([
+    expect(setup.connections.statesForThread("owner")).toMatchObject([
       { status },
     ]);
     expect(vi.getTimerCount()).toBe(0);
@@ -123,7 +123,7 @@ test.for(["authorizing", "ready"] as const)(
   async (status, { setup }) => {
     setup.status = { status };
     const started = await setup.connections.startConnection({
-      sessionId: "owner",
+      threadId: "owner",
       request,
       onEvent: async (event) => {
         setup.events.push(event);
@@ -133,12 +133,12 @@ test.for(["authorizing", "ready"] as const)(
       throw new Error("Setup did not start");
     expect(
       await setup.connections.cancelConnection({
-        sessionId: "owner",
+        threadId: "owner",
         connectionId: started.connectionId,
       }),
     ).toBeUndefined();
     await setup.connections.cancelConnection({
-      sessionId: "owner",
+      threadId: "owner",
       connectionId: started.connectionId,
     });
     await vi.advanceTimersByTimeAsync(10_000);
@@ -156,7 +156,7 @@ test.for(["authorizing", "confirming"] as const)(
   async (status, { setup }) => {
     setup.status = { status };
     const started = await setup.connections.startConnection({
-      sessionId: "owner",
+      threadId: "owner",
       request,
       onEvent: async (event) => {
         setup.events.push(event);
@@ -182,7 +182,7 @@ test("missing remote host returns an explicit setup error", async () => {
   const connections = new ConnectionService({});
   expect(
     await connections.startConnection({
-      sessionId: "owner",
+      threadId: "owner",
       request,
       onEvent: async () => undefined,
     }),

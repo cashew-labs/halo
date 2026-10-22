@@ -104,7 +104,7 @@ export const automation = Cli.create("automation", {
     },
   })
   .command("remove", {
-    description: "Delete an automation; preserve its sessions",
+    description: "Delete an automation; preserve its threads",
     env,
     args: automationId,
     async run(c) {
@@ -132,7 +132,7 @@ export const automation = Cli.create("automation", {
     },
   })
   .command("history", {
-    description: "List runs, queued events, and session links",
+    description: "List runs, queued events, and thread links",
     env,
     args: automationId,
     async run(c) {

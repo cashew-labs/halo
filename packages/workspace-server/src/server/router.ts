@@ -35,7 +35,7 @@ import {
 import {
   threadRouter,
   type ThreadRouterContext,
-} from "../sessions/threadRouter.js";
+} from "../threads/threadRouter.js";
 import {
   workspaceRouter,
   type WorkspaceRouterContext,

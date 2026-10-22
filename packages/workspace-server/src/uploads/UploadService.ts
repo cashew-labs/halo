@@ -51,7 +51,7 @@ type Upload = {
 
 // Uploads that are never sent are deleted a day after their last chunk.
 const uploadLifetimeMs = 24 * 60 * 60_000;
-// Leave room for sessions, the database, and tool output after a large upload.
+// Leave room for threads, the database, and tool output after a large upload.
 const reservedDiskBytes = 256_000_000;
 
 /**

@@ -21,9 +21,9 @@ export const threadTools = {
       const result = await context.services.threads.list();
       if (result instanceof Error) return result;
       return {
-        result: result.map(({ sessionId, ...summary }) => ({
+        result: result.map(({ sessionId: threadId, ...summary }) => ({
           ...summary,
-          threadId: sessionId,
+          threadId,
         })),
       };
     },
@@ -36,7 +36,7 @@ export const threadTools = {
     execute: async (input, context) => {
       const result = await context.services.threads.new(input);
       if (result instanceof Error) return result;
-      return { result: { threadId: result.sessionId } };
+      return { result };
     },
   }),
   snapshot: haloTool({
@@ -48,7 +48,7 @@ export const threadTools = {
       const { threads, connections } = context.services;
       const result = await threads.snapshot(
         threadId,
-        connections.statesForSession(threadId),
+        connections.statesForThread(threadId),
       );
       if (result instanceof Error) return result;
       return { result };
@@ -65,7 +65,7 @@ export const threadTools = {
     requiredCapabilities: ["workspace.threads.write"],
     execute: async ({ threadId, requestId, text }, context) => {
       const result = await context.services.threads.prompt({
-        sessionId: threadId,
+        threadId,
         clientMessageId: requestId,
         text,
       });
@@ -99,7 +99,7 @@ export const threadTools = {
           ? timeout
           : AbortSignal.any([context.signal, timeout]);
       const result = await context.services.threads.wait(
-        { sessionId: threadId, submissionId },
+        { threadId, submissionId },
         signal,
       );
       if (result instanceof Error) {

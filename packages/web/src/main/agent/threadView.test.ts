@@ -1,13 +1,13 @@
 import { expect, test } from "vitest";
 import {
-  applySessionEvent,
-  emptySessionSnapshot,
+  applyThreadEvent,
+  emptyThreadSnapshot,
   type ExecToolCall,
   type HaloMessage,
-  type SessionEvent,
-  type SessionSnapshot,
+  type ThreadEvent,
+  type ThreadSnapshot,
 } from "@get-halo/client";
-import { sessionViewItems, summarizeToolActivities } from "./sessionView.ts";
+import { threadViewItems, summarizeToolActivities } from "./threadView.ts";
 
 const emptyUsage = {
   input: 0,
@@ -54,12 +54,12 @@ function gmailCalls(
   }));
 }
 
-function apply(snapshot: SessionSnapshot, events: SessionEvent[]) {
-  return events.reduce(applySessionEvent, snapshot);
+function apply(snapshot: ThreadSnapshot, events: ThreadEvent[]) {
+  return events.reduce(applyThreadEvent, snapshot);
 }
 
-function toolActivities(snapshot: SessionSnapshot) {
-  return sessionViewItems(snapshot).flatMap((item) =>
+function toolActivities(snapshot: ThreadSnapshot) {
+  return threadViewItems(snapshot).flatMap((item) =>
     item.kind === "assistantTurn"
       ? item.parts.filter((part) => part.kind === "toolActivity")
       : [],
@@ -67,7 +67,7 @@ function toolActivities(snapshot: SessionSnapshot) {
 }
 
 test("projects one stable row per exec while nested calls stream, complete, and fail", () => {
-  let snapshot = apply(emptySessionSnapshot(), [
+  let snapshot = apply(emptyThreadSnapshot(), [
     { type: "run.started", runId: "run" },
     {
       type: "entry.committed",
@@ -171,8 +171,8 @@ test("projects one stable row per exec while nested calls stream, complete, and 
 });
 
 test("keeps each top-level exec separate from its siblings and from direct tools", () => {
-  const snapshot: SessionSnapshot = {
-    ...emptySessionSnapshot(),
+  const snapshot: ThreadSnapshot = {
+    ...emptyThreadSnapshot(),
     entries: [
       {
         type: "message",

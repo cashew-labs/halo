@@ -44,13 +44,14 @@ const fileReferenceSchema = Type.Object({
   path: Type.String({ minLength: 1 }),
   text: Type.Optional(Type.String({ minLength: 1 })),
 });
-const sessionReferenceSchema = Type.Object({
+const threadReferenceSchema = Type.Object({
+  // Keep saved references and older RPC clients readable.
   sessionId: Type.String({ minLength: 1 }),
   title: Type.String({ minLength: 1 }),
 });
 export const chatReferenceSchema = Type.Union([
   fileReferenceSchema,
-  sessionReferenceSchema,
+  threadReferenceSchema,
 ]);
 export type ChatReference = Static<typeof chatReferenceSchema>;
 export type ChatPrompt = {
@@ -64,12 +65,12 @@ export type ChatPrompt = {
 export function chatPromptContent(
   text: string,
   references: readonly ChatReference[],
-  sessionContents: ReadonlyMap<string, string> = new Map(),
+  threadContents: ReadonlyMap<string, string> = new Map(),
 ) {
   if (references.length === 0) return text;
   const context = references.map((reference) => {
     if ("sessionId" in reference)
-      return `Session ${JSON.stringify(reference.title)} (${reference.sessionId}):\n${sessionContents.get(reference.sessionId) ?? "No messages in this session."}`;
+      return `Thread ${JSON.stringify(reference.title)} (${reference.sessionId}):\n${threadContents.get(reference.sessionId) ?? "No messages in this thread."}`;
     return reference.text === undefined
       ? `File: ${JSON.stringify(reference.path)}. Read this workspace file if needed.`
       : `Selected text from ${JSON.stringify(reference.path)}:\n${reference.text}`;
@@ -117,6 +118,6 @@ export function chatPromptTitle(input: {
         "sessionId" in reference ? reference.title : reference.path,
       )
       .join(", ") ||
-    "New session"
+    "New thread"
   );
 }

@@ -52,15 +52,15 @@ Halo runs Pi's `AgentHarness` with one `main` lane per conversation. `HaloServer
     └── state.db
 ```
 
-Halo's `TursoSessionRepo` implements Pi's repository contract, and `TursoStorage` implements its storage contract. Pi's `StorageBackedSession` still owns session and branch behavior. The adapter uses Pi's commit validation and fork helpers and stores data in `halo_sessions`, `halo_session_entries`, `halo_session_values`, `halo_session_lists`, and `halo_session_usage`.
+Halo's `TursoThreadRepo` owns thread metadata in `halo_threads`, and `TursoStorage` implements Pi's durable storage contract. Pi owns conversations, entries, tasks, submissions, and documents within each thread.
 
-`DatabaseClient` owns one Turso connection and coordinates access to it. It has no Pi or Executor dependencies. `HaloServer` constructs the session repository; `ToolRuntime` builds Executor's Fuma/Drizzle adapter and supplies it to Executor. Both reads and writes wait for admitted transactions, so neither consumer can observe the other's uncommitted changes. Transaction callbacks must use their supplied connection/query and must not wait for tools, network calls, or model inference.
+`WorkspaceServer` constructs the thread repository and supplies database access to `ToolRuntime`. Both reads and writes wait for admitted transactions, so neither consumer can observe the other's uncommitted changes. Transaction callbacks must use their supplied connection/query and must not wait for tools, network calls, or model inference.
 
 The adapter uses Turso's synchronous compatibility driver and ordinary tables. Turso 0.7.2 does not support recursive CTEs, so branch scans follow indexed parent links without a separate branch-index table. The schema is bundled with Halo; there is no Pi SQLite backend dependency, package patch, or SQL asset-copy step. Existing JSONL and vendor SQLite tables are not imported.
 
-Shutdown stops HTTP admission, closes sessions, drains request handlers, stops tools, closes the repository, then closes the database. Executor retains its generated table/index names and independent schema version. Future Halo and extension tables must avoid existing names; use `halo_*` and `ext_<installation>_*`. Extensions are trusted, so Halo does not store extension grants. Extension records and the credential vault have not moved into this database yet.
+Shutdown stops HTTP admission, closes threads, drains request handlers, stops tools, closes the repository, then closes the database. Executor retains its generated table/index names and independent schema version. Future Halo and extension tables must avoid existing names; use `halo_*` and `ext_<installation>_*`. Extensions are trusted, so Halo does not store extension grants. Extension records and the credential vault have not moved into this database yet.
 
-The renderer consumes Halo session snapshots and events, adapted from Pi at the server boundary. The [session protocol](packages/shared/README.md) describes stable entries, run state, and first-class nested `exec` activity. It uses Pi's supplied transcript; loading older entries before compaction is deferred. `sessions.watch` sends an initial snapshot followed by ephemeral live events; disconnecting a viewer leaves its running session active. Nested `exec` tool details persist in Pi's tool results and progress checkpoints. Halo does not keep a separate event log or import existing JSONL conversation files.
+The renderer consumes Halo thread snapshots and events, adapted from Pi at the server boundary. The [thread protocol](packages/client/README.md) describes stable entries, run state, and first-class nested `exec` activity. It uses Pi's supplied transcript; loading older entries before compaction is deferred. `client.thread.events` sends an initial snapshot followed by ephemeral live events; disconnecting a viewer leaves its running thread active. Nested `exec` tool details persist in Pi's tool results and progress checkpoints. Halo does not keep a separate event log or import existing JSONL conversation files.
 
 Pi's file and shell tools run on the host with the same rights as Halo. Halo does not import old AgentOS SQLite workspaces.
 
@@ -75,7 +75,7 @@ Development builds expose Electron's Chrome DevTools Protocol on `127.0.0.1:4445
 pnpm halo status
 pnpm halo-dev app snapshot
 pnpm halo-dev app exec "return await page.locator('body').innerText()"
-pnpm halo-dev app exec "await page.getByRole('button', { name: 'New session' }).click()"
+pnpm halo-dev app exec "await page.getByRole('button', { name: 'New thread' }).click()"
 ```
 
 The `halo` CLI is the workspace-facing command for agents. Use `halo browser open <url>` for an isolated extension preview, followed by `halo browser exec <id>`, `snapshot <id>`, `screenshot <id>`, and `close <id>`. Halo owns these browsers and provisions Chromium on first use.

@@ -1,13 +1,13 @@
 import { expect, test } from "vitest";
 import {
-  applySessionEvent,
-  emptySessionSnapshot,
-  sessionMessages,
-  sessionToolExecutions,
+  applyThreadEvent,
+  emptyThreadSnapshot,
+  threadMessages,
+  threadToolExecutions,
   toolApprovalDecisionCustomType,
   type HaloEntry,
   type HaloMessage,
-  type SessionSnapshot,
+  type ThreadSnapshot,
 } from "@get-halo/client";
 
 const emptyUsage = {
@@ -53,8 +53,8 @@ function userMessage(
 }
 
 test("follows a partial response through its committed entry and completed run", () => {
-  let snapshot = emptySessionSnapshot();
-  snapshot = applySessionEvent(snapshot, {
+  let snapshot = emptyThreadSnapshot();
+  snapshot = applyThreadEvent(snapshot, {
     type: "run.started",
     runId: "run-1",
   });
@@ -63,7 +63,7 @@ test("follows a partial response through its committed entry and completed run",
     id: "user-1",
     message: userMessage("Hello", 1),
   };
-  snapshot = applySessionEvent(snapshot, {
+  snapshot = applyThreadEvent(snapshot, {
     type: "entry.committed",
     entry: user,
   });
@@ -71,13 +71,13 @@ test("follows a partial response through its committed entry and completed run",
     content: [{ type: "text", text: "Hello" }],
     stopReason: "pending",
   });
-  snapshot = applySessionEvent(snapshot, {
+  snapshot = applyThreadEvent(snapshot, {
     type: "message.updated",
     runId: "run-1",
     message: partial,
   });
   const during = snapshot;
-  expect(sessionMessages(during)).toEqual([user.message]);
+  expect(threadMessages(during)).toEqual([user.message]);
   expect(during.activeRun?.message).toEqual(partial);
 
   const reply: HaloEntry = {
@@ -85,12 +85,12 @@ test("follows a partial response through its committed entry and completed run",
     id: "reply-1",
     message: { ...partial, stopReason: "stop" },
   };
-  snapshot = applySessionEvent(snapshot, {
+  snapshot = applyThreadEvent(snapshot, {
     type: "entry.committed",
     entry: reply,
   });
   expect(snapshot.activeRun?.message).toBeUndefined();
-  snapshot = applySessionEvent(snapshot, {
+  snapshot = applyThreadEvent(snapshot, {
     type: "run.finished",
     run: { id: "run-1", status: "completed" },
   });
@@ -112,8 +112,8 @@ test("overlays persisted tool approval decisions", () => {
       },
     ],
   });
-  const snapshot: SessionSnapshot = {
-    ...emptySessionSnapshot(),
+  const snapshot: ThreadSnapshot = {
+    ...emptyThreadSnapshot(),
     entries: [
       { type: "message", id: "request", message: request },
       {
@@ -153,7 +153,7 @@ test("overlays persisted tool approval decisions", () => {
     ],
   };
 
-  expect(sessionToolExecutions(snapshot)[0]).toMatchObject({
+  expect(threadToolExecutions(snapshot)[0]).toMatchObject({
     type: "exec",
     approvals: [{ id: "approval-1", status: "allowed" }],
   });
@@ -166,8 +166,8 @@ test("keeps model-call order while parallel tools complete out of order", () => 
     name: "read",
     arguments: { path: `${id}.txt` },
   }));
-  let snapshot: SessionSnapshot = {
-    ...emptySessionSnapshot(),
+  let snapshot: ThreadSnapshot = {
+    ...emptyThreadSnapshot(),
     entries: [
       {
         type: "message",
@@ -189,7 +189,7 @@ test("keeps model-call order while parallel tools complete out of order", () => 
     },
   };
   for (const id of ["fast", "slow"]) {
-    snapshot = applySessionEvent(snapshot, {
+    snapshot = applyThreadEvent(snapshot, {
       type: "entry.committed",
       entry: {
         type: "toolResult",
@@ -201,23 +201,23 @@ test("keeps model-call order while parallel tools complete out of order", () => 
         output: { type: "tool", result: { content: [] } },
       },
     });
-    expect(sessionToolExecutions(snapshot).map((tool) => tool.id)).toEqual([
+    expect(threadToolExecutions(snapshot).map((tool) => tool.id)).toEqual([
       "slow",
       "fast",
     ]);
   }
-  expect(sessionToolExecutions(snapshot).map((tool) => tool.status)).toEqual([
+  expect(threadToolExecutions(snapshot).map((tool) => tool.status)).toEqual([
     "completed",
     "completed",
   ]);
 });
 
 test("keeps run outcomes without allowing late updates to replace a newer run", () => {
-  let snapshot = applySessionEvent(emptySessionSnapshot(), {
+  let snapshot = applyThreadEvent(emptyThreadSnapshot(), {
     type: "run.started",
     runId: "failed-run",
   });
-  snapshot = applySessionEvent(snapshot, {
+  snapshot = applyThreadEvent(snapshot, {
     type: "run.finished",
     run: { id: "failed-run", status: "failed", error: "Access denied" },
   });
@@ -226,17 +226,17 @@ test("keeps run outcomes without allowing late updates to replace a newer run", 
     status: "failed",
     error: "Access denied",
   });
-  snapshot = applySessionEvent(snapshot, {
+  snapshot = applyThreadEvent(snapshot, {
     type: "run.started",
     runId: "retry",
   });
-  const late = applySessionEvent(snapshot, {
+  const late = applyThreadEvent(snapshot, {
     type: "message.updated",
     runId: "failed-run",
     message: assistantMessage({ stopReason: "pending" }),
   });
   expect(late.activeRun).toEqual({ id: "retry", tools: [] });
-  const aborted = applySessionEvent(late, {
+  const aborted = applyThreadEvent(late, {
     type: "run.finished",
     run: { id: "retry", status: "aborted" },
   });
@@ -251,8 +251,8 @@ test.each([
     integration: "google_drive",
   },
   { kind: "control-plane" as const, integration: "google_drive" },
-])("restores connection progress from session state (%j)", (request) => {
-  let snapshot = applySessionEvent(emptySessionSnapshot(), {
+])("restores connection progress from thread state (%j)", (request) => {
+  let snapshot = applyThreadEvent(emptyThreadSnapshot(), {
     type: "halo.connection",
     connectionId: "connection-1",
     request,
@@ -270,7 +270,7 @@ test.each([
     },
   ]);
 
-  snapshot = applySessionEvent(snapshot, {
+  snapshot = applyThreadEvent(snapshot, {
     type: "halo.connection",
     connectionId: "connection-1",
     request,
@@ -287,7 +287,7 @@ test("keeps an existing connection when reconnect authorization is cancelled", (
     connectionName: "default",
     integration: "google_drive",
   };
-  let snapshot = applySessionEvent(emptySessionSnapshot(), {
+  let snapshot = applyThreadEvent(emptyThreadSnapshot(), {
     type: "halo.connection",
     connectionId: "connection-1",
     request,
@@ -295,7 +295,7 @@ test("keeps an existing connection when reconnect authorization is cancelled", (
     expiresAt: 10_000,
     wasConnected: true,
   });
-  snapshot = applySessionEvent(snapshot, {
+  snapshot = applyThreadEvent(snapshot, {
     type: "halo.connection",
     connectionId: "connection-1",
     request,

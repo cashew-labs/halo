@@ -1,3 +1,4 @@
+// Legacy discriminators and ID keys are part of the supported RPC format.
 export type WorkspaceSearchHit = {
   kind: "file" | "session";
   path?: string;

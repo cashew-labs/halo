@@ -1,16 +1,16 @@
-import { isThreadUnread, type SessionSummary } from "@get-halo/client";
+import { isThreadUnread, type ThreadSummary } from "@get-halo/client";
 import { Thinking, colors, motion, spacing } from "maui";
 import { style, useStyles } from "purse-styles";
 
-export function SessionActivity({ session }: { session: SessionSummary }) {
-  const isUnread = !session.isRunning && isThreadUnread(session);
+export function ThreadActivity({ thread }: { thread: ThreadSummary }) {
+  const isUnread = !thread.isRunning && isThreadUnread(thread);
   const indicator = useStyles(
     indicatorStyle,
-    ...(!session.isRunning && !isUnread ? [collapsedIndicatorStyle] : []),
+    ...(!thread.isRunning && !isUnread ? [collapsedIndicatorStyle] : []),
   );
   const streamingStatus = useStyles(
     statusLayerStyle,
-    ...(session.isRunning ? [visibleStatusStyle] : []),
+    ...(thread.isRunning ? [visibleStatusStyle] : []),
   );
   const unreadStatus = useStyles(
     statusLayerStyle,
@@ -19,7 +19,7 @@ export function SessionActivity({ session }: { session: SessionSummary }) {
   const dot = useStyles(dotStyle);
   return (
     <span className={indicator}>
-      <span className={streamingStatus} aria-hidden={!session.isRunning}>
+      <span className={streamingStatus} aria-hidden={!thread.isRunning}>
         <Thinking size="0.7em" variant="muted" aria-label="Agent is working" />
       </span>
       <span

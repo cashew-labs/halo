@@ -220,9 +220,9 @@ sessions.respondToToolApproval [[apps/workspace-server/src/sessions/sessionsRout
 ### Phase 3: Derive durable card state
 
 ```callstack
-sessionToolExecutions [[packages/client/src/sessionState.ts#sessionToolExecutions]]
+threadToolExecutions [[packages/client/src/threadState.ts#threadToolExecutions]]
 +└── overlay hidden approval decisions onto persisted approval requests
-    └── sessionViewItems [[packages/web/src/main/agent/sessionView.ts#sessionViewItems]]
+    └── threadViewItems [[packages/web/src/main/agent/threadView.ts#threadViewItems]]
         └── ExecutorApprovalCard [[packages/web/src/main/agent/ExecutorApprovalCard.tsx#ExecutorApprovalCard]]
 ```
 

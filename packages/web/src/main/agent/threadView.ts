@@ -3,10 +3,10 @@ import { Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import {
   type HaloMessage,
-  sessionMessages,
-  sessionToolExecutions,
+  threadMessages,
+  threadToolExecutions,
   userInterruptionCustomType,
-  type SessionSnapshot,
+  type ThreadSnapshot,
   type ToolExecution,
   type ToolApproval,
   type ToolIdentity,
@@ -17,7 +17,7 @@ import {
   connectionRequestKey,
 } from "@get-halo/client";
 
-export type SessionViewItem =
+export type ThreadViewItem =
   | { kind: "interruption"; id: string }
   | {
       kind: "user";
@@ -37,7 +37,7 @@ export type SessionViewItem =
   | {
       kind: "assistantTurn";
       id: string;
-      parts: SessionViewPart[];
+      parts: ThreadViewPart[];
     };
 
 /** One top-level tool invocation; exec keeps its nested invocations in `calls`. */
@@ -50,7 +50,7 @@ export type ToolPart = {
   calls: ToolPart[];
 };
 
-export type SessionViewPart =
+export type ThreadViewPart =
   | { kind: "text"; id: string; text: string; streaming: boolean }
   | {
       kind: "toolActivity";
@@ -122,17 +122,17 @@ const bashArgsSchema = Type.Object({
 });
 
 /**
- * Project a session into view rows: one user bubble per user message,
+ * Project a thread into view rows: one user bubble per user message,
  * one assistant column per stretch of assistant activity (Pi TUI shape).
  * Tool calls on one assistant message are one parallel group. Assistant text
  * splits groups; adjacent tool-only groups stay one activity.
  */
-export function sessionViewItems(state: SessionSnapshot): SessionViewItem[] {
-  const items: SessionViewItem[] = [];
+export function threadViewItems(state: ThreadSnapshot): ThreadViewItem[] {
+  const items: ThreadViewItem[] = [];
   const toolResults = toolResultsByCallId(state);
   const toolApprovals = toolApprovalsByCallId(state);
   const executions = new Map(
-    sessionToolExecutions(state).map((execution) => [execution.id, execution]),
+    threadToolExecutions(state).map((execution) => [execution.id, execution]),
   );
   const emittedTools = new Set<string>();
   let pending: PendingTurn | undefined;
@@ -353,7 +353,7 @@ function projectTurn(args: {
   turn: PendingTurn;
   live: boolean;
   executions: ReadonlyMap<string, ToolExecution>;
-}): SessionViewPart[] {
+}): ThreadViewPart[] {
   const { turn, live, executions } = args;
   const hasTools = turn.segments.some((segment) => segment.kind === "group");
   const hasText = turn.segments.some((segment) => segment.kind === "text");
@@ -381,7 +381,7 @@ function projectTurn(args: {
     });
   }
 
-  const parts: SessionViewPart[] = [];
+  const parts: ThreadViewPart[] = [];
   let pendingGroups: GroupSegment[] = [];
   const connectionRequests = new Set<string>();
 
@@ -437,7 +437,7 @@ function groupActivity(args: {
   tools: CollectedTool[];
   live: boolean;
   executions: ReadonlyMap<string, ToolExecution>;
-}): SessionViewPart | undefined {
+}): ThreadViewPart | undefined {
   const { tools, live, executions } = args;
   const firstTool = tools[0];
   if (firstTool === undefined) return undefined;
@@ -688,7 +688,7 @@ function toPosixPath(value: string): string {
   return value.replaceAll("\\", "/");
 }
 
-function toolResultsByCallId(state: SessionSnapshot) {
+function toolResultsByCallId(state: ThreadSnapshot) {
   const map = new Map<string, { connectionRequests: ConnectionRequest[] }>();
   for (const entry of state.entries) {
     if (entry.type !== "toolResult") continue;
@@ -702,9 +702,9 @@ function toolResultsByCallId(state: SessionSnapshot) {
   return map;
 }
 
-function toolApprovalsByCallId(state: SessionSnapshot) {
+function toolApprovalsByCallId(state: ThreadSnapshot) {
   const approvals = new Map<string, ToolApproval[]>();
-  for (const execution of sessionToolExecutions(state)) {
+  for (const execution of threadToolExecutions(state)) {
     if (execution.type !== "exec") continue;
     approvals.set(execution.id, execution.approvals);
   }
@@ -813,11 +813,11 @@ function humanMessageFromJson(args: { value: unknown }): string | undefined {
   return message;
 }
 
-export function sessionError(state: SessionSnapshot): string | undefined {
+export function threadError(state: ThreadSnapshot): string | undefined {
   if (state.fault !== undefined) return state.fault;
   if (state.activeRun !== undefined) return undefined;
   if (state.lastRun?.status === "aborted") return undefined;
-  const messages = sessionMessages(state);
+  const messages = threadMessages(state);
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index]!;
     if (message.role === "user") return undefined;

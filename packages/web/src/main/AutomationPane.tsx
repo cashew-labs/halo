@@ -46,7 +46,7 @@ export function AutomationPane({ automationId }: { automationId: string }) {
   if (automation === undefined)
     return (
       <div className={empty} role="status">
-        This automation was removed. Sessions from its runs are still in the
+        This automation was removed. Threads from its runs are still in the
         sidebar.
       </div>
     );
@@ -197,8 +197,8 @@ function AutomationView({
               <dt>After run</dt>
               <dd>
                 {automation.autoArchiveSession
-                  ? "Auto archive session"
-                  : "Show session"}
+                  ? "Auto archive thread"
+                  : "Show thread"}
               </dd>
             </div>
           </dl>
@@ -309,7 +309,7 @@ function AutomationView({
             <div role="group" aria-label="Remove automation">
               <p>
                 Remove this automation and cancel queued runs? Existing run
-                sessions are kept.
+                threads are kept.
               </p>
               <div className={actions}>
                 <Button

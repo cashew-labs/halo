@@ -17,11 +17,12 @@ export class TraceCloud {
 
   async upload(input: {
     workspaceId: string;
-    sessionId: string;
+    threadId: string;
     traceId: string;
     body: Buffer;
   }) {
-    const key = `v1/workspaces/${input.workspaceId}/sessions/${input.sessionId}/${input.traceId}.jsonl.gz`;
+    // Keep immutable archives under their existing storage prefix.
+    const key = `v1/workspaces/${input.workspaceId}/sessions/${input.threadId}/${input.traceId}.jsonl.gz`;
     const url = new URL(
       `/upload/storage/v1/b/${encodeURIComponent(this.bucket)}/o`,
       "https://storage.googleapis.com",

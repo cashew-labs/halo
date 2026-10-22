@@ -63,7 +63,7 @@ export const desktopRequestSchema = Type.Union([
   Type.Object(
     {
       type: Type.Literal("connectIntegration"),
-      sessionId: Type.String(),
+      threadId: Type.String(),
       request: connectionRequestSchema,
     },
     { additionalProperties: false },
@@ -71,7 +71,7 @@ export const desktopRequestSchema = Type.Union([
   Type.Object(
     {
       type: Type.Literal("cancelIntegration"),
-      sessionId: Type.String(),
+      threadId: Type.String(),
       connectionId: Type.String(),
     },
     { additionalProperties: false },
@@ -107,11 +107,11 @@ export type DesktopBridge = {
   installAppUpdate: () => Promise<void>;
   openExternal: (request: { url: string }) => Promise<void>;
   connectIntegration: (input: {
-    sessionId: string;
+    threadId: string;
     request: ConnectionRequest;
   }) => Promise<ConnectionStarted>;
   cancelIntegration: (input: {
-    sessionId: string;
+    threadId: string;
     connectionId: string;
   }) => Promise<void>;
 };

@@ -19,16 +19,22 @@ class WorkspaceInstructionsError extends errore.createTaggedError({
 }) {}
 
 export class WorkspaceResourceLoader {
-  // Skills loaded from the workspace for the next agent session.
+  // Skills loaded from the workspace for the next agent thread.
   private skills: Skill[] = [];
   // Root instructions loaded from the workspace's AGENTS.md.
   private instructions = "";
   private readonly environment: HaloEnvironment;
   private readonly workspaceRoot: string;
+  private readonly threadId: string;
 
-  constructor(ctx: { environment: HaloEnvironment; workspaceRoot: string }) {
+  constructor(ctx: {
+    environment: HaloEnvironment;
+    workspaceRoot: string;
+    threadId: string;
+  }) {
     this.environment = ctx.environment;
     this.workspaceRoot = ctx.workspaceRoot;
+    this.threadId = ctx.threadId;
   }
 
   async reload() {
@@ -53,6 +59,7 @@ export class WorkspaceResourceLoader {
       haloEnvironmentPrompt({
         environment: this.environment,
         workspaceRoot: this.workspaceRoot,
+        threadId: this.threadId,
       }),
     ]
       .filter((section) => section !== "")

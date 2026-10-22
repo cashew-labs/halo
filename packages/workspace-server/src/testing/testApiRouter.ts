@@ -1,9 +1,9 @@
 import { implement } from "@orpc/server";
-import { contract } from "@get-halo/client";
+import { contract, type HaloMessage } from "@get-halo/client";
 import type { Logger } from "@get-halo/logger";
 import * as errore from "errore";
 import { orpcErrors } from "../orpcErrors.js";
-import type { ThreadManager } from "../sessions/ThreadManager.js";
+import type { ThreadManager } from "../threads/ThreadManager.js";
 import type { ToolRuntime } from "../agent/runtime/ToolRuntime.js";
 
 class TestApiUnavailableError extends errore.createTaggedError({
@@ -12,7 +12,7 @@ class TestApiUnavailableError extends errore.createTaggedError({
 }) {}
 
 export type TestApiRouterContext = {
-  sessions: ThreadManager;
+  threads: ThreadManager;
   toolRuntime: ToolRuntime;
   logger: Logger;
   testApiEnabled: boolean;
@@ -26,34 +26,41 @@ const os = implement(contract.testApi)
     return await next();
   });
 
+async function seedThread({
+  input,
+  context,
+}: {
+  input: { title: string; messages: HaloMessage[] };
+  context: TestApiRouterContext;
+}) {
+  const thread = await context.threads.new();
+  if (thread instanceof Error) throw orpcErrors.badRequest(thread);
+  const { threadId } = thread;
+  await using cleanup = new errore.AsyncDisposableStack();
+  cleanup.defer(async () => {
+    const closed = await context.threads.close(threadId);
+    if (closed instanceof Error)
+      context.logger.warn({
+        event: "seed-thread-cleanup-failed",
+        error: closed,
+      });
+  });
+  const named = await context.threads.setName(threadId, input.title);
+  if (named instanceof Error) throw orpcErrors.badRequest(named);
+  const appended = await context.threads.appendMessages(
+    threadId,
+    input.messages,
+  );
+  if (appended instanceof Error) throw orpcErrors.badRequest(appended);
+  const closed = await context.threads.close(threadId);
+  cleanup.move();
+  if (closed instanceof Error) throw orpcErrors.badRequest(closed);
+  return { sessionId: threadId };
+}
+
 export const testApiRouter = os.router({
-  seedSession: os.seedSession.handler(async ({ input, context }) => {
-    const session = await context.sessions.new();
-    if (session instanceof Error) throw orpcErrors.badRequest(session);
-    await using cleanup = new errore.AsyncDisposableStack();
-    cleanup.defer(async () => {
-      const closed = await context.sessions.close(session.sessionId);
-      if (closed instanceof Error)
-        context.logger.warn({
-          event: "seed-session-cleanup-failed",
-          error: closed,
-        });
-    });
-    const named = await context.sessions.setName(
-      session.sessionId,
-      input.title,
-    );
-    if (named instanceof Error) throw orpcErrors.badRequest(named);
-    const appended = await context.sessions.appendMessages(
-      session.sessionId,
-      input.messages,
-    );
-    if (appended instanceof Error) throw orpcErrors.badRequest(appended);
-    const closed = await context.sessions.close(session.sessionId);
-    cleanup.move();
-    if (closed instanceof Error) throw orpcErrors.badRequest(closed);
-    return { sessionId: session.sessionId };
-  }),
+  seedThread: os.seedThread.handler(seedThread),
+  seedSession: os.seedSession.handler(seedThread),
   invokeTool: os.invokeTool.handler(
     async ({ input, context, signal, errors }) => {
       const result = await context.toolRuntime.invokePath({

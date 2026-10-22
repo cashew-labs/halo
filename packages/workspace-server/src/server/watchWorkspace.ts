@@ -39,7 +39,7 @@ export async function* watchWorkspace({
         ? { type: "extensionsError", message: extensions.message }
         : { type: "extensions", extensions },
     ),
-    forward(context.sessions.watchSummaries(abortSignal), (update) => ({
+    forward(context.threads.watchSummaries(abortSignal), (update) => ({
       type: "sessions",
       update,
     })),

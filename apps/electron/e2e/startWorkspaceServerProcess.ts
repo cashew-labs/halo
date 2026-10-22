@@ -97,7 +97,7 @@ export async function startWorkspaceServerProcess(ctx: {
       // Extensions or shell tools may prevent graceful shutdown from completing.
       const timeout = setTimeout(() => child.kill("SIGKILL"), 10_000);
       cleanup.defer(() => clearTimeout(timeout));
-      // Windows SIGTERM kills immediately; IPC allows sessions and databases to close.
+      // Windows SIGTERM kills immediately; IPC allows threads and databases to close.
       child.send("shutdown", (cause) => {
         if (cause === null) return;
         ctx.logger.warn({

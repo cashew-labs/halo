@@ -121,8 +121,8 @@ interface SessionRepoApi extends PiSessionRepo {
 - [`TursoSessionRepo.ts`](../packages/workspace-server/src/storage/TursoSessionRepo.ts) — Implements Pi session storage and product-field persistence over the shared database.
 - [`SessionRegistry.ts`](../packages/workspace-server/src/sessions/SessionRegistry.ts) — Derives Pi summaries and owns ordered summary snapshots and updates.
 - [`contract.ts`](../packages/client/src/contract.ts) and [`rpc.ts`](../packages/client/src/rpc.ts) — Define the shared session RPC and summary types.
-- [`useMarkSessionRead.ts`](../packages/web/src/main/agent/useMarkSessionRead.ts) — Marks a completed unread thread through the server when its pane becomes visible.
-- [`SessionsSection.tsx`](../packages/web/src/sidebar/SessionsSection.tsx) and [`SessionActivity.tsx`](../packages/web/src/sidebar/SessionActivity.tsx) — Render visible thread rows and activity.
+- [`useMarkThreadRead.ts`](../packages/web/src/main/agent/useMarkThreadRead.ts) — Marks a completed unread thread through the server when its pane becomes visible.
+- [`ThreadsSection.tsx`](../packages/web/src/sidebar/ThreadsSection.tsx) and [`ThreadActivity.tsx`](../packages/web/src/sidebar/ThreadActivity.tsx) — Render visible thread rows and activity.
 
 ## Implementation
 
@@ -282,9 +282,9 @@ The server owns the durable receipt, so remove the duplicate browser state. The 
 
 ```callstack
  AgentPane [[packages/web/src/main/agent/AgentPane.tsx#AgentPane]]
- ├── useAgentSession(sessionId)
-+├── find SessionSummary for sessionId
-+└── useMarkSessionRead(session) [[packages/web/src/main/agent/useMarkSessionRead.ts#useMarkSessionRead]]
+ ├── useAgentThread(threadId)
++├── find ThreadSummary for threadId
++└── useMarkThreadRead(thread) [[packages/web/src/main/agent/useMarkThreadRead.ts#useMarkThreadRead]]
     ├── observe active tab, window focus, and document visibility
     └── when the completed thread is unread
         └── api.sessions.markRead({ sessionId })
@@ -300,11 +300,11 @@ The server owns the durable receipt, so remove the duplicate browser state. The 
 Now that the web app consumes durable server state, the sidebar can make that state visible without changing the thread title's position. Use Maui's inbox pattern for the leading state and hover-revealed action, but keep the single action bare instead of placing it in the inbox toolbar box.
 
 ```callstack
- SessionsSection [[packages/web/src/sidebar/SessionsSection.tsx#SessionsSection]]
+ ThreadsSection [[packages/web/src/sidebar/ThreadsSection.tsx#ThreadsSection]]
 +├── filter summaries where markedDone is true [[phase4-sessions:new:11-12]]
 +└── SessionRow [[phase4-sessions:new:21-55]]
     ├── SidebarItem.leading
-    │   └── SessionActivity [[packages/web/src/sidebar/SessionActivity.tsx#SessionActivity]]
+    │   └── ThreadActivity [[packages/web/src/sidebar/ThreadActivity.tsx#ThreadActivity]]
     │       └── overlapping Maui opacity layers keep transitions in place
     │       ├── running → Maui Thinking
     │       └── completed unread → accent dot

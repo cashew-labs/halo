@@ -109,7 +109,7 @@ e2eTest(
       "src",
       /\/workspace\/extensions\/greeting\/view\/$/,
     );
-    await expect(signedInPage.getByTestId("sessions-shell")).toHaveCount(0);
+    await expect(signedInPage.getByTestId("threads-shell")).toHaveCount(0);
     const extensionPage = frame.contentFrame();
     await extensionPage.getByRole("textbox", { name: "Your name" }).fill("Ada");
     await extensionPage
@@ -345,10 +345,10 @@ e2eTest(
 );
 
 e2eTest(
-  "opens remote integration setup in a new tab without leaving the session",
+  "opens remote integration setup in a new tab without leaving the thread",
   async ({ browser, harness, testArtifacts }) => {
     e2eTest.setTimeout(60_000);
-    const session = await harness.loadSession({
+    const thread = await harness.loadThread({
       title: "Drive search",
       messages: [
         m.user("Find my planning document"),
@@ -401,7 +401,7 @@ e2eTest(
       }
       expect(route.body).toMatchObject({
         json: {
-          sessionId: session.sessionId,
+          sessionId: thread.threadId,
           request: {
             kind: "control-plane",
             integration: "google_drive",
@@ -419,7 +419,7 @@ e2eTest(
         },
       });
     });
-    await page.goto(`${plane.origin}/#/sessions/${session.sessionId}`);
+    await page.goto(`${plane.origin}/#/sessions/${thread.threadId}`);
     await expect(card).toBeVisible({ timeout: 10_000 });
     await context.route(setupUrl, async (route) => {
       await route.fulfill({
@@ -437,7 +437,7 @@ e2eTest(
       setupPage.getByRole("heading", { name: "Set up Google Drive" }),
     ).toBeVisible();
     await expect(page).toHaveURL(
-      `${plane.origin}/#/sessions/${session.sessionId}`,
+      `${plane.origin}/#/sessions/${thread.threadId}`,
     );
     await expect(card).toBeVisible();
   },
@@ -454,7 +454,7 @@ for (const { busy, entry } of [
     `coordinates browser and workspace updates with busy=${busy}, entry=${entry}`,
     async ({ browser, harness, testArtifacts }, testInfo) => {
       e2eTest.setTimeout(90_000);
-      const session = await harness.loadSession({
+      const thread = await harness.loadThread({
         title: "Release planning",
         messages: [m.user("Keep this conversation open while Halo updates.")],
       });
@@ -551,7 +551,7 @@ for (const { busy, entry } of [
           },
         );
       }
-      await page.goto(`${plane.origin}/#/sessions/${session.sessionId}`);
+      await page.goto(`${plane.origin}/#/sessions/${thread.threadId}`);
       if (entry === "incompatible")
         await expect(
           page.getByRole("heading", {

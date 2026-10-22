@@ -9,11 +9,11 @@ import type { JsonRepresentation } from "@earendil-works/chord";
 import {
   chatPromptTitle,
   type HaloMessage,
-  type SessionSnapshot,
-  type SessionSummary,
+  type ThreadSnapshot,
+  type ThreadSummary,
 } from "@get-halo/client";
 import type { ThreadData, ThreadMetadata } from "../database/ThreadRepoApi.js";
-import { sessionEntry, sessionSnapshot } from "./sessionEvents.js";
+import { threadEntry, threadSnapshot } from "./threadEvents.js";
 
 export type MessagePresentation =
   | Omit<Extract<HaloMessage, { role: "user" }>, "content">
@@ -32,13 +32,13 @@ export const HaloThreadDoc = defineDoc<{
   initial: () => ({ inputs: {} }),
 });
 
-/** One read-only projection shared by live sessions and saved-conversation search. */
-export class SessionProjection {
+/** One read-only projection shared by live threads and saved-conversation search. */
+export class ThreadProjection {
   private seq: number;
   private readonly entries = new Map<number, EntryRecord>();
   private readonly submissions = new Map<number, SubmissionRecord>();
   private documents: ThreadData["documents"];
-  private lastRun: SessionSnapshot["lastRun"];
+  private lastRun: ThreadSnapshot["lastRun"];
 
   constructor(data: ThreadData) {
     this.seq = data.seq;
@@ -96,7 +96,7 @@ export class SessionProjection {
     };
   }
 
-  snapshot(): SessionSnapshot {
+  snapshot(): ThreadSnapshot {
     const byEntry = new Map(
       [...this.submissions.values()]
         .filter((item) => item.entry !== undefined)
@@ -105,7 +105,7 @@ export class SessionProjection {
     const state = this.presentation;
     const entries = [...this.entries.values()].flatMap((entry) => {
       const requestId = byEntry.get(entry.id);
-      const mapped = sessionEntry(
+      const mapped = threadEntry(
         entry,
         requestId === undefined ? undefined : state.inputs[requestId],
       );
@@ -113,7 +113,7 @@ export class SessionProjection {
     });
     // SAFETY: Pi owns pi.live and publishes LiveState revisions.
     const live = (this.documents["pi.live"] ?? {}) as LiveState;
-    return sessionSnapshot({
+    return threadSnapshot({
       live,
       entries,
       lastRun: this.lastRun,
@@ -124,8 +124,8 @@ export class SessionProjection {
   summary(input: {
     metadata: ThreadMetadata;
     cwd: string;
-    snapshot: SessionSnapshot;
-  }): Omit<SessionSummary, "markedDone" | "readReceiptCursorId"> {
+    snapshot: ThreadSnapshot;
+  }): Omit<ThreadSummary, "markedDone" | "readReceiptCursorId"> {
     const { metadata, cwd, snapshot } = input;
     const latest = snapshot.entries.at(-1);
     const timestamp =
@@ -147,7 +147,7 @@ export class SessionProjection {
     };
   }
 
-  title(snapshot: SessionSnapshot) {
+  title(snapshot: ThreadSnapshot) {
     const first = snapshot.entries.find(
       (entry) => entry.type === "message" && entry.message.role === "user",
     );
@@ -177,7 +177,7 @@ export class SessionProjection {
 
 function completedRun(
   submission: SubmissionRecord | undefined,
-): SessionSnapshot["lastRun"] {
+): ThreadSnapshot["lastRun"] {
   if (submission?.status !== "done" && submission?.status !== "unanswered")
     return;
   return {
