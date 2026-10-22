@@ -99,3 +99,64 @@ await tools.devices.files.read({ device: computer.name, path: ${JSON.stringify(g
       .toMatchObject({ devices: [{ online: false }] });
   },
 );
+
+e2eTest(
+  "the agent runs a command on this computer after the person allows it",
+  async ({ app, harness, llm }) => {
+    e2eTest.setTimeout(90_000);
+    // Native message boxes cannot be clicked; answer "Allow commands".
+    await app.electron.evaluate(({ dialog }) => {
+      // SAFETY: The test owns this global in Electron main.
+      const log = globalThis as PromptLog;
+      log.haloAccessPrompts = [];
+      dialog.showMessageBox = async (...args: unknown[]) => {
+        // SAFETY: Halo always passes message box options last.
+        const options = args.at(-1) as Electron.MessageBoxOptions;
+        log.haloAccessPrompts?.push(options.message);
+        return await Promise.resolve({ response: 0, checkboxChecked: false });
+      };
+    });
+    await harness.loadSession({
+      title: "Machine",
+      messages: [m.user("Hello"), m.assistant("Ready.")],
+    });
+    const pane = app.page.getByRole("main", { name: "Machine" });
+    await pane
+      .getByLabel("Message", { exact: true })
+      .fill("Which user am I on my computer?");
+    await pane.getByRole("button", { name: "Send", exact: true }).click();
+    await llm.respond(
+      m.tool.start("exec", {
+        id: "whoami",
+        arguments: {
+          js: `var computer = (await tools.devices.list()).data.devices[0];
+await tools.devices.shell.run({ device: computer.name, command: "echo user=$(id -un)" })`,
+        },
+      }),
+    );
+    await llm.respond(({ messages }) =>
+      m.assistant(
+        messageText(messages.at(-1)!).includes(`user=${os.userInfo().username}`)
+          ? `You are ${os.userInfo().username}.`
+          : "I could not run the command.",
+      ),
+    );
+    await expect(pane).toContainText(`You are ${os.userInfo().username}.`);
+    expect(
+      await app.electron.evaluate(
+        // SAFETY: Set by the stub above.
+        () => (globalThis as PromptLog).haloAccessPrompts,
+      ),
+    ).toEqual(["Allow Halo to run commands on this computer?"]);
+
+    await app.page.getByTestId("account-button").click();
+    const settings = app.page
+      .getByRole("dialog", { name: "Account" })
+      .getByRole("region", { name: "This computer" });
+    await expect(settings.getByText("Run commands")).toBeVisible();
+    await settings
+      .getByRole("button", { name: "Stop allowing commands" })
+      .click();
+    await expect(settings.getByText("Run commands")).not.toBeVisible();
+  },
+);

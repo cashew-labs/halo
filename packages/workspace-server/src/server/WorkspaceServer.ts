@@ -369,7 +369,12 @@ export class WorkspaceServer {
           host.agentCapabilities ?? [
             ...(hasDesktop ? ["workspace.computer"] : []),
             ...(hasDevices
-              ? ["devices.list", "devices.files.read", "devices.files.write"]
+              ? [
+                  "devices.list",
+                  "devices.files.read",
+                  "devices.files.write",
+                  "devices.shell.execute",
+                ]
               : []),
             "workspace.hotkeys",
             "workspace.automations",

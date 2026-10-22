@@ -102,6 +102,12 @@ export const desktopRequestSchema = Type.Union([
               { additionalProperties: false },
             ),
           ),
+          commands: Type.Optional(
+            Type.Object(
+              { allowed: Type.Boolean() },
+              { additionalProperties: false },
+            ),
+          ),
         },
         { additionalProperties: false },
       ),

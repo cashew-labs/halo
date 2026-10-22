@@ -35,6 +35,8 @@ export type LocalDeviceState = {
   enabled: boolean;
   /** Folders the person allowed when the agent first asked. */
   files: { grants: { path: string; access: "read" | "write" }[] };
+  /** Whether the person allowed the agent to run commands here. */
+  commands: { allowed: boolean };
   status:
     | { state: "disabled" }
     | { state: "connecting" }
@@ -43,7 +45,7 @@ export type LocalDeviceState = {
 };
 
 export type LocalDeviceUpdate = Partial<
-  Pick<LocalDeviceState, "name" | "enabled" | "files">
+  Pick<LocalDeviceState, "name" | "enabled" | "files" | "commands">
 >;
 
 export interface HostApi {

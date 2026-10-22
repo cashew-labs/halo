@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import type { DeviceAdvertisement, DeviceRequest } from "@get-halo/client";
 import {
+  DeviceCallAbortedError,
   DeviceCallNotFoundError,
   DeviceDisconnectedError,
   DeviceService,
@@ -22,19 +23,24 @@ const documents = {
   modifiedAt: 0,
 } as const;
 
+type RunRequest = Extract<DeviceRequest, { operation: unknown }>;
+
 /** Opens a device stream and collects the requests it receives. */
 function connect(devices: DeviceService) {
   const closed = new AbortController();
-  const received: DeviceRequest[] = [];
+  const received: RunRequest[] = [];
+  const cancelled: string[] = [];
   const served = (async () => {
     for await (const request of devices.serve({
       device: laptop,
       signal: closed.signal,
     }))
-      received.push(request);
+      if ("cancel" in request) cancelled.push(request.cancel);
+      else received.push(request);
   })();
   return {
     received,
+    cancelled,
     close: async () => {
       closed.abort();
       await served;
@@ -81,12 +87,33 @@ test("a call survives a brief reconnect and fails after a longer one", async () 
   expect(await lost).toBeInstanceOf(DeviceDisconnectedError);
 });
 
-test("a call times out when the device never answers", async () => {
+test("a call times out when the device never answers, and the device is told to stop", async () => {
   const devices = new DeviceService();
   const device = connect(devices);
   expect(
     await devices.call({ device: "Laptop", operation: stat, timeoutMs: 20 }),
   ).toBeInstanceOf(DeviceTimeoutError);
+  await expect
+    .poll(() => device.cancelled)
+    .toEqual([device.received[0]?.callId]);
+  await device.close();
+});
+
+test("cancelling a call tells the device to stop it", async () => {
+  const devices = new DeviceService();
+  const device = connect(devices);
+  const cancel = new AbortController();
+  const result = devices.call({
+    device: "Laptop",
+    operation: { type: "shell.run", command: "sleep 30", timeoutMs: 60_000 },
+    signal: cancel.signal,
+  });
+  await expect.poll(() => device.received).toHaveLength(1);
+  cancel.abort();
+  expect(await result).toBeInstanceOf(DeviceCallAbortedError);
+  await expect
+    .poll(() => device.cancelled)
+    .toEqual([device.received[0]?.callId]);
   await device.close();
 });
 

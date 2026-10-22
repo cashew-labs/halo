@@ -2,7 +2,7 @@
 
 The workspace agent can use the person's own computers. Every computer running the Halo desktop app connects to its workspace as a **device** automatically; nothing is shared until the person answers an access prompt. The agent loop, threads, and state stay on the workspace server; only device tool calls run on the computer.
 
-Status: file access is implemented. Local bash and local computer use are planned.
+Status: file access and local commands are implemented. Local computer use is planned.
 
 ## System flow
 
@@ -44,10 +44,21 @@ Exec-only tools under `tools.devices` (`packages/workspace-server/src/devices/de
 | `devices.files.write`, `edit`, `delete` | `devices.files.write`                         |
 | `devices.files.copyToWorkspace`         | `devices.files.read`, `workspace.files.write` |
 | `devices.files.copyFromWorkspace`       | `workspace.files.read`, `devices.files.write` |
+| `devices.shell.run`                     | `devices.shell.execute`                       |
 
 Every call names its device. Paths may be absolute, `~/`, or relative to the device's home folder. Text reads and edits reuse the workspace file helpers through the `TextFiles` interface. Transfers are limited to 8 MiB.
 
 Shared apps get no device tools, and extensions cannot call them (`extensionToolPolicy.ts`).
+
+## Local commands
+
+`tools.devices.shell.run({ device, command, cwd?, timeoutMs? })` runs a command in the person's login shell (`$SHELL -lc`) on the device, starting in the home folder unless `cwd` is given (`packages/device-host/src/DeviceShell.ts`).
+
+- The first command asks once: Allow commands or Don't allow. Return does not allow. The prompt shows the command and says commands run with the person's full access, because folder grants and protected paths do not limit a shell.
+- The answer is saved as `commands.allowed` in `device.json` and shown in settings with Remove. A refusal lasts until the app restarts or the person changes permissions.
+- Each command gets its own process group. A timeout (default 60 seconds, maximum 10 minutes) or a cancellation sends SIGTERM to the group, then SIGKILL after one second.
+- When the agent cancels a call or the workspace stops waiting, `DeviceService` sends `{ cancel: callId }` on the device stream and the device stops that call.
+- Output keeps the first 8,000 and last 24,000 characters of each stream. The result is `code`, `signal`, `timedOut`, `stdout`, `stderr`, and `truncated`.
 
 ## What the device allows
 
@@ -66,10 +77,10 @@ The **This computer** section of the account dialog shows the connection, the on
 - `packages/device-host/src/DeviceFiles.test.ts`: prompting once per folder, shared prompts, remembered refusals, read-only answers, symlinks, protected paths, and failed prompts.
 - `packages/workspace-server/src/devices/DeviceService.test.ts`: delivery, reconnect grace, timeout, and responder checks.
 - `packages/workspace-server/test/devices.spec.ts`: a real `DeviceHost` against a real workspace server.
-- `apps/electron/e2e/device.e2e.test.ts`: the computer is connected without setup; the agent's read prompts once; the answer appears in settings; turning the computer off disconnects it.
+- `packages/device-host/src/DeviceShell.test.ts`: prompting once, refusals, working folders, timeouts that stop child processes, cancellation, and long output.
+- `apps/electron/e2e/device.e2e.test.ts`: the computer is connected without setup; the agent's read prompts once; the answer appears in settings; turning the computer off disconnects it. A second test runs a command after the commands prompt and removes the permission in settings.
 
 ## Next
 
-1. Local bash: `devices.shell.run` with its own on/off setting.
-2. Local computer use: run `ComputerService` on the device with the OpenSky driver.
-3. A composer reference for local files (`local://<device>/<path>`).
+1. Local computer use: run `ComputerService` on the device with the OpenSky driver.
+2. A composer reference for local files (`local://<device>/<path>`).

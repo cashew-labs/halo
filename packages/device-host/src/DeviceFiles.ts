@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type {
   DeviceFileEntry,
-  DeviceOperation,
+  DeviceFileOperation,
   DeviceOperationResult,
 } from "@get-halo/client";
 import {
@@ -25,7 +25,7 @@ export class DeviceFiles {
     this.access = ctx.access;
   }
 
-  async run<T extends DeviceOperation>(
+  async run<T extends DeviceFileOperation>(
     operation: T,
   ): Promise<DeviceOperationResult[T["type"]] | DeviceFileError> {
     const target = await this.access.authorize({
@@ -43,7 +43,7 @@ export class DeviceFiles {
       | DeviceFileError;
   }
 
-  private async dispatch(operation: DeviceOperation, target: string) {
+  private async dispatch(operation: DeviceFileOperation, target: string) {
     switch (operation.type) {
       case "files.list":
         return await this.list(target);
@@ -96,7 +96,7 @@ export class DeviceFiles {
 
   private async read(
     target: string,
-    operation: Extract<DeviceOperation, { type: "files.read" }>,
+    operation: Extract<DeviceFileOperation, { type: "files.read" }>,
   ) {
     const info = await fs.stat(target).catch((cause) => ioError(target, cause));
     if (info instanceof Error) return info;
@@ -128,7 +128,7 @@ export class DeviceFiles {
 
   private async write(
     target: string,
-    operation: Extract<DeviceOperation, { type: "files.write" }>,
+    operation: Extract<DeviceFileOperation, { type: "files.write" }>,
   ) {
     const existing = await fs.stat(target).catch(() => undefined);
     if (existing?.isDirectory())

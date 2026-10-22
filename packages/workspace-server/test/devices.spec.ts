@@ -6,6 +6,7 @@ import {
   DeviceHost,
   type DeviceAccessAnswer,
   type DeviceAccessRequest,
+  type DeviceCommandRequest,
   type DeviceSettings,
 } from "@get-halo/device-host";
 import type { DeviceSummary } from "@get-halo/client";
@@ -16,6 +17,7 @@ async function connectDevice(
   server: TestServer,
   cleanup: errore.AsyncDisposableStack,
   answer: DeviceAccessAnswer = "write",
+  allowCommands = false,
 ) {
   const home = path.join(server.harness.paths.root, "device-home");
   await fs.mkdir(path.join(home, "Documents"), { recursive: true });
@@ -29,6 +31,7 @@ async function connectDevice(
     files: { grants: [] },
   };
   const prompts: DeviceAccessRequest[] = [];
+  const commandPrompts: DeviceCommandRequest[] = [];
   const host = new DeviceHost({
     settings,
     home,
@@ -38,14 +41,18 @@ async function connectDevice(
       prompts.push(request);
       return await Promise.resolve(answer);
     },
-    saveGrants: async () => await Promise.resolve(),
+    askCommands: async (request) => {
+      commandPrompts.push(request);
+      return await Promise.resolve(allowCommands);
+    },
+    savePermissions: async () => await Promise.resolve(),
   });
   host.start();
   cleanup.defer(async () => await host.stop());
   await expect
     .poll(async () => await listDevices(server))
     .toMatchObject([{ name: "Studio Mac", online: true }]);
-  return { host, home, settings, prompts };
+  return { host, home, settings, prompts, commandPrompts };
 }
 
 async function listDevices(server: TestServer) {
@@ -203,6 +210,70 @@ serverTest(
         input: { device: "Studio Mac", path: "~/Documents/notes.md" },
       }),
     ).rejects.toThrow(/Device "Studio Mac" is offline/);
+  },
+);
+
+serverTest(
+  "the agent runs commands on a computer after the person allows them",
+  async ({ server }) => {
+    await using cleanup = new errore.AsyncDisposableStack();
+    const { home, commandPrompts } = await connectDevice(
+      server,
+      cleanup,
+      "deny",
+      true,
+    );
+    await expect(
+      server.rpc.testApi.invokeTool({
+        path: "devices.shell.run",
+        input: {
+          device: "Studio Mac",
+          command: "pwd; cat Documents/notes.md; exit 2",
+        },
+      }),
+    ).resolves.toEqual({
+      device: "Studio Mac",
+      code: 2,
+      timedOut: false,
+      stdout: `${home}\nBuy milk\n`,
+      stderr: "",
+      truncated: false,
+    });
+    await expect(
+      server.rpc.testApi.invokeTool({
+        path: "devices.shell.run",
+        input: {
+          device: "Studio Mac",
+          command: "pwd",
+          cwd: "~/Documents",
+          timeoutMs: 5_000,
+        },
+      }),
+    ).resolves.toMatchObject({ stdout: `${path.join(home, "Documents")}\n` });
+    expect(commandPrompts).toMatchObject([
+      { command: "pwd; cat Documents/notes.md; exit 2", cwd: home },
+    ]);
+    await expect(
+      server.rpc.testApi.invokeTool({
+        path: "devices.shell.run",
+        input: { device: "Studio Mac", command: "sleep 30", timeoutMs: 300 },
+      }),
+    ).resolves.toMatchObject({ timedOut: true });
+  },
+);
+
+serverTest(
+  "refused commands reach the agent and run nothing",
+  async ({ server }) => {
+    await using cleanup = new errore.AsyncDisposableStack();
+    const { home } = await connectDevice(server, cleanup, "deny", false);
+    await expect(
+      server.rpc.testApi.invokeTool({
+        path: "devices.shell.run",
+        input: { device: "Studio Mac", command: "touch ran" },
+      }),
+    ).rejects.toThrow(/access_denied/);
+    await expect(fs.stat(path.join(home, "ran"))).rejects.toThrow();
   },
 );
 
