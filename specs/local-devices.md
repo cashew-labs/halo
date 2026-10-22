@@ -1,6 +1,6 @@
 # Local devices
 
-The workspace agent can use the person's own computers. Every computer running the Halo desktop app connects to its workspace as a **device** automatically; nothing is shared until the person answers an access prompt. The agent loop, threads, and state stay on the workspace server; only device tool calls run on the computer.
+The workspace agent can use the person's own computers. Every computer running the Halo desktop app connects to its workspace as a **device** automatically. Nothing is shared until the person allows it on a permission card in the chat.
 
 Status: file access and local commands are implemented. Local computer use is planned.
 
@@ -11,7 +11,7 @@ flowchart LR
     A[Agent exec code] --> B[tools.devices.files.*]
     B --> C[DeviceService.call]
     C -->|request on the device's stream| D[DeviceHost in Electron main]
-    D --> E[DeviceAccess: grant, prompt, or protected path]
+    D --> E[DeviceAccess: grant, permission request, or protected path]
     E -->|devices.respond over HTTP| C
     C --> B
 ```
@@ -30,7 +30,7 @@ flowchart LR
 - `DeviceService` keeps devices by ID and resolves a name or ID per call (`packages/workspace-server/src/devices/DeviceService.ts`).
 - An offline device fails at once with `DeviceOfflineError`.
 - A disconnect keeps pending calls for 20 seconds so a reconnecting device can still answer. After that they fail with `DeviceDisconnectedError`; the result is unknown and nothing is replayed.
-- Calls time out after 5 minutes with `DeviceTimeoutError`, leaving time to answer an access prompt.
+- Calls time out after 60 seconds with `DeviceTimeoutError`; commands get their own timeout plus 30 seconds.
 - Device errors reach the agent with their code, for example `access_denied` or `read_only`.
 
 ## Agent tools
@@ -54,8 +54,8 @@ Shared apps get no device tools, and extensions cannot call them (`extensionTool
 
 `tools.devices.shell.run({ device, command, cwd?, timeoutMs? })` runs a command in the person's login shell (`$SHELL -lc`) on the device, starting in the home folder unless `cwd` is given (`packages/device-host/src/DeviceShell.ts`).
 
-- The first command asks once: Allow commands or Don't allow. Return does not allow. The prompt shows the command and says commands run with the person's full access, because folder grants and protected paths do not limit a shell.
-- The answer is saved as `commands.allowed` in `device.json` and shown in settings with Remove. A refusal lasts until the app restarts or the person changes permissions.
+- Until the person allows commands, the device returns `permission_required` and the agent's chat shows a card with the command: Allow commands or Don't allow. The card says commands run with the person's full access, because folder grants and protected paths do not limit a shell.
+- Allowing is saved as `commands.allowed` in `device.json`.
 - Each command gets its own process group. A timeout (default 60 seconds, maximum 10 minutes) or a cancellation sends SIGTERM to the group, then SIGKILL after one second.
 - When the agent cancels a call or the workspace stops waiting, `DeviceService` sends `{ cancel: callId }` on the device stream and the device stops that call.
 - Output keeps the first 8,000 and last 24,000 characters of each stream. The result is `code`, `signal`, `timedOut`, `stdout`, `stderr`, and `truncated`.
@@ -64,21 +64,27 @@ Shared apps get no device tools, and extensions cannot call them (`extensionTool
 
 The device decides; the workspace cannot widen its answers (`packages/device-host/src/DeviceAccess.ts`):
 
-- **Enabled:** on by default. The person can turn the computer off in Account settings.
-- **Grants:** the first time the agent uses a folder without a grant, Electron shows a native prompt: Allow read and write, Allow read only, or Don't allow (`apps/electron/src/main/device/LocalDevice.ts`). A file request asks about its parent folder; a listing asks about the folder itself. Grants cover subfolders and are saved in `device.json`.
-- **Refusals:** remembered until the app restarts or the grants change, so the agent cannot prompt repeatedly. Concurrent requests for one folder share a prompt. An unanswered prompt closes after 4 minutes and refuses.
+- **Enabled:** always on while the app runs. There is no settings UI.
+- **Grants:** an operation in a folder without a sufficient grant returns `permission_required` with the folder, access, and path. A file request asks about its parent folder; a listing asks about the folder itself. Grants cover subfolders and are saved in `device.json`.
 - **Real paths:** requests and grants resolve through symlinks, so a link inside an allowed folder that points elsewhere asks about its real location.
-- **Protected paths:** credential folders under home, such as `~/.ssh`, `~/.aws`, and `~/Library/Keychains`, are refused without a prompt.
+- **Protected paths:** credential folders under home, such as `~/.ssh`, `~/.aws`, and `~/Library/Keychains`, are refused and never offered.
 
-The **This computer** section of the account dialog shows the connection, the on/off switch, and the allowed folders with Remove (`packages/web/src/sidebar/DeviceSettings.tsx`).
+## Permission cards
+
+A permission request becomes an approval card in the thread, using the existing approval flow:
+
+- The device tool calls `ToolRuntime.requestApproval` with `{ devicePermission }` arguments. The exec result becomes `ToolInputRequiredError`, and the card is stored with the tool result (`packages/workspace-server/src/devices/deviceTools.ts`).
+- `DevicePermissionCard` renders it in place of the generic approval card (`packages/web/src/main/agent/DevicePermissionCard.tsx`). It offers Allow read only (read requests), Allow read and write, or Allow commands, plus Don't allow.
+- Only Halo on that computer can allow: the click records the grant on the device through Electron IPC (`allowDevicePermission` → `LocalDevice.allow`), then answers the approval. Elsewhere the card says to open Halo on that computer; Don't allow works anywhere.
+- Answering sends the agent the usual approval continuation: retry after Allow, do not retry after Don't allow.
 
 ## Tests
 
-- `packages/device-host/src/DeviceFiles.test.ts`: prompting once per folder, shared prompts, remembered refusals, read-only answers, symlinks, protected paths, and failed prompts.
+- `packages/device-host/src/DeviceFiles.test.ts`: permission requests for new folders and changes, remembered grants, symlinks, protected paths, and file limits.
 - `packages/workspace-server/src/devices/DeviceService.test.ts`: delivery, reconnect grace, timeout, and responder checks.
 - `packages/workspace-server/test/devices.spec.ts`: a real `DeviceHost` against a real workspace server.
-- `packages/device-host/src/DeviceShell.test.ts`: prompting once, refusals, working folders, timeouts that stop child processes, cancellation, and long output.
-- `apps/electron/e2e/device.e2e.test.ts`: the computer is connected without setup; the agent's read prompts once; the answer appears in settings; turning the computer off disconnects it. A second test runs a command after the commands prompt and removes the permission in settings.
+- `packages/device-host/src/DeviceShell.test.ts`: the commands permission, working folders, timeouts that stop child processes, cancellation, and long output.
+- `apps/electron/e2e/device.e2e.test.ts`: a folder card, a commands card, and a refusal, each answered in the chat, with the agent's retry or acknowledgement.
 
 ## Next
 

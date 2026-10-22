@@ -11,11 +11,7 @@ import type {
   ControlPlaneWorkspaceStatus,
   ControlPlaneSession,
 } from "@get-halo/shared/controlPlaneContract";
-import type {
-  AppInfo,
-  LocalDeviceState,
-  LocalDeviceUpdate,
-} from "@get-halo/web/HostApi";
+import type { AppInfo, LocalDeviceInfo } from "@get-halo/web/HostApi";
 import type { HaloRpcConnection } from "./HaloRpcConnection.js";
 
 export const DESKTOP_CHANNEL = "halo:desktop";
@@ -78,39 +74,27 @@ export const desktopRequestSchema = Type.Union([
   ),
   Type.Object(
     {
-      type: Type.Literal("updateDevice"),
-      update: Type.Object(
-        {
-          name: Type.Optional(Type.String({ minLength: 1, maxLength: 64 })),
-          enabled: Type.Optional(Type.Boolean()),
-          files: Type.Optional(
-            Type.Object(
-              {
-                grants: Type.Array(
-                  Type.Object(
-                    {
-                      path: Type.String({ minLength: 1 }),
-                      access: Type.Union([
-                        Type.Literal("read"),
-                        Type.Literal("write"),
-                      ]),
-                    },
-                    { additionalProperties: false },
-                  ),
-                ),
-              },
-              { additionalProperties: false },
-            ),
-          ),
-          commands: Type.Optional(
-            Type.Object(
-              { allowed: Type.Boolean() },
-              { additionalProperties: false },
-            ),
-          ),
-        },
-        { additionalProperties: false },
-      ),
+      type: Type.Literal("allowDevicePermission"),
+      request: Type.Union([
+        Type.Object(
+          {
+            kind: Type.Literal("folder"),
+            folder: Type.String({ minLength: 1 }),
+            access: Type.Union([Type.Literal("read"), Type.Literal("write")]),
+            path: Type.String({ minLength: 1 }),
+          },
+          { additionalProperties: false },
+        ),
+        Type.Object(
+          {
+            kind: Type.Literal("commands"),
+            command: Type.String(),
+            cwd: Type.String({ minLength: 1 }),
+          },
+          { additionalProperties: false },
+        ),
+      ]),
+      access: Type.Union([Type.Literal("read"), Type.Literal("write")]),
     },
     { additionalProperties: false },
   ),
@@ -128,6 +112,10 @@ export type DesktopRequest = Static<typeof desktopRequestSchema>;
 export type ConnectIntegrationRequest = Extract<
   DesktopRequest,
   { type: "connectIntegration" }
+>;
+type AllowDevicePermissionRequest = Extract<
+  DesktopRequest,
+  { type: "allowDevicePermission" }
 >;
 export type CancelIntegrationRequest = Extract<
   DesktopRequest,
@@ -160,8 +148,10 @@ export type DesktopBridge = {
     sessionId: string;
     connectionId: string;
   }) => Promise<void>;
-  getDevice: () => Promise<LocalDeviceState>;
-  updateDevice: (update: LocalDeviceUpdate) => Promise<LocalDeviceState>;
+  getDevice: () => Promise<LocalDeviceInfo>;
+  allowDevicePermission: (
+    input: Omit<AllowDevicePermissionRequest, "type">,
+  ) => Promise<void>;
 };
 
 declare global {

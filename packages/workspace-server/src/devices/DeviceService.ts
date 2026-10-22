@@ -5,6 +5,7 @@ import type {
   DeviceAdvertisement,
   DeviceOperation,
   DeviceOperationOutput,
+  DevicePermission,
   DeviceOperationResult,
   DeviceRequest,
   DeviceResponse,
@@ -39,6 +40,18 @@ export class DeviceOperationError extends errore.createTaggedError({
   name: "DeviceOperationError",
   message: 'Device "$device" could not run $operation ($code): $detail',
 }) {}
+/** The person must allow access on the device before the call can run. */
+export class DevicePermissionRequiredError extends errore.createTaggedError({
+  name: "DevicePermissionRequiredError",
+  message: 'Device "$device" needs permission: $detail',
+}) {
+  readonly permission: DevicePermission;
+
+  constructor(input: { permission: DevicePermission; detail: string }) {
+    super({ device: input.permission.deviceName, detail: input.detail });
+    this.permission = input.permission;
+  }
+}
 export class DeviceCallNotFoundError extends errore.createTaggedError({
   name: "DeviceCallNotFoundError",
   message: "Device call $callId is no longer pending",
@@ -56,6 +69,7 @@ const deviceErrors = [
   DeviceDisconnectedError,
   DeviceTimeoutError,
   DeviceOperationError,
+  DevicePermissionRequiredError,
   DeviceCallAbortedError,
 ];
 
@@ -89,8 +103,8 @@ type PendingCall = {
 /**
  * Routes workspace tool calls to the person's connected computers. A device
  * opens a request stream with serve and answers each request with respond.
- * Devices decide what is allowed, asking the person when needed; this
- * service only delivers requests and results.
+ * Devices decide what is allowed and return permission requests that the
+ * tools show as cards; this service only delivers requests and results.
  */
 export class DeviceService {
   private readonly devices = new Map<string, KnownDevice>();
@@ -103,8 +117,7 @@ export class DeviceService {
   ) {
     // A socket rotation or brief network loss should not fail running calls.
     this.disconnectGraceMs = ctx.disconnectGraceMs ?? 20_000;
-    // The device may be waiting for the person to answer an access prompt.
-    this.callTimeoutMs = ctx.callTimeoutMs ?? 5 * 60_000;
+    this.callTimeoutMs = ctx.callTimeoutMs ?? 60_000;
   }
 
   list(): DeviceSummary[] {
@@ -162,6 +175,21 @@ export class DeviceService {
     this.calls.delete(response.callId);
     const device = this.devices.get(call.deviceId);
     if (device !== undefined) device.lastSeenAt = Date.now();
+    const name = device?.advertisement.name ?? call.deviceId;
+    if (!response.ok && response.error.permission !== undefined) {
+      call.settle(
+        new DevicePermissionRequiredError({
+          permission: {
+            deviceId: call.deviceId,
+            deviceName: name,
+            deviceHome: device?.advertisement.home ?? "",
+            request: response.error.permission,
+          },
+          detail: response.error.message,
+        }),
+      );
+      return;
+    }
     call.settle(
       response.ok
         ? response.result

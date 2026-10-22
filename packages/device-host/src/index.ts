@@ -4,9 +4,7 @@ export { DeviceShell } from "./DeviceShell.js";
 export {
   DeviceAccess,
   DeviceFileError,
-  type DeviceAccessAnswer,
-  type DeviceAccessRequest,
-  type DeviceCommandRequest,
+  DevicePermissionRequiredError,
   type DevicePermissions,
   type DeviceFileErrorCode,
   type DeviceGrant,

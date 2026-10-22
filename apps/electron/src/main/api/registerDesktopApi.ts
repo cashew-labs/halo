@@ -101,11 +101,14 @@ async function handleDesktopRequest(args: {
       return signedOut;
     }
     case "getDevice":
-      return args.device?.state() ?? deviceUnavailable();
-    case "updateDevice":
-      return (
-        (await args.device?.update(args.request.update)) ?? deviceUnavailable()
-      );
+      return args.device?.info() ?? deviceUnavailable();
+    case "allowDevicePermission":
+      return args.device === undefined
+        ? deviceUnavailable()
+        : await args.device.allow({
+            request: args.request.request,
+            access: args.request.access,
+          });
     case "getAppInfo":
       return args.appUpdates.getAppInfo();
     case "checkForAppUpdate":

@@ -10,13 +10,14 @@ import {
   ioError,
   type DeviceAccess,
   type DeviceFileError,
+  type DevicePermissionRequiredError,
 } from "./DeviceAccess.js";
 
 const maxListEntries = 1_000;
 
 /**
  * Runs file operations for the workspace agent. DeviceAccess decides each
- * path first, asking the person when a folder has no grant yet.
+ * path first and returns a permission request when a folder has no grant.
  */
 export class DeviceFiles {
   private readonly access: DeviceAccess;
@@ -27,7 +28,11 @@ export class DeviceFiles {
 
   async run<T extends DeviceFileOperation>(
     operation: T,
-  ): Promise<DeviceOperationResult[T["type"]] | DeviceFileError> {
+  ): Promise<
+    | DeviceOperationResult[T["type"]]
+    | DeviceFileError
+    | DevicePermissionRequiredError
+  > {
     const target = await this.access.authorize({
       path: operation.path,
       access:

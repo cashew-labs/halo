@@ -11,7 +11,11 @@ import { haloTool, type HaloToolContext } from "../agent/tools/HaloTool.js";
 import { readFile, type TextFiles } from "../agent/tools/files/read.js";
 import { editFile } from "../agent/tools/files/edit.js";
 import { writeFile } from "../agent/tools/files/write.js";
-import { deviceFailure, type DeviceService } from "./DeviceService.js";
+import {
+  deviceFailure,
+  DevicePermissionRequiredError,
+  type DeviceService,
+} from "./DeviceService.js";
 
 export class DeviceFileTooLargeError extends errore.createTaggedError({
   name: "DeviceFileTooLargeError",
@@ -61,7 +65,16 @@ function deviceTool<S extends TObject>(definition: {
         resolvePath: (value) => resolveDevicePath(summary, value),
       });
       // Shared file helpers wrap errors; the agent needs the device's reason.
-      if (result instanceof Error) return deviceFailure(result);
+      if (result instanceof Error) {
+        const failure = deviceFailure(result);
+        if (failure instanceof DevicePermissionRequiredError)
+          context.runtime.requestApproval({
+            toolPath: context.toolPath,
+            message: failure.message,
+            arguments: { devicePermission: failure.permission },
+          });
+        return failure;
+      }
       return { result: { device: summary.name, ...result } };
     },
   });
@@ -110,7 +123,7 @@ function deviceTextFiles(tool: DeviceToolContext): TextFiles {
 export const deviceTools = {
   list: haloTool({
     description:
-      "List the person's own computers running Halo, with online status, platform, and home folder. Pass a device's name to the other tools.devices tools. The first time the agent uses a folder on a computer, the person is asked there to allow read or read-and-write access; a refusal returns access_denied. Workspace tools such as files and bash run on the workspace VM, never on a device.",
+      "List the person's own computers running Halo, with online status, platform, and home folder. Pass a device's name to the other tools.devices tools. The first time the agent uses a folder on a computer, Halo shows the person a card in this chat to allow read or read-and-write access; the call returns permission_required until they answer, and you are notified when they do. Workspace tools such as files and bash run on the workspace VM, never on a device.",
     inputSchema: Type.Object({}),
     requiredCapabilities: ["devices.list"],
     execute: async (_, context) => ({
@@ -120,7 +133,7 @@ export const deviceTools = {
   files: {
     list: deviceTool({
       description:
-        "List a folder on one of the person's computers. The person may be asked to allow access first.",
+        "List a folder on one of the person's computers. The person may need to allow access in a chat card first.",
       inputSchema: Type.Object({ device, path: devicePath }),
       requiredCapabilities: ["devices.files.read"],
       execute: async (input, tool) =>
@@ -149,7 +162,7 @@ export const deviceTools = {
     }),
     write: deviceTool({
       description:
-        "Create or replace a UTF-8 text file on one of the person's computers. The person may be asked to allow changes to that folder first.",
+        "Create or replace a UTF-8 text file on one of the person's computers. The person may need to allow changes to that folder in a chat card first.",
       inputSchema: Type.Object({
         device,
         path: devicePath,
@@ -165,7 +178,7 @@ export const deviceTools = {
     }),
     edit: deviceTool({
       description:
-        "Replace exact text in a UTF-8 file on one of the person's computers. The person may be asked to allow changes to that folder first.",
+        "Replace exact text in a UTF-8 file on one of the person's computers. The person may need to allow changes to that folder in a chat card first.",
       inputSchema: Type.Object({
         device,
         path: devicePath,
@@ -183,7 +196,7 @@ export const deviceTools = {
     }),
     delete: deviceTool({
       description:
-        "Delete a file on one of the person's computers. Folders are refused. The person may be asked to allow changes to that folder first.",
+        "Delete a file on one of the person's computers. Folders are refused. The person may need to allow changes to that folder in a chat card first.",
       inputSchema: Type.Object({ device, path: devicePath }),
       requiredCapabilities: ["devices.files.write"],
       execute: async (input, tool) =>
@@ -249,7 +262,7 @@ export const deviceTools = {
       },
     }),
     copyFromWorkspace: deviceTool({
-      description: `Copy a workspace file to one of the person's computers, replacing any file at that path. The person may be asked to allow changes to that folder first. Files are limited to ${deviceFileLimits.maxBytes / 1024 / 1024} MiB.`,
+      description: `Copy a workspace file to one of the person's computers, replacing any file at that path. The person may need to allow changes to that folder in a chat card first. Files are limited to ${deviceFileLimits.maxBytes / 1024 / 1024} MiB.`,
       inputSchema: Type.Object({
         device,
         workspacePath: Type.String({ minLength: 1 }),
@@ -287,7 +300,7 @@ export const deviceTools = {
   },
   shell: {
     run: deviceTool({
-      description: `Run a command in the login shell on one of the person's computers, as that person, starting in their home folder unless cwd is given. Use it only for work on their computer; use tools.bash.run for the workspace. The first time, the person is asked on that computer to allow commands; a refusal returns access_denied. Returns code, stdout, stderr, timedOut and truncated. Timeout defaults to ${deviceShellLimits.defaultTimeoutMs / 1000} seconds, maximum ${deviceShellLimits.maxTimeoutMs / 60_000} minutes. Long output keeps its beginning and end.`,
+      description: `Run a command in the login shell on one of the person's computers, as that person, starting in their home folder unless cwd is given. Use it only for work on their computer; use tools.bash.run for the workspace. The first time, Halo shows the person a card in this chat to allow commands; the call returns permission_required until they answer, and you are notified when they do. Returns code, stdout, stderr, timedOut and truncated. Timeout defaults to ${deviceShellLimits.defaultTimeoutMs / 1000} seconds, maximum ${deviceShellLimits.maxTimeoutMs / 60_000} minutes. Long output keeps its beginning and end.`,
       inputSchema: Type.Object({
         device,
         command: Type.String({ minLength: 1 }),
@@ -312,8 +325,8 @@ export const deviceTools = {
             timeoutMs,
           },
           signal: tool.context.signal,
-          // Leave time for the person to answer the first-use prompt.
-          timeoutMs: timeoutMs + 5 * 60_000,
+          // The device enforces the command's own timeout first.
+          timeoutMs: timeoutMs + 30_000,
         });
       },
     }),
