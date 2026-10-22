@@ -349,22 +349,28 @@ export class BrowserService {
     this.workspaceRoot = ctx.workspaceRoot;
   }
 
-  async tabs() {
-    const connection = await this.connect({ launch: false });
-    if (connection instanceof BrowserUnavailableError) return [];
-    if (connection instanceof Error) return connection;
-    const tabs = await Promise.all(
-      this.pages(connection).map(async (page) => {
-        const pageId = await this.targetId(page);
-        if (pageId instanceof Error) {
-          // A tab can close while the list is read.
-          console.warn(pageId);
-          return undefined;
-        }
-        return await describeTab(page, pageId);
-      }),
-    );
-    return tabs.filter((tab) => tab !== undefined);
+  async tabs(input: { signal?: AbortSignal } = {}) {
+    return await this.bounded({
+      method: "tabs",
+      signal: input.signal,
+      run: async () => {
+        const connection = await this.connect({ launch: false });
+        if (connection instanceof BrowserUnavailableError) return [];
+        if (connection instanceof Error) return connection;
+        const tabs = await Promise.all(
+          this.pages(connection).map(async (page) => {
+            const pageId = await this.targetId(page);
+            if (pageId instanceof Error) {
+              // A tab can close while the list is read.
+              console.warn(pageId);
+              return undefined;
+            }
+            return await describeTab(page, pageId);
+          }),
+        );
+        return tabs.filter((tab) => tab !== undefined);
+      },
+    });
   }
 
   async newPage(input: {
@@ -494,13 +500,19 @@ export class BrowserService {
     });
   }
 
-  async close(input: { page: string }) {
-    const page = await this.pageFor(input.page);
-    if (page instanceof Error) return page;
-    const closed = await page
-      .close()
-      .catch((cause) => new BrowserError({ detail: "close tab", cause }));
-    if (closed instanceof Error) return closed;
+  async close(input: { page: string; signal?: AbortSignal }) {
+    return await this.bounded({
+      method: "close",
+      signal: input.signal,
+      run: async () => {
+        const page = await this.pageFor(input.page);
+        if (page instanceof Error) return page;
+        const closed = await page
+          .close()
+          .catch((cause) => new BrowserError({ detail: "close tab", cause }));
+        if (closed instanceof Error) return closed;
+      },
+    });
   }
 
   async shutdown() {
@@ -1084,19 +1096,10 @@ export class BrowserService {
     let current = root;
     for (const part of relative.split(path.sep)) {
       const candidate = path.join(current, part);
-      const existing = await fs.realpath(candidate).catch(() => undefined);
-      if (existing === undefined) {
-        // mkdir fails on a dangling symlink instead of creating its target.
-        const made = await fs
-          .mkdir(candidate)
-          .catch(
-            (cause) =>
-              new BrowserError({ detail: `create ${relative}`, cause }),
-          );
-        if (made instanceof Error) return made;
-        current = candidate;
-        continue;
-      }
+      const existing =
+        (await fs.realpath(candidate).catch(() => undefined)) ??
+        (await this.createDirectory(candidate, relative));
+      if (existing instanceof Error) return existing;
       if (!isInside(root, existing))
         return new BrowserError({
           detail: `${relative} leads outside the workspace`,
@@ -1104,6 +1107,25 @@ export class BrowserService {
       current = existing;
     }
     return { real: current, relative };
+  }
+
+  // Returns the real path of the new directory, or of one a concurrent call created first.
+  private async createDirectory(candidate: string, relative: string) {
+    // mkdir fails on a dangling symlink instead of creating its target, and
+    // realpath then fails too.
+    const made = await fs
+      .mkdir(candidate)
+      .catch((cause: NodeJS.ErrnoException) =>
+        cause.code === "EEXIST"
+          ? undefined
+          : new BrowserError({ detail: `create ${relative}`, cause }),
+      );
+    if (made instanceof Error) return made;
+    return await fs
+      .realpath(candidate)
+      .catch(
+        (cause) => new BrowserError({ detail: `create ${relative}`, cause }),
+      );
   }
 
   // A requested workspace .png path, or a new file under .halo/browser/screenshots.

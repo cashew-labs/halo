@@ -43,7 +43,7 @@ export const browserTools = {
     description:
       "List the workspace Chrome's open tabs: `{ id, url, title }`. The user's tabs are listed too. Returns `[]` when Chrome is not running.",
     inputSchema: Type.Object({}),
-    execute: async (_, { service }) => await service.tabs(),
+    execute: async (_, { service, signal }) => await service.tabs({ signal }),
   }),
   newPage: browserTool({
     description:
@@ -79,6 +79,7 @@ export const browserTools = {
     description:
       "Close the tab `page`. Close the tabs you opened when you are done; close the user's tabs only when asked.",
     inputSchema: Type.Object({ page: pageId }),
-    execute: async (input, { service }) => await service.close(input),
+    execute: async (input, { service, signal }) =>
+      await service.close({ ...input, signal }),
   }),
 };
