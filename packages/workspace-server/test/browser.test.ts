@@ -81,6 +81,17 @@ browserTest(
     await expect(
       call(opened.id, [["locator", [`aria-ref=${ref}`]]], "click"),
     ).rejects.toThrow(/latest snapshot/);
+    // Playwright pastes nth's argument into the selector; it cannot carry a raw ref.
+    await expect(
+      call(
+        opened.id,
+        [
+          ["locator", ["body"]],
+          ["nth", [`0 >> aria-ref=${ref!.replace(/^s\d+/, "")}`]],
+        ],
+        "click",
+      ),
+    ).rejects.toThrow(/unsupported arguments for nth/);
 
     // SAFETY: browser.tabs returns the open tabs.
     const tabs = (await server.rpc.testApi.invokeTool({

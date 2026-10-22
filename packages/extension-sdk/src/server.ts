@@ -72,11 +72,11 @@ function requestAccess(
       : "denied";
   }
   const site = request.headers["sec-fetch-site"];
+  const port = request.socket.localPort;
+  if (port === undefined) return "denied";
   const local =
     loopbackAddresses.has(request.socket.remoteAddress ?? "") &&
-    loopbackHosts.some(
-      (host) => request.headers.host === `${host}:${request.socket.localPort}`,
-    ) &&
+    loopbackHosts.some((host) => request.headers.host === `${host}:${port}`) &&
     (site === undefined || site === "same-origin" || site === "none");
   return local ? "local" : "denied";
 }

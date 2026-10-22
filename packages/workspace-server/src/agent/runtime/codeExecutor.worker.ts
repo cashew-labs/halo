@@ -130,12 +130,13 @@ const bootstrap = vm.evalCode(`
       if (value !== null && typeof value === 'object' && chainOf in value)
         return { $locator: { page: value[pageOf], chain: value[chainOf] } };
       if (Array.isArray(value)) return value.map(encode);
-      if (isPlain(value)) {
-        const encoded = {};
-        for (const [key, item] of Object.entries(value))
-          if (item !== undefined) encoded[key] = encode(item);
-        return encoded;
-      }
+      if (isPlain(value))
+        // fromEntries keeps a "__proto__" key as data.
+        return Object.fromEntries(
+          Object.entries(value)
+            .filter(([, item]) => item !== undefined)
+            .map(([key, item]) => [key, encode(item)]),
+        );
       if (value === null || typeof value !== 'object') return value;
       throw new TypeError('Browser arguments must be JSON values, RegExps, functions, or locators');
     };
@@ -158,6 +159,8 @@ const bootstrap = vm.evalCode(`
       const run = async (chain, method, args) => {
         const data = await call('browser.call', { page: info.id, chain, method, args: args.map(encode) });
         url = data.url;
+        for (const dialog of data.dismissedDialogs ?? [])
+          log('Dismissed browser dialog (' + dialog + '). Run page.evaluate to replace window.confirm, window.prompt, or window.alert before the action if the page needs a different answer.');
         return data.value;
       };
       const target = { id: info.id, url: () => url };

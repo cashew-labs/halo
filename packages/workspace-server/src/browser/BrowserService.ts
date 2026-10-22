@@ -3,10 +3,11 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
-import { Type, type Static } from "@sinclair/typebox";
+import { Type, type Static, type TSchema } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import {
   chromium,
+  errors,
   type Browser,
   type BrowserContext,
   type Dialog,
@@ -112,11 +113,104 @@ const locatorSchema = Type.Object(
   strict,
 );
 const selectorSchema = Type.String();
+const textSchema = Type.Union([Type.String(), regexpSchema]);
+const exactSchema = Type.Object(
+  { exact: Type.Optional(Type.Boolean()) },
+  strict,
+);
+const optional = <T extends TSchema>(schema: T) =>
+  Type.Union([schema, undefinedSchema]);
+// Builders whose arguments Playwright pastes into selector text get exact shapes,
+// so an argument cannot smuggle in another selector such as aria-ref.
+const builderArgs = new Map<string, TSchema>(
+  Object.entries({
+    locator: Type.Union([
+      Type.Tuple([selectorSchema]),
+      Type.Tuple([
+        selectorSchema,
+        optional(
+          Type.Object(
+            {
+              has: Type.Optional(locatorSchema),
+              hasNot: Type.Optional(locatorSchema),
+              hasText: Type.Optional(textSchema),
+              hasNotText: Type.Optional(textSchema),
+            },
+            strict,
+          ),
+        ),
+      ]),
+    ]),
+    getByRole: Type.Union([
+      Type.Tuple([Type.String({ pattern: "^[a-z]+$" })]),
+      Type.Tuple([
+        Type.String({ pattern: "^[a-z]+$" }),
+        optional(
+          Type.Object(
+            {
+              checked: Type.Optional(Type.Boolean()),
+              disabled: Type.Optional(Type.Boolean()),
+              selected: Type.Optional(Type.Boolean()),
+              expanded: Type.Optional(Type.Boolean()),
+              includeHidden: Type.Optional(Type.Boolean()),
+              pressed: Type.Optional(Type.Boolean()),
+              level: Type.Optional(Type.Integer()),
+              name: Type.Optional(textSchema),
+              description: Type.Optional(textSchema),
+              exact: Type.Optional(Type.Boolean()),
+            },
+            strict,
+          ),
+        ),
+      ]),
+    ]),
+    ...Object.fromEntries(
+      [
+        "getByText",
+        "getByLabel",
+        "getByPlaceholder",
+        "getByAltText",
+        "getByTitle",
+      ].map((name) => [
+        name,
+        Type.Union([
+          Type.Tuple([textSchema]),
+          Type.Tuple([textSchema, optional(exactSchema)]),
+        ]),
+      ]),
+    ),
+    getByTestId: Type.Tuple([textSchema]),
+    filter: Type.Union([
+      Type.Tuple([]),
+      Type.Tuple([
+        optional(
+          Type.Object(
+            {
+              has: Type.Optional(locatorSchema),
+              hasNot: Type.Optional(locatorSchema),
+              hasText: Type.Optional(textSchema),
+              hasNotText: Type.Optional(textSchema),
+              visible: Type.Optional(Type.Boolean()),
+            },
+            strict,
+          ),
+        ),
+      ]),
+    ]),
+    first: Type.Tuple([]),
+    last: Type.Tuple([]),
+    nth: Type.Tuple([Type.Integer()]),
+    and: Type.Tuple([locatorSchema]),
+    or: Type.Tuple([locatorSchema]),
+  }),
+);
 const aiModeSchema = Type.Object({ mode: Type.Literal("ai") });
 const timeoutSchema = Type.Number({ exclusiveMinimum: 0 });
 const pathSchema = Type.String();
 // The only accepted form of a snapshot ref: aria-ref=s<generation><Playwright ref>.
-const refPattern = /^aria-ref=s(\d+)([a-z]\S*)$/;
+const refPattern = /^aria-ref=s(\d+)((?:f\d+)?e\d+)$/;
+// Tab titles and URLs, such as data: URLs, can be arbitrarily long.
+const metadataLimit = 2048;
 type Receiver = Page | Locator;
 // A decoded argument as Playwright receives it.
 type PlaywrightArg =
@@ -139,15 +233,7 @@ const pageBuilders = new Set([
   "getByTitle",
   "getByTestId",
 ]);
-const locatorBuilders = new Set([
-  ...pageBuilders,
-  "filter",
-  "first",
-  "last",
-  "nth",
-  "and",
-  "or",
-]);
+const locatorBuilders = new Set(builderArgs.keys());
 
 type Method = {
   // Index of the options argument that receives timeout and signal.
@@ -232,8 +318,8 @@ export class BrowserService {
   private connecting: Promise<Connection | Error> | undefined;
   // Latest snapshot generation per tab; refs from other generations are stale.
   private readonly snapshotGenerations = new Map<string, number>();
-  // Snapshots of one tab run in order, so generations match Playwright's ref cache.
-  private readonly snapshotQueues = new Map<string, SerialQueue>();
+  // Orders snapshots, which replace a tab's refs, with calls that use refs.
+  private readonly refGates = new Map<string, RefGate>();
   // Random start, so refs issued before a server restart do not match new ones.
   private generation = crypto.randomInt(1, 1_000_000);
   private readonly targetIds = new WeakMap<Page, string>();
@@ -241,6 +327,8 @@ export class BrowserService {
   private readonly busy = new Map<Page, number>();
   // A dialog that opened while no agent call ran; the next call dismisses it.
   private readonly pendingDialogs = new WeakMap<Page, Dialog>();
+  // Dialogs dismissed for agent calls, reported by the next call on the tab to finish.
+  private readonly dismissedDialogs = new WeakMap<Page, string[]>();
   private closed = false;
   private readonly chrome: ChromeConfig;
   private readonly workspaceRoot: string;
@@ -262,7 +350,7 @@ export class BrowserService {
           console.warn(pageId);
           return undefined;
         }
-        return { id: pageId, url: page.url(), title: await titleOf(page) };
+        return await describeTab(page, pageId);
       }),
     );
     return tabs.filter((tab) => tab !== undefined);
@@ -308,6 +396,7 @@ export class BrowserService {
           const url = input.url;
           const loaded = await this.track(
             page,
+            signal,
             async () =>
               await page
                 .goto(url, { timeout: actionTimeout, signal })
@@ -315,10 +404,11 @@ export class BrowserService {
           );
           if (loaded instanceof Error) return loaded;
         }
+        const opened = await describeTab(page, pageId);
         // The caller already received an error; do not leave an unknown tab behind.
         if (signal.aborted) return cancelled();
         cleanup.move();
-        return { id: pageId, url: page.url(), title: await titleOf(page) };
+        return opened;
       },
     });
   }
@@ -340,34 +430,51 @@ export class BrowserService {
       run: async (signal) => {
         const page = await this.pageFor(input.page);
         if (page instanceof Error) return page;
-        const target = this.replay(page, input.page, input.chain);
-        if (target instanceof Error) return target;
-        const args = this.decodeArgs(page, input.page, limited);
-        if (args instanceof Error) return args;
-        if (spec.optionsAt !== undefined)
-          args[spec.optionsAt] = {
-            // SAFETY: limitOptions put a plain options object here, and decoding keeps plain objects.
-            ...(args[spec.optionsAt] as Record<string, PlaywrightArg>),
-            signal,
-          };
-        // Nothing has touched the page yet; stop here if the call was cancelled.
-        if (signal.aborted) return cancelled();
+        const snapshot =
+          input.method === "snapshot" || input.method === "ariaSnapshot";
         const outcome = await this.track(
           page,
+          signal,
           async () =>
-            await this.invoke({
-              page,
+            await this.ordered({
               pageId: input.page,
-              target,
-              method: input.method,
-              spec,
-              args,
+              mode: snapshot ? "write" : usesRefs(input) ? "read" : undefined,
+              signal,
+              // Refs are checked again here, in order with this tab's snapshots.
+              run: async () => {
+                const target = this.replay(page, input.page, input.chain);
+                if (target instanceof Error) return target;
+                const args = this.decodeArgs(page, input.page, limited);
+                if (args instanceof Error) return args;
+                if (spec.optionsAt !== undefined)
+                  args[spec.optionsAt] = {
+                    // SAFETY: limitOptions put a plain options object here, and decoding keeps plain objects.
+                    ...(args[spec.optionsAt] as Record<string, PlaywrightArg>),
+                    signal,
+                  };
+                // Nothing has touched the page yet; stop if the call was cancelled.
+                if (signal.aborted) return cancelled();
+                return await this.invoke({
+                  page,
+                  pageId: input.page,
+                  target,
+                  method: input.method,
+                  spec,
+                  args,
+                });
+              },
             }),
         );
         if (outcome instanceof Error) return outcome;
         const value = toJson(input.method, outcome.value);
         if (value instanceof Error) return value;
-        return { value: value.json, url: page.url() };
+        const dialogs = this.dismissedDialogs.get(page) ?? [];
+        this.dismissedDialogs.delete(page);
+        return {
+          value: value.json,
+          url: capText(page.url()),
+          ...(dialogs.length > 0 && { dismissedDialogs: dialogs }),
+        };
       },
     });
   }
@@ -379,7 +486,6 @@ export class BrowserService {
       .close()
       .catch((cause) => new BrowserError({ detail: "close tab", cause }));
     if (closed instanceof Error) return closed;
-    this.snapshotGenerations.delete(input.page);
   }
 
   async shutdown() {
@@ -435,9 +541,19 @@ export class BrowserService {
     const endpoint = `ws://127.0.0.1:${port}${browserPath}`;
     const browser = await chromium
       .connectOverCDP(endpoint, { timeout: 5_000 })
-      .catch(
-        (cause) =>
-          new BrowserUnavailableError({ detail: "connect to DevTools", cause }),
+      .catch((cause) =>
+        // Chrome answers but a tab blocked by a dialog never finishes attaching.
+        // Launching again would only open another window in the same Chrome.
+        cause instanceof errors.TimeoutError
+          ? new BrowserError({
+              detail:
+                "Chrome did not finish connecting. A tab may be showing a dialog; ask the user to answer it in Chrome, then try again",
+              cause,
+            })
+          : new BrowserUnavailableError({
+              detail: "connect to DevTools",
+              cause,
+            }),
       );
     if (browser instanceof Error) return browser;
     if (this.closed) {
@@ -450,7 +566,7 @@ export class BrowserService {
       this.connection = undefined;
       // Refs live in this connection's utility world.
       this.snapshotGenerations.clear();
-      this.snapshotQueues.clear();
+      this.refGates.clear();
     });
     for (const context of browser.contexts()) this.watchDialogs(context);
     this.connection = connection;
@@ -518,8 +634,13 @@ export class BrowserService {
       .catch((cause) => new BrowserError({ detail: "detach from tab", cause }));
     if (detached instanceof Error) console.warn(detached);
     if (info instanceof Error) return info;
-    this.targetIds.set(page, info.targetInfo.targetId);
-    return info.targetInfo.targetId;
+    const pageId = info.targetInfo.targetId;
+    this.targetIds.set(page, pageId);
+    page.once("close", () => {
+      this.snapshotGenerations.delete(pageId);
+      this.refGates.delete(pageId);
+    });
+    return pageId;
   }
 
   // Playwright dismisses dialogs that have no listener, including the user's.
@@ -528,23 +649,90 @@ export class BrowserService {
     context.on("dialog", async (dialog: Dialog) => {
       const page = dialog.page();
       if (page === null) return;
-      if (this.busy.has(page)) await dismiss(dialog);
+      if (this.busy.has(page)) await this.dismiss(page, dialog);
       else this.pendingDialogs.set(page, dialog);
     });
   }
 
-  private async track<T>(page: Page, run: () => Promise<T>) {
+  private async dismiss(page: Page, dialog: Dialog) {
+    // The user may already have answered it.
+    const dismissed = await dialog
+      .dismiss()
+      .catch((cause) => new BrowserError({ detail: "dismiss dialog", cause }));
+    if (dismissed instanceof Error) return console.warn(dismissed);
+    const list = this.dismissedDialogs.get(page) ?? [];
+    list.push(capText(`${dialog.type()}: ${dialog.message()}`));
+    this.dismissedDialogs.set(page, list);
+  }
+
+  // Marks the tab busy until the call settles or its budget ends, even if
+  // Playwright never settles, so later dialogs are not dismissed for a dead call.
+  private async track<T>(
+    page: Page,
+    signal: AbortSignal,
+    run: () => Promise<T>,
+  ) {
     this.busy.set(page, (this.busy.get(page) ?? 0) + 1);
     using cleanup = new errore.DisposableStack();
-    cleanup.defer(() => {
-      const count = this.busy.get(page)! - 1;
-      if (count === 0) this.busy.delete(page);
-      else this.busy.set(page, count);
-    });
+    cleanup.use(
+      untilAborted(signal, () => {
+        const count = this.busy.get(page)! - 1;
+        if (count === 0) this.busy.delete(page);
+        else this.busy.set(page, count);
+      }),
+    );
     const pending = this.pendingDialogs.get(page);
     this.pendingDialogs.delete(page);
-    if (pending !== undefined) await dismiss(pending);
+    if (pending !== undefined) await this.dismiss(page, pending);
+    if (signal.aborted) return cancelled();
     return await run();
+  }
+
+  // Calls that use refs share a tab; a snapshot waits for them and runs alone.
+  // Readers release when their budget ends, so a hung call cannot block snapshots.
+  private async ordered<T>(input: {
+    pageId: string;
+    mode: "read" | "write" | undefined;
+    signal: AbortSignal;
+    run: () => Promise<T>;
+  }): Promise<T | BrowserError> {
+    const { pageId, mode, signal, run } = input;
+    if (mode === undefined) return await run();
+    const gate = this.refGates.get(pageId) ?? {
+      queue: new SerialQueue(),
+      readers: 0,
+      idle: [],
+    };
+    this.refGates.set(pageId, gate);
+    if (mode === "read") {
+      // Enter behind any queued snapshot.
+      await gate.queue.run(() => {
+        gate.readers++;
+      });
+      using cleanup = new errore.DisposableStack();
+      cleanup.use(
+        untilAborted(signal, () => {
+          gate.readers--;
+          if (gate.readers === 0)
+            for (const resume of gate.idle.splice(0)) resume();
+        }),
+      );
+      if (signal.aborted) return cancelled();
+      return await run();
+    }
+    // The queue keeps its last result alive, so results stay out of it.
+    let result: T | BrowserError = cancelled();
+    await gate.queue.run(async () => {
+      while (gate.readers > 0 && !signal.aborted)
+        await Promise.race([
+          new Promise<void>((resume) => gate.idle.push(resume)),
+          whenAborted(signal),
+        ]);
+      if (signal.aborted) return;
+      const settled = await Promise.race([run(), whenAborted(signal)]);
+      if (settled !== undefined) result = settled;
+    });
+    return result;
   }
 
   // An isolated context exists for agent tabs; close it with its last page, popups included.
@@ -605,10 +793,15 @@ export class BrowserService {
         return new BrowserError({
           detail: `${index === 0 ? "pages" : "locators"} do not support ${name}`,
         });
+      // SAFETY: builderArgs has a schema for every allowed builder.
+      if (!Value.Check(builderArgs.get(name)!, stepArgs))
+        return new BrowserError({
+          detail: `unsupported arguments for ${name}: ${JSON.stringify(stepArgs).slice(0, 200)}`,
+        });
       const ref = this.ariaRef(pageId, name, stepArgs);
       if (ref instanceof Error) return ref;
       for (const arg of stepArgs) {
-        // Builders such as filter({ has }) take locators; none take functions.
+        // Checks nested locators' tabs and chains and compiles regexps.
         const invalid = this.validateValue(pageId, arg, {
           locators: true,
           pageFunction: false,
@@ -701,15 +894,14 @@ export class BrowserService {
     page: Page,
     pageId: string,
     chain: BrowserStep[],
-  ): Receiver | BrowserError {
+  ): Receiver | BrowserError | BrowserStaleRefError {
     let target: Receiver = page;
     for (const [name, stepArgs] of chain) {
       const translated = this.ariaRef(pageId, name, stepArgs);
-      const args =
-        translated === undefined || translated instanceof Error
-          ? this.decodeArgs(page, pageId, stepArgs)
-          : [translated, ...stepArgs.slice(1)];
+      if (translated instanceof Error) return translated;
+      const args = this.decodeArgs(page, pageId, stepArgs);
       if (args instanceof Error) return args;
+      if (translated !== undefined) args[0] = translated;
       // Page and Locator have no index signature for a lookup by validated name.
       // oxlint-disable-next-line anti-slop/no-chained-type-assertions -- SAFETY: validateChain allowed only Playwright builder names for this receiver.
       const builder: Builder = (target as unknown as Record<string, Builder>)[
@@ -740,7 +932,7 @@ export class BrowserService {
     page: Page,
     pageId: string,
     value: BrowserValue,
-  ): PlaywrightArg | BrowserError {
+  ): PlaywrightArg | BrowserError | BrowserStaleRefError {
     if (Array.isArray(value)) return this.decodeArgs(page, pageId, value);
     if (!Value.Check(objectSchema, value)) return value;
     if (Value.Check(undefinedSchema, value)) return undefined;
@@ -757,13 +949,14 @@ export class BrowserService {
     // validateValue checked the nested chain's page and refs.
     if (Value.Check(locatorSchema, value))
       return this.replay(page, pageId, value.$locator.chain);
-    const decoded: Record<string, PlaywrightArg> = {};
+    const entries: Array<[string, PlaywrightArg]> = [];
     for (const [key, item] of Object.entries(value)) {
       const member = this.decodeValue(page, pageId, item);
       if (member instanceof Error) return member;
-      decoded[key] = member;
+      entries.push([key, member]);
     }
-    return decoded;
+    // fromEntries keeps a "__proto__" key as data instead of setting the prototype.
+    return Object.fromEntries(entries);
   }
 
   private async bounded<T>(input: {
@@ -808,22 +1001,19 @@ export class BrowserService {
       // SAFETY: limitOptions put an options object at index 0, snapshot and ariaSnapshot's optionsAt.
       const given = args[0] as Parameters<Locator["ariaSnapshot"]>[0];
       const options = ai ? { ...given, mode: "ai" as const } : given;
-      const queue = this.snapshotQueues.get(pageId) ?? new SerialQueue();
-      this.snapshotQueues.set(pageId, queue);
-      return await queue.run(async () => {
-        const snapshot = await target.ariaSnapshot(options).catch(fail);
-        if (snapshot instanceof Error) return snapshot;
-        // Every snapshot replaces Playwright's refs for its frames, so older refs go stale.
-        const generation = ++this.generation;
-        this.snapshotGenerations.set(pageId, generation);
-        if (!ai) return { value: snapshot };
-        return {
-          value: snapshot.replaceAll(
-            /\[ref=([^\]\s]+)\]/g,
-            (_, ref: string) => `[ref=s${generation}${ref}]`,
-          ),
-        };
-      });
+      // ordered() runs this alone among the tab's ref calls.
+      const snapshot = await target.ariaSnapshot(options).catch(fail);
+      if (snapshot instanceof Error) return snapshot;
+      // Every snapshot replaces Playwright's refs for its frames, so older refs go stale.
+      const generation = ++this.generation;
+      this.snapshotGenerations.set(pageId, generation);
+      if (!ai) return { value: snapshot };
+      return {
+        value: snapshot.replaceAll(
+          /\[ref=([^\]\s]+)\]/g,
+          (_, ref: string) => `[ref=s${generation}${ref}]`,
+        ),
+      };
     }
     if (method === "screenshot") {
       const directory = await this.workspaceDirectory(
@@ -871,23 +1061,31 @@ export class BrowserService {
   private async workspaceDirectory(relative: string) {
     const root = await this.realRoot();
     if (root instanceof Error) return root;
-    const made = await fs
-      .mkdir(path.join(root, relative), { recursive: true })
-      .catch(
-        (cause) => new BrowserError({ detail: `create ${relative}`, cause }),
-      );
-    if (made instanceof Error) return made;
-    const real = await fs
-      .realpath(path.join(root, relative))
-      .catch(
-        (cause) => new BrowserError({ detail: `resolve ${relative}`, cause }),
-      );
-    if (real instanceof Error) return real;
-    if (!isInside(root, real))
-      return new BrowserError({
-        detail: `${relative} leads outside the workspace`,
-      });
-    return { real, relative };
+    // Check each existing component before creating the next one beneath it, so
+    // a symlinked component cannot make Halo create directories elsewhere.
+    let current = root;
+    for (const part of relative.split(path.sep)) {
+      const candidate = path.join(current, part);
+      const existing = await fs.realpath(candidate).catch(() => undefined);
+      if (existing === undefined) {
+        // mkdir fails on a dangling symlink instead of creating its target.
+        const made = await fs
+          .mkdir(candidate)
+          .catch(
+            (cause) =>
+              new BrowserError({ detail: `create ${relative}`, cause }),
+          );
+        if (made instanceof Error) return made;
+        current = candidate;
+        continue;
+      }
+      if (!isInside(root, existing))
+        return new BrowserError({
+          detail: `${relative} leads outside the workspace`,
+        });
+      current = existing;
+    }
+    return { real: current, relative };
   }
 
   private async workspaceFiles(files: PlaywrightArg) {
@@ -896,13 +1094,13 @@ export class BrowserService {
     const list = Array.isArray(files) ? files : [files];
     const resolved: string[] = [];
     for (const file of list) {
-      if (!Value.Check(pathSchema, file) || path.isAbsolute(file))
+      if (!Value.Check(pathSchema, file))
         return new BrowserError({
-          detail: "setInputFiles accepts workspace-relative file paths only",
+          detail: "setInputFiles accepts file paths in the workspace only",
         });
       // Resolve symlinks before the containment check; Playwright reads the target.
       const real = await fs
-        .realpath(path.join(root, file))
+        .realpath(path.resolve(this.workspaceRoot, file))
         .catch((cause) => new BrowserError({ detail: `read ${file}`, cause }));
       if (real instanceof Error) return real;
       if (!isInside(root, real))
@@ -927,25 +1125,62 @@ export class BrowserService {
   }
 }
 
+type RefGate = { queue: SerialQueue; readers: number; idle: Array<() => void> };
+
 type Builder = (...args: PlaywrightArg[]) => Receiver;
 // oxlint-disable-next-line anti-slop/no-unknown-returns -- Playwright methods resolve to arbitrary page values; toJson checks them.
 type Action = (...args: PlaywrightArg[]) => Promise<unknown>;
+
+// Whether a call's chain or arguments name a snapshot ref.
+function usesRefs(input: { chain: BrowserStep[]; args: BrowserValue[] }) {
+  return /aria-ref/i.test(JSON.stringify([input.chain, input.args]));
+}
+
+// Runs release once, when the returned disposable is disposed or signal aborts.
+function untilAborted(signal: AbortSignal, release: () => void) {
+  let released = false;
+  const once = () => {
+    if (released) return;
+    released = true;
+    signal.removeEventListener("abort", once);
+    release();
+  };
+  signal.addEventListener("abort", once, { once: true });
+  return { [Symbol.dispose]: once };
+}
+
+async function whenAborted(signal: AbortSignal) {
+  if (signal.aborted) return;
+  await new Promise<void>((resolve) => {
+    signal.addEventListener("abort", () => resolve(), { once: true });
+  });
+}
+
+function capText(text: string) {
+  return text.length > metadataLimit
+    ? `${text.slice(0, metadataLimit)}… (${text.length} characters)`
+    : text;
+}
+
+async function describeTab(page: Page, pageId: string) {
+  return {
+    id: pageId,
+    url: capText(page.url()),
+    title: capText(await titleOf(page)),
+  };
+}
 
 function cancelled() {
   return new BrowserError({ detail: "the call was cancelled" });
 }
 
-async function dismiss(dialog: Dialog) {
-  // The user may already have answered it.
-  const dismissed = await dialog
-    .dismiss()
-    .catch((cause) => new BrowserError({ detail: "dismiss dialog", cause }));
-  if (dismissed instanceof Error) console.warn(dismissed);
-}
-
 // A tab blocked by a dialog never answers title(); a missing title is not a failure.
 async function titleOf(page: Page) {
-  return await Promise.race([page.title().catch(() => ""), sleep(2_000, "")]);
+  const title = page.title().catch((cause) => {
+    console.warn(new BrowserError({ detail: "read tab title", cause }));
+    return "";
+  });
+  return await Promise.race([title, sleep(2_000, "")]);
 }
 
 function isInside(root: string, target: string) {

@@ -58,11 +58,11 @@ export const browserTools = {
     description: [
       "Run one Playwright method on a tab. chain is a list of [builder, args] locator steps applied to the page, for example [['getByRole', ['button', { name: 'Save' }]], ['first', []]]; an empty chain calls a page method.",
       "Page builders: locator, getByRole, getByText, getByLabel, getByPlaceholder, getByAltText, getByTitle, getByTestId; locators also allow filter, first, last, nth, and, or.",
-      "Locator methods: click, dblclick, fill, press, pressSequentially, check, uncheck, setChecked, selectOption, hover, focus, clear, setInputFiles (workspace-relative paths), scrollIntoViewIfNeeded, waitFor, textContent, innerText, inputValue, getAttribute, isVisible, isHidden, isEnabled, isChecked, count, allInnerTexts, allTextContents, boundingBox, ariaSnapshot, evaluate.",
+      "Locator methods: click, dblclick, fill, press, pressSequentially, check, uncheck, setChecked, selectOption, hover, focus, clear, setInputFiles (paths in the workspace), scrollIntoViewIfNeeded, waitFor, textContent, innerText, inputValue, getAttribute, isVisible, isHidden, isEnabled, isChecked, count, allInnerTexts, allTextContents, boundingBox, ariaSnapshot, evaluate.",
       "Page methods: goto, reload, goBack, goForward (return { url, status }, or no value when the page loaded without a network response; goBack and goForward resolve once the navigation commits, so wait for a load state or element when needed), title, content, evaluate, waitForURL, waitForLoadState, waitForTimeout, bringToFront, keyboard.press, keyboard.type, snapshot, screenshot.",
       "snapshot returns an AI aria snapshot with [ref=s1e2] refs; act on one with chain [['locator', ['aria-ref=s1e2']]]. Any newer snapshot of the tab invalidates older refs. screenshot saves a PNG and returns { path } for viewImage.",
       "Encode non-JSON arguments: { $regexp, flags } for a RegExp, { $undefined: true } for a skipped argument, { $function: source } for evaluate's first argument only, and { $locator: { page, chain } } for a locator in builder arguments such as filter({ has }) or in screenshot's mask.",
-      "A dialog that blocks a call on a tab is dismissed. Actions time out after 30 seconds and calls after 60 seconds. Returns { value, url }; value must be JSON and at most 256 KiB.",
+      "A dialog that blocks a call on a tab is dismissed and listed in dismissedDialogs; replace window.confirm with evaluate first when a page needs it accepted. Actions time out after 30 seconds and calls after 60 seconds. Returns { value, url, dismissedDialogs? }; value must be JSON and at most 256 KiB.",
     ].join(" "),
     inputSchema: Type.Object({
       page: pageId,
