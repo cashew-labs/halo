@@ -555,11 +555,12 @@ for (const { busy, entry } of [
       if (entry === "incompatible")
         await expect(
           page.getByRole("heading", {
-            name: "Can't connect to your workspace",
+            name: "Your cloud workspace needs an update",
           }),
         ).toBeVisible();
       const update = page.getByRole("button", {
-        name: "Update workspace",
+        name:
+          entry === "connected" ? "Update workspace" : "Update cloud workspace",
         exact: true,
       });
       await expect(update).toBeVisible();
@@ -586,7 +587,7 @@ for (const { busy, entry } of [
       await expect(
         page
           .getByRole("status")
-          .filter({ hasText: "Upgrading your workspace" }),
+          .filter({ hasText: /Upgrading your (cloud )?workspace/u }),
       ).toBeVisible();
       if (entry === "connected")
         await expect(

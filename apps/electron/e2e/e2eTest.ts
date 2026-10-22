@@ -151,7 +151,6 @@ export const e2eTest = baseTest.extend<E2EFixtures, E2EWorkerFixtures>({
             await server.rpc.testApi.getToolIdentity({ path }),
         });
         if (loaded instanceof Error) throw loaded;
-        await app.page.reload();
         await app.page
           .getByRole("link", { name: description.title, exact: true })
           .click();

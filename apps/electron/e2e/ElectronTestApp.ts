@@ -130,6 +130,9 @@ export class ElectronTestApp {
       },
       resources: resources.move(),
     };
+    await page
+      .getByRole("status", { name: "Connection: Connected", exact: true })
+      .waitFor();
   }
 
   async quit() {
