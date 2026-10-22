@@ -20,6 +20,7 @@ import {
   type ThreadSummariesUpdate,
 } from "@get-halo/client";
 import fs from "node:fs/promises";
+import childProcess from "node:child_process";
 import path from "node:path";
 import os from "node:os";
 import { gunzipSync } from "node:zlib";
@@ -970,6 +971,93 @@ serverTest(
     expect(await server.rpc.thread.snapshot(thread)).toEqual(snapshot);
   },
 );
+
+serverTest(
+  "finds workspace commands without loading interactive shell startup files",
+  async ({ server }) => {
+    await using cleanup = new errore.DisposableStack();
+    cleanup.defer(() => vi.unstubAllEnvs());
+    const home = path.join(server.workspaceRoot, "shell-home");
+    const bin = path.join(server.workspaceRoot, ".local", "bin");
+    await fs.mkdir(home);
+    await fs.mkdir(bin, { recursive: true });
+    await fs.writeFile(
+      path.join(home, ".bashrc"),
+      "export PATH=/usr/bin:/bin\n",
+    );
+    await fs.writeFile(
+      path.join(bin, "workspace-command"),
+      "#!/bin/sh\nprintf 'workspace CLI available'\n",
+      { mode: 0o755 },
+    );
+    vi.stubEnv("HOME", home);
+    vi.stubEnv("SHLVL", "0");
+    expect(
+      await server.rpc.testApi.invokeTool({
+        path: "bash.run",
+        input: { command: "workspace-command" },
+      }),
+    ).toMatchObject({ code: 0, stdout: "workspace CLI available" });
+  },
+);
+
+for (const toolName of ["bash", "exec"] as const) {
+  serverTest(
+    `stops a detached SIGTERM-resistant command through ${toolName}`,
+    async ({ server, llm }) => {
+      await using cleanup = new errore.AsyncDisposableStack();
+      const thread = await server.rpc.thread.new();
+      const prompting = server.promptAndWait({
+        ...thread,
+        text: "Run a command",
+      });
+      cleanup.defer(async () => {
+        await server.rpc.thread.abort(thread);
+      });
+      const script = `require('node:child_process').spawn(process.execPath, ['-e', ${JSON.stringify("process.on('SIGTERM', () => {}); require('node:fs').writeFileSync('detached.pid', String(process.pid)); setInterval(() => {}, 1000)")}], { detached: true, stdio: ['ignore', 1, 2] }).unref()`;
+      const input = {
+        command: `node -e '${script.replaceAll("'", "'\\''")}'`,
+        timeoutMs: 60_000,
+      };
+      await llm.respond(
+        m.tool.start(toolName, {
+          id: "detached-command",
+          arguments:
+            toolName === "bash"
+              ? input
+              : { js: `await tools.bash.run(${JSON.stringify(input)})` },
+        }),
+      );
+      const pidFile = path.join(server.workspaceRoot, "detached.pid");
+      await expect
+        .poll(
+          async () =>
+            await fs.access(pidFile).then(
+              () => true,
+              () => false,
+            ),
+        )
+        .toBe(true);
+      const pid = Number(await fs.readFile(pidFile, "utf8"));
+      cleanup.defer(async () => {
+        await server.rpc.testApi.invokeTool({
+          path: "bash.run",
+          input: { command: `kill -KILL ${pid} 2>/dev/null || true` },
+        });
+      });
+      const state = () =>
+        childProcess
+          .spawnSync("ps", ["-p", String(pid), "-o", "stat="], {
+            encoding: "utf8",
+          })
+          .stdout.trim();
+      expect(state()).toMatch(/^[^Z]/u);
+      await server.rpc.thread.abort(thread);
+      await prompting;
+      await expect.poll(state).toMatch(/^(?:Z.*)?$/u);
+    },
+  );
+}
 
 serverTest(
   "reopens a conversation after shutting down with a tool and viewer still active",

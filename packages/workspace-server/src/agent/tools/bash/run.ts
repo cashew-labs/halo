@@ -118,7 +118,9 @@ export async function runBash(
     const runId = crypto.randomUUID();
     const running = childProcess.spawn(
       "bash",
-      ["-c", bashSupervisor, "halo-bash", command],
+      // Node's pipe can look like a remote socket to Bash at SHLVL=0, causing
+      // .bashrc to load and overwrite the workspace PATH in a noninteractive shell.
+      ["--norc", "-c", bashSupervisor, "halo-bash", command],
       {
         cwd: cwd ?? workspaceRoot,
         env: {
@@ -250,9 +252,10 @@ async function signalBashProcesses(input: {
   const processes = await new Promise<string | BashRunError>((resolve) => {
     // e includes inherited environment; ww avoids truncating the run identity.
     // Keep this output private: it contains other processes' environments.
+    // Use BSD-style ax: procps rejects -ax when mixed with BSD eww.
     childProcess.execFile(
       "ps",
-      ["eww", "-ax", "-o", "pid=,pgid=,command="],
+      ["eww", "ax", "-o", "pid=,pgid=,command="],
       {
         timeout: 1_000,
         maxBuffer: 32 * 1024 * 1024,
