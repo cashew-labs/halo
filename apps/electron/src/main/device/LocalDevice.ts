@@ -1,6 +1,6 @@
-import os from "node:os";
-import path from "node:path";
-import { app, dialog, type BrowserWindow } from "electron";
+import crypto from "node:crypto";
+import * as errore from "errore";
+import type { BrowserWindow } from "electron";
 import {
   DeviceHost,
   DeviceSettingsStore,
@@ -13,16 +13,31 @@ import {
 } from "@get-halo/device-host";
 import type { HaloRpcTransport } from "@get-halo/client";
 import type { Logger } from "@get-halo/logger";
-import type { LocalDeviceState } from "@get-halo/web/HostApi";
+import type {
+  LocalDeviceState,
+  LocalDeviceAccessRequest,
+  LocalDeviceAccessAnswer,
+} from "@get-halo/web/HostApi";
+import { DEVICE_ACCESS_CHANNEL } from "../../shared/desktop.js";
 import type { HaloRpcConnection } from "../../shared/HaloRpcConnection.js";
 
-const answers: readonly DeviceAccessAnswer[] = ["write", "read", "deny"];
+class DeviceAccessResponseError extends errore.createTaggedError({
+  name: "DeviceAccessResponseError",
+  message:
+    "This permission request is no longer available or the answer does not match it.",
+}) {}
 
 /**
  * Makes the computer Halo runs on available to the workspace agent. Owns the
  * saved device settings, the access prompt, and the device's connection.
  */
 export class LocalDevice {
+  // Requests stay beside their tool activity for the lifetime of this desktop.
+  private readonly requests = new Map<string, LocalDeviceAccessRequest>();
+  private readonly answers = new Map<
+    string,
+    (answer: LocalDeviceAccessAnswer) => void
+  >();
   private readonly store: DeviceSettingsStore;
   private readonly host: DeviceHost;
   private readonly logger: Logger;
@@ -89,6 +104,16 @@ export class LocalDevice {
     if (saved instanceof Error) return saved;
     this.settings = saved;
     this.host.update(saved);
+    for (const request of this.requests.values()) {
+      if (!["read", "write", "allowed"].includes(request.status)) continue;
+      const prompt = request.prompt;
+      const allowed =
+        prompt.kind === "commands"
+          ? saved.commands?.allowed === true
+          : saved.files.grants.some((grant) => grant.path === prompt.folder);
+      if (!allowed) request.status = "removed";
+    }
+    this.publishRequests();
     return this.state();
   }
 
@@ -98,55 +123,109 @@ export class LocalDevice {
   }
 
   async stop() {
+    for (const answer of this.answers.values()) answer("deny");
     await this.host.stop();
   }
 
-  private async ask(request: DeviceAccessRequest): Promise<DeviceAccessAnswer> {
-    const window = this.getWindow();
-    // Draw attention without taking focus from whatever the person is doing.
-    window?.flashFrame(true);
-    app.dock?.bounce("informational");
-    const verb = request.access === "write" ? "change" : "read";
-    const options: Electron.MessageBoxOptions = {
-      type: "question",
-      message: `Allow Halo to ${verb} files in ${displayPath(request.folder)}?`,
-      detail: `The Halo agent asked to ${verb} ${displayPath(request.path)}. Your answer applies to this folder and its subfolders. You can remove it later in Account settings.`,
-      buttons: ["Allow read and write", "Allow read only", "Don't allow"],
-      defaultId: request.access === "write" ? 0 : 1,
-      cancelId: 2,
-      noLink: true,
-      signal: request.signal,
-    };
-    const chosen =
-      window === undefined
-        ? await dialog.showMessageBox(options)
-        : await dialog.showMessageBox(window, options);
-    window?.flashFrame(false);
-    if (request.signal.aborted) return "deny";
-    return answers[chosen.response] ?? "deny";
+  accessRequests() {
+    return [...this.requests.values()];
   }
 
-  private async askCommands(request: DeviceCommandRequest): Promise<boolean> {
-    const window = this.getWindow();
-    window?.flashFrame(true);
-    app.dock?.bounce("informational");
-    const options: Electron.MessageBoxOptions = {
-      type: "warning",
-      message: "Allow Halo to run commands on this computer?",
-      detail: `The Halo agent wants to run this in ${displayPath(request.cwd)}:\n\n${request.command}\n\nCommands run as you, with your full access, including folders you have not allowed. Halo remembers your answer; you can remove it later in Account settings.`,
-      buttons: ["Allow commands", "Don't allow"],
-      // Running commands is broad access, so Return does not allow it.
-      defaultId: 1,
-      cancelId: 1,
-      noLink: true,
+  respondToAccessRequest(input: {
+    requestId: string;
+    answer: LocalDeviceAccessAnswer;
+  }) {
+    const request = this.requests.get(input.requestId);
+    const answer = this.answers.get(input.requestId);
+    if (
+      request === undefined ||
+      answer === undefined ||
+      request.status !== "pending"
+    )
+      return new DeviceAccessResponseError();
+    if (
+      input.answer !== "deny" &&
+      (request.prompt.kind === "commands"
+        ? input.answer !== "allowCommands"
+        : input.answer === "allowCommands")
+    )
+      return new DeviceAccessResponseError();
+    answer(input.answer);
+  }
+
+  private publishRequests() {
+    this.getWindow()?.webContents.send(
+      DEVICE_ACCESS_CHANNEL,
+      this.accessRequests(),
+    );
+  }
+
+  private async ask(request: DeviceAccessRequest): Promise<DeviceAccessAnswer> {
+    const answer = await this.requestAccess({
+      context: request.context,
       signal: request.signal,
+      prompt: {
+        kind: "files",
+        folder: request.folder,
+        path: request.path,
+        access: request.access,
+      },
+    });
+    return answer === "read" || answer === "write" ? answer : "deny";
+  }
+
+  private async askCommands(request: DeviceCommandRequest) {
+    return (
+      (await this.requestAccess({
+        context: request.context,
+        signal: request.signal,
+        prompt: {
+          kind: "commands",
+          command: request.command,
+          cwd: request.cwd,
+        },
+      })) === "allowCommands"
+    );
+  }
+
+  private async requestAccess(input: {
+    context: DeviceAccessRequest["context"];
+    signal: AbortSignal;
+    prompt: LocalDeviceAccessRequest["prompt"];
+  }): Promise<LocalDeviceAccessAnswer> {
+    if (input.signal.aborted) return "deny";
+    const { sessionId, toolCallId } = input.context ?? {};
+    if (sessionId === undefined || toolCallId === undefined) {
+      this.logger.warn({ event: "device-permission-without-chat" });
+      return "deny";
+    }
+    const request: LocalDeviceAccessRequest = {
+      id: crypto.randomUUID(),
+      sessionId,
+      toolCallId,
+      status: "pending",
+      prompt: input.prompt,
     };
-    const chosen =
-      window === undefined
-        ? await dialog.showMessageBox(options)
-        : await dialog.showMessageBox(window, options);
-    window?.flashFrame(false);
-    return !request.signal.aborted && chosen.response === 0;
+    this.requests.set(request.id, request);
+    return await new Promise<LocalDeviceAccessAnswer>((resolve) => {
+      const finish = (answer: LocalDeviceAccessAnswer) => {
+        this.answers.delete(request.id);
+        input.signal.removeEventListener("abort", cancel);
+        request.status = input.signal.aborted
+          ? "cancelled"
+          : answer === "deny"
+            ? "denied"
+            : answer === "allowCommands"
+              ? "allowed"
+              : answer;
+        this.publishRequests();
+        resolve(answer);
+      };
+      const cancel = () => finish("deny");
+      this.answers.set(request.id, finish);
+      input.signal.addEventListener("abort", cancel, { once: true });
+      this.publishRequests();
+    });
   }
 
   private async savePermissions(permissions: DevicePermissions) {
@@ -158,12 +237,4 @@ export class LocalDevice {
     if (saved instanceof Error)
       this.logger.warn({ event: "device-grant-save-failed", error: saved });
   }
-}
-
-function displayPath(target: string) {
-  const relative = path.relative(os.homedir(), target);
-  if (relative === "") return "your home folder";
-  return relative.startsWith("..") || path.isAbsolute(relative)
-    ? target
-    : `~/${relative}`;
 }

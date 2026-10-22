@@ -15,10 +15,13 @@ import type {
   AppInfo,
   LocalDeviceState,
   LocalDeviceUpdate,
+  LocalDeviceAccessRequest,
+  LocalDeviceAccessAnswer,
 } from "@get-halo/web/HostApi";
 import type { HaloRpcConnection } from "./HaloRpcConnection.js";
 
 export const DESKTOP_CHANNEL = "halo:desktop";
+export const DEVICE_ACCESS_CHANNEL = "halo:device-access";
 
 export const desktopRequestSchema = Type.Union([
   Type.Object(
@@ -74,6 +77,23 @@ export const desktopRequestSchema = Type.Union([
   ),
   Type.Object(
     { type: Type.Literal("getDevice") },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    { type: Type.Literal("getDeviceAccessRequests") },
+    { additionalProperties: false },
+  ),
+  Type.Object(
+    {
+      type: Type.Literal("respondToDeviceAccessRequest"),
+      requestId: Type.String(),
+      answer: Type.Union([
+        Type.Literal("read"),
+        Type.Literal("write"),
+        Type.Literal("deny"),
+        Type.Literal("allowCommands"),
+      ]),
+    },
     { additionalProperties: false },
   ),
   Type.Object(
@@ -161,6 +181,14 @@ export type DesktopBridge = {
     connectionId: string;
   }) => Promise<void>;
   getDevice: () => Promise<LocalDeviceState>;
+  getDeviceAccessRequests: () => Promise<LocalDeviceAccessRequest[]>;
+  onDeviceAccessRequests: (
+    listener: (requests: LocalDeviceAccessRequest[]) => void,
+  ) => () => void;
+  respondToDeviceAccessRequest: (input: {
+    requestId: string;
+    answer: LocalDeviceAccessAnswer;
+  }) => Promise<void>;
   updateDevice: (update: LocalDeviceUpdate) => Promise<LocalDeviceState>;
 };
 
