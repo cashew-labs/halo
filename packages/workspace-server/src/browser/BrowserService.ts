@@ -85,6 +85,17 @@ export const browserStepSchema = Type.Tuple([
   browserArgsSchema,
 ]);
 type BrowserStep = Static<typeof browserStepSchema>;
+// How a call answers dialogs that open while it runs.
+export const dialogAnswerSchema = Type.Object(
+  {
+    action: Type.Union([Type.Literal("accept"), Type.Literal("dismiss")]),
+    promptText: Type.Optional(Type.String({ maxLength: 2048 })),
+  },
+  { additionalProperties: false },
+);
+type DialogAnswer = Static<typeof dialogAnswerSchema>;
+type AnsweredDialog = { type: string; message: string; accepted: boolean };
+const dismissDialogs: DialogAnswer = { action: "dismiss" };
 const objectSchema = Type.Record(Type.String(), browserValueSchema);
 const scalarSchema = Type.Union([
   Type.String(),
@@ -323,12 +334,12 @@ export class BrowserService {
   // Random start, so refs issued before a server restart do not match new ones.
   private generation = crypto.randomInt(1, 1_000_000);
   private readonly targetIds = new WeakMap<Page, string>();
-  // Agent calls running on each tab; dialogs on these tabs are dismissed.
-  private readonly busy = new Map<Page, number>();
+  // Dialog answers of the agent calls running on each tab, oldest first.
+  private readonly busy = new Map<Page, DialogAnswer[]>();
   // A dialog that opened while no agent call ran; the next call dismisses it.
   private readonly pendingDialogs = new WeakMap<Page, Dialog>();
-  // Dialogs dismissed for agent calls, reported by the next call on the tab to finish.
-  private readonly dismissedDialogs = new WeakMap<Page, string[]>();
+  // Dialogs answered for agent calls, reported by the next call on the tab to finish.
+  private readonly answeredDialogs = new WeakMap<Page, AnsweredDialog[]>();
   private closed = false;
   private readonly chrome: ChromeConfig;
   private readonly workspaceRoot: string;
@@ -397,6 +408,7 @@ export class BrowserService {
           const loaded = await this.track(
             page,
             signal,
+            { ...dismissDialogs },
             async () =>
               await page
                 .goto(url, { timeout: actionTimeout, signal })
@@ -418,6 +430,7 @@ export class BrowserService {
     chain: BrowserStep[];
     method: string;
     args: BrowserValue[];
+    dialogs?: DialogAnswer;
     signal?: AbortSignal;
   }) {
     const spec = this.validate(input);
@@ -435,6 +448,8 @@ export class BrowserService {
         const outcome = await this.track(
           page,
           signal,
+          // A fresh object, so concurrent calls with equal answers stay distinct.
+          { ...(input.dialogs ?? dismissDialogs) },
           async () =>
             await this.ordered({
               pageId: input.page,
@@ -468,12 +483,12 @@ export class BrowserService {
         if (outcome instanceof Error) return outcome;
         const value = toJson(input.method, outcome.value);
         if (value instanceof Error) return value;
-        const dialogs = this.dismissedDialogs.get(page) ?? [];
-        this.dismissedDialogs.delete(page);
+        const dialogs = this.answeredDialogs.get(page) ?? [];
+        this.answeredDialogs.delete(page);
         return {
           value: value.json,
           url: capText(page.url()),
-          ...(dialogs.length > 0 && { dismissedDialogs: dialogs }),
+          ...(dialogs.length > 0 && { dialogs }),
         };
       },
     });
@@ -644,25 +659,31 @@ export class BrowserService {
   }
 
   // Playwright dismisses dialogs that have no listener, including the user's.
-  // Only dialogs that block an agent call are dismissed.
+  // Only dialogs that block an agent call are answered, as the newest running call asks.
   private watchDialogs(context: BrowserContext) {
     context.on("dialog", async (dialog: Dialog) => {
       const page = dialog.page();
       if (page === null) return;
-      if (this.busy.has(page)) await this.dismiss(page, dialog);
+      const answer = this.busy.get(page)?.at(-1);
+      if (answer !== undefined) await this.answer(page, dialog, answer);
       else this.pendingDialogs.set(page, dialog);
     });
   }
 
-  private async dismiss(page: Page, dialog: Dialog) {
+  private async answer(page: Page, dialog: Dialog, answer: DialogAnswer) {
+    const accepted = answer.action === "accept";
     // The user may already have answered it.
-    const dismissed = await dialog
-      .dismiss()
-      .catch((cause) => new BrowserError({ detail: "dismiss dialog", cause }));
-    if (dismissed instanceof Error) return console.warn(dismissed);
-    const list = this.dismissedDialogs.get(page) ?? [];
-    list.push(capText(`${dialog.type()}: ${dialog.message()}`));
-    this.dismissedDialogs.set(page, list);
+    const answered = await (
+      accepted ? dialog.accept(answer.promptText) : dialog.dismiss()
+    ).catch((cause) => new BrowserError({ detail: "answer dialog", cause }));
+    if (answered instanceof Error) return console.warn(answered);
+    const list = this.answeredDialogs.get(page) ?? [];
+    list.push({
+      type: dialog.type(),
+      message: capText(dialog.message()),
+      accepted,
+    });
+    this.answeredDialogs.set(page, list);
   }
 
   // Marks the tab busy until the call settles or its budget ends, even if
@@ -670,20 +691,23 @@ export class BrowserService {
   private async track<T>(
     page: Page,
     signal: AbortSignal,
+    answer: DialogAnswer,
     run: () => Promise<T>,
   ) {
-    this.busy.set(page, (this.busy.get(page) ?? 0) + 1);
+    const running = this.busy.get(page) ?? [];
+    running.push(answer);
+    this.busy.set(page, running);
     using cleanup = new errore.DisposableStack();
     cleanup.use(
       untilAborted(signal, () => {
-        const count = this.busy.get(page)! - 1;
-        if (count === 0) this.busy.delete(page);
-        else this.busy.set(page, count);
+        running.splice(running.indexOf(answer), 1);
+        if (running.length === 0) this.busy.delete(page);
       }),
     );
+    // It opened before this call, perhaps for the user, so it is never accepted.
     const pending = this.pendingDialogs.get(page);
     this.pendingDialogs.delete(page);
-    if (pending !== undefined) await this.dismiss(page, pending);
+    if (pending !== undefined) await this.answer(page, pending, dismissDialogs);
     if (signal.aborted) return cancelled();
     return await run();
   }

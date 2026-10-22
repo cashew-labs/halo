@@ -156,14 +156,24 @@ const bootstrap = vm.evalCode(`
     };
     const page = (info) => {
       let url = info.url;
+      // Sent with every call from this page object; the server keeps no dialog state.
+      let dialogs;
       const run = async (chain, method, args) => {
-        const data = await call('browser.call', { page: info.id, chain, method, args: args.map(encode) });
+        const data = await call('browser.call', { page: info.id, chain, method, args: args.map(encode), dialogs });
         url = data.url;
-        for (const dialog of data.dismissedDialogs ?? [])
-          log('Dismissed browser dialog (' + dialog + '). Run page.evaluate to replace window.confirm, window.prompt, or window.alert before the action if the page needs a different answer.');
+        for (const dialog of data.dialogs ?? [])
+          log((dialog.accepted ? 'Accepted' : 'Dismissed') + ' browser ' + dialog.type + ' dialog: ' + JSON.stringify(dialog.message) +
+            (dialog.accepted ? '' : ". Call page.handleDialogs('accept') before the action to accept dialogs instead."));
         return data.value;
       };
-      const target = { id: info.id, url: () => url };
+      const target = {
+        id: info.id,
+        url: () => url,
+        handleDialogs: (action, options) => {
+          if (action !== 'accept' && action !== 'dismiss') throw new TypeError("handleDialogs takes 'accept' or 'dismiss'");
+          dialogs = { action, ...(options?.promptText === undefined ? {} : { promptText: String(options.promptText) }) };
+        },
+      };
       for (const name of pageMethods) target[name] = (...args) => run([], name, args);
       target.screenshot = async (...args) => {
         const shot = await run([], 'screenshot', args);

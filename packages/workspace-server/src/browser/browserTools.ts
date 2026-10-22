@@ -4,6 +4,7 @@ import {
   BrowserUnavailableError,
   browserArgsSchema,
   browserStepSchema,
+  dialogAnswerSchema,
   type BrowserService,
 } from "./BrowserService.js";
 
@@ -62,13 +63,14 @@ export const browserTools = {
       "Page methods: goto, reload, goBack, goForward (return { url, status }, or no value when the page loaded without a network response; goBack and goForward resolve once the navigation commits, so wait for a load state or element when needed), title, content, evaluate, waitForURL, waitForLoadState, waitForTimeout, bringToFront, keyboard.press, keyboard.type, snapshot, screenshot.",
       "snapshot returns an AI aria snapshot with [ref=s1e2] refs; act on one with chain [['locator', ['aria-ref=s1e2']]]. Any newer snapshot of the tab invalidates older refs. screenshot saves a PNG and returns { path } for viewImage.",
       "Encode non-JSON arguments: { $regexp, flags } for a RegExp, { $undefined: true } for a skipped argument, { $function: source } for evaluate's first argument only, and { $locator: { page, chain } } for a locator in builder arguments such as filter({ has }) or in screenshot's mask.",
-      "A dialog that blocks a call on a tab is dismissed and listed in dismissedDialogs; replace window.confirm with evaluate first when a page needs it accepted. Actions time out after 30 seconds and calls after 60 seconds. Returns { value, url, dismissedDialogs? }; value must be JSON and at most 256 KiB.",
+      "A dialog that opens during the call is dismissed, or accepted when dialogs is { action: 'accept', promptText? }, and listed in the result's dialogs. A dialog that opened between calls is always dismissed. Actions time out after 30 seconds and calls after 60 seconds. Returns { value, url, dialogs? }; value must be JSON and at most 256 KiB.",
     ].join(" "),
     inputSchema: Type.Object({
       page: pageId,
       chain: Type.Array(browserStepSchema),
       method: Type.String({ minLength: 1 }),
       args: browserArgsSchema,
+      dialogs: Type.Optional(dialogAnswerSchema),
     }),
     execute: async (input, { service, signal }) =>
       await service.call({ ...input, signal }),

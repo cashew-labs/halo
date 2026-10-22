@@ -228,6 +228,7 @@ browserTest(
       <title>Groceries</title>
       <ul><li>Apple</li><li>Banana</li></ul>
       <button onclick="this.textContent = 'Saved'">Save draft</button>
+      <button onclick="this.textContent = confirm('Place order?') ? 'Placed' : 'Kept'">Order</button>
     `)}`;
     const session = await server.rpc.thread.new();
     const run = server.promptAndWait({ ...session, text: "Save the draft" });
@@ -240,8 +241,13 @@ await page.getByRole("button", { name: /save/i }).click()
 var lists = await page.locator("ul").filter({ has: page.getByText("Banana") }).count()
 var items = await page.evaluate((selector) => document.querySelectorAll(selector).length, "li")
 var missing = await page.getByText("Checkout").click({ timeout: 200 }).then(() => "clicked", (error) => error.message)
+await page.getByRole("button", { name: "Order" }).click()
+var dismissed = await page.getByRole("button").last().innerText()
+page.handleDialogs("accept")
+await page.getByRole("button").last().click()
+var accepted = await page.getByRole("button").last().innerText()
 await page.screenshot()
-;({ saved: await page.getByRole("button").innerText(), lists, items, missing })`,
+;({ saved: await page.getByRole("button").first().innerText(), lists, items, missing, dismissed, accepted })`,
         },
       }),
     );
@@ -256,14 +262,25 @@ await page.screenshot()
       messages: Array<{ role: string; content: unknown }>;
     };
     const output = messages.find((message) => message.role === "tool")!;
+    // The cell's final expression comes first, then its console logs.
+    const [json, logs] = String(output.content).split("\nLogs:\n");
     // SAFETY: an exec tool message holds the JSON text of the cell's final expression.
-    const result = JSON.parse(String(output.content)) as {
+    const result = JSON.parse(json!) as {
       saved: string;
       lists: number;
       items: number;
       missing: string;
     };
-    expect(result).toMatchObject({ saved: "Saved", lists: 1, items: 2 });
+    // Dialogs are dismissed until the page object asks to accept them.
+    expect(result).toMatchObject({
+      saved: "Saved",
+      lists: 1,
+      items: 2,
+      dismissed: "Kept",
+      accepted: "Placed",
+    });
+    expect(logs).toContain('Dismissed browser confirm dialog: "Place order?"');
+    expect(logs).toContain('Accepted browser confirm dialog: "Place order?"');
     // Unlike other runtime tools, browser methods throw, with Playwright's message.
     expect(result.missing).toMatch(/Timeout 200ms exceeded/);
     // screenshot() attaches the image for the model, as viewImage does.
