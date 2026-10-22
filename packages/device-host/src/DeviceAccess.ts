@@ -34,6 +34,19 @@ export type DeviceGrant = { path: string; access: DeviceFileAccess };
 /** The person's answer to an access prompt. */
 export type DeviceAccessAnswer = DeviceFileAccess | "deny";
 
+/** What the person allowed on this computer. */
+export type DevicePermissions = {
+  grants: DeviceGrant[];
+  /** Whether the agent may run commands in the person's shell. */
+  commandsAllowed: boolean;
+};
+
+export type DeviceCommandRequest = {
+  command: string;
+  cwd: string;
+  signal: AbortSignal;
+};
+
 export type DeviceAccessRequest = {
   /** The folder the grant would cover. */
   folder: string;
@@ -60,37 +73,85 @@ const protectedHomePaths = [
 const promptTimeoutMs = 4 * 60_000;
 
 /**
- * Decides which paths the workspace agent may use on this computer. Folders
- * the person already allowed pass; anything else asks the person once per
- * folder. Refusals last until the app restarts.
+ * Decides what the workspace agent may do on this computer. Folders the
+ * person already allowed pass, and so do commands once allowed; anything
+ * else asks the person once. Refusals last until the app restarts.
  */
 export class DeviceAccess {
-  private grants: readonly DeviceGrant[];
+  private permissions: DevicePermissions;
   private readonly home: string;
   private readonly ask: (
     request: DeviceAccessRequest,
   ) => Promise<DeviceAccessAnswer>;
-  private readonly save: (grants: DeviceGrant[]) => Promise<void>;
+  private readonly askCommands: (
+    request: DeviceCommandRequest,
+  ) => Promise<boolean>;
+  private readonly save: (permissions: DevicePermissions) => Promise<void>;
   private readonly refused = new Map<string, DeviceFileAccess>();
   private readonly prompts = new Map<string, Promise<DeviceAccessAnswer>>();
+  private commandsRefused = false;
+  private commandPrompt: Promise<boolean> | undefined;
 
   constructor(ctx: {
-    grants: readonly DeviceGrant[];
+    permissions: DevicePermissions;
     home: string;
     ask: (request: DeviceAccessRequest) => Promise<DeviceAccessAnswer>;
-    /** Persists grants; the host reports its own save failures. */
-    save: (grants: DeviceGrant[]) => Promise<void>;
+    /** Asks once whether the agent may run commands; true allows. */
+    askCommands: (request: DeviceCommandRequest) => Promise<boolean>;
+    /** Persists permissions; the host reports its own save failures. */
+    save: (permissions: DevicePermissions) => Promise<void>;
   }) {
-    this.grants = ctx.grants;
+    this.permissions = ctx.permissions;
     this.home = ctx.home;
     this.ask = ctx.ask;
+    this.askCommands = ctx.askCommands;
     this.save = ctx.save;
   }
 
-  /** Applies grants the person changed in settings. */
-  setGrants(grants: readonly DeviceGrant[]) {
-    this.grants = grants;
+  /** Applies permissions the person changed in settings. */
+  setPermissions(permissions: DevicePermissions) {
+    this.permissions = permissions;
     this.refused.clear();
+    this.commandsRefused = false;
+  }
+
+  /**
+   * Allows a command when the person already allowed commands; otherwise
+   * asks once. Commands run with the person's full access, so folder grants
+   * and protected paths do not apply to them.
+   */
+  async authorizeCommand(input: {
+    command: string;
+    cwd: string;
+  }): Promise<void | DeviceFileError> {
+    if (this.permissions.commandsAllowed) return;
+    if (this.commandsRefused)
+      return fileError(
+        "access_denied",
+        "The person did not allow Halo to run commands on this computer",
+      );
+    this.commandPrompt ??= this.answerCommands(input);
+    const allowed = await this.commandPrompt;
+    this.commandPrompt = undefined;
+    if (allowed) return;
+    return fileError(
+      "access_denied",
+      "The person did not allow Halo to run commands on this computer",
+    );
+  }
+
+  private async answerCommands(input: { command: string; cwd: string }) {
+    const allowed = await this.askCommands({
+      ...input,
+      signal: AbortSignal.timeout(promptTimeoutMs),
+    }).catch(() => false);
+    if (!allowed) {
+      this.commandsRefused = true;
+      return false;
+    }
+    this.permissions = { ...this.permissions, commandsAllowed: true };
+    await this.save(this.permissions);
+    return true;
   }
 
   /**
@@ -144,7 +205,7 @@ export class DeviceAccess {
 
   private async grantFor(resolved: string) {
     let best: DeviceFileAccess | undefined;
-    for (const grant of this.grants) {
+    for (const grant of this.permissions.grants) {
       const root = await realpathAllowingMissing(grant.path);
       if (root instanceof Error || !isInside(root, resolved)) continue;
       if (grant.access === "write") return "write";
@@ -176,12 +237,16 @@ export class DeviceAccess {
       this.refused.set(request.folder, request.access);
       return answer;
     }
-    const grants = [
-      ...this.grants.filter((grant) => grant.path !== request.folder),
-      { path: request.folder, access: answer },
-    ];
-    this.grants = grants;
-    await this.save(grants);
+    this.permissions = {
+      ...this.permissions,
+      grants: [
+        ...this.permissions.grants.filter(
+          (grant) => grant.path !== request.folder,
+        ),
+        { path: request.folder, access: answer },
+      ],
+    };
+    await this.save(this.permissions);
     return answer;
   }
 }

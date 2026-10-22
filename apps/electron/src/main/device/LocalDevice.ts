@@ -6,7 +6,8 @@ import {
   DeviceSettingsStore,
   type DeviceAccessAnswer,
   type DeviceAccessRequest,
-  type DeviceGrant,
+  type DeviceCommandRequest,
+  type DevicePermissions,
   type DeviceSettings,
   type DeviceSettingsUpdate,
 } from "@get-halo/device-host";
@@ -53,7 +54,9 @@ export class LocalDevice {
         } satisfies HaloRpcTransport;
       },
       ask: async (request) => await this.ask(request),
-      saveGrants: async (grants) => await this.saveGrants(grants),
+      askCommands: async (request) => await this.askCommands(request),
+      savePermissions: async (permissions) =>
+        await this.savePermissions(permissions),
     });
   }
 
@@ -76,6 +79,7 @@ export class LocalDevice {
       name: this.settings.name,
       enabled: this.settings.enabled,
       files: this.settings.files,
+      commands: { allowed: this.settings.commands?.allowed === true },
       status: this.host.status,
     };
   }
@@ -122,8 +126,34 @@ export class LocalDevice {
     return answers[chosen.response] ?? "deny";
   }
 
-  private async saveGrants(grants: DeviceGrant[]) {
-    const saved = await this.update({ files: { grants } });
+  private async askCommands(request: DeviceCommandRequest): Promise<boolean> {
+    const window = this.getWindow();
+    window?.flashFrame(true);
+    app.dock?.bounce("informational");
+    const options: Electron.MessageBoxOptions = {
+      type: "warning",
+      message: "Allow Halo to run commands on this computer?",
+      detail: `The Halo agent wants to run this in ${displayPath(request.cwd)}:\n\n${request.command}\n\nCommands run as you, with your full access, including folders you have not allowed. Halo remembers your answer; you can remove it later in Account settings.`,
+      buttons: ["Allow commands", "Don't allow"],
+      // Running commands is broad access, so Return does not allow it.
+      defaultId: 1,
+      cancelId: 1,
+      noLink: true,
+      signal: request.signal,
+    };
+    const chosen =
+      window === undefined
+        ? await dialog.showMessageBox(options)
+        : await dialog.showMessageBox(window, options);
+    window?.flashFrame(false);
+    return !request.signal.aborted && chosen.response === 0;
+  }
+
+  private async savePermissions(permissions: DevicePermissions) {
+    const saved = await this.update({
+      files: { grants: permissions.grants },
+      commands: { allowed: permissions.commandsAllowed },
+    });
     // The grant still applies until the app restarts.
     if (saved instanceof Error)
       this.logger.warn({ event: "device-grant-save-failed", error: saved });

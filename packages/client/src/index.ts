@@ -58,10 +58,13 @@ export {
 } from "./contract.js";
 export {
   deviceFileLimits,
+  deviceShellLimits,
   type DeviceAdvertisement,
   type DeviceFileAccess,
   type DeviceFileEncoding,
   type DeviceFileEntry,
+  type DeviceFileOperation,
+  type DeviceShellResult,
   type DeviceOperation,
   type DeviceOperationResult,
   type DeviceOperationOutput,

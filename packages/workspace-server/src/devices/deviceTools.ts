@@ -1,7 +1,11 @@
 import crypto from "node:crypto";
 import path from "node:path";
 import { Type, type Static, type TObject } from "@sinclair/typebox";
-import { deviceFileLimits, type DeviceSummary } from "@get-halo/client";
+import {
+  deviceFileLimits,
+  deviceShellLimits,
+  type DeviceSummary,
+} from "@get-halo/client";
 import * as errore from "errore";
 import { haloTool, type HaloToolContext } from "../agent/tools/HaloTool.js";
 import { readFile, type TextFiles } from "../agent/tools/files/read.js";
@@ -277,6 +281,39 @@ export const deviceTools = {
             encoding: "base64",
           },
           signal: tool.context.signal,
+        });
+      },
+    }),
+  },
+  shell: {
+    run: deviceTool({
+      description: `Run a command in the login shell on one of the person's computers, as that person, starting in their home folder unless cwd is given. Use it only for work on their computer; use tools.bash.run for the workspace. The first time, the person is asked on that computer to allow commands; a refusal returns access_denied. Returns code, stdout, stderr, timedOut and truncated. Timeout defaults to ${deviceShellLimits.defaultTimeoutMs / 1000} seconds, maximum ${deviceShellLimits.maxTimeoutMs / 60_000} minutes. Long output keeps its beginning and end.`,
+      inputSchema: Type.Object({
+        device,
+        command: Type.String({ minLength: 1 }),
+        cwd: Type.Optional(devicePath),
+        timeoutMs: Type.Optional(
+          Type.Integer({
+            minimum: 1,
+            maximum: deviceShellLimits.maxTimeoutMs,
+          }),
+        ),
+      }),
+      requiredCapabilities: ["devices.shell.execute"],
+      execute: async (input, tool) => {
+        const timeoutMs = input.timeoutMs ?? deviceShellLimits.defaultTimeoutMs;
+        return await tool.devices.call({
+          device: tool.device.id,
+          operation: {
+            type: "shell.run",
+            command: input.command,
+            cwd:
+              input.cwd === undefined ? undefined : tool.resolvePath(input.cwd),
+            timeoutMs,
+          },
+          signal: tool.context.signal,
+          // Leave time for the person to answer the first-use prompt.
+          timeoutMs: timeoutMs + 5 * 60_000,
         });
       },
     }),

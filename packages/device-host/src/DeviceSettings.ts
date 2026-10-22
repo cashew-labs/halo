@@ -20,11 +20,13 @@ export const deviceSettingsSchema = Type.Object({
       }),
     ),
   }),
+  /** Whether the person allowed the agent to run commands. */
+  commands: Type.Optional(Type.Object({ allowed: Type.Boolean() })),
 });
 
 export type DeviceSettings = Static<typeof deviceSettingsSchema>;
 export type DeviceSettingsUpdate = Partial<
-  Pick<DeviceSettings, "name" | "enabled" | "files">
+  Pick<DeviceSettings, "name" | "enabled" | "files" | "commands">
 >;
 
 export class DeviceSettingsError extends errore.createTaggedError({

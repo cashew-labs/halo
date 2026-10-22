@@ -229,8 +229,15 @@ export class DeviceService {
           this.calls.delete(callId);
           resolve(value);
         };
+        // Stop work the agent no longer waits for, such as a running command.
+        const stop = (error: Error) => {
+          settle(error);
+          this.devices.get(summary.id)?.connection?.requests.append({
+            cancel: callId,
+          });
+        };
         const abort = () =>
-          settle(
+          stop(
             new DeviceCallAbortedError({
               operation: input.operation.type,
               cause: input.signal?.reason,
@@ -238,7 +245,7 @@ export class DeviceService {
           );
         const timer = setTimeout(
           () =>
-            settle(
+            stop(
               new DeviceTimeoutError({
                 device: summary.name,
                 operation: input.operation.type,

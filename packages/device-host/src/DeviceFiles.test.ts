@@ -39,11 +39,12 @@ function device(
       await Promise.resolve(input.answer ?? "deny"),
   );
   const access = new DeviceAccess({
-    grants: input.grants ?? [],
+    permissions: { grants: input.grants ?? [], commandsAllowed: false },
     home,
     ask,
-    save: async (grants) => {
-      saved.push(grants);
+    askCommands: async () => await Promise.resolve(false),
+    save: async (permissions) => {
+      saved.push(permissions.grants);
       await Promise.resolve();
     },
   });
@@ -104,7 +105,10 @@ test("a refusal is not asked again until the grants change", async () => {
     code: "access_denied",
   });
   expect(ask).toHaveBeenCalledTimes(1);
-  access.setGrants([{ path: documents, access: "read" }]);
+  access.setPermissions({
+    grants: [{ path: documents, access: "read" }],
+    commandsAllowed: false,
+  });
   expect(await files.run(read(notes))).toMatchObject({ data: "Buy milk\n" });
 });
 
@@ -161,9 +165,10 @@ test("a symlink out of an allowed folder asks about its real location", async ()
 
 test("an unanswered or failed prompt refuses access", async () => {
   const access = new DeviceAccess({
-    grants: [],
+    permissions: { grants: [], commandsAllowed: false },
     home,
     ask: async () => await Promise.reject(new Error("prompt closed")),
+    askCommands: async () => await Promise.resolve(false),
     save: async () => await Promise.resolve(),
   });
   expect(

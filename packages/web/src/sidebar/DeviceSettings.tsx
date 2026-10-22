@@ -44,6 +44,7 @@ export function DeviceSettings({
       </p>
     );
   const { grants } = current.files;
+  const commandsAllowed = current.commands.allowed;
   return (
     <section aria-labelledby="device-settings-label" className={section}>
       <Text id="device-settings-label" size="xs" fontWeight={600}>
@@ -60,9 +61,27 @@ export function DeviceSettings({
       {current.enabled && (
         <>
           <p className={hint}>
-            Halo asks here before the agent uses a new folder. Credential
-            folders such as ~/.ssh are never shared.
+            Halo asks here before the agent uses a new folder or runs its first
+            command. Credential folders such as ~/.ssh are never shared.
           </p>
+          {commandsAllowed && (
+            <div className={folderRow}>
+              <span className={folderPath}>Run commands</span>
+              <Text size="xs" color="lowContrast">
+                Allowed
+              </Text>
+              <Button
+                variant="quiet"
+                size="sm"
+                className={removeButton}
+                aria-label="Stop allowing commands"
+                isDisabled={save.isPending}
+                onPress={() => save.mutate({ commands: { allowed: false } })}
+              >
+                Remove
+              </Button>
+            </div>
+          )}
           {grants.length > 0 && (
             <ul aria-label="Allowed folders" className={list}>
               {grants.map((grant) => (

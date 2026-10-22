@@ -13,9 +13,11 @@ import {
   DeviceAccess,
   type DeviceAccessAnswer,
   type DeviceAccessRequest,
-  type DeviceGrant,
+  type DeviceCommandRequest,
+  type DevicePermissions,
 } from "./DeviceAccess.js";
 import { DeviceFiles } from "./DeviceFiles.js";
+import { DeviceShell } from "./DeviceShell.js";
 import type { DeviceSettings } from "./DeviceSettings.js";
 
 export type DeviceHostStatus =
@@ -45,7 +47,10 @@ export class DeviceHost {
   private readonly logger: Pick<LoggerApi, "info" | "warn">;
   private readonly home: string;
   private readonly files: DeviceFiles;
+  private readonly shell: DeviceShell;
   private readonly access: DeviceAccess;
+  // Lets the workspace stop a call it no longer waits for.
+  private readonly calls = new Map<string, AbortController>();
   private settings: DeviceSettings;
   private connection: AbortController | undefined;
   private readonly stopped = new AbortController();
@@ -59,20 +64,29 @@ export class DeviceHost {
     logger: Pick<LoggerApi, "info" | "warn">;
     /** Asks the person on this computer; resolve "deny" when the signal aborts. */
     ask: (request: DeviceAccessRequest) => Promise<DeviceAccessAnswer>;
-    saveGrants: (grants: DeviceGrant[]) => Promise<void>;
+    /** Asks whether the agent may run commands; resolve false when the signal aborts. */
+    askCommands: (request: DeviceCommandRequest) => Promise<boolean>;
+    savePermissions: (permissions: DevicePermissions) => Promise<void>;
     home?: string;
+    shell?: string;
   }) {
     this.settings = ctx.settings;
     this.getTransport = ctx.getTransport;
     this.logger = ctx.logger;
     this.home = ctx.home ?? os.homedir();
     this.access = new DeviceAccess({
-      grants: ctx.settings.files.grants,
+      permissions: permissionsOf(ctx.settings),
       home: this.home,
       ask: ctx.ask,
-      save: ctx.saveGrants,
+      askCommands: ctx.askCommands,
+      save: ctx.savePermissions,
     });
     this.files = new DeviceFiles({ access: this.access });
+    this.shell = new DeviceShell({
+      access: this.access,
+      home: this.home,
+      shell: ctx.shell,
+    });
   }
 
   get status() {
@@ -89,7 +103,7 @@ export class DeviceHost {
       settings.enabled !== this.settings.enabled ||
       settings.name !== this.settings.name;
     this.settings = settings;
-    this.access.setGrants(settings.files.grants);
+    this.access.setPermissions(permissionsOf(settings));
     if (reconnect) this.reconnect();
   }
 
@@ -201,7 +215,20 @@ export class DeviceHost {
 
   private async handle(input: { client: HaloClient; request: DeviceRequest }) {
     const { client, request } = input;
-    const result = await this.files.run(request.operation);
+    if ("cancel" in request) {
+      this.calls.get(request.cancel)?.abort();
+      return;
+    }
+    const call = new AbortController();
+    this.calls.set(request.callId, call);
+    const { operation } = request;
+    const result =
+      operation.type === "shell.run"
+        ? await this.shell.run(operation, call.signal)
+        : await this.files.run(operation);
+    this.calls.delete(request.callId);
+    // The workspace already stopped waiting; nothing to report.
+    if (call.signal.aborted) return;
     const response =
       result instanceof Error
         ? {
@@ -241,4 +268,11 @@ export class DeviceHost {
       if (this.stopped.signal.aborted) done();
     });
   }
+}
+
+function permissionsOf(settings: DeviceSettings): DevicePermissions {
+  return {
+    grants: settings.files.grants,
+    commandsAllowed: settings.commands?.allowed === true,
+  };
 }
