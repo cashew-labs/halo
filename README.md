@@ -78,7 +78,7 @@ pnpm halo-dev app exec "return await page.locator('body').innerText()"
 pnpm halo-dev app exec "await page.getByRole('button', { name: 'New thread' }).click()"
 ```
 
-Agents drive the workspace's own Chrome through the `browser.*` tools: `tabs`, `newPage`, `call`, and `close`. `browser.call` runs one Playwright page or locator method on a tab, named by its Chrome target ID. Agents can read every tab but close only the tabs they opened.
+Agents drive the workspace's own Chrome through the `browser.*` tools: `tabs`, `newPage`, `call`, and `close`. `browser.call` runs one Playwright page or locator method on a tab, named by its Chrome target ID.
 
 For `halo-dev app exec`, pass `--stdin` or `--file checks.js` for longer scripts. Output uses TOON by default; pass `--json` for JSON. Packaged builds do not expose the debug port.
 

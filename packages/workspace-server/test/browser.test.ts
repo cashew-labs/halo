@@ -24,7 +24,7 @@ const form = `data:text/html,${encodeURIComponent(`
 `)}`;
 const userTab = `data:text/html,${encodeURIComponent("<title>Inbox</title><p>Mail</p>")}`;
 
-type Tab = { id: string; url: string; title: string; owned: boolean };
+type Tab = { id: string; url: string; title: string };
 
 browserTest(
   "drives a tab in the workspace Chrome through browser tools",
@@ -80,24 +80,39 @@ browserTest(
     await call(opened.id, [], "snapshot");
     await expect(
       call(opened.id, [["locator", [`aria-ref=${ref}`]]], "click"),
-    ).rejects.toThrow(/older snapshot/);
+    ).rejects.toThrow(/latest snapshot/);
 
     // SAFETY: browser.tabs returns the open tabs.
     const tabs = (await server.rpc.testApi.invokeTool({
       path: "browser.tabs",
       input: {},
     })) as Tab[];
-    const inbox = tabs.find((tab) => tab.title === "Inbox");
-    expect(tabs).toContainEqual(
-      expect.objectContaining({ id: opened.id, owned: true }),
-    );
-    expect(inbox).toMatchObject({ owned: false });
+    const inbox = tabs.find((tab) => tab.title === "Inbox")!;
+    expect(tabs).toContainEqual(expect.objectContaining({ id: opened.id }));
+
+    // Page code must never receive Playwright's own objects: with them and
+    // exposeFunctions it could call Playwright's protocol dispatcher.
+    const escape = `(page) => page._connection.onmessage({ id: 1, guid: page._guid, method: "close", params: {}, metadata: {} })`;
     await expect(
-      server.rpc.testApi.invokeTool({
-        path: "browser.close",
-        input: { page: inbox!.id },
-      }),
-    ).rejects.toThrow(/not opened by an agent/);
+      call(inbox.id, [], "evaluate", [
+        { $function: escape },
+        { $locator: { page: inbox.id, chain: [["locator", ["body"]]] } },
+        { exposeFunctions: true },
+      ]),
+    ).rejects.toThrow(/at most 2 arguments/);
+    await expect(
+      call(inbox.id, [], "evaluate", [
+        { $function: escape },
+        { $locator: { page: inbox.id, chain: [["locator", ["body"]]] } },
+      ]),
+    ).rejects.toThrow(/\$locator is accepted only/);
+    await expect(
+      call(inbox.id, [["locator", ["body"]]], "evaluate", [
+        { $function: "(body) => body.textContent" },
+        { $undefined: true },
+        { exposeFunctions: true },
+      ]),
+    ).rejects.toThrow(/unsupported options exposeFunctions/);
     await server.rpc.testApi.invokeTool({
       path: "browser.close",
       input: { page: opened.id },

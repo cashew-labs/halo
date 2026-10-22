@@ -324,8 +324,6 @@ export class WorkspaceServer {
         : new BrowserService({
             chrome: config.chrome,
             workspaceRoot,
-            // Extensions start after the tool runtime; headers are read per request.
-            headersFor: (origin) => extensions.ownerHeadersFor(origin),
           });
     cleanup.defer(async () => await browsers?.shutdown());
     const [initialized, toolRuntime] = await Promise.all([

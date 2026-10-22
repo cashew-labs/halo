@@ -44,7 +44,7 @@ await tools.browser.close({ page: tab.id });
 
 Use accessible roles and labels to interact with the actual controls. `snapshot` returns refs such as `[ref=s1e2]`; act on one with the chain `[["locator", ["aria-ref=s1e2"]]]`. `screenshot` returns a PNG path that `viewImage` shows you when visual inspection matters. Check the page's own error states; a successful action does not prove that caught API or storage failures succeeded.
 
-A hosted extension shares the user's extension records and connected services. Observe freely, but keep mutations within the user's requested task. The other tabs in this Chrome belong to the user: read them only when the task needs it, and do not act in them. Close every tab you open, including after failed checks; `tools.browser.tabs()` lists open tabs, and `owned: true` marks the ones agents opened.
+A hosted extension shares the user's extension records and connected services. Observe freely, but keep mutations within the user's requested task. The other tabs in this Chrome belong to the user: read them only when the task needs it, and do not act in them. Close every tab you open, including after failed checks; `tools.browser.tabs()` lists open tabs.
 
 ## Standalone preview
 

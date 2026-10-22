@@ -40,13 +40,13 @@ function browserTool<S extends TObject>(definition: {
 export const browserTools = {
   tabs: browserTool({
     description:
-      "List the workspace Chrome's open tabs: { id, url, title, owned }. owned is true for tabs an agent opened. Returns [] when Chrome is not running.",
+      "List the workspace Chrome's open tabs: { id, url, title }. The user's tabs are listed too. Returns [] when Chrome is not running.",
     inputSchema: Type.Object({}),
     execute: async (_, { service }) => await service.tabs(),
   }),
   newPage: browserTool({
     description:
-      "Open a tab in the user's workspace Chrome, starting Chrome if needed, and optionally navigate it. isolated opens it in a new incognito-style context without the user's cookies; isolated tabs close if Halo reconnects to Chrome. Returns { id, url, title }.",
+      "Open a tab in the user's workspace Chrome, starting Chrome if needed, and optionally navigate it. isolated opens it in a new incognito-style context without the user's cookies; that context closes with its last tab or if Halo reconnects to Chrome. Returns { id, url, title }.",
     inputSchema: Type.Object({
       url: Type.Optional(Type.String({ minLength: 1 })),
       isolated: Type.Optional(Type.Boolean()),
@@ -60,9 +60,9 @@ export const browserTools = {
       "Page builders: locator, getByRole, getByText, getByLabel, getByPlaceholder, getByAltText, getByTitle, getByTestId; locators also allow filter, first, last, nth, and, or.",
       "Locator methods: click, dblclick, fill, press, pressSequentially, check, uncheck, setChecked, selectOption, hover, focus, clear, setInputFiles (workspace-relative paths), scrollIntoViewIfNeeded, waitFor, textContent, innerText, inputValue, getAttribute, isVisible, isHidden, isEnabled, isChecked, count, allInnerTexts, allTextContents, boundingBox, ariaSnapshot, evaluate.",
       "Page methods: goto, reload, goBack, goForward (return { url, status }, or no value when the page loaded without a network response; goBack and goForward resolve once the navigation commits, so wait for a load state or element when needed), title, content, evaluate, waitForURL, waitForLoadState, waitForTimeout, bringToFront, keyboard.press, keyboard.type, snapshot, screenshot.",
-      "snapshot returns an AI aria snapshot with [ref=s1e2] refs; act on one with chain [['locator', ['aria-ref=s1e2']]]. A newer snapshot of the tab invalidates older refs. screenshot saves a PNG and returns { path } for files.viewImage.",
-      "Encode non-JSON arguments: { $regexp, flags } for a RegExp, { $function: source } for an evaluate function, { $locator: { page, chain } } for a locator argument such as filter({ has }), and { $undefined: true } for a skipped argument.",
-      "Actions time out after 30 seconds and calls after 60 seconds. Returns { value, url }; value must be JSON and at most 256 KiB.",
+      "snapshot returns an AI aria snapshot with [ref=s1e2] refs; act on one with chain [['locator', ['aria-ref=s1e2']]]. Any newer snapshot of the tab invalidates older refs. screenshot saves a PNG and returns { path } for viewImage.",
+      "Encode non-JSON arguments: { $regexp, flags } for a RegExp, { $undefined: true } for a skipped argument, { $function: source } for evaluate's first argument only, and { $locator: { page, chain } } for a locator in builder arguments such as filter({ has }) or in screenshot's mask.",
+      "A dialog that blocks a call on a tab is dismissed. Actions time out after 30 seconds and calls after 60 seconds. Returns { value, url }; value must be JSON and at most 256 KiB.",
     ].join(" "),
     inputSchema: Type.Object({
       page: pageId,
@@ -75,7 +75,7 @@ export const browserTools = {
   }),
   close: browserTool({
     description:
-      "Close a tab an agent opened. Tabs the user opened are refused.",
+      "Close a tab. Close the tabs you opened when you are done; close the user's tabs only when asked.",
     inputSchema: Type.Object({ page: pageId }),
     execute: async (input, { service }) => await service.close(input),
   }),

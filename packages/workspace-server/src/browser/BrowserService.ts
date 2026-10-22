@@ -14,10 +14,11 @@ import {
   type Page,
 } from "playwright";
 import * as errore from "errore";
+import { SerialQueue } from "@get-halo/shared/SerialQueue";
 
 // Playwright actions and navigations; agents may pass a shorter timeout.
 const actionTimeout = 30_000;
-// Whole browser.call, including methods without a Playwright timeout.
+// Whole browser call, from finding the tab to the result.
 const callBudget = 60_000;
 const resultLimit = 256 * 1024;
 const launchTimeout = 20_000;
@@ -53,14 +54,10 @@ export class BrowserTabNotFoundError extends errore.createTaggedError({
   message:
     "No open tab has ID $pageId. It was closed, or Chrome restarted; list tabs again.",
 }) {}
-export class BrowserTabNotOwnedError extends errore.createTaggedError({
-  name: "BrowserTabNotOwnedError",
-  message: "Tab $pageId was not opened by an agent; only agent tabs can close.",
-}) {}
 export class BrowserStaleRefError extends errore.createTaggedError({
   name: "BrowserStaleRefError",
   message:
-    "Ref $ref is from an older snapshot of this tab. Take a new snapshot and use its refs.",
+    "Ref $ref is not from the latest snapshot of this tab. Take a new snapshot and use its refs.",
 }) {}
 export class BrowserOutcomeUnknownError extends errore.createTaggedError({
   name: "BrowserOutcomeUnknownError",
@@ -86,22 +83,40 @@ export const browserStepSchema = Type.Tuple([
   Type.String({ minLength: 1 }),
   browserArgsSchema,
 ]);
-const chainSchema = Type.Array(browserStepSchema);
 type BrowserStep = Static<typeof browserStepSchema>;
 const objectSchema = Type.Record(Type.String(), browserValueSchema);
-const undefinedSchema = Type.Object({ $undefined: Type.Literal(true) });
-const regexpSchema = Type.Object({
-  $regexp: Type.String(),
-  flags: Type.Optional(Type.String()),
-});
-const functionSchema = Type.Object({ $function: Type.String() });
-const locatorSchema = Type.Object({
-  $locator: Type.Object({ page: Type.String(), chain: chainSchema }),
-});
-const ariaRefSchema = Type.String({ pattern: "^aria-ref=" });
+const scalarSchema = Type.Union([
+  Type.String(),
+  Type.Number(),
+  Type.Boolean(),
+  Type.Null(),
+]);
+const strict = { additionalProperties: false } as const;
+const undefinedSchema = Type.Object({ $undefined: Type.Literal(true) }, strict);
+const regexpSchema = Type.Object(
+  { $regexp: Type.String(), flags: Type.Optional(Type.String()) },
+  strict,
+);
+const functionSchema = Type.Object({ $function: Type.String() }, strict);
+// A locator argument is a non-empty chain; an empty one would be the page itself.
+const locatorSchema = Type.Object(
+  {
+    $locator: Type.Object(
+      {
+        page: Type.String(),
+        chain: Type.Array(browserStepSchema, { minItems: 1 }),
+      },
+      strict,
+    ),
+  },
+  strict,
+);
+const selectorSchema = Type.String();
 const aiModeSchema = Type.Object({ mode: Type.Literal("ai") });
 const timeoutSchema = Type.Number({ exclusiveMinimum: 0 });
 const pathSchema = Type.String();
+// The only accepted form of a snapshot ref: aria-ref=s<generation><Playwright ref>.
+const refPattern = /^aria-ref=s(\d+)([a-z]\S*)$/;
 type Receiver = Page | Locator;
 // A decoded argument as Playwright receives it.
 type PlaywrightArg =
@@ -137,10 +152,18 @@ const locatorBuilders = new Set([
 type Method = {
   // Index of the options argument that receives timeout and signal.
   optionsAt?: number;
+  // The only options agents may pass, when the method has dangerous ones.
+  optionKeys?: readonly string[];
+  // Most arguments the method accepts; defaults to optionsAt + 1.
+  maxArgs?: number;
   // Navigation returns a Response, which is not JSON.
   navigation?: true;
   // Option defaults the agent's own options override.
   defaults?: typeof historyDefaults;
+  // Accepts $locator arguments, as screenshot's mask does.
+  locators?: true;
+  // Accepts a $function as its first argument.
+  pageFunction?: true;
 };
 // Chrome restores history entries from its back-forward cache without a load
 // event, so waiting for load times out. Playwright-launched Chromium disables that cache.
@@ -175,7 +198,8 @@ const locatorMethods = new Map<string, Method>(
     allTextContents: {},
     boundingBox: { optionsAt: 0 },
     ariaSnapshot: { optionsAt: 0 },
-    evaluate: { optionsAt: 2 },
+    // exposeFunctions would hand Playwright's own objects to page code.
+    evaluate: { optionsAt: 2, optionKeys: ["timeout"], pageFunction: true },
   }),
 );
 const pageMethods = new Map<string, Method>(
@@ -186,7 +210,7 @@ const pageMethods = new Map<string, Method>(
     goForward: { optionsAt: 0, navigation: true, defaults: historyDefaults },
     title: {},
     content: {},
-    evaluate: {},
+    evaluate: { maxArgs: 2, pageFunction: true },
     waitForURL: { optionsAt: 1 },
     waitForLoadState: { optionsAt: 1 },
     waitForTimeout: {},
@@ -194,12 +218,11 @@ const pageMethods = new Map<string, Method>(
     "keyboard.press": {},
     "keyboard.type": {},
     snapshot: { optionsAt: 0 },
-    screenshot: { optionsAt: 0 },
+    screenshot: { optionsAt: 0, locators: true },
   }),
 );
 
 type Connection = { browser: Browser; endpoint: string };
-type Owned = { endpoint: string; isolated?: BrowserContext };
 
 /** Drives the workspace's headed Chrome through one CDP connection. Stores tab IDs, not Playwright objects. */
 export class BrowserService {
@@ -207,29 +230,24 @@ export class BrowserService {
   private connection: Connection | undefined;
   // Single-flight connect or launch attempt.
   private connecting: Promise<Connection | Error> | undefined;
-  // Tabs agents opened, keyed by CDP target ID, scoped to one Chrome endpoint.
-  private readonly owned = new Map<string, Owned>();
-  // Latest AI snapshot generation per tab; refs from older generations are stale.
+  // Latest snapshot generation per tab; refs from other generations are stale.
   private readonly snapshotGenerations = new Map<string, number>();
-  private generation = 0;
+  // Snapshots of one tab run in order, so generations match Playwright's ref cache.
+  private readonly snapshotQueues = new Map<string, SerialQueue>();
+  // Random start, so refs issued before a server restart do not match new ones.
+  private generation = crypto.randomInt(1, 1_000_000);
   private readonly targetIds = new WeakMap<Page, string>();
-  private readonly prepared = new WeakSet<Page>();
+  // Agent calls running on each tab; dialogs on these tabs are dismissed.
+  private readonly busy = new Map<Page, number>();
+  // A dialog that opened while no agent call ran; the next call dismisses it.
+  private readonly pendingDialogs = new WeakMap<Page, Dialog>();
   private closed = false;
   private readonly chrome: ChromeConfig;
   private readonly workspaceRoot: string;
-  private readonly headersFor: (
-    origin: string,
-  ) => Record<string, string> | undefined;
 
-  constructor(ctx: {
-    chrome: ChromeConfig;
-    workspaceRoot: string;
-    headersFor?: (origin: string) => Record<string, string> | undefined;
-  }) {
-    const { chrome, workspaceRoot, headersFor = () => undefined } = ctx;
-    this.chrome = chrome;
-    this.workspaceRoot = workspaceRoot;
-    this.headersFor = headersFor;
+  constructor(ctx: { chrome: ChromeConfig; workspaceRoot: string }) {
+    this.chrome = ctx.chrome;
+    this.workspaceRoot = ctx.workspaceRoot;
   }
 
   async tabs() {
@@ -244,12 +262,7 @@ export class BrowserService {
           console.warn(pageId);
           return undefined;
         }
-        return {
-          id: pageId,
-          url: page.url(),
-          title: await titleOf(page),
-          owned: this.isOwned(pageId),
-        };
+        return { id: pageId, url: page.url(), title: await titleOf(page) };
       }),
     );
     return tabs.filter((tab) => tab !== undefined);
@@ -260,55 +273,54 @@ export class BrowserService {
     isolated?: boolean;
     signal?: AbortSignal;
   }) {
-    const connection = await this.connect({ launch: true });
-    if (connection instanceof Error) return connection;
-    await using cleanup = new errore.AsyncDisposableStack();
-    const context = input.isolated
-      ? await connection.browser
-          .newContext()
-          .catch(
-            (cause) =>
-              new BrowserError({ detail: "open isolated context", cause }),
-          )
-      : connection.browser.contexts()[0];
-    if (context instanceof Error) return context;
-    if (context === undefined)
-      return new BrowserError({ detail: "Chrome has no default context" });
-    if (input.isolated) {
-      this.watchDialogs(context);
-      cleanup.defer(async () => await context.close());
-    }
-    const page = await context
-      .newPage()
-      .catch((cause) => new BrowserError({ detail: "open tab", cause }));
-    if (page instanceof Error) return page;
-    cleanup.defer(async () => await page.close());
-    const pageId = await this.targetId(page);
-    if (pageId instanceof Error) return pageId;
-    this.owned.set(pageId, {
-      endpoint: connection.endpoint,
-      isolated: input.isolated ? context : undefined,
+    return await this.bounded({
+      method: "newPage",
+      signal: input.signal,
+      run: async (signal) => {
+        const connection = await this.connect({ launch: true });
+        if (connection instanceof Error) return connection;
+        if (signal.aborted) return cancelled();
+        await using cleanup = new errore.AsyncDisposableStack();
+        const context = input.isolated
+          ? await connection.browser
+              .newContext()
+              .catch(
+                (cause) =>
+                  new BrowserError({ detail: "open isolated context", cause }),
+              )
+          : connection.browser.contexts()[0];
+        if (context instanceof Error) return context;
+        if (context === undefined)
+          return new BrowserError({ detail: "Chrome has no default context" });
+        if (input.isolated) {
+          this.watchDialogs(context);
+          this.closeWhenEmpty(context);
+          cleanup.defer(async () => await context.close());
+        }
+        const page = await context
+          .newPage()
+          .catch((cause) => new BrowserError({ detail: "open tab", cause }));
+        if (page instanceof Error) return page;
+        cleanup.defer(async () => await page.close());
+        const pageId = await this.targetId(page);
+        if (pageId instanceof Error) return pageId;
+        if (input.url !== undefined) {
+          const url = input.url;
+          const loaded = await this.track(
+            page,
+            async () =>
+              await page
+                .goto(url, { timeout: actionTimeout, signal })
+                .catch((cause) => new BrowserError({ detail: "goto", cause })),
+          );
+          if (loaded instanceof Error) return loaded;
+        }
+        // The caller already received an error; do not leave an unknown tab behind.
+        if (signal.aborted) return cancelled();
+        cleanup.move();
+        return { id: pageId, url: page.url(), title: await titleOf(page) };
+      },
     });
-    cleanup.defer(() => {
-      this.owned.delete(pageId);
-    });
-    const prepared = await this.prepare(page, pageId);
-    if (prepared instanceof Error) return prepared;
-    if (input.url !== undefined) {
-      const url = input.url;
-      const loaded = await this.bounded({
-        method: "newPage",
-        signal: input.signal,
-        run: async (signal) =>
-          await page
-            .goto(url, { timeout: actionTimeout, signal })
-            .catch((cause) => new BrowserError({ detail: "goto", cause })),
-      });
-      if (loaded instanceof Error) return loaded;
-    }
-    page.once("close", async () => await this.release(pageId));
-    cleanup.move();
-    return { id: pageId, url: page.url(), title: await titleOf(page) };
   }
 
   async call(input: {
@@ -318,42 +330,56 @@ export class BrowserService {
     args: BrowserValue[];
     signal?: AbortSignal;
   }) {
-    const page = await this.pageFor(input.page);
-    if (page instanceof Error) return page;
-    const invalid = this.validate(input);
-    if (invalid instanceof Error) return invalid;
-    const target = this.replay(page, input.page, input.chain);
-    const args = this.decode(page, input.page, input.args);
-    if (args instanceof Error) return args;
-    const outcome = await this.bounded({
+    const spec = this.validate(input);
+    if (spec instanceof Error) return spec;
+    const limited = limitOptions(input.args, spec);
+    if (limited instanceof Error) return limited;
+    return await this.bounded({
       method: input.method,
       signal: input.signal,
-      run: async (signal) =>
-        await this.invoke({
+      run: async (signal) => {
+        const page = await this.pageFor(input.page);
+        if (page instanceof Error) return page;
+        const target = this.replay(page, input.page, input.chain);
+        if (target instanceof Error) return target;
+        const args = this.decodeArgs(page, input.page, limited);
+        if (args instanceof Error) return args;
+        if (spec.optionsAt !== undefined)
+          args[spec.optionsAt] = {
+            // SAFETY: limitOptions put a plain options object here, and decoding keeps plain objects.
+            ...(args[spec.optionsAt] as Record<string, PlaywrightArg>),
+            signal,
+          };
+        // Nothing has touched the page yet; stop here if the call was cancelled.
+        if (signal.aborted) return cancelled();
+        const outcome = await this.track(
           page,
-          pageId: input.page,
-          target,
-          method: input.method,
-          args,
-          signal,
-        }),
+          async () =>
+            await this.invoke({
+              page,
+              pageId: input.page,
+              target,
+              method: input.method,
+              spec,
+              args,
+            }),
+        );
+        if (outcome instanceof Error) return outcome;
+        const value = toJson(input.method, outcome.value);
+        if (value instanceof Error) return value;
+        return { value: value.json, url: page.url() };
+      },
     });
-    if (outcome instanceof Error) return outcome;
-    const value = toJson(input.method, outcome.value);
-    if (value instanceof Error) return value;
-    return { value: value.json, url: page.url() };
   }
 
   async close(input: { page: string }) {
     const page = await this.pageFor(input.page);
     if (page instanceof Error) return page;
-    if (!this.isOwned(input.page))
-      return new BrowserTabNotOwnedError({ pageId: input.page });
     const closed = await page
       .close()
       .catch((cause) => new BrowserError({ detail: "close tab", cause }));
     if (closed instanceof Error) return closed;
-    await this.release(input.page);
+    this.snapshotGenerations.delete(input.page);
   }
 
   async shutdown() {
@@ -422,10 +448,9 @@ export class BrowserService {
     browser.once("disconnected", () => {
       if (this.connection !== connection) return;
       this.connection = undefined;
-      // Refs live in this connection's utility world; isolated contexts close with it.
+      // Refs live in this connection's utility world.
       this.snapshotGenerations.clear();
-      for (const [pageId, owned] of this.owned)
-        if (owned.isolated !== undefined) this.owned.delete(pageId);
+      this.snapshotQueues.clear();
     });
     for (const context of browser.contexts()) this.watchDialogs(context);
     this.connection = connection;
@@ -472,10 +497,7 @@ export class BrowserService {
         console.warn(candidate);
         continue;
       }
-      if (candidate !== pageId) continue;
-      const prepared = await this.prepare(page, pageId);
-      if (prepared instanceof Error) return prepared;
-      return page;
+      if (candidate === pageId) return page;
     }
     return new BrowserTabNotFoundError({ pageId });
   }
@@ -500,58 +522,46 @@ export class BrowserService {
     return info.targetInfo.targetId;
   }
 
-  private isOwned(pageId: string) {
-    const owned = this.owned.get(pageId);
-    return owned !== undefined && owned.endpoint === this.connection?.endpoint;
-  }
-
-  // Each Playwright connection gets fresh Page objects; reinstall owner routing on them.
-  private async prepare(page: Page, pageId: string) {
-    if (this.prepared.has(page)) return;
-    this.prepared.add(page);
-    if (!this.isOwned(pageId)) return;
-    // Hosted extensions accept only authenticated requests; agent tabs act as
-    // the workspace owner on their direct URLs. The user's tabs are never routed.
-    return await page
-      .route("**/*", async (route) => {
-        const headers = this.headersFor(new URL(route.request().url()).origin);
-        await (headers === undefined
-          ? route.continue()
-          : route.continue({
-              headers: { ...route.request().headers(), ...headers },
-            }));
-      })
-      .catch((cause) => new BrowserError({ detail: "route requests", cause }));
-  }
-
   // Playwright dismisses dialogs that have no listener, including the user's.
+  // Only dialogs that block an agent call are dismissed.
   private watchDialogs(context: BrowserContext) {
     context.on("dialog", async (dialog: Dialog) => {
       const page = dialog.page();
-      const pageId = page === null ? undefined : this.targetIds.get(page);
-      if (pageId === undefined || !this.isOwned(pageId)) return;
-      const dismissed = await dialog
-        .dismiss()
-        .catch(
-          (cause) => new BrowserError({ detail: "dismiss dialog", cause }),
-        );
-      if (dismissed instanceof Error) console.warn(dismissed);
+      if (page === null) return;
+      if (this.busy.has(page)) await dismiss(dialog);
+      else this.pendingDialogs.set(page, dialog);
     });
   }
 
-  private async release(pageId: string) {
-    const owned = this.owned.get(pageId);
-    this.owned.delete(pageId);
-    this.snapshotGenerations.delete(pageId);
-    const context = owned?.isolated;
-    if (context === undefined || context.pages().length > 0) return;
-    const closed = await context
-      .close()
-      .catch(
-        (cause) =>
-          new BrowserError({ detail: "close isolated context", cause }),
-      );
-    if (closed instanceof Error) console.warn(closed);
+  private async track<T>(page: Page, run: () => Promise<T>) {
+    this.busy.set(page, (this.busy.get(page) ?? 0) + 1);
+    using cleanup = new errore.DisposableStack();
+    cleanup.defer(() => {
+      const count = this.busy.get(page)! - 1;
+      if (count === 0) this.busy.delete(page);
+      else this.busy.set(page, count);
+    });
+    const pending = this.pendingDialogs.get(page);
+    this.pendingDialogs.delete(page);
+    if (pending !== undefined) await dismiss(pending);
+    return await run();
+  }
+
+  // An isolated context exists for agent tabs; close it with its last page, popups included.
+  private closeWhenEmpty(context: BrowserContext) {
+    context.on("page", (page) => {
+      page.once("close", async () => {
+        if (context.pages().length > 0) return;
+        if (context.browser()?.isConnected() !== true) return;
+        const closed = await context
+          .close()
+          .catch(
+            (cause) =>
+              new BrowserError({ detail: "close isolated context", cause }),
+          );
+        if (closed instanceof Error) console.warn(closed);
+      });
+    });
   }
 
   private validate(input: {
@@ -561,17 +571,33 @@ export class BrowserService {
     args: BrowserValue[];
   }) {
     const methods = input.chain.length === 0 ? pageMethods : locatorMethods;
-    if (!methods.has(input.method))
+    const spec = methods.get(input.method);
+    if (spec === undefined)
       return new BrowserError({
         detail: `${input.chain.length === 0 ? "pages" : "locators"} do not support ${input.method}`,
       });
-    return this.validateChain(input.page, input.chain, input.args);
+    const maxArgs =
+      spec.maxArgs ??
+      (spec.optionsAt === undefined ? undefined : spec.optionsAt + 1);
+    if (maxArgs !== undefined && input.args.length > maxArgs)
+      return new BrowserError({
+        detail: `${input.method} takes at most ${maxArgs} arguments`,
+      });
+    const chain = this.validateChain(input.page, input.chain);
+    if (chain instanceof Error) return chain;
+    for (const [index, arg] of input.args.entries()) {
+      const invalid = this.validateValue(input.page, arg, {
+        locators: spec.locators === true,
+        pageFunction: spec.pageFunction === true && index === 0,
+      });
+      if (invalid instanceof Error) return invalid;
+    }
+    return spec;
   }
 
   private validateChain(
     pageId: string,
     chain: BrowserStep[],
-    args: BrowserValue[],
   ): BrowserError | BrowserStaleRefError | undefined {
     for (const [index, [name, stepArgs]] of chain.entries()) {
       const builders = index === 0 ? pageBuilders : locatorBuilders;
@@ -581,81 +607,144 @@ export class BrowserService {
         });
       const ref = this.ariaRef(pageId, name, stepArgs);
       if (ref instanceof Error) return ref;
-      const nested = this.validateNested(pageId, stepArgs);
-      if (nested instanceof Error) return nested;
+      for (const arg of stepArgs) {
+        // Builders such as filter({ has }) take locators; none take functions.
+        const invalid = this.validateValue(pageId, arg, {
+          locators: true,
+          pageFunction: false,
+        });
+        if (invalid instanceof Error) return invalid;
+      }
     }
-    return this.validateNested(pageId, args);
   }
 
-  private validateNested(
+  // Markers are accepted only where Playwright expects them, so page code never
+  // receives a Page or Locator and functions reach only evaluate.
+  private validateValue(
     pageId: string,
     value: BrowserValue,
+    allow: { locators: boolean; pageFunction: boolean },
   ): BrowserError | BrowserStaleRefError | undefined {
+    const nested = { locators: allow.locators, pageFunction: false };
     if (Array.isArray(value)) {
       for (const item of value) {
-        const invalid = this.validateNested(pageId, item);
+        const invalid = this.validateValue(pageId, item, nested);
         if (invalid instanceof Error) return invalid;
       }
       return;
     }
     if (!Value.Check(objectSchema, value)) return;
     if ("$locator" in value) {
+      if (!allow.locators)
+        return new BrowserError({
+          detail:
+            "$locator is accepted only by locator builders and screenshot's mask",
+        });
       if (!Value.Check(locatorSchema, value))
         return new BrowserError({ detail: "malformed $locator argument" });
       if (value.$locator.page !== pageId)
         return new BrowserError({
           detail: "a locator from another tab cannot be used on this tab",
         });
-      return this.validateChain(pageId, value.$locator.chain, []);
+      return this.validateChain(pageId, value.$locator.chain);
+    }
+    if ("$function" in value) {
+      if (!allow.pageFunction || !Value.Check(functionSchema, value))
+        return new BrowserError({
+          detail: "$function is accepted only as evaluate's first argument",
+        });
+      return;
+    }
+    if ("$regexp" in value) {
+      if (!Value.Check(regexpSchema, value))
+        return new BrowserError({ detail: "malformed $regexp argument" });
+      const { $regexp: source, flags } = value;
+      const compiled = errore.try({
+        try: () => new RegExp(source, flags),
+        catch: (cause) =>
+          new BrowserError({ detail: "invalid $regexp", cause }),
+      });
+      if (compiled instanceof Error) return compiled;
+      return;
+    }
+    if ("$undefined" in value) {
+      if (!Value.Check(undefinedSchema, value))
+        return new BrowserError({ detail: "malformed $undefined argument" });
+      return;
     }
     for (const item of Object.values(value)) {
-      const invalid = this.validateNested(pageId, item);
+      const invalid = this.validateValue(pageId, item, nested);
       if (invalid instanceof Error) return invalid;
     }
   }
 
   // Snapshot refs are rewritten as s<generation><ref> so stale refs fail fast.
+  // Any other selector naming aria-ref would bypass that check.
   private ariaRef(pageId: string, name: string, args: BrowserValue[]) {
     const [selector] = args;
-    if (name !== "locator" || !Value.Check(ariaRefSchema, selector)) return;
-    const ref = selector.slice("aria-ref=".length);
-    const match = /^s(\d+)(\S+)$/.exec(ref);
-    if (
-      match === null ||
-      Number(match[1]) !== this.snapshotGenerations.get(pageId)
-    )
-      return new BrowserStaleRefError({ ref });
+    if (name !== "locator" || !Value.Check(selectorSchema, selector)) return;
+    if (!/aria-ref/i.test(selector)) return;
+    const match = refPattern.exec(selector);
+    if (match === null)
+      return new BrowserError({
+        detail: `use a snapshot ref alone, as locator("aria-ref=s1e2"), not ${JSON.stringify(selector)}`,
+      });
+    if (Number(match[1]) !== this.snapshotGenerations.get(pageId))
+      return new BrowserStaleRefError({
+        ref: selector.slice("aria-ref=".length),
+      });
     return `aria-ref=${match[2]}`;
   }
 
   // Inputs are validated; builders only record selectors and do not touch the page.
-  private replay(page: Page, pageId: string, chain: BrowserStep[]) {
-    return chain.reduce<Receiver>((target, [name, stepArgs]) => {
+  private replay(
+    page: Page,
+    pageId: string,
+    chain: BrowserStep[],
+  ): Receiver | BrowserError {
+    let target: Receiver = page;
+    for (const [name, stepArgs] of chain) {
       const translated = this.ariaRef(pageId, name, stepArgs);
       const args =
         translated === undefined || translated instanceof Error
-          ? this.decode(page, pageId, stepArgs)
+          ? this.decodeArgs(page, pageId, stepArgs)
           : [translated, ...stepArgs.slice(1)];
+      if (args instanceof Error) return args;
       // Page and Locator have no index signature for a lookup by validated name.
       // oxlint-disable-next-line anti-slop/no-chained-type-assertions -- SAFETY: validateChain allowed only Playwright builder names for this receiver.
-      const builder = (target as unknown as Record<string, Builder>)[name]!;
-      return builder.apply(target, args);
-    }, page);
+      const builder: Builder = (target as unknown as Record<string, Builder>)[
+        name
+      ]!;
+      const receiver: Receiver = target;
+      const next: Receiver | BrowserError = errore.try({
+        try: (): Receiver => builder.apply(receiver, args),
+        catch: (cause) => new BrowserError({ detail: name, cause }),
+      });
+      if (next instanceof Error) return next;
+      target = next;
+    }
+    return target;
   }
 
-  private decode(page: Page, pageId: string, args: BrowserValue[]) {
-    return args.map((arg) => this.decodeValue(page, pageId, arg));
+  private decodeArgs(page: Page, pageId: string, args: BrowserValue[]) {
+    const decoded: PlaywrightArg[] = [];
+    for (const arg of args) {
+      const value = this.decodeValue(page, pageId, arg);
+      if (value instanceof Error) return value;
+      decoded.push(value);
+    }
+    return decoded;
   }
 
   private decodeValue(
     page: Page,
     pageId: string,
     value: BrowserValue,
-  ): PlaywrightArg {
-    if (Array.isArray(value))
-      return value.map((item) => this.decodeValue(page, pageId, item));
+  ): PlaywrightArg | BrowserError {
+    if (Array.isArray(value)) return this.decodeArgs(page, pageId, value);
     if (!Value.Check(objectSchema, value)) return value;
     if (Value.Check(undefinedSchema, value)) return undefined;
+    // validateValue compiled this pattern.
     if (Value.Check(regexpSchema, value))
       return new RegExp(value.$regexp, value.flags);
     if (Value.Check(functionSchema, value)) {
@@ -665,15 +754,16 @@ export class BrowserService {
         toString: () => source,
       });
     }
-    // validateNested checked the nested chain's page and refs.
+    // validateValue checked the nested chain's page and refs.
     if (Value.Check(locatorSchema, value))
       return this.replay(page, pageId, value.$locator.chain);
-    return Object.fromEntries(
-      Object.entries(value).map(([key, item]) => [
-        key,
-        this.decodeValue(page, pageId, item),
-      ]),
-    );
+    const decoded: Record<string, PlaywrightArg> = {};
+    for (const [key, item] of Object.entries(value)) {
+      const member = this.decodeValue(page, pageId, item);
+      if (member instanceof Error) return member;
+      decoded[key] = member;
+    }
+    return decoded;
   }
 
   private async bounded<T>(input: {
@@ -685,21 +775,21 @@ export class BrowserService {
       ...(input.signal === undefined ? [] : [input.signal]),
       AbortSignal.timeout(callBudget),
     ]);
-    const stopped = new Promise<BrowserOutcomeUnknownError>((resolve) => {
-      const stop = () =>
-        resolve(
-          new BrowserOutcomeUnknownError({
-            method: input.method,
-            reason: input.signal?.aborted
-              ? "the exec evaluation was cancelled"
-              : `it exceeded ${callBudget / 1_000} seconds`,
-            cause: budget.reason,
-          }),
-        );
-      if (budget.aborted) stop();
-      else budget.addEventListener("abort", stop, { once: true });
+    const stopped = () =>
+      new BrowserOutcomeUnknownError({
+        method: input.method,
+        reason: input.signal?.aborted
+          ? "the exec evaluation was cancelled"
+          : `it exceeded ${callBudget / 1_000} seconds`,
+        cause: budget.reason,
+      });
+    if (budget.aborted) return stopped();
+    const aborted = new Promise<BrowserOutcomeUnknownError>((resolve) => {
+      budget.addEventListener("abort", () => resolve(stopped()), {
+        once: true,
+      });
     });
-    return await Promise.race([input.run(budget), stopped]);
+    return await Promise.race([input.run(budget), aborted]);
   }
 
   private async invoke(input: {
@@ -707,58 +797,53 @@ export class BrowserService {
     pageId: string;
     target: Receiver;
     method: string;
+    spec: Method;
     args: PlaywrightArg[];
-    signal: AbortSignal;
   }) {
-    const { page, pageId, target, method, signal } = input;
-    const methods = target === page ? pageMethods : locatorMethods;
-    // validate() checked method against this receiver's table.
-    const spec = methods.get(method)!;
-    const args = withLimits({
-      args: input.args,
-      optionsAt: spec.optionsAt,
-      defaults: spec.defaults,
-      signal,
-    });
+    const { page, pageId, target, method, spec, args } = input;
     const fail = (cause: unknown) =>
       new BrowserError({ detail: method, cause });
-    if (
-      method === "snapshot" ||
-      (method === "ariaSnapshot" && isAiMode(args[0]))
-    ) {
-      // SAFETY: withLimits put an options object at index 0, snapshot and ariaSnapshot's optionsAt.
-      const options = { ...(args[0] as object), mode: "ai" as const };
-      const snapshot = await target.ariaSnapshot(options).catch(fail);
-      if (snapshot instanceof Error) return snapshot;
-      const generation = ++this.generation;
-      this.snapshotGenerations.set(pageId, generation);
-      return {
-        value: snapshot.replaceAll(
-          /\[ref=([^\]\s]+)\]/g,
-          (_, ref: string) => `[ref=s${generation}${ref}]`,
-        ),
-      };
+    if (method === "snapshot" || method === "ariaSnapshot") {
+      const ai = method === "snapshot" || Value.Check(aiModeSchema, args[0]);
+      // SAFETY: limitOptions put an options object at index 0, snapshot and ariaSnapshot's optionsAt.
+      const given = args[0] as Parameters<Locator["ariaSnapshot"]>[0];
+      const options = ai ? { ...given, mode: "ai" as const } : given;
+      const queue = this.snapshotQueues.get(pageId) ?? new SerialQueue();
+      this.snapshotQueues.set(pageId, queue);
+      return await queue.run(async () => {
+        const snapshot = await target.ariaSnapshot(options).catch(fail);
+        if (snapshot instanceof Error) return snapshot;
+        // Every snapshot replaces Playwright's refs for its frames, so older refs go stale.
+        const generation = ++this.generation;
+        this.snapshotGenerations.set(pageId, generation);
+        if (!ai) return { value: snapshot };
+        return {
+          value: snapshot.replaceAll(
+            /\[ref=([^\]\s]+)\]/g,
+            (_, ref: string) => `[ref=s${generation}${ref}]`,
+          ),
+        };
+      });
     }
     if (method === "screenshot") {
-      const directory = path.join(".halo", "browser", "screenshots");
-      const relativePath = path.join(directory, `${crypto.randomUUID()}.png`);
-      const made = await fs
-        .mkdir(path.join(this.workspaceRoot, directory), { recursive: true })
-        .catch(fail);
-      if (made instanceof Error) return made;
+      const directory = await this.workspaceDirectory(
+        path.join(".halo", "browser", "screenshots"),
+      );
+      if (directory instanceof Error) return directory;
+      const name = `${crypto.randomUUID()}.png`;
       const saved = await page
         .screenshot({
-          // SAFETY: withLimits put an options object at index 0, screenshot's optionsAt.
+          // SAFETY: limitOptions put an options object at index 0, screenshot's optionsAt.
           ...(args[0] as object),
           type: "png",
-          path: path.join(this.workspaceRoot, relativePath),
+          path: path.join(directory.real, name),
         })
         .catch(fail);
       if (saved instanceof Error) return saved;
-      return { value: { path: relativePath } };
+      return { value: { path: path.join(directory.relative, name) } };
     }
     if (method === "setInputFiles") {
-      const files = this.workspaceFiles(args[0]);
+      const files = await this.workspaceFiles(args[0]);
       if (files instanceof Error) return files;
       args[0] = files;
     }
@@ -782,23 +867,63 @@ export class BrowserService {
     };
   }
 
-  private workspaceFiles(files: PlaywrightArg) {
+  // Creates a workspace directory and checks that symlinks do not lead out of the workspace.
+  private async workspaceDirectory(relative: string) {
+    const root = await this.realRoot();
+    if (root instanceof Error) return root;
+    const made = await fs
+      .mkdir(path.join(root, relative), { recursive: true })
+      .catch(
+        (cause) => new BrowserError({ detail: `create ${relative}`, cause }),
+      );
+    if (made instanceof Error) return made;
+    const real = await fs
+      .realpath(path.join(root, relative))
+      .catch(
+        (cause) => new BrowserError({ detail: `resolve ${relative}`, cause }),
+      );
+    if (real instanceof Error) return real;
+    if (!isInside(root, real))
+      return new BrowserError({
+        detail: `${relative} leads outside the workspace`,
+      });
+    return { real, relative };
+  }
+
+  private async workspaceFiles(files: PlaywrightArg) {
+    const root = await this.realRoot();
+    if (root instanceof Error) return root;
     const list = Array.isArray(files) ? files : [files];
     const resolved: string[] = [];
     for (const file of list) {
-      if (!Value.Check(pathSchema, file))
+      if (!Value.Check(pathSchema, file) || path.isAbsolute(file))
         return new BrowserError({
-          detail: "setInputFiles accepts workspace-relative paths only",
+          detail: "setInputFiles accepts workspace-relative file paths only",
         });
-      const absolute = path.resolve(this.workspaceRoot, file);
-      const relative = path.relative(this.workspaceRoot, absolute);
-      if (relative.startsWith("..") || path.isAbsolute(relative))
-        return new BrowserError({
-          detail: `${file} is outside the workspace`,
-        });
-      resolved.push(absolute);
+      // Resolve symlinks before the containment check; Playwright reads the target.
+      const real = await fs
+        .realpath(path.join(root, file))
+        .catch((cause) => new BrowserError({ detail: `read ${file}`, cause }));
+      if (real instanceof Error) return real;
+      if (!isInside(root, real))
+        return new BrowserError({ detail: `${file} is outside the workspace` });
+      const stat = await fs
+        .stat(real)
+        .catch((cause) => new BrowserError({ detail: `read ${file}`, cause }));
+      if (stat instanceof Error) return stat;
+      if (!stat.isFile())
+        return new BrowserError({ detail: `${file} is not a file` });
+      resolved.push(real);
     }
     return resolved;
+  }
+
+  private async realRoot() {
+    return await fs
+      .realpath(this.workspaceRoot)
+      .catch(
+        (cause) => new BrowserError({ detail: "resolve the workspace", cause }),
+      );
   }
 }
 
@@ -806,55 +931,115 @@ type Builder = (...args: PlaywrightArg[]) => Receiver;
 // oxlint-disable-next-line anti-slop/no-unknown-returns -- Playwright methods resolve to arbitrary page values; toJson checks them.
 type Action = (...args: PlaywrightArg[]) => Promise<unknown>;
 
+function cancelled() {
+  return new BrowserError({ detail: "the call was cancelled" });
+}
+
+async function dismiss(dialog: Dialog) {
+  // The user may already have answered it.
+  const dismissed = await dialog
+    .dismiss()
+    .catch((cause) => new BrowserError({ detail: "dismiss dialog", cause }));
+  if (dismissed instanceof Error) console.warn(dismissed);
+}
+
 // A tab blocked by a dialog never answers title(); a missing title is not a failure.
 async function titleOf(page: Page) {
   return await Promise.race([page.title().catch(() => ""), sleep(2_000, "")]);
 }
 
-function isAiMode(options: PlaywrightArg) {
-  return Value.Check(aiModeSchema, options);
+function isInside(root: string, target: string) {
+  const relative = path.relative(root, target);
+  return (
+    relative === "" ||
+    (!relative.startsWith(`..${path.sep}`) &&
+      relative !== ".." &&
+      !path.isAbsolute(relative))
+  );
 }
 
-// Every bounded Playwright call gets the call's signal and at most actionTimeout.
-function withLimits(input: {
-  args: PlaywrightArg[];
-  optionsAt: number | undefined;
-  defaults: Method["defaults"];
-  signal: AbortSignal;
-}) {
-  const { args, optionsAt, signal } = input;
-  if (optionsAt === undefined) return [...args];
+// Every bounded Playwright call gets at most actionTimeout. The call's signal is
+// added after decoding.
+function limitOptions(args: BrowserValue[], spec: Method) {
+  const { optionsAt } = spec;
+  if (optionsAt === undefined) return args;
   const given = args[optionsAt];
-  const own = Value.Check(objectSchema, given) ? given : undefined;
-  const requested = own?.timeout;
+  const own =
+    given === undefined || Value.Check(undefinedSchema, given)
+      ? {}
+      : Value.Check(objectSchema, given)
+        ? given
+        : undefined;
+  if (own === undefined)
+    return new BrowserError({
+      detail: `argument ${optionsAt + 1} must be an options object`,
+    });
+  const unsupported = Object.keys(own).filter(
+    (key) => spec.optionKeys !== undefined && !spec.optionKeys.includes(key),
+  );
+  if (unsupported.length > 0)
+    return new BrowserError({
+      detail: `unsupported options ${unsupported.join(", ")}`,
+    });
+  const requested = own.timeout;
   const timeout = Value.Check(timeoutSchema, requested)
     ? Math.min(requested, actionTimeout)
     : actionTimeout;
-  const limited: PlaywrightArg[] = Array.from(
+  const limited: BrowserValue[] = Array.from(
     { length: Math.max(args.length, optionsAt + 1) },
-    (_, index) => args[index],
+    (_, index) => (index < args.length ? args[index]! : { $undefined: true }),
   );
-  limited[optionsAt] = { ...input.defaults, ...own, timeout, signal };
+  limited[optionsAt] = { ...spec.defaults, ...own, timeout };
   return limited;
+}
+
+// Playwright results are strict JSON: no NaN, dates, regexps, maps, or cycles.
+// Undefined object members are dropped, as JSON.stringify does.
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Playwright results are arbitrary page values; this boundary checks they are JSON.
+function jsonProblem(value: unknown, seen: Set<object>): string | undefined {
+  if (Value.Check(scalarSchema, value)) return;
+  if (Array.isArray(value) || isPlainObject(value)) {
+    if (seen.has(value)) return "a cycle";
+    seen.add(value);
+    const items = Array.isArray(value)
+      ? value
+      : Object.values(value).filter((item) => item !== undefined);
+    for (const item of items) {
+      const problem = jsonProblem(item, seen);
+      if (problem !== undefined) return problem;
+    }
+    seen.delete(value);
+    return;
+  }
+  const tag = Object.prototype.toString.call(value).slice(8, -1);
+  return tag === "Number" ? "NaN or Infinity" : tag;
+}
+
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Checks the shape of an arbitrary Playwright result.
+function isPlainObject(value: unknown): value is object {
+  if (value === null || !(value instanceof Object)) return false;
+  const prototype: unknown = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
 }
 
 // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Playwright results are arbitrary page values; this boundary checks they are JSON.
 function toJson(method: string, value: unknown) {
-  const text = errore.try({
-    try: () => JSON.stringify(value),
-    catch: (cause) =>
-      new BrowserError({
-        detail: `${method} returned a non-JSON value`,
-        cause,
-      }),
+  if (value === undefined) return { json: undefined };
+  const problem = errore.try({
+    try: () => jsonProblem(value, new Set()),
+    catch: (cause) => new BrowserError({ detail: `${method} result`, cause }),
   });
-  if (text instanceof Error) return text;
-  if (text !== undefined && text.length > resultLimit)
+  if (problem instanceof Error) return problem;
+  if (problem !== undefined)
     return new BrowserError({
-      detail: `${method} returned ${text.length} bytes; the limit is ${resultLimit}. Return less data.`,
+      detail: `${method} returned a non-JSON value (${problem}). Return strings, numbers, booleans, null, arrays, and plain objects.`,
     });
-  return {
-    // SAFETY: text came from JSON.stringify.
-    json: text === undefined ? undefined : (JSON.parse(text) as BrowserValue),
-  };
+  const text = JSON.stringify(value);
+  const bytes = Buffer.byteLength(text, "utf8");
+  if (bytes > resultLimit)
+    return new BrowserError({
+      detail: `${method} returned ${bytes} bytes; the limit is ${resultLimit}. Return less data.`,
+    });
+  // SAFETY: jsonProblem checked that value is JSON.
+  return { json: value as BrowserValue };
 }
