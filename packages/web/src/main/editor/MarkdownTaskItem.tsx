@@ -5,7 +5,7 @@ import {
   ReactNodeViewRenderer,
   type NodeViewProps,
 } from "@tiptap/react";
-import { Checkbox, flex } from "maui";
+import { Checkbox, checkboxStyles, flex } from "maui";
 import { style, useStyles } from "purse-styles";
 
 export const MarkdownTaskItem = TaskItem.extend({
@@ -48,8 +48,13 @@ const taskStyle = style(flex({ alignItems: "baseline" }), {
   gap: "0.5em",
   "& > .halo-task-checkbox": { flexShrink: 0 },
   // The editable paragraph supplies the visible label; Maui labels the input.
-  "& > .halo-task-checkbox label > span:not(.checkbox-toggle)": {
-    display: "none",
-  },
+  [`& > .halo-task-checkbox ${checkboxStyles.label}`]: {
+    position: "absolute",
+    width: "1px",
+    height: "1px",
+    overflow: "hidden",
+    clipPath: "inset(50%)",
+    whiteSpace: "nowrap",
+  } as const,
   "& > [data-node-view-content]": { minWidth: 0 },
 });
