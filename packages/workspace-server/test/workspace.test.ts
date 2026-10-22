@@ -133,6 +133,14 @@ serverTest(
               }),
             }),
           }),
+          expect.objectContaining({
+            function: expect.objectContaining({
+              name: "exec",
+              description: expect.stringContaining(
+                "- notes: org.main.inspect, user.named.deep.inspect, locked\n- numbers: ping\n",
+              ),
+            }),
+          }),
         ]),
       );
       return [
@@ -228,7 +236,9 @@ serverTest(
         hostServicesVisible: false,
       });
       expect(
-        result.search.data.tools.map((entry: { path: string }) => entry.path),
+        result.search.data.tools
+          .slice(0, 3)
+          .map((entry: { path: string }) => entry.path),
       ).toEqual([
         "notes.locked",
         "notes.org.main.inspect",
@@ -2110,7 +2120,7 @@ serverTest(
       "computer.setValue",
       "computer.typeText",
     ];
-    for (const query of ["computer", "CoMpUtEr."]) {
+    for (const query of ["computer", "COMPUTER."]) {
       expect(await search(query)).toMatchObject({
         tools: computerPaths.map((toolPath) => ({
           path: toolPath,
@@ -2120,7 +2130,7 @@ serverTest(
         unavailableSources: [],
       });
     }
-    expect(await search("computer.OBSERVE")).toMatchObject({
+    expect(await search("computer.OBSERVE", 1)).toMatchObject({
       tools: [{ path: "computer.observe", name: "observe" }],
     });
     expect(await search("getApp")).toMatchObject({
@@ -2135,18 +2145,43 @@ serverTest(
       tools: [{ path: "computer.back" }, { path: "computer.click" }],
       truncated: true,
     });
-    expect(await search("")).toMatchObject({
-      tools: expect.arrayContaining([
-        expect.objectContaining({ path: "computer.observe" }),
-        expect.objectContaining({ path: "files.read" }),
-      ]),
-      truncated: false,
+    expect(await search("  tab   COMPUTER ", 3)).toMatchObject({
+      tools: [
+        { path: "computer.createTab" },
+        { path: "computer.getTab" },
+        { path: "computer.listTabs" },
+      ],
+      truncated: true,
     });
-    expect(await search("nonexistent-tool-namespace")).toEqual({
-      tools: [],
-      truncated: false,
-      unavailableSources: [],
+    expect(await search("open browser tab", 3)).toMatchObject({
+      tools: [
+        { path: "computer.createTab" },
+        { path: "computer.getTab" },
+        { path: "computer.listTabs" },
+      ],
     });
+    expect(await search("run shell command", 1)).toMatchObject({
+      tools: [{ path: "bash.run" }],
+    });
+    expect(
+      await server.rpc.testApi.invokeTool({
+        path: "describe.tool",
+        input: { path: "tools.computer.observe" },
+      }),
+    ).toMatchObject({ path: "computer.observe", name: "observe" });
+    for (const call of [
+      { path: "describe.tool", input: { path: "computer.newTab" } },
+      { path: "computer.newTab", input: {} },
+    ])
+      await expect(server.rpc.testApi.invokeTool(call)).rejects.toThrow(
+        "Tool not found: computer.newTab. Similar tools: computer.createTab,",
+      );
+    for (const query of ["", "zyzzyva"])
+      expect(await search(query)).toEqual({
+        tools: [],
+        truncated: false,
+        unavailableSources: [],
+      });
 
     const thread = await server.rpc.thread.new();
     const prompting = server.promptAndWait({

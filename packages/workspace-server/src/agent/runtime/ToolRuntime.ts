@@ -49,6 +49,7 @@ import {
   type ExecutionEngine,
   INTEGRATION_INVENTORY_HEADER,
   makeExecutorToolInvoker,
+  searchTools,
 } from "@executor-js/execution/core";
 import type {
   CodeExecutor,
@@ -687,9 +688,23 @@ export class ToolRuntime {
     );
     if (executorDescription instanceof Error) return executorDescription;
 
+    const tools = [...this.tools.values()];
+    const namespaces = [...new Set(tools.map((entry) => entry.namespace))];
     const prefix = [
       "Execute JavaScript in a persistent, thread-owned session. tools and console are in scope. Variables and functions survive calls until reset or thread unload. Native let/const redeclarations error; use var for reusable bindings. Use exec({ op: 'reset' }) to discard bindings. Reset does not undo external actions.",
       'The final expression is the result: `await tools.search({ query: "send email" })`, `await tools.files.read({ path: "notes.md" })`, or `await tools[path](args)`. Top-level return is not supported. Await tool calls; detached work cannot outlive an evaluation.',
+      ...(namespaces.length > 0
+        ? [
+            "Workspace tools, called as tools.<namespace>.<name>(args). Get a schema with tools.describe.tool({ path }):",
+            ...namespaces.map(
+              (namespace) =>
+                `- ${namespace}: ${tools
+                  .filter((entry) => entry.namespace === namespace)
+                  .map((entry) => entry.name)
+                  .join(", ")}`,
+            ),
+          ]
+        : []),
       "Runtime tools do not throw for expected failures. They return { ok: true, data } or { ok: false, error }. Check result.ok.",
       "viewImage({ path }) attaches a workspace PNG, JPEG, or WebP directly to this exec result for model viewing. No await is needed; await returns only { ok: true } or { ok: false, error }, never image bytes. At most 8 images per evaluation; source files must be 20 MiB or smaller. Log observation text separately and viewImage(observation.data.screenshot) when present.",
       ...(this.tools.has("browser.call")
@@ -860,29 +875,23 @@ export class ToolRuntime {
   ) {
     if (!Value.Check(searchInputSchema, input))
       return new ToolRuntimeError({ operation: "invalid search arguments" });
-    const tools = await Effect.runPromise(
-      input.source === "control-plane"
-        ? Effect.succeed([])
-        : this.executor.tools.list(),
-    ).catch(
-      (cause) => new ToolRuntimeError({ operation: "tool search", cause }),
-    );
-    if (tools instanceof Error) return tools;
-    const query = input.query.toLowerCase();
-    const items = tools
-      .map((catalogTool) => ({
-        path: sandboxPath(String(catalogTool.address)),
-        name: catalogTool.name,
-        description: catalogTool.description,
-        source: "workspace" as const,
-      }))
-      .filter((entry) =>
-        `${entry.path} ${entry.name} ${entry.description}`
-          .toLowerCase()
-          .includes(query),
-      )
-      .toSorted((left, right) => left.path.localeCompare(right.path));
     const limit = input.limit ?? 100;
+    const local =
+      input.source === "control-plane"
+        ? { items: [] }
+        : await Effect.runPromise(
+            searchTools(this.executor, input.query, limit + 1),
+          ).catch(
+            (cause) =>
+              new ToolRuntimeError({ operation: "tool search", cause }),
+          );
+    if (local instanceof Error) return local;
+    const items = local.items.map((entry) => ({
+      path: entry.path,
+      name: entry.name,
+      description: entry.description,
+      source: "workspace" as const,
+    }));
     const remote =
       input.source === "workspace"
         ? undefined
@@ -935,31 +944,32 @@ export class ToolRuntime {
       return new ToolRuntimeError({
         operation: "invalid description arguments",
       });
-    if (input.path.startsWith("integrations.")) {
+    const path = sandboxPath(input.path);
+    if (path.startsWith("integrations.")) {
       if (this.remoteIntegrationTools === undefined)
         return new ToolRuntimeError({
           operation: "remote description unavailable",
         });
       const schema = await this.remoteIntegrationTools.describe(
-        { address: input.path.slice("integrations.".length) },
+        { address: path.slice("integrations.".length) },
         signal,
       );
       if (schema instanceof Error) return schema;
-      this.remoteToolIdentities.set(input.path, {
-        path: input.path,
+      this.remoteToolIdentities.set(path, {
+        path,
         displayName: schema.name,
         integrationId: schema.integration,
       });
-      return { ...schema, path: input.path };
+      return { ...schema, path };
     }
     const description = await Effect.runPromise(
-      this.executor.tools.schema(ToolAddress.make(input.path)),
+      this.executor.tools.schema(ToolAddress.make(path)),
     ).catch(
       (cause) => new ToolRuntimeError({ operation: "tool description", cause }),
     );
     if (description instanceof Error) return description;
     if (description === null) {
-      return new ToolRuntimeToolNotFoundError({ path: input.path });
+      return new ToolRuntimeToolNotFoundError({ path });
     }
     return {
       path: sandboxPath(String(description.address)),
@@ -1030,6 +1040,8 @@ export class ToolRuntime {
                   signal,
                 )
               : await this.describe(input.args as { path: string }, signal);
+          if (value instanceof ToolRuntimeToolNotFoundError)
+            return await this.toolNotFound(String(value.path));
           return value instanceof Error
             ? failure("discovery_failed", value.message)
             : ToolResult.ok(value);
@@ -1096,7 +1108,45 @@ export class ToolRuntime {
         );
       });
     }
-    return local.invoke(input);
+    return local
+      .invoke(input)
+      .pipe(
+        Effect.flatMap((result) =>
+          isToolResult(result) &&
+          !result.ok &&
+          result.error.code === "tool_not_found"
+            ? Effect.promise(async () => await this.toolNotFound(input.path))
+            : Effect.succeed(result),
+        ),
+      );
+  }
+
+  // Like Executor's describeTool: search the leaf in its namespace, then the whole path.
+  private async toolNotFound(path: string) {
+    const namespace = path.split(".")[0];
+    const leaf = path.slice(path.lastIndexOf(".") + 1);
+    const suggestions = await Effect.runPromise(
+      searchTools(this.executor, leaf, 5, { namespace }).pipe(
+        Effect.flatMap((scoped) =>
+          scoped.items.length > 0
+            ? Effect.succeed(scoped)
+            : searchTools(this.executor, path, 5),
+        ),
+        Effect.map((page) => page.items.map((item) => item.path)),
+      ),
+    ).catch(
+      (cause) => new ToolRuntimeError({ operation: "tool suggestions", cause }),
+    );
+    // Suggestions are optional; the lookup itself already failed.
+    const similar = suggestions instanceof Error ? [] : suggestions;
+    return ToolResult.fail({
+      code: "tool_not_found",
+      message:
+        similar.length > 0
+          ? `Tool not found: ${path}. Similar tools: ${similar.join(", ")}.`
+          : `Tool not found: ${path}. Use tools.search({ query }) to find tools.`,
+      details: { path, suggestions: similar },
+    });
   }
 
   async close() {
