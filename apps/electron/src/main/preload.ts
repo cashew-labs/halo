@@ -8,7 +8,12 @@ import { Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import { contextBridge, ipcRenderer } from "electron";
 import { LOG_CHANNELS } from "../shared/channels.js";
-import { DESKTOP_CHANNEL, type DesktopBridge } from "../shared/desktop.js";
+import {
+  DESKTOP_CHANNEL,
+  DEVICE_ACCESS_CHANNEL,
+  type DesktopBridge,
+} from "../shared/desktop.js";
+import type { LocalDeviceAccessRequest } from "@get-halo/web/HostApi";
 
 const desktopBridge: DesktopBridge = {
   // Main passes the environment as an argument so the first render can use it.
@@ -79,6 +84,25 @@ const desktopBridge: DesktopBridge = {
     }),
   getDevice: async () =>
     await ipcRenderer.invoke(DESKTOP_CHANNEL, { type: "getDevice" }),
+  getDeviceAccessRequests: async () =>
+    await ipcRenderer.invoke(DESKTOP_CHANNEL, {
+      type: "getDeviceAccessRequests",
+    }),
+  onDeviceAccessRequests: (listener) => {
+    const receive = (
+      _event: Electron.IpcRendererEvent,
+      requests: LocalDeviceAccessRequest[],
+    ) => listener(requests);
+    ipcRenderer.on(DEVICE_ACCESS_CHANNEL, receive);
+    return () => {
+      ipcRenderer.removeListener(DEVICE_ACCESS_CHANNEL, receive);
+    };
+  },
+  respondToDeviceAccessRequest: async (input) =>
+    await ipcRenderer.invoke(DESKTOP_CHANNEL, {
+      type: "respondToDeviceAccessRequest",
+      ...input,
+    }),
   updateDevice: async (update) =>
     await ipcRenderer.invoke(DESKTOP_CHANNEL, { type: "updateDevice", update }),
 };

@@ -161,6 +161,27 @@ export class ElectronHost implements HostApi {
   }
 
   readonly device = {
+    readAccessRequests: async () =>
+      await this.desktopBridge.getDeviceAccessRequests().catch(
+        (cause) =>
+          new ElectronHostError({
+            operation: "read device permission requests",
+            cause,
+          }),
+      ),
+    onAccessRequests: (
+      listener: Parameters<DesktopBridge["onDeviceAccessRequests"]>[0],
+    ) => this.desktopBridge.onDeviceAccessRequests(listener),
+    respondToAccessRequest: async (
+      input: Parameters<DesktopBridge["respondToDeviceAccessRequest"]>[0],
+    ) =>
+      await this.desktopBridge.respondToDeviceAccessRequest(input).catch(
+        (cause) =>
+          new ElectronHostError({
+            operation: "answer a device permission request",
+            cause,
+          }),
+      ),
     read: async () =>
       await this.desktopBridge.getDevice().catch(
         (cause) =>

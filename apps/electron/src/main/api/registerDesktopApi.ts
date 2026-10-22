@@ -102,6 +102,12 @@ async function handleDesktopRequest(args: {
     }
     case "getDevice":
       return args.device?.state() ?? deviceUnavailable();
+    case "getDeviceAccessRequests":
+      return args.device?.accessRequests() ?? deviceUnavailable();
+    case "respondToDeviceAccessRequest":
+      return args.device === undefined
+        ? deviceUnavailable()
+        : args.device.respondToAccessRequest(args.request);
     case "updateDevice":
       return (
         (await args.device?.update(args.request.update)) ?? deviceUnavailable()

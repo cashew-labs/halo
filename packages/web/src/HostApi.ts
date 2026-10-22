@@ -48,12 +48,44 @@ export type LocalDeviceUpdate = Partial<
   Pick<LocalDeviceState, "name" | "enabled" | "files" | "commands">
 >;
 
+export type LocalDeviceAccessAnswer =
+  | "read"
+  | "write"
+  | "deny"
+  | "allowCommands";
+
+/** Permission requests are answered only in the desktop that owns the device. */
+export type LocalDeviceAccessRequest = {
+  id: string;
+  sessionId: string;
+  toolCallId: string;
+  status:
+    | "pending"
+    | "read"
+    | "write"
+    | "allowed"
+    | "denied"
+    | "cancelled"
+    | "removed";
+  prompt:
+    | { kind: "files"; folder: string; path: string; access: "read" | "write" }
+    | { kind: "commands"; command: string; cwd: string };
+};
+
 export interface HostApi {
   /** Present only where Halo can let the agent use this computer. */
   // coverage-exempt: type declarations
   device?: {
     read(): Promise<LocalDeviceState | Error>;
     update(update: LocalDeviceUpdate): Promise<LocalDeviceState | Error>;
+    readAccessRequests(): Promise<LocalDeviceAccessRequest[] | Error>;
+    onAccessRequests(
+      listener: (requests: LocalDeviceAccessRequest[]) => void,
+    ): () => void;
+    respondToAccessRequest(input: {
+      requestId: string;
+      answer: LocalDeviceAccessAnswer;
+    }): Promise<void | Error>;
   };
   integrationSetup?: {
     read(setupId: string): Promise<IntegrationSetup | Error>;

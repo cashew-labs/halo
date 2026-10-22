@@ -4,6 +4,7 @@ import { PaneHeaderActions } from "../../panes/PaneHeader.js";
 import { DoneButton } from "./DoneButton.js";
 import { useMarkSessionRead } from "./useMarkSessionRead.js";
 import {
+  Fragment,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -48,6 +49,11 @@ import { referenceHref, type ReferenceTarget } from "../ReferencePicker.js";
 import { ExecutorApprovalCard } from "./ExecutorApprovalCard.tsx";
 import { ExecutorConnectionCard } from "./ExecutorConnectionCard.tsx";
 import { ToolActivity } from "./ToolActivity.tsx";
+import {
+  DeviceAccessCard,
+  useDeviceAccessRequests,
+} from "./DeviceAccessCard.js";
+import type { LocalDeviceAccessRequest } from "../../HostApi.js";
 import { useTabFindSource } from "../../panes/TabFind.js";
 import { useConnection } from "../../api/ConnectionContext.js";
 import { useApi } from "../../api/ApiProvider.js";
@@ -858,6 +864,7 @@ function SessionView({
   const viewedSessionId = useRef(sessionId);
   const view = useStyles(styles.view);
   const items = useMemo(() => sessionViewItems(state), [state]);
+  const deviceRequests = useDeviceAccessRequests();
   // Publish the Find source after paint. A layout effect schedules a sync
   // re-render on every session event; when events arrive faster than this
   // view renders, React counts those nested updates until it throws
@@ -964,7 +971,12 @@ function SessionView({
       }}
     >
       {items.map((item) => (
-        <SessionViewRow key={item.id} item={item} sessionId={sessionId} />
+        <SessionViewRow
+          key={item.id}
+          item={item}
+          sessionId={sessionId}
+          deviceRequests={deviceRequests}
+        />
       ))}
       {optimisticMessages.map((message) => (
         <SessionViewRow
@@ -992,6 +1004,7 @@ function SessionView({
 }
 
 function SessionViewRow({
+  deviceRequests = [],
   item,
   sessionId,
   uploads,
@@ -999,6 +1012,7 @@ function SessionViewRow({
   queueDisabled,
 }: {
   item: SessionViewItem;
+  deviceRequests?: LocalDeviceAccessRequest[];
   sessionId: string | undefined;
   /** Upload state for each attachment of a message that has not been sent. */
   uploads?: readonly (ChatUpload | undefined)[];
@@ -1145,7 +1159,20 @@ function SessionViewRow({
     <div className={assistantRow} aria-label="Assistant message">
       {item.parts.map((part) => {
         if (part.kind === "toolActivity") {
-          return <ToolActivity key={part.id} part={part} />;
+          return (
+            <Fragment key={part.id}>
+              <ToolActivity part={part} />
+              {deviceRequests
+                .filter(
+                  (request) =>
+                    request.sessionId === sessionId &&
+                    part.calls.some((call) => call.id === request.toolCallId),
+                )
+                .map((request) => (
+                  <DeviceAccessCard key={request.id} request={request} />
+                ))}
+            </Fragment>
+          );
         }
         if (part.kind === "executorConnection") {
           return (
