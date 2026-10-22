@@ -4,6 +4,7 @@ import crypto from "node:crypto";
 import path from "node:path";
 import * as errore from "errore";
 import { workspaceRuntimeConfigFileName } from "@get-halo/config/workspaceServer";
+import type { LoggerApi } from "@get-halo/logger";
 import type {
   WorkspaceProviderApi,
   WorkspaceProviderConnection,
@@ -23,8 +24,10 @@ class LocalAppVmUnsupportedError extends errore.createTaggedError({
 
 export class LocalWorkspaceProvider implements WorkspaceProviderApi {
   private readonly appDataDir: string;
+  private readonly logger: LoggerApi;
 
-  constructor(ctx: { appDataDir: string }) {
+  constructor(ctx: { appDataDir: string; logger: LoggerApi }) {
+    this.logger = ctx.logger;
     this.appDataDir = ctx.appDataDir;
   }
 
@@ -44,7 +47,11 @@ export class LocalWorkspaceProvider implements WorkspaceProviderApi {
       const removed = await fs
         .rm(temporary, { force: true })
         .catch((cause) => new LocalWorkspaceProviderError({ cause }));
-      if (removed instanceof Error) console.warn(removed);
+      if (removed instanceof Error)
+        this.logger.warn({
+          event: "workspace-local-runtime-cleanup-failed",
+          workspaceId: input.workspaceId,
+        });
     });
     const written = await fs
       .writeFile(temporary, JSON.stringify(input.runtime), { mode: 0o600 })

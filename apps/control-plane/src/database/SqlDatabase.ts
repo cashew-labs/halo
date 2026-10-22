@@ -3,6 +3,7 @@ import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import type { Pool, PoolClient, QueryResultRow } from "pg";
 import * as errore from "errore";
 import { SerialQueue } from "@get-halo/shared/SerialQueue";
+import type { LoggerApi } from "@get-halo/logger";
 
 export class SqlDatabaseError extends errore.createTaggedError({
   name: "SqlDatabaseError",
@@ -13,8 +14,10 @@ export class SqlDatabaseError extends errore.createTaggedError({
 export class SqlDatabase {
   private readonly actionQueue = new SerialQueue();
   private readonly client: DatabaseSync | Pool;
-  constructor(ctx: { client: DatabaseSync | Pool }) {
+  private readonly logger: LoggerApi;
+  constructor(ctx: { client: DatabaseSync | Pool; logger: LoggerApi }) {
     this.client = ctx.client;
+    this.logger = ctx.logger;
   }
 
   async transaction<T>(work: (sql: SqlTransaction) => Promise<T | Error>) {
@@ -27,7 +30,12 @@ export class SqlDatabase {
         await using rollback = new errore.AsyncDisposableStack();
         rollback.defer(async () => {
           const rolledBack = await sql.query("ROLLBACK");
-          if (rolledBack instanceof Error) console.error(rolledBack);
+          if (rolledBack instanceof Error)
+            this.logger.error({
+              event: "database-rollback-failed",
+              operation: "rollback",
+              databaseType: "sqlite",
+            });
         });
         const result = await work(sql);
         if (result instanceof Error) return result;
@@ -49,7 +57,12 @@ export class SqlDatabase {
     await using rollback = new errore.AsyncDisposableStack();
     rollback.defer(async () => {
       const rolledBack = await sql.query("ROLLBACK");
-      if (rolledBack instanceof Error) console.error(rolledBack);
+      if (rolledBack instanceof Error)
+        this.logger.error({
+          event: "database-rollback-failed",
+          operation: "rollback",
+          databaseType: "postgres",
+        });
     });
     const result = await work(sql);
     if (result instanceof Error) return result;

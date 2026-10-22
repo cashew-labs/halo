@@ -4,6 +4,7 @@ import { join, resolve } from "node:path";
 import { expect, test, vi } from "vitest";
 import { Pool } from "pg";
 import * as errore from "errore";
+import { Logger } from "@get-halo/logger";
 import { DatabaseService } from "../DatabaseService.js";
 import { AutomationStore } from "./AutomationStore.js";
 import { GmailStore } from "./GmailStore.js";
@@ -37,17 +38,20 @@ const gmailTest = test.extend<{ gmail: GmailStore }>({
       isolated.searchParams.set("options", `-c search_path=${schema}`);
       url = isolated.toString();
     }
-    const db = await DatabaseService.start(
-      url === undefined
-        ? { type: "sqlite", path: join(directory, "control-plane.db") }
-        : { type: "postgres", connectionString: url },
-    );
+    const logger = new Logger();
+    const db = await DatabaseService.start({
+      logger,
+      config:
+        url === undefined
+          ? { type: "sqlite", path: join(directory, "control-plane.db") }
+          : { type: "postgres", connectionString: url },
+    });
     if (db instanceof Error) throw db;
     cleanup.defer(async () => {
       const closed = await db.close();
       if (closed instanceof Error) throw closed;
     });
-    const automations = new AutomationStore({ db });
+    const automations = new AutomationStore({ db, logger });
     const initialized = await automations.initialize();
     if (initialized instanceof Error) throw initialized;
     const gmail = new GmailStore({ automations });

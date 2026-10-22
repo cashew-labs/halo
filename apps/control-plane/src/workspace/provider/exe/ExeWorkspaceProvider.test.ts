@@ -19,6 +19,7 @@ import {
   workspaceRuntimeConfigSchema,
 } from "@get-halo/config/workspaceServer";
 import * as errore from "errore";
+import { Logger } from "@get-halo/logger";
 import { ControlPlane } from "../../../server/ControlPlane.js";
 import { LocalWorkspaceProvider } from "../local/LocalWorkspaceProvider.js";
 
@@ -88,6 +89,7 @@ const exeTest = test.extend<{
       googleClientSecret: "unused-google-test-secret",
     };
     const plane = await ControlPlane.start({
+      logger: new Logger(),
       config: {
         deployment: "local",
         workspace: { deployment: "local" },
@@ -95,7 +97,10 @@ const exeTest = test.extend<{
         appDataDir,
         auth: authConfig,
       },
-      workspaceProvider: new LocalWorkspaceProvider({ appDataDir }),
+      workspaceProvider: new LocalWorkspaceProvider({
+        appDataDir,
+        logger: new Logger(),
+      }),
       webRoot: appDataDir,
     });
     if (plane instanceof Error) throw plane;

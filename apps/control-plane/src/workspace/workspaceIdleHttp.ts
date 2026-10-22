@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import type { LoggerApi } from "@get-halo/logger";
 import getRawBody from "raw-body";
 import { Type, type Static } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
@@ -19,6 +20,7 @@ export async function serveWorkspaceIdleReport(
   request: IncomingMessage,
   response: ServerResponse,
   workspace: WorkspaceService,
+  logger: LoggerApi,
 ) {
   response.setHeader("cache-control", "no-store");
   if (request.method !== "POST") {
@@ -34,7 +36,10 @@ export async function serveWorkspaceIdleReport(
     return;
   }
   if (identity instanceof Error) {
-    console.error(identity);
+    logger.error({
+      event: "workspace-idle-authentication-failed",
+      errorType: identity.name,
+    });
     response.writeHead(500).end();
     return;
   }
@@ -61,7 +66,11 @@ export async function serveWorkspaceIdleReport(
     return;
   }
   if (saved instanceof Error) {
-    console.error(saved);
+    logger.error({
+      event: "workspace-idle-save-failed",
+      workspaceId: identity.workspaceId,
+      errorType: saved.name,
+    });
     response.writeHead(500).end();
     return;
   }

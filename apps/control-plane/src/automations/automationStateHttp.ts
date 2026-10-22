@@ -1,4 +1,5 @@
 import type { IntegrationService } from "../integrations/IntegrationService.js";
+import type { LoggerApi } from "@get-halo/logger";
 import type { GmailService } from "./GmailService.js";
 import type { WebhookService } from "./WebhookService.js";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -11,6 +12,7 @@ import {
 } from "./AutomationStore.js";
 
 export async function serveAutomationState(ctx: {
+  logger: LoggerApi;
   request: IncomingMessage;
   response: ServerResponse;
   automationId: string;
@@ -35,7 +37,10 @@ export async function serveAutomationState(ctx: {
     return;
   }
   if (identity instanceof Error) {
-    console.error(identity);
+    ctx.logger.error({
+      event: "automation-state-authentication-failed",
+      errorType: identity.name,
+    });
     response.writeHead(503).end();
     return;
   }
@@ -44,7 +49,10 @@ export async function serveAutomationState(ctx: {
     automationId: ctx.automationId,
   });
   if (registration instanceof Error) {
-    console.error(registration);
+    ctx.logger.error({
+      event: "automation-registration-read-failed",
+      errorType: registration.name,
+    });
     response.writeHead(503).end();
     return;
   }
@@ -54,7 +62,10 @@ export async function serveAutomationState(ctx: {
   }
   const activation = registrationActivation(registration);
   if (activation instanceof Error) {
-    console.error(activation);
+    ctx.logger.error({
+      event: "automation-activation-read-failed",
+      automationId: ctx.automationId,
+    });
     response.writeHead(503).end();
     return;
   }
@@ -68,7 +79,10 @@ export async function serveAutomationState(ctx: {
       return;
     }
     if (access instanceof Error) {
-      console.error(access);
+      ctx.logger.error({
+        event: "automation-webhook-access-failed",
+        automationId: ctx.automationId,
+      });
       response.writeHead(503).end();
       return;
     }
@@ -82,7 +96,10 @@ export async function serveAutomationState(ctx: {
     automationId: ctx.automationId,
   });
   if (deliveries instanceof Error) {
-    console.error(deliveries);
+    ctx.logger.error({
+      event: "automation-history-read-failed",
+      errorType: deliveries.name,
+    });
     response.writeHead(503).end();
     return;
   }
@@ -91,7 +108,10 @@ export async function serveAutomationState(ctx: {
       ? await ctx.gmail.state(registration)
       : undefined;
   if (gmailState instanceof Error) {
-    console.error(gmailState);
+    ctx.logger.error({
+      event: "automation-gmail-state-failed",
+      automationId: ctx.automationId,
+    });
     response.writeHead(503).end();
     return;
   }
@@ -125,6 +145,7 @@ export async function serveAutomationState(ctx: {
 }
 
 export async function serveAutomationGmailConnections(ctx: {
+  logger: LoggerApi;
   request: IncomingMessage;
   response: ServerResponse;
   workspace: WorkspaceService;
@@ -149,7 +170,7 @@ export async function serveAutomationGmailConnections(ctx: {
   }
   const connections = await ctx.integrations.connections(identity.ownerUserId);
   if (connections instanceof Error) {
-    console.error(connections);
+    ctx.logger.error({ event: "gmail-connections-read-failed" });
     response.writeHead(503).end();
     return;
   }

@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import * as errore from "errore";
 import type { ControlPlaneWorkspaceStatus } from "@get-halo/shared/controlPlaneContract";
+import type { LoggerApi } from "@get-halo/logger";
 import type { DatabaseService } from "../DatabaseService.js";
 import type { WorkspaceProviderApi } from "./provider/WorkspaceProviderApi.js";
 import {
@@ -51,14 +52,17 @@ export class WorkspaceService {
   private readonly auth: AuthService;
   private readonly origin: string;
   private readonly idleTimeoutMs: number;
+  private readonly logger: LoggerApi;
 
   private constructor(ctx: {
+    logger: LoggerApi;
     provider: WorkspaceProviderApi;
     db: DatabaseService;
     auth: AuthService;
     origin: string;
     idleTimeoutMs?: number;
   }) {
+    this.logger = ctx.logger;
     this.db = ctx.db;
     this.provider = ctx.provider;
     this.auth = ctx.auth;
@@ -67,6 +71,7 @@ export class WorkspaceService {
   }
 
   static async start(ctx: {
+    logger: LoggerApi;
     provider: WorkspaceProviderApi;
     db: DatabaseService;
     auth: AuthService;
@@ -207,19 +212,30 @@ export class WorkspaceService {
       // Only new activity warrants waking it after a failed pause request.
       const after = await this.findRecord(identity.ownerUserId);
       if (after instanceof Error) {
-        console.error(after);
+        this.logger.error({
+          event: "workspace-pause-activity-read-failed",
+          workspaceId: identity.workspaceId,
+        });
         return paused;
       }
       if (after === undefined || after.activityAt !== before.activityAt) {
         const resumed = await this.provider.resume(identity);
-        if (resumed instanceof Error) console.error(resumed);
+        if (resumed instanceof Error)
+          this.logger.error({
+            event: "workspace-pause-recovery-resume-failed",
+            workspaceId: identity.workspaceId,
+          });
       }
       return paused;
     }
     const after = await this.findRecord(identity.ownerUserId);
     if (after instanceof Error) {
       const resumed = await this.provider.resume(identity);
-      if (resumed instanceof Error) console.error(resumed);
+      if (resumed instanceof Error)
+        this.logger.error({
+          event: "workspace-pause-recovery-resume-failed",
+          workspaceId: identity.workspaceId,
+        });
       return after;
     }
     if (after === undefined || after.activityAt !== before.activityAt)

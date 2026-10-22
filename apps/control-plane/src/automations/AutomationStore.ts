@@ -10,6 +10,7 @@ import type {
 } from "@get-halo/client";
 import { SqlDatabase, type SqlTransaction } from "../database/SqlDatabase.js";
 import type { DatabaseService } from "../DatabaseService.js";
+import type { LoggerApi } from "@get-halo/logger";
 
 export class AutomationRegistrationError extends errore.createTaggedError({
   name: "AutomationRegistrationError",
@@ -56,8 +57,11 @@ type DeliveryRow = {
 
 export class AutomationStore {
   readonly database: SqlDatabase;
-  constructor(ctx: { db: DatabaseService }) {
-    this.database = new SqlDatabase({ client: ctx.db.automationClient });
+  constructor(ctx: { db: DatabaseService; logger: LoggerApi }) {
+    this.database = new SqlDatabase({
+      client: ctx.db.automationClient,
+      logger: ctx.logger,
+    });
   }
 
   async initialize() {

@@ -9,6 +9,7 @@ import { DatabaseService } from "../src/DatabaseService.js";
 import { betterAuth } from "better-auth";
 import { testUtils } from "better-auth/plugins";
 import { DatabaseSync } from "node:sqlite";
+import { Logger } from "@get-halo/logger";
 
 const testAuth = {
   secret: "test-control-plane-auth-secret-key!",
@@ -40,8 +41,8 @@ const authServiceTest = test.extend<{
     await using cleanup = new errore.AsyncDisposableStack();
 
     const db = await DatabaseService.start({
-      type: "sqlite",
-      path: join(appDataDir, "control-plane.db"),
+      logger: new Logger(),
+      config: { type: "sqlite", path: join(appDataDir, "control-plane.db") },
     });
     if (db instanceof Error) throw db;
     cleanup.defer(async () => {
@@ -50,6 +51,7 @@ const authServiceTest = test.extend<{
     });
 
     const auth = await AuthService.start({
+      logger: new Logger(),
       db,
       origin,
       secret: testAuth.secret,

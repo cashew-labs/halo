@@ -1,6 +1,7 @@
 import type { WorkspaceUpdates } from "../workspace/WorkspaceUpdates.js";
 import { serveWorkspaceUpdate } from "../workspace/workspaceUpdateHttp.js";
 import type { MarketingLinks } from "../marketing/MarketingLinks.js";
+import type { Logger, LoggerApi } from "@get-halo/logger";
 import { serveMarketingLink } from "../marketing/serveMarketingLink.js";
 import type { GmailService } from "../automations/GmailService.js";
 import type { GmailPushReceiver } from "../automations/gmailHttp.js";
@@ -18,7 +19,7 @@ import {
   controlPlaneSupportedProtocols,
 } from "@get-halo/shared/controlPlaneContract";
 import { ORPCError } from "@orpc/server";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import http, {
   createServer,
@@ -166,6 +167,7 @@ export async function listenControlPlaneHttp(host: string, port: number) {
 }
 
 export function serveControlPlaneHttp(ctx: {
+  logger: Logger;
   server: HttpServer;
   auth: AuthService;
   authorization: WorkspaceAuthorization;
@@ -227,11 +229,13 @@ export function serveControlPlaneHttp(ctx: {
 
   server.removeListener("request", respondStarting);
   server.on("request", async (request, response) => {
+    const logger = ctx.logger.scope("request", { requestId: randomUUID() });
     // The reserved go host belongs to Halo, before creator-app dispatch.
     if (
       request.headers.host?.toLowerCase().split(":")[0] === marketingHostname
     ) {
       await serveMarketingLink({
+        logger: logger.scope("marketing"),
         request,
         response,
         homepageOrigin: ctx.marketingHomepageOrigin ?? publicOrigin,
@@ -251,13 +255,18 @@ export function serveControlPlaneHttp(ctx: {
     }
     if (handle !== undefined) {
       const served = await ctx.appGateway
-        .serve({ request, response, handle })
+        .serve({
+          request,
+          response,
+          handle,
+          logger: logger.scope("app-gateway"),
+        })
         .catch(
           (cause) =>
             new ControlPlaneHttpError({ detail: "serve app request", cause }),
         );
       if (served instanceof Error) {
-        console.error(served);
+        logger.error({ event: "app-request-failed", errorType: served.name });
         if (!response.headersSent) response.writeHead(500);
         response.end();
       }
@@ -266,6 +275,7 @@ export function serveControlPlaneHttp(ctx: {
     stripCrossOriginCookies(request, publicOrigin);
     await routeControlPlaneRequest({
       workspaceUpdates: ctx.workspaceUpdates,
+      logger,
       request,
       response,
       auth,
@@ -291,6 +301,7 @@ export function serveControlPlaneHttp(ctx: {
     });
   });
   server.on("upgrade", async (request, socket, head) => {
+    const logger = ctx.logger.scope("upgrade", { requestId: randomUUID() });
     upgradeSockets.add(socket);
     socket.once("close", () => upgradeSockets.delete(socket));
     if (
@@ -309,7 +320,12 @@ export function serveControlPlaneHttp(ctx: {
       respondToUpgrade(socket, 404);
       return;
     }
-    await gateway.upgrade(request, socket, head);
+    await gateway.upgrade(
+      request,
+      socket,
+      head,
+      logger.scope("workspace-proxy"),
+    );
   });
   return {
     close() {
@@ -364,6 +380,7 @@ function respondToUpgrade(socket: Duplex, statusCode: number) {
 }
 
 async function routeControlPlaneRequest(ctx: {
+  logger: Logger;
   request: IncomingMessage;
   response: ServerResponse;
   auth: AuthService;
@@ -388,7 +405,8 @@ async function routeControlPlaneRequest(ctx: {
   googleAnalyticsMeasurementId?: string;
   environment?: "production" | "staging" | "development";
 }) {
-  const { request, response, auth, workspace, gateway, rpc, webRoot } = ctx;
+  const { request, response, auth, workspace, gateway, rpc, webRoot, logger } =
+    ctx;
   const url = new URL(
     request.url === undefined ? "/" : request.url,
     requestUrlBase,
@@ -422,6 +440,7 @@ async function routeControlPlaneRequest(ctx: {
 
   if (isAppHandoffRequest(url)) {
     await serveAppHandoff({
+      logger: logger.scope("app-handoff"),
       request,
       response,
       url,
@@ -434,6 +453,7 @@ async function routeControlPlaneRequest(ctx: {
 
   if (isTemplateRequest(url)) {
     await serveTemplate({
+      logger: logger.scope("template"),
       request,
       response,
       url,
@@ -446,7 +466,13 @@ async function routeControlPlaneRequest(ctx: {
   }
 
   if (isAppRuntimeRequest(url)) {
-    await serveAppRuntime({ request, response, url, apps: ctx.apps });
+    await serveAppRuntime({
+      request,
+      response,
+      url,
+      apps: ctx.apps,
+      logger: logger.scope("app-runtime"),
+    });
     return;
   }
 
@@ -466,18 +492,24 @@ async function routeControlPlaneRequest(ctx: {
   }
 
   if (url.pathname === "/api/workspace-runtime/idle") {
-    await serveWorkspaceIdleReport(request, response, workspace);
+    await serveWorkspaceIdleReport(
+      request,
+      response,
+      workspace,
+      logger.scope("workspace-idle"),
+    );
     return;
   }
 
   if (url.pathname === "/api/automation-events/gmail") {
-    await ctx.gmailPush.serve(request, response);
+    await ctx.gmailPush.serve(request, response, logger.scope("gmail-push"));
     return;
   }
 
   const webhook = /^\/api\/webhooks\/([a-zA-Z0-9_-]+)$/.exec(url.pathname);
   if (webhook?.[1] !== undefined) {
     await serveWebhook({
+      logger: logger.scope("webhook"),
       request,
       response,
       url,
@@ -490,6 +522,7 @@ async function routeControlPlaneRequest(ctx: {
 
   if (url.pathname === "/api/workspace-runtime/automations/gmail/connections") {
     await serveAutomationGmailConnections({
+      logger: logger.scope("gmail-connections"),
       request,
       response,
       workspace,
@@ -506,6 +539,7 @@ async function routeControlPlaneRequest(ctx: {
       response,
       workspace,
       ctx.automationSchedules,
+      logger.scope("automation-schedules"),
     );
     return;
   }
@@ -515,6 +549,7 @@ async function routeControlPlaneRequest(ctx: {
     );
   if (automationState?.[1] !== undefined) {
     await serveAutomationState({
+      logger: logger.scope("automation-state"),
       request,
       response,
       automationId: automationState[1],
@@ -533,6 +568,7 @@ async function routeControlPlaneRequest(ctx: {
       response,
       workspace,
       ctx.automationStore,
+      logger.scope("automation-snapshot"),
     );
     ctx.gmail.schedule();
     return;
@@ -540,6 +576,7 @@ async function routeControlPlaneRequest(ctx: {
 
   if (url.pathname === `${workspaceInferencePath}/chat/completions`) {
     await serveWorkspaceInference({
+      logger: logger.scope("inference"),
       request,
       response,
       workspace,
@@ -554,7 +591,7 @@ async function routeControlPlaneRequest(ctx: {
       response.writeHead(503).end();
       return;
     }
-    await ctx.traces.serve(request, response, url);
+    await ctx.traces.serve(request, response, url, logger.scope("traces"));
     return;
   }
 
@@ -577,7 +614,10 @@ async function routeControlPlaneRequest(ctx: {
       return;
     }
     if (identity instanceof Error) {
-      console.error(identity);
+      logger.error({
+        event: "workspace-identity-failed",
+        errorType: identity.name,
+      });
       response.writeHead(500).end();
       return;
     }
@@ -588,7 +628,12 @@ async function routeControlPlaneRequest(ctx: {
   }
 
   if (request.method === "GET" && url.pathname === "/api/desktop-auth/start") {
-    await serveDesktopAuthStart(response, auth, url);
+    await serveDesktopAuthStart(
+      response,
+      auth,
+      url,
+      logger.scope("desktop-auth"),
+    );
     return;
   }
 
@@ -596,7 +641,13 @@ async function routeControlPlaneRequest(ctx: {
     request.method === "GET" &&
     url.pathname === "/api/desktop-auth/complete"
   ) {
-    await serveDesktopAuthCompletion(request, response, auth, url);
+    await serveDesktopAuthCompletion(
+      request,
+      response,
+      auth,
+      url,
+      logger.scope("desktop-auth"),
+    );
     return;
   }
 
@@ -606,12 +657,12 @@ async function routeControlPlaneRequest(ctx: {
   }
 
   if (isBetterAuthRequest(url)) {
-    await serveBetterAuth(request, response, auth);
+    await serveBetterAuth(request, response, auth, logger.scope("auth"));
     return;
   }
 
   if (isWorkspaceProxyRequest(url)) {
-    await gateway.serve(request, response);
+    await gateway.serve(request, response, logger.scope("workspace-proxy"));
     return;
   }
 
@@ -644,12 +695,14 @@ async function routeControlPlaneRequest(ctx: {
     url.pathname === "/"
       ? await auth.getSession(requestHeaders(request))
       : undefined;
-  if (session instanceof Error) console.error(session);
+  if (session instanceof Error)
+    logger.error({ event: "page-session-failed", errorType: session.name });
   const marketing =
     url.pathname === "/newsletter/check-email" ||
     url.pathname === "/newsletter/joined" ||
     (url.pathname === "/" && session === undefined);
   await serveWebApp({
+    logger: logger.scope("web"),
     request,
     response,
     url,
@@ -668,6 +721,7 @@ async function serveDesktopAuthStart(
   response: ServerResponse,
   auth: AuthService,
   url: URL,
+  logger: LoggerApi,
 ) {
   const callback = url.searchParams.get("callback");
   const state = url.searchParams.get("state");
@@ -685,7 +739,10 @@ async function serveDesktopAuthStart(
   }
 
   if (started instanceof Error) {
-    console.error(started);
+    logger.error({
+      event: "desktop-sign-in-start-failed",
+      errorType: started.name,
+    });
     response.writeHead(500).end();
     return;
   }
@@ -705,6 +762,7 @@ async function serveDesktopAuthCompletion(
   response: ServerResponse,
   auth: AuthService,
   url: URL,
+  logger: LoggerApi,
 ) {
   const callback = url.searchParams.get("callback");
   const state = url.searchParams.get("state");
@@ -730,7 +788,10 @@ async function serveDesktopAuthCompletion(
   }
 
   if (location instanceof Error) {
-    console.error(location);
+    logger.error({
+      event: "desktop-sign-in-complete-failed",
+      errorType: location.name,
+    });
     response.writeHead(500).end();
     return;
   }
@@ -791,11 +852,12 @@ async function serveBetterAuth(
   request: IncomingMessage,
   response: ServerResponse,
   auth: AuthService,
+  logger: LoggerApi,
 ) {
   const handled = await auth.handleHttp(request, response);
 
   if (handled instanceof Error) {
-    console.error(handled);
+    logger.error({ event: "auth-request-failed", errorType: handled.name });
     if (!response.writableEnded) response.writeHead(500).end();
   }
 }
@@ -834,6 +896,7 @@ async function serveControlPlaneRpc(ctx: {
 }
 
 async function serveWebApp(ctx: {
+  logger: LoggerApi;
   request: IncomingMessage;
   response: ServerResponse;
   url: URL;
@@ -867,7 +930,7 @@ async function serveWebApp(ctx: {
       : await readWebFile(path.resolve(root, ctx.environment, requestedPath));
   const file = overrideFile ?? (await readWebFile(filePath));
   if (file instanceof Error) {
-    console.error(file);
+    ctx.logger.error({ event: "web-asset-read-failed", errorType: file.name });
     response.writeHead(500).end();
     return;
   }

@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import type { LoggerApi } from "@get-halo/logger";
 import { Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import getRawBody from "raw-body";
@@ -28,6 +29,7 @@ export function isAppRuntimeRequest(url: URL) {
 
 /** Endpoints for app VMs, authenticated only by their own app credential. */
 export async function serveAppRuntime(ctx: {
+  logger: LoggerApi;
   request: IncomingMessage;
   response: ServerResponse;
   url: URL;
@@ -46,7 +48,10 @@ export async function serveAppRuntime(ctx: {
   const app = await ctx.apps.authenticateRuntime(request.headers.authorization);
   // coverage-exempt: App database outage; no service mocks in the real control-plane fixture.
   if (app instanceof Error) {
-    console.error(app);
+    ctx.logger.error({
+      event: "app-runtime-authentication-failed",
+      errorType: app.name,
+    });
     response.writeHead(500).end();
     return;
   }
@@ -57,7 +62,10 @@ export async function serveAppRuntime(ctx: {
   if (action === null) {
     const runtime = await ctx.apps.runtimeDefinition(app);
     if (runtime instanceof Error) {
-      console.error(runtime);
+      ctx.logger.error({
+        event: "app-runtime-definition-failed",
+        errorType: runtime.name,
+      });
       response.writeHead(500).end();
       return;
     }
@@ -97,7 +105,8 @@ export async function serveAppRuntime(ctx: {
     return;
   }
   if (result instanceof Error) {
-    if (!isAppRequestError(result)) console.error(result);
+    if (!isAppRequestError(result))
+      ctx.logger.error({ event: "app-action-failed" });
     response
       .writeHead(isAppRequestError(result) ? 400 : 500, {
         "content-type": "application/json",

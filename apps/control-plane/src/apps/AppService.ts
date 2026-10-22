@@ -10,6 +10,7 @@ import {
   type HaloClient,
 } from "@get-halo/client";
 import { SerialQueue } from "@get-halo/shared/SerialQueue";
+import type { LoggerApi } from "@get-halo/logger";
 import {
   validateAppDefinition,
   type AppAction,
@@ -77,8 +78,10 @@ export class AppService {
   private readonly integrations: IntegrationService | undefined;
   private readonly publicOrigin: string;
   private readonly readyTimeoutMs: number;
+  private readonly logger: LoggerApi;
 
   constructor(ctx: {
+    logger: LoggerApi;
     store: AppStore;
     credentials: AppCredentials;
     workspace: WorkspaceService;
@@ -88,6 +91,7 @@ export class AppService {
     publicOrigin: string;
     readyTimeoutMs?: number;
   }) {
+    this.logger = ctx.logger;
     this.store = ctx.store;
     this.credentials = ctx.credentials;
     this.workspace = ctx.workspace;
@@ -202,7 +206,11 @@ export class AppService {
           detail: live.message.slice(0, 500),
         });
         // coverage-exempt: App database outage while recording a failure; the publish error is still returned.
-        if (recorded instanceof Error) console.error(recorded);
+        if (recorded instanceof Error)
+          this.logger.error({
+            event: "app-publication-failure-record-failed",
+            appId: app.appId,
+          });
         return live;
       }
       const cleared = await this.store.clearPublishFailure(app.appId);

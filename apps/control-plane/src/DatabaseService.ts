@@ -4,6 +4,7 @@ import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import * as errore from "errore";
 import { Pool } from "pg";
+import type { LoggerApi } from "@get-halo/logger";
 
 class DatabaseServiceError extends errore.createTaggedError({
   name: "DatabaseServiceError",
@@ -24,6 +25,7 @@ export class DatabaseService {
   readonly appDatabase: SqlDatabase;
 
   private constructor(ctx: {
+    logger: LoggerApi;
     client: DatabaseClient;
     integrations: DatabaseClient;
     automations: DatabaseClient;
@@ -33,10 +35,14 @@ export class DatabaseService {
     this.integrations = ctx.integrations;
     this.automationClient = ctx.automations;
     this.appClient = ctx.apps;
-    this.appDatabase = new SqlDatabase({ client: ctx.apps });
+    this.appDatabase = new SqlDatabase({
+      client: ctx.apps,
+      logger: ctx.logger,
+    });
   }
 
-  static async start(config: DatabaseConfig) {
+  static async start(ctx: { config: DatabaseConfig; logger: LoggerApi }) {
+    const { config, logger } = ctx;
     if (config.type === "postgres") {
       const client = errore.try({
         try: () =>
@@ -47,6 +53,7 @@ export class DatabaseService {
       if (client instanceof Error) return client;
 
       return new DatabaseService({
+        logger,
         client,
         integrations: client,
         automations: client,
@@ -108,7 +115,13 @@ export class DatabaseService {
       client.close();
       return apps;
     }
-    return new DatabaseService({ client, integrations, automations, apps });
+    return new DatabaseService({
+      client,
+      integrations,
+      automations,
+      apps,
+      logger,
+    });
   }
 
   get client() {

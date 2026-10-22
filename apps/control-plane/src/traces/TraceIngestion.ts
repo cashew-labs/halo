@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import type { LoggerApi } from "@get-halo/logger";
 import { Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { promisify } from "node:util";
@@ -39,7 +40,12 @@ export class TraceIngestion {
     this.workspace = workspace;
   }
 
-  async serve(request: IncomingMessage, response: ServerResponse, url: URL) {
+  async serve(
+    request: IncomingMessage,
+    response: ServerResponse,
+    url: URL,
+    logger: LoggerApi,
+  ) {
     const headers = new Headers();
     if (request.headers.authorization !== undefined)
       headers.set("authorization", request.headers.authorization);
@@ -49,7 +55,10 @@ export class TraceIngestion {
       return;
     }
     if (identity instanceof Error) {
-      console.error(identity);
+      logger.error({
+        event: "trace-authentication-failed",
+        errorType: identity.name,
+      });
       response.writeHead(503).end();
       return;
     }
@@ -92,7 +101,12 @@ export class TraceIngestion {
       body,
     });
     if (uploaded instanceof Error) {
-      console.error(uploaded);
+      logger.error({
+        event: "trace-upload-failed",
+        workspaceId,
+        threadId,
+        traceId,
+      });
       response.writeHead(503).end();
       return;
     }

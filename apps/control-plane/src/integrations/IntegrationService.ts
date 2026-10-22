@@ -6,6 +6,7 @@ import https from "node:https";
 import stream from "node:stream";
 import zlib from "node:zlib";
 import { DatabaseSync } from "node:sqlite";
+import type { LoggerApi } from "@get-halo/logger";
 import { mcpPlugin } from "@executor-js/plugin-mcp/core";
 import { openApiPlugin } from "@executor-js/plugin-openapi/core";
 import {
@@ -181,6 +182,7 @@ export class IntegrationService {
   private readonly activeUsers = new Map<string, number>();
   private readonly initializing = new Set<string>();
   private closed = false;
+  private readonly logger: LoggerApi;
   private readonly database: Exclude<
     Awaited<ReturnType<typeof createExecutorDatabase>>,
     Error
@@ -197,6 +199,7 @@ export class IntegrationService {
   private readonly googleRevokeUrl: string;
 
   private constructor(ctx: {
+    logger: LoggerApi;
     database: Exclude<
       Awaited<ReturnType<typeof createExecutorDatabase>>,
       Error
@@ -210,6 +213,7 @@ export class IntegrationService {
     gmailApiOrigin?: string;
     googleRevokeUrl?: string;
   }) {
+    this.logger = ctx.logger;
     this.database = ctx.database;
     this.googleRevokeUrl = ctx.googleRevokeUrl ?? googleRevokeUrl;
     this.credentials = ctx.credentials;
@@ -268,6 +272,7 @@ export class IntegrationService {
   }
 
   static async start(ctx: {
+    logger: LoggerApi;
     db: DatabaseService;
     credentials: CredentialService;
     getOpenAPISpec?: (url: string) => Promise<string | Error>;
@@ -280,6 +285,7 @@ export class IntegrationService {
     const database = await createExecutorDatabase(ctx.db);
     if (database instanceof Error) return database;
     const service = new IntegrationService({
+      logger: ctx.logger,
       database,
       credentials: ctx.credentials,
       getOpenAPISpec: ctx.getOpenAPISpec,
@@ -418,7 +424,12 @@ export class IntegrationService {
         setup,
         connection: receipt.data,
       });
-      if (saved instanceof Error) console.warn(saved);
+      if (saved instanceof Error)
+        this.logger.warn({
+          event: "integration-setup-confirm-failed",
+          userId: ctx.userId,
+          setupId: ctx.setupId,
+        });
       return {
         ...publicSetup,
         connection: receipt.data,
@@ -575,7 +586,12 @@ export class IntegrationService {
     await using cleanup = new errore.AsyncDisposableStack();
     cleanup.defer(async () => {
       const failed = await this.failSetupClaim({ ...ctx, claim: "submitting" });
-      if (failed instanceof Error) console.error(failed);
+      if (failed instanceof Error)
+        this.logger.error({
+          event: "integration-setup-claim-cleanup-failed",
+          userId: ctx.userId,
+          setupId: ctx.setupId,
+        });
     });
     const redirectUri = `${this.publicOrigin}/api/integrations/oauth/callback`;
     const result = await this.withUser(ctx.userId, (executor) =>
@@ -709,7 +725,12 @@ export class IntegrationService {
         setup,
         connection: safeConnection(result.connection),
       });
-      if (saved instanceof Error) console.warn(saved);
+      if (saved instanceof Error)
+        this.logger.warn({
+          event: "integration-setup-confirm-failed",
+          userId: ctx.userId,
+          setupId: ctx.setupId,
+        });
       return {};
     }
     const safeAuthorization = await this.validateRemoteUrl(
@@ -738,7 +759,12 @@ export class IntegrationService {
       const cancelled = await this.withUser(ctx.userId, (executor) =>
         executor.oauth.cancel(result.state),
       );
-      if (cancelled instanceof Error) console.error(cancelled);
+      if (cancelled instanceof Error)
+        this.logger.error({
+          event: "integration-oauth-cancel-failed",
+          userId: ctx.userId,
+          setupId: ctx.setupId,
+        });
       return saved instanceof Error
         ? saved
         : new IntegrationSetupError({
@@ -902,7 +928,12 @@ export class IntegrationService {
         setupId: row.setup_id,
         claim: "consuming",
       });
-      if (failed instanceof Error) console.error(failed);
+      if (failed instanceof Error)
+        this.logger.error({
+          event: "integration-setup-claim-cleanup-failed",
+          userId: row.user_id,
+          setupId: row.setup_id,
+        });
     });
     const setup = await this.setup({
       userId: row.user_id,
@@ -944,7 +975,12 @@ export class IntegrationService {
       return { setupUrl: this.setupUrl(row.setup_id) };
     }
     const labeled = await this.labelAccount(row.user_id, connection);
-    if (labeled instanceof Error) console.warn(labeled);
+    if (labeled instanceof Error)
+      this.logger.warn({
+        event: "integration-account-label-failed",
+        userId: row.user_id,
+        setupId: row.setup_id,
+      });
     const saved = await this.confirmSetup({
       userId: row.user_id,
       setupId: row.setup_id,
@@ -953,7 +989,12 @@ export class IntegrationService {
         labeled instanceof Error ? connection : labeled,
       ),
     });
-    if (saved instanceof Error) console.warn(saved);
+    if (saved instanceof Error)
+      this.logger.warn({
+        event: "integration-setup-confirm-failed",
+        userId: row.user_id,
+        setupId: row.setup_id,
+      });
     return { setupUrl: this.setupUrl(row.setup_id) };
   }
 
@@ -1490,6 +1531,7 @@ export class IntegrationService {
     arguments: Record<string, IntegrationJson>;
     signal?: AbortSignal;
   }) {
+    const logger = this.logger;
     const result = await this.withUser(
       ctx.userId,
       (executor) =>
@@ -1499,19 +1541,20 @@ export class IntegrationService {
           return yield* executor.execute(tool.address, ctx.arguments).pipe(
             Effect.match({
               onFailure: (error): IntegrationInvocation => {
-                if (error instanceof CredentialResolutionError)
+                if (error instanceof CredentialResolutionError) {
                   // Provider messages can contain response bodies; keep only typed metadata in cloud logs.
-                  console.warn(
-                    JSON.stringify({
-                      severity: "WARNING",
-                      event: "integration-authorization-failed",
-                      userId: ctx.userId,
-                      integration: tool.integration,
-                      connectionName: tool.connection,
-                      reauthRequired: error.reauthRequired === true,
-                      oauthErrorCode: error.oauthErrorCode,
-                    }),
-                  );
+                  const metadata: Record<string, string> = {};
+                  if (error.oauthErrorCode !== undefined)
+                    metadata.oauthErrorCode = error.oauthErrorCode;
+                  logger.warn({
+                    event: "integration-authorization-failed",
+                    userId: ctx.userId,
+                    integration: tool.integration,
+                    connectionName: tool.connection,
+                    reauthRequired: error.reauthRequired === true,
+                    ...metadata,
+                  });
+                }
                 if (error instanceof ToolBlockedError)
                   return { status: "blocked" };
                 if (error instanceof ElicitationDeclinedError)
@@ -1710,7 +1753,11 @@ export class IntegrationService {
         (cause) =>
           new IntegrationServiceError({ detail: "close Executor", cause }),
       );
-      if (result instanceof Error) console.error(result);
+      if (result instanceof Error)
+        this.logger.error({
+          event: "integration-executor-close-failed",
+          userId,
+        });
     });
     // Native fallback covers existing and future connections. Explicit restrictions still win.
     const approved = await Effect.runPromise(

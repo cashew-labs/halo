@@ -1,8 +1,10 @@
 import type { MarketingLinks } from "./MarketingLinks.js";
+import type { LoggerApi } from "@get-halo/logger";
 import type { IncomingMessage, ServerResponse } from "node:http";
 
 /** Resolve only enabled saved slugs to Halo's homepage; no visitor-supplied target. */
 export async function serveMarketingLink(ctx: {
+  logger: LoggerApi;
   request: IncomingMessage;
   response: ServerResponse;
   homepageOrigin: string;
@@ -22,7 +24,10 @@ export async function serveMarketingLink(ctx: {
   const slug = match?.[1];
   const tags = slug === undefined ? undefined : await links.resolve(slug);
   if (tags instanceof Error) {
-    console.error(tags);
+    ctx.logger.error({
+      event: "marketing-link-resolve-failed",
+      errorType: tags.name,
+    });
     response.writeHead(500).end();
     return;
   }

@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import type { LoggerApi } from "@get-halo/logger";
 import getRawBody from "raw-body";
 import { Type, type Static } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
@@ -33,6 +34,7 @@ export async function serveWorkspaceAutomationSnapshot(
   response: ServerResponse,
   workspace: WorkspaceService,
   coordinator: AutomationScheduleCoordinator,
+  logger: LoggerApi,
 ) {
   response.setHeader("cache-control", "no-store");
   if (request.method !== "POST") {
@@ -48,7 +50,10 @@ export async function serveWorkspaceAutomationSnapshot(
     return;
   }
   if (identity instanceof Error) {
-    console.error(identity);
+    logger.error({
+      event: "automation-schedule-authentication-failed",
+      errorType: identity.name,
+    });
     response.writeHead(500).end();
     return;
   }
@@ -77,7 +82,11 @@ export async function serveWorkspaceAutomationSnapshot(
   }
   const updated = await coordinator.update(identity.workspaceId, snapshot);
   if (updated instanceof Error) {
-    console.error(updated);
+    logger.error({
+      event: "automation-schedule-update-failed",
+      workspaceId: identity.workspaceId,
+      errorType: updated.name,
+    });
     response.writeHead(503).end();
     return;
   }

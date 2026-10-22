@@ -11,6 +11,7 @@ import http from "node:http";
 import { once } from "node:events";
 import type { AddressInfo } from "node:net";
 import { expect } from "@playwright/test";
+import { Logger } from "@get-halo/logger";
 import { betterAuth } from "better-auth";
 import { testUtils } from "better-auth/plugins";
 import * as errore from "errore";
@@ -33,7 +34,9 @@ e2eTest(
   async ({ browser, harness, testArtifacts }) => {
     e2eTest.setTimeout(120_000);
     const extension = await harness.loadExtension("./fixtures/greeting");
+    const logger = new Logger();
     const plane = await ControlPlane.start({
+      logger,
       config: {
         deployment: "local",
         workspace: { deployment: "local" },
@@ -43,6 +46,7 @@ e2eTest(
       },
       webRoot: path.resolve(import.meta.dirname, "../../web-app/dist"),
       workspaceProvider: new LocalWorkspaceProvider({
+        logger: logger.scope("local-workspace"),
         appDataDir: testArtifacts.paths.userData,
       }),
     });
@@ -158,7 +162,9 @@ e2eTest(
     const extension = await harness.loadExtension(
       "./fixtures/websocket-greeting",
     );
+    const logger = new Logger();
     const plane = await ControlPlane.start({
+      logger,
       config: {
         deployment: "local",
         workspace: { deployment: "local" },
@@ -168,6 +174,7 @@ e2eTest(
       },
       webRoot: path.resolve(import.meta.dirname, "../../web-app/dist"),
       workspaceProvider: new LocalWorkspaceProvider({
+        logger: logger.scope("local-workspace"),
         appDataDir: testArtifacts.paths.userData,
       }),
     });
@@ -244,7 +251,9 @@ e2eTest(
     });
     // SAFETY: The provider is listening on a TCP port.
     const providerOrigin = `http://127.0.0.1:${(provider.address() as AddressInfo).port}`;
+    const logger = new Logger();
     const plane = await ControlPlane.start({
+      logger,
       config: {
         deployment: "local",
         workspace: { deployment: "local" },
@@ -254,6 +263,7 @@ e2eTest(
       },
       webRoot: path.resolve(import.meta.dirname, "../../web-app/dist"),
       workspaceProvider: new LocalWorkspaceProvider({
+        logger: logger.scope("local-workspace"),
         appDataDir: testArtifacts.paths.userData,
       }),
       integrationEncryptionKey: Buffer.alloc(32, 17),
@@ -359,7 +369,9 @@ e2eTest(
         }),
       ],
     });
+    const logger = new Logger();
     const plane = await ControlPlane.start({
+      logger,
       config: {
         deployment: "local",
         workspace: { deployment: "local" },
@@ -369,6 +381,7 @@ e2eTest(
       },
       webRoot: path.resolve(import.meta.dirname, "../../web-app/dist"),
       workspaceProvider: new LocalWorkspaceProvider({
+        logger: logger.scope("local-workspace"),
         appDataDir: testArtifacts.paths.userData,
       }),
     });
@@ -458,7 +471,9 @@ for (const { busy, entry } of [
         title: "Release planning",
         messages: [m.user("Keep this conversation open while Halo updates.")],
       });
+      const logger = new Logger();
       const plane = await ControlPlane.start({
+        logger,
         config: {
           deployment: "local",
           workspace: { deployment: "local" },
@@ -468,6 +483,7 @@ for (const { busy, entry } of [
         },
         webRoot: path.resolve(import.meta.dirname, "../../web-app/dist"),
         workspaceProvider: new LocalWorkspaceProvider({
+          logger: logger.scope("local-workspace"),
           appDataDir: testArtifacts.paths.userData,
         }),
         workspaceUpdateTarget: {

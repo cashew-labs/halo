@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import type { LoggerApi } from "@get-halo/logger";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createProxyServer } from "httpxy";
 import * as errore from "errore";
@@ -62,11 +63,12 @@ export class AppGateway {
   }
 
   async serve(ctx: {
+    logger: LoggerApi;
     request: IncomingMessage;
     response: ServerResponse;
     handle: string;
   }) {
-    const { request, response, handle } = ctx;
+    const { request, response, handle, logger } = ctx;
     const raw = request.url ?? "/";
     // Check the raw target: URL parsing would turn "\" into "/" and drop dots.
     const rawPath = raw.split("?")[0]!;
@@ -90,7 +92,10 @@ export class AppGateway {
           : await this.store.findViewerSession({ handle, token });
       // coverage-exempt: App database outage; no service mocks in the real control-plane fixture.
       if (session instanceof Error) {
-        console.error(session);
+        logger.error({
+          event: "app-viewer-session-failed",
+          errorType: session.name,
+        });
         respond(response, 500);
         return;
       }
@@ -113,14 +118,18 @@ export class AppGateway {
       return;
     }
     if (url.pathname === "/__halo/handoff") {
-      await this.redeem({ request, response, handle, url });
+      await this.redeem({ request, response, handle, url, logger });
       return;
     }
     if (url.pathname === "/__halo/signout") {
       const token = this.cookie(request, "session");
       if (token !== undefined) {
         const deleted = await this.store.deleteViewerSession(token);
-        if (deleted instanceof Error) console.error(deleted);
+        if (deleted instanceof Error)
+          logger.error({
+            event: "app-viewer-session-delete-failed",
+            errorType: deleted.name,
+          });
       }
       // Creator hosts serve only app paths, so return to the visitor's app.
       const location = safeReturnPath(url.searchParams.get("return"));
@@ -151,7 +160,7 @@ export class AppGateway {
     const app = await this.store.findByAddress({ handle, slug: slug! });
     // coverage-exempt: App database outage; no service mocks in the real control-plane fixture.
     if (app instanceof Error) {
-      console.error(app);
+      logger.error({ event: "app-address-lookup-failed", errorType: app.name });
       respond(response, 500);
       return;
     }
@@ -167,7 +176,10 @@ export class AppGateway {
     const viewer = await this.viewer({ request, response, app, handle });
     // coverage-exempt: App database outage; no service mocks in the real control-plane fixture.
     if (viewer instanceof Error) {
-      console.error(viewer);
+      logger.error({
+        event: "app-viewer-lookup-failed",
+        errorType: viewer.name,
+      });
       respond(response, 500);
       return;
     }
@@ -222,6 +234,7 @@ export class AppGateway {
       return;
     }
     await this.forward({
+      logger,
       request,
       response,
       app,
@@ -263,6 +276,7 @@ export class AppGateway {
   }
 
   private async redeem(ctx: {
+    logger: LoggerApi;
     request: IncomingMessage;
     response: ServerResponse;
     handle: string;
@@ -276,7 +290,10 @@ export class AppGateway {
         : await this.store.redeemHandoff({ handle: ctx.handle, code, state });
     // coverage-exempt: App database outage; no service mocks in the real control-plane fixture.
     if (token instanceof Error) {
-      console.error(token);
+      ctx.logger.error({
+        event: "app-handoff-redeem-failed",
+        errorType: token.name,
+      });
       respond(ctx.response, 500);
       return;
     }
@@ -311,6 +328,7 @@ export class AppGateway {
   }
 
   private async forward(ctx: {
+    logger: LoggerApi;
     request: IncomingMessage;
     response: ServerResponse;
     app: AppRecord;
@@ -322,7 +340,11 @@ export class AppGateway {
       workspaceId: ctx.app.appId,
       ownerUserId: ctx.app.ownerUserId,
     });
-    if (connection instanceof Error) console.error(connection);
+    if (connection instanceof Error)
+      ctx.logger.error({
+        event: "app-connection-failed",
+        appId: ctx.app.appId,
+      });
     if (connection === undefined || connection instanceof Error) {
       respond(ctx.response, 503);
       return;
@@ -330,7 +352,10 @@ export class AppGateway {
     const authorization = await this.authorization.headers(connection);
     // coverage-exempt: Only Google identity tokens fail here; tests use gateway bearer tokens.
     if (authorization instanceof Error) {
-      console.error(authorization);
+      ctx.logger.error({
+        event: "app-proxy-authorization-failed",
+        appId: ctx.app.appId,
+      });
       respond(ctx.response, 502);
       return;
     }
@@ -368,7 +393,11 @@ export class AppGateway {
         (cause) => new AppGatewayError({ detail: "proxy request", cause }),
       );
     if (!(proxied instanceof Error)) return;
-    console.error(proxied);
+    ctx.logger.error({
+      event: "app-proxy-failed",
+      appId: ctx.app.appId,
+      errorType: proxied.name,
+    });
     // httpxy rejects only before the app VM answers. A failure mid-response
     // aborts the visitor's response inside httpxy instead.
     if (!ctx.response.headersSent) respond(ctx.response, 502);

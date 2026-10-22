@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import type { LoggerApi } from "@get-halo/logger";
 import getRawBody from "raw-body";
 import {
   automationSnapshotSchema,
@@ -20,6 +21,7 @@ export async function serveAutomationSnapshot(
   response: ServerResponse,
   workspace: WorkspaceService,
   store: AutomationStore,
+  logger: LoggerApi,
 ) {
   response.setHeader("cache-control", "no-store");
   if (request.method !== "POST") {
@@ -35,7 +37,10 @@ export async function serveAutomationSnapshot(
     return;
   }
   if (identity instanceof Error) {
-    console.error(identity);
+    logger.error({
+      event: "automation-snapshot-authentication-failed",
+      errorType: identity.name,
+    });
     response.writeHead(500).end();
     return;
   }
@@ -63,7 +68,11 @@ export async function serveAutomationSnapshot(
   }
   const updated = await store.register({ ...identity, snapshot });
   if (updated instanceof Error) {
-    console.error(updated);
+    logger.error({
+      event: "automation-snapshot-update-failed",
+      workspaceId: identity.workspaceId,
+      errorType: updated.name,
+    });
     response.writeHead(503).end();
     return;
   }

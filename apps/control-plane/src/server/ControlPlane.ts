@@ -3,6 +3,7 @@ import {
   type WorkspaceUpdateTarget,
 } from "../workspace/WorkspaceUpdates.js";
 import { MarketingLinks } from "../marketing/MarketingLinks.js";
+import type { Logger, LoggerApi } from "@get-halo/logger";
 import type { OAuth2Client } from "google-auth-library";
 import { GmailService } from "../automations/GmailService.js";
 import { GmailPushReceiver } from "../automations/gmailHttp.js";
@@ -79,6 +80,7 @@ export class ControlPlane {
   }
 
   static async start(ctx: {
+    logger: Logger;
     config: ControlPlaneConfig;
     githubOAuthOrigin?: string;
     webRoot: string;
@@ -98,7 +100,7 @@ export class ControlPlane {
     googleRevokeUrl?: string;
     appReadyTimeoutMs?: number;
   }) {
-    const { config, webRoot } = ctx;
+    const { config, webRoot, logger } = ctx;
     await using cleanup = new errore.AsyncDisposableStack();
 
     const http = await listenControlPlaneHttp(
@@ -109,32 +111,48 @@ export class ControlPlane {
 
     cleanup.defer(async () => {
       const closed = await closeControlPlaneHttp(http.server);
-      if (closed instanceof Error) console.error(closed);
+      if (closed instanceof Error)
+        logger.error({ event: "http-close-failed", errorType: closed.name });
     });
 
     const publicOrigin =
       config.deployment === "local" ? http.origin : config.origin;
 
-    const db = await DatabaseService.start(databaseConfig(config));
+    const db = await DatabaseService.start({
+      config: databaseConfig(config),
+      logger: logger.scope("database"),
+    });
     if (db instanceof Error) return db;
 
     cleanup.defer(async () => {
       const closed = await db.close();
-      if (closed instanceof Error) console.error(closed);
+      if (closed instanceof Error)
+        logger.error({
+          event: "database-close-failed",
+          errorType: closed.name,
+        });
     });
 
     const auth = await AuthService.start({
+      logger: logger.scope("auth"),
       db,
       origin: publicOrigin,
       secret: config.auth.secret,
       googleClientId: config.auth.googleClientId,
       googleClientSecret: config.auth.googleClientSecret,
-      signInAllowlist: signInAllowlist(config.auth.signInAllowlistSecretId),
-      stagingTesters: signInAllowlist(config.auth.stagingTestersSecretId),
+      signInAllowlist: signInAllowlist(
+        config.auth.signInAllowlistSecretId,
+        logger.scope("sign-in-allowlist"),
+      ),
+      stagingTesters: signInAllowlist(
+        config.auth.stagingTestersSecretId,
+        logger.scope("staging-testers"),
+      ),
     });
     if (auth instanceof Error) return auth;
 
     const workspace = await WorkspaceService.start({
+      logger: logger.scope("workspace"),
       db,
       provider: ctx.workspaceProvider,
       auth,
@@ -168,6 +186,7 @@ export class ControlPlane {
       credentials === undefined
         ? undefined
         : await IntegrationService.start({
+            logger: logger.scope("integrations"),
             db,
             credentials,
             getOpenAPISpec: ctx.getOpenAPISpec,
@@ -206,19 +225,28 @@ export class ControlPlane {
     if (integrations instanceof Error) return integrations;
     cleanup.defer(async () => {
       const closed = await integrations?.close();
-      if (closed instanceof Error) console.error(closed);
+      if (closed instanceof Error)
+        logger.error({
+          event: "integrations-close-failed",
+          errorType: closed.name,
+        });
     });
     const automationSchedules = await AutomationScheduleCoordinator.start({
+      logger: logger.scope("automation-schedules"),
       db,
       workspace,
     });
     if (automationSchedules instanceof Error) return automationSchedules;
     cleanup.defer(async () => await automationSchedules.close());
 
-    const automationStore = new AutomationStore({ db });
+    const automationStore = new AutomationStore({
+      db,
+      logger: logger.scope("automation-store"),
+    });
     const initializedAutomations = await automationStore.initialize();
     if (initializedAutomations instanceof Error) return initializedAutomations;
     const webhooks = new WebhookService({
+      logger: logger.scope("webhooks"),
       store: automationStore,
       credentials,
       origin: publicOrigin,
@@ -226,6 +254,7 @@ export class ControlPlane {
     const initializedWebhooks = await webhooks.initialize();
     if (initializedWebhooks instanceof Error) return initializedWebhooks;
     const gmail = new GmailService({
+      logger: logger.scope("gmail"),
       automations: automationStore,
       integrations,
       configuration: config.gmail,
@@ -235,6 +264,7 @@ export class ControlPlane {
     cleanup.defer(async () => await gmail.close());
     const gmailPush = new GmailPushReceiver({ gmail, auth: ctx.gmailPushAuth });
     const automationCoordinator = new AutomationCoordinator({
+      logger: logger.scope("automation-delivery"),
       store: automationStore,
       workspace,
     });
@@ -252,6 +282,7 @@ export class ControlPlane {
     if (initializedMarketing instanceof Error) return initializedMarketing; // coverage-exempt: Database schema creation failure at startup; service-level database errors are tested through a closed real connection.
     const authorization = new WorkspaceAuthorization();
     const apps = new AppService({
+      logger: logger.scope("apps"),
       store: appStore,
       credentials: new AppCredentials({ secret: config.auth.secret }),
       workspace,
@@ -263,6 +294,7 @@ export class ControlPlane {
     });
 
     const requests = serveControlPlaneHttp({
+      logger: logger.scope("http"),
       server: http.server,
       auth,
       authorization,
@@ -346,10 +378,11 @@ function databaseConfig(config: ControlPlaneConfig): DatabaseConfig {
   };
 }
 
-function signInAllowlist(secretId: string | undefined) {
+function signInAllowlist(secretId: string | undefined, logger: LoggerApi) {
   if (secretId === undefined) return undefined;
   // A new secret version takes effect within a minute, without a redeploy.
   return new SignInAllowlist({
+    logger,
     read: async () => await readControlPlaneSecret(secretId),
     refreshMs: 60_000,
   });

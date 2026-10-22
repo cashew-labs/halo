@@ -37,13 +37,15 @@ import {
 import { betterAuth } from "better-auth";
 import { testUtils } from "better-auth/plugins";
 import * as errore from "errore";
-import { expect, onTestFinished, test, vi } from "vitest";
+import { expect, test, vi } from "vitest";
 import {
   type AutomationDelivery,
   createHaloClient,
   threadToolExecutions,
 } from "@get-halo/client";
-import { Logger } from "@get-halo/logger";
+import { Logger, type LoggerEntry } from "@get-halo/logger";
+import { PrettyConsoleLoggerSink } from "@get-halo/logger/PrettyConsoleLoggerSink";
+import { CloudLoggingSink } from "../src/logging/CloudLoggingSink.js";
 import {
   ControlPlaneAutomationClient,
   WorkspaceServer,
@@ -77,7 +79,10 @@ class WorkspaceHostDriver {
   private readonly server: http.Server;
 
   private constructor(ctx: { appDataDir: string }) {
-    this.provider = new LocalWorkspaceProvider(ctx);
+    this.provider = new LocalWorkspaceProvider({
+      ...ctx,
+      logger: new Logger(),
+    });
     this.server = http.createServer((request, response) => {
       this.requests.push(request.url ?? "");
       const exeAuthorization = request.headers["x-exedev-authorization"];
@@ -213,6 +218,8 @@ type OAuthTokenDriver = { refreshError?: string; refreshes: number };
 const controlPlaneTest = test.extend<{
   updateTarget: { image: string; version: string } | undefined;
   updateIdleMs: number;
+  logger: Logger;
+  logs: LoggerEntry[];
   traceCloud: TraceCloudDriver;
   inferenceApi: InferenceDriver;
   appDataDir: string;
@@ -862,8 +869,17 @@ const controlPlaneTest = test.extend<{
     await use(driver);
     await driver.close();
   },
-  workspaceProvider: async ({ appDataDir }, use) => {
-    await use(new LocalWorkspaceProvider({ appDataDir }));
+  // oxlint-disable-next-line eslint/no-empty-pattern -- Native fixture signature.
+  logs: async ({}, use) => await use([]),
+  logger: async ({ logs }, use) => {
+    const logger = new Logger({
+      sinks: [{ log: (entry) => logs.push(entry) }],
+    });
+    await use(logger.scope("control-plane"));
+    logger.destroy();
+  },
+  workspaceProvider: async ({ appDataDir, logger }, use) => {
+    await use(new LocalWorkspaceProvider({ appDataDir, logger }));
   },
   workspaceHost: async ({ appDataDir }, use) => {
     const host = await WorkspaceHostDriver.start({
@@ -916,6 +932,7 @@ const controlPlaneTest = test.extend<{
       environment,
       updateTarget,
       updateIdleMs,
+      logger,
     },
     use,
   ) => {
@@ -923,6 +940,7 @@ const controlPlaneTest = test.extend<{
       workspaceUpdateTarget: updateTarget,
       workspaceUpdateIdleMs: updateIdleMs,
       workspaceUpdateToken: async () => "read-only-registry-token",
+      logger,
       build: { version: "test-release", revision: "test-revision" },
       config: {
         deployment: "local",
@@ -1593,6 +1611,7 @@ controlPlaneTest(
     browserHeaders,
     integrationApi,
     appDataDir,
+    logs,
   }) => {
     await using cleanup = new errore.AsyncDisposableStack();
     await human.workspace.ensure();
@@ -1659,8 +1678,6 @@ controlPlaneTest(
       }),
     ).toMatchObject({ status: "completed" });
 
-    const warnings = vi.spyOn(console, "warn").mockImplementation(() => {});
-    cleanup.defer(() => warnings.mockRestore());
     const clock = vi
       .spyOn(Date, "now")
       .mockReturnValue(Date.now() + 2 * 60 * 60 * 1000);
@@ -1687,25 +1704,49 @@ controlPlaneTest(
       });
     }
     expect(integrationApi.oauth.refreshes).toBe(2);
-    const diagnostics = warnings.mock.calls.map(([entry]) =>
-      JSON.parse(String(entry)),
-    );
+    const diagnostics = logs.filter((entry) => entry.level === "warn");
     expect(diagnostics).toContainEqual(
       expect.objectContaining({
-        event: "integration-authorization-failed",
-        integration: "refresh-api",
-        connectionName: "personal",
-        reauthRequired: true,
-        oauthErrorCode: "invalid_grant",
+        scopes: [
+          { name: "control-plane", data: {} },
+          { name: "integrations", data: {} },
+        ],
+        data: expect.objectContaining({
+          event: "integration-authorization-failed",
+          integration: "refresh-api",
+          connectionName: "personal",
+          reauthRequired: true,
+          oauthErrorCode: "invalid_grant",
+        }),
       }),
     );
+    const output: string[] = [];
+    {
+      using prettyOutput = vi
+        .spyOn(console, "warn")
+        .mockImplementation((line) => output.push(String(line)));
+      using cloudOutput = vi
+        .spyOn(process.stdout, "write")
+        .mockImplementation((line) => {
+          output.push(String(line));
+          return true;
+        });
+      const pretty = new PrettyConsoleLoggerSink();
+      const cloud = new CloudLoggingSink();
+      for (const entry of diagnostics) {
+        pretty.log(entry);
+        cloud.log(entry);
+      }
+      expect(prettyOutput).toHaveBeenCalled();
+      expect(cloudOutput).toHaveBeenCalled();
+    }
     for (const secret of [
       "fixture-google-token",
       "fixture-refresh-token",
       "private-client-secret",
       "private provider response",
     ])
-      expect(JSON.stringify(diagnostics)).not.toContain(secret);
+      expect(output.join("\n")).not.toContain(secret);
 
     clock.mockRestore();
     integrationApi.oauth.refreshError = undefined;
@@ -2117,6 +2158,7 @@ controlPlaneTest(
     const requestsBeforeRestart = integrationApi.requests.length;
     await plane.close();
     const reopened = await ControlPlane.start({
+      logger: new Logger(),
       config: {
         deployment: "local",
         workspace: { deployment: "local" },
@@ -2493,6 +2535,7 @@ controlPlaneTest(
     expect(submitted.authorizationUrl).not.toContain("private-client-secret");
     await plane.close();
     const reopened = await ControlPlane.start({
+      logger: new Logger(),
       config: {
         deployment: "local",
         workspace: { deployment: "local" },
@@ -3040,6 +3083,7 @@ controlPlaneTest(
     const closed = await plane.integrations!.close();
     if (closed instanceof Error) throw closed;
     const reopened = await ControlPlane.start({
+      logger: new Logger(),
       config: {
         deployment: "local",
         workspace: { deployment: "local" },
@@ -3561,6 +3605,7 @@ controlPlaneTest(
             workspaceServiceAccount: "test",
           };
     const plane = await ControlPlane.start({
+      logger: new Logger(),
       config,
       webRoot,
       workspaceProvider,
@@ -3653,6 +3698,7 @@ controlPlaneTest(
     expect(await read()).toBeInstanceOf(Error);
 
     const reopened = await ControlPlane.start({
+      logger: new Logger(),
       config,
       webRoot,
       workspaceProvider,
@@ -3693,6 +3739,7 @@ controlPlaneTest(
       name: "Alice's API",
     });
     const replica = await ControlPlane.start({
+      logger: new Logger(),
       config,
       webRoot,
       workspaceProvider,
@@ -3849,6 +3896,7 @@ controlPlaneTest(
       auth: testAuth,
     };
     const failed = await ControlPlane.start({
+      logger: new Logger(),
       config,
       webRoot,
       workspaceProvider,
@@ -3856,6 +3904,7 @@ controlPlaneTest(
     });
     expect(failed).toBeInstanceOf(Error);
     const retried = await ControlPlane.start({
+      logger: new Logger(),
       config,
       webRoot,
       workspaceProvider,
@@ -4032,7 +4081,10 @@ const sleepingAutomationTest = controlPlaneTest.extend<{
     });
   },
   workspaceProvider: async ({ appDataDir, sleepingProvider }, use) => {
-    const local = new LocalWorkspaceProvider({ appDataDir });
+    const local = new LocalWorkspaceProvider({
+      appDataDir,
+      logger: new Logger(),
+    });
     await use({
       ensure: async (input) => await local.ensure(input),
       getConnection: async () => {
@@ -4162,6 +4214,7 @@ sleepingAutomationTest(
     appDataDir,
     workspaceHost,
     sleepingProvider,
+    logs,
   }) => {
     await authenticatedRpc.workspace.ensure();
     const runtime = await readRuntimeSettings(appDataDir);
@@ -4177,7 +4230,6 @@ sleepingAutomationTest(
     sleepingProvider.failClockOnResume = true;
     const now = Date.now();
     const dateNow = vi.spyOn(Date, "now").mockReturnValue(now);
-    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
     const endpoint = `${plane.origin}/api/workspace-runtime/automations/schedules`;
     const snapshot = {
       automations: [
@@ -4192,7 +4244,25 @@ sleepingAutomationTest(
       });
     try {
       expect((await publish()).status).toBe(204);
-      await vi.waitFor(() => expect(errorLog).toHaveBeenCalled());
+      await expect
+        .poll(() =>
+          logs.filter(
+            (entry) => entry.data.event === "automation-schedule-wake-failed",
+          ),
+        )
+        .toHaveLength(1);
+      expect(
+        logs.find(
+          (entry) => entry.data.event === "automation-schedule-wake-failed",
+        ),
+      ).toMatchObject({
+        level: "error",
+        scopes: [
+          { name: "control-plane", data: {} },
+          { name: "automation-schedules", data: {} },
+        ],
+        data: { workspaceId: runtime.workspaceId },
+      });
       expect(sleepingProvider.paused).toBe(false);
       expect(sleepingProvider.clockReady).toBe(false);
       expect(workspaceHost.requests).not.toContain(
@@ -4210,7 +4280,6 @@ sleepingAutomationTest(
       expect(sleepingProvider.resumeAttempts).toBe(1);
     } finally {
       dateNow.mockRestore();
-      errorLog.mockRestore();
     }
   },
 );
@@ -4384,7 +4453,10 @@ controlPlaneTest(
 
 controlPlaneTest.for([429, 500, 502, 503, 504, 0])(
   "continues on Gemini after temporary primary failure %s with completed tool history",
-  async (status, { plane, authenticatedRpc, appDataDir, inferenceApi }) => {
+  async (
+    status,
+    { plane, authenticatedRpc, appDataDir, inferenceApi, logs },
+  ) => {
     await authenticatedRpc.workspace.ensure();
     const { token } = await readRuntimeSettings(appDataDir);
     inferenceApi.primary.push({
@@ -4465,6 +4537,87 @@ controlPlaneTest.for([429, 500, 502, 503, 504, 0])(
       ],
     });
     expect(fallback?.body.reasoning).toBeUndefined();
+    const warnings = logs.filter(
+      (entry) => entry.data.event === "workspace-inference-fallback",
+    );
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatchObject({
+      level: "warn",
+      scopes: [
+        { name: "control-plane", data: {} },
+        { name: "http", data: {} },
+        { name: "request", data: { requestId: expect.any(String) } },
+        { name: "inference", data: {} },
+      ],
+      data: {
+        event: "workspace-inference-fallback",
+        primary: "deepseek-ai/DeepSeek-V4.1-Flash",
+        fallback: "google/gemini-3.8-flash",
+      },
+    });
+    expect(warnings[0]?.data.status).toBe(
+      status === 0 ? "unavailable" : status,
+    );
+    expect(JSON.stringify(logs)).not.toMatch(
+      /Clean my inbox|127 alerts already archived|Service unavailable|together-test|vertex-test/,
+    );
+  },
+);
+
+controlPlaneTest(
+  "keeps concurrent inference request scopes separate and excludes private input",
+  async ({ plane, authenticatedRpc, appDataDir, inferenceApi, logs }) => {
+    await authenticatedRpc.workspace.ensure();
+    const { token } = await readRuntimeSettings(appDataDir);
+    inferenceApi.primary.push(
+      { status: 429, body: "private-provider-first" },
+      { status: 503, body: "private-provider-second" },
+    );
+    inferenceApi.fallback.push(
+      { status: 200, body: inferenceReply("First response") },
+      { status: 200, body: inferenceReply("Second response") },
+    );
+    const results = await Promise.all(
+      ["first", "second"].map(async (name) => {
+        const response = await fetch(
+          `${plane.origin}${workspaceInferencePath}/chat/completions?token=private-query-${name}`,
+          {
+            method: "POST",
+            headers: {
+              authorization: `Bearer ${token}`,
+              "content-type": "application/json",
+              "x-request-id": "private-client-request-id",
+            },
+            body: JSON.stringify({
+              model: togetherModel.id,
+              stream: true,
+              messages: [{ role: "user", content: `private-prompt-${name}` }],
+            }),
+          },
+        );
+        expect(response.status).toBe(200);
+        return await response.text();
+      }),
+    );
+    expect(results.join("")).toContain("First response");
+    expect(results.join("")).toContain("Second response");
+    const warnings = logs.filter(
+      (entry) => entry.data.event === "workspace-inference-fallback",
+    );
+    expect(warnings).toHaveLength(2);
+    expect(warnings.map((entry) => entry.data.status)).toEqual(
+      expect.arrayContaining([429, 503]),
+    );
+    const requestIds = warnings.map(
+      (entry) =>
+        entry.scopes.find((scope) => scope.name === "request")?.data.requestId,
+    );
+    expect(requestIds).toEqual([expect.any(String), expect.any(String)]);
+    expect(new Set(requestIds).size).toBe(2);
+    expect(JSON.stringify(logs)).not.toMatch(
+      /private-|First response|Second response/,
+    );
+    expect(JSON.stringify(logs)).not.toContain(token);
   },
 );
 
@@ -4589,11 +4742,7 @@ controlPlaneTest(
 
 controlPlaneTest(
   "does not switch providers after response streaming has started",
-  async ({ plane, authenticatedRpc, appDataDir, inferenceApi }) => {
-    const logged = vi
-      .spyOn(console, "error")
-      .mockImplementation(() => undefined);
-    onTestFinished(() => logged.mockRestore());
+  async ({ plane, authenticatedRpc, appDataDir, inferenceApi, logs }) => {
     await authenticatedRpc.workspace.ensure();
     const { token } = await readRuntimeSettings(appDataDir);
     inferenceApi.primary.push({
@@ -4620,21 +4769,17 @@ controlPlaneTest(
     expect(inferenceApi.requests).toHaveLength(1);
     await expect
       .poll(() =>
-        logged.mock.calls
-          .flat()
-          .some(
-            (error) =>
-              error instanceof Error &&
-              error.message.includes("stream provider response"),
-          ),
+        logs.filter(
+          (entry) => entry.data.event === "inference-provider-stream-failed",
+        ),
       )
-      .toBe(true);
+      .toHaveLength(1);
   },
 );
 
 controlPlaneTest(
   "cancels a pending model request without starting the fallback",
-  async ({ plane, authenticatedRpc, appDataDir, inferenceApi }) => {
+  async ({ plane, authenticatedRpc, appDataDir, inferenceApi, logs }) => {
     await authenticatedRpc.workspace.ensure();
     const { token } = await readRuntimeSettings(appDataDir);
     inferenceApi.primary.push({ status: 200, body: "", hold: true });
@@ -4663,6 +4808,9 @@ controlPlaneTest(
     await rejected;
     await closed;
     expect(inferenceApi.requests).toHaveLength(1);
+    expect(
+      logs.filter((entry) => entry.level === "error" || entry.level === "warn"),
+    ).toEqual([]);
   },
 );
 
@@ -5800,8 +5948,8 @@ const publicAppTest = controlPlaneTest.extend<{
     await use(workspaceHost.provider),
   publicApps: async ({ plane, appDataDir }, use) => {
     const db = await DatabaseService.start({
-      type: "sqlite",
-      path: join(appDataDir, "control-plane.db"),
+      logger: new Logger(),
+      config: { type: "sqlite", path: join(appDataDir, "control-plane.db") },
     });
     if (db instanceof Error) throw db;
     await using cleanup = new errore.AsyncDisposableStack();
@@ -6067,7 +6215,10 @@ const appRemovalTest = controlPlaneTest.extend<{
     { appDataDir, vmRemoval, removalSupported, templateCopy },
     use,
   ) => {
-    const local = new LocalWorkspaceProvider({ appDataDir });
+    const local = new LocalWorkspaceProvider({
+      appDataDir,
+      logger: new Logger(),
+    });
     await use({
       hostsSharedApps: true,
       ensure: async (input) => await local.ensure(input),
@@ -6111,8 +6262,8 @@ const appRemovalTest = controlPlaneTest.extend<{
       throw new Error("Owner must be signed in");
     await authenticatedRpc.apps.publisher();
     const db = await DatabaseService.start({
-      type: "sqlite",
-      path: join(appDataDir, "control-plane.db"),
+      logger: new Logger(),
+      config: { type: "sqlite", path: join(appDataDir, "control-plane.db") },
     });
     if (db instanceof Error) throw db;
     await using cleanup = new errore.AsyncDisposableStack();
