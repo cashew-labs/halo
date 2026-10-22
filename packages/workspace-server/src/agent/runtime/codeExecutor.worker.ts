@@ -102,9 +102,94 @@ const bootstrap = vm.evalCode(`
   const log = globalThis.__log;
   delete globalThis.__call;
   delete globalThis.__log;
+  const browser = (() => {
+    // A thin Playwright-shaped client: every terminal call is one browser.* tool call.
+    const call = async (path, args) => {
+      const result = await invoke(path, args);
+      if (result && result.ok) return result.data;
+      const error = new Error(result?.error?.message ?? 'Browser tool failed');
+      error.name = result?.error?.code ?? 'BrowserError';
+      throw error;
+    };
+    const chainOf = Symbol('chain');
+    const pageOf = Symbol('page');
+    const isPlain = (value) => {
+      if (value === null || typeof value !== 'object') return false;
+      const prototype = Object.getPrototypeOf(value);
+      return prototype === Object.prototype || prototype === null;
+    };
+    const encode = (value) => {
+      if (value === undefined) return { $undefined: true };
+      if (value instanceof RegExp) return { $regexp: value.source, flags: value.flags };
+      if (typeof value === 'function') {
+        const source = Function.prototype.toString.call(value);
+        if (source.includes('[native code]'))
+          throw new TypeError('Pass an arrow or function expression; native and bound functions have no source');
+        return { $function: source };
+      }
+      if (value !== null && typeof value === 'object' && chainOf in value)
+        return { $locator: { page: value[pageOf], chain: value[chainOf] } };
+      if (Array.isArray(value)) return value.map(encode);
+      if (isPlain(value)) {
+        const encoded = {};
+        for (const [key, item] of Object.entries(value))
+          if (item !== undefined) encoded[key] = encode(item);
+        return encoded;
+      }
+      if (value === null || typeof value !== 'object') return value;
+      throw new TypeError('Browser arguments must be JSON values, RegExps, functions, or locators');
+    };
+    const pageBuilders = ['locator', 'getByRole', 'getByText', 'getByLabel', 'getByPlaceholder', 'getByAltText', 'getByTitle', 'getByTestId'];
+    const locatorBuilders = [...pageBuilders, 'filter', 'first', 'last', 'nth', 'and', 'or'];
+    const locatorMethods = ['click', 'dblclick', 'fill', 'press', 'pressSequentially', 'check', 'uncheck', 'setChecked', 'selectOption', 'hover', 'focus', 'clear', 'setInputFiles', 'scrollIntoViewIfNeeded', 'waitFor', 'textContent', 'innerText', 'inputValue', 'getAttribute', 'isVisible', 'isHidden', 'isEnabled', 'isChecked', 'count', 'allInnerTexts', 'allTextContents', 'boundingBox', 'ariaSnapshot', 'evaluate'];
+    const pageMethods = ['goto', 'reload', 'goBack', 'goForward', 'title', 'content', 'evaluate', 'waitForURL', 'waitForLoadState', 'waitForTimeout', 'bringToFront', 'snapshot'];
+    const builders = (target, run, pageId, chain, names) => {
+      for (const name of names)
+        target[name] = (...args) => locator(run, pageId, [...chain, [name, args.map(encode)]]);
+    };
+    const locator = (run, pageId, chain) => {
+      const target = { [chainOf]: chain, [pageOf]: pageId };
+      for (const name of locatorMethods) target[name] = (...args) => run(chain, name, args);
+      builders(target, run, pageId, chain, locatorBuilders);
+      return Object.freeze(target);
+    };
+    const page = (info) => {
+      let url = info.url;
+      const run = async (chain, method, args) => {
+        const data = await call('browser.call', { page: info.id, chain, method, args: args.map(encode) });
+        url = data.url;
+        return data.value;
+      };
+      const target = { id: info.id, url: () => url };
+      for (const name of pageMethods) target[name] = (...args) => run([], name, args);
+      target.screenshot = async (...args) => {
+        const shot = await run([], 'screenshot', args);
+        viewImage(shot);
+        return shot;
+      };
+      target.keyboard = Object.freeze({
+        press: (...args) => run([], 'keyboard.press', args),
+        type: (...args) => run([], 'keyboard.type', args),
+      });
+      target.close = async () => { await call('browser.close', { page: info.id }); };
+      builders(target, run, info.id, [], pageBuilders);
+      return Object.freeze(target);
+    };
+    return Object.freeze({
+      newPage: async (options) => page(await call('browser.newPage', encode(options ?? {}))),
+      tabs: async () => await call('browser.tabs', {}),
+      page: async (id) => {
+        const tab = (await call('browser.tabs', {})).find((candidate) => candidate.id === id);
+        if (tab === undefined) throw new Error('No open tab has ID ' + id + '; list tabs again');
+        return page(tab);
+      },
+    });
+  })();
   const proxy = (path) => new Proxy(function() {}, {
     get(_, key) {
       if (key === 'then' || typeof key === 'symbol') return undefined;
+      // tools["browser.call"] is a different key and still reaches the raw tool.
+      if (path === '' && key === 'browser') return browser;
       return proxy(path ? path + '.' + key : key);
     },
     apply(_, receiver, args) { return invoke(path, args[0] ?? {}); }

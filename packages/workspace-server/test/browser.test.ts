@@ -209,6 +209,58 @@ browserTest(
 );
 
 browserTest(
+  "exec drives the browser with Playwright pages and locators",
+  async ({ createServer, chrome, llm }) => {
+    const server = createServer({ chrome: chrome.config });
+    await server.start();
+    const url = `data:text/html,${encodeURIComponent(`
+      <title>Groceries</title>
+      <ul><li>Apple</li><li>Banana</li></ul>
+      <button onclick="this.textContent = 'Saved'">Save draft</button>
+    `)}`;
+    const session = await server.rpc.thread.new();
+    const run = server.promptAndWait({ ...session, text: "Save the draft" });
+    await llm.respond(
+      m.tool.start("exec", {
+        id: "browse",
+        arguments: {
+          js: `var page = await tools.browser.newPage({ url: ${JSON.stringify(url)} })
+await page.getByRole("button", { name: /save/i }).click()
+var lists = await page.locator("ul").filter({ has: page.getByText("Banana") }).count()
+var items = await page.evaluate((selector) => document.querySelectorAll(selector).length, "li")
+var missing = await page.getByText("Checkout").click({ timeout: 200 }).then(() => "clicked", (error) => error.message)
+await page.screenshot()
+;({ saved: await page.getByRole("button").innerText(), lists, items, missing })`,
+        },
+      }),
+    );
+    let request: unknown;
+    await llm.respond(async (body) => {
+      request = body;
+      return m.assistant("Saved.");
+    });
+    await run;
+    // SAFETY: the LLM driver receives Chat Completions requests.
+    const { messages } = request as {
+      messages: Array<{ role: string; content: unknown }>;
+    };
+    const output = messages.find((message) => message.role === "tool")!;
+    // SAFETY: an exec tool message holds the JSON text of the cell's final expression.
+    const result = JSON.parse(String(output.content)) as {
+      saved: string;
+      lists: number;
+      items: number;
+      missing: string;
+    };
+    expect(result).toMatchObject({ saved: "Saved", lists: 1, items: 2 });
+    // Unlike other runtime tools, browser methods throw, with Playwright's message.
+    expect(result.missing).toMatch(/Timeout 200ms exceeded/);
+    // screenshot() attaches the image for the model, as viewImage does.
+    expect(JSON.stringify(messages)).toContain("data:image/png;base64,");
+  },
+);
+
+browserTest(
   "requires the workspace.browser capability",
   async ({ createServer, chrome }) => {
     const server = createServer({
