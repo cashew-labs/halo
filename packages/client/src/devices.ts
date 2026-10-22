@@ -76,8 +76,17 @@ export type DeviceOperationResult = {
 };
 
 /** Run an operation, or stop one the agent cancelled. */
+export type DeviceRequestContext = {
+  sessionId?: string;
+  toolCallId?: string;
+};
+
 export type DeviceRequest =
-  | { callId: string; operation: DeviceOperation }
+  | {
+      callId: string;
+      operation: DeviceOperation;
+      context?: DeviceRequestContext;
+    }
   | { cancel: string };
 
 export type DeviceOperationOutput =

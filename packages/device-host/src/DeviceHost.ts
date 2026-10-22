@@ -224,8 +224,11 @@ export class DeviceHost {
     const { operation } = request;
     const result =
       operation.type === "shell.run"
-        ? await this.shell.run(operation, call.signal)
-        : await this.files.run(operation);
+        ? await this.shell.run(operation, call.signal, request.context)
+        : await this.files.run(operation, {
+            signal: call.signal,
+            context: request.context,
+          });
     this.calls.delete(request.callId);
     // The workspace already stopped waiting; nothing to report.
     if (call.signal.aborted) return;

@@ -6,6 +6,7 @@ import {
   deviceShellLimits,
   type DeviceOperation,
   type DeviceShellResult,
+  type DeviceRequestContext,
 } from "@get-halo/client";
 import { fileError, ioError, type DeviceAccess } from "./DeviceAccess.js";
 
@@ -30,7 +31,11 @@ export class DeviceShell {
     this.shell = ctx.shell ?? process.env.SHELL ?? "/bin/sh";
   }
 
-  async run(operation: ShellOperation, signal: AbortSignal) {
+  async run(
+    operation: ShellOperation,
+    signal: AbortSignal,
+    context?: DeviceRequestContext,
+  ) {
     const cwd = operation.cwd ?? this.home;
     if (!path.isAbsolute(cwd))
       return fileError(
@@ -40,8 +45,12 @@ export class DeviceShell {
     const allowed = await this.access.authorizeCommand({
       command: operation.command,
       cwd,
+      signal,
+      context,
     });
     if (allowed instanceof Error) return allowed;
+    if (signal.aborted)
+      return fileError("access_denied", "The command was cancelled");
     const folder = await fs.stat(cwd).catch((cause) => ioError(cwd, cause));
     if (folder instanceof Error) return folder;
     if (!folder.isDirectory())
