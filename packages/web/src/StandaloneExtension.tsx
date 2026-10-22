@@ -9,6 +9,9 @@ export function StandaloneExtension({ extensionId }: { extensionId: string }) {
 
   useEffect(() => {
     if (extension === undefined) return;
+    // Only control-plane extension pages install PWAs, never Electron.
+    if (document.querySelector('meta[name="halo-extension-id"]') === null)
+      return;
     const query = new URLSearchParams({
       extension: extensionId,
       name: extension.displayName,
