@@ -1,3 +1,5 @@
+import fs from "node:fs/promises";
+import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { expect } from "vitest";
 import * as errore from "errore";
@@ -246,7 +248,7 @@ var dismissed = await page.getByRole("button").last().innerText()
 page.handleDialogs("accept")
 await page.getByRole("button").last().click()
 var accepted = await page.getByRole("button").last().innerText()
-await page.screenshot()
+await page.screenshot({ path: "shots/page.png" })
 ;({ saved: await page.getByRole("button").first().innerText(), lists, items, missing, dismissed, accepted })`,
         },
       }),
@@ -283,8 +285,13 @@ await page.screenshot()
     expect(logs).toContain('Accepted browser confirm dialog: "Place order?"');
     // Unlike other runtime tools, browser methods throw, with Playwright's message.
     expect(result.missing).toMatch(/Timeout 200ms exceeded/);
-    // screenshot() attaches the image for the model, as viewImage does.
+    // screenshot() attaches the image for the model, as viewImage does,
+    // and saves it where the agent asked.
     expect(JSON.stringify(messages)).toContain("data:image/png;base64,");
+    const saved = await fs.readFile(
+      path.join(server.workspaceRoot, "shots", "page.png"),
+    );
+    expect(saved.subarray(1, 4).toString()).toBe("PNG");
   },
 );
 

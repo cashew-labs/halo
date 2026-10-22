@@ -1040,21 +1040,15 @@ export class BrowserService {
       };
     }
     if (method === "screenshot") {
-      const directory = await this.workspaceDirectory(
-        path.join(".halo", "browser", "screenshots"),
-      );
-      if (directory instanceof Error) return directory;
-      const name = `${crypto.randomUUID()}.png`;
+      // SAFETY: limitOptions put an options object at index 0, screenshot's optionsAt.
+      const options = args[0] as { path?: PlaywrightArg };
+      const file = await this.screenshotFile(options.path);
+      if (file instanceof Error) return file;
       const saved = await page
-        .screenshot({
-          // SAFETY: limitOptions put an options object at index 0, screenshot's optionsAt.
-          ...(args[0] as object),
-          type: "png",
-          path: path.join(directory.real, name),
-        })
+        .screenshot({ ...options, type: "png", path: file.real })
         .catch(fail);
       if (saved instanceof Error) return saved;
-      return { value: { path: path.join(directory.relative, name) } };
+      return { value: { path: file.relative } };
     }
     if (method === "setInputFiles") {
       const files = await this.workspaceFiles(args[0]);
@@ -1110,6 +1104,44 @@ export class BrowserService {
       current = existing;
     }
     return { real: current, relative };
+  }
+
+  // A requested workspace .png path, or a new file under .halo/browser/screenshots.
+  private async screenshotFile(requested: PlaywrightArg | undefined) {
+    if (requested === undefined) {
+      const directory = await this.workspaceDirectory(
+        path.join(".halo", "browser", "screenshots"),
+      );
+      if (directory instanceof Error) return directory;
+      const name = `${crypto.randomUUID()}.png`;
+      return {
+        real: path.join(directory.real, name),
+        relative: path.join(directory.relative, name),
+      };
+    }
+    const relative = Value.Check(pathSchema, requested)
+      ? path.relative(
+          this.workspaceRoot,
+          path.resolve(this.workspaceRoot, requested),
+        )
+      : "";
+    if (
+      relative === "" ||
+      relative.startsWith("..") ||
+      path.isAbsolute(relative) ||
+      path.extname(relative).toLowerCase() !== ".png"
+    )
+      return new BrowserError({
+        detail: "screenshot path must be a .png file in the workspace",
+      });
+    const directory = await this.workspaceDirectory(path.dirname(relative));
+    if (directory instanceof Error) return directory;
+    const real = path.join(directory.real, path.basename(relative));
+    // Writing through a symlinked file would follow it out of the workspace.
+    const existing = await fs.lstat(real).catch(() => undefined);
+    if (existing !== undefined && !existing.isFile())
+      return new BrowserError({ detail: `${relative} is not a regular file` });
+    return { real, relative };
   }
 
   private async workspaceFiles(files: PlaywrightArg) {
