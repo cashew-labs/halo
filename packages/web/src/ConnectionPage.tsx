@@ -37,7 +37,7 @@ export function OfflinePage() {
     <FullscreenPage>
       <Prose size="sm">
         <h1 className={heading}>You're offline</h1>
-        <P>Halo reconnects to your workspace when you're back online.</P>
+        <P>Halo reconnects to your cloud workspace when you're back online.</P>
       </Prose>
     </FullscreenPage>
   );
@@ -59,21 +59,28 @@ export function IncompatibleConnection({
       (protocol) => protocol > Number(error.clientProtocolVersion),
     )
   ) {
+    if (error.service === "control-plane")
+      return (
+        <Prose size="sm">
+          <h1 className={heading}>Halo will be back soon</h1>
+          <P>We're updating our service. Try connecting later.</P>
+        </Prose>
+      );
     return (
       <Flex column gap={12} alignItems="center">
         <Prose size="sm">
-          <h1 className={heading}>Can't connect to your workspace</h1>
+          <h1 className={heading}>Your cloud workspace needs an update</h1>
           {workspaceUpdateAvailable ? (
-            <P>Update your workspace to reconnect to Halo.</P>
+            <P>Update it to work with this version of the Halo app.</P>
           ) : (
             <P>
-              Halo's service doesn't support this version of the app. Wait for
-              the service to update, then try again.
+              This version of the Halo app needs a newer cloud workspace. Wait
+              for the update, then try reconnecting.
             </P>
           )}
         </Prose>
         {workspaceUpdateAvailable && <WorkspaceUpdate />}
-        {onRetry && <Button onClick={onRetry}>Try again</Button>}
+        {onRetry && <Button onClick={onRetry}>Try reconnecting</Button>}
       </Flex>
     );
   }
@@ -87,7 +94,8 @@ export function IncompatibleConnection({
         <Prose size="sm">
           <h1 className={heading}>Reload Halo</h1>
           <P>
-            Halo needs an update to connect. Reload to get the latest version.
+            Reload to get the latest version of Halo and connect to your cloud
+            workspace.
           </P>
         </Prose>
         <Button
@@ -124,7 +132,9 @@ export function WorkspaceUpdate() {
         isDisabled={install.pending || host.installAppUpdate === undefined}
         onClick={() => void install.run()}
       >
-        {install.pending ? "Updating workspace…" : "Update workspace"}
+        {install.pending
+          ? "Waiting for cloud workspace update…"
+          : "Update cloud workspace"}
       </Button>
       {install.error && <P>{install.error.message}</P>}
     </Flex>
@@ -164,7 +174,7 @@ function DesktopUpdate({ onRetry }: { onRetry?: () => void }) {
     <Flex column gap={12} alignItems="center">
       <Prose size="sm">
         <h1 className={heading}>Update Halo</h1>
-        <P>Halo needs an update to connect to your workspace.</P>
+        <P>The Halo app needs an update to connect to your cloud workspace.</P>
         <div role="status" aria-live="polite">
           <P>
             {updateStatusMessage({

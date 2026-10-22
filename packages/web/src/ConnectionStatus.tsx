@@ -48,7 +48,7 @@ export function ConnectionStatus() {
           (version) => version < Number(clientProtocolVersion),
         )
       )
-        return "Server update required";
+        return "Cloud workspace update required";
       return "Unsupported API protocol";
     }
     if (state.status === "upgrading") return "Upgrading workspace…";
@@ -151,7 +151,7 @@ function ConnectionAction({
               ) : (
                 <P>
                   {state.error?.message ??
-                    "Sign in to reconnect your workspace."}
+                    "Sign in to reconnect to your cloud workspace."}
                 </P>
               )}
               {actionError !== undefined && (

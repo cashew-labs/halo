@@ -25,7 +25,7 @@ export function HaloApp() {
   const sessions = sessionsQuery.data === undefined ? [] : sessionsQuery.data;
 
   if (workspaceQuery.isPending || workspace === undefined) {
-    return <LoadingPage progressLabel="Loading your workspace" />;
+    return <LoadingPage progressLabel="Loading your cloud workspace" />;
   }
 
   if (!sessionsQuery.isFetched) {

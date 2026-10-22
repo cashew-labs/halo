@@ -134,8 +134,8 @@ function OpeningWorkspacePage() {
     <LoadingPage
       progressLabel={
         state.status === "upgrading"
-          ? "Upgrading your workspace"
-          : "Opening your workspace"
+          ? "Upgrading your cloud workspace"
+          : "Opening your cloud workspace"
       }
     >
       {state.status !== "upgrading" &&
