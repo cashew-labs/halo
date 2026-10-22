@@ -1153,6 +1153,12 @@ controlPlaneTest(
       query: "echo_marker",
       integration: "agent-private-mcp",
     });
+    expect(
+      await runtime.integrations.search({
+        query: "echo marker",
+        integration: "agent-private-mcp",
+      }),
+    ).toEqual(original);
     const invokedAfterDuplicate = await agent.run(
       `await tools[${JSON.stringify(`integrations.${original.tools[0]!.address}`)}]({ marker: "after-duplicate" });`,
     );

@@ -7,6 +7,7 @@ import stream from "node:stream";
 import zlib from "node:zlib";
 import { DatabaseSync } from "node:sqlite";
 import type { LoggerApi } from "@get-halo/logger";
+import { searchTools } from "@executor-js/execution/core";
 import { mcpPlugin } from "@executor-js/plugin-mcp/core";
 import { openApiPlugin } from "@executor-js/plugin-openapi/core";
 import {
@@ -1472,16 +1473,26 @@ export class IntegrationService {
       (executor) =>
         Effect.gen(function* () {
           const tools = (yield* executor.tools.list({
-            query: ctx.query,
             integration:
               ctx.integration === undefined
                 ? undefined
                 : IntegrationSlug.make(ctx.integration),
           })).filter(isIntegrationTool);
+          // Executor ranks every catalog tool; keep the integration tools in its order.
+          const byPath = new Map(
+            tools.map((tool) => [tool.address.slice("tools.".length), tool]),
+          );
+          // An empty query lists the named integration, or nothing without one.
+          const ranked = (yield* searchTools(
+            executor,
+            ctx.query,
+            Number.MAX_SAFE_INTEGER,
+            { namespace: ctx.integration },
+          )).items.flatMap((item) => byPath.get(item.path) ?? []);
           const limit = ctx.limit ?? 50;
           return {
-            tools: tools.slice(0, limit).map(summarizeTool),
-            truncated: tools.length > limit,
+            tools: ranked.slice(0, limit).map(summarizeTool),
+            truncated: ranked.length > limit,
           };
         }),
       ctx.signal,
