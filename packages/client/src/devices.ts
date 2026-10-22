@@ -1,3 +1,7 @@
+import { Type, type Static } from "@sinclair/typebox";
+import { Value } from "@sinclair/typebox/value";
+import type { ToolApproval } from "./sessionState.js";
+
 /** What the person allowed the workspace agent to do in one folder. */
 export type DeviceFileAccess = "read" | "write";
 
@@ -83,6 +87,18 @@ export type DeviceRequest =
 export type DeviceOperationOutput =
   DeviceOperationResult[keyof DeviceOperationResult];
 
+/** What a device needs the person to allow before it runs an operation. */
+export type DevicePermissionRequest =
+  | {
+      kind: "folder";
+      /** The folder a grant would cover, with its subfolders. */
+      folder: string;
+      access: DeviceFileAccess;
+      /** The path the agent asked for. */
+      path: string;
+    }
+  | { kind: "commands"; command: string; cwd: string };
+
 export type DeviceResponse =
   | {
       deviceId: string;
@@ -94,8 +110,49 @@ export type DeviceResponse =
       deviceId: string;
       callId: string;
       ok: false;
-      error: { code: string; message: string };
+      error: {
+        code: string;
+        message: string;
+        /** Present when the person must allow access in Halo first. */
+        permission?: DevicePermissionRequest;
+      };
     };
+
+/** Approval arguments that mark a device permission card in a thread. */
+export const devicePermissionSchema = Type.Object({
+  deviceId: Type.String(),
+  deviceName: Type.String(),
+  /** Lets cards show paths under home as ~/… */
+  deviceHome: Type.String(),
+  request: Type.Union([
+    Type.Object({
+      kind: Type.Literal("folder"),
+      folder: Type.String(),
+      access: Type.Union([Type.Literal("read"), Type.Literal("write")]),
+      path: Type.String(),
+    }),
+    Type.Object({
+      kind: Type.Literal("commands"),
+      command: Type.String(),
+      cwd: Type.String(),
+    }),
+  ]),
+});
+
+export type DevicePermission = Static<typeof devicePermissionSchema>;
+
+/** Reads the device permission an approval card asks for, if it is one. */
+export function devicePermissionOf(
+  approval: ToolApproval,
+): DevicePermission | undefined {
+  const args = approval.arguments;
+  return Value.Check(
+    Type.Object({ devicePermission: devicePermissionSchema }),
+    args,
+  )
+    ? args.devicePermission
+    : undefined;
+}
 
 export const deviceShellLimits = {
   defaultTimeoutMs: 60_000,

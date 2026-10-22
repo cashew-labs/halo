@@ -210,6 +210,7 @@ type ToolExecutionContext = Pick<
 > & {
   parentToolCallId?: string;
   collectConnectionRequest?: (request: ConnectionRequest) => void;
+  collectApproval?: (approval: ToolApproval) => void;
 };
 
 const haloToolsPlugin = definePlugin((options?: HaloToolsPluginOptions) => {
@@ -722,6 +723,17 @@ export class ToolRuntime {
     const approvalRequests: ToolApproval[] = [];
     const collectConnectionRequest = (request: ConnectionRequest) =>
       addConnectionCard(connectionRequests, request);
+    const collectApproval = (approval: ToolApproval) => {
+      // One card per identical request, even if the program retries it.
+      if (
+        !approvalRequests.some(
+          (existing) =>
+            existing.toolPath === approval.toolPath &&
+            nodeUtil.isDeepStrictEqual(existing.arguments, approval.arguments),
+        )
+      )
+        approvalRequests.push(approval);
+    };
     const execution = await this.executionContext.run(
       {
         signal: input.signal,
@@ -730,6 +742,7 @@ export class ToolRuntime {
         parentToolCallId: input.parentToolCallId,
         threadId: input.threadId,
         collectConnectionRequest,
+        collectApproval,
       },
       async () =>
         await Effect.runPromise(
@@ -778,6 +791,17 @@ export class ToolRuntime {
       });
     }
     return execution;
+  }
+
+  /**
+   * Shows an approval card for a tool that needs the person's answer.
+   * Returns false outside an exec program, where no card can be shown.
+   */
+  requestApproval(input: Omit<ToolApproval, "id" | "status">) {
+    const collect = this.executionContext.getStore()?.collectApproval;
+    if (collect === undefined) return false;
+    collect({ ...input, id: randomUUID(), status: "pending" });
+    return true;
   }
 
   async invokeTool(input: {

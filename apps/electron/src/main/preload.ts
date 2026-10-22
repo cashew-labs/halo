@@ -79,8 +79,12 @@ const desktopBridge: DesktopBridge = {
     }),
   getDevice: async () =>
     await ipcRenderer.invoke(DESKTOP_CHANNEL, { type: "getDevice" }),
-  updateDevice: async (update) =>
-    await ipcRenderer.invoke(DESKTOP_CHANNEL, { type: "updateDevice", update }),
+  allowDevicePermission: async (input) =>
+    await ipcRenderer.invoke(DESKTOP_CHANNEL, {
+      type: "allowDevicePermission",
+      request: input.request,
+      access: input.access,
+    }),
 };
 
 contextBridge.exposeInMainWorld("haloDesktop", desktopBridge);

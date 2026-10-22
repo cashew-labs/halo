@@ -40,12 +40,14 @@ import {
   type SessionSummary,
   type ChatReference,
   validateChatFiles,
+  devicePermissionOf,
 } from "@get-halo/client";
 import { MessageContent } from "./MessageContent.js";
 import { BashExecution } from "./BashExecution.tsx";
 import { Editor } from "./Editor.tsx";
 import { referenceHref, type ReferenceTarget } from "../ReferencePicker.js";
 import { ExecutorApprovalCard } from "./ExecutorApprovalCard.tsx";
+import { DevicePermissionCard } from "./DevicePermissionCard.tsx";
 import { ExecutorConnectionCard } from "./ExecutorConnectionCard.tsx";
 import { ToolActivity } from "./ToolActivity.tsx";
 import { useTabFindSource } from "../../panes/TabFind.js";
@@ -1157,6 +1159,16 @@ function SessionViewRow({
           );
         }
         if (part.kind === "toolApproval") {
+          const permission = devicePermissionOf(part.approval);
+          if (permission !== undefined)
+            return (
+              <DevicePermissionCard
+                key={part.id}
+                sessionId={sessionId}
+                approval={part.approval}
+                permission={permission}
+              />
+            );
           return (
             <ExecutorApprovalCard
               key={part.id}

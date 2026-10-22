@@ -37,7 +37,7 @@ export class DeviceShell {
         "not_a_directory",
         `Expected an absolute working folder, received ${cwd}`,
       );
-    const allowed = await this.access.authorizeCommand({
+    const allowed = this.access.authorizeCommand({
       command: operation.command,
       cwd,
     });

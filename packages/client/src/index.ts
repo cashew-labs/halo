@@ -59,6 +59,10 @@ export {
 export {
   deviceFileLimits,
   deviceShellLimits,
+  devicePermissionOf,
+  devicePermissionSchema,
+  type DevicePermission,
+  type DevicePermissionRequest,
   type DeviceAdvertisement,
   type DeviceFileAccess,
   type DeviceFileEncoding,

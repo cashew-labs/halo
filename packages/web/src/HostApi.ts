@@ -1,4 +1,6 @@
 import type {
+  DeviceFileAccess,
+  DevicePermissionRequest,
   ConnectionRequest,
   ConnectionStarted,
   HaloClient,
@@ -30,30 +32,18 @@ export type AppInfo = {
 };
 
 /** The computer the desktop app runs on, as the workspace agent sees it. */
-export type LocalDeviceState = {
-  name: string;
-  enabled: boolean;
-  /** Folders the person allowed when the agent first asked. */
-  files: { grants: { path: string; access: "read" | "write" }[] };
-  /** Whether the person allowed the agent to run commands here. */
-  commands: { allowed: boolean };
-  status:
-    | { state: "disabled" }
-    | { state: "connecting" }
-    | { state: "online"; since: number }
-    | { state: "offline"; message: string; retryAt: number };
-};
-
-export type LocalDeviceUpdate = Partial<
-  Pick<LocalDeviceState, "name" | "enabled" | "files" | "commands">
->;
+export type LocalDeviceInfo = { id: string; name: string };
 
 export interface HostApi {
   /** Present only where Halo can let the agent use this computer. */
   // coverage-exempt: type declarations
   device?: {
-    read(): Promise<LocalDeviceState | Error>;
-    update(update: LocalDeviceUpdate): Promise<LocalDeviceState | Error>;
+    read(): Promise<LocalDeviceInfo | Error>;
+    /** Records an answer to a permission card for this computer. */
+    allow(input: {
+      request: DevicePermissionRequest;
+      access: DeviceFileAccess;
+    }): Promise<void | Error>;
   };
   integrationSetup?: {
     read(setupId: string): Promise<IntegrationSetup | Error>;

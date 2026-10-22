@@ -169,11 +169,13 @@ export class ElectronHost implements HostApi {
             cause,
           }),
       ),
-    update: async (update: Parameters<DesktopBridge["updateDevice"]>[0]) =>
-      await this.desktopBridge.updateDevice(update).catch(
+    allow: async (
+      input: Parameters<DesktopBridge["allowDevicePermission"]>[0],
+    ) =>
+      await this.desktopBridge.allowDevicePermission(input).catch(
         (cause) =>
           new ElectronHostError({
-            operation: "save this computer's settings",
+            operation: "allow access on this computer",
             cause,
           }),
       ),

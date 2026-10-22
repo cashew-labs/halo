@@ -1,10 +1,12 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import * as errore from "errore";
-import type { DeviceFileAccess } from "@get-halo/client";
+import type {
+  DeviceFileAccess,
+  DevicePermissionRequest,
+} from "@get-halo/client";
 
 export type DeviceFileErrorCode =
-  | "access_denied"
   | "read_only"
   | "outside_allowed_folders"
   | "protected_path"
@@ -31,9 +33,6 @@ export function fileError(
 /** A folder the person allowed the agent to use, and how. */
 export type DeviceGrant = { path: string; access: DeviceFileAccess };
 
-/** The person's answer to an access prompt. */
-export type DeviceAccessAnswer = DeviceFileAccess | "deny";
-
 /** What the person allowed on this computer. */
 export type DevicePermissions = {
   grants: DeviceGrant[];
@@ -41,21 +40,24 @@ export type DevicePermissions = {
   commandsAllowed: boolean;
 };
 
-export type DeviceCommandRequest = {
-  command: string;
-  cwd: string;
-  signal: AbortSignal;
-};
+/** The operation needs access the person has not allowed yet. */
+export class DevicePermissionRequiredError extends errore.createTaggedError({
+  name: "DevicePermissionRequiredError",
+  message: "$detail",
+}) {
+  readonly code = "permission_required";
+  readonly request: DevicePermissionRequest;
 
-export type DeviceAccessRequest = {
-  /** The folder the grant would cover. */
-  folder: string;
-  /** The access this operation needs. */
-  access: DeviceFileAccess;
-  /** The path the agent asked for. */
-  path: string;
-  signal: AbortSignal;
-};
+  constructor(request: DevicePermissionRequest) {
+    super({
+      detail:
+        request.kind === "commands"
+          ? "The person has not allowed Halo to run commands on this computer"
+          : `The person has not allowed Halo to ${request.access === "write" ? "change" : "read"} files in ${request.folder}`,
+    });
+    this.request = request;
+  }
+}
 
 /** Paths under the home folder that hold credentials; never served. */
 const protectedHomePaths = [
@@ -69,89 +71,62 @@ const protectedHomePaths = [
   "Library/Cookies",
 ];
 
-// Long enough to notice the prompt; shorter than the workspace's call timeout.
-const promptTimeoutMs = 4 * 60_000;
-
 /**
- * Decides what the workspace agent may do on this computer. Folders the
- * person already allowed pass, and so do commands once allowed; anything
- * else asks the person once. Refusals last until the app restarts.
+ * Decides what the workspace agent may do on this computer. Folders and
+ * commands the person allowed pass. Anything else returns a permission
+ * request, which the workspace shows as a card in the chat; the person's
+ * answer arrives through grant.
  */
 export class DeviceAccess {
   private permissions: DevicePermissions;
   private readonly home: string;
-  private readonly ask: (
-    request: DeviceAccessRequest,
-  ) => Promise<DeviceAccessAnswer>;
-  private readonly askCommands: (
-    request: DeviceCommandRequest,
-  ) => Promise<boolean>;
   private readonly save: (permissions: DevicePermissions) => Promise<void>;
-  private readonly refused = new Map<string, DeviceFileAccess>();
-  private readonly prompts = new Map<string, Promise<DeviceAccessAnswer>>();
-  private commandsRefused = false;
-  private commandPrompt: Promise<boolean> | undefined;
 
   constructor(ctx: {
     permissions: DevicePermissions;
     home: string;
-    ask: (request: DeviceAccessRequest) => Promise<DeviceAccessAnswer>;
-    /** Asks once whether the agent may run commands; true allows. */
-    askCommands: (request: DeviceCommandRequest) => Promise<boolean>;
     /** Persists permissions; the host reports its own save failures. */
     save: (permissions: DevicePermissions) => Promise<void>;
   }) {
     this.permissions = ctx.permissions;
     this.home = ctx.home;
-    this.ask = ctx.ask;
-    this.askCommands = ctx.askCommands;
     this.save = ctx.save;
   }
 
-  /** Applies permissions the person changed in settings. */
+  /** Applies permissions loaded or changed outside this object. */
   setPermissions(permissions: DevicePermissions) {
     this.permissions = permissions;
-    this.refused.clear();
-    this.commandsRefused = false;
   }
 
-  /**
-   * Allows a command when the person already allowed commands; otherwise
-   * asks once. Commands run with the person's full access, so folder grants
-   * and protected paths do not apply to them.
-   */
-  async authorizeCommand(input: {
+  /** Records the person's answer to a permission card on this computer. */
+  async grant(input: {
+    request: DevicePermissionRequest;
+    access: DeviceFileAccess;
+  }) {
+    const { request } = input;
+    this.permissions =
+      request.kind === "commands"
+        ? { ...this.permissions, commandsAllowed: true }
+        : {
+            ...this.permissions,
+            grants: [
+              ...this.permissions.grants.filter(
+                (grant) => grant.path !== request.folder,
+              ),
+              { path: request.folder, access: input.access },
+            ],
+          };
+    await this.save(this.permissions);
+    return this.permissions;
+  }
+
+  /** Allows a command once the person allowed commands on this computer. */
+  authorizeCommand(input: {
     command: string;
     cwd: string;
-  }): Promise<void | DeviceFileError> {
+  }): void | DevicePermissionRequiredError {
     if (this.permissions.commandsAllowed) return;
-    if (this.commandsRefused)
-      return fileError(
-        "access_denied",
-        "The person did not allow Halo to run commands on this computer",
-      );
-    this.commandPrompt ??= this.answerCommands(input);
-    const allowed = await this.commandPrompt;
-    this.commandPrompt = undefined;
-    if (allowed) return;
-    return fileError(
-      "access_denied",
-      "The person did not allow Halo to run commands on this computer",
-    );
-  }
-
-  private async answerCommands(input: { command: string; cwd: string }) {
-    const allowed = await this.askCommands({
-      ...input,
-      signal: AbortSignal.timeout(promptTimeoutMs),
-    }).catch(() => false);
-    if (!allowed) {
-      this.commandsRefused = true;
-      return false;
-    }
-    this.permissions = { ...this.permissions, commandsAllowed: true };
-    await this.save(this.permissions);
-    return true;
+    return new DevicePermissionRequiredError({ kind: "commands", ...input });
   }
 
   /**
@@ -162,7 +137,7 @@ export class DeviceAccess {
     path: string;
     access: DeviceFileAccess;
     target: "folder" | "file";
-  }): Promise<string | DeviceFileError> {
+  }): Promise<string | DeviceFileError | DevicePermissionRequiredError> {
     if (!path.isAbsolute(input.path))
       return fileError(
         "outside_allowed_folders",
@@ -183,24 +158,13 @@ export class DeviceAccess {
       );
     const granted = await this.grantFor(resolved);
     if (granted === "write" || granted === input.access) return resolved;
-    const folder =
-      input.target === "folder" ? resolved : path.dirname(resolved);
-    const answer = await this.prompt({
-      folder,
+    // A listing asks about the folder itself; a file asks about its folder.
+    return new DevicePermissionRequiredError({
+      kind: "folder",
+      folder: input.target === "folder" ? resolved : path.dirname(resolved),
       access: input.access,
       path: input.path,
     });
-    if (answer === "deny")
-      return fileError(
-        "access_denied",
-        `The person did not allow Halo to ${input.access === "write" ? "change" : "read"} files in ${folder}`,
-      );
-    if (input.access === "write" && answer === "read")
-      return fileError(
-        "read_only",
-        `The person allowed Halo to read files in ${folder} but not change them`,
-      );
-    return resolved;
   }
 
   private async grantFor(resolved: string) {
@@ -213,50 +177,6 @@ export class DeviceAccess {
     }
     return best;
   }
-
-  /** One prompt per folder and access at a time; concurrent calls share it. */
-  private async prompt(request: Omit<DeviceAccessRequest, "signal">) {
-    if (isAtLeast(this.refused.get(request.folder), request.access))
-      return "deny";
-    const key = `${request.access}:${request.folder}`;
-    const pending = this.prompts.get(key);
-    if (pending !== undefined) return await pending;
-    const answering = this.answer(request);
-    this.prompts.set(key, answering);
-    using cleanup = new errore.DisposableStack();
-    cleanup.defer(() => this.prompts.delete(key));
-    return await answering;
-  }
-
-  private async answer(request: Omit<DeviceAccessRequest, "signal">) {
-    const answer = await this.ask({
-      ...request,
-      signal: AbortSignal.timeout(promptTimeoutMs),
-    }).catch((): DeviceAccessAnswer => "deny");
-    if (answer === "deny") {
-      this.refused.set(request.folder, request.access);
-      return answer;
-    }
-    this.permissions = {
-      ...this.permissions,
-      grants: [
-        ...this.permissions.grants.filter(
-          (grant) => grant.path !== request.folder,
-        ),
-        { path: request.folder, access: answer },
-      ],
-    };
-    await this.save(this.permissions);
-    return answer;
-  }
-}
-
-/** A refusal of write access still lets the person allow reading later. */
-function isAtLeast(
-  refused: DeviceFileAccess | undefined,
-  wanted: DeviceFileAccess,
-) {
-  return refused === "read" || (refused === "write" && wanted === "write");
 }
 
 function isInside(root: string, candidate: string) {

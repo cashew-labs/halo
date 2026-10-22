@@ -1,13 +1,8 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import {
-  DeviceAccess,
-  type DeviceAccessAnswer,
-  type DeviceAccessRequest,
-  type DeviceGrant,
-} from "./DeviceAccess.js";
+import { afterEach, beforeEach, expect, test } from "vitest";
+import { DeviceAccess, type DeviceGrant } from "./DeviceAccess.js";
 import { DeviceFiles } from "./DeviceFiles.js";
 
 let home: string;
@@ -26,29 +21,17 @@ afterEach(async () => {
   await fs.rm(home, { recursive: true, force: true });
 });
 
-/** A computer whose person answers every prompt with `answer`. */
-function device(
-  input: {
-    answer?: DeviceAccessAnswer;
-    grants?: DeviceGrant[];
-  } = {},
-) {
+function device(grants: DeviceGrant[] = []) {
   const saved: DeviceGrant[][] = [];
-  const ask = vi.fn(
-    async (_request: DeviceAccessRequest): Promise<DeviceAccessAnswer> =>
-      await Promise.resolve(input.answer ?? "deny"),
-  );
   const access = new DeviceAccess({
-    permissions: { grants: input.grants ?? [], commandsAllowed: false },
+    permissions: { grants, commandsAllowed: false },
     home,
-    ask,
-    askCommands: async () => await Promise.resolve(false),
     save: async (permissions) => {
       saved.push(permissions.grants);
       await Promise.resolve();
     },
   });
-  return { files: new DeviceFiles({ access }), access, ask, saved };
+  return { files: new DeviceFiles({ access }), access, saved };
 }
 
 const read = (filePath: string) =>
@@ -59,67 +42,31 @@ const read = (filePath: string) =>
     maxBytes: 1024,
   }) as const;
 
-test("asks once for a new folder, then remembers the answer", async () => {
-  const { files, ask, saved } = device({ answer: "read" });
+test("a new folder needs permission, and the grant is remembered", async () => {
+  const { files, access, saved } = device();
   const notes = path.join(documents, "notes.md");
-  expect(await files.run(read(notes))).toMatchObject({ data: "Buy milk\n" });
-  expect(await files.run(read(notes))).toMatchObject({ data: "Buy milk\n" });
-  expect(ask).toHaveBeenCalledTimes(1);
-  expect(ask.mock.calls[0]?.[0]).toMatchObject({
-    folder: documents,
-    access: "read",
-    path: notes,
+  const needed = await files.run(read(notes));
+  expect(needed).toMatchObject({
+    code: "permission_required",
+    request: { kind: "folder", folder: documents, access: "read", path: notes },
   });
+  if (!("request" in needed)) throw new Error("expected a permission request");
+  await access.grant({ request: needed.request, access: "read" });
+  expect(await files.run(read(notes))).toMatchObject({ data: "Buy milk\n" });
   expect(saved).toEqual([[{ path: documents, access: "read" }]]);
 });
 
 test("listing a folder asks about that folder", async () => {
-  const { files, ask } = device({ answer: "write" });
-  const listed = await files.run({ type: "files.list", path: documents });
-  if (listed instanceof Error) throw listed;
-  expect(listed.entries.map((entry) => entry.name)).toEqual(["notes.md"]);
-  expect(ask.mock.calls[0]?.[0]).toMatchObject({ folder: documents });
+  const { files } = device();
+  expect(
+    await files.run({ type: "files.list", path: documents }),
+  ).toMatchObject({ request: { folder: documents, access: "read" } });
 });
 
-test("concurrent requests in one folder share a single prompt", async () => {
-  const { files, ask } = device({ answer: "read" });
-  await fs.writeFile(path.join(documents, "todo.md"), "Call the bank\n");
-  const results = await Promise.all([
-    files.run(read(path.join(documents, "notes.md"))),
-    files.run(read(path.join(documents, "todo.md"))),
-  ]);
-  expect(results).toMatchObject([
-    { data: "Buy milk\n" },
-    { data: "Call the bank\n" },
-  ]);
-  expect(ask).toHaveBeenCalledTimes(1);
-});
-
-test("a refusal is not asked again until the grants change", async () => {
-  const { files, access, ask } = device({ answer: "deny" });
+test("a change in a read-only folder asks for write access", async () => {
   const notes = path.join(documents, "notes.md");
-  expect(await files.run(read(notes))).toMatchObject({
-    code: "access_denied",
-  });
-  expect(await files.run(read(notes))).toMatchObject({
-    code: "access_denied",
-  });
-  expect(ask).toHaveBeenCalledTimes(1);
-  access.setPermissions({
-    grants: [{ path: documents, access: "read" }],
-    commandsAllowed: false,
-  });
+  const { files } = device([{ path: documents, access: "read" }]);
   expect(await files.run(read(notes))).toMatchObject({ data: "Buy milk\n" });
-});
-
-test("a change in a read-only folder asks to allow changes", async () => {
-  const notes = path.join(documents, "notes.md");
-  const { files, ask } = device({
-    answer: "read",
-    grants: [{ path: documents, access: "read" }],
-  });
-  expect(await files.run(read(notes))).toMatchObject({ data: "Buy milk\n" });
-  expect(ask).not.toHaveBeenCalled();
   expect(
     await files.run({
       type: "files.write",
@@ -127,22 +74,20 @@ test("a change in a read-only folder asks to allow changes", async () => {
       data: "changed",
       encoding: "utf8",
     }),
-  ).toMatchObject({ code: "read_only" });
-  expect(ask.mock.calls[0]?.[0]).toMatchObject({ access: "write" });
+  ).toMatchObject({
+    code: "permission_required",
+    request: { folder: documents, access: "write" },
+  });
   expect(await fs.readFile(notes, "utf8")).toBe("Buy milk\n");
 });
 
-test("credential folders are refused without asking", async () => {
+test("credential folders are refused, even inside an allowed folder", async () => {
   await fs.mkdir(path.join(home, ".ssh"));
   await fs.writeFile(path.join(home, ".ssh", "id_ed25519"), "key");
-  const { files, ask } = device({
-    answer: "write",
-    grants: [{ path: home, access: "write" }],
-  });
+  const { files } = device([{ path: home, access: "write" }]);
   expect(
     await files.run(read(path.join(home, ".ssh", "id_ed25519"))),
   ).toMatchObject({ code: "protected_path" });
-  expect(ask).not.toHaveBeenCalled();
 });
 
 test("a symlink out of an allowed folder asks about its real location", async () => {
@@ -153,35 +98,16 @@ test("a symlink out of an allowed folder asks about its real location", async ()
     path.join(elsewhere, "secret.txt"),
     path.join(documents, "link.txt"),
   );
-  const { files, ask } = device({
-    answer: "deny",
-    grants: [{ path: documents, access: "write" }],
-  });
+  const { files } = device([{ path: documents, access: "write" }]);
   expect(await files.run(read(path.join(documents, "link.txt")))).toMatchObject(
-    { code: "access_denied" },
+    { request: { folder: elsewhere } },
   );
-  expect(ask.mock.calls[0]?.[0]).toMatchObject({ folder: elsewhere });
-});
-
-test("an unanswered or failed prompt refuses access", async () => {
-  const access = new DeviceAccess({
-    permissions: { grants: [], commandsAllowed: false },
-    home,
-    ask: async () => await Promise.reject(new Error("prompt closed")),
-    askCommands: async () => await Promise.resolve(false),
-    save: async () => await Promise.resolve(),
-  });
-  expect(
-    await new DeviceFiles({ access }).run(
-      read(path.join(documents, "notes.md")),
-    ),
-  ).toMatchObject({ code: "access_denied" });
 });
 
 test("reports binary and oversized files instead of returning garbled text", async () => {
   const image = path.join(documents, "photo.png");
   await fs.writeFile(image, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 1]));
-  const { files } = device({ grants: [{ path: documents, access: "read" }] });
+  const { files } = device([{ path: documents, access: "read" }]);
   expect(await files.run(read(image))).toMatchObject({ code: "binary_file" });
   expect(await files.run({ ...read(image), encoding: "base64" })).toMatchObject(
     { data: "iVBORwAB", size: 6 },
@@ -192,7 +118,7 @@ test("reports binary and oversized files instead of returning garbled text", asy
 });
 
 test("writes create folders, and deletes remove files but not folders", async () => {
-  const { files } = device({ grants: [{ path: documents, access: "write" }] });
+  const { files } = device([{ path: documents, access: "write" }]);
   const plan = path.join(documents, "drafts", "plan.md");
   expect(
     await files.run({

@@ -11,9 +11,7 @@ import {
 import type { LoggerApi } from "@get-halo/logger";
 import {
   DeviceAccess,
-  type DeviceAccessAnswer,
-  type DeviceAccessRequest,
-  type DeviceCommandRequest,
+  DevicePermissionRequiredError,
   type DevicePermissions,
 } from "./DeviceAccess.js";
 import { DeviceFiles } from "./DeviceFiles.js";
@@ -62,10 +60,6 @@ export class DeviceHost {
     settings: DeviceSettings;
     getTransport: () => Promise<HaloRpcTransport | Error | undefined>;
     logger: Pick<LoggerApi, "info" | "warn">;
-    /** Asks the person on this computer; resolve "deny" when the signal aborts. */
-    ask: (request: DeviceAccessRequest) => Promise<DeviceAccessAnswer>;
-    /** Asks whether the agent may run commands; resolve false when the signal aborts. */
-    askCommands: (request: DeviceCommandRequest) => Promise<boolean>;
     savePermissions: (permissions: DevicePermissions) => Promise<void>;
     home?: string;
     shell?: string;
@@ -77,8 +71,6 @@ export class DeviceHost {
     this.access = new DeviceAccess({
       permissions: permissionsOf(ctx.settings),
       home: this.home,
-      ask: ctx.ask,
-      askCommands: ctx.askCommands,
       save: ctx.savePermissions,
     });
     this.files = new DeviceFiles({ access: this.access });
@@ -105,6 +97,11 @@ export class DeviceHost {
     this.settings = settings;
     this.access.setPermissions(permissionsOf(settings));
     if (reconnect) this.reconnect();
+  }
+
+  /** Records the person's answer to a permission card shown on this computer. */
+  async allow(input: Parameters<DeviceAccess["grant"]>[0]) {
+    return await this.access.grant(input);
   }
 
   /** Reconnects now, for example after signing in again. */
@@ -235,10 +232,17 @@ export class DeviceHost {
             deviceId: this.settings.id,
             callId: request.callId,
             ok: false as const,
-            error: {
-              code: String(result.code),
-              message: String(result.detail),
-            },
+            error:
+              result instanceof DevicePermissionRequiredError
+                ? {
+                    code: result.code,
+                    message: result.message,
+                    permission: result.request,
+                  }
+                : {
+                    code: String(result.code),
+                    message: String(result.detail),
+                  },
           }
         : {
             deviceId: this.settings.id,

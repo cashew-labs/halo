@@ -2,12 +2,8 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import * as errore from "errore";
-import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import {
-  DeviceAccess,
-  type DeviceCommandRequest,
-  type DevicePermissions,
-} from "./DeviceAccess.js";
+import { afterEach, beforeEach, expect, test } from "vitest";
+import { DeviceAccess, type DevicePermissions } from "./DeviceAccess.js";
 import { DeviceShell } from "./DeviceShell.js";
 
 let home: string;
@@ -22,21 +18,14 @@ afterEach(async () => {
   await fs.rm(home, { recursive: true, force: true });
 });
 
-/** A computer whose person answers the command prompt with `allow`. */
-function device(input: { allow?: boolean; commandsAllowed?: boolean } = {}) {
+function device(input: { commandsAllowed?: boolean } = {}) {
   const saved: DevicePermissions[] = [];
-  const askCommands = vi.fn(
-    async (_request: DeviceCommandRequest) =>
-      await Promise.resolve(input.allow ?? false),
-  );
   const access = new DeviceAccess({
     permissions: {
       grants: [],
       commandsAllowed: input.commandsAllowed ?? false,
     },
     home,
-    ask: async () => await Promise.resolve("deny" as const),
-    askCommands,
     save: async (permissions) => {
       saved.push(permissions);
       await Promise.resolve();
@@ -56,11 +45,21 @@ function device(input: { allow?: boolean; commandsAllowed?: boolean } = {}) {
       },
       options.signal ?? new AbortController().signal,
     );
-  return { run, askCommands, saved, access };
+  return { run, saved, access };
 }
 
-test("asks once, then runs commands in the home folder", async () => {
-  const { run, askCommands, saved } = device({ allow: true });
+test("commands need permission first, then run in the home folder", async () => {
+  const { run, access, saved } = device();
+  const marker = path.join(home, "ran");
+  const needed = await run(`touch ${marker}`);
+  expect(needed).toMatchObject({
+    code: "permission_required",
+    request: { kind: "commands", command: `touch ${marker}`, cwd: home },
+  });
+  await expect(fs.stat(marker)).rejects.toThrow();
+  if (!("request" in needed)) throw new Error("expected a permission request");
+  await access.grant({ request: needed.request, access: "write" });
+  expect(saved).toEqual([{ grants: [], commandsAllowed: true }]);
   expect(await run("pwd; echo oops >&2; exit 3")).toEqual({
     code: 3,
     timedOut: false,
@@ -68,22 +67,6 @@ test("asks once, then runs commands in the home folder", async () => {
     stderr: "oops\n",
     truncated: false,
   });
-  expect(await run("echo again")).toMatchObject({ code: 0, stdout: "again\n" });
-  expect(askCommands).toHaveBeenCalledTimes(1);
-  expect(askCommands.mock.calls[0]?.[0]).toMatchObject({
-    command: "pwd; echo oops >&2; exit 3",
-    cwd: home,
-  });
-  expect(saved).toEqual([{ grants: [], commandsAllowed: true }]);
-});
-
-test("a refusal runs nothing and is not asked again", async () => {
-  const { run, askCommands } = device({ allow: false });
-  const marker = path.join(home, "ran");
-  expect(await run(`touch ${marker}`)).toMatchObject({ code: "access_denied" });
-  expect(await run(`touch ${marker}`)).toMatchObject({ code: "access_denied" });
-  expect(askCommands).toHaveBeenCalledTimes(1);
-  await expect(fs.stat(marker)).rejects.toThrow();
 });
 
 test("runs in the requested folder", async () => {
