@@ -252,10 +252,10 @@ async function signalBashProcesses(input: {
   const processes = await new Promise<string | BashRunError>((resolve) => {
     // e includes inherited environment; ww avoids truncating the run identity.
     // Keep this output private: it contains other processes' environments.
-    // Use BSD-style ax: procps rejects -ax when mixed with BSD eww.
+    // Keep BSD flags together: macOS rejects a separate ax argument after eww.
     childProcess.execFile(
       "ps",
-      ["eww", "ax", "-o", "pid=,pgid=,command="],
+      ["axeww", "-o", "pid=,pgid=,command="],
       {
         timeout: 1_000,
         maxBuffer: 32 * 1024 * 1024,
