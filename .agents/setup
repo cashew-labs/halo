@@ -25,6 +25,39 @@ export PATH="$HOME/.local/bin:$PATH"
 hash -r
 node --version
 
+echo "==> Installing Entire and its Amp integration"
+(
+  install_dir="$(mktemp -d)"
+  trap 'rm -rf "$install_dir"' EXIT
+
+  if [[ "$(entire version 2>/dev/null | head -n 1)" != "Entire CLI 0.12.0" ]]; then
+    curl -fsSL https://install.entire.com/v0.12.0/entire_linux_amd64.tar.gz -o "$install_dir/entire.tar.gz"
+    echo "28aa1664a990507c7063a9437aa896f3b1930447d03d3711a7d04629299bea18  $install_dir/entire.tar.gz" | sha256sum -c -
+    tar -xzf "$install_dir/entire.tar.gz" -C "$install_dir"
+    install -m 755 "$install_dir/entire" "$install_dir/git-remote-entire" "$HOME/.local/bin/"
+  fi
+
+  if ! command -v entire-agent-amp >/dev/null; then
+    go_home="$HOME/.local/go-1.27.3"
+    if [[ ! -x "$go_home/bin/go" ]]; then
+      curl -fsSL https://go.dev/dl/go1.27.3.linux-amd64.tar.gz -o "$install_dir/go.tar.gz"
+      echo "65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40  $install_dir/go.tar.gz" | sha256sum -c -
+      mkdir -p "$go_home"
+      tar -xzf "$install_dir/go.tar.gz" -C "$go_home" --strip-components=1
+    fi
+    GOBIN="$HOME/.local/bin" "$go_home/bin/go" install github.com/entireio/external-agents/agents/entire-agent-amp/cmd/entire-agent-amp@v0.0.0-20261020003721-23c64f2861dd
+  fi
+)
+
+# Hooks are clone-local Git configuration, even when agent hooks are committed.
+entire enable --yes --telemetry=false
+
+# Headless orbs have no OS keyring. Authenticate interactively after startup;
+# never include a user's login in the shared setup snapshot.
+if ! grep -Fqx 'export ENTIRE_TOKEN_STORE=file' "$HOME/.bash_profile" 2>/dev/null; then
+  echo 'export ENTIRE_TOKEN_STORE=file' >> "$HOME/.bash_profile"
+fi
+
 # Corepack wraps pnpm in a Node shim and does not install pnpm 12's native binary.
 PNPM_VERSION="$(node -p "require('./package.json').packageManager.slice('pnpm@'.length)")"
 export PNPM_HOME="${PNPM_HOME:-$HOME/.local/share/pnpm}"
