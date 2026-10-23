@@ -54,9 +54,12 @@ entire enable --yes --telemetry=false
 
 # Headless orbs have no OS keyring. Authenticate interactively after startup;
 # never include a user's login in the shared setup snapshot.
-if ! grep -Fqx 'export ENTIRE_TOKEN_STORE=file' "$HOME/.bash_profile" 2>/dev/null; then
-  echo 'export ENTIRE_TOKEN_STORE=file' >> "$HOME/.bash_profile"
-fi
+# Classic Amp also needs an explicit opt-in to load project plugins.
+for setting in 'export ENTIRE_TOKEN_STORE=file' 'export PLUGINS=all'; do
+  if ! grep -Fqx "$setting" "$HOME/.bash_profile" 2>/dev/null; then
+    echo "$setting" >> "$HOME/.bash_profile"
+  fi
+done
 
 # Corepack wraps pnpm in a Node shim and does not install pnpm 12's native binary.
 PNPM_VERSION="$(node -p "require('./package.json').packageManager.slice('pnpm@'.length)")"
