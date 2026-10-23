@@ -3,7 +3,7 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
 // Kept separate from the browser entry so Node never loads React UI modules.
-export function previewConfig({ directory, port }) {
+export function previewConfig({ directory, port, sourceRoots = [] }) {
   return defineConfig({
     root: directory,
     plugins: [react()],
@@ -23,8 +23,18 @@ export function previewConfig({ directory, port }) {
       strictPort: true,
       allowedHosts: true,
       fs: {
-        // Generated previews live in <project>/tmp/<name>. Allow real-component adapters.
-        allow: [path.resolve(directory, "../..")],
+        allow: [
+          directory,
+          ...sourceRoots.map((root) => path.resolve(directory, root)),
+        ],
+        deny: [
+          "**/.env",
+          "**/.env.*",
+          "**/*.{crt,pem,key}",
+          "**/.git/**",
+          "**/.halo/**",
+          "**/.amp/**",
+        ],
       },
     },
   });

@@ -1,4 +1,6 @@
 import childProcess from "node:child_process";
+import fs from "node:fs/promises";
+import path from "node:path";
 import url from "node:url";
 import { expect } from "@playwright/test";
 import { test } from "./fixtures.js";
@@ -23,6 +25,55 @@ test("generator refuses existing previews and unsafe names without overwriting",
     expect(generated.status).toBe(1);
     expect(generated.stderr).not.toBe("");
   }
+});
+
+test("portal serves opted-in source but denies runtime data and credentials", async ({
+  page,
+  request,
+  preview,
+}) => {
+  await expect(
+    page.getByRole("complementary").getByRole("textbox"),
+  ).toHaveValue("Morning digest");
+  const source = await request.get(
+    `${preview.origin}/@fs/${preview.project}/src/settings.ts`,
+  );
+  expect(source.status()).toBe(200);
+  expect(await source.text()).toContain("Morning digest");
+  const directory = path.join(preview.project, "tmp", preview.name);
+  const blocked = [
+    path.join(preview.project, "private-notes.txt"),
+    ...["server.json", "rpc.json", "state.db"].map((file) =>
+      path.join(preview.project, "tmp/workspace/.halo", file),
+    ),
+    ...[
+      ".env",
+      ".env.local",
+      "private.key",
+      ".git/config",
+      ".halo/state.db",
+      ".amp/credentials.json",
+    ].map((file) => path.join(preview.project, "src", file)),
+    path.join(directory, ".halo", "server.json"),
+  ];
+  for (const file of blocked) {
+    await fs.mkdir(path.dirname(file), { recursive: true });
+    await fs.writeFile(file, "private-preview-sentinel");
+    for (const query of ["?import", "", "?raw", "?raw&import", "?url&import"]) {
+      const response = await request.get(
+        `${preview.origin}/@fs/${file}${query}`,
+      );
+      expect(await response.text(), file + query).not.toContain(
+        "private-preview-sentinel",
+      );
+      // Vite can return a URL-only asset module for ?import, never file contents.
+      if (query !== "?import")
+        expect(response.status(), file + query).toBe(403);
+    }
+  }
+  const rootRelative = await request.get(`${preview.origin}/.halo/server.json`);
+  expect(rootRelative.status()).toBe(403);
+  expect(await rootRelative.text()).not.toContain("private-preview-sentinel");
 });
 
 test("generated unrelated flow supports selection, local editing, reset and navigation", async ({

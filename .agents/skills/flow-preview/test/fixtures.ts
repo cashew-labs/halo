@@ -42,6 +42,28 @@ export const test = base.extend<
       if (generated.status !== 0)
         throw new Error(generated.stderr, { cause: generated.error });
       await fs.rm(portableSkill, { recursive: true });
+      await fs.mkdir(path.join(project, "src"));
+      await fs.writeFile(
+        path.join(project, "src", "settings.ts"),
+        'export const digestName = "Morning digest";',
+      );
+      const entry = path.join(directory, "scenario.tsx");
+      await fs.writeFile(
+        entry,
+        'import { digestName } from "../../src/settings.js";\n' +
+          (await fs.readFile(entry, "utf8")).replace(
+            'useState("Morning digest")',
+            "useState(digestName)",
+          ),
+      );
+      const config = path.join(directory, "vite.config.mjs");
+      await fs.writeFile(
+        config,
+        (await fs.readFile(config, "utf8")).replace(
+          "port: 4180",
+          'port: 4180, sourceRoots: ["../../src"]',
+        ),
+      );
       const server = await createServer({
         configFile: path.join(directory, "vite.config.mjs"),
         server: { port: 0 },

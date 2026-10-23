@@ -25,7 +25,7 @@ npm --prefix tmp/preferences-flow install --workspaces=false
 
 Arguments are `<lowercase-name> [port]`; the default port is 4180. Names cannot contain paths. Existing previews are never overwritten. The script creates `tmp/<name>/` relative to the current directory, not relative to the skill. It copies the canvas and Vite helper alongside `scenario.tsx`, `main.tsx`, `index.html`, `vite.config.mjs`, and a private `package.json`. Generated previews do not import from this skill or from Halo; the skill can move without breaking them.
 
-Edit **`tmp/<name>/scenario.tsx`**. Install dependencies in that preview only; do not add it to the project's workspace. When importing real application components, align React and Maui versions with that project and retain the Vite helper's deduplication. The helper permits source imports from the project containing `tmp/`.
+Edit **`tmp/<name>/scenario.tsx`**. Install dependencies in that preview only; do not add it to the project's workspace. When importing real application components, align React and Maui versions with that project and retain the Vite helper's deduplication. In `vite.config.mjs`, pass only the required source directories as `sourceRoots` to `previewConfig` (paths are relative to the preview directory, for example `sourceRoots: ["../../packages/web/src"]`). The default allowlist covers the preview directory only; never allow the project root or runtime workspace. Credential files, `.git`, `.halo`, and `.amp` remain denied even inside an allowed source directory. Verify these boundaries through HTTP before sharing a portal.
 
 In an Amp orb, follow the exact supervised command printed by the script:
 
