@@ -10,22 +10,11 @@ RUN apt-get update \
     && npm install --global pnpm@12.1.0
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY patches ./patches
-# Install dependencies before copying sources so code changes reuse this layer.
-COPY packages/client/package.json ./packages/client/package.json
-COPY packages/config/package.json ./packages/config/package.json
-COPY packages/logger/package.json ./packages/logger/package.json
-COPY packages/shared/package.json ./packages/shared/package.json
-COPY packages/typescript-config/package.json ./packages/typescript-config/package.json
-COPY packages/web/package.json ./packages/web/package.json
+# Include every workspace package so new dependencies need no Dockerfile edits.
+COPY packages ./packages
 COPY apps/control-plane/package.json ./apps/control-plane/package.json
 COPY apps/web-app/package.json ./apps/web-app/package.json
 RUN pnpm install --frozen-lockfile --filter @get-halo/control-plane... --filter @get-halo/web-app...
-COPY packages/client ./packages/client
-COPY packages/config ./packages/config
-COPY packages/logger ./packages/logger
-COPY packages/shared ./packages/shared
-COPY packages/typescript-config ./packages/typescript-config
-COPY packages/web ./packages/web
 COPY apps/control-plane ./apps/control-plane
 COPY apps/web-app ./apps/web-app
 COPY apps/electron/package.json ./apps/electron/package.json
