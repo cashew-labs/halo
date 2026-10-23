@@ -38,8 +38,16 @@ import type {
 } from "./rpc.js";
 
 // Tandem-backed clients use a different workspace stream contract.
-export const haloProtocolVersion = 30 as const;
-export const haloSupportedProtocols = [25, 26, 27, 28, 29, haloProtocolVersion];
+export const haloProtocolVersion = 31 as const;
+export const haloSupportedProtocols = [
+  25,
+  26,
+  27,
+  28,
+  29,
+  30,
+  haloProtocolVersion,
+];
 
 export const RequestRejectedError = error("BAD_REQUEST", {
   message: "Halo could not complete the request.",
@@ -270,6 +278,9 @@ export const contract = publicProcedure.router({
     deleteEntry: oc
       .input(type<{ path: string }>())
       .output(type<{ path: string }>()),
+    watchFile: oc
+      .input(type<{ path: string }>())
+      .output(asyncIteratorObject(type<{ path: string }>())),
     previewFile: oc
       .input(type<{ path: string }>())
       .output(type<WorkspaceFilePreview>()),

@@ -3946,3 +3946,42 @@ serverTest(
     ).toContain("Finished without interruption.");
   },
 );
+
+serverTest(
+  "notifies open notes of external content changes and sends a fresh notification on reconnect",
+  async ({ server }) => {
+    await server.rpc.workspace.writeFile({
+      path: "live.md",
+      content: "Original",
+    });
+    const controller = new AbortController();
+    using cleanup = new errore.DisposableStack();
+    cleanup.defer(() => controller.abort());
+    const changes = await server.rendererRpc.workspace.watchFile(
+      { path: "live.md" },
+      { signal: controller.signal },
+    );
+    expect((await changes.next()).value).toEqual({ path: "live.md" });
+    await server.harness.files.write({
+      path: path.join(server.workspaceRoot, "live.md"),
+      content: "From another device",
+    });
+    expect((await changes.next()).value).toEqual({ path: "live.md" });
+    expect(
+      await server.rendererRpc.workspace.readFile({ path: "live.md" }),
+    ).toBe("From another device");
+    controller.abort();
+    await server.rpc.workspace.writeFile({
+      path: "live.md",
+      content: "Changed while disconnected",
+    });
+    const reconnected = await server.rendererRpc.workspace.watchFile({
+      path: "live.md",
+    });
+    expect((await reconnected.next()).value).toEqual({ path: "live.md" });
+    expect(
+      await server.rendererRpc.workspace.readFile({ path: "live.md" }),
+    ).toBe("Changed while disconnected");
+    await reconnected.return();
+  },
+);

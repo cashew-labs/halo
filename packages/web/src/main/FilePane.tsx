@@ -1,5 +1,7 @@
+import { useEffect } from "react";
+import { reconnectStream } from "../api/reconnectStream.js";
 import { useConnection } from "../api/ConnectionContext.js";
-import { useQuery, useIsMutating } from "@tanstack/react-query";
+import { useQuery, useQueryClient, useIsMutating } from "@tanstack/react-query";
 import { useApi } from "../api/ApiProvider.js";
 import { MediaFilePreview } from "./MediaFilePreview.js";
 import { TextFileEditor } from "./TextFileEditor.js";
@@ -17,7 +19,29 @@ import { MarkdownFileEditor } from "./editor/MarkdownFileEditor.js";
 
 export function FilePane({ path }: { path: string }) {
   const api = useApi();
-  const { state } = useConnection();
+  const { service, state } = useConnection();
+  const queryClient = useQueryClient();
+  const connected = state.status === "connected";
+  useEffect(() => {
+    if (!connected || fileKind(path) !== "markdown") return;
+    const controller = new AbortController();
+    reconnectStream({
+      name: "File updates",
+      signal: controller.signal,
+      open: async () =>
+        await api.workspace.watchFile({ path }, { signal: controller.signal }),
+      onItem: () => {
+        void queryClient
+          .invalidateQueries({
+            queryKey: ["workspace-preview", path],
+            exact: true,
+          })
+          .catch(console.error);
+      },
+      onError: (error) => service.fail(api, error),
+    });
+    return () => controller.abort();
+  }, [api, connected, path, queryClient, service]);
   const changingEntry = useIsMutating({ mutationKey: ["workspace-entry"] });
   const preview = useQuery({
     queryKey: ["workspace-preview", path],
