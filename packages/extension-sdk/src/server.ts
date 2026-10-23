@@ -1,6 +1,6 @@
 import { parseArgs } from "node:util";
 import { timingSafeEqual } from "node:crypto";
-import { createServer } from "node:http";
+import { createServer, type IncomingMessage } from "node:http";
 import type { AddressInfo } from "node:net";
 import { readFile, readdir } from "node:fs/promises";
 import { extname, join } from "node:path";
@@ -49,6 +49,37 @@ const contentTypes = new Map(
     ".woff2": "font/woff2",
   }),
 );
+
+const loopbackAddresses = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
+const loopbackHosts = ["127.0.0.1", "localhost", "[::1]"];
+
+// Halo's proxy presents the host token and names the viewer. The workspace's own
+// processes and browser reach the loopback port directly and act as the owner.
+// A loopback Host header rules out DNS rebinding, and Sec-Fetch-Site rules out
+// requests that other sites' pages send from the workspace browser.
+function requestAccess(
+  request: IncomingMessage,
+  hostToken: string | undefined,
+) {
+  if (hostToken === undefined) return "proxied";
+  const supplied = request.headers["x-halo-extension-token"];
+  if (supplied !== undefined) {
+    const actual = Buffer.from(Array.isArray(supplied) ? "" : supplied);
+    const expected = Buffer.from(hostToken);
+    return actual.length === expected.length &&
+      timingSafeEqual(actual, expected)
+      ? "proxied"
+      : "denied";
+  }
+  const site = request.headers["sec-fetch-site"];
+  const port = request.socket.localPort;
+  if (port === undefined) return "denied";
+  const local =
+    loopbackAddresses.has(request.socket.remoteAddress ?? "") &&
+    loopbackHosts.some((host) => request.headers.host === `${host}:${port}`) &&
+    (site === undefined || site === "same-origin" || site === "none");
+  return local ? "local" : "denied";
+}
 
 export async function serveExtension<
   Schema extends AnySchema,
@@ -106,42 +137,36 @@ export async function serveExtension<
   const tools = createExtensionTools();
   const syncHandler = new RPCHandler(syncRouter(tandem));
   const server = createServer(async (request, response) => {
-    if (args.hostToken !== undefined) {
-      const supplied = request.headers["x-halo-extension-token"];
-      const actual = Buffer.from(
-        Array.isArray(supplied) ? "" : (supplied ?? ""),
-      );
-      const expected = Buffer.from(args.hostToken);
-      if (
-        actual.length !== expected.length ||
-        !timingSafeEqual(actual, expected)
-      ) {
-        response.writeHead(401).end();
-        return;
-      }
+    const access = requestAccess(request, args.hostToken);
+    if (access === "denied") {
+      response.writeHead(401).end();
+      return;
     }
-    const viewer: ExtensionViewer = {
-      viewerId: Array.isArray(request.headers["x-halo-viewer-id"])
-        ? "owner"
-        : (request.headers["x-halo-viewer-id"] ?? "owner"),
-      // Behind Halo's proxy every request names its role, so anything else is
-      // public. A standalone preview has no proxy and serves its owner.
-      role:
-        request.headers["x-halo-viewer-role"] === "owner"
-          ? "owner"
-          : request.headers["x-halo-viewer-role"] === "member"
-            ? "member"
-            : request.headers["x-halo-viewer-role"] === "public" ||
-                args.hostToken !== undefined
-              ? "public"
-              : "owner",
-      email: Array.isArray(request.headers["x-halo-viewer-email"])
-        ? undefined
-        : request.headers["x-halo-viewer-email"],
-      token: Array.isArray(request.headers["x-halo-viewer-token"])
-        ? undefined
-        : request.headers["x-halo-viewer-token"],
-    };
+    const viewer: ExtensionViewer =
+      access === "local"
+        ? { viewerId: "owner", role: "owner" }
+        : {
+            viewerId: Array.isArray(request.headers["x-halo-viewer-id"])
+              ? "owner"
+              : (request.headers["x-halo-viewer-id"] ?? "owner"),
+            // Behind Halo's proxy every request names its role, so anything else is
+            // public. A standalone preview has no proxy and serves its owner.
+            role:
+              request.headers["x-halo-viewer-role"] === "owner"
+                ? "owner"
+                : request.headers["x-halo-viewer-role"] === "member"
+                  ? "member"
+                  : request.headers["x-halo-viewer-role"] === "public" ||
+                      args.hostToken !== undefined
+                    ? "public"
+                    : "owner",
+            email: Array.isArray(request.headers["x-halo-viewer-email"])
+              ? undefined
+              : request.headers["x-halo-viewer-email"],
+            token: Array.isArray(request.headers["x-halo-viewer-token"])
+              ? undefined
+              : request.headers["x-halo-viewer-token"],
+          };
     if (request.url === "/__halo/ready") {
       response
         .writeHead(200, { "content-type": "application/json" })

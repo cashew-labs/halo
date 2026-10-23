@@ -71,6 +71,7 @@ e2eTest(
     await expect(
       signedOutPage.getByRole("main", { name: "Sign in to Halo" }),
     ).toBeVisible();
+    await expect(signedOutPage.locator('link[rel="manifest"]')).toHaveCount(0);
 
     await signedOutPage.route(
       "https://accounts.google.com/**",
@@ -109,6 +110,7 @@ e2eTest(
     await signedInPage.setViewportSize({ width: 390, height: 844 });
     const frame = signedInPage.locator('iframe[title="greeting"]');
     await expect(frame).toHaveCSS("height", "844px");
+    await expect(signedInPage).toHaveTitle("greeting");
     await expect(frame).toHaveAttribute(
       "src",
       /\/workspace\/extensions\/greeting\/view\/$/,
@@ -127,6 +129,7 @@ e2eTest(
     await expect(
       signedInPage.getByText("Extension 'not-running' is not running."),
     ).toBeVisible();
+    await expect(signedInPage).toHaveTitle("Halo");
   },
 );
 
@@ -157,11 +160,12 @@ async function createAuthenticatedCookie(ctx: {
 
 e2eTest(
   "opens a workspace extension WebSocket through the standalone web URL",
-  async ({ browser, harness, testArtifacts }) => {
+  async ({ browser, harness, testArtifacts, server }) => {
     e2eTest.setTimeout(120_000);
     const extension = await harness.loadExtension(
       "./fixtures/websocket-greeting",
     );
+    await harness.loadExtension("./fixtures/greeting");
     const logger = new Logger();
     const plane = await ControlPlane.start({
       logger,
@@ -194,6 +198,11 @@ e2eTest(
     });
     cleanup.defer(async () => await context.close());
     const page = await context.newPage();
+    const manifestRequests: string[] = [];
+    page.on("request", (request) => {
+      if (new URL(request.url()).pathname === "/manifest.json")
+        manifestRequests.push(request.url());
+    });
     await page.goto(
       new URL(
         `/extensions/${encodeURIComponent(extension.id)}`,
@@ -202,6 +211,7 @@ e2eTest(
     );
 
     const frame = page.getByTitle("WebSocket Greeting", { exact: true });
+    await expect(page).toHaveTitle("WebSocket Greeting");
     await expect(frame).toHaveAttribute(
       "src",
       /\/workspace\/extensions\/websocket-greeting\/view\/$/,
@@ -209,6 +219,130 @@ e2eTest(
     await expect(frame.contentFrame().getByRole("status")).toHaveText(
       "Hello from WebSocket",
     );
+
+    const manifestLink = page.locator('head link[rel="manifest"]');
+    await expect(manifestLink).toHaveCount(1);
+    await expect(manifestLink).toHaveAttribute(
+      "href",
+      "/manifest.json?extension=websocket-greeting&name=WebSocket+Greeting",
+    );
+    await expect(
+      page.locator('meta[name="apple-mobile-web-app-title"]'),
+    ).toHaveAttribute("content", "WebSocket Greeting");
+    const cdp = await context.newCDPSession(page);
+    const processed = await cdp.send("Page.getAppManifest");
+    expect(processed.errors).toEqual([]);
+    expect(processed.data).toBeDefined();
+    expect(manifestRequests.length).toBeGreaterThan(0);
+    for (const requested of manifestRequests) {
+      expect(new URL(requested).searchParams.get("name")).toBe(
+        "WebSocket Greeting",
+      );
+    }
+    // SAFETY: Chromium processed the manifest served from Halo's bundled web assets.
+    const manifest = JSON.parse(processed.data!) as {
+      start_url: string;
+      icons: { src: string }[];
+    };
+    expect(manifest).toMatchObject({
+      id: "/extensions/websocket-greeting",
+      name: "WebSocket Greeting",
+      short_name: "WebSocket Greeting",
+      start_url: "/extensions/websocket-greeting",
+      scope: "/",
+      display: "standalone",
+    });
+    // Installation fetches the manifest and icons without workspace credentials.
+    const publicManifest = await fetch(processed.url);
+    expect(publicManifest.status).toBe(200);
+    expect(await publicManifest.json()).toEqual(manifest);
+    for (const icon of manifest.icons) {
+      const response = await fetch(new URL(icon.src, plane.origin));
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toBe("image/png");
+    }
+    const launchPage = await context.newPage();
+    await launchPage.goto(new URL(manifest.start_url, plane.origin).toString());
+    await expect(launchPage).toHaveTitle("WebSocket Greeting");
+    await expect(
+      launchPage
+        .getByTitle("WebSocket Greeting", { exact: true })
+        .contentFrame()
+        .getByRole("status"),
+    ).toHaveText("Hello from WebSocket");
+
+    // Crossing app identities must replace the document, not mutate a cached manifest.
+    const rootNavigation = page.waitForRequest(
+      (request) =>
+        request.isNavigationRequest() && request.url() === `${plane.origin}/`,
+    );
+    await page.evaluate(() => window.history.pushState({}, "", "/"));
+    await rootNavigation;
+    await expect(manifestLink).toHaveAttribute("href", "/manifest.json");
+    await expect(page.getByTestId("threads-shell")).toBeVisible();
+    const haloManifest = await cdp.send("Page.getAppManifest");
+    expect(JSON.parse(haloManifest.data!)).toMatchObject({
+      id: "/",
+      start_url: "/",
+    });
+    await expect(
+      page.locator('meta[name="apple-mobile-web-app-title"]'),
+    ).toHaveCount(0);
+
+    for (const [route, name, startUrl] of [
+      ["/extensions/greeting/", "greeting", "/extensions/greeting"],
+      [
+        "/Extensions/websocket-greeting",
+        "WebSocket Greeting",
+        "/extensions/websocket-greeting",
+      ],
+    ] as const) {
+      const documentNavigation = page.waitForRequest(
+        (request) =>
+          request.isNavigationRequest() &&
+          request.url() === `${plane.origin}${route}`,
+      );
+      await page.evaluate(
+        (pathname) => window.history.pushState({}, "", pathname),
+        route,
+      );
+      await documentNavigation;
+      await expect(page).toHaveTitle(name);
+      await expect(manifestLink).toHaveCount(1);
+      const nextManifest = await cdp.send("Page.getAppManifest");
+      expect(nextManifest.errors).toEqual([]);
+      expect(JSON.parse(nextManifest.data!)).toMatchObject({
+        name,
+        start_url: startUrl,
+      });
+    }
+
+    const renamedNavigation = page.waitForRequest(
+      (request) =>
+        request.isNavigationRequest() && request.frame() === page.mainFrame(),
+    );
+    const packagePath = path.join(extension.directory, "package.json");
+    await harness.tools.files.write({
+      path: packagePath,
+      content: (await readFile(packagePath, "utf8")).replace(
+        '"WebSocket Greeting"',
+        '"Orbit & Logs"',
+      ),
+    });
+    await server.rpc.extensions.restart({ id: extension.id });
+    await renamedNavigation;
+    await expect(page).toHaveTitle("Orbit & Logs");
+    await expect(manifestLink).toHaveAttribute(
+      "href",
+      "/manifest.json?extension=websocket-greeting&name=Orbit+%26+Logs",
+    );
+    const renamedManifest = await cdp.send("Page.getAppManifest");
+    expect(renamedManifest.errors).toEqual([]);
+    expect(JSON.parse(renamedManifest.data!)).toMatchObject({
+      id: "/extensions/websocket-greeting",
+      name: "Orbit & Logs",
+      start_url: "/extensions/websocket-greeting",
+    });
   },
 );
 

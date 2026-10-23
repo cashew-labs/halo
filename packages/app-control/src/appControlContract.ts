@@ -1,9 +1,19 @@
 import { oc, type, type RouterContractClient } from "@orpc/contract";
-import {
-  RequestRejectedError,
-  type BrowserExecution,
-  type BrowserSnapshot,
-} from "@get-halo/client";
+import { RequestRejectedError } from "@get-halo/client";
+
+export type BrowserSnapshot = {
+  url: string;
+  title: string;
+  tree: string;
+  errors: string[];
+};
+export type BrowserExecution = {
+  result: unknown;
+  stdout: string;
+  stderr: string;
+  snapshotDiff: string;
+  errors: string[];
+};
 
 export const appControlContract = oc
   .errors({ [RequestRejectedError.code]: RequestRejectedError })

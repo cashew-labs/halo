@@ -11,6 +11,7 @@ vi.setConfig({ testTimeout: 20_000 });
 
 type ServerOptions = {
   desktopOrigin?: WorkspaceServerOptions["config"]["desktopOrigin"];
+  chrome?: WorkspaceServerOptions["config"]["chrome"];
   sharedApp?: WorkspaceServerOptions["config"]["sharedApp"];
   extensionRuntime?: WorkspaceServerOptions["config"]["extensionRuntime"];
   appDataDir?: string;
@@ -62,6 +63,7 @@ export const serverTest = baseTest.extend<{
     await use((options = {}) => {
       const server = new TestServer({
         desktopOrigin: options.desktopOrigin,
+        chrome: options.chrome,
         sharedApp: options.sharedApp,
         extensionRuntime: options.extensionRuntime,
         appDataDir: options.appDataDir,

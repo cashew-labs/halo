@@ -940,21 +940,58 @@ async function serveWebApp(ctx: {
   }
 
   const measurementId = ctx.marketing ? ctx.googleAnalyticsMeasurementId : "";
+  const extensionRoute = /^\/extensions\/([^/]+)\/?$/i.exec(url.pathname);
+  const extensionId =
+    extensionRoute === null
+      ? undefined
+      : errore.try({
+          try: () => decodeURIComponent(extensionRoute[1]!),
+          catch: (cause) =>
+            new ControlPlaneHttpError({ detail: "decode extension ID", cause }),
+        });
+  if (extensionId instanceof Error) {
+    ctx.logger.warn({
+      event: "extension-id-decode-failed",
+      errorType: extensionId.name,
+    });
+    response.writeHead(400).end();
+    return;
+  }
+  // WebKit retains the first manifest loader for a document. Extension pages
+  // insert their manifest only after the workspace supplies the display name.
+  const manifestLink =
+    extensionId === undefined
+      ? '<link rel="manifest" href="/manifest.json" />'
+      : `<meta name="halo-extension-id" content="${encodeURIComponent(extensionId)}" />`;
   const content =
-    requestedPath === "index.html"
-      ? Buffer.from(
-          file
-            .toString()
-            .replace(
-              '<meta name="halo-ga-measurement-id" content="" />',
-              `<meta name="halo-ga-measurement-id" content="${measurementId ?? ""}" />`,
-            )
-            .replace(
-              '<meta name="halo-environment" content="" />',
-              `<meta name="halo-environment" content="${ctx.environment ?? ""}" />`,
-            ),
-        )
-      : file;
+    requestedPath === "manifest.json" && url.searchParams.has("extension")
+      ? extensionWebManifest({ file, url })
+      : requestedPath === "index.html"
+        ? Buffer.from(
+            file
+              .toString()
+              .replace(
+                '<meta name="halo-ga-measurement-id" content="" />',
+                `<meta name="halo-ga-measurement-id" content="${measurementId ?? ""}" />`,
+              )
+              .replace(
+                '<meta name="halo-environment" content="" />',
+                `<meta name="halo-environment" content="${ctx.environment ?? ""}" />`,
+              )
+              .replace(
+                '<link rel="manifest" href="/manifest.json" />',
+                manifestLink,
+              ),
+          )
+        : file;
+  if (content instanceof Error) {
+    ctx.logger.error({
+      event: "web-manifest-read-failed",
+      errorType: content.name,
+    });
+    response.writeHead(500).end();
+    return;
+  }
   response.writeHead(200, {
     "cache-control": webCacheControl(url.pathname),
     "content-length": content.byteLength,
@@ -965,11 +1002,52 @@ async function serveWebApp(ctx: {
           ? inlineScriptHashes(content.toString("utf8"))
           : [],
     }),
-    "content-type": webContentType(filePath),
+    "content-type":
+      requestedPath === "manifest.json"
+        ? "application/manifest+json; charset=utf-8"
+        : webContentType(filePath),
     "x-content-type-options": "nosniff",
   });
   if (request.method === "HEAD") response.end();
   else response.end(content);
+}
+
+type WebAppManifest = {
+  id: string;
+  name: string;
+  short_name: string;
+  start_url: string;
+  scope: string;
+  display: string;
+  background_color: string;
+  theme_color: string;
+  icons: { src: string; sizes: string; type: string; purpose: string }[];
+};
+
+function extensionWebManifest({ file, url }: { file: Buffer; url: URL }) {
+  const manifest = errore.try({
+    // SAFETY: The file is Halo's bundled public/manifest.json, not request-supplied JSON.
+    try: () => JSON.parse(file.toString("utf8")) as WebAppManifest,
+    catch: (cause) =>
+      new ControlPlaneHttpError({ detail: "read web manifest", cause }),
+  });
+  if (manifest instanceof Error) return manifest;
+  // Branding comes from the page, not a workspace lookup: manifest fetches
+  // omit credentials by default and must also work while signed out.
+  const extensionId = url.searchParams.get("extension")!;
+  const extensionPath = `/extensions/${encodeURIComponent(extensionId)}`;
+  const displayName = url.searchParams.get("name") ?? extensionId;
+  return Buffer.from(
+    JSON.stringify({
+      ...manifest,
+      id: extensionPath,
+      name: displayName,
+      short_name: displayName,
+      start_url: extensionPath,
+      // Sign-in and its callback must remain inside the installed app.
+      scope: "/",
+    }),
+  );
 }
 
 function webCacheControl(pathname: string) {

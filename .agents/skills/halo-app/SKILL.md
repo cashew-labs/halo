@@ -1,11 +1,11 @@
 ---
 name: halo-app
-description: Drive and test the running Halo Electron debug renderer with the development CLI, or inspect an extension in an isolated browser using the workspace CLI.
+description: Drive and test the running Halo Electron debug renderer with the development CLI, or inspect an extension in an isolated browser.
 ---
 
 # Halo app and browser control
 
-Use `pnpm halo-dev` from the repository root for development app control. Use `pnpm halo`, or the installed `halo` command inside a workspace, for workspace operations and private browsers. These are separate CLIs; neither builds, launches, restarts, or quits the app.
+Use `pnpm halo-dev` from the repository root for development app control. Use `pnpm halo`, or the installed `halo` command inside a workspace, for workspace operations. These are separate CLIs; neither builds, launches, restarts, or quits the app.
 
 ## Inspect Halo
 
@@ -23,18 +23,10 @@ The root `pnpm halo-dev` and `pnpm halo` scripts set `HALO_USER_DATA` to `<repo>
 
 ## Test an extension independently
 
-```sh
-halo browser open http://127.0.0.1:3000/view/
-halo browser exec <id> 'await page.getByRole("textbox", { name: "Your name" }).fill("Ada")'
-halo browser snapshot <id>
-halo browser screenshot <id>
-halo browser close <id>
-```
+Open the extension's loopback URL, such as `http://127.0.0.1:3000/view/`, in your own Playwright Chromium or `agent-browser` session. Use a separate browser context for each simulated user; open the same extension in two contexts to test collaboration. The `halo browser` CLI was removed: agents inside a Halo session drive the workspace Chrome through `tools.browser` in `exec` instead.
 
-Each `open` returns a browser ID, URL, title, accessibility tree, and runtime errors. It creates a private browser with isolated state; open the same extension twice to test collaboration. The page survives commands, while JavaScript variables do not. Each `exec` receives a live Playwright `page` and captures console output and accessibility changes. Use `return` to report a result. `halo browser list` finds existing sessions.
+Prefer accessible names, labels, and roles. Wait for the visible effect of an action before inspecting it. App screenshots return a local PNG path under Electron's `<dataDir>/app/screenshots`; read the returned file to inspect the layout.
 
-Prefer accessible names, labels, and roles. Wait for the visible effect of an action before inspecting it. For longer scripts, pass `--file checks.js` or `--stdin` to either target's `exec` command. App screenshots return a local PNG path under Electron's `<dataDir>/app/screenshots`; workspace browser screenshots use `<workspace>/.halo/browser/screenshots`. Read the returned file to inspect the layout.
+A hosted extension still shares its data through Tandem, so use a standalone preview with isolated data for test mutations. Close every browser you open for testing.
 
-Use private browser sessions for extension testing so the user's Halo navigation stays theirs. A hosted extension still shares its data through Tandem, so use a standalone preview with isolated data for test mutations. Close every browser opened for testing. The workspace server closes them when it stops; quitting Electron leaves them running.
-
-Use `halo browser --help` and `pnpm halo-dev app --help` for command discovery. Output uses TOON by default; add `--json` when another command must parse it. Halo provisions Chromium once on first browser use; extensions do not need their own browser tooling installation.
+Use `pnpm halo-dev app --help` for command discovery. Output uses TOON by default; add `--json` when another command must parse it.

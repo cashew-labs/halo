@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 
 import { Cli, z } from "incur";
-import { browser } from "./browser.js";
 import { extension } from "./extension.js";
 import { app } from "./app.js"; // coverage-exempt: CLI entry registration; the app command group is tested in process.
 import { automation } from "./automation.js";
@@ -73,7 +72,6 @@ async function main() {
     .command(extension)
     .command(app) // coverage-exempt: CLI entry registration; the app command group is tested in process.
     .command(automation)
-    .command(browser)
     .serve();
 }
 

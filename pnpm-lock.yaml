@@ -958,9 +958,6 @@ importers:
       icojs:
         specifier: 1.0.1
         version: 1.0.1(supports-color@8.1.1)
-      libretto-browser-tools:
-        specifier: ^0.1.2
-        version: 0.1.2(@earendil-works/pi-coding-agent@1.0.0(@aws-sdk/credential-provider-node@3.972.84)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(supports-color@8.1.1)(zod@4.6.1))(@smithy/signature-v4@5.7.4)(supports-color@8.1.1)(ws@8.21.1)(zod@4.6.1))(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(supports-color@8.1.1)(zod@4.6.1))
       marked:
         specifier: 17.0.6
         version: 17.0.6
@@ -14755,16 +14752,6 @@ snapshots:
   kysely@0.28.17: {}
 
   libheif-js@1.23.2: {}
-
-  libretto-browser-tools@0.1.2(@earendil-works/pi-coding-agent@1.0.0(@aws-sdk/credential-provider-node@3.972.84)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(supports-color@8.1.1)(zod@4.6.1))(@smithy/signature-v4@5.7.4)(supports-color@8.1.1)(ws@8.21.1)(zod@4.6.1))(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(supports-color@8.1.1)(zod@4.6.1)):
-    dependencies:
-      '@standard-schema/spec': 1.1.0
-      playwright: 1.62.1
-      sucrase: 3.35.1
-      zod: 4.6.1
-    optionalDependencies:
-      '@earendil-works/pi-coding-agent': 1.0.0(@aws-sdk/credential-provider-node@3.972.84)(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(supports-color@8.1.1)(zod@4.6.1))(@smithy/signature-v4@5.7.4)(supports-color@8.1.1)(ws@8.21.1)(zod@4.6.1)
-      '@modelcontextprotocol/sdk': 1.30.0(@cfworker/json-schema@4.1.1)(supports-color@8.1.1)(zod@4.6.1)
 
   libretto-browser-tools@0.1.2(@modelcontextprotocol/sdk@1.30.0(@cfworker/json-schema@4.1.1)(supports-color@8.1.1)(zod@3.25.76)):
     dependencies:

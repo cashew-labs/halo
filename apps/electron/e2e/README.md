@@ -61,7 +61,7 @@ Scenario actions use product services directly. Harness helpers may organize obs
 
 `app.openWindow()` opens another real renderer connected to the same server. The Electron fixture owns all windows and closes them when the app quits; the artifact fixture captures their console output and the Playwright trace.
 
-`app.server.rpc.browser` is the same workspace browser API used by `halo browser`. Tests open a browser through that API and drive it through `exec`; Halo owns its lifecycle and closes it when the workspace server stops. The fixture does not serve assets or fabricate responses.
+The `chrome` fixture stands in for the workspace Chrome: headless Playwright Chromium on a temporary profile, started by the server on first use and stopped at teardown. Tests drive it through the agent's `browser.*` tools with `server.rpc.testApi.invokeTool`, so calls pass through the real tool runtime. The fixture does not serve assets or fabricate responses.
 
 The suite uses Playwright's default worker count: half the logical CPU cores, each with its own server, workspace, and Electron app. Pass `--workers=1` to run serially when you want lower resource usage.
 

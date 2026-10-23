@@ -23,6 +23,41 @@ e2eTest(
   },
 );
 
+// Durable: standalone URLs must not replace Electron's packaged document.
+e2eTest(
+  "keeps the desktop document when navigating standalone extension URLs",
+  async ({ app, harness }) => {
+    await harness.loadExtension("./fixtures/greeting");
+    await harness.loadExtension("./fixtures/websocket-greeting");
+    await app.page.evaluate(() => {
+      document.documentElement.setAttribute("data-original-document", "true");
+    });
+
+    for (const [extensionId, name] of [
+      ["greeting", "greeting"],
+      ["websocket-greeting", "WebSocket Greeting"],
+    ] as const) {
+      await app.page.evaluate(
+        (pathname) => window.history.pushState({}, "", pathname),
+        `/extensions/${extensionId}`,
+      );
+      await expect(app.page.getByTitle(name, { exact: true })).toBeVisible();
+      await expect(app.page.locator('link[rel="manifest"]')).toHaveCount(0);
+      await expect(app.page.locator("html")).toHaveAttribute(
+        "data-original-document",
+        "true",
+      );
+    }
+
+    await app.page.evaluate(() => window.history.pushState({}, "", "/"));
+    await expect(app.page.getByTestId("threads-shell")).toBeVisible();
+    await expect(app.page.locator("html")).toHaveAttribute(
+      "data-original-document",
+      "true",
+    );
+  },
+);
+
 e2eTest(
   "opens external extension links in the system browser and keeps internal links in the pane",
   async ({ app, harness }) => {
