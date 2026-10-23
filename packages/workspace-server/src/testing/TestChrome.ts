@@ -76,10 +76,47 @@ export class TestChrome {
     spawn(this.launcher, urls, { detached: true, stdio: "ignore" }).unref();
     const port = path.join(this.profileDir, "DevToolsActivePort");
     for (let attempt = 0; attempt < 200; attempt++) {
-      if (existsSync(port)) return;
+      if (existsSync(port)) {
+        const address = await fs
+          .readFile(port, "utf8")
+          .catch(
+            (cause) =>
+              new TestChromeError({ operation: "read browser port", cause }),
+          );
+        if (address instanceof Error) return address;
+        const response = await fetch(
+          `http://127.0.0.1:${address.split("\n")[0]}/json/list`,
+          { signal: AbortSignal.timeout(5_000) },
+        ).catch(
+          (cause) =>
+            new TestChromeError({ operation: "read startup tabs", cause }),
+        );
+        if (response instanceof Error) return response;
+        // SAFETY: Chromium's /json/list returns target descriptors with these string fields.
+        const tabs = await (
+          response.json() as Promise<
+            { type: string; url: string; title: string }[]
+          >
+        ).catch(
+          (cause) =>
+            new TestChromeError({ operation: "decode startup tabs", cause }),
+        );
+        if (tabs instanceof Error) return tabs;
+        // The port appears before startup tabs finish their first navigation.
+        // Attaching Playwright in that window can miss the navigation commit.
+        if (
+          urls.every((url) =>
+            tabs.some(
+              (tab) =>
+                tab.type === "page" && tab.url === url && tab.title !== "",
+            ),
+          )
+        )
+          return;
+      }
       await sleep(100);
     }
-    return new TestChromeError({ operation: "wait for DevToolsActivePort" });
+    return new TestChromeError({ operation: "wait for startup tabs" });
   }
 
   async close() {
