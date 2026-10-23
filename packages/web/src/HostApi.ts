@@ -66,6 +66,8 @@ export interface HostApi {
     signal: AbortSignal;
     canRequest: (path: string[]) => boolean;
   }): Promise<HaloClient | Error | undefined>;
+  /** Owner-only browser link; copying it never starts hosting. */
+  getExtensionUrl(extensionId: string): string;
   getExtensionFrameUrl(extensionId: string): string;
   getDesktopFrameUrl(): string;
   getAppInfo?(): Promise<AppInfo | Error>;

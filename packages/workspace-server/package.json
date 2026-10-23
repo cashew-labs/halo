@@ -55,7 +55,7 @@
     "httpxy": "^0.5.5",
     "icojs": "1.0.1",
     "marked": "17.0.6",
-    "maui": "npm:@tanishqkancharla/maui@0.0.55",
+    "maui": "npm:@tanishqkancharla/maui@0.0.59",
     "node-diff3": "3.2.1",
     "officeparser": "8.0.0",
     "opensky-cua": "https://github.com/tanishqkancharla/opensky/releases/download/v0.2.30/opensky-cua-0.2.30.tgz",

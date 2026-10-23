@@ -30,68 +30,73 @@ overrides:
   # A hoisted tree can pair 0.28.2 JS with a 0.28.1 binary and fail CLI builds.
   esbuild: "0.28.2"
 minimumReleaseAgeExclude:
-  - '@get-halo/extension-tools@0.2.1'
-  - '@effect/platform-node-shared@4.0.0-beta.103'
-  - '@effect/platform-node@4.0.0-beta.103'
+  - "@get-halo/extension-tools@0.2.1"
+  - "@effect/platform-node-shared@4.0.0-beta.103"
+  - "@effect/platform-node@4.0.0-beta.103"
   - effect@4.0.0-beta.103
-  - '@oxlint/binding-android-arm-eabi@1.80.0'
-  - '@oxlint/binding-android-arm64@1.80.0'
-  - '@oxlint/binding-darwin-arm64@1.80.0'
-  - '@oxlint/binding-darwin-x64@1.80.0'
-  - '@oxlint/binding-freebsd-x64@1.80.0'
-  - '@oxlint/binding-linux-arm-gnueabihf@1.80.0'
-  - '@oxlint/binding-linux-arm-musleabihf@1.80.0'
-  - '@oxlint/binding-linux-arm64-gnu@1.80.0'
-  - '@oxlint/binding-linux-arm64-musl@1.80.0'
-  - '@oxlint/binding-linux-ppc64-gnu@1.80.0'
-  - '@oxlint/binding-linux-riscv64-gnu@1.80.0'
-  - '@oxlint/binding-linux-riscv64-musl@1.80.0'
-  - '@oxlint/binding-linux-s390x-gnu@1.80.0'
-  - '@oxlint/binding-linux-x64-gnu@1.80.0'
-  - '@oxlint/binding-linux-x64-musl@1.80.0'
-  - '@oxlint/binding-openharmony-arm64@1.80.0'
-  - '@oxlint/binding-win32-arm64-msvc@1.80.0'
-  - '@oxlint/binding-win32-ia32-msvc@1.80.0'
-  - '@oxlint/binding-win32-x64-msvc@1.80.0'
-  - '@oxlint/plugins@1.80.0'
+  - "@oxlint/binding-android-arm-eabi@1.80.0"
+  - "@oxlint/binding-android-arm64@1.80.0"
+  - "@oxlint/binding-darwin-arm64@1.80.0"
+  - "@oxlint/binding-darwin-x64@1.80.0"
+  - "@oxlint/binding-freebsd-x64@1.80.0"
+  - "@oxlint/binding-linux-arm-gnueabihf@1.80.0"
+  - "@oxlint/binding-linux-arm-musleabihf@1.80.0"
+  - "@oxlint/binding-linux-arm64-gnu@1.80.0"
+  - "@oxlint/binding-linux-arm64-musl@1.80.0"
+  - "@oxlint/binding-linux-ppc64-gnu@1.80.0"
+  - "@oxlint/binding-linux-riscv64-gnu@1.80.0"
+  - "@oxlint/binding-linux-riscv64-musl@1.80.0"
+  - "@oxlint/binding-linux-s390x-gnu@1.80.0"
+  - "@oxlint/binding-linux-x64-gnu@1.80.0"
+  - "@oxlint/binding-linux-x64-musl@1.80.0"
+  - "@oxlint/binding-openharmony-arm64@1.80.0"
+  - "@oxlint/binding-win32-arm64-msvc@1.80.0"
+  - "@oxlint/binding-win32-ia32-msvc@1.80.0"
+  - "@oxlint/binding-win32-x64-msvc@1.80.0"
+  - "@oxlint/plugins@1.80.0"
   - oxlint@1.80.0
-  - '@oxfmt/binding-android-arm-eabi@0.65.0'
-  - '@oxfmt/binding-android-arm64@0.65.0'
-  - '@oxfmt/binding-darwin-arm64@0.65.0'
-  - '@oxfmt/binding-darwin-x64@0.65.0'
-  - '@oxfmt/binding-freebsd-x64@0.65.0'
-  - '@oxfmt/binding-linux-arm-gnueabihf@0.65.0'
-  - '@oxfmt/binding-linux-arm-musleabihf@0.65.0'
-  - '@oxfmt/binding-linux-arm64-gnu@0.65.0'
-  - '@oxfmt/binding-linux-arm64-musl@0.65.0'
-  - '@oxfmt/binding-linux-ppc64-gnu@0.65.0'
-  - '@oxfmt/binding-linux-riscv64-gnu@0.65.0'
-  - '@oxfmt/binding-linux-riscv64-musl@0.65.0'
-  - '@oxfmt/binding-linux-s390x-gnu@0.65.0'
-  - '@oxfmt/binding-linux-x64-gnu@0.65.0'
-  - '@oxfmt/binding-linux-x64-musl@0.65.0'
-  - '@oxfmt/binding-openharmony-arm64@0.65.0'
-  - '@oxfmt/binding-win32-arm64-msvc@0.65.0'
-  - '@oxfmt/binding-win32-ia32-msvc@0.65.0'
-  - '@oxfmt/binding-win32-x64-msvc@0.65.0'
+  - "@oxfmt/binding-android-arm-eabi@0.65.0"
+  - "@oxfmt/binding-android-arm64@0.65.0"
+  - "@oxfmt/binding-darwin-arm64@0.65.0"
+  - "@oxfmt/binding-darwin-x64@0.65.0"
+  - "@oxfmt/binding-freebsd-x64@0.65.0"
+  - "@oxfmt/binding-linux-arm-gnueabihf@0.65.0"
+  - "@oxfmt/binding-linux-arm-musleabihf@0.65.0"
+  - "@oxfmt/binding-linux-arm64-gnu@0.65.0"
+  - "@oxfmt/binding-linux-arm64-musl@0.65.0"
+  - "@oxfmt/binding-linux-ppc64-gnu@0.65.0"
+  - "@oxfmt/binding-linux-riscv64-gnu@0.65.0"
+  - "@oxfmt/binding-linux-riscv64-musl@0.65.0"
+  - "@oxfmt/binding-linux-s390x-gnu@0.65.0"
+  - "@oxfmt/binding-linux-x64-gnu@0.65.0"
+  - "@oxfmt/binding-linux-x64-musl@0.65.0"
+  - "@oxfmt/binding-openharmony-arm64@0.65.0"
+  - "@oxfmt/binding-win32-arm64-msvc@0.65.0"
+  - "@oxfmt/binding-win32-ia32-msvc@0.65.0"
+  - "@oxfmt/binding-win32-x64-msvc@0.65.0"
   - oxfmt@0.65.0
-  - '@executor-js/codemode-core@1.6.0'
-  - '@executor-js/execution@1.6.0'
-  - '@executor-js/runtime-quickjs@1.6.0'
-  - '@executor-js/sdk@1.6.0'
+  - "@executor-js/codemode-core@1.6.0"
+  - "@executor-js/execution@1.6.0"
+  - "@executor-js/runtime-quickjs@1.6.0"
+  - "@executor-js/sdk@1.6.0"
   - tsx@4.23.13
-  - '@tanishqkancharla/maui@0.0.38 || 0.0.53 || 0.0.55'
-  - '@tanishqkancharla/tandem-core@0.3.0'
-  - '@tanishqkancharla/tandem-server@0.3.0'
+  - "@tanishqkancharla/maui@0.0.38 || 0.0.53 || 0.0.55 || 0.0.59"
+  - "@tanishqkancharla/tandem-core@0.3.0"
+  - "@tanishqkancharla/tandem-server@0.3.0"
   - purse-styles@0.2.3 || 0.2.4 || 0.2.6
-  - '@internationalized/date@3.12.4'
-  - '@internationalized/number@3.6.8'
+  - "@internationalized/date@3.12.4"
+  - "@internationalized/number@3.6.8"
   - react-aria-components@1.21.0
+  - react-aria-components@1.22.1
   - react-aria@3.52.0
+  - react-aria@3.53.1
   - react-stately@3.50.0
-  - '@pierre/diffs@1.6.1'
-  - '@pierre/highlights@0.2.0'
-  - '@pierre/theming@1.0.2'
+  - react-stately@3.51.0
+  - "@pierre/diffs@1.6.1"
+  - "@pierre/highlights@0.2.0"
+  - "@pierre/theming@1.0.2"
 patchedDependencies:
-  # React Aria 1.21 omits hasChildItems when calling useTreeItem for empty folders.
-  react-aria-components@1.21.0: patches/react-aria-components@1.21.0.patch
+  # React Aria 1.22 omits hasChildItems when calling useTreeItem for empty folders.
+  react-aria-components@1.22.1: patches/react-aria-components@1.22.1.patch
+  # Release modal inertness before FocusScope restores focus after animated exits.
+  react-aria@3.53.1: patches/react-aria@3.53.1.patch

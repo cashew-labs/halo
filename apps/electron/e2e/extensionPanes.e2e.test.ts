@@ -20,6 +20,26 @@ e2eTest(
     await pane.getByRole("textbox", { name: "Your name" }).fill("Ada");
     await pane.getByRole("button", { name: "Greet", exact: true }).click();
     await expect(pane.getByRole("status")).toHaveText("Hello, Ada!");
+
+    // A private link must remain available without provisioning a hosted app,
+    // including local workspaces that cannot load external sharing access.
+    const share = app.page.getByRole("button", { name: "Share", exact: true });
+    await share.click();
+    const dialog = app.page.getByRole("dialog", { name: "Share greeting" });
+    await dialog
+      .getByRole("button", { name: "Copy link", exact: true })
+      .click();
+    await expect(
+      dialog.getByRole("button", { name: "Copied", exact: true }),
+    ).toBeVisible();
+    const link = await app.electron.evaluate(
+      async ({ clipboard }) => await clipboard.readText(),
+    );
+    expect(new URL(link).pathname).toBe("/extensions/greeting");
+    expect(new URL(link).search).toBe("");
+    await dialog.getByRole("button", { name: "Done", exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(share).toBeFocused();
   },
 );
 
