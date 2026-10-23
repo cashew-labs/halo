@@ -655,7 +655,10 @@ export class ToolRuntime {
   }
 
   getAgentDescription() {
-    const tools = [...this.tools.values()];
+    // tools.browser is a Playwright-shaped wrapper, described in its own paragraph below.
+    const tools = [...this.tools.values()].filter(
+      (entry) => entry.namespace !== "browser",
+    );
     const namespaces = [...new Set(tools.map((entry) => entry.namespace))];
     return [
       "Execute JavaScript in a persistent, thread-owned session. tools and console are in scope. Variables and functions survive calls until reset or thread unload. Native let/const redeclarations error; use var for reusable bindings. Use exec({ op: 'reset' }) to discard bindings. Reset does not undo external actions.",
