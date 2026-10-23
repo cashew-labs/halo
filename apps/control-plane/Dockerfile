@@ -13,6 +13,7 @@ COPY patches ./patches
 # Install dependencies before copying sources so code changes reuse this layer.
 COPY packages/client/package.json ./packages/client/package.json
 COPY packages/config/package.json ./packages/config/package.json
+COPY packages/logger/package.json ./packages/logger/package.json
 COPY packages/shared/package.json ./packages/shared/package.json
 COPY packages/typescript-config/package.json ./packages/typescript-config/package.json
 COPY packages/web/package.json ./packages/web/package.json
@@ -21,6 +22,7 @@ COPY apps/web-app/package.json ./apps/web-app/package.json
 RUN pnpm install --frozen-lockfile --filter @get-halo/control-plane... --filter @get-halo/web-app...
 COPY packages/client ./packages/client
 COPY packages/config ./packages/config
+COPY packages/logger ./packages/logger
 COPY packages/shared ./packages/shared
 COPY packages/typescript-config ./packages/typescript-config
 COPY packages/web ./packages/web
