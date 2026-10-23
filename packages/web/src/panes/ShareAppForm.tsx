@@ -13,15 +13,12 @@ import {
   Menu,
   MenuItem,
   MenuTrigger,
-  ListBox,
-  ListBoxItem,
   backgroundColor,
   borderColor,
   colors,
   flex,
   focusRing,
   radius,
-  shadow,
   spacing,
   text,
 } from "maui";
@@ -210,7 +207,6 @@ export function ShareAppForm({
   const row = useStyles(styles.row);
   const picker = useStyles(styles.picker);
   const pickerField = useStyles(styles.pickerField);
-  const expanded = useStyles(styles.expanded);
   const people = useStyles(styles.people);
   const banner = useStyles(styles.banner);
   const error = useStyles(styles.error);
@@ -320,14 +316,16 @@ export function ShareAppForm({
           <Text size="xs" color="lowContrast">
             Access
           </Text>
-          <MenuTrigger>
+          <MenuTrigger
+            isOpen={model.expanded && !locked}
+            onOpenChange={(expanded) =>
+              setModel((previous) => ({ ...previous, expanded }))
+            }
+          >
             <Button
               className={picker}
               aria-label={`Access: ${model.access === "public" ? "Public" : "Restricted"}`}
               isDisabled={locked}
-              onPress={() =>
-                setModel((previous) => ({ ...previous, expanded: false }))
-              }
             >
               {model.access === "public" ? (
                 <Globe size="md" />
@@ -367,42 +365,6 @@ export function ShareAppForm({
               ))}
             </Menu>
           </MenuTrigger>
-          {model.expanded && (
-            <div className={expanded}>
-              <ListBox
-                aria-label="Access choices"
-                selectionMode="single"
-                selectedKeys={[model.access]}
-                disallowEmptySelection
-                onSelectionChange={(keys) => {
-                  const key = Array.from(keys)[0];
-                  if (key === "public" || key === "restricted") setAccess(key);
-                }}
-              >
-                {options.map((option) => (
-                  <ListBoxItem
-                    key={option.id}
-                    id={option.id}
-                    textValue={option.title}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      paddingRight: 28,
-                    }}
-                  >
-                    <Flex row gap={4} alignItems="start" style={{ flex: 1 }}>
-                      {option.id === "public" ? (
-                        <Globe size="sm" />
-                      ) : (
-                        <Lock size="sm" />
-                      )}
-                      <AccessLabel access={option.id} />
-                    </Flex>
-                  </ListBoxItem>
-                ))}
-              </ListBox>
-            </div>
-          )}
         </div>
         {(phase === "hosting" || willHost || hosted) && !unavailable && (
           <div className={banner} role="status">
@@ -754,14 +716,6 @@ const styles = {
     justifyContent: "start",
     "& > svg:first-child": { alignSelf: "start", marginTop: 1 },
     "& > svg:last-child": { marginLeft: "auto" },
-  }),
-  expanded: style(shadow.strong, radius.sm, spacing.padding({ all: 2 }), {
-    backgroundColor: backgroundColor.element,
-    position: "absolute",
-    top: "calc(100% + 6px)",
-    left: 0,
-    right: 0,
-    zIndex: 20,
   }),
   row: style(flex({ alignItems: "start", gap: 3 }), {
     "& > :first-child": { flex: 1, minWidth: 0 },
