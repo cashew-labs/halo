@@ -2103,6 +2103,17 @@ serverTest(
         input: {},
       }),
     ).rejects.toThrow("This workspace has no control-plane connections");
+    // Halo's list replaces Executor's, so describe must report Halo's contract.
+    expect(
+      await headless.rpc.testApi.invokeTool({
+        path: "describe.tool",
+        input: { path: "tools.executor.integrations.list" },
+      }),
+    ).toMatchObject({
+      path: "executor.integrations.list",
+      inputTypeScript: "{ query?: string }",
+      outputTypeScript: expect.stringContaining("connections"),
+    });
     await headless.stop();
 
     const server = createServer({ desktopOrigin: "http://127.0.0.1:6080" });

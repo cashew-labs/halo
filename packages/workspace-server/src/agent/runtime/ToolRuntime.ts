@@ -153,6 +153,17 @@ const requestConnectionInputSchema = Type.Object({
 const integrationListInputSchema = Type.Object({
   query: Type.Optional(Type.String()),
 });
+// Halo replaces Executor's built-in list, which is not in the tool catalog, so describe returns this contract.
+const integrationListDescription = {
+  path: "executor.integrations.list",
+  name: "list",
+  description:
+    "List services the user can use, each with its connected accounts, connected first. Every query word must appear in the ID, name or description; if nothing matches, it returns every service with a note.",
+  inputSchema: integrationListInputSchema,
+  inputTypeScript: "{ query?: string }",
+  outputTypeScript:
+    "{ integrations: { integration: string; name: string; description?: string; connections: { name: string; account?: string }[] }[]; note?: string }",
+};
 
 // Older scripts may still pass source; it is ignored.
 const searchInputSchema = Type.Object({
@@ -899,6 +910,8 @@ export class ToolRuntime {
         operation: "invalid description arguments",
       });
     const path = sandboxPath(input.path);
+    if (path === integrationListDescription.path)
+      return integrationListDescription;
     if (path.startsWith("integrations.")) {
       if (this.remoteIntegrationTools === undefined)
         return new ToolRuntimeError({
