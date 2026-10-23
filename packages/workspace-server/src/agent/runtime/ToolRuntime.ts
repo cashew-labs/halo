@@ -80,7 +80,7 @@ import type {
 } from "@get-halo/client";
 import { addConnectionCard } from "./connectionCards.js";
 import {
-  listConnectionsResult,
+  listIntegrationsResult,
   removeConnectionResult,
 } from "./connectionTools.js";
 import { createExecutorDatabase } from "./createExecutorDatabase.js";
@@ -137,15 +137,15 @@ type HaloToolsPluginOptions = {
 const removeConnectionInputSchema = Type.Object({
   integration: Type.String({
     minLength: 1,
-    description: "The connection's integration from halo.listConnections",
+    description: "The integration from executor.integrations.list",
   }),
   name: Type.String({
     minLength: 1,
-    description: "The connection's name from halo.listConnections",
+    description: "The connection name from executor.integrations.list",
   }),
 });
 
-const showConnectionCardInputSchema = Type.Object({
+const requestConnectionInputSchema = Type.Object({
   integration: Type.String({
     description: "The integration id returned by executor.integrations.list",
   }),
@@ -221,14 +221,15 @@ const haloToolsPlugin = definePlugin((options?: HaloToolsPluginOptions) => {
     storage: () => ({}),
     staticIntegrations: () => [
       {
-        id: "halo",
-        kind: "halo",
-        name: "Halo",
+        // Executor mounts executor-kind tools as executor.integrations.<name>, beside its integrations.list.
+        id: "integrations",
+        kind: "executor",
+        name: "Integrations",
         tools: [
           tool({
             name: "registerMcp",
             description:
-              "Register a custom remote MCP server from its public HTTPS endpoint. Choose auth none, bearer, or oauth; never pass credentials here. Returns the integration id. Then use halo.showConnectionCard so the user can finish connecting. Local stdio/command servers are not supported.",
+              "Register a custom remote MCP server from its public HTTPS endpoint. Choose auth none, bearer, or oauth; never pass credentials here. Returns the integration id. Then call executor.integrations.requestConnection so the user can finish connecting. Local stdio/command servers are not supported.",
             inputSchema: toExecutorSchema(registerMcpInputSchema),
             execute: (args) =>
               Effect.promise(async () => {
@@ -261,7 +262,7 @@ const haloToolsPlugin = definePlugin((options?: HaloToolsPluginOptions) => {
           tool({
             name: "registerApi",
             description:
-              "Register a custom API from its official public HTTPS OpenAPI or Google Discovery description URL; Google Discovery URLs are detected automatically. Find the URL in the provider's documentation when the user names a service. For Google Discovery, optionally set googleOAuthScopes to the least privilege needed; reporting should use read-only scopes. Never pass credentials here. Returns the integration id. Then use halo.showConnectionCard so the user can authorize access.",
+              "Register a custom API from its official public HTTPS OpenAPI or Google Discovery description URL; Google Discovery URLs are detected automatically. Find the URL in the provider's documentation when the user names a service. For Google Discovery, optionally set googleOAuthScopes to the least privilege needed; reporting should use read-only scopes. Never pass credentials here. Returns the integration id. Then call executor.integrations.requestConnection so the user can authorize access.",
             inputSchema: toExecutorSchema(registerApiInputSchema),
             execute: (args) =>
               Effect.promise(async () => {
@@ -292,13 +293,13 @@ const haloToolsPlugin = definePlugin((options?: HaloToolsPluginOptions) => {
               }),
           }),
           tool({
-            name: "showConnectionCard",
+            name: "requestConnection",
             description:
-              "Show an optional connection card for an available integration. Use an integration ID from executor.integrations.list. This does not connect an account or grant access; do not ask for confirmation first.",
-            inputSchema: toExecutorSchema(showConnectionCardInputSchema),
+              "Show the user a card to connect an account for an integration from executor.integrations.list. Showing it does not connect an account or grant access; the user may ignore it, so do not ask for confirmation first. You are notified when the user finishes connecting.",
+            inputSchema: toExecutorSchema(requestConnectionInputSchema),
             execute: (args) =>
               Effect.promise(async () => {
-                if (!Value.Check(showConnectionCardInputSchema, args))
+                if (!Value.Check(requestConnectionInputSchema, args))
                   return ToolResult.fail({
                     code: "invalid_tool_arguments",
                     message: "Expected an integration id",
@@ -338,19 +339,9 @@ const haloToolsPlugin = definePlugin((options?: HaloToolsPluginOptions) => {
               }),
           }),
           tool({
-            name: "listConnections",
-            description:
-              "List the accounts connected to Halo's integrations, such as Gmail. Each entry has the integration, the connection name and, when known, the account. Use it to find the connection a person names.",
-            inputSchema: toExecutorSchema(Type.Object({})),
-            execute: () =>
-              Effect.promise(
-                async () => await listConnectionsResult(options.connections),
-              ),
-          }),
-          tool({
             name: "removeConnection",
             description:
-              "Remove a connected account, its tools and its stored credentials. Halo also revokes the provider's access when no other connection uses the same account. To replace an account, remove it, then show a connection card for the new account. The person approves each removal.",
+              "Remove a connected account, its tools and its stored credentials. Halo also revokes the provider's access when no other connection uses the same account. Find the integration and connection name with executor.integrations.list. To replace an account, remove it, then request a connection for the new account. The person approves each removal.",
             inputSchema: toExecutorSchema(removeConnectionInputSchema),
             annotations: {
               requiresApproval: true,
@@ -701,7 +692,7 @@ export class ToolRuntime {
         : []),
       ...(this.remoteConnections
         ? [
-            `Find available integrations with tools.executor.integrations.list({ query: "integration name" }); omit query to list them all. If a requested service is missing, find its official API description or remote MCP endpoint in the provider's documentation; do not ask users to identify formats or supply URLs you can look up. Register remote MCP servers with tools.halo.registerMcp({ name, slug, endpoint, auth }) and APIs with tools.halo.registerApi({ name, slug, url, googleOAuthScopes? }); OpenAPI and official Google Discovery URLs are supported, with automatic format selection. Use least-privilege Google scopes. Show an optional connection card with tools.halo.showConnectionCard({ integration }) using an integration ID returned by listing or registration. Discover operations with tools.search({ query, source: "control-plane" }); results contain tools, truncated and unavailableSources. Describe with tools.describe.tool({ path }). Remote paths start with integrations.; invoke the complete saved path with tools[path](args). Credentials are entered in the control plane, never in tool arguments.`,
+            `Find available integrations with tools.executor.integrations.list({ query: "integration name" }); omit query to list them all. If a requested service is missing, find its official API description or remote MCP endpoint in the provider's documentation; do not ask users to identify formats or supply URLs you can look up. Register remote MCP servers with tools.executor.integrations.registerMcp({ name, slug, endpoint, auth }) and APIs with tools.executor.integrations.registerApi({ name, slug, url, googleOAuthScopes? }); OpenAPI and official Google Discovery URLs are supported, with automatic format selection. Use least-privilege Google scopes. Request a connection with tools.executor.integrations.requestConnection({ integration }) using an integration ID returned by listing or registration. Discover operations with tools.search({ query, source: "control-plane" }); results contain tools, truncated and unavailableSources. Describe with tools.describe.tool({ path }). Remote paths start with integrations.; invoke the complete saved path with tools[path](args). Credentials are entered in the control plane, never in tool arguments.`,
           ]
         : []),
     ].join("\n");
@@ -1037,16 +1028,9 @@ export class ToolRuntime {
               "invalid_tool_arguments",
               "Expected an optional integration query string",
             );
-          const catalog = await this.remoteConnectionBackend.catalog();
-          if (catalog instanceof Error)
-            return failure("discovery_failed", catalog.message);
-          const query = input.args.query?.trim().toLowerCase() ?? "";
-          return ToolResult.ok(
-            catalog.filter(
-              (entry) =>
-                entry.integration.toLowerCase().includes(query) ||
-                entry.name.toLowerCase().includes(query),
-            ),
+          return await listIntegrationsResult(
+            this.remoteConnectionBackend,
+            input.args.query ?? "",
           );
         }
         if (this.remoteIntegrationTools === undefined)
@@ -1481,6 +1465,8 @@ function toolIdentity(
   ) {
     return { path, displayName: "Tools", integrationId: "executor" };
   }
+  if (path.startsWith("executor.integrations."))
+    return { path, displayName: "Integrations", integrationId: "executor" };
   const parsed = parseToolAddress(`tools.${path}`);
   const integrationId =
     parsed === null ? path.split(".")[0] : String(parsed.integration);

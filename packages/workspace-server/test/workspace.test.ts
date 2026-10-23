@@ -1813,7 +1813,10 @@ serverTest(
     const removed: { integration: string; name: string }[] = [];
     const server = createServer({
       remoteConnections: {
-        catalog: async () => [],
+        catalog: async () => [
+          { integration: "google_calendar", name: "Google Calendar" },
+          { integration: "google_gmail", name: "Gmail" },
+        ],
         startSetup: async () => new Error("unused"),
         setup: async () => new Error("unused"),
         cancelSetup: async () => undefined,
@@ -1837,9 +1840,9 @@ serverTest(
       ...thread,
       text: "Remove my personal Gmail",
     });
-    const js = `var listed = await tools.halo.listConnections({});
-var [connection] = listed.data.connections;
-await tools.halo.removeConnection({ integration: connection.integration, name: connection.name });`;
+    const js = `var listed = await tools.executor.integrations.list({});
+var [integration] = listed.data;
+await tools.executor.integrations.removeConnection({ integration: integration.integration, name: integration.connections[0].name });`;
     await llm.respond(
       m.tool.start("exec", { id: "remove-request", arguments: { js } }),
     );
@@ -1852,7 +1855,7 @@ await tools.halo.removeConnection({ integration: connection.integration, name: c
     )[0]!;
     expect(approval).toMatchObject({
       status: "pending",
-      toolPath: "halo.removeConnection",
+      toolPath: "executor.integrations.removeConnection",
       arguments: { integration: "google_gmail", name: "personal" },
     });
     expect(removed).toEqual([]);
@@ -2003,7 +2006,7 @@ serverTest(
       m.tool.start("exec", {
         id: "offline-card",
         arguments: {
-          js: 'await tools.halo.showConnectionCard({ integration: "new_mcp" });',
+          js: 'await tools.executor.integrations.requestConnection({ integration: "new_mcp" });',
         },
       }),
     );
@@ -2012,7 +2015,7 @@ serverTest(
       return m.tool.start("exec", {
         id: "unsupported-card",
         arguments: {
-          js: 'await tools.halo.showConnectionCard({ integration: "github" });',
+          js: 'await tools.executor.integrations.requestConnection({ integration: "github" });',
         },
       });
     });
@@ -2021,7 +2024,7 @@ serverTest(
       return m.tool.start("exec", {
         id: "remote-connection",
         arguments: {
-          js: 'await tools.halo.showConnectionCard({ integration: "new_mcp" });',
+          js: 'await tools.executor.integrations.requestConnection({ integration: "new_mcp" });',
         },
       });
     });
@@ -2474,7 +2477,7 @@ serverTest(
         ...thread,
         text: `${decision} the removal`,
       });
-      const js = `await tools.halo.removeConnection({ integration: "google_gmail", name: "approval-test-${decision}" });`;
+      const js = `await tools.executor.integrations.removeConnection({ integration: "google_gmail", name: "approval-test-${decision}" });`;
       await llm.respond(
         m.tool.start("exec", {
           id: `approval-request-${decision}`,
@@ -2568,7 +2571,7 @@ serverTest(
   async ({ server, llm }) => {
     const thread = await server.rpc.thread.new();
     const originalJs =
-      'await tools.halo.removeConnection({ integration: "google_gmail", name: "approval-original" });';
+      'await tools.executor.integrations.removeConnection({ integration: "google_gmail", name: "approval-original" });';
     const prompting = server.promptAndWait({
       ...thread,
       text: "Remove the connection",
@@ -2592,7 +2595,7 @@ serverTest(
       decision: "allow",
     });
     const changedJs =
-      'await tools.halo.removeConnection({ integration: "google_gmail", name: "approval-changed" });';
+      'await tools.executor.integrations.removeConnection({ integration: "google_gmail", name: "approval-changed" });';
     await llm.respond(
       m.tool.start("exec", {
         id: "approval-changed",
@@ -3638,7 +3641,7 @@ serverTest(
       m.tool.start("exec", {
         id: "legacy-card",
         arguments: {
-          js: 'await tools.halo.showConnectionCard({ integration: "example" });',
+          js: 'await tools.executor.integrations.requestConnection({ integration: "example" });',
         },
       }),
     );

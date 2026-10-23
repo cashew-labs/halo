@@ -1069,9 +1069,9 @@ controlPlaneTest(
     ];
     for (const integration of integrations) {
       const registered = await agent.run(`
-        var registration = await tools.halo[${JSON.stringify(integration.tool)}](${JSON.stringify(integration.input)});
+        var registration = await tools.executor.integrations[${JSON.stringify(integration.tool)}](${JSON.stringify(integration.input)});
         if (!registration.ok) throw new Error(JSON.stringify(registration));
-        await tools.halo.showConnectionCard({ integration: registration.data.integration });
+        await tools.executor.integrations.requestConnection({ integration: registration.data.integration });
       `);
       expect(registered[0]?.result?.details).toMatchObject({
         connectionRequests: [
@@ -1135,7 +1135,7 @@ controlPlaneTest(
     }
     // Duplicate registration cannot redirect an existing connection's credentials.
     const duplicate = await agent.run(
-      `await tools.halo.registerMcp(${JSON.stringify({ ...integrations[1]!.input, endpoint: mcpApi.publicEndpoint, auth: "none" })});`,
+      `await tools.executor.integrations.registerMcp(${JSON.stringify({ ...integrations[1]!.input, endpoint: mcpApi.publicEndpoint, auth: "none" })});`,
     );
     expect(JSON.stringify(duplicate)).toContain("registration_failed");
     expect(JSON.stringify(duplicate)).toContain(
@@ -1176,16 +1176,16 @@ controlPlaneTest(
     ).toBe(true);
 
     const badUrl = await agent.run(
-      `await tools.halo.registerMcp({ name: "Unsafe", slug: "unsafe", endpoint: "file:///etc/passwd", auth: "none" });`,
+      `await tools.executor.integrations.registerMcp({ name: "Unsafe", slug: "unsafe", endpoint: "file:///etc/passwd", auth: "none" });`,
     );
     expect(JSON.stringify(badUrl)).toContain("Unsafe remote URL");
     const badSpec = await agent.run(
-      `await tools.halo.registerApi({ name: "Invalid", slug: "invalid-spec", url: ${JSON.stringify(new URL("/invalid-spec", integrationApi.origin).href)} });`,
+      `await tools.executor.integrations.registerApi({ name: "Invalid", slug: "invalid-spec", url: ${JSON.stringify(new URL("/invalid-spec", integrationApi.origin).href)} });`,
     );
     expect(JSON.stringify(badSpec)).toContain("registration_failed");
     expect(JSON.stringify(badSpec)).not.toContain("Internal Server Error");
     const duplicateApi = await agent.run(
-      `await tools.halo.registerApi(${JSON.stringify(integrations[2]!.input)});`,
+      `await tools.executor.integrations.registerApi(${JSON.stringify(integrations[2]!.input)});`,
     );
     expect(JSON.stringify(duplicateApi)).toContain(
       "already exists; choose a new slug",

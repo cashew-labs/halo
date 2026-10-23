@@ -402,7 +402,7 @@ export const controlPlaneContract = publicProcedure.router({
         ),
       )
       .output(type<{ revocation: ConnectionRevocation }>()),
-    // Keep the RPC route stable for released clients; agents use halo.registerApi.
+    // Keep the RPC route stable for released clients; agents use executor.integrations.registerApi.
     registerOpenAPI: authenticatedProcedure
       .input(validated(registerApiInputSchema))
       .output(type<void>()),
