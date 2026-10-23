@@ -966,7 +966,30 @@ export class ToolRuntime {
             "Execution cancelled; external effects may have completed",
           ),
         );
-      return local.invoke(input);
+      return local.invoke(input).pipe(
+        Effect.map((result) => {
+          if (
+            !isToolResult(result) ||
+            result.ok ||
+            result.error.code !== "invalid_tool_arguments"
+          )
+            return result;
+          const issues = [
+            ...Value.Errors(registered.tool.inputSchema, input.args),
+          ];
+          if (issues.length === 0) return result;
+          // Adapted from https://github.com/sinclairzx81/typebox/discussions/1207.
+          // Omit received values so diagnostics do not echo sensitive arguments.
+          const requirements = issues
+            .map((issue) => `${issue.message} at ${issue.path || "/"}`)
+            .join("\n");
+          return ToolResult.fail({
+            ...result.error,
+            message: `Invalid arguments for ${input.path}:\n${requirements}\nCall tools.describe.tool({ path: ${JSON.stringify(input.path)} }) for the schema.`,
+            details: undefined,
+          });
+        }),
+      );
     }
     if (
       input.path === "search" ||
