@@ -38,7 +38,9 @@ export function FavoritesSection({
 
   return (
     <SidebarSection sectionId="favorites" label="Favorites">
-      {favoriteIds.length === 0 && <SidebarEmptyState kind="favorites" />}
+      {favoriteIds.length === 0 && synced && (
+        <SidebarEmptyState kind="favorites" />
+      )}
       {favoriteIds.map((favoriteId) => {
         if (favoriteId.startsWith("file:")) {
           const node = nodes.get(favoriteId);

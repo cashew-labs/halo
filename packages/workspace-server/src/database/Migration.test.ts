@@ -380,7 +380,9 @@ migrationTest(
     expect(
       applyMigrations({
         connection: old,
-        migrations: workspaceMigrations.slice(0, -1),
+        migrations: workspaceMigrations.filter(
+          (entry) => entry.id < "20261010100000-tandem",
+        ),
       }),
     ).toBeUndefined();
     old.exec(`
@@ -553,6 +555,7 @@ migrationTest(
       ).toEqual([
         ...ledger,
         expect.objectContaining({ id: "20261010100000-tandem" }),
+        expect.objectContaining({ id: "20261023100000-favorites" }),
       ]);
       expect(
         await db.query({ collection: "sessionState", orderBy: { id: "asc" } }),
@@ -590,7 +593,9 @@ migrationTest(
       ),
     );
     expect(prepareLegacyThreads(old)).toBeUndefined();
-    const mainMigrations = workspaceMigrations.slice(0, -1);
+    const mainMigrations = workspaceMigrations.filter(
+      (entry) => entry.id < "20261010100000-tandem",
+    );
     expect(
       applyMigrations({ connection: old, migrations: mainMigrations }),
     ).toBeUndefined();

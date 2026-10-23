@@ -250,3 +250,58 @@ async function dragSection(
     ).toHaveText(order, { timeout: 1_000 });
   }).toPass({ timeout: 10_000 });
 }
+
+e2eTest(
+  "imports browser favorites and receives favorites changed on another device",
+  async ({ app, harness }, testInfo) => {
+    await harness.tools.files.write({ path: "Local.md", content: "# Local" });
+    await harness.tools.files.write({ path: "Remote.md", content: "# Remote" });
+    const { workspaceRoot } = await app.server.rpc.workspace.get();
+    await app.server.rpc.favorites.add({ favoriteIds: ["file:Remote.md"] });
+    await app.page.evaluate(
+      ({ root }) => {
+        localStorage.setItem(
+          `halo:sidebar:${JSON.stringify(["e2e-user", root])}`,
+          JSON.stringify({
+            favoriteIds: ["file:Local.md"],
+            sectionOrder: ["favorites", "artifacts", "sessions"],
+            collapsedSections: [],
+            artifactFilter: "all",
+          }),
+        );
+      },
+      { root: workspaceRoot },
+    );
+    await app.page.reload();
+    const favorites = workspaceSidebar(app.page).getByRole("rowgroup", {
+      name: "Favorites",
+      exact: true,
+    });
+    await expect(
+      favorites.getByRole("link", { name: "Local.md", exact: true }),
+    ).toBeVisible();
+    await expect(
+      favorites.getByRole("link", { name: "Remote.md", exact: true }),
+    ).toBeVisible();
+    await app.server.rpc.favorites.toggle({ favoriteId: "file:Remote.md" });
+    await expect(
+      favorites.getByRole("link", { name: "Remote.md", exact: true }),
+    ).toHaveCount(0);
+    await app.page.screenshot({
+      path: testInfo.outputPath("favorites-desktop.png"),
+    });
+    await app.page.setViewportSize({ width: 390, height: 844 });
+    await app.page
+      .getByRole("button", { name: "Open sidebar", exact: true })
+      .click();
+    await expect(
+      favorites.getByRole("link", { name: "Local.md", exact: true }),
+    ).toBeVisible();
+    // Maui's drawer uses a JS spring; let it settle before the visual capture.
+    await app.page.waitForTimeout(500);
+    await app.page.screenshot({
+      path: testInfo.outputPath("favorites-mobile.png"),
+      animations: "disabled",
+    });
+  },
+);

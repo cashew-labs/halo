@@ -1,3 +1,7 @@
+import {
+  favoritesRouter,
+  type FavoritesRouterContext,
+} from "../favorites/favoritesRouter.js";
 import type { WorkspaceMaintenance } from "./WorkspaceMaintenance.js";
 import {
   automationsRouter,
@@ -47,6 +51,7 @@ import {
 
 export type HaloContext = RequestHeadersHandlerPluginContext &
   SyncRouterContext &
+  FavoritesRouterContext &
   HotkeysRouterContext &
   AutomationsRouterContext &
   TracesRouterContext &
@@ -80,6 +85,7 @@ const serverRouter = server.router({
 
 export const haloRpcRouter = {
   sync: syncRouter,
+  favorites: favoritesRouter,
   server: serverRouter,
   hotkeys: hotkeysRouter,
   automations: automationsRouter,
