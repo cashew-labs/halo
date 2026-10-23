@@ -224,6 +224,7 @@ export function ShareAppForm({
   const unavailable =
     phase === "loading" || phase === "load-error" || phase === "removing";
   const locked = busy || unavailable;
+  if (locked && model.expanded) setModel({ ...model, expanded: false });
   const visiblePeople = [...new Set([...model.people, ...model.pendingPeople])];
   useLayoutEffect(() => {
     // Keep recovery messages visible within the fixed-height dialog.
