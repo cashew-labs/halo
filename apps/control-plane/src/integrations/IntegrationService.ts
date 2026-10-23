@@ -7,6 +7,7 @@ import stream from "node:stream";
 import zlib from "node:zlib";
 import { DatabaseSync } from "node:sqlite";
 import type { LoggerApi } from "@get-halo/logger";
+import { searchTools } from "@executor-js/execution/core";
 import { mcpPlugin } from "@executor-js/plugin-mcp/core";
 import { openApiPlugin } from "@executor-js/plugin-openapi/core";
 import {
@@ -342,7 +343,13 @@ export class IntegrationService {
   async catalog(userId: string) {
     return await this.withUser(userId, (executor) =>
       Effect.map(executor.integrations.list(), (integrations) =>
-        integrations.map(setupCatalogEntry),
+        integrations
+          // Executor's own built-in integration has no connection to set up.
+          .filter(
+            (integration) =>
+              integration.kind === "openapi" || integration.kind === "mcp",
+          )
+          .map(setupCatalogEntry),
       ),
     );
   }
@@ -1472,16 +1479,31 @@ export class IntegrationService {
       (executor) =>
         Effect.gen(function* () {
           const tools = (yield* executor.tools.list({
-            query: ctx.query,
             integration:
               ctx.integration === undefined
                 ? undefined
                 : IntegrationSlug.make(ctx.integration),
           })).filter(isIntegrationTool);
+          // Executor ranks every catalog tool; keep the integration tools in its order.
+          const byPath = new Map(
+            tools.map((tool) => [tool.address.slice("tools.".length), tool]),
+          );
+          // An empty query lists the named integration, or nothing without one.
+          const ranked = (yield* searchTools(
+            executor,
+            ctx.query,
+            Number.MAX_SAFE_INTEGER,
+            { namespace: ctx.integration },
+          )).items.flatMap((item) => {
+            const tool = byPath.get(item.path);
+            return tool === undefined
+              ? []
+              : [{ ...summarizeTool(tool), score: item.score }];
+          });
           const limit = ctx.limit ?? 50;
           return {
-            tools: tools.slice(0, limit).map(summarizeTool),
-            truncated: tools.length > limit,
+            tools: ranked.slice(0, limit),
+            truncated: ranked.length > limit,
           };
         }),
       ctx.signal,
@@ -1887,6 +1909,12 @@ function setupCatalogEntry(
   return {
     integration: integration.slug,
     name: integration.name,
+    // Like Executor's integration list, omit descriptions that only repeat the identity.
+    description: [integration.slug, integration.name]
+      .map((value) => value.toLowerCase())
+      .includes(integration.description.toLowerCase())
+      ? undefined
+      : integration.description,
     methods: integration.authMethods.map((method) => ({
       template: method.template,
       label: method.label,

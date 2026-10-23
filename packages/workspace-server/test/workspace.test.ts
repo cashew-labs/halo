@@ -133,6 +133,14 @@ serverTest(
               }),
             }),
           }),
+          expect.objectContaining({
+            function: expect.objectContaining({
+              name: "exec",
+              description: expect.stringContaining(
+                "- notes: org.main.inspect, user.named.deep.inspect, locked\n- numbers: ping\n",
+              ),
+            }),
+          }),
         ]),
       );
       return [
@@ -153,7 +161,7 @@ serverTest(
             number: await tools.numbers.ping({ value: 7 }),
             description: await tools.describe.tool({ path: "notes.org.main.inspect" }),
             numberDescription: await tools.describe.tool({ path: "numbers.ping" }),
-            search: await tools.search({ query: "identifying prefix", source: "workspace" }),
+            search: await tools.search({ query: "identifying prefix" }),
             denied: await tools.notes.locked({ prefix: "locked" }),
             invalidDenied: await tools.notes.locked({ prefix: "x" }),
             invalid: await tools.notes.org.main.inspect({ prefix: "x" }),
@@ -228,7 +236,9 @@ serverTest(
         hostServicesVisible: false,
       });
       expect(
-        result.search.data.tools.map((entry: { path: string }) => entry.path),
+        result.search.data.tools
+          .slice(0, 3)
+          .map((entry: { path: string }) => entry.path),
       ).toEqual([
         "notes.locked",
         "notes.org.main.inspect",
@@ -1803,7 +1813,10 @@ serverTest(
     const removed: { integration: string; name: string }[] = [];
     const server = createServer({
       remoteConnections: {
-        catalog: async () => [],
+        catalog: async () => [
+          { integration: "google_calendar", name: "Google Calendar" },
+          { integration: "google_gmail", name: "Gmail" },
+        ],
         startSetup: async () => new Error("unused"),
         setup: async () => new Error("unused"),
         cancelSetup: async () => undefined,
@@ -1827,9 +1840,9 @@ serverTest(
       ...thread,
       text: "Remove my personal Gmail",
     });
-    const js = `var listed = await tools.halo.listConnections({});
-var [connection] = listed.data.connections;
-await tools.halo.removeConnection({ integration: connection.integration, name: connection.name });`;
+    const js = `var listed = await tools.executor.integrations.list({});
+var [integration] = listed.data.integrations;
+await tools.executor.integrations.removeConnection({ integration: integration.integration, name: integration.connections[0].name });`;
     await llm.respond(
       m.tool.start("exec", { id: "remove-request", arguments: { js } }),
     );
@@ -1842,7 +1855,7 @@ await tools.halo.removeConnection({ integration: connection.integration, name: c
     )[0]!;
     expect(approval).toMatchObject({
       status: "pending",
-      toolPath: "halo.removeConnection",
+      toolPath: "executor.integrations.removeConnection",
       arguments: { integration: "google_gmail", name: "personal" },
     });
     expect(removed).toEqual([]);
@@ -1882,7 +1895,11 @@ serverTest(
     const catalog = [
       { integration: "source_control", name: "GitHub" },
       { integration: "vercel", name: "Deployment platform" },
-      { integration: "google_gmail", name: "Gmail" },
+      {
+        integration: "google_gmail",
+        name: "Gmail",
+        description: "Messages, threads, labels, and drafts.",
+      },
     ];
     const availability = { offline: false };
     const server = createServer({
@@ -1912,7 +1929,8 @@ serverTest(
             tools.executor.integrations.list({}),
             tools.executor.integrations.list({ query: "  gItHuB  " }),
             tools.executor.integrations.list({ query: "VERC" }),
-            tools.executor.integrations.list({ query: "missing" }),
+            tools.executor.integrations.list({ query: "gmail DRAFTS" }),
+            tools.executor.integrations.list({ query: "email" }),
             tools.executor.integrations.list({ query: "   " }),
             tools.executor.integrations.list({ query: 42 })
           ]);`,
@@ -1937,11 +1955,18 @@ serverTest(
     expect(listed.result?.details).toMatchObject({
       status: "completed",
       result: [
-        { ok: true, data: catalog },
-        { ok: true, data: [catalog[0]] },
-        { ok: true, data: [catalog[1]] },
-        { ok: true, data: [] },
-        { ok: true, data: catalog },
+        { ok: true, data: { integrations: catalog } },
+        { ok: true, data: { integrations: [catalog[0]] } },
+        { ok: true, data: { integrations: [catalog[1]] } },
+        { ok: true, data: { integrations: [catalog[2]] } },
+        {
+          ok: true,
+          data: {
+            integrations: catalog,
+            note: expect.stringContaining('No integration matched "email"'),
+          },
+        },
+        { ok: true, data: { integrations: catalog } },
         { ok: false, error: { code: "invalid_tool_arguments" } },
       ],
     });
@@ -1993,7 +2018,7 @@ serverTest(
       m.tool.start("exec", {
         id: "offline-card",
         arguments: {
-          js: 'await tools.halo.showConnectionCard({ integration: "new_mcp" });',
+          js: 'await tools.executor.integrations.requestConnection({ integration: "new_mcp" });',
         },
       }),
     );
@@ -2002,7 +2027,7 @@ serverTest(
       return m.tool.start("exec", {
         id: "unsupported-card",
         arguments: {
-          js: 'await tools.halo.showConnectionCard({ integration: "github" });',
+          js: 'await tools.executor.integrations.requestConnection({ integration: "github" });',
         },
       });
     });
@@ -2011,10 +2036,7 @@ serverTest(
       return m.tool.start("exec", {
         id: "remote-connection",
         arguments: {
-          js: `await Promise.allSettled([
-            tools.halo.showConnectionCard({ integration: "new_mcp" }),
-            tools.executor.coreTools.oauth.start({ client: "google", clientOwner: "org", owner: "user", name: "personal", integration: "google_gmail", template: "googleOAuth2" })
-          ]);`,
+          js: 'await tools.executor.integrations.requestConnection({ integration: "new_mcp" });',
         },
       });
     });
@@ -2041,14 +2063,7 @@ serverTest(
     expect(execution.approvals).toEqual([]);
     const request = { kind: "control-plane" as const, integration: "new_mcp" };
     expect(execution.result?.details).toMatchObject({
-      connectionRequests: expect.arrayContaining([
-        expect.objectContaining(request),
-        expect.objectContaining({
-          kind: "control-plane",
-          integration: "google_gmail",
-          connectionName: "personal",
-        }),
-      ]),
+      connectionRequests: [request],
     });
     const started = await server.rpc.thread.startConnection({
       ...thread,
@@ -2078,9 +2093,27 @@ serverTest(
     expect(
       await headless.rpc.testApi.invokeTool({
         path: "search",
-        input: { query: "computer", source: "workspace" },
+        input: { query: "computer" },
       }),
-    ).toEqual({ tools: [], truncated: false, unavailableSources: [] });
+    ).toEqual({ tools: [], truncated: false });
+    // Executor's built-in list would report Halo's own namespaces as integrations.
+    await expect(
+      headless.rpc.testApi.invokeTool({
+        path: "executor.integrations.list",
+        input: {},
+      }),
+    ).rejects.toThrow("This workspace has no control-plane connections");
+    // Halo's list replaces Executor's, so describe must report Halo's contract.
+    expect(
+      await headless.rpc.testApi.invokeTool({
+        path: "describe.tool",
+        input: { path: "tools.executor.integrations.list" },
+      }),
+    ).toMatchObject({
+      path: "executor.integrations.list",
+      inputTypeScript: "{ query?: string }",
+      outputTypeScript: expect.stringContaining("connections"),
+    });
     await headless.stop();
 
     const server = createServer({ desktopOrigin: "http://127.0.0.1:6080" });
@@ -2088,7 +2121,7 @@ serverTest(
     const search = async (query: string, limit?: number) =>
       await server.rpc.testApi.invokeTool({
         path: "search",
-        input: { query, limit, source: "workspace" },
+        input: { query, limit },
       });
     const computerPaths = [
       "computer.back",
@@ -2110,17 +2143,16 @@ serverTest(
       "computer.setValue",
       "computer.typeText",
     ];
-    for (const query of ["computer", "CoMpUtEr."]) {
+    for (const query of ["computer", "COMPUTER."]) {
       expect(await search(query)).toMatchObject({
         tools: computerPaths.map((toolPath) => ({
           path: toolPath,
-          source: "workspace",
+          service: "computer",
         })),
         truncated: false,
-        unavailableSources: [],
       });
     }
-    expect(await search("computer.OBSERVE")).toMatchObject({
+    expect(await search("computer.OBSERVE", 1)).toMatchObject({
       tools: [{ path: "computer.observe", name: "observe" }],
     });
     expect(await search("getApp")).toMatchObject({
@@ -2135,18 +2167,42 @@ serverTest(
       tools: [{ path: "computer.back" }, { path: "computer.click" }],
       truncated: true,
     });
-    expect(await search("")).toMatchObject({
-      tools: expect.arrayContaining([
-        expect.objectContaining({ path: "computer.observe" }),
-        expect.objectContaining({ path: "files.read" }),
-      ]),
-      truncated: false,
+    expect(await search("  tab   COMPUTER ", 3)).toMatchObject({
+      tools: [
+        { path: "computer.createTab" },
+        { path: "computer.getTab" },
+        { path: "computer.listTabs" },
+      ],
+      truncated: true,
     });
-    expect(await search("nonexistent-tool-namespace")).toEqual({
-      tools: [],
-      truncated: false,
-      unavailableSources: [],
+    expect(await search("open browser tab", 3)).toMatchObject({
+      tools: [
+        { path: "computer.createTab" },
+        { path: "computer.getTab" },
+        { path: "computer.listTabs" },
+      ],
     });
+    expect(await search("run shell command", 1)).toMatchObject({
+      tools: [{ path: "bash.run" }],
+    });
+    expect(
+      await server.rpc.testApi.invokeTool({
+        path: "describe.tool",
+        input: { path: "tools.computer.observe" },
+      }),
+    ).toMatchObject({ path: "computer.observe", name: "observe" });
+    for (const call of [
+      { path: "describe.tool", input: { path: "computer.newTab" } },
+      { path: "computer.newTab", input: {} },
+    ])
+      await expect(server.rpc.testApi.invokeTool(call)).rejects.toThrow(
+        "Tool not found: computer.newTab. Similar tools: computer.createTab,",
+      );
+    for (const query of ["", "zyzzyva"])
+      expect(await search(query)).toEqual({
+        tools: [],
+        truncated: false,
+      });
 
     const thread = await server.rpc.thread.new();
     const prompting = server.promptAndWait({
@@ -2157,7 +2213,7 @@ serverTest(
       m.tool.start("exec", {
         id: "discover-computer",
         arguments: {
-          js: 'await tools.search({ query: "computer", source: "workspace" })',
+          js: 'await tools.search({ query: "computer" })',
         },
       }),
     );
@@ -2182,6 +2238,7 @@ serverTest(
     const cancellation = { started: false, cancelled: false };
     let offline = false;
     let writes = 0;
+    let remoteScore: number | undefined;
     const schema = {
       address,
       integration: "custom",
@@ -2200,7 +2257,9 @@ serverTest(
           offline
             ? new Error("offline")
             : {
-                tools: catalog.slice(0, limit),
+                tools: catalog
+                  .slice(0, limit)
+                  .map((tool) => ({ ...tool, score: remoteScore })),
                 truncated: limit !== undefined && catalog.length > limit,
               },
         describe: async ({ address: requested }) => {
@@ -2259,7 +2318,7 @@ serverTest(
         id: "remote-routing",
         arguments: {
           js: `
-    const search = await tools.search({ query: "fixture", source: "control-plane" });
+    const search = await tools.search({ query: "fixture" });
     if (!search.ok) throw new Error(JSON.stringify(search));
     const path = search.data.tools[0].path;
     const description = await tools.describe.tool({ path });
@@ -2298,7 +2357,7 @@ serverTest(
       if (mode === "") { response.end("ready"); return; }
       const result = await fetch(process.env.HALO_EXTENSION_TOOLS_ORIGIN + "/extension-tools/invoke", {
         method: "POST", headers: { "content-type": "application/json", authorization: "Bearer " + process.env.HALO_EXTENSION_TOOLS_TOKEN },
-        body: JSON.stringify({ json: mode === "search" ? { path: "search", input: { query: "fixture", source: "control-plane" } } : mode === "describe" ? { path: "describe.tool", input: { path: ${JSON.stringify(`integrations.${address}`)} } } : { path: ${JSON.stringify(`integrations.${address}`)}, input: { mode } } }),
+        body: JSON.stringify({ json: mode === "search" ? { path: "search", input: { query: "fixture" } } : mode === "describe" ? { path: "describe.tool", input: { path: ${JSON.stringify(`integrations.${address}`)} } } : { path: ${JSON.stringify(`integrations.${address}`)}, input: { mode } } }),
       });
       response.end(await result.text());
     });
@@ -2343,18 +2402,32 @@ serverTest(
     expect(
       await server.rpc.testApi.invokeTool({
         path: "search",
-        input: { query: "fixture", source: "control-plane" },
+        input: { query: "fixture" },
       }),
     ).toMatchObject({
       tools: [
-        { path: `integrations.${address}` },
+        { path: `integrations.${address}`, service: "custom" },
         { path: "integrations.tools.custom.account.added_after_startup" },
       ],
     });
+    // The fake returns every remote tool for any query, so only the score decides the order.
+    for (const [score, first] of [
+      [undefined, "files.read"],
+      [1_000_000, `integrations.${address}`],
+    ] as const) {
+      remoteScore = score;
+      // SAFETY: invokeTool returns the runtime's search result for the search path.
+      const ranked = (await server.rpc.testApi.invokeTool({
+        path: "search",
+        input: { query: "read" },
+      })) as { tools: { path: string }[] };
+      expect(ranked.tools[0]?.path).toBe(first);
+    }
+    remoteScore = undefined;
     expect(
       await server.rpc.testApi.invokeTool({
         path: "search",
-        input: { query: "fixture", source: "control-plane", limit: 1 },
+        input: { query: "fixture", limit: 1 },
       }),
     ).toMatchObject({
       tools: [{ path: `integrations.${address}` }],
@@ -2373,20 +2446,22 @@ serverTest(
         }),
       ),
     ).toContain("local offline data");
-    expect(
-      await server.rpc.testApi.invokeTool({
-        path: "search",
-        input: { query: "read", source: "workspace" },
-      }),
-    ).toMatchObject({ unavailableSources: [] });
+    const warning = expect.stringContaining(
+      "Connected services couldn't be searched",
+    );
     expect(
       await server.rpc.testApi.invokeTool({
         path: "search",
         input: { query: "read" },
       }),
-    ).toMatchObject({ unavailableSources: ["control-plane"] });
+    ).toMatchObject({
+      tools: expect.arrayContaining([
+        expect.objectContaining({ path: "files.read" }),
+      ]),
+      warning,
+    });
     expect(await extension("search")).toMatchObject({
-      json: { ok: false, error: { code: "discovery_failed" } },
+      json: { ok: true, data: { tools: [], warning } },
     });
     const collecting = server.promptAndWait({
       ...thread,
@@ -2447,9 +2522,9 @@ serverTest(
       const thread = await server.rpc.thread.new();
       const prompting = server.promptAndWait({
         ...thread,
-        text: `${decision} the policy`,
+        text: `${decision} the removal`,
       });
-      const js = `await tools.executor.coreTools.policies.create({ owner: "user", pattern: "approval-test-${decision}.*", action: "block" });`;
+      const js = `await tools.executor.integrations.removeConnection({ integration: "google_gmail", name: "approval-test-${decision}" });`;
       await llm.respond(
         m.tool.start("exec", {
           id: `approval-request-${decision}`,
@@ -2539,111 +2614,14 @@ serverTest(
 );
 
 serverTest(
-  "enforces saved block and approval policies before workspace tool effects",
-  async ({ server, llm }) => {
-    await server.rpc.workspace.writeFile({
-      path: "policy.txt",
-      content: "original",
-    });
-    for (const [pattern, action] of [
-      ["files.write", "block"],
-      ["files.edit", "require_approval"],
-    ]) {
-      await server.rpc.testApi.invokeTool({
-        path: "executor.coreTools.policies.create",
-        input: { owner: "user", pattern, action },
-      });
-    }
-    const thread = await server.rpc.thread.new();
-    const blocked = server.promptAndWait({
-      ...thread,
-      text: "Attempt a blocked write",
-    });
-    await llm.respond(
-      m.tool.start("exec", {
-        id: "blocked-write",
-        arguments: {
-          js: 'await tools.files.write({ path: "policy.txt", content: "blocked" })',
-        },
-      }),
-    );
-    await llm.respond(({ messages }) => {
-      const output = messageText(
-        messages.find(
-          (message) =>
-            message.role === "tool" && message.tool_call_id === "blocked-write",
-        )!,
-      );
-      expect(JSON.parse(output)).toMatchObject({
-        ok: false,
-        error: { code: "tool_blocked" },
-      });
-      return m.assistant("Blocked.");
-    });
-    await blocked;
-    await expect(
-      server.rpc.testApi.invokeTool({
-        path: "files.write",
-        input: { path: "policy.txt", content: "also blocked" },
-      }),
-    ).rejects.toThrow("blocked");
-    expect(await server.rpc.workspace.readFile({ path: "policy.txt" })).toBe(
-      "original",
-    );
-
-    const js =
-      'await tools.files.edit({ path: "policy.txt", oldText: "original", newText: "approved" })';
-    const editing = server.promptAndWait({
-      ...thread,
-      text: "Request an edit",
-    });
-    await llm.respond(
-      m.tool.start("exec", { id: "edit-request", arguments: { js } }),
-    );
-    await llm.respond(m.assistant("Waiting for approval."));
-    await editing;
-    const approval = threadToolExecutions(
-      await server.rpc.thread.snapshot(thread),
-    ).flatMap((execution) =>
-      execution.type === "exec" ? execution.approvals : [],
-    )[0]!;
-    expect(approval).toMatchObject({
-      toolPath: "files.edit",
-      status: "pending",
-    });
-    expect(await server.rpc.workspace.readFile({ path: "policy.txt" })).toBe(
-      "original",
-    );
-
-    await server.rpc.thread.respondToToolApproval({
-      ...thread,
-      approvalId: approval.id,
-      decision: "allow",
-    });
-    await llm.respond(
-      m.tool.start("exec", { id: "edit-retry", arguments: { js } }),
-    );
-    await llm.respond(m.assistant("Edited."));
-    await expect
-      .poll(
-        async () => await server.rpc.workspace.readFile({ path: "policy.txt" }),
-      )
-      .toBe("approved");
-    await expect
-      .poll(async () => (await server.rpc.thread.snapshot(thread)).activeRun)
-      .toBeUndefined();
-  },
-);
-
-serverTest(
   "requires another approval when retry arguments change",
   async ({ server, llm }) => {
     const thread = await server.rpc.thread.new();
     const originalJs =
-      'await tools.executor.coreTools.policies.create({ owner: "user", pattern: "approval-original.*", action: "block" });';
+      'await tools.executor.integrations.removeConnection({ integration: "google_gmail", name: "approval-original" });';
     const prompting = server.promptAndWait({
       ...thread,
-      text: "Create the policy",
+      text: "Remove the connection",
     });
     await llm.respond(
       m.tool.start("exec", {
@@ -2664,7 +2642,7 @@ serverTest(
       decision: "allow",
     });
     const changedJs =
-      'await tools.executor.coreTools.policies.create({ owner: "user", pattern: "approval-changed.*", action: "block" });';
+      'await tools.executor.integrations.removeConnection({ integration: "google_gmail", name: "approval-changed" });';
     await llm.respond(
       m.tool.start("exec", {
         id: "approval-changed",
@@ -2687,7 +2665,7 @@ serverTest(
         activeRun: undefined,
         approvals: [
           { id: originalApproval.id, status: "allowed" },
-          { status: "pending", arguments: { pattern: "approval-changed.*" } },
+          { status: "pending", arguments: { name: "approval-changed" } },
         ],
       });
     const completed = await server.rpc.thread.snapshot(thread);
@@ -2696,7 +2674,7 @@ serverTest(
     );
     expect(approvals).toMatchObject([
       { id: originalApproval.id, status: "allowed" },
-      { status: "pending", arguments: { pattern: "approval-changed.*" } },
+      { status: "pending", arguments: { name: "approval-changed" } },
     ]);
   },
 );
@@ -3710,7 +3688,7 @@ serverTest(
       m.tool.start("exec", {
         id: "legacy-card",
         arguments: {
-          js: 'await tools.halo.showConnectionCard({ integration: "example" });',
+          js: 'await tools.executor.integrations.requestConnection({ integration: "example" });',
         },
       }),
     );

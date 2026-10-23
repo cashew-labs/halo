@@ -41,7 +41,9 @@ type PendingConnection = StartConnectionInput & {
 };
 
 export type RemoteConnectionBackend = {
-  catalog(): Promise<Error | { integration: string; name: string }[]>;
+  catalog(): Promise<
+    Error | { integration: string; name: string; description?: string }[]
+  >;
   startSetup(input: {
     integration: string;
     connectionName?: string;
