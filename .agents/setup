@@ -55,9 +55,17 @@ entire enable --yes --telemetry=false
 # Headless orbs have no OS keyring. Authenticate interactively after startup;
 # never include a user's login in the shared setup snapshot.
 # Classic Amp also needs an explicit opt-in to load project plugins.
+# Preserve Bash's login-file precedence instead of shadowing an existing file.
+login_profile="$HOME/.profile"
+for candidate in "$HOME/.bash_profile" "$HOME/.bash_login"; do
+  if [[ -r "$candidate" ]]; then
+    login_profile="$candidate"
+    break
+  fi
+done
 for setting in 'export ENTIRE_TOKEN_STORE=file' 'export PLUGINS=all'; do
-  if ! grep -Fqx "$setting" "$HOME/.bash_profile" 2>/dev/null; then
-    echo "$setting" >> "$HOME/.bash_profile"
+  if ! grep -Fqx "$setting" "$login_profile" 2>/dev/null; then
+    echo "$setting" >> "$login_profile"
   fi
 done
 
