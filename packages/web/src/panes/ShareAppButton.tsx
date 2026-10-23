@@ -86,19 +86,21 @@ function ShareAppDialog({
     ? hosted
       ? "saving"
       : "hosting"
-    : apps.isFetching || apps.isPending
+    : apps.isPending
       ? "loading"
-      : apps.isError
-        ? "load-error"
-        : app?.stage === "removing"
-          ? "removing"
-          : !hosted && app?.stage === "publishing"
-            ? "host-error"
-            : save.isError
-              ? hosted
-                ? "save-error"
-                : "host-error"
-              : "idle";
+      : apps.isFetching
+        ? "refreshing"
+        : apps.isError
+          ? "load-error"
+          : app?.stage === "removing"
+            ? "removing"
+            : !hosted && app?.stage === "publishing"
+              ? "host-error"
+              : save.isError
+                ? hosted
+                  ? "save-error"
+                  : "host-error"
+                : "idle";
   const modal = useStyles(styles.modal);
   const failure = app?.stage === "publishing" ? app.publishFailure : undefined;
   // A retry must not reuse the reason recorded for its previous attempt.

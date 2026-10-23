@@ -46,6 +46,7 @@ export type SharePhase =
   | "host-error"
   | "save-error"
   | "loading"
+  | "refreshing"
   | "load-error"
   | "removing";
 export type ShareDraft = {
@@ -116,7 +117,7 @@ function PublicPreview({
   children,
 }: {
   displayName: string;
-  link: string;
+  link: string | undefined;
   frameUrl?: string;
   children?: ReactNode;
 }) {
@@ -140,7 +141,7 @@ function PublicPreview({
           <div className={address}>
             <Globe size="xs" />
             <Text size="xs" color="lowContrast">
-              {new URL(link).host}
+              {link === undefined ? "Not hosted" : new URL(link).host}
             </Text>
           </div>
         </div>
@@ -191,7 +192,7 @@ export function ShareAppForm({
   hostingFailure?: string;
   displayName: string;
   owner: { name: string; email: string };
-  link: string;
+  link: string | undefined;
   frameUrl?: string;
   preview?: ReactNode;
   embedded?: boolean;
@@ -200,6 +201,7 @@ export function ShareAppForm({
   onRetry(): void;
 }) {
   const [model, setModel] = useState(() => initial(draft));
+  const bodyRef = useRef<HTMLDivElement>(null);
   const peopleList = useRef<HTMLUListElement>(null);
   const [morePeopleBelow, setMorePeopleBelow] = useState(false);
   const card = useStyles(styles.card, embedded && styles.embedded);
@@ -218,11 +220,22 @@ export function ShareAppForm({
   const remove = useStyles(styles.remove);
   const loading = useStyles(styles.loading);
   const footer = useStyles(styles.footer);
-  const busy = phase === "hosting" || phase === "saving" || phase === "loading";
+  const busy =
+    phase === "hosting" ||
+    phase === "saving" ||
+    phase === "loading" ||
+    phase === "refreshing";
   const unavailable =
     phase === "loading" || phase === "load-error" || phase === "removing";
   const locked = busy || unavailable;
   const visiblePeople = [...new Set([...model.people, ...model.pendingPeople])];
+  useLayoutEffect(() => {
+    // Keep recovery messages visible within the fixed-height dialog.
+    const container = bodyRef.current;
+    if (container?.querySelector('[role="alert"]'))
+      container.scrollTop = container.scrollHeight;
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Reveal errors after their text or surrounding content changes.
+  }, [phase, model.copyError, model.access, hostingFailure]);
   useLayoutEffect(() => {
     const list = peopleList.current;
     if (list === null) return;
@@ -244,7 +257,8 @@ export function ShareAppForm({
   ).length;
   const changed =
     model.access !== model.savedAccess || added > 0 || removed > 0;
-  const done = !changed && (phase === "idle" || unavailable);
+  const done =
+    !changed && (phase === "idle" || phase === "refreshing" || unavailable);
   const actionLabel =
     model.access !== model.savedAccess
       ? model.access === "public"
@@ -267,12 +281,17 @@ export function ShareAppForm({
       onClose();
       return;
     }
+    if (!hosted && !willHost) return;
     onSave({
       visibility: model.access === "public" ? "public" : "invited",
       members: model.people,
     });
   };
   const copy = async () => {
+    if (link === undefined) {
+      setModel((previous) => ({ ...previous, copyError: true }));
+      return;
+    }
     const result = await navigator.clipboard
       .writeText(link)
       .catch((cause) => new CopyError({ cause }));
@@ -285,13 +304,13 @@ export function ShareAppForm({
   };
   return (
     <section className={card} aria-label={`Share ${displayName}`}>
-      <div className={body}>
+      <div ref={bodyRef} className={body}>
         <Flex row alignItems="center" justifyContent="between">
           <h2 className={heading}>Share “{displayName}”</h2>
           <Button
             variant="quiet"
             aria-label="Close sharing"
-            isDisabled={busy}
+            isDisabled={busy && phase !== "refreshing"}
             onPress={onClose}
           >
             <Close size="sm" />
@@ -643,7 +662,9 @@ export function ShareAppForm({
               <Text size="sm">
                 Couldn’t finish hosting.{" "}
                 {hostingFailure !== undefined && <>{hostingFailure} </>}
-                Retry to finish moving this extension.
+                {willHost
+                  ? "Retry to finish moving this extension."
+                  : "Add people or choose Public before retrying."}
               </Text>
             </div>
           </div>
@@ -662,14 +683,18 @@ export function ShareAppForm({
         {model.copyError && (
           <Flex column gap={3}>
             <Text size="xs" role="alert">
-              Couldn’t copy. Select the link and copy it manually.
+              {link === undefined
+                ? "Private links aren’t available for local development workspaces. Open this extension in Halo instead."
+                : "Couldn’t copy. Select the link and copy it manually."}
             </Text>
-            <TextField
-              aria-label="Link to copy manually"
-              value={link}
-              isReadOnly
-              onFocus={(event) => event.target.select()}
-            />
+            {link !== undefined && (
+              <TextField
+                aria-label="Link to copy manually"
+                value={link}
+                isReadOnly
+                onFocus={(event) => event.target.select()}
+              />
+            )}
           </Flex>
         )}
       </div>
@@ -678,7 +703,11 @@ export function ShareAppForm({
           {model.copied ? <Check size="sm" /> : <Link size="sm" />}
           {model.copied ? "Copied" : "Copy link"}
         </Button>
-        <Button variant="primary" isDisabled={locked && !done} onPress={save}>
+        <Button
+          variant="primary"
+          isDisabled={!done && (locked || (!hosted && !willHost))}
+          onPress={save}
+        >
           {phase === "hosting"
             ? "Hosting…"
             : phase === "saving"

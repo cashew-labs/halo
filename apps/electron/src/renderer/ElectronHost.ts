@@ -120,9 +120,8 @@ export class ElectronHost implements HostApi {
   }
 
   getExtensionUrl(extensionId: string) {
-    // Local development has no authenticated standalone web app.
-    if (this.environment === "development")
-      return this.getExtensionFrameUrl(extensionId);
+    // Internal frame URLs require Electron's bearer token and cannot be shared.
+    if (this.environment === "development") return undefined;
     return new URL(
       `/extensions/${encodeURIComponent(extensionId)}`,
       this.extensionBaseUrl,
