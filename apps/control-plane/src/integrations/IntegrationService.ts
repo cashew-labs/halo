@@ -343,7 +343,13 @@ export class IntegrationService {
   async catalog(userId: string) {
     return await this.withUser(userId, (executor) =>
       Effect.map(executor.integrations.list(), (integrations) =>
-        integrations.map(setupCatalogEntry),
+        integrations
+          // Executor's own built-in integration has no connection to set up.
+          .filter(
+            (integration) =>
+              integration.kind === "openapi" || integration.kind === "mcp",
+          )
+          .map(setupCatalogEntry),
       ),
     );
   }

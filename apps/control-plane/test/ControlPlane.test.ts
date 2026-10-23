@@ -1226,6 +1226,8 @@ controlPlaneTest(
       auth: "bearer",
     });
     const catalog = await runtime.integrations.catalog();
+    // Executor's built-in integration has nothing to connect.
+    expect(catalog.map((entry) => entry.integration)).not.toContain("executor");
     // Agents choose services by meaning from these descriptions.
     expect(
       catalog.find((entry) => entry.integration === "google_gmail"),
