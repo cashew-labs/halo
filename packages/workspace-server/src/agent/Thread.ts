@@ -196,8 +196,7 @@ export class Thread {
     await using cleanup = new errore.AsyncDisposableStack();
     cleanup.defer(async () => await stored.close());
     const { layout, toolRuntime: runtime, llmApi } = options;
-    const runtimeDescription = await runtime.getAgentDescription();
-    if (runtimeDescription instanceof Error) return runtimeDescription;
+    const runtimeDescription = runtime.getAgentDescription();
     const resourceLoader = new WorkspaceResourceLoader({
       environment: options.environment,
       workspaceRoot: layout.root,

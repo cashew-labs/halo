@@ -1069,9 +1069,9 @@ controlPlaneTest(
     ];
     for (const integration of integrations) {
       const registered = await agent.run(`
-        var registration = await tools.halo[${JSON.stringify(integration.tool)}](${JSON.stringify(integration.input)});
+        var registration = await tools.executor.integrations[${JSON.stringify(integration.tool)}](${JSON.stringify(integration.input)});
         if (!registration.ok) throw new Error(JSON.stringify(registration));
-        await tools.halo.showConnectionCard({ integration: registration.data.integration });
+        await tools.executor.integrations.requestConnection({ integration: registration.data.integration });
       `);
       expect(registered[0]?.result?.details).toMatchObject({
         connectionRequests: [
@@ -1114,7 +1114,7 @@ controlPlaneTest(
       expect(found.tools).toHaveLength(1);
       const address = found.tools[0]!.address;
       const invoked = await agent.run(`
-        var found = await tools.search({ query: ${JSON.stringify(integration.query)}, source: "control-plane" });
+        var found = await tools.search({ query: ${JSON.stringify(integration.query)} });
         if (!found.ok) throw new Error(JSON.stringify(found));
         var path = ${JSON.stringify(`integrations.${address}`)};
         if (!found.data.tools.some(tool => tool.path === path)) throw new Error("Tool not discovered");
@@ -1135,7 +1135,7 @@ controlPlaneTest(
     }
     // Duplicate registration cannot redirect an existing connection's credentials.
     const duplicate = await agent.run(
-      `await tools.halo.registerMcp(${JSON.stringify({ ...integrations[1]!.input, endpoint: mcpApi.publicEndpoint, auth: "none" })});`,
+      `await tools.executor.integrations.registerMcp(${JSON.stringify({ ...integrations[1]!.input, endpoint: mcpApi.publicEndpoint, auth: "none" })});`,
     );
     expect(JSON.stringify(duplicate)).toContain("registration_failed");
     expect(JSON.stringify(duplicate)).toContain(
@@ -1153,6 +1153,14 @@ controlPlaneTest(
       query: "echo_marker",
       integration: "agent-private-mcp",
     });
+    // Workspaces merge remote and local results by this score.
+    expect(original.tools[0]?.score).toBeGreaterThan(0);
+    expect(
+      await runtime.integrations.search({
+        query: "echo marker",
+        integration: "agent-private-mcp",
+      }),
+    ).toEqual(original);
     const invokedAfterDuplicate = await agent.run(
       `await tools[${JSON.stringify(`integrations.${original.tools[0]!.address}`)}]({ marker: "after-duplicate" });`,
     );
@@ -1170,16 +1178,16 @@ controlPlaneTest(
     ).toBe(true);
 
     const badUrl = await agent.run(
-      `await tools.halo.registerMcp({ name: "Unsafe", slug: "unsafe", endpoint: "file:///etc/passwd", auth: "none" });`,
+      `await tools.executor.integrations.registerMcp({ name: "Unsafe", slug: "unsafe", endpoint: "file:///etc/passwd", auth: "none" });`,
     );
     expect(JSON.stringify(badUrl)).toContain("Unsafe remote URL");
     const badSpec = await agent.run(
-      `await tools.halo.registerApi({ name: "Invalid", slug: "invalid-spec", url: ${JSON.stringify(new URL("/invalid-spec", integrationApi.origin).href)} });`,
+      `await tools.executor.integrations.registerApi({ name: "Invalid", slug: "invalid-spec", url: ${JSON.stringify(new URL("/invalid-spec", integrationApi.origin).href)} });`,
     );
     expect(JSON.stringify(badSpec)).toContain("registration_failed");
     expect(JSON.stringify(badSpec)).not.toContain("Internal Server Error");
     const duplicateApi = await agent.run(
-      `await tools.halo.registerApi(${JSON.stringify(integrations[2]!.input)});`,
+      `await tools.executor.integrations.registerApi(${JSON.stringify(integrations[2]!.input)});`,
     );
     expect(JSON.stringify(duplicateApi)).toContain(
       "already exists; choose a new slug",
@@ -1218,6 +1226,15 @@ controlPlaneTest(
       auth: "bearer",
     });
     const catalog = await runtime.integrations.catalog();
+    // Executor's built-in integration has nothing to connect.
+    expect(catalog.map((entry) => entry.integration)).not.toContain("executor");
+    // Agents choose services by meaning from these descriptions.
+    expect(
+      catalog.find((entry) => entry.integration === "google_gmail"),
+    ).toMatchObject({
+      name: "Gmail",
+      description: "Messages, threads, labels, and drafts.",
+    });
     expect(
       catalog.find((entry) => entry.integration === "setup-private")?.methods,
     ).toEqual([
@@ -3005,7 +3022,7 @@ controlPlaneTest(
       expect(write).toBeDefined();
       const args = integration === "approval_mcp" ? { marker: "allowed" } : {};
       const routed = await agent.run(`
-        var found = await tools.search({ query: ${JSON.stringify(read.name)}, source: "control-plane" });
+        var found = await tools.search({ query: ${JSON.stringify(read.name)} });
         if (!found.ok) throw new Error(JSON.stringify(found));
         var path = ${JSON.stringify(`integrations.${read.address}`)};
         if (!found.data.tools.some(tool => tool.path === path)) throw new Error("Tool not discovered");

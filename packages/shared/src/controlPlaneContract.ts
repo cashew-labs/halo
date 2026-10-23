@@ -38,6 +38,7 @@ export type IntegrationSetupMethod = {
 export type IntegrationSetupCatalogEntry = {
   integration: string;
   name: string;
+  description?: string;
   methods: IntegrationSetupMethod[];
 };
 export type IntegrationSetup = IntegrationSetupCatalogEntry & {
@@ -79,6 +80,8 @@ export type IntegrationTool = {
   name: string;
   description: string;
 };
+// Executor's search relevance; older control planes omit it.
+export type IntegrationSearchResult = IntegrationTool & { score?: number };
 export type IntegrationToolSchema = IntegrationTool & {
   inputSchema?: IntegrationJson;
   outputSchema?: IntegrationJson;
@@ -402,7 +405,7 @@ export const controlPlaneContract = publicProcedure.router({
         ),
       )
       .output(type<{ revocation: ConnectionRevocation }>()),
-    // Keep the RPC route stable for released clients; agents use halo.registerApi.
+    // Keep the RPC route stable for released clients; agents use executor.integrations.registerApi.
     registerOpenAPI: authenticatedProcedure
       .input(validated(registerApiInputSchema))
       .output(type<void>()),
@@ -425,7 +428,7 @@ export const controlPlaneContract = publicProcedure.router({
           ),
         ),
       )
-      .output(type<{ tools: IntegrationTool[]; truncated: boolean }>()),
+      .output(type<{ tools: IntegrationSearchResult[]; truncated: boolean }>()),
     describe: authenticatedProcedure
       .input(
         validated(

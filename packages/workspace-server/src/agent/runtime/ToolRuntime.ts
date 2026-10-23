@@ -2,7 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import type { RemoteConnectionBackend } from "./ConnectionService.js";
 import type {
   IntegrationJson,
-  IntegrationTool,
+  IntegrationSearchResult,
   IntegrationToolSchema,
   IntegrationInvocation,
   McpRegistration,
@@ -25,7 +25,7 @@ export interface RemoteIntegrationTools {
   search(
     input: { query: string; integration?: string; limit?: number },
     signal?: AbortSignal,
-  ): Promise<{ tools: IntegrationTool[]; truncated: boolean } | Error>;
+  ): Promise<{ tools: IntegrationSearchResult[]; truncated: boolean } | Error>;
   describe(
     input: { address: string },
     signal?: AbortSignal,
@@ -47,8 +47,8 @@ import * as Exit from "effect/Exit";
 import {
   createExecutionEngine,
   type ExecutionEngine,
-  INTEGRATION_INVENTORY_HEADER,
   makeExecutorToolInvoker,
+  searchTools,
 } from "@executor-js/execution/core";
 import type {
   CodeExecutor,
@@ -58,7 +58,6 @@ import {
   createExecutor,
   definePlugin,
   Effect,
-  type ElicitationContext,
   type Executor,
   parseToolAddress,
   type Plugin,
@@ -70,7 +69,7 @@ import {
   ToolResult,
   isToolResult,
 } from "@executor-js/sdk/core";
-import { type Static, type TObject, Type } from "@sinclair/typebox";
+import { type TObject, Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import * as errore from "errore";
 import type {
@@ -80,7 +79,7 @@ import type {
 } from "@get-halo/client";
 import { addConnectionCard } from "./connectionCards.js";
 import {
-  listConnectionsResult,
+  listIntegrationsResult,
   removeConnectionResult,
 } from "./connectionTools.js";
 import { createExecutorDatabase } from "./createExecutorDatabase.js";
@@ -137,15 +136,15 @@ type HaloToolsPluginOptions = {
 const removeConnectionInputSchema = Type.Object({
   integration: Type.String({
     minLength: 1,
-    description: "The connection's integration from halo.listConnections",
+    description: "The integration from executor.integrations.list",
   }),
   name: Type.String({
     minLength: 1,
-    description: "The connection's name from halo.listConnections",
+    description: "The connection name from executor.integrations.list",
   }),
 });
 
-const showConnectionCardInputSchema = Type.Object({
+const requestConnectionInputSchema = Type.Object({
   integration: Type.String({
     description: "The integration id returned by executor.integrations.list",
   }),
@@ -154,13 +153,22 @@ const showConnectionCardInputSchema = Type.Object({
 const integrationListInputSchema = Type.Object({
   query: Type.Optional(Type.String()),
 });
+// Halo replaces Executor's built-in list, which is not in the tool catalog, so describe returns this contract.
+const integrationListDescription = {
+  path: "executor.integrations.list",
+  name: "list",
+  description:
+    "List services the user can use, each with its connected accounts, connected first. Every query word must appear in the ID, name or description; if nothing matches, it returns every service with a note.",
+  inputSchema: integrationListInputSchema,
+  inputTypeScript: "{ query?: string }",
+  outputTypeScript:
+    "{ integrations: { integration: string; name: string; description?: string; connections: { name: string; account?: string }[] }[]; note?: string }",
+};
 
+// Older scripts may still pass source; it is ignored.
 const searchInputSchema = Type.Object({
   query: Type.String(),
   limit: Type.Optional(Type.Integer({ minimum: 1 })),
-  source: Type.Optional(
-    Type.Union([Type.Literal("workspace"), Type.Literal("control-plane")]),
-  ),
 });
 const describeInputSchema = Type.Object({
   path: Type.String({ minLength: 1 }),
@@ -221,14 +229,15 @@ const haloToolsPlugin = definePlugin((options?: HaloToolsPluginOptions) => {
     storage: () => ({}),
     staticIntegrations: () => [
       {
-        id: "halo",
-        kind: "halo",
-        name: "Halo",
+        // Executor mounts executor-kind tools as executor.integrations.<name>, beside its integrations.list.
+        id: "integrations",
+        kind: "executor",
+        name: "Integrations",
         tools: [
           tool({
             name: "registerMcp",
             description:
-              "Register a custom remote MCP server from its public HTTPS endpoint. Choose auth none, bearer, or oauth; never pass credentials here. Returns the integration id. Then use halo.showConnectionCard so the user can finish connecting. Local stdio/command servers are not supported.",
+              "Register a custom remote MCP server from its public HTTPS endpoint. Choose auth none, bearer, or oauth; never pass credentials here. Returns the integration id. Then call executor.integrations.requestConnection so the user can finish connecting. Local stdio/command servers are not supported.",
             inputSchema: toExecutorSchema(registerMcpInputSchema),
             execute: (args) =>
               Effect.promise(async () => {
@@ -261,7 +270,7 @@ const haloToolsPlugin = definePlugin((options?: HaloToolsPluginOptions) => {
           tool({
             name: "registerApi",
             description:
-              "Register a custom API from its official public HTTPS OpenAPI or Google Discovery description URL; Google Discovery URLs are detected automatically. Find the URL in the provider's documentation when the user names a service. For Google Discovery, optionally set googleOAuthScopes to the least privilege needed; reporting should use read-only scopes. Never pass credentials here. Returns the integration id. Then use halo.showConnectionCard so the user can authorize access.",
+              "Register a custom API from its official public HTTPS OpenAPI or Google Discovery description URL; Google Discovery URLs are detected automatically. Find the URL in the provider's documentation when the user names a service. For Google Discovery, optionally set googleOAuthScopes to the least privilege needed; reporting should use read-only scopes. Never pass credentials here. Returns the integration id. Then call executor.integrations.requestConnection so the user can authorize access.",
             inputSchema: toExecutorSchema(registerApiInputSchema),
             execute: (args) =>
               Effect.promise(async () => {
@@ -292,13 +301,13 @@ const haloToolsPlugin = definePlugin((options?: HaloToolsPluginOptions) => {
               }),
           }),
           tool({
-            name: "showConnectionCard",
+            name: "requestConnection",
             description:
-              "Show an optional connection card for an available integration. Use an integration ID from executor.integrations.list. This does not connect an account or grant access; do not ask for confirmation first.",
-            inputSchema: toExecutorSchema(showConnectionCardInputSchema),
+              "Show the user a card to connect an account for an integration from executor.integrations.list. Showing it does not connect an account or grant access; the user may ignore it, so do not ask for confirmation first. You are notified when the user finishes connecting.",
+            inputSchema: toExecutorSchema(requestConnectionInputSchema),
             execute: (args) =>
               Effect.promise(async () => {
-                if (!Value.Check(showConnectionCardInputSchema, args))
+                if (!Value.Check(requestConnectionInputSchema, args))
                   return ToolResult.fail({
                     code: "invalid_tool_arguments",
                     message: "Expected an integration id",
@@ -338,19 +347,9 @@ const haloToolsPlugin = definePlugin((options?: HaloToolsPluginOptions) => {
               }),
           }),
           tool({
-            name: "listConnections",
-            description:
-              "List the accounts connected to Halo's integrations, such as Gmail. Each entry has the integration, the connection name and, when known, the account. Use it to find the connection a person names.",
-            inputSchema: toExecutorSchema(Type.Object({})),
-            execute: () =>
-              Effect.promise(
-                async () => await listConnectionsResult(options.connections),
-              ),
-          }),
-          tool({
             name: "removeConnection",
             description:
-              "Remove a connected account, its tools and its stored credentials. Halo also revokes the provider's access when no other connection uses the same account. To replace an account, remove it, then show a connection card for the new account. The person approves each removal.",
+              "Remove a connected account, its tools and its stored credentials. Halo also revokes the provider's access when no other connection uses the same account. Find the integration and connection name with executor.integrations.list. To replace an account, remove it, then request a connection for the new account. The person approves each removal.",
             inputSchema: toExecutorSchema(removeConnectionInputSchema),
             annotations: {
               requiresApproval: true,
@@ -386,18 +385,6 @@ const haloToolsPlugin = definePlugin((options?: HaloToolsPluginOptions) => {
       ),
     ],
   };
-});
-
-const oauthStartAddress = "executor.coreTools.oauth.start";
-const oauthStartInputSchema = Type.Object({
-  client: Type.String(),
-  clientOwner: Type.Union([Type.Literal("org"), Type.Literal("user")]),
-  owner: Type.Union([Type.Literal("org"), Type.Literal("user")]),
-  name: Type.String(),
-  integration: Type.String(),
-  template: Type.String(),
-  identityLabel: Type.Optional(Type.Union([Type.String(), Type.Null()])),
-  newConnection: Type.Optional(Type.Boolean()),
 });
 
 type HaloRuntimePlugins = readonly [Plugin<"halo-tools", object>];
@@ -678,18 +665,35 @@ export class ToolRuntime {
     return result;
   }
 
-  async getAgentDescription() {
-    const executorDescription = await Effect.runPromise(
-      this.engine.getDescription,
-    ).catch(
-      (cause) =>
-        new ToolRuntimeError({ operation: "agent description", cause }),
+  getAgentDescription() {
+    // tools.browser is a Playwright-shaped wrapper, described in its own paragraph below.
+    const tools = [...this.tools.values()].filter(
+      (entry) => entry.namespace !== "browser",
     );
-    if (executorDescription instanceof Error) return executorDescription;
-
-    const prefix = [
+    const namespaces = [...new Set(tools.map((entry) => entry.namespace))];
+    return [
       "Execute JavaScript in a persistent, thread-owned session. tools and console are in scope. Variables and functions survive calls until reset or thread unload. Native let/const redeclarations error; use var for reusable bindings. Use exec({ op: 'reset' }) to discard bindings. Reset does not undo external actions.",
       'The final expression is the result: `await tools.search({ query: "send email" })`, `await tools.files.read({ path: "notes.md" })`, or `await tools[path](args)`. Top-level return is not supported. Await tool calls; detached work cannot outlive an evaluation.',
+      ...(namespaces.length > 0
+        ? [
+            "Built-in tools, always available, called as tools.<namespace>.<name>(args):",
+            ...namespaces.map(
+              (namespace) =>
+                `- ${namespace}: ${tools
+                  .filter((entry) => entry.namespace === namespace)
+                  .map((entry) => entry.name)
+                  .join(", ")}`,
+            ),
+          ]
+        : []),
+      this.remoteConnections
+        ? "Find tools for a task with tools.search({ query }); it searches built-in tools and the user's connected services together and returns tools with path, name, description and service, plus a warning when connected services could not be searched. Get a schema with tools.describe.tool({ path }), then call tools[path](args). Paths of connected-service tools start with integrations. and must be kept whole."
+        : "Find tools for a task with tools.search({ query }); results have path, name, description and service. Get a schema with tools.describe.tool({ path }), then call tools[path](args).",
+      ...(this.remoteConnections
+        ? [
+            "Services: tools.executor.integrations.list({ query? }) lists services the user can use, each with its connected accounts, connected first. If nothing matches the query, it returns every service so you can choose by meaning. For a service without a connection, call tools.executor.integrations.requestConnection({ integration }); you are notified when the user connects. Register a service that is not listed with tools.executor.integrations.registerMcp({ name, slug, endpoint, auth }) or tools.executor.integrations.registerApi({ name, slug, url, googleOAuthScopes? }). Remove an account with tools.executor.integrations.removeConnection({ integration, name }); the user approves each removal. Credentials are entered in the control plane, never in tool arguments.",
+          ]
+        : []),
       "Runtime tools do not throw for expected failures. They return { ok: true, data } or { ok: false, error }. Check result.ok.",
       "viewImage({ path }) attaches a workspace PNG, JPEG, or WebP directly to this exec result for model viewing. No await is needed; await returns only { ok: true } or { ok: false, error }, never image bytes. At most 8 images per evaluation; source files must be 20 MiB or smaller. Log observation text separately and viewImage(observation.data.screenshot) when present.",
       ...(this.tools.has("browser.call")
@@ -697,17 +701,7 @@ export class ToolRuntime {
             "tools.browser drives the workspace Chrome with Playwright pages and locators. Unlike other tools, its methods throw on failure. `var page = await tools.browser.newPage({ url })` opens a tab, and `isolated: true` opens it in a fresh incognito-style context without the user's cookies, for example to act as a second user; `await tools.browser.tabs()` lists { id, url, title } and `await tools.browser.page(id)` returns any open tab. Build locators with page.getByRole('button', { name: /save/i }), getByText, getByLabel, locator, and the like, chained with filter, first, last, nth, and, or; then await one action or query such as click, fill, press, check, selectOption, textContent, innerText, count, isVisible, waitFor, or evaluate. Pages have goto, reload, goBack, goForward, title, content, evaluate, waitForURL, waitForLoadState, keyboard.press, keyboard.type, close, snapshot(), and screenshot(). snapshot() returns an aria snapshot with [ref=s1e2] refs: act on one with page.locator('aria-ref=s1e2'), and take a new snapshot after the page changes. screenshot() attaches the image to this result; screenshot({ path: 'shots/cart.png' }) also saves it at that workspace path. evaluate functions run in the page and cannot read exec variables; pass values as the argument. Each locator call is a separate round trip that waits up to 30 seconds for its element, so read many values at once with one page.evaluate or allInnerTexts instead of looping over locators, and pass a short timeout when probing for elements that may be missing. Dialogs that open during an action are dismissed and logged; call page.handleDialogs('accept', { promptText }) first to accept them on later calls from that page, and page.handleDialogs('dismiss') to stop. setInputFiles takes paths in the workspace. Element handles, frames, events, and routes are not available. The other tabs are the user's; act in them only when the task needs it, and close the tabs you open.",
           ]
         : []),
-      ...(this.remoteConnections
-        ? [
-            `Find available integrations with tools.executor.integrations.list({ query: "integration name" }); omit query to list them all. If a requested service is missing, find its official API description or remote MCP endpoint in the provider's documentation; do not ask users to identify formats or supply URLs you can look up. Register remote MCP servers with tools.halo.registerMcp({ name, slug, endpoint, auth }) and APIs with tools.halo.registerApi({ name, slug, url, googleOAuthScopes? }); OpenAPI and official Google Discovery URLs are supported, with automatic format selection. Use least-privilege Google scopes. Show an optional connection card with tools.halo.showConnectionCard({ integration }) using an integration ID returned by listing or registration. Discover operations with tools.search({ query, source: "control-plane" }); results contain tools, truncated and unavailableSources. Describe with tools.describe.tool({ path }). Remote paths start with integrations.; invoke the complete saved path with tools[path](args). Credentials are entered in the control plane, never in tool arguments.`,
-          ]
-        : []),
     ].join("\n");
-    const inventoryStart = executorDescription.indexOf(
-      INTEGRATION_INVENTORY_HEADER,
-    );
-    if (inventoryStart === -1) return prefix;
-    return `${prefix}\n\n${executorDescription.slice(inventoryStart)}`;
   }
 
   async executeCode(input: {
@@ -740,11 +734,6 @@ export class ToolRuntime {
         await Effect.runPromise(
           this.engine.execute(input.code, {
             onElicitation: (context) => {
-              const connection = connectionInput(context);
-              if (connection !== undefined) {
-                collectConnectionRequest(connection);
-                return Effect.succeed({ action: "decline" as const });
-              }
               const toolPath = sandboxPath(String(context.address));
               if (
                 input.consumeApproval({
@@ -850,73 +839,56 @@ export class ToolRuntime {
     return result;
   }
 
-  async search(
-    input: {
-      query: string;
-      limit?: number;
-      source?: "workspace" | "control-plane";
-    },
-    signal?: AbortSignal,
-  ) {
+  async search(input: { query: string; limit?: number }, signal?: AbortSignal) {
     if (!Value.Check(searchInputSchema, input))
       return new ToolRuntimeError({ operation: "invalid search arguments" });
-    const tools = await Effect.runPromise(
-      input.source === "control-plane"
-        ? Effect.succeed([])
-        : this.executor.tools.list(),
-    ).catch(
-      (cause) => new ToolRuntimeError({ operation: "tool search", cause }),
-    );
-    if (tools instanceof Error) return tools;
-    const query = input.query.toLowerCase();
-    const items = tools
-      .map((catalogTool) => ({
-        path: sandboxPath(String(catalogTool.address)),
-        name: catalogTool.name,
-        description: catalogTool.description,
-        source: "workspace" as const,
-      }))
-      .filter((entry) =>
-        `${entry.path} ${entry.name} ${entry.description}`
-          .toLowerCase()
-          .includes(query),
-      )
-      .toSorted((left, right) => left.path.localeCompare(right.path));
     const limit = input.limit ?? 100;
-    const remote =
-      input.source === "workspace"
-        ? undefined
-        : this.remoteIntegrationTools === undefined
-          ? new ToolRuntimeError({ operation: "remote discovery unavailable" })
-          : await this.remoteIntegrationTools.search(
-              { query: input.query, limit: Math.min(100, limit) },
-              signal,
-            );
-    if (remote instanceof Error && input.source === "control-plane")
-      return remote;
+    const [local, remote] = await Promise.all([
+      Effect.runPromise(
+        searchTools(this.executor, input.query, limit + 1),
+      ).catch(
+        (cause) => new ToolRuntimeError({ operation: "tool search", cause }),
+      ),
+      // Workspaces without a control plane have no connected services to search.
+      this.remoteIntegrationTools?.search(
+        { query: input.query, limit: Math.min(100, limit) },
+        signal,
+      ),
+    ]);
+    if (local instanceof Error) return local;
     if (remote instanceof Error)
       console.warn("Remote tool discovery unavailable:", remote.message);
-    if (remote !== undefined && !(remote instanceof Error)) {
-      for (const entry of remote.tools)
-        this.remoteToolIdentities.set(`integrations.${entry.address}`, {
-          path: `integrations.${entry.address}`,
-          displayName: entry.name,
-          integrationId: entry.integration,
-        });
-    }
+    const remoteTools =
+      remote === undefined || remote instanceof Error ? [] : remote.tools;
+    for (const entry of remoteTools)
+      this.remoteToolIdentities.set(`integrations.${entry.address}`, {
+        path: `integrations.${entry.address}`,
+        displayName: entry.name,
+        integrationId: entry.integration,
+      });
+    // Both sides rank with Executor's searchTools, so scores are comparable.
+    // Results from control planes without scores follow local results in their own order.
+    // The stable sort keeps each side's order on ties; two unscored results compare as NaN, a tie.
     const combined = [
-      ...items,
-      ...(remote === undefined || remote instanceof Error
-        ? []
-        : remote.tools.map((entry) => ({
-            path: `integrations.${entry.address}`,
-            name: entry.name,
-            description: entry.description,
-            source: "control-plane" as const,
-          }))),
-    ];
+      ...local.items.map((entry) => ({
+        path: entry.path,
+        name: entry.name,
+        description: entry.description,
+        service: entry.integration,
+        score: entry.score,
+      })),
+      ...remoteTools.map((entry) => ({
+        path: `integrations.${entry.address}`,
+        name: entry.name,
+        description: entry.description,
+        service: entry.integration,
+        score: entry.score ?? Number.NEGATIVE_INFINITY,
+      })),
+    ].toSorted((left, right) => right.score - left.score || 0);
     const unique = [
-      ...new Map(combined.map((entry) => [entry.path, entry])).values(),
+      ...new Map(
+        combined.map(({ score: _score, ...entry }) => [entry.path, entry]),
+      ).values(),
     ];
     return {
       tools: unique.slice(0, limit),
@@ -925,8 +897,10 @@ export class ToolRuntime {
         (remote !== undefined &&
           !(remote instanceof Error) &&
           remote.truncated),
-      unavailableSources:
-        remote instanceof Error ? ["control-plane" as const] : [],
+      warning:
+        remote instanceof Error
+          ? "Connected services couldn't be searched right now, so results include only built-in tools."
+          : undefined,
     };
   }
 
@@ -935,31 +909,34 @@ export class ToolRuntime {
       return new ToolRuntimeError({
         operation: "invalid description arguments",
       });
-    if (input.path.startsWith("integrations.")) {
+    const path = sandboxPath(input.path);
+    if (path === integrationListDescription.path)
+      return integrationListDescription;
+    if (path.startsWith("integrations.")) {
       if (this.remoteIntegrationTools === undefined)
         return new ToolRuntimeError({
           operation: "remote description unavailable",
         });
       const schema = await this.remoteIntegrationTools.describe(
-        { address: input.path.slice("integrations.".length) },
+        { address: path.slice("integrations.".length) },
         signal,
       );
       if (schema instanceof Error) return schema;
-      this.remoteToolIdentities.set(input.path, {
-        path: input.path,
+      this.remoteToolIdentities.set(path, {
+        path,
         displayName: schema.name,
         integrationId: schema.integration,
       });
-      return { ...schema, path: input.path };
+      return { ...schema, path };
     }
     const description = await Effect.runPromise(
-      this.executor.tools.schema(ToolAddress.make(input.path)),
+      this.executor.tools.schema(ToolAddress.make(path)),
     ).catch(
       (cause) => new ToolRuntimeError({ operation: "tool description", cause }),
     );
     if (description instanceof Error) return description;
     if (description === null) {
-      return new ToolRuntimeToolNotFoundError({ path: input.path });
+      return new ToolRuntimeToolNotFoundError({ path });
     }
     return {
       path: sandboxPath(String(description.address)),
@@ -1017,8 +994,8 @@ export class ToolRuntime {
     if (
       input.path === "search" ||
       input.path === "describe.tool" ||
-      (input.path === "executor.integrations.list" &&
-        this.remoteConnectionBackend !== undefined) ||
+      // Without a control plane, Executor's own list would present Halo namespaces as integrations.
+      input.path === "executor.integrations.list" ||
       input.path.startsWith("integrations.")
     ) {
       return Effect.promise(async () => {
@@ -1053,29 +1030,21 @@ export class ToolRuntime {
                   signal,
                 )
               : await this.describe(input.args as { path: string }, signal);
+          if (value instanceof ToolRuntimeToolNotFoundError)
+            return await this.toolNotFound(String(value.path));
           return value instanceof Error
             ? failure("discovery_failed", value.message)
             : ToolResult.ok(value);
         }
-        if (
-          input.path === "executor.integrations.list" &&
-          this.remoteConnectionBackend !== undefined
-        ) {
+        if (input.path === "executor.integrations.list") {
           if (!Value.Check(integrationListInputSchema, input.args))
             return failure(
               "invalid_tool_arguments",
               "Expected an optional integration query string",
             );
-          const catalog = await this.remoteConnectionBackend.catalog();
-          if (catalog instanceof Error)
-            return failure("discovery_failed", catalog.message);
-          const query = input.args.query?.trim().toLowerCase() ?? "";
-          return ToolResult.ok(
-            catalog.filter(
-              (entry) =>
-                entry.integration.toLowerCase().includes(query) ||
-                entry.name.toLowerCase().includes(query),
-            ),
+          return await listIntegrationsResult(
+            this.remoteConnectionBackend,
+            input.args.query ?? "",
           );
         }
         if (this.remoteIntegrationTools === undefined)
@@ -1119,7 +1088,45 @@ export class ToolRuntime {
         );
       });
     }
-    return local.invoke(input);
+    return local
+      .invoke(input)
+      .pipe(
+        Effect.flatMap((result) =>
+          isToolResult(result) &&
+          !result.ok &&
+          result.error.code === "tool_not_found"
+            ? Effect.promise(async () => await this.toolNotFound(input.path))
+            : Effect.succeed(result),
+        ),
+      );
+  }
+
+  // Like Executor's describeTool: search the leaf in its namespace, then the whole path.
+  private async toolNotFound(path: string) {
+    const namespace = path.split(".")[0];
+    const leaf = path.slice(path.lastIndexOf(".") + 1);
+    const suggestions = await Effect.runPromise(
+      searchTools(this.executor, leaf, 5, { namespace }).pipe(
+        Effect.flatMap((scoped) =>
+          scoped.items.length > 0
+            ? Effect.succeed(scoped)
+            : searchTools(this.executor, path, 5),
+        ),
+        Effect.map((page) => page.items.map((item) => item.path)),
+      ),
+    ).catch(
+      (cause) => new ToolRuntimeError({ operation: "tool suggestions", cause }),
+    );
+    // Suggestions are optional; the lookup itself already failed.
+    const similar = suggestions instanceof Error ? [] : suggestions;
+    return ToolResult.fail({
+      code: "tool_not_found",
+      message:
+        similar.length > 0
+          ? `Tool not found: ${path}. Similar tools: ${similar.join(", ")}.`
+          : `Tool not found: ${path}. Use tools.search({ query }) to find tools.`,
+      details: { path, suggestions: similar },
+    });
   }
 
   async close() {
@@ -1149,7 +1156,6 @@ async function createToolRuntime(
         }),
       ] as const,
       providers: [],
-      coreTools: { includeProviders: false },
       db: ({ tables }) =>
         Effect.promise(
           async () =>
@@ -1473,6 +1479,8 @@ function toolIdentity(
   ) {
     return { path, displayName: "Tools", integrationId: "executor" };
   }
+  if (path.startsWith("executor.integrations."))
+    return { path, displayName: "Integrations", integrationId: "executor" };
   const parsed = parseToolAddress(`tools.${path}`);
   const integrationId =
     parsed === null ? path.split(".")[0] : String(parsed.integration);
@@ -1486,17 +1494,4 @@ function sandboxPath(address: string) {
   return address.startsWith("tools.")
     ? address.slice("tools.".length)
     : address;
-}
-
-function connectionInput(
-  context: ElicitationContext,
-): ConnectionRequest | undefined {
-  if (context.address !== oauthStartAddress) return undefined;
-  if (!Value.Check(oauthStartInputSchema, context.args)) return undefined;
-  const args: Static<typeof oauthStartInputSchema> = context.args;
-  return {
-    kind: "control-plane",
-    integration: args.integration,
-    connectionName: args.name,
-  };
 }
