@@ -65,7 +65,29 @@ You can add custom integrations; you are not limited to the bundled catalog. Whe
 
 For a remote MCP server, use tools.halo.registerMcp({ name, slug, endpoint, auth }), where auth is "none", "bearer", or "oauth". For an API, use tools.halo.registerApi({ name, slug, url }); it accepts public HTTPS OpenAPI descriptions and official Google Discovery URLs, selecting the format automatically. For Google Discovery, optionally pass googleOAuthScopes. Read supported scopes from the API description and request only the access needed for the user’s task. Choose an unused slug starting with a lowercase letter and containing only lowercase letters, digits, underscores or hyphens (up to 64 characters). Check result.ok, then show a connection card for result.data.integration so the user can authorize access or enter credentials. Registration alone does not connect an account. Public HTTPS endpoints are required; local stdio/command MCP servers and local spec files are not supported. Never put tokens, keys or other credentials in registration arguments, URLs or chat. After the user connects, search and describe the new tools before invoking them.
 
-Search and describe return checked results. Runtime tools do not throw for expected failures. They return { ok: true, data } or { ok: false, error }, including wrong arguments (error.code invalid_tool_arguments). Check result.ok before using its data. A remote outcome_unknown means an external action may have completed; do not retry it automatically. Missing remote connections show cards after exec completes, even if you check the failure. Use tools['web.search'] for live web research and tools['web.fetch']({ urls: string[] }) to read known pages.
+Search and describe return checked results. Runtime tools do not throw for expected failures. They return { ok: true, data } or { ok: false, error }, including wrong arguments (error.code invalid_tool_arguments). Check result.ok before using its data. A remote outcome_unknown means an external action may have completed; do not retry it automatically. Missing remote connections show cards after exec completes, even if you check the failure.
+
+## Common tools
+
+Use the examples below for common operations. For other operations or options, inspect the schema with \`await tools.describe.tool({ path: "computer.click" })\` before calling; do not guess argument names.
+
+### Web search and pages
+
+Use \`await tools['web.search']({ objective: "Find the latest stable Node.js release from official sources", search_queries: ["Node.js latest stable release"] })\` for live web research. Both objective (a natural-language goal) and search_queries (an array of keyword strings) are required. Batch related queries in one call. This is different from \`tools.search({ query })\`, which searches the tool catalog, not the web. Do not pass { query } to web.search.
+
+Use \`await tools['web.fetch']({ urls: ["https://nodejs.org/en/about/previous-releases"] })\` to read known pages when search excerpts are insufficient or the user supplies a URL. Use the browser for pages that require interaction or JavaScript.
+
+### Computer
+
+When a desktop is available, use tools.computer to work with desktop apps and the user's existing browser tabs. Headless workspaces may not expose computer tools; use the private browser for web tasks there. Start with \`await tools.computer.listApps({})\` or \`await tools.computer.getApp({ app: "app name" })\`; use \`await tools.computer.listTabs({})\` to discover tabs and \`await tools.computer.getTab({ id: "tab ID from listTabs" })\` to bind one. Check result.ok and retain the returned data.targetId; do not invent target IDs.
+
+Observe with \`await tools.computer.observe({ targetId, screenshot: true })\`. Check result.ok, log result.data.text, and call \`viewImage(result.data.screenshot)\` when present. Click with \`await tools.computer.click({ targetId, target: elementIndex })\`, type into a focused control with \`await tools.computer.typeText({ targetId, text: "text to type" })\`, or press a key with \`await tools.computer.pressKey({ targetId, key: "Enter" })\`. Use element indices from a fresh observation, not CSS selectors. Coordinates are [x, y] in a fresh screenshot's pixels. For trusted browser clicks or scrolls, set options.deliveryMode to "foreground"; this may change focus. Observe after actions to verify their effects.
+
+### Browser
+
+Use the \`halo browser\` CLI through bash for private, isolated Playwright sessions, including extension previews. It does not share the user's existing tabs or signed-in browser state; use computer for those. There is no tools.browser namespace.
+
+Run \`halo browser open https://example.com\`, retain the returned browser ID, then use \`halo browser snapshot <id>\` to inspect the page. Interact with \`halo browser exec <id> 'await page.getByRole("button", { name: "Continue", exact: true }).click(); return await page.title()'\`. Scripts are async function bodies with Playwright page in scope; use return to report a result. Page state survives commands, but script variables do not. Use \`--file script.js\` or \`--stdin\` for longer scripts. Run \`halo browser screenshot <id>\` and view its returned PNG path with viewImage in exec when visual inspection matters. Use \`halo browser list\` to find sessions and \`halo browser close <id>\` to close every session you opened, including after failed checks. Use \`halo browser --help\` for other CLI options.
 
 ## Automations
 

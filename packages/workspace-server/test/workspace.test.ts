@@ -214,15 +214,8 @@ serverTest(
           ok: false,
           error: {
             code: "invalid_tool_arguments",
-            message: "Tool arguments did not match the input schema.",
-            details: {
-              issues: [
-                {
-                  path: ["prefix"],
-                  message: "Expected string length greater or equal to 2",
-                },
-              ],
-            },
+            message:
+              'Invalid arguments for notes.org.main.inspect:\nExpected string length greater or equal to 2 at /prefix\nCall tools.describe.tool({ path: "notes.org.main.inspect" }) for the schema.',
           },
         },
         hostServicesVisible: false,
@@ -242,6 +235,90 @@ serverTest(
         (execution) => execution.id === "alias",
       )?.result?.details,
     ).toBeUndefined();
+  },
+);
+
+serverTest(
+  "returns concise argument failures with field requirements through exec",
+  async ({ createServer, llm }) => {
+    const server = createServer({
+      tools: {
+        validation: {
+          search: haloTool({
+            description: "Validate search arguments without a network request.",
+            inputSchema: Type.Object({
+              objective: Type.String(),
+              search_queries: Type.Array(Type.String()),
+            }),
+            requiredCapabilities: [],
+            execute: async (args) => ({ result: args }),
+          }),
+        },
+      },
+    });
+    await server.start();
+    const thread = await server.rpc.thread.new();
+    const prompt = server.promptAndWait({ ...thread, text: "Validate inputs" });
+    await llm.respond(
+      m.tool.start("exec", {
+        id: "validate-inputs",
+        arguments: {
+          js: `({
+            missing: await tools.validation.search({ query: "private query" }),
+            wrongType: await tools.validation.search({ objective: 42, search_queries: "private query" }),
+            nested: await tools.validation.search({ objective: "Find a language", search_queries: ["valid", 42] }),
+            root: await tools.validation.search([]),
+            valid: await tools.validation.search({ objective: "Find a language", search_queries: ["Peer Richelsen language"] })
+          })`,
+        },
+      }),
+    );
+    await llm.respond(({ messages }) => {
+      const output = messageText(messages.at(-1)!);
+      const result = JSON.parse(output);
+      const hint =
+        'Call tools.describe.tool({ path: "validation.search" }) for the schema.';
+      expect(result).toEqual({
+        missing: {
+          ok: false,
+          error: {
+            code: "invalid_tool_arguments",
+            message: `Invalid arguments for validation.search:\nExpected required property at /objective\nExpected required property at /search_queries\nExpected string at /objective\nExpected array at /search_queries\n${hint}`,
+          },
+        },
+        wrongType: {
+          ok: false,
+          error: {
+            code: "invalid_tool_arguments",
+            message: `Invalid arguments for validation.search:\nExpected string at /objective\nExpected array at /search_queries\n${hint}`,
+          },
+        },
+        nested: {
+          ok: false,
+          error: {
+            code: "invalid_tool_arguments",
+            message: `Invalid arguments for validation.search:\nExpected string at /search_queries/1\n${hint}`,
+          },
+        },
+        root: {
+          ok: false,
+          error: {
+            code: "invalid_tool_arguments",
+            message: `Invalid arguments for validation.search:\nExpected object at /\n${hint}`,
+          },
+        },
+        valid: {
+          ok: true,
+          data: {
+            objective: "Find a language",
+            search_queries: ["Peer Richelsen language"],
+          },
+        },
+      });
+      expect(output).not.toContain("private query");
+      return m.assistant("Validated.");
+    });
+    await prompt;
   },
 );
 
