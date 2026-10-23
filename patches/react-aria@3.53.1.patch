@@ -1,0 +1,39 @@
+diff --git a/dist/private/overlays/useModalOverlay.cjs b/dist/private/overlays/useModalOverlay.cjs
+index 18c2aae0877f83f6e3f4745290cec6ae0d3634e1..61eb4223f41ddd4d37e7068c8b6020de7bdbc1bc 100644
+--- a/dist/private/overlays/useModalOverlay.cjs
++++ b/dist/private/overlays/useModalOverlay.cjs
+@@ -39,7 +39,7 @@ function $8b67d9aa2ced1b82$export$dbc0f175b25fb0fb(props, state, ref) {
+     });
+     (0, $6d3a394e4e7927ef$exports.useOverlayFocusContain)();
+     let { isEntering: isEntering } = props;
+-    (0, $ce6v8$react.useEffect)(()=>{
++    (0, $ce6v8$react.useLayoutEffect)(()=>{
+         if (state.isOpen && ref.current) {
+             if (isEntering) // Prevent a parent modal from hiding this one while it is entering.
+             return (0, $3c73045d61be2d91$exports.keepVisible)(ref.current);
+diff --git a/dist/private/overlays/useModalOverlay.js b/dist/private/overlays/useModalOverlay.js
+index c7504957a3ea1a1edd2d9a49cf1314e7d1ca47a2..1f1b5cfc81f25b0cca4598ac38ae2545c8d7c816 100644
+--- a/dist/private/overlays/useModalOverlay.js
++++ b/dist/private/overlays/useModalOverlay.js
+@@ -3,7 +3,7 @@ import {useOverlay as $1a051e369e68734b$export$ea8f71083e90600f} from "./useOver
+ import {mergeProps as $64c36edd757dfa16$export$9d1611c77c2fe928} from "../utils/mergeProps.js";
+ import {useOverlayFocusContain as $0a6ccf9bf972d929$export$14c98a7594375490} from "./Overlay.js";
+ import {usePreventScroll as $100c50c02aceaf6e$export$ee0f7cc6afcd1c18} from "./usePreventScroll.js";
+-import {useEffect as $eIIR4$useEffect} from "react";
++import {useLayoutEffect as $eIIR4$useEffect} from "react";
+ 
+ /*
+  * Copyright 2022 Adobe. All rights reserved.
+diff --git a/dist/private/overlays/useModalOverlay.mjs b/dist/private/overlays/useModalOverlay.mjs
+index 404cb54000eff7fbc5e0616c1c445a0298a50953..15bf8e4887d11f72ba25b1a3b3b693fd12acf2e6 100644
+--- a/dist/private/overlays/useModalOverlay.mjs
++++ b/dist/private/overlays/useModalOverlay.mjs
+@@ -3,7 +3,7 @@ import {useOverlay as $77844860df94ba23$export$ea8f71083e90600f} from "./useOver
+ import {mergeProps as $bbaa08b3cd72f041$export$9d1611c77c2fe928} from "../utils/mergeProps.mjs";
+ import {useOverlayFocusContain as $d7a937236970dc7f$export$14c98a7594375490} from "./Overlay.mjs";
+ import {usePreventScroll as $0644e3663365bfe5$export$ee0f7cc6afcd1c18} from "./usePreventScroll.mjs";
+-import {useEffect as $22yBd$useEffect} from "react";
++import {useLayoutEffect as $22yBd$useEffect} from "react";
+ 
+ /*
+  * Copyright 2022 Adobe. All rights reserved.

@@ -119,6 +119,15 @@ export class ElectronHost implements HostApi {
     return connected.client;
   }
 
+  getExtensionUrl(extensionId: string) {
+    // Internal frame URLs require Electron's bearer token and cannot be shared.
+    if (this.environment === "development") return undefined;
+    return new URL(
+      `/extensions/${encodeURIComponent(extensionId)}`,
+      this.extensionBaseUrl,
+    ).toString();
+  }
+
   getExtensionFrameUrl(extensionId: string) {
     return new URL(
       `${encodeURIComponent(extensionId)}/view/`,

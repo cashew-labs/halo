@@ -1,0 +1,43 @@
+{
+  "name": "flow-preview-skill",
+  "version": "0.0.0",
+  "private": true,
+  "bin": {
+    "flow-preview": "./scripts/generate.mjs"
+  },
+  "type": "module",
+  "exports": {
+    ".": "./assets/FlowCanvas.tsx",
+    "./vite": "./assets/previewConfig.mjs"
+  },
+  "scripts": {
+    "generate": "node scripts/generate.mjs",
+    "format": "oxfmt .",
+    "format:check": "oxfmt --check .",
+    "lint": "oxlint --config .oxlintrc.json --deny-warnings assets scripts test playwright.config.ts",
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^6.1.1",
+    "errore": "^0.14.1",
+    "maui": "npm:@tanishqkancharla/maui@0.0.59",
+    "motion": "^13.5.1",
+    "purse-styles": "^0.2.6",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "vite": "^8.2.2"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.61.1",
+    "@types/node": "^22.20.1",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.5",
+    "oxfmt": "^0.65.0",
+    "oxlint": "^1.80.0",
+    "typescript": "7.0.2"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

@@ -229,6 +229,13 @@ export class WebHost implements HostApi {
     return connected.client;
   }
 
+  getExtensionUrl(extensionId: string) {
+    return new URL(
+      `/extensions/${encodeURIComponent(extensionId)}`,
+      window.location.origin,
+    ).toString();
+  }
+
   getExtensionFrameUrl(extensionId: string) {
     return new URL(
       `/workspace/extensions/${encodeURIComponent(extensionId)}/view/`,

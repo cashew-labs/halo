@@ -10,5 +10,6 @@ export function useApps(ctx: { enabled?: boolean } = {}) {
     queryKey: appsQueryKey,
     queryFn: async () => await api.apps.list(),
     enabled: ctx.enabled ?? true,
+    staleTime: 0,
   });
 }
