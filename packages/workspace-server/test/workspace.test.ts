@@ -161,7 +161,7 @@ serverTest(
             number: await tools.numbers.ping({ value: 7 }),
             description: await tools.describe.tool({ path: "notes.org.main.inspect" }),
             numberDescription: await tools.describe.tool({ path: "numbers.ping" }),
-            search: await tools.search({ query: "identifying prefix", source: "workspace" }),
+            search: await tools.search({ query: "identifying prefix" }),
             denied: await tools.notes.locked({ prefix: "locked" }),
             invalidDenied: await tools.notes.locked({ prefix: "x" }),
             invalid: await tools.notes.org.main.inspect({ prefix: "x" }),
@@ -1841,7 +1841,7 @@ serverTest(
       text: "Remove my personal Gmail",
     });
     const js = `var listed = await tools.executor.integrations.list({});
-var [integration] = listed.data;
+var [integration] = listed.data.integrations;
 await tools.executor.integrations.removeConnection({ integration: integration.integration, name: integration.connections[0].name });`;
     await llm.respond(
       m.tool.start("exec", { id: "remove-request", arguments: { js } }),
@@ -1895,7 +1895,11 @@ serverTest(
     const catalog = [
       { integration: "source_control", name: "GitHub" },
       { integration: "vercel", name: "Deployment platform" },
-      { integration: "google_gmail", name: "Gmail" },
+      {
+        integration: "google_gmail",
+        name: "Gmail",
+        description: "Messages, threads, labels, and drafts.",
+      },
     ];
     const availability = { offline: false };
     const server = createServer({
@@ -1925,7 +1929,8 @@ serverTest(
             tools.executor.integrations.list({}),
             tools.executor.integrations.list({ query: "  gItHuB  " }),
             tools.executor.integrations.list({ query: "VERC" }),
-            tools.executor.integrations.list({ query: "missing" }),
+            tools.executor.integrations.list({ query: "gmail DRAFTS" }),
+            tools.executor.integrations.list({ query: "email" }),
             tools.executor.integrations.list({ query: "   " }),
             tools.executor.integrations.list({ query: 42 })
           ]);`,
@@ -1950,11 +1955,18 @@ serverTest(
     expect(listed.result?.details).toMatchObject({
       status: "completed",
       result: [
-        { ok: true, data: catalog },
-        { ok: true, data: [catalog[0]] },
-        { ok: true, data: [catalog[1]] },
-        { ok: true, data: [] },
-        { ok: true, data: catalog },
+        { ok: true, data: { integrations: catalog } },
+        { ok: true, data: { integrations: [catalog[0]] } },
+        { ok: true, data: { integrations: [catalog[1]] } },
+        { ok: true, data: { integrations: [catalog[2]] } },
+        {
+          ok: true,
+          data: {
+            integrations: catalog,
+            note: expect.stringContaining('No integration matched "email"'),
+          },
+        },
+        { ok: true, data: { integrations: catalog } },
         { ok: false, error: { code: "invalid_tool_arguments" } },
       ],
     });
@@ -2081,9 +2093,16 @@ serverTest(
     expect(
       await headless.rpc.testApi.invokeTool({
         path: "search",
-        input: { query: "computer", source: "workspace" },
+        input: { query: "computer" },
       }),
-    ).toEqual({ tools: [], truncated: false, unavailableSources: [] });
+    ).toEqual({ tools: [], truncated: false });
+    // Executor's built-in list would report Halo's own namespaces as integrations.
+    await expect(
+      headless.rpc.testApi.invokeTool({
+        path: "executor.integrations.list",
+        input: {},
+      }),
+    ).rejects.toThrow("This workspace has no control-plane connections");
     await headless.stop();
 
     const server = createServer({ desktopOrigin: "http://127.0.0.1:6080" });
@@ -2091,7 +2110,7 @@ serverTest(
     const search = async (query: string, limit?: number) =>
       await server.rpc.testApi.invokeTool({
         path: "search",
-        input: { query, limit, source: "workspace" },
+        input: { query, limit },
       });
     const computerPaths = [
       "computer.back",
@@ -2117,10 +2136,9 @@ serverTest(
       expect(await search(query)).toMatchObject({
         tools: computerPaths.map((toolPath) => ({
           path: toolPath,
-          source: "workspace",
+          service: "computer",
         })),
         truncated: false,
-        unavailableSources: [],
       });
     }
     expect(await search("computer.OBSERVE", 1)).toMatchObject({
@@ -2173,7 +2191,6 @@ serverTest(
       expect(await search(query)).toEqual({
         tools: [],
         truncated: false,
-        unavailableSources: [],
       });
 
     const thread = await server.rpc.thread.new();
@@ -2185,7 +2202,7 @@ serverTest(
       m.tool.start("exec", {
         id: "discover-computer",
         arguments: {
-          js: 'await tools.search({ query: "computer", source: "workspace" })',
+          js: 'await tools.search({ query: "computer" })',
         },
       }),
     );
@@ -2210,6 +2227,7 @@ serverTest(
     const cancellation = { started: false, cancelled: false };
     let offline = false;
     let writes = 0;
+    let remoteScore: number | undefined;
     const schema = {
       address,
       integration: "custom",
@@ -2228,7 +2246,9 @@ serverTest(
           offline
             ? new Error("offline")
             : {
-                tools: catalog.slice(0, limit),
+                tools: catalog
+                  .slice(0, limit)
+                  .map((tool) => ({ ...tool, score: remoteScore })),
                 truncated: limit !== undefined && catalog.length > limit,
               },
         describe: async ({ address: requested }) => {
@@ -2287,7 +2307,7 @@ serverTest(
         id: "remote-routing",
         arguments: {
           js: `
-    const search = await tools.search({ query: "fixture", source: "control-plane" });
+    const search = await tools.search({ query: "fixture" });
     if (!search.ok) throw new Error(JSON.stringify(search));
     const path = search.data.tools[0].path;
     const description = await tools.describe.tool({ path });
@@ -2326,7 +2346,7 @@ serverTest(
       if (mode === "") { response.end("ready"); return; }
       const result = await fetch(process.env.HALO_EXTENSION_TOOLS_ORIGIN + "/extension-tools/invoke", {
         method: "POST", headers: { "content-type": "application/json", authorization: "Bearer " + process.env.HALO_EXTENSION_TOOLS_TOKEN },
-        body: JSON.stringify({ json: mode === "search" ? { path: "search", input: { query: "fixture", source: "control-plane" } } : mode === "describe" ? { path: "describe.tool", input: { path: ${JSON.stringify(`integrations.${address}`)} } } : { path: ${JSON.stringify(`integrations.${address}`)}, input: { mode } } }),
+        body: JSON.stringify({ json: mode === "search" ? { path: "search", input: { query: "fixture" } } : mode === "describe" ? { path: "describe.tool", input: { path: ${JSON.stringify(`integrations.${address}`)} } } : { path: ${JSON.stringify(`integrations.${address}`)}, input: { mode } } }),
       });
       response.end(await result.text());
     });
@@ -2371,18 +2391,32 @@ serverTest(
     expect(
       await server.rpc.testApi.invokeTool({
         path: "search",
-        input: { query: "fixture", source: "control-plane" },
+        input: { query: "fixture" },
       }),
     ).toMatchObject({
       tools: [
-        { path: `integrations.${address}` },
+        { path: `integrations.${address}`, service: "custom" },
         { path: "integrations.tools.custom.account.added_after_startup" },
       ],
     });
+    // The fake returns every remote tool for any query, so only the score decides the order.
+    for (const [score, first] of [
+      [undefined, "files.read"],
+      [1_000_000, `integrations.${address}`],
+    ] as const) {
+      remoteScore = score;
+      // SAFETY: invokeTool returns the runtime's search result for the search path.
+      const ranked = (await server.rpc.testApi.invokeTool({
+        path: "search",
+        input: { query: "read" },
+      })) as { tools: { path: string }[] };
+      expect(ranked.tools[0]?.path).toBe(first);
+    }
+    remoteScore = undefined;
     expect(
       await server.rpc.testApi.invokeTool({
         path: "search",
-        input: { query: "fixture", source: "control-plane", limit: 1 },
+        input: { query: "fixture", limit: 1 },
       }),
     ).toMatchObject({
       tools: [{ path: `integrations.${address}` }],
@@ -2401,20 +2435,22 @@ serverTest(
         }),
       ),
     ).toContain("local offline data");
-    expect(
-      await server.rpc.testApi.invokeTool({
-        path: "search",
-        input: { query: "read", source: "workspace" },
-      }),
-    ).toMatchObject({ unavailableSources: [] });
+    const warning = expect.stringContaining(
+      "Connected services couldn't be searched",
+    );
     expect(
       await server.rpc.testApi.invokeTool({
         path: "search",
         input: { query: "read" },
       }),
-    ).toMatchObject({ unavailableSources: ["control-plane"] });
+    ).toMatchObject({
+      tools: expect.arrayContaining([
+        expect.objectContaining({ path: "files.read" }),
+      ]),
+      warning,
+    });
     expect(await extension("search")).toMatchObject({
-      json: { ok: false, error: { code: "discovery_failed" } },
+      json: { ok: true, data: { tools: [], warning } },
     });
     const collecting = server.promptAndWait({
       ...thread,

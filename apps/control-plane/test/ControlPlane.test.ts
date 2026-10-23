@@ -1114,7 +1114,7 @@ controlPlaneTest(
       expect(found.tools).toHaveLength(1);
       const address = found.tools[0]!.address;
       const invoked = await agent.run(`
-        var found = await tools.search({ query: ${JSON.stringify(integration.query)}, source: "control-plane" });
+        var found = await tools.search({ query: ${JSON.stringify(integration.query)} });
         if (!found.ok) throw new Error(JSON.stringify(found));
         var path = ${JSON.stringify(`integrations.${address}`)};
         if (!found.data.tools.some(tool => tool.path === path)) throw new Error("Tool not discovered");
@@ -1153,6 +1153,8 @@ controlPlaneTest(
       query: "echo_marker",
       integration: "agent-private-mcp",
     });
+    // Workspaces merge remote and local results by this score.
+    expect(original.tools[0]?.score).toBeGreaterThan(0);
     expect(
       await runtime.integrations.search({
         query: "echo marker",
@@ -1224,6 +1226,13 @@ controlPlaneTest(
       auth: "bearer",
     });
     const catalog = await runtime.integrations.catalog();
+    // Agents choose services by meaning from these descriptions.
+    expect(
+      catalog.find((entry) => entry.integration === "google_gmail"),
+    ).toMatchObject({
+      name: "Gmail",
+      description: "Messages, threads, labels, and drafts.",
+    });
     expect(
       catalog.find((entry) => entry.integration === "setup-private")?.methods,
     ).toEqual([
@@ -3011,7 +3020,7 @@ controlPlaneTest(
       expect(write).toBeDefined();
       const args = integration === "approval_mcp" ? { marker: "allowed" } : {};
       const routed = await agent.run(`
-        var found = await tools.search({ query: ${JSON.stringify(read.name)}, source: "control-plane" });
+        var found = await tools.search({ query: ${JSON.stringify(read.name)} });
         if (!found.ok) throw new Error(JSON.stringify(found));
         var path = ${JSON.stringify(`integrations.${read.address}`)};
         if (!found.data.tools.some(tool => tool.path === path)) throw new Error("Tool not discovered");

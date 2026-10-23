@@ -1488,10 +1488,15 @@ export class IntegrationService {
             ctx.query,
             Number.MAX_SAFE_INTEGER,
             { namespace: ctx.integration },
-          )).items.flatMap((item) => byPath.get(item.path) ?? []);
+          )).items.flatMap((item) => {
+            const tool = byPath.get(item.path);
+            return tool === undefined
+              ? []
+              : [{ ...summarizeTool(tool), score: item.score }];
+          });
           const limit = ctx.limit ?? 50;
           return {
-            tools: ranked.slice(0, limit).map(summarizeTool),
+            tools: ranked.slice(0, limit),
             truncated: ranked.length > limit,
           };
         }),
@@ -1898,6 +1903,12 @@ function setupCatalogEntry(
   return {
     integration: integration.slug,
     name: integration.name,
+    // Like Executor's integration list, omit descriptions that only repeat the identity.
+    description: [integration.slug, integration.name]
+      .map((value) => value.toLowerCase())
+      .includes(integration.description.toLowerCase())
+      ? undefined
+      : integration.description,
     methods: integration.authMethods.map((method) => ({
       template: method.template,
       label: method.label,
