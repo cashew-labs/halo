@@ -48,13 +48,13 @@ export class TestChrome {
     if (root instanceof Error) return root;
     const profileDir = path.join(root, "profile");
     const launcher = path.join(root, "halo-chrome");
-    // Mirrors apps/workspace-server/desktop/chrome.sh, headless.
+    // Mirrors the workspace launcher, with Playwright's test-only keychain flags.
     const written = await fs
       .writeFile(
         launcher,
         [
           "#!/bin/sh",
-          `exec ${JSON.stringify(chromium.executablePath())} --headless=new --no-first-run --no-default-browser-check --remote-debugging-port=0 --user-data-dir=${JSON.stringify(profileDir)} "$@"`,
+          `exec ${JSON.stringify(chromium.executablePath())} --headless=new --no-first-run --no-default-browser-check --password-store=basic --use-mock-keychain --remote-debugging-port=0 --user-data-dir=${JSON.stringify(profileDir)} "$@"`,
           "",
         ].join("\n"),
         { mode: 0o755 },
@@ -75,7 +75,10 @@ export class TestChrome {
   async open(urls: string[]) {
     spawn(this.launcher, urls, { detached: true, stdio: "ignore" }).unref();
     const port = path.join(this.profileDir, "DevToolsActivePort");
-    for (let attempt = 0; attempt < 200; attempt++) {
+    const deadline = Date.now() + 20_000;
+    let failure: TestChromeError | undefined;
+    while (Date.now() < deadline) {
+      await sleep(100);
       if (existsSync(port)) {
         const address = await fs
           .readFile(port, "utf8")
@@ -83,15 +86,23 @@ export class TestChrome {
             (cause) =>
               new TestChromeError({ operation: "read browser port", cause }),
           );
-        if (address instanceof Error) return address;
+        if (address instanceof Error) {
+          failure = address;
+          continue;
+        }
+        const debugPort = address.split("\n")[0];
+        if (!debugPort) continue;
         const response = await fetch(
-          `http://127.0.0.1:${address.split("\n")[0]}/json/list`,
-          { signal: AbortSignal.timeout(5_000) },
+          `http://127.0.0.1:${debugPort}/json/list`,
+          { signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())) },
         ).catch(
           (cause) =>
             new TestChromeError({ operation: "read startup tabs", cause }),
         );
-        if (response instanceof Error) return response;
+        if (response instanceof Error) {
+          failure = response;
+          continue;
+        }
         // SAFETY: Chromium's /json/list returns target descriptors with these string fields.
         const tabs = await (
           response.json() as Promise<
@@ -101,7 +112,10 @@ export class TestChrome {
           (cause) =>
             new TestChromeError({ operation: "decode startup tabs", cause }),
         );
-        if (tabs instanceof Error) return tabs;
+        if (tabs instanceof Error) {
+          failure = tabs;
+          continue;
+        }
         // The port appears before startup tabs finish their first navigation.
         // Attaching Playwright in that window can miss the navigation commit.
         if (
@@ -114,9 +128,11 @@ export class TestChrome {
         )
           return;
       }
-      await sleep(100);
     }
-    return new TestChromeError({ operation: "wait for startup tabs" });
+    return new TestChromeError({
+      operation: "wait for startup tabs",
+      cause: failure,
+    });
   }
 
   async close() {
