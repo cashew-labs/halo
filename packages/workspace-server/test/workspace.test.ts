@@ -2021,10 +2021,7 @@ serverTest(
       return m.tool.start("exec", {
         id: "remote-connection",
         arguments: {
-          js: `await Promise.allSettled([
-            tools.halo.showConnectionCard({ integration: "new_mcp" }),
-            tools.executor.coreTools.oauth.start({ client: "google", clientOwner: "org", owner: "user", name: "personal", integration: "google_gmail", template: "googleOAuth2" })
-          ]);`,
+          js: 'await tools.halo.showConnectionCard({ integration: "new_mcp" });',
         },
       });
     });
@@ -2051,14 +2048,7 @@ serverTest(
     expect(execution.approvals).toEqual([]);
     const request = { kind: "control-plane" as const, integration: "new_mcp" };
     expect(execution.result?.details).toMatchObject({
-      connectionRequests: expect.arrayContaining([
-        expect.objectContaining(request),
-        expect.objectContaining({
-          kind: "control-plane",
-          integration: "google_gmail",
-          connectionName: "personal",
-        }),
-      ]),
+      connectionRequests: [request],
     });
     const started = await server.rpc.thread.startConnection({
       ...thread,
@@ -2482,9 +2472,9 @@ serverTest(
       const thread = await server.rpc.thread.new();
       const prompting = server.promptAndWait({
         ...thread,
-        text: `${decision} the policy`,
+        text: `${decision} the removal`,
       });
-      const js = `await tools.executor.coreTools.policies.create({ owner: "user", pattern: "approval-test-${decision}.*", action: "block" });`;
+      const js = `await tools.halo.removeConnection({ integration: "google_gmail", name: "approval-test-${decision}" });`;
       await llm.respond(
         m.tool.start("exec", {
           id: `approval-request-${decision}`,
@@ -2574,111 +2564,14 @@ serverTest(
 );
 
 serverTest(
-  "enforces saved block and approval policies before workspace tool effects",
-  async ({ server, llm }) => {
-    await server.rpc.workspace.writeFile({
-      path: "policy.txt",
-      content: "original",
-    });
-    for (const [pattern, action] of [
-      ["files.write", "block"],
-      ["files.edit", "require_approval"],
-    ]) {
-      await server.rpc.testApi.invokeTool({
-        path: "executor.coreTools.policies.create",
-        input: { owner: "user", pattern, action },
-      });
-    }
-    const thread = await server.rpc.thread.new();
-    const blocked = server.promptAndWait({
-      ...thread,
-      text: "Attempt a blocked write",
-    });
-    await llm.respond(
-      m.tool.start("exec", {
-        id: "blocked-write",
-        arguments: {
-          js: 'await tools.files.write({ path: "policy.txt", content: "blocked" })',
-        },
-      }),
-    );
-    await llm.respond(({ messages }) => {
-      const output = messageText(
-        messages.find(
-          (message) =>
-            message.role === "tool" && message.tool_call_id === "blocked-write",
-        )!,
-      );
-      expect(JSON.parse(output)).toMatchObject({
-        ok: false,
-        error: { code: "tool_blocked" },
-      });
-      return m.assistant("Blocked.");
-    });
-    await blocked;
-    await expect(
-      server.rpc.testApi.invokeTool({
-        path: "files.write",
-        input: { path: "policy.txt", content: "also blocked" },
-      }),
-    ).rejects.toThrow("blocked");
-    expect(await server.rpc.workspace.readFile({ path: "policy.txt" })).toBe(
-      "original",
-    );
-
-    const js =
-      'await tools.files.edit({ path: "policy.txt", oldText: "original", newText: "approved" })';
-    const editing = server.promptAndWait({
-      ...thread,
-      text: "Request an edit",
-    });
-    await llm.respond(
-      m.tool.start("exec", { id: "edit-request", arguments: { js } }),
-    );
-    await llm.respond(m.assistant("Waiting for approval."));
-    await editing;
-    const approval = threadToolExecutions(
-      await server.rpc.thread.snapshot(thread),
-    ).flatMap((execution) =>
-      execution.type === "exec" ? execution.approvals : [],
-    )[0]!;
-    expect(approval).toMatchObject({
-      toolPath: "files.edit",
-      status: "pending",
-    });
-    expect(await server.rpc.workspace.readFile({ path: "policy.txt" })).toBe(
-      "original",
-    );
-
-    await server.rpc.thread.respondToToolApproval({
-      ...thread,
-      approvalId: approval.id,
-      decision: "allow",
-    });
-    await llm.respond(
-      m.tool.start("exec", { id: "edit-retry", arguments: { js } }),
-    );
-    await llm.respond(m.assistant("Edited."));
-    await expect
-      .poll(
-        async () => await server.rpc.workspace.readFile({ path: "policy.txt" }),
-      )
-      .toBe("approved");
-    await expect
-      .poll(async () => (await server.rpc.thread.snapshot(thread)).activeRun)
-      .toBeUndefined();
-  },
-);
-
-serverTest(
   "requires another approval when retry arguments change",
   async ({ server, llm }) => {
     const thread = await server.rpc.thread.new();
     const originalJs =
-      'await tools.executor.coreTools.policies.create({ owner: "user", pattern: "approval-original.*", action: "block" });';
+      'await tools.halo.removeConnection({ integration: "google_gmail", name: "approval-original" });';
     const prompting = server.promptAndWait({
       ...thread,
-      text: "Create the policy",
+      text: "Remove the connection",
     });
     await llm.respond(
       m.tool.start("exec", {
@@ -2699,7 +2592,7 @@ serverTest(
       decision: "allow",
     });
     const changedJs =
-      'await tools.executor.coreTools.policies.create({ owner: "user", pattern: "approval-changed.*", action: "block" });';
+      'await tools.halo.removeConnection({ integration: "google_gmail", name: "approval-changed" });';
     await llm.respond(
       m.tool.start("exec", {
         id: "approval-changed",
@@ -2722,7 +2615,7 @@ serverTest(
         activeRun: undefined,
         approvals: [
           { id: originalApproval.id, status: "allowed" },
-          { status: "pending", arguments: { pattern: "approval-changed.*" } },
+          { status: "pending", arguments: { name: "approval-changed" } },
         ],
       });
     const completed = await server.rpc.thread.snapshot(thread);
@@ -2731,7 +2624,7 @@ serverTest(
     );
     expect(approvals).toMatchObject([
       { id: originalApproval.id, status: "allowed" },
-      { status: "pending", arguments: { pattern: "approval-changed.*" } },
+      { status: "pending", arguments: { name: "approval-changed" } },
     ]);
   },
 );

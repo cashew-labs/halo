@@ -59,7 +59,6 @@ import {
   createExecutor,
   definePlugin,
   Effect,
-  type ElicitationContext,
   type Executor,
   parseToolAddress,
   type Plugin,
@@ -71,7 +70,7 @@ import {
   ToolResult,
   isToolResult,
 } from "@executor-js/sdk/core";
-import { type Static, type TObject, Type } from "@sinclair/typebox";
+import { type TObject, Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import * as errore from "errore";
 import type {
@@ -387,18 +386,6 @@ const haloToolsPlugin = definePlugin((options?: HaloToolsPluginOptions) => {
       ),
     ],
   };
-});
-
-const oauthStartAddress = "executor.coreTools.oauth.start";
-const oauthStartInputSchema = Type.Object({
-  client: Type.String(),
-  clientOwner: Type.Union([Type.Literal("org"), Type.Literal("user")]),
-  owner: Type.Union([Type.Literal("org"), Type.Literal("user")]),
-  name: Type.String(),
-  integration: Type.String(),
-  template: Type.String(),
-  identityLabel: Type.Optional(Type.Union([Type.String(), Type.Null()])),
-  newConnection: Type.Optional(Type.Boolean()),
 });
 
 type HaloRuntimePlugins = readonly [Plugin<"halo-tools", object>];
@@ -755,11 +742,6 @@ export class ToolRuntime {
         await Effect.runPromise(
           this.engine.execute(input.code, {
             onElicitation: (context) => {
-              const connection = connectionInput(context);
-              if (connection !== undefined) {
-                collectConnectionRequest(connection);
-                return Effect.succeed({ action: "decline" as const });
-              }
               const toolPath = sandboxPath(String(context.address));
               if (
                 input.consumeApproval({
@@ -1176,7 +1158,6 @@ async function createToolRuntime(
         }),
       ] as const,
       providers: [],
-      coreTools: { includeProviders: false },
       db: ({ tables }) =>
         Effect.promise(
           async () =>
@@ -1513,17 +1494,4 @@ function sandboxPath(address: string) {
   return address.startsWith("tools.")
     ? address.slice("tools.".length)
     : address;
-}
-
-function connectionInput(
-  context: ElicitationContext,
-): ConnectionRequest | undefined {
-  if (context.address !== oauthStartAddress) return undefined;
-  if (!Value.Check(oauthStartInputSchema, context.args)) return undefined;
-  const args: Static<typeof oauthStartInputSchema> = context.args;
-  return {
-    kind: "control-plane",
-    integration: args.integration,
-    connectionName: args.name,
-  };
 }
