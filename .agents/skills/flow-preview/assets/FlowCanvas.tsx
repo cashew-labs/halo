@@ -139,7 +139,10 @@ export function FlowCanvas({ scenario }: { scenario: FlowScenario }) {
     observer.observe(layoutRef.current!);
     return () => observer.disconnect();
   }, []);
-  const treeMaximum = Math.max(180, Math.min(480, layoutWidth - 560));
+  const treeMaximum = Math.max(
+    180,
+    Math.min(480, layoutWidth - (layoutWidth <= 900 ? 40 : 560)),
+  );
   const shownTreeWidth = Math.min(treeMaximum, Math.max(180, treeWidth));
   const panelMaximum = Math.max(
     320,

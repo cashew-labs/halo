@@ -160,6 +160,12 @@ test("both sidebar widths persist after dragging, keyboard resizing and reload",
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(outline).toBeHidden();
   await expect(preview).toBeHidden();
+  await expect(
+    page.getByRole("separator", {
+      name: "Resize flow outline",
+      includeHidden: true,
+    }),
+  ).toHaveAttribute("aria-valuenow", "324");
   await page.setViewportSize({ width: 1280, height: 900 });
   await expect(outline).toHaveAttribute("aria-valuenow", "324");
   await expect(preview).toHaveAttribute("aria-valuenow", "550");
