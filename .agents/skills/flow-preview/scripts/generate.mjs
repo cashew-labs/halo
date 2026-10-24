@@ -123,7 +123,6 @@ export const scenario: FlowScenario = {
   id: "${name}",
   title: "${title}",
   description: "Edit the scenario to describe a real user journey.",
-  notice: "Local fixtures only. No production data is changed.",
   initialState: "editing",
   dimensions: { nodeHeight: 140, previewWidth: 360 },
   nodes: [

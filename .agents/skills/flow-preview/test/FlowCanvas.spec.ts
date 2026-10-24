@@ -85,18 +85,30 @@ test("generated unrelated flow supports selection, local editing, reset and navi
   const preview = page.getByRole("complementary", {
     name: "Selected state preview",
   });
+  await page.setViewportSize({ width: 1280, height: 600 });
+  await expect(
+    preview.getByRole("button", { name: "Follow flow: Save preferences" }),
+  ).toBeInViewport();
   await expect(outline.getByRole("button")).toHaveCount(2);
   await expect(
     page.getByRole("navigation", { name: "Flow states" }).getByRole("button"),
   ).toHaveCount(2);
   const name = preview.getByRole("textbox", { name: "Digest name" });
   await name.fill("My changes");
+  await page
+    .getByRole("button", { name: "Preview Preferences saved", exact: true })
+    .hover();
+  await expect(name).toHaveValue("My changes");
+  await expect(
+    preview.getByRole("heading", { name: "Editing preferences", exact: true }),
+  ).toBeVisible();
   await preview
     .getByRole("button", { name: "Save preferences", exact: true })
     .click();
   await expect(preview.getByRole("status")).toHaveText("Preferences saved");
   await preview.getByRole("button", { name: "Reset preview" }).click();
   await expect(name).toHaveValue("Morning digest");
+  await expect(name).toBeInViewport();
   await expect(preview.getByRole("status")).toHaveCount(0);
   await preview
     .getByRole("button", { name: "Follow flow: Save preferences" })
@@ -119,6 +131,44 @@ test("generated unrelated flow supports selection, local editing, reset and navi
   await page.getByRole("button", { name: "Toggle flow sidebar" }).click();
   await expect(outline).toBeVisible();
   expect(errors).toEqual([]);
+});
+
+test("both sidebar widths persist after dragging, keyboard resizing and reload", async ({
+  page,
+}) => {
+  const outline = page.getByRole("separator", { name: "Resize flow outline" });
+  const preview = page.getByRole("separator", { name: "Resize state preview" });
+  for (const [handle, delta, expected] of [
+    [outline, 76, "324"],
+    [preview, -100, "534"],
+  ] as const) {
+    const box = (await handle.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + 80);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 2 + delta, box.y + 80, {
+      steps: 10,
+    });
+    await page.mouse.up();
+    await expect(handle).toHaveAttribute("aria-valuenow", expected);
+  }
+  await preview.focus();
+  await page.keyboard.press("ArrowLeft");
+  await expect(preview).toHaveAttribute("aria-valuenow", "550");
+  await page.reload();
+  await expect(outline).toHaveAttribute("aria-valuenow", "324");
+  await expect(preview).toHaveAttribute("aria-valuenow", "550");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(outline).toBeHidden();
+  await expect(preview).toBeHidden();
+  await expect(
+    page.getByRole("separator", {
+      name: "Resize flow outline",
+      includeHidden: true,
+    }),
+  ).toHaveAttribute("aria-valuenow", "324");
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await expect(outline).toHaveAttribute("aria-valuenow", "324");
+  await expect(preview).toHaveAttribute("aria-valuenow", "550");
 });
 
 test("sparse row hints keep adjacent columns visible without invalidating reviews", async ({
