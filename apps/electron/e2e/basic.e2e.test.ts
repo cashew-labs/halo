@@ -923,3 +923,44 @@ async function clickEditorText(text: Locator) {
     text.click(),
   ]);
 }
+
+e2eTest(
+  "open Markdown notes receive remote edits without a refresh",
+  async ({ app, harness }, testInfo) => {
+    await app.server.rpc.workspace.writeFile({
+      path: "live-note.md",
+      content: "# Original note",
+    });
+    await app.page
+      .getByRole("link", { name: "live-note.md", exact: true })
+      .click();
+    const editor = app.page
+      .getByRole("main", { name: "live-note.md" })
+      .getByLabel("live-note.md", { exact: true });
+    await expect(editor).toContainText("Original note");
+    await harness.tools.files.write({
+      path: "live-note.md",
+      content: "# Updated from desktop",
+    });
+    await expect(editor).toContainText("Updated from desktop");
+    await editor.fill("My next edit");
+    await expect
+      .poll(
+        async () =>
+          await app.server.rpc.workspace.readFile({ path: "live-note.md" }),
+      )
+      .toContain("My next edit");
+    await app.page.screenshot({
+      path: testInfo.outputPath("note-live-desktop.png"),
+    });
+    await app.page.setViewportSize({ width: 390, height: 844 });
+    await harness.tools.files.write({
+      path: "live-note.md",
+      content: "# Updated while on mobile",
+    });
+    await expect(editor).toContainText("Updated while on mobile");
+    await app.page.screenshot({
+      path: testInfo.outputPath("note-live-mobile.png"),
+    });
+  },
+);

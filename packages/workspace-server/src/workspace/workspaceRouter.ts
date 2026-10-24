@@ -37,6 +37,15 @@ export const workspaceRouter = os.router({
     if (found instanceof Error) return orpcErrors.badRequest(found);
     return found;
   }),
+  watchFile: os.watchFile.handler(async function* ({ context, input, signal }) {
+    for await (const update of context.workspace.watchFile(
+      input.path,
+      signal,
+    )) {
+      if (update instanceof Error) throw orpcErrors.badRequest(update);
+      yield update;
+    }
+  }),
   previewFile: os.previewFile.handler(async ({ context, input }) => {
     const preview = await context.workspace.previewFile(input.path);
     if (preview instanceof Error) return orpcErrors.badRequest(preview);

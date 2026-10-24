@@ -85,6 +85,18 @@ class FileAutosave {
       void this.flush().catch(console.error);
     }
   }
+  updateLoaded(content: string) {
+    // Keep the original base while local edits need saving or merging.
+    if (
+      fileKind(this.path) !== "markdown" ||
+      this.content !== this.lastWritten ||
+      this.pendingMerge
+    )
+      return;
+    this.content = content;
+    this.lastWritten = content;
+    this.synced(content);
+  }
   beforeUnload = (event: BeforeUnloadEvent) => {
     if (this.content === this.lastWritten) return;
     event.preventDefault();
@@ -268,6 +280,7 @@ export function useAutosaveFile(args: { path: string; loaded: string }) {
     else if (progress.message === undefined) errors.clear(errorId);
   }, [errors, errorId, args.path, progress, save]);
   useEffect(() => () => errors.clear(errorId), [errors, errorId]);
+  useEffect(() => save.updateLoaded(args.loaded), [save, args.loaded]);
   useEffect(() => {
     save.updateConnection(api, connected);
   }, [save, api, connected]);

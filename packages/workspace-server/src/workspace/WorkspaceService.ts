@@ -295,6 +295,38 @@ export class WorkspaceService {
     }
   }
 
+  async *watchFile(path: string, signal?: AbortSignal) {
+    const absolutePath = await this.resolveEntryPath(path);
+    if (absolutePath instanceof Error) {
+      yield absolutePath;
+      return;
+    }
+    const changes = new Stream<void>();
+    using updates = changes.consume({ abortSignal: signal });
+    using cleanup = new errore.DisposableStack();
+    // Subscribe before the initial notification so reads cannot miss a change.
+    cleanup.defer(
+      this.options.filesystem.watchEvents.subscribe((batch) => {
+        if (batch.watchedPath !== this.layout.root) return;
+        if (batch instanceof Error) {
+          changes.append();
+          return;
+        }
+        if (
+          batch.events.some(
+            (event) =>
+              event.path === absolutePath ||
+              absolutePath.startsWith(`${event.path}${sep}`),
+          )
+        )
+          changes.append();
+      }),
+    );
+    if (signal?.aborted) return;
+    yield { path };
+    while (!(await updates.next()).done) yield { path };
+  }
+
   async previewFile(path: string) {
     const absolutePath = await this.resolveEntryPath(path);
     if (absolutePath instanceof Error) return absolutePath;
