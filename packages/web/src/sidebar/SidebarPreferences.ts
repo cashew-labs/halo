@@ -2,7 +2,7 @@ import * as errore from "errore";
 import { Type, type Static } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 
-// Section IDs and favorite prefixes are persisted browser preferences.
+// Section IDs are persisted browser layout preferences.
 // Keep the legacy "sessions" and "session:" values when displaying threads.
 export const sidebarSectionLabels = {
   favorites: "Favorites",
@@ -27,11 +27,11 @@ const artifactFilterSchema = Type.Union([
   Type.Literal("automations"),
 ]);
 export type ArtifactFilter = Static<typeof artifactFilterSchema>;
+const storedFavoriteIdsSchema = Type.Array(
+  Type.String({ pattern: "^(file:|extension:|automation:|session:)" }),
+  { uniqueItems: true },
+);
 const preferencesSchema = Type.Object({
-  favoriteIds: Type.Array(
-    Type.String({ pattern: "^(file:|extension:|automation:|session:)" }),
-    { uniqueItems: true },
-  ),
   sectionOrder: Type.Array(sectionIdSchema, {
     minItems: 3,
     maxItems: 3,
@@ -40,7 +40,9 @@ const preferencesSchema = Type.Object({
   collapsedSections: Type.Array(sectionIdSchema, { uniqueItems: true }),
   artifactFilter: artifactFilterSchema,
 });
-type SidebarPreferenceState = Static<typeof preferencesSchema>;
+type SidebarPreferenceState = Static<typeof preferencesSchema> & {
+  favoriteIds: string[];
+};
 
 class SidebarStorageError extends errore.createTaggedError({
   name: "SidebarStorageError",
@@ -57,14 +59,24 @@ export class SidebarPreferences {
   };
   private readonly listeners = new Set<() => void>();
   private readonly storageKey: string;
+  // Retain the old list until the VM acknowledges the import.
+  private storedFavoriteIds: string[] | undefined;
+  private readonly favorites: {
+    add(favoriteIds: string[]): Promise<void>;
+    toggle(favoriteId: string): void;
+    updateFiles(source: string, destination?: string): void;
+  };
 
   constructor({
     userId,
     workspaceRoot,
+    favorites,
   }: {
     userId: string;
     workspaceRoot: string;
+    favorites: SidebarPreferences["favorites"];
   }) {
+    this.favorites = favorites;
     this.storageKey = `halo:sidebar:${JSON.stringify([userId, workspaceRoot])}`;
     const stored = errore.try({
       try: () => window.localStorage.getItem(this.storageKey),
@@ -89,7 +101,19 @@ export class SidebarPreferences {
       console.warn(new SidebarStorageError({ operation: "restore" }));
       return;
     }
-    this.state = parsed;
+    this.state = { ...parsed, favoriteIds: [] };
+    if (
+      "favoriteIds" in parsed &&
+      Value.Check(storedFavoriteIdsSchema, parsed.favoriteIds)
+    )
+      this.storedFavoriteIds = parsed.favoriteIds;
+  }
+
+  async importFavorites() {
+    if (this.storedFavoriteIds === undefined) return;
+    await this.favorites.add(this.storedFavoriteIds);
+    this.storedFavoriteIds = undefined;
+    this.publish(this.state);
   }
 
   getSnapshot = () => this.state;
@@ -98,11 +122,13 @@ export class SidebarPreferences {
     return () => this.listeners.delete(listener);
   };
 
+  setFavoriteIds(favoriteIds: string[]) {
+    this.state = { ...this.state, favoriteIds };
+    for (const listener of this.listeners) listener();
+  }
+
   toggleFavorite(favoriteId: string) {
-    const favoriteIds = this.state.favoriteIds.includes(favoriteId)
-      ? this.state.favoriteIds.filter((item) => item !== favoriteId)
-      : [...this.state.favoriteIds, favoriteId];
-    this.publish({ ...this.state, favoriteIds });
+    this.favorites.toggle(favoriteId);
   }
 
   setSectionExpanded(sectionId: SidebarSectionId, expanded: boolean) {
@@ -159,23 +185,20 @@ export class SidebarPreferences {
   }
 
   updateFiles(source: string, destination?: string) {
-    const favoriteIds = this.state.favoriteIds.flatMap((favoriteId) => {
-      if (!favoriteId.startsWith("file:")) return [favoriteId];
-      const path = favoriteId.slice(5);
-      if (path !== source && !path.startsWith(`${source}/`))
-        return [favoriteId];
-      return destination === undefined
-        ? []
-        : [`file:${destination}${path.slice(source.length)}`];
-    });
-    this.publish({ ...this.state, favoriteIds: [...new Set(favoriteIds)] });
+    this.favorites.updateFiles(source, destination);
   }
 
   private publish(state: SidebarPreferenceState) {
     this.state = state;
+    const { favoriteIds: _favoriteIds, ...layout } = state;
+    const stored: Static<typeof preferencesSchema> & {
+      favoriteIds?: string[];
+    } = layout;
+    if (this.storedFavoriteIds !== undefined)
+      stored.favoriteIds = this.storedFavoriteIds;
     const saved = errore.try({
       try: () =>
-        window.localStorage.setItem(this.storageKey, JSON.stringify(state)),
+        window.localStorage.setItem(this.storageKey, JSON.stringify(stored)),
       catch: (cause) => new SidebarStorageError({ operation: "save", cause }),
     });
     if (saved instanceof Error) console.warn(saved);

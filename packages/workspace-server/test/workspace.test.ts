@@ -3948,6 +3948,78 @@ serverTest(
 );
 
 serverTest(
+  "syncs VM favorites between independent replicas and keeps them after reconnect",
+  async ({ server }) => {
+    const controller = new AbortController();
+    await using cleanup = new errore.AsyncDisposableStack();
+    cleanup.defer(() => controller.abort());
+    const clients = [0, 1].map(
+      () =>
+        new TandemClient({
+          ...haloSchemaToTandemSchema(workspaceSchema),
+          remote: createWorkspaceRemote({
+            api: server.rendererRpc,
+            signal: controller.signal,
+            onDisconnect: console.warn,
+          }),
+          autoConnect: false,
+        }),
+    );
+    for (const client of clients) {
+      cleanup.defer(async () => await client.disconnect());
+      const subscription = client.subscribe(
+        { collection: "favorites" },
+        () => {},
+      );
+      cleanup.defer(subscription.destroy);
+      await client.ready;
+      await client.connect();
+    }
+    await server.rpc.favorites.toggle({ favoriteId: "file:notes/today.md" });
+    await server.rendererRpc.favorites.toggle({ favoriteId: "session:thread" });
+    for (const client of clients)
+      await expect
+        .poll(() =>
+          client
+            .query({ collection: "favorites", orderBy: { position: "asc" } })
+            .map((item) => item.id),
+        )
+        .toEqual(["file:notes/today.md", "session:thread"]);
+    await server.rpc.favorites.add({
+      favoriteIds: ["file:notes/today.md", "session:thread"],
+    });
+    for (const client of clients) {
+      await client.disconnect();
+      await client.connect();
+      await expect
+        .poll(() => client.query({ collection: "favorites" }))
+        .toHaveLength(2);
+    }
+    await server.rpc.favorites.updateFiles({
+      source: "notes",
+      destination: "journal",
+    });
+    for (const client of clients)
+      await expect
+        .poll(() =>
+          client
+            .query({ collection: "favorites", orderBy: { position: "asc" } })
+            .map((item) => item.id),
+        )
+        .toEqual(["file:journal/today.md", "session:thread"]);
+    await server.rpc.favorites.toggle({ favoriteId: "session:thread" });
+    await server.rpc.favorites.updateFiles({ source: "journal" });
+    for (const client of clients)
+      await expect
+        .poll(() => client.query({ collection: "favorites" }))
+        .toEqual([]);
+    await expect(
+      server.rpc.favorites.toggle({ favoriteId: "invalid" }),
+    ).rejects.toThrow("Could not update favorites");
+  },
+);
+
+serverTest(
   "notifies open notes of external content changes and sends a fresh notification on reconnect",
   async ({ server }) => {
     await server.rpc.workspace.writeFile({

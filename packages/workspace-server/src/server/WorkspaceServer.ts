@@ -5,6 +5,7 @@ import type { ControlPlaneAutomationClient } from "../automations/ControlPlaneAu
 import { AutomationSync } from "../automations/AutomationSync.js";
 import { automationTools } from "../automations/automationTools.js";
 import { AutomationRunner } from "../automations/AutomationRunner.js";
+import { FavoritesService } from "../favorites/FavoritesService.js";
 import { HotkeyService } from "../hotkeys/HotkeyService.js";
 import { WorkspaceIdleReporter } from "./WorkspaceIdleReporter.js";
 import { combineLatest } from "@get-halo/shared/Stream";
@@ -295,6 +296,7 @@ export class WorkspaceServer {
           error: closed,
         });
     });
+    const favorites = new FavoritesService({ db });
     const hotkeys = new HotkeyService({
       db,
       userId: config.ownerUserId,
@@ -506,6 +508,7 @@ export class WorkspaceServer {
       ...http,
       context: {
         db,
+        favorites,
         build: config.build,
         hotkeys,
         automations,

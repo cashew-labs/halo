@@ -19,6 +19,8 @@ import {
 
 import { automationsMigration } from "./20261008140000-automations.js";
 
+import { favoritesMigration } from "./20261023100000-favorites.js";
+
 export const workspaceMigrations = [
   initialWorkspaceMigration,
   initialExecutorMigration,
@@ -32,6 +34,7 @@ export const workspaceMigrations = [
   automationSyncMigration,
   automationEventRetentionMigration,
   tandemMigration,
+  favoritesMigration,
 ] satisfies readonly Migration[];
 
 export function migrateWorkspace(connection: Database) {

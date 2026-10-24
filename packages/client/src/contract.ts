@@ -38,7 +38,7 @@ import type {
 } from "./rpc.js";
 
 // Tandem-backed clients use a different workspace stream contract.
-export const haloProtocolVersion = 31 as const;
+export const haloProtocolVersion = 32 as const;
 export const haloSupportedProtocols = [
   25,
   26,
@@ -46,6 +46,7 @@ export const haloSupportedProtocols = [
   28,
   29,
   30,
+  31,
   haloProtocolVersion,
 ];
 
@@ -254,6 +255,13 @@ export const contract = publicProcedure.router({
     publishTemplate: oc
       .input(type<{ appId: string; slug: string; description: string }>())
       .output(type<TemplateSummary>()),
+  },
+  favorites: {
+    add: oc.input(type<{ favoriteIds: string[] }>()).output(type<void>()),
+    toggle: oc.input(type<{ favoriteId: string }>()).output(type<void>()),
+    updateFiles: oc
+      .input(type<{ source: string; destination?: string }>())
+      .output(type<void>()),
   },
   workspace: {
     get: oc.output(type<WorkspaceInfo>()),
