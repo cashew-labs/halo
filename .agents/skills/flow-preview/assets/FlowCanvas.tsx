@@ -127,7 +127,8 @@ export function FlowCanvas({ scenario }: { scenario: FlowScenario }) {
   });
   const [panelWidth, setPanelWidth] = useSidebarWidth({
     storageKey: `flow-width:${scenario.id}:preview`,
-    initialWidth: previewWidth + 40,
+    // Include the aside's 20px inset and the panel's 16px inset plus border on both sides.
+    initialWidth: previewWidth + 40 + 34,
   });
   const layoutRef = useRef<HTMLDivElement>(null);
   const [layoutWidth, setLayoutWidth] = useState(window.innerWidth);
