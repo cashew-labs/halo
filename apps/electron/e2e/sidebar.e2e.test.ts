@@ -63,9 +63,9 @@ e2eTest(
     // Creating a file while files are filtered out shows every kind again.
     await chooseFilter(app.page, "Extensions");
     await sidebar
-      .getByRole("toolbar", { name: "Workspace actions" })
-      .getByRole("button", { name: "New Markdown file", exact: true })
+      .getByRole("button", { name: "Collapse Artifacts", exact: true })
       .click();
+    await createArtifact(app.page, "File");
     await expect(
       sidebar.getByRole("textbox", { name: "New file name", exact: true }),
     ).toBeVisible();
@@ -166,7 +166,7 @@ e2eTest(
 
 // Renderer coverage is lost on reload, so these handlers run in one page session.
 e2eTest(
-  "runs toolbar actions and collapses and reorders sections",
+  "runs section actions and collapses and reorders sections",
   async ({ app }) => {
     const sidebar = workspaceSidebar(app.page);
     const toolbar = sidebar.getByRole("toolbar", { name: "Workspace actions" });
@@ -174,15 +174,20 @@ e2eTest(
     await expect(
       app.page.getByRole("region", { name: "Desktop", exact: true }),
     ).toBeVisible();
-    await toolbar
+    await sidebar
+      .getByRole("button", { name: "Collapse Threads", exact: true })
+      .click();
+    await sidebar
+      .getByRole("button", { name: "Expand Threads", exact: true })
+      .hover();
+    await sidebar
+      .getByRole("rowgroup", { name: "Threads", exact: true })
       .getByRole("button", { name: "New thread", exact: true })
       .click();
     await expect(
       app.page.getByRole("main", { name: "New thread", exact: true }),
     ).toBeVisible();
-    await toolbar
-      .getByRole("button", { name: "New folder", exact: true })
-      .click();
+    await createArtifact(app.page, "Folder");
     const folderName = sidebar.getByRole("textbox", {
       name: "New folder name",
       exact: true,
@@ -193,6 +198,9 @@ e2eTest(
       sidebar.getByRole("link", { name: "Plans", exact: true }),
     ).toBeVisible();
 
+    await sidebar
+      .getByRole("button", { name: "Expand Threads", exact: true })
+      .click();
     await sidebar
       .getByRole("button", { name: "Collapse Threads", exact: true })
       .click();
@@ -225,12 +233,25 @@ function workspaceSidebar(page: Page) {
 
 async function chooseFilter(page: Page, label: string) {
   await workspaceSidebar(page)
+    .getByRole("button", { name: /^(Collapse|Expand) Artifacts$/ })
+    .hover();
+  await workspaceSidebar(page)
     .getByRole("button", { name: "Filter artifacts", exact: true })
     .click();
   // Maui appends a checkmark to the selected option's accessible name.
   await page
     .getByRole("menuitemradio", { name: new RegExp(`^${label}`) })
     .click();
+}
+
+async function createArtifact(page: Page, kind: "File" | "Folder") {
+  await workspaceSidebar(page)
+    .getByRole("button", { name: /^(Collapse|Expand) Artifacts$/ })
+    .hover();
+  await workspaceSidebar(page)
+    .getByRole("button", { name: "Create artifact", exact: true })
+    .click();
+  await page.getByRole("menuitem", { name: kind, exact: true }).click();
 }
 
 // Playwright's first HTML drag in a fresh Electron page can dispatch no drag
@@ -242,6 +263,11 @@ async function dragSection(
   order: string[],
 ) {
   await expect(async () => {
+    await sidebar
+      .getByRole("button", {
+        name: new RegExp(`^(Collapse|Expand) ${section}$`),
+      })
+      .hover();
     await sidebar
       .getByRole("button", { name: `Reorder ${section}`, exact: true })
       .dragTo(sidebar.getByRole("button", { name: target, exact: true }));

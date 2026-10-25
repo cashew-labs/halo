@@ -1,17 +1,19 @@
 import { FileSaveErrorIndicator } from "../FileSaveErrorIndicator.js";
 import { SidebarFooter } from "./SidebarFooter.js";
 import { useSidebar } from "../WorkspaceLayout.js";
-import { Fragment, useState } from "react";
+import { Fragment } from "react";
+import { Button as NavigationButton } from "react-aria-components";
 import {
   Button,
-  Tooltip,
   backgroundColor,
   colors,
   flex,
   flexItem,
+  focusRing,
+  navigationItem,
   spacing,
 } from "maui";
-import { Close, FilePlus, FolderPlus, Edit, Monitor } from "maui/icons";
+import { Close, Monitor } from "maui/icons";
 import { style, useStyles } from "purse-styles";
 import type { ThreadSummary } from "@get-halo/client";
 import type { AppInfo } from "../HostApi.js";
@@ -22,10 +24,7 @@ import {
   useExpandedSidebar,
 } from "./navigation/NavigationSidebar.js";
 import { useDirectoryListings } from "../filesystem/useDirectoryListings.js";
-import {
-  useSidebarPreferences,
-  useSidebarPreferenceState,
-} from "./SidebarPreferencesProvider.js";
+import { useSidebarPreferenceState } from "./SidebarPreferencesProvider.js";
 import { FavoritesSection } from "./FavoritesSection.js";
 import { sidebarPadding } from "./navigation/SidebarSection.js";
 import { useWorkspacePanes } from "../panes/WorkspacePanesProvider.js";
@@ -38,13 +37,8 @@ type SidebarProps = {
 export function Sidebar({ threads, appInfo }: SidebarProps) {
   const { isMobile, close } = useSidebar();
   const workspace = useWorkspacePanes();
-  const preferences = useSidebarPreferences();
-  const [entryRequest, setEntryRequest] = useState<{
-    kind: "file" | "directory";
-    sequence: number;
-  }>({ kind: "file", sequence: 0 });
-  const [filesBusy, setFilesBusy] = useState(false);
   const actions = useStyles(styles.actions);
+  const desktop = useStyles(styles.desktop);
   const mobileHeader = useStyles(styles.mobileHeader);
   const closeButton = useStyles(styles.closeButton);
   const sidebar = useStyles(styles.sidebar);
@@ -69,72 +63,19 @@ export function Sidebar({ threads, appInfo }: SidebarProps) {
         <div className={titleBar} aria-hidden="true" />
       )}
       <div className={actions} role="toolbar" aria-label="Workspace actions">
-        <Tooltip content="New thread" placement="bottom">
-          <Button
-            variant="quiet"
-            aria-label="New thread"
-            onPress={() => {
-              workspace.open({
-                path: `/draft/${crypto.randomUUID()}`,
-                newTab: true,
-              });
-              close();
-            }}
-          >
-            <Edit size="md" />
-          </Button>
-        </Tooltip>
-        <Tooltip content="New Markdown file" placement="bottom">
-          <Button
-            variant="quiet"
-            aria-label="New Markdown file"
-            isDisabled={filesBusy}
-            onPress={() => {
-              preferences.revealDocuments();
-              setEntryRequest((request) => ({
-                kind: "file",
-                sequence: request.sequence + 1,
-              }));
-            }}
-          >
-            <FilePlus size="md" />
-          </Button>
-        </Tooltip>
-        <Tooltip content="New folder" placement="bottom">
-          <Button
-            variant="quiet"
-            aria-label="New folder"
-            isDisabled={filesBusy}
-            onPress={() => {
-              preferences.revealDocuments();
-              setEntryRequest((request) => ({
-                kind: "directory",
-                sequence: request.sequence + 1,
-              }));
-            }}
-          >
-            <FolderPlus size="md" />
-          </Button>
-        </Tooltip>
-        <Tooltip content="Desktop" placement="bottom">
-          <Button
-            variant="quiet"
-            aria-label="Desktop"
-            onPress={() => {
-              workspace.open({ path: "/desktop" });
-              close();
-            }}
-          >
-            <Monitor size="md" />
-          </Button>
-        </Tooltip>
+        <NavigationButton
+          className={desktop}
+          onPress={() => {
+            workspace.open({ path: "/desktop" });
+            close();
+          }}
+        >
+          <Monitor size="sm" />
+          Desktop
+        </NavigationButton>
       </div>
       <NavigationSidebar aria-label="Workspace" className={navigation}>
-        <SidebarContents
-          threads={threads}
-          entryRequest={entryRequest}
-          onFilesBusyChange={setFilesBusy}
-        />
+        <SidebarContents threads={threads} />
       </NavigationSidebar>
       <div className={footer} data-testid="app-update-status">
         <SidebarFooter appInfo={appInfo} />
@@ -144,15 +85,7 @@ export function Sidebar({ threads, appInfo }: SidebarProps) {
   );
 }
 
-function SidebarContents({
-  threads,
-  entryRequest,
-  onFilesBusyChange,
-}: {
-  threads: ThreadSummary[];
-  entryRequest: { kind: "file" | "directory"; sequence: number };
-  onFilesBusyChange(busy: boolean): void;
-}) {
+function SidebarContents({ threads }: { threads: ThreadSummary[] }) {
   const expanded = useExpandedSidebar();
   const { favoriteIds, sectionOrder } = useSidebarPreferenceState();
   const watched = new Set(expanded);
@@ -179,12 +112,9 @@ function SidebarContents({
     ),
     artifacts: (
       <ArtifactsSection
-        key={entryRequest.sequence}
         paths={listing.paths}
         pending={listing.pending}
         error={listing.error}
-        createEntry={entryRequest.sequence > 0 ? entryRequest.kind : undefined}
-        onBusyChange={onFilesBusyChange}
       />
     ),
     sessions: <ThreadsSection threads={threads} />,
@@ -195,9 +125,22 @@ function SidebarContents({
 }
 
 const styles = {
-  actions: style(flex({ alignItems: "center", gap: 2 }), sidebarPadding, {
+  actions: style({
     flexShrink: 0,
     "@media (max-width: 700px)": { paddingBottom: spacing.value(4) },
+  }),
+  desktop: style(navigationItem, sidebarPadding, focusRing(), {
+    display: "flex",
+    alignItems: "center",
+    gap: spacing.value(3),
+    width: "100%",
+    height: "28px",
+    paddingBlock: 0,
+    border: 0,
+    borderRadius: 0,
+    backgroundColor: "transparent",
+    textAlign: "left",
+    "@media (max-width: 700px)": { height: "44px" },
   }),
   sidebar: style(flex({ direction: "column", gap: 4 }), {
     width: "100%",
