@@ -1,6 +1,7 @@
+import { useState } from "react";
 import type { Key } from "react-aria-components";
 import { Button, Menu, MenuItem, MenuTrigger, Text, colors, flex } from "maui";
-import { Apps, Clock, File, Filter } from "maui/icons";
+import { Apps, Clock, File, Filters, Folder, Plus } from "maui/icons";
 import { style, useStyles } from "purse-styles";
 import { useExtensions } from "../api/WorkspaceUpdatesProvider.js";
 import { useDatabaseQuery } from "../database/useDatabaseQuery.js";
@@ -26,15 +27,17 @@ export function ArtifactsSection({
   paths,
   pending,
   error,
-  createEntry,
-  onBusyChange,
 }: {
   paths: string[];
   pending: boolean;
   error?: string;
-  createEntry: "file" | "directory" | undefined;
-  onBusyChange(busy: boolean): void;
 }) {
+  const preferences = useSidebarPreferences();
+  const [entryRequest, setEntryRequest] = useState<{
+    kind: "file" | "directory";
+    sequence: number;
+  }>({ kind: "file", sequence: 0 });
+  const [filesBusy, setFilesBusy] = useState(false);
   const { artifactFilter } = useSidebarPreferenceState();
   const extensions = useExtensions();
   const automations = useDatabaseQuery({
@@ -67,10 +70,11 @@ export function ArtifactsSection({
     artifactFilter === "all" || artifactFilter === filter;
   return (
     <FilesystemSection
+      key={entryRequest.sequence}
       paths={paths}
       error={error}
-      createEntry={createEntry}
-      onBusyChange={onBusyChange}
+      createEntry={entryRequest.sequence > 0 ? entryRequest.kind : undefined}
+      onBusyChange={setFilesBusy}
       label={
         <>
           Artifacts
@@ -81,7 +85,39 @@ export function ArtifactsSection({
           )}
         </>
       }
-      actions={<ArtifactFilterMenu />}
+      actions={
+        <>
+          <ArtifactFilterMenu />
+          <MenuTrigger placement="bottom end">
+            <Button
+              size="sm"
+              variant="quiet"
+              aria-label="Create artifact"
+              isDisabled={filesBusy}
+            >
+              <Plus size="sm" />
+            </Button>
+            <Menu
+              aria-label="Create artifact"
+              onAction={(key) => {
+                if (key !== "file" && key !== "directory") return;
+                preferences.revealDocuments();
+                setEntryRequest((request) => ({
+                  kind: key,
+                  sequence: request.sequence + 1,
+                }));
+              }}
+            >
+              <MenuItem id="file" textValue="File">
+                <File size="sm" /> File
+              </MenuItem>
+              <MenuItem id="directory" textValue="Folder">
+                <Folder size="sm" /> Folder
+              </MenuItem>
+            </Menu>
+          </MenuTrigger>
+        </>
+      }
       showFiles={show("documents")}
       emptyState={
         loaded && counts[artifactFilter] === 0 ? (
@@ -116,7 +152,7 @@ function ArtifactFilterMenu() {
         className={trigger}
         data-filtered={artifactFilter !== "all" || undefined}
       >
-        <Filter size="sm" />
+        <Filters size="sm" />
       </Button>
       <Menu
         aria-label="Show artifacts"

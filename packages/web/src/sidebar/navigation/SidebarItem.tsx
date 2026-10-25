@@ -207,14 +207,9 @@ const sidebarItem = style(navigationItem, sidebarPadding, {
     color: colors.accent[11],
     fontWeight: 500,
   },
-  // A trailing chevron keeps the row padding so it stays aligned while actions appear.
-  "&:has([data-sidebar-hover-action]):not(:has([data-sidebar-trailing-chevron])):is(:hover, :focus-within), &:has([data-sidebar-hover-action] [aria-expanded='true']):not(:has([data-sidebar-trailing-chevron]))":
-    {
-      paddingRight: 0,
-    },
   "&:hover [data-sidebar-hover-action], &:focus-within [data-sidebar-hover-action]":
     {
-      display: "grid",
+      visibility: "visible",
     },
   "&:hover [data-sidebar-favorite], &:focus-within [data-sidebar-favorite]": {
     opacity: 1,
@@ -260,16 +255,18 @@ const favoriteButton = style(focusRing(), radius.sm, {
   opacity: 0,
   "&:focus-visible": { opacity: 1 },
   "&:hover": { color: colors.gray[12] },
+  "& > svg": { width: "18px", height: "18px" },
   "@media (max-width: 700px)": { width: "40px", height: "40px" },
   "@media (hover: none)": { opacity: 1 },
 });
 const hoverTrailing = style({
-  display: "none",
+  display: "grid",
+  visibility: "hidden",
   placeItems: "center",
   flexShrink: 0,
-  "&:has([aria-expanded='true'])": { display: "grid" },
-  "@media (max-width: 700px)": { display: "grid" },
-  "@media (hover: none)": { display: "grid" },
+  "&:has([aria-expanded='true'])": { visibility: "visible" },
+  "@media (max-width: 700px)": { visibility: "visible" },
+  "@media (hover: none)": { visibility: "visible" },
 });
 
 const chevron = style(focusRing(), radius.sm, {

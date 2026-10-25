@@ -2,16 +2,39 @@ import { ThreadActivity } from "./ThreadActivity.js";
 import type { ThreadSummary } from "@get-halo/client";
 import { useMutation } from "@tanstack/react-query";
 import { Button } from "maui";
-import { Check } from "maui/icons";
+import { Check, Plus } from "maui/icons";
 import { useApi } from "../api/ApiProvider.js";
+import { useSidebar } from "../WorkspaceLayout.js";
+import { useWorkspacePanes } from "../panes/WorkspacePanesProvider.js";
 import { SidebarEmptyState } from "./SidebarEmptyState.js";
 import { SidebarItem } from "./navigation/SidebarItem.js";
 import { SidebarSection } from "./navigation/SidebarSection.js";
 
 export function ThreadsSection({ threads }: { threads: ThreadSummary[] }) {
+  const workspace = useWorkspacePanes();
+  const sidebar = useSidebar();
   const visibleThreads = threads.filter((thread) => !isDone(thread));
   return (
-    <SidebarSection sectionId="sessions" label="Threads">
+    <SidebarSection
+      sectionId="sessions"
+      label="Threads"
+      actions={
+        <Button
+          size="sm"
+          variant="quiet"
+          aria-label="New thread"
+          onPress={() => {
+            workspace.open({
+              path: `/draft/${crypto.randomUUID()}`,
+              newTab: true,
+            });
+            sidebar.close();
+          }}
+        >
+          <Plus size="sm" />
+        </Button>
+      }
+    >
       {visibleThreads.length === 0 && <SidebarEmptyState kind="threads" />}
       {visibleThreads.map((thread) => (
         <ThreadRow key={thread.sessionId} thread={thread} />
