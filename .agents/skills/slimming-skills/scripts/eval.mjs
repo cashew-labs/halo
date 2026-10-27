@@ -3,7 +3,7 @@
 // Layout: <dir>/tasks.json  [{ id, prompt, must?: [regex], must_not?: [regex], setup?: "sh", check?: "sh" }]
 //         <dir>/sk/<version>/<skill>/   one skill folder per version; "none" needs no folder
 //         <dir>/adapter                 runs one session of your agent; references/adapter.md says how to write it
-// Run:    node eval.mjs run <dir> [--versions before,after,none] [--tasks a,b] [--runs 3] [--parallel 6] [--model <id>]
+// Run:    node eval.mjs run <dir> [--versions before,after,none] [--tasks a,b] [--runs 3] [--parallel 6] [--model <id>] [--force]
 //         prints how many sessions it will start, calibrates the adapter, then runs every version, task and run.
 //         --model is passed to the adapter as EVAL_MODEL, and each run sets OBSERVE_TAGS="version=… task=… run=…"
 //         for observe.mjs.
@@ -21,8 +21,8 @@
 // in the agent's output; `must_not` patterns match inline code and code-block lines that are not comments, so
 // "I won't run X" passes. `setup`, the agent and `check` run in a temp work dir, deleted after `check`; `check`
 // must exit 0. observe.mjs logs only the agent's calls, not those of `setup` and `check`.
-// Finished runs are kept, so rerunning `run` only fills in missing ones. A timeout counts as a failed run; any other
-// adapter failure stops the eval.
+// Finished runs are kept; --force invalidates and reruns selected results after any input changes.
+// A timeout counts as a failed run; any other adapter failure stops the eval.
 import { spawn, spawnSync } from "node:child_process";
 import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -213,9 +213,10 @@ async function run(dir) {
   const runs = Number(opt("runs", "3"));
   const jobs = [];
   for (let r = 0; r < runs; r++) for (const t of tasks) for (const v of versions) jobs.push({ v, t, r, folder: join(dir, "runs", `${v}-${t.id}-${r}`) });
-  const todo = jobs.filter((job) => !existsSync(join(job.folder, "result.json")));
+  const todo = jobs.filter((job) => flags.includes("--force") || !existsSync(join(job.folder, "result.json")));
   console.log(`${todo.length} sessions to run (${versions.length} versions × ${tasks.length} tasks × ${runs} runs; ${jobs.length - todo.length} already done)`);
   if (!todo.length) return;
+  for (const job of todo) rmSync(join(job.folder, "result.json"), { force: true });
   await calibrate(dir);
   await pool(todo, (job) => one(dir, job));
 }
