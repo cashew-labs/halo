@@ -278,6 +278,7 @@ function score(dir) {
     const code = unquote(
       [
         ...[...res.answer.matchAll(fences)].map((m) => m[3]),
+        ...[...res.answer.matchAll(/^ {0,3}(`{3,})(?!`)([^\n]*?)\1(?!`)/gm)].map((m) => m[2]),
         ...[...prose.matchAll(/^(?: {4}|\t)(.*)$/gm)].map((m) => m[1]),
         ...[...prose.matchAll(/(?<!`)(`+)(?!`)([\s\S]*?)\1(?!`)/g)].map((m) => m[2]),
         ...(res.calls ?? []).map((c) => c.command).filter(Boolean),
