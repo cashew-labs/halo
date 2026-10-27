@@ -210,7 +210,7 @@ async function calibrate(dir) {
 
 async function run(dir) {
   const tasks = loadTasks(dir);
-  const versions = opt("versions", "before,after,none").split(",");
+  const versions = [...new Set(opt("versions", "before,after,none").split(","))];
   const runs = Number(opt("runs", "3"));
   const jobs = [];
   for (let r = 0; r < runs; r++) for (const t of tasks) for (const v of versions) jobs.push({ v, t, r, folder: join(dir, "runs", `${v}-${t.id}-${r}`) });
@@ -247,7 +247,7 @@ async function one(dir, { v, t, r, folder }) {
 
 function score(dir) {
   const tasks = Object.fromEntries(loadTasks(dir).map((t) => [t.id, t]));
-  const versions = opt("versions", "before,after,none").split(",");
+  const versions = [...new Set(opt("versions", "before,after,none").split(","))];
   const runs = Number(opt("runs", "3"));
   const rows = Object.fromEntries(versions.map((v) => [v, []]));
   const skillDir = `/${basename(anySkill(dir))}/`;
