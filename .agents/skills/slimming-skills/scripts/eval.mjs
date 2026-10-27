@@ -270,11 +270,13 @@ function score(dir) {
     }
     const unquote = (s) => s.replace(/["']/g, "");
     const text = unquote(res.answer);
-    const fences = /```[^\n]*\n([\s\S]*?)```/g;
+    const fences = /^ {0,3}((`|~)\2{2,})[^\n]*\n([\s\S]*?)(?:^ {0,3}\1\2*[ \t]*\r?$|(?![\s\S]))/gm;
+    const prose = res.answer.replace(fences, "");
     const code = unquote(
       [
-        ...[...res.answer.matchAll(fences)].map((m) => m[1]),
-        ...[...res.answer.replace(fences, "").matchAll(/(?<!`)(`+)(?!`)([\s\S]*?)\1(?!`)/g)].map((m) => m[2]),
+        ...[...res.answer.matchAll(fences)].map((m) => m[3]),
+        ...[...prose.matchAll(/^(?: {4}|\t)(.*)$/gm)].map((m) => m[1]),
+        ...[...prose.matchAll(/(?<!`)(`+)(?!`)([\s\S]*?)\1(?!`)/g)].map((m) => m[2]),
         ...(res.calls ?? []).map((c) => c.command).filter(Boolean),
       ]
         .flatMap((s) => s.split("\n"))
