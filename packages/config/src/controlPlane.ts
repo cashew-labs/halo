@@ -82,6 +82,7 @@ export const controlPlaneConfigSchema = Type.Union([
     deployment: Type.Literal("local"),
     appDataDir: Type.String(),
     port: portSchema,
+    origin: Type.Optional(Type.String({ pattern: "^https://" })),
     auth: authSchema,
     github: Type.Optional(githubSchema),
     gmail: Type.Optional(gmailSchema),
@@ -247,6 +248,29 @@ async function readAuthConfiguration(
 }
 
 async function readDevelopmentConfig(): Promise<ControlPlaneConfig | Error> {
+  const publicUrl = process.env.PUBLIC_URL;
+  const origin =
+    publicUrl === undefined
+      ? undefined
+      : errore.try({
+          try: () => new URL(publicUrl),
+          catch: (cause) =>
+            new ControlPlaneConfigError({ detail: "parse PUBLIC_URL", cause }),
+        });
+  if (origin instanceof Error) return origin;
+  if (
+    origin !== undefined &&
+    (origin.protocol !== "https:" ||
+      origin.username !== "" ||
+      origin.password !== "" ||
+      origin.pathname !== "/" ||
+      origin.search !== "" ||
+      origin.hash !== "")
+  )
+    return new ControlPlaneConfigError({
+      detail:
+        "PUBLIC_URL must be an HTTPS origin without credentials or a path",
+    });
   const auth = await readAuthConfiguration(developmentAuthSecretIds);
   if (auth instanceof Error) return auth;
   const github = await readGithubConfiguration();
@@ -265,6 +289,7 @@ async function readDevelopmentConfig(): Promise<ControlPlaneConfig | Error> {
         ? path.join(repositoryRoot, ".halo")
         : path.resolve(configuredDataDir),
     port: developmentPort,
+    origin: origin?.origin,
     googleAnalyticsMeasurementId: process.env.GOOGLE_ANALYTICS_MEASUREMENT_ID, // coverage-exempt: Bootstrap reads live Secret Manager credentials; the schema and HTTP configuration contract are tested.
     environment: process.env.HALO_ENVIRONMENT ?? "development", // coverage-exempt: Bootstrap reads live Secret Manager credentials; the schema and HTTP configuration contract are tested.
     auth,

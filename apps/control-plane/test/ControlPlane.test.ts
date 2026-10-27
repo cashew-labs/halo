@@ -236,6 +236,7 @@ const controlPlaneTest = test.extend<{
   workspaceProvider: WorkspaceProviderApi;
   workspaceHost: WorkspaceHostDriver;
   allowLocalIntegrationUrls: boolean;
+  developmentPreview: boolean;
   agent: {
     rpc: ReturnType<typeof createHaloClient>;
     workspaceRoot: string;
@@ -279,6 +280,7 @@ const controlPlaneTest = test.extend<{
   updateTarget: undefined,
   updateIdleMs: 5 * 60_000,
   allowLocalIntegrationUrls: true,
+  developmentPreview: false,
   agent: async ({ plane, authenticatedRpc, appDataDir }, use) => {
     await authenticatedRpc.workspace.ensure();
     const runtime = createControlPlaneRpcClient(
@@ -925,6 +927,7 @@ const controlPlaneTest = test.extend<{
       inferenceApi,
       integrationApi,
       allowLocalIntegrationUrls,
+      developmentPreview,
       marketingAdminUserIds,
       marketingHostname,
       marketingHomepageOrigin,
@@ -940,6 +943,7 @@ const controlPlaneTest = test.extend<{
       workspaceUpdateTarget: updateTarget,
       workspaceUpdateIdleMs: updateIdleMs,
       workspaceUpdateToken: async () => "read-only-registry-token",
+      developmentPreview,
       logger,
       build: { version: "test-release", revision: "test-revision" },
       config: {
@@ -1009,6 +1013,92 @@ const controlPlaneTest = test.extend<{
     await use(createControlPlaneRpcClient(plane.origin, session.token));
   },
 });
+
+controlPlaneTest(
+  "does not expose preview login by default",
+  async ({ plane, rpc }) => {
+    const response = await fetch(`${plane.origin}/api/auth/preview-login`, {
+      redirect: "manual",
+    });
+    expect(response.status).toBe(404);
+    expect(response.headers.getSetCookie()).toEqual([]);
+    expect(await rpc.auth.session()).toEqual({ status: "signed-out" });
+    expect((await fetch(`${plane.origin}/workspace/health`)).status).toBe(401);
+  },
+);
+
+controlPlaneTest.extend({
+  developmentPreview: true,
+  workspaceProvider: async ({ workspaceHost }, use) => {
+    await use(workspaceHost.provider);
+  },
+})(
+  "preview login creates a reusable browser identity without bypassing workspace authentication",
+  async ({ plane }) => {
+    const logIn = async () => {
+      const response = await fetch(
+        `${plane.origin}/api/auth/preview-login?email=attacker@example.com&returnTo=https://attacker.example/`,
+        { redirect: "manual" },
+      );
+      expect(response.status).toBe(302);
+      expect(response.headers.get("location")).toBe("/");
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      const headers = new Headers({
+        cookie: response.headers
+          .getSetCookie()
+          .map((cookie) => cookie.split(";")[0])
+          .join("; "),
+        origin: plane.origin,
+        "x-halo-client-id": crypto.randomUUID(),
+      });
+      const rpc = createControlPlaneRpcClient(plane.origin, headers);
+      const session = await rpc.auth.session();
+      expect(session).toMatchObject({
+        status: "signed-in",
+        session: { user: { email: "preview@halo.local", name: "Orb preview" } },
+      });
+      if (session.status !== "signed-in")
+        throw new Error("Missing preview session");
+      return { headers, rpc, userId: session.session.user.id };
+    };
+    const first = await logIn();
+    const second = await logIn();
+    expect(second.userId).toBe(first.userId);
+    expect(
+      (
+        await fetch(`${plane.origin}/workspace/health`, {
+          headers: first.headers,
+        })
+      ).status,
+    ).toBe(200);
+    const endpoint = `${plane.origin}/workspace/rpc/connect`;
+    expect(
+      (await fetch(endpoint, { method: "POST", headers: first.headers }))
+        .status,
+    ).toBe(200);
+    const foreign = new Headers(first.headers);
+    foreign.set("origin", "https://attacker.example");
+    expect(
+      (await fetch(endpoint, { method: "POST", headers: foreign })).status,
+    ).toBe(403);
+    expect(
+      (
+        await fetch(`${plane.origin}/api/auth/sign-out`, {
+          method: "POST",
+          headers: first.headers,
+        })
+      ).status,
+    ).toBe(200);
+    expect(await first.rpc.auth.session()).toEqual({ status: "signed-out" });
+    expect(
+      (
+        await fetch(`${plane.origin}/workspace/health`, {
+          headers: first.headers,
+        })
+      ).status,
+    ).toBe(401);
+  },
+);
 
 controlPlaneTest(
   "registers custom MCP and OpenAPI through agent exec before connecting and invoking",

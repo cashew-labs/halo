@@ -13,6 +13,7 @@ import * as errore from "errore";
 import type { DatabaseClient, DatabaseService } from "../DatabaseService.js";
 import type { SignInAllowlist } from "./SignInAllowlist.js";
 import { signInHooks } from "./signInHooks.js";
+import { previewLogin } from "./previewLogin.js";
 
 const loopbackHost = "127.0.0.1";
 const desktopAuthStatePattern = /^[A-Za-z0-9_-]{32,128}$/u;
@@ -52,6 +53,7 @@ type AuthServiceOptions = {
   secret: string;
   googleClientId: string;
   googleClientSecret: string;
+  previewLogin?: boolean;
   /** Restricts who can sign in; unset lets anyone sign in. */
   signInAllowlist?: SignInAllowlist;
   /** Users offered the desktop staging toggle; production sets it. */
@@ -155,6 +157,7 @@ function authOptions(options: AuthServiceOptions, database: DatabaseClient) {
         expiresIn: 1,
         storeToken: "hashed",
       }),
+      ...(options.previewLogin === true ? [previewLogin()] : []),
     ],
   } satisfies BetterAuthOptions;
 }
