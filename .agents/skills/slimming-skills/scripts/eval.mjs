@@ -262,6 +262,7 @@ function score(dir) {
     if (!existsSync(join(out, "result.json"))) continue;
     const res = JSON.parse(readFileSync(join(out, "result.json"), "utf8"));
     if (!versions.includes(res.version)) continue;
+    if (Number.isInteger(res.run) && res.run >= runs) continue;
     const t = tasks[res.task];
     if (!t) {
       if (!opt("tasks")) flag(`WARN runs/${name}: task ${res.task} isn't in tasks.json. Only a task every version fails can be removed, and its runs go with it.`);
