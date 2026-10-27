@@ -10,14 +10,15 @@
 // Calibrate: node eval.mjs calibrate <dir> [--model <id>]   three short runs at once that the adapter must pass:
 //         the agent quotes a line only its copy of the skill holds, says it has no skill when given none, and
 //         runs a shell command.
-// Score:  node eval.mjs score <dir> [--detail]   exits 1 on any MISS (before passed a task on every run, after on
-//         none), WORSE (after's pass rate is lower by more than chance explains) or WARN (a run read the skill from
+// Score:  node eval.mjs score <dir> [--versions before,after,none] [--runs 3] [--tasks a,b] [--detail]
+//         use the same versions, runs and tasks as run; exits 1 on an incomplete matrix or any MISS (before passed
+//         every run of a task, after none), WORSE (after's pass rate is lower by more than chance explains) or WARN (a run read the skill from
 //         outside sk/<version>, a task fails in every version or has runs but left tasks.json, or under half the
 //         runs given the skill read it).
 // Check:  node eval.mjs check <skill-dir>   prints SKILL.md's size and exits 1 on a relative link or #anchor that
 //         does not resolve.
 // Scoring removes quotes first, so `"$DIR/tool" main` matches `tool main`. `must` patterns match anywhere
-// in the agent's output; `must_not` patterns match only code-block lines that are not comments, so
+// in the agent's output; `must_not` patterns match inline code and code-block lines that are not comments, so
 // "I won't run X" passes. `setup`, the agent and `check` run in a temp work dir, deleted after `check`; `check`
 // must exit 0. observe.mjs logs only the agent's calls, not those of `setup` and `check`.
 // Finished runs are kept, so rerunning `run` only fills in missing ones. A timeout counts as a failed run; any other
@@ -244,7 +245,9 @@ async function one(dir, { v, t, r, folder }) {
 
 function score(dir) {
   const tasks = Object.fromEntries(loadTasks(dir).map((t) => [t.id, t]));
-  const rows = {};
+  const versions = opt("versions", "before,after,none").split(",");
+  const runs = Number(opt("runs", "3"));
+  const rows = Object.fromEntries(versions.map((v) => [v, []]));
   const skillDir = `/${basename(anySkill(dir))}/`;
   // Every MISS and WARN makes score exit 1, so an agent working alone knows not to ship.
   let flagged = 0;
@@ -256,6 +259,7 @@ function score(dir) {
     const out = join(dir, "runs", name);
     if (!existsSync(join(out, "result.json"))) continue;
     const res = JSON.parse(readFileSync(join(out, "result.json"), "utf8"));
+    if (!versions.includes(res.version)) continue;
     const t = tasks[res.task];
     if (!t) {
       if (!opt("tasks")) flag(`WARN runs/${name}: task ${res.task} isn't in tasks.json. Only a task every version fails can be removed, and its runs go with it.`);
@@ -263,9 +267,13 @@ function score(dir) {
     }
     const unquote = (s) => s.replace(/["']/g, "");
     const text = unquote(res.answer);
+    const fences = /```[^\n]*\n([\s\S]*?)```/g;
     const code = unquote(
-      [...res.answer.matchAll(/```[^\n]*\n([\s\S]*?)```/g)]
-        .flatMap((m) => m[1].split("\n"))
+      [
+        ...[...res.answer.matchAll(fences)].map((m) => m[1]),
+        ...[...res.answer.replace(fences, "").matchAll(/(?<!`)(`+)(?!`)([\s\S]*?)\1(?!`)/g)].map((m) => m[2]),
+      ]
+        .flatMap((s) => s.split("\n"))
         .filter((l) => !/^\s*(#|\/\/)/.test(l))
         .join("\n"),
     );
@@ -278,10 +286,19 @@ function score(dir) {
     if (outside) flag(`WARN ${res.version}/${res.task}: read ${outside} from outside sk/${res.version}`);
     const tokens = res.tokens && res.tokens.input + res.tokens.output + res.tokens.cacheRead + res.tokens.cacheWrite;
     const ok = res.exit === 0 && res.check !== false && !missing.length && !banned.length;
-    (rows[res.version] ??= []).push({ ...res, ok, tokens, reads });
+    rows[res.version].push({ ...res, ok, tokens, reads });
     if (flags.includes("--detail") && !ok) console.log(`FAIL ${name}  missing=${JSON.stringify(missing)} banned=${JSON.stringify(banned)} exit=${res.exit} check=${res.check}`);
   }
-  const versions = Object.keys(rows).sort((a, b) => ["before", "after", "none"].indexOf(a) - ["before", "after", "none"].indexOf(b));
+  if (!Number.isInteger(runs) || runs < 1 || !Object.keys(tasks).length) flag("WARN score needs tasks and a positive integer --runs");
+  for (const id of Object.keys(tasks)) for (const v of versions) {
+    const completed = rows[v].filter((r) => r.task === id);
+    if (completed.length !== runs || new Set(completed.map((r) => r.run)).size !== runs || completed.some((r) => !Number.isInteger(r.run) || r.run < 0 || r.run >= runs))
+      flag(`WARN ${v}/${id}: incomplete result matrix; expected runs 0 through ${runs - 1}, found [${completed.map((r) => r.run).join(", ")}]. Rerun the missing sessions before scoring.`);
+  }
+  if (flagged) {
+    process.exitCode = 1;
+    return;
+  }
   // Timed-out runs, and agents that don't report turns, are left out of a column instead of counting as 0.
   const avg = (r, f, digits) => {
     const xs = r.map(f).filter((x) => x != null);
