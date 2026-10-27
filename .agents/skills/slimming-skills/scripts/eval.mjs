@@ -59,7 +59,10 @@ function loadTasks(dir) {
   const tasks = JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"));
   if (new Set(tasks.map((t) => t.id)).size !== tasks.length) throw new Error(`${join(dir, "tasks.json")}: task IDs must be unique. Give each task a different id before running or scoring.`);
   const only = opt("tasks");
-  return only ? tasks.filter((t) => only.split(",").includes(t.id)) : tasks;
+  const selected = only?.split(",");
+  const unknown = selected?.filter((id) => !tasks.some((t) => t.id === id));
+  if (unknown?.length) throw new Error(`Unknown task IDs: ${unknown.join(", ")}. Select IDs from ${join(dir, "tasks.json")}.`);
+  return selected ? tasks.filter((t) => selected.includes(t.id)) : tasks;
 }
 
 function skillFolder(dir, v) {
