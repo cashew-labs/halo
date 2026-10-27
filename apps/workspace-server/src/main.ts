@@ -111,7 +111,11 @@ async function run() {
       port: applicationConfig.server.port,
       corsOrigins: applicationConfig.server.corsOrigins,
       testApiEnabled: applicationConfig.mode === ApplicationMode.Test,
-      traceWorkspaceId: applicationConfig.server.runtime?.workspaceId,
+      // Local traces may predate a control-plane assignment; keep their identity.
+      traceWorkspaceId:
+        applicationConfig.mode === ApplicationMode.Production
+          ? applicationConfig.server.runtime?.workspaceId
+          : undefined,
       gateway: applicationConfig.server.gateway,
       desktopOrigin: process.env.HALO_DESKTOP_ORIGIN,
       chrome: applicationConfig.server.chrome,

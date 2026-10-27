@@ -1,3 +1,11 @@
 services:
   halo-dev:
     command: HALO_USE_SWIFTSHADER=1 xvfb-run -a pnpm dev
+    port: 8787
+    env:
+      HALO_PREVIEW_LOGIN: "1"
+    health: /health
+    portal:
+      url: /api/auth/preview-login
+      title: Halo web preview
+      description: Sign in to the orb's shared local preview workspace

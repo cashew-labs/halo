@@ -11,6 +11,7 @@ import { Logger } from "@get-halo/logger";
 import { PrettyConsoleLoggerSink } from "@get-halo/logger/PrettyConsoleLoggerSink";
 import { CloudLoggingSink } from "./logging/CloudLoggingSink.js";
 import * as errore from "errore";
+import { ApplicationMode } from "@get-halo/config/ApplicationMode";
 import { ControlPlane } from "./server/ControlPlane.js";
 import { GcpWorkspaceProvider } from "./workspace/provider/gcp/GcpWorkspaceProvider.js";
 import { LocalWorkspaceProvider } from "./workspace/provider/local/LocalWorkspaceProvider.js";
@@ -42,6 +43,10 @@ async function run(ctx: {
         : new GcpWorkspaceProvider(config.server.workspace);
   const plane = await ControlPlane.start({
     logger,
+    developmentPreview:
+      config.mode === ApplicationMode.Development &&
+      process.env.NODE_ENV !== "production" &&
+      process.env.HALO_PREVIEW_LOGIN === "1",
     build:
       process.env.HALO_BUILD_REVISION === undefined
         ? undefined

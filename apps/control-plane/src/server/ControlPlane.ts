@@ -99,6 +99,7 @@ export class ControlPlane {
     gmailApiOrigin?: string;
     googleRevokeUrl?: string;
     appReadyTimeoutMs?: number;
+    developmentPreview?: boolean;
   }) {
     const { config, webRoot, logger } = ctx;
     await using cleanup = new errore.AsyncDisposableStack();
@@ -115,8 +116,7 @@ export class ControlPlane {
         logger.error({ event: "http-close-failed", errorType: closed.name });
     });
 
-    const publicOrigin =
-      config.deployment === "local" ? http.origin : config.origin;
+    const publicOrigin = config.origin ?? http.origin;
 
     const db = await DatabaseService.start({
       config: databaseConfig(config),
@@ -140,6 +140,8 @@ export class ControlPlane {
       secret: config.auth.secret,
       googleClientId: config.auth.googleClientId,
       googleClientSecret: config.auth.googleClientSecret,
+      previewLogin:
+        config.deployment === "local" && ctx.developmentPreview === true,
       signInAllowlist: signInAllowlist(
         config.auth.signInAllowlistSecretId,
         logger.scope("sign-in-allowlist"),
