@@ -18,7 +18,7 @@
 // Check:  node eval.mjs check <skill-dir>   prints SKILL.md's size and exits 1 on a relative link or #anchor that
 //         does not resolve.
 // Scoring removes quotes first, so `"$DIR/tool" main` matches `tool main`. `must` patterns match anywhere
-// in the agent's output; `must_not` patterns match inline code and code-block lines that are not comments, so
+// in the agent's output; `must_not` checks recorded commands, inline code and code-block lines except comments, so
 // "I won't run X" passes. `setup`, the agent and `check` run in a temp work dir, deleted after `check`; `check`
 // must exit 0. observe.mjs logs only the agent's calls, not those of `setup` and `check`.
 // Finished runs are kept; --force invalidates and reruns selected results after any input changes.
@@ -57,6 +57,7 @@ else {
 
 function loadTasks(dir) {
   const tasks = JSON.parse(readFileSync(join(dir, "tasks.json"), "utf8"));
+  if (new Set(tasks.map((t) => t.id)).size !== tasks.length) throw new Error(`${join(dir, "tasks.json")}: task IDs must be unique. Give each task a different id before running or scoring.`);
   const only = opt("tasks");
   return only ? tasks.filter((t) => only.split(",").includes(t.id)) : tasks;
 }
@@ -273,6 +274,7 @@ function score(dir) {
       [
         ...[...res.answer.matchAll(fences)].map((m) => m[1]),
         ...[...res.answer.replace(fences, "").matchAll(/(?<!`)(`+)(?!`)([\s\S]*?)\1(?!`)/g)].map((m) => m[2]),
+        ...(res.calls ?? []).map((c) => c.command).filter(Boolean),
       ]
         .flatMap((s) => s.split("\n"))
         .filter((l) => !/^\s*(#|\/\/)/.test(l))
