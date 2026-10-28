@@ -4,6 +4,7 @@ import type { FilesystemService } from "../../filesystem/FilesystemService.js";
 import type { NativeConnection } from "../../database/DatabaseService.js";
 import type { HotkeyService } from "../../hotkeys/HotkeyService.js";
 import type { AutomationService } from "../../automations/AutomationService.js";
+import type { MemoryService } from "../../memory/MemoryService.js";
 import type { AutomationRunner } from "../../automations/AutomationRunner.js";
 import type { AutomationSources } from "../../automations/AutomationSources.js";
 import type { ThreadManager } from "../../threads/ThreadManager.js";
@@ -23,6 +24,7 @@ export type HaloToolServices = {
   readonly database: NativeConnection;
   readonly hotkeys: HotkeyService;
   readonly automations: AutomationService;
+  readonly memory: MemoryService;
   readonly automationRunner: AutomationRunner;
   readonly automationSources: AutomationSources;
   readonly threads: ThreadManager;
