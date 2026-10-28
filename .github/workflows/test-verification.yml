@@ -1,0 +1,72 @@
+name: Verify PR test report
+
+on:
+  pull_request_target:
+    types: [opened, edited, reopened, synchronize, ready_for_review]
+
+# Serialize updates so an older run cannot overwrite a newer report's result.
+concurrency:
+  group: test-verification-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pull-requests: read
+  statuses: write
+
+jobs:
+  verify:
+    name: Validate test self-report
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # This workflow has write access. Only load code from the trusted base,
+      # never from the PR head, and treat the PR description only as data.
+      - name: Checkout trusted code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Verify the current PR head's report
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { validateTestReport } = await import(
+              `${process.env.GITHUB_WORKSPACE}/.github/scripts/test-report.mjs`
+            );
+            // Fetch current data rather than replaying an older event's body.
+            const { data: pr } = await github.rest.pulls.get({
+              ...context.repo,
+              pull_number: context.payload.pull_request.number,
+            });
+            if (pr.state !== 'open') return;
+
+            const status = {
+              ...context.repo,
+              sha: pr.head.sha,
+              context: 'Test verification',
+              target_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+            };
+            await github.rest.repos.createCommitStatus({
+              ...status,
+              state: 'pending',
+              description: 'Checking the PR test self-report',
+            });
+
+            const report = validateTestReport({ body: pr.body, headSha: pr.head.sha });
+            const failed = report instanceof Error;
+            const summary = failed
+              ? report.message
+              : `Agent reports all ${report.required.length} required test commands passed for ${pr.head.sha}.`;
+
+            await github.rest.repos.createCommitStatus({
+              ...status,
+              state: failed ? 'failure' : 'success',
+              description: failed
+                ? 'Test self-report is missing, outdated, or incomplete. See details.'
+                : `Agent reports ${report.required.length} required test commands passed`,
+            });
+            await core.summary.addHeading('Test verification').addRaw(summary).write();
+            if (failed) core.setFailed(summary);
+            else core.info(summary);
