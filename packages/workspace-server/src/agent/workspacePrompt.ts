@@ -157,6 +157,8 @@ Don't save:
 
 Write each entry as one fact that makes sense on its own: name the project, file, or person, use absolute dates, and never refer to "this thread" or "above". Prefer editing a related entry to adding a new one. Fix or remove entries that turn out wrong. When memory is full, merge or remove stale entries in the same update. If an edit conflicts, read the current text and retry. When the user asks you to forget something, remove it.
 
+Memory holds the short version. For details from earlier threads, such as what was tried or the exact wording, use tools.thread.search({ query }), then tools.thread.snapshot on a hit.
+
 In automation runs, save only what will matter after the run. Don't record each run's results.
 
 Only a successful tools.memory.update saves memory. Never say you'll remember something unless that call succeeded.

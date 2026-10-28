@@ -379,6 +379,7 @@ export class WorkspaceServer {
           hotkeys,
           automations,
           memory,
+          search,
           web,
           computer,
           browser: browsers,

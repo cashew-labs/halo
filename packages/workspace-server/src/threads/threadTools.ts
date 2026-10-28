@@ -28,6 +28,30 @@ export const threadTools = {
       };
     },
   }),
+  search: haloTool({
+    description:
+      "Find past messages in other workspace threads by case-insensitive text match on thread titles and user and assistant message text. Returns up to 40 hits with threadId, title, snippet, and source; truncated means more matches exist, so narrow the query. The calling thread is left out. Read a hit's full thread with thread.snapshot.",
+    inputSchema: Type.Object({ query: Type.String({ minLength: 1 }) }),
+    requiredCapabilities: ["workspace.threads.read"],
+    execute: async ({ query }, context) => {
+      const result = await context.services.search.searchThreads(query, {
+        signal: context.signal,
+        excludeThreadId: context.threadId,
+      });
+      if (result instanceof Error) return result;
+      return {
+        result: {
+          hits: result.hits.map(({ sessionId, title, snippet, source }) => ({
+            threadId: sessionId,
+            title,
+            snippet,
+            source,
+          })),
+          truncated: result.truncated,
+        },
+      };
+    },
+  }),
   new: haloTool({
     description:
       "Create an independent, empty workspace thread. It uses workspace instructions and tools, not this conversation's history. Supply a unique requestId and reuse it only to retry the same creation; request IDs are workspace-wide. Then call thread.prompt to start work.",

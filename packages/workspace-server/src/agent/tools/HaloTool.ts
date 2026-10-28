@@ -8,6 +8,7 @@ import type { MemoryService } from "../../memory/MemoryService.js";
 import type { AutomationRunner } from "../../automations/AutomationRunner.js";
 import type { AutomationSources } from "../../automations/AutomationSources.js";
 import type { ThreadManager } from "../../threads/ThreadManager.js";
+import type { WorkspaceSearch } from "../../workspace/WorkspaceSearch.js";
 import type { ConnectionService } from "../runtime/ConnectionService.js";
 import type { ParallelSearchService } from "./web/parallelSearch.js";
 import type { ToolRuntime } from "../runtime/ToolRuntime.js";
@@ -28,6 +29,7 @@ export type HaloToolServices = {
   readonly automationRunner: AutomationRunner;
   readonly automationSources: AutomationSources;
   readonly threads: ThreadManager;
+  readonly search: WorkspaceSearch;
   readonly connections: ConnectionService;
   readonly web: ParallelSearchService;
   readonly computer: ComputerService;

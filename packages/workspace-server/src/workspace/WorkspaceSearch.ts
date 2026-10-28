@@ -182,7 +182,7 @@ export class WorkspaceSearch {
     const needle = query.slice(0, 200).toLocaleLowerCase();
     const [files, threads] = await Promise.all([
       this.searchFiles(needle, signal),
-      this.searchThreads(needle, signal),
+      this.searchThreads(query, { signal }),
     ]);
     if (files instanceof Error) return files;
     if (threads instanceof Error) return threads;
@@ -277,15 +277,24 @@ export class WorkspaceSearch {
     };
   }
 
-  private async searchThreads(needle: string, signal?: AbortSignal) {
+  async searchThreads(
+    query: string,
+    options: { signal?: AbortSignal; excludeThreadId?: string } = {},
+  ): Promise<
+    { hits: WorkspaceSearchHit[]; truncated: boolean } | WorkspaceSearchError
+  > {
+    const { signal, excludeThreadId } = options;
+    const hits: WorkspaceSearchHit[] = [];
+    if (query.trim().length === 0) return { hits, truncated: false };
+    const needle = query.slice(0, 200).toLocaleLowerCase();
     const threads = await this.repo
       .list()
       .catch((cause) => new WorkspaceSearchError({ cause }));
     if (threads instanceof Error) return threads;
-    const hits: WorkspaceSearchHit[] = [];
     let truncated = false;
     for (const thread of threads) {
       if (signal?.aborted || truncated) break;
+      if (thread.id === excludeThreadId) continue;
       const data = await this.repo
         .read(thread.id)
         .catch((cause) => new WorkspaceSearchError({ cause }));
