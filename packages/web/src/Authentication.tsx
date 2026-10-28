@@ -1,13 +1,14 @@
 import { useContext as useReactContext } from "react";
 import { IncompatibleServerError } from "@get-halo/client";
 import type { ControlPlaneSession } from "@get-halo/shared/controlPlaneContract";
-import { ConnectionPage } from "./ConnectionPage.js";
+import { ConnectionPage, OfflinePage } from "./ConnectionPage.js";
 import { Button, P, Prose } from "maui";
 import {
   createContext,
   useContext,
   useEffect,
   useState,
+  useSyncExternalStore,
   type ReactElement,
 } from "react";
 import { useHost } from "./HostProvider.js";
@@ -47,20 +48,39 @@ export function useAccount() {
   return useContext(AccountContext)!;
 }
 
+function subscribeToNetwork(listener: () => void) {
+  window.addEventListener("online", listener);
+  window.addEventListener("offline", listener);
+  return () => {
+    window.removeEventListener("online", listener);
+    window.removeEventListener("offline", listener);
+  };
+}
+
 export function Authentication({ children }: { children: ReactElement }) {
   const host = useHost();
+  const online = useSyncExternalStore(
+    subscribeToNetwork,
+    () => navigator.onLine,
+  );
   const [state, setState] = useState<AuthenticationState>({
     status: "checking",
   });
 
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
+    if (!online) return;
     let active = true;
     const check = async () => {
       const session = await host.getAuthSession();
       if (!active) return;
       if (session instanceof Error) {
-        setState({ status: "unavailable", error: session });
+        console.warn(session);
+        setState((current) =>
+          current.status === "signedIn"
+            ? current
+            : { status: "unavailable", error: session },
+        );
         return;
       }
       setState(
@@ -74,11 +94,23 @@ export function Authentication({ children }: { children: ReactElement }) {
       active = false;
     };
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Explicit retry counter reruns session discovery after startup failures.
-  }, [host, attempt]);
+  }, [host, attempt, online]);
   useEffect(() => {
     if (state.status !== "unavailable") return;
-    const timer = setTimeout(() => setAttempt((value) => value + 1), 15_000);
-    return () => clearTimeout(timer);
+    const retry = () => {
+      if (document.visibilityState === "visible")
+        setAttempt((value) => value + 1);
+    };
+    const timer = setTimeout(retry, 15_000);
+    window.addEventListener("focus", retry);
+    window.addEventListener("pageshow", retry);
+    document.addEventListener("visibilitychange", retry);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("focus", retry);
+      window.removeEventListener("pageshow", retry);
+      document.removeEventListener("visibilitychange", retry);
+    };
   }, [state]);
 
   const reauthenticate = async () => {
@@ -99,6 +131,7 @@ export function Authentication({ children }: { children: ReactElement }) {
     if (window.location.pathname === "/newsletter/joined")
       return <NewsletterStatusPage status="joined" />;
   }
+  if (!online && state.status !== "signedIn") return <OfflinePage />;
   if (
     host.showLandingPage === true &&
     window.location.pathname === "/" &&

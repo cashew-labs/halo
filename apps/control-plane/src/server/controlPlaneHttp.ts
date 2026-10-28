@@ -417,7 +417,7 @@ async function routeControlPlaneRequest(ctx: {
     url.pathname === "/api/integrations/oauth/callback"
   ) {
     const headers = requestHeaders(request);
-    const session = await auth.getSession(headers);
+    const session = await auth.getSession({ headers });
     const result = await ctx.integrations?.oauthCallback({
       state: url.searchParams.get("state") ?? "",
       code: url.searchParams.has("error")
@@ -693,7 +693,7 @@ async function routeControlPlaneRequest(ctx: {
 
   const session =
     url.pathname === "/"
-      ? await auth.getSession(requestHeaders(request))
+      ? await auth.getSession({ headers: requestHeaders(request) })
       : undefined;
   if (session instanceof Error)
     logger.error({ event: "page-session-failed", errorType: session.name });

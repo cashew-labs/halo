@@ -76,9 +76,14 @@ export class WebHost implements HostApi {
     if (prepared) window.location.reload();
   }
 
-  async recordWorkspaceActivity() {
+  async recordWorkspaceActivity(ctx?: { signal?: AbortSignal }) {
     const workspace = await this.controlPlane.workspace
-      .ensure(undefined, { signal: AbortSignal.timeout(60_000) })
+      .ensure(undefined, {
+        signal:
+          ctx?.signal === undefined
+            ? AbortSignal.timeout(60_000)
+            : AbortSignal.any([ctx.signal, AbortSignal.timeout(60_000)]),
+      })
       .catch(
         (cause) => new WebHostError({ operation: "wake the workspace", cause }),
       );
@@ -147,7 +152,7 @@ export class WebHost implements HostApi {
     );
     if (compatible instanceof Error) return compatible;
     const authentication = await this.controlPlane.auth
-      .session()
+      .session(undefined, { signal: AbortSignal.timeout(10_000) })
       .catch(
         (cause) =>
           new WebHostError({ operation: "restore authentication", cause }),

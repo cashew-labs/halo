@@ -234,6 +234,9 @@ importers:
       '@types/pg':
         specifier: ^8.23.1
         version: 8.23.1
+      tough-cookie:
+        specifier: 6.0.2
+        version: 6.0.2
       typescript:
         specifier: 7.0.2
         version: 7.0.2
@@ -17165,7 +17168,6 @@ snapshots:
   tough-cookie@6.0.2:
     dependencies:
       tldts: 7.4.10
-    optional: true
 
   tr46@0.0.3: {}
 

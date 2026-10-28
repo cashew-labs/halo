@@ -36,6 +36,7 @@ import {
 } from "@get-halo/shared/controlPlaneContract";
 import { betterAuth } from "better-auth";
 import { testUtils } from "better-auth/plugins";
+import { Cookie, CookieJar } from "tough-cookie";
 import * as errore from "errore";
 import { expect, test, vi } from "vitest";
 import {
@@ -225,6 +226,10 @@ const controlPlaneTest = test.extend<{
   appDataDir: string;
   authenticatedRpc: ControlPlaneClient;
   browserHeaders: Headers;
+  browser: {
+    rpc: ControlPlaneClient;
+    fetch: (path: string, init?: RequestInit) => Promise<Response>;
+  };
   plane: ControlPlane;
   rpc: ControlPlaneClient;
   webRoot: string;
@@ -992,6 +997,45 @@ const controlPlaneTest = test.extend<{
   browserHeaders: async ({ appDataDir, plane }, use) => {
     await use(await createAuthenticatedHeaders(appDataDir, plane.origin));
   },
+  browser: async ({ plane }, use) => {
+    const cookies = new CookieJar();
+    const browserClientId = crypto.randomUUID();
+    const browserFetch: typeof fetch = async (input, init) => {
+      const request = new Request(input, init);
+      request.headers.set("cookie", await cookies.getCookieString(request.url));
+      request.headers.set("origin", plane.origin);
+      request.headers.set("x-halo-client-id", browserClientId);
+      const response = await fetch(request, { redirect: "manual" });
+      for (const header of response.headers.getSetCookie()) {
+        const cookie = Cookie.parse(header);
+        if (cookie === undefined) throw new Error("Invalid browser cookie");
+        // tough-cookie 6 offsets Max-Age from lastAccessed. Fix the expiry at
+        // receipt so merely sending a cookie cannot extend its lifetime.
+        if (cookie.maxAge !== null) {
+          cookie.expires = cookie.expiryDate(new Date())!;
+          // oxlint-disable-next-line unicorn/no-null -- tough-cookie requires null to clear Max-Age.
+          cookie.maxAge = null;
+        }
+        await cookies.setCookie(cookie, request.url);
+      }
+      return response;
+    };
+    const login = await browserFetch(`${plane.origin}/api/auth/preview-login`);
+    if (login.status !== 302)
+      throw new Error("Preview sign-in did not complete");
+    const rpc = createORPCClient<ControlPlaneClient>(
+      new RPCLink({
+        origin: plane.origin,
+        url: "/rpc",
+        fetch: browserFetch,
+      }),
+    );
+    await use({
+      rpc,
+      fetch: async (path, init) =>
+        await browserFetch(new URL(path, plane.origin), init),
+    });
+  },
   authenticatedRpc: async ({ browserHeaders, plane, rpc }, use) => {
     const complete = new URL("/api/desktop-auth/complete", plane.origin);
     complete.searchParams.set(
@@ -1024,6 +1068,57 @@ controlPlaneTest(
     expect(response.headers.getSetCookie()).toEqual([]);
     expect(await rpc.auth.session()).toEqual({ status: "signed-out" });
     expect((await fetch(`${plane.origin}/workspace/health`)).status).toBe(401);
+  },
+);
+
+// Durable regression: active browsers need a renewed cookie, not just a later
+// database expiry, or they lose authentication seven days after signing in.
+controlPlaneTest
+  .extend({
+    developmentPreview: true,
+    workspaceProvider: async ({ workspaceHost }, use) => {
+      await use(workspaceHost.provider);
+    },
+  })
+  .for(["rpc", "workspace"] as const)(
+  "keeps an active browser signed in through %s beyond its original cookie expiry",
+  async (transport, { browser }) => {
+    await using cleanup = new errore.AsyncDisposableStack();
+    const initial = await browser.rpc.auth.session();
+    if (initial.status !== "signed-in") throw new Error("Missing session");
+    const originalExpiry = Date.parse(initial.session.session.expiresAt);
+    const signedInAt = Date.now();
+    const lifetime = originalExpiry - signedInAt;
+    vi.useFakeTimers({ toFake: ["Date"] });
+    cleanup.defer(() => {
+      vi.useRealTimers();
+    });
+    vi.setSystemTime(signedInAt + lifetime / 2);
+
+    // Page rendering and ticket issuance happen before the browser's RPC check.
+    expect((await browser.fetch("/")).status).toBe(200);
+    expect(
+      (
+        await browser.fetch("/workspace/rpc/connect", {
+          method: "POST",
+        })
+      ).status,
+    ).toBe(200);
+    if (transport === "rpc") {
+      expect(await browser.rpc.auth.session()).toMatchObject({
+        status: "signed-in",
+      });
+    } else {
+      expect((await browser.fetch("/workspace/health")).status).toBe(200);
+    }
+
+    vi.setSystemTime(originalExpiry + 60_000);
+    expect(await browser.rpc.auth.session()).toMatchObject({
+      status: "signed-in",
+    });
+    // Renewal must not make an idle session immortal.
+    vi.setSystemTime(originalExpiry + lifetime + 120_000);
+    expect(await browser.rpc.auth.session()).toEqual({ status: "signed-out" });
   },
 );
 

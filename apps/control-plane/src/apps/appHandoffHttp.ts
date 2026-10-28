@@ -84,7 +84,7 @@ export async function serveAppHandoff(ctx: {
   const headers = new Headers();
   if (request.headers.cookie !== undefined)
     headers.set("cookie", request.headers.cookie);
-  const session = await ctx.auth.getSession(headers);
+  const session = await ctx.auth.getSession({ headers });
   // coverage-exempt: Auth database outage; no service mocks in the real control-plane fixture.
   if (session instanceof Error) {
     ctx.logger.error({
