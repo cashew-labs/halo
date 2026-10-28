@@ -259,6 +259,7 @@ test.each([
     status: "connecting",
     expiresAt: 10_000,
     wasConnected: false,
+    authorizationUrl: "https://halo.example/integrations/setup/setup-1",
   });
   expect(snapshot.connections).toEqual([
     {
@@ -267,6 +268,7 @@ test.each([
       status: "connecting",
       expiresAt: 10_000,
       wasConnected: false,
+      authorizationUrl: "https://halo.example/integrations/setup/setup-1",
     },
   ]);
 
@@ -281,27 +283,73 @@ test.each([
   ]);
 });
 
-test("keeps an existing connection when reconnect authorization is cancelled", () => {
-  const request = {
-    kind: "control-plane" as const,
-    connectionName: "default",
-    integration: "google_drive",
-  };
-  let snapshot = applyThreadEvent(emptyThreadSnapshot(), {
-    type: "halo.connection",
-    connectionId: "connection-1",
-    request,
-    status: "connecting",
-    expiresAt: 10_000,
-    wasConnected: true,
-  });
-  snapshot = applyThreadEvent(snapshot, {
-    type: "halo.connection",
-    connectionId: "connection-1",
-    request,
-    status: "cancelled",
-  });
-  expect(snapshot.connections).toMatchObject([
-    { connectionId: "connection-1", request, status: "connected" },
-  ]);
-});
+test.each([
+  {
+    request: {
+      kind: "control-plane" as const,
+      connectionName: "work",
+      integration: "google_drive",
+    },
+    keepsConnected: false,
+  },
+  {
+    request: { kind: "control-plane" as const, integration: "google_drive" },
+    keepsConnected: true,
+  },
+  {
+    request: {
+      client: "google",
+      clientOwner: "org" as const,
+      owner: "user" as const,
+      connectionName: "work",
+      integration: "google_drive",
+      template: "googleOAuth2",
+    },
+    keepsConnected: false,
+  },
+  {
+    request: {
+      client: "google",
+      clientOwner: "org" as const,
+      owner: "user" as const,
+      connectionName: "work",
+      integration: "google_drive",
+      template: "googleOAuth2",
+      newConnection: true,
+    },
+    keepsConnected: true,
+  },
+])(
+  "preserves unsuccessful repair outcomes without losing earlier new-account success (%j)",
+  ({ request, keepsConnected }) => {
+    for (const status of ["cancelled", "expired", "failed"] as const) {
+      let snapshot = applyThreadEvent(emptyThreadSnapshot(), {
+        type: "halo.connection",
+        connectionId: "earlier-success",
+        request,
+        status: "connected",
+      });
+      snapshot = applyThreadEvent(snapshot, {
+        type: "halo.connection",
+        connectionId: "later-attempt",
+        request,
+        status: "connecting",
+        expiresAt: 10_000,
+        wasConnected: true,
+      });
+      snapshot = applyThreadEvent(snapshot, {
+        type: "halo.connection",
+        connectionId: "later-attempt",
+        request,
+        status,
+      });
+      expect(snapshot.connections).toMatchObject([
+        {
+          connectionId: "later-attempt",
+          request,
+          status: keepsConnected ? "connected" : status,
+        },
+      ]);
+    }
+  },
+);

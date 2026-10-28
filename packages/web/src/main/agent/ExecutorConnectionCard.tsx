@@ -1,21 +1,13 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { colors } from "maui";
 import {
-  background,
-  Button,
-  colors,
-  Flex,
-  iconSizeValues,
-  LogoIcon,
-  radius,
-  shadow,
-  Text,
-} from "maui";
-import { style, useStyles } from "purse-styles";
-import { Check } from "maui/icons";
-import { connectionRequestLabel, integrationDisplay } from "@get-halo/client";
+  connectionRequestName,
+  type ConnectionRequest,
+} from "@get-halo/client";
 import { useHost } from "../../HostProvider.js";
-import { brands } from "../../BrandLogo.tsx";
+import { useApi } from "../../api/ApiProvider.js";
+import { ConnectionCard } from "./ConnectionCard.js";
 import {
   connectionCardQueryKey,
   connectionStateAfterCancel,
@@ -33,14 +25,6 @@ type ExecutorConnectionPart = Extract<
   { kind: "executorConnection" }
 >;
 
-const card = style(background.element, radius.lg, shadow.subtle, {
-  width: "100%",
-  maxWidth: "400px",
-});
-const brandButton = style({
-  flexShrink: 0,
-});
-
 export function ExecutorConnectionCard({
   threadId,
   part,
@@ -48,17 +32,26 @@ export function ExecutorConnectionCard({
   threadId: string | undefined;
   part: ExecutorConnectionPart;
 }) {
-  const cardClassName = useStyles(card);
-  const brandButtonClassName = useStyles(brandButton);
   const host = useHost();
+  const api = useApi();
   const queryClient = useQueryClient();
+  const [request, setRequest] = useState(part.request);
+  const [browserOpened, setBrowserOpened] = useState(true);
+  const accounts = useQuery({
+    queryKey: ["integrationConnections"],
+    queryFn: async ({ signal }) =>
+      await api.workspace.integrationConnections(undefined, { signal }),
+  });
+  const integrationAccounts = (accounts.data ?? []).filter(
+    (account) => account.integration === part.request.integration,
+  );
   const statusKey = useMemo(
-    () => connectionStateQueryKey(threadId, part.request),
-    [part.request, threadId],
+    () => connectionStateQueryKey(threadId, request),
+    [request, threadId],
   );
   const cardKey = useMemo(
-    () => connectionCardQueryKey(threadId, part.request),
-    [part.request, threadId],
+    () => connectionCardQueryKey(threadId, request),
+    [request, threadId],
   );
   const shared = useQuery<ConnectionState>({
     queryKey: statusKey,
@@ -66,6 +59,12 @@ export function ExecutorConnectionCard({
     initialData: idleConnectionState,
     enabled: false,
   }).data;
+  useEffect(() => {
+    if (shared.status !== "connected") return;
+    queryClient
+      .invalidateQueries({ queryKey: ["integrationConnections"] })
+      .catch((error) => console.warn("Account refresh failed:", error));
+  }, [shared.status, queryClient]);
   const startedCard = useQuery<StartedConnectionCard>({
     queryKey: cardKey,
     queryFn: async () => ({}), // coverage-exempt: disabled query; initialData only
@@ -77,14 +76,13 @@ export function ExecutorConnectionCard({
     startedCard.cardId,
     part.id,
   );
-  const wasConnected = shared.status === "connected";
   const connect = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (submittedRequest: ConnectionRequest) => {
       // SAFETY: the button is disabled until threadId is a string.
       const activeThreadId = threadId as string;
       const started = await host.connectIntegration({
         threadId: activeThreadId,
-        request: part.request,
+        request: submittedRequest,
       });
       if (started instanceof Error) throw started;
       if (started.status === "connected") return started;
@@ -93,36 +91,55 @@ export function ExecutorConnectionCard({
         connectionId: started.connectionId,
         expiresAt: started.expiresAt,
         wasConnected: started.wasConnected,
+        authorizationUrl: started.authorizationUrl,
       };
-      queryClient.setQueryData(statusKey, connecting);
+      queryClient.setQueryData(
+        connectionStateQueryKey(threadId, submittedRequest),
+        connecting,
+      );
       return started;
     },
-    onMutate: () => {
+    onMutate: (submittedRequest) => {
+      cancel.reset();
+      reopen.reset();
+      setBrowserOpened(true);
+      // Add account starts an unnamed attempt, never another named repair.
+      setRequest(submittedRequest);
+      const attemptStatusKey = connectionStateQueryKey(
+        threadId,
+        submittedRequest,
+      );
+      const attemptCardKey = connectionCardQueryKey(threadId, submittedRequest);
+      const wasConnected =
+        connectionRequestName(submittedRequest) === undefined &&
+        queryClient.getQueryData<ConnectionState>(attemptStatusKey)?.status ===
+          "connected";
       const previousCard =
-        queryClient.getQueryData<StartedConnectionCard>(cardKey) ?? {};
-      const starting: ConnectionState = {
-        status: "starting",
-        wasConnected,
-      };
-      queryClient.setQueryData(statusKey, starting);
-      queryClient.setQueryData<StartedConnectionCard>(cardKey, {
+        queryClient.getQueryData<StartedConnectionCard>(attemptCardKey) ?? {};
+      const starting: ConnectionState = { status: "starting", wasConnected };
+      queryClient.setQueryData(attemptStatusKey, starting);
+      queryClient.setQueryData<StartedConnectionCard>(attemptCardKey, {
         cardId: part.id,
       });
       return { previousCard };
     },
-    onSuccess: (started) => {
+    onSuccess: (started, submittedRequest) => {
+      setBrowserOpened(started.browserOpened ?? true);
       if (started.status !== "connected") return;
-      queryClient.setQueryData<ConnectionState>(statusKey, {
-        status: "connected",
-      });
-    },
-    onError: (error, _input, context) => {
       queryClient.setQueryData<ConnectionState>(
-        statusKey,
+        connectionStateQueryKey(threadId, submittedRequest),
+        {
+          status: "connected",
+        },
+      );
+    },
+    onError: (error, submittedRequest, context) => {
+      queryClient.setQueryData<ConnectionState>(
+        connectionStateQueryKey(threadId, submittedRequest),
         connectionStateAfterFailedStart,
       );
       queryClient.setQueryData<StartedConnectionCard>(
-        cardKey,
+        connectionCardQueryKey(threadId, submittedRequest),
         context?.previousCard ?? {},
       );
       console.warn("Connection failed:", error);
@@ -145,119 +162,96 @@ export function ExecutorConnectionCard({
       console.warn("Connection cancellation failed:", error);
     },
   });
-
-  const status = connection.status;
-  const display = integrationDisplay(part.request.integration);
-  const label = connectionRequestLabel(part.request);
-  const brand = brands.google;
-  const canConnect = threadId !== undefined;
-  const brandButtonProps =
-    display !== undefined && part.request.integration.startsWith("google_")
-      ? {
-          variantColor: brand.buttonColor,
-          style: { color: brand.buttonForeground },
-        }
-      : {};
+  const reopen = useMutation({
+    mutationFn: async (url: string) => {
+      if (host.openExternalUrl === undefined) {
+        window.open(url, "_blank", "noopener,noreferrer");
+        return;
+      }
+      const opened = await host.openExternalUrl(url);
+      if (opened instanceof Error) throw opened;
+    },
+    onSuccess: () => setBrowserOpened(true),
+    onError: (error) => {
+      setBrowserOpened(false);
+      console.warn("Could not reopen connection setup:", error);
+    },
+  });
+  const openSetup = () => {
+    cancel.reset();
+    if (
+      connection.status === "connecting" &&
+      connection.authorizationUrl !== undefined
+    )
+      reopen.mutate(connection.authorizationUrl);
+  };
 
   return (
-    <section
-      aria-label={`${label} connection`}
-      data-thread-id={threadId}
-      data-integration={part.request.integration}
-      data-testid="executor-connection-card"
-      className={cardClassName}
-    >
-      <Flex column gap={1} p={6}>
-        <Flex row gap={4} alignItems="center">
-          {display !== undefined && <LogoIcon src={display.icon} size="xl" />}
-          <Text size="md" fontWeight={600} style={{ flex: 1, minWidth: 0 }}>
-            {label}
-          </Text>
-          <Flex row gap={3} alignItems="center" style={{ flexShrink: 0 }}>
-            {status === "idle" ? undefined : (
-              <ConnectionStatusLabel status={status} />
-            )}
-            {status === "starting" ? undefined : status === "connecting" ? (
-              <Button
-                variant="quiet"
-                isDisabled={cancel.isPending}
-                onClick={() => cancel.mutate()}
+    <ConnectionCard
+      threadId={threadId}
+      request={request}
+      status={connection.status}
+      accounts={integrationAccounts}
+      accountsStatus={accounts.status}
+      refreshingAccounts={
+        connection.status === "connected" && accounts.isFetching
+      }
+      browserOpened={browserOpened}
+      error={
+        connection.status === "connecting" ? (
+          cancel.isError ? (
+            "Couldn't cancel. Setup may still be active. Try Cancel again."
+          ) : !browserOpened && connection.authorizationUrl !== undefined ? (
+            <>
+              Failed to open browser.{" "}
+              <a
+                href={connection.authorizationUrl}
+                data-external-link="custom"
+                style={{ color: colors.blue[11] }}
+                onClick={(event) => {
+                  event.preventDefault();
+                  openSetup();
+                }}
               >
-                Cancel
-              </Button>
-            ) : status === "connected" ? (
-              <Button
-                variant="default"
-                isDisabled={!canConnect}
-                onClick={() => connect.mutate()}
-              >
-                Add account
-              </Button>
-            ) : (
-              <Button
-                variant="primary"
-                {...brandButtonProps}
-                className={brandButtonClassName}
-                isDisabled={!canConnect}
-                onClick={() => connect.mutate()}
-              >
-                {status === "idle" ? "Connect" : "Connect again"}
-              </Button>
-            )}
-          </Flex>
-        </Flex>
-        {display === undefined ? undefined : (
-          <Flex row gap={4} alignItems="start">
-            <span
-              aria-hidden="true"
-              style={{ width: iconSizeValues.xl, flexShrink: 0 }}
-            />
-            <Text size="md" color="lowContrast">
-              {display.description}
-            </Text>
-          </Flex>
-        )}
-      </Flex>
-    </section>
+                Open this link
+              </a>{" "}
+              in your browser to continue connecting.
+            </>
+          ) : undefined
+        ) : connect.isError ? (
+          "Couldn't start connection setup. Try connecting again."
+        ) : undefined
+      }
+      connect={{
+        onPress: () => connect.mutate(request),
+        isDisabled: threadId === undefined,
+      }}
+      addAccount={{
+        onPress: () =>
+          connect.mutate({
+            kind: "control-plane",
+            integration: request.integration,
+          }),
+        isDisabled: threadId === undefined,
+      }}
+      cancel={{
+        onPress: () => {
+          reopen.reset();
+          cancel.mutate();
+        },
+        isDisabled: cancel.isPending,
+      }}
+      reopen={{
+        onPress: openSetup,
+        isDisabled:
+          connection.status !== "connecting" ||
+          connection.authorizationUrl === undefined ||
+          reopen.isPending,
+      }}
+      retryAccounts={{
+        onPress: () => void accounts.refetch(),
+        isDisabled: accounts.isFetching,
+      }}
+    />
   );
 }
-
-function ConnectionStatusLabel({
-  status,
-}: {
-  status: Exclude<ConnectionState["status"], "idle">;
-}) {
-  const color = connectionStatusColor[status];
-  if (status === "connected") {
-    return (
-      <Flex row gap={1} alignItems="center" style={{ color }}>
-        <Check size="sm" />
-        <Text size="sm" fontWeight={500} style={{ color }}>
-          Connected
-        </Text>
-      </Flex>
-    );
-  }
-  return (
-    <Text size="sm" fontWeight={500} style={{ color }}>
-      {connectionStatusCopy[status]}
-    </Text>
-  );
-}
-
-const connectionStatusColor = {
-  starting: colors.blue[11],
-  connecting: colors.blue[11],
-  connected: colors.green[11],
-  cancelled: colors.orange[11],
-  expired: colors.red[11],
-  failed: colors.red[11],
-} as const;
-
-const connectionStatusCopy = {
-  starting: "Starting connection",
-  connecting: "Opened in your browser",
-  cancelled: "Cancelled",
-  expired: "Expired",
-  failed: "Connection failed",
-} as const;

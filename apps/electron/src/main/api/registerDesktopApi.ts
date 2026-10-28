@@ -1,11 +1,7 @@
 import { BrowserWindow, ipcMain, type IpcMainInvokeEvent } from "electron";
 import { Value } from "@sinclair/typebox/value";
 import * as errore from "errore";
-import {
-  createHaloClient,
-  serializeConnectionFailure,
-  type HaloClient,
-} from "@get-halo/client";
+import { createHaloClient, serializeConnectionFailure } from "@get-halo/client";
 import {
   DESKTOP_CHANNEL,
   desktopRequestSchema,
@@ -159,18 +155,11 @@ async function connectIntegration(args: {
       : handoff;
   const opened = await openExternalUrl(setupUrl);
   if (opened instanceof Error) {
-    await cancelPendingConnection({
-      client,
-      threadId: args.request.threadId,
-      connectionId: started.connectionId,
-    });
-    return new DesktopOperationError({
-      operation: "open the authorization page",
-      cause: opened,
-    });
+    console.warn("Could not open connection setup:", opened);
   }
 
-  return started;
+  // Keep the reusable setup URL, not the single-use browser handoff.
+  return { ...started, browserOpened: !(opened instanceof Error) };
 }
 
 async function cancelIntegration(args: {
@@ -184,22 +173,10 @@ async function cancelIntegration(args: {
       operation: "cancel a connection without a workspace",
     });
   }
-  await cancelPendingConnection({
-    client: createWorkspaceClient(connection),
-    threadId: args.request.threadId,
-    connectionId: args.request.connectionId,
-  });
-}
-
-async function cancelPendingConnection(args: {
-  client: HaloClient;
-  threadId: string;
-  connectionId: string;
-}) {
-  const cancelled = await args.client.thread
-    .cancelConnection({
-      sessionId: args.threadId,
-      connectionId: args.connectionId,
+  return await createWorkspaceClient(connection)
+    .thread.cancelConnection({
+      sessionId: args.request.threadId,
+      connectionId: args.request.connectionId,
     })
     .catch(
       (cause) =>
@@ -208,9 +185,6 @@ async function cancelPendingConnection(args: {
           cause,
         }),
     );
-  if (cancelled instanceof Error) {
-    console.warn("Connection cancellation failed:", cancelled);
-  }
 }
 
 function createWorkspaceClient(connection: HaloRpcConnection) {

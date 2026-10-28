@@ -12,6 +12,8 @@ export function useExternalLinks(host: HostApi) {
           ? event.target.closest("a[href]")
           : undefined;
       if (!(link instanceof HTMLAnchorElement)) return;
+      // Stateful links handle their own host result and recovery UI.
+      if (link.dataset.externalLink === "custom") return;
       const href = link.getAttribute("href");
       // Relative links belong to Halo's router or the current document.
       if (href === null || !/^(https?:)?\/\//i.test(href)) return;

@@ -15,6 +15,7 @@ import {
 } from "@get-halo/workspace-server/testing";
 import { createHarnessTools } from "./tools.js";
 import { loadThreadDescription } from "./loadThreadDescription.js";
+import type { WorkspaceRuntimeConfig } from "@get-halo/config/workspaceServer";
 
 type E2EThread = {
   threadId: string;
@@ -31,6 +32,7 @@ type E2ETestHarness = TestArtifacts["harness"] & {
 
 type E2EFixtures = {
   traceSnapshots: boolean;
+  workspaceRuntime: WorkspaceRuntimeConfig | undefined;
   llm: LLMDriver;
   http: HttpService;
   chrome: TestChrome;
@@ -61,6 +63,7 @@ class ExtensionSetupError extends errore.createTaggedError({
 
 export const e2eTest = baseTest.extend<E2EFixtures, E2EWorkerFixtures>({
   traceSnapshots: [true, { option: true }],
+  workspaceRuntime: [undefined, { option: true }],
   // oxlint-disable-next-line eslint/no-empty-pattern -- Fixture callbacks require destructured parameters.
   http: async ({}, use) => {
     const http = await HttpService.start();
@@ -93,7 +96,7 @@ export const e2eTest = baseTest.extend<E2EFixtures, E2EWorkerFixtures>({
     if (finished instanceof Error) throw finished;
   },
   server: [
-    async ({ testArtifacts, llm, chrome }, use) => {
+    async ({ testArtifacts, llm, chrome, workspaceRuntime }, use) => {
       await using cleanup = new errore.AsyncDisposableStack();
       const server = await startWorkspaceServerProcess({
         entry: resolve(
@@ -106,6 +109,7 @@ export const e2eTest = baseTest.extend<E2EFixtures, E2EWorkerFixtures>({
         }),
         llmConfiguration: llm.configuration,
         config: {
+          runtime: workspaceRuntime,
           environment: "local",
           workspaceRoot: testArtifacts.paths.workspace,
           appDataDir: testArtifacts.paths.userData,

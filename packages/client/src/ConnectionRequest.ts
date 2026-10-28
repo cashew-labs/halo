@@ -1,6 +1,13 @@
 import { type Static, Type } from "@sinclair/typebox";
 import { integrationDisplay } from "./IntegrationDisplay.js";
 
+export type IntegrationConnection = {
+  address: string;
+  integration: string;
+  name: string;
+  accountLabel?: string;
+};
+
 const controlPlaneConnectionRequestSchema = Type.Object({
   kind: Type.Literal("control-plane"),
   integration: Type.String(),
@@ -25,6 +32,13 @@ export const connectionRequestSchema = Type.Union([
   legacyConnectionRequestSchema,
 ]);
 export type ConnectionRequest = Static<typeof connectionRequestSchema>;
+
+// The existing connection to repair, or undefined when adding an account.
+export function connectionRequestName(request: ConnectionRequest) {
+  return "newConnection" in request && request.newConnection
+    ? undefined
+    : request.connectionName;
+}
 
 export function connectionRequestKey(request: ConnectionRequest) {
   return JSON.stringify([

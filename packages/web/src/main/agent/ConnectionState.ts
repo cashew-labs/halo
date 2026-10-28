@@ -1,5 +1,6 @@
 import {
   connectionRequestKey,
+  connectionRequestName,
   type ConnectionRequest,
   type HaloConnectionEvent,
   type HaloConnectionState,
@@ -13,6 +14,7 @@ export type ConnectionState =
       connectionId: string;
       expiresAt: number;
       wasConnected: boolean;
+      authorizationUrl?: string;
     };
 
 export const idleConnectionState: ConnectionState = { status: "idle" };
@@ -36,7 +38,10 @@ export function connectionStateFromServer(
       status: state.status,
       connectionId: state.connectionId,
       expiresAt: state.expiresAt,
-      wasConnected: state.wasConnected,
+      wasConnected:
+        state.wasConnected &&
+        connectionRequestName(state.request) === undefined,
+      authorizationUrl: state.authorizationUrl,
     };
   }
   return { status: state.status };
@@ -90,7 +95,7 @@ export function connectionStateForCard(
   return idleConnectionState;
 }
 
-// A failed start keeps an existing connection visible.
+// A failed new-account attempt keeps earlier successful access visible.
 export function connectionStateAfterFailedStart(
   state: ConnectionState | undefined,
 ): ConnectionState {
@@ -102,7 +107,7 @@ export function connectionStateAfterFailedStart(
   return idleConnectionState;
 }
 
-// Cancelling a reconnect keeps the existing connection.
+// Cancelling Add account keeps earlier successful access visible.
 export function connectionStateAfterCancel(
   state: ConnectionState | undefined,
 ): ConnectionState | undefined {

@@ -21,7 +21,10 @@ import {
   type,
   type RouterContractClient,
 } from "@orpc/contract";
-import type { ConnectionRequest } from "./ConnectionRequest.js";
+import type {
+  ConnectionRequest,
+  IntegrationConnection,
+} from "./ConnectionRequest.js";
 import type { TraceAgent, TraceEvent, TraceOutcome } from "./traces.js";
 import type {
   ThreadWatchItem,
@@ -265,6 +268,7 @@ export const contract = publicProcedure.router({
   },
   workspace: {
     get: oc.output(type<WorkspaceInfo>()),
+    integrationConnections: oc.output(type<IntegrationConnection[]>()),
     listPaths: oc.output(type<string[]>()),
     searchPaths: oc.input(type<{ query: string }>()).output(type<string[]>()),
     watchDirectories: oc

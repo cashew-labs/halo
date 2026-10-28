@@ -199,6 +199,12 @@ export class ElectronTestApp {
     });
   }
 
+  async setExternalUrlFailure(fail: boolean) {
+    await this.running.electron.evaluate((_electron, shouldFail) => {
+      process.env.HALO_E2E_FAIL_OPEN_EXTERNAL = shouldFail ? "1" : "0";
+    }, fail);
+  }
+
   async openWindow() {
     const electronApp = this.running.electron;
     const opened = electronApp.waitForEvent("window");

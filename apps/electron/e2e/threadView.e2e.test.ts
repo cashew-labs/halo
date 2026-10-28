@@ -4,6 +4,90 @@ import { m } from "@get-halo/shared/testing";
 import { messageText } from "@get-halo/workspace-server/testing";
 import fs from "node:fs/promises";
 import path from "node:path";
+import http from "node:http";
+import { once } from "node:events";
+import type { AddressInfo } from "node:net";
+import type { IntegrationSetup } from "@get-halo/shared/controlPlaneContract";
+
+type IntegrationProvider = {
+  origin: string;
+  status: IntegrationSetup["status"];
+  failCancel: boolean;
+  accounts: boolean;
+};
+
+const connectionTest = e2eTest.extend<{
+  integrationProvider: IntegrationProvider;
+}>({
+  // oxlint-disable-next-line eslint/no-empty-pattern -- Playwright requires a destructured fixture argument.
+  integrationProvider: async ({}, use) => {
+    const provider: IntegrationProvider = {
+      origin: "",
+      status: "awaiting_credentials",
+      failCancel: false,
+      accounts: false,
+    };
+    // Control only the unavailable remote integration service. Electron, its
+    // bridge, the workspace server, connection polling, and the card are real.
+    const server = http.createServer((request, response) => {
+      const route = new URL(request.url!, "http://provider").pathname;
+      response.setHeader("content-type", "application/json");
+      if (route.endsWith("/startSetup")) {
+        provider.status = "awaiting_credentials";
+        response.end(
+          JSON.stringify({
+            json: {
+              setupId: "test-setup",
+              setupUrl: `${provider.origin}/integrations/setup/test-setup`,
+            },
+          }),
+        );
+        return;
+      }
+      if (route.endsWith("/cancelSetup")) {
+        if (provider.failCancel) {
+          response.writeHead(503);
+          response.end("Temporarily unavailable");
+          return;
+        }
+        provider.status = "cancelled";
+      }
+      const json = route.endsWith("/setup")
+        ? { status: provider.status }
+        : route.endsWith("/connections")
+          ? provider.accounts
+            ? [
+                {
+                  integration: "google_gmail",
+                  name: "work",
+                  address: "google_gmail.work",
+                  accountLabel: "alex@acme.com",
+                },
+              ]
+            : []
+          : {};
+      response.end(JSON.stringify({ json }));
+    });
+    server.listen({ host: "127.0.0.1", port: 0 });
+    await once(server, "listening");
+    // SAFETY: listening above guarantees a bound TCP address, not a pipe.
+    provider.origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    try {
+      await use(provider);
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  },
+  workspaceRuntime: async ({ integrationProvider }, use) => {
+    await use({
+      origin: integrationProvider.origin,
+      workspaceId: "connection-test",
+      token: "test-runtime-token-for-connection-flow",
+      generation: 1,
+    });
+  },
+});
 
 e2eTest(
   "keeps lower rows of long Markdown tables interactive while streaming and after reload",
@@ -120,7 +204,7 @@ e2eTest(
     });
     await expect(cards).toHaveCount(1);
     await expect(
-      pane.getByRole("button", { name: "Connect", exact: true }),
+      pane.getByRole("button", { name: "Reconnect personal", exact: true }),
     ).toHaveCount(1);
     await app.page.reload();
     await expect(cards).toHaveCount(1);
@@ -154,6 +238,136 @@ e2eTest(
     await expect(
       separate.getByRole("region", { name: "Gmail connection", exact: true }),
     ).toHaveCount(3);
+  },
+);
+
+connectionTest(
+  "recovers browser and cancellation failures without losing the pending connection",
+  async ({ app, harness, integrationProvider }, testInfo) => {
+    connectionTest.setTimeout(60_000);
+    await harness.loadThread({
+      title: "Connect Gmail",
+      messages: [
+        m.user("Connect my inbox"),
+        m.connectionRequest({
+          kind: "control-plane",
+          integration: "google_gmail",
+        }),
+      ],
+    });
+    const card = app.page.getByRole("region", {
+      name: "Gmail connection",
+      exact: true,
+    });
+    const cancel = card.getByRole("button", { name: "Cancel", exact: true });
+    const connect = card.getByRole("button", { name: "Connect", exact: true });
+    const opened = card.getByRole("button", {
+      name: "Opened in your browser",
+      exact: true,
+    });
+    await expect(card).toContainText("No accounts connected");
+    await app.page.screenshot({
+      path: testInfo.outputPath("connection-empty.png"),
+    });
+    await app.setExternalUrlFailure(true);
+    await connect.click();
+    await expect(card.getByRole("alert")).toContainText(
+      "Failed to open browser.",
+    );
+    await expect(cancel).toBeVisible();
+    await expect(card).not.toContainText("No accounts connected");
+    const setupLink = card.getByRole("link", { name: "Open this link" });
+    await expect(setupLink).toHaveAttribute(
+      "href",
+      `${integrationProvider.origin}/integrations/setup/test-setup`,
+    );
+    await app.page.screenshot({
+      path: testInfo.outputPath("connection-browser-failed.png"),
+    });
+    await app.setExternalUrlFailure(false);
+    await setupLink.click();
+    await expect(opened).toBeVisible();
+    await expect(card.getByRole("alert")).toHaveCount(0);
+
+    await app.setExternalUrlFailure(true);
+    await opened.click();
+    await expect(setupLink).toBeVisible();
+    await app.setExternalUrlFailure(false);
+    await card
+      .getByRole("button", { name: "Open in browser", exact: true })
+      .click();
+    await expect(opened).toBeVisible();
+
+    integrationProvider.failCancel = true;
+    await cancel.click();
+    await expect(card.getByRole("alert")).toContainText(
+      "Couldn't cancel. Setup may still be active.",
+    );
+    await expect(cancel).toBeEnabled();
+    await expect(opened).toBeVisible();
+    await expect(connect).toHaveCount(0);
+    await app.page.screenshot({
+      path: testInfo.outputPath("connection-cancel-failed.png"),
+    });
+    integrationProvider.failCancel = false;
+    await cancel.click();
+    await expect(connect).toBeVisible();
+    await expect(card.getByRole("status")).toHaveText("Cancelled");
+    await connect.click();
+    await expect(opened).toBeVisible();
+    integrationProvider.status = "confirming";
+    await expect(cancel).toBeVisible();
+    await expect(card).not.toContainText("Finishing connection");
+    await app.page.screenshot({
+      path: testInfo.outputPath("connection-pending.png"),
+    });
+    integrationProvider.accounts = true;
+    integrationProvider.status = "ready";
+    await expect(card.getByRole("list", { name: "Accounts" })).toContainText(
+      "alex@acme.com",
+    );
+    const addAccount = card.getByRole("button", {
+      name: "Add account",
+      exact: true,
+    });
+    await expect(addAccount).toBeVisible();
+    await app.page.screenshot({
+      path: testInfo.outputPath("connection-connected.png"),
+    });
+    await addAccount.click();
+    await expect(opened).toBeVisible();
+    await cancel.click();
+    await expect(addAccount).toBeVisible();
+    await expect(card).toContainText("alex@acme.com");
+
+    await harness.loadThread({
+      title: "Repair Gmail",
+      messages: [
+        m.user("Repair work Gmail"),
+        m.connectionRequest({
+          kind: "control-plane",
+          integration: "google_gmail",
+          connectionName: "work",
+        }),
+      ],
+    });
+    const reconnect = card.getByRole("button", {
+      name: "Reconnect alex@acme.com",
+      exact: true,
+    });
+    await expect(reconnect).toBeVisible();
+    await expect(
+      card.getByRole("img", { name: "Reconnection required" }),
+    ).toBeVisible();
+    await app.page.screenshot({
+      path: testInfo.outputPath("connection-repair.png"),
+    });
+    await reconnect.click();
+    await expect(opened).toBeVisible();
+    await cancel.click();
+    await expect(reconnect).toBeVisible();
+    await expect(card).toContainText("alex@acme.com");
+    await expect(card.getByRole("status")).toHaveText("Cancelled");
   },
 );
 

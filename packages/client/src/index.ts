@@ -58,8 +58,10 @@ export type { WorkspaceSearchHit, WorkspaceSearchResponse } from "./search.js";
 export {
   connectionRequestSchema,
   connectionRequestKey,
+  connectionRequestName,
   connectionRequestLabel,
   type ConnectionRequest,
+  type IntegrationConnection,
 } from "./ConnectionRequest.js";
 export {
   integrationDisplay,

@@ -32,6 +32,7 @@ import {
   ArrowLeft,
   ArrowRight,
   Check,
+  ChevronRight,
   Minus,
   Moon,
   Plus,
@@ -40,7 +41,7 @@ import {
 } from "maui/icons";
 import { style, useStyles } from "purse-styles";
 
-const thumbnailPadding = 8;
+const thumbnailPadding = 12;
 const thumbnailHeaderHeight = 24;
 const thumbnailGap = 8;
 
@@ -223,6 +224,13 @@ export function FlowCanvas({ scenario }: { scenario: FlowScenario }) {
   const graphHeight =
     Math.max(...[...nodes.values()].map((node) => node.y + node.height)) + 24;
   const [selected, setSelected] = useState(scenario.initialState);
+  const [journeyEnd, setJourneyEnd] = useState(scenario.initialState);
+  const breadcrumbs: string[] = [];
+  let ancestor: string | undefined = journeyEnd;
+  while (ancestor) {
+    breadcrumbs.unshift(ancestor);
+    ancestor = nodes.get(ancestor)!.parent;
+  }
   const [revision, setRevision] = useState(0);
   const [zoom, setZoom] = useState(0.85);
   const reduceMotion = useReducedMotion();
@@ -265,6 +273,7 @@ export function FlowCanvas({ scenario }: { scenario: FlowScenario }) {
     return () => observer.disconnect();
   }, [steps, nodeHeight, nodeWidth, previewWidth]);
   const select = (id: string) => {
+    if (!breadcrumbs.includes(id)) setJourneyEnd(id);
     setSelected(id);
     setRevision((value) => value + 1);
   };
@@ -408,13 +417,9 @@ export function FlowCanvas({ scenario }: { scenario: FlowScenario }) {
   const navigationButton = useStyles(styles.navigationButton);
   const title = useStyles(text({ size: "lg", fontWeight: 600 }));
   const current = nodes.get(selected)!;
+  const previewInset = `max(${spacing.value(8)}, calc((100cqw - ${current.maxWidth ?? previewWidth}px - 2px) / 2))`;
   const next = steps.filter((step) => step.parent === selected);
-  const path = new Set<string>();
-  let ancestor: string | undefined = selected;
-  while (ancestor) {
-    path.add(ancestor);
-    ancestor = nodes.get(ancestor)!.parent;
-  }
+  const path = new Set(breadcrumbs.slice(0, breadcrumbs.indexOf(selected) + 1));
 
   useLayoutEffect(() => {
     const viewport = scroller.current!;
@@ -487,15 +492,29 @@ export function FlowCanvas({ scenario }: { scenario: FlowScenario }) {
             </Text>
           )}
         </Flex>
-        <Button
-          onPress={() =>
-            setPreference(resolvedTheme === "dark" ? "light" : "dark")
-          }
-          aria-label="Toggle theme"
-        >
-          {resolvedTheme === "dark" ? <Sun /> : <Moon />}
-          {resolvedTheme === "dark" ? "Light mode" : "Dark mode"}
-        </Button>
+        <Flex row gap={3} style={{ marginLeft: "auto", flexWrap: "wrap" }}>
+          <Button
+            onPress={() =>
+              setPreference(resolvedTheme === "dark" ? "light" : "dark")
+            }
+            aria-label="Toggle theme"
+          >
+            {resolvedTheme === "dark" ? <Sun /> : <Moon />}
+            {resolvedTheme === "dark" ? "Light mode" : "Dark mode"}
+          </Button>
+          <Button
+            isDisabled={
+              steps.every((step) => reviewed.includes(step.id)) ||
+              steps.some((step) => !signatures[step.id])
+            }
+            onPress={() => {
+              for (const step of steps) markReviewed(step.id, true);
+            }}
+          >
+            <Check />
+            Mark all as reviewed
+          </Button>
+        </Flex>
       </header>
       <div
         ref={layoutRef}
@@ -737,11 +756,52 @@ export function FlowCanvas({ scenario }: { scenario: FlowScenario }) {
           ref={previewScroller}
           aria-label="Selected state preview"
         >
-          <Flex row justifyContent="end" alignItems="center" gap={4}>
-            <Button size="sm" onPress={() => setRevision((value) => value + 1)}>
-              Reset preview
-            </Button>
-          </Flex>
+          <nav aria-label="State path">
+            <ol
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                alignItems: "center",
+                listStyle: "none",
+                margin: 0,
+                padding: 0,
+              }}
+            >
+              {breadcrumbs.map((id, index) => (
+                <li
+                  key={id}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    minWidth: 0,
+                    maxWidth: "100%",
+                  }}
+                >
+                  {index > 0 && (
+                    <ChevronRight
+                      size="xs"
+                      aria-hidden="true"
+                      style={{ flexShrink: 0 }}
+                    />
+                  )}
+                  <Button
+                    variant="quiet"
+                    variantColor={id === selected ? "accent" : undefined}
+                    aria-current={id === selected ? "step" : undefined}
+                    style={{
+                      whiteSpace: "normal",
+                      height: "auto",
+                      minHeight: 24,
+                      textAlign: "left",
+                    }}
+                    onPress={() => select(id)}
+                  >
+                    {nodes.get(id)!.title}
+                  </Button>
+                </li>
+              ))}
+            </ol>
+          </nav>
           <Crossfade
             contentKey={selected}
             direction="up"
@@ -777,20 +837,21 @@ export function FlowCanvas({ scenario }: { scenario: FlowScenario }) {
                 key={`${selected}-${revision}`}
                 className={previewPanel}
                 style={{
-                  maxWidth: `calc(${current.maxWidth ?? previewWidth}px + ${spacing.value(8)} * 2 + 2px)`,
-                  maxHeight: `calc(${current.maxHeight ?? (nodeHeight * (current.maxWidth ?? previewWidth)) / nodeWidth}px + ${spacing.value(8)} * 2 + 2px)`,
+                  padding: previewInset,
+                  maxHeight: `calc(${current.maxHeight ?? (nodeHeight * (current.maxWidth ?? previewWidth)) / nodeWidth}px + ${previewInset} * 2 + 2px)`,
                 }}
               >
-                <div style={{ width: "100%", flexShrink: 0 }}>
+                <div
+                  style={{
+                    width: "100%",
+                    maxWidth: current.maxWidth ?? previewWidth,
+                    flexShrink: 0,
+                  }}
+                >
                   {current.render({ mode: "preview" })}
                 </div>
               </div>
-              <Flex
-                row
-                gap={4}
-                justifyContent="end"
-                style={{ flexWrap: "wrap" }}
-              >
+              <Flex row gap={4} alignItems="start" style={{ flexWrap: "wrap" }}>
                 {current.parent && (
                   <Button
                     className={navigationButton}
@@ -800,17 +861,24 @@ export function FlowCanvas({ scenario }: { scenario: FlowScenario }) {
                     Previous state
                   </Button>
                 )}
-                {next.map((step) => (
-                  <Button
-                    key={step.id}
-                    aria-label={`Follow flow: ${step.action}`}
-                    className={navigationButton}
-                    onPress={() => select(step.id)}
-                  >
-                    {step.action}
-                    <ArrowRight />
-                  </Button>
-                ))}
+                <Flex
+                  row
+                  gap={4}
+                  justifyContent="end"
+                  style={{ flex: 1, minWidth: 0, flexWrap: "wrap" }}
+                >
+                  {next.map((step) => (
+                    <Button
+                      key={step.id}
+                      aria-label={`Follow flow: ${step.action}`}
+                      className={navigationButton}
+                      onPress={() => select(step.id)}
+                    >
+                      {step.action}
+                      <ArrowRight />
+                    </Button>
+                  ))}
+                </Flex>
               </Flex>
             </PreviewScene>
           </Crossfade>
@@ -1035,17 +1103,22 @@ const styles = {
   edge: style(motion.standard("stroke", "stroke-width"), {
     "@media (prefers-reduced-motion: reduce)": { transition: "none" },
   }),
-  node: style(radius.lg, {
+  node: style(radius.lg, shadow.subtle, {
     position: "absolute",
     display: "flex",
     flexDirection: "column",
     padding: thumbnailPadding,
     gap: thumbnailGap,
+    backgroundColor: backgroundColor.element,
+    "&:hover": { backgroundColor: backgroundColor.elementHover },
+    "&[data-selected='true']": {
+      backgroundColor: colors.accent[3],
+      boxShadow: `0 0 0 1px ${colors.accentAlpha[7]}, 0 1px 1px -0.5px ${colors.grayAlpha[3]}, 0 3px 3px -1.5px ${colors.grayAlpha[3]}`,
+    },
     "&[data-selected='true'] [data-flow-title]": {
-      color: colors.accent[11],
+      color: colors.accent[12],
       fontWeight: 600,
     },
-    "&:hover": { backgroundColor: backgroundColor.elementHover },
   }),
   nodeBody: style({ position: "relative", flexShrink: 0 }),
   thumbnail: style(motion.standard("opacity"), {
@@ -1170,10 +1243,12 @@ const styles = {
   }),
   scene: style({
     display: "grid",
+    containerType: "inline-size",
     height: "100%",
     minHeight: 0,
     gridTemplateRows: "auto minmax(0, max-content) auto",
     alignContent: "start",
     gap: 16,
+    "@media (max-width: 900px)": { height: "max-content" },
   }),
 };

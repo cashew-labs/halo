@@ -21,7 +21,7 @@
   "dependencies": {
     "@vitejs/plugin-react": "^6.1.1",
     "errore": "^0.14.1",
-    "maui": "npm:@tanishqkancharla/maui@0.0.59",
+    "maui": "npm:@tanishqkancharla/maui@0.0.62",
     "motion": "^13.5.1",
     "purse-styles": "^0.2.6",
     "react": "^19.2.8",

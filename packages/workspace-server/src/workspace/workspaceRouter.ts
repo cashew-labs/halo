@@ -4,10 +4,12 @@ import { contract } from "@get-halo/client";
 import { orpcErrors } from "../orpcErrors.js";
 import type { WorkspaceService } from "./WorkspaceService.js";
 import type { WorkspaceSearch } from "./WorkspaceSearch.js";
+import type { ConnectionService } from "../agent/runtime/ConnectionService.js";
 
 export type WorkspaceRouterContext = {
   workspace: WorkspaceService;
   search: WorkspaceSearch;
+  connections: ConnectionService;
   logger: Logger;
 };
 
@@ -18,6 +20,14 @@ export const workspaceRouter = os.router({
     context.logger.info({ event: "getWorkspace" });
     return context.workspace.getWorkspace();
   }),
+  integrationConnections: os.integrationConnections.handler(
+    async ({ context }) => {
+      const connections = await context.connections.listConnections();
+      if (connections instanceof Error)
+        return orpcErrors.badRequest(connections);
+      return connections;
+    },
+  ),
   listPaths: os.listPaths.handler(async ({ context }) => {
     context.logger.info({ event: "listWorkspacePaths" });
     const paths = await context.workspace.listPaths();
