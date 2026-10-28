@@ -333,6 +333,20 @@ export class WorkspaceServer {
             workspaceRoot,
           });
     cleanup.defer(async () => await browsers?.shutdown());
+    // Threads pin memory into their prompt only when agents can also use it.
+    const agentCapabilities = host.agentCapabilities ?? [
+      ...(hasDesktop ? ["workspace.computer"] : []),
+      ...(browsers === undefined ? [] : ["workspace.browser"]),
+      "workspace.hotkeys",
+      "workspace.automations",
+      ...(hasMemory ? ["workspace.memory"] : []),
+      "workspace.files.read",
+      "workspace.files.write",
+      "workspace.shell.execute",
+      "workspace.threads.read",
+      "workspace.threads.write",
+      "network.web.search",
+    ];
     const [initialized, toolRuntime] = await Promise.all([
       workspace.initialize(),
       ToolRuntime.create({
@@ -382,21 +396,7 @@ export class WorkspaceServer {
             return automationSources;
           },
         },
-        authority: new StaticAgentAuthority(
-          host.agentCapabilities ?? [
-            ...(hasDesktop ? ["workspace.computer"] : []),
-            ...(browsers === undefined ? [] : ["workspace.browser"]),
-            "workspace.hotkeys",
-            "workspace.automations",
-            ...(hasMemory ? ["workspace.memory"] : []),
-            "workspace.files.read",
-            "workspace.files.write",
-            "workspace.shell.execute",
-            "workspace.threads.read",
-            "workspace.threads.write",
-            "network.web.search",
-          ],
-        ),
+        authority: new StaticAgentAuthority(agentCapabilities),
       }),
     ]);
     if (!(toolRuntime instanceof Error))
@@ -438,6 +438,9 @@ export class WorkspaceServer {
       layout: workspace.layout,
       toolRuntime,
       uploads,
+      memory: agentCapabilities.includes("workspace.memory")
+        ? memory
+        : undefined,
     });
     cleanup.defer(async () => {
       const closed = await threads.shutdown();
