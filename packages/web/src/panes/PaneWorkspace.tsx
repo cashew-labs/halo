@@ -148,7 +148,11 @@ export function PaneWorkspace({ threads }: { threads: ThreadSummary[] }) {
     const { pane, rect } = target;
     const localX = (x - rect.x) / rect.width;
     const localY = (y - rect.y) / rect.height;
-    const inTabs = ((y - rect.y) / 100) * box.height < tabBarHeight;
+    const tabBar = root.current.querySelector<HTMLElement>(
+      "[data-testid='pane-tab-bar']",
+    )!;
+    const inTabs =
+      ((y - rect.y) / 100) * box.height < tabBar.getBoundingClientRect().height;
     const distances: [DropEdge, number][] = [
       ["left", localX],
       ["right", 1 - localX],
@@ -317,7 +321,7 @@ export function PaneWorkspace({ threads }: { threads: ThreadSummary[] }) {
             style={{
               left: `${rect.x}%`,
               right: `${100 - rect.x - rect.width}%`,
-              top: `calc(${rect.y}% + ${tabBarHeight + paneHeaderHeight}px)`,
+              top: `calc(${rect.y}% + ${tabBarHeight} + ${paneHeaderHeight})`,
               bottom: `${100 - rect.y - rect.height}%`,
             }}
             onPointerDownCapture={() => workspace.select(pane.id)}
@@ -364,7 +368,7 @@ export function PaneWorkspace({ threads }: { threads: ThreadSummary[] }) {
             style={{
               left: `${rect.x}%`,
               right: `${100 - rect.x - rect.width}%`,
-              top: `calc(${rect.y}% + ${tabBarHeight + paneHeaderHeight}px)`,
+              top: `calc(${rect.y}% + ${tabBarHeight} + ${paneHeaderHeight})`,
               bottom: `${100 - rect.y - rect.height}%`,
             }}
           />
