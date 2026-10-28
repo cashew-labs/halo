@@ -67,7 +67,7 @@ const authServiceTest = test.extend<{
 authServiceTest(
   "has no session until Google sign-in completes",
   async ({ auth }) => {
-    const session = await auth.getSession(new Headers());
+    const session = await auth.getSession({ headers: new Headers() });
     if (session instanceof Error) throw session;
     expect(session).toBeUndefined();
   },
@@ -164,7 +164,9 @@ describe("on an HTTPS origin", () => {
       const login = await context.test.login({ userId: user.id });
       const cookie = login.headers.get("cookie")!;
       expect(cookie).toMatch(/^__Host-halo\.session_token=/);
-      const session = await auth.getSession(new Headers({ cookie }));
+      const session = await auth.getSession({
+        headers: new Headers({ cookie }),
+      });
       expect(session).toMatchObject({ user: { email: "owner@example.com" } });
       const value = cookie.slice(cookie.indexOf("=") + 1);
       for (const name of [
@@ -173,7 +175,9 @@ describe("on an HTTPS origin", () => {
         "halo.session_token",
       ])
         expect(
-          await auth.getSession(new Headers({ cookie: `${name}=${value}` })),
+          await auth.getSession({
+            headers: new Headers({ cookie: `${name}=${value}` }),
+          }),
         ).toBeUndefined();
       // HTTP development keeps Better Auth's defaults.
       expect(authCookieOptions("http://127.0.0.1:4000")).toEqual({});

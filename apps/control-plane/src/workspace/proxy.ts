@@ -146,7 +146,13 @@ export class WorkspaceGateway {
       return;
     }
 
-    const session = await this.auth.getSession(requestHeaders(request));
+    const responseHeaders = new Headers();
+    const session = await this.auth.getSession({
+      headers: requestHeaders(request),
+      responseHeaders,
+    });
+    for (const cookie of responseHeaders.getSetCookie())
+      response.appendHeader("set-cookie", cookie);
     if (session instanceof Error) {
       logger.error({
         event: "workspace-proxy-session-failed",
@@ -205,7 +211,7 @@ export class WorkspaceGateway {
       ?.slice("halo-ticket.".length);
     const session = rpcSocket
       ? await this.auth.consumeWorkspaceSocketTicket(ticket ?? "")
-      : await this.auth.getSession(requestHeaders(request));
+      : await this.auth.getSession({ headers: requestHeaders(request) });
     if (session instanceof Error) {
       logger.error({
         event: "workspace-upgrade-session-failed",

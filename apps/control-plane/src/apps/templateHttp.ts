@@ -53,7 +53,9 @@ export async function serveTemplate(ctx: {
       respond(response, 405);
       return;
     }
-    const session = await ctx.auth.getSession(cookieHeaders(request));
+    const session = await ctx.auth.getSession({
+      headers: cookieHeaders(request),
+    });
     // coverage-exempt: Auth database outage; no service mocks in the real control-plane fixture.
     if (session instanceof Error) {
       ctx.logger.error({
@@ -104,7 +106,9 @@ export async function serveTemplate(ctx: {
       .end();
     return;
   }
-  const session = await ctx.auth.getSession(cookieHeaders(request));
+  const session = await ctx.auth.getSession({
+    headers: cookieHeaders(request),
+  });
   // coverage-exempt: Auth database outage; no service mocks in the real control-plane fixture.
   if (session instanceof Error) {
     ctx.logger.error({

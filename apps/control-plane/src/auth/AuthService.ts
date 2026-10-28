@@ -364,29 +364,37 @@ export class AuthService {
     } satisfies DesktopAuthSession;
   }
 
-  async getSession(headers: Headers) {
+  async getSession(ctx: { headers: Headers; responseHeaders?: Headers }) {
     const result = await this.auth.api
-      .getSession({ headers })
+      .getSession({
+        headers: ctx.headers,
+        returnHeaders: true,
+        // A check that cannot deliver cookies must not consume the renewal window.
+        query: { disableRefresh: ctx.responseHeaders === undefined },
+      })
       .catch((cause) => new AuthServiceError({ detail: "get session", cause }));
     if (result instanceof Error) return result;
-    if (result === null) return undefined;
-    const allowed = await this.stillAllowed(result.user.email);
+    for (const cookie of result.headers.getSetCookie())
+      ctx.responseHeaders?.append("set-cookie", cookie);
+    const session = result.response;
+    if (session === null) return undefined;
+    const allowed = await this.stillAllowed(session.user.email);
     if (allowed instanceof Error) return allowed;
     if (!allowed) return undefined;
 
     return {
       session: {
-        id: result.session.id,
-        userId: result.session.userId,
-        expiresAt: result.session.expiresAt,
+        id: session.session.id,
+        userId: session.session.userId,
+        expiresAt: session.session.expiresAt,
       },
       user: {
-        id: result.user.id,
-        email: result.user.email,
-        name: result.user.name,
-        image: result.user.image === null ? undefined : result.user.image,
+        id: session.user.id,
+        email: session.user.email,
+        name: session.user.name,
+        image: session.user.image === null ? undefined : session.user.image,
       },
-      stagingAccess: await this.hasStagingAccess(result.user.email),
+      stagingAccess: await this.hasStagingAccess(session.user.email),
     } satisfies AuthSession;
   }
 
@@ -417,9 +425,12 @@ export class AuthService {
   }
 
   async createWorkspaceSocketTicket(headers: Headers, clientId: string) {
-    const session = await this.auth.api.getSession({ headers }).catch(
-      (cause) => new AuthServiceError({ detail: "read socket session", cause }), // coverage-exempt: External auth/database outage wrapper; success and authorization failures use the real database in integration tests.
-    );
+    const session = await this.auth.api
+      .getSession({ headers, query: { disableRefresh: true } })
+      .catch(
+        (cause) =>
+          new AuthServiceError({ detail: "read socket session", cause }), // coverage-exempt: External auth/database outage wrapper; success and authorization failures use the real database in integration tests.
+      );
     if (session instanceof Error) return session;
     if (session === null) return undefined;
     const allowed = await this.stillAllowed(session.user.email);
@@ -477,9 +488,9 @@ export class AuthService {
       sessionToken: string;
       clientId: string;
     };
-    const session = await this.getSession(
-      new Headers({ authorization: `Bearer ${value.sessionToken}` }),
-    );
+    const session = await this.getSession({
+      headers: new Headers({ authorization: `Bearer ${value.sessionToken}` }),
+    });
     if (session instanceof Error) return session;
     if (
       session === undefined ||
@@ -565,7 +576,7 @@ export class AuthService {
   }
 
   private async createDesktopAuthCode(headers: Headers) {
-    const session = await this.getSession(headers);
+    const session = await this.getSession({ headers });
 
     if (session instanceof Error) return session;
     if (session === undefined) return new DesktopAuthRequiredError();

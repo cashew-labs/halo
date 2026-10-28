@@ -56,7 +56,10 @@ const loadSession = implementer.middleware(async ({ context, next }) => {
     throw internalError(new Error("Request headers are unavailable"));
   }
 
-  const session = await context.auth.getSession(context.reqHeaders);
+  const session = await context.auth.getSession({
+    headers: context.reqHeaders,
+    responseHeaders: context.resHeaders,
+  });
   if (session instanceof Error) throw internalError(session);
 
   return await next({ context: { session } });
@@ -93,7 +96,10 @@ async function integrationUser(context: ControlPlaneContext) {
     throw new ORPCError("FORBIDDEN");
   if (origin === null && !headers.get("authorization")?.startsWith("Bearer "))
     throw new ORPCError("FORBIDDEN"); // coverage-exempt: moved unchanged from loadIntegrationUser
-  const session = await context.auth.getSession(headers);
+  const session = await context.auth.getSession({
+    headers,
+    responseHeaders: context.resHeaders,
+  });
   if (session instanceof Error) throw internalError(session);
   if (session === undefined) throw new ORPCError("UNAUTHORIZED");
   if (context.integrations === undefined)
@@ -108,7 +114,10 @@ async function integrationUser(context: ControlPlaneContext) {
 // Signed-in people or the owner's workspace runtime.
 async function integrationOwner(context: ControlPlaneContext) {
   const headers = context.reqHeaders ?? new Headers();
-  const session = await context.auth.getSession(headers);
+  const session = await context.auth.getSession({
+    headers,
+    responseHeaders: context.resHeaders,
+  });
   if (session instanceof Error) throw internalError(session);
   const runtime =
     session === undefined
@@ -140,7 +149,10 @@ async function appOwner(context: ControlPlaneContext) {
     throw new ORPCError("FORBIDDEN");
   if (origin === null && !headers.get("authorization")?.startsWith("Bearer "))
     throw new ORPCError("FORBIDDEN");
-  const session = await context.auth.getSession(headers);
+  const session = await context.auth.getSession({
+    headers,
+    responseHeaders: context.resHeaders,
+  });
   if (session instanceof Error) throw internalError(session);
   if (session !== undefined)
     return { ownerUserId: session.user.id, ownerEmail: session.user.email };
