@@ -33,23 +33,32 @@ export default defineConfig(({ mode }) => {
             )
               shell.add(file.fileName);
           }
-          const assets = [
-            "/index.html",
+          const publicAssets = [
             "/manifest.json",
             "/icon-192.png",
             "/icon-512.png",
             "/icon-maskable-512.png",
+          ];
+          const assets = [
+            "/index.html",
+            ...publicAssets,
             ...[...shell].map((name) => `/${name}`),
           ];
           const version = crypto
             .createHash("sha256")
             .update(worker.code)
             .update(JSON.stringify(assets))
-            .update(fs.readFileSync(new URL("./index.html", import.meta.url)))
-            .digest("hex");
+            .update(fs.readFileSync(new URL("./index.html", import.meta.url)));
+          for (const asset of publicAssets)
+            version.update(
+              fs.readFileSync(new URL(`./public${asset}`, import.meta.url)),
+            );
           worker.code = worker.code
             .replaceAll("haloPrecacheAssets", JSON.stringify(assets))
-            .replaceAll("haloCacheVersion", JSON.stringify(version));
+            .replaceAll(
+              "haloCacheVersion",
+              JSON.stringify(version.digest("hex")),
+            );
         },
       },
     ],
