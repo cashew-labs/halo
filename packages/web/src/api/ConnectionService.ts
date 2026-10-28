@@ -110,8 +110,12 @@ export class ConnectionService {
   }
 
   retry = () => {
+    if (!this.active) return;
+    if (!navigator.onLine) {
+      this.offline();
+      return;
+    }
     if (
-      !this.active ||
       this.state.status === "upgrading" ||
       this.attempting ||
       this.state.power === "waking" ||
@@ -122,10 +126,6 @@ export class ConnectionService {
       return;
     if (this.state.status === "connected") {
       void this.check().catch(console.error);
-      return;
-    }
-    if (!navigator.onLine) {
-      this.offline();
       return;
     }
     clearTimeout(this.timer);
