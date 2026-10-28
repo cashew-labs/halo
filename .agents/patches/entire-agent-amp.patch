@@ -1,0 +1,100 @@
+diff --git a/internal/amp/transcript.go b/internal/amp/transcript.go
+index 633b07d..0fa13d7 100644
+--- a/internal/amp/transcript.go
++++ b/internal/amp/transcript.go
+@@ -387,6 +387,11 @@ func filesFromContentBlockForTool(block ThreadContentBlock, toolName string) []s
+ 			if mutatingTool && strings.TrimSpace(result.AbsolutePath) != "" {
+ 				files = append(files, strings.TrimSpace(result.AbsolutePath))
+ 			}
++			if mutatingTool {
++				for _, file := range result.Files {
++					files = append(files, file.URI)
++				}
++			}
+ 		}
+ 	}
+ 	return cleanFiles(files)
+@@ -409,7 +414,7 @@ func isMutatingToolName(name string) bool {
+ 		"edit", "edit_file",
+ 		"move", "move_file",
+ 		"multi_edit",
+-		"patch",
++		"patch", "apply_patch",
+ 		"rename", "rename_file",
+ 		"replace",
+ 		"str_replace_based_edit_tool",
+@@ -433,6 +438,15 @@ func filesFromToolInput(input ThreadToolInput) []string {
+ 	for _, key := range []string{"paths", "files"} {
+ 		files = append(files, stringValues(input[key])...)
+ 	}
++	for _, patch := range stringValues(input["patchText"]) {
++		for line := range strings.SplitSeq(patch, "\n") {
++			for _, prefix := range []string{"*** Add File: ", "*** Update File: ", "*** Delete File: ", "*** Move to: "} {
++				if path, ok := strings.CutPrefix(line, prefix); ok {
++					files = append(files, path)
++				}
++			}
++		}
++	}
+ 	return cleanFiles(files)
+ }
+ 
+diff --git a/internal/amp/transcript_test.go b/internal/amp/transcript_test.go
+index 6feabd0..211f21f 100644
+--- a/internal/amp/transcript_test.go
++++ b/internal/amp/transcript_test.go
+@@ -205,6 +205,40 @@ func TestExtractModifiedFiles_IncludesMutatingToolInput(t *testing.T) {
+ 	}
+ }
+ 
++func TestExtractModifiedFiles_ApplyPatch(t *testing.T) {
++	transcript := `{"threadID":"T-patch","role":"assistant","messageId":"a1","content":[{"type":"tool_use","id":"patch1","name":"apply_patch","input":{"patchText":"*** Begin Patch\r\n*** Add File: /work/added.txt\r\n+*** Delete File: not-a-file.txt\r\n*** Update File: /work/updated.txt\r\n@@\r\n-old\r\n+new\r\n*** Delete File: /work/deleted.txt\r\n*** Update File: /work/old.txt\r\n*** Move to: /work/new name.txt\r\n@@\r\n-old\r\n+new\r\n*** End Patch"}},{"type":"tool_use","id":"read1","name":"read_file","input":{"path":"ignored.txt","patchText":"*** Delete File: also-ignored.txt"}}]}
++{"threadID":"T-patch","role":"user","messageId":"u1","content":[{"type":"tool_result","toolUseID":"patch1","run":{"status":"done","result":{"files":[{"uri":"file:///work/updated.txt"},{"uri":"file:///work/new%20name.txt"}]}}},{"type":"tool_result","toolUseID":"read1","run":{"status":"done","result":{"files":[{"uri":"file:///work/ignored.txt"}]}}}]}
++`
++	path := filepath.Join(t.TempDir(), "amp.jsonl")
++	if err := os.WriteFile(path, []byte(transcript), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	for _, tc := range []struct {
++		name   string
++		offset int
++		want   []string
++	}{
++		{"all operations", 0, []string{"/work/added.txt", "/work/deleted.txt", "/work/new name.txt", "/work/old.txt", "/work/updated.txt"}},
++		{"result after offset", 1, []string{"/work/new name.txt", "/work/updated.txt"}},
++		{"past end", 2, []string{}},
++	} {
++		t.Run(tc.name, func(t *testing.T) {
++			files, pos, err := New().ExtractModifiedFiles(path, tc.offset)
++			if err != nil {
++				t.Fatal(err)
++			}
++			if pos != 2 || len(files) != len(tc.want) {
++				t.Fatalf("files = %v position = %d, want %v at position 2", files, pos, tc.want)
++			}
++			for i := range tc.want {
++				if files[i] != tc.want[i] {
++					t.Fatalf("files = %v, want %v", files, tc.want)
++				}
++			}
++		})
++	}
++}
++
+ func TestTranscriptAnalyzer_PlaceholderTranscript(t *testing.T) {
+ 	agent := New()
+ 	path := filepath.Join(t.TempDir(), "amp.json")
+diff --git a/internal/amp/types.go b/internal/amp/types.go
+index 7d6419a..f83ce05 100644
+--- a/internal/amp/types.go
++++ b/internal/amp/types.go
+@@ -319,6 +319,9 @@ type ThreadCommonToolResult struct {
+ 	DirectoryEntries []string                `json:"directoryEntries,omitempty"`
+ 	IsDirectory      *bool                   `json:"isDirectory,omitempty"`
+ 	Content          []ThreadEmbeddedContent `json:"content,omitempty"`
++	Files            []struct {
++		URI string `json:"uri"`
++	} `json:"files,omitempty"`
+ }
+ 
+ type ThreadEmbeddedContent struct {

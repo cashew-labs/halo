@@ -37,7 +37,12 @@ echo "==> Installing Entire and its Amp integration"
     install -m 755 "$install_dir/entire" "$install_dir/git-remote-entire" "$HOME/.local/bin/"
   fi
 
-  if ! command -v entire-agent-amp >/dev/null; then
+  amp_version="v0.0.0-20261020003721-23c64f2861dd"
+  amp_patch="$PWD/.agents/patches/entire-agent-amp.patch"
+  amp_patch_hash="$(sha256sum "$amp_patch" | cut -d ' ' -f 1)"
+  # Key the binary by source and patch so warm snapshots cannot keep an old build.
+  amp_binary="$HOME/.local/share/entire-agent-amp/${amp_version}-${amp_patch_hash}/entire-agent-amp"
+  if [[ ! -x "$amp_binary" ]]; then
     go_home="$HOME/.local/go-1.27.3"
     if [[ ! -x "$go_home/bin/go" ]]; then
       curl -fsSL https://go.dev/dl/go1.27.3.linux-amd64.tar.gz -o "$install_dir/go.tar.gz"
@@ -45,12 +50,26 @@ echo "==> Installing Entire and its Amp integration"
       mkdir -p "$go_home"
       tar -xzf "$install_dir/go.tar.gz" -C "$go_home" --strip-components=1
     fi
-    GOBIN="$HOME/.local/bin" "$go_home/bin/go" install github.com/entireio/external-agents/agents/entire-agent-amp/cmd/entire-agent-amp@v0.0.0-20261020003721-23c64f2861dd
+    amp_source="$("$go_home/bin/go" mod download -json "github.com/entireio/external-agents/agents/entire-agent-amp@${amp_version}" | node -p 'JSON.parse(require("fs").readFileSync(0, "utf8")).Dir')"
+    cp -R "$amp_source" "$install_dir/amp"
+    chmod -R u+w "$install_dir/amp"
+    # The pinned upstream scanner does not recognize apply_patch inputs/results.
+    git -C "$install_dir/amp" apply "$amp_patch"
+    mkdir -p "$(dirname "$amp_binary")"
+    (
+      cd "$install_dir/amp"
+      "$go_home/bin/go" test ./...
+      "$go_home/bin/go" build -trimpath -o "$amp_binary" ./cmd/entire-agent-amp
+    )
   fi
+  ln -sfn "$amp_binary" "$HOME/.local/bin/entire-agent-amp"
 )
 
 # Hooks are clone-local Git configuration, even when agent hooks are committed.
 entire enable --yes --telemetry=false
+# Entire 0.12 requires external-agent opt-in in ignored settings.local.json.
+# Registering Amp writes that opt-in; the tracked external_agents flag cannot.
+entire agent add amp
 
 # Headless orbs have no OS keyring. Authenticate interactively after startup;
 # never include a user's login in the shared setup snapshot.
