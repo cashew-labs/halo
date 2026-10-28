@@ -65,7 +65,7 @@ export class ConnectionService {
   private controller: AbortController | undefined;
   private probe: AbortController | undefined;
   private lastActivitySent = 0;
-  private reportingActivity = false;
+  private activity: AbortController | undefined;
   private statusTimer: ReturnType<typeof setTimeout> | undefined;
   private checkingStatus = false;
   private readonly host: HostApi;
@@ -78,9 +78,10 @@ export class ConnectionService {
 
   start() {
     this.active = true;
-    window.addEventListener("online", this.retry);
+    window.addEventListener("online", this.foreground);
     window.addEventListener("offline", this.offline);
     document.addEventListener("visibilitychange", this.foreground);
+    window.addEventListener("pageshow", this.foreground);
     window.addEventListener("focus", this.returned);
     window.addEventListener("message", this.frameActivity);
     for (const event of ["pointermove", "pointerdown", "keydown", "wheel"])
@@ -97,9 +98,11 @@ export class ConnectionService {
     clearTimeout(this.statusTimer);
     this.controller?.abort(new ConnectionInterruptedError());
     this.probe?.abort(new ConnectionInterruptedError());
-    window.removeEventListener("online", this.retry);
+    this.activity?.abort(new ConnectionInterruptedError());
+    window.removeEventListener("online", this.foreground);
     window.removeEventListener("offline", this.offline);
     document.removeEventListener("visibilitychange", this.foreground);
+    window.removeEventListener("pageshow", this.foreground);
     window.removeEventListener("focus", this.returned);
     window.removeEventListener("message", this.frameActivity);
     for (const event of ["pointermove", "pointerdown", "keydown", "wheel"])
@@ -111,7 +114,7 @@ export class ConnectionService {
       !this.active ||
       this.state.status === "upgrading" ||
       this.attempting ||
-      this.reportingActivity ||
+      this.state.power === "waking" ||
       this.state.power === "asleep" ||
       this.state.power === "sleeping" ||
       document.visibilityState !== "visible"
@@ -148,6 +151,9 @@ export class ConnectionService {
     this.attempting = false;
     this.controller?.abort(new ConnectionInterruptedError());
     this.probe?.abort(new ConnectionInterruptedError());
+    this.probe = undefined;
+    this.activity?.abort(new ConnectionInterruptedError());
+    this.activity = undefined;
     this.publish({
       ...this.state,
       status: "offline",
@@ -158,12 +164,20 @@ export class ConnectionService {
 
   private foreground = () => {
     if (document.visibilityState !== "visible") return;
-    this.returned();
-    if (this.state.status === "connected") {
-      void this.check().catch(console.error);
-      return;
+    // Timers and requests may still look pending after the OS suspends the app.
+    // A resumed window must not wait for those pre-suspension requests.
+    this.probe?.abort(new ConnectionInterruptedError());
+    this.probe = undefined;
+    this.activity?.abort(new ConnectionInterruptedError());
+    this.activity = undefined;
+    if (this.attempting || this.state.status === "synchronizing") {
+      clearTimeout(this.timer);
+      this.generation++;
+      this.attempting = false;
+      this.controller?.abort(new ConnectionInterruptedError());
+      this.publish({ ...this.state, status: "reconnecting" });
     }
-    this.retry();
+    this.returned();
   };
 
   fail(api: HaloClient, error: Error) {
@@ -365,7 +379,8 @@ export class ConnectionService {
       .info(undefined, { signal: probe.signal })
       .catch((cause) => new ConnectionAttemptError({ cause }));
     clearTimeout(timeout);
-    if (this.probe === probe) this.probe = undefined;
+    if (this.probe !== probe) return;
+    this.probe = undefined;
     if (!this.active || generation !== this.generation) return;
     const error =
       info instanceof Error
@@ -385,7 +400,10 @@ export class ConnectionService {
     );
   }
 
-  private returned = () => this.reportActivity({ force: true });
+  private returned = () => {
+    this.reportActivity({ force: true });
+    this.retry();
+  };
 
   private async checkStatus() {
     if (
@@ -404,7 +422,7 @@ export class ConnectionService {
     if (
       !(result instanceof Error) &&
       result !== undefined &&
-      !this.reportingActivity &&
+      this.activity === undefined &&
       activityAt === this.lastActivitySent
     ) {
       const updating = result.update?.state === "upgrading";
@@ -481,15 +499,17 @@ export class ConnectionService {
   private reportActivity(ctx?: { force: true }) {
     if (
       !this.active ||
+      !navigator.onLine ||
       document.visibilityState !== "visible" ||
-      this.reportingActivity ||
+      this.activity !== undefined ||
       (ctx?.force !== true &&
         this.state.power !== "asleep" &&
         Date.now() - this.lastActivitySent < 10_000)
     )
       return;
     this.lastActivitySent = Date.now();
-    this.reportingActivity = true;
+    const activity = new AbortController();
+    this.activity = activity;
     if (this.state.power === "asleep" || this.state.power === "sleeping")
       this.publish({
         ...this.state,
@@ -501,15 +521,19 @@ export class ConnectionService {
         error:
           this.state.status === "authentication" ? this.state.error : undefined,
       });
-    // oxlint-disable-next-line typescript/no-floating-promises -- The host reports errors; retries resume after the activity request finishes.
-    this.recordActivity().then(() => {
-      this.reportingActivity = false;
+    // oxlint-disable-next-line typescript/no-floating-promises -- The host reports errors; obsolete activity completions cannot change the resumed connection.
+    this.recordActivity(activity).then(() => {
+      if (this.activity !== activity) return;
+      this.activity = undefined;
       this.retry();
     });
   }
 
-  private async recordActivity() {
-    const result = await this.host.recordWorkspaceActivity?.();
+  private async recordActivity(activity: AbortController) {
+    const result = await this.host.recordWorkspaceActivity?.({
+      signal: activity.signal,
+    });
+    if (!this.active || this.activity !== activity) return;
     if (result instanceof Error) {
       console.warn(result);
       if (this.active && this.state.power === "waking") {
@@ -518,15 +542,9 @@ export class ConnectionService {
       }
       return;
     }
-    if (!this.active) return;
     if (this.state.power === "waking")
       this.publish({ ...this.state, power: "running" });
     this.failures = 0;
-    if (this.state.status !== "connected") {
-      this.generation++;
-      this.attempting = false;
-      this.controller?.abort(new ConnectionInterruptedError());
-    }
   }
 
   diagnostics() {

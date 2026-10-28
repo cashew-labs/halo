@@ -52,7 +52,9 @@ export interface HostApi {
   getWorkspaceStatus?(): Promise<
     ControlPlaneWorkspaceStatus | Error | undefined
   >;
-  recordWorkspaceActivity?(): Promise<void | Error>;
+  recordWorkspaceActivity?(ctx?: {
+    signal?: AbortSignal;
+  }): Promise<void | Error>;
   showLandingPage?: boolean;
   setHotkeys?(hotkeys: Hotkey[]): void;
   onShortcut?(listener: (shortcut: ShortcutId) => void): () => void;
