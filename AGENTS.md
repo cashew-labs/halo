@@ -39,6 +39,26 @@ Follow George Orwell's six writing rules for all prose meant to be read by human
 - `pnpm prerelease <version>` - Run from a clean, up-to-date `main` branch to create and open a release PR that bumps the desktop version and pins the release images. CI tests the PR and previews Pulumi. Merging deploys the staging stack (`west`, `staging.gethalo.dev`) and publishes the desktop app to `cashew-labs/halo-staging`; it does not touch production.
 - `pnpm promote <version>` - Run from a clean, up-to-date `main` branch after staging looks good. It opens a PR that records the version in `releases/production.json` and pins `infra/control-plane/Pulumi.prod.yaml`. Merging deploys the same images to the `prod` stack (`gethalo.dev`) and copies the signed desktop release to `cashew-labs/halo`. Packaged apps check for updates via `update.electronjs.org`; Help > Use Staging switches an install to the staging channel.
 
+## PR test self-report
+
+When creating or updating a PR, maintain exactly one hidden test report in its description. Read the current description first and preserve content outside this marker.
+
+```html
+<!-- halo-tests:v1
+{
+  "commit": "<full PR head SHA>",
+  "required": ["pnpm --filter @get-halo/workspace-server test:e2e"],
+  "passed": []
+}
+-->
+```
+
+- Select the tests needed to verify the change, including affected E2Es. Use exact runnable commands with package and test-file filters as identifiers in `required`; the command above is an example, not a requirement for every PR. Declare the tests before running them, and update the selection when the scope changes.
+- Run those commands locally or in the agent's orb. Add a command to `passed` only after actually running it successfully against the code in the reported commit. Copy the identifier exactly from `required`. Failed, skipped, unfinished, or unavailable tests remain required but absent from `passed`; explain blockers in the visible PR description. Do not remove a required test merely because it cannot run or fails.
+- Set `commit` to the full current PR head SHA, not a branch name or abbreviated SHA. Tests may run before committing if the final commit contains the tested code. If the code changes afterward, rerun affected tests before reporting them as passed; never refresh only the SHA to make stale results look current.
+- After each push, reconcile the report with the new head and publish it in the PR description. Only retain passing results that still apply to that commit. If results are uncertain, remove them from `passed` until rerun.
+- If no tests are needed, explicitly set both arrays to `[]` and explain why in the visible PR description. Do not omit the report or substitute a prose claim that tests passed.
+
 ## Working Style
 
 - Summarize changes with concise, source-checked call stacks and name the next small step. Manual summaries in chat are enough.
