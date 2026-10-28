@@ -1,6 +1,7 @@
 import {
   backgroundColor,
   colors,
+  controlSize,
   flex,
   flexItem,
   focusRing,
@@ -9,8 +10,8 @@ import {
 } from "maui";
 import { style, useStyles } from "purse-styles";
 
-export const tabBarHeight = 42;
-export const paneHeaderHeight = 40;
+export const tabBarHeight = `calc(${controlSize.height} + ${spacing.value(3)} * 2 + 2px)`;
+export const paneHeaderHeight = `calc(${controlSize.height} + ${spacing.value(3)} * 2)`;
 
 const paneStyles = {
   workspace: style(
@@ -77,8 +78,8 @@ const paneStyles = {
     },
   }),
   add: style({
-    width: 28,
-    height: 28,
+    width: controlSize.height,
+    height: controlSize.height,
     marginInline: 4,
     flexShrink: 0,
     WebkitAppRegion: "no-drag",
