@@ -19,6 +19,7 @@ import {
   Tooltip,
   backgroundColor,
   colors,
+  controlSize,
   flex,
   flexItem,
   radius,
@@ -1010,7 +1011,6 @@ function ThreadViewRow({
     item.kind === "user" && item.pending
       ? styles.pendingUserMessage
       : undefined,
-    onWithdraw === undefined ? undefined : styles.withdrawableUserMessage,
   );
   const queuedMessageAction = useStyles(styles.queuedMessageAction);
   const body = useStyles(styles.messageBody);
@@ -1041,20 +1041,6 @@ function ThreadViewRow({
           aria-label="You message"
           aria-busy={item.pending}
         >
-          {onWithdraw === undefined ? undefined : (
-            <span className={queuedMessageAction}>
-              <Tooltip content="Remove from queue and move to draft">
-                <Button
-                  variant="quiet"
-                  aria-label="Move queued message to draft"
-                  isDisabled={queueDisabled}
-                  onClick={onWithdraw}
-                >
-                  <Close size="sm" aria-hidden="true" />
-                </Button>
-              </Tooltip>
-            </span>
-          )}
           {item.text.length > 0 ? (
             <div className={body} data-find-segment={item.id}>
               <MessageContent size="sm">{item.text}</MessageContent>
@@ -1136,6 +1122,19 @@ function ThreadViewRow({
             </ul>
           ) : undefined}
         </article>
+        {onWithdraw === undefined ? undefined : (
+          <Tooltip content="Remove from queue and move to draft">
+            <Button
+              variant="quiet"
+              className={queuedMessageAction}
+              aria-label="Move queued message to draft"
+              isDisabled={queueDisabled}
+              onClick={onWithdraw}
+            >
+              <Close size="sm" aria-hidden="true" />
+            </Button>
+          </Tooltip>
+        )}
       </div>
     );
   }
@@ -1379,11 +1378,9 @@ const styles = {
     backgroundColor: colors.gray[3],
   }),
   pendingUserMessage: style({ opacity: 0.6 }),
-  withdrawableUserMessage: style(spacing.padding({ right: 16 })),
   queuedMessageAction: style({
-    position: "absolute",
-    top: 2,
-    right: 2,
+    flexShrink: 0,
+    "&&": { borderRadius: "100%" },
   }),
   assistantRow: style(flex({ direction: "column", gap: 6 }), {
     minWidth: 0,
@@ -1395,7 +1392,7 @@ const styles = {
     width: "100%",
   }),
   interruption: style(
-    text({ size: "sm", fontWeight: 700, color: "lowContrast" }),
+    text({ size: "sm", fontWeight: 500, color: "lowContrast" }),
     {
       alignSelf: "flex-end",
     },
@@ -1408,9 +1405,17 @@ const styles = {
       overflowWrap: "anywhere",
     },
   ),
-  sendButton: style(radius.circle, {
+  sendButton: style({
     boxShadow: "none",
     backgroundColor: colors.grayAlpha[4],
+    "&&": {
+      borderRadius: "100%",
+      border: `1px solid ${colors.gray[6]}`,
+      width: controlSize.height,
+    },
+    "&:disabled": {
+      boxShadow: "none",
+    },
     "&:hover": {
       backgroundColor: colors.grayAlpha[5],
     },
