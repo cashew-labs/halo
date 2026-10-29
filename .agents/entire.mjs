@@ -352,6 +352,11 @@ function health(remote) {
         (session) => session.latest_checkpoint_id === id,
       );
       assert.ok(session);
+      const metadata = json("git", [
+        "show",
+        `refs/entire/checkpoints/${id.slice(-2)}/${id}:${session.session_index}/metadata.json`,
+      ]);
+      assert.ok(Number.isInteger(metadata.checkpoint_transcript_start));
       // A continued session may have no new prompt.txt at this checkpoint.
       const transcript = run("entire", [
         "checkpoint",
@@ -361,17 +366,26 @@ function health(remote) {
         String(session.session_index),
         "--transcript",
       ]);
-      const prompt = transcript
+      const text = transcript
         .split("\n")
         .filter(Boolean)
+        .slice(metadata.checkpoint_transcript_start)
         .flatMap((line) => JSON.parse(line).message?.content ?? [])
         .find((block) => block.type === "text")?.text;
-      assert.ok(prompt);
-      // Probe a word from this capture, not a repository-specific magic phrase.
-      const query = prompt
-        .slice(0, 256)
+      if (!text) {
+        return {
+          state: "not verified",
+          detail:
+            "checkpoint adds no conversation text; cannot probe new evidence",
+        };
+      }
+      const probe = text.split("\n").find((line) => line.trim().length >= 40);
+      assert.ok(probe);
+      const query = probe
         .match(/[A-Za-z]{6,}/g)
-        ?.sort((a, b) => b.length - a.length)[0];
+        ?.sort((a, b) => b.length - a.length)
+        .slice(0, 3)
+        .join(" ");
       assert.ok(query);
       const evidence = json("entire", [
         "brain",
@@ -382,18 +396,30 @@ function health(remote) {
         "--session",
         session.session_id,
         "--limit",
-        "1",
+        "5",
         "--json",
       ]);
-      assert.ok(evidence.results.length > 0);
+      const match = evidence.results.find(
+        (result) =>
+          result.path.toLowerCase().includes(id.toLowerCase()) &&
+          result.end_line > metadata.checkpoint_transcript_start &&
+          result.text.includes(probe),
+      );
+      assert.ok(match);
+      // Exchange IDs can collide across cumulative checkpoint copies in Brain 0.4.
+      // Session refs select the exact checkpoint's outline instead.
       const expanded = json("entire", [
         "brain",
         "get",
-        evidence.results[0].id,
+        match.session_ref,
         "--json",
       ]);
-      assert.ok(expanded.results.length > 0);
-      return "latest checkpoint session: conversation evidence found and expanded; verify claims against source";
+      assert.ok(
+        expanded.results.some(
+          (result) => result.session_ref === match.session_ref,
+        ),
+      );
+      return "latest checkpoint: new text matches captured source; checkpoint-specific session expanded";
     });
   }
   if (
