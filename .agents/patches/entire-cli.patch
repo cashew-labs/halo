@@ -1,0 +1,117 @@
+diff --git a/cmd/entire/cli/agent/antigravity/antigravity.go b/cmd/entire/cli/agent/antigravity/antigravity.go
+index 33a875b..0b3c0f0 100644
+--- a/cmd/entire/cli/agent/antigravity/antigravity.go
++++ b/cmd/entire/cli/agent/antigravity/antigravity.go
+@@ -53,7 +53,10 @@ func (a *AntigravityAgent) DetectPresence(ctx context.Context) (bool, error) {
+ 	return a.AreHooksInstalled(ctx)
+ }
+ 
+-func (a *AntigravityAgent) ProtectedDirs() []string { return []string{".agents", ".gemini"} }
++func (a *AntigravityAgent) ProtectedDirs() []string { return []string{".gemini"} }
++func (a *AntigravityAgent) ProtectedFiles() []string {
++	return []string{".agents/" + AgentsHooksFileName}
++}
+ 
+ // --- Legacy methods ---
+ 
+diff --git a/cmd/entire/cli/agent_group.go b/cmd/entire/cli/agent_group.go
+index 04775b9..29308f7 100644
+--- a/cmd/entire/cli/agent_group.go
++++ b/cmd/entire/cli/agent_group.go
+@@ -96,6 +96,7 @@ func newAgentAddCmd() *cobra.Command {
+ 	var forceHooks bool
+ 	var searchSkill bool
+ 	var agentHelpSkill bool
++	var useLocalSettings bool
+ 
+ 	cmd := &cobra.Command{
+ 		Use:   "add <agent-name>",
+@@ -117,16 +118,18 @@ Examples:
+ 				return NewSilentError(errors.New("wrong agent name"))
+ 			}
+ 			opts := EnableOptions{
+-				ForceHooks:     forceHooks,
+-				SearchSkill:    searchSkill,
+-				AgentHelpSkill: agentHelpSkill,
+-				Telemetry:      true,
++				ForceHooks:       forceHooks,
++				SearchSkill:      searchSkill,
++				AgentHelpSkill:   agentHelpSkill,
++				Telemetry:        true,
++				UseLocalSettings: useLocalSettings,
+ 			}
+ 			return setupAgentHooksNonInteractive(cmd.Context(), cmd.OutOrStdout(), ag, opts)
+ 		},
+ 	}
+ 
+ 	cmd.Flags().BoolVar(&forceHooks, "force", false, "Reinstall hooks even if already present")
++	cmd.Flags().BoolVar(&useLocalSettings, "local", false, "Write settings to .entire/settings.local.json instead of .entire/settings.json")
+ 	cmd.Flags().BoolVar(&searchSkill, flagSearchSkill, false, "Install the optional Entire search skill")
+ 	cmd.Flags().BoolVar(&agentHelpSkill, flagAgentHelpSkill, false, "Install the stable Entire agent-help skill (points agents at `entire agent-help`)")
+ 	return cmd
+diff --git a/cmd/entire/cli/agent_group_test.go b/cmd/entire/cli/agent_group_test.go
+index 825a07b..cfc5af6 100644
+--- a/cmd/entire/cli/agent_group_test.go
++++ b/cmd/entire/cli/agent_group_test.go
+@@ -88,6 +88,33 @@ func TestAgentGroupBareCommandRunsAgentMenu(t *testing.T) {
+ 	}
+ }
+ 
++func TestAgentAdd_LocalPreservesProjectSettings(t *testing.T) {
++	// Cannot use t.Parallel: setupTestRepo changes cwd and environment.
++	setupTestRepo(t)
++	writeSettings(t, testSettingsEnabled)
++	before, err := os.ReadFile(EntireSettingsFile)
++	if err != nil {
++		t.Fatal(err)
++	}
++	cmd := newAgentAddCmd()
++	cmd.SetArgs([]string{"claude-code", "--local"})
++	cmd.SetOut(&bytes.Buffer{})
++	cmd.SetErr(&bytes.Buffer{})
++	if err := cmd.Execute(); err != nil {
++		t.Fatal(err)
++	}
++	after, err := os.ReadFile(EntireSettingsFile)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if !bytes.Equal(before, after) {
++		t.Fatal("agent add --local changed project settings")
++	}
++	if !settings.IsSetUpLocal(context.Background()) {
++		t.Fatal("agent add --local did not write local settings")
++	}
++}
++
+ // externalAgentExecLog points the mock plugin's subcommand log at a temp file
+ // and returns a reader for it, so a test can see what the CLI executed.
+ func externalAgentExecLog(t *testing.T) func() string {
+diff --git a/cmd/entire/cli/state_test.go b/cmd/entire/cli/state_test.go
+index 0a3f00b..37db082 100644
+--- a/cmd/entire/cli/state_test.go
++++ b/cmd/entire/cli/state_test.go
+@@ -276,6 +276,23 @@ func TestFilterAndNormalizePaths_SiblingDirectories(t *testing.T) {
+ 				"src/file.ts",
+ 			},
+ 		},
++		{
++			name: "shared agents directory retains user work but excludes hooks",
++			files: []string{
++				"/repo/.agents/setup",
++				"/repo/.agents/resume",
++				"/repo/.agents/skills/custom/SKILL.md",
++				"/repo/.agents/hooks.json",
++				"/repo/.gemini/settings.json",
++				"/repo/.entire/settings.json",
++			},
++			basePath: "/repo",
++			want: []string{
++				".agents/setup",
++				".agents/resume",
++				".agents/skills/custom/SKILL.md",
++			},
++		},
+ 	}
+ 
+ 	for _, tt := range tests {
