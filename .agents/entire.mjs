@@ -366,21 +366,21 @@ function health(remote) {
         String(session.session_index),
         "--transcript",
       ]);
-      const text = transcript
+      const probe = transcript
         .split("\n")
         .filter(Boolean)
         .slice(metadata.checkpoint_transcript_start)
         .flatMap((line) => JSON.parse(line).message?.content ?? [])
-        .find((block) => block.type === "text")?.text;
-      if (!text) {
+        .filter((block) => block.type === "text")
+        .flatMap((block) => block.text.split("\n"))
+        .find((line) => line.trim().length >= 40 && /[A-Za-z]{6,}/.test(line));
+      if (!probe) {
         return {
           state: "not verified",
           detail:
-            "checkpoint adds no conversation text; cannot probe new evidence",
+            "checkpoint has no sufficiently long searchable text; cannot probe new evidence",
         };
       }
-      const probe = text.split("\n").find((line) => line.trim().length >= 40);
-      assert.ok(probe);
       const query = probe
         .match(/[A-Za-z]{6,}/g)
         ?.sort((a, b) => b.length - a.length)
