@@ -3,6 +3,7 @@ set -euo pipefail
 
 export PATH="$HOME/.local/bin:${PNPM_HOME:-$HOME/.local/share/pnpm}/bin:$PATH"
 export ENTIRE_TOKEN_STORE=file
+export ENTIRE_BRAIN_NO_EGRESS=1
 export PLUGINS=all
 
 if [[ -n "${HALO_GCP_SA_KEY:-}" ]]; then
@@ -29,10 +30,14 @@ fs.writeFileSync(
 EOF
 fi
 
-# Exact snapshots skip setup. Restore clone-local hooks and opt-in before Amp starts.
-if ! entire agent add amp --local || ! node .agents/verify-entire.mjs; then
-  echo "Entire capture verification failed. Run .agents/setup, then .agents/resume to retry." >&2
+# Exact snapshots skip setup. Restore hooks, then test capture and plugin versions.
+if ! entire agent add amp --local || ! node .agents/entire.mjs; then
+  echo "Entire startup verification failed. Run .agents/setup, then .agents/resume to retry." >&2
   exit 1
 fi
 
-echo "Orb ready (Entire capture verified)"
+# Amp supervises this foreground worker; systemd is not available in orbs.
+# Network/indexing work stays outside resume's ten-second readiness window.
+amp orb service start entire-memory --command 'node .agents/entire.mjs --watch'
+
+echo "Orb ready (offline capture and plugin versions verified; memory worker starting)"
