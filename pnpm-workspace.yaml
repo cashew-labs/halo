@@ -95,6 +95,7 @@ minimumReleaseAgeExclude:
   - "@pierre/diffs@1.6.1"
   - "@pierre/highlights@0.2.0"
   - "@pierre/theming@1.0.2"
+  - "@tanishqkancharla/diffmap"
 patchedDependencies:
   # React Aria 1.22 omits hasChildItems when calling useTreeItem for empty folders.
   react-aria-components@1.22.1: patches/react-aria-components@1.22.1.patch
