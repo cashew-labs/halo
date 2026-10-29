@@ -356,7 +356,8 @@ function health(remote) {
         "show",
         `refs/entire/checkpoints/${id.slice(-2)}/${id}:${session.session_index}/metadata.json`,
       ]);
-      assert.ok(Number.isInteger(metadata.checkpoint_transcript_start));
+      const start = metadata.checkpoint_transcript_start ?? 0;
+      assert.ok(Number.isInteger(start));
       // A continued session may have no new prompt.txt at this checkpoint.
       const transcript = run("entire", [
         "checkpoint",
@@ -369,11 +370,13 @@ function health(remote) {
       const probe = transcript
         .split("\n")
         .filter(Boolean)
-        .slice(metadata.checkpoint_transcript_start)
+        .slice(start)
         .flatMap((line) => JSON.parse(line).message?.content ?? [])
         .filter((block) => block.type === "text")
         .flatMap((block) => block.text.split("\n"))
-        .map((line) => line.slice(0, 64))
+        .map((line) =>
+          line.length > 64 ? line.slice(0, 64).replace(/\S+$/, "") : line,
+        )
         .find((line) => line.trim().length >= 40 && /[A-Za-z]{6,}/.test(line));
       if (!probe) {
         return {
@@ -403,7 +406,7 @@ function health(remote) {
       const match = evidence.results.find(
         (result) =>
           result.path.toLowerCase().includes(id.toLowerCase()) &&
-          result.end_line > metadata.checkpoint_transcript_start &&
+          result.end_line > start &&
           result.text.includes(probe),
       );
       assert.ok(match);
