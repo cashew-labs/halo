@@ -981,7 +981,7 @@ function systemText(messages: Parameters<typeof messageText>[0][]) {
 
 serverTest(
   "pins memory into each thread's prompt when the thread starts",
-  async ({ server, llm }) => {
+  async ({ server, createServer, llm }) => {
     const fact = "Prefers metric units.";
 
     const writer = await server.rpc.thread.new();
@@ -1029,6 +1029,20 @@ serverTest(
       return m.assistant("Still metric.");
     });
     await reread;
+
+    // Without the memory capability, the pinned copy stays out of the prompt.
+    await server.stop();
+    const withoutMemory = createServer({
+      agentCapabilities: ["workspace.threads.read"],
+    });
+    await withoutMemory.start();
+    const revoked = withoutMemory.promptAndWait({ ...reader, text: "Now?" });
+    await llm.respond(({ messages }) => {
+      expect(systemText(messages)).not.toContain("## Memory");
+      expect(systemText(messages)).not.toContain(fact);
+      return m.assistant("No notes.");
+    });
+    await revoked;
   },
 );
 

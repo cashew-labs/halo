@@ -236,15 +236,20 @@ export class Thread {
         sections: [
           section("halo", () => resourceLoader.getSystemPrompt()),
           // Reads the committed copy, so a request prepared during recovery
-          // never renders a value that is not saved yet.
-          section("memory", async (input, context) => {
-            const state = await input.read.snapshot(
-              HaloThreadDoc,
-              input.conversationId,
-              context,
-            );
-            return state?.memory || undefined;
-          }),
+          // never renders a value that is not saved yet. A pinned copy stays
+          // hidden while the server runs without memory.
+          ...(options.memory === undefined
+            ? []
+            : [
+                section("memory", async (input, context) => {
+                  const state = await input.read.snapshot(
+                    HaloThreadDoc,
+                    input.conversationId,
+                    context,
+                  );
+                  return state?.memory || undefined;
+                }),
+              ]),
         ],
       }),
     );
