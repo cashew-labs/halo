@@ -373,6 +373,7 @@ function health(remote) {
         .flatMap((line) => JSON.parse(line).message?.content ?? [])
         .filter((block) => block.type === "text")
         .flatMap((block) => block.text.split("\n"))
+        .map((line) => line.slice(0, 64))
         .find((line) => line.trim().length >= 40 && /[A-Za-z]{6,}/.test(line));
       if (!probe) {
         return {
