@@ -78,6 +78,7 @@ function refresh() {
         privateRepository();
         run("git", [
           "fetch",
+          "--no-write-fetch-head",
           "--no-prune",
           "--no-tags",
           checkpointURL,
@@ -233,7 +234,7 @@ function health(remote) {
         "task_briefs",
       ),
     );
-    return "0.4.0+halo.raw; task briefs and cache-preserving raw refresh supported";
+    return "0.4.0+halo.raw; task briefs available";
   });
   check("Brain local index", () => {
     const status = json("entire", ["brain", "status", "--json"]);
