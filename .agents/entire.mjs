@@ -374,6 +374,7 @@ function health(remote) {
         .flatMap((line) => JSON.parse(line).message?.content ?? [])
         .filter((block) => block.type === "text")
         .flatMap((block) => block.text.split("\n"))
+        .map((line) => line.trim().replace(/\s+/g, " "))
         .map((line) =>
           line.length > 64 ? line.slice(0, 64).replace(/\S+$/, "") : line,
         )
@@ -429,14 +430,14 @@ function health(remote) {
   if (
     Object.entries(results).some(
       ([name, result]) =>
-        (remote ||
-          [
-            "Privacy boundary",
-            "Local capture (offline fixture)",
-            "Graph binary",
-            "Brain binary",
-          ].includes(name)) &&
-        result.state === "unavailable",
+        (remote
+          ? name !== "Memory worker receipt"
+          : [
+              "Privacy boundary",
+              "Local capture (offline fixture)",
+              "Graph binary",
+              "Brain binary",
+            ].includes(name)) && result.state !== "verified",
     )
   ) {
     process.exitCode = 1;
