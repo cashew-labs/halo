@@ -412,7 +412,8 @@ function health(remote) {
       );
       assert.ok(match);
       // Exchange IDs can collide across cumulative checkpoint copies in Brain 0.4.
-      // Session refs select the exact checkpoint's outline instead.
+      // Session refs select a branch/session outline, not a unique checkpoint.
+      // The path, range and text checks above establish the checkpoint match.
       const expanded = json("entire", [
         "brain",
         "get",
@@ -424,7 +425,7 @@ function health(remote) {
           (result) => result.session_ref === match.session_ref,
         ),
       );
-      return "latest checkpoint: new text matches captured source; checkpoint-specific session expanded";
+      return "latest checkpoint: new text matches captured source; matching branch/session expanded";
     });
   }
   if (
