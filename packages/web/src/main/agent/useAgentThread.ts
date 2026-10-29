@@ -126,6 +126,12 @@ export function useAgentThread(
             current?.status === "connecting" &&
             current.connectionId === event.connectionId
           ) {
+            // TanStack cancels synchronously, before an older poll can clear the stale mark.
+            queryClientRef.current
+              .cancelQueries({ queryKey: ["integrationConnections"] })
+              .catch((error) =>
+                console.warn("Account poll cancellation failed:", error),
+              );
             // Mark cached accounts stale before publishing completion, not on cancel or remount.
             queryClientRef.current.setQueryData<StartedConnectionCard>(
               connectionCardQueryKey(threadId, event.request),

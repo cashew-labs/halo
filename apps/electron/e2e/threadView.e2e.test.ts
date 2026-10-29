@@ -16,6 +16,7 @@ type IntegrationProvider = {
   accounts: boolean;
   setupCount: number;
   accountsReady?: Promise<unknown>;
+  onAccountsRequest?: () => void;
 };
 
 const connectionTest = e2eTest.extend<{
@@ -56,11 +57,15 @@ const connectionTest = e2eTest.extend<{
         }
         provider.status = "cancelled";
       }
-      if (route.endsWith("/connections")) await provider.accountsReady;
+      const accounts = provider.accounts;
+      if (route.endsWith("/connections")) {
+        provider.onAccountsRequest?.();
+        await provider.accountsReady;
+      }
       const json = route.endsWith("/setup")
         ? { status: provider.status }
         : route.endsWith("/connections")
-          ? provider.accounts
+          ? accounts
             ? [
                 {
                   integration: "google_gmail",
@@ -408,6 +413,62 @@ connectionTest(
     await expect(reconnect).toBeVisible();
     await expect(card).toContainText("alex@acme.com");
     await expect(card.getByRole("status")).toHaveText("Cancelled");
+  },
+);
+
+connectionTest(
+  "refreshes accounts after connection completion while an older account request is pending",
+  async ({ app, harness, integrationProvider }, testInfo) => {
+    const oldAccounts = new events.EventEmitter();
+    const freshAccounts = new events.EventEmitter();
+    const requests = new events.EventEmitter();
+    integrationProvider.accountsReady = events.once(oldAccounts, "ready");
+    integrationProvider.onAccountsRequest = () => requests.emit("request");
+    const firstRequest = events.once(requests, "request");
+    await harness.loadThread({
+      title: "Connect while accounts load",
+      messages: [
+        m.user("Connect my inbox"),
+        m.connectionRequest({
+          kind: "control-plane",
+          integration: "google_gmail",
+        }),
+      ],
+    });
+    await firstRequest;
+    const card = app.page.getByRole("region", {
+      name: "Gmail connection",
+      exact: true,
+    });
+    await expect(card).toContainText("Loading accounts…");
+    await card.getByRole("button", { name: "Connect", exact: true }).click();
+    await expect(
+      card.getByRole("button", { name: "Opened in your browser", exact: true }),
+    ).toBeVisible();
+    integrationProvider.accountsReady = events.once(freshAccounts, "ready");
+    integrationProvider.accounts = true;
+    const refreshRequest = events.once(requests, "request");
+    integrationProvider.status = "ready";
+    const updatingAccounts = card.getByText("Updating accounts…", {
+      exact: true,
+    });
+    await expect(updatingAccounts).toBeVisible();
+    oldAccounts.emit("ready");
+    await refreshRequest;
+    // The old empty response must not finish refresh or defer it to the next poll.
+    await expect(card.getByRole("list", { name: "Accounts" })).toHaveCount(0);
+    await expect(updatingAccounts).toBeVisible();
+    await app.page.screenshot({
+      path: testInfo.outputPath("connection-old-request-pending.png"),
+    });
+    freshAccounts.emit("ready");
+    integrationProvider.accountsReady = undefined;
+    await expect(card.getByRole("list", { name: "Accounts" })).toContainText(
+      "alex@acme.com",
+    );
+    await expect(
+      card.getByRole("button", { name: "Add account", exact: true }),
+    ).toBeVisible();
   },
 );
 

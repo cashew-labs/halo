@@ -135,6 +135,14 @@ export function ExecutorConnectionCard({
       return { previousCard };
     },
     onSuccess: (started, submittedRequest) => {
+      if (started.status === "connected") {
+        // TanStack cancels synchronously, before an older poll can clear the stale mark.
+        queryClient
+          .cancelQueries({ queryKey: ["integrationConnections"] })
+          .catch((error) =>
+            console.warn("Account poll cancellation failed:", error),
+          );
+      }
       queryClient.setQueryData<StartedConnectionCard>(
         connectionCardQueryKey(threadId, submittedRequest),
         (card) => ({
