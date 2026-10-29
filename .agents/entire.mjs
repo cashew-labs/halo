@@ -132,6 +132,8 @@ function refresh() {
         `/gh/${checkpointRepo}`,
         "--json",
       ]);
+      assert.equal(target.repo, `/gh/${checkpointRepo}`);
+      assert.equal(target.private, true);
       assert.match(target.repoId, /^[0-9A-HJKMNP-TV-Z]{26}$/);
       assert.match(target.apiUrl, /^https:\/\/[a-z0-9-]+\.api\.entire\.io\/?$/);
       // Explicit manual sync never rebinds to public origin on a 403 (Brain 0.4).
