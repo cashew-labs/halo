@@ -82,6 +82,17 @@ echo "==> Installing Entire and its Amp integration"
   ln -sfn "$amp_binary" "$HOME/.local/bin/entire-agent-amp"
 )
 
+# Install only binaries here. Private checkpoints, Brain data and user logins
+# must not enter the shared setup snapshot; resume starts the memory worker.
+for plugin in graph:v0.6.0 brain:v0.4.0; do
+  name="${plugin%%:*}"
+  version="${plugin#*:}"
+  installed="$(entire "$name" version 2>/dev/null || true)"
+  if [[ "${installed#v}" != "${version#v}" ]]; then
+    entire plugin install "$name" --pin "$version" --yes --force
+  fi
+done
+
 # Validate stored checkpoints, not just hook installation or commit trailers.
 node .agents/verify-entire.mjs
 

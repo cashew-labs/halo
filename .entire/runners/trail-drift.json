@@ -1,0 +1,34 @@
+{
+  "id": "trail-drift",
+  "display_name": "Drift Eval",
+  "enabled": true,
+  "scope": "trail",
+  "runtime": {
+    "kind": "prompt_runner",
+    "agent": "claude",
+    "timeout_ms": 300000,
+    "sandbox": {
+      "base_template": "claude",
+      "repo_token": "read"
+    }
+  },
+  "automation": {
+    "kind": "trail_prompt"
+  },
+  "prompt": {
+    "template": "Evaluate branch \"{{branch}}\" against \"{{base_branch}}\" for drift from Halo's existing design. Run `git diff origin/{{base_branch}}...HEAD`. Read AGENTS.md and relevant .agents/skills/conventions reference pages. Look for unnecessary wrappers, duplicate state owners, service boundaries that differ between hosts, TypeScript failures thrown instead of returned with errore, UI that bypasses Maui, tests coupled to private implementation, and unrelated cleanup. Respect documented exceptions and existing migrations; do not demand a repository-wide rewrite. Score drift from 0 to 100 (higher is worse). Cite changed paths and explain the cost of each deviation. Do not fetch private transcripts or print credentials. Return ONLY this JSON object as the last line:\n{\"value\": <number 0-100>, \"rationale\": \"<concise evidence>\"}"
+  },
+  "select": {
+    "trigger_types": ["api", "push"]
+  },
+  "output": {
+    "adapter": "last_json_line",
+    "result_type": "trail_monitor",
+    "trail_monitor": {
+      "key": "drift",
+      "label": "Drift",
+      "value_type": "percent",
+      "polarity": "lower_is_better"
+    }
+  }
+}
