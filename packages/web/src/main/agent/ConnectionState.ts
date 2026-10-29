@@ -65,9 +65,10 @@ export function applyConnectionEvent(
 export type StartedConnectionCard = {
   cardId?: string;
   browserOpened?: boolean;
+  accountsStaleAt?: number;
 };
 
-// Tracks the starting card and browser outcome for a request's latest attempt. Server
+// Tracks client-side progress for a request's latest attempt. Server
 // snapshots replace connection state but never this client-only entry.
 export function connectionCardQueryKey(
   threadId: string | undefined,

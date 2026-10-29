@@ -351,9 +351,20 @@ connectionTest(
     });
     await addAccount.click();
     await expect(opened).toBeVisible();
+    const cancelledAccountsReady = new events.EventEmitter();
+    integrationProvider.accountsReady = events.once(
+      cancelledAccountsReady,
+      "ready",
+    );
     await cancel.click();
     await expect(addAccount).toBeVisible();
     await expect(card).toContainText("alex@acme.com");
+    await expect(card.getByRole("alert")).toHaveCount(0);
+    await expect(
+      card.getByText("Updating accounts…", { exact: true }),
+    ).toHaveCount(0);
+    cancelledAccountsReady.emit("ready");
+    integrationProvider.accountsReady = undefined;
 
     // Accounts can change outside this card, including agent-approved removals.
     integrationProvider.accounts = false;

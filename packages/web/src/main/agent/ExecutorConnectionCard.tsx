@@ -67,24 +67,21 @@ export function ExecutorConnectionCard({
     initialData: idleConnectionState,
     enabled: false,
   }).data;
-  const { mutate: refreshAccounts, isPending: refreshingAccounts } =
-    useMutation({
-      mutationFn: async () =>
-        await queryClient.invalidateQueries({
-          queryKey: ["integrationConnections"],
-        }),
-      onError: (error) => console.warn("Account refresh failed:", error),
-    });
-  useEffect(() => {
-    if (shared.status !== "connected") return;
-    refreshAccounts();
-  }, [shared.status, refreshAccounts]);
   const startedCard = useQuery<StartedConnectionCard>({
     queryKey: cardKey,
     queryFn: async () => ({}), // coverage-exempt: disabled query; initialData only
     initialData: {},
     enabled: false,
   }).data;
+  const accountsStale =
+    startedCard.accountsStaleAt !== undefined &&
+    startedCard.accountsStaleAt === accounts.dataUpdatedAt;
+  useEffect(() => {
+    if (!accountsStale) return;
+    queryClient
+      .invalidateQueries({ queryKey: ["integrationConnections"] })
+      .catch((error) => console.warn("Account refresh failed:", error));
+  }, [accountsStale, queryClient]);
   const browserOpened = startedCard.browserOpened ?? true;
   const connection = connectionStateForCard(
     shared,
@@ -140,7 +137,15 @@ export function ExecutorConnectionCard({
     onSuccess: (started, submittedRequest) => {
       queryClient.setQueryData<StartedConnectionCard>(
         connectionCardQueryKey(threadId, submittedRequest),
-        (card) => ({ ...card, browserOpened: started.browserOpened ?? true }),
+        (card) => ({
+          ...card,
+          browserOpened: started.browserOpened ?? true,
+          accountsStaleAt:
+            started.status === "connected"
+              ? (queryClient.getQueryState(["integrationConnections"])
+                  ?.dataUpdatedAt ?? 0)
+              : card?.accountsStaleAt,
+        }),
       );
       if (started.status !== "connected") return;
       queryClient.setQueryData<ConnectionState>(
@@ -229,7 +234,7 @@ export function ExecutorConnectionCard({
       status={connection.status}
       accounts={integrationAccounts}
       accountsStatus={accounts.status}
-      refreshingAccounts={refreshingAccounts}
+      refreshingAccounts={accountsStale && accounts.status !== "error"}
       browserOpened={browserOpened}
       error={
         connection.status === "connecting" ? (
