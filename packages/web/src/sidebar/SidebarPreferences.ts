@@ -15,11 +15,6 @@ const sectionIdSchema = Type.Union([
   Type.Literal("sessions"),
 ]);
 export type SidebarSectionId = Static<typeof sectionIdSchema>;
-const defaultSectionOrder: SidebarSectionId[] = [
-  "favorites",
-  "artifacts",
-  "sessions",
-];
 const artifactFilterSchema = Type.Union([
   Type.Literal("all"),
   Type.Literal("documents"),
@@ -32,11 +27,6 @@ const storedFavoriteIdsSchema = Type.Array(
   { uniqueItems: true },
 );
 const preferencesSchema = Type.Object({
-  sectionOrder: Type.Array(sectionIdSchema, {
-    minItems: 3,
-    maxItems: 3,
-    uniqueItems: true,
-  }),
   collapsedSections: Type.Array(sectionIdSchema, { uniqueItems: true }),
   artifactFilter: artifactFilterSchema,
 });
@@ -53,7 +43,6 @@ export class SidebarPreferences {
   // Browser navigation preferences belong to the signed-in user and workspace.
   private state: SidebarPreferenceState = {
     favoriteIds: [],
-    sectionOrder: defaultSectionOrder,
     collapsedSections: [],
     artifactFilter: "all",
   };
@@ -101,7 +90,11 @@ export class SidebarPreferences {
       console.warn(new SidebarStorageError({ operation: "restore" }));
       return;
     }
-    this.state = { ...parsed, favoriteIds: [] };
+    this.state = {
+      collapsedSections: parsed.collapsedSections,
+      artifactFilter: parsed.artifactFilter,
+      favoriteIds: [],
+    };
     if (
       "favoriteIds" in parsed &&
       Value.Check(storedFavoriteIdsSchema, parsed.favoriteIds)
@@ -152,36 +145,6 @@ export class SidebarPreferences {
       ),
       artifactFilter: artifactFilter === "documents" ? "documents" : "all",
     });
-  }
-
-  moveSection({
-    sourceId,
-    targetId,
-  }: {
-    sourceId: SidebarSectionId;
-    targetId: SidebarSectionId;
-  }) {
-    if (sourceId === targetId) return;
-    // The source takes the target's position, so moving down lands after it.
-    const index = this.state.sectionOrder.indexOf(targetId);
-    const sectionOrder = this.state.sectionOrder.filter(
-      (item) => item !== sourceId,
-    );
-    sectionOrder.splice(index, 0, sourceId);
-    this.publish({ ...this.state, sectionOrder });
-  }
-
-  shiftSection({
-    sectionId,
-    direction,
-  }: {
-    sectionId: SidebarSectionId;
-    direction: -1 | 1;
-  }) {
-    const index = this.state.sectionOrder.indexOf(sectionId);
-    const targetId = this.state.sectionOrder[index + direction];
-    if (targetId !== undefined)
-      this.moveSection({ sourceId: sectionId, targetId });
   }
 
   updateFiles(source: string, destination?: string) {

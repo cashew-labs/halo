@@ -1,4 +1,4 @@
-import { useState, type DragEvent, type ReactNode } from "react";
+import { type ReactNode } from "react";
 import {
   NavigationTreeHeader,
   NavigationTreeSection,
@@ -7,7 +7,6 @@ import {
 } from "react-aria-components/NavigationTree";
 import {
   borderColor,
-  colors,
   focusRing,
   flex,
   motionDurationMs,
@@ -15,7 +14,7 @@ import {
   spacing,
   text,
 } from "maui";
-import { ChevronRight, Dots } from "maui/icons";
+import { ChevronRight } from "maui/icons";
 import { style, useStyles } from "purse-styles";
 import {
   sidebarSectionLabels,
@@ -25,8 +24,6 @@ import {
   useSidebarPreferences,
   useSidebarPreferenceState,
 } from "../SidebarPreferencesProvider.js";
-
-const sectionDragType = "application/x-halo-sidebar-section";
 
 export const sidebarPadding = style(spacing.padding({ x: 4 }), {
   "@media (max-width: 700px)": { paddingInline: "16px" },
@@ -62,35 +59,14 @@ type SidebarSectionProps = {
 
 export function SidebarSection(props: SidebarSectionProps) {
   const preferences = useSidebarPreferences();
-  const { collapsedSections, sectionOrder } = useSidebarPreferenceState();
+  const { collapsedSections } = useSidebarPreferenceState();
   const collapsed = collapsedSections.includes(props.sectionId);
-  const [isDropTarget, setIsDropTarget] = useState(false);
   const name = sidebarSectionLabels[props.sectionId];
   const sectionClassName = useStyles(sidebarSection);
   const labelClassName = useStyles(sectionLabel);
   const toggleClassName = useStyles(sectionToggle);
-  const gripClassName = useStyles(dragHandle, sectionControl);
   const chevronClassName = useStyles(sectionChevron, sectionControl);
   const actionsClassName = useStyles(sectionControl);
-
-  function dragOver(event: DragEvent) {
-    if (!event.dataTransfer.types.includes(sectionDragType)) return;
-    event.preventDefault();
-    event.stopPropagation();
-    event.dataTransfer.dropEffect = "move";
-    setIsDropTarget(true);
-  }
-  function drop(event: DragEvent) {
-    setIsDropTarget(false);
-    if (!event.dataTransfer.types.includes(sectionDragType)) return;
-    event.preventDefault();
-    event.stopPropagation();
-    const sourceId = sectionOrder.find(
-      (sectionId) => sectionId === event.dataTransfer.getData(sectionDragType),
-    );
-    if (sourceId !== undefined)
-      preferences.moveSection({ sourceId, targetId: props.sectionId });
-  }
 
   return (
     <NavigationTreeSection
@@ -117,42 +93,12 @@ export function SidebarSection(props: SidebarSectionProps) {
       >
         <button
           type="button"
-          className={gripClassName}
-          data-section-control
-          aria-label={`Reorder ${name}`}
-          title="Drag to reorder, or use the up and down arrow keys."
-          draggable
-          onDragStart={(event) => {
-            event.dataTransfer.setData(sectionDragType, props.sectionId);
-            event.dataTransfer.effectAllowed = "move";
-          }}
-          onDragOver={dragOver}
-          onDragLeave={() => setIsDropTarget(false)}
-          onDrop={drop}
-          onKeyDown={(event) => {
-            if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
-            event.preventDefault();
-            event.stopPropagation();
-            preferences.shiftSection({
-              sectionId: props.sectionId,
-              direction: event.key === "ArrowUp" ? -1 : 1,
-            });
-          }}
-        >
-          <Dots size="2xs" />
-        </button>
-        <button
-          type="button"
           className={toggleClassName}
           aria-label={`${collapsed ? "Expand" : "Collapse"} ${name}`}
           aria-expanded={!collapsed}
-          data-section-drop={isDropTarget || undefined}
           onClick={() =>
             preferences.setSectionExpanded(props.sectionId, collapsed)
           }
-          onDragOver={dragOver}
-          onDragLeave={() => setIsDropTarget(false)}
-          onDrop={drop}
         >
           {props.label}
           <ChevronRight
@@ -181,7 +127,6 @@ const sectionLabel = style(
   text({ size: "xs", fontWeight: 500, color: "lowContrast" }),
   sidebarPadding,
   {
-    position: "relative",
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
@@ -217,42 +162,18 @@ const sectionToggle = style(focusRing(), {
   minWidth: 0,
   justifyContent: "start",
   gap: spacing.value(2),
-  marginLeft: "22px",
   padding: 0,
   border: 0,
   backgroundColor: "transparent",
   color: "inherit",
   font: "inherit",
   textAlign: "left",
-  "&[data-section-drop]": { backgroundColor: colors.accent[4] },
   "@media (max-width: 700px)": { minHeight: "40px" },
 });
 const sectionChevron = style({
   flexShrink: 0,
   "&[data-expanded]": { transform: "rotate(90deg)" },
 });
-const dragHandle = style(focusRing(), {
-  position: "absolute",
-  left: `calc(${spacing.value(4)} - 4px)`,
-  top: "2px",
-  display: "grid",
-  placeItems: "center",
-  width: "24px",
-  height: "24px",
-  padding: 0,
-  border: 0,
-  backgroundColor: "transparent",
-  color: "inherit",
-  cursor: "grab",
-  "&:active": { opacity: 1, pointerEvents: "auto" },
-  "@media (max-width: 700px)": {
-    left: 0,
-    top: 0,
-    width: "40px",
-    height: "40px",
-  },
-});
-
 function joinClassNames(...classNames: Array<string | undefined>) {
   return classNames.filter((name) => name !== undefined).join(" ");
 }

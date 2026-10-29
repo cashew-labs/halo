@@ -1,7 +1,6 @@
 import { FileSaveErrorIndicator } from "../FileSaveErrorIndicator.js";
 import { SidebarFooter } from "./SidebarFooter.js";
 import { useSidebar } from "../WorkspaceLayout.js";
-import { Fragment } from "react";
 import { Button as NavigationButton } from "react-aria-components";
 import {
   Button,
@@ -87,7 +86,7 @@ export function Sidebar({ threads, appInfo }: SidebarProps) {
 
 function SidebarContents({ threads }: { threads: ThreadSummary[] }) {
   const expanded = useExpandedSidebar();
-  const { favoriteIds, sectionOrder } = useSidebarPreferenceState();
+  const { favoriteIds } = useSidebarPreferenceState();
   const watched = new Set(expanded);
   for (const key of expanded) {
     const itemId = String(key);
@@ -102,26 +101,21 @@ function SidebarContents({ threads }: { threads: ThreadSummary[] }) {
     }
   }
   const listing = useDirectoryListings(watched);
-  const sections = {
-    favorites: (
+  return (
+    <>
       <FavoritesSection
         threads={threads}
         paths={listing.paths}
         filesPending={listing.pending}
       />
-    ),
-    artifacts: (
       <ArtifactsSection
         paths={listing.paths}
         pending={listing.pending}
         error={listing.error}
       />
-    ),
-    sessions: <ThreadsSection threads={threads} />,
-  };
-  return sectionOrder.map((sectionId) => (
-    <Fragment key={sectionId}>{sections[sectionId]}</Fragment>
-  ));
+      <ThreadsSection threads={threads} />
+    </>
+  );
 }
 
 const styles = {
