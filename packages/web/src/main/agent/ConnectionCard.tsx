@@ -271,9 +271,7 @@ export function ConnectionCard({
         >
           {status !== "connecting" &&
           status !== "idle" &&
-          (status !== "connected" ||
-            accounts.length === 0 ||
-            updatingAccounts) ? (
+          (status !== "connected" || accountsStatus !== "success") ? (
             <ConnectionStatusLabel status={status} />
           ) : undefined}
           {accountsStatus === "error" && (
@@ -295,7 +293,7 @@ export function ConnectionCard({
             >
               Reconnect {repairAccount?.accountLabel ?? repairName}
             </Button>
-          ) : status === "connected" || accounts.length > 0 ? (
+          ) : accounts.length > 0 ? (
             <Button
               variant="primary"
               {...brandButtonProps}

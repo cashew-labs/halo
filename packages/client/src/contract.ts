@@ -40,8 +40,8 @@ import type {
   WorkspaceTreeEvent,
 } from "./rpc.js";
 
-// Tandem-backed clients use a different workspace stream contract.
-export const haloProtocolVersion = 32 as const;
+// Connection cards require the workspace integrationConnections procedure.
+export const haloProtocolVersion = 33 as const;
 export const haloSupportedProtocols = [
   25,
   26,
@@ -50,6 +50,7 @@ export const haloSupportedProtocols = [
   29,
   30,
   31,
+  32,
   haloProtocolVersion,
 ];
 

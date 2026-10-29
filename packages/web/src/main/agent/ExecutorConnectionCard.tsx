@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { colors } from "maui";
+import * as errore from "errore";
 import {
   connectionRequestName,
   type ConnectionRequest,
@@ -25,6 +26,11 @@ type ExecutorConnectionPart = Extract<
   { kind: "executorConnection" }
 >;
 
+class ConnectionPopupBlockedError extends errore.createTaggedError({
+  name: "ConnectionPopupBlockedError",
+  message: "Allow pop-ups to open connection setup.",
+}) {}
+
 export function ExecutorConnectionCard({
   threadId,
   part,
@@ -41,6 +47,9 @@ export function ExecutorConnectionCard({
     queryKey: ["integrationConnections"],
     queryFn: async ({ signal }) =>
       await api.workspace.integrationConnections(undefined, { signal }),
+    // Connections can change through the agent or another client.
+    staleTime: 0,
+    refetchInterval: 5000,
   });
   const integrationAccounts = (accounts.data ?? []).filter(
     (account) => account.integration === part.request.integration,
@@ -165,7 +174,12 @@ export function ExecutorConnectionCard({
   const reopen = useMutation({
     mutationFn: async (url: string) => {
       if (host.openExternalUrl === undefined) {
-        window.open(url, "_blank", "noopener,noreferrer");
+        // noopener makes window.open return null even for successful opens.
+        const setupPage = window.open("about:blank", "_blank");
+        if (setupPage === null) throw new ConnectionPopupBlockedError();
+        // oxlint-disable-next-line unicorn/no-null -- Detach the new tab before navigating to the provider.
+        setupPage.opener = null;
+        setupPage.location.replace(url);
         return;
       }
       const opened = await host.openExternalUrl(url);
@@ -177,6 +191,17 @@ export function ExecutorConnectionCard({
       console.warn("Could not reopen connection setup:", error);
     },
   });
+  const startConnection = (submittedRequest: ConnectionRequest) => {
+    const pending = queryClient.getQueryData<ConnectionState>(
+      connectionStateQueryKey(threadId, submittedRequest),
+    );
+    if (pending?.status === "starting" || pending?.status === "connecting") {
+      // Join the existing attempt instead of orphaning its setup and Cancel.
+      setRequest(submittedRequest);
+      return;
+    }
+    connect.mutate(submittedRequest);
+  };
   const openSetup = () => {
     cancel.reset();
     if (
@@ -193,9 +218,6 @@ export function ExecutorConnectionCard({
       status={connection.status}
       accounts={integrationAccounts}
       accountsStatus={accounts.status}
-      refreshingAccounts={
-        connection.status === "connected" && accounts.isFetching
-      }
       browserOpened={browserOpened}
       error={
         connection.status === "connecting" ? (
@@ -223,12 +245,12 @@ export function ExecutorConnectionCard({
         ) : undefined
       }
       connect={{
-        onPress: () => connect.mutate(request),
+        onPress: () => startConnection(request),
         isDisabled: threadId === undefined,
       }}
       addAccount={{
         onPress: () =>
-          connect.mutate({
+          startConnection({
             kind: "control-plane",
             integration: request.integration,
           }),

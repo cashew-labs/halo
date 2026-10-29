@@ -340,6 +340,20 @@ connectionTest(
     await expect(addAccount).toBeVisible();
     await expect(card).toContainText("alex@acme.com");
 
+    // Accounts can change outside this card, including agent-approved removals.
+    integrationProvider.accounts = false;
+    await expect(card).toContainText("No accounts connected");
+    await expect(card.getByRole("list", { name: "Accounts" })).toHaveCount(0);
+    await expect(connect).toBeVisible();
+    await expect(addAccount).toHaveCount(0);
+    await expect(card.getByText("Connected", { exact: true })).toHaveCount(0);
+    await app.page.screenshot({
+      path: testInfo.outputPath("connection-removed.png"),
+    });
+    integrationProvider.accounts = true;
+    await expect(card).toContainText("alex@acme.com");
+    await expect(addAccount).toBeVisible();
+
     await harness.loadThread({
       title: "Repair Gmail",
       messages: [
@@ -368,6 +382,70 @@ connectionTest(
     await expect(reconnect).toBeVisible();
     await expect(card).toContainText("alex@acme.com");
     await expect(card.getByRole("status")).toHaveText("Cancelled");
+  },
+);
+
+connectionTest(
+  "shares an existing Add account attempt between generic and repaired cards",
+  async ({ app, harness, integrationProvider }) => {
+    integrationProvider.accounts = true;
+    await harness.loadThread({
+      title: "Shared Gmail setup",
+      messages: [
+        m.user("Connect another inbox and repair work Gmail"),
+        m.connectionRequest({
+          kind: "control-plane",
+          integration: "google_gmail",
+        }),
+        m.connectionRequest({
+          kind: "control-plane",
+          integration: "google_gmail",
+          connectionName: "work",
+        }),
+      ],
+    });
+    const cards = app.page.getByRole("region", {
+      name: "Gmail connection",
+      exact: true,
+    });
+    const generic = cards.first();
+    const repaired = cards.last();
+    await repaired
+      .getByRole("button", { name: "Reconnect alex@acme.com", exact: true })
+      .click();
+    integrationProvider.status = "ready";
+    const addAccount = repaired.getByRole("button", {
+      name: "Add account",
+      exact: true,
+    });
+    await expect(addAccount).toBeVisible();
+    const externalUrls = await app.observeExternalUrls();
+    await generic
+      .getByRole("button", { name: "Add account", exact: true })
+      .click();
+    await expect(
+      generic.getByRole("button", {
+        name: "Opened in your browser",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await addAccount.click();
+    await expect(
+      repaired.getByRole("button", {
+        name: "Opened in your browser",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect
+      .poll(async () => await externalUrls.jsonValue())
+      .toEqual([`${integrationProvider.origin}/integrations/setup/test-setup`]);
+    await repaired.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(
+      cards.getByRole("button", { name: "Cancel", exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      generic.getByRole("button", { name: "Add account", exact: true }),
+    ).toBeVisible();
   },
 );
 
