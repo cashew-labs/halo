@@ -42,7 +42,6 @@ export function ExecutorConnectionCard({
   const api = useApi();
   const queryClient = useQueryClient();
   const [request, setRequest] = useState(part.request);
-  const [browserOpened, setBrowserOpened] = useState(true);
   const accounts = useQuery({
     queryKey: ["integrationConnections"],
     queryFn: async ({ signal }) =>
@@ -68,18 +67,25 @@ export function ExecutorConnectionCard({
     initialData: idleConnectionState,
     enabled: false,
   }).data;
+  const { mutate: refreshAccounts, isPending: refreshingAccounts } =
+    useMutation({
+      mutationFn: async () =>
+        await queryClient.invalidateQueries({
+          queryKey: ["integrationConnections"],
+        }),
+      onError: (error) => console.warn("Account refresh failed:", error),
+    });
   useEffect(() => {
     if (shared.status !== "connected") return;
-    queryClient
-      .invalidateQueries({ queryKey: ["integrationConnections"] })
-      .catch((error) => console.warn("Account refresh failed:", error));
-  }, [shared.status, queryClient]);
+    refreshAccounts();
+  }, [shared.status, refreshAccounts]);
   const startedCard = useQuery<StartedConnectionCard>({
     queryKey: cardKey,
     queryFn: async () => ({}), // coverage-exempt: disabled query; initialData only
     initialData: {},
     enabled: false,
   }).data;
+  const browserOpened = startedCard.browserOpened ?? true;
   const connection = connectionStateForCard(
     shared,
     startedCard.cardId,
@@ -111,7 +117,6 @@ export function ExecutorConnectionCard({
     onMutate: (submittedRequest) => {
       cancel.reset();
       reopen.reset();
-      setBrowserOpened(true);
       // Add account starts an unnamed attempt, never another named repair.
       setRequest(submittedRequest);
       const attemptStatusKey = connectionStateQueryKey(
@@ -133,7 +138,10 @@ export function ExecutorConnectionCard({
       return { previousCard };
     },
     onSuccess: (started, submittedRequest) => {
-      setBrowserOpened(started.browserOpened ?? true);
+      queryClient.setQueryData<StartedConnectionCard>(
+        connectionCardQueryKey(threadId, submittedRequest),
+        (card) => ({ ...card, browserOpened: started.browserOpened ?? true }),
+      );
       if (started.status !== "connected") return;
       queryClient.setQueryData<ConnectionState>(
         connectionStateQueryKey(threadId, submittedRequest),
@@ -185,10 +193,13 @@ export function ExecutorConnectionCard({
       const opened = await host.openExternalUrl(url);
       if (opened instanceof Error) throw opened;
     },
-    onSuccess: () => setBrowserOpened(true),
-    onError: (error) => {
-      setBrowserOpened(false);
-      console.warn("Could not reopen connection setup:", error);
+    onSettled: (_data, error) => {
+      queryClient.setQueryData<StartedConnectionCard>(cardKey, (card) => ({
+        ...card,
+        browserOpened: error === null,
+      }));
+      if (error !== null)
+        console.warn("Could not reopen connection setup:", error);
     },
   });
   const startConnection = (submittedRequest: ConnectionRequest) => {
@@ -218,6 +229,7 @@ export function ExecutorConnectionCard({
       status={connection.status}
       accounts={integrationAccounts}
       accountsStatus={accounts.status}
+      refreshingAccounts={refreshingAccounts}
       browserOpened={browserOpened}
       error={
         connection.status === "connecting" ? (

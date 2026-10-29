@@ -5,7 +5,7 @@ import { messageText } from "@get-halo/workspace-server/testing";
 import fs from "node:fs/promises";
 import path from "node:path";
 import http from "node:http";
-import { once } from "node:events";
+import events from "node:events";
 import type { AddressInfo } from "node:net";
 import type { IntegrationSetup } from "@get-halo/shared/controlPlaneContract";
 
@@ -14,6 +14,8 @@ type IntegrationProvider = {
   status: IntegrationSetup["status"];
   failCancel: boolean;
   accounts: boolean;
+  setupCount: number;
+  accountsReady?: Promise<unknown>;
 };
 
 const connectionTest = e2eTest.extend<{
@@ -26,19 +28,21 @@ const connectionTest = e2eTest.extend<{
       status: "awaiting_credentials",
       failCancel: false,
       accounts: false,
+      setupCount: 0,
     };
     // Control only the unavailable remote integration service. Electron, its
     // bridge, the workspace server, connection polling, and the card are real.
-    const server = http.createServer((request, response) => {
+    const server = http.createServer(async (request, response) => {
       const route = new URL(request.url!, "http://provider").pathname;
       response.setHeader("content-type", "application/json");
       if (route.endsWith("/startSetup")) {
         provider.status = "awaiting_credentials";
+        const setupId = `test-setup-${++provider.setupCount}`;
         response.end(
           JSON.stringify({
             json: {
-              setupId: "test-setup",
-              setupUrl: `${provider.origin}/integrations/setup/test-setup`,
+              setupId,
+              setupUrl: `${provider.origin}/integrations/setup/${setupId}`,
             },
           }),
         );
@@ -52,6 +56,7 @@ const connectionTest = e2eTest.extend<{
         }
         provider.status = "cancelled";
       }
+      if (route.endsWith("/connections")) await provider.accountsReady;
       const json = route.endsWith("/setup")
         ? { status: provider.status }
         : route.endsWith("/connections")
@@ -69,7 +74,7 @@ const connectionTest = e2eTest.extend<{
       response.end(JSON.stringify({ json }));
     });
     server.listen({ host: "127.0.0.1", port: 0 });
-    await once(server, "listening");
+    await events.once(server, "listening");
     // SAFETY: listening above guarantees a bound TCP address, not a pipe.
     provider.origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
     try {
@@ -279,7 +284,7 @@ connectionTest(
     const setupLink = card.getByRole("link", { name: "Open this link" });
     await expect(setupLink).toHaveAttribute(
       "href",
-      `${integrationProvider.origin}/integrations/setup/test-setup`,
+      `${integrationProvider.origin}/integrations/setup/test-setup-1`,
     );
     await app.page.screenshot({
       path: testInfo.outputPath("connection-browser-failed.png"),
@@ -321,8 +326,18 @@ connectionTest(
     await app.page.screenshot({
       path: testInfo.outputPath("connection-pending.png"),
     });
+    const accountsReady = new events.EventEmitter();
+    integrationProvider.accountsReady = events.once(accountsReady, "ready");
     integrationProvider.accounts = true;
     integrationProvider.status = "ready";
+    await expect(card.getByRole("status")).toHaveText("Updating accounts…");
+    await expect(card).not.toContainText("No accounts connected");
+    await expect(connect).toHaveCount(0);
+    await app.page.screenshot({
+      path: testInfo.outputPath("connection-updating-accounts.png"),
+    });
+    accountsReady.emit("ready");
+    integrationProvider.accountsReady = undefined;
     await expect(card.getByRole("list", { name: "Accounts" })).toContainText(
       "alex@acme.com",
     );
@@ -420,25 +435,45 @@ connectionTest(
     });
     await expect(addAccount).toBeVisible();
     const externalUrls = await app.observeExternalUrls();
+    await app.setExternalUrlFailure(true);
     await generic
       .getByRole("button", { name: "Add account", exact: true })
       .click();
     await expect(
-      generic.getByRole("button", {
+      generic.getByRole("link", { name: "Open this link" }),
+    ).toBeVisible();
+    await addAccount.click();
+    const setupLink = repaired.getByRole("link", { name: "Open this link" });
+    await expect(setupLink).toBeVisible();
+    await expect(
+      repaired.getByRole("button", { name: "Cancel", exact: true }),
+    ).toBeVisible();
+    await expect(
+      repaired.getByRole("button", {
         name: "Opened in your browser",
         exact: true,
       }),
-    ).toBeVisible();
-    await addAccount.click();
+    ).toHaveCount(0);
+    await app.setExternalUrlFailure(false);
+    await setupLink.click();
     await expect(
       repaired.getByRole("button", {
         name: "Opened in your browser",
         exact: true,
       }),
     ).toBeVisible();
+    await expect(
+      generic.getByRole("button", {
+        name: "Opened in your browser",
+        exact: true,
+      }),
+    ).toBeVisible();
     await expect
       .poll(async () => await externalUrls.jsonValue())
-      .toEqual([`${integrationProvider.origin}/integrations/setup/test-setup`]);
+      .toEqual([
+        `${integrationProvider.origin}/integrations/setup/test-setup-2`,
+        `${integrationProvider.origin}/integrations/setup/test-setup-2`,
+      ]);
     await repaired.getByRole("button", { name: "Cancel", exact: true }).click();
     await expect(
       cards.getByRole("button", { name: "Cancel", exact: true }),

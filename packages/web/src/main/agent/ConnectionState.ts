@@ -62,9 +62,12 @@ export function applyConnectionEvent(
   return { status: event.status };
 }
 
-export type StartedConnectionCard = { cardId?: string };
+export type StartedConnectionCard = {
+  cardId?: string;
+  browserOpened?: boolean;
+};
 
-// Names the card that started the latest attempt for a request. Server
+// Tracks the starting card and browser outcome for a request's latest attempt. Server
 // snapshots replace connection state but never this client-only entry.
 export function connectionCardQueryKey(
   threadId: string | undefined,
