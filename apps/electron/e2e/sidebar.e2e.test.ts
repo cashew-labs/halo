@@ -193,7 +193,12 @@ e2eTest(
       exact: true,
     });
     await folderName.fill("Plans");
-    await folderName.press("Enter");
+    // Repeated focus changes must commit once, even before pending renders.
+    await folderName.evaluate((input: HTMLInputElement) => {
+      input.blur();
+      input.focus();
+      input.blur();
+    });
     await expect(
       sidebar.getByRole("link", { name: "Plans", exact: true }),
     ).toBeVisible();

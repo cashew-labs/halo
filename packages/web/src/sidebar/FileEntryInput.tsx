@@ -72,6 +72,7 @@ function FileNameField({
   const isDirectory = isDirectoryAction(action);
   const [name, setName] = useState(originalName);
   const inputRef = useRef<HTMLInputElement>(null);
+  const submitted = useRef(false);
   const icon = useStyles(styles.icon);
   const value = name.trim();
   const invalid =
@@ -91,8 +92,10 @@ function FileNameField({
   // Saving disables and blurs the field. When the server rejects the name,
   // return focus so the user can fix it or press Escape.
   useEffect(() => {
+    if (pending) return;
+    submitted.current = false;
     if (error !== undefined) inputRef.current?.focus();
-  }, [error]);
+  }, [pending, error]);
   return (
     <>
       <span className={icon} aria-hidden="true">
@@ -141,7 +144,8 @@ function FileNameField({
           }
         }}
         onBlur={() => {
-          if (pending) return;
+          // Focus can change again before the mutation's pending state renders.
+          if (pending || submitted.current) return;
           // Check the raw text too, so an untouched name with surrounding spaces
           // closes instead of being renamed to its trimmed form.
           // Leaving with an invalid name cancels, so the section never stays
@@ -159,6 +163,7 @@ function FileNameField({
             action.kind === "file" && !/\.[^.]+$/.test(value)
               ? `${value.replace(/\.$/, "")}.md`
               : value;
+          submitted.current = true;
           onSubmit(parent === "" ? filename : `${parent}/${filename}`);
         }}
       />

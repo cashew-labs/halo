@@ -122,7 +122,7 @@ e2eTest(
       exact: true,
       includeHidden: true,
     });
-    await app.page.getByRole("row").filter({ has: actions }).hover();
+    await app.page.getByRole("link", { name: "deep.md", exact: true }).focus();
     await actions.click();
     await app.page
       .getByRole("menuitem", { name: "Move to…", exact: true })
