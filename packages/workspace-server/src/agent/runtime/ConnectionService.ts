@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import * as errore from "errore";
 import {
   connectionRequestKey,
+  connectionRequestName,
   type ConnectionRequest,
   type ConnectionStarted,
   applyConnectionEvent,
@@ -94,19 +95,20 @@ export class ConnectionService {
     return this.connectionStatesByThread.get(threadId) ?? [];
   }
 
+  async listConnections() {
+    if (this.closed) return new ConnectionUnavailableError();
+    if (this.remote === undefined) return [];
+    return await this.remote.connections();
+  }
+
   async startConnection(
     input: StartConnectionInput,
   ): Promise<ConnectionStarted | Error> {
     if (this.remote === undefined || this.closed)
       return new ConnectionUnavailableError();
-    // Cards that name no connection carry a placeholder name for released
-    // clients. Sending it would reconnect, replacing that connection's account.
     const started = await this.remote.startSetup({
       integration: input.request.integration,
-      connectionName:
-        "newConnection" in input.request && input.request.newConnection
-          ? undefined
-          : input.request.connectionName,
+      connectionName: connectionRequestName(input.request),
     });
     if (started instanceof Error) return started;
     if (this.closed) {
@@ -126,11 +128,14 @@ export class ConnectionService {
       expires: setTimeout(() => void this.pollRemote(connectionId), 1_000),
     };
     this.pendingConnections.set(connectionId, pending);
-    const wasConnected = this.statesForThread(input.threadId).some(
-      (state) =>
-        connectionRequestKey(state.request) ===
-          connectionRequestKey(input.request) && state.status === "connected",
-    );
+    // An earlier success does not satisfy a new request to repair that account.
+    const wasConnected =
+      connectionRequestName(input.request) === undefined &&
+      this.statesForThread(input.threadId).some(
+        (state) =>
+          connectionRequestKey(state.request) ===
+            connectionRequestKey(input.request) && state.status === "connected",
+      );
     const notified = await this.publishEvent(pending, {
       type: "halo.connection",
       connectionId,
@@ -138,6 +143,7 @@ export class ConnectionService {
       status: "connecting",
       expiresAt,
       wasConnected,
+      authorizationUrl: started.setupUrl,
     });
     if (notified instanceof Error) return notified;
     return {

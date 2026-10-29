@@ -1,5 +1,7 @@
 import * as errore from "errore";
 import { checkServerCompatibility, type ServerInfo } from "@get-halo/client";
+import type { IntegrationConnection } from "@get-halo/client";
+export type { IntegrationConnection } from "@get-halo/client";
 import { error, oc, type, type RouterContractClient } from "@orpc/contract";
 import { Type, type Static, type TSchema } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
@@ -67,12 +69,6 @@ export type ConnectionRevocation =
   | "not_supported"
   // The provider did not confirm the revocation.
   | "failed";
-export type IntegrationConnection = {
-  address: string;
-  integration: string;
-  name: string;
-  accountLabel?: string;
-};
 export type IntegrationTool = {
   address: string;
   integration: string;

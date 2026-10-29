@@ -21,7 +21,10 @@ import {
   type,
   type RouterContractClient,
 } from "@orpc/contract";
-import type { ConnectionRequest } from "./ConnectionRequest.js";
+import type {
+  ConnectionRequest,
+  IntegrationConnection,
+} from "./ConnectionRequest.js";
 import type { TraceAgent, TraceEvent, TraceOutcome } from "./traces.js";
 import type {
   ThreadWatchItem,
@@ -37,8 +40,8 @@ import type {
   WorkspaceTreeEvent,
 } from "./rpc.js";
 
-// Tandem-backed clients use a different workspace stream contract.
-export const haloProtocolVersion = 32 as const;
+// Connection cards require the workspace integrationConnections procedure.
+export const haloProtocolVersion = 33 as const;
 export const haloSupportedProtocols = [
   25,
   26,
@@ -47,6 +50,7 @@ export const haloSupportedProtocols = [
   29,
   30,
   31,
+  32,
   haloProtocolVersion,
 ];
 
@@ -265,6 +269,7 @@ export const contract = publicProcedure.router({
   },
   workspace: {
     get: oc.output(type<WorkspaceInfo>()),
+    integrationConnections: oc.output(type<IntegrationConnection[]>()),
     listPaths: oc.output(type<string[]>()),
     searchPaths: oc.input(type<{ query: string }>()).output(type<string[]>()),
     watchDirectories: oc

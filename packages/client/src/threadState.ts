@@ -6,6 +6,7 @@ import {
 } from "./chatAttachments.js";
 import {
   connectionRequestKey,
+  connectionRequestName,
   connectionRequestSchema,
 } from "./ConnectionRequest.js";
 
@@ -223,6 +224,7 @@ const haloConnectionEventSchema = Type.Union([
     status: Type.Literal("connecting"),
     expiresAt: Type.Number(),
     wasConnected: Type.Boolean(),
+    authorizationUrl: Type.Optional(Type.String()),
   }),
   Type.Object({
     type: Type.Literal("halo.connection"),
@@ -448,6 +450,7 @@ function connectionStateFromEvent(
     event.status !== "connected" &&
     current?.status === "connecting" &&
     current.connectionId === event.connectionId &&
+    connectionRequestName(event.request) === undefined &&
     current.wasConnected
   ) {
     return {

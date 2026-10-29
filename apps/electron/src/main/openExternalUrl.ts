@@ -23,6 +23,8 @@ export async function openExternalUrl(value: string) {
   // that GitHub Actions cannot detach, so Playwright teardown never exits.
   if (process.env.HALO_E2E === "1") {
     app.emit("halo:e2e:open-external", url.toString());
+    if (process.env.HALO_E2E_FAIL_OPEN_EXTERNAL === "1")
+      return new OpenExternalUrlError({ reason: "the system rejected it" });
     return;
   }
 

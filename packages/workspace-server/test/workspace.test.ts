@@ -1912,6 +1912,14 @@ serverTest(
       },
     });
     await server.start();
+    expect(await server.rpc.workspace.integrationConnections()).toEqual([
+      {
+        address: "tools.google_gmail.user.personal",
+        integration: "google_gmail",
+        name: "personal",
+        accountLabel: "me@example.com",
+      },
+    ]);
     const thread = await server.rpc.thread.new();
     const prompting = server.promptAndWait({
       ...thread,
@@ -2152,6 +2160,15 @@ serverTest(
     });
     if (started.status !== "authorization-required")
       throw new Error("Missing setup");
+    expect(
+      (await server.rpc.thread.snapshot(thread)).connections,
+    ).toMatchObject([
+      {
+        status: "connecting",
+        connectionId: started.connectionId,
+        authorizationUrl: "https://halo.example/integrations/setup/setup",
+      },
+    ]);
     await server.rpc.thread.cancelConnection({
       ...thread,
       connectionId: started.connectionId,
@@ -2159,6 +2176,86 @@ serverTest(
     expect(
       (await server.rpc.thread.snapshot(thread)).connections,
     ).toMatchObject([{ request, status: "cancelled" }]);
+  },
+);
+
+serverTest(
+  "keeps a later repair cancelled or failed after an earlier repair succeeds",
+  async ({ createServer }) => {
+    let setupStatus: "awaiting_credentials" | "ready" | "cancelled" | "failed" =
+      "awaiting_credentials";
+    const accounts = [
+      {
+        integration: "google_gmail",
+        name: "personal",
+        address: "gmail.personal",
+      },
+      { integration: "google_gmail", name: "work", address: "gmail.work" },
+    ];
+    const server = createServer({
+      remoteConnections: {
+        catalog: async () => [{ integration: "google_gmail", name: "Gmail" }],
+        startSetup: async () => {
+          setupStatus = "awaiting_credentials";
+          return {
+            setupId: "repair",
+            setupUrl: "https://halo.example/integrations/setup/repair",
+          };
+        },
+        setup: async () => ({ status: setupStatus }),
+        cancelSetup: async () => {
+          setupStatus = "cancelled";
+        },
+        connections: async () => accounts,
+        removeConnection: async () => ({
+          revocation: "not_supported" as const,
+        }),
+      },
+    });
+    await server.start();
+    const thread = await server.rpc.thread.new();
+    const request = {
+      kind: "control-plane" as const,
+      integration: "google_gmail",
+      connectionName: "work",
+    };
+    for (const outcome of ["cancelled", "failed"] as const) {
+      await server.rpc.thread.startConnection({ ...thread, request });
+      setupStatus = "ready";
+      await vi.waitFor(
+        async () => {
+          expect(
+            (await server.rpc.thread.snapshot(thread)).connections,
+          ).toMatchObject([{ request, status: "connected" }]);
+        },
+        { timeout: 5_000 },
+      );
+      const repair = await server.rpc.thread.startConnection({
+        ...thread,
+        request,
+      });
+      assert(repair.status === "authorization-required");
+      expect(repair.wasConnected).toBe(false);
+      if (outcome === "cancelled") {
+        await server.rpc.thread.cancelConnection({
+          ...thread,
+          connectionId: repair.connectionId,
+        });
+      } else {
+        setupStatus = outcome;
+      }
+      await vi.waitFor(
+        async () => {
+          expect(
+            (await server.rpc.thread.snapshot(thread)).connections,
+          ).toMatchObject([{ request, status: outcome }]);
+        },
+        { timeout: 5_000 },
+      );
+      expect(await server.rpc.workspace.integrationConnections()).toEqual(
+        accounts,
+      );
+    }
   },
 );
 

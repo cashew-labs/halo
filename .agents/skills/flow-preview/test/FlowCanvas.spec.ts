@@ -76,7 +76,7 @@ test("portal serves opted-in source but denies runtime data and credentials", as
   expect(await rootRelative.text()).not.toContain("private-preview-sentinel");
 });
 
-test("generated unrelated flow supports selection, local editing, reset and navigation", async ({
+test("generated unrelated flow supports selection, local editing, breadcrumbs and navigation", async ({
   page,
 }) => {
   const errors: string[] = [];
@@ -85,6 +85,7 @@ test("generated unrelated flow supports selection, local editing, reset and navi
   const preview = page.getByRole("complementary", {
     name: "Selected state preview",
   });
+  const breadcrumbs = preview.getByRole("navigation", { name: "State path" });
   await page.setViewportSize({ width: 1280, height: 600 });
   await expect(
     preview.getByRole("button", { name: "Follow flow: Save preferences" }),
@@ -106,7 +107,9 @@ test("generated unrelated flow supports selection, local editing, reset and navi
     .getByRole("button", { name: "Save preferences", exact: true })
     .click();
   await expect(preview.getByRole("status")).toHaveText("Preferences saved");
-  await preview.getByRole("button", { name: "Reset preview" }).click();
+  await breadcrumbs
+    .getByRole("button", { name: "Editing preferences", exact: true })
+    .click();
   await expect(name).toHaveValue("Morning digest");
   await expect(name).toBeInViewport();
   await expect(preview.getByRole("status")).toHaveCount(0);
@@ -120,7 +123,39 @@ test("generated unrelated flow supports selection, local editing, reset and navi
     page.getByRole("button", { name: "Preview Preferences saved" }),
   ).toHaveAttribute("aria-pressed", "true");
   await expect(preview.getByRole("textbox")).toHaveCount(1);
+  await expect(breadcrumbs.getByRole("button")).toHaveText([
+    "Editing preferences",
+    "Preferences saved",
+  ]);
+  await expect(
+    breadcrumbs.getByRole("button", { name: "Preferences saved", exact: true }),
+  ).toHaveAttribute("aria-current", "step");
+  await breadcrumbs
+    .getByRole("button", { name: "Editing preferences", exact: true })
+    .click();
+  await expect(breadcrumbs.getByRole("button")).toHaveText([
+    "Editing preferences",
+    "Preferences saved",
+  ]);
+  await expect(
+    breadcrumbs.getByRole("button", {
+      name: "Editing preferences",
+      exact: true,
+    }),
+  ).toHaveAttribute("aria-current", "step");
+  await expect(
+    breadcrumbs.getByRole("button", { name: "Preferences saved", exact: true }),
+  ).not.toHaveAttribute("aria-current", "step");
+  await expect(name).toHaveValue("Morning digest");
+  await breadcrumbs
+    .getByRole("button", { name: "Preferences saved", exact: true })
+    .click();
+  await expect(preview.getByRole("status")).toHaveText("Preferences saved");
   await preview.getByRole("button", { name: "Previous state" }).click();
+  await expect(breadcrumbs.getByRole("button")).toHaveText([
+    "Editing preferences",
+    "Preferences saved",
+  ]);
   await page.getByRole("button", { name: "Zoom in" }).click();
   await expect(page.getByText("95%", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Toggle flow sidebar" }).click();
@@ -131,6 +166,60 @@ test("generated unrelated flow supports selection, local editing, reset and navi
   await page.getByRole("button", { name: "Toggle flow sidebar" }).click();
   await expect(outline).toBeVisible();
   expect(errors).toEqual([]);
+});
+
+test("breadcrumbs retain a journey across navigation and replace it on a different branch", async ({
+  page,
+}) => {
+  await page.route("**/scenario.tsx*", async (route) => {
+    const response = await route.fetch();
+    const original = await response.text();
+    const body = original.replace(
+      /(\{\s*id: "saved",)/,
+      `{ id: "discarded", title: "Changes discarded", parent: "editing",
+         action: "Discard changes", row: 1, render: () => null }, $1`,
+    );
+    expect(body).not.toBe(original);
+    await route.fulfill({ response, body });
+  });
+  await page.reload();
+  const preview = page.getByRole("complementary");
+  const breadcrumbs = preview.getByRole("navigation", { name: "State path" });
+  const outline = page.getByRole("navigation", { name: "Flow outline" });
+  await outline
+    .getByRole("button", { name: "Preferences saved", exact: true })
+    .click();
+  await breadcrumbs
+    .getByRole("button", { name: "Editing preferences", exact: true })
+    .click();
+  await expect(breadcrumbs.getByRole("button")).toHaveText([
+    "Editing preferences",
+    "Preferences saved",
+  ]);
+  await preview
+    .getByRole("button", { name: "Follow flow: Discard changes" })
+    .click();
+  await expect(breadcrumbs.getByRole("button")).toHaveText([
+    "Editing preferences",
+    "Changes discarded",
+  ]);
+  await expect(
+    preview.getByRole("heading", { name: "Changes discarded", exact: true }),
+  ).toBeVisible();
+  await outline
+    .getByRole("button", { name: "Editing preferences", exact: true })
+    .click();
+  await expect(breadcrumbs.getByRole("button")).toHaveText([
+    "Editing preferences",
+    "Changes discarded",
+  ]);
+  await preview
+    .getByRole("button", { name: "Follow flow: Save preferences" })
+    .click();
+  await expect(breadcrumbs.getByRole("button")).toHaveText([
+    "Editing preferences",
+    "Preferences saved",
+  ]);
 });
 
 test("both sidebar widths persist after dragging, keyboard resizing and reload", async ({
@@ -207,7 +296,7 @@ test("sparse row hints keep adjacent columns visible without invalidating review
   await expect(review).toBeChecked();
 });
 
-test("reviews synchronize in all three surfaces and survive drafts, reset, theme and reload", async ({
+test("reviews synchronize in all three surfaces and survive drafts, breadcrumbs, theme and reload", async ({
   page,
   preview: flow,
 }) => {
@@ -239,7 +328,11 @@ test("reviews synchronize in all three surfaces and survive drafts, reset, theme
     .click();
   await expect(review).toBeChecked();
   await preview.getByRole("textbox").fill("Unsaved draft");
-  await preview.getByRole("button", { name: "Reset preview" }).click();
+  await preview
+    .getByRole("navigation", { name: "State path" })
+    .getByRole("button", { name: "Editing preferences", exact: true })
+    .click();
+  await expect(preview.getByRole("textbox")).toHaveValue("Morning digest");
   await expect(review).toBeChecked();
   await page.getByRole("button", { name: "Toggle theme" }).click();
   await expect(review).toBeChecked();
@@ -254,6 +347,31 @@ test("reviews synchronize in all three surfaces and survive drafts, reset, theme
   await expect(mark).toHaveCount(0);
 });
 
+test("mark all reviews every state, persists on reload and allows individual unchecking", async ({
+  page,
+}) => {
+  const bulkReview = page.getByRole("button", { name: "Mark all as reviewed" });
+  const outline = page.getByRole("navigation", { name: "Flow outline" });
+  const firstReview = outline.getByRole("checkbox").first();
+  await expect(bulkReview).toBeEnabled();
+  await firstReview.locator("xpath=ancestor::label").click();
+  await bulkReview.click();
+  for (const review of await page.getByRole("checkbox").all()) {
+    await expect(review).toBeChecked();
+  }
+  await expect(bulkReview).toBeDisabled();
+  await page.reload();
+  await expect(bulkReview).toBeDisabled();
+  for (const review of await page.getByRole("checkbox").all()) {
+    await expect(review).toBeChecked();
+  }
+  await firstReview.locator("xpath=ancestor::label").click();
+  await expect(bulkReview).toBeEnabled();
+  await page.reload();
+  await expect(firstReview).not.toBeChecked();
+  await expect(outline.getByRole("checkbox").last()).toBeChecked();
+});
+
 for (const change of ["content", "style"] as const) {
   test(`only the changed state's ${change} invalidates its review`, async ({
     page,
@@ -262,10 +380,9 @@ for (const change of ["content", "style"] as const) {
       page
         .getByRole("group", { name: `Review in tree: ${title}`, exact: true })
         .getByRole("checkbox");
-    for (const title of ["Editing preferences", "Preferences saved"]) {
-      await review(title).locator("xpath=ancestor::label").click();
-      await expect(review(title)).toBeChecked();
-    }
+    await page.getByRole("button", { name: "Mark all as reviewed" }).click();
+    await expect(review("Editing preferences")).toBeChecked();
+    await expect(review("Preferences saved")).toBeChecked();
     await page.reload();
     await expect(review("Preferences saved")).toBeChecked();
     await page.route("**/scenario.tsx*", async (route) => {
@@ -297,7 +414,18 @@ test("generic canvas renders light, dark and narrow without duplicate IDs", asyn
   await page.getByRole("button", { name: "Toggle theme" }).click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   await page.screenshot({ path: testInfo.outputPath("dark.png") });
+  await page.route("**/scenario.tsx*", async (route) => {
+    const response = await route.fetch();
+    const original = await response.text();
+    const body = original.replace(
+      'title: "Editing preferences",',
+      `title: "Editing preferences", note: ${JSON.stringify("This state has extra context so the preview must remain usable below its breadcrumbs and explanation. ".repeat(6))},`,
+    );
+    expect(body).not.toBe(original);
+    await route.fulfill({ response, body });
+  });
   await page.setViewportSize({ width: 390, height: 844 });
+  await page.reload();
   await page.getByRole("button", { name: "Toggle flow sidebar" }).click();
   await expect(
     page.getByRole("navigation", { name: "Flow outline" }),
@@ -305,5 +433,14 @@ test("generic canvas renders light, dark and narrow without duplicate IDs", asyn
   await expect(
     page.getByRole("complementary").getByRole("textbox"),
   ).toBeVisible();
+  const preview = page.getByRole("complementary");
+  await preview
+    .getByRole("button", { name: "Save preferences", exact: true })
+    .click();
+  await expect(preview.getByRole("status")).toHaveText("Preferences saved");
+  await expect(preview.getByRole("textbox")).toBeInViewport({ ratio: 1 });
+  await expect(
+    preview.getByRole("button", { name: "Save preferences", exact: true }),
+  ).toBeInViewport({ ratio: 1 });
   await page.screenshot({ path: testInfo.outputPath("narrow.png") });
 });

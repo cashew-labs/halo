@@ -11,6 +11,11 @@ import type {
 } from "@get-halo/shared/controlPlaneContract";
 import type { ShortcutId } from "./shortcuts.js";
 
+// Browser launch is a host outcome, not a workspace connection status.
+export type IntegrationConnectionStarted = ConnectionStarted & {
+  browserOpened?: boolean;
+};
+
 export type AppUpdateStatus =
   | { state: "disabled"; reason: string }
   | { state: "idle" }
@@ -79,7 +84,7 @@ export interface HostApi {
   connectIntegration(input: {
     threadId: string;
     request: ConnectionRequest;
-  }): Promise<ConnectionStarted | Error>;
+  }): Promise<IntegrationConnectionStarted | Error>;
   cancelIntegration(input: {
     threadId: string;
     connectionId: string;

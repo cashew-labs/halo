@@ -5,13 +5,15 @@ import {
   type Hotkey,
   type ConnectionFailureData,
   type ConnectionRequest,
-  type ConnectionStarted,
 } from "@get-halo/client";
 import type {
   ControlPlaneWorkspaceStatus,
   ControlPlaneSession,
 } from "@get-halo/shared/controlPlaneContract";
-import type { AppInfo } from "@get-halo/web/HostApi";
+import type {
+  AppInfo,
+  IntegrationConnectionStarted,
+} from "@get-halo/web/HostApi";
 import type { HaloRpcConnection } from "./HaloRpcConnection.js";
 
 export const DESKTOP_CHANNEL = "halo:desktop";
@@ -109,7 +111,7 @@ export type DesktopBridge = {
   connectIntegration: (input: {
     threadId: string;
     request: ConnectionRequest;
-  }) => Promise<ConnectionStarted>;
+  }) => Promise<IntegrationConnectionStarted>;
   cancelIntegration: (input: {
     threadId: string;
     connectionId: string;

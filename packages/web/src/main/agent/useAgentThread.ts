@@ -18,9 +18,11 @@ import { reconnectStream } from "../../api/reconnectStream.js";
 import { Stream } from "@get-halo/shared/Stream";
 import {
   applyConnectionEvent,
+  connectionCardQueryKey,
   connectionStateFromServer,
   connectionStateQueryKey,
   type ConnectionState,
+  type StartedConnectionCard,
 } from "./ConnectionState.ts";
 
 class PromptFailedError extends errore.createTaggedError({
@@ -116,9 +118,35 @@ export function useAgentThread(
         }
         if (item.type === "event" && item.event.type === "halo.connection") {
           const event = item.event;
+          const statusKey = connectionStateQueryKey(threadId, event.request);
+          const current =
+            queryClientRef.current.getQueryData<ConnectionState>(statusKey);
+          if (
+            event.status === "connected" &&
+            current?.status === "connecting" &&
+            current.connectionId === event.connectionId
+          ) {
+            // TanStack cancels synchronously, before an older poll can clear the stale mark.
+            queryClientRef.current
+              .cancelQueries({ queryKey: ["integrationConnections"] })
+              .catch((error) =>
+                console.warn("Account poll cancellation failed:", error),
+              );
+            // Mark cached accounts stale before publishing completion, not on cancel or remount.
+            queryClientRef.current.setQueryData<StartedConnectionCard>(
+              connectionCardQueryKey(threadId, event.request),
+              (card) => ({
+                ...card,
+                accountsStaleAt:
+                  queryClientRef.current.getQueryState([
+                    "integrationConnections",
+                  ])?.dataUpdatedAt ?? 0,
+              }),
+            );
+          }
           queryClientRef.current.setQueryData<ConnectionState>(
-            connectionStateQueryKey(threadId, event.request),
-            (current) => applyConnectionEvent(current, event),
+            statusKey,
+            applyConnectionEvent(current, event),
           );
         }
         updates.append(item);
