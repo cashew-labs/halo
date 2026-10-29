@@ -351,10 +351,21 @@ function health(remote) {
         (session) => session.latest_checkpoint_id === id,
       );
       assert.ok(session);
-      const prompt = run("git", [
-        "show",
-        `refs/entire/checkpoints/${id.slice(-2)}/${id}:${session.session_index}/prompt.txt`,
+      // A continued session may have no new prompt.txt at this checkpoint.
+      const transcript = run("entire", [
+        "checkpoint",
+        "explain",
+        id,
+        "--session-index",
+        String(session.session_index),
+        "--transcript",
       ]);
+      const prompt = transcript
+        .split("\n")
+        .filter(Boolean)
+        .flatMap((line) => JSON.parse(line).message?.content ?? [])
+        .find((block) => block.type === "text")?.text;
+      assert.ok(prompt);
       // Probe a word from this capture, not a repository-specific magic phrase.
       const query = prompt
         .slice(0, 256)
