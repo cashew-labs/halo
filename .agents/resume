@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+export PATH="$HOME/.local/bin:${PNPM_HOME:-$HOME/.local/share/pnpm}/bin:$PATH"
+export ENTIRE_TOKEN_STORE=file
+export PLUGINS=all
+
 if [[ -n "${HALO_GCP_SA_KEY:-}" ]]; then
   mkdir -p "$HOME/.config/gcloud"
   node --input-type=module <<'EOF'
@@ -25,4 +29,10 @@ fs.writeFileSync(
 EOF
 fi
 
-echo "Orb ready"
+# Exact snapshots skip setup. Restore clone-local hooks and opt-in before Amp starts.
+if ! entire agent add amp --local || ! node .agents/verify-entire.mjs; then
+  echo "Entire capture verification failed. Run .agents/setup, then .agents/resume to retry." >&2
+  exit 1
+fi
+
+echo "Orb ready (Entire capture verified)"

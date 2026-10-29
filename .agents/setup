@@ -30,12 +30,36 @@ echo "==> Installing Entire and its Amp integration"
   install_dir="$(mktemp -d)"
   trap 'rm -rf "$install_dir"' EXIT
 
-  if [[ "$(entire version 2>/dev/null | head -n 1)" != "Entire CLI 0.12.0" ]]; then
-    curl -fsSL https://install.entire.com/v0.12.0/entire_linux_amd64.tar.gz -o "$install_dir/entire.tar.gz"
-    echo "28aa1664a990507c7063a9437aa896f3b1930447d03d3711a7d04629299bea18  $install_dir/entire.tar.gz" | sha256sum -c -
-    tar -xzf "$install_dir/entire.tar.gz" -C "$install_dir"
-    install -m 755 "$install_dir/entire" "$install_dir/git-remote-entire" "$HOME/.local/bin/"
+  go_home="$HOME/.local/go-1.27.3"
+  if [[ ! -x "$go_home/bin/go" ]]; then
+    curl -fsSL https://go.dev/dl/go1.27.3.linux-amd64.tar.gz -o "$install_dir/go.tar.gz"
+    echo "65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40  $install_dir/go.tar.gz" | sha256sum -c -
+    mkdir -p "$go_home"
+    tar -xzf "$install_dir/go.tar.gz" -C "$go_home" --strip-components=1
   fi
+  export GOMAXPROCS=4
+
+  entire_version="v0.12.0"
+  entire_patch="$PWD/.agents/patches/entire-cli.patch"
+  entire_patch_hash="$(sha256sum "$entire_patch" | cut -d ' ' -f 1)"
+  entire_home="$HOME/.local/share/entire/${entire_version}-${entire_patch_hash}"
+  if [[ ! -x "$entire_home/entire" || ! -x "$entire_home/git-remote-entire" ]]; then
+    entire_source="$("$go_home/bin/go" mod download -json "github.com/entireio/cli@${entire_version}" | node -p 'JSON.parse(require("fs").readFileSync(0, "utf8")).Dir')"
+    cp -R "$entire_source" "$install_dir/cli"
+    chmod -R u+w "$install_dir/cli"
+    # Protect Antigravity's hooks file, not user work in the shared .agents directory.
+    git -C "$install_dir/cli" apply "$entire_patch"
+    (
+      cd "$install_dir/cli"
+      "$go_home/bin/go" test -p 4 ./cmd/entire/cli -run 'TestFilterAndNormalizePaths|TestAgentAdd_LocalPreservesProjectSettings' -count=1
+      mkdir -p "$entire_home"
+      "$go_home/bin/go" build -p 4 -trimpath \
+        -ldflags '-s -w -X github.com/entireio/cli/cmd/entire/cli/versioninfo.Version=0.12.0+halo.agents -X github.com/entireio/cli/cmd/entire/cli/experimental.Visible=false' \
+        -o "$entire_home/" ./cmd/entire ./cmd/git-remote-entire
+    )
+  fi
+  ln -sfn "$entire_home/entire" "$HOME/.local/bin/entire"
+  ln -sfn "$entire_home/git-remote-entire" "$HOME/.local/bin/git-remote-entire"
 
   amp_version="v0.0.0-20261020003721-23c64f2861dd"
   amp_patch="$PWD/.agents/patches/entire-agent-amp.patch"
@@ -43,13 +67,6 @@ echo "==> Installing Entire and its Amp integration"
   # Key the binary by source and patch so warm snapshots cannot keep an old build.
   amp_binary="$HOME/.local/share/entire-agent-amp/${amp_version}-${amp_patch_hash}/entire-agent-amp"
   if [[ ! -x "$amp_binary" ]]; then
-    go_home="$HOME/.local/go-1.27.3"
-    if [[ ! -x "$go_home/bin/go" ]]; then
-      curl -fsSL https://go.dev/dl/go1.27.3.linux-amd64.tar.gz -o "$install_dir/go.tar.gz"
-      echo "65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40  $install_dir/go.tar.gz" | sha256sum -c -
-      mkdir -p "$go_home"
-      tar -xzf "$install_dir/go.tar.gz" -C "$go_home" --strip-components=1
-    fi
     amp_source="$("$go_home/bin/go" mod download -json "github.com/entireio/external-agents/agents/entire-agent-amp@${amp_version}" | node -p 'JSON.parse(require("fs").readFileSync(0, "utf8")).Dir')"
     cp -R "$amp_source" "$install_dir/amp"
     chmod -R u+w "$install_dir/amp"
@@ -65,11 +82,8 @@ echo "==> Installing Entire and its Amp integration"
   ln -sfn "$amp_binary" "$HOME/.local/bin/entire-agent-amp"
 )
 
-# Hooks are clone-local Git configuration, even when agent hooks are committed.
-entire enable --yes --telemetry=false
-# Entire 0.12 requires external-agent opt-in in ignored settings.local.json.
-# Registering Amp writes that opt-in; the tracked external_agents flag cannot.
-entire agent add amp
+# Validate stored checkpoints, not just hook installation or commit trailers.
+node .agents/verify-entire.mjs
 
 # Headless orbs have no OS keyring. Authenticate interactively after startup;
 # never include a user's login in the shared setup snapshot.
@@ -82,7 +96,12 @@ for candidate in "$HOME/.bash_profile" "$HOME/.bash_login"; do
     break
   fi
 done
-for setting in 'export ENTIRE_TOKEN_STORE=file' 'export PLUGINS=all'; do
+# Non-interactive login shells do not read the .bashrc that pnpm setup updates.
+for setting in \
+  'export ENTIRE_TOKEN_STORE=file' \
+  'export PLUGINS=all' \
+  'export PNPM_HOME="${PNPM_HOME:-$HOME/.local/share/pnpm}"' \
+  'export PATH="$PNPM_HOME/bin:$PNPM_HOME:$HOME/.local/bin:$PATH"'; do
   if ! grep -Fqx "$setting" "$login_profile" 2>/dev/null; then
     echo "$setting" >> "$login_profile"
   fi
