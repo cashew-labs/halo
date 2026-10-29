@@ -1,5 +1,5 @@
 diff --git a/internal/cli/facts_sync_cmd.go b/internal/cli/facts_sync_cmd.go
-index 23ae052..21f368c 100644
+index 23ae052..5697384 100644
 --- a/internal/cli/facts_sync_cmd.go
 +++ b/internal/cli/facts_sync_cmd.go
 @@ -33,7 +33,8 @@ type factsSyncOptions struct {
@@ -20,7 +20,22 @@ index 23ae052..21f368c 100644
  	// --facts-backend predates the facts→memories rename; keep it working.
  	legacyFlagAlias(cmd.Flags(), "facts-backend", "memories-backend")
  	return cmd
-@@ -165,6 +167,23 @@ func runHostedFactsSync(cmd *cobra.Command, opts Options, syncOpts factsSyncOpti
+@@ -154,6 +156,14 @@ func runFactsSync(cmd *cobra.Command, opts Options, syncOpts factsSyncOptions) e
+ func runHostedFactsSync(cmd *cobra.Command, opts Options, syncOpts factsSyncOptions, repoDir string, storage repoStorage, branch string) error {
+ 	ctx := cmd.Context()
+ 	errW := cmd.ErrOrStderr()
++	var visibilityCommit string
++	if !syncOpts.pushOnly {
++		var err error
++		visibilityCommit, err = base.GitScalar(ctx, opts.Runner, repoDir, "rev-parse", "--verify", "refs/heads/"+branch+"^{commit}")
++		if err != nil {
++			return fmt.Errorf("memories sync: resolve branch %q before sync: %w", branch, err)
++		}
++	}
+ 	target, err := resolveManualHostedTarget(ctx, opts, storage.BrainDir, repoDir, "memories sync", syncOpts.repoID, syncOpts.apiURL, syncOpts.token)
+ 	if err != nil {
+ 		return err
+@@ -165,9 +175,26 @@ func runHostedFactsSync(cmd *cobra.Command, opts Options, syncOpts factsSyncOpti
  	if skipped > 0 {
  		fmt.Fprintf(errW, "warning: skipped %d unpublishable record(s) whose content id does not re-derive (kept locally, not uploaded)\n", skipped)
  	}
@@ -43,12 +58,65 @@ index 23ae052..21f368c 100644
 +	}
  	// The pull runs even after a failed push: the team's memories still land,
  	// and the error below reports exactly which half failed.
- 	kept, total, manifestErr, pullErr := pullHostedFacts(ctx, opts, repoDir, storage, srv, target.repoID, target.baseURL, target.token, branch)
+-	kept, total, manifestErr, pullErr := pullHostedFacts(ctx, opts, repoDir, storage, srv, target.repoID, target.baseURL, target.token, branch)
++	kept, total, manifestErr, pullErr := pullHostedFacts(ctx, opts, repoDir, storage, srv, target.repoID, target.baseURL, target.token, branch, visibilityCommit)
+ 	if pushErr == nil && pullErr == nil {
+ 		// Both halves completed: record the per-branch marker, same rule as the
+ 		// background sync (the blind-spot note keys off its absence).
 diff --git a/internal/cli/facts_sync_hosted_cmd_test.go b/internal/cli/facts_sync_hosted_cmd_test.go
-index dfbf802..5287781 100644
+index dfbf802..8a93574 100644
 --- a/internal/cli/facts_sync_hosted_cmd_test.go
 +++ b/internal/cli/facts_sync_hosted_cmd_test.go
-@@ -73,6 +73,39 @@ func TestMemoriesSyncConnectedDefaultsToHostedWire(t *testing.T) {
+@@ -6,6 +6,7 @@ import (
+ 	"testing"
+ 	"time"
+ 
++	"github.com/entireio/entire-brain/factmerge"
+ 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+ 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+ )
+@@ -29,12 +30,40 @@ func newHostedSyncCmdFixture(t *testing.T, fake *hostedFake) (verifyFixture, str
+ 	}
+ 	f.opts.Env.PluginCacheDir = t.TempDir()
+ 	f.runner.responses[fakeCommandKey("entire", "auth", "token")] = fakeCommandResponse{stdout: fakeJWT + "\n"}
++	f.runner.responses[fakeCommandKey("git", "rev-parse", "--verify", "refs/heads/main^{commit}")] = fakeCommandResponse{stdout: "abc123abc123abc123abc123abc123abc123abcd\n"}
+ 	for _, env := range []string{"ENTIRE_BRAIN_NO_EGRESS", "ENTIRE_BRAIN_LOCAL_ONLY", "ENTIRE_BRAIN_ALLOW_HOSTED", "ENTIRE_API_URL", "ENTIRE_API_TOKEN", "ENTIRE_REPO_ID", envFactsBackend} {
+ 		t.Setenv(env, "")
+ 	}
+ 	return f, srv.URL
+ }
+ 
++func TestMemoriesSyncPreservesSelectedBranchWhenCheckoutDiffers(t *testing.T) {
++	const tip = "abc123abc123abc123abc123abc123abc123abcd"
++	const anchor = "def123def123def123def123def123def123abcd"
++	for _, missing := range []bool{false, true} {
++		t.Run(map[bool]string{false: "other checkout", true: "missing branch"}[missing], func(t *testing.T) {
++			fact := hostedSyncAnchoredFact("teammate decision on main", time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC), factmerge.Anchor{Commit: anchor})
++			fake := &hostedFake{}
++			fake.seed(fact, "", "acct-teammate", "teammate")
++			f, _ := newHostedSyncCmdFixture(t, fake)
++			f.runner.responses[fakeCommandKey("git", "branch", "--show-current")] = fakeCommandResponse{stdout: "other\n"}
++			f.runner.responses[fakeCommandKey("git", "merge-base", "--is-ancestor", anchor, tip)] = fakeCommandResponse{}
++			if missing {
++				delete(f.runner.responses, fakeCommandKey("git", "rev-parse", "--verify", "refs/heads/main^{commit}"))
++			}
++			f.writeFacts(t, "main", []factRecord{fact})
++			out, err := execute(t, NewRootCommand(f.opts), "memories", "sync", "--branch", "main")
++			if (err != nil) != missing {
++				t.Fatalf("missing=%v, error=%v\n%s", missing, err, out)
++			}
++			local, loadErr := factstore.Load(f.brainDir, "main")
++			if loadErr != nil || len(local) != 1 || local[0].ID != fact.ID {
++				t.Fatalf("selected branch lost its teammate memory: %v", loadErr)
++			}
++		})
++	}
++}
++
+ // TestMemoriesSyncConnectedDefaultsToHostedWire is COR-2234's core claim: on a
+ // connected repo, plain `memories sync` exchanges over the hosted per-fact
+ // wire — no flag required.
+@@ -73,6 +102,39 @@ func TestMemoriesSyncConnectedDefaultsToHostedWire(t *testing.T) {
  	}
  }
  
@@ -88,6 +156,78 @@ index dfbf802..5287781 100644
  // TestMemoriesSyncConnectedPullFailureFailsCommand pins the COR-2202 honesty
  // rule onto the manual path: unlike background sync, a failed pull is a failed
  // command, not a stderr shrug.
+diff --git a/internal/cli/hosted_pull_filter.go b/internal/cli/hosted_pull_filter.go
+index 66183cd..8fb1632 100644
+--- a/internal/cli/hosted_pull_filter.go
++++ b/internal/cli/hosted_pull_filter.go
+@@ -9,12 +9,12 @@ import (
+ 	"github.com/entireio/entire-brain/internal/factsync"
+ )
+ 
+-// newCommitReachability answers "is this commit an ancestor of HEAD?" with
++// newCommitReachability answers "is this commit an ancestor of ref?" with
+ // one memoized `git merge-base --is-ancestor` per distinct commit. Any
+ // failure — including a commit this clone has never seen (squash merge, gc,
+ // shallow clone) — is quietly "unreachable": absence of history is a normal
+ // state here, not an error worth a line per fact.
+-func newCommitReachability(ctx context.Context, runner CommandRunner, repoDir string) func(commit string) bool {
++func newCommitReachability(ctx context.Context, runner CommandRunner, repoDir, ref string) func(commit string) bool {
+ 	memo := make(map[string]bool)
+ 	return func(commit string) bool {
+ 		if commit == "" {
+@@ -23,7 +23,7 @@ func newCommitReachability(ctx context.Context, runner CommandRunner, repoDir st
+ 		if known, ok := memo[commit]; ok {
+ 			return known
+ 		}
+-		_, _, err := runner.Run(ctx, repoDir, "git", "merge-base", "--is-ancestor", commit, "HEAD")
++		_, _, err := runner.Run(ctx, repoDir, "git", "merge-base", "--is-ancestor", commit, ref)
+ 		memo[commit] = err == nil
+ 		return memo[commit]
+ 	}
+diff --git a/internal/cli/hosted_pull_filter_test.go b/internal/cli/hosted_pull_filter_test.go
+index bdd261d..5f9c796 100644
+--- a/internal/cli/hosted_pull_filter_test.go
++++ b/internal/cli/hosted_pull_filter_test.go
+@@ -65,7 +65,7 @@ func TestKeepHostedFact(t *testing.T) {
+ 
+ func TestNewCommitReachabilityMemoizes(t *testing.T) {
+ 	runner := &reachabilityFakeRunner{reachable: map[string]bool{"aaa": true}}
+-	reachable := newCommitReachability(context.Background(), runner, "/repo")
++	reachable := newCommitReachability(context.Background(), runner, "/repo", "HEAD")
+ 	if !reachable("aaa") || !reachable("aaa") {
+ 		t.Fatal("aaa should be reachable")
+ 	}
+diff --git a/internal/cli/hosted_sync.go b/internal/cli/hosted_sync.go
+index 34e6297..fe54615 100644
+--- a/internal/cli/hosted_sync.go
++++ b/internal/cli/hosted_sync.go
+@@ -122,7 +122,7 @@ func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, r
+ 			// landing through it.
+ 			fmt.Fprintf(errW, "hosted sync: branch %s publish failed (local brain unaffected): %v; pull-only\n", branch, pushErr)
+ 		}
+-		kept, total, manifestErr, pullErr := pullHostedFacts(ctx, opts, repoDir, storage, srv, binding.RepoID, baseURL, token, branch)
++		kept, total, manifestErr, pullErr := pullHostedFacts(ctx, opts, repoDir, storage, srv, binding.RepoID, baseURL, token, branch, "HEAD")
+ 		if errors.Is(pullErr, factsync.ErrNoAccess) {
+ 			// The pull is the half every caller is granted on a healthy
+ 			// binding, so its denial means the binding itself is stale: the
+@@ -302,7 +302,7 @@ func pushHostedFacts(ctx context.Context, storage repoStorage, srv *factsync.HTT
+ // Everything runs under the brain write lock: the cache and the branch store
+ // must move together, and concurrent triggers (tick, hook, push hint) must
+ // not interleave their rebuilds.
+-func pullHostedFacts(ctx context.Context, opts Options, repoDir string, storage repoStorage, srv *factsync.HTTPServer, repoID, baseURL, token, branch string) (kept, total int, manifestErr, err error) {
++func pullHostedFacts(ctx context.Context, opts Options, repoDir string, storage repoStorage, srv *factsync.HTTPServer, repoID, baseURL, token, branch, visibilityRef string) (kept, total int, manifestErr, err error) {
+ 	feedDir, err := hostedFeedDirForKey(opts.Env, storage.Key)
+ 	if err != nil {
+ 		return 0, 0, nil, err
+@@ -349,7 +349,7 @@ func pullHostedFacts(ctx context.Context, opts Options, repoDir string, storage
+ 		}
+ 
+ 		member := jwtSubClaim(token)
+-		reachable := newCommitReachability(ctx, opts.Runner, repoDir)
++		reachable := newCommitReachability(ctx, opts.Runner, repoDir, visibilityRef)
+ 		keptIDs := make(map[string]bool)
+ 		var keptRecords []factRecord
+ 		for id, item := range items {
 diff --git a/internal/cli/refresh.go b/internal/cli/refresh.go
 index 60c5822..9888b4f 100644
 --- a/internal/cli/refresh.go

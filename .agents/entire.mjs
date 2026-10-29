@@ -90,25 +90,24 @@ function refresh() {
     if (
       !check("Brain refresh", () => {
         const brainPath = run("entire", ["brain", "path"]);
-        run(
-          "entire",
-          ["brain", "memory", "configure", "abstracts", "--disable", "--json"],
-          localOnly,
-        );
+        run("entire", [
+          "brain",
+          "memory",
+          "configure",
+          "abstracts",
+          "--disable",
+          "--json",
+        ]);
         // Compact checkpoints currently index to empty conversation records.
         // The patched flag preserves legacy caches on this unattended raw refresh.
-        run(
-          "entire",
-          [
-            "brain",
-            "refresh",
-            "--raw",
-            "--no-transcript-sweep",
-            "--agent",
-            "none",
-          ],
-          localOnly,
-        );
+        run("entire", [
+          "brain",
+          "refresh",
+          "--raw",
+          "--no-transcript-sweep",
+          "--agent",
+          "none",
+        ]);
         const manifest = JSON.parse(
           fs.readFileSync(path.join(brainPath, "manifest.json")),
         );
@@ -177,8 +176,8 @@ function refresh() {
                 target.apiUrl,
                 "--branch",
                 branch,
-                // Brain's pull filter uses HEAD, not --branch. Never rebuild
-                // an off-checkout store against another branch's visibility.
+                // The patched pull snapshots this branch before network calls.
+                // Other stores only upload; leave their local contents unchanged.
                 ...(branch === currentBranch ? [] : ["--push-only"]),
                 "--json",
               ],
@@ -255,7 +254,10 @@ function health(remote) {
       for (const [name, result] of Object.entries(last.results)) {
         console.log(`  ${name}: ${result.state} — ${result.detail}`);
       }
-      return "historical receipt read";
+      return {
+        state: "not verified",
+        detail: "historical results only; not live worker verification",
+      };
     } else {
       return {
         state: "not verified",
@@ -359,28 +361,25 @@ function health(remote) {
         .match(/[A-Za-z]{6,}/g)
         ?.sort((a, b) => b.length - a.length)[0];
       assert.ok(query);
-      const evidence = json(
-        "entire",
-        [
-          "brain",
-          "query",
-          query,
-          "--source",
-          "conversation",
-          "--session",
-          session.session_id,
-          "--limit",
-          "1",
-          "--json",
-        ],
-        localOnly,
-      );
+      const evidence = json("entire", [
+        "brain",
+        "query",
+        query,
+        "--source",
+        "conversation",
+        "--session",
+        session.session_id,
+        "--limit",
+        "1",
+        "--json",
+      ]);
       assert.ok(evidence.results.length > 0);
-      const expanded = json(
-        "entire",
-        ["brain", "get", evidence.results[0].id, "--json"],
-        localOnly,
-      );
+      const expanded = json("entire", [
+        "brain",
+        "get",
+        evidence.results[0].id,
+        "--json",
+      ]);
       assert.ok(expanded.results.length > 0);
       return "latest checkpoint session: conversation evidence found and expanded; verify claims against source";
     });

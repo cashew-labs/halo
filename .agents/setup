@@ -98,7 +98,7 @@ echo "==> Installing Entire and its Amp integration"
       # These isolated fixtures simulate routed discovery and local HTTP sync.
       # Keep the orb's real no-egress policy out of only the test subprocess.
       env -u ENTIRE_BRAIN_NO_EGRESS -u ENTIRE_BRAIN_LOCAL_ONLY \
-        "$go_home/bin/go" test -p 4 ./internal/cli -run '^TestMemoriesSync|TestWatchTickSkipsTranscriptSweep|TestWatchConsolidationRefreshSkipsTranscriptSweep' -count=1
+        "$go_home/bin/go" test -p 4 ./internal/cli -run '^TestMemoriesSync|TestHostedSync|TestKeepHostedFact|TestNewCommitReachability|TestWatchTickSkipsTranscriptSweep|TestWatchConsolidationRefreshSkipsTranscriptSweep' -count=1
       "$go_home/bin/go" build -p 4 -trimpath -ldflags '-s -w -X main.version=0.4.0+halo.raw' -o "$brain_binary" ./cmd/entire-brain
     )
   fi
@@ -107,14 +107,10 @@ echo "==> Installing Entire and its Amp integration"
 
 # Install only binaries here. Private checkpoints, Brain data and user logins
 # must not enter the shared setup snapshot; resume starts the memory worker.
-for plugin in graph:v0.6.0; do
-  name="${plugin%%:*}"
-  version="${plugin#*:}"
-  installed="$(entire "$name" version 2>/dev/null || true)"
-  if [[ "${installed#v}" != "${version#v}" ]]; then
-    entire plugin install "$name" --pin "$version" --yes --force
-  fi
-done
+installed="$(entire graph version 2>/dev/null || true)"
+if [[ "$installed" != "v0.6.0" ]]; then
+  entire plugin install graph --pin v0.6.0 --yes --force
+fi
 
 # Validate stored checkpoints, not just hook installation or commit trailers.
 node .agents/verify-entire.mjs
