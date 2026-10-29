@@ -367,11 +367,20 @@ function health(remote) {
         String(session.session_index),
         "--transcript",
       ]);
-      const probe = transcript
+      const records = transcript
         .split("\n")
         .filter(Boolean)
-        .slice(start)
-        .flatMap((line) => JSON.parse(line).message?.content ?? [])
+        .map((line) => JSON.parse(line));
+      // A checkpoint can continue an exchange without adding another request.
+      // Probe its latest user text, not an assistant suffix omitted by BM25.
+      const requestIndex = records.findLastIndex(
+        (record) =>
+          record.message?.role === "user" &&
+          record.message.content?.some(
+            (block) => block.type === "text" && block.text.trim(),
+          ),
+      );
+      const probe = (records[requestIndex]?.message.content ?? [])
         .filter((block) => block.type === "text")
         .flatMap((block) => block.text.split("\n"))
         .map((line) => line.trim().replace(/\s+/g, " "))
@@ -383,7 +392,7 @@ function health(remote) {
         return {
           state: "not verified",
           detail:
-            "checkpoint has no sufficiently long searchable text; cannot probe new evidence",
+            "checkpoint has no sufficiently long latest user request; cannot probe conversation evidence",
         };
       }
       const query = probe
@@ -407,6 +416,8 @@ function health(remote) {
       const match = evidence.results.find(
         (result) =>
           result.path.toLowerCase().includes(id.toLowerCase()) &&
+          result.line <= requestIndex + 1 &&
+          result.end_line >= requestIndex + 1 &&
           result.end_line > start &&
           result.text.includes(probe),
       );
@@ -425,7 +436,7 @@ function health(remote) {
           (result) => result.session_ref === match.session_ref,
         ),
       );
-      return "latest checkpoint: new text matches captured source; matching branch/session expanded";
+      return "latest checkpoint: latest user text and exchange range match captured source; matching branch/session expanded";
     });
   }
   if (
