@@ -11,6 +11,11 @@ import type { ServerInfo } from "./protocol.js";
 import type { ClientId, RemoteApi } from "@tanishqkancharla/tandem-core";
 import type { WorkspaceSchema } from "./database/schema/workspaceSchema.js";
 import type { Hotkey, HotkeyInput } from "./hotkeys.js";
+import type {
+  AgentRecord,
+  NewAgentInput,
+  AgentSettingsInput,
+} from "./agents.js";
 import type { ChatPrompt } from "./chatAttachments.js";
 import type { WorkspaceFilePreview } from "./rpc.js";
 import type { WorkspaceSearchResponse } from "./search.js";
@@ -366,6 +371,12 @@ export const contract = publicProcedure.router({
       .input(type<{ uploadId: string }>())
       .output(type<{ received: number; size: number }>()),
     cancel: oc.input(type<{ uploadId: string }>()).output(type<void>()),
+  },
+  agents: {
+    new: oc.input(type<NewAgentInput>()).output(type<AgentRecord>()),
+    list: oc.output(type<AgentRecord[]>()),
+    watch: oc.output(asyncIteratorObject(type<AgentRecord[]>())),
+    update: oc.input(type<AgentSettingsInput>()).output(type<AgentRecord>()),
   },
   // Keep sessionId payload keys for clients on supported older protocols.
   thread: {

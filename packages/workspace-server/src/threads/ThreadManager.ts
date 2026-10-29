@@ -114,6 +114,7 @@ export class ThreadManager {
   private readonly layout: ThreadOptions["layout"];
   private readonly toolRuntime: ThreadOptions["toolRuntime"];
   private readonly memory: ThreadOptions["memory"];
+  private readonly agents: ThreadOptions["agents"];
   private readonly uploads: UploadService;
 
   constructor(ctx: ThreadManagerOptions) {
@@ -127,6 +128,7 @@ export class ThreadManager {
     this.toolRuntime = toolRuntime;
     this.uploads = ctx.uploads;
     this.memory = ctx.memory;
+    this.agents = ctx.agents;
   }
 
   async list() {
@@ -225,15 +227,17 @@ export class ThreadManager {
     }
   }
 
-  async new(input?: { requestId?: string }) {
+  // Only agent creation supplies threadId; public transports accept requestId alone.
+  async new(input?: { requestId?: string; threadId?: string }) {
     return await this.track(
       async () =>
         await this.creationQueue.run(async () => {
           // Deterministic, filesystem-safe identity makes creation retries survive restart.
           const threadId =
-            input?.requestId === undefined
+            input?.threadId ??
+            (input?.requestId === undefined
               ? undefined
-              : `thread-${createHash("sha256").update(input.requestId).digest("hex")}`;
+              : `thread-${createHash("sha256").update(input.requestId).digest("hex")}`);
           if (threadId !== undefined) {
             const metadata = await this.repo
               .list()
@@ -267,6 +271,10 @@ export class ThreadManager {
 
   private async acquire(threadId: string, options?: { observer: true }) {
     return await this.lifecycleQueue(threadId).run(async () => {
+      const agent = await this.agents?.findByThreadId(threadId);
+      if (agent instanceof Error) return agent;
+      if (agent !== undefined && !agent.ready)
+        return new ThreadNotFoundError({ threadId });
       const thread = await this.openThreadUnqueued(threadId);
       if (thread instanceof Error) return thread;
       return { thread, lease: thread.retain(options) };
@@ -336,6 +344,10 @@ export class ThreadManager {
 
   async snapshot(threadId: string, connections: HaloConnectionState[]) {
     return await this.track(async () => {
+      const agent = await this.agents?.findByThreadId(threadId);
+      if (agent instanceof Error) return agent;
+      if (agent !== undefined && !agent.ready)
+        return new ThreadNotFoundError({ threadId });
       const thread = this.threads.get(threadId);
       if (thread !== undefined) return thread.readSnapshot(connections);
       const projection = await this.readStoredProjection(threadId);
@@ -520,10 +532,21 @@ export class ThreadManager {
       .list()
       .catch((cause) => new ListAgentThreadsError({ cause }));
     if (metadata instanceof Error) return metadata;
+    const agents = await this.db
+      .query({ collection: "agents" })
+      .catch(
+        (cause) =>
+          new ThreadStateError({ operation: "list agent bindings", cause }),
+      );
+    if (agents instanceof Error) return agents;
+    const unfinished = new Set(
+      agents.filter((agent) => !agent.ready).map((agent) => agent.threadId),
+    );
     const productFields = await this.listProductFields();
     if (productFields instanceof Error) return productFields;
     const summaries: ThreadSummary[] = [];
     for (const item of metadata) {
+      if (unfinished.has(item.id)) continue;
       const fields = productFields.get(item.id);
       const cached = this.summaries.get(item.id);
       if (cached !== undefined) {
@@ -720,6 +743,7 @@ export class ThreadManager {
         layout: this.layout,
         toolRuntime: this.toolRuntime,
         memory: this.memory,
+        agents: this.agents,
       },
       stored,
     );
@@ -811,10 +835,14 @@ export class ThreadManager {
     );
   }
 
-  private async publishSummary(threadId: string) {
+  // Agent creation publishes only after its saved relationship is ready.
+  async publishSummary(threadId: string) {
     return await this.track(
       async () =>
         await this.summaryQueue.run(async () => {
+          const agent = await this.agents?.findByThreadId(threadId);
+          if (agent instanceof Error) return agent;
+          if (agent !== undefined && !agent.ready) return;
           const thread = this.threads.get(threadId);
           if (thread === undefined) return;
           const fields = await this.getProductFields(threadId);

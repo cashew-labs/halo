@@ -4,8 +4,10 @@ import { hotkeys } from "./hotkeys.js";
 import { memories } from "./memories.js";
 import { threadState } from "./threadState.js";
 import { automations, automationRuns, automationSync } from "./automations.js";
+import { agents } from "./agents.js";
 
 export const workspaceSchema = haloSchema.schema({
+  agents,
   hotkeys,
   favorites,
   memories,

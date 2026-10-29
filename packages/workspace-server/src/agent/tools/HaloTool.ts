@@ -14,6 +14,7 @@ import type { ParallelSearchService } from "./web/parallelSearch.js";
 import type { ToolRuntime } from "../runtime/ToolRuntime.js";
 import type { ComputerService } from "../../computer/ComputerService.js";
 import type { BrowserService } from "../../browser/BrowserService.js";
+import type { AgentService } from "../../agents/AgentService.js";
 
 export type HaloToolExecution<T = unknown> = {
   result: T;
@@ -29,6 +30,7 @@ export type HaloToolServices = {
   readonly automationRunner: AutomationRunner;
   readonly automationSources: AutomationSources;
   readonly threads: ThreadManager;
+  readonly agents: AgentService;
   readonly search: WorkspaceSearch;
   readonly connections: ConnectionService;
   readonly web: ParallelSearchService;

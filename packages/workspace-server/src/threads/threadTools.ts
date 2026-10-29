@@ -58,7 +58,9 @@ export const threadTools = {
     inputSchema: Type.Object({ requestId: requestIdSchema }),
     requiredCapabilities: ["workspace.threads.write"],
     execute: async (input, context) => {
-      const result = await context.services.threads.new(input);
+      const result = await context.services.threads.new({
+        requestId: input.requestId,
+      });
       if (result instanceof Error) return result;
       return { result };
     },

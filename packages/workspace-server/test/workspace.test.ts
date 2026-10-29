@@ -980,6 +980,227 @@ function systemText(messages: Parameters<typeof messageText>[0][]) {
 }
 
 serverTest(
+  "creates persistent agents through RPC and exec with one retry-safe conversation each",
+  async ({ server, llm }) => {
+    const controller = new AbortController();
+    using cleanup = new errore.DisposableStack();
+    cleanup.defer(() => controller.abort());
+    const watch = await server.rendererRpc.agents.watch(undefined, {
+      signal: controller.signal,
+    });
+    expect((await watch.next()).value).toEqual([]);
+    const ordinary = await server.rpc.thread.new({ requestId: "chief" });
+    const summaries = await server.rendererRpc.thread.watchSummaries(
+      undefined,
+      {
+        signal: controller.signal,
+      },
+    );
+    await summaries.next();
+    const input = {
+      requestId: "chief",
+      name: " Chief ",
+      instructions: "Track ongoing research.",
+    };
+    const [chief, retry] = await Promise.all([
+      server.rendererRpc.agents.new(input),
+      server.rpc.agents.new(input),
+    ]);
+    expect(retry).toEqual(chief);
+    expect(chief.name).toBe("Chief");
+    expect(chief.id).not.toBe(chief.threadId);
+    await expect.poll(async () => (await watch.next()).value).toEqual([chief]);
+    await expect
+      .poll(async () => (await summaries.next()).value)
+      .toMatchObject({
+        type: "updated",
+        session: { sessionId: chief.threadId },
+      });
+    expect(
+      (await server.rpc.thread.snapshot({ sessionId: chief.threadId })).entries,
+    ).toEqual([]);
+
+    expect(ordinary.sessionId).not.toBe(chief.threadId);
+    const creation = server.promptAndWait({
+      ...ordinary,
+      text: "Create a second persistent agent",
+    });
+    await llm.respond(
+      m.tool.start("exec", {
+        id: "create-agent",
+        arguments: {
+          js: `
+        const agent = await tools.agents.new({ requestId: "editor", name: "Editor", instructions: "Check facts." });
+        if (!agent.ok) throw new Error(JSON.stringify(agent));
+        const updated = await tools.agents.update({ agentId: agent.data.id, name: "Copy editor", instructions: "Check citations." });
+        if (!updated.ok) throw new Error(JSON.stringify(updated));
+        await tools.agents.list({});
+      `,
+        },
+      }),
+    );
+    await llm.respond(({ messages }) => {
+      expect(
+        messages
+          .filter((message) => message.role === "tool")
+          .map(messageText)
+          .join("\n"),
+      ).toContain("Copy editor");
+      return m.assistant("Created the editor.");
+    });
+    expect((await creation).status).toBe("completed");
+    const agents = await server.rpc.agents.list();
+    expect(agents).toHaveLength(2);
+    const editor = agents.find((agent) => agent.name === "Copy editor");
+    assert(editor !== undefined);
+    expect(editor.instructions).toBe("Check citations.");
+    expect(editor.threadId).not.toBe(chief.threadId);
+
+    const renamed = await server.rpc.agents.update({
+      agentId: chief.id,
+      name: "Research",
+      instructions: "",
+    });
+    expect(renamed).toEqual({ ...chief, name: "Research", instructions: "" });
+    await expect(
+      server.rpc.agents.new({ ...input, requestId: "blank", name: "  " }),
+    ).rejects.toThrow("Provide a name");
+    await expect(
+      server.rpc.agents.update({
+        agentId: chief.id,
+        name: "  ",
+        instructions: "bad",
+      }),
+    ).rejects.toThrow("Provide an agent ID");
+    await expect(
+      server.rpc.agents.update({
+        agentId: "missing",
+        name: "Absent",
+        instructions: "",
+      }),
+    ).rejects.toThrow("does not exist");
+    expect(await server.rpc.agents.list()).toHaveLength(2);
+
+    await server.stop();
+    await server.start();
+    expect(await server.rpc.agents.new(input)).toEqual(renamed);
+    expect(await server.rpc.agents.list()).toEqual([renamed, editor]);
+    expect(
+      (await server.rpc.thread.list())
+        .map((thread) => thread.sessionId)
+        .toSorted(),
+    ).toEqual([ordinary.sessionId, chief.threadId, editor.threadId].toSorted());
+  },
+);
+
+serverTest(
+  "reads persistent agent instructions at each model request and preserves history after restart",
+  async ({ server, llm }) => {
+    const chief = await server.rpc.agents.new({
+      requestId: "chief",
+      name: "Chief",
+      instructions: "Use cobalt for the research label.",
+    });
+    const editor = await server.rpc.agents.new({
+      requestId: "editor",
+      name: "Editor",
+      instructions: "Use amber for the editorial label.",
+    });
+    await server.rpc.workspace.writeFile({
+      path: "notes.txt",
+      content: "Source material",
+    });
+    const first = server.promptAndWait({
+      sessionId: chief.threadId,
+      text: "Remember the blue notebook.",
+    });
+    await llm.respond(async ({ messages }) => {
+      expect(systemText(messages)).toContain(
+        "Use cobalt for the research label.",
+      );
+      expect(systemText(messages)).not.toContain(
+        "Use amber for the editorial label.",
+      );
+      await server.rpc.agents.update({
+        agentId: chief.id,
+        name: "Research",
+        instructions: "Use indigo for the research label.",
+      });
+      return m.tool.start("read", {
+        id: "read-notes",
+        arguments: { path: "notes.txt" },
+      });
+    });
+    await llm.respond(({ messages }) => {
+      expect(systemText(messages)).toContain('persistent agent "Research"');
+      expect(systemText(messages)).toContain(
+        "Use indigo for the research label.",
+      );
+      expect(systemText(messages)).not.toContain(
+        "Use cobalt for the research label.",
+      );
+      return m.assistant("Remembered the blue notebook.");
+    });
+    expect((await first).status).toBe("completed");
+
+    const edit = server.promptAndWait({
+      sessionId: editor.threadId,
+      text: "Review this.",
+    });
+    await llm.respond(({ messages }) => {
+      expect(systemText(messages)).toContain(
+        "Use amber for the editorial label.",
+      );
+      expect(systemText(messages)).not.toContain(
+        "Use indigo for the research label.",
+      );
+      expect(
+        messages.filter((message) => message.role === "user").map(messageText),
+      ).toEqual(["Review this."]);
+      return m.assistant("Reviewed.");
+    });
+    await edit;
+    await server.stop();
+    await server.start();
+    const recalled = server.promptAndWait({
+      sessionId: chief.threadId,
+      text: "Continue.",
+    });
+    await llm.respond(({ messages }) => {
+      expect(systemText(messages)).toContain(
+        "Use indigo for the research label.",
+      );
+      expect(
+        messages.filter((message) => message.role === "user").map(messageText),
+      ).toEqual(["Remember the blue notebook.", "Continue."]);
+      return m.assistant("Continuing research.");
+    });
+    await recalled;
+    expect(
+      assistantReplies(
+        await server.rpc.thread.snapshot({ sessionId: chief.threadId }),
+      ).filter((text) => text !== ""),
+    ).toEqual(["Remembered the blue notebook.", "Continuing research."]);
+
+    const ordinary = await server.rpc.thread.new();
+    const ordinaryWork = server.promptAndWait({
+      ...ordinary,
+      text: "Ordinary work.",
+    });
+    await llm.respond(({ messages }) => {
+      expect(systemText(messages)).not.toContain(
+        "Use indigo for the research label.",
+      );
+      expect(systemText(messages)).not.toContain(
+        "Use amber for the editorial label.",
+      );
+      return m.assistant("Ordinary reply.");
+    });
+    await ordinaryWork;
+  },
+);
+
+serverTest(
   "pins memory into each thread's prompt when the thread starts",
   async ({ server, createServer, llm }) => {
     const fact = "Prefers metric units.";

@@ -55,6 +55,7 @@ import { WorkspaceResourceLoader } from "./WorkspaceResourceLoader.js";
 import type { HaloEnvironment } from "./workspacePrompt.js";
 import { threadEvents } from "./threadEvents.js";
 import type { MemoryService } from "../memory/MemoryService.js";
+import type { AgentService } from "../agents/AgentService.js";
 import {
   HaloThreadDoc,
   ThreadProjection,
@@ -97,6 +98,7 @@ export type ThreadOptions = {
   toolRuntime: ToolRuntime;
   // Absent when the workspace has no memory, as on shared-app VMs.
   memory?: Pick<MemoryService, "snapshot">;
+  agents?: Pick<AgentService, "findByThreadId">;
 };
 
 type ThreadEvent =
@@ -235,6 +237,16 @@ export class Thread {
         tools,
         sections: [
           section("halo", () => resourceLoader.getSystemPrompt()),
+          section("agent", async () => {
+            const agent = await options.agents?.findByThreadId(
+              stored.metadata.id,
+            );
+            // Pi's prompt-section boundary expects failures as rejected requests.
+            if (agent instanceof Error) throw agent;
+            return agent === undefined
+              ? undefined
+              : `You are the persistent agent ${JSON.stringify(agent.name)}.\n\n${agent.instructions}`;
+          }),
           // Reads the committed copy, so a request prepared during recovery
           // never renders a value that is not saved yet. A pinned copy stays
           // hidden while the server runs without memory.
