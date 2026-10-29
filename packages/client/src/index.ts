@@ -147,6 +147,18 @@ export {
   type HotkeyInput,
   type HotkeyAction,
 } from "./hotkeys.js";
+export {
+  memoryScopes,
+  memoryEntryMaxChars,
+  memoryScopeSchema,
+  memoryChangeSchema,
+  memoryUpdateSchema,
+  type MemoryScope,
+  type MemoryChange,
+  type MemoryUpdate,
+  type MemoryEntry,
+  type MemoryUsage,
+} from "./memory.js";
 
 export {
   automationRegistrationSchema,

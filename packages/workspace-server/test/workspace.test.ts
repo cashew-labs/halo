@@ -972,6 +972,80 @@ serverTest(
   },
 );
 
+function systemText(messages: Parameters<typeof messageText>[0][]) {
+  return messages
+    .filter((message) => message.role === "system")
+    .map((message) => messageText(message))
+    .join("\n");
+}
+
+serverTest(
+  "pins memory into each thread's prompt when the thread starts",
+  async ({ server, createServer, llm }) => {
+    const fact = "Prefers metric units.";
+
+    const writer = await server.rpc.thread.new();
+    const save = server.promptAndWait({ ...writer, text: "Remember metric" });
+    await llm.respond(({ messages }) => {
+      expect(systemText(messages)).toContain("## Memory");
+      expect(systemText(messages)).not.toContain(
+        "Saved memory from earlier threads",
+      );
+      return m.tool.start("exec", {
+        id: "save",
+        arguments: {
+          js: `await tools.memory.update({ changes: [{ type: "add", scope: "user", text: ${JSON.stringify(fact)} }] })`,
+        },
+      });
+    });
+    await llm.respond(m.assistant("Saved."));
+    await save;
+
+    const reader = await server.rpc.thread.new();
+    const read = server.promptAndWait({ ...reader, text: "Units?" });
+    await llm.respond(({ messages }) => {
+      expect(systemText(messages)).toContain(
+        "Saved memory from earlier threads",
+      );
+      expect(systemText(messages)).toContain(fact);
+      return m.assistant("Metric.");
+    });
+    await read;
+
+    // The writer keeps the copy it started with, even after a restart.
+    await server.stop();
+    await server.start();
+    const resumed = server.promptAndWait({ ...writer, text: "Continue" });
+    await llm.respond(({ messages }) => {
+      expect(systemText(messages)).not.toContain(
+        "Saved memory from earlier threads",
+      );
+      return m.assistant("Continuing.");
+    });
+    await resumed;
+    const reread = server.promptAndWait({ ...reader, text: "Again?" });
+    await llm.respond(({ messages }) => {
+      expect(systemText(messages)).toContain(fact);
+      return m.assistant("Still metric.");
+    });
+    await reread;
+
+    // Without the memory capability, the pinned copy stays out of the prompt.
+    await server.stop();
+    const withoutMemory = createServer({
+      agentCapabilities: ["workspace.threads.read"],
+    });
+    await withoutMemory.start();
+    const revoked = withoutMemory.promptAndWait({ ...reader, text: "Now?" });
+    await llm.respond(({ messages }) => {
+      expect(systemText(messages)).not.toContain("## Memory");
+      expect(systemText(messages)).not.toContain(fact);
+      return m.assistant("No notes.");
+    });
+    await revoked;
+  },
+);
+
 serverTest(
   "deduplicates thread and prompt request IDs and resumes waiting after restart",
   async ({ server, llm }) => {

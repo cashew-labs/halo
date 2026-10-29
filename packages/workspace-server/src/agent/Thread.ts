@@ -54,6 +54,7 @@ import { limitToolOutput } from "./tools/limitToolOutput.js";
 import { WorkspaceResourceLoader } from "./WorkspaceResourceLoader.js";
 import type { HaloEnvironment } from "./workspacePrompt.js";
 import { threadEvents } from "./threadEvents.js";
+import type { MemoryService } from "../memory/MemoryService.js";
 import {
   HaloThreadDoc,
   ThreadProjection,
@@ -94,6 +95,8 @@ export type ThreadOptions = {
   filesystem: FilesystemService;
   layout: WorkspaceLayout;
   toolRuntime: ToolRuntime;
+  // Absent when the workspace has no memory, as on shared-app VMs.
+  memory?: Pick<MemoryService, "snapshot">;
 };
 
 type ThreadEvent =
@@ -201,6 +204,7 @@ export class Thread {
       environment: options.environment,
       workspaceRoot: layout.root,
       threadId: stored.metadata.id,
+      memory: options.memory !== undefined,
     });
     const reloaded = await resourceLoader.reload();
     if (reloaded instanceof Error) return reloaded;
@@ -229,7 +233,24 @@ export class Thread {
       defineExtension({
         name: "halo",
         tools,
-        sections: [section("halo", () => resourceLoader.getSystemPrompt())],
+        sections: [
+          section("halo", () => resourceLoader.getSystemPrompt()),
+          // Reads the committed copy, so a request prepared during recovery
+          // never renders a value that is not saved yet. A pinned copy stays
+          // hidden while the server runs without memory.
+          ...(options.memory === undefined
+            ? []
+            : [
+                section("memory", async (input, context) => {
+                  const state = await input.read.snapshot(
+                    HaloThreadDoc,
+                    input.conversationId,
+                    context,
+                  );
+                  return state?.memory || undefined;
+                }),
+              ]),
+        ],
       }),
     );
     const harness = await Harness.open(
@@ -252,9 +273,16 @@ export class Thread {
       })
       .catch((cause) => new CreateAgentThreadError({ cause }));
     if (conversation instanceof Error) return conversation;
+    // Memory never blocks a thread from opening; a later attach retries the pin.
+    const snapshot = await options.memory?.snapshot();
+    if (snapshot instanceof Error)
+      console.warn("Memory snapshot failed", snapshot);
+    const memory = snapshot instanceof Error ? undefined : snapshot;
     const resetNotice = await conversation
       .commit(async (tx) => {
         const state = await tx.doc(HaloThreadDoc, conversation.id);
+        if (state.memory === undefined && memory !== undefined)
+          state.memory = memory;
         if (!state.execSessionUsed) return;
         await tx.appendEntry(
           conversation.id,

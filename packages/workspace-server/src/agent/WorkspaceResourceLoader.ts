@@ -26,15 +26,18 @@ export class WorkspaceResourceLoader {
   private readonly environment: HaloEnvironment;
   private readonly workspaceRoot: string;
   private readonly threadId: string;
+  private readonly memory: boolean;
 
   constructor(ctx: {
     environment: HaloEnvironment;
     workspaceRoot: string;
     threadId: string;
+    memory: boolean;
   }) {
     this.environment = ctx.environment;
     this.workspaceRoot = ctx.workspaceRoot;
     this.threadId = ctx.threadId;
+    this.memory = ctx.memory;
   }
 
   async reload() {
@@ -53,7 +56,10 @@ export class WorkspaceResourceLoader {
 
   getSystemPrompt() {
     return [
-      haloSystemPrompt({ environment: this.environment }),
+      haloSystemPrompt({
+        environment: this.environment,
+        memory: this.memory,
+      }),
       this.instructions,
       formatSkillsForPrompt(this.skills),
       haloEnvironmentPrompt({

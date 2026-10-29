@@ -5,6 +5,8 @@ import type { ControlPlaneAutomationClient } from "../automations/ControlPlaneAu
 import { AutomationSync } from "../automations/AutomationSync.js";
 import { automationTools } from "../automations/automationTools.js";
 import { AutomationRunner } from "../automations/AutomationRunner.js";
+import { MemoryService } from "../memory/MemoryService.js";
+import { memoryTools } from "../memory/memoryTools.js";
 import { FavoritesService } from "../favorites/FavoritesService.js";
 import { HotkeyService } from "../hotkeys/HotkeyService.js";
 import { WorkspaceIdleReporter } from "./WorkspaceIdleReporter.js";
@@ -297,6 +299,9 @@ export class WorkspaceServer {
         });
     });
     const favorites = new FavoritesService({ db });
+    // Shared apps serve viewers other than the owner, so they get no memory.
+    const hasMemory = config.sharedApp === undefined;
+    const memory = new MemoryService({ db });
     const hotkeys = new HotkeyService({
       db,
       userId: config.ownerUserId,
@@ -328,6 +333,20 @@ export class WorkspaceServer {
             workspaceRoot,
           });
     cleanup.defer(async () => await browsers?.shutdown());
+    // Threads pin memory into their prompt only when agents can also use it.
+    const agentCapabilities = host.agentCapabilities ?? [
+      ...(hasDesktop ? ["workspace.computer"] : []),
+      ...(browsers === undefined ? [] : ["workspace.browser"]),
+      "workspace.hotkeys",
+      "workspace.automations",
+      ...(hasMemory ? ["workspace.memory"] : []),
+      "workspace.files.read",
+      "workspace.files.write",
+      "workspace.shell.execute",
+      "workspace.threads.read",
+      "workspace.threads.write",
+      "network.web.search",
+    ];
     const [initialized, toolRuntime] = await Promise.all([
       workspace.initialize(),
       ToolRuntime.create({
@@ -349,6 +368,7 @@ export class WorkspaceServer {
           database: { query: queryTool },
           hotkeys: hotkeyTools,
           automations: automationTools,
+          memory: hasMemory ? memoryTools : {},
           thread: threadTools,
           bash: { run: bashTool },
           web: webTools,
@@ -358,6 +378,8 @@ export class WorkspaceServer {
           database: db.createNativeConnection(),
           hotkeys,
           automations,
+          memory,
+          search,
           web,
           computer,
           browser: browsers,
@@ -375,20 +397,7 @@ export class WorkspaceServer {
             return automationSources;
           },
         },
-        authority: new StaticAgentAuthority(
-          host.agentCapabilities ?? [
-            ...(hasDesktop ? ["workspace.computer"] : []),
-            ...(browsers === undefined ? [] : ["workspace.browser"]),
-            "workspace.hotkeys",
-            "workspace.automations",
-            "workspace.files.read",
-            "workspace.files.write",
-            "workspace.shell.execute",
-            "workspace.threads.read",
-            "workspace.threads.write",
-            "network.web.search",
-          ],
-        ),
+        authority: new StaticAgentAuthority(agentCapabilities),
       }),
     ]);
     if (!(toolRuntime instanceof Error))
@@ -430,6 +439,9 @@ export class WorkspaceServer {
       layout: workspace.layout,
       toolRuntime,
       uploads,
+      memory: agentCapabilities.includes("workspace.memory")
+        ? memory
+        : undefined,
     });
     cleanup.defer(async () => {
       const closed = await threads.shutdown();

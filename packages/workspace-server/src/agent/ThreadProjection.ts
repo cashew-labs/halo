@@ -22,6 +22,9 @@ export type MessagePresentation =
 export const HaloThreadDoc = defineDoc<{
   name?: string;
   execSessionUsed?: boolean;
+  // Memory rendered on this thread's first attach. It never changes, so the
+  // prompt cache stays warm; "" means memory was empty then.
+  memory?: string;
   inputs: Record<string, JsonRepresentation<MessagePresentation>>;
 }>({
   kind: "halo.thread",

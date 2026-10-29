@@ -113,6 +113,7 @@ export class ThreadManager {
   private readonly filesystem: ThreadOptions["filesystem"];
   private readonly layout: ThreadOptions["layout"];
   private readonly toolRuntime: ThreadOptions["toolRuntime"];
+  private readonly memory: ThreadOptions["memory"];
   private readonly uploads: UploadService;
 
   constructor(ctx: ThreadManagerOptions) {
@@ -125,6 +126,7 @@ export class ThreadManager {
     this.layout = layout;
     this.toolRuntime = toolRuntime;
     this.uploads = ctx.uploads;
+    this.memory = ctx.memory;
   }
 
   async list() {
@@ -717,6 +719,7 @@ export class ThreadManager {
         filesystem: this.filesystem,
         layout: this.layout,
         toolRuntime: this.toolRuntime,
+        memory: this.memory,
       },
       stored,
     );
