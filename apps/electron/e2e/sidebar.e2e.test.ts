@@ -1,4 +1,4 @@
-import { expect, type Locator, type Page } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 import { e2eTest } from "./e2eTest.js";
 
 const sectionHeaders = /^(Collapse|Expand) (Favorites|Artifacts|Threads)$/;
@@ -166,7 +166,7 @@ e2eTest(
 
 // Renderer coverage is lost on reload, so these handlers run in one page session.
 e2eTest(
-  "runs section actions and collapses and reorders sections",
+  "runs section actions and collapses sections in a fixed order",
   async ({ app }) => {
     const sidebar = workspaceSidebar(app.page);
     const toolbar = sidebar.getByRole("toolbar", { name: "Workspace actions" });
@@ -207,23 +207,12 @@ e2eTest(
     await expect(
       sidebar.getByRole("button", { name: "Expand Threads", exact: true }),
     ).toBeVisible();
-    await dragSection(sidebar, "Threads", "Collapse Artifacts", [
-      "Favorites",
-      "Threads",
-      "Artifacts",
-    ]);
-    await sidebar
-      .getByRole("button", { name: "Reorder Threads", exact: true })
-      .press("ArrowUp");
     await expect(
       sidebar.getByRole("button", { name: sectionHeaders }),
-    ).toHaveText(["Threads", "Favorites", "Artifacts"]);
-    await sidebar
-      .getByRole("button", { name: "Reorder Threads", exact: true })
-      .press("ArrowDown");
+    ).toHaveText(["Favorites", "Artifacts", "Threads"]);
     await expect(
-      sidebar.getByRole("button", { name: sectionHeaders }),
-    ).toHaveText(["Favorites", "Threads", "Artifacts"]);
+      sidebar.getByRole("button", { name: /^Reorder / }),
+    ).toHaveCount(0);
   },
 );
 
@@ -254,29 +243,6 @@ async function createArtifact(page: Page, kind: "File" | "Folder") {
   await page.getByRole("menuitem", { name: kind, exact: true }).click();
 }
 
-// Playwright's first HTML drag in a fresh Electron page can dispatch no drag
-// events, so the drag is retried until the order changes.
-async function dragSection(
-  sidebar: Locator,
-  section: string,
-  target: string,
-  order: string[],
-) {
-  await expect(async () => {
-    await sidebar
-      .getByRole("button", {
-        name: new RegExp(`^(Collapse|Expand) ${section}$`),
-      })
-      .hover();
-    await sidebar
-      .getByRole("button", { name: `Reorder ${section}`, exact: true })
-      .dragTo(sidebar.getByRole("button", { name: target, exact: true }));
-    await expect(
-      sidebar.getByRole("button", { name: sectionHeaders }),
-    ).toHaveText(order, { timeout: 1_000 });
-  }).toPass({ timeout: 10_000 });
-}
-
 e2eTest(
   "imports browser favorites and receives favorites changed on another device",
   async ({ app, harness }, testInfo) => {
@@ -290,7 +256,6 @@ e2eTest(
           `halo:sidebar:${JSON.stringify(["e2e-user", root])}`,
           JSON.stringify({
             favoriteIds: ["file:Local.md"],
-            sectionOrder: ["favorites", "artifacts", "sessions"],
             collapsedSections: [],
             artifactFilter: "all",
           }),
