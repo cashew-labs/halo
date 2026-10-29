@@ -3,6 +3,7 @@ set -euo pipefail
 
 export PATH="$HOME/.local/bin:${PNPM_HOME:-$HOME/.local/share/pnpm}/bin:$PATH"
 export ENTIRE_TOKEN_STORE=file
+export ENTIRE_BRAIN_NO_EGRESS=1
 export PLUGINS=all
 
 if [[ -n "${HALO_GCP_SA_KEY:-}" ]]; then

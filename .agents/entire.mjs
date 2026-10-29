@@ -11,7 +11,7 @@ const checkpointRepo = "cashew-labs/halo-checkpoints";
 const checkpointURL = `https://github.com/${checkpointRepo}`;
 const receipt = path.join(root, ".entire/tmp/memory-health.json");
 const localOnly = { ENTIRE_BRAIN_NO_EGRESS: "1" };
-const results = {};
+let results = {};
 const run = (command, args, env = {}) =>
   execFileSync(command, args, {
     cwd: root,
@@ -19,7 +19,12 @@ const run = (command, args, env = {}) =>
     timeout: 120_000,
     maxBuffer: 16 * 1024 * 1024,
     stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, GIT_TERMINAL_PROMPT: "0", ...env },
+    env: {
+      ...process.env,
+      GIT_TERMINAL_PROMPT: "0",
+      ...(command === "entire" && args[0] === "brain" ? localOnly : {}),
+      ...env,
+    },
   }).trim();
 const json = (command, args, env) => JSON.parse(run(command, args, env));
 function check(name, action) {
@@ -65,103 +70,152 @@ function safeOrigin() {
   return "upstream clone; private checkpoint destination preserved";
 }
 function refresh() {
-  if (!check("Privacy boundary", safeOrigin)) return;
-  check("Private checkpoint fetch", () => {
-    privateRepository();
-    run("git", [
-      "fetch",
-      "--no-prune",
-      "--no-tags",
-      checkpointURL,
-      "refs/entire/checkpoints/*:refs/entire/checkpoints/*",
-    ]);
-    return "private git-refs fetched; public origin unchanged";
-  });
-  check("Brain refresh", () => {
-    const brainPath = run("entire", ["brain", "path"]);
-    if (!fs.existsSync(path.join(brainPath, "manifest.json"))) {
-      run(
-        "entire",
-        [
-          "brain",
-          "setup",
-          "--strict",
-          "--no-backfill",
-          "--no-daemon",
-          "--no-agent-hooks",
-          "--agent",
-          "none",
-        ],
-        localOnly,
-      );
-    }
-    run(
-      "entire",
-      ["brain", "memory", "configure", "abstracts", "--disable", "--json"],
-      localOnly,
-    );
-    // Full refresh notices newly fetched per-checkpoint refs even with unchanged HEAD.
-    run("entire", ["brain", "refresh", "--agent", "none"], localOnly);
-    const manifest = JSON.parse(
-      fs.readFileSync(path.join(brainPath, "manifest.json")),
-    );
-    return `${manifest.checkpoints_scanned} checkpoints; ${manifest.sessions.length} sessions; no model calls`;
-  });
-  check("Hosted memory sync", () => {
-    privateRepository();
-    if (!json("entire", ["auth", "status", "--json"]).logged_in) {
-      return {
-        state: "not verified",
-        detail:
-          "No Entire login; run ENTIRE_TOKEN_STORE=file entire login --device",
-      };
-    }
-    const brainPath = run("entire", ["brain", "path"]);
-    const bindingPath = path.join(brainPath, "hosted.json");
-    if (fs.existsSync(bindingPath)) {
-      assert.notEqual(JSON.parse(fs.readFileSync(bindingPath)).opted_out, true);
-    }
-    const target = json("entire", [
-      "repo",
-      "view",
-      `/gh/${checkpointRepo}`,
-      "--json",
-    ]);
-    assert.match(target.repoId, /^[0-9A-HJKMNP-TV-Z]{26}$/);
-    assert.match(target.apiUrl, /^https:\/\/[a-z0-9-]+\.api\.entire\.io\/?$/);
-    // Explicit manual sync never rebinds to public origin on a 403 (Brain 0.4).
-    // Mint into child environment only: never persist or put a token in argv.
-    const token = run("entire", ["auth", "token"]);
-    const synced = json(
-      "entire",
-      [
-        "brain",
-        "memories",
-        "sync",
-        "--memories-backend",
-        "http",
-        "--repo-id",
-        target.repoId,
-        "--api-url",
-        target.apiUrl,
+  results = {};
+  try {
+    if (!check("Privacy boundary", safeOrigin)) return;
+    if (
+      !check("Private checkpoint fetch", () => {
+        privateRepository();
+        run("git", [
+          "fetch",
+          "--no-prune",
+          "--no-tags",
+          checkpointURL,
+          "refs/entire/checkpoints/*:refs/entire/checkpoints/*",
+        ]);
+        return "private git-refs fetched; public origin unchanged";
+      })
+    )
+      return;
+    if (
+      !check("Brain refresh", () => {
+        const brainPath = run("entire", ["brain", "path"]);
+        run(
+          "entire",
+          ["brain", "memory", "configure", "abstracts", "--disable", "--json"],
+          localOnly,
+        );
+        // Compact checkpoints currently index to empty conversation records.
+        // The patched flag preserves legacy caches on this unattended raw refresh.
+        run(
+          "entire",
+          [
+            "brain",
+            "refresh",
+            "--raw",
+            "--no-transcript-sweep",
+            "--agent",
+            "none",
+          ],
+          localOnly,
+        );
+        const manifest = JSON.parse(
+          fs.readFileSync(path.join(brainPath, "manifest.json")),
+        );
+        return `${manifest.checkpoints_scanned} checkpoints; ${manifest.sessions.length} sessions; no model calls`;
+      })
+    )
+      return;
+    check("Hosted memory sync", () => {
+      privateRepository();
+      if (!json("entire", ["auth", "status", "--json"]).logged_in) {
+        return {
+          state: "not verified",
+          detail:
+            "No Entire login; run ENTIRE_TOKEN_STORE=file entire login --device",
+        };
+      }
+      const brainPath = run("entire", ["brain", "path"]);
+      const target = json("entire", [
+        "repo",
+        "view",
+        `/gh/${checkpointRepo}`,
         "--json",
-      ],
-      { ENTIRE_API_TOKEN: token },
+      ]);
+      assert.match(target.repoId, /^[0-9A-HJKMNP-TV-Z]{26}$/);
+      assert.match(target.apiUrl, /^https:\/\/[a-z0-9-]+\.api\.entire\.io\/?$/);
+      // Explicit manual sync never rebinds to public origin on a 403 (Brain 0.4).
+      // Mint into child environment only: never persist or put a token in argv.
+      const token = run("entire", ["auth", "token"]);
+      const manifest = JSON.parse(
+        fs.readFileSync(path.join(brainPath, "manifest.json")),
+      );
+      const currentBranch = run("git", ["branch", "--show-current"]);
+      const branches = new Set(
+        [
+          manifest.default_branch,
+          currentBranch,
+          ...(manifest.sources?.facts?.branches ?? []),
+        ].filter(Boolean),
+      );
+      let completed = 0;
+      for (const branch of branches) {
+        if (
+          check(`Memory branch ${branch}`, () => {
+            // Recheck after slow placement/auth work, immediately before each upload.
+            // Disconnect does not cancel a request already in flight.
+            const bindingPath = path.join(brainPath, "hosted.json");
+            if (fs.existsSync(bindingPath)) {
+              assert.notEqual(
+                JSON.parse(fs.readFileSync(bindingPath)).opted_out,
+                true,
+              );
+            }
+            const synced = json(
+              "entire",
+              [
+                "brain",
+                "memories",
+                "sync",
+                "--memories-backend",
+                "http",
+                "--repo-id",
+                target.repoId,
+                "--api-url",
+                target.apiUrl,
+                "--branch",
+                branch,
+                // Brain's pull filter uses HEAD, not --branch. Never rebuild
+                // an off-checkout store against another branch's visibility.
+                ...(branch === currentBranch ? [] : ["--push-only"]),
+                "--json",
+              ],
+              {
+                ENTIRE_BRAIN_NO_EGRESS: "",
+                ENTIRE_BRAIN_LOCAL_ONLY: "",
+                ENTIRE_API_TOKEN: token,
+              },
+            );
+            assert.notEqual(synced.skipped, true);
+            assert.equal(typeof synced.skipped_unpublishable, "number");
+            const detail = `private target; pushed ${synced.pushed_added + synced.pushed_changed} memories; ${synced.push_only ? "upload only; local store unchanged" : `pulled ${synced.feed_facts}`}; skipped ${synced.skipped_unpublishable} unpublishable`;
+            return {
+              state:
+                synced.skipped_unpublishable === 0 ? "verified" : "degraded",
+              detail,
+            };
+          })
+        )
+          completed++;
+      }
+      return {
+        state: completed === branches.size ? "verified" : "degraded",
+        detail: `${completed}/${branches.size} branches uploaded to private target; only current checkout pulls`,
+      };
+    });
+  } finally {
+    fs.mkdirSync(path.dirname(receipt), { recursive: true });
+    const pendingReceipt = `${receipt}.${process.pid}.tmp`;
+    fs.writeFileSync(
+      pendingReceipt,
+      JSON.stringify({ at: new Date().toISOString(), results }),
+      { mode: 0o600 },
     );
-    assert.notEqual(synced.skipped, true);
-    assert.equal(typeof synced.feed_facts, "number");
-    return `private target; pushed ${synced.pushed_added + synced.pushed_changed} memories; pulled ${synced.feed_facts}`;
-  });
-  fs.mkdirSync(path.dirname(receipt), { recursive: true });
-  const pendingReceipt = `${receipt}.${process.pid}.tmp`;
-  fs.writeFileSync(
-    pendingReceipt,
-    JSON.stringify({ at: new Date().toISOString(), results }),
-    { mode: 0o600 },
-  );
-  fs.renameSync(pendingReceipt, receipt);
+    fs.renameSync(pendingReceipt, receipt);
+  }
 }
 function health(remote) {
+  check("Privacy boundary", safeOrigin);
   check("Local capture (offline fixture)", () =>
     run("node", [".agents/verify-entire.mjs"]),
   );
@@ -172,13 +226,13 @@ function health(remote) {
     return version.version;
   });
   check("Brain binary", () => {
-    assert.equal(run("entire", ["brain", "version"]), "0.4.0");
+    assert.equal(run("entire", ["brain", "version"]), "0.4.0+halo.raw");
     assert.ok(
       json("entire", ["brain", "capabilities", "--json"]).features.includes(
         "task_briefs",
       ),
     );
-    return "0.4.0; task briefs supported";
+    return "0.4.0+halo.raw; task briefs and cache-preserving raw refresh supported";
   });
   check("Brain local index", () => {
     const status = json("entire", ["brain", "status", "--json"]);
@@ -190,20 +244,23 @@ function health(remote) {
       detail: `manifest current; Graph ${graph}; retrieval ${retrieval} (committed HEAD, not uncommitted edits)`,
     };
   });
-  if (fs.existsSync(receipt)) {
-    const last = JSON.parse(fs.readFileSync(receipt));
-    console.log(
-      `Last memory worker pass: ${last.at} (historical, not a live check)`,
-    );
-    for (const [name, result] of Object.entries(last.results)) {
-      console.log(`  ${name}: ${result.state} — ${result.detail}`);
+  check("Memory worker receipt", () => {
+    if (fs.existsSync(receipt)) {
+      const last = JSON.parse(fs.readFileSync(receipt));
+      console.log(
+        `Last memory worker pass: ${last.at} (historical, not a live check)`,
+      );
+      for (const [name, result] of Object.entries(last.results)) {
+        console.log(`  ${name}: ${result.state} — ${result.detail}`);
+      }
+      return "historical receipt read";
+    } else {
+      return {
+        state: "not verified",
+        detail: "initializing; inspect amp orb service logs entire-memory",
+      };
     }
-  } else {
-    skip(
-      "Memory worker",
-      "initializing; inspect amp orb service logs entire-memory",
-    );
-  }
+  });
   if (!remote) {
     skip(
       "Checkpoint upload",
@@ -280,14 +337,50 @@ function health(remote) {
       return "query returned indexed results (not proof this push is indexed)";
     });
     check("Brain retrieval", () => {
-      const brief = json("entire", [
-        "brain",
-        "brief",
-        "Entire private checkpoints",
-        "--json",
+      const brainPath = run("entire", ["brain", "path"]);
+      const manifest = JSON.parse(
+        fs.readFileSync(path.join(brainPath, "manifest.json")),
+      );
+      const message = run("git", ["log", "-1", "--format=%B"]);
+      const id = /^Entire-Checkpoint: (\S+)/m.exec(message)?.[1];
+      const session = manifest.sessions.find(
+        (session) => session.latest_checkpoint_id === id,
+      );
+      assert.ok(session);
+      const prompt = run("git", [
+        "show",
+        `refs/entire/checkpoints/${id.slice(-2)}/${id}:${session.session_index}/prompt.txt`,
       ]);
-      assert.ok(brief.likely_files.length > 0 || brief.history.length > 0);
-      return "task brief answered; inspect sources before relying on it";
+      // Probe a word from this capture, not a repository-specific magic phrase.
+      const query = prompt
+        .slice(0, 256)
+        .match(/[A-Za-z]{6,}/g)
+        ?.sort((a, b) => b.length - a.length)[0];
+      assert.ok(query);
+      const evidence = json(
+        "entire",
+        [
+          "brain",
+          "query",
+          query,
+          "--source",
+          "conversation",
+          "--session",
+          session.session_id,
+          "--limit",
+          "1",
+          "--json",
+        ],
+        localOnly,
+      );
+      assert.ok(evidence.results.length > 0);
+      const expanded = json(
+        "entire",
+        ["brain", "get", evidence.results[0].id, "--json"],
+        localOnly,
+      );
+      assert.ok(expanded.results.length > 0);
+      return "latest checkpoint session: conversation evidence found and expanded; verify claims against source";
     });
   }
   if (
@@ -295,6 +388,7 @@ function health(remote) {
       ([name, result]) =>
         (remote ||
           [
+            "Privacy boundary",
             "Local capture (offline fixture)",
             "Graph binary",
             "Brain binary",

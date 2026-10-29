@@ -80,11 +80,31 @@ echo "==> Installing Entire and its Amp integration"
     )
   fi
   ln -sfn "$amp_binary" "$HOME/.local/bin/entire-agent-amp"
+
+  # Use raw conversation text, preserve legacy caches, and upload off-checkout
+  # memories without rebuilding their stores against the current HEAD.
+  brain_version="v0.4.0"
+  brain_patch="$PWD/.agents/patches/entire-brain.patch"
+  brain_patch_hash="$(sha256sum "$brain_patch" | cut -d ' ' -f 1)"
+  brain_binary="$HOME/.local/share/entire-brain/${brain_version}-${brain_patch_hash}/entire-brain"
+  if [[ ! -x "$brain_binary" ]]; then
+    brain_source="$("$go_home/bin/go" mod download -json "github.com/entireio/entire-brain@${brain_version}" | node -p 'JSON.parse(require("fs").readFileSync(0, "utf8")).Dir')"
+    cp -R "$brain_source" "$install_dir/brain"
+    chmod -R u+w "$install_dir/brain"
+    git -C "$install_dir/brain" apply "$brain_patch"
+    mkdir -p "$(dirname "$brain_binary")"
+    (
+      cd "$install_dir/brain"
+      "$go_home/bin/go" test -p 4 ./internal/cli -run '^TestMemoriesSync|TestWatchTickSkipsTranscriptSweep|TestWatchConsolidationRefreshSkipsTranscriptSweep' -count=1
+      "$go_home/bin/go" build -p 4 -trimpath -ldflags '-s -w -X main.version=0.4.0+halo.raw' -o "$brain_binary" ./cmd/entire-brain
+    )
+  fi
+  entire plugin install "$brain_binary" --yes --force --no-deps
 )
 
 # Install only binaries here. Private checkpoints, Brain data and user logins
 # must not enter the shared setup snapshot; resume starts the memory worker.
-for plugin in graph:v0.6.0 brain:v0.4.0; do
+for plugin in graph:v0.6.0; do
   name="${plugin%%:*}"
   version="${plugin#*:}"
   installed="$(entire "$name" version 2>/dev/null || true)"
@@ -110,6 +130,7 @@ done
 # Non-interactive login shells do not read the .bashrc that pnpm setup updates.
 for setting in \
   'export ENTIRE_TOKEN_STORE=file' \
+  'export ENTIRE_BRAIN_NO_EGRESS=1' \
   'export PLUGINS=all' \
   'export PNPM_HOME="${PNPM_HOME:-$HOME/.local/share/pnpm}"' \
   'export PATH="$PNPM_HOME/bin:$PNPM_HOME:$HOME/.local/bin:$PATH"'; do

@@ -1,0 +1,102 @@
+diff --git a/internal/cli/facts_sync_cmd.go b/internal/cli/facts_sync_cmd.go
+index 23ae052..21f368c 100644
+--- a/internal/cli/facts_sync_cmd.go
++++ b/internal/cli/facts_sync_cmd.go
+@@ -33,7 +33,8 @@ type factsSyncOptions struct {
+ 	token  string
+ 	repoID string
+ 
+-	jsonOut bool
++	jsonOut  bool
++	pushOnly bool
+ }
+ 
+ func newFactsSyncCommand(opts Options) *cobra.Command {
+@@ -67,6 +68,7 @@ suppresses all hosted sync regardless of defaults and flags.`,
+ 	cmd.Flags().StringVar(&syncOpts.apiURL, "api-url", "", "Entire API base URL, https:// (overrides ENTIRE_API_URL)")
+ 	cmd.Flags().StringVar(&syncOpts.token, "token", "", "Entire API bearer token (overrides ENTIRE_API_TOKEN)")
+ 	cmd.Flags().BoolVar(&syncOpts.jsonOut, "json", false, "Emit the sync result as JSON")
++	cmd.Flags().BoolVar(&syncOpts.pushOnly, "push-only", false, "Upload without pulling or changing local branch memories")
+ 	// --facts-backend predates the facts→memories rename; keep it working.
+ 	legacyFlagAlias(cmd.Flags(), "facts-backend", "memories-backend")
+ 	return cmd
+@@ -165,6 +167,23 @@ func runHostedFactsSync(cmd *cobra.Command, opts Options, syncOpts factsSyncOpti
+ 	if skipped > 0 {
+ 		fmt.Fprintf(errW, "warning: skipped %d unpublishable record(s) whose content id does not re-derive (kept locally, not uploaded)\n", skipped)
+ 	}
++	if syncOpts.pushOnly {
++		if pushErr != nil {
++			return fmt.Errorf("memories sync: push failed: %w", pushErr)
++		}
++		if syncOpts.jsonOut {
++			return cmdutil.WriteJSON(cmd, map[string]any{
++				"branch":                branch,
++				"push_only":             true,
++				"pushed_added":          counts.Added,
++				"pushed_changed":        counts.Changed,
++				"pushed_unchanged":      counts.Unchanged,
++				"skipped_unpublishable": skipped,
++			})
++		}
++		fmt.Fprintf(cmd.OutOrStdout(), "uploaded branch %s; local memories unchanged\n", branch)
++		return nil
++	}
+ 	// The pull runs even after a failed push: the team's memories still land,
+ 	// and the error below reports exactly which half failed.
+ 	kept, total, manifestErr, pullErr := pullHostedFacts(ctx, opts, repoDir, storage, srv, target.repoID, target.baseURL, target.token, branch)
+diff --git a/internal/cli/facts_sync_hosted_cmd_test.go b/internal/cli/facts_sync_hosted_cmd_test.go
+index dfbf802..5287781 100644
+--- a/internal/cli/facts_sync_hosted_cmd_test.go
++++ b/internal/cli/facts_sync_hosted_cmd_test.go
+@@ -73,6 +73,39 @@ func TestMemoriesSyncConnectedDefaultsToHostedWire(t *testing.T) {
+ 	}
+ }
+ 
++// Off-checkout uploads must not rebuild that branch's store using HEAD visibility.
++func TestMemoriesSyncPushOnlyPreservesOtherBranch(t *testing.T) {
++	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
++	for _, denied := range []bool{false, true} {
++		t.Run(map[bool]string{false: "uploaded", true: "denied"}[denied], func(t *testing.T) {
++			fake := &hostedFake{denyFeed: true, denyPush: denied}
++			f, baseURL := newHostedSyncCmdFixture(t, fake)
++			fact := hostedSyncTestFact("saved on another branch", now)
++			f.writeFacts(t, "unmerged", []factRecord{fact})
++			out, err := execute(t, NewRootCommand(f.opts), "memories", "sync", "--branch", "unmerged", "--push-only", "--memories-backend", "http", "--repo-id", "repo1", "--api-url", baseURL, "--json")
++			if denied {
++				if err == nil {
++					t.Fatal("denied upload must fail")
++				}
++			} else {
++				if err != nil || !fake.has(fact.ID) {
++					t.Fatalf("upload failed: %v\n%s", err, out)
++				}
++				var result struct {
++					PushOnly bool `json:"push_only"`
++				}
++				if json.Unmarshal([]byte(out), &result) != nil || !result.PushOnly {
++					t.Fatalf("missing upload-only receipt: %s", out)
++				}
++			}
++			local, loadErr := factstore.Load(f.brainDir, "unmerged")
++			if loadErr != nil || len(local) != 1 || local[0].ID != fact.ID {
++				t.Fatalf("off-checkout store changed: %v", loadErr)
++			}
++		})
++	}
++}
++
+ // TestMemoriesSyncConnectedPullFailureFailsCommand pins the COR-2202 honesty
+ // rule onto the manual path: unlike background sync, a failed pull is a failed
+ // command, not a stderr shrug.
+diff --git a/internal/cli/refresh.go b/internal/cli/refresh.go
+index 60c5822..9888b4f 100644
+--- a/internal/cli/refresh.go
++++ b/internal/cli/refresh.go
+@@ -78,6 +78,7 @@ func newRefreshCommand(opts Options) *cobra.Command {
+ 	cmd.Flags().IntVar(&refreshOpts.checkpointLimit, "checkpoint-limit", defaultCheckpointLimit, "Maximum checkpoints to inspect")
+ 	cmd.Flags().StringVar(&refreshOpts.entireBinary, "entire-binary", "entire", "Entire CLI binary to invoke")
+ 	cmd.Flags().BoolVar(&refreshOpts.rawTranscript, "raw", false, "Export raw agent transcripts instead of normalized compact transcripts")
++	cmd.Flags().BoolVar(&refreshOpts.skipTranscriptSweep, "no-transcript-sweep", false, "Preserve legacy transcript caches during unattended refresh")
+ 	cmd.Flags().StringVar(&refreshOpts.scope, "scope", exportScopeAll, "Checkpoint discovery scope: all or branch")
+ 	cmd.Flags().BoolVar(&refreshOpts.seed.force, "force-seed", false, "Force seed refresh")
+ 	cmd.Flags().BoolVar(&refreshOpts.seed.worktree, "worktree", false, "Refresh seed and docs from the current worktree")
