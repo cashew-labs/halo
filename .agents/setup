@@ -95,7 +95,10 @@ echo "==> Installing Entire and its Amp integration"
     mkdir -p "$(dirname "$brain_binary")"
     (
       cd "$install_dir/brain"
-      "$go_home/bin/go" test -p 4 ./internal/cli -run '^TestMemoriesSync|TestWatchTickSkipsTranscriptSweep|TestWatchConsolidationRefreshSkipsTranscriptSweep' -count=1
+      # These isolated fixtures simulate routed discovery and local HTTP sync.
+      # Keep the orb's real no-egress policy out of only the test subprocess.
+      env -u ENTIRE_BRAIN_NO_EGRESS -u ENTIRE_BRAIN_LOCAL_ONLY \
+        "$go_home/bin/go" test -p 4 ./internal/cli -run '^TestMemoriesSync|TestWatchTickSkipsTranscriptSweep|TestWatchConsolidationRefreshSkipsTranscriptSweep' -count=1
       "$go_home/bin/go" build -p 4 -trimpath -ldflags '-s -w -X main.version=0.4.0+halo.raw' -o "$brain_binary" ./cmd/entire-brain
     )
   fi
