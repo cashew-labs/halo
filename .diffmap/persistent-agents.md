@@ -43,9 +43,9 @@ The circle represents an agent; opening it resolves the agent's `threadId` and o
 service Client "Web / Electron"
   state openThread = none
 service Server "Workspace server"
-  service Agents "AgentService" [[1bd8653a:packages/workspace-server/src/agents/AgentService.ts#L28-L46]]
-  service Threads "ThreadManager" [[1bd8653a:packages/workspace-server/src/threads/ThreadManager.ts#L230-L257]]
-  service Runtime "Thread / Pi" [[1bd8653a:packages/workspace-server/src/agent/Thread.ts#L233-L249]]
+  service Agents "AgentService" [[203fa33c:packages/workspace-server/src/agents/AgentService.ts#L28-L46]]
+  service Threads "ThreadManager" [[203fa33c:packages/workspace-server/src/threads/ThreadManager.ts#L230-L257]]
+  service Runtime "Thread / Pi" [[203fa33c:packages/workspace-server/src/agent/Thread.ts#L233-L249]]
 service Profile "Saved agent metadata"
   > Settings live here, not in HaloThreadDoc.
   state id = agent-123
@@ -100,7 +100,7 @@ The following three phases are implementation boundaries, not three separately r
 **Proposed:** `agents.new()` creates a saved agent and its one backing thread. Returning to Chief reopens that thread, not a new session. This phase supplies the same creation, listing, and settings operations to the UI and `exec`, preparing the forms and roster in Phase 3.
 
 ```changes
-1bd8653a
+203fa33c
 packages/client/src/agents.ts
 packages/client/src/contract.ts
 packages/workspace-server/src/agents/agentsRouter.ts
@@ -114,7 +114,7 @@ packages/workspace-server/src/server/WorkspaceServer.ts
 packages/workspace-server/test/workspace.test.ts
 ```
 
-The public client now exposes the product action through [[1bd8653a:packages/client/src/contract.ts#L375-L381]]. This is the RPC entry point used by a future creation form:
+The public client now exposes the product action through [[203fa33c:packages/client/src/contract.ts#L375-L381]]. This is the RPC entry point used by a future creation form:
 
 ```tsx {1,3-4} [Create an agent]
 const agent = await client.agents.new({
@@ -137,8 +137,8 @@ const agent = result.data;
 
 ```services
 service Client "UI / exec"
-service Agents "AgentService" [[1bd8653a:packages/workspace-server/src/agents/AgentService.ts#L48-L97]]
-service Threads "ThreadManager" [[1bd8653a:packages/workspace-server/src/threads/ThreadManager.ts#L230-L257]]
+service Agents "AgentService" [[203fa33c:packages/workspace-server/src/agents/AgentService.ts#L48-L97]]
+service Threads "ThreadManager" [[203fa33c:packages/workspace-server/src/threads/ThreadManager.ts#L230-L257]]
 service Metadata "Saved agent metadata"
   state status = absent
   state threadId = none
@@ -160,7 +160,7 @@ step "Return the agent and its conversation"
   Agents -> Client: agent-123, agent-thread-123, Chief
 ```
 
-[[1bd8653a:packages/client/src/agents.ts#L17-L23]] defines the public agent record. Its `threadId` is unique in the database: one agent owns one backing conversation, and no two agents share it. Creation order belongs to the agent, not the thread's recent activity:
+[[203fa33c:packages/client/src/agents.ts#L17-L23]] defines the public agent record. Its `threadId` is unique in the database: one agent owns one backing conversation, and no two agents share it. Creation order belongs to the agent, not the thread's recent activity:
 
 ```tsx {3} [Saved agent metadata]
 type AgentRecord = {
@@ -183,7 +183,7 @@ await client.thread.prompt({ sessionId: agent.threadId, requestId, text });
 // [!note changes] The watch yields an initial roster, then saved changes. The existing RPC keeps sessionId as its payload key.
 ```
 
-[[1bd8653a:packages/client/src/agents.ts#L3-L16]] defines creation and settings inputs. Both validate at the shared service boundary; agent identity remains separate from conversation identity:
+[[203fa33c:packages/client/src/agents.ts#L3-L16]] defines creation and settings inputs. Both validate at the shared service boundary; agent identity remains separate from conversation identity:
 
 ```tsx [Creation input]
 type NewAgentInput = {
@@ -201,19 +201,19 @@ type AgentSettingsInput = {
 };
 ```
 
-[[1bd8653a:packages/workspace-server/src/agents/agentsRouter.ts#L9-L28]] and [[1bd8653a:packages/workspace-server/src/agents/agentTools.ts#L5-L39]] call one service. Error exits are shortened below; the saved reservation and ready commit are separate boundaries:
+[[203fa33c:packages/workspace-server/src/agents/agentsRouter.ts#L9-L28]] and [[203fa33c:packages/workspace-server/src/agents/agentTools.ts#L5-L39]] call one service. Error exits are shortened below; the saved reservation and ready commit are separate boundaries:
 
 ```callstack {3-10} [Create an agent through the shared service]
  result = UI RPC or exec tool(input)
--└── return ThreadManager.new(input) [[1bd8653a:packages/workspace-server/src/threads/ThreadManager.ts#L230-L257]]
-+└── agent = AgentService.new(input) [[1bd8653a:packages/workspace-server/src/agents/AgentService.ts#L48-L97]]
+-└── return ThreadManager.new(input) [[203fa33c:packages/workspace-server/src/threads/ThreadManager.ts#L230-L257]]
++└── agent = AgentService.new(input) [[203fa33c:packages/workspace-server/src/agents/AgentService.ts#L48-L97]]
 +    ├── if saved agent is ready: return saved agent
 +    ├── commit reserved agent with stable id, threadId, and ready = false
-+    └── return finishCreation(agent) [[1bd8653a:packages/workspace-server/src/agents/AgentService.ts#L216-L231]]
-+        ├── thread = ThreadManager.new({ threadId: agent.threadId }) [[1bd8653a:packages/workspace-server/src/threads/ThreadManager.ts#L230-L257]]
++    └── return finishCreation(agent) [[203fa33c:packages/workspace-server/src/agents/AgentService.ts#L216-L231]]
++        ├── thread = ThreadManager.new({ threadId: agent.threadId }) [[203fa33c:packages/workspace-server/src/threads/ThreadManager.ts#L230-L257]]
 +        ├── if thread is Error: return thread
 +        ├── commit agent with ready = true
-+        ├── publishSummary(agent.threadId) [[1bd8653a:packages/workspace-server/src/threads/ThreadManager.ts#L838-L867]]
++        ├── publishSummary(agent.threadId) [[203fa33c:packages/workspace-server/src/threads/ThreadManager.ts#L838-L867]]
 +        └── return agent
 # [!note L5-L9] Pending records stay out of the agent roster and thread summaries; thread prompts and snapshots reject them until ready.
 ```
@@ -236,7 +236,7 @@ return finishCreation(agent);
 // [!note L10-L11] Pseudocode abbreviates transaction setup, error conversion, and summary publication on ready retries.
 ```
 
-[[1bd8653a:packages/workspace-server/src/agents/AgentService.ts#L192-L208]] completes unfinished reservations during [[1bd8653a:packages/workspace-server/src/server/WorkspaceServer.ts#L460-L469]], before normal thread recovery starts. Existing thread creation reopens an already saved backing thread instead of creating another:
+[[203fa33c:packages/workspace-server/src/agents/AgentService.ts#L192-L208]] completes unfinished reservations during [[203fa33c:packages/workspace-server/src/server/WorkspaceServer.ts#L460-L469]], before normal thread recovery starts. Existing thread creation reopens an already saved backing thread instead of creating another:
 
 ```tsx [Resume interrupted creation]
 for (const agent of await db.query({ collection: "agents", where: { ready: false } })) {
@@ -251,7 +251,7 @@ The stored record adds one internal readiness field; clients never receive it:
 type StoredAgent = AgentRecord & { ready: boolean };
 ```
 
-[[1bd8653a:packages/workspace-server/src/agents/AgentService.ts#L143-L178]] saves name and instructions together and notifies subscribers. Blank names fail validation; instructions may be empty. Renaming does not call `Thread.setName`:
+[[203fa33c:packages/workspace-server/src/agents/AgentService.ts#L143-L178]] saves name and instructions together and notifies subscribers. Blank names fail validation; instructions may be empty. Renaming does not call `Thread.setName`:
 
 ```tsx {2-5} [Save settings on the agent]
 async function updateAgentSettings(input: AgentSettingsInput) {
@@ -266,7 +266,7 @@ async function updateAgentSettings(input: AgentSettingsInput) {
 // [!note L3-L4] Pseudocode omits transaction setup and domain error construction.
 ```
 
-[[1bd8653a:packages/workspace-server/src/agent/Thread.ts#L233-L249]] reads current saved settings for each model request, including the first request after a restart. It adds agent identity and instructions while retaining base guidance, workspace instructions, skills, permissions, and approval rules:
+[[203fa33c:packages/workspace-server/src/agent/Thread.ts#L233-L249]] reads current saved settings for each model request, including the first request after a restart. It adds agent identity and instructions while retaining base guidance, workspace instructions, skills, permissions, and approval rules:
 
 ```tsx {2-4} [Read current agent instructions]
 async function agentInstructions(threadId) {
@@ -278,9 +278,9 @@ async function agentInstructions(threadId) {
 // [!note agent] Pi's prompt-section boundary requires throwing failures. Absence means ordinary work; a failed lookup never silently selects ordinary behavior.
 ```
 
-[[1bd8653a:packages/client/src/database/schema/agents.ts#L1-L14]] and [[1bd8653a:packages/workspace-server/src/database/migrations/20261029090000-agents.ts#L1-L16]] add `halo_agents` to the existing workspace Turso database. Both IDs have unique constraints. There is no foreign key to `halo_threads` because the recoverable reservation precedes thread creation; settings are not copied into `HaloThreadDoc`.
+[[203fa33c:packages/client/src/database/schema/agents.ts#L1-L14]] and [[203fa33c:packages/workspace-server/src/database/migrations/20261029090000-agents.ts#L1-L16]] add `halo_agents` to the existing workspace Turso database. Both IDs have unique constraints. There is no foreign key to `halo_threads` because the recoverable reservation precedes thread creation; settings are not copied into `HaloThreadDoc`.
 
-Two consumer E2Es in [[1bd8653a:packages/workspace-server/test/workspace.test.ts#L982-L1201]] exercise renderer RPC and exec creation, concurrent retries, roster/status subscriptions, separate histories, settings edits between model requests, restart/reopen, invalid names, and ordinary-thread isolation. Four temporary fault tests exercised saved-boundary recovery with the real Turso database and actual server startup; they were removed after passing. The message tool and transcript projections remain Phase 2, so Phase 1 does not claim to verify them.
+Two consumer E2Es in [[203fa33c:packages/workspace-server/test/workspace.test.ts#L982-L1201]] exercise renderer RPC and exec creation, concurrent retries, roster/status subscriptions, separate histories, settings edits between model requests, restart/reopen, invalid names, and ordinary-thread isolation. Four temporary fault tests exercised saved-boundary recovery with the real Turso database and actual server startup; they were removed after passing. The message tool and transcript projections remain Phase 2, so Phase 1 does not claim to verify them.
 
 Phase 1's API accepts empty instructions but does not start a run on creation. The revised name-only flow uses `instructions: ""`; Phase 2 adds automatic welcome execution after installing the message tool, and Phase 3 adds the name-only form. These planned additions do not change what the completed Phase 1 verified.
 

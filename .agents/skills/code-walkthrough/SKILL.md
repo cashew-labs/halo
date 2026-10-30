@@ -21,7 +21,7 @@ Use the amount of research the change needs. Do not impose a fixed research proc
 
 ## Write the markdown file
 
-Choose a short kebab-case name. Create a named temp directory under the repo's `tmp/` directory and write one markdown file there. Do not write walkthroughs into `specs/`.
+Choose a short kebab-case name. Write one Markdown file under `tmp/code-walkthrough-<name>/`. Keep these temporary TK Stack walkthroughs out of `.diffmap/`.
 
 ```sh
 mkdir -p tmp/code-walkthrough-<name>
