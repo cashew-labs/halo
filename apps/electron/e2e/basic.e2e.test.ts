@@ -908,6 +908,97 @@ e2eTest(
   },
 );
 
+e2eTest(
+  "mobile document swipes indent and unindent the touched list item",
+  async ({ app }, testInfo) => {
+    const path = "mobile-swipes.md";
+    await app.server.rpc.workspace.writeFile({
+      path,
+      content: "- First\n- Second\n\n1. One\n2. Two\n\n- [x] Done\n- [x] Next",
+    });
+    await app.page.getByRole("link", { name: path, exact: true }).click();
+    await app.page.setViewportSize({ width: 390, height: 844 });
+    const editor = app.page
+      .getByLabel(path, { exact: true })
+      .and(app.page.locator('[contenteditable="true"]'));
+    const cdp = await app.page.context().newCDPSession(app.page);
+    await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: true });
+    const swipe = async (item: Locator, direction: number) => {
+      const box = (await item.boundingBox())!;
+      const x = box.x + Math.min(box.width / 2, 100);
+      const y = box.y + box.height / 2;
+      await cdp.send("Input.dispatchTouchEvent", {
+        type: "touchStart",
+        touchPoints: [{ x, y }],
+      });
+      for (const distance of [10, 25, 45, 70]) {
+        await cdp.send("Input.dispatchTouchEvent", {
+          type: "touchMove",
+          touchPoints: [{ x: x + distance * direction, y }],
+        });
+      }
+      await cdp.send("Input.dispatchTouchEvent", {
+        type: "touchEnd",
+        touchPoints: [],
+      });
+    };
+    for (const [text, selector] of [
+      ["Second", "ul:not([data-type]) ul:not([data-type])"],
+      ["Two", "ol ol"],
+      ["Next", 'ul[data-type="taskList"] ul[data-type="taskList"]'],
+    ] as const) {
+      const item = editor.getByText(text, { exact: true });
+      await swipe(item, 1);
+      await expect(editor.locator(selector)).toContainText(text);
+      await swipe(item, -1);
+      await expect(editor.locator(selector)).toHaveCount(0);
+    }
+    await expect(
+      editor.getByRole("checkbox", { name: "Task item checkbox for Next" }),
+    ).toBeChecked();
+    await editor.screenshot({ path: testInfo.outputPath("mobile-lists.png") });
+    await cdp.detach();
+  },
+);
+
+e2eTest(
+  "mobile document deletion preserves the bullet above an empty item",
+  async ({ app }) => {
+    const path = "mobile-backspace.md";
+    await app.server.rpc.workspace.writeFile({
+      path,
+      content: "- First\n- Second",
+    });
+    await app.page.getByRole("link", { name: path, exact: true }).click();
+    const editor = app.page
+      .getByLabel(path, { exact: true })
+      .and(app.page.locator('[contenteditable="true"]'));
+    await clickEditorText(editor.getByText("Second", { exact: true }));
+    await app.page.keyboard.press("End");
+    await app.page.keyboard.press("Enter");
+    await expect(editor.locator("li")).toHaveCount(3);
+    // Virtual keyboards may emit beforeinput without any Backspace keydown.
+    for (let press = 0; press < 2; press++) {
+      const prevented = await editor.evaluate((element) => {
+        const event = new InputEvent("beforeinput", {
+          inputType: "deleteContentBackward",
+          bubbles: true,
+          cancelable: true,
+        });
+        element.dispatchEvent(event);
+        return event.defaultPrevented;
+      });
+      expect(prevented).toBe(true);
+    }
+    await expect(editor.locator("li")).toHaveText(["First", "Second"]);
+    await app.page.keyboard.type(" kept");
+    await expect(editor.locator("li")).toHaveText(["First", "Second kept"]);
+    await expect
+      .poll(async () => await app.server.rpc.workspace.readFile({ path }))
+      .toContain("- First\n- Second kept");
+  },
+);
+
 async function clickEditorText(text: Locator) {
   // The DOM caret moves before selectionchange updates the editor state read
   // by block and list commands. Wait for that event, not just the DOM anchor.
