@@ -153,6 +153,7 @@ export function useMarkdownEditor({
 }
 
 const syntaxStyle = style({
+  "& li": { touchAction: "pan-y pinch-zoom" },
   "& a": { cursor: "text" },
   "&.halo-link-modifier a": { cursor: "pointer", color: colors.accent[11] },
   "& .halo-selected-block": {
