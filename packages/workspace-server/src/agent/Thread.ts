@@ -33,6 +33,7 @@ import {
   type ChatPrompt,
   type ThreadSnapshot,
   type ThreadSummary,
+  type AgentRecord,
   chatPromptContent,
   applyThreadEvent,
   threadToolExecutions,
@@ -50,6 +51,7 @@ import type { WorkspaceLayout } from "../workspace/WorkspaceService.js";
 import type { FilesystemService } from "../filesystem/FilesystemService.js";
 import type { ToolRuntime } from "./runtime/ToolRuntime.js";
 import { createExecTool } from "./tools/execTool.js";
+import { sendUserMessageTool } from "./tools/sendUserMessage.js";
 import { limitToolOutput } from "./tools/limitToolOutput.js";
 import { WorkspaceResourceLoader } from "./WorkspaceResourceLoader.js";
 import type { HaloEnvironment } from "./workspacePrompt.js";
@@ -147,6 +149,7 @@ export class Thread {
     workspaceRoot: string;
     approvals: ToolApprovalService;
     toolRuntime: ToolRuntime;
+    agent?: AgentRecord;
   }) {
     const { harness, conversation, stored, data, filesystem, workspaceRoot } =
       ctx;
@@ -158,7 +161,7 @@ export class Thread {
     this.workspaceRoot = workspaceRoot;
     this.approvals = ctx.approvals;
     this.toolRuntime = ctx.toolRuntime;
-    this.projection = new ThreadProjection(data);
+    this.projection = new ThreadProjection(data, ctx.agent);
     this.snapshot = this.events.project(
       this.projection.snapshot(),
       (previous, event) => {
@@ -212,7 +215,10 @@ export class Thread {
     if (reloaded instanceof Error) return reloaded;
     const approvals = new ToolApprovalService();
     cleanup.defer(() => approvals.close());
+    const owner = await options.agents?.findByThreadId(stored.metadata.id);
+    if (owner instanceof Error) return owner;
     const tools: ToolRegistration[] = [
+      ...(owner === undefined ? [] : [sendUserMessageTool]),
       ...runtime.createModelTools({
         threadId: stored.metadata.id,
         modelId: llmApi.model.id,
@@ -245,7 +251,7 @@ export class Thread {
             if (agent instanceof Error) throw agent;
             return agent === undefined
               ? undefined
-              : `You are the persistent agent ${JSON.stringify(agent.name)}.\n\n${agent.instructions}`;
+              : `You are the persistent agent ${JSON.stringify(agent.name)}.\nUse send_user_message for anything the user should see. Your other text and tool calls are private. Sending does not end your work; you may send several messages or finish silently.\n\n${agent.instructions}`;
           }),
           // Reads the committed copy, so a request prepared during recovery
           // never renders a value that is not saved yet. A pinned copy stays
@@ -333,6 +339,7 @@ export class Thread {
             workspaceRoot: layout.root,
             approvals,
             toolRuntime: runtime,
+            agent: owner,
           }),
         BACKGROUND_CONTEXT,
       )
@@ -586,13 +593,29 @@ export class Thread {
     });
   }
 
+  /** Host-initiated work uses normal input admission, with hidden presentation. */
+  async start(input: { prompt: string; requestId: string }) {
+    return await this.send(
+      {
+        role: "custom",
+        customType: "halo.internal",
+        display: false,
+        content: input.prompt,
+        timestamp: Date.now(),
+      },
+      input.requestId,
+    );
+  }
+
   private async send(
     message: Extract<StoredMessage, { role: "user" | "custom" }>,
+    stableRequestId?: string,
   ) {
     const requestId =
-      message.role === "user"
+      stableRequestId ??
+      (message.role === "user"
         ? (message.clientMessageId ?? randomUUID())
-        : randomUUID();
+        : randomUUID());
     const saved = await this.conversation
       .commit(async (tx) => {
         const state = await tx.doc(HaloThreadDoc, this.conversation.id);

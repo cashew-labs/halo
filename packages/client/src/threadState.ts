@@ -306,6 +306,7 @@ export type RunResult = {
 };
 
 export type ThreadSnapshot = {
+  agentId?: string;
   entries: HaloEntry[];
   activeRun: ActiveRun | undefined;
   lastRun: RunResult | undefined;
@@ -470,7 +471,26 @@ export function executionWithOutput(
   return { ...execution, ...output, status };
 }
 
-/** Read committed messages without tool-result entries. */
+const agentUserMessageSchema = Type.Object({
+  kind: Type.Literal("agent.userMessage"),
+  text: Type.String({ minLength: 1 }),
+});
+
+/** Only a successful, committed native send is a delivered agent message. */
+export function agentUserMessage(entry: HaloEntry) {
+  if (
+    entry.type !== "toolResult" ||
+    entry.tool.path !== "send_user_message" ||
+    entry.isError ||
+    !Value.Check(agentUserMessageSchema, entry.output.result.details)
+  )
+    return;
+  const { text } = entry.output.result.details;
+  if (text.trim() === "") return;
+  return { id: entry.id, text, timestamp: entry.timestamp };
+}
+
+/** Read committed messages without tool-result entries, including execution. */
 export function threadMessages(snapshot: ThreadSnapshot) {
   return snapshot.entries.flatMap((entry) =>
     entry.type === "message" ? [entry.message] : [],

@@ -294,7 +294,6 @@ export class WorkspaceServer {
         });
     });
     const threadRepo = new TursoThreadRepo(db.createNativeConnection());
-    const search = new WorkspaceSearch({ workspace, repo: threadRepo });
     cleanup.defer(async () => {
       const closed = await threadRepo.close();
       if (closed instanceof Error)
@@ -311,7 +310,9 @@ export class WorkspaceServer {
       db,
       createThread: async (threadId) => await threads.new({ threadId }),
       publishThread: async (threadId) => await threads.publishSummary(threadId),
+      startThread: async (input) => await threads.initialize(input),
     });
+    const search = new WorkspaceSearch({ workspace, repo: threadRepo, agents });
     cleanup.defer(async () => await agents.close());
     const hotkeys = new HotkeyService({
       db,

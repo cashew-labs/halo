@@ -6,6 +6,7 @@ export type WorkspaceInfo = {
 // Serialized field names stay compatible with existing clients.
 export type ThreadSummary = {
   sessionId: string;
+  agentId?: string;
   agent: "pi";
   cwd: string;
   title?: string;

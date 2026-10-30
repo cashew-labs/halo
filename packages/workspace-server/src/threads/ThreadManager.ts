@@ -4,13 +4,13 @@ import { Stream } from "@get-halo/shared/Stream";
 import { SerialQueue } from "@get-halo/shared/SerialQueue";
 import {
   isThreadUnread,
+  agentUserMessage,
   type ThreadSummary,
   type ThreadSummariesUpdate,
   type ChatPrompt,
   type HaloMessage,
   type HaloConnectionState,
   type HaloConnectionEvent,
-  threadMessages,
 } from "@get-halo/client";
 import {
   Thread,
@@ -281,6 +281,21 @@ export class ThreadManager {
     });
   }
 
+  /** Internal creation work may be submitted before the agent becomes visible. */
+  async initialize(input: {
+    threadId: string;
+    requestId: string;
+    prompt: string;
+  }) {
+    return await this.track(async () => {
+      const thread = await this.openThread(input.threadId);
+      if (thread instanceof Error) return thread;
+      using cleanup = new errore.DisposableStack();
+      cleanup.use(thread.retain());
+      return await thread.start(input);
+    });
+  }
+
   async prompt(input: ChatPrompt & { threadId: string }) {
     const threadContents = new Map<string, string>();
     for (const reference of input.references ?? []) {
@@ -288,13 +303,19 @@ export class ThreadManager {
       const { sessionId: referencedThreadId } = reference;
       const snapshot = await this.snapshot(referencedThreadId, []);
       if (snapshot instanceof Error) return snapshot;
-      const transcript = threadMessages(snapshot)
-        .flatMap((message) => {
+      const transcript = snapshot.entries
+        .flatMap((entry) => {
+          if (snapshot.agentId !== undefined) {
+            const sent = agentUserMessage(entry);
+            if (sent !== undefined) return [`Assistant: ${sent.text}`];
+          }
+          if (entry.type !== "message") return [];
+          const message = entry.message;
           if (message.role === "user")
             return [
               `User: ${message.displayText ?? messageContentText(message.content)}`,
             ];
-          if (message.role === "assistant")
+          if (message.role === "assistant" && snapshot.agentId === undefined)
             return [`Assistant: ${messageContentText(message.content)}`];
           return [];
         })
@@ -550,7 +571,13 @@ export class ThreadManager {
       const fields = productFields.get(item.id);
       const cached = this.summaries.get(item.id);
       if (cached !== undefined) {
-        const current = applyProductFields({ summary: cached, fields });
+        const agent = agents.find(
+          (candidate) => candidate.threadId === item.id,
+        );
+        const current = applyProductFields({
+          summary: { ...cached, title: agent?.name ?? cached.title },
+          fields,
+        });
         // A list must not consume a change before the subscription publishes it.
         summaries.push(current);
         continue;
@@ -571,7 +598,12 @@ export class ThreadManager {
         };
       }
       const current = applyProductFields({
-        summary,
+        summary: {
+          ...summary,
+          title:
+            agents.find((agent) => agent.threadId === item.id)?.name ??
+            summary.title,
+        },
         fields,
       });
       this.summaries.set(item.id, current);
@@ -602,7 +634,9 @@ export class ThreadManager {
       .read(threadId)
       .catch((cause) => new ThreadStorageError({ threadId, cause }));
     if (data instanceof Error) return data;
-    return new ThreadProjection(data);
+    const agent = await this.agents?.findByThreadId(threadId);
+    if (agent instanceof Error) return agent;
+    return new ThreadProjection(data, agent);
   }
 
   private async listProductFields() {
@@ -853,6 +887,7 @@ export class ThreadManager {
             applyProductFields({
               summary: {
                 ...summary,
+                title: agent?.name ?? summary.title,
                 isRunning: this.threads.has(threadId) && summary.isRunning,
               },
               fields,

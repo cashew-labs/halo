@@ -13,6 +13,7 @@ import {
   reduceThreadUpdate,
   threadMessages,
   threadToolExecutions,
+  agentUserMessage,
   type HaloClient,
   type Hotkey,
   type TraceRecord,
@@ -1017,8 +1018,11 @@ serverTest(
         session: { sessionId: chief.threadId },
       });
     expect(
-      (await server.rpc.thread.snapshot({ sessionId: chief.threadId })).entries,
+      threadMessages(
+        await server.rpc.thread.snapshot({ sessionId: chief.threadId }),
+      ).filter((message) => message.role === "user"),
     ).toEqual([]);
+    await llm.respond(m.assistant(""));
 
     expect(ordinary.sessionId).not.toBe(chief.threadId);
     const creation = server.promptAndWait({
@@ -1039,15 +1043,19 @@ serverTest(
         },
       }),
     );
-    await llm.respond(({ messages }) => {
-      expect(
-        messages
-          .filter((message) => message.role === "tool")
-          .map(messageText)
-          .join("\n"),
-      ).toContain("Copy editor");
-      return m.assistant("Created the editor.");
-    });
+    for (let response = 0; response < 2; response++) {
+      await llm.respond(({ messages }) => {
+        if (systemText(messages).includes("You are the persistent agent"))
+          return m.assistant("");
+        expect(
+          messages
+            .filter((message) => message.role === "tool")
+            .map(messageText)
+            .join("\n"),
+        ).toContain("Copy editor");
+        return m.assistant("Created the editor.");
+      });
+    }
     expect((await creation).status).toBe("completed");
     const agents = await server.rpc.agents.list();
     expect(agents).toHaveLength(2);
@@ -1101,11 +1109,27 @@ serverTest(
       name: "Chief",
       instructions: "Use cobalt for the research label.",
     });
+    await llm.respond(m.assistant(""));
+    await expect
+      .poll(
+        async () =>
+          (await server.rpc.thread.snapshot({ sessionId: chief.threadId }))
+            .activeRun,
+      )
+      .toBeUndefined();
     const editor = await server.rpc.agents.new({
       requestId: "editor",
       name: "Editor",
       instructions: "Use amber for the editorial label.",
     });
+    await llm.respond(m.assistant(""));
+    await expect
+      .poll(
+        async () =>
+          (await server.rpc.thread.snapshot({ sessionId: editor.threadId }))
+            .activeRun,
+      )
+      .toBeUndefined();
     await server.rpc.workspace.writeFile({
       path: "notes.txt",
       content: "Source material",
@@ -1155,7 +1179,10 @@ serverTest(
         "Use indigo for the research label.",
       );
       expect(
-        messages.filter((message) => message.role === "user").map(messageText),
+        messages
+          .filter((message) => message.role === "user")
+          .map(messageText)
+          .filter((text) => !text.startsWith("You have just been created.")),
       ).toEqual(["Review this."]);
       return m.assistant("Reviewed.");
     });
@@ -1171,7 +1198,10 @@ serverTest(
         "Use indigo for the research label.",
       );
       expect(
-        messages.filter((message) => message.role === "user").map(messageText),
+        messages
+          .filter((message) => message.role === "user")
+          .map(messageText)
+          .filter((text) => !text.startsWith("You have just been created.")),
       ).toEqual(["Remember the blue notebook.", "Continue."]);
       return m.assistant("Continuing research.");
     });
@@ -1197,6 +1227,234 @@ serverTest(
       return m.assistant("Ordinary reply.");
     });
     await ordinaryWork;
+  },
+);
+
+serverTest(
+  "delivers agent messages only through committed native sends, independently of run completion",
+  async ({ server, llm }) => {
+    const input = {
+      requestId: "planner",
+      name: "Planner",
+      instructions: "Suggest a reading list.",
+    };
+    const agent = await server.rendererRpc.agents.new(input);
+    const thread = { sessionId: agent.threadId };
+    const initial = await server.rpc.thread.snapshot(thread);
+    expect(initial.agentId).toBe(agent.id);
+    expect(
+      threadMessages(initial).filter((message) => message.role === "user"),
+    ).toEqual([]);
+    expect(
+      (await server.rpc.thread.list()).find(
+        (summary) => summary.sessionId === agent.threadId,
+      )?.latestResultId,
+    ).toBeUndefined();
+    await llm.respond(({ tools, messages }) => {
+      expect(systemText(messages)).toContain('persistent agent "Planner"');
+      expect(systemText(messages)).toContain("Suggest a reading list.");
+      expect(tools).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            function: expect.objectContaining({ name: "send_user_message" }),
+          }),
+        ]),
+      );
+      return [
+        m.tool.start("send_user_message", {
+          id: "greet",
+          arguments: { text: "I'm Planner. Shall we make a reading list?" },
+        }),
+        m.tool.start("send_user_message", {
+          id: "suggest",
+          arguments: { text: "We could start with **history**." },
+        }),
+      ];
+    });
+    await llm.waitForRequest();
+    const delivered = await server.rpc.thread.snapshot(thread);
+    const sent = delivered.entries.flatMap((entry) => {
+      const message = agentUserMessage(entry);
+      return message === undefined ? [] : [message];
+    });
+    expect(sent.map((message) => message.text)).toEqual([
+      "I'm Planner. Shall we make a reading list?",
+      "We could start with **history**.",
+    ]);
+    const lastId = sent.at(-1)!.id;
+    await expect
+      .poll(async () =>
+        (await server.rpc.thread.list()).find(
+          (summary) => summary.sessionId === agent.threadId,
+        ),
+      )
+      .toMatchObject({ latestResultId: lastId, isRunning: true });
+    await server.rpc.thread.markRead({
+      ...thread,
+      observedResultId: sent[0]!.id,
+    });
+    expect(
+      isThreadUnread(
+        (await server.rpc.thread.list()).find(
+          (summary) => summary.sessionId === agent.threadId,
+        )!,
+      ),
+    ).toBe(true);
+    await server.rpc.thread.markRead({ ...thread, observedResultId: lastId });
+    await llm.respond(m.assistant("PRIVATE_NARRATION_ONLY"));
+    await expect
+      .poll(async () => (await server.rpc.thread.snapshot(thread)).activeRun)
+      .toBeUndefined();
+    const after = (await server.rpc.thread.list()).find(
+      (summary) => summary.sessionId === agent.threadId,
+    )!;
+    expect(after.latestResultId).toBe(lastId);
+    expect(isThreadUnread(after)).toBe(false);
+    expect(
+      (await server.rpc.workspace.search({ query: "PRIVATE_NARRATION_ONLY" }))
+        .hits,
+    ).toEqual([]);
+    expect(
+      (await server.rpc.workspace.search({ query: "reading list" })).hits,
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sessionId: agent.threadId,
+          title: "Planner",
+        }),
+      ]),
+    );
+    const silent = server.promptAndWait({ ...thread, text: "Work silently." });
+    await llm.respond(
+      m.tool.start("send_user_message", {
+        id: "empty",
+        arguments: { text: "   " },
+      }),
+    );
+    await llm.respond(m.assistant("PRIVATE_SILENT_FINISH"));
+    await silent;
+    expect(
+      (await server.rpc.thread.list()).find(
+        (summary) => summary.sessionId === agent.threadId,
+      )?.latestResultId,
+    ).toBe(lastId);
+    await server.stop();
+    await server.start();
+    expect(await server.rpc.agents.new(input)).toEqual(agent);
+    const replayed = await server.rpc.thread.snapshot(thread);
+    expect(
+      replayed.entries.flatMap((entry) => agentUserMessage(entry) ?? []),
+    ).toEqual(sent);
+    expect(replayed.activeRun).toBeUndefined();
+    const ordinary = await server.rpc.thread.new();
+    const reference = server.promptAndWait({
+      ...ordinary,
+      text: "Read the conversation",
+      references: [{ sessionId: agent.threadId, title: "Planner" }],
+    });
+    await llm.respond(({ tools, messages }) => {
+      expect(
+        tools?.some(
+          (tool) =>
+            tool.type === "function" &&
+            tool.function.name === "send_user_message",
+        ),
+      ).toBe(false);
+      const context = messages.map(messageText).join("\n");
+      expect(context).toContain("Shall we make a reading list?");
+      expect(context).not.toContain("PRIVATE_NARRATION_ONLY");
+      expect(context).not.toContain("PRIVATE_SILENT_FINISH");
+      expect(context).not.toContain("You have just been created.");
+      return m.assistant("Ordinary reply remains visible.");
+    });
+    await reference;
+  },
+);
+
+serverTest(
+  "resumes an interrupted introduction and preserves a user task arriving during it",
+  async ({ server, llm }) => {
+    const writer = await server.rpc.thread.new();
+    const memory = server.promptAndWait({
+      ...writer,
+      text: "Remember my reading preference",
+    });
+    await llm.respond(
+      m.tool.start("exec", {
+        id: "remember",
+        arguments: {
+          js: 'await tools.memory.update({ changes: [{ type: "add", scope: "user", text: "Prefers long history books." }] })',
+        },
+      }),
+    );
+    await llm.respond(m.assistant("Remembered."));
+    await memory;
+    const input = {
+      requestId: "history-guide",
+      name: "History guide",
+      instructions: "",
+    };
+    const agent = await server.rpc.agents.new(input);
+    await llm.waitForRequest();
+    await server.stop();
+    await server.start();
+    expect(await server.rpc.agents.new(input)).toEqual(agent);
+    const thread = { sessionId: agent.threadId };
+    const accepted = await server.rpc.thread.prompt({
+      ...thread,
+      text: "Find me one book on Rome.",
+    });
+    await llm.respond(({ messages }) => {
+      expect(systemText(messages)).toContain(
+        'persistent agent "History guide"',
+      );
+      expect(systemText(messages)).toContain("Prefers long history books.");
+      return m.tool.start("exec", {
+        id: "check-context",
+        arguments: { js: '"Ready"' },
+      });
+    });
+    await llm.respond(({ messages }) => {
+      expect(messages.map(messageText).join("\n")).toContain(
+        "Find me one book on Rome.",
+      );
+      return m.tool.start("send_user_message", {
+        id: "answer",
+        arguments: { text: "For a long history of Rome, try SPQR." },
+      });
+    });
+    await llm.respond(m.error("Provider unavailable after delivery"));
+    expect(
+      (
+        await server.rpc.thread.wait({
+          ...thread,
+          submissionId: accepted.submissionId,
+        })
+      ).status,
+    ).toBe("failed");
+    const snapshot = await server.rpc.thread.snapshot(thread);
+    expect(
+      threadMessages(snapshot)
+        .filter((message) => message.role === "user")
+        .map((message) => message.displayText),
+    ).toEqual(["Find me one book on Rome."]);
+    const sent = snapshot.entries.flatMap(
+      (entry) => agentUserMessage(entry) ?? [],
+    );
+    expect(sent.map((message) => message.text)).toEqual([
+      "For a long history of Rome, try SPQR.",
+    ]);
+    await expect
+      .poll(async () =>
+        (await server.rpc.thread.list()).find(
+          (summary) => summary.sessionId === agent.threadId,
+        ),
+      )
+      .toMatchObject({ latestResultId: sent[0]!.id, isRunning: false });
+    expect(await server.rpc.agents.new(input)).toEqual(agent);
+    expect((await server.rpc.thread.snapshot(thread)).entries).toEqual(
+      snapshot.entries,
+    );
   },
 );
 

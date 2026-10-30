@@ -8,6 +8,8 @@ import {
 import type { JsonRepresentation } from "@earendil-works/chord";
 import {
   chatPromptTitle,
+  agentUserMessage,
+  type AgentRecord,
   type HaloMessage,
   type ThreadSnapshot,
   type ThreadSummary,
@@ -42,8 +44,10 @@ export class ThreadProjection {
   private readonly submissions = new Map<number, SubmissionRecord>();
   private documents: ThreadData["documents"];
   private lastRun: ThreadSnapshot["lastRun"];
+  private readonly agent: Pick<AgentRecord, "id" | "name"> | undefined;
 
-  constructor(data: ThreadData) {
+  constructor(data: ThreadData, agent?: Pick<AgentRecord, "id" | "name">) {
+    this.agent = agent;
     this.seq = data.seq;
     for (const entry of data.entries) this.entries.set(entry.id, entry);
     for (const submission of data.submissions)
@@ -88,7 +92,7 @@ export class ThreadProjection {
   }
 
   get name() {
-    return this.presentation.name;
+    return this.agent?.name ?? this.presentation.name;
   }
 
   private get presentation() {
@@ -116,12 +120,15 @@ export class ThreadProjection {
     });
     // SAFETY: Pi owns pi.live and publishes LiveState revisions.
     const live = (this.documents["pi.live"] ?? {}) as LiveState;
-    return threadSnapshot({
-      live,
-      entries,
-      lastRun: this.lastRun,
-      connections: [],
-    });
+    return {
+      ...threadSnapshot({
+        live,
+        entries,
+        lastRun: this.lastRun,
+        connections: [],
+      }),
+      agentId: this.agent?.id,
+    };
   }
 
   summary(input: {
@@ -135,16 +142,21 @@ export class ThreadProjection {
       latest?.type === "message" ? latest.message.timestamp : latest?.timestamp;
     return {
       sessionId: metadata.id,
+      agentId: this.agent?.id,
       agent: "pi",
       cwd,
       title: this.title(snapshot).trim() || undefined,
       isRunning: snapshot.activeRun !== undefined,
       latestResultId:
-        snapshot.lastRun?.id ??
-        snapshot.entries.findLast(
-          (entry) =>
-            entry.type === "message" && entry.message.role === "assistant",
-        )?.id,
+        this.agent !== undefined
+          ? snapshot.entries.findLast(
+              (entry) => agentUserMessage(entry) !== undefined,
+            )?.id
+          : (snapshot.lastRun?.id ??
+            snapshot.entries.findLast(
+              (entry) =>
+                entry.type === "message" && entry.message.role === "assistant",
+            )?.id),
       createdAt: new Date(metadata.createdAt).toISOString(),
       updatedAt: new Date(timestamp ?? metadata.createdAt).toISOString(),
     };

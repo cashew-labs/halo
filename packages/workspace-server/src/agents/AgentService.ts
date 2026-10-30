@@ -34,15 +34,22 @@ export class AgentService {
     threadId: string,
   ) => Promise<{ threadId: string } | Error>;
   private readonly publishThread: (threadId: string) => Promise<void | Error>;
+  private readonly startThread: (input: {
+    threadId: string;
+    requestId: string;
+    prompt: string;
+  }) => Promise<{ submissionId: number } | Error>;
 
   constructor(ctx: {
     db: DatabaseService;
     createThread: (threadId: string) => Promise<{ threadId: string } | Error>;
     publishThread: (threadId: string) => Promise<void | Error>;
+    startThread: AgentService["startThread"];
   }) {
     this.db = ctx.db;
     this.createThread = ctx.createThread;
     this.publishThread = ctx.publishThread;
+    this.startThread = ctx.startThread;
   }
 
   async new(input: NewAgentInput) {
@@ -173,6 +180,8 @@ export class AgentService {
             new AgentStorageError({ operation: "save settings", cause }),
         );
       if (saved instanceof Error) return saved;
+      const published = await this.publishThread(updated.threadId);
+      if (published instanceof Error) return published;
       return toAgentRecord(updated);
     });
   }
@@ -216,6 +225,13 @@ export class AgentService {
   private async finishCreation(agent: StoredAgent) {
     const thread = await this.createThread(agent.threadId);
     if (thread instanceof Error) return thread;
+    const started = await this.startThread({
+      threadId: agent.threadId,
+      requestId: `create:${agent.id}`,
+      prompt:
+        "You have just been created. Introduce yourself using your name, instructions, and available memory. Offer useful ways you could help and ask what the user would like you to do. Choose your own wording and use send_user_message. If the user has already sent a task, address it instead of repeating onboarding.",
+    });
+    if (started instanceof Error) return started;
     await using tx = this.db.useTransaction();
     tx.set("agents", { ...agent, ready: true });
     const saved = await this.db

@@ -79,6 +79,7 @@ export {
   applyThreadEvent,
   applyConnectionEvent,
   executionWithOutput,
+  agentUserMessage,
   threadMessages,
   threadToolExecutions,
   type HaloMessage,
