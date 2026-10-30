@@ -1,6 +1,6 @@
 # Persistent agents
 
-Status: Phase 1 implemented and verified locally. Phases 2 and 3 remain planned; there is no new agent UI or message tool yet.
+Status: Phase 1 implemented and verified. Phases 2 and 3 remain planned; there is no new agent UI or message tool yet.
 
 ## People return to an agent, not a new thread
 
@@ -54,6 +54,8 @@ service Profile "Saved agent metadata"
 service History "Saved thread"
   > The existing thread stores messages and execution records.
   state id = thread-123
+start "Return to the same agent conversation"
+  > The circle reads the agent's saved threadId, then opens that thread. Settings belong to the agent; conversation history and execution stay in the thread.
 step "The circle resolves its agent's conversation"
   Client -> Agents: read agent-123
   Agents -> Profile: read settings and threadId
@@ -120,9 +122,9 @@ The public client now exposes the product action through [[203fa33c:packages/cli
 const agent = await client.agents.new({
   requestId,
   name: "Chief",
-  instructions: "Help me keep track of ongoing work.",
+  instructions: "",
 });
-// [!note agent] Returns the saved agent, including its id and threadId. UI RPC and exec tools call the same AgentService.
+// [!note agent] Returns id and threadId through the same service used by exec. Empty instructions support the planned name-only form; automatic greetings are not implemented yet.
 ```
 
 Inside `exec`, the same operations use the existing tool-result envelope. Errors must be checked before reading `data`:
@@ -131,33 +133,6 @@ Inside `exec`, the same operations use the existing tool-result envelope. Errors
 const result = await tools.agents.new({ requestId, name, instructions });
 if (!result.ok) throw new Error(JSON.stringify(result));
 const agent = result.data;
-```
-
-`agents.new()` composes existing thread creation internally. Public `thread.new()` still means ordinary work; callers cannot supply the internal reserved thread ID. Creation saves the relationship before the agent becomes available:
-
-```services
-service Client "UI / exec"
-service Agents "AgentService" [[203fa33c:packages/workspace-server/src/agents/AgentService.ts#L48-L97]]
-service Threads "ThreadManager" [[203fa33c:packages/workspace-server/src/threads/ThreadManager.ts#L230-L257]]
-service Metadata "Saved agent metadata"
-  state status = absent
-  state threadId = none
-step "Create submits name, instructions, and a retry ID"
-  Client -> Agents: agents.new(requestId, name, instructions)
-step "Reserve a recoverable creation identity"
-  Agents -> Metadata: reserve agent-123 linked to agent-thread-123
-  Metadata.threadId = agent-thread-123
-  Metadata.status = creating
-step "Reuse thread creation with a stable retry identity"
-  Agents -> Threads: threads.new(threadId = agent-thread-123)
-  Threads -> Agents: agent-thread-123
-step "Save the link before exposing the agent"
-  Agents -> Metadata: commit ready = true
-  Metadata.status = ready
-step "Publish conversation status only after readiness"
-  Agents -> Threads: publishSummary(agent-thread-123)
-step "Return the agent and its conversation"
-  Agents -> Client: agent-123, agent-thread-123, Chief
 ```
 
 [[203fa33c:packages/client/src/agents.ts#L17-L23]] defines the public agent record. Its `threadId` is unique in the database: one agent owns one backing conversation, and no two agents share it. Creation order belongs to the agent, not the thread's recent activity:
@@ -183,25 +158,7 @@ await client.thread.prompt({ sessionId: agent.threadId, requestId, text });
 // [!note changes] The watch yields an initial roster, then saved changes. The existing RPC keeps sessionId as its payload key.
 ```
 
-[[203fa33c:packages/client/src/agents.ts#L3-L16]] defines creation and settings inputs. Both validate at the shared service boundary; agent identity remains separate from conversation identity:
-
-```tsx [Creation input]
-type NewAgentInput = {
-  requestId: string;
-  name: string;
-  instructions: string;
-};
-```
-
-```tsx [Settings input]
-type AgentSettingsInput = {
-  agentId: string;
-  name: string;
-  instructions: string;
-};
-```
-
-[[203fa33c:packages/workspace-server/src/agents/agentsRouter.ts#L9-L28]] and [[203fa33c:packages/workspace-server/src/agents/agentTools.ts#L5-L39]] call one service. Error exits are shortened below; the saved reservation and ready commit are separate boundaries:
+[[203fa33c:packages/workspace-server/src/agents/agentsRouter.ts#L9-L28]] and [[203fa33c:packages/workspace-server/src/agents/agentTools.ts#L5-L39]] call one service. `agents.new()` reserves metadata, then composes thread creation internally. Public `thread.new()` still creates ordinary work; callers cannot supply the internal reserved thread ID. Error exits are shortened below:
 
 ```callstack {3-10} [Create an agent through the shared service]
  result = UI RPC or exec tool(input)
@@ -218,53 +175,11 @@ type AgentSettingsInput = {
 # [!note L5-L9] Pending records stay out of the agent roster and thread summaries; thread prompts and snapshots reject them until ready.
 ```
 
-The reservation uses SHA-256 of `requestId` with distinct `agent-` and `agent-thread-` prefixes. Ordinary thread retries use `thread-`, so even identical request IDs cannot join unrelated conversations. A ready retry returns current saved settings rather than overwriting a later rename:
+The reservation uses SHA-256 of `requestId` with distinct `agent-` and `agent-thread-` prefixes. Ordinary retries use `thread-`, so identical request IDs cannot join unrelated conversations. A ready retry returns current saved settings, preserving later edits; an unfinished record retains `ready: false` internally and stays out of rosters and thread summaries.
 
-```tsx [Reserve or reuse the same pair]
-const identity = sha256(input.requestId);
-const existing = await tx.get("agents", `agent-${identity}`);
-if (existing instanceof Error) return existing;
-if (existing?.ready) return existing;
-const agent = existing ?? {
-  id: `agent-${identity}`, threadId: `agent-thread-${identity}`,
-  name: input.name.trim(), instructions: input.instructions,
-  createdAt: Date.now(), ready: false,
-};
-tx.set("agents", agent);
-await db.commit(tx);
-return finishCreation(agent);
-// [!note L10-L11] Pseudocode abbreviates transaction setup, error conversion, and summary publication on ready retries.
-```
+[[203fa33c:packages/workspace-server/src/agents/AgentService.ts#L192-L208]] completes unfinished reservations during [[203fa33c:packages/workspace-server/src/server/WorkspaceServer.ts#L460-L469]], before normal thread recovery starts. It reuses an already saved backing thread and publishes status only once creation is ready.
 
-[[203fa33c:packages/workspace-server/src/agents/AgentService.ts#L192-L208]] completes unfinished reservations during [[203fa33c:packages/workspace-server/src/server/WorkspaceServer.ts#L460-L469]], before normal thread recovery starts. Existing thread creation reopens an already saved backing thread instead of creating another:
-
-```tsx [Resume interrupted creation]
-for (const agent of await db.query({ collection: "agents", where: { ready: false } })) {
-  const result = await finishCreation(agent);
-  if (result instanceof Error) return result;
-}
-```
-
-The stored record adds one internal readiness field; clients never receive it:
-
-```tsx [Stored creation state]
-type StoredAgent = AgentRecord & { ready: boolean };
-```
-
-[[203fa33c:packages/workspace-server/src/agents/AgentService.ts#L143-L178]] saves name and instructions together and notifies subscribers. Blank names fail validation; instructions may be empty. Renaming does not call `Thread.setName`:
-
-```tsx {2-5} [Save settings on the agent]
-async function updateAgentSettings(input: AgentSettingsInput) {
-  const agent = await tx.get("agents", input.agentId);
-  if (agent instanceof Error) return agent;
-  if (!agent?.ready || !input.name.trim()) return validationError;
-  const updated = { ...agent, name: input.name.trim(), instructions: input.instructions };
-  tx.set("agents", updated);
-  await db.commit(tx);
-  return updated;
-}
-// [!note L3-L4] Pseudocode omits transaction setup and domain error construction.
-```
+[[203fa33c:packages/client/src/agents.ts#L3-L16]] defines the inputs validated by the shared service. [[203fa33c:packages/workspace-server/src/agents/AgentService.ts#L143-L178]] saves name and instructions together and notifies subscribers. Blank names fail validation; instructions may be empty. Renaming does not call `Thread.setName`.
 
 [[203fa33c:packages/workspace-server/src/agent/Thread.ts#L233-L249]] reads current saved settings for each model request, including the first request after a restart. It adds agent identity and instructions while retaining base guidance, workspace instructions, skills, permissions, and approval rules:
 
@@ -327,33 +242,30 @@ type AgentWelcomeRequest = {
 
 Reopening the agent never repeats onboarding. If the user sends a message while the welcome is pending or running, preserve that message and let the agent respond in the same conversation rather than interrupting the user's task with a late setup question. Starting with empty role instructions does not itself add a policy for agents to rewrite saved instructions; that guidance remains to be settled.
 
-The model receives `send_user_message` in its tool list alongside `read` and `exec`. Speaking does not require JavaScript inside `exec`, and does not finish the run. This is a direct model tool call, shown as pseudocode:
+The model receives `send_user_message` alongside `read` and `exec`; speaking neither requires `exec` nor ends the run. Compare the same conversation path before and after: execution stays saved, but only a committed send reaches the agent transcript.
 
-```tsx [Call the built-in message tool directly]
-await send_user_message({ text: "I found two options. Checking the second one." });
-// ...continue working
-```
-
-The delivery boundary is the saved result, not a transient tool-progress event:
-
-```services
-service Runtime "Thread / Pi" [[packages/workspace-server/src/agent/Thread.ts#Thread]]
-service Saved "Same thread history"
-  state latestMessage = none
-service Pane "Agent conversation"
-  state message = none
-  state working = yes
-step "Ordinary assistant output stays internal"
-  Runtime -> Saved: save assistant text and tool execution
-step "The agent calls send_user_message"
-  Runtime -> Saved: commit successful result m1 with message payload
-  Saved.latestMessage = m1
-step "The committed message reaches the pane"
-  Saved -> Pane: message m1
-  Pane.message = m1
-step "The agent continues working"
-  Runtime -> Saved: further tool work
-  Pane.working = yes
+```services diff
+ service Runtime "Thread / Pi" [[packages/workspace-server/src/agent/Thread.ts#Thread]]
+ service Saved "Same thread history"
+   state latestMessage = none
+ service Pane "Conversation pane"
+   state message = none
+   state working = yes
+ start "Separate execution from messages to the user"
+   > Today, assistant narration and tool activity reach the thread pane. Proposed agent conversations retain that execution internally and show only committed sends; work can continue after a send.
+ step "Save ordinary assistant text and execution"
+   Runtime -> Saved: save assistant text and tool execution
+-  Saved -> Pane: assistant narration and tool rows
+-  Pane.message = assistant narration
++step "Commit an explicit send_user_message result"
++  Runtime -> Saved: commit successful result m1 with message payload
++  Saved.latestMessage = m1
++step "Deliver the committed message"
++  Saved -> Pane: message m1
++  Pane.message = m1
+ step "Continue working"
+   Runtime -> Saved: further tool work
+   Pane.working = yes
 ```
 
 Resolve the separate agent record before `Thread.attach` installs native tools. Follow the direct-model exposure used by [[packages/workspace-server/src/agent/tools/files/read.ts#readTool]] and [[packages/workspace-server/src/agent/runtime/ToolRuntime.ts#ToolRuntime.createModelTools]], rather than an exec-only API. Register the message tool only when that record owns the calling thread; it takes no recipient or second conversation ID:
@@ -369,23 +281,13 @@ Resolve the separate agent record before `Thread.attach` installs native tools. 
 # [!note send_user_message] Ordinary threads keep their existing output and tool behavior.
 ```
 
-The input is text/Markdown. The result details contain a checked message payload rather than a second database write or external notification:
-
-```tsx [Message tool input]
-type SendUserMessageInput = { text: string };
-```
-
-```tsx [Saved message payload]
-type SentUserMessage = { kind: "agent.userMessage"; text: string };
-```
-
-The tool returns the payload for Pi to commit through the existing result path:
+The input is text/Markdown. Return a checked payload in tool-result details for Pi to commit through its existing result path, not a second database write or an external notification:
 
 ```tsx {4} [Return a message payload]
-function sendUserMessage({ text }: SendUserMessageInput) {
+function sendUserMessage({ text }: { text: string }) {
   return {
     content: [{ type: "text", text: "Message sent." }],
-    details: { kind: "agent.userMessage", text } satisfies SentUserMessage,
+    details: { kind: "agent.userMessage" as const, text },
   };
 }
 // [!note details] The pane displays this only after successful commit, never from transient progress.
@@ -401,12 +303,6 @@ function projectAgentMessage(entry: CommittedToolResult) {
   return { id: entry.id, text: sent.text };
 }
 // [!note L5] Reconnect and replay use the same entry ID, not a fresh UI-generated message ID.
-```
-
-The visible row needs only its saved identity and text; existing user rows and host controls retain their contracts:
-
-```tsx [Delivered message]
-type DeliveredAgentMessage = { id: string; text: string };
 ```
 
 Projection changes the unread cursor without changing run status:
@@ -464,6 +360,8 @@ service Pane "Conversation pane" [[packages/web/src/main/agent/AgentPane.tsx#Age
 service Server "Workspace server"
   state agentName = Chief
 service Runtime "Agent / Pi"
+start "Name an agent, then talk in its one conversation"
+  > Creation saves the agent and queues its welcome without waiting for inference. The pane opens immediately; returning and changing settings keep the same backing thread.
 step "The user enters a name and presses Create"
   Sidebar -> Server: agents.new(name, empty instructions, requestId)
 step "Creation opens the agent's backing thread"
@@ -499,15 +397,7 @@ Load and subscribe to the agent roster separately from thread summaries. Join on
 # [!note roster] Agent changes update the roster; conversation events update its status. Do not persist a second name or instruction copy.
 ```
 
-Sort by agent creation time, not conversation activity. Missing conversation status while loading must not remove or reorder a saved agent; keep loading and errors distinct from an empty roster:
-
-```tsx [Keep circles stable]
-const roster = agents.toSorted((a, b) =>
-  a.createdAt - b.createdAt || a.id.localeCompare(b.id));
-const backingThreadIds = new Set(agents.map((agent) => agent.threadId));
-const ordinaryThreads = threads.filter((thread) =>
-  !backingThreadIds.has(thread.sessionId));
-```
+Sort by agent creation time, with ID as the tie-breaker, not conversation activity. Missing conversation status while loading must not remove or reorder a saved agent; keep loading and errors distinct from an empty roster.
 
 Use existing `/sessions/:threadId` links so saved tabs, drafts, and references keep working. Resolve the agent by backing thread ID on direct links as well as circle clicks; show lookup loading/errors rather than briefly rendering an agent as an ordinary thread. Do not add a second route or rename the existing `AgentPane` module:
 
@@ -549,7 +439,7 @@ Phase 1 is implemented in the code commit above, with these checks run against t
 - `pnpm --filter @get-halo/workspace-server test:e2e --maxWorkers=1`: all 92 package E2Es passed. The initial parallel run hit one browser-test timeout; that test passed alone and the complete suite passed serially.
 - Four temporary fault tests passed: interruption after reservation, after thread creation, during the ready save, and after the ready commit but before summary publication. Each reopened through actual server startup and recovered one agent/thread pair with the saved settings.
 
-No UI changed in Phase 1, so no visual flow is claimed as verified. Phases 2 and 3 must still validate message commit/replay and the existing `apps/electron/e2e/sidebar.e2e.test.ts` and `threadView.e2e.test.ts` consumer surfaces. The phase is local only; it has not been pushed, merged, or deployed.
+No Halo UI changed in Phase 1, so no agent flow is claimed as visually verified. Phases 2 and 3 must still validate message commit/replay and the existing `apps/electron/e2e/sidebar.e2e.test.ts` and `threadView.e2e.test.ts` consumer surfaces. Tracking this spec and Phase 1 code does not complete or deploy the full feature.
 
 ## References
 
