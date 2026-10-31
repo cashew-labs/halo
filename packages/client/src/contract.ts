@@ -45,20 +45,9 @@ import type {
   WorkspaceTreeEvent,
 } from "./rpc.js";
 
-// Persistent agents require the agents procedures and synced metadata collection.
+// Both clients and servers need the agent transcript and metadata contract.
 export const haloProtocolVersion = 34 as const;
-export const haloSupportedProtocols = [
-  25,
-  26,
-  27,
-  28,
-  29,
-  30,
-  31,
-  32,
-  33,
-  haloProtocolVersion,
-];
+export const haloSupportedProtocols = [haloProtocolVersion];
 
 export const RequestRejectedError = error("BAD_REQUEST", {
   message: "Halo could not complete the request.",

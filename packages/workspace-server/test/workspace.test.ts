@@ -4228,7 +4228,9 @@ serverTest(
       protocolVersion: haloProtocolVersion,
       supportedProtocols: haloSupportedProtocols,
     });
-    for (const version of [18, 19, 21, 22, 23, 24]) {
+    for (const version of [
+      33, 32, 31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 19, 18,
+    ]) {
       const previousProtocol = createHaloClient({
         transport: {
           ...server.transport,
@@ -4237,6 +4239,12 @@ serverTest(
             "x-halo-protocol-version": String(version),
           },
         },
+      });
+      await expect(previousProtocol.thread.list()).rejects.toMatchObject({
+        code: "UNSUPPORTED_PROTOCOL",
+      });
+      await expect(previousProtocol.server.watch()).rejects.toMatchObject({
+        code: "UNSUPPORTED_PROTOCOL",
       });
       await expect(
         previousProtocol.workspace.writeFile({
@@ -4423,7 +4431,7 @@ serverTest(
 );
 
 serverTest(
-  "released protocol 25 clients can connect new and saved integration cards",
+  "connects new and saved integration cards with legacy request data",
   async ({ createServer, llm }) => {
     let status: "authorizing" | "ready" | "failed" = "authorizing";
     const requested: { integration: string; connectionName?: string }[] = [];
@@ -4447,13 +4455,7 @@ serverTest(
     });
     await server.start();
     const legacy = createHaloClient({
-      transport: {
-        ...server.transport,
-        headers: {
-          ...server.transport.headers,
-          "x-halo-protocol-version": "25",
-        },
-      },
+      transport: server.transport,
     });
     const thread = await legacy.thread.new();
     const prompting = server.promptAndWait({
