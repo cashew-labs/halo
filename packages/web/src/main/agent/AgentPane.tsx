@@ -246,12 +246,19 @@ function ChatPane({
   );
   const column = useStyles(styles.column);
   const composer = useStyles(styles.composer);
+  // The sidebar dot shows routine states such as sleep, wake, and a dropped
+  // socket that reconnects at once. The banner waits for three failed attempts,
+  // about three seconds, so a status poll can first report a starting sleep.
   const connectionMessage = {
     upgrading: undefined,
-    connecting: "Connecting to your cloud workspace…",
-    reconnecting: "Connection lost. Automatically reconnecting…",
+    connecting: undefined,
+    reconnecting:
+      (connection.failedAttempts ?? 0) < 3 ||
+      (connection.power !== undefined && connection.power !== "running")
+        ? undefined
+        : "Connection lost. Automatically reconnecting…",
     offline: "You're offline. Halo will reconnect when you're back online.",
-    synchronizing: "Connection restored. Updating your chat…",
+    synchronizing: undefined,
     connected: undefined,
     authentication: "Click “Sign in required” in the sidebar to reconnect.",
     incompatible:

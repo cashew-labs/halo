@@ -30,6 +30,23 @@ fs.writeFileSync(
 EOF
 fi
 
+# Restore a saved per-user Entire login from the personal ENTIRE_LOGIN secret.
+# Keep an existing login: the CLI may have refreshed it since the secret was saved.
+if [[ -n "${ENTIRE_LOGIN:-}" && ! -s "$HOME/.config/entire/tokens.json" ]]; then
+  mkdir -p "$HOME/.config/entire"
+  chmod 700 "$HOME/.config/entire"
+  node --input-type=module <<'EOF'
+import fs from "node:fs";
+
+const login = JSON.parse(process.env.ENTIRE_LOGIN);
+const dir = `${process.env.HOME}/.config/entire`;
+for (const name of ["tokens", "contexts"])
+  fs.writeFileSync(`${dir}/${name}.json`, JSON.stringify(login[name]), {
+    mode: 0o600,
+  });
+EOF
+fi
+
 # Exact snapshots skip setup. Restore hooks, then test capture and plugin versions.
 if ! entire agent add amp --local || ! node .agents/entire.mjs; then
   echo "Entire startup verification failed. Run .agents/setup, then .agents/resume to retry." >&2

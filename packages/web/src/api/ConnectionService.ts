@@ -29,6 +29,11 @@ type ConnectionState = {
   error?: Error;
   power?: ControlPlaneWorkspaceStatus["status"];
   update?: ControlPlaneWorkspaceStatus["update"];
+  /**
+   * Failed attempts since the last connection, sign-in, or power change. It
+   * sets the retry backoff and tells a real outage from a sleep transition.
+   */
+  failedAttempts?: number;
 };
 
 const frameActivitySchema = Type.Object(
@@ -58,7 +63,6 @@ export class ConnectionService {
   private active = false;
   private generation = 0;
   private attempting = false;
-  private failures = 0;
   private attempts = 0;
   private outageSince: string | undefined;
   private timer: ReturnType<typeof setTimeout> | undefined;
@@ -141,6 +145,7 @@ export class ConnectionService {
       ...this.state,
       status: this.state.api === undefined ? "connecting" : "reconnecting",
       error: undefined,
+      failedAttempts: 0,
     });
     this.retry();
   }
@@ -159,6 +164,7 @@ export class ConnectionService {
       status: "offline",
       power: undefined,
       error: undefined,
+      failedAttempts: 0,
     });
   };
 
@@ -201,8 +207,12 @@ export class ConnectionService {
   ready(api: HaloClient) {
     if (api !== this.state.api || this.state.status !== "synchronizing") return;
     clearTimeout(this.timer);
-    this.failures = 0;
-    this.publish({ ...this.state, status: "connected", error: undefined });
+    this.publish({
+      ...this.state,
+      status: "connected",
+      error: undefined,
+      failedAttempts: 0,
+    });
     this.timer = setTimeout(
       () => void this.check().catch(console.error),
       30_000,
@@ -335,6 +345,9 @@ export class ConnectionService {
           ? undefined
           : this.state.power,
       error: incompatible ?? authentication ?? error,
+      // Some failed attempts carry no error, such as a 502 from a booting server.
+      failedAttempts:
+        status === "reconnecting" ? (this.state.failedAttempts ?? 0) + 1 : 0,
     });
     clearTimeout(this.timer);
     if (!this.active || status === "offline" || status === "authentication")
@@ -342,7 +355,10 @@ export class ConnectionService {
     const delay =
       status === "incompatible"
         ? 30_000
-        : Math.min(15_000, 1_000 * 2 ** Math.min(this.failures++, 4));
+        : Math.min(
+            15_000,
+            1_000 * 2 ** Math.min((this.state.failedAttempts ?? 1) - 1, 4),
+          );
     this.timer = setTimeout(
       this.retry,
       Math.min(15_000, delay * (0.8 + Math.random() * 0.4)) +
@@ -544,7 +560,6 @@ export class ConnectionService {
     }
     if (this.state.power === "waking")
       this.publish({ ...this.state, power: "running" });
-    this.failures = 0;
   }
 
   diagnostics() {
@@ -559,6 +574,9 @@ export class ConnectionService {
   }
 
   private publish(state: ConnectionState) {
+    // Failures before a sleep or wake say nothing about the new power state.
+    if (state.power !== this.state.power)
+      state = { ...state, failedAttempts: 0 };
     if (state.status === "connected") {
       this.outageSince = undefined;
       this.attempts = 0;
