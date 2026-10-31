@@ -508,6 +508,17 @@ apps/electron/e2e/sidebar.e2e.test.ts
 
 [[a13eefd3:packages/web/src/main/agent/AgentPane.tsx#L125-L134]] keeps the settings gate for known agents without blocking ordinary threads. The regression in [[a13eefd3:apps/electron/e2e/threadView.e2e.test.ts#L1347-L1384]] holds the public workspace sync pull while exercising the ordinary transcript, sending a streaming response, and stopping it. The transcript assertion failed before the fix; the whole scenario passed afterward against packaged Electron. The affected check passed all 57 tasks. The existing tooltip test now enters each circle once with Tab instead of racing a blur and immediate refocus through its close animation.
 
+### New clients require a server with agents
+
+The agents procedures and synced collection require protocol 34. A new app connecting to a protocol-33 server now enters the existing workspace-update flow instead of accepting the connection and failing when it creates an agent. New servers still accept protocol 33 and the other supported older clients.
+
+```changes
+1e25e8fd
+packages/client/src/contract.ts
+```
+
+[[1e25e8fd:packages/client/src/contract.ts#L48-L61]] updates the shared protocol declaration. The existing compatibility scenarios in [[apps/electron/e2e/basic.e2e.test.ts#L459-L567]] exercise an explicitly supported version, an older server, and retrying its update page.
+
 ## Verification and delivery boundary
 
 Phase 1 is implemented in the code commit above, with these checks run against that code:
