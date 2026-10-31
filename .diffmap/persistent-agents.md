@@ -519,6 +519,27 @@ packages/client/src/contract.ts
 
 [[1e25e8fd:packages/client/src/contract.ts#L48-L61]] updates the shared protocol declaration. The existing compatibility scenarios in [[apps/electron/e2e/basic.e2e.test.ts#L459-L567]] exercise an explicitly supported version, an older server, and retrying its update page.
 
+### Open previews follow draft edits and clearing
+
+The composer and pinned-circle tooltip read the same saved draft. An open tooltip must change as the composer changes, and clearing the draft must restore the latest delivered message. Each mounted draft consumer previously kept its own state, so the preview could stay stale until reopened.
+
+```changes
+b31967e8
+packages/web/src/main/agent/useMessageDraft.ts
+apps/electron/e2e/sidebar.e2e.test.ts
+```
+
+[[b31967e8:packages/web/src/main/agent/useMessageDraft.ts#L46-L93]] publishes a same-window notification after a successful save or removal. Mounted consumers for that key reread the existing storage value. Storage failures still preserve local typing and log a warning; they do not publish a successful change.
+
+```tsx
+saveDraft(key, text);
+notifyDraftConsumers(key);
+// The composer and tooltip now read the same saved value.
+preview = draft.trim() ? `Draft: ${draft}` : latestDeliveredMessage;
+```
+
+The existing creation scenario in [[b31967e8:apps/electron/e2e/sidebar.e2e.test.ts#L306-L329]] edits and clears the draft while the pointer stays over its circle. It failed before the fix with the old draft instead of the edited text, then passed against the rebuilt packaged app. The development app also showed both edits and the cleared fallback through real keyboard input with the tooltip open; screenshots and a pointer-driven recording were inspected.
+
 ## Verification and delivery boundary
 
 Phase 1 is implemented in the code commit above, with these checks run against that code:
@@ -543,6 +564,14 @@ Phase 3 is implemented in `c1015cec`, with these checks:
 - `HALO_USE_SWIFTSHADER=1 xvfb-run -a pnpm --filter @get-halo/desktop test:e2e:run e2e/sidebar.e2e.test.ts e2e/threadView.e2e.test.ts --workers=1`: 24 passed, one new sidebar test timed out because it selected the rich-text composer as a textbox. All 19 thread-view scenarios passed. Using the existing `Message` label fixed the new test; it then passed alone and in the final sidebar run.
 - `HALO_USE_SWIFTSHADER=1 xvfb-run -a pnpm --filter @get-halo/desktop test:e2e:run e2e/sidebar.e2e.test.ts e2e/.tmp-tests/agentsFailure.e2e.test.ts --workers=1`: all seven passed against the final packaged app: six permanent sidebar tests and one temporary introduction-failure recovery probe. The probe checked continued messaging, reload, and the same agent/thread pair; it was removed afterward.
 - The running development app generated a real introduction through the native message tool. Desktop and 390px roster/settings captures and a pointer-driven create/cancel, return, and settings recording were inspected. Names truncate intentionally; their accessible labels and tooltips retain the full names. These are desktop Chromium layouts, not a real phone test.
+
+Final review fixes, including the current main branch and live draft previews, passed:
+
+- `TURBO_SCM_BASE=origin/main pnpm run check-affected`: 57 tasks passed.
+- `pnpm --filter @get-halo/workspace-server test:e2e --maxWorkers=1`: 95 package E2Es passed.
+- `pnpm --filter @get-halo/desktop test:e2e:build`: packaged Electron successfully.
+- `HALO_USE_SWIFTSHADER=1 xvfb-run -a pnpm --filter @get-halo/desktop test:e2e:run e2e/sidebar.e2e.test.ts e2e/threadView.e2e.test.ts --workers=1`: 26 passed, including live draft edits and clearing, ordinary threads during delayed metadata sync, and reload recovery.
+- `HALO_USE_SWIFTSHADER=1 xvfb-run -a pnpm --filter @get-halo/desktop test:e2e:run e2e/basic.e2e.test.ts --grep 'explicitly supported protocol|update page while retrying an older server' --workers=1`: both passed against the final package.
 
 The three phases form the local feature; they have not been released or deployed. Dedicated transport-fault injection for the new forms and every metadata/status arrival ordering were not separately executed. Brain and Graph could not run in this session: the installed CLI lacks the Brain command and Graph plugin. Tracked plans, current source, and executed tests supplied the bounded fallback; neither tool was installed or repaired.
 
