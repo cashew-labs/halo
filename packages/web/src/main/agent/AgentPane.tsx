@@ -247,12 +247,13 @@ function ChatPane({
   const column = useStyles(styles.column);
   const composer = useStyles(styles.composer);
   // The sidebar dot shows routine states such as sleep, wake, and a dropped
-  // socket that reconnects at once. The banner waits for a retry to fail too.
+  // socket that reconnects at once. The banner waits for three failed attempts,
+  // about three seconds, so a status poll can first report a starting sleep.
   const connectionMessage = {
     upgrading: undefined,
     connecting: undefined,
     reconnecting:
-      (connection.failedAttempts ?? 0) < 2 ||
+      (connection.failedAttempts ?? 0) < 3 ||
       (connection.power !== undefined && connection.power !== "running")
         ? undefined
         : "Connection lost. Automatically reconnecting…",

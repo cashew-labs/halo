@@ -29,7 +29,10 @@ type ConnectionState = {
   error?: Error;
   power?: ControlPlaneWorkspaceStatus["status"];
   update?: ControlPlaneWorkspaceStatus["update"];
-  /** Failed attempts since the workspace last connected, woke, or went offline. */
+  /**
+   * Failed attempts since the last connection, sign-in, or power change. It
+   * sets the retry backoff and tells a real outage from a sleep transition.
+   */
   failedAttempts?: number;
 };
 
@@ -60,7 +63,6 @@ export class ConnectionService {
   private active = false;
   private generation = 0;
   private attempting = false;
-  private failures = 0;
   private attempts = 0;
   private outageSince: string | undefined;
   private timer: ReturnType<typeof setTimeout> | undefined;
@@ -205,7 +207,6 @@ export class ConnectionService {
   ready(api: HaloClient) {
     if (api !== this.state.api || this.state.status !== "synchronizing") return;
     clearTimeout(this.timer);
-    this.failures = 0;
     this.publish({
       ...this.state,
       status: "connected",
@@ -354,7 +355,10 @@ export class ConnectionService {
     const delay =
       status === "incompatible"
         ? 30_000
-        : Math.min(15_000, 1_000 * 2 ** Math.min(this.failures++, 4));
+        : Math.min(
+            15_000,
+            1_000 * 2 ** Math.min((this.state.failedAttempts ?? 1) - 1, 4),
+          );
     this.timer = setTimeout(
       this.retry,
       Math.min(15_000, delay * (0.8 + Math.random() * 0.4)) +
@@ -554,10 +558,8 @@ export class ConnectionService {
       }
       return;
     }
-    // Count failures from the wake, not from before the workspace slept.
     if (this.state.power === "waking")
-      this.publish({ ...this.state, power: "running", failedAttempts: 0 });
-    this.failures = 0;
+      this.publish({ ...this.state, power: "running" });
   }
 
   diagnostics() {
@@ -572,6 +574,9 @@ export class ConnectionService {
   }
 
   private publish(state: ConnectionState) {
+    // Failures before a sleep or wake say nothing about the new power state.
+    if (state.power !== this.state.power)
+      state = { ...state, failedAttempts: 0 };
     if (state.status === "connected") {
       this.outageSince = undefined;
       this.attempts = 0;
