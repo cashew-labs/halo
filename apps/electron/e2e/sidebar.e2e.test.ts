@@ -303,6 +303,28 @@ e2eTest(
     await expect(app.page.getByRole("tooltip")).not.toContainText(
       "Private execution note",
     );
+    const editor = pane.getByLabel("Message", { exact: true });
+    await editor.focus();
+    await expect(app.page.getByRole("tooltip")).toHaveCount(0);
+    await sidebar.getByRole("button", { name: "Desktop", exact: true }).hover();
+    await agents
+      .getByRole("button", { name: "Reading guide", exact: true })
+      .hover();
+    await expect(app.page.getByRole("tooltip")).toContainText(
+      "Draft: A book about Rome",
+    );
+    await editor.fill("A shorter book about Rome");
+    await expect(app.page.getByRole("tooltip")).toContainText(
+      "Draft: A shorter book about Rome",
+    );
+    await editor.fill("");
+    await expect(app.page.getByRole("tooltip")).toContainText(
+      "What would you like to explore?",
+    );
+    await editor.fill("A book about Rome");
+    await expect(app.page.getByRole("tooltip")).toContainText(
+      "Draft: A book about Rome",
+    );
     await expect(
       sidebar
         .getByRole("rowgroup", { name: "Threads", exact: true })

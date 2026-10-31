@@ -1,7 +1,9 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import * as errore from "errore";
 import { useAuthenticatedUserId } from "../../Authentication.js";
 import { useWorkspaceQuery } from "../../api/ApiProvider.js";
+
+const draftChangedEvent = "halo:message-draft-changed";
 
 class MessageDraftStorageError extends errore.createTaggedError({
   name: "MessageDraftStorageError",
@@ -49,11 +51,23 @@ export function clearMessageDraft(key: string | undefined) {
     catch: (cause) =>
       new MessageDraftStorageError({ operation: "clear", cause }),
   });
-  if (removed instanceof Error) console.warn(removed);
+  if (removed instanceof Error) {
+    console.warn(removed);
+    return;
+  }
+  window.dispatchEvent(new CustomEvent(draftChangedEvent, { detail: key }));
 }
 
 export function useMessageDraft(key: string | undefined) {
   const [draft, setDraft] = useState(() => readMessageDraft(key));
+  useEffect(() => {
+    const refresh = (event: Event) => {
+      if (event instanceof CustomEvent && event.detail === key)
+        setDraft(readMessageDraft(key));
+    };
+    window.addEventListener(draftChangedEvent, refresh);
+    return () => window.removeEventListener(draftChangedEvent, refresh);
+  }, [key]);
   const updateDraft = useCallback(
     (text: string) => {
       setDraft(text);
@@ -67,7 +81,11 @@ export function useMessageDraft(key: string | undefined) {
         catch: (cause) =>
           new MessageDraftStorageError({ operation: "save", cause }),
       });
-      if (saved instanceof Error) console.warn(saved);
+      if (saved instanceof Error) {
+        console.warn(saved);
+        return;
+      }
+      window.dispatchEvent(new CustomEvent(draftChangedEvent, { detail: key }));
     },
     [key],
   );
