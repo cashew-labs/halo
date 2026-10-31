@@ -508,16 +508,17 @@ apps/electron/e2e/sidebar.e2e.test.ts
 
 [[a13eefd3:packages/web/src/main/agent/AgentPane.tsx#L125-L134]] keeps the settings gate for known agents without blocking ordinary threads. The regression in [[a13eefd3:apps/electron/e2e/threadView.e2e.test.ts#L1347-L1384]] holds the public workspace sync pull while exercising the ordinary transcript, sending a streaming response, and stopping it. The transcript assertion failed before the fix; the whole scenario passed afterward against packaged Electron. The affected check passed all 57 tasks. The existing tooltip test now enters each circle once with Tab instead of racing a blur and immediate refocus through its close animation.
 
-### New clients require a server with agents
+### Clients and servers both require the agent contract
 
-The agents procedures and synced collection require protocol 34. A new app connecting to a protocol-33 server now enters the existing workspace-update flow instead of accepting the connection and failing when it creates an agent. New servers still accept protocol 33 and the other supported older clients.
+The agents procedures and synced collection require protocol 34. A new app connecting to a protocol-33 server enters the existing workspace-update flow instead of accepting the connection and failing when it creates an agent. Upgraded servers also reject older clients: those apps would show the backing thread's private narration and tool work and cannot render delivered agent messages correctly.
 
 ```changes
-1e25e8fd
+f7bb606f
 packages/client/src/contract.ts
+packages/workspace-server/test/workspace.test.ts
 ```
 
-[[1e25e8fd:packages/client/src/contract.ts#L48-L61]] updates the shared protocol declaration. The existing compatibility scenarios in [[apps/electron/e2e/basic.e2e.test.ts#L459-L567]] exercise an explicitly supported version, an older server, and retrying its update page.
+The initial bump in `1e25e8fd` retained older clients. [[f7bb606f:packages/client/src/contract.ts#L48-L50]] now supports only protocol 34 in both directions. The existing server regression in [[f7bb606f:packages/workspace-server/test/workspace.test.ts#L4221-L4298]] rejects old-client conversation reads, workspace streams, and writes. Before the fix, protocol 33 returned a conversation list instead of an error; afterward the regression passed. Saved integration-card request data remains usable through a current client. The existing desktop compatibility scenarios in [[apps/electron/e2e/basic.e2e.test.ts#L459-L567]] exercise an explicitly supported version, an older server, and retrying its update page.
 
 ### Open previews follow draft edits and clearing
 
@@ -529,7 +530,7 @@ packages/web/src/main/agent/useMessageDraft.ts
 apps/electron/e2e/sidebar.e2e.test.ts
 ```
 
-[[b31967e8:packages/web/src/main/agent/useMessageDraft.ts#L46-L93]] publishes a same-window notification after a successful save or removal. Mounted consumers for that key reread the existing storage value. Storage failures still preserve local typing and log a warning; they do not publish a successful change.
+[[b31967e8:packages/web/src/main/agent/useMessageDraft.ts#L46-L93]] introduced same-window draft notifications. Mounted consumers for that key reread the existing storage value. Storage failures still preserve local typing and log a warning; they do not publish a successful change.
 
 ```tsx
 saveDraft(key, text);
@@ -539,6 +540,24 @@ preview = draft.trim() ? `Draft: ${draft}` : latestDeliveredMessage;
 ```
 
 The existing creation scenario in [[b31967e8:apps/electron/e2e/sidebar.e2e.test.ts#L306-L329]] edits and clears the draft while the pointer stays over its circle. It failed before the fix with the old draft instead of the edited text, then passed against the rebuilt packaged app. The development app also showed both edits and the cleared fallback through real keyboard input with the tooltip open; screenshots and a pointer-driven recording were inspected.
+
+### Pending sends retain their visible composer text
+
+A send removes the saved draft before its acceptance RPC returns, but the composer must retain its text until acceptance or a committed message arrives. Publishing a clear notification from that storage-only removal emptied the composer too soon.
+
+```changes
+7d3d7840
+packages/web/src/main/agent/useMessageDraft.ts
+apps/electron/e2e/threadView.e2e.test.ts
+```
+
+[[7d3d7840:packages/web/src/main/agent/useMessageDraft.ts#L47-L96]] keeps the storage-only removal separate from explicit composer changes. The setter still publishes edits and clears for live tooltips. The existing attachment scenario in [[7d3d7840:apps/electron/e2e/threadView.e2e.test.ts#L1166-L1183]] holds the prompt request and checks that its text remains visible. It failed before the fix with an empty composer, then passed against the rebuilt packaged app.
+
+```tsx
+clearSavedDraft();
+await promptAccepted();
+setDraft(""); // Now notify mounted draft consumers.
+```
 
 ## Verification and delivery boundary
 
@@ -565,10 +584,10 @@ Phase 3 is implemented in `c1015cec`, with these checks:
 - `HALO_USE_SWIFTSHADER=1 xvfb-run -a pnpm --filter @get-halo/desktop test:e2e:run e2e/sidebar.e2e.test.ts e2e/.tmp-tests/agentsFailure.e2e.test.ts --workers=1`: all seven passed against the final packaged app: six permanent sidebar tests and one temporary introduction-failure recovery probe. The probe checked continued messaging, reload, and the same agent/thread pair; it was removed afterward.
 - The running development app generated a real introduction through the native message tool. Desktop and 390px roster/settings captures and a pointer-driven create/cancel, return, and settings recording were inspected. Names truncate intentionally; their accessible labels and tooltips retain the full names. These are desktop Chromium layouts, not a real phone test.
 
-Final review fixes, including the current main branch and live draft previews, passed:
+Review validation includes the current main branch, live draft previews, old-client rejection, and pending-send text:
 
 - `TURBO_SCM_BASE=origin/main pnpm run check-affected`: 57 tasks passed.
-- `pnpm --filter @get-halo/workspace-server test:e2e --maxWorkers=1`: 95 package E2Es passed.
+- `pnpm --filter @get-halo/workspace-server test:e2e --maxWorkers=1`: 86 package E2Es passed. The nine removed protocol-compatibility variants are no longer supported; retained integration-card data is still tested through a current client.
 - `pnpm --filter @get-halo/desktop test:e2e:build`: packaged Electron successfully.
 - `HALO_USE_SWIFTSHADER=1 xvfb-run -a pnpm --filter @get-halo/desktop test:e2e:run e2e/sidebar.e2e.test.ts e2e/threadView.e2e.test.ts --workers=1`: 26 passed, including live draft edits and clearing, ordinary threads during delayed metadata sync, and reload recovery.
 - `HALO_USE_SWIFTSHADER=1 xvfb-run -a pnpm --filter @get-halo/desktop test:e2e:run e2e/basic.e2e.test.ts --grep 'explicitly supported protocol|update page while retrying an older server' --workers=1`: both passed against the final package.
