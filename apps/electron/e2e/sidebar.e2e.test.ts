@@ -281,10 +281,12 @@ e2eTest(
     await expect(pane).not.toContainText("Private execution note");
     await expect(pane).not.toContainText("send_user_message");
     await agents
-      .getByRole("button", { name: "Reading guide", exact: true })
+      .getByRole("button", { name: "New agent", exact: true })
       .focus();
-    await app.page.keyboard.press("Shift+Tab");
     await app.page.keyboard.press("Tab");
+    await expect(
+      agents.getByRole("button", { name: "Reading guide", exact: true }),
+    ).toBeFocused();
     await expect(app.page.getByRole("tooltip")).toContainText(
       "Draft: A book about Rome",
     );
@@ -370,9 +372,13 @@ e2eTest(
     await app.page.reload();
     await expect(renamed).toContainText("Try SPQR.");
     await expect(settingsButton).toBeVisible();
-    await agents.getByRole("button", { name: "Research", exact: true }).focus();
-    await app.page.keyboard.press("Shift+Tab");
+    await agents
+      .getByRole("button", { name: "New agent", exact: true })
+      .focus();
     await app.page.keyboard.press("Tab");
+    await expect(
+      agents.getByRole("button", { name: "Research", exact: true }),
+    ).toBeFocused();
     await expect(app.page.getByRole("tooltip")).toContainText("Research");
     await expect(app.page.getByRole("tooltip")).toContainText("Try SPQR.");
     await expect(app.page.getByRole("tooltip")).not.toContainText(

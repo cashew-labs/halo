@@ -127,9 +127,7 @@ export function AgentPane({
   );
   const agentPending =
     agent === undefined &&
-    (agents.data === undefined ||
-      threadMeta?.agentId !== undefined ||
-      thread.state.agentId !== undefined);
+    (threadMeta?.agentId !== undefined || thread.state.agentId !== undefined);
   useMarkThreadRead({
     thread: agentPending ? undefined : threadMeta,
     state: thread.state,

@@ -1,5 +1,6 @@
 import { expect, type Route } from "@playwright/test";
 import { e2eTest } from "./e2eTest.js";
+import { routeWorkspaceRpc } from "./workspaceSocket.js";
 import { m } from "@get-halo/shared/testing";
 import { messageText } from "@get-halo/workspace-server/testing";
 import fs from "node:fs/promises";
@@ -1342,6 +1343,45 @@ e2eTest("starts a new thread", async ({ harness, app }) => {
   await expect(newThread).toBeVisible();
   await expect(newThread.getByLabel("Message", { exact: true })).toBeFocused();
 });
+
+e2eTest(
+  "keeps ordinary conversations usable while workspace metadata sync is delayed",
+  async ({ harness, app, llm }) => {
+    await harness.loadThread({
+      title: "Independent conversation",
+      messages: [m.user("Hello"), m.assistant("Ready to continue.")],
+    });
+    const pendingPulls: (() => void)[] = [];
+    await routeWorkspaceRpc(app.page, (request) => {
+      if (request.path === "/sync/pull") pendingPulls.push(request.continue);
+      else request.continue();
+    });
+    await app.page.reload();
+    await expect.poll(() => pendingPulls.length).toBeGreaterThan(0);
+
+    const pane = app.page.getByRole("main", {
+      name: "Independent conversation",
+    });
+    await expect(pane.getByRole("log")).toContainText("Ready to continue.");
+    await pane.getByLabel("Message", { exact: true }).fill("Keep working");
+    await pane.getByRole("button", { name: "Send", exact: true }).click();
+    const response = await llm.stream();
+    response.write(m.assistant("Work in progress."));
+    await expect(pane.getByRole("log")).toContainText("Work in progress.");
+    await pane.getByRole("button", { name: "Stop", exact: true }).click();
+    response.end();
+    await expect(
+      pane.getByText("Interrupted by user", { exact: true }),
+    ).toBeVisible();
+    await expect(pane.getByLabel("Message", { exact: true })).toHaveAttribute(
+      "contenteditable",
+      "true",
+    );
+
+    for (const resume of pendingPulls) resume();
+    await expect(pane.getByRole("log")).toContainText("Ready to continue.");
+  },
+);
 
 e2eTest(
   "continues with saved messages and tool results after quitting Halo",
