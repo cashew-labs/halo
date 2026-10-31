@@ -984,12 +984,28 @@ serverTest(
   "creates persistent agents through RPC and exec with one retry-safe conversation each",
   async ({ server, llm }) => {
     const controller = new AbortController();
-    using cleanup = new errore.DisposableStack();
+    await using cleanup = new errore.AsyncDisposableStack();
     cleanup.defer(() => controller.abort());
-    const watch = await server.rendererRpc.agents.watch(undefined, {
-      signal: controller.signal,
+    const replica = new TandemClient({
+      ...haloSchemaToTandemSchema(workspaceSchema),
+      remote: createWorkspaceRemote({
+        api: server.rendererRpc,
+        signal: controller.signal,
+        onDisconnect: console.warn,
+      }),
+      autoConnect: false,
     });
-    expect((await watch.next()).value).toEqual([]);
+    cleanup.defer(async () => await replica.disconnect());
+    const query = {
+      collection: "agents",
+      where: { ready: true },
+      orderBy: { createdAt: "asc", id: "asc" },
+    } as const;
+    const subscription = replica.subscribe(query, () => {});
+    cleanup.defer(subscription.destroy);
+    await replica.ready;
+    await replica.connect();
+    expect(replica.query(query)).toEqual([]);
     const ordinary = await server.rpc.thread.new({ requestId: "chief" });
     const summaries = await server.rendererRpc.thread.watchSummaries(
       undefined,
@@ -1010,7 +1026,7 @@ serverTest(
     expect(retry).toEqual(chief);
     expect(chief.name).toBe("Chief");
     expect(chief.id).not.toBe(chief.threadId);
-    await expect.poll(async () => (await watch.next()).value).toEqual([chief]);
+    await expect.poll(() => replica.query(query)).toMatchObject([chief]);
     await expect
       .poll(async () => (await summaries.next()).value)
       .toMatchObject({
@@ -1064,12 +1080,45 @@ serverTest(
     expect(editor.instructions).toBe("Check citations.");
     expect(editor.threadId).not.toBe(chief.threadId);
 
+    await server.rpc.thread.close({ sessionId: chief.threadId });
+    const renames = await server.rendererRpc.thread.watchSummaries(undefined, {
+      signal: controller.signal,
+    });
+    expect((await renames.next()).value).toMatchObject({
+      type: "snapshot",
+      sessions: expect.arrayContaining([
+        expect.objectContaining({ sessionId: chief.threadId, title: "Chief" }),
+      ]),
+    });
     const renamed = await server.rpc.agents.update({
       agentId: chief.id,
       name: "Research",
       instructions: "",
     });
     expect(renamed).toEqual({ ...chief, name: "Research", instructions: "" });
+    await expect
+      .poll(() => replica.query(query))
+      .toMatchObject([renamed, editor]);
+    expect((await renames.next()).value).toMatchObject({
+      type: "updated",
+      session: {
+        sessionId: chief.threadId,
+        title: "Research",
+        isRunning: false,
+      },
+    });
+    await server.rpc.thread.markDone({ sessionId: chief.threadId });
+    expect((await renames.next()).value).toMatchObject({
+      type: "updated",
+      session: {
+        sessionId: chief.threadId,
+        title: "Research",
+        markedDone: true,
+      },
+    });
+    await replica.disconnect();
+    await replica.connect();
+    expect(replica.query(query)).toMatchObject([renamed, editor]);
     await expect(
       server.rpc.agents.new({ ...input, requestId: "blank", name: "  " }),
     ).rejects.toThrow("Provide a name");

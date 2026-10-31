@@ -10,7 +10,6 @@ import {
   type WorkspaceSchema,
 } from "@get-halo/client";
 import { SerialQueue } from "@get-halo/shared/SerialQueue";
-import { Stream } from "@get-halo/shared/Stream";
 import type { DatabaseService } from "../database/DatabaseService.js";
 
 class AgentInputError extends errore.createTaggedError({
@@ -113,38 +112,6 @@ export class AgentService {
       .catch((cause) => new AgentStorageError({ operation: "list", cause }));
     if (agents instanceof Error) return agents;
     return agents.map(toAgentRecord);
-  }
-
-  async *watch(signal: AbortSignal | undefined) {
-    const changes = new Stream<AgentRecord[] | Error>();
-    using updates = changes.consume({ abortSignal: signal });
-    await using cleanup = new errore.AsyncDisposableStack();
-    const subscription = await this.db
-      .subscribe(
-        {
-          collection: "agents",
-          where: { ready: true },
-          orderBy: { createdAt: "asc", id: "asc" },
-        },
-        (records) => changes.append(records.map(toAgentRecord)),
-        {
-          onError: (cause) =>
-            changes.append(
-              new AgentStorageError({ operation: "watch", cause }),
-            ),
-        },
-      )
-      .catch(
-        (cause) => new AgentStorageError({ operation: "subscribe", cause }),
-      );
-    if (subscription instanceof Error) throw subscription;
-    cleanup.defer(subscription.destroy);
-    if (signal?.aborted) return;
-    yield subscription.result.map(toAgentRecord);
-    for await (const update of updates) {
-      if (update instanceof Error) throw update;
-      yield update;
-    }
   }
 
   async update(input: AgentSettingsInput) {

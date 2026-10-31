@@ -375,7 +375,6 @@ export const contract = publicProcedure.router({
   agents: {
     new: oc.input(type<NewAgentInput>()).output(type<AgentRecord>()),
     list: oc.output(type<AgentRecord[]>()),
-    watch: oc.output(asyncIteratorObject(type<AgentRecord[]>())),
     update: oc.input(type<AgentSettingsInput>()).output(type<AgentRecord>()),
   },
   // Keep sessionId payload keys for clients on supported older protocols.

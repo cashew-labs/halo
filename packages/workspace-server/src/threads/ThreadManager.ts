@@ -878,10 +878,12 @@ export class ThreadManager {
           if (agent instanceof Error) return agent;
           if (agent !== undefined && !agent.ready) return;
           const thread = this.threads.get(threadId);
-          if (thread === undefined) return;
           const fields = await this.getProductFields(threadId);
           if (fields instanceof Error) return fields;
-          const summary = await thread.readSummary();
+          const summary =
+            thread === undefined
+              ? await this.getSummaryUnqueued(threadId)
+              : thread.readSummary();
           if (summary instanceof Error) return summary;
           this.publish(
             applyProductFields({

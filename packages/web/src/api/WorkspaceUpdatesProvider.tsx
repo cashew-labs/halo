@@ -9,11 +9,12 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import * as errore from "errore";
 import type {
-  AgentRecord,
   ExtensionSummary,
   HaloClient,
   ThreadSummary,
 } from "@get-halo/client";
+import { useDatabaseQuery } from "../database/useDatabaseQuery.js";
+import { useWorkspaceDataSynced } from "../database/WorkspaceDataProvider.js";
 import { useWorkspaceQuery } from "./ApiProvider.js";
 import { reconnectStream } from "./reconnectStream.js";
 
@@ -23,17 +24,12 @@ class WorkspaceUpdatesError extends errore.createTaggedError({
 }) {}
 
 type WorkspaceState = {
-  agents: {
-    data: AgentRecord[] | undefined;
-    error: Error | undefined;
-  };
   extensions: {
     data: ExtensionSummary[] | undefined;
     error: Error | undefined;
   };
 };
 const empty: WorkspaceState = {
-  agents: { data: undefined, error: undefined },
   extensions: { data: undefined, error: undefined },
 };
 const WorkspaceUpdatesContext = createContext<WorkspaceState>(empty);
@@ -59,27 +55,6 @@ export function WorkspaceUpdatesProvider({
   useEffect(() => {
     if (workspaceRoot === undefined || !enabled) return;
     const controller = new AbortController();
-    reconnectStream({
-      name: "Agents",
-      signal: controller.signal,
-      open: async () =>
-        await api.agents.watch(undefined, { signal: controller.signal }),
-      onItem: (agents) => {
-        setState((current) => ({
-          ...(current.workspaceRoot === workspaceRoot ? current : empty),
-          workspaceRoot,
-          agents: { data: agents, error: undefined },
-        }));
-      },
-      onError: (error) => {
-        setState((current) => ({
-          ...(current.workspaceRoot === workspaceRoot ? current : empty),
-          workspaceRoot,
-          agents: { data: current.agents.data, error },
-        }));
-        service.fail(api, error);
-      },
-    });
     reconnectStream({
       name: "Workspace updates",
       signal: controller.signal,
@@ -158,5 +133,12 @@ export function useExtensions() {
 }
 
 export function useAgents() {
-  return useContext(WorkspaceUpdatesContext).agents;
+  const agents = useDatabaseQuery({
+    collection: "agents",
+    where: { ready: true },
+    orderBy: { createdAt: "asc", id: "asc" },
+  });
+  const synced = useWorkspaceDataSynced();
+  const { state } = useConnection();
+  return { data: synced ? agents : undefined, error: state.error };
 }
