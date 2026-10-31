@@ -1,5 +1,7 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
+  agentUserMessage,
   isThreadUnread,
   type AgentRecord,
   type ThreadSummary,
@@ -9,17 +11,25 @@ import {
   Flex,
   Text,
   Tooltip,
+  background,
   colors,
   flex,
   radius,
+  shadow,
   spacing,
   text,
+  tooltipStyles,
 } from "maui";
 import { Plus } from "maui/icons";
 import { style, useStyles } from "purse-styles";
 import { useAgents } from "../api/WorkspaceUpdatesProvider.js";
 import { useConnection } from "../api/ConnectionContext.js";
+import { useApi, useWorkspaceQuery } from "../api/ApiProvider.js";
 import { AgentDialog } from "../agents/AgentDialog.js";
+import {
+  useMessageDraft,
+  useMessageDraftKey,
+} from "../main/agent/useMessageDraft.js";
 import {
   useWorkspacePanes,
   usePaneLocation,
@@ -120,7 +130,10 @@ function AgentCircle({
           : "Ready";
   return (
     <div className={item}>
-      <Tooltip content={`${agent.name} · ${status}`} placement="top">
+      <Tooltip
+        content={<AgentPreview agent={agent} thread={thread} status={status} />}
+        placement="top"
+      >
         <Button
           className={circle}
           aria-label={agent.name}
@@ -142,6 +155,61 @@ function AgentCircle({
       </Tooltip>
       <Text className={name} size="xs" title={agent.name}>
         {agent.name}
+      </Text>
+    </div>
+  );
+}
+
+function AgentPreview({
+  agent,
+  thread,
+  status,
+}: {
+  agent: AgentRecord;
+  thread: ThreadSummary | undefined;
+  status: string;
+}) {
+  const api = useApi();
+  const workspaceRoot = useWorkspaceQuery().data?.workspaceRoot;
+  const key = useMessageDraftKey({ kind: "thread", messageId: agent.threadId });
+  const [draft] = useMessageDraft(key);
+  // Maui mounts tooltip content only while it is visible; no background thread watches.
+  const preview = useQuery({
+    queryKey: [
+      "agent-preview",
+      workspaceRoot,
+      agent.threadId,
+      thread?.updatedAt,
+    ],
+    queryFn: async () =>
+      await api.thread.snapshot({ sessionId: agent.threadId }),
+    enabled: draft.trim() === "" && thread !== undefined,
+  });
+  const delivered = preview.data?.entries
+    .flatMap((entry) => {
+      const message = agentUserMessage(entry);
+      return message === undefined ? [] : [message.text];
+    })
+    .at(-1);
+  const summary =
+    draft.trim() !== ""
+      ? `Draft: ${draft}`
+      : (delivered ??
+        (preview.isError
+          ? "Preview unavailable"
+          : preview.isFetching
+            ? "Loading preview…"
+            : status));
+  const card = useStyles(styles.preview);
+  const heading = useStyles(styles.previewName);
+  const excerpt = useStyles(styles.excerpt);
+  return (
+    <div className={card}>
+      <Text className={heading} size="sm" fontWeight={500}>
+        {agent.name}
+      </Text>
+      <Text className={excerpt} size="sm" color="lowContrast">
+        {summary.replace(/\s+/g, " ").trim()}
       </Text>
     </div>
   );
@@ -184,5 +252,35 @@ const styles = {
     right: "-4px",
     bottom: "-3px",
     pointerEvents: "none",
+  }),
+  preview: style(
+    flex({ direction: "column", gap: 2 }),
+    radius.xl,
+    shadow.medium,
+    background.element,
+    {
+      width: "260px",
+      maxWidth: "100%",
+      padding: spacing.value(6),
+      [`${tooltipStyles.root}:has(&)`]: {
+        maxWidth: "min(280px, calc(100vw - 24px))",
+        padding: 0,
+        border: 0,
+        backgroundColor: "transparent",
+        pointerEvents: "none" as const,
+      },
+    },
+  ),
+  previewName: style({
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  }),
+  excerpt: style({
+    display: "-webkit-box",
+    WebkitBoxOrient: "vertical",
+    WebkitLineClamp: 2,
+    overflow: "hidden",
+    overflowWrap: "anywhere",
   }),
 };
