@@ -45,8 +45,8 @@ import type {
   WorkspaceTreeEvent,
 } from "./rpc.js";
 
-// Connection cards require the workspace integrationConnections procedure.
-export const haloProtocolVersion = 33 as const;
+// Persistent agents require the agents procedures and synced metadata collection.
+export const haloProtocolVersion = 34 as const;
 export const haloSupportedProtocols = [
   25,
   26,
@@ -56,6 +56,7 @@ export const haloSupportedProtocols = [
   30,
   31,
   32,
+  33,
   haloProtocolVersion,
 ];
 
