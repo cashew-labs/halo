@@ -178,7 +178,7 @@ shadowVars.control | .subtle | .medium | .strong // raw box-shadow strings
 tintedSubtle(color)                             // subtle ring+blur tinted from a fill
 ```
 
-`shadow.control` uses inset highlights and a compact outer edge. Every elevation
+`shadow.control` is a small drop over a 0.5px edge: gray A6 (`grayAlpha[6]`) in light mode, 80% black in dark mode so the control looks cut into the surface. Dark mode also adds a 0.5px top highlight. Every elevation
 already includes a 1px ring. **Do not also `border()` the same element.**
 
 `border(sides, color)`:
