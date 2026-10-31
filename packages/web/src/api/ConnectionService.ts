@@ -249,6 +249,7 @@ export class ConnectionService {
               [
                 "server.info",
                 "server.watch",
+                "agents.watch",
                 "sync.connect",
                 "sync.pull",
                 "workspace.get",

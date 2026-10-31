@@ -13,7 +13,9 @@ import { SidebarSection } from "./navigation/SidebarSection.js";
 export function ThreadsSection({ threads }: { threads: ThreadSummary[] }) {
   const workspace = useWorkspacePanes();
   const sidebar = useSidebar();
-  const visibleThreads = threads.filter((thread) => !isDone(thread));
+  const visibleThreads = threads.filter(
+    (thread) => thread.agentId === undefined && !isDone(thread),
+  );
   return (
     <SidebarSection
       sectionId="sessions"

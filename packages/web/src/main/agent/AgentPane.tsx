@@ -2,6 +2,8 @@ import { useRestartWarning } from "../../confirmRestart.js";
 import { useIsActiveTab } from "../../panes/WorkspacePanesProvider.js";
 import { PaneHeaderActions } from "../../panes/PaneHeader.js";
 import { DoneButton } from "./DoneButton.js";
+import { useAgents } from "../../api/WorkspaceUpdatesProvider.js";
+import { AgentSettingsButton } from "../../agents/AgentSettingsButton.js";
 import { useMarkThreadRead } from "./useMarkThreadRead.js";
 import {
   useCallback,
@@ -16,6 +18,8 @@ import { skipToken, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import {
   Button,
+  Flex,
+  Text,
   Tooltip,
   backgroundColor,
   colors,
@@ -111,6 +115,9 @@ export function AgentPane({
   threads: ThreadSummary[];
 }) {
   const thread = useAgentThread(threadId);
+  const agents = useAgents();
+  const { service } = useConnection();
+  const agent = agents.data?.find((record) => record.threadId === threadId);
   const draftKey = useMessageDraftKey({
     kind: "thread",
     messageId: threadId,
@@ -118,22 +125,50 @@ export function AgentPane({
   const threadMeta = threads.find(
     ({ sessionId: candidateThreadId }) => candidateThreadId === threadId,
   );
-  useMarkThreadRead({ thread: threadMeta, state: thread.state });
+  const agentPending =
+    agent === undefined &&
+    (agents.data === undefined ||
+      threadMeta?.agentId !== undefined ||
+      thread.state.agentId !== undefined);
+  useMarkThreadRead({
+    thread: agentPending ? undefined : threadMeta,
+    state: thread.state,
+  });
   const { data: submittedTitle } = useQuery<string>({
     queryKey: threadTitleQueryKey(threadId),
     queryFn: skipToken,
   });
+  if (agentPending)
+    return (
+      <Flex column padding={12} gap={4}>
+        <Text role={agents.error === undefined ? "status" : "alert"} size="sm">
+          {agents.error === undefined
+            ? "Loading conversation…"
+            : "Couldn't load agent settings. Retry to reconnect."}
+        </Text>
+        {agents.error !== undefined && (
+          <Button onPress={service.retry}>Retry</Button>
+        )}
+      </Flex>
+    );
   return (
     <>
-      {threadMeta !== undefined && (
+      {agent !== undefined ? (
         <PaneHeaderActions>
-          <DoneButton thread={threadMeta} />
+          <AgentSettingsButton agent={agent} />
         </PaneHeaderActions>
+      ) : (
+        threadMeta !== undefined && (
+          <PaneHeaderActions>
+            <DoneButton thread={threadMeta} />
+          </PaneHeaderActions>
+        )
       )}
       <ChatPane
         threadId={threadId}
         draftKey={draftKey}
-        title={threadMeta?.title ?? submittedTitle}
+        title={agent?.name ?? threadMeta?.title ?? submittedTitle}
+        agentName={agent?.name}
         threads={threads}
         {...thread}
       />
@@ -176,6 +211,7 @@ function ChatPane({
   initialReferences = [],
   draftKey,
   title,
+  agentName,
   threads,
   state,
   error,
@@ -187,6 +223,7 @@ function ChatPane({
   initialReferences?: ChatReference[];
   draftKey: string | undefined;
   title: string | undefined;
+  agentName?: string;
   threads: ThreadSummary[];
   state: ThreadSnapshot;
   error: string | undefined;
@@ -196,6 +233,7 @@ function ChatPane({
   const isActiveTab = useIsActiveTab();
   const api = useApi();
   const { state: connection } = useConnection();
+  const agents = useAgents().data;
   const [draft, setDraft] = useMessageDraft(draftKey);
   const [references, setReferences] =
     useState<ChatReference[]>(initialReferences);
@@ -204,7 +242,10 @@ function ChatPane({
     .map((thread) => ({
       kind: "thread" as const,
       threadId: thread.sessionId,
-      title: thread.title ?? thread.sessionId,
+      title:
+        agents?.find((record) => record.threadId === thread.sessionId)?.name ??
+        thread.title ??
+        thread.sessionId,
     }));
   const outbox = useChatOutbox();
   const { uploads } = outbox;
@@ -650,7 +691,9 @@ function ChatPane({
             onChange={setDraft}
             onSubmit={submit}
             editable={!composerBusy}
-            placeholder="Message Halo"
+            placeholder={
+              agentName === undefined ? "Message Halo" : `Message ${agentName}`
+            }
             aria-label="Message"
             size="sm"
             className={composer}
