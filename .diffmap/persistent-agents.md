@@ -2,6 +2,8 @@
 
 Status: Phases 1 and 2 implemented and verified. Agents have saved identity, dynamic introductions, and a native message tool. The existing pane shows their delivered messages without execution rows. Phase 3 still adds the pinned roster, name-only creation form, and settings.
 
+The next review is the user flow in Phase 3: name an agent, talk in its existing conversation, return through its pinned circle, and edit its settings. The completed phases below link to their code commits. Phase 3 remains planned, not implemented.
+
 ## People return to an agent, not a new thread
 
 **Today:** Halo puts task conversations in the Threads list. Threads already persist, but each new task encourages another conversation. People must find an old thread or repeat context.
@@ -343,19 +345,19 @@ Two temporary recovery probes used the real Turso store and Pi harness: interrup
 
 The live Electron consumer introduced “Reading guide” with model-chosen history-book suggestions. A user request produced a note, hidden execution with Working/Stop, and a recommendation. The active pane acknowledged delivered messages; no kickoff bubble, tool rows, or private narration appeared. Pinned circles and settings are not present yet.
 
-## Phase 3: Add the pinned roster, quiet pane, and settings
+## Phase 3: Add the pinned roster, name-only creation, and settings
 
-**Today:** [[packages/web/src/sidebar/Sidebar.tsx#Sidebar]] renders Desktop above scrollable sections. [[packages/web/src/sidebar/ThreadsSection.tsx#ThreadsSection]] lists unfinished conversations. [[packages/web/src/main/agent/AgentPane.tsx#AgentPane]] is the existing thread UI despite its name; it supplies a Done action through the header slot.
+**Today:** The existing pane already renders agent messages without tool rows, and the server already starts a dynamic introduction on creation. There is no agent roster or creation/settings form. [[packages/web/src/sidebar/Sidebar.tsx#Sidebar]] renders Desktop above scrollable sections; [[packages/web/src/sidebar/ThreadsSection.tsx#ThreadsSection]] includes agent backing threads. [[packages/web/src/main/agent/AgentPane.tsx#AgentPane]] still supplies a Done action through the header slot.
 
-**Proposed:** A top-right “+” opens a name-only creation form. Create opens the agent's conversation immediately, where the agent introduces itself and asks what to do; the user does not write instructions or a first message to get started. Pinned circles return to that conversation, and Settings replaces Done in its header.
+**Proposed:** A top-right “+” opens a name-only creation form. Create opens the agent's conversation without waiting for its introduction; the user does not write instructions or a first message to get started. Pinned circles return to that conversation, and Settings replaces Done in its header. Reuse Phase 2's message projection and working/read state rather than add another transcript path.
 
 The form has Name, Create, and Cancel; a nonblank name enables Create, and Enter submits. Submission calls `agents.new({ requestId, name, instructions: "" })` with the same request ID on retry. Settings later exposes Name and Instructions, while the existing Threads “+” still creates ordinary work:
 
 ```tsx [Create with a name, then talk]
 const agent = await client.agents.new({ requestId, name, instructions: "" });
 openConversation(agent.threadId);
-// The server has queued the welcome; show working state until its messages arrive.
-// The composer is usable immediately. No second setup form or mandatory first prompt.
+// [!note L1] The server saves the agent and admits an ordinary introduction prompt before returning; it does not wait for inference.
+// [!note L2] The composer is usable immediately. No second setup form or mandatory first prompt.
 ```
 
 Creating, returning, and editing retain one agent ID and its one backing conversation ID:
@@ -372,20 +374,20 @@ start "Name an agent, then talk in its one conversation"
   > Creation saves the agent and queues its welcome without waiting for inference. The pane opens immediately; returning and changing settings keep the same backing thread.
 step "The user enters a name and presses Create"
   Sidebar -> Server: agents.new(name, empty instructions, requestId)
+step "Creation admits the ordinary introduction prompt"
+  Server -> Runtime: hidden input on thread-123, requestId create:agent-123
 step "Creation opens the agent's backing thread"
   Server -> Pane: agent-123 linked to thread-123
   Pane.openThread = thread-123
   Pane.header = Chief with Settings
-step "The server starts the welcome without a user prompt"
-  Server -> Runtime: durable welcome for agent-123
-  Runtime -> Pane: committed greeting message
-  Runtime -> Pane: committed question about what the user wants
+step "The model chooses and delivers its introduction"
+  Runtime -> Pane: committed send_user_message text
 step "The user describes the first task or role"
   Pane -> Runtime: user message in thread-123
 step "Returning uses the circle, not New thread"
   Sidebar -> Pane: open agent-123's thread-123
 step "Header settings edit the agent record"
-  Pane -> Server: agents.update(agent-123, name Research)
+  Pane -> Server: agents.update(agentId agent-123, name Research, instructions)
   Server.agentName = Research
 step "Agent metadata subscriptions update both labels"
   Server -> Sidebar: agent-123 named Research
@@ -415,34 +417,35 @@ Load and subscribe to the agent roster separately from thread summaries. Join on
 
 Sort by agent creation time, with ID as the tie-breaker, not conversation activity. Missing conversation status while loading must not remove or reorder a saved agent; keep loading and errors distinct from an empty roster.
 
-Use existing `/sessions/:threadId` links so saved tabs, drafts, and references keep working. Resolve the agent by backing thread ID on direct links as well as circle clicks; show lookup loading/errors rather than briefly rendering an agent as an ordinary thread. Do not add a second route or rename the existing `AgentPane` module:
+Use existing `/sessions/:threadId` links so saved tabs, drafts, and references keep working. Resolve the agent by backing thread ID on direct links as well as circle clicks; show lookup loading/errors rather than briefly rendering an agent as an ordinary thread. Do not add a second route or rename the existing `AgentPane` module. The rows already come from [[866ef8d9:packages/web/src/main/agent/threadView.ts#L131-L287]]; Phase 3 changes navigation and controls:
 
-```callstack {5-8} [Open the same thread pane]
+```callstack {5-7} [Open the same thread pane]
  onCirclePress(agent)
  └── WorkspacePanes.open({ path: "/sessions/" + agent.threadId }) [[packages/web/src/panes/WorkspacePanes.ts#WorkspacePanes]]
      └── pane = AgentPane(threadId, threads) [[packages/web/src/main/agent/AgentPane.tsx#AgentPane]]
--        └── return regular thread header and threadViewItems(snapshot)
+-        └── return Done header and existing conversation rows
 +        ├── agent = resolve saved agent by threadId
-+        ├── if agent: rows = delivered messages + required host controls
 +        ├── if agent: header = Settings; otherwise preserve Done
-+        └── return shared ChatPane(rows, header, existing composer)
-# [!note L5-L7] Agent metadata selects presentation; navigation still opens the original thread ID.
++        └── return shared ChatPane with existing rows, drafts, and composer
+# [!note L5-L7] Agent metadata selects header controls; navigation still opens the original thread ID.
 ```
 
-The agent branch uses the existing header slot and shared composer. The code below shows only the selected presentation; its rows reuse delivered messages and existing user/action/error shapes:
+The agent branch uses the existing header slot and shared composer. The planned settings button below does not exist yet; the message projection does:
 
 ```tsx {3-5} [Agent presentation]
 function AgentConversation({ agent, snapshot }) {
   return <>
     <PaneHeaderActions><AgentSettingsButton agentId={agent.id} /></PaneHeaderActions>
-    <ChatPane rows={deliveredAgentRows(snapshot)}
+    <ChatPane rows={threadViewItems(snapshot)}
       placeholder={`Message ${agent.name}`} />
   </>;
 }
-// [!note deliveredAgentRows] Includes user messages and required host controls, but no ordinary assistant text or tool rows.
+// [!note threadViewItems] Phase 2 already includes user messages and required host controls, but no ordinary assistant text or tool rows for agents.
 ```
 
 Selected, unread, and working states remain distinct. Give each an accessible label; use a simple working cue, not per-tool descriptions or avatar animation. Closing a tab never marks the agent done.
+
+Settings saves Name and Instructions through the existing `agents.update` API; cancel changes neither. The agent can already call that API through `exec`, but when it should rewrite its own instructions remains a guidance decision. Do not add automatic role saving or a mandatory role form in this phase. Guidance about creating separate task threads also remains deferred.
 
 Exercise zero/one/several agents, duplicate and long names, narrow layouts, all status states, name-only create/cancel/Enter, settings save/cancel, attachments, Stop, reconnect, and pending approval/connection controls. Verify that creation opens the conversation before the greeting finishes, the agent speaks first without a fake user bubble, the user can type while it works, and a welcome failure can be retried without another agent. Verify a rename updates the circle, open pane, tabs, and new search/reference results without changing the backing thread ID; include direct links and metadata/status arriving in either order. Extend existing sidebar/thread-view E2Es, then inspect final roster/conversation and settings captures plus a short interaction recording.
 

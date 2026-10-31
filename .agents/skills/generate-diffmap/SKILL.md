@@ -5,7 +5,7 @@ description: Create and update living specs and code walkthroughs with diffmap. 
 
 # Living spec
 
-A spec is one tracked Markdown file at `.diffmap/<short-kebab-case-name>.md` showing the current system, plan, and completed work. Update it as plans change and work lands. Reuse a pull request's spec for its walkthrough; otherwise create one under `.diffmap/`. Check paths and symbols before writing.
+A spec is one Markdown file at `specs/<short-kebab-case-name>.md` that shows the current system, the plan, and the work done. Update it as the plan changes and work lands. For a walkthrough of an existing pull request, use its spec if it has one; otherwise write under `.diffmap/`. Check the repo's paths and symbols before writing.
 
 **Settle scope first.** Read the relevant code before writing. When the design, scope, or phase split is unclear, check with the user before writing much: offer the options and your pick.
 
@@ -15,11 +15,11 @@ Run from the repo root:
 
 ```sh
 npx @tanishqkancharla/diffmap list                   # reuse the URL if this file is already served
-npx @tanishqkancharla/diffmap serve .diffmap/<name>.md
-npx @tanishqkancharla/diffmap share .diffmap/<name>.md  # only when asked; prints https://diffmap.dev/g/<id>
+npx @tanishqkancharla/diffmap serve specs/<name>.md
+npx @tanishqkancharla/diffmap share specs/<name>.md  # only when asked; prints https://diffmap.dev/g/<id>
 ```
 
-Leave the server running and give the user the file path and URL. Open the browser only when asked. Before sharing, commit finished work and point its references at the commit, as in [When a phase is complete](#when-a-phase-is-complete): `share` saves each referenced commit's diff into the gist, but a reference without a commit only opens the file as it was when shared. A shared gist is unlisted: anyone with the URL can read it, including every file it snapshots. A spec on a pull request is also at `https://diffmap.dev/<owner>/<repo>/pull/<n>/.diffmap/<name>.md`, pinned to a commit.
+Leave the server running and give the user the file path and URL. Open the browser only when asked. Before sharing, commit finished work and point its references at the commit, as in [When a phase is complete](#when-a-phase-is-complete): `share` saves each referenced commit's diff into the gist, but a reference without a commit only opens the file as it was when shared. A shared gist is unlisted: anyone with the URL can read it, including every file it snapshots. A spec on a pull request is also at `https://diffmap.dev/<owner>/<repo>/pull/<n>/specs/<name>.md`, pinned to a commit.
 
 ## Shape
 
