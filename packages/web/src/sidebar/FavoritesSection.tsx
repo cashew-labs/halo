@@ -11,7 +11,6 @@ import {
 import { useFavoriteIds } from "./SidebarPreferencesProvider.js";
 import { SidebarItem } from "./navigation/SidebarItem.js";
 import { SidebarSection } from "./navigation/SidebarSection.js";
-import { SidebarEmptyState } from "./SidebarEmptyState.js";
 
 export function FavoritesSection({
   threads,
@@ -35,12 +34,10 @@ export function FavoritesSection({
     }
   }
   collect(files);
+  if (favoriteIds.length === 0) return;
 
   return (
     <SidebarSection sectionId="favorites" label="Favorites">
-      {favoriteIds.length === 0 && synced && (
-        <SidebarEmptyState kind="favorites" />
-      )}
       {favoriteIds.map((favoriteId) => {
         if (favoriteId.startsWith("file:")) {
           const node = nodes.get(favoriteId);

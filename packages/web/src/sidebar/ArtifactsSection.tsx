@@ -121,11 +121,10 @@ export function ArtifactsSection({
       showFiles={show("documents")}
       emptyState={
         loaded && counts[artifactFilter] === 0 ? (
-          <SidebarEmptyState
-            // React Aria rejects id changes on a mounted row.
-            key={artifactFilter}
-            kind={artifactFilter === "all" ? "artifacts" : artifactFilter}
-          />
+          // React Aria rejects id changes on a mounted row.
+          <SidebarEmptyState key={artifactFilter}>
+            {`No ${artifactFilter === "all" ? "artifacts" : artifactFilter} yet`}
+          </SidebarEmptyState>
         ) : undefined
       }
     >

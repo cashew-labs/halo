@@ -214,7 +214,7 @@ e2eTest(
     ).toBeVisible();
     await expect(
       sidebar.getByRole("button", { name: sectionHeaders }),
-    ).toHaveText(["Favorites", "Artifacts", "Threads"]);
+    ).toHaveText(["Artifacts", "Threads"]);
     await expect(
       sidebar.getByRole("button", { name: /^Reorder / }),
     ).toHaveCount(0);

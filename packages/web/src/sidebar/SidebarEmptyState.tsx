@@ -6,34 +6,18 @@ import { Text, flex, spacing } from "maui";
 import { style, useStyles } from "purse-styles";
 import { sidebarPadding } from "./navigation/SidebarSection.js";
 
-export function SidebarEmptyState({
-  kind,
-}: {
-  kind:
-    | "artifacts"
-    | "documents"
-    | "extensions"
-    | "automations"
-    | "threads"
-    | "favorites";
-}) {
+export function SidebarEmptyState({ children }: { children: string }) {
   const row = useStyles(styles.row);
   const message = useStyles(styles.message);
   return (
     <NavigationTreeItem
-      id={`empty-${kind}`}
-      textValue={
-        kind === "favorites"
-          ? "Star an item to keep it here."
-          : `No ${kind} yet`
-      }
+      id={`empty:${children}`}
+      textValue={children}
       className={row}
     >
       <NavigationTreeItemContent>
         <Text size="2xs" color="lowContrast" className={message}>
-          {kind === "favorites"
-            ? "Star an item to keep it here."
-            : `No ${kind} yet`}
+          {children}
         </Text>
       </NavigationTreeItemContent>
     </NavigationTreeItem>
