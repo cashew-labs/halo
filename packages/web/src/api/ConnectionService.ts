@@ -29,6 +29,8 @@ type ConnectionState = {
   error?: Error;
   power?: ControlPlaneWorkspaceStatus["status"];
   update?: ControlPlaneWorkspaceStatus["update"];
+  /** Failed attempts since the workspace last connected, woke, or went offline. */
+  failedAttempts?: number;
 };
 
 const frameActivitySchema = Type.Object(
@@ -141,6 +143,7 @@ export class ConnectionService {
       ...this.state,
       status: this.state.api === undefined ? "connecting" : "reconnecting",
       error: undefined,
+      failedAttempts: 0,
     });
     this.retry();
   }
@@ -159,6 +162,7 @@ export class ConnectionService {
       status: "offline",
       power: undefined,
       error: undefined,
+      failedAttempts: 0,
     });
   };
 
@@ -202,7 +206,12 @@ export class ConnectionService {
     if (api !== this.state.api || this.state.status !== "synchronizing") return;
     clearTimeout(this.timer);
     this.failures = 0;
-    this.publish({ ...this.state, status: "connected", error: undefined });
+    this.publish({
+      ...this.state,
+      status: "connected",
+      error: undefined,
+      failedAttempts: 0,
+    });
     this.timer = setTimeout(
       () => void this.check().catch(console.error),
       30_000,
@@ -218,8 +227,7 @@ export class ConnectionService {
     const generation = ++this.generation;
     // A focus retry may discover credentials renewed in another window, and a
     // timed retry may find an updated server. Keep the sign-in action or update
-    // page available until that probe actually connects. A retry keeps the
-    // last failure so the chat banner stays up between attempts.
+    // page available until that probe actually connects.
     if (
       this.state.status !== "authentication" &&
       this.state.status !== "incompatible"
@@ -227,6 +235,7 @@ export class ConnectionService {
       this.publish({
         ...this.state,
         status: this.state.api === undefined ? "connecting" : "reconnecting",
+        error: undefined,
       });
     const timeout = setTimeout(
       () => controller.abort(new ConnectionTimeoutError()),
@@ -335,6 +344,9 @@ export class ConnectionService {
           ? undefined
           : this.state.power,
       error: incompatible ?? authentication ?? error,
+      // Some failed attempts carry no error, such as a 502 from a booting server.
+      failedAttempts:
+        status === "reconnecting" ? (this.state.failedAttempts ?? 0) + 1 : 0,
     });
     clearTimeout(this.timer);
     if (!this.active || status === "offline" || status === "authentication")
@@ -542,8 +554,9 @@ export class ConnectionService {
       }
       return;
     }
+    // Count failures from the wake, not from before the workspace slept.
     if (this.state.power === "waking")
-      this.publish({ ...this.state, power: "running" });
+      this.publish({ ...this.state, power: "running", failedAttempts: 0 });
     this.failures = 0;
   }
 
