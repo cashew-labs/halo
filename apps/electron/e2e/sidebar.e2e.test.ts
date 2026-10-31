@@ -78,7 +78,7 @@ e2eTest(
 );
 
 e2eTest(
-  "favorites hide their star at rest and expand favorited extensions",
+  "favorites hide their star at rest, expand extensions, and unfavorite from a context menu",
   async ({ app, harness }) => {
     await harness.tools.files.write({ path: "Notes.md", content: "# Notes" });
     await harness.tools.bash.run({
@@ -161,6 +161,16 @@ e2eTest(
       "data-saw-unavailable",
       "true",
     );
+
+    await favorites
+      .getByRole("link", { name: "Notes.md", exact: true })
+      .click({ button: "right" });
+    await app.page
+      .getByRole("menuitem", { name: "Remove from favorites", exact: true })
+      .click();
+    await expect(
+      favorites.getByRole("link", { name: "Notes.md", exact: true }),
+    ).toHaveCount(0);
   },
 );
 
@@ -214,7 +224,7 @@ e2eTest(
     ).toBeVisible();
     await expect(
       sidebar.getByRole("button", { name: sectionHeaders }),
-    ).toHaveText(["Favorites", "Artifacts", "Threads"]);
+    ).toHaveText(["Artifacts", "Threads"]);
     await expect(
       sidebar.getByRole("button", { name: /^Reorder / }),
     ).toHaveCount(0);

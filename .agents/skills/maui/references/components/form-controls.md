@@ -59,3 +59,53 @@ Controlled: `selected` + `onChange`. **`label` is required.**
 ```
 
 `RadioOption` must be nested. Group also accepts React Aria radio-group props (`isDisabled`, …).
+
+## Styles
+
+**TextField** — `textFieldStyles`
+- `root` — field wrapper around the input and error.
+- `input({ size, keyboardHint })` — RAC `Input`; `:hover`, `:disabled`, `aria-invalid`, `:focus-visible`, `::placeholder`.
+- `frame` — relative wrapper around the input when a keyboard hint is shown.
+- `keyboardHint` — Maui `Kbd variant="quiet"` inside `frame`.
+- `error` — RAC `FieldError`.
+
+**SearchField** — `searchFieldStyles`
+- `root` — wrapper around the input and clear button; styles its descendant `input` and `button`, so it needs that markup.
+- `input` — RAC `Input`; same states as `textFieldStyles.input`.
+- `keyboardHint` — Maui `Kbd variant="quiet"` inside `root`.
+
+**NumberField** — `numberFieldStyles`
+- `root` — RAC `Group`; `:has(:focus-visible)`, `:has(input:disabled)`, `:has(input[aria-invalid='true'])`; styles the stepper `button`s inside a `.number-stepper` wrapper, so it needs that markup.
+- `input` — RAC `Input`; `:hover`, `:disabled`, `::placeholder`.
+
+**QuietTextField** — `quietTextFieldStyles`
+- `input({ keyboardHint })` — RAC `Input`; `:hover`, `:disabled`, `aria-invalid`, `:focus-visible`, `::placeholder`.
+- `frame` — relative wrapper around the input when a keyboard hint is shown.
+- `keyboardHint` — Maui `Kbd variant="quiet"` inside `frame`.
+
+**Checkbox** — `checkboxStyles`
+- `root` — RAC `Checkbox`; `[data-hovered]`, `[data-selected]`, `[data-focus-visible]` restyle `box` and `check` by their own classes.
+- `box` — box `span` inside the checkbox.
+- `check` — checkmark `svg` inside `box`.
+- `label` — label text `span`.
+
+**Switch** — `switchStyles`
+- `root` — RAC `Switch`; `[data-hovered]`, `[data-selected]`, `[data-focus-visible]` restyle `track` and `thumb` by their own classes.
+- `track` — track `span` inside the switch.
+- `thumb` — knob `span` inside `track`.
+- `label` — label text `span`.
+
+**Radio** — `radioStyles`
+- `group` — RAC `RadioGroup`.
+- `groupLabel` — RAC `Label` inside the group.
+- `root` — RAC `Radio`; `[data-hovered]`, `[data-selected]`, `[data-focus-visible]` restyle `circle` and `dot` by their own classes.
+- `circle` — circle `span` inside the radio.
+- `dot` — dot `span` inside `circle`.
+
+**Slider** — `sliderStyles`
+- `root` — RAC `Slider`.
+- `header` — `div` holding the label and output.
+- `label` — RAC `Label` and RAC `SliderOutput`.
+- `track` — RAC `SliderTrack`; draws the rail in `::before`.
+- `fill` — `div` inside the track; set inline `width` from `state.getThumbPercent(0)`.
+- `thumb` — RAC `SliderThumb`; `[data-focus-visible]`, `[data-dragging]`.
