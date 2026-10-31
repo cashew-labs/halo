@@ -1,8 +1,8 @@
 # Persistent agents
 
-Status: Phases 1 and 2 implemented and verified. Agents have saved identity, dynamic introductions, and a native message tool. The existing pane shows their delivered messages without execution rows. Phase 3 still adds the pinned roster, name-only creation form, and settings.
+Status: All three phases are implemented locally. Agents have saved identity, dynamic introductions, a native message tool, pinned circles, name-only creation, and editable settings. The pane shows delivered messages without execution rows.
 
-The next review is the user flow in Phase 3: name an agent, talk in its existing conversation, return through its pinned circle, and edit its settings. The completed phases below link to their code commits. Phase 3 remains planned, not implemented.
+Review the full flow in Phase 3: name an agent, talk in its existing conversation, return through its pinned circle, and edit its settings. The completed phases below link to their code commits. These local changes are not a release or deployment. Guidance on self-editing instructions and separate task threads remains open.
 
 ## People return to an agent, not a new thread
 
@@ -28,7 +28,7 @@ The next review is the user flow in Phase 3: name an agent, talk in its existing
 ### Proposed defaults to review
 
 - Use initials inside each circle and a name below it. Use creation order, not recent activity, so agents do not move while people work.
-- Pin the agent row outside the scrolling list, above Desktop and the existing sidebar sections. Wrap circles for narrow sidebars rather than add another scroll area.
+- Pin the agent row above Desktop and the existing sidebar sections. Wrap circles for narrow sidebars; cap the roster at 180px and scroll it when needed so many agents cannot displace the navigation.
 - The top-right “+” creates an agent directly; the existing Threads “+” still creates a thread. Do not add search merely because it appears in the reference.
 - The creation form contains Name only. Save empty instructions initially; the user describes the agent's role in conversation. Settings still exposes Name and Instructions later. Cancel creates nothing; settings edits preserve history and apply at the next model request.
 - The welcome uses ordinary text/Markdown messages, such as “Hey, I'm Chief” and “What would you like me to do?” Exact wording comes from the agent, not a client-inserted assistant bubble. Grok's avatar picker and multiple-choice onboarding card are not required for this slice.
@@ -341,17 +341,30 @@ Baseline guidance says normal assistant text is not delivered, the message tool 
 
 **Verified:** The native tool commits only data; Pi's existing commit and safe-replay path owns delivery. Consumer E2Es in [[866ef8d9:packages/workspace-server/test/workspace.test.ts]] cover direct model exposure and isolation from ordinary threads, automatic introduction without a user message, two sends during one run, failed sends, silent completion, read receipts during work, stale receipt protection, restart with stable delivered IDs, private-text exclusion from search/references, memory/name in the first request, an incoming task during an interrupted introduction, and delivery followed by provider failure. [[866ef8d9:packages/web/src/main/agent/threadView.test.ts]] covers quiet rows, transient-output exclusion, approvals/connections, attachments/references, and stable message IDs.
 
-Two temporary recovery probes used the real Turso store and Pi harness: interrupt before admission, and lose the response after admission. Reopening recovered exactly one introduction submission and delivery in both cases. They were removed after verification. A failed model run preserves the agent and committed messages; dedicated onboarding retry UX belongs to Phase 3, not a new welcome type.
+Two temporary recovery probes used the real Turso store and Pi harness: interrupt before admission, and lose the response after admission. Reopening recovered exactly one introduction submission and delivery in both cases. They were removed after verification. A failed model run preserves the agent and committed messages; Phase 3 verifies continuing through the existing composer, without a new welcome type.
 
-The live Electron consumer introduced “Reading guide” with model-chosen history-book suggestions. A user request produced a note, hidden execution with Working/Stop, and a recommendation. The active pane acknowledged delivered messages; no kickoff bubble, tool rows, or private narration appeared. Pinned circles and settings are not present yet.
+At the Phase 2 commit, the live Electron consumer introduced “Reading guide” with model-chosen history-book suggestions. A user request produced a note, hidden execution with Working/Stop, and a recommendation. The active pane acknowledged delivered messages; no kickoff bubble, tool rows, or private narration appeared. That commit did not yet include pinned circles or settings.
 
-## Phase 3: Add the pinned roster, name-only creation, and settings
+## ✅ Phase 3: Add the pinned roster, name-only creation, and settings
 
-**Today:** The existing pane already renders agent messages without tool rows, and the server already starts a dynamic introduction on creation. There is no agent roster or creation/settings form. [[packages/web/src/sidebar/Sidebar.tsx#Sidebar]] renders Desktop above scrollable sections; [[packages/web/src/sidebar/ThreadsSection.tsx#ThreadsSection]] includes agent backing threads. [[packages/web/src/main/agent/AgentPane.tsx#AgentPane]] still supplies a Done action through the header slot.
+**Today:** Before this phase, the pane already rendered agent messages without tool rows, and creation started a dynamic introduction. There was no agent roster or creation/settings form. Backing conversations appeared under Threads, and their header still supplied Done.
 
 **Proposed:** A top-right “+” opens a name-only creation form. Create opens the agent's conversation without waiting for its introduction; the user does not write instructions or a first message to get started. Pinned circles return to that conversation, and Settings replaces Done in its header. Reuse Phase 2's message projection and working/read state rather than add another transcript path.
 
-The form has Name, Create, and Cancel; a nonblank name enables Create, and Enter submits. Submission calls `agents.new({ requestId, name, instructions: "" })` with the same request ID on retry. Settings later exposes Name and Instructions, while the existing Threads “+” still creates ordinary work:
+```changes
+c1015cec
+packages/web/src/sidebar/AgentsSection.tsx
+packages/web/src/agents/AgentDialog.tsx
+packages/web/src/main/agent/AgentPane.tsx
+packages/web/src/agents/AgentSettingsButton.tsx
+packages/web/src/panes/PaneWorkspace.tsx
+packages/web/src/api/WorkspaceUpdatesProvider.tsx
+packages/web/src/api/ConnectionService.ts
+packages/web/src/sidebar/ThreadsSection.tsx
+apps/electron/e2e/sidebar.e2e.test.ts
+```
+
+[[c1015cec:packages/web/src/agents/AgentDialog.tsx#L25-L182]] supplies Name, Create, and Cancel; a nonblank name enables Create, and Enter submits. A pending submission disables dismissal and repeat submission. After a failed creation request, Retry retains the original ID and input, and the name stays read-only; cancel/reopen starts a fresh draft. Settings exposes Name and Instructions, while the Threads “+” still creates ordinary work:
 
 ```tsx [Create with a name, then talk]
 const agent = await client.agents.new({ requestId, name, instructions: "" });
@@ -363,8 +376,8 @@ openConversation(agent.threadId);
 Creating, returning, and editing retain one agent ID and its one backing conversation ID:
 
 ```services
-service Sidebar [[packages/web/src/sidebar/Sidebar.tsx#Sidebar]]
-service Pane "Conversation pane" [[packages/web/src/main/agent/AgentPane.tsx#AgentPane]]
+service Sidebar [[c1015cec:packages/web/src/sidebar/AgentsSection.tsx#L30-L96]]
+service Pane "Conversation pane" [[c1015cec:packages/web/src/main/agent/AgentPane.tsx#L110-L177]]
   state openThread = none
   state header = none
 service Server "Workspace server"
@@ -395,14 +408,15 @@ step "Agent metadata subscriptions update both labels"
   Pane.header = Research with Settings
 ```
 
-Load and subscribe to the agent roster separately from thread summaries. Join on `threadId` for working/unread/action-needed state; names and instructions come only from the agent record. Backing threads move out of the ordinary Threads section into pinned circles, but both open the existing pane and remain searchable:
+[[c1015cec:packages/web/src/api/WorkspaceUpdatesProvider.tsx#L59-L83]] opens one shared agent subscription, separate from thread summaries. It retains the roster on reconnect and keeps loading, empty, and error states distinct. [[c1015cec:packages/web/src/api/ConnectionService.ts#L245-L265]] admits `agents.watch` during startup synchronization; otherwise the new subscription causes a reconnect loop before the workspace becomes ready.
+
+The roster joins conversation status on `threadId`; names and instructions come only from the agent record. Backing threads move out of the ordinary Threads section through `ThreadSummary.agentId`, but both surfaces open the existing pane and remain searchable:
 
 ```mermaid diff [Pinned agents and ordinary threads share the existing pane]
  flowchart TD
 -  Threads["Thread summaries"] --> List["Threads section"]
 +  Threads["Thread summaries"] -->|ordinary only| List["Threads section"]
-+  Agents["Agent metadata"] -->|exclude backing IDs| List
-+  Agents -->|names and order| Roster["Pinned agent circles"]
++  Agents["Agent metadata"] -->|names and order| Roster["Pinned agent circles"]
 +  Threads -->|status| Roster
    List -->|threadId| Pane["Existing conversation pane"]
 +  Roster -->|backing threadId| Pane
@@ -410,19 +424,20 @@ Load and subscribe to the agent roster separately from thread summaries. Join on
 +  Pane -->|ordinary thread| Done["Done action"]
 +  Pane -->|agent thread| Settings["Settings action"]
    %% ref node:Threads [[packages/client/src/rpc.ts#ThreadSummary]]
-   %% ref node:List [[packages/web/src/sidebar/ThreadsSection.tsx#ThreadsSection]]
-   %% ref node:Pane [[packages/web/src/main/agent/AgentPane.tsx#AgentPane]]
+   %% ref node:List [[c1015cec:packages/web/src/sidebar/ThreadsSection.tsx#L13-L22]]
+   %% ref node:Pane [[c1015cec:packages/web/src/main/agent/AgentPane.tsx#L110-L177]]
 +  %% ref node:Agents [[203fa33c:packages/client/src/agents.ts#L17-L23]]
++  %% ref node:Roster [[c1015cec:packages/web/src/sidebar/AgentsSection.tsx#L98-L188]]
 ```
 
-Sort by agent creation time, with ID as the tie-breaker, not conversation activity. Missing conversation status while loading must not remove or reorder a saved agent; keep loading and errors distinct from an empty roster.
+The server already orders agents by creation time and ID; the roster preserves that order, even while status is missing. Circles show a letter and a name, with selected, unread, and working cues. Full names remain available through accessible labels and tooltips; the visible label truncates long names. Tooltips sit above circles so they do not cover the next agent. Circles wrap in a roster bounded at 180px, leaving Desktop and the other sections available.
 
-Use existing `/sessions/:threadId` links so saved tabs, drafts, and references keep working. Resolve the agent by backing thread ID on direct links as well as circle clicks; show lookup loading/errors rather than briefly rendering an agent as an ordinary thread. Do not add a second route or rename the existing `AgentPane` module. The rows already come from [[866ef8d9:packages/web/src/main/agent/threadView.ts#L131-L287]]; Phase 3 changes navigation and controls:
+Existing `/sessions/:threadId` links preserve saved tabs, drafts, and references. The pane resolves metadata by backing thread ID on direct links and circle clicks, deferring agent presentation and read receipts while metadata loads. The rows still come from [[866ef8d9:packages/web/src/main/agent/threadView.ts#L131-L287]]; this phase changes navigation and controls:
 
 ```callstack {5-7} [Open the same thread pane]
  onCirclePress(agent)
  └── WorkspacePanes.open({ path: "/sessions/" + agent.threadId }) [[packages/web/src/panes/WorkspacePanes.ts#WorkspacePanes]]
-     └── pane = AgentPane(threadId, threads) [[packages/web/src/main/agent/AgentPane.tsx#AgentPane]]
+     └── pane = AgentPane(threadId, threads) [[c1015cec:packages/web/src/main/agent/AgentPane.tsx#L110-L177]]
 -        └── return Done header and existing conversation rows
 +        ├── agent = resolve saved agent by threadId
 +        ├── if agent: header = Settings; otherwise preserve Done
@@ -430,12 +445,12 @@ Use existing `/sessions/:threadId` links so saved tabs, drafts, and references k
 # [!note L5-L7] Agent metadata selects header controls; navigation still opens the original thread ID.
 ```
 
-The agent branch uses the existing header slot and shared composer. The planned settings button below does not exist yet; the message projection does:
+The agent branch uses the existing header slot and shared composer. This shortened pseudocode shows that boundary; [[c1015cec:packages/web/src/agents/AgentSettingsButton.tsx#L7-L23]] owns the settings dialog:
 
 ```tsx {3-5} [Agent presentation]
 function AgentConversation({ agent, snapshot }) {
   return <>
-    <PaneHeaderActions><AgentSettingsButton agentId={agent.id} /></PaneHeaderActions>
+    <PaneHeaderActions><AgentSettingsButton agent={agent} /></PaneHeaderActions>
     <ChatPane rows={threadViewItems(snapshot)}
       placeholder={`Message ${agent.name}`} />
   </>;
@@ -443,11 +458,11 @@ function AgentConversation({ agent, snapshot }) {
 // [!note threadViewItems] Phase 2 already includes user messages and required host controls, but no ordinary assistant text or tool rows for agents.
 ```
 
-Selected, unread, and working states remain distinct. Give each an accessible label; use a simple working cue, not per-tool descriptions or avatar animation. Closing a tab never marks the agent done.
+[[c1015cec:packages/web/src/panes/PaneWorkspace.tsx#L47-L82]] uses current agent names in tabs and headers. The composer and new reference suggestions do the same, while older messages retain their original text. Closing a tab never marks the agent done.
 
-Settings saves Name and Instructions through the existing `agents.update` API; cancel changes neither. The agent can already call that API through `exec`, but when it should rewrite its own instructions remains a guidance decision. Do not add automatic role saving or a mandatory role form in this phase. Guidance about creating separate task threads also remains deferred.
+Settings saves Name and Instructions through `agents.update`; cancel changes neither. Instructions apply to the next model request, and renaming keeps the thread and draft intact. The agent can already call that API through `exec`, but when it should rewrite its own instructions remains a guidance decision. There is no automatic role saving or mandatory role form. Guidance about separate task threads also remains deferred.
 
-Exercise zero/one/several agents, duplicate and long names, narrow layouts, all status states, name-only create/cancel/Enter, settings save/cancel, attachments, Stop, reconnect, and pending approval/connection controls. Verify that creation opens the conversation before the greeting finishes, the agent speaks first without a fake user bubble, the user can type while it works, and a welcome failure can be retried without another agent. Verify a rename updates the circle, open pane, tabs, and new search/reference results without changing the backing thread ID; include direct links and metadata/status arriving in either order. Extend existing sidebar/thread-view E2Es, then inspect final roster/conversation and settings captures plus a short interaction recording.
+Two consumer tests in [[c1015cec:apps/electron/e2e/sidebar.e2e.test.ts#L230-L447]] cover name-only create/cancel/Enter, opening and typing before inference, native introduction delivery without narration or tool rows, settings cancel/save, instructions on the next request, draft/history retention after rename and reload, duplicate/long names, creation order, working/unread/read state, and narrow-sidebar navigation. Existing thread-view tests retain attachment, Stop, queue, connection, and ordinary-thread coverage. A temporary Electron probe also failed the introduction through the model endpoint, then sent a user message and reloaded: it recovered in the same agent/thread pair. Recovery uses the existing composer, not a special welcome type or a second agent.
 
 ## Verification and delivery boundary
 
@@ -466,7 +481,15 @@ Phase 2 is implemented in `866ef8d9`, with these checks run against that code:
 - Two temporary recovery probes passed with real Turso/Pi admission, covering interruption before admission and response loss after admission. Both recovered exactly one introduction submission and delivery; scratch tests were removed.
 - The real development Electron pane was exercised with model inference, native sends, hidden work, Working/Stop, and active-pane read receipts. Introduction, running, and completed states were captured and inspected, along with a pointer-driven reply recording.
 
-Phases 1 and 2 are local building blocks, not the complete or deployed feature. Phase 3 must still verify the pinned roster, creation/settings forms, and the existing `apps/electron/e2e/sidebar.e2e.test.ts` and `threadView.e2e.test.ts` consumer surfaces. Brain and Graph could not run in this session: the installed CLI lacks the Brain command and Graph plugin. Tracked plans, current source, and executed tests supplied the bounded fallback; no tools were installed or repaired.
+Phase 3 is implemented in `c1015cec`, with these checks:
+
+- `TURBO_SCM_BASE=origin/main pnpm run check-affected`: 57 tasks passed, including web/desktop lint, formatting, affected typechecks, and unit tests.
+- `pnpm --filter @get-halo/desktop test:e2e:build`: packaged the final Electron application successfully.
+- `HALO_USE_SWIFTSHADER=1 xvfb-run -a pnpm --filter @get-halo/desktop test:e2e:run e2e/sidebar.e2e.test.ts e2e/threadView.e2e.test.ts --workers=1`: 24 passed, one new sidebar test timed out because it selected the rich-text composer as a textbox. All 19 thread-view scenarios passed. Using the existing `Message` label fixed the new test; it then passed alone and in the final sidebar run.
+- `HALO_USE_SWIFTSHADER=1 xvfb-run -a pnpm --filter @get-halo/desktop test:e2e:run e2e/sidebar.e2e.test.ts e2e/.tmp-tests/agentsFailure.e2e.test.ts --workers=1`: all seven passed against the final packaged app: six permanent sidebar tests and one temporary introduction-failure recovery probe. The probe checked continued messaging, reload, and the same agent/thread pair; it was removed afterward.
+- The running development app generated a real introduction through the native message tool. Desktop and 390px roster/settings captures and a pointer-driven create/cancel, return, and settings recording were inspected. Names truncate intentionally; their accessible labels and tooltips retain the full names. These are desktop Chromium layouts, not a real phone test.
+
+The three phases form the local feature; they have not been released or deployed. Dedicated transport-fault injection for the new forms and every metadata/status arrival ordering were not separately executed. Brain and Graph could not run in this session: the installed CLI lacks the Brain command and Graph plugin. Tracked plans, current source, and executed tests supplied the bounded fallback; neither tool was installed or repaired.
 
 ## References
 
