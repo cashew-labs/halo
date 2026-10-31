@@ -218,7 +218,8 @@ export class ConnectionService {
     const generation = ++this.generation;
     // A focus retry may discover credentials renewed in another window, and a
     // timed retry may find an updated server. Keep the sign-in action or update
-    // page available until that probe actually connects.
+    // page available until that probe actually connects. A retry keeps the
+    // last failure so the chat banner stays up between attempts.
     if (
       this.state.status !== "authentication" &&
       this.state.status !== "incompatible"
@@ -226,7 +227,6 @@ export class ConnectionService {
       this.publish({
         ...this.state,
         status: this.state.api === undefined ? "connecting" : "reconnecting",
-        error: undefined,
       });
     const timeout = setTimeout(
       () => controller.abort(new ConnectionTimeoutError()),
