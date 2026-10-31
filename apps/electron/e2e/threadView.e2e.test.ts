@@ -1174,6 +1174,7 @@ attachmentTest(
     ).toBeDisabled();
     await expect(pane.getByRole("status")).toHaveText("Preparing attachments…");
     await expect(attachments.getByRole("listitem")).toHaveCount(3);
+    await expect(editor).toHaveText("Summarize my attached files");
     await uploads[0]!.continue();
     await app.page.unroute("**/rpc/thread/prompt");
     await llm.respond(({ messages }) => {

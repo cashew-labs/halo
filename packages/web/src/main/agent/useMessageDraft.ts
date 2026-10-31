@@ -44,6 +44,7 @@ function readMessageDraft(key: string | undefined) {
   return stored ?? "";
 }
 
+// Dropping the saved copy during submission must not clear the visible composer.
 export function clearMessageDraft(key: string | undefined) {
   if (key === undefined) return;
   const removed = errore.try({
@@ -53,9 +54,8 @@ export function clearMessageDraft(key: string | undefined) {
   });
   if (removed instanceof Error) {
     console.warn(removed);
-    return;
+    return removed;
   }
-  window.dispatchEvent(new CustomEvent(draftChangedEvent, { detail: key }));
 }
 
 export function useMessageDraft(key: string | undefined) {
@@ -71,11 +71,14 @@ export function useMessageDraft(key: string | undefined) {
   const updateDraft = useCallback(
     (text: string) => {
       setDraft(text);
+      if (key === undefined) return;
       if (text === "") {
-        clearMessageDraft(key);
+        if (clearMessageDraft(key) instanceof Error) return;
+        window.dispatchEvent(
+          new CustomEvent(draftChangedEvent, { detail: key }),
+        );
         return;
       }
-      if (key === undefined) return;
       const saved = errore.try({
         try: () => window.localStorage.setItem(key, text),
         catch: (cause) =>
