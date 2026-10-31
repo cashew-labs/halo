@@ -1,5 +1,7 @@
 import { expect, type Page } from "@playwright/test";
 import { e2eTest } from "./e2eTest.js";
+import { m } from "@get-halo/shared/testing";
+import { messageText } from "@get-halo/workspace-server/testing";
 
 const sectionHeaders = /^(Collapse|Expand) (Favorites|Artifacts|Threads)$/;
 
@@ -234,6 +236,271 @@ e2eTest(
 function workspaceSidebar(page: Page) {
   return page.getByRole("navigation", { name: "Workspace", exact: true });
 }
+
+e2eTest(
+  "creates an agent with a name, introduces itself quietly, and saves settings on the same conversation",
+  async ({ app, llm }) => {
+    const sidebar = workspaceSidebar(app.page);
+    const agents = sidebar.getByRole("region", { name: "Agents", exact: true });
+    await expect(agents).toContainText("Create an agent");
+    await agents
+      .getByRole("button", { name: "New agent", exact: true })
+      .click();
+    const create = app.page.getByRole("dialog", {
+      name: "New agent",
+      exact: true,
+    });
+    await expect(
+      create.getByRole("button", { name: "Create", exact: true }),
+    ).toBeDisabled();
+    await create
+      .getByRole("textbox", { name: "Name", exact: true })
+      .fill("Canceled");
+    await create.getByRole("button", { name: "Cancel", exact: true }).click();
+    expect(await app.server.rpc.agents.list()).toEqual([]);
+    await agents
+      .getByRole("button", { name: "New agent", exact: true })
+      .click();
+    const name = create.getByRole("textbox", { name: "Name", exact: true });
+    await expect(name).toHaveValue("");
+    await name.fill("  Reading guide  ");
+    await name.press("Enter");
+    const pane = app.page.getByRole("main", {
+      name: "Reading guide",
+      exact: true,
+    });
+    await expect(pane).toBeVisible();
+    await expect(
+      pane.getByRole("button", { name: "Stop", exact: true }),
+    ).toBeVisible();
+    // Opening and typing do not wait for the model's first reply.
+    await pane.getByLabel("Message", { exact: true }).fill("A book about Rome");
+    await expect(
+      pane.getByRole("article", { name: "You message", exact: true }),
+    ).toHaveCount(0);
+    await llm.respond(
+      m.tool.start("send_user_message", {
+        id: "intro",
+        arguments: {
+          text: "I'm your reading guide. What would you like to explore?",
+        },
+      }),
+    );
+    await expect(pane).toContainText("What would you like to explore?");
+    await llm.respond(m.assistant("Private execution note"));
+    await expect(pane).not.toContainText("Private execution note");
+    await expect(pane).not.toContainText("send_user_message");
+    await agents
+      .getByRole("button", { name: "New agent", exact: true })
+      .focus();
+    await app.page.keyboard.press("Tab");
+    await expect(
+      agents.getByRole("button", { name: "Reading guide", exact: true }),
+    ).toBeFocused();
+    await expect(app.page.getByRole("tooltip")).toContainText(
+      "Draft: A book about Rome",
+    );
+    await expect(app.page.getByRole("tooltip")).not.toContainText(
+      "Private execution note",
+    );
+    const editor = pane.getByLabel("Message", { exact: true });
+    await editor.focus();
+    await expect(app.page.getByRole("tooltip")).toHaveCount(0);
+    await sidebar.getByRole("button", { name: "Desktop", exact: true }).hover();
+    await agents
+      .getByRole("button", { name: "Reading guide", exact: true })
+      .hover();
+    await expect(app.page.getByRole("tooltip")).toContainText(
+      "Draft: A book about Rome",
+    );
+    await editor.fill("A shorter book about Rome");
+    await expect(app.page.getByRole("tooltip")).toContainText(
+      "Draft: A shorter book about Rome",
+    );
+    await editor.fill("");
+    await expect(app.page.getByRole("tooltip")).toContainText(
+      "What would you like to explore?",
+    );
+    await editor.fill("A book about Rome");
+    await expect(app.page.getByRole("tooltip")).toContainText(
+      "Draft: A book about Rome",
+    );
+    await expect(
+      sidebar
+        .getByRole("rowgroup", { name: "Threads", exact: true })
+        .getByRole("link"),
+    ).toHaveCount(0);
+    const [agent] = await app.server.rpc.agents.list();
+    expect(agent?.name).toBe("Reading guide");
+    expect(agent?.instructions).toBe("");
+
+    const settingsButton = app.page.getByRole("button", {
+      name: "Agent settings",
+      exact: true,
+    });
+    await expect(
+      app.page.getByRole("button", { name: "Done", exact: true }),
+    ).toHaveCount(0);
+    await settingsButton.click();
+    const settings = app.page.getByRole("dialog", {
+      name: "Agent settings",
+      exact: true,
+    });
+    await settings
+      .getByRole("textbox", { name: "Name", exact: true })
+      .fill("Not saved");
+    await settings
+      .getByRole("textbox", { name: "Instructions", exact: true })
+      .fill("Ignore this draft");
+    await settings.getByRole("button", { name: "Cancel", exact: true }).click();
+    expect((await app.server.rpc.agents.list())[0]).toEqual(agent);
+    await settingsButton.click();
+    await expect(
+      settings.getByRole("textbox", { name: "Name", exact: true }),
+    ).toHaveValue("Reading guide");
+    await expect(
+      settings.getByRole("textbox", { name: "Instructions", exact: true }),
+    ).toHaveValue("");
+    await settings
+      .getByRole("textbox", { name: "Name", exact: true })
+      .fill("Research");
+    await settings
+      .getByRole("textbox", { name: "Instructions", exact: true })
+      .fill("Prefer long histories of Rome.");
+    await settings.getByRole("button", { name: "Save", exact: true }).click();
+    const renamed = app.page.getByRole("main", {
+      name: "Research",
+      exact: true,
+    });
+    await expect(renamed).toBeVisible();
+    await expect(
+      agents.getByRole("button", { name: "Research", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
+    await expect(
+      app.page
+        .getByTestId("pane-header")
+        .getByRole("heading", { name: "Research", exact: true }),
+    ).toBeVisible();
+    await expect(renamed.getByLabel("Message", { exact: true })).toHaveText(
+      "A book about Rome",
+    );
+    expect((await app.server.rpc.agents.list())[0]).toEqual({
+      ...agent,
+      name: "Research",
+      instructions: "Prefer long histories of Rome.",
+    });
+    await renamed.getByRole("button", { name: "Send", exact: true }).click();
+    await llm.respond(({ messages }) => {
+      expect(messages.map(messageText).join("\n")).toContain(
+        "Prefer long histories of Rome.",
+      );
+      return m.tool.start("send_user_message", {
+        id: "recommend",
+        arguments: { text: "Try SPQR." },
+      });
+    });
+    await llm.respond(m.assistant("Done privately"));
+    await expect(renamed).toContainText("Try SPQR.");
+    await app.page.reload();
+    await expect(renamed).toContainText("Try SPQR.");
+    await expect(settingsButton).toBeVisible();
+    await agents
+      .getByRole("button", { name: "New agent", exact: true })
+      .focus();
+    await app.page.keyboard.press("Tab");
+    await expect(
+      agents.getByRole("button", { name: "Research", exact: true }),
+    ).toBeFocused();
+    await expect(app.page.getByRole("tooltip")).toContainText("Research");
+    await expect(app.page.getByRole("tooltip")).toContainText("Try SPQR.");
+    await expect(app.page.getByRole("tooltip")).not.toContainText(
+      "Done privately",
+    );
+    await expect(
+      app.page.getByRole("button", { name: "Done", exact: true }),
+    ).toHaveCount(0);
+  },
+);
+
+e2eTest(
+  "keeps several agents pinned in creation order and acknowledges delivered messages on return",
+  async ({ app, llm }) => {
+    const first = await app.server.rpc.agents.new({
+      requestId: "first",
+      name: "Guide",
+      instructions: "",
+    });
+    const sidebar = workspaceSidebar(app.page);
+    const agents = sidebar.getByRole("region", { name: "Agents", exact: true });
+    const circle = agents.getByRole("button", { name: "Guide", exact: true });
+    await expect(
+      circle.getByLabel("Agent is working", { exact: true }),
+    ).toBeVisible();
+    await llm.respond(
+      m.tool.start("send_user_message", {
+        id: "first-intro",
+        arguments: { text: "Hello from Guide" },
+      }),
+    );
+    await llm.respond(m.assistant("Private"));
+    await expect(
+      circle.getByRole("img", { name: "Unread result", exact: true }),
+    ).toBeVisible();
+    await app.server.rpc.agents.new({
+      requestId: "second",
+      name: "Guide",
+      instructions: "",
+    });
+    await llm.respond(m.assistant("No delivery"));
+    await app.server.rpc.agents.new({
+      requestId: "third",
+      name: "A very long agent name for a research assistant",
+      instructions: "",
+    });
+    await llm.respond(m.assistant("No delivery"));
+    const circleNames = [
+      "New agent",
+      "Guide",
+      "Guide",
+      "A very long agent name for a research assistant",
+    ];
+    await expect(agents.getByRole("button")).toHaveCount(circleNames.length);
+    for (const [index, circleName] of circleNames.entries()) {
+      await expect(agents.getByRole("button").nth(index)).toHaveAccessibleName(
+        circleName,
+      );
+    }
+    const firstCircle = agents
+      .getByRole("button", { name: "Guide", exact: true })
+      .first();
+    await firstCircle.click();
+    await expect(
+      app.page.getByRole("main", { name: "Guide", exact: true }),
+    ).toContainText("Hello from Guide");
+    await expect(
+      firstCircle.getByRole("img", { name: "Unread result", exact: true }),
+    ).toHaveCount(0);
+    await expect(firstCircle).toHaveAttribute("aria-pressed", "true");
+    expect((await app.server.rpc.agents.list())[0]?.threadId).toBe(
+      first.threadId,
+    );
+    await sidebar.getByRole("button", { name: "Desktop", exact: true }).click();
+    await firstCircle.click();
+    await expect(
+      app.page.getByRole("main", { name: "Guide", exact: true }),
+    ).toContainText("Hello from Guide");
+    await app.page.setViewportSize({ width: 390, height: 844 });
+    await app.page
+      .getByRole("button", { name: "Open sidebar", exact: true })
+      .click();
+    await expect(firstCircle).toBeVisible();
+    await firstCircle.click();
+    await expect(sidebar).toBeHidden();
+    await expect(
+      app.page.getByRole("button", { name: "Agent settings", exact: true }),
+    ).toBeVisible();
+  },
+);
 
 async function chooseFilter(page: Page, label: string) {
   await workspaceSidebar(page)

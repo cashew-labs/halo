@@ -7,6 +7,8 @@ import { automationTools } from "../automations/automationTools.js";
 import { AutomationRunner } from "../automations/AutomationRunner.js";
 import { MemoryService } from "../memory/MemoryService.js";
 import { memoryTools } from "../memory/memoryTools.js";
+import { AgentService } from "../agents/AgentService.js";
+import { agentTools } from "../agents/agentTools.js";
 import { FavoritesService } from "../favorites/FavoritesService.js";
 import { HotkeyService } from "../hotkeys/HotkeyService.js";
 import { WorkspaceIdleReporter } from "./WorkspaceIdleReporter.js";
@@ -144,6 +146,7 @@ export class WorkspaceServer {
   private readonly threadRepo: TursoThreadRepo;
   private readonly workspace: WorkspaceService;
   private readonly threads: ThreadManager;
+  private readonly agents: AgentService;
   private readonly uploads: UploadService;
   private readonly automations: AutomationService;
   private readonly automationRunner: AutomationRunner;
@@ -167,6 +170,7 @@ export class WorkspaceServer {
     threadRepo: TursoThreadRepo;
     workspace: WorkspaceService;
     threads: ThreadManager;
+    agents: AgentService;
     uploads: UploadService;
     automations: AutomationService;
     automationRunner: AutomationRunner;
@@ -205,6 +209,7 @@ export class WorkspaceServer {
     this.threadRepo = threadRepo;
     this.workspace = workspace;
     this.threads = threads;
+    this.agents = ctx.agents;
     this.uploads = ctx.uploads;
     this.automations = automations;
     this.automationRunner = automationRunner;
@@ -289,7 +294,6 @@ export class WorkspaceServer {
         });
     });
     const threadRepo = new TursoThreadRepo(db.createNativeConnection());
-    const search = new WorkspaceSearch({ workspace, repo: threadRepo });
     cleanup.defer(async () => {
       const closed = await threadRepo.close();
       if (closed instanceof Error)
@@ -302,6 +306,14 @@ export class WorkspaceServer {
     // Shared apps serve viewers other than the owner, so they get no memory.
     const hasMemory = config.sharedApp === undefined;
     const memory = new MemoryService({ db });
+    const agents = new AgentService({
+      db,
+      createThread: async (threadId) => await threads.new({ threadId }),
+      publishThread: async (threadId) => await threads.publishSummary(threadId),
+      startThread: async (input) => await threads.initialize(input),
+    });
+    const search = new WorkspaceSearch({ workspace, repo: threadRepo, agents });
+    cleanup.defer(async () => await agents.close());
     const hotkeys = new HotkeyService({
       db,
       userId: config.ownerUserId,
@@ -369,6 +381,7 @@ export class WorkspaceServer {
           hotkeys: hotkeyTools,
           automations: automationTools,
           memory: hasMemory ? memoryTools : {},
+          agents: agentTools,
           thread: threadTools,
           bash: { run: bashTool },
           web: webTools,
@@ -379,6 +392,7 @@ export class WorkspaceServer {
           hotkeys,
           automations,
           memory,
+          agents,
           search,
           web,
           computer,
@@ -442,6 +456,7 @@ export class WorkspaceServer {
       memory: agentCapabilities.includes("workspace.memory")
         ? memory
         : undefined,
+      agents,
     });
     cleanup.defer(async () => {
       const closed = await threads.shutdown();
@@ -451,6 +466,8 @@ export class WorkspaceServer {
           error: closed,
         });
     });
+    const recoveredAgents = await agents.recover();
+    if (recoveredAgents instanceof Error) return recoveredAgents;
     const toolsIdle = toolRuntime.idle.project(
       false,
       (_previous, idle) => idle,
@@ -544,6 +561,7 @@ export class WorkspaceServer {
         search,
         uploads,
         threads,
+        agents,
         maintenance,
         connections: connectionService,
         toolRuntime,
@@ -566,6 +584,7 @@ export class WorkspaceServer {
       threadRepo,
       workspace,
       threads,
+      agents,
       uploads,
       automations,
       automationRunner,
@@ -598,6 +617,7 @@ export class WorkspaceServer {
     await this.automationSync?.close();
     await this.automationRunner.stop();
     await this.automations.close();
+    await this.agents.close();
     const threadsClosed = await this.threads.shutdown();
     this.uploads.close();
     await this.traces.close();

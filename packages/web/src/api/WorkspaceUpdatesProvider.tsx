@@ -13,6 +13,8 @@ import type {
   HaloClient,
   ThreadSummary,
 } from "@get-halo/client";
+import { useDatabaseQuery } from "../database/useDatabaseQuery.js";
+import { useWorkspaceDataSynced } from "../database/WorkspaceDataProvider.js";
 import { useWorkspaceQuery } from "./ApiProvider.js";
 import { reconnectStream } from "./reconnectStream.js";
 
@@ -128,4 +130,15 @@ export function WorkspaceUpdatesProvider({
 
 export function useExtensions() {
   return useContext(WorkspaceUpdatesContext).extensions;
+}
+
+export function useAgents() {
+  const agents = useDatabaseQuery({
+    collection: "agents",
+    where: { ready: true },
+    orderBy: { createdAt: "asc", id: "asc" },
+  });
+  const synced = useWorkspaceDataSynced();
+  const { state } = useConnection();
+  return { data: synced ? agents : undefined, error: state.error };
 }

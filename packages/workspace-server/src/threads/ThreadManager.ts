@@ -4,13 +4,13 @@ import { Stream } from "@get-halo/shared/Stream";
 import { SerialQueue } from "@get-halo/shared/SerialQueue";
 import {
   isThreadUnread,
+  agentUserMessage,
   type ThreadSummary,
   type ThreadSummariesUpdate,
   type ChatPrompt,
   type HaloMessage,
   type HaloConnectionState,
   type HaloConnectionEvent,
-  threadMessages,
 } from "@get-halo/client";
 import {
   Thread,
@@ -114,6 +114,7 @@ export class ThreadManager {
   private readonly layout: ThreadOptions["layout"];
   private readonly toolRuntime: ThreadOptions["toolRuntime"];
   private readonly memory: ThreadOptions["memory"];
+  private readonly agents: ThreadOptions["agents"];
   private readonly uploads: UploadService;
 
   constructor(ctx: ThreadManagerOptions) {
@@ -127,6 +128,7 @@ export class ThreadManager {
     this.toolRuntime = toolRuntime;
     this.uploads = ctx.uploads;
     this.memory = ctx.memory;
+    this.agents = ctx.agents;
   }
 
   async list() {
@@ -225,15 +227,17 @@ export class ThreadManager {
     }
   }
 
-  async new(input?: { requestId?: string }) {
+  // Only agent creation supplies threadId; public transports accept requestId alone.
+  async new(input?: { requestId?: string; threadId?: string }) {
     return await this.track(
       async () =>
         await this.creationQueue.run(async () => {
           // Deterministic, filesystem-safe identity makes creation retries survive restart.
           const threadId =
-            input?.requestId === undefined
+            input?.threadId ??
+            (input?.requestId === undefined
               ? undefined
-              : `thread-${createHash("sha256").update(input.requestId).digest("hex")}`;
+              : `thread-${createHash("sha256").update(input.requestId).digest("hex")}`);
           if (threadId !== undefined) {
             const metadata = await this.repo
               .list()
@@ -267,9 +271,28 @@ export class ThreadManager {
 
   private async acquire(threadId: string, options?: { observer: true }) {
     return await this.lifecycleQueue(threadId).run(async () => {
+      const agent = await this.agents?.findByThreadId(threadId);
+      if (agent instanceof Error) return agent;
+      if (agent !== undefined && !agent.ready)
+        return new ThreadNotFoundError({ threadId });
       const thread = await this.openThreadUnqueued(threadId);
       if (thread instanceof Error) return thread;
       return { thread, lease: thread.retain(options) };
+    });
+  }
+
+  /** Internal creation work may be submitted before the agent becomes visible. */
+  async initialize(input: {
+    threadId: string;
+    requestId: string;
+    prompt: string;
+  }) {
+    return await this.track(async () => {
+      const thread = await this.openThread(input.threadId);
+      if (thread instanceof Error) return thread;
+      using cleanup = new errore.DisposableStack();
+      cleanup.use(thread.retain());
+      return await thread.start(input);
     });
   }
 
@@ -280,13 +303,19 @@ export class ThreadManager {
       const { sessionId: referencedThreadId } = reference;
       const snapshot = await this.snapshot(referencedThreadId, []);
       if (snapshot instanceof Error) return snapshot;
-      const transcript = threadMessages(snapshot)
-        .flatMap((message) => {
+      const transcript = snapshot.entries
+        .flatMap((entry) => {
+          if (snapshot.agentId !== undefined) {
+            const sent = agentUserMessage(entry);
+            if (sent !== undefined) return [`Assistant: ${sent.text}`];
+          }
+          if (entry.type !== "message") return [];
+          const message = entry.message;
           if (message.role === "user")
             return [
               `User: ${message.displayText ?? messageContentText(message.content)}`,
             ];
-          if (message.role === "assistant")
+          if (message.role === "assistant" && snapshot.agentId === undefined)
             return [`Assistant: ${messageContentText(message.content)}`];
           return [];
         })
@@ -336,6 +365,10 @@ export class ThreadManager {
 
   async snapshot(threadId: string, connections: HaloConnectionState[]) {
     return await this.track(async () => {
+      const agent = await this.agents?.findByThreadId(threadId);
+      if (agent instanceof Error) return agent;
+      if (agent !== undefined && !agent.ready)
+        return new ThreadNotFoundError({ threadId });
       const thread = this.threads.get(threadId);
       if (thread !== undefined) return thread.readSnapshot(connections);
       const projection = await this.readStoredProjection(threadId);
@@ -520,14 +553,31 @@ export class ThreadManager {
       .list()
       .catch((cause) => new ListAgentThreadsError({ cause }));
     if (metadata instanceof Error) return metadata;
+    const agents = await this.db
+      .query({ collection: "agents" })
+      .catch(
+        (cause) =>
+          new ThreadStateError({ operation: "list agent bindings", cause }),
+      );
+    if (agents instanceof Error) return agents;
+    const unfinished = new Set(
+      agents.filter((agent) => !agent.ready).map((agent) => agent.threadId),
+    );
     const productFields = await this.listProductFields();
     if (productFields instanceof Error) return productFields;
     const summaries: ThreadSummary[] = [];
     for (const item of metadata) {
+      if (unfinished.has(item.id)) continue;
       const fields = productFields.get(item.id);
       const cached = this.summaries.get(item.id);
       if (cached !== undefined) {
-        const current = applyProductFields({ summary: cached, fields });
+        const agent = agents.find(
+          (candidate) => candidate.threadId === item.id,
+        );
+        const current = applyProductFields({
+          summary: { ...cached, title: agent?.name ?? cached.title },
+          fields,
+        });
         // A list must not consume a change before the subscription publishes it.
         summaries.push(current);
         continue;
@@ -548,7 +598,12 @@ export class ThreadManager {
         };
       }
       const current = applyProductFields({
-        summary,
+        summary: {
+          ...summary,
+          title:
+            agents.find((agent) => agent.threadId === item.id)?.name ??
+            summary.title,
+        },
         fields,
       });
       this.summaries.set(item.id, current);
@@ -579,7 +634,9 @@ export class ThreadManager {
       .read(threadId)
       .catch((cause) => new ThreadStorageError({ threadId, cause }));
     if (data instanceof Error) return data;
-    return new ThreadProjection(data);
+    const agent = await this.agents?.findByThreadId(threadId);
+    if (agent instanceof Error) return agent;
+    return new ThreadProjection(data, agent);
   }
 
   private async listProductFields() {
@@ -720,6 +777,7 @@ export class ThreadManager {
         layout: this.layout,
         toolRuntime: this.toolRuntime,
         memory: this.memory,
+        agents: this.agents,
       },
       stored,
     );
@@ -811,20 +869,27 @@ export class ThreadManager {
     );
   }
 
-  private async publishSummary(threadId: string) {
+  // Agent creation publishes only after its saved relationship is ready.
+  async publishSummary(threadId: string) {
     return await this.track(
       async () =>
         await this.summaryQueue.run(async () => {
+          const agent = await this.agents?.findByThreadId(threadId);
+          if (agent instanceof Error) return agent;
+          if (agent !== undefined && !agent.ready) return;
           const thread = this.threads.get(threadId);
-          if (thread === undefined) return;
           const fields = await this.getProductFields(threadId);
           if (fields instanceof Error) return fields;
-          const summary = await thread.readSummary();
+          const summary =
+            thread === undefined
+              ? await this.getSummaryUnqueued(threadId)
+              : thread.readSummary();
           if (summary instanceof Error) return summary;
           this.publish(
             applyProductFields({
               summary: {
                 ...summary,
+                title: agent?.name ?? summary.title,
                 isRunning: this.threads.has(threadId) && summary.isRunning,
               },
               fields,

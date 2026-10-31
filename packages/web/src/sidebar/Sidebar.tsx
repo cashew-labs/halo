@@ -18,6 +18,7 @@ import type { ThreadSummary } from "@get-halo/client";
 import type { AppInfo } from "../HostApi.js";
 import { ArtifactsSection } from "./ArtifactsSection.js";
 import { ThreadsSection } from "./ThreadsSection.tsx";
+import { AgentsSection } from "./AgentsSection.js";
 import {
   NavigationSidebar,
   useExpandedSidebar,
@@ -61,6 +62,7 @@ export function Sidebar({ threads, appInfo }: SidebarProps) {
       ) : (
         <div className={titleBar} aria-hidden="true" />
       )}
+      <AgentsSection threads={threads} />
       <div className={actions} role="toolbar" aria-label="Workspace actions">
         <NavigationButton
           className={desktop}

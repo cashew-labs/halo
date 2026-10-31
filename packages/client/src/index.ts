@@ -79,6 +79,7 @@ export {
   applyThreadEvent,
   applyConnectionEvent,
   executionWithOutput,
+  agentUserMessage,
   threadMessages,
   threadToolExecutions,
   type HaloMessage,
@@ -114,6 +115,14 @@ export type {
   WorkspaceFilePreview,
 } from "./rpc.js";
 export { isThreadUnread } from "./rpc.js";
+
+export {
+  newAgentSchema,
+  agentSettingsSchema,
+  type AgentRecord,
+  type NewAgentInput,
+  type AgentSettingsInput,
+} from "./agents.js";
 
 export { imageFilename, imageMediaTypes } from "./imageFilename.js";
 // coverage-exempt: Public barrel re-exports; behavior is exercised through the defining modules.

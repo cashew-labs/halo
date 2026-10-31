@@ -2,6 +2,7 @@ import { useContext, useEffect, useSyncExternalStore } from "react";
 import * as errore from "errore";
 import {
   isThreadUnread,
+  agentUserMessage,
   type ThreadSnapshot,
   type ThreadSummary,
 } from "@get-halo/client";
@@ -41,6 +42,7 @@ export function useMarkThreadRead({
   const threadId = thread?.sessionId;
   const latestResultId = thread?.latestResultId;
   const isRunning = thread?.isRunning;
+  const isAgent = state.agentId !== undefined;
   const isUnread = thread !== undefined && isThreadUnread(thread);
   const lastRunId = state.lastRun?.id;
   const lastAssistantEntryId = state.entries
@@ -48,17 +50,24 @@ export function useMarkThreadRead({
       (entry) => entry.type === "message" && entry.message.role === "assistant",
     )
     .at(-1)?.id;
+  const lastSentEntryId = isAgent
+    ? state.entries
+        .filter((entry) => agentUserMessage(entry) !== undefined)
+        .at(-1)?.id
+    : undefined;
 
   useEffect(() => {
     if (
       !isViewing ||
       !isTabVisible ||
       threadId === undefined ||
-      isRunning ||
-      state.activeRun !== undefined ||
+      (!isAgent && (isRunning || state.activeRun !== undefined)) ||
       latestResultId === undefined ||
       !isUnread ||
-      (lastRunId !== latestResultId && lastAssistantEntryId !== latestResultId)
+      (isAgent
+        ? lastSentEntryId !== latestResultId
+        : lastRunId !== latestResultId &&
+          lastAssistantEntryId !== latestResultId)
     )
       return;
     const readInput = { sessionId: threadId, observedResultId: latestResultId };
@@ -88,6 +97,8 @@ export function useMarkThreadRead({
     isViewing,
     threadId,
     isRunning,
+    isAgent,
+    lastSentEntryId,
     isUnread,
     latestResultId,
     state.activeRun,

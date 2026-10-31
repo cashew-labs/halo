@@ -44,9 +44,6 @@ __pycache__/
 .DS_Store
 *.pem
 
-# Local planning specs
-specs/*
-
 # Development Electron userData
 .halo/
 

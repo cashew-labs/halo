@@ -11,6 +11,11 @@ import type { ServerInfo } from "./protocol.js";
 import type { ClientId, RemoteApi } from "@tanishqkancharla/tandem-core";
 import type { WorkspaceSchema } from "./database/schema/workspaceSchema.js";
 import type { Hotkey, HotkeyInput } from "./hotkeys.js";
+import type {
+  AgentRecord,
+  NewAgentInput,
+  AgentSettingsInput,
+} from "./agents.js";
 import type { ChatPrompt } from "./chatAttachments.js";
 import type { WorkspaceFilePreview } from "./rpc.js";
 import type { WorkspaceSearchResponse } from "./search.js";
@@ -40,19 +45,9 @@ import type {
   WorkspaceTreeEvent,
 } from "./rpc.js";
 
-// Connection cards require the workspace integrationConnections procedure.
-export const haloProtocolVersion = 33 as const;
-export const haloSupportedProtocols = [
-  25,
-  26,
-  27,
-  28,
-  29,
-  30,
-  31,
-  32,
-  haloProtocolVersion,
-];
+// Both clients and servers need the agent transcript and metadata contract.
+export const haloProtocolVersion = 34 as const;
+export const haloSupportedProtocols = [haloProtocolVersion];
 
 export const RequestRejectedError = error("BAD_REQUEST", {
   message: "Halo could not complete the request.",
@@ -366,6 +361,11 @@ export const contract = publicProcedure.router({
       .input(type<{ uploadId: string }>())
       .output(type<{ received: number; size: number }>()),
     cancel: oc.input(type<{ uploadId: string }>()).output(type<void>()),
+  },
+  agents: {
+    new: oc.input(type<NewAgentInput>()).output(type<AgentRecord>()),
+    list: oc.output(type<AgentRecord[]>()),
+    update: oc.input(type<AgentSettingsInput>()).output(type<AgentRecord>()),
   },
   // Keep sessionId payload keys for clients on supported older protocols.
   thread: {

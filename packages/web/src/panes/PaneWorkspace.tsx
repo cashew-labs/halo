@@ -28,7 +28,7 @@ import {
 import { isPaneDrag, paneRouteDragType, paneTabDragType } from "./paneDrag.js";
 import { queryOptions, skipToken, useQueries } from "@tanstack/react-query";
 import { useSidebar } from "../WorkspaceLayout.js";
-import { useExtensions } from "../api/WorkspaceUpdatesProvider.js";
+import { useAgents, useExtensions } from "../api/WorkspaceUpdatesProvider.js";
 import { useDatabaseQuery } from "../database/useDatabaseQuery.js";
 import { threadTitleQueryKey } from "../main/agent/useAgentThread.js";
 import { paneHeaderHeight, tabBarHeight, usePaneStyles } from "./paneStyles.js";
@@ -48,6 +48,7 @@ export function PaneWorkspace({ threads }: { threads: ThreadSummary[] }) {
   const workspace = useWorkspacePanes();
   const sidebar = useSidebar();
   const extensions = useExtensions().data;
+  const agents = useAgents().data;
   const automations = useDatabaseQuery({ collection: "automations" });
   const state = usePaneState();
   const { leaves, dividers } = paneLayout(state.root);
@@ -71,6 +72,7 @@ export function PaneWorkspace({ threads }: { threads: ThreadSummary[] }) {
         submittedTitles[threadTabs.findIndex((item) => item.id === tab.id)]
           ?.data;
       return (
+        agents?.find((agent) => agent.threadId === id)?.name ??
         threads.find((thread) => thread.sessionId === id)?.title ??
         submitted ??
         "Thread"

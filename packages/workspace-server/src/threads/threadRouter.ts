@@ -55,7 +55,7 @@ export const threadRouter = os.router({
   }),
   new: os.new.handler(async ({ input, context }) => {
     context.logger.info({ event: "newAgentThread" });
-    const thread = await context.threads.new(input);
+    const thread = await context.threads.new({ requestId: input?.requestId });
     if (thread instanceof Error) return orpcErrors.badRequest(thread);
     return { sessionId: thread.threadId };
   }),
