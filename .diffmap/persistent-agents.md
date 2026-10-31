@@ -495,6 +495,19 @@ packages/workspace-server/test/workspace.test.ts
 
 The parallel `agents.watch` service/router/contract and reconnect state were removed. Roster, tab, pane, and reference consumers keep the existing `useAgents` interface but derive its data from the workspace replica. The extended RPC/exec consumer test checks synchronized creation, an unloaded rename, the next status update, and reconnect. Before the publication fix it timed out waiting for the rename despite the replica receiving it; with the fix it passed. The affected check passed all 57 tasks, and all 94 workspace-server package E2Es passed.
 
+### Ordinary conversations do not wait for agent settings
+
+Bugbot found that the pane also treated missing replica data as proof that any thread needed agent settings. A slow initial pull hid ordinary transcripts, the composer, and Stop, and deferred their read receipts. Only a thread identified as an agent conversation by its summary or snapshot now waits for missing agent metadata.
+
+```changes
+a13eefd3
+packages/web/src/main/agent/AgentPane.tsx
+apps/electron/e2e/threadView.e2e.test.ts
+apps/electron/e2e/sidebar.e2e.test.ts
+```
+
+[[a13eefd3:packages/web/src/main/agent/AgentPane.tsx#L125-L134]] keeps the settings gate for known agents without blocking ordinary threads. The regression in [[a13eefd3:apps/electron/e2e/threadView.e2e.test.ts#L1347-L1384]] holds the public workspace sync pull while exercising the ordinary transcript, sending a streaming response, and stopping it. The transcript assertion failed before the fix; the whole scenario passed afterward against packaged Electron. The affected check passed all 57 tasks. The existing tooltip test now enters each circle once with Tab instead of racing a blur and immediate refocus through its close animation.
+
 ## Verification and delivery boundary
 
 Phase 1 is implemented in the code commit above, with these checks run against that code:
