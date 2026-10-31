@@ -10,6 +10,9 @@ import {
   backgroundColor,
   colors,
   focusRing,
+  Menu,
+  MenuItem,
+  MenuTrigger,
   motion,
   navigationItem,
   radius,
@@ -78,6 +81,32 @@ export function SidebarItem(props: SidebarItemProps) {
     props.href === undefined
       ? undefined
       : absoluteHref(router.base, props.href);
+  const link = (
+    <Link
+      className={linkClassName}
+      onClick={(event) => {
+        if (props.href === undefined) return;
+        event.preventDefault();
+        workspace.open({
+          path: props.href,
+          newTab: event.metaKey || event.ctrlKey,
+        });
+        sidebar.close();
+      }}
+    >
+      <span
+        draggable={props.href !== undefined}
+        onDragStart={(event) => {
+          if (props.href === undefined) return;
+          event.dataTransfer.setData(paneRouteDragType, props.href);
+          event.dataTransfer.effectAllowed = "copyMove";
+        }}
+        style={{ display: "block", width: "100%" }}
+      >
+        {props.children}
+      </span>
+    </Link>
+  );
   return (
     <NavigationTreeItem
       id={props.id}
@@ -108,30 +137,20 @@ export function SidebarItem(props: SidebarItemProps) {
                 <Icon />
               </span>
             )}
-            <Link
-              className={linkClassName}
-              onClick={(event) => {
-                if (props.href === undefined) return;
-                event.preventDefault();
-                workspace.open({
-                  path: props.href,
-                  newTab: event.metaKey || event.ctrlKey,
-                });
-                sidebar.close();
-              }}
-            >
-              <span
-                draggable={props.href !== undefined}
-                onDragStart={(event) => {
-                  if (props.href === undefined) return;
-                  event.dataTransfer.setData(paneRouteDragType, props.href);
-                  event.dataTransfer.effectAllowed = "copyMove";
-                }}
-                style={{ display: "block", width: "100%" }}
-              >
-                {props.children}
-              </span>
-            </Link>
+            {favoriteId === undefined ? (
+              link
+            ) : (
+              <MenuTrigger trigger="contextMenu">
+                {link}
+                <Menu>
+                  <MenuItem
+                    onAction={() => favorites.toggleFavorite(favoriteId)}
+                  >
+                    {isFavorite ? "Remove from favorites" : "Add to favorites"}
+                  </MenuItem>
+                </Menu>
+              </MenuTrigger>
+            )}
             {props.trailing === undefined ? undefined : (
               <span className={trailingClassName}>{props.trailing}</span>
             )}
