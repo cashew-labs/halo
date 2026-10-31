@@ -135,14 +135,13 @@ type AgentRecord = {
 // [!note threadId] The agent record owns the relationship. Do not also persist agentProfile or agentId in HaloThreadDoc.
 ```
 
-`agents.list()` and `agents.watch()` return ready records in creation order. Settings call `agents.update()` with the agent ID. Conversation prompting, subscriptions, Stop, and read receipts continue to use the backing thread ID:
+`agents.list()` returns ready records in creation order. The UI observes the same records through workspace database sync, not a separate agent watch. Settings call `agents.update()` with the agent ID. Conversation prompting, subscriptions, Stop, and read receipts continue to use the backing thread ID:
 
 ```tsx [Agent operations]
 const roster = await client.agents.list();
-const changes = await client.agents.watch(undefined, { signal });
 await client.agents.update({ agentId: agent.id, name, instructions });
 await client.thread.prompt({ sessionId: agent.threadId, requestId, text });
-// [!note changes] The watch yields an initial roster, then saved changes. The existing RPC keeps sessionId as its payload key.
+// [!note sessionId] The existing RPC keeps sessionId as its payload key.
 ```
 
 [[203fa33c:packages/workspace-server/src/agents/agentsRouter.ts#L9-L28]] and [[203fa33c:packages/workspace-server/src/agents/agentTools.ts#L5-L39]] call one service. `agents.new()` reserves metadata, then composes thread creation internally. Public `thread.new()` still creates ordinary work; callers cannot supply the internal reserved thread ID. Error exits are shortened below:
@@ -408,7 +407,7 @@ step "Agent metadata subscriptions update both labels"
   Pane.header = Research with Settings
 ```
 
-[[c1015cec:packages/web/src/api/WorkspaceUpdatesProvider.tsx#L59-L83]] opens one shared agent subscription, separate from thread summaries. It retains the roster on reconnect and keeps loading, empty, and error states distinct. [[c1015cec:packages/web/src/api/ConnectionService.ts#L245-L265]] admits `agents.watch` during startup synchronization; otherwise the new subscription causes a reconnect loop before the workspace becomes ready.
+[[c858898f:packages/web/src/api/WorkspaceUpdatesProvider.tsx#L135-L144]] reads ready agents from the synchronized workspace database, ordered by creation time and ID. It waits for the first sync before treating an empty roster as final and uses the existing connection error/retry flow. This replaces Phase 3's original `agents.watch` stream, React state copy, and startup allowlist entry.
 
 The roster joins conversation status on `threadId`; names and instructions come only from the agent record. Backing threads move out of the ordinary Threads section through `ThreadSummary.agentId`, but both surfaces open the existing pane and remain searchable:
 
@@ -463,6 +462,38 @@ function AgentConversation({ agent, snapshot }) {
 Settings saves Name and Instructions through `agents.update`; cancel changes neither. Instructions apply to the next model request, and renaming keeps the thread and draft intact. The agent can already call that API through `exec`, but when it should rewrite its own instructions remains a guidance decision. There is no automatic role saving or mandatory role form. Guidance about separate task threads also remains deferred.
 
 Two consumer tests in [[c1015cec:apps/electron/e2e/sidebar.e2e.test.ts#L230-L447]] cover name-only create/cancel/Enter, opening and typing before inference, native introduction delivery without narration or tool rows, settings cancel/save, instructions on the next request, draft/history retention after rename and reload, duplicate/long names, creation order, working/unread/read state, and narrow-sidebar navigation. Existing thread-view tests retain attachment, Stop, queue, connection, and ordinary-thread coverage. A temporary Electron probe also failed the introduction through the model endpoint, then sent a user message and reloaded: it recovered in the same agent/thread pair. Recovery uses the existing composer, not a special welcome type or a second agent.
+
+### Agent preview tooltips
+
+Hovering or keyboard-focusing a circle now opens a rounded card with the agent name and a muted, two-line preview. An unsent draft takes priority, labeled `Draft:`. Otherwise the card shows the latest successfully delivered agent message, never private narration or tool output. While the preview loads or is unavailable, the card shows that state; an empty conversation falls back to its status.
+
+```changes
+449ecfec
+packages/web/src/sidebar/AgentsSection.tsx
+apps/electron/e2e/sidebar.e2e.test.ts
+```
+
+[[449ecfec:packages/web/src/sidebar/AgentsSection.tsx#L163-L216]] reads the existing composer draft and fetches the backing thread only while the card is open and has no draft. No per-agent background subscriptions or new server fields are needed. The existing sidebar consumer test in [[449ecfec:apps/electron/e2e/sidebar.e2e.test.ts#L280-L391]] checks keyboard access, draft priority, latest delivery after reload, and exclusion of private narration.
+
+```tsx [Preview priority, simplified]
+<AgentPreview name={agent.name}
+  text={draft.trim() ? `Draft: ${draft}` : latestDeliveredMessage ?? status} />
+```
+
+The affected check passed all 57 tasks, and all six packaged Electron sidebar scenarios passed. Desktop latest-message and draft cards and a pointer-driven hover recording were captured and inspected.
+
+### Agent metadata uses one sync path; unloaded renames still publish
+
+The review found that renaming an unloaded agent saved its metadata but sent no update to existing thread-summary subscribers. Later status changes could publish the old cached title again. [[c858898f:packages/workspace-server/src/threads/ThreadManager.ts#L873-L904]] now reads the cached or stored summary when the runtime is absent, applies the current agent name, and updates subscribers and the summary cache without attaching a runtime.
+
+```changes
+c858898f
+packages/web/src/api/WorkspaceUpdatesProvider.tsx
+packages/workspace-server/src/threads/ThreadManager.ts
+packages/workspace-server/test/workspace.test.ts
+```
+
+The parallel `agents.watch` service/router/contract and reconnect state were removed. Roster, tab, pane, and reference consumers keep the existing `useAgents` interface but derive its data from the workspace replica. The extended RPC/exec consumer test checks synchronized creation, an unloaded rename, the next status update, and reconnect. Before the publication fix it timed out waiting for the rename despite the replica receiving it; with the fix it passed. The affected check passed all 57 tasks, and all 94 workspace-server package E2Es passed.
 
 ## Verification and delivery boundary
 
