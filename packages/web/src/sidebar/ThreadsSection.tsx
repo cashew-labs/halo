@@ -37,7 +37,9 @@ export function ThreadsSection({ threads }: { threads: ThreadSummary[] }) {
         </Button>
       }
     >
-      {visibleThreads.length === 0 && <SidebarEmptyState kind="threads" />}
+      {visibleThreads.length === 0 && (
+        <SidebarEmptyState>No threads yet</SidebarEmptyState>
+      )}
       {visibleThreads.map((thread) => (
         <ThreadRow key={thread.sessionId} thread={thread} />
       ))}
