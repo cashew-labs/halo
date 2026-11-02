@@ -1,0 +1,41 @@
+diff --git a/dist/components/Tooltip.js b/dist/components/Tooltip.js
+index f7c69cdb0b947f2e180816e0daa551216dcbdade..dfdcd89db4596bdfdbba9437947f3234eb6d1407 100644
+--- a/dist/components/Tooltip.js
++++ b/dist/components/Tooltip.js
+@@ -93,6 +93,15 @@ function useTooltipTransition(isOpen) {
+             });
+         }
+     }, [isOpen]);
++    // Closing before the first frame can skip transitionend entirely.
++    useEffect(() => {
++        if (phase !== "out" || isOpen) return;
++        const timeout = setTimeout(
++            () => setRender(false),
++            Math.max(overlayMotion.tooltipExit.durationMs, overlayMotion.reduced.durationMs),
++        );
++        return () => clearTimeout(timeout);
++    }, [isOpen, phase]);
+     useEffect(() => {
+         return () => {
+             if (isHeld.current) {
+diff --git a/src/components/Tooltip.tsx b/src/components/Tooltip.tsx
+index 250dc7332112cf9f6bb529da30f488d50ecdb252..5742a0ba13ad673868752310469710a9a479995b 100644
+--- a/src/components/Tooltip.tsx
++++ b/src/components/Tooltip.tsx
+@@ -162,6 +162,16 @@ function useTooltipTransition(isOpen: boolean) {
+ 		}
+ 	}, [isOpen])
+ 
++	// Closing before the first frame can skip transitionend entirely.
++	useEffect(() => {
++		if (phase !== "out" || isOpen) return
++		const timeout = setTimeout(
++			() => setRender(false),
++			Math.max(overlayMotion.tooltipExit.durationMs, overlayMotion.reduced.durationMs),
++		)
++		return () => clearTimeout(timeout)
++	}, [isOpen, phase])
++
+ 	useEffect(() => {
+ 		return () => {
+ 			if (isHeld.current) {
