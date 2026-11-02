@@ -237,6 +237,10 @@ jobs:
           previous_image="$image_root/control-plane@$previous_digest"
           workspace_image="$REGION-docker.pkg.dev/$PROJECT/halo-west-workspaces/workspace-server:$VERSION-$GITHUB_SHA"
 
+          # Archive the release commit before the parallel build uploads start.
+          # Never include local files or credentials in the reference snapshot.
+          git archive --format=tar --prefix=halo-source/ "$GITHUB_SHA" > .halo-source.tar
+
           build_image() {
             local image="$1"
             local config="$2"

@@ -2,6 +2,7 @@
 !package.json
 !pnpm-lock.yaml
 !pnpm-workspace.yaml
+!.halo-source.tar
 !patches/
 !patches/**
 !packages/
@@ -18,6 +19,11 @@
 !infra/
 !infra/cloudbuild.yaml
 !infra/controlplane.cloudbuild.yaml
+!infra/workspace/
+!infra/workspace/exeTemplate.sh
+!infra/workspace/desktop-seccomp.json
+!infra/workspace/installUpdater.sh
+!infra/workspace/workspaceUpdate.py
 **/node_modules/
 **/dist/
 **/out/
