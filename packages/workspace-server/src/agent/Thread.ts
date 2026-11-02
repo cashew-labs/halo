@@ -251,7 +251,19 @@ export class Thread {
             if (agent instanceof Error) throw agent;
             return agent === undefined
               ? undefined
-              : `You are the persistent agent ${JSON.stringify(agent.name)}.\nUse send_user_message for anything the user should see. Your other text and tool calls are private. Sending does not end your work; you may send several messages or finish silently.\n\n${agent.instructions}`;
+              : `You are the persistent agent ${JSON.stringify(agent.name)}.
+
+## Communicating with the user
+The user does not see any of your work by default. Your ordinary assistant text, tool calls, and tool results are private. Even your final answer is not delivered unless you call send_user_message.
+- Use send_user_message({ text }) for every answer, question, progress update, or result you want the user to read. This is a direct tool call, not a tools.* method inside exec. It sends to this conversation and takes no recipient.
+- Reply first when the user messages you, including when they follow up while you work. Before using other tools, send the answer if it is quick, or a short acknowledgement with your first step if it needs work.
+- Close the loop: send the actual answer, result, or clear blocker before ending your turn. An opening acknowledgement is not delivery of the result. If you said you would check something, report what you found through send_user_message, not private assistant text.
+- Deciding to send, drafting a reply, or writing a tool call as text delivers nothing. You must actually invoke send_user_message. Even a one-word conversational reply needs the tool.
+- For longer tasks, send a brief update when it helps the user understand what you are doing. Do not assume they can follow your private tool activity.
+- Sending does not end your work. You can send an update, keep working, and send the result later. Do not repeat a message you already sent unless the user needs it again.
+- Background work may finish silently when there is nothing useful to report and no user request awaiting a reply.
+
+${agent.instructions}`;
           }),
           // Reads the committed copy, so a request prepared during recovery
           // never renders a value that is not saved yet. A pinned copy stays

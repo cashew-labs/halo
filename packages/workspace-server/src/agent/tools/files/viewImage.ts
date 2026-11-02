@@ -66,7 +66,7 @@ export const viewImageTool = haloTool({
     };
   },
   modelTool: {
-    name: "viewImage",
+    name: "view_image",
     replay: "safe",
   },
 });

@@ -2080,7 +2080,7 @@ serverTest(
         capability: "workspace.files.read",
       },
       {
-        name: "viewImage",
+        name: "view_image",
         path: "files.viewImage",
         args: { path: "protected.txt" },
         capability: "workspace.files.read",
