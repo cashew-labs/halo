@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import { createHaloClient, protocolHeader } from "@get-halo/client";
+import { connectAutomationWorkspace } from "./connectAutomationWorkspace.js";
 import { GoogleAuth } from "google-auth-library";
 import * as errore from "errore";
 import type { PoolClient } from "pg";
@@ -292,14 +292,19 @@ export class AutomationScheduleCoordinator {
       });
       return;
     }
-    const client = createHaloClient({
-      transport: {
-        origin: connection.origin,
-        path: "/rpc",
-        // The control plane deploys first; use the released workspace protocol.
-        headers: { ...headers, [protocolHeader]: "25" },
-      },
+    const client = await connectAutomationWorkspace({
+      origin: connection.origin,
+      path: "/rpc",
+      headers,
     });
+    if (client instanceof Error) {
+      this.logger.error({
+        event: "automation-schedule-connect-failed",
+        workspaceId,
+        error: client,
+      });
+      return;
+    }
     await Promise.all(
       routineIds.map(async (routineId) => {
         const started = await client.automations
