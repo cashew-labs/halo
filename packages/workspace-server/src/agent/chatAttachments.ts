@@ -68,7 +68,7 @@ export async function prepareChatAttachments(input: {
     if ("omitted" in included) {
       content.push({
         type: "text",
-        text: `${header}\nSize: ${file.size} bytes\nThe contents are not included in this message: ${included.omitted}. Use the read, bash, or viewImage tools to inspect the file if you need it.`,
+        text: `${header}\nSize: ${file.size} bytes\nThe contents are not included in this message: ${included.omitted}. Use the read, bash, or view_image tools to inspect the file if you need it.`,
       });
       continue;
     }
