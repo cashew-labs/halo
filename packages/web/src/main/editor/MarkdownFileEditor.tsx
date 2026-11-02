@@ -196,7 +196,7 @@ export function MarkdownFileEditor({
       {error !== undefined && <p role="alert">{error}</p>}
       <div className={shellClassName}>
         {picker.menu}
-        <Editor editor={editor} size="sm" className={className} />
+        <Editor editor={editor} size="md" className={className} />
       </div>
     </>
   );
