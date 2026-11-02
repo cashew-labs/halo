@@ -332,9 +332,12 @@ gcloud builds submit . \
 pulumi -C infra/control-plane config set controlPlaneImage "$image" --stack west
 ```
 
-Build the workspace-server image the same way:
+Build the workspace-server image from a clean checkout. Archive the same commit
+as the runtime source so the read-only reference copy matches the image:
 
 ```sh
+revision="$(git rev-parse HEAD)"
+git archive --format=tar --prefix=halo-source/ "$revision" > .halo-source.tar
 image="$(pulumi -C infra/control-plane stack output imageRepository --stack west):$(git rev-parse --short HEAD)"
 bucket="$(pulumi -C infra/control-plane stack output buildSourceBucket --stack west)"
 builder="$(pulumi -C infra/control-plane stack output buildServiceAccount --stack west)"
@@ -345,10 +348,17 @@ gcloud builds submit . \
   --ignore-file=infra/buildignore \
   --gcs-source-staging-dir="gs://$bucket/source" \
   --service-account="$builder" \
-  --substitutions="_IMAGE=$image"
+  --substitutions="_IMAGE=$image,_REVISION=$revision"
+rm .halo-source.tar
 
 pulumi -C infra/control-plane config set workspaceImage "$image" --stack west
 ```
+
+The image extracts the full tracked source into `/opt/halo-source`, owned by root
+with write permissions removed. It includes no Git history or untracked local
+files. `/opt/halo-source/.halo-source-revision` records the commit. This snapshot
+is reference material, not the live runtime under `/opt/halo`; editing a separate
+writable copy does not update the running server or installed desktop app.
 
 Cloud Build uses Buildx to push images and export all build stages to an Artifact
 Registry cache. Workspace builds use `workspace-server:build-cache`; control-plane

@@ -110,3 +110,12 @@ ARG VERSION=dev
 ARG REVISION=local
 ENV HALO_BUILD_VERSION=$VERSION HALO_BUILD_REVISION=$REVISION
 LABEL org.opencontainers.image.revision=$REVISION
+
+# Prepare before submitting the build context:
+# git archive --format=tar --prefix=halo-source/ <revision> > .halo-source.tar
+# Keep reference source separate from the live runtime and its cached layers.
+USER root
+ADD --chown=0:0 .halo-source.tar /opt/
+RUN printf '%s\n' "$REVISION" > /opt/halo-source/.halo-source-revision \
+    && chmod -R a-w /opt/halo-source
+USER node
