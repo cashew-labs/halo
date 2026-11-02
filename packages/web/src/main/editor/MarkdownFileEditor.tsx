@@ -196,7 +196,7 @@ export function MarkdownFileEditor({
       {error !== undefined && <p role="alert">{error}</p>}
       <div className={shellClassName}>
         {picker.menu}
-        <Editor editor={editor} size="sm" className={className} />
+        <Editor editor={editor} size="md" className={className} />
       </div>
     </>
   );
@@ -205,7 +205,7 @@ export function MarkdownFileEditor({
 const editorClass = style(flex({ direction: "column" }), {
   minWidth: 0,
   width: "100%",
-  minHeight: "100%",
+  flex: "1 0 auto",
   "& .halo-find-active-match": {
     backgroundColor: colors.amber[5],
     borderRadius: 2,
@@ -263,4 +263,7 @@ const copyMenuStyle = style(
   },
 );
 
-const editorShellClass = style({ position: "relative", minHeight: "100%" });
+const editorShellClass = style(flex({ direction: "column" }), {
+  position: "relative",
+  minHeight: "100%",
+});
