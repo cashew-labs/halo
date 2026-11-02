@@ -77,6 +77,7 @@ class WorkspaceHostDriver {
   readonly exeAuthorizations: Array<string | undefined> = [];
   readonly scheduledProtocols: string[] = [];
   readonly eventProtocols: string[] = [];
+  protocolVersion: number = 25;
   private readonly server: http.Server;
 
   private constructor(ctx: { appDataDir: string }) {
@@ -96,10 +97,21 @@ class WorkspaceHostDriver {
         response.writeHead(401).end();
         return;
       }
+      if (request.url === "/rpc/server/info") {
+        response.writeHead(200, { "content-type": "application/json" }).end(
+          JSON.stringify({
+            json: {
+              protocolVersion: this.protocolVersion,
+              supportedProtocols: [this.protocolVersion],
+            },
+          }),
+        );
+        return;
+      }
       if (request.url === "/rpc/automations/runScheduled") {
         const protocol = request.headers["x-halo-protocol-version"];
-        // Model a released protocol 25 workspace during a rolling deployment.
-        if (protocol !== "25") {
+        // Model the workspace protocol before or after a rolling deployment.
+        if (protocol !== String(this.protocolVersion)) {
           response.writeHead(400).end();
           return;
         }
@@ -111,7 +123,7 @@ class WorkspaceHostDriver {
       }
       if (request.url === "/rpc/automations/acceptEvent") {
         const protocol = request.headers["x-halo-protocol-version"];
-        if (protocol !== "25") {
+        if (protocol !== String(this.protocolVersion)) {
           response.writeHead(400).end();
           return;
         }
@@ -4325,15 +4337,13 @@ const sleepingAutomationTest = controlPlaneTest.extend<{
   },
 });
 
-sleepingAutomationTest(
-  "wakes a sleeping workspace and dispatches its due automation",
-  async ({
-    plane,
-    authenticatedRpc,
-    appDataDir,
-    workspaceHost,
-    sleepingProvider,
-  }) => {
+sleepingAutomationTest.for([25, haloProtocolVersion])(
+  "wakes a sleeping workspace and dispatches its due automation on protocol %i",
+  async (
+    protocol,
+    { plane, authenticatedRpc, appDataDir, workspaceHost, sleepingProvider },
+  ) => {
+    workspaceHost.protocolVersion = protocol;
     const workspace = await authenticatedRpc.workspace.ensure();
     const runtime = await readRuntimeSettings(appDataDir);
     const published = await writeWorkspaceServerConnection({
@@ -4401,7 +4411,7 @@ sleepingAutomationTest(
     await vi.waitFor(() => {
       expect(sleepingProvider.paused).toBe(false);
       expect(workspaceHost.requests).toContain("/rpc/automations/runScheduled");
-      expect(workspaceHost.scheduledProtocols).toContain("25");
+      expect(workspaceHost.scheduledProtocols).toContain(String(protocol));
       expect(workspaceHost.exeAuthorizations).toContain("test-private-token");
     });
     expect(workspace.id).toBe(runtime.workspaceId);
