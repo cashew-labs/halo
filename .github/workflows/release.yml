@@ -458,6 +458,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Install Playwright Chromium
+        run: pnpm --filter @get-halo/desktop exec playwright install chromium
+
       - name: Install PDF conversion tools
         run: brew install poppler
 
