@@ -434,7 +434,7 @@ e2eTest(
     const agents = sidebar.getByRole("region", { name: "Agents", exact: true });
     const circle = agents.getByRole("button", { name: "Guide", exact: true });
     await expect(
-      circle.getByLabel("Agent is working", { exact: true }),
+      circle.locator("..").getByLabel("Agent is working", { exact: true }),
     ).toBeVisible();
     await llm.respond(
       m.tool.start("send_user_message", {
@@ -444,7 +444,9 @@ e2eTest(
     );
     await llm.respond(m.assistant("Private"));
     await expect(
-      circle.getByRole("img", { name: "Unread result", exact: true }),
+      circle
+        .locator("..")
+        .getByRole("img", { name: "Unread result", exact: true }),
     ).toBeVisible();
     await app.server.rpc.agents.new({
       requestId: "second",
@@ -478,7 +480,9 @@ e2eTest(
       app.page.getByRole("main", { name: "Guide", exact: true }),
     ).toContainText("Hello from Guide");
     await expect(
-      firstCircle.getByRole("img", { name: "Unread result", exact: true }),
+      firstCircle
+        .locator("..")
+        .getByRole("img", { name: "Unread result", exact: true }),
     ).toHaveCount(0);
     await expect(firstCircle).toHaveAttribute("aria-pressed", "true");
     expect((await app.server.rpc.agents.list())[0]?.threadId).toBe(

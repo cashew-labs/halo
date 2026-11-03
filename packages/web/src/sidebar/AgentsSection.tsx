@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   agentUserMessage,
@@ -12,8 +12,11 @@ import {
   Text,
   Tooltip,
   background,
+  backgroundColor,
   colors,
   flex,
+  motion,
+  motionEasing,
   radius,
   shadow,
   spacing,
@@ -35,7 +38,6 @@ import {
   usePaneLocation,
 } from "../panes/WorkspacePanesProvider.js";
 import { useSidebar } from "../WorkspaceLayout.js";
-import { ThreadActivity } from "./ThreadActivity.js";
 
 export function AgentsSection({ threads }: { threads: ThreadSummary[] }) {
   const agents = useAgents();
@@ -119,7 +121,8 @@ function AgentCircle({
   const circle = useStyles(styles.circle, selected && styles.selected);
   const item = useStyles(styles.item);
   const name = useStyles(styles.name);
-  const activity = useStyles(styles.activity);
+  const initial = useStyles(styles.initial);
+  const avatar = useStyles(styles.avatar);
   const status =
     thread === undefined
       ? "Loading conversation"
@@ -130,33 +133,109 @@ function AgentCircle({
           : "Ready";
   return (
     <div className={item}>
-      <Tooltip
-        content={<AgentPreview agent={agent} thread={thread} status={status} />}
-        placement="top"
-      >
-        <Button
-          className={circle}
-          aria-label={agent.name}
-          aria-pressed={selected}
-          onPress={() => {
-            workspace.open({ path: `/sessions/${agent.threadId}` });
-            sidebar.close();
-          }}
+      <div className={avatar}>
+        <Tooltip
+          content={
+            <AgentPreview agent={agent} thread={thread} status={status} />
+          }
+          placement="top"
         >
-          <Text size="lg" fontWeight={500} aria-hidden="true">
-            {Array.from(agent.name)[0]?.toLocaleUpperCase()}
-          </Text>
-          {thread !== undefined && (
-            <div className={activity}>
-              <ThreadActivity thread={thread} />
-            </div>
-          )}
-        </Button>
-      </Tooltip>
-      <Text className={name} size="xs" title={agent.name}>
+          <Button
+            className={circle}
+            aria-label={agent.name}
+            aria-pressed={selected}
+            onPress={() => {
+              workspace.open({ path: `/sessions/${agent.threadId}` });
+              sidebar.close();
+            }}
+          >
+            <Text
+              className={initial}
+              size="lg"
+              fontWeight={500}
+              aria-hidden="true"
+            >
+              {Array.from(agent.name)[0]?.toLocaleUpperCase()}
+            </Text>
+          </Button>
+        </Tooltip>
+        {thread !== undefined && <AgentActivity thread={thread} />}
+      </div>
+      <Text
+        className={name}
+        size="xs"
+        color={selected ? "accent" : undefined}
+        fontWeight={selected ? 500 : undefined}
+        title={agent.name}
+      >
         {agent.name}
       </Text>
     </div>
+  );
+}
+
+// A dot for unread results that stretches into a typing bubble while the agent works.
+function AgentActivity({ thread }: { thread: ThreadSummary }) {
+  const isUnread = !thread.isRunning && isThreadUnread(thread);
+  const dots = useRef<HTMLSpanElement>(null);
+  const badge = useStyles(
+    styles.badge,
+    thread.isRunning ? styles.working : isUnread ? styles.unread : styles.idle,
+  );
+  const dotRow = useStyles(styles.dots, thread.isRunning && styles.visibleDots);
+  const dot = useStyles(styles.dot);
+  useEffect(() => {
+    if (!thread.isRunning) return;
+    const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+    let bounces: Animation[] = [];
+    // Start or stop the bounce whenever the reduced-motion setting changes.
+    const update = () => {
+      bounces.forEach((bounce) => bounce.cancel());
+      bounces = reducedMotion.matches
+        ? []
+        : Array.from(dots.current?.children ?? [], (child, index) =>
+            child.animate(
+              // Ease each hop, not the whole loop, so the keyframes keep their timing.
+              [
+                { transform: "translateY(0)", easing: motionEasing },
+                {
+                  transform: "translateY(-2px)",
+                  offset: 0.25,
+                  easing: motionEasing,
+                },
+                { transform: "translateY(0)", offset: 0.5 },
+                { transform: "translateY(0)" },
+              ],
+              { duration: 1000, delay: index * 160, iterations: Infinity },
+            ),
+          );
+    };
+    update();
+    reducedMotion.addEventListener("change", update);
+    return () => {
+      reducedMotion.removeEventListener("change", update);
+      bounces.forEach((bounce) => bounce.cancel());
+    };
+  }, [thread.isRunning]);
+  const label = thread.isRunning
+    ? "Agent is working"
+    : isUnread
+      ? "Unread result"
+      : undefined;
+  return (
+    <span
+      className={badge}
+      role="img"
+      aria-label={label}
+      aria-hidden={label === undefined}
+      title={label}
+    >
+      <span ref={dots} className={dotRow}>
+        <span className={dot} />
+        <span className={dot} />
+        <span className={dot} />
+      </span>
+    </span>
   );
 }
 
@@ -234,24 +313,54 @@ const styles = {
     height: "40px",
     minWidth: "40px",
     padding: 0,
-    position: "relative",
   }),
-  selected: style({
-    backgroundColor: colors.accent[3],
-    color: colors.accent[11],
-    boxShadow: `0 0 0 2px ${colors.accent[8]}`,
-  }),
+  selected: style({ boxShadow: `0 0 0 2px ${colors.accent[8]}` }),
+  // Trim the line box to the capital so the letter sits in the optical center.
+  initial: style({ textBox: "trim-both cap alphabetic" }),
   name: style({
     maxWidth: "100%",
     whiteSpace: "nowrap",
     overflow: "hidden",
     textOverflow: "ellipsis",
   }),
-  activity: style({
-    position: "absolute",
-    right: "-4px",
-    bottom: "-3px",
-    pointerEvents: "none",
+  avatar: style({ position: "relative" }),
+  // Centered on the dot's center, so the working oval grows out both sides.
+  badge: style(
+    motion.standard("width", "background-color", "opacity", "scale"),
+    radius.pill,
+    {
+      position: "absolute",
+      left: "35px",
+      top: "35px",
+      translate: "-50% -50%",
+      pointerEvents: "none",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      boxSizing: "border-box",
+      height: "14px",
+      border: `2px solid ${backgroundColor.element}`,
+      "@media (prefers-reduced-motion: reduce)": { transition: "none" },
+    },
+  ),
+  unread: style({ width: "14px", backgroundColor: colors.accent[9] }),
+  working: style({ width: "26px", backgroundColor: colors.gray[5] }),
+  idle: style({
+    width: "14px",
+    backgroundColor: colors.accent[9],
+    opacity: 0,
+    scale: "0.5",
+  }),
+  dots: style(motion.standard("opacity"), {
+    display: "flex",
+    gap: "2px",
+    opacity: 0,
+  }),
+  visibleDots: style({ opacity: 1 }),
+  dot: style(radius.circle, {
+    width: "3px",
+    height: "3px",
+    backgroundColor: colors.gray[11],
   }),
   preview: style(
     flex({ direction: "column", gap: 2 }),
