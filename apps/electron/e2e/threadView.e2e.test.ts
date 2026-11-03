@@ -1243,6 +1243,9 @@ attachmentTest(
     ).toBeVisible();
     await chatTab.click();
     await app.page.reload();
+    await app.page
+      .getByRole("status", { name: "Connection: Connected", exact: true })
+      .waitFor();
     await expect(
       userMessage.getByRole("link", { name: "document.docx", exact: true }),
     ).toBeVisible();
