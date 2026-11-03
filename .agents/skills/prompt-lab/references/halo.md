@@ -2,14 +2,15 @@
 
 Run these from the Halo repository root.
 
-Render Halo's system prompt. The lab sends no tools, so leave out memory guidance:
+Render the system prompt with Halo's production loader, `WorkspaceResourceLoader.getSystemPrompt`. It adds the workspace's `AGENTS.md`, its skills, and the environment block to `haloSystemPrompt`, so point it at the workspace whose users you are tuning for. The lab sends no tools, so leave out memory guidance:
 
 ```sh
 mkdir -p tmp/prompt-lab
-pnpm --silent exec tsx -e "import {haloSystemPrompt} from './packages/workspace-server/src/agent/workspacePrompt.ts'; process.stdout.write(haloSystemPrompt({environment:'local', memory:false}))" > tmp/prompt-lab/halo-prompt.md
+workspace="$PWD/tmp/workspace"
+(cd packages/workspace-server && node --import tsx --input-type=module -e "const {WorkspaceResourceLoader} = await import('./src/agent/WorkspaceResourceLoader.ts'); const loader = new WorkspaceResourceLoader({environment:'local', workspaceRoot: process.argv[1], threadId:'prompt-lab', memory:false}); const error = await loader.reload(); if (error instanceof Error) throw error; process.stdout.write(loader.getSystemPrompt())" "$workspace") > tmp/prompt-lab/halo-prompt.md
 ```
 
-This is only the part of the prompt that `haloSystemPrompt` writes. Halo also appends the workspace's `AGENTS.md`, its skills, and an environment block; see `WorkspaceResourceLoader.getSystemPrompt`.
+Set `workspace` to another absolute path to test against its instructions and skills.
 
 Match Halo's model in `lab.json`. The values come from `togetherModel` in `packages/config/src/inference.ts`; Halo runs it with low reasoning, which Together receives as `reasoning.enabled`:
 
