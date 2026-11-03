@@ -51,7 +51,7 @@ Image validation used isolated tags and caches. [Runtime smoke check](https://co
 ## References
 
 - [[6a377ce3:.github/workflows/release.yml]]
-- [[6a377ce3:apps/workspace-server/Dockerfile]]
-- [[6a377ce3:apps/control-plane/Dockerfile]]
+- [[8bb1bec4:apps/workspace-server/Dockerfile]]
+- [[8bb1bec4:apps/control-plane/Dockerfile]]
 - [0.1.96 release PR checks](https://github.com/cashew-labs/halo/actions/runs/41497381500)
 - [0.1.96 deployment](https://github.com/cashew-labs/halo/actions/runs/41499256425)
