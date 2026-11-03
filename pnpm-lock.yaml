@@ -113,6 +113,7 @@ overrides:
 
 patchedDependencies:
   '@tanishqkancharla/maui@0.0.66': 7fcbeb9304b5d2e019b4fdcb2a189c68921994ef976aef928ab410296f2adb61
+  playwright-core@1.62.1: 9f022b7c43db347067fd7a326db2c3bcbaf82f50f88cb6f480867de1080222ed
   react-aria-components@1.22.1: fad70a611cdeb4465a9957f63d6c8c87d448a10e860cf6bfe0fed6dff4007105
   react-aria@3.53.1: 4368bd1621c5c4a04cd1222144a92935de0fe72add328e2a2c86209b96668474
 
@@ -16056,11 +16057,11 @@ snapshots:
 
   pkce-challenge@5.0.1: {}
 
-  playwright-core@1.62.1: {}
+  playwright-core@1.62.1(patch_hash=9f022b7c43db347067fd7a326db2c3bcbaf82f50f88cb6f480867de1080222ed): {}
 
   playwright@1.62.1:
     dependencies:
-      playwright-core: 1.62.1
+      playwright-core: 1.62.1(patch_hash=9f022b7c43db347067fd7a326db2c3bcbaf82f50f88cb6f480867de1080222ed)
     optionalDependencies:
       fsevents: 2.3.2
 

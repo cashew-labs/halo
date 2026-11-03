@@ -99,6 +99,7 @@ minimumReleaseAgeExclude:
 patchedDependencies:
   # Remove closing tooltips even when the browser skips transitionend.
   "@tanishqkancharla/maui@0.0.66": patches/@tanishqkancharla__maui@0.0.66.patch
+  playwright-core@1.62.1: patches/playwright-core@1.62.1.patch
   # React Aria 1.22 omits hasChildItems when calling useTreeItem for empty folders.
   react-aria-components@1.22.1: patches/react-aria-components@1.22.1.patch
   # Release modal inertness before FocusScope restores focus after animated exits.

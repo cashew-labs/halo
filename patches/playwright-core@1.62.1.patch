@@ -1,0 +1,16 @@
+diff --git a/lib/coreBundle.js b/lib/coreBundle.js
+index d9041dd0f009072511a7d808dec83121ff29e127..8485a24eb1c1fdd1c4ea2f7996b42f220fcb2030 100644
+--- a/lib/coreBundle.js
++++ b/lib/coreBundle.js
+@@ -38116,7 +38116,10 @@ var init_crBrowser = __esm({
+           }),
+           browser._defaultContext.initialize()
+         ]);
+-        await browser._waitForAllPagesToBeInitialized();
++        // A discarded daily-driver tab cannot initialize until it is activated.
++        // Leave those pages pending instead of blocking the entire CDP browser.
++        if (!options.noDefaults)
++          await browser._waitForAllPagesToBeInitialized();
+         return browser;
+       }
+       async doCreateNewContext(options) {

@@ -1,7 +1,9 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { once } from "node:events";
 import { setTimeout as sleep } from "node:timers/promises";
 import { expect } from "vitest";
+import WebSocket from "ws";
 import * as errore from "errore";
 import { m } from "@get-halo/shared/testing";
 import { TestChrome } from "@get-halo/workspace-server/testing";
@@ -306,5 +308,73 @@ browserTest(
     await expect(
       server.rpc.testApi.invokeTool({ path: "browser.tabs", input: {} }),
     ).rejects.toThrow(/workspace\.browser/);
+  },
+);
+
+browserTest(
+  "releases idle tab debuggers without closing tabs or reconnecting for inventory",
+  { timeout: 90_000 },
+  async ({ createServer, chrome }) => {
+    const server = createServer({ chrome: chrome.config });
+    await server.start();
+    // SAFETY: browser.newPage returns the opened tab.
+    const tab = (await server.rpc.testApi.invokeTool({
+      path: "browser.newPage",
+      input: { url: form },
+    })) as Tab;
+    const call = async (method: string, args: unknown[] = []) =>
+      await server.rpc.testApi.invokeTool({
+        path: "browser.call",
+        input: { page: tab.id, chain: [], method, args },
+      });
+    await call("evaluate", [
+      { $function: "() => { window.haloDraft = 'keep this draft'; }" },
+    ]);
+    // Read attachment state through a browser-only CDP socket. A second
+    // Playwright connection would itself attach debuggers to every page.
+    const targets = async () => {
+      const address = await fs.readFile(
+        path.join(chrome.profileDir, "DevToolsActivePort"),
+        "utf8",
+      );
+      const [port, browserPath] = address.trim().split("\n");
+      const socket = new WebSocket(`ws://127.0.0.1:${port}${browserPath}`);
+      using cleanup = new errore.DisposableStack();
+      cleanup.defer(() => socket.close());
+      const signal = AbortSignal.timeout(5_000);
+      await once(socket, "open", { signal });
+      const message = once(socket, "message", { signal });
+      socket.send(JSON.stringify({ id: 1, method: "Target.getTargets" }));
+      const [data] = await message;
+      // SAFETY: Target.getTargets returns CDP target descriptors.
+      const response = JSON.parse(String(data)) as {
+        result: {
+          targetInfos: Array<{ targetId: string; attached: boolean }>;
+        };
+      };
+      return response.result.targetInfos;
+    };
+    expect(await targets()).toContainEqual(
+      expect.objectContaining({ targetId: tab.id, attached: true }),
+    );
+    await expect
+      .poll(
+        async () => (await targets()).find((item) => item.targetId === tab.id),
+        { timeout: 65_000, interval: 500 },
+      )
+      .toMatchObject({ attached: false });
+
+    // Listing must not reconnect or wake idle tabs.
+    expect(
+      await server.rpc.testApi.invokeTool({ path: "browser.tabs", input: {} }),
+    ).toContainEqual(tab);
+    expect(await targets()).toContainEqual(
+      expect.objectContaining({ targetId: tab.id, attached: false }),
+    );
+    // The same tab and its unsaved page state survive idle release.
+    expect(
+      await call("evaluate", [{ $function: "() => window.haloDraft" }]),
+    ).toMatchObject({ value: "keep this draft" });
+    await call("snapshot");
   },
 );

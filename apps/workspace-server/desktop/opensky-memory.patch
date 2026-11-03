@@ -1,0 +1,704 @@
+diff --git a/libs/cua-driver/rust/crates/cua-driver-core/src/browser/cdp_ws.rs b/libs/cua-driver/rust/crates/cua-driver-core/src/browser/cdp_ws.rs
+index 7ca2f80..450369b 100644
+--- a/libs/cua-driver/rust/crates/cua-driver-core/src/browser/cdp_ws.rs
++++ b/libs/cua-driver/rust/crates/cua-driver-core/src/browser/cdp_ws.rs
+@@ -29,6 +29,10 @@ type WsStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
+ 
+ const CALL_TIMEOUT: Duration = Duration::from_secs(20);
+ const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
++const UNRESTRICTED_IDLE_TTL: Duration = Duration::from_secs(60);
++const IDLE_POLL_INTERVAL: Duration = Duration::from_secs(1);
++const IDLE_DETACH_BATCH: usize = 32;
++const IDLE_DETACH_BUDGET: Duration = Duration::from_secs(2);
+ 
+ /// Connection-scoped command policy. Grant-owned personal-profile sockets
+ /// always use the reviewed set below; callers cannot opt out or relax it.
+@@ -134,6 +138,8 @@ enum CallOutcome {
+ struct Demux {
+     pending: StdMutex<HashMap<u64, oneshot::Sender<CallOutcome>>>,
+     subscribers: StdMutex<Vec<mpsc::UnboundedSender<CdpEvent>>>,
++    /// Explicit root attachments. Detaching a parent also releases its OOPIFs.
++    attached_targets: StdMutex<HashMap<String, String>>,
+     session_targets: StdMutex<HashMap<String, String>>,
+     dialogs: StdMutex<HashMap<String, CdpDialogState>>,
+     next_dialog_generation: AtomicU64,
+@@ -141,12 +147,22 @@ struct Demux {
+ }
+ 
+ impl Demux {
++    fn forget_session(&self, session_id: &str) {
++        self.attached_targets.lock().unwrap().remove(session_id);
++        self.session_targets.lock().unwrap().remove(session_id);
++        self.dialogs
++            .lock()
++            .unwrap()
++            .retain(|_, dialog| dialog.session_id != session_id);
++    }
++
+     fn close(&self) {
+         self.closed.store(true, Ordering::SeqCst);
+         // Dropping the senders wakes every pending caller with a recv
+         // error, which `call` reports as a closed socket.
+         self.pending.lock().unwrap().clear();
+         self.subscribers.lock().unwrap().clear();
++        self.attached_targets.lock().unwrap().clear();
+         self.session_targets.lock().unwrap().clear();
+         self.dialogs.lock().unwrap().clear();
+     }
+@@ -194,6 +210,11 @@ async fn read_loop(mut read: SplitStream<WsStream>, demux: Arc<Demux>) {
+                     .map(str::to_owned),
+                 params: v.get("params").cloned().unwrap_or(Value::Null),
+             };
++            if event.method == "Target.detachedFromTarget" {
++                if let Some(session_id) = event.params.get("sessionId").and_then(Value::as_str) {
++                    demux.forget_session(session_id);
++                }
++            }
+             if let Some(session_id) = event.session_id.as_deref() {
+                 let target_id = demux
+                     .session_targets
+@@ -268,6 +289,7 @@ impl CdpConnection {
+         let demux = Arc::new(Demux {
+             pending: StdMutex::new(HashMap::new()),
+             subscribers: StdMutex::new(Vec::new()),
++            attached_targets: StdMutex::new(HashMap::new()),
+             session_targets: StdMutex::new(HashMap::new()),
+             dialogs: StdMutex::new(HashMap::new()),
+             next_dialog_generation: AtomicU64::new(1),
+@@ -359,6 +381,17 @@ impl CdpConnection {
+         session_id: Option<&str>,
+         method: &str,
+         params: Value,
++    ) -> anyhow::Result<Value> {
++        self.call_with_timeout(session_id, method, params, CALL_TIMEOUT)
++            .await
++    }
++
++    async fn call_with_timeout(
++        &self,
++        session_id: Option<&str>,
++        method: &str,
++        params: Value,
++        timeout: Duration,
+     ) -> anyhow::Result<Value> {
+         let policy = self.method_policy();
+         if !policy.allows(method) {
+@@ -384,22 +417,49 @@ impl CdpConnection {
+         if let Some(sid) = session_id {
+             msg["sessionId"] = Value::String(sid.to_owned());
+         }
+-        let sent = {
++        let deadline = tokio::time::Instant::now() + timeout;
++        let sent = tokio::time::timeout_at(deadline, async {
+             let mut writer = self.writer.lock().await;
+             writer.send(Message::Text(msg.to_string())).await
++        })
++        .await;
++        let sent = match sent {
++            Ok(sent) => sent,
++            Err(_) => {
++                self.demux.pending.lock().unwrap().remove(&id);
++                anyhow::bail!("CDP {method} timed out after {timeout:?}")
++            }
+         };
+         if let Err(e) = sent {
+             self.demux.pending.lock().unwrap().remove(&id);
+             anyhow::bail!("CDP send failed during {method}: {e}");
+         }
+ 
+-        match tokio::time::timeout(CALL_TIMEOUT, rx).await {
++        match tokio::time::timeout_at(deadline, rx).await {
+             Err(_) => {
+                 self.demux.pending.lock().unwrap().remove(&id);
+-                anyhow::bail!("CDP {method} timed out after {CALL_TIMEOUT:?}")
++                anyhow::bail!("CDP {method} timed out after {timeout:?}")
+             }
+             Ok(Err(_)) => anyhow::bail!("CDP socket closed during {method}"),
+-            Ok(Ok(CallOutcome::Result(v))) => Ok(v),
++            Ok(Ok(CallOutcome::Result(v))) => {
++                if session_id.is_none() && method == "Target.attachToTarget" {
++                    if let (Some(sid), Some(target)) = (
++                        v.get("sessionId").and_then(Value::as_str),
++                        msg["params"].get("targetId").and_then(Value::as_str),
++                    ) {
++                        self.demux
++                            .attached_targets
++                            .lock()
++                            .unwrap()
++                            .insert(sid.to_owned(), target.to_owned());
++                    }
++                } else if method == "Target.detachFromTarget" {
++                    if let Some(sid) = msg["params"].get("sessionId").and_then(Value::as_str) {
++                        self.demux.forget_session(sid);
++                    }
++                }
++                Ok(v)
++            }
+             Ok(Ok(CallOutcome::Error {
+                 code: Some(code),
+                 message,
+@@ -465,6 +525,8 @@ struct PoolEntry {
+     conn: Arc<CdpConnection>,
+     /// `None` for an unrestricted driver-owned endpoint.
+     shared: Option<SharedSocket>,
++    /// Starts only once the pool observes that no operation holds a lease.
++    idle_since: Option<Instant>,
+ }
+ 
+ #[derive(Clone, Copy)]
+@@ -525,6 +587,7 @@ struct Markers {
+ 
+ struct PoolInner {
+     conns: Mutex<HashMap<String, PoolEntry>>,
++    idle_reaper_started: AtomicBool,
+     /// Serializes every browser-level dial for grant-owned sockets so two
+     /// sessions can never open two sockets (and two consent prompts) at once.
+     dial_gate: Mutex<()>,
+@@ -533,6 +596,71 @@ struct PoolInner {
+ }
+ 
+ impl PoolInner {
++    async fn reap_idle(&self, now: Instant) {
++        let mut conns = self.conns.lock().await;
++        // A dial can hold this lock. Never backdate idle time to before
++        // the poll actually observed the last lease's release.
++        let now = now.max(Instant::now());
++        let deadline = tokio::time::Instant::now() + IDLE_DETACH_BUDGET;
++        let mut remaining = IDLE_DETACH_BATCH;
++        let mut expired = Vec::new();
++        for (url, entry) in conns.iter_mut() {
++            // get() clones under this same mutex. A live operation's Arc is
++            // a lease, including while it waits between CDP commands.
++            if Arc::strong_count(&entry.conn) > 1 {
++                entry.idle_since = None;
++                continue;
++            }
++            let idle_since = entry.idle_since.get_or_insert(now);
++            if now.saturating_duration_since(*idle_since) < UNRESTRICTED_IDLE_TTL {
++                continue;
++            }
++            if entry.shared.is_none() && entry.conn.method_policy() == CdpMethodPolicy::Unrestricted
++            {
++                expired.push(url.clone());
++                continue;
++            }
++            // Keep the consented root socket and grant holders. Only detach
++            // explicit parent sessions; Chrome releases their child sessions.
++            let sessions: Vec<String> = {
++                let attached = entry.conn.demux.attached_targets.lock().unwrap();
++                let dialogs = entry.conn.demux.dialogs.lock().unwrap();
++                attached
++                    .iter()
++                    .filter(|(_, target)| !dialogs.contains_key(*target))
++                    .take(remaining)
++                    .map(|(sid, _)| sid.clone())
++                    .collect()
++            };
++            for sid in sessions {
++                let wait = deadline.saturating_duration_since(tokio::time::Instant::now());
++                if wait.is_zero() {
++                    break;
++                }
++                remaining -= 1;
++                if let Err(error) = entry
++                    .conn
++                    .call_with_timeout(
++                        None,
++                        "Target.detachFromTarget",
++                        serde_json::json!({"sessionId": sid}),
++                        wait,
++                    )
++                    .await
++                {
++                    tracing::warn!(%error, "Idle CDP page detach failed; retrying after the idle interval");
++                    // Retain the consented socket, but do not repeat a failed
++                    // detach (or its warning) on every one-second poll.
++                    entry.idle_since = Some(now.max(Instant::now()));
++                    break;
++                }
++            }
++        }
++        for url in expired {
++            conns.remove(&url);
++        }
++    }
++
+     async fn close_parked(&self) -> usize {
+         let mut conns = self.conns.lock().await;
+         let parked: Vec<String> = conns
+@@ -638,6 +766,7 @@ impl CdpPool {
+     pub(crate) fn with_shared_socket_ttls(idle: Duration, absolute: Duration) -> Self {
+         let inner = Arc::new(PoolInner {
+             conns: Mutex::new(HashMap::new()),
++            idle_reaper_started: AtomicBool::new(false),
+             dial_gate: Mutex::new(()),
+             markers: StdMutex::new(Markers::default()),
+             ttl: SharedSocketTtl { idle, absolute },
+@@ -646,20 +775,39 @@ impl CdpPool {
+         Self { inner }
+     }
+ 
++    fn start_idle_reaper(&self) {
++        // Start in the caller's runtime, not in new() (which can be called
++        // outside a runtime). One task per pool, never one task per get().
++        if !self.inner.idle_reaper_started.swap(true, Ordering::Relaxed) {
++            let weak = Arc::downgrade(&self.inner);
++            tokio::spawn(async move {
++                loop {
++                    tokio::time::sleep(IDLE_POLL_INTERVAL).await;
++                    let Some(inner) = weak.upgrade() else {
++                        return;
++                    };
++                    inner.reap_idle(Instant::now()).await;
++                }
++            });
++        }
++    }
++
+     /// Get the pooled connection for `ws_url`, dialing if needed.
+     /// A connection whose socket closed is replaced transparently.
+     pub async fn get(&self, ws_url: &str) -> anyhow::Result<Arc<CdpConnection>> {
++        self.start_idle_reaper();
+         if endpoint_port_is_grant_owned(ws_url) {
+             anyhow::bail!(
+                 "this DevTools endpoint is owned by a first-class existing-profile attachment"
+             );
+         }
+         let mut conns = self.inner.conns.lock().await;
+-        if let Some(existing) = conns.get(ws_url) {
++        if let Some(existing) = conns.get_mut(ws_url) {
+             if existing.shared.is_some() {
+                 anyhow::bail!("this DevTools endpoint is owned by an attachment generation");
+             }
+             if !existing.conn.is_closed() {
++                existing.idle_since = None;
+                 return Ok(existing.conn.clone());
+             }
+             conns.remove(ws_url);
+@@ -670,6 +818,7 @@ impl CdpPool {
+             PoolEntry {
+                 conn: conn.clone(),
+                 shared: None,
++                idle_since: None,
+             },
+         );
+         Ok(conn)
+@@ -684,6 +833,7 @@ impl CdpPool {
+         ws_url: &str,
+         generation: u64,
+     ) -> anyhow::Result<Arc<CdpConnection>> {
++        self.start_idle_reaper();
+         loopback_port(ws_url)
+             .ok_or_else(|| anyhow::anyhow!("existing-profile endpoint has no loopback port"))?;
+         let _dial = self.inner.dial_gate.lock().await;
+@@ -697,6 +847,7 @@ impl CdpPool {
+                     .expect("live_shared returns shared entries");
+                 shared.holders.insert(generation);
+                 shared.last_used_at = now;
++                entry.idle_since = None;
+                 return Ok(entry.conn.clone());
+             }
+             match conns.get(ws_url) {
+@@ -711,6 +862,7 @@ impl CdpPool {
+                         PoolEntry {
+                             conn: conn.clone(),
+                             shared: Some(SharedSocket::new(generation, now)),
++                            idle_since: None,
+                         },
+                     );
+                     return Ok(conn);
+@@ -734,6 +886,7 @@ impl CdpPool {
+             PoolEntry {
+                 conn: conn.clone(),
+                 shared: Some(SharedSocket::new(generation, Instant::now())),
++                idle_since: None,
+             },
+         );
+         Ok(conn)
+@@ -747,6 +900,7 @@ impl CdpPool {
+         ws_url: &str,
+         generation: u64,
+     ) -> anyhow::Result<Arc<CdpConnection>> {
++        self.start_idle_reaper();
+         let now = Instant::now();
+         let mut conns = self.inner.conns.lock().await;
+         let entry = conns
+@@ -766,6 +920,7 @@ impl CdpPool {
+             anyhow::bail!("the grant-owned browser socket reached its absolute lifetime");
+         }
+         shared.last_used_at = now;
++        entry.idle_since = None;
+         Ok(entry.conn.clone())
+     }
+ 
+@@ -808,6 +963,7 @@ impl CdpPool {
+             PoolEntry {
+                 conn: conn.clone(),
+                 shared: Some(SharedSocket::new(new_generation, Instant::now())),
++                idle_since: None,
+             },
+         );
+         Ok(conn)
+@@ -1447,6 +1603,362 @@ mod tests {
+         second.call(None, "Ping.pong", json!({})).await.unwrap();
+     }
+ 
++    #[tokio::test]
++    async fn shared_idle_detach_blocks_new_leases_only_within_its_budget() {
++        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
++        let port = listener.local_addr().unwrap().port();
++        let (detaching_tx, detaching_rx) = oneshot::channel();
++        let server = tokio::spawn(async move {
++            let (stream, _) = listener.accept().await.unwrap();
++            let mut ws = tokio_tungstenite::accept_async(stream).await.unwrap();
++            let mut detaching_tx = Some(detaching_tx);
++            while let Some(Ok(Message::Text(text))) = ws.next().await {
++                let call: Value = serde_json::from_str(&text).unwrap();
++                if call["method"] == "Target.detachFromTarget" {
++                    detaching_tx.take().unwrap().send(()).unwrap();
++                    continue; // Simulate a browser that never answers detach.
++                }
++                ws.send(Message::Text(
++                    json!({"id": call["id"], "result": {"sessionId": "page-session"}}).to_string(),
++                ))
++                .await
++                .unwrap();
++            }
++        });
++        let pool = CdpPool::new();
++        let url = format!("ws://127.0.0.1:{port}/devtools/browser/bounded");
++        let conn = pool.claim_existing(&url, 1).await.unwrap();
++        let demux = conn.demux.clone();
++        conn.call(
++            None,
++            "Target.attachToTarget",
++            json!({"targetId": "page", "flatten": true}),
++        )
++        .await
++        .unwrap();
++        drop(conn);
++        let now = Instant::now();
++        pool.inner.reap_idle(now).await;
++        let inner = pool.inner.clone();
++        let reaping = tokio::spawn(async move {
++            inner.reap_idle(now + UNRESTRICTED_IDLE_TTL * 2).await;
++        });
++        detaching_rx.await.unwrap();
++        let acquisition = pool.get_existing(&url, 1);
++        tokio::pin!(acquisition);
++        assert!(
++            tokio::time::timeout(Duration::from_millis(20), &mut acquisition)
++                .await
++                .is_err(),
++            "new automation must not race a pending idle detach"
++        );
++        tokio::time::timeout(IDLE_DETACH_BUDGET + Duration::from_secs(1), reaping)
++            .await
++            .unwrap()
++            .unwrap();
++        let conn = acquisition.await.unwrap();
++        assert!(!conn.is_closed());
++        assert!(
++            demux.pending.lock().unwrap().is_empty(),
++            "timed-out detach must not leak pending calls"
++        );
++        conn.call(None, "Target.getTargets", json!({}))
++            .await
++            .unwrap();
++        server.abort();
++    }
++
++    #[tokio::test]
++    async fn shared_idle_pages_detach_without_replacing_the_consented_socket() {
++        let detach_calls = Arc::new(StdMutex::new(Vec::new()));
++        let log = detach_calls.clone();
++        let next = AtomicU64::new(0);
++        let server = MockCdpServer::start(Arc::new(move |call| match call.method.as_str() {
++            "Target.attachToTarget" => MockReply::ok(
++                json!({"sessionId": format!("s{}", next.fetch_add(1, Ordering::Relaxed))}),
++            ),
++            "Target.detachFromTarget" => {
++                let mut calls = log.lock().unwrap();
++                calls.push(call.params["sessionId"].as_str().unwrap().to_owned());
++                if calls.len() == 1 {
++                    MockReply::err(-32000, "detach temporarily unavailable")
++                } else {
++                    MockReply::ok(json!({}))
++                }
++            }
++            _ => MockReply::ok(json!({})),
++        }))
++        .await;
++        let pool = CdpPool::new();
++        let url = server.ws_url();
++        // This is the cloud route: claim/get_existing, never unrestricted get.
++        let conn = pool.claim_existing(&url, 1).await.unwrap();
++        let weak = Arc::downgrade(&conn);
++        for index in 0..IDLE_DETACH_BATCH + 1 {
++            let result = conn
++                .call(
++                    None,
++                    "Target.attachToTarget",
++                    json!({"targetId": format!("page-{index}"), "flatten": true}),
++                )
++                .await
++                .unwrap();
++            if index == 0 {
++                conn.register_dialog_session(result["sessionId"].as_str().unwrap(), "page-0");
++            }
++        }
++        let now = Instant::now();
++        pool.inner.reap_idle(now).await;
++        pool.inner.reap_idle(now + UNRESTRICTED_IDLE_TTL * 2).await;
++        assert!(
++            detach_calls.lock().unwrap().is_empty(),
++            "live Arc lease protects all page sessions"
++        );
++        drop(conn);
++        let idle = now + UNRESTRICTED_IDLE_TTL * 3;
++        pool.inner.reap_idle(idle).await;
++        // get_existing resets the full idle period, even between polls.
++        drop(pool.get_existing(&url, 1).await.unwrap());
++        pool.inner.reap_idle(idle + UNRESTRICTED_IDLE_TTL).await;
++        assert!(detach_calls.lock().unwrap().is_empty());
++        pool.inner.reap_idle(idle + UNRESTRICTED_IDLE_TTL * 2).await;
++        assert_eq!(detach_calls.lock().unwrap().len(), 1);
++        pool.inner
++            .reap_idle(idle + UNRESTRICTED_IDLE_TTL * 2 + IDLE_POLL_INTERVAL)
++            .await;
++        assert_eq!(
++            detach_calls.lock().unwrap().len(),
++            1,
++            "failed detach backs off instead of retrying/logging every second"
++        );
++        pool.inner.reap_idle(idle + UNRESTRICTED_IDLE_TTL * 3).await;
++        assert_eq!(detach_calls.lock().unwrap().len(), IDLE_DETACH_BATCH + 1);
++        pool.inner.reap_idle(idle + UNRESTRICTED_IDLE_TTL * 3).await;
++        assert_eq!(detach_calls.lock().unwrap().len(), IDLE_DETACH_BATCH + 2);
++        let conn = pool.get_existing(&url, 1).await.unwrap();
++        assert!(weak.ptr_eq(&Arc::downgrade(&conn)));
++        assert!(
++            !conn.has_dialog_session("page-0"),
++            "dialog tool must re-enable a fresh watcher"
++        );
++        assert_eq!(pool.shared_socket_holders(&url).await, Some(1));
++        let attached = conn
++            .call(
++                None,
++                "Target.attachToTarget",
++                json!({"targetId": "page-0", "flatten": true}),
++            )
++            .await
++            .unwrap();
++        conn.call(
++            attached["sessionId"].as_str(),
++            "Page.captureScreenshot",
++            json!({}),
++        )
++        .await
++        .unwrap();
++        assert_eq!(server.accepted_connections(), 1, "no new handshake/consent");
++    }
++
++    #[tokio::test]
++    async fn shared_idle_dialogs_remain_answerable_and_detached_events_clear_watchers() {
++        let next = AtomicU64::new(0);
++        let server = MockCdpServer::start(Arc::new(move |call| {
++            let reply = MockReply::ok(json!({}));
++            match call.method.as_str() {
++                "Target.attachToTarget" => MockReply::ok(
++                    json!({"sessionId": format!("s{}", next.fetch_add(1, Ordering::Relaxed))}),
++                ),
++                "Page.enable" => reply.with_events(vec![MockEvent {
++                    method: "Page.javascriptDialogOpening".to_owned(),
++                    params: json!({"type": "alert"}),
++                    session_id: call.session_id.clone(),
++                }]),
++                "Page.handleJavaScriptDialog" => reply.with_events(vec![MockEvent {
++                    method: "Page.javascriptDialogClosed".to_owned(),
++                    params: json!({}),
++                    session_id: call.session_id.clone(),
++                }]),
++                "Target.getTargets" => reply.with_events(vec![MockEvent {
++                    method: "Target.detachedFromTarget".to_owned(),
++                    params: json!({"sessionId": "s2"}),
++                    session_id: None,
++                }]),
++                _ => reply,
++            }
++        }))
++        .await;
++        let pool = CdpPool::new();
++        let url = server.ws_url();
++        let conn = pool.claim_existing(&url, 1).await.unwrap();
++        for _ in 0..2 {
++            conn.call(
++                None,
++                "Target.attachToTarget",
++                json!({"targetId": "page", "flatten": true}),
++            )
++            .await
++            .unwrap();
++        }
++        conn.register_dialog_session("s0", "page");
++        conn.call(Some("s0"), "Page.enable", json!({}))
++            .await
++            .unwrap();
++        drop(conn);
++        let now = Instant::now();
++        pool.inner.reap_idle(now).await;
++        pool.inner.reap_idle(now + UNRESTRICTED_IDLE_TTL * 2).await;
++        let conn = pool.get_existing(&url, 1).await.unwrap();
++        assert_eq!(
++            conn.demux.attached_targets.lock().unwrap().len(),
++            2,
++            "keep every session for an open-dialog target"
++        );
++        assert!(conn.dialog_state("page").is_some());
++        conn.call(
++            Some("s0"),
++            "Page.handleJavaScriptDialog",
++            json!({"accept": true}),
++        )
++        .await
++        .unwrap();
++        drop(conn);
++        pool.inner.reap_idle(now + UNRESTRICTED_IDLE_TTL * 3).await;
++        pool.inner.reap_idle(now + UNRESTRICTED_IDLE_TTL * 4).await;
++        let conn = pool.get_existing(&url, 1).await.unwrap();
++        assert!(conn.demux.attached_targets.lock().unwrap().is_empty());
++        assert!(!conn.has_dialog_session("page"));
++        conn.call(
++            None,
++            "Target.attachToTarget",
++            json!({"targetId": "page", "flatten": true}),
++        )
++        .await
++        .unwrap();
++        conn.register_dialog_session("s2", "page");
++        conn.call(None, "Target.getTargets", json!({}))
++            .await
++            .unwrap();
++        assert!(!conn.has_dialog_session("page"));
++        assert!(conn.demux.attached_targets.lock().unwrap().is_empty());
++        assert_eq!(server.accepted_connections(), 1);
++    }
++
++    #[tokio::test]
++    async fn idle_reaper_preserves_leases_reuses_and_redials() {
++        let server = MockCdpServer::start(StdArc::new(|_| MockReply::ok(json!({})))).await;
++        let url = server.ws_url();
++        let pool = CdpPool::new();
++        let first = pool.get(&url).await.unwrap();
++        let weak = Arc::downgrade(&first);
++        let now = Instant::now();
++        pool.inner.reap_idle(now).await;
++        pool.inner.reap_idle(now + UNRESTRICTED_IDLE_TTL * 2).await;
++        first.call(None, "Still.leased", json!({})).await.unwrap();
++        drop(first);
++
++        // The lease may span many idle periods. Its release starts a fresh
++        // full idle window, rather than expiring at the next poll.
++        let idle = now + UNRESTRICTED_IDLE_TTL * 3;
++        pool.inner.reap_idle(idle).await;
++        pool.inner
++            .reap_idle(idle + UNRESTRICTED_IDLE_TTL - Duration::from_millis(1))
++            .await;
++        let reused = pool.get(&url).await.unwrap();
++        assert!(weak.ptr_eq(&Arc::downgrade(&reused)));
++        drop(reused);
++
++        // A get between polls also resets the entire idle window.
++        let idle = idle + UNRESTRICTED_IDLE_TTL;
++        pool.inner.reap_idle(idle).await;
++        pool.inner
++            .reap_idle(idle + UNRESTRICTED_IDLE_TTL - Duration::from_millis(1))
++            .await;
++        assert!(weak.upgrade().is_some());
++        pool.inner.reap_idle(idle + UNRESTRICTED_IDLE_TTL).await;
++        assert!(weak.upgrade().is_none());
++        let redialed = pool.get(&url).await.unwrap();
++        assert!(!weak.ptr_eq(&Arc::downgrade(&redialed)));
++        redialed
++            .call(None, "After.redial", json!({}))
++            .await
++            .unwrap();
++    }
++
++    #[tokio::test]
++    async fn idle_reaper_closes_transport_and_clears_dialogs_without_another_get() {
++        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
++        let port = listener.local_addr().unwrap().port();
++        let (closed_tx, closed_rx) = oneshot::channel();
++        let (started_tx, started_rx) = oneshot::channel();
++        let (resume_tx, resume_rx) = oneshot::channel();
++        let server = tokio::spawn(async move {
++            let (stream, _) = listener.accept().await.unwrap();
++            let mut ws = tokio_tungstenite::accept_async(stream).await.unwrap();
++            let Message::Text(text) = ws.next().await.unwrap().unwrap() else {
++                panic!("expected request");
++            };
++            let call: Value = serde_json::from_str(&text).unwrap();
++            started_tx.send(()).unwrap();
++            resume_rx.await.unwrap();
++            ws.send(Message::Text(
++                json!({
++                    "method": "Page.javascriptDialogOpening", "sessionId": "session",
++                    "params": {"type": "alert"}
++                })
++                .to_string(),
++            ))
++            .await
++            .unwrap();
++            ws.send(Message::Text(
++                json!({"id": call["id"], "result": {}}).to_string(),
++            ))
++            .await
++            .unwrap();
++            // Both split halves must drop: aborting just the reader while
++            // retaining the writer would leave this real TCP socket open.
++            let end = ws.next().await;
++            assert!(matches!(
++                end,
++                None | Some(Err(_)) | Some(Ok(Message::Close(_)))
++            ));
++            closed_tx.send(()).unwrap();
++        });
++        let pool = CdpPool::new();
++        let conn = pool
++            .get(&format!("ws://127.0.0.1:{port}/devtools/browser/idle"))
++            .await
++            .unwrap();
++        conn.register_dialog_session("session", "target");
++        let call = tokio::spawn(async move {
++            conn.call(Some("session"), "Page.enable", json!({}))
++                .await
++                .unwrap();
++            conn
++        });
++        started_rx.await.unwrap();
++        let now = Instant::now();
++        pool.inner.reap_idle(now).await;
++        pool.inner.reap_idle(now + UNRESTRICTED_IDLE_TTL * 2).await;
++        resume_tx.send(()).unwrap();
++        let conn = call.await.unwrap();
++        assert!(conn.dialog_state("target").is_some());
++        let demux = conn.demux.clone();
++        let weak = Arc::downgrade(&conn);
++        let released = Instant::now();
++        drop(conn);
++        tokio::time::timeout(UNRESTRICTED_IDLE_TTL + Duration::from_secs(5), closed_rx)
++            .await
++            .unwrap()
++            .unwrap();
++        assert!(released.elapsed() >= UNRESTRICTED_IDLE_TTL);
++        assert!(weak.upgrade().is_none());
++        assert!(demux.closed.load(Ordering::SeqCst));
++        assert!(demux.dialogs.lock().unwrap().is_empty());
++        assert!(demux.session_targets.lock().unwrap().is_empty());
++        server.await.unwrap();
++    }
++
+     /// Live check against a real Chrome whose remote debugging was allowed in
+     /// `chrome://inspect/#remote-debugging`. Chrome shows its "Allow remote
+     /// debugging?" prompt for the first socket; a person (or the driver's

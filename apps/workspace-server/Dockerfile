@@ -15,6 +15,8 @@ RUN git init . \
     && git remote add origin https://github.com/tanishqkancharla/cua.git \
     && git fetch --depth 1 origin 9e9219a0ca84ea195b9cf3be35b42a6379699448 \
     && git checkout --detach FETCH_HEAD
+COPY apps/workspace-server/desktop/opensky-memory.patch /tmp/opensky-memory.patch
+RUN git apply --check /tmp/opensky-memory.patch && git apply /tmp/opensky-memory.patch
 WORKDIR /src/libs/cua-driver/rust
 RUN CUA_DRIVER_SOURCE_SHA=9e9219a0ca84ea195b9cf3be35b42a6379699448 \
     cargo build --release --locked --jobs 2 -p cua-driver
@@ -80,6 +82,8 @@ RUN echo "Chrome refresh: ${CHROME_REFRESH}" \
 # Copy ownership with the files rather than duplicating them in a chown layer.
 COPY --from=build --chown=node:node /opt/halo/packages ./packages
 COPY --from=build /opt/halo/apps/workspace-server ./apps/workspace-server
+# Recommended policies also apply to existing profiles; users can override them.
+COPY apps/workspace-server/desktop/chrome-memory.json /etc/opt/chrome/policies/recommended/halo-memory.json
 RUN cp apps/workspace-server/desktop/index.html apps/workspace-server/desktop/*.js /usr/share/novnc/ \
     && cp apps/workspace-server/desktop/chrome.sh /usr/local/bin/halo-chrome \
     && chmod +x /usr/local/bin/halo-chrome
