@@ -19,7 +19,7 @@ WORKDIR /src/libs/cua-driver/rust
 RUN CUA_DRIVER_SOURCE_SHA=9e9219a0ca84ea195b9cf3be35b42a6379699448 \
     cargo build --release --locked --jobs 2 -p cua-driver
 
-FROM ${BASE_IMAGE}
+FROM ${BASE_IMAGE} AS dependencies
 
 ENV ELECTRON_SKIP_BINARY_DOWNLOAD=1
 WORKDIR /opt/halo
@@ -36,17 +36,6 @@ COPY --from=opensky-driver /src/libs/cua-driver/rust/target/release/cua-driver /
 COPY apps/workspace-server/pdf-requirements.txt ./apps/workspace-server/pdf-requirements.txt
 RUN python3 -m venv /opt/halo/.venv \
     && /opt/halo/.venv/bin/pip install --no-cache-dir --requirement apps/workspace-server/pdf-requirements.txt
-# The desktop uses Google Chrome. CI passes the ISO week, so Chrome refreshes
-# weekly instead of with every commit.
-ARG CHROME_REFRESH=local
-RUN echo "Chrome refresh: ${CHROME_REFRESH}" \
-    && curl --fail --location --silent --show-error \
-      "https://dl.google.com/linux/direct/google-chrome-stable_current_$(dpkg --print-architecture).deb" \
-      --output /tmp/google-chrome-stable.deb \
-    && apt-get update \
-    && apt-get install --yes --no-install-recommends /tmp/google-chrome-stable.deb \
-    && rm -f /tmp/google-chrome-stable.deb \
-    && rm -rf /var/lib/apt/lists/*
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY patches ./patches
 # Keep workspace manifests in the dependency layer; copy sources after installation.
@@ -65,17 +54,35 @@ COPY packages/web/package.json ./packages/web/package.json
 COPY packages/workspace-server/package.json ./packages/workspace-server/package.json
 COPY apps/workspace-server/package.json ./apps/workspace-server/package.json
 RUN pnpm install --frozen-lockfile
+
+# Compile without Chrome so its weekly refresh cannot invalidate these layers.
+FROM dependencies AS build
 ARG PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false
 COPY packages ./packages
 COPY apps/workspace-server ./apps/workspace-server
-RUN cp apps/workspace-server/desktop/index.html apps/workspace-server/desktop/*.js /usr/share/novnc/ \
-    && cp apps/workspace-server/desktop/chrome.sh /usr/local/bin/halo-chrome \
-    && chmod +x /usr/local/bin/halo-chrome
 RUN pnpm --filter @get-halo/workspace-server run build \
     && pnpm --filter @get-halo/extension-sdk run build \
     && pnpm --filter @get-halo/extension-tools run build
+
+FROM dependencies AS runtime
+# The desktop uses Google Chrome. CI passes the ISO week, so Chrome refreshes
+# weekly instead of with every commit, without reinstalling Node dependencies.
+ARG CHROME_REFRESH=local
+RUN echo "Chrome refresh: ${CHROME_REFRESH}" \
+    && curl --fail --location --silent --show-error \
+      "https://dl.google.com/linux/direct/google-chrome-stable_current_$(dpkg --print-architecture).deb" \
+      --output /tmp/google-chrome-stable.deb \
+    && apt-get update \
+    && apt-get install --yes --no-install-recommends /tmp/google-chrome-stable.deb \
+    && rm -f /tmp/google-chrome-stable.deb \
+    && rm -rf /var/lib/apt/lists/*
 # The workspace CLI builds and packs the local SDK when authoring extensions.
-RUN chown -R node:node /opt/halo/packages
+# Copy ownership with the files rather than duplicating them in a chown layer.
+COPY --from=build --chown=node:node /opt/halo/packages ./packages
+COPY --from=build /opt/halo/apps/workspace-server ./apps/workspace-server
+RUN cp apps/workspace-server/desktop/index.html apps/workspace-server/desktop/*.js /usr/share/novnc/ \
+    && cp apps/workspace-server/desktop/chrome.sh /usr/local/bin/halo-chrome \
+    && chmod +x /usr/local/bin/halo-chrome
 
 ENV HOME=/home/node \
     DISPLAY=:1 \

@@ -142,7 +142,7 @@ jobs:
   release-ready:
     name: Release ready
     if: always() && github.event_name == 'pull_request'
-    needs: [prepare, preview, test-e2e]
+    needs: [prepare, preview, test-e2e-desktop, test-e2e-packages]
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - name: Check release validation
@@ -150,7 +150,8 @@ jobs:
           IS_RELEASE: ${{ needs.prepare.outputs.is_release }}
           PREPARE_RESULT: ${{ needs.prepare.result }}
           PREVIEW_RESULT: ${{ needs.preview.result }}
-          E2E_RESULT: ${{ needs.test-e2e.result }}
+          DESKTOP_E2E_RESULT: ${{ needs.test-e2e-desktop.result }}
+          PACKAGE_E2E_RESULT: ${{ needs.test-e2e-packages.result }}
         run: |
           if [ "$PREPARE_RESULT" != "success" ]; then
             echo "Release validation failed"
@@ -160,7 +161,7 @@ jobs:
             echo "The production Pulumi preview failed"
             exit 1
           fi
-          if [ "$IS_RELEASE" = "true" ] && [ "$E2E_RESULT" != "success" ]; then
+          if [ "$IS_RELEASE" = "true" ] && { [ "$DESKTOP_E2E_RESULT" != "success" ] || [ "$PACKAGE_E2E_RESULT" != "success" ]; }; then
             echo "The release E2E tests did not pass"
             exit 1
           fi
@@ -431,8 +432,57 @@ jobs:
       record_release_tags: true
     secrets: inherit
 
-  test-e2e:
-    name: Test release E2Es
+  test-e2e-desktop:
+    name: Test release desktop E2Es (${{ matrix.shard }}/2)
+    if: github.event_name == 'pull_request' && needs.prepare.outputs.is_release == 'true' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'release/')
+    needs: prepare
+    runs-on: blacksmith-6vcpu-macos-15
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    env:
+      TURBO_UI: "0"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/setup@703c52620218391530e48b9e8870d5c0082e1b9b # v2.1.0
+        with:
+          runtime: node@22
+          cache: true
+          install: false
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium
+        run: pnpm --filter @get-halo/desktop exec playwright install chromium
+
+      - name: Install PDF conversion tools
+        run: brew install poppler
+
+      - name: Test desktop units and package Electron
+        run: |
+          pnpm --filter @get-halo/desktop test:unit
+          pnpm --filter @get-halo/desktop test:e2e:build
+
+      - name: Run desktop E2E shard
+        run: pnpm --filter @get-halo/desktop test:e2e:run --shard=${{ matrix.shard }}/2
+
+      - name: Upload failed test artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-e2e-desktop-${{ matrix.shard }}
+          path: tmp/e2e
+          if-no-files-found: ignore
+          retention-days: 7
+
+  test-e2e-packages:
+    name: Test release package E2Es
     if: github.event_name == 'pull_request' && needs.prepare.outputs.is_release == 'true' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'release/')
     needs: prepare
     runs-on: blacksmith-6vcpu-macos-15
@@ -459,19 +509,19 @@ jobs:
       - name: Install PDF conversion tools
         run: brew install poppler
 
-      - name: Run all package E2Es, including packaged Electron
+      - name: Verify protocols and run remaining package E2Es
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           pnpm --silent --filter @get-halo/control-plane exec tsx ../../releases/protocols.mjs > "$RUNNER_TEMP/protocols.json"
           jq -e --slurpfile actual "$RUNNER_TEMP/protocols.json" '.protocols == $actual[0]' "releases/$VERSION.json"
-          pnpm run test:e2e:release
+          pnpm run test:e2e:release --filter='!@get-halo/desktop'
 
       - name: Upload failed test artifacts
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: release-e2e-macos
+          name: release-e2e-packages
           path: |
             tmp/e2e
             tmp/extension-prototype
