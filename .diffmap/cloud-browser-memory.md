@@ -52,9 +52,23 @@ them on transport detach. Closing their final tab allows idle release again.
 
 Playwright 1.62.1 waits for every existing page to initialize when connecting;
 discarded pages can block that wait indefinitely. The pinned dependency patch
-skips this wait only with `noDefaults`. `BrowserService.pageFor` activates the exact
+adds `waitForPages`, defaulting to true. Only BrowserService passes false;
+`noDefaults` alone still waits, preserving app-control renderer readiness.
+`BrowserService.pageFor` activates the exact
 requested sleeping target and waits for its page to initialize. This can foreground
 that tab, but leaves unrelated sleeping tabs unloaded. No URL matching is used.
+
+```changes
+2b38d29cc83ab3d704b5d7f8b5e40f37fc4da4fe
+packages/workspace-server/src/browser/BrowserService.ts
+patches/playwright-core@1.62.1.patch
+```
+
+Review caught that the initial `noDefaults` condition also changed app control.
+A real Chrome CDP proxy delaying `Page.enable` reproduced the missing-page
+regression. Both default readiness and explicit deferred initialization passed
+after the fix. The restarted dev app's snapshot and exec commands also passed;
+affected checks and the 69 browser/workspace E2Es were rerun successfully.
 
 ## ✅ Release computer-use attachments
 
