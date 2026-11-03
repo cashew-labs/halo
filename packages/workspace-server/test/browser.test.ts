@@ -27,7 +27,9 @@ const form = `data:text/html,${encodeURIComponent(`
   <button onclick="this.textContent = 'Saved'">Save draft</button>
   <ul><li>One</li><li>Two</li></ul>
 `)}`;
-const userTab = `data:text/html,${encodeURIComponent("<title>Inbox</title><p>Mail</p>")}`;
+// Escaped metadata exceeds the cap, but the visible title does not.
+const userTitle = `Inbox & <Notes> "Quotes" 'Apostrophe' &amp; &#39; Ω ${"&".repeat(500)}`;
+const userTab = `data:text/html,${encodeURIComponent(`<meta charset="utf-8"><p>Mail</p><script>document.title = ${JSON.stringify(userTitle)}</script>`)}`;
 
 type Tab = { id: string; url: string; title: string };
 
@@ -103,7 +105,8 @@ browserTest(
       path: "browser.tabs",
       input: {},
     })) as Tab[];
-    const inbox = tabs.find((tab) => tab.title === "Inbox")!;
+    const inbox = tabs.find((tab) => tab.url === userTab)!;
+    expect(inbox.title).toBe(userTitle);
     expect(tabs).toContainEqual(expect.objectContaining({ id: opened.id }));
 
     // Page code must never receive Playwright's own objects: with them and
@@ -138,7 +141,7 @@ browserTest(
       path: "browser.tabs",
       input: {},
     })) as Tab[];
-    expect(remaining.map((tab) => tab.title)).toEqual(["Inbox"]);
+    expect(remaining.map((tab) => tab.title)).toEqual([userTitle]);
   },
 );
 

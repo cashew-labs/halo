@@ -407,7 +407,16 @@ export class BrowserService {
       .map((target) => ({
         id: target.id,
         url: capText(target.url),
-        title: capText(target.title),
+        // Chrome's HTTP descriptor uses EscapeForHTML. Decode ampersands last
+        // so literal entity text in a title is not decoded a second time.
+        title: capText(
+          target.title
+            .replaceAll("&lt;", "<")
+            .replaceAll("&gt;", ">")
+            .replaceAll("&quot;", '"')
+            .replaceAll("&#39;", "'")
+            .replaceAll("&amp;", "&"),
+        ),
       }));
   }
 
