@@ -89,6 +89,25 @@ guard until underlying work settles. This avoids disconnecting a still-running
 operation. Open isolated contexts defer idle disconnect because Playwright closes
 them on transport detach. Closing their final tab allows idle release again.
 
+[[aa87652af0aa6e67f7bd492e6c76ee93c5ffa414:packages/workspace-server/src/browser/BrowserService.ts#BrowserService.watchDialogs]]
+retains the connection for dialogs opened between calls, so the next call can
+dismiss them through its existing page instead of trying to initialize a modal-
+blocked page after reconnect. Recording a pending dialog cancels the idle timer.
+A side-effect-free evaluation waits behind the modal; answering it outside Halo
+or closing the page settles that wait and resumes idle cleanup. It adds no debugger
+session. Disconnect and shutdown clear pending tracking.
+
+```changes
+aa87652af0aa6e67f7bd492e6c76ee93c5ffa414
+packages/workspace-server/src/browser/BrowserService.ts
+packages/workspace-server/test/browser.test.ts
+```
+
+```tsx
+if (pendingDialogs.size > 0) keepConnection();
+// When the modal ends, resume the ordinary idle timer.
+```
+
 Playwright 1.62.1 waits for every existing page to initialize when connecting;
 discarded pages can block that wait indefinitely. The pinned dependency patch
 adds `waitForPages`, defaulting to true. Only BrowserService passes false;
@@ -172,7 +191,7 @@ or unconditional external discard is shipped.
   debugger release and reuse on both driver-owned and existing-profile Chrome.
 - `pnpm run check-affected`: 57 tasks passed, including 62 workspace unit tests.
 - `pnpm --filter @get-halo/workspace-server test:e2e test/browser.test.ts test/workspace.test.ts`:
-  71 tests passed. The kept idle regression protects tab state and non-attaching
+  72 tests passed. The kept idle regression protects tab state and non-attaching
   inventory, then verifies another action and snapshot after reconnection. The
   inventory regression distinguishes failed reads from an empty browser; a
   temporary service check also verified caller cancellation preserves its cause.
@@ -181,6 +200,11 @@ or unconditional external discard is shipped.
   caller cancellation, and timeout while verifying the endpoint.
   The final title correction reran all 57 affected tasks and all 71 E2Es; the
   escaped-title regression failed before decoding and passed after the fix.
+  The pending-dialog regression reproduced a failed resume after idle disconnect;
+  it now dismisses the between-call confirm and returns its false result after
+  65 seconds idle. Temporary real Chrome checks verified that external dialog
+  acceptance and tab closure both resume debugger release. After merging updated
+  main, all 57 affected tasks and all 72 E2Es passed on the final dialog code.
 - Playwright's bundled Chrome 151 did not release the heavy renderer in the
   diagnostic probe; reclamation evidence above applies to Google stable, which
   the cloud image installs. Docker image build is unavailable in this orb.
