@@ -1,0 +1,527 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Prompt lab</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --app: #fcfcfc;
+        --text: #202020;
+        --low: #646464;
+        --bubble: #f0f0f0;
+        --line: rgba(0, 0, 0, 0.08);
+        --accent: #12a594;
+        --on-accent: #fff;
+        --added: rgba(48, 164, 108, 0.16);
+        --removed: rgba(229, 72, 77, 0.14);
+        --good: rgba(48, 164, 108, 0.14);
+        --revisit: rgba(229, 72, 77, 0.12);
+        --shadow: 0 0 0 1px var(--line), 0 1px 2px rgba(0, 0, 0, 0.06);
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --app: #111;
+          --text: #eee;
+          --low: #b4b4b4;
+          --bubble: #222;
+          --line: rgba(255, 255, 255, 0.1);
+          --accent: #6e56cf;
+          --shadow: 0 0 0 1px var(--line), 0 1px 2px rgba(0, 0, 0, 0.4);
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--app);
+        color: var(--text);
+        font:
+          14px/22px ui-sans-serif,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          Helvetica,
+          Arial,
+          sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      main {
+        width: 100%;
+        max-width: 72ch;
+        min-height: 100dvh;
+        margin-inline: auto;
+        padding: 24px 16px 0;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+      header {
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+      }
+      header strong {
+        font-weight: 600;
+      }
+      .low {
+        color: var(--low);
+      }
+      .counter {
+        margin-left: auto;
+        font-size: 12px;
+        font-variant-numeric: tabular-nums;
+      }
+      .error {
+        color: #e5484d;
+      }
+      details {
+        border-radius: 8px;
+        box-shadow: var(--shadow);
+      }
+      summary {
+        display: flex;
+        gap: 8px;
+        padding: 6px 12px;
+        cursor: pointer;
+        user-select: none;
+      }
+      summary .counts {
+        margin-left: auto;
+        font-size: 12px;
+        font-variant-numeric: tabular-nums;
+      }
+      .diff {
+        margin: 0;
+        padding: 8px 0;
+        border-top: 1px solid var(--line);
+        font:
+          12px/20px ui-monospace,
+          SFMono-Regular,
+          Menlo,
+          monospace;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+      .diff div {
+        padding-inline: 12px;
+      }
+      .diff .added {
+        background: var(--added);
+      }
+      .diff .removed {
+        background: var(--removed);
+      }
+      .diff .skipped {
+        color: var(--low);
+        font-style: italic;
+      }
+      .stage {
+        position: relative;
+      }
+      .card {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        padding: 16px;
+        border-radius: 12px;
+        background: var(--app);
+        box-shadow: var(--shadow);
+        touch-action: pan-y;
+        animation: enter 160ms ease-out;
+      }
+      .card.settling {
+        transition:
+          transform 200ms ease-out,
+          opacity 200ms ease-out;
+      }
+      .card.dragging {
+        user-select: none;
+        cursor: grabbing;
+      }
+      .tint {
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        pointer-events: none;
+        opacity: 0;
+      }
+      .tint.good {
+        background: var(--good);
+      }
+      .tint.revisit {
+        background: var(--revisit);
+      }
+      @keyframes enter {
+        from {
+          opacity: 0;
+          transform: translateY(8px);
+        }
+      }
+      .user {
+        align-self: flex-end;
+        max-width: 80%;
+        padding: 6px 12px;
+        border-radius: 12px;
+        background: var(--bubble);
+      }
+      .prose > :first-child {
+        margin-top: 0;
+      }
+      .prose > :last-child {
+        margin-bottom: 0;
+      }
+      .prose p,
+      .prose ul,
+      .prose ol,
+      .prose blockquote,
+      .prose pre,
+      .prose table {
+        margin: 0 0 12px;
+      }
+      .prose h1,
+      .prose h2,
+      .prose h3,
+      .prose h4 {
+        margin: 20px 0 8px;
+        font-size: 15px;
+        line-height: 22px;
+        font-weight: 600;
+      }
+      .prose ul,
+      .prose ol {
+        padding-left: 20px;
+      }
+      .prose li + li {
+        margin-top: 4px;
+      }
+      .prose blockquote {
+        padding-left: 12px;
+        border-left: 3px solid var(--line);
+      }
+      .prose code {
+        font:
+          12px/20px ui-monospace,
+          SFMono-Regular,
+          Menlo,
+          monospace;
+        padding: 1px 4px;
+        border-radius: 4px;
+        background: var(--bubble);
+      }
+      .prose pre {
+        padding: 12px;
+        border-radius: 8px;
+        background: var(--bubble);
+        overflow-x: auto;
+      }
+      .prose pre code {
+        padding: 0;
+        background: none;
+      }
+      .prose table {
+        border-collapse: collapse;
+        display: block;
+        overflow-x: auto;
+      }
+      .prose th,
+      .prose td {
+        padding: 4px 8px;
+        border: 1px solid var(--line);
+        text-align: left;
+      }
+      .prose a {
+        color: inherit;
+      }
+      footer {
+        position: sticky;
+        bottom: 0;
+        margin-top: auto;
+        display: flex;
+        gap: 8px;
+        padding: 12px 0 16px;
+        background: var(--app);
+      }
+      button {
+        height: 28px;
+        padding: 0 12px;
+        border: 0;
+        border-radius: 4px;
+        background: var(--app);
+        box-shadow: var(--shadow);
+        color: inherit;
+        font: inherit;
+        font-size: 13px;
+        cursor: pointer;
+      }
+      button:hover:not(:disabled) {
+        background: var(--bubble);
+      }
+      button.quiet {
+        box-shadow: none;
+      }
+      button.primary {
+        background: var(--accent);
+        color: var(--on-accent);
+      }
+      button.primary:hover:not(:disabled) {
+        background: var(--accent);
+        filter: brightness(1.08);
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+      .spacer {
+        flex: 1;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <strong>Prompt lab</strong>
+        <span class="low" id="name"></span>
+        <span class="low counter" id="counter"></span>
+      </header>
+      <p class="error" id="error" role="alert" hidden></p>
+      <details id="changes" hidden>
+        <summary>
+          <span>System prompt changes</span>
+          <span class="counts low" id="counts"></span>
+        </summary>
+        <div class="diff" id="diff"></div>
+      </details>
+      <section class="stage" id="stage" aria-live="polite"></section>
+      <footer id="footer" hidden>
+        <button class="quiet" id="back">Back</button>
+        <span class="spacer"></span>
+        <button id="revisit">Needs work</button>
+        <button class="primary" id="good">Good</button>
+      </footer>
+    </main>
+    <script type="module">
+      import { marked } from "https://esm.sh/marked@18.1.3";
+      import DOMPurify from "https://esm.sh/dompurify@3.4.17";
+      import { diffLines } from "https://esm.sh/diff@9.0.0";
+
+      const $ = (id) => document.getElementById(id);
+      let round;
+      let index = 0;
+      let saving = false;
+
+      function markdown(text) {
+        const element = document.createElement("div");
+        element.className = "prose";
+        element.innerHTML = DOMPurify.sanitize(marked.parse(text));
+        return element;
+      }
+
+      function showError(message) {
+        $("error").hidden = message === undefined;
+        $("error").textContent = message ?? "";
+      }
+
+      function renderDiff() {
+        const parts = diffLines(round.baseline, round.prompt);
+        let added = 0;
+        let removed = 0;
+        const rows = [];
+        for (const [position, part] of parts.entries()) {
+          const lines = part.value.replace(/\n$/, "").split("\n");
+          if (part.added) added += lines.length;
+          if (part.removed) removed += lines.length;
+          if (part.added || part.removed) {
+            for (const line of lines)
+              rows.push([part.added ? "added" : "removed", line]);
+            continue;
+          }
+          // Keep three lines of context around each change.
+          const head = position === 0 ? [] : lines.slice(0, 3);
+          const tail = position === parts.length - 1 ? [] : lines.slice(-3);
+          if (lines.length - head.length - tail.length < 3) {
+            for (const line of lines) rows.push(["", line]);
+            continue;
+          }
+          for (const line of head) rows.push(["", line]);
+          rows.push([
+            "skipped",
+            `${lines.length - head.length - tail.length} unchanged lines`,
+          ]);
+          for (const line of tail) rows.push(["", line]);
+        }
+        $("counts").textContent = `+${added} −${removed}`;
+        $("diff").replaceChildren(
+          ...rows.map(([kind, line]) => {
+            const row = document.createElement("div");
+            row.className = kind;
+            const sign = { added: "+ ", removed: "− ", skipped: "" }[kind];
+            row.textContent = `${sign ?? "  "}${line}`;
+            return row;
+          }),
+        );
+        $("changes").hidden = false;
+      }
+
+      function render() {
+        const run = round?.runs[index];
+        $("footer").hidden = round === undefined;
+        $("back").disabled = index === 0;
+        $("good").disabled = $("revisit").disabled =
+          run === undefined || saving;
+        if (round === undefined) {
+          $("stage").replaceChildren(
+            Object.assign(document.createElement("p"), {
+              className: "low",
+              textContent:
+                "No replies yet. Generate a round with the prompt-lab run command.",
+            }),
+          );
+          return;
+        }
+        $("counter").textContent =
+          `Round ${round.number} · ${Math.min(index + 1, round.runs.length)} / ${round.runs.length}`;
+        if (run === undefined) {
+          const good = round.runs.filter(
+            (item) => item.verdict === "good",
+          ).length;
+          $("stage").replaceChildren(
+            Object.assign(document.createElement("p"), {
+              className: "low",
+              textContent: `Round ${round.number} reviewed: ${good} good, ${round.runs.length - good} need work. The next round appears here when it is ready.`,
+            }),
+          );
+          return;
+        }
+        const card = document.createElement("article");
+        card.className = "card";
+        card.setAttribute("aria-label", "Reply to review");
+        const user = markdown(run.message);
+        user.classList.add("user");
+        const goodTint = Object.assign(document.createElement("div"), {
+          className: "tint good",
+        });
+        const revisitTint = Object.assign(document.createElement("div"), {
+          className: "tint revisit",
+        });
+        card.append(goodTint, revisitTint, user, markdown(run.reply));
+        enableSwipe(card, goodTint, revisitTint);
+        $("stage").replaceChildren(card);
+      }
+
+      // Drag a card right for good or left for needs work. Short drags snap back.
+      // Vertical drags, double clicks, and triple clicks still select text.
+      function enableSwipe(card, goodTint, revisitTint) {
+        let start;
+        let dragging = false;
+        const move = (x) => {
+          card.style.transform = `translateX(${x}px) rotate(${x / 60}deg)`;
+          goodTint.style.opacity = Math.min(Math.max(x, 0) / 160, 1);
+          revisitTint.style.opacity = Math.min(Math.max(-x, 0) / 160, 1);
+        };
+        card.addEventListener("pointerdown", (event) => {
+          if (event.button !== 0 || saving) return;
+          card.classList.remove("settling");
+          start = { x: event.clientX, y: event.clientY, time: event.timeStamp };
+        });
+        card.addEventListener("pointermove", (event) => {
+          if (start === undefined) return;
+          const dx = event.clientX - start.x;
+          const dy = event.clientY - start.y;
+          if (!dragging) {
+            // Mostly vertical movement selects text or scrolls instead.
+            if (Math.abs(dy) > 8 && Math.abs(dy) > Math.abs(dx))
+              start = undefined;
+            if (start === undefined || Math.abs(dx) < 12) return;
+            dragging = true;
+            card.classList.add("dragging");
+            card.setPointerCapture(event.pointerId);
+          }
+          // The browser starts selecting text before the drag threshold; drop it.
+          getSelection()?.removeAllRanges();
+          move(dx);
+        });
+        const release = (event) => {
+          if (start === undefined) return;
+          const dx = event.clientX - start.x;
+          const velocity = dx / Math.max(event.timeStamp - start.time, 1);
+          const wasDragging = dragging;
+          start = undefined;
+          dragging = false;
+          card.classList.remove("dragging");
+          if (!wasDragging) return;
+          if (dx > 140 || velocity > 0.9) return void review("good", card);
+          if (dx < -140 || velocity < -0.9) return void review("revisit", card);
+          card.classList.add("settling");
+          move(0);
+        };
+        card.addEventListener("pointerup", release);
+        card.addEventListener("pointercancel", release);
+      }
+
+      async function review(verdict, card = $("stage").querySelector(".card")) {
+        const run = round?.runs[index];
+        if (run === undefined || saving) return;
+        saving = true;
+        $("good").disabled = $("revisit").disabled = true;
+        const response = await fetch("/api/review", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ runId: run.id, verdict }),
+        }).catch(() => undefined);
+        saving = false;
+        if (!response?.ok) {
+          showError("Could not save the review. Try again.");
+          card?.classList.add("settling");
+          if (card) card.style.transform = "";
+          return render();
+        }
+        showError(undefined);
+        run.verdict = verdict;
+        if (card) {
+          card.classList.add("settling");
+          const x = verdict === "good" ? "120%" : "-120%";
+          card.style.transform = `translateX(${x}) rotate(${verdict === "good" ? 8 : -8}deg)`;
+          card.style.opacity = "0";
+          await new Promise((resolve) => setTimeout(resolve, 200));
+        }
+        index += 1;
+        render();
+      }
+
+      $("good").addEventListener("click", () => void review("good"));
+      $("revisit").addEventListener("click", () => void review("revisit"));
+      $("back").addEventListener("click", () => {
+        if (index === 0) return;
+        index -= 1;
+        render();
+      });
+
+      async function load() {
+        const response = await fetch("/api/state").catch(() => undefined);
+        const state = await response?.json().catch(() => undefined);
+        if (!response?.ok || state === undefined)
+          return showError(
+            state?.error ?? "Lost connection to the lab server.",
+          );
+        showError(undefined);
+        $("name").textContent = state.name;
+        // Only a new round replaces the page, so polling never interrupts a review.
+        if (state.round?.id === round?.id && round !== undefined) return;
+        round = state.round;
+        index = round
+          ? round.runs.findIndex((item) => item.verdict === undefined)
+          : 0;
+        if (round && index === -1) index = round.runs.length;
+        if (round) renderDiff();
+        render();
+      }
+
+      await load();
+      setInterval(load, 2000);
+    </script>
+  </body>
+</html>
