@@ -360,13 +360,17 @@ export class BrowserService {
   async tabs(input: { signal?: AbortSignal } = {}) {
     if (this.closed)
       return new BrowserError({ detail: "the browser service is shut down" });
-    const address = await this.address();
-    if (address instanceof BrowserUnavailableError) return [];
-    if (address instanceof Error) return address;
     const signal = AbortSignal.any([
       ...(input.signal === undefined ? [] : [input.signal]),
       AbortSignal.timeout(5_000),
     ]);
+    if (signal.aborted)
+      return new BrowserError({ detail: "list tabs", cause: signal.reason });
+    const address = await this.address();
+    if (signal.aborted)
+      return new BrowserError({ detail: "list tabs", cause: signal.reason });
+    if (address instanceof BrowserUnavailableError) return [];
+    if (address instanceof Error) return address;
     // A stale DevToolsActivePort may point to a port reused by another browser.
     // HTTP metadata verifies identity without attaching debuggers or waking tabs.
     const versionResponse = await fetch(`${address.origin}/json/version`, {
@@ -388,6 +392,8 @@ export class BrowserService {
       (cause) => new BrowserError({ detail: "decode Chrome endpoint", cause }),
     );
     if (version instanceof Error) return version;
+    if (signal.aborted)
+      return new BrowserError({ detail: "list tabs", cause: signal.reason });
     if (version?.webSocketDebuggerUrl !== address.endpoint) return [];
     const response = await fetch(`${address.origin}/json/list`, {
       signal,
@@ -402,6 +408,8 @@ export class BrowserService {
       >
     ).catch((cause) => new BrowserError({ detail: "decode tab list", cause }));
     if (targets instanceof Error) return targets;
+    if (signal.aborted)
+      return new BrowserError({ detail: "list tabs", cause: signal.reason });
     return targets
       .filter((target) => target.type === "page")
       .map((target) => ({
