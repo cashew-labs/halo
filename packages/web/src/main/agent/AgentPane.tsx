@@ -1428,6 +1428,7 @@ const styles = {
   pendingUserMessage: style({ opacity: 0.6 }),
   queuedMessageAction: style({
     flexShrink: 0,
+    alignSelf: "center",
     "&&": { borderRadius: "100%" },
   }),
   assistantRow: style(flex({ direction: "column", gap: 6 }), {
