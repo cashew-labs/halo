@@ -29,10 +29,24 @@ Inventory reads use `/json/list`, without attaching or evaluating
 pages. `noDefaults` keeps Playwright from overriding the user's focus, media, and
 download settings.
 
-Inventory returns an empty list when no endpoint is published. Fetch failures,
+Uncancelled inventory returns an empty list when no endpoint is published. Fetch failures,
 including timeout or cancellation, return errors rather than claiming there are
 no tabs. A controlled slow endpoint reproduced the old empty-success result;
 the regression test now checks the error, a successful empty retry, and no endpoint.
+
+Cancellation takes priority over empty-success exits: Halo checks before work,
+after the address read, and after metadata decoding. The five-second budget starts
+before reading the address. Abort errors retain the original signal reason.
+A kept service-boundary regression checks missing and incomplete endpoints with
+both an already-aborted signal and cancellation during the address read, alongside
+uncancelled empty controls. RPC cancellation alone cannot test this distinction
+because the client may reject before receiving the service's result.
+
+```changes
+978ec155dc2ccb5f24cdbf55948c8b19e409a1b4
+packages/workspace-server/src/browser/BrowserService.ts
+packages/workspace-server/src/browser/BrowserService.test.ts
+```
 
 Before accepting inventory, Halo checks `/json/version` against the exact browser
 WebSocket endpoint in `DevToolsActivePort`. A missing or mismatched identity returns
@@ -60,9 +74,12 @@ packages/workspace-server/test/browser.test.ts
 ```
 
 ```callstack
- tabs = BrowserService.tabs(input) [[389057517ebab0fa03923eb8bb3b2cb3f2df2d9e:packages/workspace-server/src/browser/BrowserService.ts#BrowserService.tabs]]
+ tabs = BrowserService.tabs(input) [[978ec155dc2ccb5f24cdbf55948c8b19e409a1b4:packages/workspace-server/src/browser/BrowserService.ts#BrowserService.tabs]]
+ ├── if signal.aborted: return BrowserError with signal.reason
  ├── address = BrowserService.address() [[da092434b895bd38d4cefc1945f8bf21add380e3:packages/workspace-server/src/browser/BrowserService.ts#BrowserService.address]]
+ ├── if signal.aborted: return BrowserError before unavailable-address success
  ├── version = fetch(address.origin + "/json/version")
+ ├── if signal.aborted: return BrowserError before mismatched-identity success
  ├── if version.webSocketDebuggerUrl differs from address.endpoint: return []
  ├── targets = fetch(address.origin + "/json/list")
  └── return page metadata with titles decoded once, then capped
@@ -189,7 +206,7 @@ or unconditional external discard is shipped.
   open dialogs, detached events, cleanup bounds, retries, and transport closure.
 - Real `computer.createTab` and `computer.observe` calls passed, including idle
   debugger release and reuse on both driver-owned and existing-profile Chrome.
-- `pnpm run check-affected`: 57 tasks passed, including 62 workspace unit tests.
+- `pnpm run check-affected`: 57 tasks passed, including 63 workspace unit tests.
 - `pnpm --filter @get-halo/workspace-server test:e2e test/browser.test.ts test/workspace.test.ts`:
   72 tests passed. The kept idle regression protects tab state and non-attaching
   inventory, then verifies another action and snapshot after reconnection. The
