@@ -185,25 +185,37 @@ function AgentActivity({ thread }: { thread: ThreadSummary }) {
   const dotRow = useStyles(styles.dots, thread.isRunning && styles.visibleDots);
   const dot = useStyles(styles.dot);
   useEffect(() => {
-    if (
-      !thread.isRunning ||
-      matchMedia("(prefers-reduced-motion: reduce)").matches
-    ) {
-      return;
-    }
-    const bounces = Array.from(dots.current?.children ?? [], (child, index) =>
-      child.animate(
-        // Ease each hop, not the whole loop, so the keyframes keep their timing.
-        [
-          { transform: "translateY(0)", easing: motionEasing },
-          { transform: "translateY(-2px)", offset: 0.25, easing: motionEasing },
-          { transform: "translateY(0)", offset: 0.5 },
-          { transform: "translateY(0)" },
-        ],
-        { duration: 1000, delay: index * 160, iterations: Infinity },
-      ),
-    );
-    return () => bounces.forEach((bounce) => bounce.cancel());
+    if (!thread.isRunning) return;
+    const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+    let bounces: Animation[] = [];
+    // Start or stop the bounce whenever the reduced-motion setting changes.
+    const update = () => {
+      bounces.forEach((bounce) => bounce.cancel());
+      bounces = reducedMotion.matches
+        ? []
+        : Array.from(dots.current?.children ?? [], (child, index) =>
+            child.animate(
+              // Ease each hop, not the whole loop, so the keyframes keep their timing.
+              [
+                { transform: "translateY(0)", easing: motionEasing },
+                {
+                  transform: "translateY(-2px)",
+                  offset: 0.25,
+                  easing: motionEasing,
+                },
+                { transform: "translateY(0)", offset: 0.5 },
+                { transform: "translateY(0)" },
+              ],
+              { duration: 1000, delay: index * 160, iterations: Infinity },
+            ),
+          );
+    };
+    update();
+    reducedMotion.addEventListener("change", update);
+    return () => {
+      reducedMotion.removeEventListener("change", update);
+      bounces.forEach((bounce) => bounce.cancel());
+    };
   }, [thread.isRunning]);
   const label = thread.isRunning
     ? "Agent is working"
