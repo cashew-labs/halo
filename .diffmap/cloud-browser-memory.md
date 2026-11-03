@@ -42,6 +42,17 @@ A controlled server on the saved port reproduced another browser's tabs appearin
 in inventory before the fix. The kept regression now rejects that identity and
 accepts the same server only when its browser endpoint matches.
 
+Chrome HTML-escapes titles in HTTP inventory. Halo decodes its five escape forms
+before applying the text cap, with ampersands last so literal entity text survives.
+The real browser-tool regression checks all five forms, Unicode, literal entities,
+and a title whose escaped metadata exceeds the cap but whose visible text does not.
+
+```changes
+389057517ebab0fa03923eb8bb3b2cb3f2df2d9e
+packages/workspace-server/src/browser/BrowserService.ts
+packages/workspace-server/test/browser.test.ts
+```
+
 ```changes
 da092434b895bd38d4cefc1945f8bf21add380e3
 packages/workspace-server/src/browser/BrowserService.ts
@@ -49,11 +60,12 @@ packages/workspace-server/test/browser.test.ts
 ```
 
 ```callstack
- tabs = BrowserService.tabs(input) [[da092434b895bd38d4cefc1945f8bf21add380e3:packages/workspace-server/src/browser/BrowserService.ts#BrowserService.tabs]]
+ tabs = BrowserService.tabs(input) [[389057517ebab0fa03923eb8bb3b2cb3f2df2d9e:packages/workspace-server/src/browser/BrowserService.ts#BrowserService.tabs]]
  ├── address = BrowserService.address() [[da092434b895bd38d4cefc1945f8bf21add380e3:packages/workspace-server/src/browser/BrowserService.ts#BrowserService.address]]
  ├── version = fetch(address.origin + "/json/version")
  ├── if version.webSocketDebuggerUrl differs from address.endpoint: return []
- └── targets = fetch(address.origin + "/json/list")
+ ├── targets = fetch(address.origin + "/json/list")
+ └── return page metadata with titles decoded once, then capped
 ```
 
 ```callstack
@@ -167,6 +179,8 @@ or unconditional external discard is shipped.
   The endpoint-identity regression rejects inventory from a reused port. Extra
   service checks covered missing/null identity, HTTP/JSON/network failures,
   caller cancellation, and timeout while verifying the endpoint.
+  The final title correction reran all 57 affected tasks and all 71 E2Es; the
+  escaped-title regression failed before decoding and passed after the fix.
 - Playwright's bundled Chrome 151 did not release the heavy renderer in the
   diagnostic probe; reclamation evidence above applies to Google stable, which
   the cloud image installs. Docker image build is unavailable in this orb.
