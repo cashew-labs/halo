@@ -363,12 +363,34 @@ export class BrowserService {
     const address = await this.address();
     if (address instanceof BrowserUnavailableError) return [];
     if (address instanceof Error) return address;
-    // HTTP metadata does not attach debuggers or evaluate titles in unloaded tabs.
+    const signal = AbortSignal.any([
+      ...(input.signal === undefined ? [] : [input.signal]),
+      AbortSignal.timeout(5_000),
+    ]);
+    // A stale DevToolsActivePort may point to a port reused by another browser.
+    // HTTP metadata verifies identity without attaching debuggers or waking tabs.
+    const versionResponse = await fetch(`${address.origin}/json/version`, {
+      signal,
+    }).catch(
+      (cause) => new BrowserError({ detail: "verify Chrome endpoint", cause }),
+    );
+    if (versionResponse instanceof Error) return versionResponse;
+    if (!versionResponse.ok)
+      return new BrowserError({
+        detail: `verify Chrome endpoint: HTTP ${versionResponse.status}`,
+      });
+    // SAFETY: Chrome's version metadata identifies its browser WebSocket endpoint.
+    const version = await (
+      versionResponse.json() as Promise<{
+        webSocketDebuggerUrl?: string;
+      } | null>
+    ).catch(
+      (cause) => new BrowserError({ detail: "decode Chrome endpoint", cause }),
+    );
+    if (version instanceof Error) return version;
+    if (version?.webSocketDebuggerUrl !== address.endpoint) return [];
     const response = await fetch(`${address.origin}/json/list`, {
-      signal: AbortSignal.any([
-        ...(input.signal === undefined ? [] : [input.signal]),
-        AbortSignal.timeout(5_000),
-      ]),
+      signal,
     }).catch((cause) => new BrowserError({ detail: "list tabs", cause }));
     if (response instanceof Error) return response;
     if (!response.ok)

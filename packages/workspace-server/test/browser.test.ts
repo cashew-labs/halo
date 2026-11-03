@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import nodeHttp from "node:http";
 import path from "node:path";
 import { once } from "node:events";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -380,6 +381,52 @@ browserTest(
 );
 
 browserTest(
+  "does not report another browser's inventory from a reused DevTools port",
+  async ({ createServer, chrome }) => {
+    const tab = {
+      id: "unrelated",
+      type: "page",
+      url: "https://example.com/",
+      title: "Unrelated",
+    };
+    const identity = { path: "/devtools/browser/another-browser" };
+    const decoy = nodeHttp.createServer((request, response) => {
+      response.setHeader("Content-Type", "application/json");
+      response.end(
+        JSON.stringify(
+          request.url === "/json/version"
+            ? { webSocketDebuggerUrl: `ws://127.0.0.1:${port}${identity.path}` }
+            : [tab],
+        ),
+      );
+    });
+    await using cleanup = new errore.AsyncDisposableStack();
+    cleanup.defer(async () => {
+      decoy.closeAllConnections();
+      await new Promise<void>((resolve) => decoy.close(() => resolve()));
+    });
+    decoy.listen({ host: "127.0.0.1", port: 0 });
+    await once(decoy, "listening");
+    // SAFETY: listening TCP servers have an address with an allocated port.
+    const { port } = decoy.address() as { port: number };
+    await fs.mkdir(chrome.profileDir, { recursive: true });
+    await fs.writeFile(
+      path.join(chrome.profileDir, "DevToolsActivePort"),
+      `${port}\n/devtools/browser/inventory\n`,
+    );
+    const server = createServer({ chrome: chrome.config });
+    await server.start();
+    const tabs = async () =>
+      await server.rpc.testApi.invokeTool({ path: "browser.tabs", input: {} });
+    expect(await tabs()).toEqual([]);
+    identity.path = "/devtools/browser/inventory";
+    expect(await tabs()).toEqual([
+      { id: tab.id, url: tab.url, title: tab.title },
+    ]);
+  },
+);
+
+browserTest(
   "reports a timed-out inventory read instead of claiming there are no tabs",
   async ({ createServer, chrome, http }) => {
     await fs.mkdir(chrome.profileDir, { recursive: true });
@@ -392,11 +439,27 @@ browserTest(
     const tabs = async () =>
       await server.rpc.testApi.invokeTool({ path: "browser.tabs", input: {} });
     const failed = expect(tabs()).rejects.toThrow(/list tabs/);
+    (await http.request("/json/version")).respond(
+      JSON.stringify({
+        webSocketDebuggerUrl: http
+          .url("/devtools/browser/inventory")
+          .replace("http:", "ws:"),
+      }),
+      { contentType: "application/json" },
+    );
     // The endpoint accepts the request but does not answer before the timeout.
     await http.request("/json/list");
     await failed;
 
     const retry = tabs();
+    (await http.request("/json/version")).respond(
+      JSON.stringify({
+        webSocketDebuggerUrl: http
+          .url("/devtools/browser/inventory")
+          .replace("http:", "ws:"),
+      }),
+      { contentType: "application/json" },
+    );
     (await http.request("/json/list")).respond("[]", {
       contentType: "application/json",
     });
