@@ -384,6 +384,49 @@ browserTest(
 );
 
 browserTest(
+  "dismisses a dialog opened between calls after the idle interval",
+  { timeout: 140_000 },
+  async ({ createServer, chrome }) => {
+    const server = createServer({ chrome: chrome.config });
+    await server.start();
+    // SAFETY: browser.newPage returns the opened tab.
+    const tab = (await server.rpc.testApi.invokeTool({
+      path: "browser.newPage",
+      input: { url: form },
+    })) as Tab;
+    await server.rpc.testApi.invokeTool({
+      path: "browser.call",
+      input: {
+        page: tab.id,
+        chain: [],
+        method: "evaluate",
+        args: [
+          {
+            $function:
+              "() => { setTimeout(() => { window.haloAnswer = confirm('Keep draft?'); }, 500); }",
+          },
+        ],
+      },
+    });
+    await sleep(65_000);
+    expect(
+      await server.rpc.testApi.invokeTool({
+        path: "browser.call",
+        input: {
+          page: tab.id,
+          chain: [],
+          method: "evaluate",
+          args: [{ $function: "() => window.haloAnswer" }],
+        },
+      }),
+    ).toMatchObject({
+      value: false,
+      dialogs: [{ type: "confirm", message: "Keep draft?", accepted: false }],
+    });
+  },
+);
+
+browserTest(
   "does not report another browser's inventory from a reused DevTools port",
   async ({ createServer, chrome }) => {
     const tab = {

@@ -345,7 +345,7 @@ export class BrowserService {
   // Dialog answers of the agent calls running on each tab, oldest first.
   private readonly busy = new Map<Page, DialogAnswer[]>();
   // A dialog that opened while no agent call ran; the next call dismisses it.
-  private readonly pendingDialogs = new WeakMap<Page, Dialog>();
+  private readonly pendingDialogs = new Map<Page, Dialog>();
   // Dialogs answered for agent calls, reported by the next call on the tab to finish.
   private readonly answeredDialogs = new WeakMap<Page, AnsweredDialog[]>();
   private closed = false;
@@ -575,6 +575,7 @@ export class BrowserService {
     const connection =
       this.connection ?? (pending instanceof Error ? undefined : pending);
     this.connection = undefined;
+    this.pendingDialogs.clear();
     // Disconnects; the user's Chrome and its default-profile tabs keep running.
     const closed = await connection?.browser
       .close()
@@ -658,6 +659,7 @@ export class BrowserService {
       if (this.connection !== connection) return;
       clearTimeout(this.idleTimer);
       this.connection = undefined;
+      this.pendingDialogs.clear();
       // Refs live in this connection's utility world.
       this.snapshotGenerations.clear();
       this.refGates.clear();
@@ -673,7 +675,8 @@ export class BrowserService {
       this.closed ||
       this.activeCalls > 0 ||
       this.connection === undefined ||
-      this.isolatedContexts.size > 0
+      this.isolatedContexts.size > 0 ||
+      this.pendingDialogs.size > 0
     )
       return;
     this.idleTimer = setTimeout(() => {
@@ -803,7 +806,21 @@ export class BrowserService {
       if (page === null) return;
       const answer = this.busy.get(page)?.at(-1);
       if (answer !== undefined) await this.answer(page, dialog, answer);
-      else this.pendingDialogs.set(page, dialog);
+      else {
+        this.pendingDialogs.set(page, dialog);
+        this.scheduleDisconnect();
+        // JavaScript reads wait behind the modal. Resume idle cleanup even if
+        // the user answers it, without dismissing their dialog or adding CDP sessions.
+        const ready = await page
+          .evaluate(() => undefined)
+          .catch(
+            (cause) => new BrowserError({ detail: "wait for dialog", cause }),
+          );
+        if (ready instanceof Error) console.warn(ready);
+        if (this.pendingDialogs.get(page) === dialog)
+          this.pendingDialogs.delete(page);
+        this.scheduleDisconnect();
+      }
     });
   }
 
