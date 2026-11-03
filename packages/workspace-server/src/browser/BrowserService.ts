@@ -600,7 +600,11 @@ export class BrowserService {
     if (address instanceof Error) return address;
     const { endpoint } = address;
     const browser = await chromium
-      .connectOverCDP(endpoint, { timeout: 5_000, noDefaults: true })
+      .connectOverCDP(endpoint, {
+        timeout: 5_000,
+        noDefaults: true,
+        waitForPages: false,
+      })
       .catch((cause) =>
         // Chrome answers but a tab blocked by a dialog never finishes attaching.
         // Launching again would only open another window in the same Chrome.

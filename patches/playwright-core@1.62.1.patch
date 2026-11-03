@@ -1,16 +1,60 @@
 diff --git a/lib/coreBundle.js b/lib/coreBundle.js
-index d9041dd0f009072511a7d808dec83121ff29e127..8485a24eb1c1fdd1c4ea2f7996b42f220fcb2030 100644
+index d9041dd0f009072511a7d808dec83121ff29e127..f2c86cd435c0084a2de51c14a85cfc335922ad5a 100644
 --- a/lib/coreBundle.js
 +++ b/lib/coreBundle.js
-@@ -38116,7 +38116,10 @@ var init_crBrowser = __esm({
+@@ -16385,6 +16385,7 @@ var init_validator = __esm({
+       slowMo: tOptional(tFloat),
+       isLocal: tOptional(tBoolean),
+       noDefaults: tOptional(tBoolean),
++      waitForPages: tOptional(tBoolean),
+       artifactsDir: tOptional(tString),
+       transport: tOptional(tBinary)
+     });
+@@ -38116,7 +38117,10 @@ var init_crBrowser = __esm({
            }),
            browser._defaultContext.initialize()
          ]);
 -        await browser._waitForAllPagesToBeInitialized();
 +        // A discarded daily-driver tab cannot initialize until it is activated.
 +        // Leave those pages pending instead of blocking the entire CDP browser.
-+        if (!options.noDefaults)
++        if (options.waitForPages !== false)
 +          await browser._waitForAllPagesToBeInitialized();
          return browser;
        }
        async doCreateNewContext(options) {
+@@ -42869,7 +42873,8 @@ ${remoteDebuggingHint(channel)}`);
+             downloadsPath: options.downloadsPath || artifactsDir,
+             tracesDir: options.tracesDir || artifactsDir,
+             originalLaunchOptions: {},
+-            noDefaults: options.noDefaults
++            noDefaults: options.noDefaults,
++            waitForPages: options.waitForPages
+           };
+           validateBrowserContextOptions(persistent, browserOptions);
+           const browser = await progress2.race(CRBrowser.connect(this.attribution.playwright, transport, browserOptions));
+@@ -62954,6 +62959,7 @@ var init_browserType2 = __esm({
+           slowMo: params2.slowMo,
+           isLocal: params2.isLocal,
+           noDefaults: params2.noDefaults,
++          waitForPages: params2.waitForPages,
+           artifactsDir: params2.artifactsDir
+         }, new TimeoutSettings().timeout(params2));
+         return await this._browserFromConnectResult(result2);
+diff --git a/types/types.d.ts b/types/types.d.ts
+index 101f50fe293a255f64aba9260d898966a7b83ec8..5c7ade55a4cc97be22194a911053e42f334748de 100644
+--- a/types/types.d.ts
++++ b/types/types.d.ts
+@@ -25105,6 +25105,13 @@ export interface ConnectOverCDPOptions {
+    */
+   noDefaults?: boolean;
+ 
++  /**
++   * Wait for existing pages to initialize before connecting. Defaults to true.
++   * Set false for discarded tabs, which cannot initialize until activated.
++   * Halo patch; callers must wait for the individual page they need.
++   */
++  waitForPages?: boolean;
++
+   /**
+    * Slows down Playwright operations by the specified amount of milliseconds. Useful so that you can see what is going
+    * on. Defaults to 0.
