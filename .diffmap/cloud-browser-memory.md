@@ -29,6 +29,11 @@ Inventory reads use `/json/list`, without attaching or evaluating
 pages. `noDefaults` keeps Playwright from overriding the user's focus, media, and
 download settings.
 
+Inventory returns an empty list when no endpoint is published. Fetch failures,
+including timeout or cancellation, return errors rather than claiming there are
+no tabs. A controlled slow endpoint reproduced the old empty-success result;
+the regression test now checks the error, a successful empty retry, and no endpoint.
+
 ```callstack
  result = browserTools.call(input) [[e67cb7bd43e92fddd7a352a6f07cbde479d3059d:packages/workspace-server/src/browser/browserTools.ts#browserTools]]
  └── result = BrowserService.call(input) [[e67cb7bd43e92fddd7a352a6f07cbde479d3059d:packages/workspace-server/src/browser/BrowserService.ts#BrowserService.call]]
@@ -126,8 +131,10 @@ or unconditional external discard is shipped.
   debugger release and reuse on both driver-owned and existing-profile Chrome.
 - `pnpm run check-affected`: 57 tasks passed, including 62 workspace unit tests.
 - `pnpm --filter @get-halo/workspace-server test:e2e test/browser.test.ts test/workspace.test.ts`:
-  69 tests passed. The kept idle regression protects tab state and non-attaching
-  inventory, then verifies another action and snapshot after reconnection.
+  70 tests passed. The kept idle regression protects tab state and non-attaching
+  inventory, then verifies another action and snapshot after reconnection. The
+  inventory regression distinguishes failed reads from an empty browser; a
+  temporary service check also verified caller cancellation preserves its cause.
 - Playwright's bundled Chrome 151 did not release the heavy renderer in the
   diagnostic probe; reclamation evidence above applies to Google stable, which
   the cloud image installs. Docker image build is unavailable in this orb.

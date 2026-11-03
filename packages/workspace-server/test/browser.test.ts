@@ -378,3 +378,30 @@ browserTest(
     await call("snapshot");
   },
 );
+
+browserTest(
+  "reports a timed-out inventory read instead of claiming there are no tabs",
+  async ({ createServer, chrome, http }) => {
+    await fs.mkdir(chrome.profileDir, { recursive: true });
+    await fs.writeFile(
+      path.join(chrome.profileDir, "DevToolsActivePort"),
+      `${new URL(http.url("/")).port}\n/devtools/browser/inventory\n`,
+    );
+    const server = createServer({ chrome: chrome.config });
+    await server.start();
+    const tabs = async () =>
+      await server.rpc.testApi.invokeTool({ path: "browser.tabs", input: {} });
+    const failed = expect(tabs()).rejects.toThrow(/list tabs/);
+    // The endpoint accepts the request but does not answer before the timeout.
+    await http.request("/json/list");
+    await failed;
+
+    const retry = tabs();
+    (await http.request("/json/list")).respond("[]", {
+      contentType: "application/json",
+    });
+    expect(await retry).toEqual([]);
+    await fs.rm(path.join(chrome.profileDir, "DevToolsActivePort"));
+    expect(await tabs()).toEqual([]);
+  },
+);

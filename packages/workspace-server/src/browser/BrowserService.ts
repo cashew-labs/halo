@@ -369,10 +369,8 @@ export class BrowserService {
         ...(input.signal === undefined ? [] : [input.signal]),
         AbortSignal.timeout(5_000),
       ]),
-    }).catch(
-      (cause) => new BrowserUnavailableError({ detail: "list tabs", cause }),
-    );
-    if (response instanceof BrowserUnavailableError) return [];
+    }).catch((cause) => new BrowserError({ detail: "list tabs", cause }));
+    if (response instanceof Error) return response;
     if (!response.ok)
       return new BrowserError({ detail: `list tabs: HTTP ${response.status}` });
     // SAFETY: Chrome's /json/list returns target metadata, including unloaded tabs.

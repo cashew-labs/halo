@@ -41,7 +41,7 @@ function browserTool<S extends TObject>(definition: {
 export const browserTools = {
   tabs: browserTool({
     description:
-      "List the workspace Chrome's open tabs without loading them: `{ id, url, title }`. The user's tabs are listed too. Chrome may assign a new ID when it unloads or restores a tab; list tabs again if an ID is stale. Returns `[]` when Chrome is not running.",
+      "List the workspace Chrome's open tabs without loading them: `{ id, url, title }`. The user's tabs are listed too. Chrome may assign a new ID when it unloads or restores a tab; list tabs again if an ID is stale. Returns `[]` if Chrome has no published endpoint. A failed inventory read returns an error, not an empty list.",
     inputSchema: Type.Object({}),
     execute: async (_, { service, signal }) => await service.tabs({ signal }),
   }),
