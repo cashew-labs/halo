@@ -34,6 +34,28 @@ including timeout or cancellation, return errors rather than claiming there are
 no tabs. A controlled slow endpoint reproduced the old empty-success result;
 the regression test now checks the error, a successful empty retry, and no endpoint.
 
+Before accepting inventory, Halo checks `/json/version` against the exact browser
+WebSocket endpoint in `DevToolsActivePort`. A missing or mismatched identity returns
+`[]`; a failed verification read returns an error. Verification and inventory share
+one five-second budget and caller cancellation. Neither request attaches a debugger.
+A controlled server on the saved port reproduced another browser's tabs appearing
+in inventory before the fix. The kept regression now rejects that identity and
+accepts the same server only when its browser endpoint matches.
+
+```changes
+da092434b895bd38d4cefc1945f8bf21add380e3
+packages/workspace-server/src/browser/BrowserService.ts
+packages/workspace-server/test/browser.test.ts
+```
+
+```callstack
+ tabs = BrowserService.tabs(input) [[da092434b895bd38d4cefc1945f8bf21add380e3:packages/workspace-server/src/browser/BrowserService.ts#BrowserService.tabs]]
+ ├── address = BrowserService.address() [[da092434b895bd38d4cefc1945f8bf21add380e3:packages/workspace-server/src/browser/BrowserService.ts#BrowserService.address]]
+ ├── version = fetch(address.origin + "/json/version")
+ ├── if version.webSocketDebuggerUrl differs from address.endpoint: return []
+ └── targets = fetch(address.origin + "/json/list")
+```
+
 ```callstack
  result = browserTools.call(input) [[e67cb7bd43e92fddd7a352a6f07cbde479d3059d:packages/workspace-server/src/browser/browserTools.ts#browserTools]]
  └── result = BrowserService.call(input) [[e67cb7bd43e92fddd7a352a6f07cbde479d3059d:packages/workspace-server/src/browser/BrowserService.ts#BrowserService.call]]
@@ -62,6 +84,13 @@ adds `waitForPages`, defaulting to true. Only BrowserService passes false;
 `BrowserService.pageFor` activates the exact
 requested sleeping target and waits for its page to initialize. This can foreground
 that tab, but leaves unrelated sleeping tabs unloaded. No URL matching is used.
+
+Playwright excludes uninitialized pages from `context.pages()`, so a blocked
+initializer cannot bypass that activation fallback. A real Chrome CDP proxy held
+`Page.enable` replies until activation: the client exposed zero pages while
+blocked, and `BrowserService.call` activated the selected target once and returned
+the expected content. This controlled readiness check rejected the later Bugbot
+finding; it is separate from the native-discard check below.
 
 ```changes
 2b38d29cc83ab3d704b5d7f8b5e40f37fc4da4fe
@@ -131,10 +160,13 @@ or unconditional external discard is shipped.
   debugger release and reuse on both driver-owned and existing-profile Chrome.
 - `pnpm run check-affected`: 57 tasks passed, including 62 workspace unit tests.
 - `pnpm --filter @get-halo/workspace-server test:e2e test/browser.test.ts test/workspace.test.ts`:
-  70 tests passed. The kept idle regression protects tab state and non-attaching
+  71 tests passed. The kept idle regression protects tab state and non-attaching
   inventory, then verifies another action and snapshot after reconnection. The
   inventory regression distinguishes failed reads from an empty browser; a
   temporary service check also verified caller cancellation preserves its cause.
+  The endpoint-identity regression rejects inventory from a reused port. Extra
+  service checks covered missing/null identity, HTTP/JSON/network failures,
+  caller cancellation, and timeout while verifying the endpoint.
 - Playwright's bundled Chrome 151 did not release the heavy renderer in the
   diagnostic probe; reclamation evidence above applies to Google stable, which
   the cloud image installs. Docker image build is unavailable in this orb.
