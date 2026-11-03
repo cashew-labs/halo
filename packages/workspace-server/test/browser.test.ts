@@ -1,7 +1,10 @@
 import fs from "node:fs/promises";
+import nodeHttp from "node:http";
 import path from "node:path";
+import { once } from "node:events";
 import { setTimeout as sleep } from "node:timers/promises";
 import { expect } from "vitest";
+import WebSocket from "ws";
 import * as errore from "errore";
 import { m } from "@get-halo/shared/testing";
 import { TestChrome } from "@get-halo/workspace-server/testing";
@@ -24,7 +27,9 @@ const form = `data:text/html,${encodeURIComponent(`
   <button onclick="this.textContent = 'Saved'">Save draft</button>
   <ul><li>One</li><li>Two</li></ul>
 `)}`;
-const userTab = `data:text/html,${encodeURIComponent("<title>Inbox</title><p>Mail</p>")}`;
+// Escaped metadata exceeds the cap, but the visible title does not.
+const userTitle = `Inbox & <Notes> "Quotes" 'Apostrophe' &amp; &#39; Ω ${"&".repeat(500)}`;
+const userTab = `data:text/html,${encodeURIComponent(`<meta charset="utf-8"><p>Mail</p><script>document.title = ${JSON.stringify(userTitle)}</script>`)}`;
 
 type Tab = { id: string; url: string; title: string };
 
@@ -100,7 +105,8 @@ browserTest(
       path: "browser.tabs",
       input: {},
     })) as Tab[];
-    const inbox = tabs.find((tab) => tab.title === "Inbox")!;
+    const inbox = tabs.find((tab) => tab.url === userTab)!;
+    expect(inbox.title).toBe(userTitle);
     expect(tabs).toContainEqual(expect.objectContaining({ id: opened.id }));
 
     // Page code must never receive Playwright's own objects: with them and
@@ -135,7 +141,7 @@ browserTest(
       path: "browser.tabs",
       input: {},
     })) as Tab[];
-    expect(remaining.map((tab) => tab.title)).toEqual(["Inbox"]);
+    expect(remaining.map((tab) => tab.title)).toEqual([userTitle]);
   },
 );
 
@@ -306,5 +312,205 @@ browserTest(
     await expect(
       server.rpc.testApi.invokeTool({ path: "browser.tabs", input: {} }),
     ).rejects.toThrow(/workspace\.browser/);
+  },
+);
+
+browserTest(
+  "releases idle tab debuggers without closing tabs or reconnecting for inventory",
+  { timeout: 90_000 },
+  async ({ createServer, chrome }) => {
+    const server = createServer({ chrome: chrome.config });
+    await server.start();
+    // SAFETY: browser.newPage returns the opened tab.
+    const tab = (await server.rpc.testApi.invokeTool({
+      path: "browser.newPage",
+      input: { url: form },
+    })) as Tab;
+    const call = async (method: string, args: unknown[] = []) =>
+      await server.rpc.testApi.invokeTool({
+        path: "browser.call",
+        input: { page: tab.id, chain: [], method, args },
+      });
+    await call("evaluate", [
+      { $function: "() => { window.haloDraft = 'keep this draft'; }" },
+    ]);
+    // Read attachment state through a browser-only CDP socket. A second
+    // Playwright connection would itself attach debuggers to every page.
+    const targets = async () => {
+      const address = await fs.readFile(
+        path.join(chrome.profileDir, "DevToolsActivePort"),
+        "utf8",
+      );
+      const [port, browserPath] = address.trim().split("\n");
+      const socket = new WebSocket(`ws://127.0.0.1:${port}${browserPath}`);
+      using cleanup = new errore.DisposableStack();
+      cleanup.defer(() => socket.close());
+      const signal = AbortSignal.timeout(5_000);
+      await once(socket, "open", { signal });
+      const message = once(socket, "message", { signal });
+      socket.send(JSON.stringify({ id: 1, method: "Target.getTargets" }));
+      const [data] = await message;
+      // SAFETY: Target.getTargets returns CDP target descriptors.
+      const response = JSON.parse(String(data)) as {
+        result: {
+          targetInfos: Array<{ targetId: string; attached: boolean }>;
+        };
+      };
+      return response.result.targetInfos;
+    };
+    expect(await targets()).toContainEqual(
+      expect.objectContaining({ targetId: tab.id, attached: true }),
+    );
+    await expect
+      .poll(
+        async () => (await targets()).find((item) => item.targetId === tab.id),
+        { timeout: 65_000, interval: 500 },
+      )
+      .toMatchObject({ attached: false });
+
+    // Listing must not reconnect or wake idle tabs.
+    expect(
+      await server.rpc.testApi.invokeTool({ path: "browser.tabs", input: {} }),
+    ).toContainEqual(tab);
+    expect(await targets()).toContainEqual(
+      expect.objectContaining({ targetId: tab.id, attached: false }),
+    );
+    // The same tab and its unsaved page state survive idle release.
+    expect(
+      await call("evaluate", [{ $function: "() => window.haloDraft" }]),
+    ).toMatchObject({ value: "keep this draft" });
+    await call("snapshot");
+  },
+);
+
+browserTest(
+  "dismisses a dialog opened between calls after the idle interval",
+  { timeout: 140_000 },
+  async ({ createServer, chrome }) => {
+    const server = createServer({ chrome: chrome.config });
+    await server.start();
+    // SAFETY: browser.newPage returns the opened tab.
+    const tab = (await server.rpc.testApi.invokeTool({
+      path: "browser.newPage",
+      input: { url: form },
+    })) as Tab;
+    await server.rpc.testApi.invokeTool({
+      path: "browser.call",
+      input: {
+        page: tab.id,
+        chain: [],
+        method: "evaluate",
+        args: [
+          {
+            $function:
+              "() => { setTimeout(() => { window.haloAnswer = confirm('Keep draft?'); }, 500); }",
+          },
+        ],
+      },
+    });
+    await sleep(65_000);
+    expect(
+      await server.rpc.testApi.invokeTool({
+        path: "browser.call",
+        input: {
+          page: tab.id,
+          chain: [],
+          method: "evaluate",
+          args: [{ $function: "() => window.haloAnswer" }],
+        },
+      }),
+    ).toMatchObject({
+      value: false,
+      dialogs: [{ type: "confirm", message: "Keep draft?", accepted: false }],
+    });
+  },
+);
+
+browserTest(
+  "does not report another browser's inventory from a reused DevTools port",
+  async ({ createServer, chrome }) => {
+    const tab = {
+      id: "unrelated",
+      type: "page",
+      url: "https://example.com/",
+      title: "Unrelated",
+    };
+    const identity = { path: "/devtools/browser/another-browser" };
+    const decoy = nodeHttp.createServer((request, response) => {
+      response.setHeader("Content-Type", "application/json");
+      response.end(
+        JSON.stringify(
+          request.url === "/json/version"
+            ? { webSocketDebuggerUrl: `ws://127.0.0.1:${port}${identity.path}` }
+            : [tab],
+        ),
+      );
+    });
+    await using cleanup = new errore.AsyncDisposableStack();
+    cleanup.defer(async () => {
+      decoy.closeAllConnections();
+      await new Promise<void>((resolve) => decoy.close(() => resolve()));
+    });
+    decoy.listen({ host: "127.0.0.1", port: 0 });
+    await once(decoy, "listening");
+    // SAFETY: listening TCP servers have an address with an allocated port.
+    const { port } = decoy.address() as { port: number };
+    await fs.mkdir(chrome.profileDir, { recursive: true });
+    await fs.writeFile(
+      path.join(chrome.profileDir, "DevToolsActivePort"),
+      `${port}\n/devtools/browser/inventory\n`,
+    );
+    const server = createServer({ chrome: chrome.config });
+    await server.start();
+    const tabs = async () =>
+      await server.rpc.testApi.invokeTool({ path: "browser.tabs", input: {} });
+    expect(await tabs()).toEqual([]);
+    identity.path = "/devtools/browser/inventory";
+    expect(await tabs()).toEqual([
+      { id: tab.id, url: tab.url, title: tab.title },
+    ]);
+  },
+);
+
+browserTest(
+  "reports a timed-out inventory read instead of claiming there are no tabs",
+  async ({ createServer, chrome, http }) => {
+    await fs.mkdir(chrome.profileDir, { recursive: true });
+    await fs.writeFile(
+      path.join(chrome.profileDir, "DevToolsActivePort"),
+      `${new URL(http.url("/")).port}\n/devtools/browser/inventory\n`,
+    );
+    const server = createServer({ chrome: chrome.config });
+    await server.start();
+    const tabs = async () =>
+      await server.rpc.testApi.invokeTool({ path: "browser.tabs", input: {} });
+    const failed = expect(tabs()).rejects.toThrow(/list tabs/);
+    (await http.request("/json/version")).respond(
+      JSON.stringify({
+        webSocketDebuggerUrl: http
+          .url("/devtools/browser/inventory")
+          .replace("http:", "ws:"),
+      }),
+      { contentType: "application/json" },
+    );
+    // The endpoint accepts the request but does not answer before the timeout.
+    await http.request("/json/list");
+    await failed;
+
+    const retry = tabs();
+    (await http.request("/json/version")).respond(
+      JSON.stringify({
+        webSocketDebuggerUrl: http
+          .url("/devtools/browser/inventory")
+          .replace("http:", "ws:"),
+      }),
+      { contentType: "application/json" },
+    );
+    (await http.request("/json/list")).respond("[]", {
+      contentType: "application/json",
+    });
+    expect(await retry).toEqual([]);
+    await fs.rm(path.join(chrome.profileDir, "DevToolsActivePort"));
+    expect(await tabs()).toEqual([]);
   },
 );

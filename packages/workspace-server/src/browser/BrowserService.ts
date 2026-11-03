@@ -23,6 +23,7 @@ const actionTimeout = 30_000;
 const callBudget = 60_000;
 const resultLimit = 256 * 1024;
 const launchTimeout = 20_000;
+const connectionIdleTime = 60_000;
 
 export type ChromeConfig = {
   // Chrome's --user-data-dir; Chrome writes DevToolsActivePort here.
@@ -53,7 +54,7 @@ export class BrowserUnavailableError extends errore.createTaggedError({
 export class BrowserTabNotFoundError extends errore.createTaggedError({
   name: "BrowserTabNotFoundError",
   message:
-    "No open tab has ID $pageId. It was closed, or Chrome restarted; list tabs again.",
+    "No open tab has ID $pageId. It may have closed, unloaded, or been restored with a new ID; list tabs again.",
 }) {}
 export class BrowserStaleRefError extends errore.createTaggedError({
   name: "BrowserStaleRefError",
@@ -327,6 +328,13 @@ export class BrowserService {
   private connection: Connection | undefined;
   // Single-flight connect or launch attempt.
   private connecting: Promise<Connection | Error> | undefined;
+  // Calls wait for an idle disconnect before attaching again.
+  private disconnecting: Promise<void> | undefined;
+  private idleTimer: ReturnType<typeof setTimeout> | undefined;
+  // Counts underlying work, even after a caller's budget expires.
+  private activeCalls = 0;
+  // Disconnecting destroys Playwright-created incognito contexts. Preserve them.
+  private readonly isolatedContexts = new Set<BrowserContext>();
   // Latest snapshot generation per tab; refs from other generations are stale.
   private readonly snapshotGenerations = new Map<string, number>();
   // Orders snapshots, which replace a tab's refs, with calls that use refs.
@@ -337,7 +345,7 @@ export class BrowserService {
   // Dialog answers of the agent calls running on each tab, oldest first.
   private readonly busy = new Map<Page, DialogAnswer[]>();
   // A dialog that opened while no agent call ran; the next call dismisses it.
-  private readonly pendingDialogs = new WeakMap<Page, Dialog>();
+  private readonly pendingDialogs = new Map<Page, Dialog>();
   // Dialogs answered for agent calls, reported by the next call on the tab to finish.
   private readonly answeredDialogs = new WeakMap<Page, AnsweredDialog[]>();
   private closed = false;
@@ -350,27 +358,74 @@ export class BrowserService {
   }
 
   async tabs(input: { signal?: AbortSignal } = {}) {
-    return await this.bounded({
-      method: "tabs",
-      signal: input.signal,
-      run: async () => {
-        const connection = await this.connect({ launch: false });
-        if (connection instanceof BrowserUnavailableError) return [];
-        if (connection instanceof Error) return connection;
-        const tabs = await Promise.all(
-          this.pages(connection).map(async (page) => {
-            const pageId = await this.targetId(page);
-            if (pageId instanceof Error) {
-              // A tab can close while the list is read.
-              console.warn(pageId);
-              return undefined;
-            }
-            return await describeTab(page, pageId);
-          }),
-        );
-        return tabs.filter((tab) => tab !== undefined);
-      },
-    });
+    if (this.closed)
+      return new BrowserError({ detail: "the browser service is shut down" });
+    const signal = AbortSignal.any([
+      ...(input.signal === undefined ? [] : [input.signal]),
+      AbortSignal.timeout(5_000),
+    ]);
+    if (signal.aborted)
+      return new BrowserError({ detail: "list tabs", cause: signal.reason });
+    const address = await this.address();
+    if (signal.aborted)
+      return new BrowserError({ detail: "list tabs", cause: signal.reason });
+    if (address instanceof BrowserUnavailableError) return [];
+    if (address instanceof Error) return address;
+    // A stale DevToolsActivePort may point to a port reused by another browser.
+    // HTTP metadata verifies identity without attaching debuggers or waking tabs.
+    const versionResponse = await fetch(`${address.origin}/json/version`, {
+      signal,
+    }).catch(
+      (cause) => new BrowserError({ detail: "verify Chrome endpoint", cause }),
+    );
+    if (versionResponse instanceof Error) return versionResponse;
+    if (!versionResponse.ok)
+      return new BrowserError({
+        detail: `verify Chrome endpoint: HTTP ${versionResponse.status}`,
+      });
+    // SAFETY: Chrome's version metadata identifies its browser WebSocket endpoint.
+    const version = await (
+      versionResponse.json() as Promise<{
+        webSocketDebuggerUrl?: string;
+      } | null>
+    ).catch(
+      (cause) => new BrowserError({ detail: "decode Chrome endpoint", cause }),
+    );
+    if (version instanceof Error) return version;
+    if (signal.aborted)
+      return new BrowserError({ detail: "list tabs", cause: signal.reason });
+    if (version?.webSocketDebuggerUrl !== address.endpoint) return [];
+    const response = await fetch(`${address.origin}/json/list`, {
+      signal,
+    }).catch((cause) => new BrowserError({ detail: "list tabs", cause }));
+    if (response instanceof Error) return response;
+    if (!response.ok)
+      return new BrowserError({ detail: `list tabs: HTTP ${response.status}` });
+    // SAFETY: Chrome's /json/list returns target metadata, including unloaded tabs.
+    const targets = await (
+      response.json() as Promise<
+        Array<{ id: string; type: string; url: string; title: string }>
+      >
+    ).catch((cause) => new BrowserError({ detail: "decode tab list", cause }));
+    if (targets instanceof Error) return targets;
+    if (signal.aborted)
+      return new BrowserError({ detail: "list tabs", cause: signal.reason });
+    return targets
+      .filter((target) => target.type === "page")
+      .map((target) => ({
+        id: target.id,
+        url: capText(target.url),
+        // Chrome's HTTP descriptor uses EscapeForHTML. Decode ampersands last
+        // so literal entity text in a title is not decoded a second time.
+        title: capText(
+          target.title
+            .replaceAll("&lt;", "<")
+            .replaceAll("&gt;", ">")
+            .replaceAll("&quot;", '"')
+            .replaceAll("&#39;", "'")
+            .replaceAll("&amp;", "&"),
+        ),
+      }));
   }
 
   async newPage(input: {
@@ -398,6 +453,11 @@ export class BrowserService {
         if (context === undefined)
           return new BrowserError({ detail: "Chrome has no default context" });
         if (input.isolated) {
+          this.isolatedContexts.add(context);
+          context.once("close", () => {
+            this.isolatedContexts.delete(context);
+            this.scheduleDisconnect();
+          });
           this.watchDialogs(context);
           this.closeWhenEmpty(context);
           cleanup.defer(async () => await context.close());
@@ -517,10 +577,13 @@ export class BrowserService {
 
   async shutdown() {
     this.closed = true;
+    clearTimeout(this.idleTimer);
+    await this.disconnecting;
     const pending = await this.connecting;
     const connection =
       this.connection ?? (pending instanceof Error ? undefined : pending);
     this.connection = undefined;
+    this.pendingDialogs.clear();
     // Disconnects; the user's Chrome and its default-profile tabs keep running.
     const closed = await connection?.browser
       .close()
@@ -529,6 +592,7 @@ export class BrowserService {
   }
 
   private async connect(input: { launch: boolean }) {
+    await this.disconnecting;
     if (this.closed)
       return new BrowserError({ detail: "the browser service is shut down" });
     if (this.connection !== undefined) return this.connection;
@@ -547,8 +611,7 @@ export class BrowserService {
     return result;
   }
 
-  private async attach() {
-    if (this.connection !== undefined) return this.connection;
+  private async address() {
     const file = await fs
       .readFile(path.join(this.chrome.profileDir, "DevToolsActivePort"), "utf8")
       .catch(
@@ -566,8 +629,20 @@ export class BrowserService {
       });
     // Connect to the exact browser endpoint, not a port another process may now hold.
     const endpoint = `ws://127.0.0.1:${port}${browserPath}`;
+    return { endpoint, origin: `http://127.0.0.1:${port}` };
+  }
+
+  private async attach() {
+    if (this.connection !== undefined) return this.connection;
+    const address = await this.address();
+    if (address instanceof Error) return address;
+    const { endpoint } = address;
     const browser = await chromium
-      .connectOverCDP(endpoint, { timeout: 5_000 })
+      .connectOverCDP(endpoint, {
+        timeout: 5_000,
+        noDefaults: true,
+        waitForPages: false,
+      })
       .catch((cause) =>
         // Chrome answers but a tab blocked by a dialog never finishes attaching.
         // Launching again would only open another window in the same Chrome.
@@ -590,7 +665,9 @@ export class BrowserService {
     const connection = { browser, endpoint };
     browser.once("disconnected", () => {
       if (this.connection !== connection) return;
+      clearTimeout(this.idleTimer);
       this.connection = undefined;
+      this.pendingDialogs.clear();
       // Refs live in this connection's utility world.
       this.snapshotGenerations.clear();
       this.refGates.clear();
@@ -598,6 +675,34 @@ export class BrowserService {
     for (const context of browser.contexts()) this.watchDialogs(context);
     this.connection = connection;
     return connection;
+  }
+
+  private scheduleDisconnect() {
+    clearTimeout(this.idleTimer);
+    if (
+      this.closed ||
+      this.activeCalls > 0 ||
+      this.connection === undefined ||
+      this.isolatedContexts.size > 0 ||
+      this.pendingDialogs.size > 0
+    )
+      return;
+    this.idleTimer = setTimeout(() => {
+      // Publish the disconnect before another call can acquire the connection.
+      this.disconnecting = this.disconnectIdle();
+    }, connectionIdleTime);
+    this.idleTimer.unref();
+  }
+
+  private async disconnectIdle() {
+    const disconnected = await this.connection?.browser
+      .close()
+      .catch((cause) => new BrowserError({ detail: "idle disconnect", cause }));
+    this.disconnecting = undefined;
+    if (disconnected instanceof Error) {
+      console.warn(disconnected);
+      this.scheduleDisconnect();
+    }
   }
 
   private async launch() {
@@ -634,15 +739,46 @@ export class BrowserService {
   private async pageFor(pageId: string) {
     const connection = await this.connect({ launch: false });
     if (connection instanceof Error) return connection;
-    for (const page of this.pages(connection)) {
-      const candidate = await this.targetId(page);
-      if (candidate instanceof Error) {
-        console.warn(candidate);
-        continue;
+    const findPage = async () => {
+      for (const page of this.pages(connection)) {
+        const candidate = await this.targetId(page);
+        if (candidate instanceof Error) {
+          console.warn(candidate);
+          continue;
+        }
+        if (candidate === pageId) return page;
       }
-      if (candidate === pageId) return page;
+    };
+    const existing = await findPage();
+    if (existing !== undefined) return existing;
+    // An unloaded tab has no initialized Playwright Page. Activate only the
+    // exact requested target, letting Chrome restore it without waking others.
+    const session = await connection.browser
+      .newBrowserCDPSession()
+      .catch((cause) => new BrowserError({ detail: "resume tab", cause }));
+    if (session instanceof Error) return session;
+    await using cleanup = new errore.AsyncDisposableStack();
+    cleanup.defer(async () => {
+      const detached = await session
+        .detach()
+        .catch(
+          (cause) => new BrowserError({ detail: "detach tab resume", cause }),
+        );
+      if (detached instanceof Error) console.warn(detached);
+    });
+    const activated = await session
+      .send("Target.activateTarget", { targetId: pageId })
+      .catch((cause) => new BrowserTabNotFoundError({ pageId, cause }));
+    if (activated instanceof Error) return activated;
+    const deadline = Date.now() + actionTimeout;
+    while (Date.now() < deadline) {
+      const page = await findPage();
+      if (page !== undefined) return page;
+      await sleep(50);
     }
-    return new BrowserTabNotFoundError({ pageId });
+    return new BrowserError({
+      detail: "the selected tab did not finish resuming",
+    });
   }
 
   private async targetId(page: Page) {
@@ -678,7 +814,21 @@ export class BrowserService {
       if (page === null) return;
       const answer = this.busy.get(page)?.at(-1);
       if (answer !== undefined) await this.answer(page, dialog, answer);
-      else this.pendingDialogs.set(page, dialog);
+      else {
+        this.pendingDialogs.set(page, dialog);
+        this.scheduleDisconnect();
+        // JavaScript reads wait behind the modal. Resume idle cleanup even if
+        // the user answers it, without dismissing their dialog or adding CDP sessions.
+        const ready = await page
+          .evaluate(() => undefined)
+          .catch(
+            (cause) => new BrowserError({ detail: "wait for dialog", cause }),
+          );
+        if (ready instanceof Error) console.warn(ready);
+        if (this.pendingDialogs.get(page) === dialog)
+          this.pendingDialogs.delete(page);
+        this.scheduleDisconnect();
+      }
     });
   }
 
@@ -1018,7 +1168,17 @@ export class BrowserService {
         once: true,
       });
     });
-    return await Promise.race([input.run(budget), aborted]);
+    clearTimeout(this.idleTimer);
+    this.activeCalls++;
+    const running = async () => {
+      using cleanup = new errore.DisposableStack();
+      cleanup.defer(() => {
+        this.activeCalls--;
+        this.scheduleDisconnect();
+      });
+      return await input.run(budget);
+    };
+    return await Promise.race([running(), aborted]);
   }
 
   private async invoke(input: {
