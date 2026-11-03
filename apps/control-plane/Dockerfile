@@ -10,11 +10,24 @@ RUN apt-get update \
     && npm install --global pnpm@12.1.0
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY patches ./patches
-# Include every workspace package so new dependencies need no Dockerfile edits.
-COPY packages ./packages
+# Keep package sources out of the dependency cache key.
+COPY packages/app-control/package.json ./packages/app-control/package.json
+COPY packages/client/package.json ./packages/client/package.json
+COPY packages/config/package.json ./packages/config/package.json
+COPY packages/copy-path-to-symbol/package.json ./packages/copy-path-to-symbol/package.json
+COPY packages/dev-cli/package.json ./packages/dev-cli/package.json
+COPY packages/extension-sdk/package.json ./packages/extension-sdk/package.json
+COPY packages/extension-tools/package.json ./packages/extension-tools/package.json
+COPY packages/halo-cli/package.json ./packages/halo-cli/package.json
+COPY packages/logger/package.json ./packages/logger/package.json
+COPY packages/shared/package.json ./packages/shared/package.json
+COPY packages/typescript-config/package.json ./packages/typescript-config/package.json
+COPY packages/web/package.json ./packages/web/package.json
+COPY packages/workspace-server/package.json ./packages/workspace-server/package.json
 COPY apps/control-plane/package.json ./apps/control-plane/package.json
 COPY apps/web-app/package.json ./apps/web-app/package.json
 RUN pnpm install --frozen-lockfile --filter @get-halo/control-plane... --filter @get-halo/web-app...
+COPY packages ./packages
 COPY apps/control-plane ./apps/control-plane
 COPY apps/web-app ./apps/web-app
 COPY apps/electron/package.json ./apps/electron/package.json
