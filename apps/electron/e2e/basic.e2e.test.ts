@@ -924,6 +924,7 @@ e2eTest(
     const cdp = await app.page.context().newCDPSession(app.page);
     await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: true });
     const swipe = async (item: Locator, direction: number) => {
+      await item.scrollIntoViewIfNeeded();
       const box = (await item.boundingBox())!;
       const x = box.x + Math.min(box.width / 2, 100);
       const y = box.y + box.height / 2;
