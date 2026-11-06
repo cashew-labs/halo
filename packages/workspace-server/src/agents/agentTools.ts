@@ -27,7 +27,7 @@ export const agentTools = {
   }),
   update: haloTool({
     description:
-      "Update an agent's name and instructions without changing its conversation history. Instructions apply at the next model request, not to a request already running. Use an agent ID from agents.list, not a thread ID.",
+      "Update an agent's name and instructions without changing its conversation history. Omit instructions to keep them. Instructions apply at the next model request, not to a request already running. Use an agent ID from agents.list, not a thread ID.",
     inputSchema: agentSettingsSchema,
     requiredCapabilities: ["workspace.threads.write"],
     execute: async (input, context) => {

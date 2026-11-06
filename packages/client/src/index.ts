@@ -119,6 +119,7 @@ export { isThreadUnread } from "./rpc.js";
 export {
   newAgentSchema,
   agentSettingsSchema,
+  type AgentAvatar,
   type AgentRecord,
   type NewAgentInput,
   type AgentSettingsInput,

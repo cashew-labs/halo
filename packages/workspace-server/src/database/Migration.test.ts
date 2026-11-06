@@ -558,6 +558,7 @@ migrationTest(
         expect.objectContaining({ id: "20261023100000-favorites" }),
         expect.objectContaining({ id: "20261028100000-memories" }),
         expect.objectContaining({ id: "20261029090000-agents" }),
+        expect.objectContaining({ id: "20261104120000-agent-avatars" }),
       ]);
       expect(
         await db.query({ collection: "sessionState", orderBy: { id: "asc" } }),

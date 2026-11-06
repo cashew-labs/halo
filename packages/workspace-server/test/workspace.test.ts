@@ -1014,10 +1014,21 @@ serverTest(
       },
     );
     await summaries.next();
+    const avatar = {
+      definition: {
+        version: 1 as const,
+        id: "box",
+        name: "Box",
+        body: { path: "M20 20 H80 V80 H20 Z" },
+        eyes: { x: 50, y: 46, spacing: 15, scale: 1 },
+      },
+      color: "#1f7cf2",
+    };
     const input = {
       requestId: "chief",
       name: " Chief ",
       instructions: "Track ongoing research.",
+      avatar,
     };
     const [chief, retry] = await Promise.all([
       server.rendererRpc.agents.new(input),
@@ -1025,6 +1036,7 @@ serverTest(
     ]);
     expect(retry).toEqual(chief);
     expect(chief.name).toBe("Chief");
+    expect(chief.avatar).toEqual(avatar);
     expect(chief.id).not.toBe(chief.threadId);
     await expect.poll(() => replica.query(query)).toMatchObject([chief]);
     await expect
@@ -1122,6 +1134,26 @@ serverTest(
     await expect(
       server.rpc.agents.new({ ...input, requestId: "blank", name: "  " }),
     ).rejects.toThrow("Provide a name");
+    await expect(
+      server.rpc.agents.update({
+        agentId: chief.id,
+        name: "Research",
+        instructions: "",
+        avatar: {
+          ...avatar,
+          definition: {
+            ...avatar.definition,
+            eyes: { ...avatar.definition.eyes, y: 99 },
+          },
+        },
+      }),
+    ).rejects.toThrow("Provide a valid avatar");
+    expect(
+      await server.rpc.agents.update({
+        agentId: editor.id,
+        name: "Copy editor",
+      }),
+    ).toEqual(editor);
     await expect(
       server.rpc.agents.update({
         agentId: chief.id,
