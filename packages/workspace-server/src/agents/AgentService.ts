@@ -1,9 +1,11 @@
 import crypto from "node:crypto";
 import { Value } from "@sinclair/typebox/value";
 import * as errore from "errore";
+import { validateAvatar } from "open-bot-avatar";
 import {
   newAgentSchema,
   agentSettingsSchema,
+  type AgentAvatar,
   type AgentRecord,
   type NewAgentInput,
   type AgentSettingsInput,
@@ -61,6 +63,8 @@ export class AgentService {
         reason:
           "Provide a name, instructions, and a nonempty creation requestId.",
       });
+    const avatarError = checkAvatar(input.avatar);
+    if (avatarError !== undefined) return avatarError;
     return await this.actionQueue.run(async () => {
       if (this.closed)
         return new AgentInputError({ reason: "The server is shutting down." });
@@ -87,6 +91,7 @@ export class AgentService {
         threadId: `agent-thread-${identity}`,
         name: input.name.trim(),
         instructions: input.instructions,
+        avatar: input.avatar,
         createdAt: Date.now(),
         ready: false,
       };
@@ -117,8 +122,10 @@ export class AgentService {
   async update(input: AgentSettingsInput) {
     if (!Value.Check(agentSettingsSchema, input) || input.name.trim() === "")
       return new AgentInputError({
-        reason: "Provide an agent ID, a name, and instructions.",
+        reason: "Provide an agent ID and a name.",
       });
+    const avatarError = checkAvatar(input.avatar);
+    if (avatarError !== undefined) return avatarError;
     return await this.actionQueue.run(async () => {
       if (this.closed)
         return new AgentInputError({ reason: "The server is shutting down." });
@@ -137,7 +144,8 @@ export class AgentService {
       const updated = {
         ...agent,
         name: input.name.trim(),
-        instructions: input.instructions,
+        instructions: input.instructions ?? agent.instructions,
+        avatar: input.avatar ?? agent.avatar,
       };
       tx.set("agents", updated);
       const saved = await this.db
@@ -214,12 +222,23 @@ export class AgentService {
   }
 }
 
+// The renderer throws on geometry it can't draw, so reject it before saving.
+function checkAvatar(avatar: AgentAvatar | undefined) {
+  if (avatar === undefined) return;
+  const result = validateAvatar(avatar.definition);
+  if (result.ok) return;
+  return new AgentInputError({
+    reason: `Provide a valid avatar: ${result.errors.join("; ")}`,
+  });
+}
+
 function toAgentRecord({
   id,
   threadId,
   name,
   instructions,
+  avatar,
   createdAt,
 }: AgentRecord): AgentRecord {
-  return { id, threadId, name, instructions, createdAt };
+  return { id, threadId, name, instructions, avatar, createdAt };
 }

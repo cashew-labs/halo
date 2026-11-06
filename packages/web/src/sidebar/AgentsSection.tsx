@@ -29,6 +29,7 @@ import { useAgents } from "../api/WorkspaceUpdatesProvider.js";
 import { useConnection } from "../api/ConnectionContext.js";
 import { useApi, useWorkspaceQuery } from "../api/ApiProvider.js";
 import { AgentDialog } from "../agents/AgentDialog.js";
+import { BotAvatar } from "../agents/BotAvatar.js";
 import {
   useMessageDraft,
   useMessageDraftKey,
@@ -149,14 +150,24 @@ function AgentCircle({
               sidebar.close();
             }}
           >
-            <Text
-              className={initial}
-              size="lg"
-              fontWeight={500}
-              aria-hidden="true"
-            >
-              {Array.from(agent.name)[0]?.toLocaleUpperCase()}
-            </Text>
+            {agent.avatar === undefined ? (
+              <Text
+                className={initial}
+                size="lg"
+                fontWeight={500}
+                aria-hidden="true"
+              >
+                {Array.from(agent.name)[0]?.toLocaleUpperCase()}
+              </Text>
+            ) : (
+              <BotAvatar
+                avatar={agent.avatar}
+                size={28}
+                still={!selected}
+                followPointer={selected}
+                label=""
+              />
+            )}
           </Button>
         </Tooltip>
         {thread !== undefined && <AgentActivity thread={thread} />}

@@ -80,7 +80,7 @@ minimumReleaseAgeExclude:
   - "@executor-js/runtime-quickjs@1.6.0"
   - "@executor-js/sdk@1.6.0"
   - tsx@4.23.13
-  - "@tanishqkancharla/maui@0.0.38 || 0.0.53 || 0.0.55 || 0.0.59 || 0.0.66"
+  - "@tanishqkancharla/maui@0.0.38 || 0.0.53 || 0.0.55 || 0.0.59 || 0.0.66 || 0.0.67"
   - "@tanishqkancharla/tandem-core@0.3.0"
   - "@tanishqkancharla/tandem-server@0.3.0"
   - purse-styles@0.2.3 || 0.2.4 || 0.2.6
@@ -96,9 +96,10 @@ minimumReleaseAgeExclude:
   - "@pierre/highlights@0.2.0"
   - "@pierre/theming@1.0.2"
   - "@tanishqkancharla/diffmap"
+  - open-bot-avatar@0.1.2
 patchedDependencies:
   # Remove closing tooltips even when the browser skips transitionend.
-  "@tanishqkancharla/maui@0.0.66": patches/@tanishqkancharla__maui@0.0.66.patch
+  "@tanishqkancharla/maui@0.0.67": patches/@tanishqkancharla__maui@0.0.67.patch
   # React Aria 1.22 omits hasChildItems when calling useTreeItem for empty folders.
   react-aria-components@1.22.1: patches/react-aria-components@1.22.1.patch
   # Release modal inertness before FocusScope restores focus after animated exits.

@@ -22,6 +22,7 @@ import { automationsMigration } from "./20261008140000-automations.js";
 import { favoritesMigration } from "./20261023100000-favorites.js";
 import { memoriesMigration } from "./20261028100000-memories.js";
 import { agentsMigration } from "./20261029090000-agents.js";
+import { agentAvatarsMigration } from "./20261104120000-agentAvatars.js";
 
 export const workspaceMigrations = [
   initialWorkspaceMigration,
@@ -39,6 +40,7 @@ export const workspaceMigrations = [
   favoritesMigration,
   memoriesMigration,
   agentsMigration,
+  agentAvatarsMigration,
 ] satisfies readonly Migration[];
 
 export function migrateWorkspace(connection: Database) {

@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { expect, type Page } from "@playwright/test";
 import { e2eTest } from "./e2eTest.js";
 import { m } from "@get-halo/shared/testing";
@@ -331,8 +332,9 @@ e2eTest(
         .getByRole("link"),
     ).toHaveCount(0);
     const [agent] = await app.server.rpc.agents.list();
-    expect(agent?.name).toBe("Reading guide");
-    expect(agent?.instructions).toBe("");
+    assert(agent !== undefined);
+    expect(agent.name).toBe("Reading guide");
+    expect(agent.instructions).toBe("");
 
     const settingsButton = app.page.getByRole("button", {
       name: "Agent settings",
@@ -350,23 +352,29 @@ e2eTest(
       .getByRole("textbox", { name: "Name", exact: true })
       .fill("Not saved");
     await settings
-      .getByRole("textbox", { name: "Instructions", exact: true })
-      .fill("Ignore this draft");
+      .getByRole("radio", { name: "Pink", exact: true })
+      .click({ force: true });
     await settings.getByRole("button", { name: "Cancel", exact: true }).click();
     expect((await app.server.rpc.agents.list())[0]).toEqual(agent);
+    // Settings no longer show instructions, so saving must keep ones set elsewhere.
+    await app.server.rpc.agents.update({
+      agentId: agent.id,
+      name: agent.name,
+      instructions: "Prefer long histories of Rome.",
+    });
     await settingsButton.click();
     await expect(
       settings.getByRole("textbox", { name: "Name", exact: true }),
     ).toHaveValue("Reading guide");
     await expect(
       settings.getByRole("textbox", { name: "Instructions", exact: true }),
-    ).toHaveValue("");
+    ).toHaveCount(0);
     await settings
       .getByRole("textbox", { name: "Name", exact: true })
       .fill("Research");
     await settings
-      .getByRole("textbox", { name: "Instructions", exact: true })
-      .fill("Prefer long histories of Rome.");
+      .getByRole("radio", { name: "Pink", exact: true })
+      .click({ force: true });
     await settings.getByRole("button", { name: "Save", exact: true }).click();
     const renamed = app.page.getByRole("main", {
       name: "Research",
@@ -388,6 +396,7 @@ e2eTest(
       ...agent,
       name: "Research",
       instructions: "Prefer long histories of Rome.",
+      avatar: { ...agent.avatar, color: "#ec4899" },
     });
     await renamed.getByRole("button", { name: "Send", exact: true }).click();
     await llm.respond(({ messages }) => {
